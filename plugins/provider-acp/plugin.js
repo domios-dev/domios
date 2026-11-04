@@ -41,6 +41,13 @@ function decodeAuthMethods(value) {
     return { id: method.id, name: method.name, type: method.type === void 0 || method.type === "agent" ? "agent" : method.type === "terminal" ? "terminal" : "unsupported" };
   });
 }
+function authenticationState(methods2, evidence = {}) {
+  if (!methods2) return "unknown";
+  if (evidence.authenticated) return "authenticated";
+  if (evidence.required || evidence.keyPresent === false) return "needs_auth";
+  if (methods2.length && methods2.every((method) => method.type !== "agent")) return "unavailable";
+  return "unknown";
+}
 function agentAuthMethod(methods2, id) {
   const method = methods2.find((method2) => method2.id === id && method2.type === "agent");
   if (!method) throw new Error("Authentication method was not declared or is unavailable");
@@ -153,6 +160,53 @@ function usage(value) {
   return mapped;
 }
 
+// plugins/provider-acp/src/runtimeControls.ts
+var object2 = (value) => value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
+var label = (value) => typeof value === "string" && value.length > 0 && value.length <= 256 && !/[\u0000-\u001f]/.test(value);
+function list(value, limit) {
+  return Array.isArray(value) && value.length <= limit ? value.map(object2) : [];
+}
+function commands(value) {
+  const seen = /* @__PURE__ */ new Set();
+  return list(value, 128).flatMap((command) => {
+    if (!label(command.name) || /[\s/]/.test(command.name) || seen.has(command.name)) return [];
+    seen.add(command.name);
+    const hint = object2(command.input).hint;
+    return [{
+      name: command.name,
+      description: typeof command.description === "string" ? command.description.slice(0, 4096) : "",
+      ...typeof hint === "string" ? { argumentHint: hint.slice(0, 4096) } : {}
+    }];
+  });
+}
+function configOptions(value) {
+  const seen = /* @__PURE__ */ new Set();
+  return list(value, 64).flatMap((config) => {
+    if (!label(config.id) || !label(config.name) || seen.has(config.id)) return [];
+    seen.add(config.id);
+    const values = list(config.options, 128).flatMap((entry) => Array.isArray(entry.options) ? list(entry.options, 128) : [entry]);
+    const ids = /* @__PURE__ */ new Set();
+    const options = values.slice(0, 128).flatMap((entry) => {
+      if (!label(entry.value) || !label(entry.name) || ids.has(entry.value)) return [];
+      ids.add(entry.value);
+      return [{ value: entry.value, name: entry.name }];
+    });
+    if (config.type !== "select" || !label(config.currentValue)) return [{ id: config.id, name: config.name, currentValue: String(config.currentValue).slice(0, 256) || "Unknown", options: [] }];
+    return [{ id: config.id, name: config.name, currentValue: config.currentValue, options }];
+  });
+}
+function sessionSettings(value) {
+  const response = object2(value), modes = object2(response.modes);
+  return {
+    ...Array.isArray(response.configOptions) ? { configOptions: configOptions(response.configOptions) } : {},
+    ...Array.isArray(modes.availableModes) ? { modes: list(modes.availableModes, 64).flatMap((mode) => label(mode.id) && label(mode.name) ? [{ id: mode.id, name: mode.name }] : []) } : {},
+    ...label(modes.currentModeId) ? { mode: modes.currentModeId } : {}
+  };
+}
+function authentication(methods2, authenticated, required) {
+  return { state: authenticationState(methods2, { authenticated, required }), methods: methods2.map((method) => ({ id: method.id, name: method.name, available: method.type === "agent" })) };
+}
+
 // plugins/provider-acp/src/runtimeReduce.ts
 var json = (value) => value;
 function initial(ctx, raw, cursor) {
@@ -224,13 +278,7 @@ function warn(state, events, rawKind) {
   if (!Object.prototype.hasOwnProperty.call(state.warnings, kind) && Object.keys(state.warnings).length >= 32) return;
   const count = state.warnings[kind] ?? 0;
   state.warnings[kind] = Math.min(count + 1, Number.MAX_SAFE_INTEGER);
-  if (!count) emit(state, events, {
-    id: `${state.sessionId}:unknown:${state.epoch}:${kind}`,
-    seq: 0,
-    type: "system",
-    content: `Ignored unknown ACP session update: ${kind}`,
-    systemSubtype: "runtime_warning"
-  });
+  if (!count) events.push({ kind: "notice", threadId: state.sessionId, message: `Ignored unknown ACP session update: ${kind}` });
 }
 function closeChunk(ctx, state, events) {
   const chunk = state.chunk;
@@ -313,6 +361,10 @@ function reduceStream(ctx, raw, frames, cursor) {
       emit(state, events, planRow(ctx.threadId, update, state.items[id], state.seq + 1));
     } else if (["available_commands_update", "config_option_update", "session_info_update", "current_mode_update"].includes(kind)) {
       rememberControl(state, kind, update);
+      if (kind === "available_commands_update" && Array.isArray(update.availableCommands))
+        events.push({ kind: "controlsConfirmed", threadId: ctx.threadId, settings: { commands: commands(update.availableCommands) } });
+      if (kind === "config_option_update" && Array.isArray(update.configOptions))
+        events.push({ kind: "controlsConfirmed", threadId: ctx.threadId, settings: { configOptions: configOptions(update.configOptions) } });
       if (kind === "current_mode_update" && typeof update.currentModeId === "string")
         events.push({ kind: "controlsConfirmed", threadId: ctx.threadId, settings: { mode: update.currentModeId } });
       const compaction = object(object(update._meta).compaction);
@@ -331,15 +383,17 @@ function reduceStream(ctx, raw, frames, cursor) {
         state.compacted.push(id);
         events.push({ kind: "contextCompacted", threadId: ctx.threadId, itemId: id });
       }
-    } else if (kind === "agent_notice") rememberControl(state, kind, update);
-    else warn(state, events, kind);
+    } else if (kind === "agent_notice") {
+      if (typeof update.message === "string" && update.message.length)
+        events.push({ kind: "notice", threadId: ctx.threadId, message: update.message.slice(0, 4096) });
+    } else warn(state, events, kind);
   }
   return { state: json(state), events };
 }
 
 // plugins/provider-acp/src/runtime.ts
 var epochs = /* @__PURE__ */ new Map();
-var object2 = (value) => value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
+var object3 = (value) => value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
 var record = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 function fail(code, message) {
   throw { code, message };
@@ -397,11 +451,23 @@ function runtimePlan(ctx, op) {
   }
   if (op.kind === "control" && op.action === "login") {
     try {
-      const method = agentAuthMethod(state.authMethods, object2(op.value).methodId);
+      const method = agentAuthMethod(state.authMethods, object3(op.value).methodId);
       return request("authenticate", { methodId: method.id });
     } catch {
       return refusePlan("Authentication method was not declared or is unavailable");
     }
+  }
+  if (op.kind === "control" && ["config", "mode"].includes(op.action)) {
+    const sessionId = ownSession(ctx, state);
+    const value = object3(op.value);
+    if (op.action === "mode") {
+      if (typeof op.value !== "string" || !state.settings?.modes?.some((mode) => mode.id === op.value))
+        return refusePlan("Session mode was not advertised");
+      return request("session/set_mode", { sessionId, modeId: op.value });
+    }
+    const option = state.settings?.configOptions?.find((option2) => option2.id === value.id);
+    if (!option?.options.some((option2) => option2.value === value.value)) return refusePlan("Configuration value was not advertised");
+    return request("session/set_config_option", { sessionId, configId: option.id, value: value.value });
   }
   switch (op.kind) {
     case "openThread":
@@ -409,7 +475,7 @@ function runtimePlan(ctx, op) {
       return request(methods.newSession, { cwd: ctx.cwd, mcpServers: [] });
     case "resumeThread": {
       const capabilities = state.capabilities;
-      const session = object2(capabilities.sessionCapabilities);
+      const session = object3(capabilities.sessionCapabilities);
       const method = record(session.resume) ? methods.resume : capabilities.loadSession === true ? methods.load : null;
       if (!method) return refusePlan("ACP agent did not advertise session/load or session/resume");
       state.sessionId = op.threadId;
@@ -418,11 +484,14 @@ function runtimePlan(ctx, op) {
     }
     case "submitTurn": {
       const sessionId = ownSession(ctx, state);
+      const slash = op.input.text.match(/^\/([^\s]+)(?:\s|$)/);
+      if (slash && !state.settings?.commands?.some((command) => command.name === slash[1]))
+        return refusePlan("Command was not advertised by this session");
       if (op.input.attachments.length) return refusePlan("ACP lifecycle supports text prompts only");
       const prompt = [];
       if (state.instructions) prompt.push({ type: "text", text: state.instructions });
       prompt.push({ type: "text", text: op.input.text });
-      state.cursor.prompt = Math.max(state.cursor.prompt, Number(object2(state.projection).turn) || 0) + 1;
+      state.cursor.prompt = Math.max(state.cursor.prompt, Number(object3(state.projection).turn) || 0) + 1;
       state.cursor.loading = false;
       return request(methods.prompt, { sessionId, prompt });
     }
@@ -439,9 +508,19 @@ function runtimePlan(ctx, op) {
 }
 function runtimeResponse(ctx, op, raw, reply) {
   binding(ctx, op);
-  if (reply.kind === "error") return refused("provider_refused", reply.error.message);
-  const value = object2(reply.value);
-  const method = object2(raw).method;
+  if (reply.kind === "error") {
+    if (reply.error.code === -32e3) {
+      const state2 = negotiated(ctx);
+      if (state2) {
+        state2.authenticated = false;
+        state2.required = true;
+      }
+      return refused("authentication_required", reply.error.message);
+    }
+    return refused("provider_refused", reply.error.message);
+  }
+  const value = object3(reply.value);
+  const method = object3(raw).method;
   if (op.kind === "control" && op.action === "login" && method === "authenticate") {
     const next = request(methods.initialize, { protocolVersion, clientCapabilities, clientInfo: { name: "domios", title: "Domios", version: ctx.hostVersion } });
     next.state = { method: methods.initialize, authenticated: true };
@@ -461,26 +540,32 @@ function runtimeResponse(ctx, op, raw, reply) {
       return refused("protocol_error", "Invalid ACP authentication declaration");
     }
     const prior = negotiated(ctx);
-    const authenticated = object2(raw).authenticated === true || prior?.authenticated === true;
+    const authenticated = object3(raw).authenticated === true || prior?.authenticated === true;
     remember(ctx, {
       epoch: ctx.epoch,
       nonce: ctx.bindingNonce,
-      capabilities: object2(value.agentCapabilities),
+      capabilities: object3(value.agentCapabilities),
       authMethods,
       authenticated,
+      required: authenticated ? false : prior?.required,
       sessionId: prior?.sessionId,
       instructions: prior?.instructions,
       cursor: prior?.cursor ?? { replay: 0, prompt: 0, loading: false },
       projection: prior?.projection,
-      settledProjection: prior?.settledProjection
+      settledProjection: prior?.settledProjection,
+      settings: prior?.settings
     });
-    return op.kind === "initialize" ? { kind: "complete", result: { kind: "initialized" } } : { kind: "complete", result: { kind: "done" }, events: [{ kind: "auth", state: authenticated ? "signedIn" : "unknown" }] };
+    return {
+      kind: "complete",
+      result: op.kind === "initialize" ? { kind: "initialized" } : { kind: "done" },
+      events: [{ kind: "authentication", authentication: authentication(authMethods, authenticated, authenticated ? false : prior?.required) }]
+    };
   }
   const state = negotiated(ctx);
   if (!state) return refused("provider_refused", "ACP initialization is required for this runtime epoch");
   if (op.kind === "openThread" || op.kind === "resumeThread") {
     if (op.kind === "resumeThread") {
-      const allowed = method === methods.load ? state.capabilities.loadSession === true : method === methods.resume && record(object2(state.capabilities.sessionCapabilities).resume);
+      const allowed = method === methods.load ? state.capabilities.loadSession === true : method === methods.resume && record(object3(state.capabilities.sessionCapabilities).resume);
       if (!allowed) return refused("provider_refused", "ACP session method was not advertised");
     } else if (method !== methods.newSession) return refused("protocol_error", "Invalid ACP session response");
     const sessionId = op.kind === "openThread" ? value.sessionId : op.threadId;
@@ -489,7 +574,15 @@ function runtimeResponse(ctx, op, raw, reply) {
     state.sessionId = sessionId;
     state.instructions = op.instructions;
     state.cursor.loading = false;
-    return { kind: "complete", result: { kind: "threadLoaded", threadId: sessionId, settings: op.settings } };
+    state.settings = { commands: [], configOptions: [], modes: [], ...sessionSettings(value) };
+    return { kind: "complete", result: { kind: "threadLoaded", threadId: sessionId, settings: { ...op.settings, ...state.settings } } };
+  }
+  if (op.kind === "control" && ["config", "mode"].includes(op.action)) {
+    const sessionId = ownSession(ctx, state);
+    const settings = op.action === "config" && method === "session/set_config_option" && Array.isArray(value.configOptions) ? sessionSettings(value) : op.action === "mode" && method === "session/set_mode" && typeof op.value === "string" ? { mode: op.value } : null;
+    if (!settings) return refused("protocol_error", "Invalid session control response");
+    state.settings = { ...state.settings, ...settings };
+    return { kind: "complete", result: { kind: "done" }, events: [{ kind: "controlsConfirmed", threadId: sessionId, settings }] };
   }
   if (op.kind === "interrupt" && method === methods.cancel) {
     const settled = settleStream(ctx, state.projection ?? null, "cancelled");
@@ -517,11 +610,13 @@ function runtimeReduce(ctx, raw, frames) {
   binding(ctx);
   const state = negotiated(ctx);
   if (!ctx.threadId || !state || state.sessionId !== ctx.threadId) return { state: raw, events: [] };
-  const own = frames.filter((frame) => frame.kind === "notification" && frame.method === methods.update && object2(frame.params).sessionId === ctx.threadId);
+  const own = frames.filter((frame) => frame.kind === "notification" && frame.method === methods.update && object3(frame.params).sessionId === ctx.threadId);
   if (!own.length) return { state: raw, events: [] };
   const reduction = reduceStream(ctx, state.settledProjection ?? raw, own, state.cursor);
   delete state.settledProjection;
   state.projection = reduction.state;
+  for (const event of reduction.events) if (event.kind === "controlsConfirmed")
+    state.settings = { ...state.settings, ...event.settings };
   return reduction;
 }
 
@@ -531,7 +626,7 @@ var targets = /* @__PURE__ */ new Set(["darwin-aarch64", "darwin-x86_64", "linux
 function invalid() {
   throw new Error("Invalid or oversized ACP registry v1 index");
 }
-function object3(value) {
+function object4(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) invalid();
   return value;
 }
@@ -549,7 +644,7 @@ function args(value) {
 }
 function env(value) {
   if (value === void 0) return {};
-  const entries = Object.entries(object3(value));
+  const entries = Object.entries(object4(value));
   if (entries.length > 128) invalid();
   for (const [key, value2] of entries) {
     if (!/^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(key) || key.toUpperCase().startsWith("CODETERM")) invalid();
@@ -563,22 +658,22 @@ function url(value) {
   return text2;
 }
 function distribution(value) {
-  const raw = object3(value);
+  const raw = object4(value);
   fields(raw, ["binary", "npx", "uvx"]);
   if (!Object.keys(raw).length) invalid();
   const result = {};
   for (const kind of ["npx", "uvx"]) {
     if (raw[kind] === void 0) continue;
-    const entry = object3(raw[kind]);
+    const entry = object4(raw[kind]);
     fields(entry, ["package", "args", "env"]);
     result[kind] = { package: string(entry.package, 256), args: args(entry.args), env: env(entry.env) };
   }
   if (raw.binary !== void 0) {
-    const entries = Object.entries(object3(raw.binary));
+    const entries = Object.entries(object4(raw.binary));
     if (!entries.length || entries.length > targets.size) invalid();
     result.binary = Object.fromEntries(entries.map(([target, value2]) => {
       if (!targets.has(target)) invalid();
-      const entry = object3(value2);
+      const entry = object4(value2);
       fields(entry, ["archive", "cmd", "args", "env", "sha256"]);
       const sha256 = entry.sha256 === void 0 ? void 0 : string(entry.sha256, 64);
       if (sha256 !== void 0 && !/^[a-f\d]{64}$/i.test(sha256)) invalid();
@@ -598,12 +693,12 @@ function utf8Bytes(value) {
 }
 function decodeRegistry(text2) {
   if (text2.length > registryBounds.bytes || utf8Bytes(text2) > registryBounds.bytes) invalid();
-  const index = object3(JSON.parse(text2));
+  const index = object4(JSON.parse(text2));
   fields(index, ["version", "agents"]);
   if (index.version !== "1.0.0" || !Array.isArray(index.agents) || index.agents.length > registryBounds.agents) invalid();
   const ids = /* @__PURE__ */ new Set();
   const agents = index.agents.map((value) => {
-    const entry = object3(value);
+    const entry = object4(value);
     fields(entry, ["id", "name", "version", "description", "distribution", "repository", "website", "authors", "license", "license_url", "icon"]);
     const id = string(entry.id, 128);
     if (!/^[a-z][a-z0-9-]*$/.test(id) || ids.has(id)) invalid();

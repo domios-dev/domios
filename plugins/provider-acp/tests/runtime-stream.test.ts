@@ -62,7 +62,8 @@ assert.equal(replayed.rows.length,3,"repeated session/load must keep exactly thr
 assert.deepEqual(replayed.rows,messages.rows,"live and replay retain the same row ids, order, content and sequence");
 assert.equal(replayed.state.replay,2);
 const unknown=scenarios.get("unknown-update-kind")!;
-assert.equal(unknown.rows.filter(row=>row.systemSubtype === "runtime_warning").length,1);
+assert.equal(unknown.rows.filter(row=>row.systemSubtype === "runtime_warning").length,0);
+assert.equal(unknown.events.filter(event=>event.kind === "notice").length,1);
 assert.equal((unknown.state.warnings as Record<string,number>).future_update,3);
 assert.equal(unknown.rows.at(-1)!.content,"Continues");
 const cancelled=scenarios.get("cancel-mid-tool")!;
@@ -117,6 +118,6 @@ assert.ok(withoutTurn.events.some(event=>event.kind === "sendEvidence" && event.
 assert.ok(withoutTurn.events.some(event=>event.kind === "turnState" && event.turnId === "session-fixture:turn:1"));
 const bounded=reduceStream(context,null,Array.from({length:100},(_,index)=>({kind:"notification" as const,method:"session/update",params:{sessionId:"session-fixture",update:{sessionUpdate:`future-${index}-${"x".repeat(1000)}`}}})),cursor);
 assert.equal(bounded.events.length,32);
-assert.ok(bounded.events.every(event=>event.kind === "chatItem" && event.item.content.length < 200));
+assert.ok(bounded.events.every(event=>event.kind === "notice" && event.message.length < 200));
 for (const name of names) console.log(`✓ ACP stream ${name}`);
 console.log(`ACP stream: ${names.length} scenarios; exact replay row counts, pure reduction and bounded warnings passed`);

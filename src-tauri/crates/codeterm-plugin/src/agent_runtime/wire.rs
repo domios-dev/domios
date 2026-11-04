@@ -73,6 +73,13 @@ pub struct RuntimeServiceTier {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RuntimeSettings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub commands: Option<Vec<RuntimeCommand>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config_options: Option<Vec<RuntimeConfigOption>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub modes: Option<Vec<RuntimeMode>>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub service_tier: Option<RuntimeServiceTierSelection>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub service_tier_availability:
@@ -87,6 +94,56 @@ pub struct RuntimeSettings {
     pub additional_directories: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub network_access: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RuntimeCommand {
+    pub name: String,
+    pub description: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub argument_hint: Option<String>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RuntimeConfigOption {
+    pub id: String,
+    pub name: String,
+    pub current_value: String,
+    pub options: Vec<RuntimeConfigValue>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RuntimeConfigValue {
+    pub value: String,
+    pub name: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RuntimeMode {
+    pub id: String,
+    pub name: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RuntimeAuthentication {
+    pub state: RuntimeAuthenticationState,
+    pub methods: Vec<RuntimeAuthenticationMethod>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RuntimeAuthenticationState {
+    Authenticated,
+    NeedsAuth,
+    Unavailable,
+    Unknown,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RuntimeAuthenticationMethod {
+    pub id: String,
+    pub name: String,
+    pub available: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -117,6 +174,7 @@ pub enum RuntimeFailureCode {
     ProcessUnavailable,
     ProtocolError,
     ProviderRefused,
+    AuthenticationRequired,
     ThreadNotFound,
 }
 
@@ -471,6 +529,13 @@ impl RuntimeTurnDetail {
     deny_unknown_fields
 )]
 pub enum AgentRuntimeEvent {
+    Authentication {
+        authentication: RuntimeAuthentication,
+    },
+    Notice {
+        thread_id: String,
+        message: String,
+    },
     BackgroundProcesses {
         thread_id: String,
         processes: Vec<super::RuntimeBackgroundProcess>,

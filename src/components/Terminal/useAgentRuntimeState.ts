@@ -16,6 +16,8 @@ export function useAgentRuntimeState(tabId: string, nonce: string | null, snapsh
   const current = useRef(record);
   const revision = useRef(0);
   const generation = useRef(0);
+  const snapshotControls = snapshot?.controls;
+  const snapshotAuthentication = snapshot?.authentication;
   const snapshotAuth = snapshot?.auth;
   const snapshotLogin = snapshot?.login;
   const snapshotLoginCodeInput = snapshot?.loginCodeInput;
@@ -40,7 +42,7 @@ export function useAgentRuntimeState(tabId: string, nonce: string | null, snapsh
   useEffect(() => {
     revision.current++;
     const next = snapshotState !== undefined && snapshotEpoch !== undefined
-      ? { state: snapshotState, epoch: snapshotEpoch, reason: snapshotReason, auth:snapshotAuth, login:snapshotLogin, loginCodeInput:snapshotLoginCodeInput, loginChoices:snapshotLoginChoices, loginMethods:snapshotLoginMethods, loginProviderName:snapshotLoginProviderName, loginTerminal:snapshotLoginTerminal,
+      ? { controls:snapshotControls, authentication:snapshotAuthentication, state: snapshotState, epoch: snapshotEpoch, reason: snapshotReason, auth:snapshotAuth, login:snapshotLogin, loginCodeInput:snapshotLoginCodeInput, loginChoices:snapshotLoginChoices, loginMethods:snapshotLoginMethods, loginProviderName:snapshotLoginProviderName, loginTerminal:snapshotLoginTerminal,
         active_turn_started_at_ms: snapshotStartedAt, last_turn_duration_ms: snapshotDuration,
         history: snapshotHistory, historyPages: snapshotHistoryPages, historyError: snapshotHistoryError } : null;
     const state = runtimeStateFromSnapshot(current.current.key === key ? current.current.state : null, next);
@@ -48,7 +50,7 @@ export function useAgentRuntimeState(tabId: string, nonce: string | null, snapsh
     if (current.current.key === key && current.current.state === state && current.current.questions === snapshotQuestions) return;
     current.current = { key, state, questions: snapshotQuestions };
     setRecord(current.current);
-  }, [key, snapshotState, snapshotEpoch, snapshotReason, snapshotStartedAt, snapshotDuration, snapshotHistory, snapshotHistoryPages, snapshotHistoryError, snapshotQuestions, snapshotAuth, snapshotLogin, snapshotLoginCodeInput, snapshotLoginChoices, snapshotLoginMethods, snapshotLoginProviderName, snapshotLoginTerminal, tabId]);
+  }, [key, snapshotControls, snapshotAuthentication, snapshotState, snapshotEpoch, snapshotReason, snapshotStartedAt, snapshotDuration, snapshotHistory, snapshotHistoryPages, snapshotHistoryError, snapshotQuestions, snapshotAuth, snapshotLogin, snapshotLoginCodeInput, snapshotLoginChoices, snapshotLoginMethods, snapshotLoginProviderName, snapshotLoginTerminal, tabId]);
 
   useEffect(() => {
     generation.current++;

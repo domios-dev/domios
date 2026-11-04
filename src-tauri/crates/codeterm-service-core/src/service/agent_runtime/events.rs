@@ -13,6 +13,13 @@ pub const LIVE_ITEM_BYTES: usize = 8 * 1024 * 1024;
 
 #[derive(Clone, Debug)]
 pub enum RuntimeEvent {
+    AuthenticationDeclared {
+        authentication: codeterm_plugin::agent_runtime::RuntimeAuthentication,
+    },
+    Notice {
+        thread_id: String,
+        message: String,
+    },
     BackgroundProcessesUpdated {
         thread_id: String,
         processes: Vec<codeterm_plugin::agent_runtime::RuntimeBackgroundProcess>,
@@ -89,6 +96,7 @@ struct StoredItem {
 
 #[derive(Default)]
 pub struct RuntimeMaps {
+    pub authentication: Option<codeterm_plugin::agent_runtime::RuntimeAuthentication>,
     pub background_processes:
         HashMap<String, Vec<codeterm_plugin::agent_runtime::RuntimeBackgroundProcess>>,
     epoch: u64,
@@ -126,6 +134,15 @@ impl RuntimeMaps {
 
 pub fn translate(event: &AgentRuntimeEvent) -> RuntimeEvent {
     match event {
+        AgentRuntimeEvent::Authentication { authentication } => {
+            RuntimeEvent::AuthenticationDeclared {
+                authentication: authentication.clone(),
+            }
+        }
+        AgentRuntimeEvent::Notice { thread_id, message } => RuntimeEvent::Notice {
+            thread_id: thread_id.clone(),
+            message: message.clone(),
+        },
         AgentRuntimeEvent::BackgroundProcesses {
             thread_id,
             processes,
@@ -262,6 +279,10 @@ pub fn fold(maps: &mut RuntimeMaps, epoch: u64, event: &RuntimeEvent) {
         maps.reset(epoch);
     }
     match event {
+        RuntimeEvent::AuthenticationDeclared { authentication } => {
+            maps.authentication = Some(authentication.clone())
+        }
+        RuntimeEvent::Notice { .. } => {}
         RuntimeEvent::BackgroundProcessesUpdated {
             thread_id,
             processes,

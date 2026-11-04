@@ -535,6 +535,9 @@ pub fn settings_from_config(
     codeterm_plugin::agent_runtime::RuntimeSettings {
         service_tier: serde_json::from_value(config["serviceTier"].clone()).ok(),
         service_tier_availability: None,
+        commands: None,
+        config_options: None,
+        modes: None,
         model: config["model"].as_str().map(str::to_string),
         effort: config["effort"].as_str().map(str::to_string),
         mode: config["mode"].as_str().map(str::to_string),

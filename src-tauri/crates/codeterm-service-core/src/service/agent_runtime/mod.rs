@@ -10,6 +10,7 @@ pub mod children;
 mod cli_exception;
 mod completions;
 pub(crate) mod controls;
+pub mod declared_controls;
 pub mod engine;
 mod envelope_delivery;
 mod environment;

@@ -79,6 +79,7 @@ fn rpc_id(id: &RpcId) -> bool {
 
 pub fn validate_runtime_settings(settings: &RuntimeSettings) -> Result<(), RuntimeFailure> {
     validate_runtime_size(settings, MAX_RUNTIME_VALUE_BYTES)?;
+    super::declarations::validate_settings(settings)?;
     let mut seen = std::collections::HashSet::new();
     if settings.additional_directories.len() > 32
         || settings.additional_directories.iter().any(|directory| {
@@ -748,6 +749,15 @@ pub fn validate_runtime_reduction(
             validate_background_processes(processes)?;
             continue;
         }
+        if let AgentRuntimeEvent::Authentication { authentication } = event {
+            super::declarations::validate_authentication(authentication)?;
+            continue;
+        }
+        if let AgentRuntimeEvent::Notice { message, .. } = event {
+            if message.is_empty() || message.len() > 4096 {
+                return Err(invalid("invalid runtime notice"));
+            }
+        }
         if let AgentRuntimeEvent::AuthLogin { login } = event {
             if login
                 .expires_at_ms
@@ -856,7 +866,8 @@ pub fn validate_runtime_reduction(
             AgentRuntimeEvent::BackgroundProcesses { .. }
             | AgentRuntimeEvent::RateLimits { .. }
             | AgentRuntimeEvent::Auth { .. }
-            | AgentRuntimeEvent::AuthLogin { .. } => continue,
+            | AgentRuntimeEvent::AuthLogin { .. }
+            | AgentRuntimeEvent::Authentication { .. } => continue,
             AgentRuntimeEvent::ChatItem { thread_id, item } => {
                 if !identifier(&item.id) {
                     return Err(invalid("invalid chat item id"));
@@ -875,6 +886,7 @@ pub fn validate_runtime_reduction(
                 thread_id
             }
             AgentRuntimeEvent::TurnState { thread_id, .. }
+            | AgentRuntimeEvent::Notice { thread_id, .. }
             | AgentRuntimeEvent::Usage { thread_id, .. }
             | AgentRuntimeEvent::Prompt { thread_id, .. }
             | AgentRuntimeEvent::PromptResolved { thread_id, .. }

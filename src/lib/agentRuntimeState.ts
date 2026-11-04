@@ -1,5 +1,8 @@
 import { describeError, isPendingRuntimeDeadline } from "./describeError";
 export interface AgentRuntimeState {
+  controls?: import("@codeterm/plugin-sdk").RuntimeSettings;
+  authentication?: import("@codeterm/plugin-sdk").RuntimeAuthentication;
+  notice?: string;
   auth?: "signedIn"|"signedOut"|"unknown";
   loginCodeInput?: boolean;
   loginChoices?: { id: string; label: string }[];
@@ -55,6 +58,7 @@ export function runtimeStateFromSnapshot(
 ): AgentRuntimeState | null {
   if (!next) return null;
   if (current && next.epoch < current.epoch) return current;
+  if (current?.epoch === next.epoch && current.notice && next.notice === undefined) next = {...next,notice:current.notice};
   if (next.state === "loaded" || next.state === "loginPending") {
     const loaded = { ...next };
     delete loaded.reason;

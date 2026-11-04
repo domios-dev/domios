@@ -56,5 +56,5 @@ assert.equal(continued.plan.action.kind,"request");
 const authenticated = runtime.runtimeResponse(context,login,continued.plan.state,{kind:"success",value:{protocolVersion:1,agentCapabilities:{},authMethods:[]}});
 assert.equal(authenticated.kind,"complete");
 if (authenticated.kind !== "complete") throw new Error("Authentication unavailable");
-assert.deepEqual(authenticated.events,[{kind:"auth",state:"signedIn"}]);
+assert.deepEqual(authenticated.events,[{kind:"authentication",authentication:{state:"authenticated",methods:[]}}]);
 console.log("✓ ACP runtime uses declared authenticate method IDs and reinitializes after success");

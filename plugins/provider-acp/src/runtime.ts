@@ -6,6 +6,7 @@ import {decodeAuthMethods, agentAuthMethod, type AuthMethod} from "./auth";
 import { clientCapabilities, methods, protocolVersion } from "./runtimeProtocol";
 import { reduceStream, settleStream, type StreamCursor } from "./runtimeReduce";
 import { usage } from "./runtimeReducePlan";
+import { authentication, sessionSettings } from "./runtimeControls";
 
 interface Negotiation {
   epoch:number;
@@ -13,6 +14,8 @@ interface Negotiation {
   capabilities:Record<string, JsonValue>;
   authMethods:AuthMethod[];
   authenticated?:boolean;
+  required?:boolean;
+  settings?:import("@codeterm/plugin-sdk").RuntimeSettings;
   sessionId?:string;
   instructions?:string;
   cursor:StreamCursor;
@@ -82,6 +85,18 @@ export function runtimePlan(ctx:RuntimeContext, op:Operation):RuntimePlan {
       return request("authenticate", {methodId:method.id});
     } catch {return refusePlan("Authentication method was not declared or is unavailable");}
   }
+  if (op.kind === "control" && ["config", "mode"].includes(op.action)) {
+    const sessionId=ownSession(ctx,state);
+    const value=object(op.value);
+    if (op.action === "mode") {
+      if (typeof op.value !== "string" || !state.settings?.modes?.some(mode=>mode.id === op.value))
+        return refusePlan("Session mode was not advertised");
+      return request("session/set_mode",{sessionId,modeId:op.value});
+    }
+    const option=state.settings?.configOptions?.find(option=>option.id === value.id);
+    if (!option?.options.some(option=>option.value === value.value)) return refusePlan("Configuration value was not advertised");
+    return request("session/set_config_option",{sessionId,configId:option.id,value:value.value});
+  }
   switch (op.kind) {
     case "openThread":
       if (ctx.threadId || state.sessionId) return refusePlan("ACP session is already bound");
@@ -97,6 +112,9 @@ export function runtimePlan(ctx:RuntimeContext, op:Operation):RuntimePlan {
     }
     case "submitTurn": {
       const sessionId = ownSession(ctx, state);
+      const slash=op.input.text.match(/^\/([^\s]+)(?:\s|$)/);
+      if (slash && !state.settings?.commands?.some(command=>command.name === slash[1]))
+        return refusePlan("Command was not advertised by this session");
       if (op.input.attachments.length) return refusePlan("ACP lifecycle supports text prompts only");
       const prompt:JsonValue[] = [];
       if (state.instructions) prompt.push({type:"text", text:state.instructions});
@@ -118,7 +136,14 @@ export function runtimePlan(ctx:RuntimeContext, op:Operation):RuntimePlan {
 
 export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue, reply:RpcReply):RuntimeStep {
   binding(ctx, op);
-  if (reply.kind === "error") return refused("provider_refused", reply.error.message);
+  if (reply.kind === "error") {
+    if (reply.error.code === -32000) {
+      const state=negotiated(ctx);
+      if (state) {state.authenticated=false;state.required=true;}
+      return refused("authentication_required",reply.error.message);
+    }
+    return refused("provider_refused", reply.error.message);
+  }
   const value = object(reply.value);
   const method = object(raw).method;
   if (op.kind === "control" && op.action === "login" && method === "authenticate") {
@@ -139,12 +164,12 @@ export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue,
     const prior = negotiated(ctx);
     const authenticated = object(raw).authenticated === true || prior?.authenticated === true;
     remember(ctx, {epoch:ctx.epoch, nonce:ctx.bindingNonce,
-      capabilities:object(value.agentCapabilities), authMethods, authenticated,
+      capabilities:object(value.agentCapabilities), authMethods, authenticated, required:authenticated ? false : prior?.required,
       sessionId:prior?.sessionId, instructions:prior?.instructions,
       cursor:prior?.cursor ?? {replay:0,prompt:0,loading:false},
-      projection:prior?.projection, settledProjection:prior?.settledProjection});
-    return op.kind === "initialize" ? {kind:"complete", result:{kind:"initialized"}}
-      : {kind:"complete", result:{kind:"done"},events:[{kind:"auth",state:authenticated ? "signedIn" : "unknown"}]};
+      projection:prior?.projection, settledProjection:prior?.settledProjection, settings:prior?.settings});
+    return {kind:"complete",result:op.kind === "initialize" ? {kind:"initialized"} : {kind:"done"},
+      events:[{kind:"authentication",authentication:authentication(authMethods,authenticated,authenticated ? false : prior?.required)}]};
   }
   const state = negotiated(ctx);
   if (!state) return refused("provider_refused", "ACP initialization is required for this runtime epoch");
@@ -161,7 +186,16 @@ export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue,
     state.sessionId = sessionId;
     state.instructions = op.instructions;
     state.cursor.loading=false;
-    return {kind:"complete", result:{kind:"threadLoaded", threadId:sessionId, settings:op.settings}};
+    state.settings={commands:[],configOptions:[],modes:[],...sessionSettings(value)};
+    return {kind:"complete", result:{kind:"threadLoaded", threadId:sessionId, settings:{...op.settings,...state.settings}}};
+  }
+  if (op.kind === "control" && ["config","mode"].includes(op.action)) {
+    const sessionId=ownSession(ctx,state);
+    const settings=op.action === "config" && method === "session/set_config_option" && Array.isArray(value.configOptions)
+      ? sessionSettings(value) : op.action === "mode" && method === "session/set_mode" && typeof op.value === "string" ? {mode:op.value} : null;
+    if (!settings) return refused("protocol_error","Invalid session control response");
+    state.settings={...state.settings,...settings};
+    return {kind:"complete",result:{kind:"done"},events:[{kind:"controlsConfirmed",threadId:sessionId,settings}]};
   }
   if (op.kind === "interrupt" && method === methods.cancel) {
     const settled=settleStream(ctx,state.projection ?? null,"cancelled");
@@ -190,5 +224,7 @@ export function runtimeReduce(ctx:RuntimeContext, raw:JsonValue, frames:readonly
   const reduction=reduceStream(ctx,state.settledProjection ?? raw,own,state.cursor);
   delete state.settledProjection;
   state.projection=reduction.state;
+  for (const event of reduction.events) if (event.kind === "controlsConfirmed")
+    state.settings={...state.settings,...event.settings};
   return reduction;
 }

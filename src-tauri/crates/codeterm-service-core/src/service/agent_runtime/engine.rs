@@ -561,6 +561,7 @@ async fn ensure_locked(
             context.active_turns.clear();
             context.thread_parents.clear();
         }
+        super::declared_controls::reset(session, epoch);
         session
             .thread_loaded
             .store(false, std::sync::atomic::Ordering::Release);
@@ -1073,6 +1074,7 @@ pub fn publish(svc: &ServiceContext, tab: &str, session: &Session) {
     let context = session.context.lock().clone();
     let mut value = serde_json::to_value(snapshot(session)).unwrap_or(Value::Null);
     if let Some(snapshot) = value.as_object_mut() {
+        super::declared_controls::project(session, snapshot);
         snapshot.insert(
             "auth".into(),
             serde_json::to_value(session.auth.lock().clone()).unwrap_or(Value::Null),
