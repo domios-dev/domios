@@ -544,3 +544,5 @@ fn index_fixture_capture() {
         serde_json::to_string(&content).unwrap()
     );
 }
+
+mod team_reader_tests;

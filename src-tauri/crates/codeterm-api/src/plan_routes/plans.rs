@@ -232,31 +232,9 @@ pub async fn list(
             }
             return Ok(Json(serde_json::json!({"plans":plans})));
         }
-        let mut entries = state.svc.plan_store.list_index();
-        filter_plan_project(&mut entries, want.as_deref(), |id| {
-            state.svc.plan_store.get(id)
-        });
-        if let Some(status) = &q.status {
-            entries.retain(|e| match status.as_str() {
-                "active" => e.status == PlanStatus::Active,
-                "archived" => e.status == PlanStatus::Archived,
-                _ => true,
-            });
-        }
-        if q.unowned == Some(true) {
-            entries.retain(|e| e.owner.tab_id.is_none() && e.owner.session_id.is_none());
-        }
-        if let Some(orch) = &q.orchestrator {
-            entries.retain(|e| {
-                e.owner.tab_id.as_deref() == Some(orch.as_str())
-                    || e.owner.session_id.as_deref() == Some(orch.as_str())
-            });
-        }
-        Ok(Json(plan_list_response(
-            &entries,
-            q.full == Some(true),
-            |id| state.svc.plan_store.get(id),
-        )))
+        Ok(Json(
+            plan_list_response(&state.svc.plan_store, want.as_deref(), &q).map_err(plan_err)?,
+        ))
     })
     .await
     .map_err(|_| {
@@ -267,30 +245,24 @@ pub async fn list(
     })?
 }
 
-pub(crate) fn filter_plan_project(
-    entries: &mut Vec<IndexEntry>,
-    project: Option<&str>,
-    get: impl Fn(&str) -> Option<codeterm_service_core::plan::Plan>,
-) {
-    if let Some(project) = project {
-        entries
-            .retain(|entry| get(&entry.plan_id).is_some_and(|plan| plan.project_path == project));
-    }
-}
-
 pub(crate) fn plan_list_response(
-    entries: &[IndexEntry],
-    full: bool,
-    get: impl Fn(&str) -> Option<codeterm_service_core::plan::Plan>,
-) -> Value {
-    if full {
-        let plans: Vec<_> = entries
-            .iter()
-            .filter_map(|entry| get(&entry.plan_id))
-            .collect();
-        serde_json::json!({ "plans": plans })
+    store: &codeterm_service_core::service::plan::PlanStore,
+    project: Option<&str>,
+    query: &ListPlansQuery,
+) -> Result<Value, PlanError> {
+    let status = match query.status.as_deref() {
+        Some("active") => Some(PlanStatus::Active),
+        Some("archived") => Some(PlanStatus::Archived),
+        _ => None,
+    };
+    let unowned = query.unowned == Some(true);
+    let owner = query.orchestrator.as_deref();
+    if query.full == Some(true) {
+        let plans = store.export_plan_list(project, status, unowned, owner)?;
+        Ok(serde_json::json!({"plans":plans}))
     } else {
-        serde_json::json!({ "plans": entries })
+        let plans = store.plan_list_index(project, status, unowned, owner)?;
+        Ok(serde_json::json!({"plans":plans}))
     }
 }
 
@@ -623,9 +595,9 @@ pub async fn get(
         let plan = state
             .svc
             .plan_store
-            .get(&id)
-            .ok_or_else(|| plan_err(PlanError::NotFound))?;
-        Ok(Json(serde_json::to_value(plan).unwrap_or_default()))
+            .export_plan_document(&id)
+            .map_err(plan_err)?;
+        Ok(Json(plan))
     })
     .await
     .map_err(|_| {

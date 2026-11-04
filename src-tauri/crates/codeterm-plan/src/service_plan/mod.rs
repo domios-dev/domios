@@ -348,3 +348,4 @@ pub use task_authority_projection::{
     TaskContinuityRead, TaskCreationRead, TaskDescriptionRead, TaskOwnerEpochRead,
     TaskRestartAuthorityRead, TaskRestartQuery,
 };
+pub use document_projection::team::{TeamEventCursor, TeamPlanMetadataRead, TeamPlanRead};
