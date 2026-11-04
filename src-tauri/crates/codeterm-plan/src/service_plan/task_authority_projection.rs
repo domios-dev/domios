@@ -132,3 +132,6 @@ pub use remote::{RemoteRecoveryAttemptRead, RemoteWorkerBindingRead};
 
 mod review;
 pub use review::{CanonicalWriterHoldRead, LaneIntegrationRead};
+
+mod lane_admission;
+pub use lane_admission::{TaskLaneAdmissionRead, TaskLaneOwnerRead};
