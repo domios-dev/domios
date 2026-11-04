@@ -24,6 +24,100 @@ __export(plugin_exports, {
 });
 module.exports = __toCommonJS(plugin_exports);
 
+// plugins/provider-claude/src/hookOwnership.ts
+var CODETERM_HOOK_MARKER = "codeterm-hook-v3";
+var CODETERM_HOOK_TIMEOUT_SECONDS = 5;
+var CODETERM_HOOK_MARKER_HEADER = "X-CodeTerm-Hook: codeterm-hook-v3";
+var CODETERM_HOOK_MARKER_ARG = '-H "' + CODETERM_HOOK_MARKER_HEADER + '"';
+var INTEGRATION_HOOK_KEYS = ["PermissionRequest", "Notification", "Stop", "PreCompact", "SessionStart"];
+var CODETERM_CURRENT_ROUTES = [
+  "/api/tabs/$CODETERM_TAB_ID/hook/permission",
+  "/api/tabs/$CODETERM_TAB_ID/hook/stop",
+  "/api/tabs/$CODETERM_TAB_ID/hook/session_start",
+  "$CODETERM_API_URL/api/mem/flush"
+];
+var LEGACY_V2_SESSION_START = "curl -s -X POST http://localhost:${CODETERM_API_PORT:-7685}/api/panes/$CODETERM_PANE_ID/hook/session_start -H 'Content-Type: application/json' -H \"X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}\" -d '{}' > /dev/null 2>&1 || true";
+var LEGACY_V2_STOP = "curl -s -X POST http://localhost:${CODETERM_API_PORT:-7685}/api/panes/$CODETERM_PANE_ID/hook/stop -H 'Content-Type: application/json' -d '{}' > /dev/null 2>&1 || true";
+var LEGACY_V2_COMMANDS = /* @__PURE__ */ new Set([LEGACY_V2_SESSION_START, LEGACY_V2_STOP]);
+function commandCarriesMarker(command) {
+  return command.indexOf(CODETERM_HOOK_MARKER_HEADER) !== -1;
+}
+function entryCarriesMarker(entry) {
+  const hooks = entry && entry.hooks;
+  return Array.isArray(hooks) && hooks.some((hook) => {
+    return typeof hook.command === "string" && commandCarriesMarker(hook.command);
+  });
+}
+function entryIsLegacyPaneCodetermHook(entry) {
+  const hooks = entry && entry.hooks;
+  return Array.isArray(hooks) && hooks.some((hook) => {
+    return typeof hook.command === "string" && LEGACY_V2_COMMANDS.has(hook.command);
+  });
+}
+function isCurrentHookCommand(command, platform) {
+  const executable = platform === "windows" ? "curl.exe " : "curl ";
+  return command.indexOf(executable) === 0 && command.indexOf(" --request POST ") !== -1 && command.indexOf(" --data-binary ") !== -1 && command.indexOf("if [") === -1 && command.indexOf("|| true") === -1;
+}
+function commandIsCurrentUnmarked(command) {
+  if (command.indexOf("$CODETERM_API_URL") === -1) return false;
+  if (command.indexOf("$CODETERM_TAB_ID") === -1) return false;
+  if (command.indexOf("$CODETERM_API_TOKEN") === -1) return false;
+  return CODETERM_CURRENT_ROUTES.some((route) => command.indexOf(route) !== -1);
+}
+function isCodetermHook(entry) {
+  const hooks = entry && entry.hooks;
+  if (!Array.isArray(hooks)) return false;
+  return hooks.some((hook) => {
+    if (!hook) return false;
+    if (typeof hook._source === "string" && (hook._source.indexOf("codeterm-hook") === 0 || hook._source === "codeterm")) {
+      return true;
+    }
+    const command = hook.command;
+    return typeof command === "string" && (commandCarriesMarker(command) || commandIsCurrentUnmarked(command) || LEGACY_V2_COMMANDS.has(command));
+  });
+}
+function entriesCarryMarker(entries) {
+  return entries.every((entry) => {
+    if (!isCodetermHook(entry)) return true;
+    const hooks = entry && entry.hooks || [];
+    return hooks.some((hook) => {
+      return typeof hook.command === "string" && commandCarriesMarker(hook.command);
+    });
+  });
+}
+function entriesHaveBoundedTimeout(entries) {
+  return entries.every((entry) => (entry.hooks || []).every((hook) => {
+    return !isCodetermHook({ hooks: [hook] }) || hook.timeout === CODETERM_HOOK_TIMEOUT_SECONDS;
+  }));
+}
+
+// plugins/provider-claude/src/integrationSettings.ts
+function* readIntegrationSettings(path) {
+  const original = yield* host.io.fs.readFile(path);
+  if (typeof original !== "string") return { ok: false, error: "could not safely read settings JSON at " + path };
+  let parsed;
+  try {
+    parsed = JSON.parse(original);
+  } catch (_) {
+    return { ok: false, error: "existing settings JSON is malformed at " + path };
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return { ok: false, error: "existing settings JSON must contain an object at " + path };
+  }
+  const settings = parsed;
+  if (settings.hooks !== void 0) {
+    if (!settings.hooks || typeof settings.hooks !== "object" || Array.isArray(settings.hooks)) {
+      return { ok: false, error: "hooks is not an object" };
+    }
+    for (const key of INTEGRATION_HOOK_KEYS) {
+      if (settings.hooks[key] !== void 0 && !Array.isArray(settings.hooks[key])) {
+        return { ok: false, error: "hooks." + key + " is not an array" };
+      }
+    }
+  }
+  return { ok: true, settings };
+}
+
 // packages/plugin-sdk/src/ioPrograms.ts
 function* ioValue(request) {
   return yield request;
@@ -2617,73 +2711,6 @@ function claudePermissionPromptResponse(toolName, prompt, screen) {
   };
 }
 
-// plugins/provider-claude/src/hookOwnership.ts
-var CODETERM_HOOK_MARKER = "codeterm-hook-v3";
-var CODETERM_HOOK_TIMEOUT_SECONDS = 5;
-var CODETERM_HOOK_MARKER_HEADER = "X-CodeTerm-Hook: codeterm-hook-v3";
-var CODETERM_HOOK_MARKER_ARG = '-H "' + CODETERM_HOOK_MARKER_HEADER + '"';
-var INTEGRATION_HOOK_KEYS = ["PermissionRequest", "Notification", "Stop", "PreCompact", "SessionStart"];
-var CODETERM_CURRENT_ROUTES = [
-  "/api/tabs/$CODETERM_TAB_ID/hook/permission",
-  "/api/tabs/$CODETERM_TAB_ID/hook/stop",
-  "/api/tabs/$CODETERM_TAB_ID/hook/session_start",
-  "$CODETERM_API_URL/api/mem/flush"
-];
-var LEGACY_V2_SESSION_START = "curl -s -X POST http://localhost:${CODETERM_API_PORT:-7685}/api/panes/$CODETERM_PANE_ID/hook/session_start -H 'Content-Type: application/json' -H \"X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}\" -d '{}' > /dev/null 2>&1 || true";
-var LEGACY_V2_STOP = "curl -s -X POST http://localhost:${CODETERM_API_PORT:-7685}/api/panes/$CODETERM_PANE_ID/hook/stop -H 'Content-Type: application/json' -d '{}' > /dev/null 2>&1 || true";
-var LEGACY_V2_COMMANDS = /* @__PURE__ */ new Set([LEGACY_V2_SESSION_START, LEGACY_V2_STOP]);
-function commandCarriesMarker(command) {
-  return command.indexOf(CODETERM_HOOK_MARKER_HEADER) !== -1;
-}
-function entryCarriesMarker(entry) {
-  const hooks = entry && entry.hooks;
-  return Array.isArray(hooks) && hooks.some((hook) => {
-    return typeof hook.command === "string" && commandCarriesMarker(hook.command);
-  });
-}
-function entryIsLegacyPaneCodetermHook(entry) {
-  const hooks = entry && entry.hooks;
-  return Array.isArray(hooks) && hooks.some((hook) => {
-    return typeof hook.command === "string" && LEGACY_V2_COMMANDS.has(hook.command);
-  });
-}
-function isCurrentHookCommand(command, platform) {
-  const executable = platform === "windows" ? "curl.exe " : "curl ";
-  return command.indexOf(executable) === 0 && command.indexOf(" --request POST ") !== -1 && command.indexOf(" --data-binary ") !== -1 && command.indexOf("if [") === -1 && command.indexOf("|| true") === -1;
-}
-function commandIsCurrentUnmarked(command) {
-  if (command.indexOf("$CODETERM_API_URL") === -1) return false;
-  if (command.indexOf("$CODETERM_TAB_ID") === -1) return false;
-  if (command.indexOf("$CODETERM_API_TOKEN") === -1) return false;
-  return CODETERM_CURRENT_ROUTES.some((route) => command.indexOf(route) !== -1);
-}
-function isCodetermHook(entry) {
-  const hooks = entry && entry.hooks;
-  if (!Array.isArray(hooks)) return false;
-  return hooks.some((hook) => {
-    if (!hook) return false;
-    if (typeof hook._source === "string" && (hook._source.indexOf("codeterm-hook") === 0 || hook._source === "codeterm")) {
-      return true;
-    }
-    const command = hook.command;
-    return typeof command === "string" && (commandCarriesMarker(command) || commandIsCurrentUnmarked(command) || LEGACY_V2_COMMANDS.has(command));
-  });
-}
-function entriesCarryMarker(entries) {
-  return entries.every((entry) => {
-    if (!isCodetermHook(entry)) return true;
-    const hooks = entry && entry.hooks || [];
-    return hooks.some((hook) => {
-      return typeof hook.command === "string" && commandCarriesMarker(hook.command);
-    });
-  });
-}
-function entriesHaveBoundedTimeout(entries) {
-  return entries.every((entry) => (entry.hooks || []).every((hook) => {
-    return !isCodetermHook({ hooks: [hook] }) || hook.timeout === CODETERM_HOOK_TIMEOUT_SECONDS;
-  }));
-}
-
 // plugins/provider-claude/src/plugin.ts
 var TITLE_RE = /claude/i;
 var BRAILLE_LO = 10241;
@@ -3255,30 +3282,15 @@ var plugin = {
     const m = manifest();
     const path = host.expandHome(m && m.integration && m.integration.settingsPath || "~/.claude/settings.json");
     if (!path || !(yield* ioValue({ op: "fileExists", path }))) return { ok: true };
+    const preflight = yield* readIntegrationSettings(path);
+    if (!preflight.ok) return preflight;
+    if (preflight.settings.hooks === void 0) return { ok: true };
     return yield* ioFileTransaction(host.io.fs, [path + ".codeterm-integration.lock"], function* () {
-      const original = yield* host.io.fs.readFile(path);
-      if (typeof original !== "string") return { ok: false, error: "could not safely read settings JSON at " + path };
-      let parsed;
-      try {
-        parsed = JSON.parse(original);
-      } catch (_) {
-        return { ok: false, error: "existing settings JSON is malformed at " + path };
-      }
-      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-        return { ok: false, error: "existing settings JSON must contain an object at " + path };
-      }
-      const json = parsed;
+      const current = yield* readIntegrationSettings(path);
+      if (!current.ok) return current;
+      const json = current.settings;
       if (json.hooks === void 0) return { ok: true };
-      if (!json.hooks || typeof json.hooks !== "object" || Array.isArray(json.hooks)) {
-        return { ok: false, error: "hooks is not an object" };
-      }
       const keys = INTEGRATION_HOOK_KEYS;
-      for (let i = 0; i < keys.length; i++) {
-        const k = keys[i];
-        if (json.hooks[k] !== void 0 && !Array.isArray(json.hooks[k])) {
-          return { ok: false, error: "hooks." + k + " is not an array" };
-        }
-      }
       for (let i = 0; i < keys.length; i++) {
         const k = keys[i];
         if (Array.isArray(json.hooks[k])) {

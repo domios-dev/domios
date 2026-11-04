@@ -219,7 +219,13 @@ fn bounded_read(
     sandbox: &PluginSandbox,
     operation: &operation::Context,
 ) -> Result<Value, Failure> {
-    if max_bytes > PLUGIN_READ_FILE_LIMIT {
+    const TAIL_READ_LIMIT: u64 = 4 * 1024 * 1024;
+    let limit = if tail {
+        TAIL_READ_LIMIT
+    } else {
+        PLUGIN_READ_FILE_LIMIT
+    };
+    if max_bytes > limit {
         return Err(Failure::range("host I/O file read size limit".into()));
     }
     if !sandbox.can_read(path) {

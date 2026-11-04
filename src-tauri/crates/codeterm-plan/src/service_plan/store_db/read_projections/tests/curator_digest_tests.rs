@@ -124,7 +124,7 @@ fn curator_sql_rows_match_distinct_order_counts_synthesis_and_digest_budgets() {
             .max()
     );
     let mut full = rows(&plan, 50, 1000, true);
-    let mut extra = BTreeMap::new();
+    let mut extra: BTreeMap<String, Vec<digest::Row>> = BTreeMap::new();
     let duplicate = digest::Row {
         id: "report-00".into(),
         kind: "worker_report".into(),

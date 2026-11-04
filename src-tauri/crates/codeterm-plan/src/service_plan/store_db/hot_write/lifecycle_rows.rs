@@ -4,7 +4,9 @@ use crate::plan::{
     PlannerRequest, TransferRecord,
 };
 use crate::service_plan::mutations::agent_lifecycle::AgentLifecyclePlanChange;
+use crate::service_plan::store_db::queue_operation;
 use crate::service_plan::PlanMatch;
+use rusqlite::TransactionBehavior;
 
 mod persist;
 
@@ -174,7 +176,7 @@ impl PlanDatabase {
                     .map(|id| (id, now))
             })
             .collect::<Result<_, _>>()?;
-        let result = (|| {
+        let result: Result<Vec<CommittedRows>, PlanError> = (|| {
             let tx = connection
                 .transaction_with_behavior(TransactionBehavior::Immediate)
                 .map_err(db_error)?;

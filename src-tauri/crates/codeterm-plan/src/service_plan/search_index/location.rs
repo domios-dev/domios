@@ -1,6 +1,6 @@
 use super::*;
 
-pub(super) fn enqueue_plan_move(
+pub(in crate::service_plan) fn enqueue_plan_move(
     _turn: &MutationWriterTurn<'_>,
     id: &str,
     old: PathBuf,
