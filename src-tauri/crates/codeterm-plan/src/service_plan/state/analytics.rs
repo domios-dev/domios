@@ -107,6 +107,7 @@ pub struct AnalyticsScopeRequest {
 #[serde(rename_all = "snake_case")]
 pub enum AnalyticsRefusalKind {
     InvalidQuery,
+    Internal,
     /// The query names a scope this machine does not hold: a mesh rollup, or a
     /// workspace, team or plan id it never saw.
     ForeignScope,
@@ -119,6 +120,13 @@ pub struct AnalyticsRefusal {
 }
 
 impl AnalyticsRefusal {
+    pub fn internal(message: impl Into<String>) -> Self {
+        Self {
+            error: AnalyticsRefusalKind::Internal,
+            message: message.into(),
+        }
+    }
+
     pub fn invalid(message: impl Into<String>) -> Self {
         Self {
             error: AnalyticsRefusalKind::InvalidQuery,

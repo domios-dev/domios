@@ -21,25 +21,14 @@ impl ServiceContext {
             .collect::<BTreeSet<_>>();
         let observed = ports.store.save_candidates();
         self.plan_store
-            .with_plan(plan_id, now, |plan| {
+            .edit_curator_save(plan_id, now, |plan| {
                 retain_live_blueprints(&mut plan.control_loop, &ids);
-                for task in plan
-                    .tasks
-                    .iter()
-                    .filter(|task| task.status == crate::plan::TaskStatus::Done)
-                {
-                    for skill in task
-                        .execution_attempts
-                        .iter()
-                        .filter_map(|attempt| attempt.report.as_ref())
-                        .flat_map(|report| &report.loaded_plan_skills)
-                    {
-                        plan.control_loop
-                            .save_candidates
-                            .entry(format!("plan-skill:{}", skill.slug))
-                            .or_default()
-                            .insert(task.id.clone());
-                    }
+                for (key, episodes) in &plan.completed_skill_episodes {
+                    plan.control_loop
+                        .save_candidates
+                        .entry(key.clone())
+                        .or_default()
+                        .extend(episodes.iter().cloned());
                 }
                 for (id, candidate) in observed.into_iter().filter(|(id, _)| ids.contains(id)) {
                     if plan
@@ -73,7 +62,7 @@ impl ServiceContext {
         save: impl FnOnce(&BTreeSet<String>, bool) -> Result<String, String>,
     ) -> Result<String, String> {
         self.plan_store
-            .with_plan(&identity.plan_id, now, |plan| {
+            .edit_curator_state(&identity.plan_id, now, |plan| {
                 let run = plan
                     .control_loop
                     .running

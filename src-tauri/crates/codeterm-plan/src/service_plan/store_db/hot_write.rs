@@ -6,8 +6,10 @@ use crate::service_plan::{store_rows, text_bounds, PlanError};
 use rusqlite::{params, OptionalExtension, Transaction, TransactionBehavior};
 use std::collections::BTreeSet;
 mod batch_rows;
+pub(in crate::service_plan) mod handoff;
 mod milestones;
 mod review_rows;
+pub(in crate::service_plan) mod runtime;
 mod task_fields;
 pub(in crate::service_plan) use review_rows::{TaskHistory, TaskRowEdit};
 pub(in crate::service_plan) use task_fields::TaskFields;
@@ -71,6 +73,8 @@ pub(in crate::service_plan) struct CommittedRows {
     pub strides: usize,
     pub task_rows: usize,
     pub header_rows: usize,
+    pub heartbeat_rows: usize,
+    pub element_rows: usize,
     pub decoded_bytes: usize,
     pub serialized_bytes: usize,
     pub projected_text_bytes: usize,
@@ -295,7 +299,15 @@ impl PlanDatabase {
             receipt.revision =
                 super::change_feed::next_revision(receipt.previous_revision, operation_id)?;
             change(&tx, &mut receipt)?;
-            if receipt.task_rows + receipt.milestones + receipt.attempts + receipt.strides > 0 {
+            if receipt.element_rows
+                + receipt.heartbeat_rows
+                + receipt.header_rows
+                + receipt.task_rows
+                + receipt.milestones
+                + receipt.attempts
+                + receipt.strides
+                > 0
+            {
                 tx.execute("UPDATE plans SET updated_at=?2, header_json=json_set(header_json, '$.updated_at', ?2, '$._revision', ?3, '$.canonical_project_path', CASE WHEN trim(coalesce(json_extract(header_json,'$.canonical_project_path'),''))='' THEN project_path ELSE json_extract(header_json,'$.canonical_project_path') END) WHERE id=?1", params![plan_id, now_ms, receipt.revision]).map_err(db_error)?;
                 receipt.header_rows += 1;
                 let root: String = tx.query_row("SELECT CASE WHEN trim(coalesce(json_extract(header_json,'$.canonical_project_path'),''))='' THEN project_path ELSE json_extract(header_json,'$.canonical_project_path') END FROM plans WHERE id=?1", [plan_id], |row| row.get(0)).map_err(db_error)?;

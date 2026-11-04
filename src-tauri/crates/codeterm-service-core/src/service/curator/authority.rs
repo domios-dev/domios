@@ -81,7 +81,7 @@ impl ServiceContext {
         }
         let prefix = read.body;
         self.plan_store
-            .with_plan(&identity.plan_id, now, |plan| {
+            .edit_curator_state(&identity.plan_id, now, |plan| {
                 let run = plan.control_loop.running.as_mut().ok_or_else(|| {
                     crate::service::plan::PlanError::Validation("round ended".into())
                 })?;
@@ -113,7 +113,7 @@ impl ServiceContext {
             return Ok(());
         };
         self.plan_store
-            .with_plan(&plan_id, self.curator_now()?, |plan| {
+            .edit_curator_state(&plan_id, self.curator_now()?, |plan| {
                 if let Some(run) = plan
                     .control_loop
                     .running
@@ -177,7 +177,7 @@ impl ServiceContext {
         let identity = self.authenticate_curator(&caller)?;
         let now = self.curator_now()?;
         self.plan_store
-            .with_plan(&identity.plan_id, now, |plan| {
+            .edit_curator_state(&identity.plan_id, now, |plan| {
                 if let Some(run) = &mut plan.control_loop.running {
                     run.refuse_action(format!("{}:{}", action.as_str(), id.unwrap_or("none")));
                 }
@@ -264,7 +264,7 @@ impl ServiceContext {
         let nonce = identity.binding_nonce.as_str();
         let now = self.curator_now()?;
         self.plan_store
-            .with_plan(&identity.plan_id, now, |plan| {
+            .edit_curator_state(&identity.plan_id, now, |plan| {
                 let run = plan.control_loop.running.as_mut().ok_or_else(|| {
                     crate::service::plan::PlanError::Validation("round ended".into())
                 })?;
@@ -316,7 +316,7 @@ impl ServiceContext {
             return Err("grant needs a Blueprint, plan skill or save candidate".into());
         }
         self.plan_store
-            .with_plan(plan_id, now, |plan| {
+            .edit_curator_state(plan_id, now, |plan| {
                 let run = plan.control_loop.running.as_mut().ok_or_else(|| {
                     crate::service::plan::PlanError::Validation("round ended".into())
                 })?;

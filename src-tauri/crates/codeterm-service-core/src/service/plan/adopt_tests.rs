@@ -140,6 +140,7 @@ fn adopt_plan_preserves_task_files_and_clears_stale_runtime_bindings() {
         .is_file());
     assert!(target_store
         .list_index()
+        .unwrap()
         .iter()
         .any(|entry| entry.plan_id == plan_id));
 }

@@ -101,7 +101,7 @@ impl ServiceContext {
     ) -> Result<CuratorRound, String> {
         let (round, recorded) = self
             .plan_store
-            .with_plan(plan_id, now, |plan| {
+            .edit_curator_round(plan_id, now, |plan| {
                 if let Some(round) = plan
                     .control_loop
                     .last_round
@@ -167,7 +167,7 @@ impl ServiceContext {
                     plan.control_loop.consecutive_failures += 1;
                     plan.control_loop.fallback_reason = Some(CuratorFailure::ConsecutiveFailures);
                 }
-                curator::append_round(plan, round.clone());
+                plan.append_round(round.clone());
                 Ok((round, true))
             })
             .map_err(|error| error.to_string())?;

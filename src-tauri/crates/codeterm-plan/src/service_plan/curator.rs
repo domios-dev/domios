@@ -1,3 +1,6 @@
+pub use super::store_db::hot_write::runtime::{
+    CuratorRoundRows, CuratorSaveRows, CuratorStateRows,
+};
 use super::{PlanError, PlanStore};
 use crate::plan::{
     curator_delay, ControlLoop, ControlLoopMode, CuratorRound, HeartbeatLearning, Plan, PlanMode,
@@ -92,7 +95,7 @@ impl PlanStore {
                 return Err(PlanError::Validation("heartbeat interval must be 15, 30, 45, 60, 90 or 120 minutes, in heartbeat mode".into()));
             }
         }
-        self.with_plan(id, now, |plan| {
+        self.edit_curator_state(id, now, |plan| {
             plan.control_loop.mode = update.mode;
             plan.control_loop.manual_run_requested = false;
             plan.control_loop.heartbeat_interval_secs = update.heartbeat_interval_secs;
@@ -103,8 +106,8 @@ impl PlanStore {
     }
 
     pub fn record_curator_round(&self, id: &str, round: CuratorRound) -> Result<(), PlanError> {
-        self.with_plan(id, round.ended_at, |plan| {
-            append_round(plan, round);
+        self.edit_curator_round(id, round.ended_at, |plan| {
+            plan.append_round(round);
             Ok(())
         })
     }
@@ -116,7 +119,7 @@ impl PlanStore {
         note: &note::CuratorNote,
         now: u64,
     ) -> Result<CuratorRound, PlanError> {
-        self.with_plan(id, now, |plan| {
+        self.edit_curator_round(id, now, |plan| {
             let run = plan
                 .control_loop
                 .running
@@ -180,7 +183,7 @@ impl PlanStore {
             plan.control_loop.fallback_reason = None;
             plan.control_loop.running = None;
             plan.control_loop.last_real_round_at = Some(now);
-            append_round(plan, round.clone());
+            plan.append_round(round.clone());
             Ok(round)
         })
     }
