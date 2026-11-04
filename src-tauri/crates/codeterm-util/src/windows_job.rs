@@ -15,6 +15,19 @@ impl Job {
 
     /// Contains a child spawned suspended; the caller resumes it, so its first descendant is already inside.
     pub fn contain(child: &tokio::process::Child) -> Result<Self, String> {
+        let process = child.raw_handle().ok_or("Missing child process handle")? as HANDLE;
+        Self::contain_handle(process)
+    }
+
+    pub fn attach_std(child: &std::process::Child) -> Result<Self, String> {
+        use std::os::windows::io::AsRawHandle;
+        let process = child.as_raw_handle() as HANDLE;
+        let job = Self::contain_handle(process)?;
+        resume_handle(process)?;
+        Ok(job)
+    }
+
+    fn contain_handle(process: HANDLE) -> Result<Self, String> {
         let handle = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
         if handle.is_null() {
             return Err(std::io::Error::last_os_error().to_string());
@@ -22,7 +35,6 @@ impl Job {
         let job = Self(handle as usize);
         let mut limits: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = unsafe { std::mem::zeroed() };
         limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-        let process = child.raw_handle().ok_or("Missing child process handle")? as HANDLE;
         if unsafe {
             SetInformationJobObject(
                 handle,
@@ -92,11 +104,15 @@ impl Job {
     }
 }
 pub fn resume(child: &tokio::process::Child) -> Result<(), String> {
+    let process = child.raw_handle().ok_or("Missing child process handle")? as HANDLE;
+    resume_handle(process)
+}
+
+fn resume_handle(process: HANDLE) -> Result<(), String> {
     #[link(name = "ntdll")]
     unsafe extern "system" {
         fn NtResumeProcess(process: HANDLE) -> i32;
     }
-    let process = child.raw_handle().ok_or("Missing child process handle")? as HANDLE;
     if unsafe { NtResumeProcess(process) } < 0 {
         return Err("Could not resume the suspended child".into());
     }

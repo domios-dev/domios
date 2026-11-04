@@ -1,3 +1,4 @@
+import { ioTestContext } from "../../provider-shared/tests/hostIo";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -64,7 +65,7 @@ if (process.platform !== "win32") {
       },
       exports: {},
     };
-    new vm.Script(fs.readFileSync(pluginPath, "utf8"), { filename: pluginPath }).runInNewContext(context);
+    new vm.Script(fs.readFileSync(pluginPath, "utf8"), { filename: pluginPath }).runInNewContext(ioTestContext(context));
     const plugin = context.module.exports.default;
     assert(plugin, "Codex provider bundle loads");
     assert(plugin.installIntegration(7686, { consent: true }).ok, "Codex hook integration installs");

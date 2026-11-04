@@ -69,3 +69,6 @@ export type { ChatAttachment } from "./gen/ChatAttachment";
 export * from "./mediaDelivery";
 
 export * from "./binaryTransfer";
+
+export { defineProviderIo, ioValue, ioMap, ioFilter, ioJson, ioEncoded, ioSqlite, ioResolve, ioFileTransaction, ioThen } from "./ioPrograms";
+export type { IoExports, IoResults } from "./ioPrograms";

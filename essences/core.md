@@ -100,6 +100,19 @@ An exact restored session is never silently replaced. When the provider confirms
 
 Provider switching keeps the tab identity, Team, role, lane, pad and task attempt while retiring the old provider session. The target receives recent conversation turns and host-owned context as its first handoff turn and builds its own working summary; the full history remains readable separately. PTY and structured runtime providers use the same continuity contract. Busy turns require waiting or an explicit stop; unavailable providers and unsupported lifecycle capabilities refuse.
 
+Provider registry ownership ends before any provider callback or VM execution.
+Capabilities needed under tab or tracker ownership are captured beforehand.
+Ordinary plugin calls share one absolute operation deadline and cancellation,
+with bounded admission to each VM. The shipped providers use the job-only
+execution contract: a blocking host operation runs outside the VM and resumes
+its original continuation once. Authorization belongs to the job owner using
+captured authority; file locks belong to the invocation until its final native
+owner exits. Cancellation never replays an effect, and late completions cannot
+resume a cancelled invocation. Legacy synchronous callbacks retained for external
+plugins in 1.19 are not cancellable: a stuck callback stalls that plugin's own VM,
+while the registry and other plugin VMs remain independent. The
+[SDK host I/O contract](../packages/plugin-sdk/README.md#host-io-jobs) owns the API.
+
 #### Structured thread control
 
 The `agentRuntime` capability selects a Chat-only stdio runtime. Each tab owns its process, exact thread and binding; core owns process lifetime, framing, delivery and presentation, while the provider plugin owns protocol methods, parameters and event interpretation. The transcript has one producer with stable item IDs and paginated history; live items and backfill reconcile without duplicates. Provider-authenticated subagents open as read-only transcripts inside the parent tab under its exact root thread, nonce and runtime epoch. Inspection never creates a tab, rebinds a thread or grants child send authority; foreign and stale child identities are refused. Approval and question answers target only a pending request from the exact current binding and runtime epoch. Unsupported terminal keys and resize are explicit refusals.

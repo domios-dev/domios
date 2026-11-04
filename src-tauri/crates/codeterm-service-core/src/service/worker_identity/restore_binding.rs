@@ -35,10 +35,53 @@ pub fn restore_attempt_binding_for_caller(
     caller: &AuthenticatedPlanCaller,
     now_ms: u64,
 ) -> Result<AttemptBindingRestoreResult, PlanError> {
-    let mux = service.mux.read();
-    restore_attempt_binding_for_mux(&service.plan_store, &mux, target, caller, now_ms)
+    let tab_id = caller
+        .tab_id
+        .as_deref()
+        .filter(|id| !id.trim().is_empty())
+        .ok_or_else(|| Refusal::CallerTabMissing.refusal())?;
+    let (tab, live_team) = {
+        let mux = service.mux.read();
+        let tab = mux
+            .get_tab(tab_id)
+            .cloned()
+            .ok_or_else(|| Refusal::CallerTabNotFound.refusal())?;
+        let live_team = tab
+            .team_id
+            .as_deref()
+            .is_some_and(|team| mux.get_team(team).is_some());
+        (tab, live_team)
+    };
+    let request =
+        prepare_restoration(&service.plan_store, &tab, live_team, target, caller, now_ms)?;
+    let result = service
+        .plan_store
+        .restore_current_attempt_binding(request.clone(), now_ms)?;
+    let current = {
+        let mux = service.mux.read();
+        mux.get_tab(tab_id).is_some_and(|current| {
+            same_restoration_authority(&tab, current)
+                && current
+                    .team_id
+                    .as_deref()
+                    .is_some_and(|team| mux.get_team(team).is_some())
+        })
+    };
+    if !current {
+        if matches!(result, RestoreCurrentAttemptBindingResult::Restored(_)) {
+            service
+                .plan_store
+                .undo_restored_attempt_binding(&request, now_ms)?;
+        }
+        return Err(PlanError::Io(
+            "attempt restoration conflict: live authority changed during SQL; retry by intent"
+                .into(),
+        ));
+    }
+    Ok(map_restore_result(result))
 }
 
+#[cfg(test)]
 pub fn restore_attempt_binding_for_mux(
     store: &crate::service::plan::PlanStore,
     mux: &crate::multiplexer::state::MultiplexerState,
@@ -49,6 +92,32 @@ pub fn restore_attempt_binding_for_mux(
     let tab_id = caller
         .tab_id
         .as_deref()
+        .filter(|id| !id.trim().is_empty())
+        .ok_or_else(|| Refusal::CallerTabMissing.refusal())?;
+    let tab = mux
+        .get_tab(tab_id)
+        .ok_or_else(|| Refusal::CallerTabNotFound.refusal())?;
+    let live_team = tab
+        .team_id
+        .as_deref()
+        .is_some_and(|team| mux.get_team(team).is_some());
+    let request = prepare_restoration(store, tab, live_team, target, caller, now_ms)?;
+    store
+        .restore_current_attempt_binding(request, now_ms)
+        .map(map_restore_result)
+}
+
+fn prepare_restoration(
+    store: &crate::service::plan::PlanStore,
+    tab: &Tab,
+    live_team: bool,
+    target: AttemptBindingRestoreTarget<'_>,
+    caller: &AuthenticatedPlanCaller,
+    now_ms: u64,
+) -> Result<RestoreCurrentAttemptBinding, PlanError> {
+    let tab_id = caller
+        .tab_id
+        .as_deref()
         .filter(|value| !value.trim().is_empty())
         .ok_or_else(|| Refusal::CallerTabMissing.refusal())?;
     let current_nonce = caller
@@ -56,9 +125,6 @@ pub fn restore_attempt_binding_for_mux(
         .as_deref()
         .filter(|value| !value.trim().is_empty())
         .ok_or_else(|| Refusal::CallerNonceMissing.refusal())?;
-    let tab = mux
-        .get_tab(tab_id)
-        .ok_or_else(|| Refusal::CallerTabNotFound.refusal())?;
     if !is_current_worker_role(tab) {
         return Err(Refusal::WorkerRoleRequired.refusal());
     }
@@ -94,7 +160,7 @@ pub fn restore_attempt_binding_for_mux(
         .as_deref()
         .filter(|team_id| !team_id.trim().is_empty())
         .ok_or_else(|| Refusal::TeamMissing.refusal())?;
-    if mux.get_team(team_id).is_none() {
+    if !live_team {
         return Err(Refusal::TeamMissing.refusal());
     }
     if detail.team_id.as_deref() != Some(team_id) {
@@ -133,30 +199,46 @@ pub fn restore_attempt_binding_for_mux(
         lineage_proof_kind: LINEAGE_PROOF_KIND.into(),
         lineage_proof_digest: proof.digest,
     };
-    let result = store.restore_current_attempt_binding(
-        RestoreCurrentAttemptBinding {
-            plan_id: target.plan_id.into(),
-            task_id: target.task_id.into(),
-            attempt_id: target.attempt_id.into(),
-            executor_tab_id: tab_id.into(),
-            session_id: session_id.into(),
-            provider: provider.into(),
-            team_id: team_id.into(),
-            owner_epoch: target.owner_epoch,
-            expected_old_nonce: old_nonce.into(),
-            current_nonce: current_nonce.into(),
-            receipt,
-        },
-        now_ms,
-    )?;
+    Ok(RestoreCurrentAttemptBinding {
+        plan_id: target.plan_id.into(),
+        task_id: target.task_id.into(),
+        attempt_id: target.attempt_id.into(),
+        executor_tab_id: tab_id.into(),
+        session_id: session_id.into(),
+        provider: provider.into(),
+        team_id: team_id.into(),
+        owner_epoch: target.owner_epoch,
+        expected_old_nonce: old_nonce.into(),
+        current_nonce: current_nonce.into(),
+        receipt,
+    })
+}
+
+fn map_restore_result(result: RestoreCurrentAttemptBindingResult) -> AttemptBindingRestoreResult {
     match result {
         RestoreCurrentAttemptBindingResult::Restored(receipt) => {
-            Ok(AttemptBindingRestoreResult::Restored(receipt))
+            AttemptBindingRestoreResult::Restored(receipt)
         }
         RestoreCurrentAttemptBindingResult::AlreadyCurrent => {
-            Ok(AttemptBindingRestoreResult::AlreadyCurrent)
+            AttemptBindingRestoreResult::AlreadyCurrent
         }
     }
+}
+
+fn same_restoration_authority(a: &Tab, b: &Tab) -> bool {
+    a.agent_type == b.agent_type
+        && a.agent_session_id == b.agent_session_id
+        && a.session_binding_nonce == b.session_binding_nonce
+        && a.reported_session_binding_nonce == b.reported_session_binding_nonce
+        && a.prior_session_binding_nonces == b.prior_session_binding_nonces
+        && a.role == b.role
+        && a.role_profile == b.role_profile
+        && a.team_id == b.team_id
+        && a.pty_id == b.pty_id
+        && a.backing == b.backing
+        && a.chat_view == b.chat_view
+        && a.exit_suspected_at == b.exit_suspected_at
+        && crate::service::plan_reconcile::tab_has_live_agent(b)
 }
 
 pub fn is_current_worker_role(tab: &Tab) -> bool {

@@ -3,6 +3,7 @@ use super::*;
 #[test]
 fn lifecycle_patch_preserves_live_runtime_edits_and_reverts_only_placement() {
     let (mut mux, tab) = MultiplexerState::new();
+    mux.clear_tab_role(&tab).unwrap();
     let before = mux.begin_team_close_transaction();
     let mut after = mux.begin_team_close_transaction();
     after.state_mut().set_orchestrator_role(&tab).unwrap();
@@ -27,6 +28,7 @@ fn lifecycle_patch_preserves_live_runtime_edits_and_reverts_only_placement() {
 #[test]
 fn lifecycle_patch_refuses_changed_identity_and_does_not_overwrite_newer_placement_on_undo() {
     let (mut mux, tab) = MultiplexerState::new();
+    mux.clear_tab_role(&tab).unwrap();
     let before = mux.begin_team_close_transaction();
     let mut after = mux.begin_team_close_transaction();
     after.state_mut().set_orchestrator_role(&tab).unwrap();

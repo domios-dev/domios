@@ -1,3 +1,4 @@
+use super::store_db::hot_write::runtime::HeartbeatRows;
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -465,7 +466,7 @@ impl PlanStore {
         let plan_id = self.resolve_active_plan_for_orchestrator(plan_id, tab_id, session_id)?;
         let normalized = normalized_learning(text);
         let mut out = None;
-        self.with_plan(&plan_id, now_ms, |plan| {
+        self.with_runtime_rows::<HeartbeatRows, _>(&plan_id, now_ms, |plan| {
             if let Some(existing) = plan
                 .heartbeat
                 .learnings
@@ -474,7 +475,7 @@ impl PlanStore {
                 .cloned()
             {
                 out = Some(HeartbeatLearnResult {
-                    plan_id: plan.id.clone(),
+                    plan_id: plan_id.clone(),
                     learning: existing,
                     deduped: true,
                 });
@@ -491,7 +492,7 @@ impl PlanStore {
             };
             plan.heartbeat.learnings.push(learning.clone());
             out = Some(HeartbeatLearnResult {
-                plan_id: plan.id.clone(),
+                plan_id: plan_id.clone(),
                 learning,
                 deduped: false,
             });

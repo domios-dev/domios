@@ -87,3 +87,36 @@ impl Drop for RequestTiming {
         }
     }
 }
+
+pub async fn observe_polls<F: std::future::Future>(
+    method: &str,
+    route: &str,
+    future: F,
+) -> F::Output {
+    #[cfg(debug_assertions)]
+    {
+        let label = format!("{method} {route}");
+        let mut future = std::pin::pin!(future);
+        std::future::poll_fn(move |context| {
+            let started = Instant::now();
+            let result = future.as_mut().poll(context);
+            let elapsed = started.elapsed();
+            if elapsed >= STALL_THRESHOLD {
+                log::debug!(
+                    "[REST-POLL] {} execution={}ms pending={} thread={:?}",
+                    label,
+                    elapsed.as_millis(),
+                    result.is_pending(),
+                    std::thread::current().id()
+                );
+            }
+            result
+        })
+        .await
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        let _ = (method, route);
+        future.await
+    }
+}

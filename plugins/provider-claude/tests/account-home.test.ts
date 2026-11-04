@@ -1,7 +1,9 @@
+import { ioTestExport } from "../../provider-shared/tests/hostIo";
 import assert from "node:assert/strict";
 import { effectiveReadPath } from "../../provider-shared/readHome";
 import { claudeSessionFilePath } from "../src/session";
-import { fetchClaudeUsage } from "../src/usage";
+import { fetchClaudeUsage as ioSource_fetchClaudeUsage } from "../src/usage";
+const fetchClaudeUsage = ioTestExport(ioSource_fetchClaudeUsage);
 
 for (const [home, fallback, suffix, separator, expected] of [
   [null, "/default/projects", "projects", "/", "/default/projects"],

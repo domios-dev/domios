@@ -58,7 +58,7 @@ impl PlanStore {
         Ok(result)
     }
 
-    fn publish_hot_receipt(
+    pub(in crate::service_plan) fn publish_hot_receipt(
         &self,
         turn: &MutationWriterTurn<'_>,
         receipt: super::super::store_db::hot_write::CommittedRows,
