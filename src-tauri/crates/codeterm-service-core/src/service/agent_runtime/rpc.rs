@@ -129,10 +129,24 @@ impl Client {
         Self::attach_with_envelope(reader, writer, None)
     }
 
+    #[cfg(test)]
     pub fn attach_with_envelope<R, W>(
+        reader: R,
+        writer: W,
+        envelope: Option<AgentRuntimeEnvelope>,
+    ) -> Self
+    where
+        R: AsyncRead + Unpin + Send + 'static,
+        W: AsyncWrite + Unpin + Send + 'static,
+    {
+        Self::attach_redacted(reader, writer, envelope, String::new())
+    }
+
+    pub(super) fn attach_redacted<R, W>(
         reader: R,
         mut writer: W,
         envelope: Option<AgentRuntimeEnvelope>,
+        credential: String,
     ) -> Self
     where
         R: AsyncRead + Unpin + Send + 'static,
@@ -219,7 +233,7 @@ impl Client {
                 let text = tokio::select! { _ = ended.changed() => break, text = read_frame(&mut reader) => text };
                 let frame = match text
                     .and_then(|text| text.ok_or(RuntimeFailure::PipeEof))
-                    .and_then(|text| decode(&text))
+                    .and_then(|text| decode_redacted(&text, &credential))
                 {
                     Ok(frame) => frame,
                     Err(error) => {
@@ -456,9 +470,35 @@ async fn read_frame<R: tokio::io::AsyncBufRead + Unpin>(
     }
 }
 
+fn redact_value(value: &mut Value, credential: &str) {
+    if credential.is_empty() {
+        return;
+    }
+    match value {
+        Value::String(text) => *text = text.replace(credential, "[redacted]"),
+        Value::Array(values) => values
+            .iter_mut()
+            .for_each(|value| redact_value(value, credential)),
+        Value::Object(values) => {
+            let old = std::mem::take(values);
+            for (key, mut value) in old {
+                redact_value(&mut value, credential);
+                values.insert(key.replace(credential, "[redacted]"), value);
+            }
+        }
+        _ => {}
+    }
+}
+
+#[cfg(test)]
 fn decode(text: &str) -> Result<WireFrame, RuntimeFailure> {
-    let parsed: Value = serde_json::from_str(text)
+    decode_redacted(text, "")
+}
+
+fn decode_redacted(text: &str, credential: &str) -> Result<WireFrame, RuntimeFailure> {
+    let mut parsed: Value = serde_json::from_str(text)
         .map_err(|error| RuntimeFailure::InvalidFrame(error.to_string()))?;
+    redact_value(&mut parsed, credential);
     let value = parsed
         .as_object()
         .ok_or_else(|| RuntimeFailure::InvalidFrame("Frame must be an object".into()))?;

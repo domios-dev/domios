@@ -99,3 +99,8 @@ and proves local refusal of unadvertised commands, methods and values.
 `declared-auth` proves that only the declared agent method reaches authenticate,
 terminal methods stay unavailable, and only a successful authenticate response
 can change unknown authentication to authenticated. These remain derived fixtures.
+
+`mcp-fallback-{new,load,resume}-{success,failure}` are derived ACP v1 lifecycle
+fixtures: one failed session method with a host-built MCP descriptor retries the
+same method once without MCP. A successful reply binds the session with a notice;
+a second failure refuses visibly. Environment credentials use placeholders only.

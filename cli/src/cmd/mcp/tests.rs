@@ -223,3 +223,43 @@ fn mcp_serve_tool_meta_is_ignored_but_other_unknown_params_refuse() {
     );
     assert_eq!(replies[1]["error"]["code"], -32602);
 }
+
+#[test]
+fn mcp_serve_negotiates_supported_client_version_or_newest() {
+    for offered in ["2025-06-18", "2025-03-26", "2024-11-05", "unknown"] {
+        let input = format!(
+            "{}\n",
+            json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":offered}})
+        );
+        let mut output = Vec::new();
+        protocol(std::io::Cursor::new(input), &mut output, "", |_| {
+            panic!("initialize must not execute a tool")
+        })
+        .unwrap();
+        let response: Value = serde_json::from_slice(&output).unwrap();
+        assert_eq!(
+            response["result"]["protocolVersion"],
+            if offered == "unknown" {
+                "2025-06-18"
+            } else {
+                offered
+            }
+        );
+    }
+    assert_eq!(negotiated_version(None), "2025-06-18");
+}
+
+#[test]
+fn mcp_tool_and_argument_descriptions_come_from_prompt_source() {
+    let source: Value =
+        serde_json::from_str(include_str!("../../../../src-tauri/prompts/mcp_tools.json")).unwrap();
+    for tool in tools() {
+        let name = tool["name"].as_str().unwrap();
+        assert_eq!(tool["description"], source["tools"][name]);
+        assert!(!tool["description"].as_str().unwrap().trim().is_empty());
+        for (key, property) in tool["inputSchema"]["properties"].as_object().unwrap() {
+            assert_eq!(property["description"], source["arguments"][key]);
+            assert!(!property["description"].as_str().unwrap().trim().is_empty());
+        }
+    }
+}

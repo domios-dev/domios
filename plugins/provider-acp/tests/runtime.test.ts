@@ -262,3 +262,19 @@ for (const [name, reason] of [
   assert.equal(fixture.rpc.some(frame=>frame.direction === "outbound" && frame.operation === index),false);
 }
 console.log("✓ ACP honest model refusal reasons and zero outbound frames");
+
+for (const offered of [false,true]) {
+  const instance=loadHooks();
+  const context={...fixture.context,tabId:`no-replay-${offered}`,...(offered ? {hostMcp:{name:"domios",command:"/trusted/domios",args:[],env:{CODETERM_API_TOKEN:"<credential-placeholder>"}}} : {})};
+  const initialized=instance.runtimePlan(context,init);
+  instance.runtimeResponse(context,init,initialized.state,{kind:"success",value:{protocolVersion:1,agentCapabilities:{},authMethods:[]}});
+  const opening=instance.runtimePlan(context,open);
+  const error:RpcReply={kind:"error",error:{code:-32603,message:"Agent failure"}};
+  if (!offered) assert.equal(instance.runtimeResponse(context,open,opening.state,error).kind,"refused");
+  instance.runtimeResponse(context,open,opening.state,{kind:"success",value:{sessionId:"own"}});
+  const bound={...context,threadId:"own"};
+  const input:Operation={kind:"submitTurn",threadId:"own",sendId:"never-replay",input:{text:"opaque input",attachments:[]},settings:{}};
+  const prompting=instance.runtimePlan(bound,input);
+  assert.equal(instance.runtimeResponse(bound,input,prompting.state,error).kind,"refused");
+  assert.equal(JSON.stringify(prompting.state).includes("<credential-placeholder>"),false);
+}

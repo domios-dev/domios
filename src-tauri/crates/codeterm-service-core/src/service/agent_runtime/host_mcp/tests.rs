@@ -1,5 +1,17 @@
 use super::*;
 
+fn environment() -> HashMap<String, String> {
+    HashMap::from([
+        (
+            "CODETERM_API_TOKEN".into(),
+            "<credential-placeholder>".into(),
+        ),
+        ("CODETERM_API_URL".into(), "http://127.0.0.1:43210".into()),
+        ("CODETERM_TAB_ID".into(), "own".into()),
+        ("CODETERM_SESSION_BINDING_NONCE".into(), "nonce".into()),
+    ])
+}
+
 #[test]
 fn agent_runtime_host_mcp_absent_without_minted_local_credential_or_declaration() {
     for (declared, minted) in [(false, false), (false, true), (true, false)] {
@@ -8,22 +20,25 @@ fn agent_runtime_host_mcp_absent_without_minted_local_credential_or_declaration(
             minted,
             "own",
             "nonce",
-            Some(std::path::PathBuf::from("/trusted/domios"))
+            Some(std::path::PathBuf::from("/trusted/domios")),
+            &environment(),
         )
         .is_none());
     }
-    assert!(descriptor(true, true, "own", "nonce", None).is_none());
+    assert!(descriptor(true, true, "own", "nonce", None, &environment()).is_none());
     let actual = descriptor(
         true,
         true,
         "own",
         "nonce",
         Some(std::path::PathBuf::from("/trusted/domios")),
+        &environment(),
     )
     .unwrap();
+    assert!(!format!("{actual:?}").contains("<credential-placeholder>"));
     assert_eq!(
         actual.descriptor(),
-        serde_json::json!({"name":"domios","command":"/trusted/domios","args":["mcp","serve","--tab","own","--binding-nonce","nonce"],"env":[]})
+        serde_json::json!({"name":"domios","command":"/trusted/domios","args":["mcp","serve","--tab","own","--binding-nonce","nonce"],"env":[{"name":"CODETERM_API_TOKEN","value":"<credential-placeholder>"},{"name":"CODETERM_API_URL","value":"http://127.0.0.1:43210"},{"name":"CODETERM_SESSION_BINDING_NONCE","value":"nonce"},{"name":"CODETERM_TAB_ID","value":"own"}]})
     );
 }
 

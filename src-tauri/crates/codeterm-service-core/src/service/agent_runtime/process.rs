@@ -158,6 +158,10 @@ pub fn spawn(
         }
     }
     let effective = effective_env(command.as_std());
+    let credential = effective
+        .get("CODETERM_API_TOKEN")
+        .cloned()
+        .unwrap_or_default();
     let exclusions = cap
         .inherited_environment_exclusions
         .iter()
@@ -222,7 +226,7 @@ pub fn spawn(
             append_stderr(&mut captured.lock(), &bytes[..count]);
         }
     });
-    let client = Client::attach_with_envelope(reader, writer, cap.envelope.clone());
+    let client = Client::attach_redacted(reader, writer, cap.envelope.clone(), credential.clone());
     let dying = client.clone();
     let (stop, mut stopping) = watch::channel(false);
     let (ended, exit) = watch::channel(None);
@@ -280,7 +284,14 @@ pub fn spawn(
                     RuntimeFailure::ProcessExited {
                         code: status.code(),
                         signal,
-                        stderr: String::from_utf8_lossy(&output.lock()).into_owned(),
+                        stderr: {
+                            let text = String::from_utf8_lossy(&output.lock()).into_owned();
+                            if credential.is_empty() {
+                                text
+                            } else {
+                                text.replace(&credential, "[redacted]")
+                            }
+                        },
                         requested: *stopping.borrow(),
                     }
                 }
