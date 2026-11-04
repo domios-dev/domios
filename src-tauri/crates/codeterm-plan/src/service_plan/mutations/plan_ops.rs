@@ -570,22 +570,10 @@ impl PlanStore {
         crate::service_plan::text_bounds::validate_plan_text("retrospective", text)?;
         let mid = self.mint_id("ms")?;
         let supersede_id = self.mint_id("ms")?;
-        self.with_plan(plan_id, now_ms, |p| {
-            if retrospective::latest_retrospective(p).is_some() {
-                p.strides.push(Milestone {
-                    id: supersede_id.clone(),
-                    from: from.clone(),
-                    kind: retrospective::RETROSPECTIVE_KIND.into(),
-                    text: retrospective::retrospective_supersede_note().into(),
-                    ts: now_ms,
-                    links: vec![],
-                    loop_id: None,
-                    iteration: None,
-                    canvas: Default::default(),
-                    attachments: vec![],
-                });
-            }
-            p.strides.push(Milestone {
+        let turn = self.mutation_writer.enter();
+        let receipt = self.database.append_plan_audit(
+            plan_id,
+            Milestone {
                 id: mid.clone(),
                 from,
                 kind: retrospective::RETROSPECTIVE_KIND.into(),
@@ -596,9 +584,11 @@ impl PlanStore {
                 iteration: None,
                 canvas: Default::default(),
                 attachments: vec![],
-            });
-            Ok(())
-        })?;
+            },
+            crate::service_plan::store_db::hot_write::PlanAudit::Retrospective { supersede_id },
+            now_ms,
+        )?;
+        self.publish_hot_receipt(&turn, receipt);
         Ok(mid)
     }
 

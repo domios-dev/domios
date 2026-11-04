@@ -10,12 +10,14 @@ mod gate_rows;
 mod header_edits;
 mod loop_rows;
 mod milestones;
+mod plan_audit;
 mod plan_fields;
 mod review_rows;
 mod task_fields;
 pub(in crate::service_plan) use gate_rows::{GateAsk, GateChange};
 pub(in crate::service_plan) use header_edits::HeaderChange;
 pub(in crate::service_plan) use loop_rows::LoopChange;
+pub(in crate::service_plan) use plan_audit::PlanAudit;
 pub(in crate::service_plan) use review_rows::{TaskHistory, TaskRowEdit};
 pub(in crate::service_plan) use task_fields::TaskFields;
 
