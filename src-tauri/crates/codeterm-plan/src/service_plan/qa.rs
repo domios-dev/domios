@@ -378,7 +378,7 @@ impl PlanStore {
         self.with_task_rows(
             plan_id,
             task_id,
-            super::store_db::hot_write::TaskHistory::Attempts,
+            super::store_db::hot_write::TaskHistory::Review,
             now_ms,
             |edit| {
                 require_running_qa(&edit.task)?;

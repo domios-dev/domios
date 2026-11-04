@@ -43,13 +43,6 @@ impl PlanStore {
         }
     }
 
-    fn plan_readback_error(operation: &str, message: impl Into<String>) -> PlanError {
-        PlanError::ReadbackMismatch {
-            operation: operation.into(),
-            message: message.into(),
-        }
-    }
-
     // Re-reading after the plan lock drops races concurrent writers; verify the snapshot committed under the lock.
     pub(in crate::service_plan) fn record_committed_snapshot(&self, plan: &Plan) {
         COMMITTED_SNAPSHOT.with(|cell| *cell.borrow_mut() = Some(plan.clone()));
