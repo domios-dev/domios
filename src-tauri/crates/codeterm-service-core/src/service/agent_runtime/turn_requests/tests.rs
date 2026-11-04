@@ -14,7 +14,7 @@ module.exports = {
   runtimeResponse(ctx, op, state, reply) {
     if (op.kind === 'interrupt') return {kind:'complete',result:{kind:'done'}};
     if (reply.kind === 'error') return {kind:'refused',reason:{code:'provider_refused',message:reply.error.message},beforeAcceptance:false};
-    return {kind:'complete',result:{kind:'turnAccepted',threadId:op.threadId,sendId:op.sendId,turnId:'turn'},events:[{kind:'turnState',threadId:op.threadId,turnId:'turn',state:'idle',detail:reply.value.stopReason === 'cancelled' ? 'interrupted' : undefined}]};
+    return {kind:'complete',result:{kind:'turnAccepted',threadId:op.threadId,sendId:op.sendId,turnId:'turn'},events:[{kind:'turnState',threadId:op.threadId,turnId:'turn',state:'idle',...(reply.value.stopReason === 'cancelled' ? {detail:'interrupted'} : {})}]};
   },
   runtimeReduce(ctx, state, frames) { return {state,events:[]}; }
 };
@@ -181,7 +181,7 @@ async fn process_exit_with_a_pending_turn_reply_settles_failed_visibly() {
 
 #[tokio::test]
 async fn stream_window_reports_prewrite_boundary_and_successful_receipt() {
-    let (_fixture, tab, peer, _cleanup) = runtime_fixture_turn_scoped(SOURCE);
+    let (fixture, tab, peer, _cleanup) = runtime_fixture_turn_scoped(SOURCE);
     let session = engine::for_tab(&tab).unwrap();
     let context = session.context.lock().clone();
     let witness = Arc::new(rpc::WriteWitness::default());
@@ -189,6 +189,8 @@ async fn stream_window_reports_prewrite_boundary_and_successful_receipt() {
         context,
         send_id: "send".into(),
         settled: AtomicBool::new(false),
+        started_at: 1000,
+        activity: tokio::sync::OnceCell::new(),
         turn: "turn".into(),
         witness: witness.clone(),
         outcome: watch::channel(None).0,
@@ -214,6 +216,43 @@ async fn stream_window_reports_prewrite_boundary_and_successful_receipt() {
         assert_eq!(after.frame_sequences, vec![1]);
         assert_eq!(after.turn_requests[0].after_sequence, Some(0));
         assert!(after.turn_requests[0].written);
+        let context = session.context.lock().clone();
+        for (state, at) in [
+            (RuntimeTurnState::Working, 123961),
+            (RuntimeTurnState::Idle, 124000),
+        ] {
+            subscriber::publish_events(
+                &fixture.service,
+                &session,
+                context.epoch,
+                vec![AgentRuntimeEvent::TurnState {
+                    thread_id: "own-thread".into(),
+                    turn_id: Some("turn".into()),
+                    parent_thread_id: None,
+                    state,
+                    detail: None,
+                    status_line: None,
+                    started_at: None,
+                    completed_at: None,
+                }],
+                at,
+            )
+            .await
+            .unwrap();
+        }
+        assert_eq!(
+            session.state.lock().last_turn_duration_ms,
+            Some(123000),
+            "duration includes the wait before the first own update"
+        );
+        let pending = session.turn_requests.lock().get("send").cloned().unwrap();
+        publish_written_activity(&fixture.service, &session, &pending)
+            .await
+            .unwrap();
+        assert!(
+            session.context.lock().active_turn_id.is_none(),
+            "a late write observer cannot reopen a completed turn"
+        );
         let request: Value = serde_json::from_str(&line).unwrap();
         let response = json!({"id":request["id"],"result":{}});
         peer.get_mut()
@@ -235,6 +274,8 @@ async fn completion_waits_for_prior_ingress_projection() {
         context: session.context.lock().clone(),
         send_id: "send".into(),
         settled: AtomicBool::new(false),
+        started_at: now(),
+        activity: tokio::sync::OnceCell::new(),
         turn: "turn".into(),
         witness: Arc::new(rpc::WriteWitness::default()),
         outcome: watch::channel(None).0,
@@ -318,6 +359,17 @@ fn silent_written_submit_releases_transport_gate_and_interrupts() {
             .unwrap()
             .state,
         crate::service::chat_send_transaction::ChatSendState::Unknown
+    );
+    assert_eq!(
+        session.context.lock().active_turn_id.as_deref(),
+        Some("turn"),
+        "written prompts are interruptible before any own update"
+    );
+    let context = session.context.lock().clone();
+    let request_start = started_at(&session, &context, Some("turn")).unwrap();
+    assert_eq!(
+        session.state.lock().active_turn_started_at_ms,
+        Some(request_start)
     );
     assert!(super::super::controls::interrupt(&fixture.service, &tab).unwrap());
     assert!(session.context.lock().active_turn_id.is_none());

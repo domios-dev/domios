@@ -442,12 +442,13 @@ function reduceStream(ctx, raw, frames, cursor, submitted) {
       }
       chunk.chars += content.text.length;
       const type = kind === "user_message_chunk" ? "user" : kind === "agent_thought_chunk" ? "thinking" : "assistant";
-      const value = content.text.length > 16384 ? Array.from(content.text).slice(0, 8192).join("") + "\n[ACP row truncated: oversized text update]" : content.text;
       const previous = state.items[chunk.id];
-      const row = { id: chunk.id, seq: previous?.seq ?? ++state.seq, type, content: value, ...type === "thinking" ? { collapsed: true } : {} };
-      events.push(chunk.offset ? { kind: "chatItemAppend", threadId: state.sessionId, itemId: row.id, content: value, offset: chunk.offset } : { kind: "chatItem", threadId: state.sessionId, item: row });
-      state.items[row.id] = { ...row, content: "" };
-      chunk.offset += utf8Length(value);
+      const row = { id: chunk.id, seq: previous?.seq ?? ++state.seq, type, content: "", ...type === "thinking" ? { collapsed: true } : {} };
+      for (const value of textParts(content.text)) {
+        events.push(chunk.offset ? { kind: "chatItemAppend", threadId: state.sessionId, itemId: row.id, content: value, offset: chunk.offset } : { kind: "chatItem", threadId: state.sessionId, item: { ...row, content: value } });
+        chunk.offset += utf8Length(value);
+      }
+      state.items[row.id] = row;
       if (explicit) state.offsetById[chunk.id] = { offset: chunk.offset, chars: chunk.chars, ...chunk.echo ? { echo: chunk.echo } : {} };
       if (!state.loading && !state.started && kind === "agent_message_chunk") events.push({ kind: "turnState", threadId: ctx.threadId, turnId: ctx.activeTurnId ?? `${ctx.threadId}:turn:${state.turn}`, state: "working" });
       continue;
@@ -511,6 +512,21 @@ function reduceStream(ctx, raw, frames, cursor, submitted) {
   }
   boundState(state);
   return { state: json(state), events };
+}
+function* textParts(value) {
+  let start = 0, bytes = 0;
+  for (let index = 0; index < value.length; ) {
+    const point = value.codePointAt(index);
+    const size = point <= 127 ? 1 : point <= 2047 ? 2 : point <= 65535 ? 3 : 4;
+    if (bytes + size > 8192) {
+      yield value.slice(start, index);
+      start = index;
+      bytes = 0;
+    }
+    bytes += size;
+    index += point > 65535 ? 2 : 1;
+  }
+  yield value.slice(start);
 }
 function utf8Length(value) {
   let bytes = 0;

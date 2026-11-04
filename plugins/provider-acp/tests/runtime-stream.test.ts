@@ -303,7 +303,7 @@ assert.equal(changedClaim.events.some(event=>event.kind === "sendEvidence"),fals
 console.log("✓ ACP interleaved user echo keeps exact matching offsets and rechecks claim authority at closure");
 
 const followupFailures:string[]=[];
-for (const scenario of ["tool-identities","overlapping-prompts","overlapping-early-reply","restore-ordinal","astral-truncation"]) {
+for (const scenario of ["tool-identities","overlapping-prompts","overlapping-early-reply","restore-ordinal","astral-chunking"]) {
   try {
     if (scenario === "tool-identities") {
       let state:JsonValue=null;
@@ -322,12 +322,19 @@ for (const scenario of ["tool-identities","overlapping-prompts","overlapping-ear
       const cancelled=settleStream(context,state,"cancelled");
       for (const event of cancelled.events) foldRow(rows,event);
       assert.equal([...rows.values()].filter(row=>row.toolStatus === "interrupted").length,3);
-    } else if (scenario === "astral-truncation") {
-      const reduction=reduceStream(context,null,[frame("agent_message_chunk","🌍".repeat(8191)+"🌍"+"tail".repeat(10000))],cursor);
-      const row=reduction.events.find(event=>event.kind === "chatItem");
-      assert.ok(row?.kind === "chatItem");
-      assert.ok(row.item.content.startsWith("🌍".repeat(8192)));
-      assert.equal(JSON.parse(JSON.stringify(row.item)).content,row.item.content);
+    } else if (scenario === "astral-chunking") {
+      const value="a".repeat(8191)+"🌍".repeat(8192)+"tail".repeat(10000);
+      const reduction=runtimeJson(reduceStream(context,null,[frame("agent_message_chunk",value)],cursor),"runtimeReduce");
+      const rows=new Map<string,ChatMsg>();
+      for (const event of reduction.events) {
+        foldRow(rows,event);
+        if (event.kind === "chatItem" || event.kind === "chatItemAppend") {
+          const content=event.kind === "chatItem" ? event.item.content : event.content;
+          assert.ok(Buffer.byteLength(content)<=8192);
+          assert.equal(content.isWellFormed(),true);
+        }
+      }
+      assert.equal([...rows.values()][0].content,value);
     } else {
       const base={...context,tabId:`followup-${scenario}`,activeTurnId:undefined,activeTurns:[],threadId:undefined,claimedSends:[],restoredRowOrdinal:scenario === "restore-ordinal" ? 4 : undefined};
       const init:Operation={kind:"initialize"};

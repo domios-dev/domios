@@ -217,6 +217,8 @@ fn shared_long_stream_fixtures_fold_append_content_and_survive_replay() {
         "long-stream-cancel",
         "oversize-single-frame",
         "oversize-astral-cut",
+        "large-single-update",
+        "large-multi-update",
     ] {
         let fixture: serde_json::Value = serde_json::from_str(
             &std::fs::read_to_string(root.join(format!("{name}.json"))).unwrap(),
@@ -232,11 +234,22 @@ fn shared_long_stream_fixtures_fold_append_content_and_survive_replay() {
             }
             assert_eq!(maps.items.len(), 1);
             let content = &maps.items[0].item.content;
-            if name.starts_with("oversize-") {
-                assert!(content.contains("[ACP row truncated: oversized text update]"));
-                assert!(content.ends_with("healthy"));
-            } else {
-                assert_eq!(*content, format!("{}🌍", "x".repeat(4092)).repeat(128));
+            let delivered: String = fixture["rpc"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter_map(|record| {
+                    record
+                        .pointer("/frame/params/update/content/text")
+                        .and_then(serde_json::Value::as_str)
+                })
+                .collect();
+            assert_eq!(
+                *content, delivered,
+                "{name}: every delivered character is retained"
+            );
+            assert!(!content.contains("[ACP row truncated:"));
+            if name.starts_with("long-stream-") {
                 assert_eq!(content.len(), 512 * 1024);
             }
         }

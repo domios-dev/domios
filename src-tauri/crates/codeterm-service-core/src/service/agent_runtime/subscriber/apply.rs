@@ -465,10 +465,16 @@ fn apply(
                         )
                         .observe(turn);
                     }
-                    session
-                        .state
-                        .lock()
-                        .working(context.active_turn_id == turn_id, at, started_at)
+                    let request_start = super::super::turn_requests::started_at(
+                        session,
+                        &context,
+                        turn_id.as_deref(),
+                    );
+                    session.state.lock().working(
+                        context.active_turn_id == turn_id,
+                        at,
+                        request_start.or(started_at),
+                    )
                 }
                 RuntimeTurnState::Idle => {
                     engine::record_completed_turn(session, &thread_id, turn_id.as_deref());

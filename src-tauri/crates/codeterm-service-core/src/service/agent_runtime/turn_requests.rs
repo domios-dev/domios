@@ -16,6 +16,8 @@ pub(super) struct PendingTurn {
     context: RuntimeContext,
     send_id: String,
     settled: AtomicBool,
+    started_at: u64,
+    activity: tokio::sync::OnceCell<()>,
     turn: String,
     witness: Arc<rpc::WriteWitness>,
     outcome: watch::Sender<Option<Result<RuntimeResult, RuntimeFailure>>>,
@@ -97,6 +99,70 @@ pub(super) fn evidence(session: &Session, send: &str, thread: &str, turn: &str) 
     true
 }
 
+pub(super) fn started_at(
+    session: &Session,
+    context: &RuntimeContext,
+    turn: Option<&str>,
+) -> Option<u64> {
+    session
+        .turn_requests
+        .lock()
+        .values()
+        .find(|pending| {
+            pending.context.epoch == context.epoch
+                && pending.context.binding_nonce == context.binding_nonce
+                && pending.context.thread_id == context.thread_id
+                && Some(pending.turn.as_str()) == turn
+                && pending.witness.written()
+        })
+        .map(|pending| pending.started_at)
+}
+
+async fn publish_written_activity(
+    svc: &ServiceContext,
+    session: &Arc<Session>,
+    pending: &PendingTurn,
+) -> Result<(), RuntimeFailure> {
+    pending
+        .activity
+        .get_or_try_init(|| async {
+            validate(svc, session, &pending.context)?;
+            let current = session.context.lock().clone();
+            let thread = current
+                .thread_id
+                .clone()
+                .ok_or(RuntimeFailure::Superseded)?;
+            if pending.settled.load(Ordering::Acquire)
+                || session.completions.lock().contains(&thread, &pending.turn)
+                || current
+                    .active_turn_id
+                    .as_ref()
+                    .is_some_and(|turn| turn != &pending.turn)
+            {
+                return Ok(());
+            }
+            subscriber::publish_events(
+                svc,
+                session,
+                current.epoch,
+                vec![AgentRuntimeEvent::TurnState {
+                    thread_id: thread,
+                    turn_id: Some(pending.turn.clone()),
+                    parent_thread_id: None,
+                    state: RuntimeTurnState::Working,
+                    detail: None,
+                    status_line: None,
+                    started_at: Some(pending.started_at),
+                    completed_at: None,
+                }],
+                pending.started_at,
+            )
+            .await
+        })
+        .await
+        .map(|_| ())
+}
+
 pub(super) async fn run(
     svc: &ServiceContext,
     session: &Arc<Session>,
@@ -123,6 +189,8 @@ pub(super) async fn run(
         context: context.clone(),
         send_id: send_id.clone(),
         settled: AtomicBool::new(false),
+        started_at: now(),
+        activity: tokio::sync::OnceCell::new(),
         turn,
         witness: Arc::new(rpc::WriteWitness::default()),
         outcome: watch::channel(None).0,
@@ -139,6 +207,7 @@ pub(super) async fn run(
     }
     let mut outcome = pending.outcome.subscribe();
     let witness = pending.witness.clone();
+    let activity = pending.clone();
     let owner = svc.clone();
     let runtime = session.clone();
     let process = process.clone();
@@ -174,6 +243,7 @@ pub(super) async fn run(
             changed = outcome.changed() => { changed.map_err(|_| RuntimeFailure::PipeEof)?; },
             written = witness.wait() => {
                 written?;
+                publish_written_activity(svc, session, &activity).await?;
                 if let Some(result) = outcome.borrow().clone() { return result; }
                 return Err(RuntimeFailure::WrittenAwaitingEvidence);
             }
@@ -217,6 +287,8 @@ async fn await_reply(
             _ = cancelled.changed() => return Err(RuntimeFailure::Refused("Turn interrupted after cancel grace".into())),
         }
     };
+    pending.witness.wait().await?;
+    publish_written_activity(svc, session, pending).await?;
     wait_for_updates(svc, session, process, pending, reply.through).await?;
     validate(svc, session, &pending.context)?;
     let adapter = session

@@ -94,15 +94,22 @@ function replayFixture(name:string):void {
   assert.equal(plans.size,0);
   assert.deepEqual(results,fixture.expected.results,`${name} results`);
   assert.deepEqual(events,fixture.expected.events,`${name} events`);
-  if (name.startsWith("long-stream-") || name.startsWith("oversize-")) {
+  if (name.startsWith("long-stream-") || (name.startsWith("oversize-") || name.startsWith("large-"))) {
     const rows=new Map<string,ChatMsg>();
     for (const event of events) foldRow(rows,event);
     assert.equal(rows.size,1);
     const final=[...rows.values()][0].content;
     if (name.startsWith("long-stream-")) assert.equal(final,("x".repeat(4092)+"🌍").repeat(128));
     else {
-      assert.ok(final.includes("[ACP row truncated: oversized text update]"));
-      assert.ok(final.endsWith("healthy"));
+      const delivered=fixture.rpc.flatMap(record=>"frame" in record && record.frame.kind === "notification" && record.frame.method === "session/update"
+        ? [((record.frame.params as {update:{content:{text:string}}}).update.content.text)] : []).join("");
+      assert.equal(final,delivered,"every delivered text character reaches the host row");
+      assert.ok(!final.includes("[ACP row truncated:"));
+      for (const event of events) if (event.kind === "chatItem" || event.kind === "chatItemAppend") {
+        const content=event.kind === "chatItem" ? event.item.content : event.content;
+        assert.ok(Buffer.byteLength(content)<=8192,"text events stay within 8 KiB");
+        assert.equal(content.isWellFormed(),true,"each event ends on a code-point boundary");
+      }
     }
     assert.ok(events.some(event=>event.kind === "turnState" && event.state === "idle"
       && (name !== "long-stream-cancel.json" || event.detail === "interrupted")));
