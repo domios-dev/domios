@@ -165,8 +165,20 @@ async fn concierge_runtime_access_matrix_prepares_own_pad_before_fresh_resume_an
                 (access != MachineAccess::Full).then_some(false)
             );
             assert_eq!(
-                svc.mux.read().get_tab(&tab_id).unwrap().cwd.as_deref(),
-                params.cwd.as_deref()
+                PathBuf::from(
+                    svc.mux
+                        .read()
+                        .get_tab(&tab_id)
+                        .unwrap()
+                        .cwd
+                        .as_ref()
+                        .unwrap()
+                )
+                .canonicalize()
+                .unwrap(),
+                PathBuf::from(params.cwd.as_ref().unwrap())
+                    .canonicalize()
+                    .unwrap()
             );
             let snapshot = serde_json::to_vec(&svc.mux.read().to_session_snapshot()).unwrap();
             let snapshot = serde_json::from_slice(&snapshot).unwrap();
