@@ -481,6 +481,7 @@ pub async fn resume_session_api(
         agent: Some(meta.provider.clone()),
         remote_task_binding: None,
         execution_mode: None,
+        launch_profile: None,
         context_files: None,
         neighbor_authority: None,
         neighbor_machine_access: None,

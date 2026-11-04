@@ -2,13 +2,15 @@ import type {
   AgentEvent, JsonValue, Operation, RpcReply, RuntimeContext, RuntimeFailure,
   RuntimeFrame, RuntimePlan, RuntimeReduction, RuntimeStep,
 } from "@codeterm/plugin-sdk";
+import {decodeAuthMethods, agentAuthMethod, type AuthMethod} from "./auth";
 import { clientCapabilities, methods, protocolVersion } from "./runtimeProtocol";
 
 interface Negotiation {
   epoch:number;
   nonce:string;
   capabilities:Record<string, JsonValue>;
-  authMethods:JsonValue[];
+  authMethods:AuthMethod[];
+  authenticated?:boolean;
   sessionId?:string;
   instructions?:string;
 }
@@ -66,6 +68,15 @@ export function runtimePlan(ctx:RuntimeContext, op:Operation):RuntimePlan {
   }
   const state = negotiated(ctx);
   if (!state) return refusePlan("ACP initialization is required for this runtime epoch");
+  if (op.kind === "control" && op.action === "auth") {
+    return request(methods.initialize, {protocolVersion, clientCapabilities, clientInfo:{name:"domios",title:"Domios",version:ctx.hostVersion}});
+  }
+  if (op.kind === "control" && op.action === "login") {
+    try {
+      const method = agentAuthMethod(state.authMethods, object(op.value).methodId);
+      return request("authenticate", {methodId:method.id});
+    } catch {return refusePlan("Authentication method was not declared or is unavailable");}
+  }
   switch (op.kind) {
     case "openThread":
       if (ctx.threadId || state.sessionId) return refusePlan("ACP session is already bound");
@@ -101,7 +112,12 @@ export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue,
   if (reply.kind === "error") return refused("provider_refused", reply.error.message);
   const value = object(reply.value);
   const method = object(raw).method;
-  if (op.kind === "initialize") {
+  if (op.kind === "control" && op.action === "login" && method === "authenticate") {
+    const next = request(methods.initialize, {protocolVersion, clientCapabilities, clientInfo:{name:"domios",title:"Domios",version:ctx.hostVersion}});
+    next.state = {method:methods.initialize, authenticated:true};
+    return {kind:"continue", plan:next};
+  }
+  if (op.kind === "initialize" || op.kind === "control" && ["auth", "login"].includes(op.action)) {
     if (method !== methods.initialize || value.protocolVersion !== protocolVersion) {
       epochs.delete(ctx.tabId);
       return refused("protocol_error", "ACP agent must negotiate protocolVersion 1");
@@ -109,9 +125,15 @@ export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue,
     if (value.agentCapabilities !== undefined && !record(value.agentCapabilities)
       || value.authMethods !== undefined && !Array.isArray(value.authMethods))
       return refused("protocol_error", "Invalid ACP initialization response");
+    let authMethods:AuthMethod[];
+    try {authMethods = decodeAuthMethods(value.authMethods);} catch {return refused("protocol_error", "Invalid ACP authentication declaration");}
+    const prior = negotiated(ctx);
+    const authenticated = object(raw).authenticated === true || prior?.authenticated === true;
     remember(ctx, {epoch:ctx.epoch, nonce:ctx.bindingNonce,
-      capabilities:object(value.agentCapabilities), authMethods:Array.isArray(value.authMethods) ? value.authMethods : []});
-    return {kind:"complete", result:{kind:"initialized"}};
+      capabilities:object(value.agentCapabilities), authMethods, authenticated,
+      sessionId:prior?.sessionId, instructions:prior?.instructions});
+    return op.kind === "initialize" ? {kind:"complete", result:{kind:"initialized"}}
+      : {kind:"complete", result:{kind:"done"},events:[{kind:"auth",state:authenticated ? "signedIn" : "unknown"}]};
   }
   const state = negotiated(ctx);
   if (!state) return refused("provider_refused", "ACP initialization is required for this runtime epoch");

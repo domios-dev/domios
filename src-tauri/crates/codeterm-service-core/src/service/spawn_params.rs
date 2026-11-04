@@ -78,6 +78,9 @@ impl SpawnTabSpec {
                 params.charter.as_deref(),
                 params.tick_interval_secs,
             );
+            if let Some(profile) = &params.launch_profile {
+                config["launchProfile"] = serde_json::json!(profile);
+            }
             if let Some(mode) = &params.execution_mode {
                 config["executionMode"] = serde_json::json!(mode);
             }
@@ -203,6 +206,9 @@ impl SpawnTabSpec {
             None,
             None,
         );
+        if let Some(profile) = &params.launch_profile {
+            config["launchProfile"] = serde_json::json!(profile);
+        }
         if let Some(effort) = agent.reasoning_effort.as_deref() {
             config["effort"] = serde_json::json!(effort);
         }
@@ -246,6 +252,7 @@ impl SpawnTabSpec {
         let starter_prompt =
             starter_prompt_for_creation(agent.role.as_deref(), agent.task.as_deref());
         Ok(SpawnAgentParams {
+            launch_profile: self.chatbackend_launch.as_ref().and_then(|launch| launch.params.launch_profile.clone()),
             execution_mode: None,
             context_files: None,
             neighbor_authority: self
@@ -460,6 +467,11 @@ impl ServiceContext {
             agent_cmd,
             params,
         )?;
+        if let Some(profile) = params.launch_profile.as_deref() {
+            let capability = self.agent_registry.with_provider(agent_cmd, |provider| provider.agent_runtime()).flatten().ok_or("Launch profiles require an agent runtime")?;
+            capability.profile_command(Some(profile)).map_err(|error| error.to_string())?;
+            if params.execution_mode.as_deref().is_some_and(|mode| mode != "local") {return Err("Launch profiles require local execution".into());}
+        }
         if self.validate_remote_spawn(params)? {
             return Ok(true);
         }
@@ -597,6 +609,7 @@ mod tests {
     fn worker_launch_has_no_manager_bootstrap() {
         let spec = SpawnTabSpec::from_agent_params(SpawnAgentParams {
             execution_mode: None,
+            launch_profile: None,
             context_files: None,
             context_skills: None,
             agent: Some("worker-provider".into()),
@@ -628,6 +641,7 @@ mod tests {
     fn tab_name_contract_spawn_name_paths_keep_name_and_description_separate() {
         let spec = SpawnTabSpec::from_agent_params(SpawnAgentParams {
             execution_mode: None,
+            launch_profile: None,
             context_files: None,
             context_skills: None,
             agent: Some("codex".into()),
@@ -654,6 +668,7 @@ mod tests {
     fn assigned_worker_task_authority_reaches_pty_spec() {
         let mut params = SpawnAgentParams {
             execution_mode: None,
+            launch_profile: None,
             context_files: None,
             context_skills: None,
             agent: Some("worker-provider".into()),
@@ -844,6 +859,7 @@ mod tests {
     fn team_attach_fields_round_trip_through_the_tab_spec() {
         let spec = SpawnTabSpec::from_agent_params(SpawnAgentParams {
             execution_mode: None,
+            launch_profile: None,
             context_files: None,
             context_skills: None,
             agent: Some("claude".into()),

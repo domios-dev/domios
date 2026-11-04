@@ -28,6 +28,8 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
         }),
     });
     return {
+        provider_launch_profiles: (a: Args) => clientFor(a).json("GET", `/api/agents/providers/${enc(s(a, "providerId"))}/profiles`),
+        provider_setup_profile: (a: Args) => clientFor(a).json("POST", `/api/agents/providers/${enc(s(a, "providerId"))}/profiles`, a.request),
         wake_tab: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId"))}/wake`),
         mux_get_state: (a: Args = {}) => clientFor(a).json<MultiplexerState>("GET", "/api/mux/state"),
         agent_runtime_child_authority: async (a: Args) => {
@@ -341,6 +343,7 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
                 model?: string;
                 reasoningEffort?: string;
                 preset?: string;
+                launchProfile?: string;
             };
         }): Promise<AtomicSpawn> => {
             const p = a.params;
@@ -349,7 +352,7 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
                 workspace_id?: string;
             }>("POST", "/api/agents/spawn", {
                 agent: p.agentId, workspace_id: p.workspaceId, cwd: p.cwd, model: p.model,
-                reasoning_effort: p.reasoningEffort, preset: p.preset, activate: true,
+                reasoning_effort: p.reasoningEffort, preset: p.preset, launch_profile: p.launchProfile, activate: true,
             });
             const snapshot = await clientFor(a).json<AtomicSpawn["snapshot"]>("GET", "/api/mux/state");
             return { tab_id: result.tab_id, workspace_id: result.workspace_id ?? p.workspaceId, snapshot };

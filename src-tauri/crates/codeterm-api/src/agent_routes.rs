@@ -93,6 +93,7 @@ pub struct SpawnAgentBody {
     system_prompt: Option<String>,
     preset: Option<String>,
     execution_mode: Option<String>,
+    launch_profile: Option<String>,
     charter: Option<String>,
     tick_interval_secs: Option<u64>,
     nudge_cooldown_secs: Option<u64>,
