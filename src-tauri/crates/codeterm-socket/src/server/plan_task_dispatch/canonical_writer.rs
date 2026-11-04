@@ -82,7 +82,7 @@ pub(super) fn resolve_placement(
     intent: &ExecutionIntent,
     task: &Task,
     plan: &Plan,
-    plans: &[Plan],
+    plans: &[codeterm_service_core::service::plan::shared_checkout::CheckoutPeerRead],
 ) -> Result<(WorkerPlacement, String), JsonRpcError> {
     let requested = p
         .and_then(|params| params.get("placement"))

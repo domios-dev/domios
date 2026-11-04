@@ -541,7 +541,7 @@ impl PlanStore {
                 .ok_or(PlanError::TaskNotFound)?;
             inspected.recheck(&plan, task)?;
             super::shared_checkout::validate_shared_ownership(
-                &self.checkout_peer_plans(&plan),
+                &self.checkout_peer_plans(&plan)?,
                 &plan,
                 task,
                 &task.files,
@@ -550,7 +550,7 @@ impl PlanStore {
         } else if placement == crate::plan::WorkerPlacement::CanonicalWriter {
             let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
             super::shared_checkout::validate_exclusive_checkout(
-                &self.checkout_peer_plans(&plan),
+                &self.checkout_peer_plans(&plan)?,
                 &plan,
                 task_id,
             )

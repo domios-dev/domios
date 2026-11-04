@@ -501,7 +501,7 @@ where
         &execution_intent,
         &detail.task,
         &plan,
-        &store.checkout_peer_plans(&plan),
+        &store.checkout_peer_plans(&plan).map_err(plan_rpc_err)?,
     )?;
     let worker_profile = codeterm_service_core::service::role_profile::dispatch_worker_profile(
         detail.task.executor_role.as_deref(),
