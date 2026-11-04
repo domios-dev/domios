@@ -106,7 +106,7 @@ pub mod ui_projections;
 pub mod usage_digest;
 pub mod worker_charter;
 pub mod worker_identity;
-pub use document_projection::PlanDocumentMetadata;
+pub use document_projection::{PlanDocumentMetadata, PlannerGateRead};
 
 #[cfg(test)]
 mod work_facet_tests;
