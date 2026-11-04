@@ -45,9 +45,13 @@ export function EmbedderCard({ config }: { config: AppConfig }) {
   const options = embedderOptions(listing);
   const current = activeOption(status);
   const selected = choice ?? current;
+  // Each reason names its own provider, so it never reads as a verdict on the active embedder.
   const unavailable = listing.providers
     .filter((provider) => provider.refusal !== null)
-    .map((provider) => refusalForPlatform(provider.refusal, provider, listing.remote_opt_in, navigator.platform));
+    .map((provider) => {
+      const reason = refusalForPlatform(provider.refusal, provider, listing.remote_opt_in, navigator.platform);
+      return { ...reason, message: `${provider.label}: ${reason.message}` };
+    });
   const selectedProvider = listing.providers.find((provider) => provider.id === parseOption(selected).provider);
   const hints = [...new Set([
     ...unavailable.flatMap((reason) => reason.hints),
@@ -85,7 +89,7 @@ export function EmbedderCard({ config }: { config: AppConfig }) {
     <SettingsCard
       icon={<Cpu size={16} />}
       title="Memory embedder"
-      headerRight={<SettingsPill tone={status.available ? "green" : "muted"}>{status.available ? "available" : "unavailable"}</SettingsPill>}
+      headerRight={<SettingsPill tone={status.available ? "green" : "muted"}>{status.available ? "active" : "unavailable"}</SettingsPill>}
       description="One embedder turns every memory into vectors for semantic search. Switching re-embeds everything in the background; keyword search keeps working throughout."
     >
       <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs" aria-label="Embedder status">
@@ -126,11 +130,14 @@ export function EmbedderCard({ config }: { config: AppConfig }) {
       </label>
 
       {unavailable.length > 0 && (
-        <ul className="text-xs text-[var(--ct-muted-fg)]" aria-label="Unavailable embedders">
-          {[...new Set(unavailable.map((reason) => reason.message))].map((reason) => (
-            <li key={reason}>{reason}</li>
-          ))}
-        </ul>
+        <div className="flex flex-col gap-1 text-xs text-[var(--ct-muted-fg)]">
+          <span>Other embedders you can't use here</span>
+          <ul className="m-0 list-disc pl-4" aria-label="Unavailable embedders">
+            {[...new Set(unavailable.map((reason) => reason.message))].map((reason) => (
+              <li key={reason}>{reason}</li>
+            ))}
+          </ul>
+        </div>
       )}
 
       {pending && (
