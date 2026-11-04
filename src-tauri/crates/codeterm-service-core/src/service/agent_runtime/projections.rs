@@ -41,7 +41,7 @@ pub fn controls(svc: &ServiceContext, session: &Session, settings: RuntimeSettin
     let settings = merge_settings(&context.settings, settings);
     session.context.lock().settings = settings;
     session.control_changes.send_replace(());
-    super::engine::publish(svc, &context.tab_id, session);
+    super::engine::publish_controls(svc, &context.tab_id, session);
 }
 
 fn merge_settings(previous: &RuntimeSettings, confirmed: RuntimeSettings) -> RuntimeSettings {
