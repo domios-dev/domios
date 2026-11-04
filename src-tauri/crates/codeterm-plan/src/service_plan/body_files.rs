@@ -121,24 +121,6 @@ fn body_path(plan: &Plan, kind: BodyKind, id: &str) -> std::io::Result<PathBuf> 
         .join(format!("{id}.md")))
 }
 
-pub fn strip_bodies(plan: &Plan) -> Plan {
-    let mut stripped = plan.clone();
-    if let Some(goal) = &mut stripped.goal {
-        goal.vision.clear();
-    }
-    clear_section_bodies(&mut stripped.sections);
-    for task in &mut stripped.tasks {
-        task.body.clear();
-        task.milestones.clear();
-    }
-    for element in &mut stripped.elements {
-        if should_externalize_element(element) {
-            clear_element_markdown(element);
-        }
-    }
-    stripped
-}
-
 pub fn persist_bodies(plan: &Plan) -> std::io::Result<Vec<PathBuf>> {
     let paths = body_paths(plan)?;
     if let Some(goal) = &plan.goal {
@@ -557,13 +539,6 @@ fn read_markdown_sidecar(path: &Path) -> Option<String> {
     }
 }
 
-fn clear_section_bodies(sections: &mut [Section]) {
-    for section in sections {
-        section.body.clear();
-        clear_section_bodies(&mut section.subsections);
-    }
-}
-
 fn persist_optional_markdown(path: &Path, body: &str, should_persist: bool) -> std::io::Result<()> {
     if should_persist {
         write_markdown_atomic(path, body)
@@ -699,10 +674,6 @@ fn element_markdown(element: &CanvasElement) -> Option<&str> {
         .as_object()
         .and_then(|obj| markdown_field_key(obj).and_then(|key| obj.get(key)))
         .and_then(|value| value.as_str())
-}
-
-fn clear_element_markdown(element: &mut CanvasElement) {
-    set_element_markdown(element, String::new());
 }
 
 fn set_element_markdown(element: &mut CanvasElement, body: String) {

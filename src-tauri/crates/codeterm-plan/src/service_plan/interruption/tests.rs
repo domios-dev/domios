@@ -580,3 +580,32 @@ fn checkpoint_adoption_undo_preserves_unrelated_edits_and_refuses_new_authority(
         }
     }
 }
+
+#[test]
+fn owner_epoch_ceiling_refuses_recovery_without_persisting_partial_retirement() {
+    assert_eq!(
+        next_owner_epoch(i64::MAX as u64 - 1).unwrap(),
+        i64::MAX as u64
+    );
+    for epoch in [i64::MAX as u64, i64::MAX as u64 + 1, u64::MAX] {
+        assert!(next_owner_epoch(epoch).is_err());
+        let (_dir, store, plan_id, task_id, _) = bound_store();
+        store
+            .edit_plan_fixture(&plan_id, 5, |plan| {
+                plan.tasks
+                    .iter_mut()
+                    .find(|task| task.id == task_id)
+                    .unwrap()
+                    .interruption
+                    .owner_epoch = epoch;
+                Ok(())
+            })
+            .unwrap();
+        let before = store.inspect_task_for_test(&task_id).unwrap().task;
+        let result = store.retire_stale_task_owner(&plan_id, &task_id, None, |_| false, 6);
+        assert!(
+            matches!(result, Err(PlanError::Io(message)) if message == "task owner epoch exhausted")
+        );
+        assert_eq!(store.inspect_task_for_test(&task_id).unwrap().task, before);
+    }
+}

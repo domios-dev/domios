@@ -2,7 +2,9 @@ use super::{column, decode, record_query};
 use crate::plan::{ControlLoopMode, PlanMode, PlanStatus, PlanningState, TaskStatus};
 use crate::service_plan::state::TaskPresentation;
 use crate::service_plan::{PlanError, PlanStore};
-use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
+#[cfg(any(test, feature = "test-support"))]
+use rusqlite::{params, OptionalExtension};
+use rusqlite::{Connection, OpenFlags};
 use std::collections::BTreeMap;
 use std::rc::Rc;
 
@@ -361,6 +363,7 @@ impl ReminderReadSnapshot {
         candidates::worker_bindings(&self.connection, tab, known_plan)
     }
 
+    #[cfg(any(test, feature = "test-support"))]
     pub fn plan(&self, id: &str) -> Result<Option<ReminderPlanRead>, PlanError> {
         let Some(mut read) = plan(&self.connection, id)? else {
             return Ok(None);
@@ -399,6 +402,7 @@ impl ReminderReadSnapshot {
     }
 }
 
+#[cfg(any(test, feature = "test-support"))]
 fn plan(connection: &Connection, id: &str) -> Result<Option<ReminderPlanRead>, PlanError> {
     record_query();
     let header: Option<String> = connection.query_row(
