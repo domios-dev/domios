@@ -59,12 +59,14 @@ impl PlanDatabase {
         record_query();
         let mut statement = connection
             .prepare(&format!(
-                "SELECT p.id,t.task_id,{SOURCE} FROM plans p JOIN plan_tasks t ON t.plan_id=p.id
-                JOIN plan_task_attempts a ON a.plan_id=t.plan_id AND a.task_id=t.task_id
-                WHERE a.position=(SELECT max(candidate.position) FROM plan_task_attempts candidate
-                    WHERE candidate.plan_id=t.plan_id AND candidate.task_id=t.task_id
-                        AND json_extract(candidate.row_json,'$.executor_tab_id')=?1
-                        AND json_extract(candidate.row_json,'$.closed_at') IS NULL)
+                "WITH latest AS MATERIALIZED (
+                    SELECT plan_id,task_id,max(position) AS position FROM plan_task_attempts
+                    WHERE executor_tab_id=?1 AND json_extract(row_json,'$.executor_tab_id')=?1
+                        AND json_extract(row_json,'$.closed_at') IS NULL GROUP BY plan_id,task_id
+                ) SELECT p.id,t.task_id,{SOURCE} FROM latest selected
+                JOIN plans p ON p.id=selected.plan_id
+                JOIN plan_tasks t ON t.plan_id=selected.plan_id AND t.task_id=selected.task_id
+                JOIN plan_task_attempts a ON a.plan_id=selected.plan_id AND a.task_id=selected.task_id AND a.position=selected.position
                 ORDER BY p.updated_at DESC,p.id,t.position LIMIT 2"
             ))
             .map_err(db_error)?;

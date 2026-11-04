@@ -46,13 +46,16 @@ impl PlanDatabase {
         let connection = self.connection.lock();
         record_query();
         let mut statement=connection.prepare_cached(
-            "WITH titles AS (SELECT CASE WHEN json_type(a.row_json,'$.executor_title') IS NULL OR json_type(a.row_json,'$.executor_title')='null' THEN NULL
+            "WITH selected_tasks AS MATERIALIZED (
+                SELECT t.plan_id,t.task_id FROM plans p JOIN plan_tasks t ON t.plan_id=p.id
+                WHERE p.status='active' AND json_extract(t.row_json,'$.lane.workspace_id')=?1
+             ), titles AS (SELECT CASE WHEN json_type(a.row_json,'$.executor_title') IS NULL OR json_type(a.row_json,'$.executor_title')='null' THEN NULL
                 WHEN json_type(a.row_json,'$.executor_title')<>'text' THEN json('invalid executor title')
                 ELSE trim(json_extract(a.row_json,'$.executor_title'),?4) END AS title,
                 domios_u64_order(CASE WHEN json_type(a.row_json,'$.assigned_at') IS NULL OR json_type(a.row_json,'$.assigned_at')='null'
                     THEN a.row_json->'$.reported_at' ELSE a.row_json->'$.assigned_at' END) AS at
-                FROM plans p JOIN plan_tasks t ON t.plan_id=p.id JOIN plan_task_attempts a ON a.plan_id=t.plan_id AND a.task_id=t.task_id
-                WHERE p.status='active' AND json_extract(t.row_json,'$.lane.workspace_id')=?1 AND json_extract(a.row_json,'$.role')='worker'
+                FROM selected_tasks t JOIN plan_task_attempts a ON a.plan_id=t.plan_id AND a.task_id=t.task_id
+                WHERE json_extract(a.row_json,'$.role')='worker'
                     AND (?2 IS NULL OR a.session_id=?2))
              SELECT title FROM titles WHERE title IS NOT NULL AND title<>'' ORDER BY at DESC,title COLLATE BINARY LIMIT ?3"
         ).map_err(db_error)?;
