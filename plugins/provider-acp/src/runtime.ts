@@ -219,9 +219,9 @@ export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue,
     const sessionOperation=op.kind === "openThread" && method === methods.newSession
       || op.kind === "resumeThread" && (method === methods.load || method === methods.resume);
     const state=negotiated(ctx);
-    if (sessionOperation && state && !state.sessionActive && object(raw).mcpOffered === true && ctx.hostMcp) {
+    if (sessionOperation && ![-32000,-32002,-32601].includes(reply.error.code) && state && !state.sessionActive && object(raw).mcpOffered === true && ctx.hostMcp) {
       state.mcpUnavailable=`Domios tools are unavailable for this agent: ${Array.from(reply.error.message).slice(0,1000).join("")}`;
-      const plan=request(method as string,{...(op.kind === "resumeThread" ? {sessionId:op.threadId} : {}),cwd:ctx.cwd});
+      const plan=request(method as string,{...(op.kind === "resumeThread" ? {sessionId:op.threadId} : {}),cwd:ctx.cwd,mcpServers:[]});
       plan.state={method,mcpOffered:false};
       return {kind:"continue",plan};
     }

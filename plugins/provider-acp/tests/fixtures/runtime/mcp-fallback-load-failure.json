@@ -152,7 +152,8 @@
           "method": "session/load",
           "params": {
             "cwd": "/work/project",
-            "sessionId": "session-fixture"
+            "sessionId": "session-fixture",
+            "mcpServers": []
           }
         }
       }

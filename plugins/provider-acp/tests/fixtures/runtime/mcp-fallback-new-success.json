@@ -146,7 +146,8 @@
         "call": {
           "method": "session/new",
           "params": {
-            "cwd": "/work/project"
+            "cwd": "/work/project",
+            "mcpServers": []
           }
         }
       }

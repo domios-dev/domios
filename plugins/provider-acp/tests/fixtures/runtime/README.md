@@ -102,5 +102,9 @@ can change unknown authentication to authenticated. These remain derived fixture
 
 `mcp-fallback-{new,load,resume}-{success,failure}` are derived ACP v1 lifecycle
 fixtures: one failed session method with a host-built MCP descriptor retries the
-same method once without MCP. A successful reply binds the session with a notice;
+same method once with an empty MCP list. A successful reply binds the session with a notice;
 a second failure refuses visibly. Environment credentials use placeholders only.
+
+`mcp-no-fallback-{auth,session-missing,method-not-found}` keep ACP v1 errors
+-32000, -32002 and -32601 on their existing typed refusal paths without a retry.
+`mcp-fallback-generic-error` proves that a generic -32603 still retries once.

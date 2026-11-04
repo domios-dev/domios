@@ -154,7 +154,8 @@
           "method": "session/resume",
           "params": {
             "cwd": "/work/project",
-            "sessionId": "session-fixture"
+            "sessionId": "session-fixture",
+            "mcpServers": []
           }
         }
       }

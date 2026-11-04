@@ -217,13 +217,20 @@ pub fn spawn(
     let mut stderr = child.stderr.take().ok_or(RuntimeFailure::PipeEof)?;
     let output = Arc::new(Mutex::new(Vec::new()));
     let captured = output.clone();
+    let stderr_credential = credential.clone();
     let stderr_reader = crate::async_runtime::spawn(async move {
         let mut bytes = [0u8; 4096];
+        let mut pending = Vec::new();
         while let Ok(count) = stderr.read(&mut bytes).await {
             if count == 0 {
                 break;
             }
-            append_stderr(&mut captured.lock(), &bytes[..count]);
+            append_stderr(
+                &mut captured.lock(),
+                &bytes[..count],
+                stderr_credential.as_bytes(),
+                &mut pending,
+            );
         }
     });
     let client = Client::attach_redacted(reader, writer, cap.envelope.clone(), credential.clone());
@@ -340,7 +347,32 @@ fn effective_env(command: &std::process::Command) -> HashMap<String, String> {
     }
     env
 }
-fn append_stderr(output: &mut Vec<u8>, bytes: &[u8]) {
+fn append_stderr(output: &mut Vec<u8>, bytes: &[u8], credential: &[u8], pending: &mut Vec<u8>) {
+    if credential.is_empty() {
+        append_stderr_tail(output, bytes);
+        return;
+    }
+    pending.extend_from_slice(bytes);
+    let mut start = 0;
+    while let Some(offset) = pending[start..]
+        .windows(credential.len())
+        .position(|window| window == credential)
+    {
+        let end = start + offset;
+        append_stderr_tail(output, &pending[start..end]);
+        append_stderr_tail(output, b"[redacted]");
+        start = end + credential.len();
+    }
+    let overlap = (1..credential.len().min(pending.len() - start + 1))
+        .rev()
+        .find(|&length| pending[start..].ends_with(&credential[..length]))
+        .unwrap_or(0);
+    let end = pending.len() - overlap;
+    append_stderr_tail(output, &pending[start..end]);
+    pending.drain(..end);
+}
+
+fn append_stderr_tail(output: &mut Vec<u8>, bytes: &[u8]) {
     let bytes = &bytes[bytes.len().saturating_sub(8192)..];
     let retained = 8192 - bytes.len();
     output.drain(..output.len().saturating_sub(retained));
