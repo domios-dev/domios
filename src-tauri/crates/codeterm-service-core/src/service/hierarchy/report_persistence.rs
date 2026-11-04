@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use std::path::Path;
 
 use crate::agent::reports::{ReportDetails, ReportStatus};
@@ -305,11 +304,6 @@ fn persist_bound_report(
     details: &ReportDetails,
     now_ms: u64,
 ) -> Result<(), ReportPersistenceFailure> {
-    let before: HashSet<String> = store
-        .get(plan_id)
-        .and_then(|plan| plan.tasks.into_iter().find(|task| task.id == task_id))
-        .map(|task| task.milestones.into_iter().map(|item| item.id).collect())
-        .unwrap_or_default();
     let evidence = BoundWorkerReport {
         message: message.to_string(),
         status: details.status,
@@ -323,30 +317,17 @@ fn persist_bound_report(
             report_authority(details, tab_id, plan_id, task_id).map_err(stale_failure)?,
         ),
     };
-    store
+    let receipt = store
         .ingest_bound_worker_report(plan_id, task_id, from, evidence, now_ms)
         .map_err(|error| plan_failure(tab_id, plan_id, task_id, error))?;
-
-    let milestone_id = store
-        .get(plan_id)
-        .and_then(|plan| plan.tasks.into_iter().find(|task| task.id == task_id))
-        .and_then(|task| {
-            task.milestones.into_iter().find(|item| {
-                !before.contains(&item.id)
-                    && item.kind == "worker_report"
-                    && item.from.tab_id.as_deref() == Some(tab_id)
-                    && item.text.contains(message)
-            })
-        })
-        .map(|item| item.id)
-        .ok_or_else(|| {
-            incident_failure(
-                tab_id,
-                plan_id,
-                task_id,
-                "the plan write produced no matching worker_report milestone",
-            )
-        })?;
+    let milestone_id = receipt.milestone_id.ok_or_else(|| {
+        incident_failure(
+            tab_id,
+            plan_id,
+            task_id,
+            "the plan write produced no matching worker_report milestone",
+        )
+    })?;
     attach_files(
         store,
         plan_id,

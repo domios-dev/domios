@@ -359,7 +359,8 @@ fn assert_runtime_task_dispatch(
             },
             12,
         )
-        .unwrap();
+        .unwrap()
+        .committed_review;
     assert!(accepted);
     let persisted = svc.plan_store.inspect_task_for_test(&task).unwrap().task;
     assert_eq!(persisted.status, TaskStatus::InReview);

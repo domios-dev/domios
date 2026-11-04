@@ -19,6 +19,7 @@ mod plan_skill_evidence;
 pub mod remote_dispatch;
 mod remote_retirement;
 mod report_ingest;
+pub use report_ingest::BoundWorkerReportReceipt;
 mod respawn_guard;
 mod restore_binding;
 mod runtime_restart;
