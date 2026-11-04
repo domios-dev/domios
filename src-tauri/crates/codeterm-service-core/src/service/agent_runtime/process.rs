@@ -222,7 +222,7 @@ pub fn spawn(
             append_stderr(&mut captured.lock(), &bytes[..count]);
         }
     });
-    let client = Client::attach(reader, writer);
+    let client = Client::attach_with_envelope(reader, writer, cap.envelope.clone());
     let dying = client.clone();
     let (stop, mut stopping) = watch::channel(false);
     let (ended, exit) = watch::channel(None);

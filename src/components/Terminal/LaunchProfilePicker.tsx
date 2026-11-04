@@ -38,8 +38,9 @@ export function LaunchProfilePicker({provider, profiles, selected, onSelect, onR
       <option value="">Choose a profile</option>
       {Object.keys(provider.agent_runtime?.launchProfiles ?? {}).map(id => <option key={id} value={id}>{id}</option>)}
     </select></label>
-    {profile && <p role="status">Installation: {profile.install}. Authentication: {profile.auth}.</p>}
-    {(error || failure) && <p role="alert">{failure ?? error}</p>}
+    {busy && <p role="status" aria-label="Profile installation">{profile?.ownerConfigured ? "Configuring command…" : "Installing profile…"}</p>}
+    {profile && !busy && <p role="status">Installation: {profile.install}. Authentication: {profile.auth}.</p>}
+    {!busy && (error || failure) && <p role="alert">{failure ?? error}</p>}
     {profile && (profile.canInstall || profile.ownerConfigured) && !confirming && <Button onClick={() => setConfirming(true)}>
       {profile.ownerConfigured ? "Configure local command" : "Install profile"}
     </Button>}

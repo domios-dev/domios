@@ -193,7 +193,7 @@ async fn restart_inner(
             "Fresh runtime returned the previous thread".into(),
         ));
     }
-    if !fresh && loaded.context.lock().thread_id != old_thread {
+    if !fresh && old_thread.is_some() && loaded.context.lock().thread_id != old_thread {
         return Err(RuntimeFailure::Superseded);
     }
     Ok(Some(loaded))

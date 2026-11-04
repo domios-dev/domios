@@ -229,3 +229,25 @@ fn launch_profiles_require_pinned_packages_and_protect_secret_references() {
     assert!(PluginManifest::from_json_str(&raw.to_string())
         .map_or(true, |manifest| manifest.validate_agent_runtime().is_err()));
 }
+
+#[test]
+fn runtime_envelope_is_explicit_and_unknown_envelopes_are_rejected() {
+    let mut raw = manifest();
+    let default = PluginManifest::from_json_str(&raw.to_string()).unwrap();
+    assert!(default
+        .capabilities
+        .agent_runtime
+        .unwrap()
+        .envelope
+        .is_none());
+    raw["capabilities"]["agentRuntime"]["envelope"] = json!("jsonrpc2");
+    let strict = PluginManifest::from_json_str(&raw.to_string()).unwrap();
+    assert_eq!(
+        strict.capabilities.agent_runtime.unwrap().envelope,
+        Some(crate::agent_runtime::AgentRuntimeEnvelope::Jsonrpc2)
+    );
+    for invalid in [json!("jsonrpc1"), json!(true), json!({})] {
+        raw["capabilities"]["agentRuntime"]["envelope"] = invalid;
+        assert!(PluginManifest::from_json_str(&raw.to_string()).is_err());
+    }
+}
