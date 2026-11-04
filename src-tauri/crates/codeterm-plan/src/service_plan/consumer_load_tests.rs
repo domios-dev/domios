@@ -374,6 +374,7 @@ fn loop_status_never_loads_unmatched_plans() {
 
     assert_eq!(store.loop_status("loop_status").unwrap().id, "loop_status");
     assert_never_loaded(&store, &[&other]);
+    assert!(store.plan_loads_for_test().is_empty());
 }
 
 #[test]

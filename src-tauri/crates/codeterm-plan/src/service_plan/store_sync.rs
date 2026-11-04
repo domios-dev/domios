@@ -37,6 +37,9 @@ pub(super) const TASK_SCHEMA: &str = r#"
         );
     CREATE INDEX IF NOT EXISTS plan_tasks_assigned_tab_id
         ON plan_tasks(assigned_tab_id) WHERE assigned_tab_id IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS plan_tasks_lane_tab_id
+        ON plan_tasks(json_extract(row_json, '$.lane.tab_id'), plan_id)
+        WHERE json_extract(row_json, '$.lane.tab_id') IS NOT NULL;
     CREATE INDEX IF NOT EXISTS plan_tasks_lane_worktree_path
         ON plan_tasks(lane_worktree_path) WHERE lane_worktree_path IS NOT NULL;
     CREATE INDEX IF NOT EXISTS plan_tasks_lane_branch

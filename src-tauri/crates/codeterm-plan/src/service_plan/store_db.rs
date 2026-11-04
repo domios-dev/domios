@@ -28,6 +28,9 @@ const PLAN_SCHEMA: &str = r#"
         ON plans(status, updated_at DESC);
     CREATE INDEX IF NOT EXISTS plans_owner_tab_id
         ON plans(owner_tab_id) WHERE owner_tab_id IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS plans_planner_tab_id
+        ON plans(json_extract(header_json, '$.planner.tab_id'), id)
+        WHERE json_extract(header_json, '$.planner.tab_id') IS NOT NULL;
 
     CREATE TABLE IF NOT EXISTS specs (
         id TEXT PRIMARY KEY,
