@@ -66,6 +66,16 @@ const TAB_INDEX_SCHEMA: &str = r#"
     CREATE INDEX IF NOT EXISTS plan_tasks_lane_tab_id
         ON plan_tasks(json_extract(row_json, '$.lane.tab_id'), plan_id)
         WHERE json_extract(row_json, '$.lane.tab_id') IS NOT NULL;
+CREATE INDEX IF NOT EXISTS plan_tasks_event_order ON plan_tasks(
+    plan_id, coalesce(json_extract(row_json,'$.created_at'),0) DESC, position DESC,
+    task_id, json_extract(row_json,'$.name'));
+CREATE INDEX IF NOT EXISTS plan_strides_event_order ON plan_strides(
+    plan_id, coalesce(json_extract(row_json,'$.ts'),0) DESC, seq DESC);
+CREATE INDEX IF NOT EXISTS plan_milestones_event_order ON plan_task_milestones(
+    plan_id, coalesce(json_extract(row_json,'$.ts'),0) DESC, task_id, seq DESC);
+CREATE INDEX IF NOT EXISTS plan_attempts_event_author ON plan_task_attempts(
+    plan_id, task_id, executor_tab_id, position DESC, json_extract(row_json,'$.executor_title'))
+    WHERE json_extract(row_json,'$.executor_title') IS NOT NULL;
 "#;
 
 #[cfg(test)]
@@ -609,6 +619,7 @@ mod match_queries;
 pub(super) mod read_projections;
 mod reference_queries;
 mod state_event_queries;
+mod state_event_window;
 mod status_queries;
 mod task_history_queries;
 mod task_list_queries;

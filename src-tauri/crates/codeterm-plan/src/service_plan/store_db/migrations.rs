@@ -35,6 +35,12 @@ const STEPS: &[Step] = &[
         schema: include_str!("migrations/schemas/004.sql"),
         preconditions: &[],
     },
+    Step {
+        version: 5,
+        sql: include_str!("migrations/005-board-event-indexes.sql"),
+        schema: include_str!("migrations/schemas/005.sql"),
+        preconditions: &[],
+    },
 ];
 
 pub(super) const SCHEMA_VERSION: i64 = STEPS[STEPS.len() - 1].version;
