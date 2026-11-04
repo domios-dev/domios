@@ -66,6 +66,17 @@ it("shows a failed snapshot and Retry commits a fresh authoritative transcript",
   expect(starts).toBe(2);
 });
 
+it("keeps transport diagnostics collapsed behind a human connection summary", async () => {
+  __setInvokeForTest((async () => { throw new Error('/api/tabs/opaque/chat-raw/start → HTTP 400: Provider refused: ProviderRefused: opaque-session'); }) as never);
+  await act(async () => root.render(<Harness />));
+  const banner=host.querySelector('[role="status"][aria-label="Chat connection failed"]')!;
+  expect(banner).not.toBeNull();
+  expect(banner.querySelector("details")?.open).toBe(false);
+  expect(banner.querySelector("summary")?.textContent).toBe("Details");
+  expect(banner.querySelector("pre")?.textContent).toContain("HTTP 400");
+  expect(banner.querySelector("details")?.previousElementSibling?.textContent).toBe("The connection to the agent could not be completed.");
+});
+
 it("retries a failed snapshot on tab lifecycle activation", async () => {
   await act(async () => root.render(<Harness />));
   failSnapshot = false;

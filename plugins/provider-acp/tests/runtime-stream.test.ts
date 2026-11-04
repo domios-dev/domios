@@ -7,7 +7,7 @@ import { reduceTool } from "../src/runtimeReduceTools";
 interface Fixture {
   context:RuntimeContext;
   operations:{operation:Operation;context?:RuntimeContext}[];
-  rpc:({direction:"outbound";operation:number} | {direction:"inbound";operation:number;reply:{kind:string;value?:JsonValue}} |
+  rpc:({direction:"outbound";operation:number;action:{kind:string}} | {direction:"inbound";operation:number;reply:{kind:string;value?:JsonValue}} |
     {direction:"inbound";frame:RuntimeFrame;context?:RuntimeContext})[];
 }
 const root=new URL("./fixtures/runtime/",import.meta.url);
@@ -23,7 +23,7 @@ function replay(name:string):{state:Record<string,JsonValue>;rows:ChatMsg[];even
     if (record.direction === "outbound") {
       const op=fixture.operations[record.operation].operation;
       if (op.kind === "submitTurn") {cursor.prompt++;cursor.loading=false;}
-      if (op.kind === "resumeThread") {cursor.replay++;cursor.prompt=0;cursor.loading=true;}
+      if (op.kind === "resumeThread" && record.action.kind !== "local") {cursor.replay++;cursor.prompt=0;cursor.loading=true;}
     } else if ("frame" in record) {
       const before=JSON.stringify(state);
       const reduced=reduceStream(record.context ?? fixture.context,state,[record.frame],cursor);
@@ -58,9 +58,9 @@ assert.equal((tools.rows[0].fileDiffs as {path:string}[])[0].path,"a.txt");
 assert.equal(scenarios.get("plan-updates")!.rows.length,1);
 assert.equal(scenarios.get("commands-modes-config-usage")!.rows.length,0);
 const replayed=scenarios.get("load-replay-no-duplicates")!;
-assert.equal(replayed.rows.length,3,"repeated session/load must keep exactly three transcript rows");
-assert.deepEqual(replayed.rows,messages.rows,"live and replay retain the same row ids, order, content and sequence");
-assert.equal(replayed.state.replay,2);
+assert.equal(replayed.rows.length,3,"same-epoch reattach must keep exactly three transcript rows");
+assert.deepEqual(replayed.rows,messages.rows,"reattach retains live row ids, order, content and sequence");
+assert.equal(replayed.state.replay,0);
 const unknown=scenarios.get("unknown-update-kind")!;
 assert.equal(unknown.rows.filter(row=>row.systemSubtype === "runtime_warning").length,0);
 assert.equal(unknown.events.filter(event=>event.kind === "notice").length,1);
@@ -113,6 +113,8 @@ const liveTwo=reduceStream(context,liveSettled.state,[frame("user_message_chunk"
 const history=reduceStream(context,liveTwo.state,[...historyFrames,frame("user_message_chunk","Two"),frame("agent_message_chunk","Second answer")],{prompt:0,replay:1,loading:true});
 assert.deepEqual((history.state as Record<string,JsonValue>).items,(liveTwo.state as Record<string,JsonValue>).items,"multi-turn replay preserves ordinals across tool and plan boundaries");
 assert.equal(Object.keys((history.state as Record<string,JsonValue>).items as object).length,7);
+const replayAgain=reduceStream(context,history.state,[...historyFrames,frame("user_message_chunk","Two"),frame("agent_message_chunk","Second answer")],{prompt:0,replay:2,loading:true});
+assert.deepEqual((replayAgain.state as Record<string,JsonValue>).items,(history.state as Record<string,JsonValue>).items,"repeated remote replay preserves all row identities and content");
 const withoutTurn=reduceStream({...context,activeTurnId:undefined},null,[frame("user_message_chunk","Hello"),frame("agent_message_chunk","Answer")],cursor);
 assert.ok(withoutTurn.events.some(event=>event.kind === "sendEvidence" && event.turnId === "session-fixture:turn:1"));
 assert.ok(withoutTurn.events.some(event=>event.kind === "turnState" && event.turnId === "session-fixture:turn:1"));

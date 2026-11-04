@@ -22,7 +22,9 @@ contexts and expected outcomes are adapter assertions, not wire fields.
   Initialization returns a protocol error; subsequent planning returns a local
   refusal because no negotiated epoch exists.
 - `load-when-advertised`: loadSession true and the session/load example.
-- `resume-when-advertised`: sessionCapabilities.resume object and session/resume.
+- `resume-when-advertised`: sessionCapabilities.resume object and session/resume,
+  followed by a local reattach to the active session. The local action is host
+  metadata and emits no ACP frame.
 - `resume-not-advertised`: absent optional capabilities; the expected plan error
   proves a returned local refusal action without an outbound session method.
 - `cancel`: session/cancel notification targeting the new session. The host active
@@ -47,8 +49,9 @@ session, prompt-turn ordinal and item ordinal. A user chunk starts the next turn
 while loading history. Tool IDs remain provider-supplied identities.
 
 `stream-message-thought-chunks` covers split text, split thoughts and foreign
-session rejection. `load-replay-no-duplicates` replays that same conversation twice
-through session/load, with identical final row identities and content.
+session rejection. `load-replay-no-duplicates` reattaches twice to that same
+conversation in one epoch, with identical final row identities and content.
+Direct reducer cases separately prove repeated remote replay preserves those identities.
 `tool-call-lifecycle` carries structured oldText/newText diff content and an
 explicit result; `cancel-mid-tool` retains and interrupts the active tool card.
 `plan-updates` replaces one plan row. `commands-modes-config-usage` retains bounded

@@ -18,6 +18,7 @@ interface Negotiation {
   required?:boolean;
   settings?:import("@codeterm/plugin-sdk").RuntimeSettings;
   sessionId?:string;
+  sessionActive?:boolean;
   instructions?:string;
   cursor:StreamCursor;
   inFlight:boolean;
@@ -114,10 +115,14 @@ export function runtimePlan(ctx:RuntimeContext, op:Operation):RuntimePlan {
       if (ctx.threadId || state.sessionId) return refusePlan("ACP session is already bound");
       return request(methods.newSession, {cwd:ctx.cwd, mcpServers:[]});
     case "resumeThread": {
+      if (state.sessionId && state.sessionId !== op.threadId) return refusePlan("ACP session does not belong to this runtime");
+      if (state.sessionActive && state.sessionId === op.threadId)
+        return {action:{kind:"local"},state:{method:"boundSession"}};
       const capabilities = state.capabilities;
       const session = object(capabilities.sessionCapabilities);
       const method = record(session.resume) ? methods.resume : capabilities.loadSession === true ? methods.load : null;
       if (!method) return refusePlan("ACP agent did not advertise session/load or session/resume");
+      state.sessionActive=false;
       state.sessionId=op.threadId;
       state.cursor={replay:state.cursor.replay+1,prompt:0,loading:true};
       return request(method, {sessionId:op.threadId, cwd:ctx.cwd, mcpServers:[]});
@@ -178,7 +183,7 @@ export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue,
     const authenticated = object(raw).authenticated === true || prior?.authenticated === true;
     remember(ctx, {epoch:ctx.epoch, nonce:ctx.bindingNonce,
       capabilities:object(value.agentCapabilities), authMethods, authenticated, required:authenticated ? false : prior?.required,
-      sessionId:prior?.sessionId, instructions:prior?.instructions,
+      sessionId:prior?.sessionId, sessionActive:prior?.sessionActive, instructions:prior?.instructions,
       cursor:prior?.cursor ?? {replay:0,prompt:0,loading:false},inFlight:prior?.inFlight ?? false,
       projection:prior?.projection, settledProjection:prior?.settledProjection, settings:prior?.settings});
     return {kind:"complete",result:op.kind === "initialize" ? {kind:"initialized"} : {kind:"done"},
@@ -186,6 +191,10 @@ export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue,
   }
   const state = negotiated(ctx);
   if (!state) return refused("provider_refused", "ACP initialization is required for this runtime epoch");
+  if (op.kind === "resumeThread" && method === "boundSession") {
+    if (!state.sessionActive || state.sessionId !== op.threadId) return refused("binding_mismatch", "ACP session is not active in this runtime");
+    return {kind:"complete",result:{kind:"threadLoaded",threadId:ownSession(ctx,state),settings:{...op.settings,...state.settings}}};
+  }
   if (op.kind === "openThread" || op.kind === "resumeThread") {
     if (op.kind === "resumeThread") {
       const allowed = method === methods.load ? state.capabilities.loadSession === true
@@ -197,6 +206,7 @@ export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue,
       || op.kind === "resumeThread" && value.sessionId !== undefined && value.sessionId !== sessionId)
       return refused("binding_mismatch", "ACP session identity is invalid");
     state.sessionId = sessionId;
+    state.sessionActive = true;
     state.instructions = op.instructions;
     state.cursor.loading=false;
     state.settings={commands:[],configOptions:[],modes:[],...sessionSettings(value)};

@@ -207,6 +207,7 @@ async fn run_inner(
         validate_runtime_plan(&capability, &context, &operation, &next)
             .map_err(|reason| RuntimeFailure::Refused(reason.to_string()))?;
         let reply = match &next.action {
+            RuntimeAction::Local => Ok(Value::Null),
             RuntimeAction::Refused { reason } => {
                 return Err(RuntimeFailure::Refused(reason.clone()))
             }

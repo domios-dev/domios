@@ -943,6 +943,45 @@
         "code": "provider_refused",
         "message": "Opaque fixture refusal"
       }
+    },
+    {
+      "context": {
+        "epoch": 1,
+        "tabId": "fixture-tab",
+        "bindingNonce": "fixture-nonce",
+        "cwd": "/fixture",
+        "hostVersion": "1.0.0",
+        "claimedSends": [],
+        "settings": {},
+        "providerSettings": {
+          "localResume": true
+        },
+        "threadId": "thread-a"
+      },
+      "operation": {
+        "kind": "resumeThread",
+        "threadId": "thread-a",
+        "instructions": "",
+        "settings": {}
+      },
+      "reply": {
+        "kind": "success",
+        "value": null
+      },
+      "plan": {
+        "action": {
+          "kind": "local"
+        },
+        "state": null
+      },
+      "step": {
+        "kind": "complete",
+        "result": {
+          "kind": "threadLoaded",
+          "threadId": "thread-a",
+          "settings": {}
+        }
+      }
     }
   ],
   "reductions": [

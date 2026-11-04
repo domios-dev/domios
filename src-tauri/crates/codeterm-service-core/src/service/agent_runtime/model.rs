@@ -306,10 +306,7 @@ impl ItemCache {
     /// Starts a replay and drops rows a previous replay landed, keeping live and host rows,
     /// so every history row of this replay can sit below the surviving minimum.
     pub fn begin_backfill(&mut self) -> u64 {
-        self.backfill_generation = self.backfill_generation.wrapping_add(1);
-        self.backfill = HistoryBackfill::Loading;
-        self.history_pages = 0;
-        self.live_during_backfill.clear();
+        self.begin_cached_backfill();
         if !self.history_origin.is_empty() {
             let origin = std::mem::take(&mut self.history_origin);
             self.items.retain(|row| !origin.contains(&row.id));
@@ -324,6 +321,13 @@ impl ItemCache {
         if self.rereadable {
             self.cached_bytes = self.items.iter().map(Self::row_bytes).sum();
         }
+        self.backfill_generation
+    }
+    pub fn begin_cached_backfill(&mut self) -> u64 {
+        self.backfill_generation = self.backfill_generation.wrapping_add(1);
+        self.backfill = HistoryBackfill::Loading;
+        self.history_pages = 0;
+        self.live_during_backfill.clear();
         self.backfill_generation
     }
     pub fn backfill_current(&self, generation: u64) -> bool {

@@ -896,10 +896,25 @@ async fn ensure_locked(
     .map_err(RuntimeFailure::HookFailed)?;
     super::question_delivery::publish(svc, tab, session, questions)
         .map_err(RuntimeFailure::HookFailed)?;
+    let remote_history = session
+        .adapter
+        .lock()
+        .as_ref()
+        .and_then(|adapter| adapter.agent_runtime())
+        .is_some_and(|capability| {
+            capability
+                .request_methods
+                .get("readHistory")
+                .is_some_and(|methods| !methods.is_empty())
+        });
     let generation = {
         let mut checkpoint = session.history_retry.lock();
         *checkpoint = None;
-        session.cache.lock().begin_backfill()
+        if remote_history {
+            session.cache.lock().begin_backfill()
+        } else {
+            session.cache.lock().begin_cached_backfill()
+        }
     };
     let mut port = backfill::RpcPort::new(svc, session, &process, tab, &thread_id);
     let mut replay = backfill::Replay::new(context.epoch, generation, &thread_id);
@@ -918,7 +933,13 @@ async fn ensure_locked(
         session.cache.lock().bound_rereadable();
         replay.bound_startup();
     }
-    if let Err(reason) = replay.first(session, &mut port).await {
+    let first = if remote_history {
+        replay.first(session, &mut port).await
+    } else {
+        replay.done = true;
+        Ok(())
+    };
+    if let Err(reason) = first {
         session
             .cache
             .lock()

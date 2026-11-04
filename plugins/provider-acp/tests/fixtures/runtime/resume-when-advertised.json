@@ -38,6 +38,27 @@
         "threadParents": [],
         "threadId": "session-fixture"
       }
+    },
+    {
+      "operation": {
+        "kind": "resumeThread",
+        "threadId": "session-fixture",
+        "instructions": "",
+        "settings": {}
+      },
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/project",
+        "hostVersion": "1.18.7",
+        "tabId": "resume-when-advertised",
+        "bindingNonce": "nonce-fixture",
+        "settings": {},
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "session-fixture"
+      }
     }
   ],
   "rpc": [
@@ -104,6 +125,21 @@
         "kind": "success",
         "value": {}
       }
+    },
+    {
+      "direction": "outbound",
+      "operation": 2,
+      "action": {
+        "kind": "local"
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 2,
+      "reply": {
+        "kind": "success",
+        "value": null
+      }
     }
   ],
   "expected": {
@@ -128,6 +164,21 @@
       },
       {
         "operation": 1,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "threadLoaded",
+            "threadId": "session-fixture",
+            "settings": {
+              "commands": [],
+              "configOptions": [],
+              "modes": []
+            }
+          }
+        }
+      },
+      {
+        "operation": 2,
         "step": {
           "kind": "complete",
           "result": {
