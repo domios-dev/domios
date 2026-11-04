@@ -11,6 +11,7 @@ mod binding_tests;
 mod bundle_tests;
 mod chat_header_tests;
 mod curator_digest_tests;
+mod curator_notice_tests;
 mod curator_schedule_tests;
 mod document_reader_tests;
 mod export_tests;
