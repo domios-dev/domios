@@ -175,6 +175,7 @@ fn corrupt_markdown_sidecar_keeps_plan_indexed_with_json_body() {
     assert_eq!(loaded.tasks[0].body, "json task body");
     assert!(store
         .list_index()
+        .unwrap()
         .iter()
         .any(|entry| entry.plan_id == plan.id));
 

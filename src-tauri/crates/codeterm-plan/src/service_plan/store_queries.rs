@@ -132,11 +132,8 @@ impl PlanStore {
     }
 
     /// Built from SQL aggregates over the stored rows; no plan is loaded.
-    pub fn list_index(&self) -> Vec<IndexEntry> {
-        self.database.list_index_entries().unwrap_or_else(|error| {
-            log::warn!("[plan.store] plan index query failed: {error}");
-            Vec::new()
-        })
+    pub fn list_index(&self) -> Result<Vec<IndexEntry>, PlanError> {
+        self.database.plan_list_index(None, None, false, None)
     }
 
     pub fn task_board_page(
@@ -185,15 +182,8 @@ impl PlanStore {
         ids
     }
 
-    /// `(plan_id, project root)` per plan: the canonical path when set, else the project path.
-    /// One text field of every attempt row holding it.
-    pub fn attempt_field_values(&self, path: &str) -> Vec<AttemptFieldRow> {
-        self.database
-            .attempt_field_values(path)
-            .unwrap_or_else(|error| {
-                log::warn!("[plan.store] attempt field query failed: {error}");
-                Vec::new()
-            })
+    pub fn attempt_lane_paths(&self) -> Result<Vec<AttemptLanePathRead>, PlanError> {
+        self.database.attempt_lane_paths()
     }
 
     pub(super) fn section_ref_rows(&self) -> Result<Vec<SectionRefRow>, PlanError> {

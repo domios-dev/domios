@@ -56,6 +56,7 @@ fn open_builds_the_index_without_parsing_any_plan_row() {
     let reopened = PlanStore::open(database_path).unwrap();
     let listed: Vec<String> = reopened
         .list_index()
+        .unwrap()
         .into_iter()
         .map(|entry| entry.plan_id)
         .collect();
@@ -176,6 +177,7 @@ fn failed_persist_evicts_the_cached_plan_so_memory_matches_disk() {
     assert_eq!(store.plan_loads_for_test(), vec![id.clone()]);
     let entry = store
         .list_index()
+        .unwrap()
         .into_iter()
         .find(|entry| entry.plan_id == id)
         .unwrap();

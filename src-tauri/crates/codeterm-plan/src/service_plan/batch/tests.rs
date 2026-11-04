@@ -307,7 +307,7 @@ fn batch_create_plan_from_spec_is_not_written_when_later_op_fails() {
             .count(),
         before
     );
-    assert_eq!(store.list_index().len(), 1);
+    assert_eq!(store.list_index().unwrap().len(), 1);
 }
 
 #[test]

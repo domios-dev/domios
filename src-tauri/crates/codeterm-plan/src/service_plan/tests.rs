@@ -568,6 +568,7 @@ fn closed_task_assignment_is_not_indexed_or_bound() {
 
     let entry = store
         .list_index()
+        .unwrap()
         .into_iter()
         .find(|entry| entry.plan_id == id)
         .unwrap();

@@ -340,6 +340,7 @@ fn close_team_archives_and_detaches_bound_plan() {
     assert_eq!(retired.to, OrchestratorRef::default());
     assert!(plan_store
         .list_index()
+        .unwrap()
         .iter()
         .any(|entry| { entry.plan_id == plan.id && entry.status == PlanStatus::Archived }));
 }

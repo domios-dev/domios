@@ -197,7 +197,7 @@ pub use state::{
     LoopSnapshot, OpenLane, PlanStateSnapshot, PlanningReadiness, StrideSnapshot, TaskCounts,
     TaskPresentation,
 };
-pub use store_db::{AttemptFieldRow, SectionRefRow};
+pub use store_db::{AttemptLanePathRead, SectionRefRow};
 pub use task_dispatch::{
     ambiguous_subject_cause, superseded_subject_cause, unresolved_subject_cause, DispatchRollback,
     DispatchStart, DispatchStartupOwner, DispatchUndo, LiveTabAttempt, LiveTaskAttemptRead,

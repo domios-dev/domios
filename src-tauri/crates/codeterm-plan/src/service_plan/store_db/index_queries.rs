@@ -159,6 +159,7 @@ impl PlanDatabase {
 
     /// `list_index` rows: counts and assigned tabs are SQL aggregates over task, section
     /// and element rows, so no plan is loaded.
+    #[cfg(test)]
     pub(in crate::service_plan) fn list_index_entries(&self) -> Result<Vec<IndexEntry>, PlanError> {
         let connection = self.connection.lock();
         let mut assigned = assigned_tab_ids(&connection)?;
@@ -188,6 +189,7 @@ impl PlanDatabase {
 }
 
 /// Tabs of unfinished assigned tasks per plan, in task order.
+#[cfg(test)]
 fn assigned_tab_ids(
     connection: &rusqlite::Connection,
 ) -> Result<HashMap<String, Vec<String>>, PlanError> {
