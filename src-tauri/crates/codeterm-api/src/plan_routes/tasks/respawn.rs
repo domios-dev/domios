@@ -92,7 +92,6 @@ pub async fn task_respawn(
         )
         .map_err(plan_err)?;
     }
-    let original_plan_mode = plan.mode.clone();
     let store = state.svc.plan_store.clone();
     let plan_id = id.clone();
     let task_id = tid.clone();
@@ -235,7 +234,7 @@ pub async fn task_respawn(
             "blocking task failed",
         )
     })?;
-    let created = match created {
+    let (created, rollback) = match created {
         Ok(created) => created,
         Err(error) => {
             if let Err(close_error) = state.svc.close_tab_async(&spawn.tab_id).await {
@@ -282,8 +281,7 @@ pub async fn task_respawn(
         attempt_id: created.attempt.id.clone(),
         parent_tab_id,
         worker_title: spawn.title.clone(),
-        original_task,
-        original_plan_mode,
+        rollback,
         lane_for_commit,
         canonical_project_path: canonical_cwd,
         provenance,

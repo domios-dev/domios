@@ -142,7 +142,8 @@ fn dispatched_attempt_records_routed_model_and_effort() {
             true,
             3,
         )
-        .unwrap();
+        .unwrap()
+        .attempt_id;
 
     let task = store.show_task(&task_id).unwrap().task;
     let attempt = task
@@ -1045,7 +1046,7 @@ fn agent_ready_explicit_error_is_definitive_channel_close_and_timeout_are_uncert
 }
 
 #[test]
-fn launch_delivery_failure_restores_exact_original_task_and_attempt_state() {
+fn launch_delivery_failure_restores_startup_fields_and_keeps_failed_attempt() {
     let (root, project) = git_project();
     let store = PlanStore::new_for_test(root.path());
     let plan = store
@@ -1082,6 +1083,16 @@ fn launch_delivery_failure_restores_exact_original_task_and_attempt_state() {
     let worktree_path = actual.worktree_path.clone();
     let branch = actual.branch.clone();
     let closed = Cell::new(false);
+    let started = store
+        .begin_task_dispatch_with_undo(
+            &plan.id,
+            &task_id,
+            "tab-worker",
+            "Ada",
+            original.lane.clone(),
+            4,
+        )
+        .unwrap();
     let error = complete_dispatch_transaction(
         Instant::now() + Duration::from_secs(1),
         |_| {
@@ -1111,11 +1122,9 @@ fn launch_delivery_failure_restores_exact_original_task_and_attempt_state() {
         || {
             roll_back_dispatch_attempt(
                 &store,
-                &plan.id,
-                &original,
-                &PlanMode::Approved,
+                &started.undo,
                 "tab-worker",
-                "attempt-unrecorded",
+                &started.attempt_id,
                 Some(lane),
                 || {
                     closed.set(true);
@@ -1129,7 +1138,14 @@ fn launch_delivery_failure_restores_exact_original_task_and_attempt_state() {
 
     assert_eq!(error.data.unwrap()["stage"], "agent_ready");
     assert!(closed.get());
-    assert_eq!(store.show_task(&task_id).unwrap().task, original);
+    let restored = store.show_task(&task_id).unwrap().task;
+    assert_eq!(restored.status, original.status);
+    assert_eq!(restored.assigned_tab_id, original.assigned_tab_id);
+    assert_eq!(restored.lane, original.lane);
+    assert_eq!(restored.interruption, original.interruption);
+    assert_eq!(restored.execution_attempts.len(), 1);
+    assert_eq!(restored.execution_attempts[0].id, started.attempt_id);
+    assert_eq!(restored.execution_attempts[0].closed_at, Some(5));
     assert_eq!(store.get(&plan.id).unwrap().mode, PlanMode::Approved);
     assert!(!Path::new(&worktree_path).exists());
     let branches = Command::new("git")

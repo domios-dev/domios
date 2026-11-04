@@ -10,7 +10,21 @@ impl PlanStore {
         role: Option<&str>,
         now_ms: u64,
     ) -> Result<TaskAttemptCreated, PlanError> {
+        self.record_task_respawn_attempt_with_undo(plan_id, task_id, tab_id, draft, role, now_ms)
+            .map(|(created, _)| created)
+    }
+
+    pub fn record_task_respawn_attempt_with_undo(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        tab_id: &str,
+        draft: &TaskRespawnDraft,
+        role: Option<&str>,
+        now_ms: u64,
+    ) -> Result<(TaskAttemptCreated, super::super::DispatchUndo), PlanError> {
         let mut created = None;
+        let mut undo = None;
         let writer_turn = self.mutation_writer.enter();
         if draft.source_attempt.placement == crate::plan::WorkerPlacement::Shared {
             let task = self.task_checkout_projection(plan_id, task_id, false)?;
@@ -38,6 +52,13 @@ impl PlanStore {
                 )?;
             }
             let attempt_id = draft.attempt_id.clone();
+            undo = Some(super::super::DispatchUndo::capture(
+                &plan.id,
+                &plan.mode,
+                &plan.tasks[task_index],
+                &attempt_id,
+                Some(&draft.source_attempt.id),
+            ));
             super::super::task_dispatch::record_blocked_task_unblock(
                 plan,
                 task_index,
@@ -83,13 +104,19 @@ impl PlanStore {
                 attempt.clone(),
                 now_ms,
             );
+            undo.as_mut()
+                .expect("undo captured before respawn mutation")
+                .finish(&plan.mode, task);
             created = Some(attempt);
             Ok(())
         })?;
-        Ok(TaskAttemptCreated {
-            plan_id: plan_id.into(),
-            task_id: task_id.into(),
-            attempt: created.expect("attempt set before successful write"),
-        })
+        Ok((
+            TaskAttemptCreated {
+                plan_id: plan_id.into(),
+                task_id: task_id.into(),
+                attempt: created.expect("attempt set before successful write"),
+            },
+            undo.expect("undo captured before successful respawn"),
+        ))
     }
 }

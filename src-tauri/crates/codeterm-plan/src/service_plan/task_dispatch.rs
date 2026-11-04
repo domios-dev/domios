@@ -3,6 +3,7 @@ mod lifecycle;
 mod reservation;
 mod rollback;
 mod unblock;
+mod undo;
 mod worker_ack_subject;
 
 use super::lane_metadata::normalize_lane_metadata;
@@ -23,6 +24,7 @@ pub use rollback::DispatchRollback;
 pub(super) use unblock::{
     record_blocked_task_unblock, restore_blocked_unblock, task_respawn_status, task_startup_status,
 };
+pub use undo::{DispatchStart, DispatchUndo};
 pub use worker_ack_subject::{
     ambiguous_subject_cause, superseded_subject_cause, unresolved_subject_cause, LiveTabAttempt,
     ACK_CAUSE_AMBIGUOUS_ATTEMPTS, ACK_CAUSE_ATTEMPT_SUPERSEDED, ACK_CAUSE_NO_LIVE_ATTEMPT,
@@ -351,6 +353,7 @@ impl PlanStore {
             None,
             now_ms,
         )
+        .map(|started| started.attempt_id)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -385,6 +388,7 @@ impl PlanStore {
             None,
             now_ms,
         )
+        .map(|started| started.attempt_id)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -421,6 +425,7 @@ impl PlanStore {
             None,
             now_ms,
         )
+        .map(|started| started.attempt_id)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -445,7 +450,7 @@ impl PlanStore {
         observed_startup_owner_is_live: bool,
         startup_owner_observation_made: bool,
         now_ms: u64,
-    ) -> Result<String, PlanError> {
+    ) -> Result<DispatchStart, PlanError> {
         self.begin_task_dispatch_with_policy_and_dispatched_metadata(
             plan_id,
             task_id,
@@ -500,6 +505,7 @@ impl PlanStore {
             None,
             now_ms,
         )
+        .map(|started| started.attempt_id)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -521,13 +527,14 @@ impl PlanStore {
         startup_owner_observation_made: bool,
         dispatched_metadata: Option<DispatchedAttemptMetadata>,
         now_ms: u64,
-    ) -> Result<String, PlanError> {
+    ) -> Result<DispatchStart, PlanError> {
         super::interruption::provider_allowance_preflight(&intent, allowance.as_ref(), now_ms)?;
         let dispatch_attempt_id = reserved_attempt_id
             .map(str::to_string)
             .unwrap_or_else(|| crate::plan::ids::short_id("attempt"));
         let mut attempt_id = None;
         let mut original_status = None;
+        let mut undo = None;
         let shared_binding: Option<super::shared_checkout::SharedDispatchInspection> =
             if placement == crate::plan::WorkerPlacement::Shared {
                 Some(self.inspect_shared_dispatch(plan_id, task_id)?)
@@ -560,6 +567,13 @@ impl PlanStore {
             let task_index = crate::plan::task_key::find_task_index(&plan.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
             let dispatch_status = task_startup_status(&plan.tasks[task_index].status)?;
+            undo = Some(DispatchUndo::capture(
+                &plan.id,
+                &plan.mode,
+                &plan.tasks[task_index],
+                &dispatch_attempt_id,
+                None,
+            ));
             record_blocked_task_unblock(
                 plan,
                 task_index,
@@ -640,6 +654,9 @@ impl PlanStore {
             task.status_label = Some("starting".into());
             task.updated_at = now_ms;
             plan.mode = crate::plan::PlanMode::Execution;
+            undo.as_mut()
+                .expect("undo captured before dispatch mutation")
+                .finish(&plan.mode, &plan.tasks[task_index]);
             Ok(())
         });
         let write = match write {
@@ -691,6 +708,9 @@ impl PlanStore {
             Ok(())
         })();
         pending_after_verified(write, verified, Some(task_id.to_string()))?;
-        Ok(attempt_id)
+        Ok(DispatchStart {
+            attempt_id,
+            undo: undo.expect("undo captured before successful dispatch"),
+        })
     }
 }

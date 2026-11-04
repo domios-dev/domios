@@ -174,7 +174,13 @@ pub(super) trait RespawnAttemptRoleExt {
         draft: &TaskRespawnDraft,
         svc: &ServiceState,
         now: u64,
-    ) -> Result<TaskAttemptCreated, PlanError>;
+    ) -> Result<
+        (
+            TaskAttemptCreated,
+            codeterm_service_core::service::plan::DispatchUndo,
+        ),
+        PlanError,
+    >;
 }
 
 impl RespawnAttemptRoleExt for PlanStore {
@@ -186,8 +192,14 @@ impl RespawnAttemptRoleExt for PlanStore {
         draft: &TaskRespawnDraft,
         svc: &ServiceState,
         now: u64,
-    ) -> Result<TaskAttemptCreated, PlanError> {
-        self.record_task_respawn_attempt(
+    ) -> Result<
+        (
+            TaskAttemptCreated,
+            codeterm_service_core::service::plan::DispatchUndo,
+        ),
+        PlanError,
+    > {
+        self.record_task_respawn_attempt_with_undo(
             plan_id,
             task_id,
             tab_id,
