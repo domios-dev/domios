@@ -72,6 +72,47 @@ impl Drop for RecoveryCompletion<'_> {
 }
 
 impl ServiceContext {
+    pub(crate) fn record_runtime_interruption_for_tab(
+        &self,
+        tab_id: &str,
+        session: &str,
+        nonce: &str,
+        epoch: u64,
+        reason: &str,
+    ) -> Result<Option<(String, String, String)>, String> {
+        let binding = self
+            .mux
+            .read()
+            .get_tab(tab_id)
+            .filter(|tab| {
+                tab.session_binding_nonce.as_deref() == Some(nonce)
+                    && tab.agent_session_id.as_deref() == Some(session)
+            })
+            .and_then(|tab| tab.task_binding.clone());
+        let Some(binding) = binding else {
+            return Ok(None);
+        };
+        let (Some(plan), Some(task), Some(attempt)) =
+            (binding.plan_id, binding.task_id, binding.attempt_id)
+        else {
+            return Err("runtime interruption has an incomplete task binding".into());
+        };
+        self.plan_store
+            .record_runtime_interruption(
+                &plan,
+                &task,
+                &attempt,
+                tab_id,
+                session,
+                nonce,
+                epoch,
+                reason,
+                chrono::Utc::now().timestamp_millis().max(0) as u64,
+            )
+            .map_err(|error| error.to_string())?;
+        Ok(Some((plan, task, attempt)))
+    }
+
     pub(crate) fn chatbackend_turn_start_incident(&self, tab_id: &str, nonce: &str, epoch: u64) {
         let reason = "Accepted send had no observed turn start within 60 seconds";
         {
@@ -184,6 +225,18 @@ impl ServiceContext {
             }) {
                 return;
             }
+            let binding = match svc
+                .record_runtime_interruption_for_tab(&tab_id, &expected, &nonce, epoch, &reason)
+            {
+                Ok(binding) => binding,
+                Err(error) => {
+                    svc.chatbackend_incident(
+                        &tab_id,
+                        &format!("{reason}. Cannot persist interruption: {error}"),
+                    );
+                    return;
+                }
+            };
             let failure = if decision == Decision::Restart {
                 match svc.agent_restart(&tab_id, false, 0) {
                     Ok(result)
@@ -214,6 +267,33 @@ impl ServiceContext {
                         if let Some(runtime) = super::super::agent_runtime::engine::for_tab(&tab_id)
                         {
                             super::super::agent_runtime::engine::publish(&svc, &tab_id, &runtime);
+                        }
+                        if let Some((plan, task, attempt)) = &binding {
+                            let new_nonce = svc
+                                .mux
+                                .read()
+                                .get_tab(&tab_id)
+                                .and_then(|tab| tab.session_binding_nonce.clone())
+                                .unwrap_or_default();
+                            if let Err(error) = svc.plan_store.record_runtime_recovery(
+                                plan,
+                                task,
+                                attempt,
+                                &tab_id,
+                                &expected,
+                                &new_nonce,
+                                &nonce,
+                                epoch,
+                                chrono::Utc::now().timestamp_millis().max(0) as u64,
+                            ) {
+                                svc.chatbackend_incident(
+                                    &tab_id,
+                                    &format!(
+                                        "Runtime resumed, but recovery receipt failed: {error}"
+                                    ),
+                                );
+                                return;
+                            }
                         }
                         svc.emit_state_changed(super::super::MuxEmitCause::RuntimeSignal);
                         if interrupted {

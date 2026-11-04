@@ -506,3 +506,5 @@ mod team_recovery;
 mod orphan_executor;
 
 mod preview_encoding;
+
+mod system_heartbeats;

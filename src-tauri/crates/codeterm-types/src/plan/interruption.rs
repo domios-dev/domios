@@ -63,6 +63,12 @@ pub struct TaskInterruptionState {
 pub struct AttemptInterruptionState {
     pub owner_epoch: u64,
     pub interrupted_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime_epoch: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime_nonce: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recovered_at: Option<u64>,
     pub reason: Option<String>,
     pub checkpoint_digest: Option<String>,
 }

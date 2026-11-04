@@ -64,10 +64,14 @@ macro_rules! agent_provider_session_content {
             None
         }
 
-        /// Pure, I/O-only session content search projection.
-        fn parse_session_messages(&self, file_path: &std::path::Path) -> Vec<SessionMessage> {
+        /// Pure, I/O-only session content search projection. `Err` means the
+        /// transcript could not be fully projected; it is never a partial list.
+        fn parse_session_messages(
+            &self,
+            file_path: &std::path::Path,
+        ) -> Result<Vec<SessionMessage>, String> {
             let _ = file_path;
-            Vec::new()
+            Ok(Vec::new())
         }
 
         /// Where content search reads this provider's session text from.
