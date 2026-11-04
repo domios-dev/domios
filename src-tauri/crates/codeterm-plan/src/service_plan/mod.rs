@@ -172,9 +172,9 @@ pub use state::{
 pub use store_db::{AttemptFieldRow, SectionRefRow, TaskFieldRow, TaskRefRow};
 pub use task_dispatch::{
     ambiguous_subject_cause, superseded_subject_cause, unresolved_subject_cause, DispatchRollback,
-    DispatchStart, DispatchStartupOwner, DispatchUndo, LiveTabAttempt, TaskDispatchReservation,
-    ACK_CAUSE_AMBIGUOUS_ATTEMPTS, ACK_CAUSE_ATTEMPT_SUPERSEDED, ACK_CAUSE_NO_LIVE_ATTEMPT,
-    ACK_CAUSE_PLAN_NOT_ACTIVE, ACK_CAUSE_TASK_NOT_OPEN,
+    DispatchStart, DispatchStartupOwner, DispatchUndo, LiveTabAttempt, LiveTaskAttemptRead,
+    TaskDispatchReservation, ACK_CAUSE_AMBIGUOUS_ATTEMPTS, ACK_CAUSE_ATTEMPT_SUPERSEDED,
+    ACK_CAUSE_NO_LIVE_ATTEMPT, ACK_CAUSE_PLAN_NOT_ACTIVE, ACK_CAUSE_TASK_NOT_OPEN,
 };
 pub use types::{
     IndexEntry, NewTask, OpenSubtask, PlanError, PlanIncident, ReconcileFixResult, SpecIndexEntry,

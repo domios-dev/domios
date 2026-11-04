@@ -56,10 +56,16 @@ impl ServiceContext {
         }
         self.wake_frozen_tab(target)?;
         if crate::paths::is_dev_instance() && payload.trace_id.is_none() {
-            let id = crate::flow_trace::tab_flow(self, target)
-                .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-            crate::flow_trace::record(&id, "message.started", target, "", "accepted", None);
-            payload.trace_id = Some(id);
+            match crate::flow_trace::tab_flow(self, target) {
+                Ok(flow) => {
+                    let id = flow.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+                    crate::flow_trace::record(&id, "message.started", target, "", "accepted", None);
+                    payload.trace_id = Some(id);
+                }
+                Err(error) => {
+                    log::warn!("[flow-trace] delivery binding read failed tab={target}: {error}")
+                }
+            }
         }
         let pty_claim = self.pty_ownership.acquire(target);
         self.pin_agent_delivery_binding(&pty_claim, &mut payload)?;

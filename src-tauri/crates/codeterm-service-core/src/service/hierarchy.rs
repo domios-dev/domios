@@ -807,10 +807,9 @@ impl ServiceContext {
                 report_outcome,
             );
         self.report_store.lock().claim(&report.id);
-        let trace_flow = report
-            .attempt_id
-            .clone()
-            .or_else(|| crate::flow_trace::tab_flow(self, tab_id));
+        let trace_flow = report.attempt_id.clone().or_else(|| {
+            crate::flow_trace::diagnostic_flow(crate::flow_trace::tab_flow(self, tab_id))
+        });
         crate::flow_trace::record_flow(
             &report.id,
             "report.emitted",
