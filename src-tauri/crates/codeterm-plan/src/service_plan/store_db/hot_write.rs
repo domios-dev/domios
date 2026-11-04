@@ -11,6 +11,7 @@ mod element_rows;
 mod gate_rows;
 pub(in crate::service_plan) mod handoff;
 mod header_edits;
+pub(in crate::service_plan) mod lifecycle_rows;
 mod loop_rows;
 mod milestones;
 mod plan_audit;
@@ -324,35 +325,7 @@ impl PlanDatabase {
             receipt.revision =
                 super::change_feed::next_revision(receipt.previous_revision, operation_id)?;
             change(&tx, &mut receipt)?;
-            if receipt.element_rows
-                + receipt.heartbeat_rows
-                + receipt.header_rows
-                + receipt.section_rows
-                + receipt.task_rows
-                + receipt.milestones
-                + receipt.attempts
-                + receipt.strides
-                > 0
-            {
-                tx.execute("UPDATE plans SET updated_at=?2, header_json=json_set(header_json, '$.updated_at', ?2, '$._revision', ?3, '$.canonical_project_path', CASE WHEN trim(coalesce(json_extract(header_json,'$.canonical_project_path'),''))='' THEN project_path ELSE json_extract(header_json,'$.canonical_project_path') END) WHERE id=?1", params![plan_id, now_ms, receipt.revision]).map_err(db_error)?;
-                receipt.header_rows += 1;
-                let root: String = tx.query_row("SELECT CASE WHEN trim(coalesce(json_extract(header_json,'$.canonical_project_path'),''))='' THEN project_path ELSE json_extract(header_json,'$.canonical_project_path') END FROM plans WHERE id=?1", [plan_id], |row| row.get(0)).map_err(db_error)?;
-                receipt.projected_text_bytes += root.len();
-                receipt.index_root = Some(root.into());
-                let mut statement = tx.prepare_cached("SELECT DISTINCT assigned_tab_id FROM plan_tasks INDEXED BY plan_tasks_bound_tabs WHERE plan_id=?1 AND assigned_tab_id IS NOT NULL").map_err(db_error)?;
-                receipt.reset_tabs = statement
-                    .query_map([plan_id], |row| row.get(0))
-                    .map_err(db_error)?
-                    .collect::<Result<_, _>>()
-                    .map_err(db_error)?;
-                receipt.projected_text_bytes +=
-                    receipt.reset_tabs.iter().map(String::len).sum::<usize>();
-            }
-            tx.execute(
-                "UPDATE plan_operations SET state='committed', finished_at=?2 WHERE id=?1",
-                params![operation_id, now_ms],
-            )
-            .map_err(db_error)?;
+            finish_receipt(&tx, operation_id, &mut receipt)?;
             tx.commit().map_err(db_error)?;
             if receipt.header_rows > 0 {
                 self.pending_changes
@@ -594,3 +567,39 @@ fn append_stride(
 
 #[cfg(test)]
 pub(in crate::service_plan::store_db) mod tests;
+
+fn finish_receipt(
+    tx: &Transaction<'_>,
+    operation_id: i64,
+    receipt: &mut CommittedRows,
+) -> Result<(), PlanError> {
+    if receipt.element_rows
+        + receipt.heartbeat_rows
+        + receipt.header_rows
+        + receipt.section_rows
+        + receipt.task_rows
+        + receipt.milestones
+        + receipt.attempts
+        + receipt.strides
+        > 0
+    {
+        tx.execute("UPDATE plans SET updated_at=?2, header_json=json_set(header_json, '$.updated_at', ?2, '$._revision', ?3, '$.canonical_project_path', CASE WHEN trim(coalesce(json_extract(header_json,'$.canonical_project_path'),''))='' THEN project_path ELSE json_extract(header_json,'$.canonical_project_path') END) WHERE id=?1", params![receipt.plan_id, receipt.updated_at, receipt.revision]).map_err(db_error)?;
+        receipt.header_rows += 1;
+        let root: String = tx.query_row("SELECT CASE WHEN trim(coalesce(json_extract(header_json,'$.canonical_project_path'),''))='' THEN project_path ELSE json_extract(header_json,'$.canonical_project_path') END FROM plans WHERE id=?1", [&receipt.plan_id], |row| row.get(0)).map_err(db_error)?;
+        receipt.projected_text_bytes += root.len();
+        receipt.index_root = Some(root.into());
+        let mut statement = tx.prepare_cached("SELECT DISTINCT assigned_tab_id FROM plan_tasks INDEXED BY plan_tasks_bound_tabs WHERE plan_id=?1 AND assigned_tab_id IS NOT NULL").map_err(db_error)?;
+        receipt.reset_tabs = statement
+            .query_map([&receipt.plan_id], |row| row.get(0))
+            .map_err(db_error)?
+            .collect::<Result<_, _>>()
+            .map_err(db_error)?;
+        receipt.projected_text_bytes += receipt.reset_tabs.iter().map(String::len).sum::<usize>();
+    }
+    tx.execute(
+        "UPDATE plan_operations SET state='committed', finished_at=?2 WHERE id=?1",
+        params![operation_id, receipt.updated_at],
+    )
+    .map_err(db_error)?;
+    Ok(())
+}

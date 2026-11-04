@@ -749,3 +749,5 @@ mod task_authority;
 mod local_dispatch;
 
 mod adoption_attachments;
+
+mod lifecycle_transactions;

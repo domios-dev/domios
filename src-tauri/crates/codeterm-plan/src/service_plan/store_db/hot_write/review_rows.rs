@@ -333,7 +333,7 @@ pub(super) fn edit_task_rows<T>(
     Ok(result)
 }
 
-fn read_attempts(
+pub(super) fn read_attempts(
     tx: &Transaction<'_>,
     plan_id: &str,
     task_id: &str,
