@@ -1,8 +1,8 @@
 use super::provider::AgentProvider;
 pub use codeterm_agent_model::agent::registry::{
-    ProviderStartupStatus, SessionMatchMode, SessionSearchError, SessionSearchHit,
-    SessionSearchOpts, SessionSearchResult, SessionSearchWarning, SessionSkipReason,
-    SessionSnippet, DEFAULT_SESSION_FILE_BYTE_CAP, PROVIDER_STARTUP_WAIT,
+    ProviderStartupStatus, ProviderStateSnapshot, SessionMatchMode, SessionSearchError,
+    SessionSearchHit, SessionSearchOpts, SessionSearchResult, SessionSearchWarning,
+    SessionSkipReason, SessionSnippet, DEFAULT_SESSION_FILE_BYTE_CAP, PROVIDER_STARTUP_WAIT,
 };
 use std::sync::Arc;
 type ModelRegistry = codeterm_agent_model::agent::registry::AgentRegistry;
