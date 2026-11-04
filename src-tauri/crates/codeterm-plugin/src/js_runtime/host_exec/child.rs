@@ -78,7 +78,12 @@ impl Owned {
     }
 
     pub(super) fn finish(&mut self) -> std::io::Result<ExitStatus> {
+        #[cfg(windows)]
         self.target.terminate();
+        #[cfg(unix)]
+        if self.child.try_wait()?.is_none() {
+            self.target.terminate();
+        }
         let status = self.child.wait();
         for reader in self.readers.drain(..) {
             let _ = reader.join();
