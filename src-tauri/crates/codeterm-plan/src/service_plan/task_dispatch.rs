@@ -536,23 +536,23 @@ impl PlanStore {
             };
         let writer_turn = self.mutation_writer.enter();
         if let Some(inspected) = shared_binding.as_ref() {
-            let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
-            let task = crate::plan::task_key::find_task(&plan.tasks, task_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            inspected.recheck(&plan, task)?;
-            super::shared_checkout::validate_shared_ownership(
-                &self.checkout_peer_plans(&plan)?,
-                &plan,
-                task,
+            let task = self.database.shared_dispatch_projection(plan_id, task_id)?;
+            inspected.recheck(&task.checkout, &task.files)?;
+            super::shared_checkout::validate_shared_ownership_at(
+                &self.checkout_peer_facts(&task.checkout)?,
+                plan_id,
+                &task.task_id,
+                &task.checkout,
                 &task.files,
             )
             .map_err(PlanError::InvalidPlanText)?;
         } else if placement == crate::plan::WorkerPlacement::CanonicalWriter {
-            let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
-            super::shared_checkout::validate_exclusive_checkout(
-                &self.checkout_peer_plans(&plan)?,
-                &plan,
+            let checkout = self.database.dispatch_checkout_projection(plan_id)?;
+            super::shared_checkout::validate_exclusive_checkout_at(
+                &self.checkout_peer_facts(&checkout)?,
+                plan_id,
                 task_id,
+                &checkout,
             )
             .map_err(PlanError::InvalidPlanText)?;
         }

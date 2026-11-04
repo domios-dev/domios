@@ -41,12 +41,21 @@ pub fn validate_exclusive_checkout(
     plan: &Plan,
     task_id: &str,
 ) -> Result<(), String> {
+    validate_exclusive_checkout_at(plans, &plan.id, task_id, &canonical(plan))
+}
+
+pub(crate) fn validate_exclusive_checkout_at(
+    plans: &[CheckoutPeerRead],
+    plan_id: &str,
+    task_id: &str,
+    checkout: &str,
+) -> Result<(), String> {
     for owner_plan in plans
         .iter()
-        .filter(|other| canonical_path(&other.checkout) == canonical(plan))
+        .filter(|other| canonical_path(&other.checkout) == canonical_path(checkout))
     {
         for owner in &owner_plan.tasks {
-            if owner_plan.id == plan.id && owner.id == task_id {
+            if owner_plan.id == plan_id && owner.id == task_id {
                 continue;
             }
             if owner
@@ -95,7 +104,7 @@ pub(crate) fn validate_shared_ownership(
     validate_shared_ownership_at(plans, &plan.id, &task.id, &canonical(plan), files)
 }
 
-fn validate_shared_ownership_at(
+pub(crate) fn validate_shared_ownership_at(
     plans: &[CheckoutPeerRead],
     plan_id: &str,
     task_id: &str,
