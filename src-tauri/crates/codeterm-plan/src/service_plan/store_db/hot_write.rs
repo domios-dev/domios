@@ -352,6 +352,9 @@ impl PlanDatabase {
                     || !receipt.created_plans.is_empty()
                 {
                     touch_header(tx, &mut receipt)?;
+                } else {
+                    tx.execute("DELETE FROM plan_operations WHERE id=?1", [operation_id])
+                        .map_err(db_error)?;
                 }
                 Ok(receipt)
             })?;

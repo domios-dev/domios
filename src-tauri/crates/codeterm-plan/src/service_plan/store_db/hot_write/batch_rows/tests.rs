@@ -35,9 +35,10 @@ fn mixed_batch_rows_and_bytes_ignore_unrelated_history_and_bodies() {
         let mut plan = fixtures::fixture(root.path(), strides, attempts);
         plan.tasks[1].body.push_str(&"u".repeat(body_bytes));
         let database = fixtures::database(root.path(), &plan);
-        fixtures::audit(&database);
+        crate::service_plan::store_db::hot_write::tests::fixtures::remove_observers(&database);
         drop(database);
         let store = PlanStore::open(root.path().join("plans.db")).unwrap();
+        fixtures::audit(&store.database);
         load_audit::start(&store);
         let result = store
             .apply_batch(
@@ -85,6 +86,9 @@ fn mixed_batch_rows_and_bytes_ignore_unrelated_history_and_bodies() {
         }
         prior = Some(measured);
         let derived = result.ids["derived"].clone();
+        crate::service_plan::store_db::hot_write::tests::fixtures::remove_observers(
+            &store.database,
+        );
         drop(store);
         let reopened = PlanDatabase::open(root.path().join("plans.db")).unwrap();
         let stored = reopened.load_plan(&plan.id).unwrap().unwrap();
@@ -197,6 +201,7 @@ fn competing_handoff_batches_allocate_distinct_sequences_and_reopen() {
     for worker in workers {
         worker.join().unwrap();
     }
+    crate::service_plan::store_db::hot_write::tests::fixtures::remove_observers(&database);
     drop(database);
     let reopened = PlanDatabase::open(root.path().join("plans.db")).unwrap();
     let stored = reopened.load_plan(&plan.id).unwrap().unwrap();

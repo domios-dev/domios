@@ -30,9 +30,10 @@ fn relationships_and_regression_rows_and_bytes_ignore_unrelated_growth() {
             color: None,
         });
         let database = fixtures::database(root.path(), &plan);
-        fixtures::audit(&database);
+        crate::service_plan::store_db::hot_write::tests::fixtures::remove_observers(&database);
         drop(database);
         let store = PlanStore::open(root.path().join("plans.db")).unwrap();
+        fixtures::audit(&store.database);
         load_audit::start(&store);
         let mut work = vec![];
         assert_eq!(
@@ -93,6 +94,9 @@ fn relationships_and_regression_rows_and_bytes_ignore_unrelated_growth() {
             ),
             Err(PlanError::OverrideNotAuthorized)
         ));
+        crate::service_plan::store_db::hot_write::tests::fixtures::remove_observers(
+            &store.database,
+        );
         drop(store);
         let reopened = PlanDatabase::open(root.path().join("plans.db")).unwrap();
         let stored = reopened.load_plan(&plan.id).unwrap().unwrap();
@@ -147,6 +151,7 @@ fn failed_section_attachment_removes_the_copied_file() {
     plan.sections.push(section());
     let database = fixtures::database(root.path(), &plan);
     database.connection.lock().execute_batch("CREATE TRIGGER fail_section BEFORE UPDATE ON plan_sections BEGIN SELECT RAISE(ABORT,'injected'); END;").unwrap();
+    crate::service_plan::store_db::hot_write::tests::fixtures::remove_observers(&database);
     drop(database);
     let store = PlanStore::open(root.path().join("plans.db")).unwrap();
     let source = root.path().join("source.txt");

@@ -34,7 +34,7 @@ fn export_spec_sidecar(store: &PlanStore, root: &std::path::Path, spec_id: &str)
                 .join(bucket)
                 .join(plan_id)
                 .join("spec.yaml");
-            if previous != target {
+            if bucket != crate::service_plan::paths::plan_bucket(&plan.status) {
                 let _ = std::fs::remove_file(previous);
             }
         }

@@ -23,9 +23,10 @@ fn canvas_family_rows_and_bytes_ignore_unrelated_history_and_body_growth() {
         });
         plan.tasks[0].milestones.push(serde_json::from_value(serde_json::json!({"id":"milestone","kind":"decision","text":"text","from":{},"ts":1})).unwrap());
         let database = fixtures::database(root.path(), &plan);
-        fixtures::audit(&database);
+        crate::service_plan::store_db::hot_write::tests::fixtures::remove_observers(&database);
         drop(database);
         let store = PlanStore::open(root.path().join("plans.db")).unwrap();
+        fixtures::audit(&store.database);
         load_audit::start(&store);
         let mut work = Vec::new();
         let id = store
@@ -72,6 +73,9 @@ fn canvas_family_rows_and_bytes_ignore_unrelated_history_and_body_growth() {
             assert_eq!(prior, measured);
         }
         prior = Some(measured);
+        crate::service_plan::store_db::hot_write::tests::fixtures::remove_observers(
+            &store.database,
+        );
         drop(store);
         let reopened = PlanDatabase::open(root.path().join("plans.db")).unwrap();
         let stored = reopened.load_plan(&plan.id).unwrap().unwrap();
@@ -121,6 +125,7 @@ fn failed_canvas_delete_keeps_the_element_and_revision_durable() {
         .to_string()
         .contains("injected canvas commit failure"));
     assert!(store.take_committed_change(&plan.id).is_none());
+    crate::service_plan::store_db::hot_write::tests::fixtures::remove_observers(&store.database);
     drop(store);
     let reopened = PlanDatabase::open(root.path().join("plans.db")).unwrap();
     assert_eq!(reopened.load_plan(&plan.id).unwrap().unwrap(), plan);

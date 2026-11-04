@@ -166,3 +166,25 @@ pub(super) fn assert_and_clear_writes(database: &PlanDatabase, receipt: &Committ
         .execute("DELETE FROM write_audit", [])
         .unwrap();
 }
+
+// Test observers are deliberately outside the admitted durable schema.
+pub(in crate::service_plan::store_db) fn remove_observers(database: &PlanDatabase) {
+    let connection = database.connection.lock();
+    let names = {
+        let mut statement = connection
+            .prepare("SELECT name FROM sqlite_schema WHERE type='trigger'")
+            .unwrap();
+        let rows = statement
+            .query_map([], |row| row.get::<_, String>(0))
+            .unwrap();
+        rows.map(Result::unwrap).collect::<Vec<_>>()
+    };
+    for name in names {
+        connection
+            .execute_batch(&format!("DROP TRIGGER \"{}\";", name.replace('"', "\"\"")))
+            .unwrap();
+    }
+    connection
+        .execute_batch("DROP TABLE IF EXISTS write_audit;")
+        .unwrap();
+}

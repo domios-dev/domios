@@ -99,6 +99,7 @@ fn review_provenance_and_its_stride_roll_back_together() {
             20
         )
         .is_err());
+    crate::service_plan::store_db::hot_write::tests::fixtures::remove_observers(&store.database);
     drop(store);
     let store = PlanStore::open(root.path().join("plans.db")).unwrap();
     let stored = store.database.load_plan(&plan.id).unwrap().unwrap();

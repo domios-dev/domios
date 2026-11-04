@@ -13,9 +13,10 @@ fn lane_writes_ignore_unrelated_history_and_bodies() {
         plan.tasks[0].status = crate::plan::TaskStatus::Done;
         plan.tasks[0].lane.worktree_path = Some("selected-worktree".into());
         let database = fixtures::database(root.path(), &plan);
-        fixtures::audit(&database);
+        crate::service_plan::store_db::hot_write::tests::fixtures::remove_observers(&database);
         drop(database);
         let store = PlanStore::open(root.path().join("plans.db")).unwrap();
+        fixtures::audit(&store.database);
         load_audit::start(&store);
         let output = store
             .edit_lane_turn_stats(&plan.id, "task_0000", "current", 20, |stats| {
@@ -58,6 +59,9 @@ fn lane_writes_ignore_unrelated_history_and_bodies() {
             assert_eq!(prior, measured);
         }
         prior = Some(measured);
+        crate::service_plan::store_db::hot_write::tests::fixtures::remove_observers(
+            &store.database,
+        );
         drop(store);
         let reopened = PlanDatabase::open(root.path().join("plans.db")).unwrap();
         let stored = reopened.load_plan(&plan.id).unwrap().unwrap();

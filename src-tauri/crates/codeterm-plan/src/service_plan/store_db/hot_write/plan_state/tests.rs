@@ -12,9 +12,10 @@ fn plan_state_rows_and_bytes_ignore_unrelated_history_and_body_growth() {
         let mut plan = fixtures::fixture(root.path(), strides, attempts);
         plan.tasks[1].body.push_str(&"u".repeat(body_bytes));
         let database = fixtures::database(root.path(), &plan);
-        fixtures::audit(&database);
+        crate::service_plan::store_db::hot_write::tests::fixtures::remove_observers(&database);
         drop(database);
         let store = PlanStore::open(root.path().join("plans.db")).unwrap();
+        fixtures::audit(&store.database);
         load_audit::start(&store);
         store
             .update_plan(&plan.id, Some("renamed"), None, Some("execution"), 20)
@@ -49,6 +50,9 @@ fn plan_state_rows_and_bytes_ignore_unrelated_history_and_body_growth() {
         prior = Some(work);
         assert_eq!(store.index.read()[&plan.id].title, "renamed");
         assert_eq!(store.index.read()[&plan.id].status, PlanStatus::Active);
+        crate::service_plan::store_db::hot_write::tests::fixtures::remove_observers(
+            &store.database,
+        );
         drop(store);
         let reopened = PlanDatabase::open(root.path().join("plans.db")).unwrap();
         let stored = reopened.load_plan(&plan.id).unwrap().unwrap();
@@ -111,6 +115,7 @@ fn failed_archive_rolls_back_status_lifecycle_incident_revision_and_light_index(
         .contains("injected state commit failure"));
     assert_eq!(store.index.read()[&plan.id], index);
     assert!(store.take_committed_change(&plan.id).is_none());
+    crate::service_plan::store_db::hot_write::tests::fixtures::remove_observers(&store.database);
     drop(store);
     let reopened = PlanDatabase::open(root.path().join("plans.db")).unwrap();
     assert_eq!(reopened.load_plan(&plan.id).unwrap().unwrap(), plan);
@@ -134,6 +139,7 @@ fn plan_activation_preserves_explicit_unarchive_and_team_exclusivity() {
     );
     active.team_id = Some("team".into());
     database.persist_plan_rows(&active, None).unwrap();
+    crate::service_plan::store_db::hot_write::tests::fixtures::remove_observers(&database);
     drop(database);
     let store = PlanStore::open(root.path().join("plans.db")).unwrap();
     assert!(matches!(
