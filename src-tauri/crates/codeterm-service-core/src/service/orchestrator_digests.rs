@@ -1,4 +1,7 @@
 mod inventory;
+#[cfg(test)]
+mod preparation_tests;
+pub(crate) use inventory::{snapshot_notice_inventory, NoticeInventorySnapshot};
 
 use crate::plan::{Plan, TaskStatus};
 use crate::service::plan::digest_rules::{evaluate_digest_rules, plan_digest_counters};
@@ -165,20 +168,54 @@ fn deliver_notice_payload(
     result
 }
 
-pub(crate) fn collect_digest_lines(
-    svc: &ServiceContext,
-    plan: &Plan,
-    tab_id: Option<&str>,
-) -> Vec<String> {
-    collect_digest_lines_with_counters(svc, plan, tab_id, None)
-}
-
 fn collect_digest_lines_with_counters(
     svc: &ServiceContext,
     plan: &Plan,
     tab_id: Option<&str>,
     counters: Option<crate::service::plan::digest_rules::PlanDigestCounters>,
 ) -> Vec<String> {
+    if counters.is_none() {
+        use codeterm_plan::service_plan::{
+            NoticeDigestInput, NoticeFinishedBinding, NoticeQueueRead,
+        };
+        let now = now_epoch_ms();
+        let counters = plan_digest_counters(plan, now, count_stalled_lanes(plan, now));
+        let inventory = snapshot_notice_inventory(
+            svc,
+            &plan.id,
+            plan.team_id.as_deref(),
+            plan.owner.tab_id.as_deref(),
+        );
+        let input = NoticeDigestInput {
+            plan_id: plan.id.clone(),
+            team_id: plan.team_id.clone(),
+            owner_tab_id: plan.owner.tab_id.clone(),
+            project_root: if plan.canonical_project_path.is_empty() {
+                plan.project_path.clone()
+            } else {
+                plan.canonical_project_path.clone()
+            },
+            queue: NoticeQueueRead {
+                in_review: counters.in_review,
+                in_progress: counters.in_progress,
+                oldest_in_review_age_ms: counters.oldest_in_review_age_ms,
+                stalled_lanes: counters.stalled_lanes,
+                finished_lanes: counters.finished_lanes,
+                lane_candidates: counters.lane_candidates,
+            },
+            cartography: crate::service::cartographer::cartography_facts(plan),
+            finished_bindings: plan
+                .tasks
+                .iter()
+                .filter(|task| task.status == TaskStatus::Done)
+                .map(|task| NoticeFinishedBinding {
+                    task_id: task.id.clone(),
+                    assigned_tab_id: task.assigned_tab_id.clone(),
+                })
+                .collect(),
+        };
+        return collect_digest_lines_for_input(svc, &input, &inventory, tab_id);
+    }
     let mut out = Vec::new();
     out.extend(crate::service::cartographer::digest_lines(
         plan,
@@ -201,27 +238,108 @@ fn queue_pressure_lines(
     let stalled = count_stalled_lanes(plan, now_ms);
     let mut counters = counters.unwrap_or_else(|| plan_digest_counters(plan, now_ms, stalled));
     inventory::populate(svc, plan, &mut counters);
-    let fired = evaluate_digest_rules(&cfg, &counters);
+    let (lines, marks) = prepare_queue_pressure_lines(svc, &cfg, &counters, tab_id);
+    apply_digest_rate_marks(svc, &marks);
+    lines
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct DigestRateMark {
+    tab_id: String,
+    rule_id: String,
+    at: u64,
+}
+
+pub(crate) struct PreparedNoticeDigests {
+    pub(crate) lines: Vec<String>,
+    pub(crate) rate_marks: Vec<DigestRateMark>,
+}
+
+pub(crate) fn apply_digest_rate_marks(svc: &ServiceContext, marks: &[DigestRateMark]) {
+    for mark in marks {
+        svc.plan_turn_counter
+            .mark_digest_rule_fired(&mark.tab_id, &mark.rule_id, mark.at);
+    }
+}
+
+fn prepare_queue_pressure_lines(
+    svc: &ServiceContext,
+    cfg: &crate::config::schema::OrchestrationDigestsConfig,
+    counters: &crate::service::plan::digest_rules::PlanDigestCounters,
+    tab_id: Option<&str>,
+) -> (Vec<String>, Vec<DigestRateMark>) {
+    let fired = evaluate_digest_rules(cfg, counters);
     let Some(tab_id) = tab_id.filter(|id| !id.trim().is_empty()) else {
-        return fired.into_iter().map(|(_, line)| line).collect();
+        return (
+            fired.into_iter().map(|(_, line)| line).collect(),
+            Vec::new(),
+        );
     };
-    fired
-        .into_iter()
-        .filter_map(|(rule, line)| {
-            if svc.plan_turn_counter.digest_rule_due(
-                tab_id,
-                &rule.id,
-                now_epoch_secs(),
-                rule.rate_limit_secs,
-            ) {
+    let mut lines = Vec::new();
+    let mut marks = Vec::new();
+    let mut pending = std::collections::HashMap::<String, u64>::new();
+    for (rule, line) in fired {
+        let now = now_epoch_secs();
+        let due = pending
+            .get(&rule.id)
+            .map(|at| now.saturating_sub(*at) >= rule.rate_limit_secs)
+            .unwrap_or_else(|| {
                 svc.plan_turn_counter
-                    .mark_digest_rule_fired(tab_id, &rule.id, now_epoch_secs());
-                Some(line)
-            } else {
-                None
-            }
-        })
-        .collect()
+                    .digest_rule_due(tab_id, &rule.id, now, rule.rate_limit_secs)
+            });
+        if due {
+            let at = now_epoch_secs();
+            pending.insert(rule.id.clone(), at);
+            marks.push(DigestRateMark {
+                tab_id: tab_id.into(),
+                rule_id: rule.id.clone(),
+                at,
+            });
+            lines.push(line);
+        }
+    }
+    (lines, marks)
+}
+
+pub(crate) fn prepare_digest_lines_for_input(
+    svc: &ServiceContext,
+    input: &codeterm_plan::service_plan::NoticeDigestInput,
+    inventory: &NoticeInventorySnapshot,
+    tab_id: Option<&str>,
+) -> PreparedNoticeDigests {
+    use crate::service::plan::digest_rules::PlanDigestCounters;
+    let mut counters = PlanDigestCounters {
+        plan_id: input.plan_id.clone(),
+        in_review: input.queue.in_review,
+        in_progress: input.queue.in_progress,
+        oldest_in_review_age_ms: input.queue.oldest_in_review_age_ms,
+        stalled_lanes: input.queue.stalled_lanes,
+        jobs: 0,
+        agent_tabs: 0,
+        idle_utility_shells: 0,
+        idle_workers: Vec::new(),
+        finished_lanes: input.queue.finished_lanes,
+        lane_candidates: input.queue.lane_candidates.clone(),
+    };
+    inventory.populate(&input.finished_bindings, &mut counters);
+    let cfg = svc.configuration().orchestration;
+    let mut lines = crate::service::cartographer::digest_lines_from_input(input, cfg.map.enabled);
+    let (queue, rate_marks) = prepare_queue_pressure_lines(svc, &cfg.digests, &counters, tab_id);
+    lines.extend(queue);
+    lines.extend(usage_lines(svc));
+    lines.truncate(8);
+    PreparedNoticeDigests { lines, rate_marks }
+}
+
+pub(crate) fn collect_digest_lines_for_input(
+    svc: &ServiceContext,
+    input: &codeterm_plan::service_plan::NoticeDigestInput,
+    inventory: &NoticeInventorySnapshot,
+    tab_id: Option<&str>,
+) -> Vec<String> {
+    let prepared = prepare_digest_lines_for_input(svc, input, inventory, tab_id);
+    apply_digest_rate_marks(svc, &prepared.rate_marks);
+    prepared.lines
 }
 
 fn usage_lines(svc: &ServiceContext) -> Vec<String> {

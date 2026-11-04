@@ -28,6 +28,9 @@ pub use store_db::read_projections::hierarchy_routing::{
     GateAnswerNoticeRead, PlannerRehydrateGateRead, PlannerRehydrateRead, TaskReviewNoticeRead,
 };
 pub use store_db::read_projections::launch_restore::{LaunchLaneRead, TabLaunchTaskRead};
+pub use store_db::read_projections::reminder::{
+    ReminderAttemptRead, ReminderPlanRead, ReminderReadSnapshot, ReminderTaskRead,
+};
 pub use store_db::read_projections::runtime_identity::RuntimePlanIdentityRead;
 pub use store_db::read_projections::transfer_authority::TransferTaskAuthorityRead;
 mod header_projection;
@@ -47,6 +50,11 @@ pub mod loop_mutations;
 pub mod milestone_gates;
 pub mod mutations;
 pub mod next_actions;
+mod notice_digest_projection;
+pub use notice_digest_projection::{
+    NoticeCartographyRead, NoticeClosedGroup, NoticeDigestInput, NoticeFinishedBinding,
+    NoticeInventoryTargets, NoticeQueueRead,
+};
 pub mod paths;
 pub mod pause;
 pub mod pause_operation;
