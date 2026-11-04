@@ -743,3 +743,5 @@ mod task_structure;
 mod qa_reconcile;
 
 mod binding_rows;
+
+mod task_authority;

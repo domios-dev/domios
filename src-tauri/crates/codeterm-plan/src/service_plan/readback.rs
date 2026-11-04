@@ -127,35 +127,6 @@ impl PlanStore {
             .ok_or(PlanError::TaskNotFound)
     }
 
-    pub(in crate::service_plan) fn verify_task_assigned(
-        &self,
-        plan_id: &str,
-        task_id: &str,
-        tab: &str,
-        peer: Option<&str>,
-    ) -> Result<(), PlanError> {
-        let task = self.read_task_for_verification(plan_id, task_id)?;
-        if task.assigned_tab_id.as_deref() != Some(tab) {
-            return Err(Self::task_readback_error(
-                "task_assign",
-                format!("assigned_tab_id did not match for {}", task.id),
-            ));
-        }
-        if task.lane.tab_id.as_deref() != Some(tab) {
-            return Err(Self::task_readback_error(
-                "task_assign",
-                format!("lane.tab_id did not match for {}", task.id),
-            ));
-        }
-        if task.peer.as_deref() != peer {
-            return Err(Self::task_readback_error(
-                "task_assign",
-                format!("peer did not match for {}", task.id),
-            ));
-        }
-        Ok(())
-    }
-
     pub(in crate::service_plan) fn verify_task_assignment(
         &self,
         plan_id: &str,
