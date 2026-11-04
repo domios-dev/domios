@@ -76,7 +76,7 @@ impl PlanSearchSnapshot {
             .collect::<Vec<_>>()
             .join("\n");
         let mut units = vec![parent.header(&titles, header.updated_at)];
-        let total = input.sections.len().max(1);
+        let total = count_sections(&input.sections, |_| &[]);
         for (index, (_, section)) in input.sections.into_iter().enumerate() {
             units.push(parent.section(
                 &section.id,
@@ -134,6 +134,23 @@ impl PlanSearchSnapshot {
             expected.iter().map(unit_signature).collect::<Vec<_>>()
         );
         serde_json::to_vec(&self.units).unwrap().len()
+    }
+
+    #[cfg(test)]
+    pub(in crate::service_plan) fn assert_section_ordinals_for_test(
+        &self,
+        sections: &[(&str, &str, usize)],
+    ) {
+        for &(id, title, ordinal) in sections {
+            let unit = self
+                .units
+                .iter()
+                .find(|unit| unit.kind == "plan_section" && unit.unit_id == id)
+                .unwrap();
+            assert!(unit
+                .body
+                .contains(&format!("section {ordinal}/{}: {title}\n", sections.len())));
+        }
     }
 
     #[cfg(test)]
