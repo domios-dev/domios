@@ -3,8 +3,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::{PlanError, PlanStore};
 use crate::plan::{
-    HeartbeatLearning, LoopSpec, OrchestratorHeartbeat, Plan, PlanMode, PlanStatus, PlannerRef,
-    TaskStatus,
+    HeartbeatLearning, LoopSpec, OrchestratorHeartbeat, Plan, PlanMode, PlannerRef, TaskStatus,
 };
 
 pub(super) mod view;
@@ -423,37 +422,20 @@ pub(super) fn prepend_heartbeat_snapshot(
     prepend_heartbeat(plan_id, heartbeat, loops, text, None)
 }
 
-fn has_open_work(plan: &Plan) -> bool {
-    plan.tasks
-        .iter()
-        .any(|task| task.status.counts_as_open_work())
-}
-
 /// A plan is complete only when every recorded task is terminal.
 pub fn is_plan_complete(plan: &Plan) -> bool {
     !plan.tasks.is_empty() && plan.tasks.iter().all(|task| task.status.is_terminal())
 }
 
-fn owner_matches(plan: &Plan, tab_id: Option<&str>, session_id: Option<&str>) -> bool {
-    let tab_matches = tab_id
-        .filter(|tab| !tab.trim().is_empty())
-        .is_some_and(|tab| plan.owner.tab_id.as_deref() == Some(tab));
-    let session_matches = session_id
-        .filter(|session| !session.trim().is_empty())
-        .is_some_and(|session| plan.owner.session_id.as_deref() == Some(session));
-    tab_matches || session_matches
-}
-
-fn heartbeat_resolution_rank(plan: &Plan) -> (u8, u64) {
-    let rank = match (&plan.mode, has_open_work(plan)) {
+pub(super) fn heartbeat_resolution_priority(mode: &PlanMode, open_work: bool) -> u8 {
+    match (mode, open_work) {
         (PlanMode::Execution, true) => 5,
         (PlanMode::Execution, false) => 4,
         (PlanMode::Approved, true) => 3,
         (PlanMode::Planning, true) => 2,
         (PlanMode::Approved | PlanMode::Planning, false) => 1,
         (PlanMode::Paused | PlanMode::Complete, _) => 0,
-    };
-    (rank, plan.updated_at)
+    }
 }
 
 impl PlanStore {
@@ -463,45 +445,8 @@ impl PlanStore {
         tab_id: Option<&str>,
         session_id: Option<&str>,
     ) -> Result<String, PlanError> {
-        if let Some(plan_id) = plan_id.filter(|id| !id.trim().is_empty()) {
-            return self
-                .database
-                .heartbeat_owner_candidates(&super::PlanMatch::Ids(vec![plan_id.into()]))?
-                .into_iter()
-                .next()
-                .map(|plan| plan.id)
-                .ok_or(PlanError::NotFound);
-        }
-        let mut best_match = None;
-        let mut owners = Vec::new();
-        if let Some(tab) = tab_id.filter(|tab| !tab.trim().is_empty()) {
-            owners.push(super::PlanMatch::owner(tab));
-        }
-        if let Some(session) = session_id.filter(|session| !session.trim().is_empty()) {
-            owners.push(super::PlanMatch::OwnerSession(session.to_string()));
-        }
-        let candidates = super::PlanMatch::active().and(super::PlanMatch::Any(owners));
-        for plan in self.database.heartbeat_owner_candidates(&candidates)? {
-            if plan.status != PlanStatus::Active {
-                continue;
-            }
-            if !owner_matches(&plan, tab_id, session_id) {
-                continue;
-            }
-            let rank = heartbeat_resolution_rank(&plan);
-            if rank.0 == 0 {
-                continue;
-            }
-            if best_match
-                .as_ref()
-                .is_none_or(|(_, best_rank)| rank > *best_rank)
-            {
-                best_match = Some((plan.id, rank));
-            }
-        }
-        best_match
-            .map(|(plan_id, _)| plan_id)
-            .ok_or(PlanError::NotFound)
+        self.database
+            .resolve_heartbeat_plan(plan_id, tab_id, session_id)
     }
 
     pub fn add_heartbeat_learning(

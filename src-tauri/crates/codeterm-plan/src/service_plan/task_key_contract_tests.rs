@@ -304,10 +304,12 @@ fn task_key_contract_task_json_serializes_key_beside_id() {
     let plan_id = new_plan(&store, dir.path());
     WorkspacePort::bind(&store, "Alpha", WorkspaceTaskKeys::default());
     let keyed = add(&store, &plan_id, "Keyed");
-    let listed = store.list_tasks(TaskListFilter {
-        plan_id: Some(plan_id.clone()),
-        ..Default::default()
-    });
+    let listed = store
+        .list_tasks(TaskListFilter {
+            plan_id: Some(plan_id.clone()),
+            ..Default::default()
+        })
+        .unwrap();
     let rows = serde_json::to_value(&listed).unwrap();
     let rows = rows.as_array().unwrap();
     let keyed_row = rows.iter().find(|row| row["task"]["id"] == keyed).unwrap();

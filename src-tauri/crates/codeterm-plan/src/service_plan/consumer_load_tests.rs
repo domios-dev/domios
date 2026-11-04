@@ -124,10 +124,12 @@ fn list_tasks_never_loads_unmatched_plans() {
     );
     start(&store);
 
-    let tasks = store.list_tasks(TaskListFilter {
-        project_path: Some(project.clone()),
-        ..Default::default()
-    });
+    let tasks = store
+        .list_tasks(TaskListFilter {
+            project_path: Some(project.clone()),
+            ..Default::default()
+        })
+        .unwrap();
     assert_eq!(tasks.len(), 1);
     assert_eq!(tasks[0].plan_id, here);
     assert!(store.plan_loads_for_test().is_empty());
@@ -722,7 +724,7 @@ fn export_all_plan_documents_never_loads_whole_plans_or_cache() {
 }
 
 #[test]
-fn plans_owned_or_planned_by_never_loads_unmatched_plans() {
+fn restored_plan_bindings_never_loads_unmatched_plans() {
     let (_dir, store, project) = fixture();
     let owned = seed(
         &store,
@@ -738,15 +740,17 @@ fn plans_owned_or_planned_by_never_loads_unmatched_plans() {
     start(&store);
 
     let mut ids: Vec<_> = store
-        .plans_owned_or_planned_by("tab-a")
+        .restored_plan_bindings_projection("tab-a")
+        .unwrap()
         .into_iter()
-        .map(|plan| plan.id)
+        .map(|plan| plan.plan_id)
         .collect();
     ids.sort();
     let mut expected = vec![owned, planned];
     expected.sort();
     assert_eq!(ids, expected);
     assert_never_loaded(&store, &[&other]);
+    assert!(store.plan_loads_for_test().is_empty());
 }
 
 #[test]

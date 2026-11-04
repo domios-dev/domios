@@ -12,7 +12,33 @@ pub struct KpiPlanContextRead {
     pub task_id: Option<String>,
 }
 
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
+pub struct RestoredPlanBindingRead {
+    pub plan_id: String,
+    pub owns_plan: bool,
+    pub planner_binding: Option<crate::plan::PlannerRef>,
+}
+
 impl PlanStore {
+    pub fn restored_plan_bindings_projection(
+        &self,
+        tab: &str,
+    ) -> Result<Vec<RestoredPlanBindingRead>, PlanError> {
+        self.database.restored_plan_bindings_projection(tab)
+    }
+
+    pub fn coordinator_binding_projection(
+        &self,
+        tab: &str,
+        probe: &crate::plan::reconcile::TabProbe,
+    ) -> Result<bool, PlanError> {
+        self.database.coordinator_binding_projection(
+            tab,
+            probe.agent_session_id.as_deref(),
+            probe.planner_routable_for(probe.agent_session_id.as_deref()),
+        )
+    }
+
     pub fn kpi_plan_context_projection(&self, tab: &str) -> Result<KpiPlanContextRead, PlanError> {
         self.database.kpi_plan_context_projection(tab)
     }
