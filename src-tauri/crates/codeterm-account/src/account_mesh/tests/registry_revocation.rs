@@ -104,7 +104,10 @@ async fn account_mesh_registry_signed_out_blocks_on_sync_and_fences_stale_presen
         script.peer_presence = RegistryPresence::Present;
         script.peer_metadata_revision = 1;
     }
-    harness.mesh.list_fresh().await.unwrap();
+    assert_eq!(
+        harness.mesh.list_fresh().await,
+        Err(AccountMeshRefusal::Invalid)
+    );
     assert_blocked(&harness, &token, true);
     harness
         .registry
@@ -127,7 +130,12 @@ async fn account_mesh_registry_signed_out_blocks_on_sync_and_fences_stale_presen
         script.peer_presence = RegistryPresence::SignedOut;
         script.peer_metadata_revision = 2;
     }
-    harness.mesh.list_fresh().await.unwrap();
+    let before = harness.state().signed_registry.clone();
+    assert_eq!(
+        harness.mesh.list_fresh().await,
+        Err(AccountMeshRefusal::Invalid)
+    );
+    assert_eq!(harness.state().signed_registry, before);
     assert_blocked(&harness, &token, false);
 }
 
@@ -269,7 +277,12 @@ async fn account_mesh_signed_complete_view_supersedes_unsigned_page_cursor() {
     let state = harness.state();
     assert!(state.registry.as_ref().unwrap().cursor.is_none());
     let current = state.registry_security.as_ref().unwrap();
-    assert_eq!(current.revision, 10);
+    assert_eq!(current.revision, previous.revision + 1);
+    assert_ne!(current.revision, 10);
+    assert_eq!(
+        current.revision,
+        state.signed_registry.as_ref().unwrap().revision
+    );
     assert_ne!(current.digest, previous.digest);
     assert!(state.unavailable_installations.contains(PEER));
 }

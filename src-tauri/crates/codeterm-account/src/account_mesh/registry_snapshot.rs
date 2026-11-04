@@ -166,6 +166,18 @@ impl AccountMesh {
             }) {
                 return Err(AccountMeshRefusal::Invalid);
             }
+            if verified.rows.iter().any(|row| {
+                inner
+                    .record
+                    .peer_presence
+                    .get(&row.installation_id)
+                    .is_some_and(|known| {
+                        row.key_generation == known.generation
+                            && row.metadata_revision < known.metadata_revision
+                    })
+            }) {
+                return Err(AccountMeshRefusal::Invalid);
+            }
             let freed_slot = inner.state.registry.as_ref().is_some_and(|previous| {
                 previous.rows.iter().filter(|row| row.active).any(|old| {
                     !verified
