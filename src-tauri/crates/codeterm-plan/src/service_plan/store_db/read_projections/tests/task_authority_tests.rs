@@ -30,6 +30,40 @@ fn authority_plan(root: &std::path::Path) -> Plan {
 }
 
 #[test]
+fn unplanned_work_facet_read_selects_only_exact_declared_key() {
+    let directory = tempfile::tempdir().unwrap();
+    let plan = authority_plan(directory.path());
+    let database = fixtures::database(directory.path(), &plan);
+    for (facets, expected) in [
+        (r#"[]"#, false),
+        (r#"[{"key":"work"}]"#, true),
+        (r#"[{"key":"Work"},{"key":"other","label":"work"}]"#, false),
+    ] {
+        database.connection.lock().execute(
+            "UPDATE plans SET header_json=json_set(header_json,'$.tag_facets',json(?1)) WHERE id=?2",
+            rusqlite::params![facets,plan.id],
+        ).unwrap();
+        assert_eq!(
+            database.plan_work_facet_projection(&plan.id).unwrap(),
+            expected
+        );
+    }
+    assert!(matches!(
+        database.plan_work_facet_projection("missing"),
+        Err(PlanError::NotFound)
+    ));
+    database
+        .connection
+        .lock()
+        .execute(
+            "UPDATE plans SET header_json='broken' WHERE id=?1",
+            [&plan.id],
+        )
+        .unwrap();
+    assert!(database.plan_work_facet_projection(&plan.id).is_err());
+}
+
+#[test]
 fn owner_epoch_selects_exact_aliases_and_preserves_partial_interruption_fields() {
     let directory = tempfile::tempdir().unwrap();
     let mut plan = authority_plan(directory.path());

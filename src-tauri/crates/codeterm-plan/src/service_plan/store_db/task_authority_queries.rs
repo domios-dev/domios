@@ -32,6 +32,24 @@ const SELECTED_TASK_IN_PLAN: &str = "WITH candidates AS (
         WHERE exact OR (exact_count=0 AND matches=1) ORDER BY position LIMIT 1)";
 
 impl PlanDatabase {
+    pub(in crate::service_plan) fn plan_work_facet_projection(
+        &self,
+        plan_id: &str,
+    ) -> Result<bool, PlanError> {
+        let connection = self.connection.lock();
+        record_query();
+        connection
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM json_each(p.header_json,'$.tag_facets')
+                    WHERE json_extract(value,'$.key')='work') FROM plans p WHERE id=?1",
+                [plan_id],
+                |row| column(row, 0),
+            )
+            .optional()
+            .map_err(db_error)?
+            .ok_or(PlanError::NotFound)
+    }
+
     pub(in crate::service_plan) fn task_name_projection(
         &self,
         reference: &str,
