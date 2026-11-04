@@ -292,11 +292,11 @@ impl PlanStore {
 
     pub fn remove_section_attachment_dir(
         &self,
-        plan: &Plan,
+        plan_id: &str,
         section_id: &str,
     ) -> Result<(), PlanError> {
         remove_dir_if_exists(attachment_dir(
-            &self.plan_data_dir(&plan.id),
+            &self.plan_data_dir(plan_id),
             AttachmentTarget::Section,
             section_id,
         ))

@@ -813,9 +813,7 @@ impl PlanStore {
         section_id: &str,
         now_ms: u64,
     ) -> Result<(), PlanError> {
-        let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
-        let mut removed = vec![];
-        collect_section_tree_ids(&plan.sections, section_id, &mut removed);
+        let removed = self.section_removal_ids_projection(plan_id, section_id)?;
         self.with_plan(plan_id, now_ms, |p| {
             if rm_section_tree(&mut p.sections, section_id) {
                 Ok(())
@@ -824,7 +822,7 @@ impl PlanStore {
             }
         })?;
         for section_id in removed {
-            self.remove_section_attachment_dir(&plan, &section_id)?;
+            self.remove_section_attachment_dir(plan_id, &section_id)?;
         }
         Ok(())
     }
