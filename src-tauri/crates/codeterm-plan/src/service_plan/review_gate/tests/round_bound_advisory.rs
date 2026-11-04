@@ -159,7 +159,8 @@ fn third_round_report_is_accepted_without_bounce_rejection() {
             },
             20,
         )
-        .expect("a third-round report is not refused by any budget check");
+        .expect("a third-round report is not refused by any budget check")
+        .committed_review;
     assert!(accepted, "the report advances the task into review");
 
     let task = store.inspect_task_for_test(&task_id).unwrap().task;

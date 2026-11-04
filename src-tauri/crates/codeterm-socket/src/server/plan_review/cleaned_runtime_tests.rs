@@ -140,21 +140,24 @@ fn add_reported_generation(
         session_binding_nonce,
         owner_epoch: assigned.interruption.owner_epoch,
     };
-    assert!(store
-        .ingest_bound_worker_report(
-            plan_id,
-            task_id,
-            &AgentRef::from_tab(&executor_tab_id),
-            BoundWorkerReport {
-                message: format!("synthetic review report {generation}"),
-                status: Some(ReportStatus::InReview),
-                sha: Some(format!("abcdef{generation:06}")),
-                authority: Some(authority),
-                ..Default::default()
-            },
-            assigned_at + 2,
-        )
-        .unwrap());
+    assert!(
+        store
+            .ingest_bound_worker_report(
+                plan_id,
+                task_id,
+                &AgentRef::from_tab(&executor_tab_id),
+                BoundWorkerReport {
+                    message: format!("synthetic review report {generation}"),
+                    status: Some(ReportStatus::InReview),
+                    sha: Some(format!("abcdef{generation:06}")),
+                    authority: Some(authority),
+                    ..Default::default()
+                },
+                assigned_at + 2,
+            )
+            .unwrap()
+            .committed_review
+    );
     attempt_id
 }
 

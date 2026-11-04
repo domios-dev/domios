@@ -462,7 +462,8 @@ fn provider_switch_restores_plan_attempt_for_acknowledgement_and_report() {
             },
             6,
         )
-        .unwrap();
+        .unwrap()
+        .committed_review;
     assert!(accepted_report);
     let reported = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(reported.execution_attempts[0].id, attempt_id);
