@@ -1,4 +1,3 @@
-
 use super::web_safe_event_payload;
 
 #[test]
