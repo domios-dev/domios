@@ -114,11 +114,7 @@ pub(super) fn dispatch(
             let svc_ref = &**svc;
             let result = svc_ref
                 .spawn_agent_sync(spawn_params)
-                .map_err(|e| JsonRpcError {
-                    code: -32603,
-                    message: e,
-                    data: None,
-                })?;
+                .map_err(super::model_errors::spawn_rpc_error)?;
             svc.emit_mux_state_changed_empty();
             let ack_warning = if let Some(task_ref) = plan_task.as_deref() {
                 match svc.arm_bound_worker_ack_deadline_for_tab(

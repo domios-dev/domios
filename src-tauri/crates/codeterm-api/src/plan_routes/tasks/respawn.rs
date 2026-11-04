@@ -163,6 +163,25 @@ pub async fn task_respawn(
             format!("respawn lane verification failed: {error}"),
         )
     })?;
+    let profile_service = state.svc.clone();
+    let profile_provider = draft.provider.clone();
+    let profile = draft.launch_profile.clone();
+    tokio::task::spawn_blocking(move || {
+        profile_service.validate_launch_profile(&profile_provider, profile.as_deref())
+    })
+    .await
+    .map_err(|error| {
+        text_err(
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            error.to_string(),
+        )
+    })?
+    .map_err(|error| {
+        text_err(
+            axum::http::StatusCode::UNPROCESSABLE_ENTITY,
+            error.to_string(),
+        )
+    })?;
     let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
     let store = state.svc.plan_store.clone();
     let plan_id = id.clone();
@@ -207,6 +226,7 @@ pub async fn task_respawn(
                 workspace_id: draft.workspace_id.clone(),
                 spawned_by_tab_id: draft.parent_tab_id.clone(),
                 model: draft.model.clone(),
+                launch_profile: draft.launch_profile.clone(),
                 planned_model: draft.planned_model.clone(),
                 planned_reasoning_effort: draft.reasoning_effort.clone(),
                 reasoning_effort: draft.reasoning_effort.clone(),

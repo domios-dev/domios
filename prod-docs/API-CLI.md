@@ -1,5 +1,7 @@
 # CLI and environment API
 
+`--profile <id>` selects a provider-declared ACP launch profile, independently of `--model` and Worker `--kind`/`--role-profile`. Unknown, missing required, and uninstalled profiles refuse before creating a tab or attempt with `unknown_launch_profile`, `launch_profile_required`, and `launch_profile_not_installed`. Respawn inherits the selected attempt's profile when the flag is omitted. Profile selection on task dispatch/respawn is local-only; `agent spawn --mesh` carries it to the peer.
+
 Every `--json` command returns one object with its payload under `result`: an array for a list/search, an object for a record, or a scalar/null. Optional `meta` retains list metadata, `next` carries pagination and `warnings` carries diagnostics. Failures also include `ok:false` and `error`; their daemon receipt is under `result`. Read `result` directly; do not guess `data`, `results`, `hits`, `tasks` or `tabs` envelopes.
 
 Search/list output defaults to one line per record: `id  title — short snippet` (80 characters, one line). Known omitted counts end with `N more — refine the query or use --limit`. Use `--verbose` for scores, relevance, warnings and detailed views.
@@ -203,4 +205,4 @@ saved sessions and notifications omit login values.
 
 Account installations connect automatically after same-account sign-in. `domios mesh peers` lists each installation once; `domios mesh status` is read-only for local agents.
 
-<!-- revision: 69 -->
+<!-- revision: 70 -->

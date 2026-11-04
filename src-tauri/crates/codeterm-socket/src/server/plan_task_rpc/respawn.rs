@@ -34,6 +34,10 @@ pub(super) fn respawn(
         data: None,
     })?;
     let request = codeterm_service_core::service::plan::task_attempts::TaskRespawnRequest {
+        launch_profile: body
+            .get("launch_profile")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
         reasoning_effort: body
             .get("reasoning_effort")
             .and_then(Value::as_str)
@@ -110,6 +114,8 @@ pub(super) fn respawn(
             data: None,
         })?;
     draft.parent_tab_id = Some(parent_tab_id.clone());
+    svc.validate_launch_profile(&draft.provider, draft.launch_profile.as_deref())
+        .map_err(super::super::model_errors::launch_profile_rpc_error)?;
     let _respawn_reservation = store
         .reserve_task_respawn_startup(&id, &tid, &draft.source_attempt.id, &draft.attempt_id)
         .map_err(plan_rpc_err)?;

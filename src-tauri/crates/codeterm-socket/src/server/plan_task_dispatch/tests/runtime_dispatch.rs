@@ -45,6 +45,12 @@ impl Drop for RuntimeDispatchFixture {
 }
 
 fn fixture() -> (RuntimeDispatchFixture, String, String) {
+    fixture_with_profiles(None)
+}
+
+fn fixture_with_profiles(
+    profiles: Option<serde_json::Value>,
+) -> (RuntimeDispatchFixture, String, String) {
     let (mut mux, _) = MultiplexerState::new();
     let workspace = mux.list_workspaces()[0].id.clone();
     let owner = mux.create_tab(&workspace).unwrap();
@@ -68,7 +74,7 @@ fn fixture() -> (RuntimeDispatchFixture, String, String) {
     .into_iter()
     .map(|name| (name.to_owned(), json!([name])))
     .collect::<serde_json::Map<String, serde_json::Value>>();
-    let manifest = PluginManifest::from_json_str(&json!({
+    let mut manifest = json!({
         "id": PROVIDER, "version":"1.0.0", "displayName":"Fixture",
         "capabilities":{"agentProvider":true,
             "chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},
@@ -82,7 +88,11 @@ fn fixture() -> (RuntimeDispatchFixture, String, String) {
             "platforms":[codeterm_service_core::agent::provider::current_platform_tag()],
             "readOnly":{"launchArgs":[],"runtimeMode":"read-only"}
         }}
-    }).to_string()).unwrap();
+    });
+    if let Some(profiles) = profiles {
+        manifest["capabilities"]["agentRuntime"]["launchProfiles"] = profiles;
+    }
+    let manifest = PluginManifest::from_json_str(&manifest.to_string()).unwrap();
     fixture
         .service
         .agent_registry
@@ -120,7 +130,9 @@ fn assert_runtime_task_dispatch(
     expected_title: &str,
     repository_task: bool,
 ) {
-    let (harness, owner, workspace) = fixture();
+    let (harness, owner, workspace) = fixture_with_profiles(Some(json!({
+        "selected": {"binary": "node", "args": [format!("{}/../../../tests/fixtures/agent-runtime/fake-peer.mjs", codeterm_service_core::test_support::fixture_manifest_dir().display())]}
+    })));
     let svc = &harness.fixture.service;
     let team = svc
         .mux
@@ -207,7 +219,7 @@ fn assert_runtime_task_dispatch(
     let before = svc.mux.read().snapshot().tabs.len();
     let response = super::super::dispatch(
         &Some(json!({
-            "plan_id":plan.id,"task_id":task,"agent":PROVIDER,
+            "plan_id":plan.id,"task_id":task,"agent":PROVIDER,"launch_profile":"selected",
             "caller_tab_id":owner,"parent_tab_id":owner,"workspace_id":workspace,
             "session_id":"owner-session","session_binding_nonce":"owner-nonce",
             "execution_intent":"read_only","authorized_gates":["opaque-gate"],
@@ -239,6 +251,20 @@ fn assert_runtime_task_dispatch(
             .expect("dispatch startup did not commit the Worker binding");
     }
     let tab = svc.mux.read().get_tab(worker).unwrap().clone();
+    assert_eq!(
+        tab.agent_runtime_config.as_ref().unwrap()["launchProfile"],
+        "selected"
+    );
+    assert_eq!(
+        svc.plan_store
+            .list_task_attempts(&plan.id, &task)
+            .unwrap()
+            .last()
+            .unwrap()
+            .launch_profile
+            .as_deref(),
+        Some("selected")
+    );
     assert!(codeterm_paths::paths_equal(
         tab.cwd.as_deref().unwrap(),
         &working_dir.to_string_lossy()
@@ -391,4 +417,66 @@ fn runtime_sync_spawn_reports_bound_session_readiness() {
         tab.reported_session_binding_nonce,
         tab.session_binding_nonce
     );
+}
+
+#[test]
+fn dispatch_launch_profile_refuses_before_tab_member_or_attempt_reservation() {
+    let (harness, owner, workspace) = fixture_with_profiles(Some(json!({
+        "selected": {"binary": "node", "args": [], "ownerConfigured": true}
+    })));
+    let svc = &harness.fixture.service;
+    let team = svc
+        .mux
+        .read()
+        .get_tab(&owner)
+        .unwrap()
+        .team_id
+        .clone()
+        .unwrap();
+    let mut plan = svc
+        .plan_store
+        .create_plan_for_team(
+            "profile refusal".into(),
+            harness.fixture.temp.path().display().to_string(),
+            OrchestratorRef {
+                tab_id: Some(owner.clone()),
+                session_id: Some("owner-session".into()),
+                title: None,
+            },
+            team,
+            vec![],
+            1,
+        )
+        .unwrap();
+    plan.mode = PlanMode::Approved;
+    plan.planning_state = codeterm_service_core::plan::PlanningState::Approved;
+    svc.plan_store.save(&mut plan, 2).unwrap();
+    let added = crate::server::plan_task_rpc::dispatch("plan.task.add", &Some(json!({
+        "plan_id": plan.id, "name": "Profile task", "executor_role": "Probe",
+        "role_guidance": "opaque-role", "body": "opaque-task", "execution_intent": "non_repository",
+        "acceptance_criteria": ["opaque-result"], "test_plan": "opaque-verification",
+        "caller_tab_id": owner, "session_id": "owner-session", "session_binding_nonce": "owner-nonce"
+    })), &Arc::new(svc.clone()), 3).unwrap();
+    let task = added["task_id"].as_str().unwrap();
+    let before = svc.mux.read().snapshot().tabs.len();
+    for (profile, code) in [
+        (None, "launch_profile_required"),
+        (Some("unknown"), "unknown_launch_profile"),
+        (Some("selected"), "launch_profile_not_installed"),
+    ] {
+        let error = super::super::dispatch_with_spawn(&Some(json!({
+            "plan_id": plan.id, "task_id": task, "agent": PROVIDER,
+            "launch_profile": profile, "caller_tab_id": owner, "parent_tab_id": owner,
+            "workspace_id": workspace, "session_id": "owner-session", "session_binding_nonce": "owner-nonce",
+            "execution_intent": "read_only"
+        })), &Arc::new(svc.clone()), 10, |_, _, _| panic!("refused profile reached spawn"), || panic!("refused profile reserved a tab")).unwrap_err();
+        assert_eq!(error.code, -32602);
+        assert_eq!(error.data.unwrap()["code"], code);
+        assert_eq!(svc.mux.read().snapshot().tabs.len(), before);
+        assert!(svc
+            .plan_store
+            .list_task_attempts(&plan.id, task)
+            .unwrap()
+            .is_empty());
+    }
 }

@@ -3,6 +3,9 @@ use super::spawn::{AgentSpawnSpec, SpawnTabSpec, TabCommand, TabVisibility};
 use super::ServiceContext;
 use crate::multiplexer::types::{WatcherPolicy, WatcherSpec};
 
+mod launch_profile;
+pub use launch_profile::LaunchProfileRefusal;
+
 pub fn starter_prompt_for_role(role: Option<&str>) -> crate::agent::provider::StarterPrompt {
     if role.is_none() {
         crate::agent::provider::StarterPrompt::NoStarter
@@ -470,22 +473,15 @@ impl ServiceContext {
             agent_cmd,
             params,
         )?;
-        if let Some(profile) = params.launch_profile.as_deref() {
-            let capability = self
-                .agent_registry
-                .with_provider(agent_cmd, |provider| provider.agent_runtime())
-                .flatten()
-                .ok_or("Launch profiles require an agent runtime")?;
-            capability
-                .profile_command(Some(profile))
-                .map_err(|error| error.to_string())?;
-            if params
+        self.validate_launch_profile(agent_cmd, params.launch_profile.as_deref())
+            .map_err(|error| error.to_string())?;
+        if params.launch_profile.is_some()
+            && params
                 .execution_mode
                 .as_deref()
                 .is_some_and(|mode| mode != "local")
-            {
-                return Err("Launch profiles require local execution".into());
-            }
+        {
+            return Err("Launch profiles require local execution".into());
         }
         if self.validate_remote_spawn(params)? {
             return Ok(true);

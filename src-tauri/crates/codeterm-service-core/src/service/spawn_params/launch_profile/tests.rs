@@ -1,0 +1,64 @@
+use super::*;
+use serde_json::json;
+
+fn capability() -> AgentRuntimeCapability {
+    serde_json::from_value(json!({
+        "runtime": "stdio-jsonrpc", "command": {"binary": "fallback", "args": []},
+        "launchProfiles": {"selected": {"binary": "fixed-engine", "args": []}},
+        "requestMethods": {"initialize": ["initialize"]}, "notificationMethods": []
+    }))
+    .unwrap()
+}
+
+#[test]
+fn profile_refusals_preserve_codes_and_declared_ids() {
+    for (requested, installed, code) in [
+        (Some("unknown"), true, "unknown_launch_profile"),
+        (None, true, "launch_profile_required"),
+        (Some("selected"), false, "launch_profile_not_installed"),
+    ] {
+        let refusal =
+            validate("fixture", Some(&capability()), requested, |_, _| installed).unwrap_err();
+        assert_eq!(refusal.code, code);
+        assert_eq!(refusal.requested_profile.as_deref(), requested);
+        assert_eq!(refusal.declared_profile_ids, ["selected"]);
+        assert_eq!(
+            LaunchProfileRefusal::from_message(&refusal.to_string()),
+            Some(refusal)
+        );
+    }
+    assert!(
+        validate("fixture", Some(&capability()), Some("selected"), |_, _| {
+            true
+        })
+        .is_ok()
+    );
+    let refusal = validate("pty", None, Some("selected"), |_, _| {
+        panic!("no install probe")
+    })
+    .unwrap_err();
+    assert_eq!(refusal.code, "unknown_launch_profile");
+    assert!(refusal.declared_profile_ids.is_empty());
+    assert!(validate("pty", None, None, |_, _| panic!("no install probe")).is_ok());
+}
+
+#[test]
+fn non_runtime_profile_refuses_before_tab_creation() {
+    let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    let before = fixture.service.mux.read().snapshot().tabs.len();
+    let params = crate::service::SpawnAgentParams {
+        agent: Some("plain-provider".into()),
+        launch_profile: Some("selected".into()),
+        ..Default::default()
+    };
+    let error = fixture
+        .service
+        .classify_spawn_target_for_params("plain-provider", &params)
+        .unwrap_err();
+    assert_eq!(
+        LaunchProfileRefusal::from_message(&error).unwrap().code,
+        "unknown_launch_profile"
+    );
+    assert_eq!(fixture.service.mux.read().snapshot().tabs.len(), before);
+}

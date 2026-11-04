@@ -33,6 +33,8 @@ mod compete_lane_tests;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TaskRespawnRequest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub launch_profile: Option<String>,
     pub reasoning_effort: Option<String>,
     pub attempt_id: String,
     pub provider: Option<String>,
@@ -70,6 +72,8 @@ pub struct TaskAttemptView {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct TaskRespawnDraft {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub launch_profile: Option<String>,
     pub plan_id: String,
     pub task_id: String,
     pub execution_intent: crate::plan::ExecutionIntent,
@@ -393,6 +397,30 @@ impl PlanStore {
     ) -> Result<Vec<String>, PlanError> {
         self.database
             .recent_worker_titles(workspace_id, session_id, limit)
+    }
+
+    pub fn update_attempt_launch_profile(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        tab_id: &str,
+        profile: Option<&str>,
+        now_ms: u64,
+    ) -> Result<(), PlanError> {
+        self.change_attempt(
+            plan_id,
+            task_id,
+            AttemptTarget {
+                tab: tab_id,
+                ..Default::default()
+            },
+            now_ms,
+            |attempt| {
+                attempt.ok_or(PlanError::TaskNotFound)?.launch_profile = profile.map(str::to_owned);
+                Ok(Some(()))
+            },
+        )?;
+        Ok(())
     }
 
     pub fn update_attempt_executor_identity(
@@ -782,6 +810,7 @@ impl PlanStore {
             source.authorized_gates.as_deref().unwrap_or(&[]),
         );
         Ok(TaskRespawnDraft {
+            launch_profile: request.launch_profile.or(source.launch_profile.clone()),
             plan_id: read.plan_id,
             task_id: task.id.clone(),
             execution_intent: task.execution_intent.clone(),

@@ -31,6 +31,16 @@ pub(crate) const SPAWN_REFUSAL_CLASS_UNCLASSIFIED: &str = "unknown";
 
 impl From<String> for SpawnRejection {
     fn from(message: String) -> Self {
+        if let Some(refusal) =
+            codeterm_service_core::service::spawn_params::LaunchProfileRefusal::from_message(
+                &message,
+            )
+        {
+            return Self {
+                status: StatusCode::UNPROCESSABLE_ENTITY,
+                body: serde_json::json!({"ok": false, "error": refusal.data()}),
+            };
+        }
         if let Some((code, _)) = message.split_once(':') {
             if matches!(
                 code,

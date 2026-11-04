@@ -343,6 +343,7 @@ pub(super) fn run_dispatch(
         placement,
         worker_kind,
         model,
+        launch_profile,
         speed,
         description,
         reasoning_effort,
@@ -382,6 +383,9 @@ pub(super) fn run_dispatch(
     }
     if let Some(model) = model {
         params["model"] = json!(model);
+    }
+    if let Some(profile) = launch_profile {
+        params["launch_profile"] = json!(profile);
     }
     if let Some(speed) = speed {
         params["speed"] = json!(speed);
@@ -1047,6 +1051,7 @@ pub(super) fn run_task(
             attempt,
             provider,
             model,
+            launch_profile,
             reasoning_effort,
             speed,
             parent,
@@ -1060,6 +1065,9 @@ pub(super) fn run_task(
             });
             if let Some(provider) = provider {
                 params["provider"] = json!(provider);
+            }
+            if let Some(profile) = launch_profile {
+                params["launch_profile"] = json!(profile);
             }
             if let Some(speed) = speed {
                 params["speed"] = json!(speed);
