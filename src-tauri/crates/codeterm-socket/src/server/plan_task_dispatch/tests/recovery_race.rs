@@ -132,7 +132,9 @@ fn late_dispatch_ready_after_close_cannot_resurrect_ownership() {
         .unwrap()
         .retired_at
         .is_some());
-    assert!(!store.worker_startup_attempt_owns(&plan_id, &task_id, WORKER_TAB, &attempt_id, None));
+    assert!(!store
+        .worker_startup_attempt_owns(&plan_id, &task_id, WORKER_TAB, &attempt_id, None)
+        .unwrap());
 }
 
 fn fixture() -> ServiceFixture {

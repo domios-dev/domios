@@ -34,6 +34,39 @@ pub(in crate::service_plan) struct CompetitionGroupRead {
 }
 
 impl TaskStartupRead {
+    fn current_first(&self, tab: &str) -> Option<&StartupAttemptRead> {
+        let first = self.first_matching.as_ref()?;
+        if first.executor != tab {
+            return None;
+        }
+        let valid = if let Some(group) = first.group.as_deref() {
+            first
+                .session
+                .as_deref()
+                .is_some_and(|session| !session.trim().is_empty())
+                && self
+                    .latest_group
+                    .as_ref()
+                    .is_some_and(|current| current.group == group)
+        } else {
+            self.assigned_tab.as_deref() == Some(tab)
+                && self
+                    .latest_unclosed
+                    .as_ref()
+                    .is_some_and(|current| current.id == first.id)
+        };
+        valid.then_some(first)
+    }
+
+    pub fn owns(&self, tab: &str, session: Option<&str>, clear_report: bool) -> bool {
+        matches!(self.status, TaskStatus::Pending | TaskStatus::InProgress)
+            && self.current_first(tab).is_some_and(|first| {
+                first.acknowledged_at.is_none()
+                    && (!clear_report || (first.reported_at.is_none() && !first.has_report))
+                    && session.is_none_or(|session| first.session.as_deref() == Some(session))
+            })
+    }
+
     pub fn owner(&self) -> Option<DispatchStartupOwner> {
         let tab = self.assigned_tab.as_deref()?;
         let latest = self.latest_open.as_ref()?;
@@ -47,24 +80,8 @@ impl TaskStartupRead {
         {
             return None;
         }
-        let first = self.first_matching.as_ref()?;
-        let valid = if let Some(group) = first.group.as_deref() {
-            first
-                .session
-                .as_deref()
-                .is_some_and(|session| !session.trim().is_empty())
-                && self
-                    .latest_group
-                    .as_ref()
-                    .is_some_and(|current| current.group == group)
-        } else {
-            first.executor == tab
-                && self
-                    .latest_unclosed
-                    .as_ref()
-                    .is_some_and(|current| current.id == first.id)
-        };
-        valid.then(|| DispatchStartupOwner {
+        self.current_first(tab)?;
+        Some(DispatchStartupOwner {
             attempt_id: latest.id.clone(),
             tab_id: tab.into(),
         })

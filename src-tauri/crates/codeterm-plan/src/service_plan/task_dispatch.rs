@@ -35,7 +35,7 @@ pub struct DispatchStartupOwner {
     pub tab_id: String,
 }
 
-fn startup_attempt<'a>(
+pub(super) fn startup_attempt<'a>(
     task: &'a crate::plan::Task,
     tab_id: &str,
     attempt_id: &str,
@@ -161,22 +161,34 @@ impl PlanStore {
         tab_id: &str,
         attempt_id: &str,
         session_id: Option<&str>,
-    ) -> bool {
-        self.get(plan_id).is_some_and(|plan| {
-            crate::plan::task_key::find_task(&plan.tasks, task_id)
-                .and_then(|task| {
-                    startup_attempt(task, tab_id, attempt_id).map(|(attempt, _)| (task, attempt))
-                })
-                .is_some_and(|(task, attempt)| {
-                    startup_status_allows(task)
-                        && attempt.acknowledged_at.is_none()
-                        && attempt.reported_at.is_none()
-                        && attempt.report.is_none()
-                        && session_id.is_none_or(|session_id| {
-                            attempt.session_id.as_deref() == Some(session_id)
-                        })
-                })
-        })
+    ) -> Result<bool, PlanError> {
+        match self
+            .database
+            .worker_startup_state_projection(plan_id, task_id, tab_id, attempt_id)
+        {
+            Ok((read, _)) => Ok(read.owns(tab_id, session_id, true)),
+            Err(PlanError::NotFound | PlanError::TaskNotFound) => Ok(false),
+            Err(error) => Err(error),
+        }
+    }
+
+    pub fn worker_ack_deadline_attempt_projection(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        tab_id: &str,
+        attempt_id: &str,
+    ) -> Result<Option<String>, PlanError> {
+        match self
+            .database
+            .worker_startup_state_projection(plan_id, task_id, tab_id, attempt_id)
+        {
+            Ok((read, active)) => {
+                Ok((active && read.owns(tab_id, None, true)).then(|| attempt_id.to_string()))
+            }
+            Err(PlanError::NotFound | PlanError::TaskNotFound) => Ok(None),
+            Err(error) => Err(error),
+        }
     }
 
     pub fn mark_worker_startup_deadline(
@@ -188,11 +200,10 @@ impl PlanStore {
         final_deadline: bool,
         now_ms: u64,
     ) -> Result<bool, PlanError> {
-        let current = self.read_task_for_verification(plan_id, task_id)?;
-        let authority = startup_attempt(&current, tab_id, attempt_id);
-        let owns_startup = authority.is_some_and(|(attempt, _)| {
-            startup_status_allows(&current) && attempt.acknowledged_at.is_none()
-        });
+        let (current, _) = self
+            .database
+            .worker_startup_state_projection(plan_id, task_id, tab_id, attempt_id)?;
+        let owns_startup = current.owns(tab_id, None, false);
         if !owns_startup {
             return Ok(false);
         }
