@@ -503,8 +503,7 @@ impl PlanStore {
         _session_id: &str,
         owner_epoch: u64,
     ) -> Result<(), PlanError> {
-        let detail = self.show_task(task_id).ok_or(PlanError::TaskNotFound)?;
-        let owner = &detail.task.interruption;
+        let owner = self.task_owner_epoch_projection(task_id)?;
         if owner.handoff_required
             || owner.owner_epoch != owner_epoch
             || owner.owner_tab_id.as_deref() != Some(tab_id)

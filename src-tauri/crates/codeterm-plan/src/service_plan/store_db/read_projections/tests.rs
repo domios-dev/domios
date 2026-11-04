@@ -430,3 +430,5 @@ fn task_detail_and_chat_keep_committed_snapshots_and_unicode_search() {
     }
     writer.join().unwrap();
 }
+
+mod task_authority_tests;

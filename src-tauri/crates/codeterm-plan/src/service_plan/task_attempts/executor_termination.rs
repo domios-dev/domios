@@ -48,20 +48,7 @@ impl PlanStore {
         task: &str,
         source: &TaskExecutionAttempt,
     ) -> Result<bool, PlanError> {
-        let plan = self.get(plan).ok_or(PlanError::NotFound)?;
-        let task =
-            crate::plan::task_key::find_task(&plan.tasks, task).ok_or(PlanError::TaskNotFound)?;
-        Ok(task.execution_attempts.iter().any(|attempt| {
-            same_executor(attempt, source)
-                && attempt
-                    .executor_termination
-                    .as_ref()
-                    .is_some_and(|receipt| {
-                        receipt.attempt_id == source.id
-                            && receipt.executor_tab_id == source.executor_tab_id
-                            && receipt.session_id == source.session_id
-                            && receipt.session_binding_nonce == source.session_binding_nonce
-                    })
-        }))
+        self.database
+            .executor_termination_confirmed(plan, task, source)
     }
 }

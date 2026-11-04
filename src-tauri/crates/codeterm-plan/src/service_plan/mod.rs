@@ -331,3 +331,6 @@ impl PlanStore {
         .expect("start task for test");
     }
 }
+
+mod task_authority_projection;
+pub use task_authority_projection::TaskOwnerEpochRead;

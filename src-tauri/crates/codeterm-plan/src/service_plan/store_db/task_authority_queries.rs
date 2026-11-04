@@ -1,0 +1,138 @@
+use super::read_projections::{column, record_query};
+use super::{db_error, PlanDatabase};
+use crate::plan::TaskExecutionAttempt;
+use crate::service_plan::{PlanError, TaskOwnerEpochRead};
+use rusqlite::{params, OptionalExtension};
+
+impl PlanDatabase {
+    pub(in crate::service_plan) fn task_owner_epoch_projection(
+        &self,
+        reference: &str,
+    ) -> Result<TaskOwnerEpochRead, PlanError> {
+        let connection = self.connection.lock();
+        record_query();
+        connection.query_row(
+            "WITH candidates AS (
+                SELECT p.id AS plan_id,t.task_id,t.row_json,p.updated_at,t.position,
+                    t.task_id=?1 AS exact,
+                    sum(t.task_id=?1) OVER (PARTITION BY p.id) AS exact_count,
+                    count(*) OVER (PARTITION BY p.id) AS matches
+                FROM plans p JOIN plan_tasks t ON t.plan_id=p.id
+                WHERE p.status='active' AND (t.task_id=?1 OR (?1<>'' AND (
+                    json_extract(t.row_json,'$.handle') COLLATE NOCASE=?1 OR
+                    coalesce(json_extract(t.row_json,'$.key'),CASE WHEN substr(t.task_id,1,5)='task_' THEN substr(t.task_id,6) ELSE t.task_id END) COLLATE NOCASE=?1))))
+             SELECT plan_id,task_id,coalesce(json_extract(row_json,'$.interruption.owner_epoch'),0),
+                json_extract(row_json,'$.interruption.owner_tab_id'),
+                json_extract(row_json,'$.interruption.owner_session_id'),
+                coalesce(json_extract(row_json,'$.interruption.handoff_required'),0)
+             FROM candidates WHERE exact OR (exact_count=0 AND matches=1)
+             ORDER BY updated_at DESC,plan_id,position LIMIT 1",
+            [reference],
+            |row| Ok(TaskOwnerEpochRead {
+                plan_id: column(row,0)?, task_id: column(row,1)?, owner_epoch: column(row,2)?,
+                owner_tab_id: column(row,3)?, owner_session_id: column(row,4)?, handoff_required: column(row,5)?,
+            }),
+        ).optional().map_err(db_error)?.ok_or(PlanError::TaskNotFound)
+    }
+
+    pub(in crate::service_plan) fn current_skill_attempt(
+        &self,
+        tab: &str,
+        session: &str,
+        nonce: &str,
+    ) -> Result<Option<(String, String, String)>, PlanError> {
+        let connection = self.connection.lock();
+        record_query();
+        let mut statement = connection.prepare_cached(
+            "SELECT p.id,t.task_id,json_extract(a.row_json,'$.id'),t.assigned_tab_id,
+                json_extract(a.row_json,'$.competition_group_id'),a.session_id,a.session_binding_nonce
+             FROM plans p JOIN plan_tasks t ON t.plan_id=p.id
+             LEFT JOIN plan_task_attempts a ON a.plan_id=t.plan_id AND a.task_id=t.task_id
+                AND a.executor_tab_id=?1 AND json_extract(a.row_json,'$.closed_at') IS NULL
+                AND json_extract(a.row_json,'$.retired_at') IS NULL
+             WHERE p.status='active' AND t.status IN ('pending','in_progress','in_review','blocked','paused')
+                AND (a.attempt_id IS NOT NULL OR t.assigned_tab_id=?1)
+             ORDER BY p.updated_at DESC,p.id,t.position,a.position LIMIT 2"
+        ).map_err(db_error)?;
+        let rows = statement
+            .query_map([tab], |row| {
+                Ok((
+                    column::<String>(row, 0)?,
+                    column::<String>(row, 1)?,
+                    column::<Option<String>>(row, 2)?,
+                    column::<Option<String>>(row, 3)?,
+                    column::<Option<String>>(row, 4)?,
+                    column::<Option<String>>(row, 5)?,
+                    column::<Option<String>>(row, 6)?,
+                ))
+            })
+            .map_err(db_error)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(db_error)?;
+        let mut current = None;
+        for (plan, task, attempt, assigned, competition, held_session, held_nonce) in rows {
+            let attempt = attempt.ok_or_else(|| {
+                PlanError::Io("plan skill assignment has no current attempt".into())
+            })?;
+            if current.is_some()
+                || (competition.is_none() && assigned.as_deref() != Some(tab))
+                || held_session.as_deref() != Some(session)
+                || held_nonce.as_deref() != Some(nonce)
+            {
+                return Err(PlanError::Io(
+                    "plan skill caller does not identify exactly one current attempt".into(),
+                ));
+            }
+            current = Some((plan, task, attempt));
+        }
+        Ok(current)
+    }
+
+    pub(in crate::service_plan) fn executor_termination_confirmed(
+        &self,
+        plan: &str,
+        task: &str,
+        source: &TaskExecutionAttempt,
+    ) -> Result<bool, PlanError> {
+        let mut connection = self.connection.lock();
+        let transaction = connection.transaction().map_err(db_error)?;
+        record_query();
+        let exists: bool = transaction
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM plans WHERE id=?1)",
+                [plan],
+                |row| column(row, 0),
+            )
+            .map_err(db_error)?;
+        if !exists {
+            return Err(PlanError::NotFound);
+        }
+        record_query();
+        let task: String = transaction.query_row(
+            "WITH candidates AS (
+                SELECT task_id,position,task_id=?2 AS exact,
+                    sum(task_id=?2) OVER () AS exact_count,count(*) OVER () AS matches
+                FROM plan_tasks WHERE plan_id=?1 AND (task_id=?2 OR (?2<>'' AND (
+                    json_extract(row_json,'$.handle') COLLATE NOCASE=?2 OR
+                    coalesce(json_extract(row_json,'$.key'),CASE WHEN substr(task_id,1,5)='task_' THEN substr(task_id,6) ELSE task_id END) COLLATE NOCASE=?2))))
+             SELECT task_id FROM candidates WHERE exact OR (exact_count=0 AND matches=1)
+             ORDER BY position LIMIT 1",
+            params![plan,task], |row| column(row,0),
+        ).optional().map_err(db_error)?.ok_or(PlanError::TaskNotFound)?;
+        record_query();
+        let confirmed = transaction.query_row(
+            "SELECT EXISTS(SELECT 1 FROM plan_task_attempts a WHERE a.plan_id=?1 AND a.task_id=?2
+                AND json_extract(a.row_json,'$.id')=?3 AND a.executor_tab_id=?4
+                AND a.session_id IS ?5 AND a.session_binding_nonce IS ?6
+                AND json_extract(a.row_json,'$.mesh_peer') IS NULL AND ?7
+                AND json_extract(a.row_json,'$.executor_termination.attempt_id')=?3
+                AND json_extract(a.row_json,'$.executor_termination.executor_tab_id')=?4
+                AND json_extract(a.row_json,'$.executor_termination.session_id') IS ?5
+                AND json_extract(a.row_json,'$.executor_termination.session_binding_nonce') IS ?6)",
+            params![plan,task,source.id,source.executor_tab_id,source.session_id,source.session_binding_nonce,source.mesh_peer.is_none()],
+            |row| column(row,0),
+        ).map_err(db_error)?;
+        transaction.commit().map_err(db_error)?;
+        Ok(confirmed)
+    }
+}
