@@ -716,7 +716,8 @@ impl ServiceContext {
                 if !plain {
                     let resolution = self
                         .plan_store
-                        .resolve_planner_tab(&plan.id, |pid| self.tab_probe(pid));
+                        .resolve_planner_tab(&plan.id, |pid| self.tab_probe(pid))
+                        .map_err(|error| error.to_string())?;
                     if let Some(prefix) =
                         crate::service::plan::peer_mandate::reminder_planner_prefix(&resolution)
                     {
