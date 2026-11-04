@@ -55,7 +55,7 @@ Each command's `--help` has the flags; the Docs column has the depth.
 | Agents: spawn, restart, switch provider, report | `agent spawn`, `agent restart`, `agent switch-provider`, `agent switch-provider-status`, `agent report`, `agent providers` / `agent models` | `docs ORCHESTRATION` |
 | Agent usage, reset credits, child transcript | `agent usage read|reset`, `agent child-history` (all require exact tab ids) | `docs API-CLI` |
 | Becoming an Orchestrator | Roleless, team-less local agents: `agent set-orchestrator` on self; tab menu Make Orchestrator; spawn with `--role Orchestrator` | `docs AGENT-CONTROL` |
-| Plans, specs, tasks | `plan --help`, `spec --help`, `task --help`; `plan lanes <plan> --clean` previews merged lanes and unregistered build residue, `--confirm` executes, `--fetch` refreshes refs; dirty lanes stay protected | `docs PLAN-EDITING` |
+| Plans, specs, tasks | `plan --help`, `spec --help`, `task --help`; state/next/lanes default to bounded detail pages with full totals (`--page N`, explicit `--all`); `plan lanes <plan> --clean` previews merged lanes and unregistered build residue, `--confirm` executes, `--fetch` refreshes refs; dirty lanes stay protected | `docs PLAN-EDITING` |
 | Delayed or repeated message to a tab | `send --delay` / `--at` / `--every`, `delayed --help` | — |
 | Scheduled jobs (fresh agent per run) | `cron create --help`; a short meaningful name is required | `docs CONFIG` |
 | Watch CI, builds, files, agents or receive webhooks and act | `blueprint new --intent`, typed call when a card fits, else author/check/apply; per-graph webhook credentials: `blueprint webhook`; `blueprint keep` returns the saved ID and any `evicted_ids`, which the CLI also prints | `docs BLUEPRINTS` |

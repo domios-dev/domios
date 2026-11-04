@@ -3,6 +3,7 @@ use axum::{
     http::{HeaderMap, StatusCode},
     Json,
 };
+use codeterm_plan::service_plan::state::window::StateWindowRequest;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -538,11 +539,12 @@ pub async fn state(
     AxumState(state): AxumState<AppState>,
     _headers: HeaderMap,
     Path(id): Path<String>,
+    Query(window): Query<StateWindowRequest>,
 ) -> PlanRouteResult {
     crate::plan_routes::run_blocking(move || {
         let snapshot = state
             .svc
-            .build_plan_state(&id, epoch_ms())
+            .build_plan_state_with_window(&id, epoch_ms(), window)
             .map_err(plan_err)?;
         Ok(Json(serde_json::to_value(snapshot).unwrap_or_default()))
     })
@@ -553,16 +555,16 @@ pub async fn next(
     AxumState(state): AxumState<AppState>,
     _headers: HeaderMap,
     Path(id): Path<String>,
+    Query(window): Query<StateWindowRequest>,
 ) -> PlanRouteResult {
     crate::plan_routes::run_blocking(move || {
         let snapshot = state
             .svc
-            .build_plan_state(&id, epoch_ms())
+            .build_plan_state_with_window(&id, epoch_ms(), window)
             .map_err(plan_err)?;
-        Ok(Json(serde_json::json!({
-            "plan_id": id,
-            "next_actions": snapshot.next_actions,
-        })))
+        Ok(Json(
+            serde_json::to_value(snapshot.into_next_actions()).unwrap_or_default(),
+        ))
     })
     .await
 }
