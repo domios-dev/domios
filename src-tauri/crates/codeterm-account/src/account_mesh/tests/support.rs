@@ -374,6 +374,8 @@ impl EndpointSource for FakeEndpoint {
 }
 
 pub struct FakeTransport {
+    pub peers_reachable: std::sync::atomic::AtomicBool,
+    pub endpoints: Mutex<Vec<(Option<MeshEndpoint>, u64, String)>>,
     pub snapshots: Mutex<Vec<DetachedGrant>>,
     log: Log,
     pub revoked: Mutex<Vec<String>>,
@@ -381,6 +383,22 @@ pub struct FakeTransport {
 }
 #[async_trait]
 impl MeshTransport for FakeTransport {
+    fn peers_reachable(&self) -> bool {
+        self.peers_reachable
+            .load(std::sync::atomic::Ordering::SeqCst)
+    }
+    async fn endpoint_changed(
+        &self,
+        endpoint: Option<MeshEndpoint>,
+        sequence: u64,
+        membership: &str,
+    ) -> bool {
+        self.endpoints
+            .lock()
+            .unwrap()
+            .push((endpoint, sequence, membership.to_owned()));
+        true
+    }
     async fn registry_changed(&self, snapshot: &DetachedGrant) {
         self.snapshots.lock().unwrap().push(snapshot.clone());
     }
@@ -458,6 +476,8 @@ impl Harness {
             log: log.clone(),
         });
         let transport = Arc::new(FakeTransport {
+            peers_reachable: Default::default(),
+            endpoints: Default::default(),
             snapshots: Mutex::default(),
             log: log.clone(),
             revoked: Mutex::default(),

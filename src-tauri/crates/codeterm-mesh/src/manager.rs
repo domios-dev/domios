@@ -46,6 +46,7 @@ pub struct MeshManager {
     links: LinkLedger,
     account: account_mesh::AccountMeshState,
     account_authority: Option<Arc<dyn account_mesh::AccountMeshAuthority>>,
+    pub(crate) endpoint_records: crate::endpoint_gossip::EndpointRecords,
     pub signed_registry: Option<codeterm_entitlements::DetachedGrant>,
     clock: Arc<dyn Fn() -> u64 + Send + Sync>,
     gate_generation: tokio::sync::watch::Sender<u64>,
@@ -119,6 +120,7 @@ impl MeshManager {
             account: account_mesh::AccountMeshState::default(),
             account_authority: None,
             signed_registry: None,
+            endpoint_records: Default::default(),
             clock: Arc::new(account_gate::system_now),
             gate_generation: tokio::sync::watch::channel(0).0,
             pending_links: HashMap::new(),
@@ -333,6 +335,7 @@ impl MeshManager {
         types::MeshSyncPayload {
             peers,
             generation: self.local_gossip_generation,
+            endpoints: self.endpoint_records(),
         }
     }
 
@@ -357,8 +360,18 @@ impl MeshManager {
         }
         let peer = self.paired_peers.get(peer_id)?;
         let token = self.sign_request().ok()?;
-        if let Some(url) = crate::web_ui_endpoints::preferred_https_url(peer.web_ui.as_ref()) {
-            return Some(transport::PeerClient::new_signed_url(url, &token));
+        if let Some(installation) = self
+            .link_record(peer_id)
+            .and_then(|link| link.installation_id())
+        {
+            if self.has_endpoint_record(installation) {
+                let endpoint = self.endpoint_target(installation)?;
+                return Some(transport::PeerClient::new_signed(
+                    &endpoint.ip,
+                    endpoint.api_port,
+                    &token,
+                ));
+            }
         }
         let addr = peer
             .addresses

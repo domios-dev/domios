@@ -140,9 +140,10 @@ async fn account_mesh_rename_uses_one_admission_and_updates_both_views() {
 }
 
 #[tokio::test]
-async fn account_mesh_network_republishes_an_expired_endpoint() {
+async fn account_mesh_network_does_not_republish_an_unchanged_expired_endpoint() {
     let harness = Harness::new().await;
     harness.registry.script.lock().unwrap().membership_seconds = Some(86400);
+    harness.registry.script.lock().unwrap().endpoint_seconds = Some(3600);
     *harness.endpoint.0.lock().unwrap() = Some(tailnet_endpoint());
     harness.sign_in("owner").await;
     harness
@@ -150,17 +151,17 @@ async fn account_mesh_network_republishes_an_expired_endpoint() {
         .refresh(EnrollTrigger::Automatic)
         .await
         .unwrap();
-    assert_eq!(
-        harness.registry.endpoint("owner").unwrap().expires_at,
-        START + 3600
-    );
+    let expiry = harness.registry.endpoint("owner").unwrap().expires_at;
     harness.clock.set(START + 3600);
     harness.log.lock().unwrap().clear();
     harness.mesh.refresh(EnrollTrigger::Network).await.unwrap();
-    assert_eq!(harness.calls("publish"), 1);
+    assert_eq!(harness.calls("publish"), 0);
     assert_eq!(harness.calls("renew"), 0);
     assert_eq!(harness.calls("sync"), 0);
-    assert!(harness.registry.endpoint("owner").unwrap().expires_at > START + 3600);
+    assert_eq!(
+        harness.registry.endpoint("owner").unwrap().expires_at,
+        expiry
+    );
 }
 
 #[tokio::test]
