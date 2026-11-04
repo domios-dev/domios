@@ -362,3 +362,9 @@ pub use task_authority_projection::{
 };
 
 pub use task_authority_projection::{TaskDispatchSeedRead, TaskLaunchRead};
+
+pub use task_authority_projection::{SpawnAttemptBindingRead, TaskSpawnBindingRead};
+
+pub use task_authority_projection::{
+    TaskBriefStrideRead, WorkerTaskBriefRead, WorkerTaskPreparationRead,
+};
