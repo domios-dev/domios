@@ -1,6 +1,6 @@
 use super::read_projections::{column, decode, record_query};
 use super::{db_error, PlanDatabase};
-use crate::plan::{Milestone, Plan, Section, Task, TaskExecutionAttempt, TaskStatus};
+use crate::plan::{Milestone, TaskStatus};
 use crate::service_plan::state::mission_control::BounceSummary;
 use crate::service_plan::status_projection::PlanStatusRead;
 use crate::service_plan::PlanError;
@@ -8,32 +8,6 @@ use rusqlite::{params, Connection, OptionalExtension};
 use std::collections::HashMap;
 
 mod state_facts;
-
-const TASKS: &str = "SELECT json_set(json_remove(row_json,
-    '$.body','$.test_plan','$.qa_plan','$.model_rationale','$.intent','$.correctness',
-    '$.files','$.attachments','$.review_audit','$.review_override','$.interruption','$.role_guidance'),
-    '$.body',domios_skill_refs(json_extract(row_json,'$.body'),json_extract(row_json,'$.test_plan'),json_extract(row_json,'$.qa_plan'),?3),
-    '$.acceptance_criteria',json((SELECT json_group_array('') FROM json_each(t.row_json,'$.acceptance_criteria'))),
-    '$.review_evidence',json(CASE WHEN json_array_length(row_json,'$.review_evidence')>0
-        THEN json_array(json_set(json_extract(row_json,'$.review_evidence[#-1]'),'$.note',
-            CASE WHEN length(trim(coalesce(json_extract(row_json,'$.review_evidence[#-1].note'),''),?2))>0 THEN 'held' ELSE '' END))
-        ELSE '[]' END)),
-    coalesce(json_extract(row_json,'$.interruption.handoff_required'),0)
-    FROM plan_tasks t WHERE plan_id=?1 ORDER BY position";
-
-const ATTEMPTS: &str = "SELECT task_id,json_object(
-    'id',attempt_id,'executor_tab_id',executor_tab_id,'executor_title',json_extract(row_json,'$.executor_title'),
-    'session_id',json_extract(row_json,'$.session_id'),'session_binding_nonce',json_extract(row_json,'$.session_binding_nonce'),
-    'role',json_extract(row_json,'$.role'),'model',json_extract(row_json,'$.model'),
-    'assigned_at',json_extract(row_json,'$.assigned_at'),'acknowledged_at',json_extract(row_json,'$.acknowledged_at'),
-    'reported_at',json_extract(row_json,'$.reported_at'),'report_target_written_at',json_extract(row_json,'$.report_target_written_at'),
-    'closed_at',json_extract(row_json,'$.closed_at'),'retired_at',json_extract(row_json,'$.retired_at'),
-    'parent_tab_id',json_extract(row_json,'$.parent_tab_id'),'orchestrator_tab_id',json_extract(row_json,'$.orchestrator_tab_id'),
-    'competition_group_id',json_extract(row_json,'$.competition_group_id'),
-    'report',CASE WHEN json_type(row_json,'$.report')='object' THEN json_object(
-        'id',coalesce(json_extract(row_json,'$.report.id'),''),'status',json_extract(row_json,'$.report.status')) END)
-    FROM plan_task_attempts WHERE plan_id=?1 AND json_extract(row_json,'$.closed_at') IS NULL
-    ORDER BY task_id,position";
 
 const RECENT: &str = "WITH history AS (
     SELECT m.task_id,t.position AS task_position,m.seq,0 AS phase,json_extract(m.row_json,'$.ts') AS ts,m.row_json
@@ -67,28 +41,6 @@ impl PlanDatabase {
         transaction.commit().map_err(db_error)?;
         Ok(read)
     }
-}
-
-pub(super) fn load_tasks(connection: &Connection, plan: &mut Plan) -> Result<(), PlanError> {
-    let slugs: Vec<_> = crate::service_plan::skill_registry::list_plan_skill_summaries(plan)
-        .into_iter()
-        .map(|skill| skill.slug)
-        .collect();
-    let slugs = serde_json::to_string(&slugs).map_err(|error| PlanError::Io(error.to_string()))?;
-    record_query();
-    let mut statement = connection.prepare_cached(TASKS).map_err(db_error)?;
-    for row in statement
-        .query_map(params![plan.id, WHITESPACE, slugs], |row| {
-            Ok((column::<String>(row, 0)?, row.get::<_, bool>(1)?))
-        })
-        .map_err(db_error)?
-    {
-        let (document, handoff) = row.map_err(db_error)?;
-        let mut task: Task = decode(&plan.id, &document)?;
-        task.interruption.handoff_required = handoff;
-        plan.tasks.push(task);
-    }
-    Ok(())
 }
 
 pub(super) fn register_functions(connection: &Connection) -> Result<(), PlanError> {
@@ -165,109 +117,6 @@ fn lowercase_contains(source: &str, needle: &str) -> bool {
         }
     }
     false
-}
-
-pub(super) fn load_sections(connection: &Connection, plan: &mut Plan) -> Result<(), PlanError> {
-    record_query();
-    let mut statement = connection.prepare_cached(
-        "SELECT json_object('id',json_extract(j.value,'$.id'),'title',json_extract(j.value,'$.title'),
-            'body',CASE WHEN (domios_readiness_hint(json_extract(j.value,'$.body')) & 1)<>0 THEN 'approval ' ELSE '' END
-                   || CASE WHEN (domios_readiness_hint(json_extract(j.value,'$.body')) & 2)<>0 THEN 'verification' ELSE '' END)
-         FROM plan_sections s,json_tree(s.row_json) j WHERE s.plan_id=?1 AND j.type='object'
-            AND (j.fullkey='$' OR j.path LIKE '%.subsections') AND json_type(j.value,'$.id')='text'
-         ORDER BY s.position,j.id"
-    ).map_err(db_error)?;
-    for document in statement
-        .query_map([&plan.id], |row| column::<String>(row, 0))
-        .map_err(db_error)?
-    {
-        plan.sections
-            .push(decode::<Section>(&plan.id, &document.map_err(db_error)?)?);
-    }
-    Ok(())
-}
-
-pub(super) fn load_attempts(connection: &Connection, plan: &mut Plan) -> Result<(), PlanError> {
-    let indexes: HashMap<_, _> = plan
-        .tasks
-        .iter()
-        .enumerate()
-        .map(|(index, task)| (task.id.clone(), index))
-        .collect();
-    record_query();
-    let mut statement = connection.prepare_cached(ATTEMPTS).map_err(db_error)?;
-    for row in statement
-        .query_map([&plan.id], |row| {
-            Ok((column::<String>(row, 0)?, column::<String>(row, 1)?))
-        })
-        .map_err(db_error)?
-    {
-        let (id, document) = row.map_err(db_error)?;
-        let attempt: TaskExecutionAttempt = decode(&plan.id, &document)?;
-        let index = indexes.get(&id).ok_or(PlanError::TaskNotFound)?;
-        plan.tasks[*index].execution_attempts.push(attempt);
-    }
-    Ok(())
-}
-
-pub(super) fn load_history(connection: &Connection, plan: &mut Plan) -> Result<(), PlanError> {
-    record_query();
-    let mut statement = connection.prepare_cached(RECENT).map_err(db_error)?;
-    for row in statement
-        .query_map([&plan.id], |row| {
-            Ok((column::<Option<String>>(row, 0)?, column::<String>(row, 1)?))
-        })
-        .map_err(db_error)?
-    {
-        let (task_id, document) = row.map_err(db_error)?;
-        let milestone: Milestone = decode(&plan.id, &document)?;
-        match task_id {
-            Some(id) => plan
-                .tasks
-                .iter_mut()
-                .find(|task| task.id == id)
-                .ok_or(PlanError::TaskNotFound)?
-                .milestones
-                .push(milestone),
-            None => plan.strides.push(milestone),
-        }
-    }
-    record_query();
-    let mut statement = connection.prepare_cached(REGRESSION).map_err(db_error)?;
-    for document in statement
-        .query_map([&plan.id], |row| column::<String>(row, 0))
-        .map_err(db_error)?
-    {
-        let milestone: Milestone = decode(&plan.id, &document.map_err(db_error)?)?;
-        if !plan
-            .strides
-            .iter()
-            .any(|existing| existing.id == milestone.id)
-        {
-            plan.strides.push(milestone);
-        }
-    }
-    Ok(())
-}
-
-pub(super) fn load_heartbeat(
-    connection: &Connection,
-    plan: &mut Plan,
-    selected_learnings: &[String],
-) -> Result<(), PlanError> {
-    record_query();
-    let document: Option<String> = connection.query_row(
-        &format!("{} SELECT json_set(row_json,'$.learnings',json((SELECT json_group_array(json(value)) FROM (
-            SELECT key,value FROM learning_rows WHERE tag='owner'
-               OR id IN (SELECT value FROM json_each(?2))
-               OR key IN (SELECT key FROM recent_learnings)
-            ORDER BY key)))) FROM plan_heartbeat h WHERE plan_id=?1",super::heartbeat_queries::LEARNING_WINDOW),
-        params![plan.id,serde_json::to_string(selected_learnings).map_err(|error| PlanError::Io(error.to_string()))?],|row| column(row,0)
-    ).optional().map_err(db_error)?;
-    if let Some(document) = document {
-        plan.heartbeat = decode(&plan.id, &document)?;
-    }
-    Ok(())
 }
 
 type HistoryFacts = (BounceSummary, HashMap<String, (usize, Option<u64>)>, usize);

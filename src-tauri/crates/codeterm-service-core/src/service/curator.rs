@@ -55,16 +55,6 @@ impl ServiceContext {
             .ok_or_else(|| "Curator clock is unavailable".into())
     }
 
-    pub(crate) fn curator_heartbeat_body(&self, plan: &Plan) -> String {
-        let heartbeat = crate::service::plan::heartbeat::prepend_plan_heartbeat(plan, "");
-        let actions = crate::service::plan::reminders::composition::action_groups(plan);
-        let parked = crate::service::plan::reminders::parked_later_group_summary(plan);
-        crate::service::plan::reminders::composition::compose(
-            plan,
-            &[&actions, &parked, &heartbeat],
-        )
-    }
-
     pub(crate) fn curator_turn_settled(&self, tab_id: &str) {
         if !self.is_curator_tab(tab_id) {
             return;
