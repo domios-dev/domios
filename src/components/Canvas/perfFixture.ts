@@ -366,7 +366,7 @@ export function buildMidStreamChatTranscriptFixtureTabs(): Record<string, Tab> {
   };
 }
 
-export function fixtureSpecSectionsByPlan(plans: Plan[]): Map<string, Section[]> {
+export function fixtureSpecSectionsByPlan(plans: readonly Pick<Plan, "id" | "primary_spec_id">[]): Map<string, Section[]> {
   const out = new Map<string, Section[]>();
   for (const p of plans) {
     if (p.primary_spec_id === PERF_SPEC_ID) out.set(p.id, PERF_SPEC_SECTIONS);

@@ -1,8 +1,8 @@
+import type { PlanView as Plan } from "../planProjection";
 import { Skeleton, SkeletonBlock } from "../../shared/Skeleton";
 import { useId, useRef, useState } from "react";
 import type { Tab, ApiConfig } from "../../../lib/types";
 import { roleKind, roleKindLabel } from "../../../lib/roleKind";
-import type { Plan } from "../types";
 import type { NeedsYouDeepLinks } from "../../Notifications/NeedsYouNotificationRow";
 import { ActivityFeed } from "../../Supporter/ActivityFeed";
 import { ActivityDots } from "../../shared/ActivityDots";

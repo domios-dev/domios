@@ -13,7 +13,18 @@ inline), `<plan>/goal.yaml`, `<plan>/spec.yaml` (the plan's spec, 1:1),
 | One plan section subtree | `domios plan section show <plan> <section-id-or-handle>` |
 | One spec section subtree | `domios spec section show <spec> <section-id-or-handle>` |
 | Section tree only (no bodies) | `domios plan get <plan> --sections` |
-| Counts/coverage snapshot | `domios plan state <plan>` |
+| Counts/coverage snapshot with bounded details | `domios plan state <plan>` |
+| More state details or next actions | `domios plan state <plan> --page 2` / `domios plan next <plan> --page 2` |
+
+State, next, and lane reads show at most 50 rows per detail list by default.
+Counts, gates, liveness, and next-action decisions always cover the entire plan.
+`details.totals` and `details.next_action_counts` report complete totals;
+`details.windows` names shortened lists and their next page. Use `--page N`
+to continue, or explicitly request `--all` when the entire result is needed.
+Nested detail lists expand with `--all`; retained event and recent-stride
+history windows remain bounded. Pages are ordered within each list and are recomputed from the current plan;
+if the revision changes, start again at page 1. Lane cleanup uses its complete
+cleanup projection regardless of display windows.
 
 `domios plan get <plan>` renders the ENTIRE plan — goal, every section, every
 task. On a large plan that is tens of thousands of tokens. Reach for it only
@@ -103,4 +114,4 @@ This local command returns authoritative completed user/assistant turns and outc
 
 `plan task add` validates all required fields together: name, executor role and role guidance. Personality defaults to the first alphabetic word of the task name. A sole plan section is used when no area matches; ambiguous plans may remain unlinked with a hint. Missing `work:` tags are inferred from the area or default to `work:backend`, with a warning. Explicit invalid tags and section selectors refuse. Correctness is optional and keeps its warning. A bare provider in `--model` is resolved when dispatched.
 
-<!-- revision: 10 -->
+<!-- revision: 11 -->

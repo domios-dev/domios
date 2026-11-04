@@ -18,6 +18,7 @@ fn lane_clean_clap_defaults_to_preview_and_requires_explicit_confirmation() {
                     confirm,
                     fetch,
                     stale,
+                    ..
                 },
         } = parsed.command
         else {

@@ -7,15 +7,19 @@ use crate::plan::coverage::CoverageReport;
 use crate::plan::peer::{resolve_planner_ref, PeerResolution};
 use crate::plan::reconcile::{DriftItem, TabProbe};
 use crate::plan::{
-    Goal, LoopStatus, OrchestratorRef, Plan, PlanMode, PlanStatus, PlannerRef, PlanningState,
-    QaState, RegressionGateOverride, ReviewStage, TaskStatus,
+    Goal, LoopStatus, OrchestratorRef, PlanMode, PlanStatus, PlannerRef, PlanningState, QaState,
+    RegressionGateOverride, ReviewStage, TaskStatus,
 };
 
 use super::next_actions::{compute_next_actions, NextAction};
 
+pub mod input;
+use input::{StateSectionInput, StateSource, StateTaskSource};
+
 pub mod analytics;
 pub mod lane_rows;
 pub mod mission_control;
+pub mod window;
 
 const RECENT_STRIDE_LIMIT: usize = 10;
 
@@ -155,7 +159,11 @@ pub(crate) fn task_presentation(
     }
 }
 
-pub fn task_projection(plan: &Plan, task: &crate::plan::Task) -> TaskProjection {
+pub fn task_projection(plan: &impl StateSource, task: &impl StateTaskSource) -> TaskProjection {
+    let plan_input = plan.state_input();
+    let plan = plan_input.as_ref();
+    let task_input = task.state_task_input();
+    let task = task_input.as_ref();
     let dependency_waits = dependency_waits(plan, task);
     let has_open_subtasks = plan.tasks.iter().any(|candidate| {
         candidate.parent_task_id.as_deref() == Some(&task.id)
@@ -166,7 +174,7 @@ pub fn task_projection(plan: &Plan, task: &crate::plan::Task) -> TaskProjection 
         dependency_waits,
         &task.review_stage,
         &task.qa_state,
-        task.interruption.handoff_required,
+        task.handoff_required,
         has_open_subtasks,
         task.status == TaskStatus::Pending && is_later_group_task(plan, task),
     )
@@ -224,7 +232,9 @@ impl TaskProjection {
     }
 }
 
-fn active_group_index(plan: &Plan) -> Option<usize> {
+fn active_group_index(plan: &impl StateSource) -> Option<usize> {
+    let plan_input = plan.state_input();
+    let plan = plan_input.as_ref();
     plan.task_groups.iter().position(|group| {
         plan.tasks.iter().any(|task| {
             task.group.as_deref() == Some(group.key.as_str()) && !task.status.is_terminal()
@@ -232,7 +242,11 @@ fn active_group_index(plan: &Plan) -> Option<usize> {
     })
 }
 
-fn is_later_group_task(plan: &Plan, task: &crate::plan::Task) -> bool {
+fn is_later_group_task(plan: &impl StateSource, task: &impl StateTaskSource) -> bool {
+    let plan_input = plan.state_input();
+    let plan = plan_input.as_ref();
+    let task_input = task.state_task_input();
+    let task = task_input.as_ref();
     let Some(current_index) = active_group_index(plan) else {
         return false;
     };
@@ -245,11 +259,20 @@ fn is_later_group_task(plan: &Plan, task: &crate::plan::Task) -> bool {
         .is_some_and(|task_index| task_index > current_index)
 }
 
-pub fn task_is_parked_for_later_group(plan: &Plan, task: &crate::plan::Task) -> bool {
+pub fn task_is_parked_for_later_group(
+    plan: &impl StateSource,
+    task: &impl StateTaskSource,
+) -> bool {
+    let plan_input = plan.state_input();
+    let plan = plan_input.as_ref();
+    let task_input = task.state_task_input();
+    let task = task_input.as_ref();
     task.status == TaskStatus::Pending && is_later_group_task(plan, task)
 }
 
-pub fn parked_later_group_task_count(plan: &Plan) -> usize {
+pub fn parked_later_group_task_count(plan: &impl StateSource) -> usize {
+    let plan_input = plan.state_input();
+    let plan = plan_input.as_ref();
     plan.tasks
         .iter()
         .filter(|task| task_is_parked_for_later_group(plan, task))
@@ -258,20 +281,24 @@ pub fn parked_later_group_task_count(plan: &Plan) -> usize {
 
 /// Tasks the plan owner can act on now, in plan order. Dependency-waiting and
 /// machine-paused tasks advance without the owner and are excluded.
-pub fn orchestrator_actionable_task_ids(plan: &Plan) -> Vec<String> {
+pub fn orchestrator_actionable_task_ids(plan: &impl StateSource) -> Vec<String> {
+    let plan_input = plan.state_input();
+    let plan = plan_input.as_ref();
     plan.tasks
         .iter()
         .filter(|task| {
-            crate::plan::reconcile::active_review_hold_note(task).is_none()
+            !crate::plan::reconcile::has_active_review_hold(task)
                 && task_projection(plan, task).needs_orchestrator_action()
         })
         .map(|task| task.id.clone())
         .collect()
 }
 
-pub fn plan_needs_orchestrator_action(plan: &Plan) -> bool {
+pub fn plan_needs_orchestrator_action(plan: &impl StateSource) -> bool {
+    let plan_input = plan.state_input();
+    let plan = plan_input.as_ref();
     plan.tasks.iter().any(|task| {
-        crate::plan::reconcile::active_review_hold_note(task).is_none()
+        !crate::plan::reconcile::has_active_review_hold(task)
             && task_projection(plan, task).needs_orchestrator_action()
     })
 }
@@ -282,7 +309,9 @@ pub fn plan_needs_orchestrator_action(plan: &Plan) -> bool {
 /// status projection, and the heartbeat all call this one function instead
 /// of each deciding independently what "blocked" means — a fixture change
 /// here moves all three surfaces together.
-pub fn outstanding_blocked_count(plan: &Plan) -> usize {
+pub fn outstanding_blocked_count(plan: &impl StateSource) -> usize {
+    let plan_input = plan.state_input();
+    let plan = plan_input.as_ref();
     plan.tasks
         .iter()
         .filter(|task| {
@@ -377,9 +406,13 @@ pub struct PlanStateSnapshot {
     // arrive not-recording; the service layer overlays ledger and usage rows.
     pub mission_control: mission_control::MissionControl,
     pub next_actions: Vec<NextAction>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub details: Option<window::StateDetails>,
 }
 
-pub fn task_counts(plan: &Plan) -> TaskCounts {
+pub fn task_counts(plan: &impl StateSource) -> TaskCounts {
+    let plan_input = plan.state_input();
+    let plan = plan_input.as_ref();
     let mut c = TaskCounts::default();
     for task in &plan.tasks {
         c.total += 1;
@@ -421,7 +454,9 @@ fn drift_summary(drift: Vec<DriftItem>) -> DriftSummary {
     }
 }
 
-fn recent_strides(plan: &Plan) -> Vec<StrideSnapshot> {
+fn recent_strides(plan: &impl StateSource) -> Vec<StrideSnapshot> {
+    let plan_input = plan.state_input();
+    let plan = plan_input.as_ref();
     let mut strides: Vec<StrideSnapshot> = plan
         .tasks
         .iter()
@@ -453,24 +488,22 @@ fn recent_strides(plan: &Plan) -> Vec<StrideSnapshot> {
     strides
 }
 
-fn section_count(sections: &[crate::plan::Section]) -> usize {
-    sections
-        .iter()
-        .map(|section| 1 + section_count(&section.subsections))
-        .sum()
+fn section_count(sections: &[StateSectionInput]) -> usize {
+    sections.len()
 }
 
-fn section_text(sections: &[crate::plan::Section], out: &mut String) {
+fn section_text(sections: &[StateSectionInput], out: &mut String) {
     for section in sections {
         out.push_str(&section.title.to_lowercase());
         out.push('\n');
         out.push_str(&section.body.to_lowercase());
         out.push('\n');
-        section_text(&section.subsections, out);
     }
 }
 
-fn planning_readiness(plan: &Plan) -> PlanningReadiness {
+fn planning_readiness(plan: &impl StateSource) -> PlanningReadiness {
+    let plan_input = plan.state_input();
+    let plan = plan_input.as_ref();
     let total_plan_sections = section_count(&plan.sections);
     let linked_plan_sections = plan
         .spec_links
@@ -508,7 +541,14 @@ fn planning_readiness(plan: &Plan) -> PlanningReadiness {
     }
 }
 
-pub(crate) fn dependency_waits(plan: &Plan, task: &crate::plan::Task) -> Vec<DependencyWait> {
+pub(crate) fn dependency_waits(
+    plan: &impl StateSource,
+    task: &impl StateTaskSource,
+) -> Vec<DependencyWait> {
+    let plan_input = plan.state_input();
+    let plan = plan_input.as_ref();
+    let task_input = task.state_task_input();
+    let task = task_input.as_ref();
     task.depends_on
         .iter()
         .filter_map(|dependency_id| {
@@ -563,7 +603,7 @@ pub fn planning_approval_blockers(readiness: &PlanningReadiness, plan_id: &str) 
 }
 
 pub fn build_plan_state_snapshot(
-    plan: &Plan,
+    plan: &impl StateSource,
     coverage: CoverageReport,
     drift: Vec<DriftItem>,
     cleanup_debt: Vec<CleanupDebtTask>,
@@ -572,6 +612,9 @@ pub fn build_plan_state_snapshot(
     resolved_planner: Option<PeerResolution>,
     now_ms: u64,
 ) -> PlanStateSnapshot {
+    let mission_control = plan.mission_control(now_ms);
+    let plan_input = plan.state_input();
+    let plan = plan_input.as_ref();
     let bound_session_id = match &plan.planner {
         Some(PlannerRef::Tab { session_id, .. }) => session_id.clone(),
         _ => None,
@@ -592,19 +635,12 @@ pub fn build_plan_state_snapshot(
     let pct = percent_done(&counts);
     let readiness = planning_readiness(plan);
     let approval_blockers = planning_approval_blockers(&readiness, &plan.id);
-    let undelivered_request_count = plan
-        .planner_requests
-        .iter()
-        .filter(|request| !matches!(request.state, crate::plan::PlannerRequestState::Completed))
-        .count();
+    let undelivered_request_count = plan.undelivered_request_count;
     let planner_dead = matches!(
         &planner_resolution,
         PeerResolution::OrchestratorFallback { .. }
     );
-    let delivery_uncertain = plan
-        .planner_inbox
-        .iter()
-        .any(|entry| entry.phase == crate::plan::PlannerDeliveryPhase::DeliveryUncertain);
+    let delivery_uncertain = plan.delivery_uncertain;
 
     let open_lanes = plan
         .tasks
@@ -635,12 +671,15 @@ pub fn build_plan_state_snapshot(
                     .collect(),
                 status: t.status.clone(),
                 executor_role: t.executor_role.clone(),
-                competition: super::competition::competition_summary(t),
+                competition: super::competition::competition_summary_for(t.competition.as_ref()),
                 live_competition_attempts: super::competition::live_competition_attempt_count(t),
                 review_stage: t.review_stage.clone(),
                 qa_state: t.qa_state.clone(),
                 status_label: t.status_label.clone(),
-                clears_review_capacity: super::review_gate::clears_review_capacity(plan, t),
+                clears_review_capacity: super::review_gate::clears_review_capacity_for(
+                    &plan.review_policy,
+                    &t.id,
+                ),
                 presentation: projection.presentation,
                 waiting_on_dependencies,
                 dependency_waits: projection.dependency_waits,
@@ -672,12 +711,15 @@ pub fn build_plan_state_snapshot(
                     .collect(),
                 status: t.status.clone(),
                 executor_role: t.executor_role.clone(),
-                competition: super::competition::competition_summary(t),
+                competition: super::competition::competition_summary_for(t.competition.as_ref()),
                 live_competition_attempts: super::competition::live_competition_attempt_count(t),
                 review_stage: t.review_stage.clone(),
                 qa_state: t.qa_state.clone(),
                 status_label: t.status_label.clone(),
-                clears_review_capacity: super::review_gate::clears_review_capacity(plan, t),
+                clears_review_capacity: super::review_gate::clears_review_capacity_for(
+                    &plan.review_policy,
+                    &t.id,
+                ),
                 presentation: projection.presentation,
                 waiting_on_dependencies,
                 dependency_waits: projection.dependency_waits,
@@ -748,7 +790,7 @@ pub fn build_plan_state_snapshot(
         status: plan.status.clone(),
         mode: plan.mode.clone(),
         planning_state: plan.planning_state,
-        execution_tasks_unlocked: plan.execution_tasks_unlocked(),
+        execution_tasks_unlocked: plan.execution_tasks_unlocked,
         planning_approval_blockers: approval_blockers,
         canonical_project_path: if plan.canonical_project_path.trim().is_empty() {
             plan.project_path.clone()
@@ -769,7 +811,7 @@ pub fn build_plan_state_snapshot(
             None
         },
         goal: plan.goal.clone(),
-        task_counts: counts,
+        task_counts: counts.clone(),
         percent_done: pct,
         coverage,
         drift: drift_summary(drift),
@@ -793,12 +835,17 @@ pub fn build_plan_state_snapshot(
         blocking_regression_gates: super::milestone_gates::blocking_regression_gates(plan),
         pending_group_retrospectives: super::milestone_gates::pending_group_retrospectives(plan),
         regression_overrides: plan.regression_gate_overrides.clone(),
-        review_gate: super::review_gate::review_gate_status(plan),
-        mission_control: mission_control::build_mission_control(plan, now_ms),
+        review_gate: super::review_gate::review_gate_status_for(
+            counts.in_review,
+            plan.review_policy.wip_limit,
+            plan.review_policy.credit,
+        ),
+        mission_control,
         next_actions: vec![],
+        details: None,
     };
     snapshot.next_actions = match plan.orphaned.as_ref() {
-        Some(orphan) if plan.is_orphaned_active() => {
+        Some(orphan) if plan.orphaned_active => {
             vec![super::next_actions::adopt_orphaned_plan_action(
                 &plan.id,
                 &orphan.reason,

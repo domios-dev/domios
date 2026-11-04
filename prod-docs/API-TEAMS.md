@@ -26,6 +26,8 @@ Every active plan must reference exactly one live Team, and a live Team may have
 
 `POST /api/plans/{id}/transfer` accepts `{to: OrchestratorRef, reason?}` and requires `X-CodeTerm-Tab-Id` to identify the source Team's Orchestrator or planner-profile Manager. Missing callers, Workers, and foreign-Team tabs receive `403` without mutation. The destination must be a live Orchestrator belonging to a live Team. Owner, owner history, Team binding, and stale planner retirement are one storage mutation, followed by hierarchy relinking under the Team lock.
 
+`team.adopt_plan` returns `{team_id, plan}` with a committed summary in `plan`: `id`, `title`, `owner`, `status`, `team_id`, `planner`, `orphaned`, and `latest_owner_transfer`. Optional fields are omitted when absent; `latest_owner_transfer` contains only the latest transfer record. task bodies and historical records are available through their explicit read endpoints.
+
 ## Team staffing and Orchestrator recovery (POST /api/teams/{team_id}/members)
 
 `{provider, role, title?, task?, brief?, model?}` adds one member to an existing Team; `role` is `worker`, `planner`, `orchestrator`, or `cartographer`. Supply either `task` or `brief`, never both. This endpoint, the UI add-member action, the socket `team.add_member` verb, and `domios agent spawn <provider> --team <id> --role Orchestrator` are one service path. `domios team attach-cartographer <team> --provider <provider> [--model <model>] [--brief-file <path>]` uses that same path; `-` reads stdin verbatim.
@@ -118,4 +120,4 @@ Team staffing and closing use the authority and confirmation rules above.
 | POST | `/api/teams/{team_id}/members` | Add a Team member. |
 | POST | `/api/teams/{team_id}/rename` | Rename a Team. |
 
-<!-- revision: 11 -->
+<!-- revision: 12 -->

@@ -116,14 +116,14 @@ Task writes require current caller, session and binding authority (API). Executi
 | GET | `/api/plans/{id}/handoffs` | List plan handoffs. |
 | GET | `/api/plans/{id}/handoffs/show` | Read a plan handoff. |
 | GET | `/api/plans/{id}/loops/{lid}` | Read loop status. |
-| GET | `/api/plans/{id}/next` | Read the next planned work. |
+| GET | `/api/plans/{id}/next` | Read a next-action page (`page`, or explicit `all=true`); decisions and totals cover the entire plan. |
 | GET | `/api/plans/{id}/pause/preview` | Preview pause effects. |
 | GET | `/api/plans/{id}/projection` | Read a selected `view` projection; list and task-metadata windows accept filters and a cursor. |
 | GET | `/api/plans/{id}/reconcile` | Read reconciliation findings. |
 | GET | `/api/plans/{id}/resume/preview` | Preview resume effects. |
 | GET | `/api/plans/{id}/skills` | List announced plan skills. |
 | GET | `/api/plans/{id}/skills/{slug}` | Read an announced skill. |
-| GET | `/api/plans/{id}/state` | Read plan state. |
+| GET | `/api/plans/{id}/state` | Read plan summary and bounded details (`page`, or explicit `all=true`). |
 | GET | `/api/plans/{id}/tasks` | Read one cursor page of task summaries. |
 | GET | `/api/plans/{id}/tasks/{tid}` | Read one task's full detail. |
 | GET | `/api/plans/{id}/tasks/{tid}/history` | Read a page of task history (`kind`, optional `before` and `limit`). |
@@ -184,4 +184,13 @@ Task writes require current caller, session and binding authority (API). Executi
 | POST | `/api/tasks/{id}/drop` | Drop task ownership. |
 | POST | `/api/tasks/{id}/take` | Take task ownership. |
 
-<!-- revision: 43 -->
+State and next reads default to 50 rows per detail list. `details.totals`
+contains full list sizes and `details.next_action_counts` counts every computed
+action by kind. `details.windows` carries each shortened list's page, total,
+returned count, remaining count, next page, and expansion hint. All decisions
+are computed before windowing. The socket `plan.state` and `plan.next` methods
+accept the same optional `page` and `all` parameters. Nested detail lists expand with `--all`; retained event and recent-stride
+history windows remain bounded. Pages reflect the current
+plan revision; restart from page 1 after a revision change.
+
+<!-- revision: 44 -->

@@ -1,6 +1,6 @@
+import type { PlanView as Plan } from "../planProjection";
 import { InlineErrorNotice } from "../../shared/ErrorNotice";
 import type { ApiConfig } from "../../../lib/types";
-import type { Plan } from "../types";
 import { boardRefs } from "./BoardRefText";
 import { UnderwayBoardRow } from "./UnderwayPanel";
 import { useMemo, useRef } from "react";

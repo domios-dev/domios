@@ -7,36 +7,28 @@ pub fn render_next(val: &Value) -> String {
         .and_then(|v| v.as_array())
         .cloned()
         .unwrap_or_default();
+    let total = val
+        .pointer("/details/totals/next_actions")
+        .and_then(Value::as_u64)
+        .unwrap_or(actions.len() as u64);
     if actions.is_empty() {
-        out.push_str("No next actions — nothing pending, blocked, drifting, or awaiting a gate.\n");
+        out.push_str(if total == 0 {
+            "No next actions — nothing pending, blocked, drifting, or awaiting a gate.\n"
+        } else {
+            "No next actions on this page.\n"
+        });
+        out.push_str(&crate::cmd::plan_state::render_detail_windows(val));
         return out;
     }
-    out.push_str(&format!("Next actions ({}):\n", actions.len()));
+    out.push_str(&format!("Next actions ({total}):\n"));
     for (i, a) in actions.iter().enumerate() {
         let kind = a.get("kind").and_then(|v| v.as_str()).unwrap_or("?");
         let msg = a.get("message").and_then(|v| v.as_str()).unwrap_or("");
         out.push_str(&format!("  {}. [{kind}] {msg}\n", i + 1));
     }
+    out.push_str(&crate::cmd::plan_state::render_detail_windows(val));
     out
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn renders_numbered_priority_list() {
-        let val = json!({
-            "plan_id": "pl_1",
-            "next_actions": [
-                {"priority": 1, "kind": "gate", "task_id": "t_r", "message": "gate t_r (rev)"},
-                {"priority": 5, "kind": "dispatch", "task_id": "t_p", "message": "dispatch t_p (pend)"}
-            ]
-        });
-        let out = render_next(&val);
-        assert!(out.contains("Next actions (2):"));
-        assert!(out.contains("1. [gate] gate t_r (rev)"));
-        assert!(out.contains("2. [dispatch] dispatch t_p (pend)"));
-    }
-}
+mod tests;
