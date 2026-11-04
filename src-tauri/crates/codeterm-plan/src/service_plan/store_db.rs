@@ -106,6 +106,7 @@ impl PlanDatabase {
         .map_err(db_error)?;
         migrations::initialize(&mut connection, &path)?;
         status_queries::register_functions(&connection)?;
+        state_event_window::register_functions(&connection)?;
         heartbeat_queries::register_functions(&connection)?;
         reference_resolver_queries::register_functions(&connection)?;
         task_key_queries::register_functions(&connection)?;
