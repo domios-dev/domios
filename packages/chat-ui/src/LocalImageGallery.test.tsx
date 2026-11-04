@@ -4,6 +4,7 @@ import React, { act } from "react";
 import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
 import { LocalArtifactBlock } from "./LocalArtifactBlock";
+import { LocalArtifactScope } from "./LocalArtifactScope";
 import { configureLocalArtifactLoader, configureLocalArtifactOpener, type LocalPreviewFile } from "./localArtifactLoader";
 
 const window = new Window();
@@ -57,6 +58,29 @@ test("single-image preview retains its region, filename/path caption, reveal and
   } finally {
     await act(async () => root.unmount()); host.remove(); configureLocalArtifactLoader(null); configureLocalArtifactOpener(null);
   }
+});
+
+test("a retry that finishes after a tab switch never lands in the new scope", async () => {
+  const path = "/work/shared.png";
+  const fromTab = (tab: string): LocalPreviewFile => ({ data: `data:image/png;base64,${tab}`, media_type: "image/png" });
+  let held: ((file: LocalPreviewFile) => void) | null = null;
+  let reads = 0;
+  configureLocalArtifactLoader((_path, _kind, tabId) => {
+    if (tabId === "old" && reads++ > 0) return new Promise(resolve => { held = resolve; });
+    return Promise.resolve(fromTab(tabId ?? ""));
+  });
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  const view = (tabId: string) => <LocalArtifactScope tabId={tabId}><LocalArtifactBlock directive={{ kind: "image", path }} renderMarkdown={() => null} /></LocalArtifactScope>;
+  try {
+    await act(async () => root.render(view("old")));
+    await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Reload shared.png"]')!.click());
+    assert(held, "the retry read is held in the old scope");
+    await act(async () => root.render(view("new")));
+    assert.equal(host.querySelector("img")?.getAttribute("src"), fromTab("new").data);
+    await act(async () => held!(fromTab("old")));
+    assert.equal(host.querySelector("img")?.getAttribute("src"), fromTab("new").data, "the stale retry is dropped");
+  } finally { await act(async () => root.unmount()); host.remove(); configureLocalArtifactLoader(null); }
 });
 
 test("repeated paths retain separate image slots", async () => {

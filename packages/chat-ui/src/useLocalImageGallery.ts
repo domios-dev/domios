@@ -23,8 +23,11 @@ export function useLocalImageGallery(directive: LocalArtifactDirective, fullscre
   const current = useRef(images);
   current.current = images;
   const reloaded = useRef(`${reload}:${tabId ?? ""}`);
+  // Every new path set, scope or reload starts a generation; a retry that finishes in an older one is dropped.
+  const scope = useRef(0);
   useEffect(() => {
     let cancelled = false;
+    scope.current += 1;
     const paths = JSON.parse(key) as string[];
     // A gallery that grows while a message streams keeps the images it already shows; only Reload reads them again.
     const generation = `${reload}:${tabId ?? ""}`;
@@ -47,9 +50,13 @@ export function useLocalImageGallery(directive: LocalArtifactDirective, fullscre
   const retry = useCallback((index: number) => {
     const slot = current.current[index];
     if (!slot) return;
+    const generation = scope.current;
     setImages(previous => previous.map((entry, at) => at === index ? pendingSlot(entry.path) : entry));
     void loadLocalArtifact(slot.path, "image", tabId).then(file => ({ file }), (error: unknown) => ({ error: error instanceof Error ? error.message : String(error) }))
-      .then(result => setImages(previous => previous.map((entry, at) => at === index && entry.path === slot.path ? settled(entry, result) : entry)));
+      .then(result => {
+        if (scope.current !== generation) return;
+        setImages(previous => previous.map((entry, at) => at === index && entry.path === slot.path ? settled(entry, result) : entry));
+      });
   }, [tabId]);
   return { images, open, setOpen, reload: () => setReload(value => value + 1), retry, anchor, omitted: plan.omitted, loading: images.some(image => image.pending) };
 }
