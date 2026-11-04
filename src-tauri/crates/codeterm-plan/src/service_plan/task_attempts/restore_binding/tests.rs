@@ -60,7 +60,11 @@ fn fixture() -> Fixture {
             3,
         )
         .unwrap();
-    let attempt_id = store.show_task(&task_id).unwrap().task.execution_attempts[0]
+    let attempt_id = store
+        .inspect_task_for_test(&task_id)
+        .unwrap()
+        .task
+        .execution_attempts[0]
         .id
         .clone();
     store
@@ -103,7 +107,11 @@ fn fixture() -> Fixture {
 }
 
 fn request(fixture: &Fixture, now_ms: u64) -> RestoreCurrentAttemptBinding {
-    let task = &fixture.store.show_task(&fixture.task_id).unwrap().task;
+    let task = &fixture
+        .store
+        .inspect_task_for_test(&fixture.task_id)
+        .unwrap()
+        .task;
     RestoreCurrentAttemptBinding {
         plan_id: fixture.plan_id.clone(),
         task_id: fixture.task_id.clone(),
@@ -134,7 +142,11 @@ fn request(fixture: &Fixture, now_ms: u64) -> RestoreCurrentAttemptBinding {
 #[test]
 fn attempt_binding_restore_changes_only_nonce_and_receipt() {
     let fixture = fixture();
-    let before = fixture.store.show_task(&fixture.task_id).unwrap().task;
+    let before = fixture
+        .store
+        .inspect_task_for_test(&fixture.task_id)
+        .unwrap()
+        .task;
     let request = request(&fixture, 7);
     let result = fixture
         .store
@@ -155,7 +167,11 @@ fn attempt_binding_restore_changes_only_nonce_and_receipt() {
     expected_attempt
         .binding_restorations
         .push(request.receipt.clone());
-    let actual = fixture.store.show_task(&fixture.task_id).unwrap().task;
+    let actual = fixture
+        .store
+        .inspect_task_for_test(&fixture.task_id)
+        .unwrap()
+        .task;
     assert_eq!(actual, expected);
     assert_eq!(actual.execution_attempts[0].acknowledged_at, Some(4));
     assert_eq!(
@@ -193,7 +209,7 @@ fn attempt_binding_restore_changes_only_nonce_and_receipt() {
     assert_eq!(
         fixture
             .store
-            .show_task(&fixture.task_id)
+            .inspect_task_for_test(&fixture.task_id)
             .unwrap()
             .task
             .execution_attempts[0]
@@ -211,7 +227,11 @@ fn attempt_binding_restore_current_replay_is_a_noop() {
         .store
         .restore_current_attempt_binding(initial_request, 7)
         .unwrap();
-    let before = fixture.store.show_task(&fixture.task_id).unwrap().task;
+    let before = fixture
+        .store
+        .inspect_task_for_test(&fixture.task_id)
+        .unwrap()
+        .task;
     let operation_count = fixture
         .store
         .operation_count_for_test(Some(&fixture.plan_id));
@@ -223,7 +243,11 @@ fn attempt_binding_restore_current_replay_is_a_noop() {
         RestoreCurrentAttemptBindingResult::AlreadyCurrent
     );
     assert_eq!(
-        fixture.store.show_task(&fixture.task_id).unwrap().task,
+        fixture
+            .store
+            .inspect_task_for_test(&fixture.task_id)
+            .unwrap()
+            .task,
         before
     );
     assert_eq!(
@@ -271,7 +295,7 @@ fn attempt_binding_restore_concurrent_duplicate_rotates_once() {
             .count(),
         1
     );
-    let task = store.show_task(&task_id).unwrap().task;
+    let task = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(
         task.execution_attempts[0].session_binding_nonce.as_deref(),
         Some(CURRENT_NONCE)
@@ -305,7 +329,7 @@ fn attempt_binding_restore_close_race_serializes_without_resurrecting_a_closed_a
     barrier.wait();
     let restore_result = restore.join().unwrap();
     close.join().unwrap().unwrap();
-    let task = store.show_task(&task_id).unwrap().task;
+    let task = store.inspect_task_for_test(&task_id).unwrap().task;
     let attempt = &task.execution_attempts[0];
     assert_eq!(attempt.closed_at, Some(8));
     match restore_result {
@@ -327,7 +351,11 @@ fn attempt_binding_restore_close_race_serializes_without_resurrecting_a_closed_a
 #[test]
 fn attempt_binding_restore_storage_failure_keeps_task_unmodified() {
     let fixture = fixture();
-    let before = fixture.store.show_task(&fixture.task_id).unwrap().task;
+    let before = fixture
+        .store
+        .inspect_task_for_test(&fixture.task_id)
+        .unwrap()
+        .task;
     let database_path = fixture.store.database_path_for_test();
     let connection = rusqlite::Connection::open(&database_path).unwrap();
     connection
@@ -346,7 +374,11 @@ fn attempt_binding_restore_storage_failure_keeps_task_unmodified() {
         matches!(error, PlanError::Io(ref message) if message.contains("injected plan write failure"))
     );
     assert_eq!(
-        fixture.store.show_task(&fixture.task_id).unwrap().task,
+        fixture
+            .store
+            .inspect_task_for_test(&fixture.task_id)
+            .unwrap()
+            .task,
         before
     );
     let connection = rusqlite::Connection::open(&database_path).unwrap();
@@ -355,7 +387,13 @@ fn attempt_binding_restore_storage_failure_keeps_task_unmodified() {
         .unwrap();
     drop(connection);
     let reloaded = PlanStore::open(database_path).unwrap();
-    assert_eq!(reloaded.show_task(&fixture.task_id).unwrap().task, before);
+    assert_eq!(
+        reloaded
+            .inspect_task_for_test(&fixture.task_id)
+            .unwrap()
+            .task,
+        before
+    );
 }
 
 #[test]
@@ -379,12 +417,20 @@ fn reported_attempt_restart_restoration_bounce_ack_preserves_identity_and_report
             Ok(())
         })
         .unwrap();
-    let before = fixture.store.show_task(&fixture.task_id).unwrap().task;
+    let before = fixture
+        .store
+        .inspect_task_for_test(&fixture.task_id)
+        .unwrap()
+        .task;
     let database = fixture.store.database_path_for_test();
     drop(fixture.store);
     fixture.store = PlanStore::open(database).unwrap();
     assert_eq!(
-        fixture.store.show_task(&fixture.task_id).unwrap().task,
+        fixture
+            .store
+            .inspect_task_for_test(&fixture.task_id)
+            .unwrap()
+            .task,
         before
     );
     let restore = request(&fixture, 8);
@@ -392,7 +438,11 @@ fn reported_attempt_restart_restoration_bounce_ack_preserves_identity_and_report
         .store
         .restore_current_attempt_binding(restore, 8)
         .unwrap();
-    let restored = fixture.store.show_task(&fixture.task_id).unwrap().task;
+    let restored = fixture
+        .store
+        .inspect_task_for_test(&fixture.task_id)
+        .unwrap()
+        .task;
     assert_eq!(restored.status, TaskStatus::InReview);
     assert_eq!(restored.execution_attempts[0].reported_at, Some(7));
     assert_eq!(
@@ -464,7 +514,11 @@ fn reported_attempt_restart_restoration_bounce_ack_preserves_identity_and_report
             12,
         )
         .unwrap();
-    let after = fixture.store.show_task(&fixture.task_id).unwrap().task;
+    let after = fixture
+        .store
+        .inspect_task_for_test(&fixture.task_id)
+        .unwrap()
+        .task;
     assert_eq!(after.status, TaskStatus::InProgress);
     assert_eq!(after.execution_attempts.len(), 1);
     assert!(after.execution_attempts[0].closed_at.is_none());

@@ -498,7 +498,12 @@ fn destination_update_during_startup_keeps_attempt_tab_and_lane() {
     dispatch("plan.task.update", &params, &service, 6)
         .expect("integration metadata update should preserve a live startup attempt");
 
-    let starting = fixture.service.plan_store.show_task(&task_id).unwrap().task;
+    let starting = fixture
+        .service
+        .plan_store
+        .inspect_task_for_test(&task_id)
+        .unwrap()
+        .task;
     assert_eq!(
         starting.assigned_tab_id.as_deref(),
         Some(worker_tab.as_str())
@@ -530,7 +535,12 @@ fn destination_update_during_startup_keeps_attempt_tab_and_lane() {
         .acknowledge_task_attempt(&plan_id, &task_id, &worker_tab, &attempt_id, 8)
         .unwrap();
 
-    let acknowledged = fixture.service.plan_store.show_task(&task_id).unwrap().task;
+    let acknowledged = fixture
+        .service
+        .plan_store
+        .inspect_task_for_test(&task_id)
+        .unwrap()
+        .task;
     assert_eq!(
         acknowledged.assigned_tab_id.as_deref(),
         Some(worker_tab.as_str())
@@ -588,7 +598,12 @@ fn dispatch_refuses_live_startup_owner_before_spawning_another_worker() {
         fixture.service.mux.read().snapshot().tabs.len(),
         tabs_before
     );
-    let task = fixture.service.plan_store.show_task(&task_id).unwrap().task;
+    let task = fixture
+        .service
+        .plan_store
+        .inspect_task_for_test(&task_id)
+        .unwrap()
+        .task;
     assert_eq!(task.assigned_tab_id.as_deref(), Some(worker_tab.as_str()));
     assert_eq!(task.execution_attempts.len(), 1);
     assert_eq!(task.execution_attempts[0].closed_at, None);
@@ -653,7 +668,12 @@ fn dispatch_spawn_failure_closes_attempt_and_reserved_tab() {
         fixture.service.mux.read().snapshot().tabs.len(),
         tabs_before
     );
-    let failed = fixture.service.plan_store.show_task(&task_id).unwrap().task;
+    let failed = fixture
+        .service
+        .plan_store
+        .inspect_task_for_test(&task_id)
+        .unwrap()
+        .task;
     assert_eq!(failed.status, TaskStatus::Pending);
     assert!(failed.assigned_tab_id.is_none());
     assert_eq!(failed.execution_attempts.len(), 1);
@@ -810,7 +830,12 @@ fn concurrent_dispatch_of_the_same_task_is_refused_while_one_is_in_flight() {
         tabs_before + 1,
         "the refused dispatch must not spawn or leave its reserved tab"
     );
-    let task = fixture.service.plan_store.show_task(&task_id).unwrap().task;
+    let task = fixture
+        .service
+        .plan_store
+        .inspect_task_for_test(&task_id)
+        .unwrap()
+        .task;
     assert_eq!(task.assigned_tab_id.as_deref(), Some(winner_tab.as_str()));
     assert_eq!(task.execution_attempts.len(), 1);
     assert_eq!(task.execution_attempts[0].id, winner_attempt);

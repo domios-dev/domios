@@ -54,7 +54,7 @@ fn failed_blocked_respawn_restores_reason_and_marks_unblock_stride_rolled_back()
         .unwrap();
 
     assert_eq!(rollback, super::super::DispatchRollback::Restored);
-    let restored = store.show_task(&task_id).unwrap().task;
+    let restored = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(restored.body, "concurrent respawn edit");
     assert_eq!(restored.status, TaskStatus::Blocked);
     assert_eq!(restored.status_label.as_deref(), Some(block_reason));
@@ -104,7 +104,7 @@ fn failed_blocked_dispatch_restores_reason_and_marks_unblock_stride_rolled_back(
         .unwrap();
 
     assert_eq!(outcome, super::super::DispatchRollback::Restored);
-    let restored = store.show_task(&task_id).unwrap().task;
+    let restored = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(restored.status, TaskStatus::Blocked);
     assert_eq!(restored.status_label.as_deref(), Some(block_reason));
     assert!(store.get(&plan_id).unwrap().strides.iter().any(|stride| {
@@ -142,7 +142,7 @@ fn reverted_blocked_dispatch_restores_reason_and_annotates_unblock_stride() {
         .unwrap();
     store.revert_task_dispatch(&plan_id, &task_id, 6).unwrap();
 
-    let restored = store.show_task(&task_id).unwrap().task;
+    let restored = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(restored.status, TaskStatus::Blocked);
     assert_eq!(restored.status_label.as_deref(), Some(block_reason));
     assert!(store.get(&plan_id).unwrap().strides.iter().any(|stride| {

@@ -75,7 +75,11 @@ pub(super) fn prepared_switch_worker_fixture(storage: bool) -> (RuntimeFixture, 
             Ok(())
         })
         .unwrap();
-    let attempt = store.show_task(&task).unwrap().task.execution_attempts[0]
+    let attempt = store
+        .inspect_task_for_test(&task)
+        .unwrap()
+        .task
+        .execution_attempts[0]
         .id
         .clone();
     store

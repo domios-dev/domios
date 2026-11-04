@@ -150,3 +150,11 @@ pub(super) fn preflight_dispatch_checkout(
     )?;
     Ok(())
 }
+
+#[cfg(test)]
+pub(super) fn preflight_review_capacity(
+    plan: &codeterm_service_core::plan::Plan,
+    task: &codeterm_service_core::plan::Task,
+) -> Result<(), PlanError> {
+    codeterm_service_core::service::plan::review_gate::validate_dispatch_review_capacity(plan, task)
+}

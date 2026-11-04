@@ -304,7 +304,7 @@ fn show_task_includes_parent_label_for_subtasks() {
             20,
         )
         .unwrap();
-    let detail = store.show_task(&child_id).expect("child task");
+    let detail = store.inspect_task_for_test(&child_id).expect("child task");
     let parent = detail.parent.expect("parent label");
     assert_eq!(parent.id, parent_id);
     assert_eq!(parent.name, "n");
@@ -542,7 +542,7 @@ fn close_task_accepts_every_started_lifecycle_state() {
             .close_task(&id, &tid, None, AgentRef::from_tab("orchestrator"), 30)
             .unwrap();
 
-        let task = store.show_task(&tid).unwrap().task;
+        let task = store.inspect_task_for_test(&tid).unwrap().task;
         assert_eq!(task.status, TaskStatus::Done, "starting status: {status:?}");
         assert!(
             task.assigned_tab_id.is_none(),

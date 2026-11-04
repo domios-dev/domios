@@ -13,7 +13,11 @@ fn prepared_store() -> (tempfile::TempDir, PlanStore, String, String, String) {
             4,
         )
         .unwrap();
-    let attempt_id = store.show_task(&task_id).unwrap().task.execution_attempts[0]
+    let attempt_id = store
+        .inspect_task_for_test(&task_id)
+        .unwrap()
+        .task
+        .execution_attempts[0]
         .id
         .clone();
     store
@@ -64,7 +68,11 @@ fn plan_skill_show_records_exact_attempt_evidence_idempotently() {
             8,
         )
         .is_err());
-    let attempt = &store.show_task(&task_id).unwrap().task.execution_attempts[0];
+    let attempt = &store
+        .inspect_task_for_test(&task_id)
+        .unwrap()
+        .task
+        .execution_attempts[0];
     assert_eq!(attempt.loaded_plan_skills.len(), 1);
     assert_eq!(attempt.loaded_plan_skills[0].loaded_at, 6);
 }
@@ -124,7 +132,7 @@ fn report_snapshot_retains_loaded_plan_skills_after_restart() {
         .unwrap();
     let reloaded = PlanStore::new_for_test(dir.path());
     let persisted = reloaded
-        .show_task(&task_id)
+        .inspect_task_for_test(&task_id)
         .unwrap()
         .task
         .execution_attempts

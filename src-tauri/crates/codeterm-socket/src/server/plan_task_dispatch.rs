@@ -61,9 +61,9 @@ use lane_safety::{
     preflight_checkout_occupancy, refuse_unsafe_mutating_write, reported_executor_tab_statuses,
 };
 #[cfg(test)]
-use preflight::preflight_dispatch_placement;
-#[cfg(test)]
 use preflight::regression_dispatch_warning;
+#[cfg(test)]
+use preflight::{preflight_dispatch_placement, preflight_review_capacity};
 use preflight::{preflight_dispatch_task_status, selected_regression_dispatch_warning};
 pub(super) use recovery::publish_action_needed_event;
 use recovery::startup_recovery_event;

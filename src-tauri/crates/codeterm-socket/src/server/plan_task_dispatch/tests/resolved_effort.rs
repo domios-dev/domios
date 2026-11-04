@@ -61,7 +61,7 @@ fn attempt_records_resolved_reasoning_effort() {
         .unwrap();
 
     let attempt = store
-        .show_task(&task_id)
+        .inspect_task_for_test(&task_id)
         .unwrap()
         .task
         .execution_attempts

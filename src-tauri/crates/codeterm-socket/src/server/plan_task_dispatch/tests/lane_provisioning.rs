@@ -178,7 +178,11 @@ fn terminal_cleanup_clears_removed_lane_before_the_next_dispatch() {
     assert!(!Path::new(&first.worktree_path).exists());
     assert!(!branch_exists(&fixture.project, &first.branch));
 
-    let cleaned = fixture.store.show_task(&fixture.mine).unwrap().task;
+    let cleaned = fixture
+        .store
+        .inspect_task_for_test(&fixture.mine)
+        .unwrap()
+        .task;
     assert_eq!(cleaned.status, TaskStatus::Done);
     assert!(cleaned.assigned_tab_id.is_none());
     assert!(cleaned.lane.tab_id.is_none());
@@ -244,7 +248,11 @@ fn terminal_cleanup_clears_removed_lane_before_the_next_dispatch() {
         )
         .unwrap();
     let pending_plan = fixture.store.get(&fixture.plan.id).unwrap();
-    let pending_task = fixture.store.show_task(&fixture.mine).unwrap().task;
+    let pending_task = fixture
+        .store
+        .inspect_task_for_test(&fixture.mine)
+        .unwrap()
+        .task;
     let resolved = resolved_from_workspace(&fixture.project, &pending_task.lane);
     let placement = plan_dispatch_lane_placement(
         &pending_plan,
@@ -487,7 +495,11 @@ fn vanished_recorded_lane_is_cleared_and_a_fresh_lane_is_provisioned() {
     super::git(&fixture.project, &["branch", "-D", &old.branch]);
 
     let plan = fixture.store.get(&fixture.plan.id).unwrap();
-    let recorded_task = fixture.store.show_task(&fixture.mine).unwrap().task;
+    let recorded_task = fixture
+        .store
+        .inspect_task_for_test(&fixture.mine)
+        .unwrap()
+        .task;
     assert_eq!(recorded_task.assigned_tab_id.as_deref(), Some("old-tab"));
     assert_eq!(
         recorded_task.lane.worktree_path.as_deref(),
@@ -544,7 +556,11 @@ fn vanished_recorded_lane_is_cleared_and_a_fresh_lane_is_provisioned() {
             6,
         )
         .unwrap();
-    let committed = fixture.store.show_task(&fixture.mine).unwrap().task;
+    let committed = fixture
+        .store
+        .inspect_task_for_test(&fixture.mine)
+        .unwrap()
+        .task;
     assert_eq!(committed.assigned_tab_id.as_deref(), Some("fresh-tab"));
     assert_eq!(
         committed.lane.worktree_path.as_deref(),

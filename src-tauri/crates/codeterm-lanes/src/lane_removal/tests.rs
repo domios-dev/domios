@@ -447,7 +447,7 @@ fn lane_remove_is_idempotent_for_an_already_removed_worktree() {
 
     assert!(outcome.worktree_already_removed);
     assert!(outcome.branch_already_removed);
-    let task = store.show_task(&task_id).unwrap().task;
+    let task = store.inspect_task_for_test(&task_id).unwrap().task;
     assert!(task.assigned_tab_id.is_none());
     assert!(task.lane.tab_id.is_none());
     assert!(task.lane.workspace_id.is_none());
@@ -664,7 +664,7 @@ fn cleanup_status_done_clears_vanished_lane_references() {
         .update_task_lane(&plan_id, &task_id, update, 5)
         .unwrap();
 
-    let task = store.show_task(&task_id).unwrap().task;
+    let task = store.inspect_task_for_test(&task_id).unwrap().task;
     assert!(task.lane.tab_id.is_none());
     assert!(task.lane.workspace_id.is_none());
     assert!(task.lane.workspace_name.is_none());
@@ -705,7 +705,7 @@ fn cleanup_status_done_clears_removed_worktree_with_merged_branch_kept() {
         .update_task_lane(&plan_id, &task_id, update, 5)
         .unwrap();
 
-    let task = store.show_task(&task_id).unwrap().task;
+    let task = store.inspect_task_for_test(&task_id).unwrap().task;
     assert!(branch_exists(&project, &branch));
     assert!(task.assigned_tab_id.is_none());
     assert!(task.lane.tab_id.is_none());
