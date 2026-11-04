@@ -331,6 +331,7 @@ fn current_plan_skill_attempt_never_loads_unmatched_plans() {
         Some((matched, "task_m".into(), "att_m".into()))
     );
     assert_never_loaded(&store, &[&unmatched]);
+    assert!(store.plan_loads_for_test().is_empty());
 }
 
 #[test]
