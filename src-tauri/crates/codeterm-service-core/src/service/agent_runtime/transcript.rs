@@ -123,11 +123,11 @@ pub(super) fn apply_restored_rows(
         .thread_id
         .as_deref()
         .ok_or(RuntimeFailure::Superseded)?;
+    if !is_current() {
+        return Err(RuntimeFailure::Superseded);
+    }
     let ordinal = {
         let mut cache = cache.lock();
-        if !is_current() {
-            return Err(RuntimeFailure::Superseded);
-        }
         cache.restore_transcript(rows.clone());
         cache.next_ordinal()
     };
