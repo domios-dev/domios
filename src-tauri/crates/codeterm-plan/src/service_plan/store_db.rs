@@ -585,6 +585,7 @@ pub(in crate::service_plan) mod handoff_queries;
 mod header_queries;
 mod heartbeat_queries;
 mod index_queries;
+mod locate_queries;
 mod notice_queries;
 mod qa_queries;
 mod reference_resolver_queries;
