@@ -58,7 +58,7 @@ const SOURCE: &str = r#"
 module.exports = {
   runtimePlan(ctx, op) {
     if (op.kind === 'control' && op.value.serviceTier !== undefined) return {action:{kind:'request',call:{method:'fixture/settings',params:op}},state:null};
-    const target = op.kind === 'interrupt' ? {threadId:op.threadId,turnId:op.activeTurnId} : undefined;
+    const target = op.kind === 'interrupt' ? {threadId:op.threadId,...(op.activeTurnId ? {turnId:op.activeTurnId} : {})} : undefined;
     return {action:{kind:'request',call:{method:op.kind,params:op,...(target ? {target} : {})}},state:null};
   },
   runtimeResponse(ctx, op, state, reply) {
@@ -72,7 +72,7 @@ module.exports = {
       events = [{kind:'controlsConfirmed',threadId:op.threadId,settings:reply.value.params.settings}];
     }
     if (op.kind === 'interrupt') {
-      events = [{kind:'turnState',threadId:op.threadId,turnId:op.activeTurnId,state:'idle'}];
+      events = op.activeTurnId ? [{kind:'turnState',threadId:op.threadId,turnId:op.activeTurnId,state:'idle'}] : [];
       if (ctx.providerSettings && ctx.providerSettings.interruptProbe) events.push({kind:'controlsConfirmed',threadId:op.threadId,settings:{effort:'high'}});
     }
     if (op.kind === 'control') {
