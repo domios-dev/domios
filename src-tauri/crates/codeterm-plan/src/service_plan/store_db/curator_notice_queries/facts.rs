@@ -135,7 +135,8 @@ pub(super) fn register(connection: &Connection) -> Result<(), PlanError> {
                 NextActionKind::Dispatch=>Some(501),_=>None,
             }).unwrap_or(if projection.presentation==TaskPresentation::HandoffRequired {601} else {0})
         };
-        Ok(format!("{{\"category\":{category},\"action\":{action},\"parked\":{},\"pending\":{},\"handoff\":{},\"held\":{}}}",i32::from(parked),i32::from(pending),i32::from(handoff),i32::from(held)))
+        let blocked=crate::service_plan::state::outstanding_blocked_facts(&status,parked,!projection.dependency_waits.is_empty());
+        Ok(format!("{{\"category\":{category},\"action\":{action},\"parked\":{},\"pending\":{},\"handoff\":{},\"held\":{},\"blocked\":{}}}",i32::from(parked),i32::from(pending),i32::from(handoff),i32::from(held),i32::from(blocked)))
     }).map_err(db_error)
 }
 

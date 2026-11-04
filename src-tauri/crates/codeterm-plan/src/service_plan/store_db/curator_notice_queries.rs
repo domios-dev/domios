@@ -75,7 +75,7 @@ pub(super) fn bounded_notice(
         orphaned_active: header.orphaned_active,
     };
     let groups = action_groups(connection, id)?;
-    let (parked, pending) = decision_counts(connection, id)?;
+    let (parked, pending, _) = decision_counts(connection, id)?;
     let mut ready = render.append(&composition::render_action_groups(groups))?;
     if ready && parked > 0 {
         ready = render.append(&format!("{parked} tasks parked for later groups."))?;
@@ -168,10 +168,10 @@ fn action_groups(connection: &Connection, id: &str) -> Result<[ActionGroup; 3], 
     Ok(groups)
 }
 
-fn decision_counts(connection: &Connection, id: &str) -> Result<(usize, usize), PlanError> {
+fn decision_counts(connection: &Connection, id: &str) -> Result<(usize, usize, usize), PlanError> {
     record_query();
-    connection.query_row(&format!("{} SELECT coalesce(sum(json_extract(decision,'$.parked')),0),coalesce(sum(json_extract(decision,'$.pending')),0) FROM facts",facts::task_facts()),
-        params![id,super::status_queries::WHITESPACE],|row|Ok((row.get(0)?,row.get(1)?))).map_err(db_error)
+    connection.query_row(&format!("{} SELECT coalesce(sum(json_extract(decision,'$.parked')),0),coalesce(sum(json_extract(decision,'$.pending')),0),coalesce(sum(json_extract(decision,'$.blocked')),0) FROM facts",facts::task_facts()),
+        params![id,super::status_queries::WHITESPACE],|row|Ok((row.get(0)?,row.get(1)?,row.get(2)?))).map_err(db_error)
 }
 
 fn task_counts(connection: &Connection, id: &str) -> Result<TaskCounts, PlanError> {
@@ -346,6 +346,29 @@ pub(super) fn heartbeat_snapshot(
     now: u64,
     selection: Option<&[String]>,
 ) -> Result<crate::service_plan::heartbeat::view::HeartbeatRead, PlanError> {
+    heartbeat_snapshot_inner(connection, id, now, selection, false)
+}
+
+pub(super) fn heartbeat_display_snapshot(
+    connection: &Connection,
+    id: &str,
+    now: u64,
+) -> Result<crate::service_plan::heartbeat::view::HeartbeatParts, PlanError> {
+    match heartbeat_snapshot_inner(connection, id, now, None, true)? {
+        crate::service_plan::heartbeat::view::HeartbeatRead::Ready { parts, .. } => Ok(parts),
+        crate::service_plan::heartbeat::view::HeartbeatRead::Suppressed => Err(PlanError::Io(
+            "heartbeat display was unexpectedly suppressed".into(),
+        )),
+    }
+}
+
+fn heartbeat_snapshot_inner(
+    connection: &Connection,
+    id: &str,
+    now: u64,
+    selection: Option<&[String]>,
+    display: bool,
+) -> Result<crate::service_plan::heartbeat::view::HeartbeatRead, PlanError> {
     use crate::service_plan::heartbeat::view::{HeartbeatParts, HeartbeatRead};
     record_query();
     let encoded:String=connection.query_row("SELECT json_object(
@@ -357,10 +380,10 @@ pub(super) fn heartbeat_snapshot(
     let scope: HeartbeatScope = decode(id, &encoded)?;
     let counts = task_counts(connection, id)?;
     let complete = counts.total > 0 && counts.done + counts.cancelled == counts.total;
-    if complete || matches!(scope.mode, PlanMode::Paused | PlanMode::Complete) {
+    if !display && (complete || matches!(scope.mode, PlanMode::Paused | PlanMode::Complete)) {
         return Ok(HeartbeatRead::Suppressed);
     }
-    let (_, pending_actionable) = decision_counts(connection, id)?;
+    let (_, pending_actionable, blocked_or_gated_count) = decision_counts(connection, id)?;
     let mut render = Render {
         connection,
         id,
@@ -375,7 +398,9 @@ pub(super) fn heartbeat_snapshot(
     }
     render.actions(true)?;
     let actions = render.take_text()?;
-    sections::learnings(&mut render, selection)?;
+    if !display {
+        sections::learnings(&mut render, selection)?;
+    }
     let learnings = render.take_text()?;
     let (regression, retrospectives) = sections::regression_lines(connection, id)?;
     sections::competition(&mut render)?;
@@ -389,6 +414,7 @@ pub(super) fn heartbeat_snapshot(
         plan_id: id.into(),
         counts,
         pending_actionable,
+        blocked_or_gated_count,
         actions,
         regression,
         retrospectives,
