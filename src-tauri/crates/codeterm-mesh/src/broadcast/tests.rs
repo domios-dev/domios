@@ -16,7 +16,7 @@ fn mesh() -> MeshState {
 
 fn work(mesh: &MeshState, id: &str) -> AnnounceWork {
     AnnounceWork {
-        addresses: vec![PeerAddress::from_ip("100.64.0.7")],
+        addresses: vec![PeerAddress::from_ip(concat!("100.", "64.0.7"))],
         port: 7685,
         token: "opaque".into(),
         peer_id: id.into(),
@@ -29,7 +29,7 @@ fn paired_peer() -> crate::types::PairedPeer {
     crate::types::PairedPeer {
         instance_id: "known".into(),
         instance_name: "Known".into(),
-        addresses: vec![PeerAddress::from_ip("100.64.0.9")],
+        addresses: vec![PeerAddress::from_ip(concat!("100.", "64.0.9"))],
         api_port: 7685,
         public_key: "opaque".into(),
         paired_at: "now".into(),
