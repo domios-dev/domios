@@ -247,7 +247,7 @@ pub(crate) async fn stream_mux_open(
         return Err((StatusCode::BAD_REQUEST, "Invalid mux session id".into()));
     }
     let owner = owner(&headers)?;
-    let scheduler = Scheduler::new();
+    let (scheduler, mut receiver) = Scheduler::new();
     let session_id = query.session.clone();
     let registered = scheduler.clone();
     let guard = tokio::task::spawn_blocking(move || -> Result<SessionGuard, Failure> {
@@ -274,7 +274,7 @@ pub(crate) async fn stream_mux_open(
     let stream = async_stream::stream! {
         let _guard = guard;
         yield Ok::<_, std::convert::Infallible>(axum::body::Bytes::from_static(b": mux\n\n"));
-        while let Some(bytes) = scheduler.recv().await { yield Ok(bytes); }
+        while let Some(bytes) = receiver.recv().await { yield Ok(bytes); }
     };
     let mut response = Response::new(Body::from_stream(stream));
     let headers = response.headers_mut();

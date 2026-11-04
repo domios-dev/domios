@@ -29,15 +29,18 @@ impl Shared {
 #[derive(Clone)]
 pub(crate) struct Scheduler(Arc<Shared>);
 
+pub(crate) struct Receiver(Arc<Shared>);
+
 impl Scheduler {
-    pub fn new() -> Self {
-        Self(Arc::new(Shared {
+    pub fn new() -> (Self, Receiver) {
+        let shared = Arc::new(Shared {
             model: Mutex::new(model::Model::default()),
             ready: Notify::new(),
             space: Notify::new(),
             #[cfg(test)]
             contended_finished: Notify::new(),
-        }))
+        });
+        (Self(shared.clone()), Receiver(shared))
     }
 
     async fn edit<T: Send + 'static>(
@@ -101,34 +104,6 @@ impl Scheduler {
         }
     }
 
-    pub async fn recv(&self) -> Option<Bytes> {
-        loop {
-            let ready = self.0.ready.notified();
-            let inspected = {
-                if let Some(mut model) = self.0.model.try_lock() {
-                    if let Some(frame) = model.pop() {
-                        self.0.space.notify_waiters();
-                        return Some(frame);
-                    }
-                    if model.closed() {
-                        return None;
-                    }
-                    true
-                } else {
-                    false
-                }
-            };
-            if inspected {
-                ready.await;
-            } else {
-                let shared = self.0.clone();
-                tokio::task::spawn_blocking(move || shared.edit_locked(|_| ()))
-                    .await
-                    .ok()?;
-            }
-        }
-    }
-
     pub async fn overflow(&self, id: &str, end: Bytes) {
         let channel = id.to_owned();
         let _ = self
@@ -157,5 +132,36 @@ impl Scheduler {
     pub(super) fn with_model_held_for_test(&self, hold: impl FnOnce()) {
         let _guard = self.0.model.lock();
         hold();
+    }
+}
+
+impl Receiver {
+    pub async fn recv(&mut self) -> Option<Bytes> {
+        loop {
+            let ready = self.0.ready.notified();
+            let inspected = {
+                if let Some(mut model) = self.0.model.try_lock() {
+                    if let Some(frame) = model.pop() {
+                        self.0.space.notify_waiters();
+                        return Some(frame);
+                    }
+                    if model.closed() {
+                        return None;
+                    }
+                    true
+                } else {
+                    false
+                }
+            };
+            if inspected {
+                ready.await;
+            } else {
+                // The sole receiver waits only for producers' finite critical sections.
+                let shared = self.0.clone();
+                tokio::task::spawn_blocking(move || shared.edit_locked(|_| ()))
+                    .await
+                    .ok()?;
+            }
+        }
     }
 }
