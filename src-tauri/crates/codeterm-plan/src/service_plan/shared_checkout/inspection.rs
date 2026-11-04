@@ -1,4 +1,5 @@
-use super::{PlanError, PlanStore, Task, TaskFiles, WorkerPlacement};
+use super::{PlanError, PlanStore, TaskFiles, WorkerPlacement};
+use crate::plan::Task;
 use crate::service_plan::task_authority_projection::SharedReportRead as SharedReportSnapshot;
 
 pub(crate) struct SharedDispatchInspection {
