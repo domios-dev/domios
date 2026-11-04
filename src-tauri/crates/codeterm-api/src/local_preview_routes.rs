@@ -134,7 +134,7 @@ pub(super) async fn read(
         Ok(permit) => permit,
         Err(status) => return status.into_response(),
     };
-    let result = read_and_encode(permit, move || {
+    let result = crate::blocking_json::prepare(permit, move || {
         let configured = state.config.lock().api.preview_secret_paths.clone();
         codeterm_service_core::service::local_preview::read(
             &state.svc,
@@ -143,6 +143,7 @@ pub(super) async fn read(
             &body.path,
             &body.kind,
         )
+        .map(Json)
     })
     .await;
     match result {
@@ -159,17 +160,6 @@ pub(super) async fn read(
             refusal()
         }
     }
-}
-
-pub(super) async fn read_and_encode<T: serde::Serialize, E: Send + 'static>(
-    permit: OwnedSemaphorePermit,
-    read: impl FnOnce() -> Result<T, E> + Send + 'static,
-) -> Result<Result<Response, E>, tokio::task::JoinError> {
-    tokio::task::spawn_blocking(move || {
-        let _permit = permit;
-        read().map(|file| Json(file).into_response())
-    })
-    .await
 }
 
 pub(super) async fn check(
