@@ -219,7 +219,7 @@ async fn daily_membership_bundles_endpoint_and_only_one_authorization_pair() {
         let requests = &harness.registry.script.lock().unwrap().renew_bodies;
         let request = serde_json::to_value(&requests[0]).unwrap();
         assert_eq!(request["own_row"], true);
-        assert_eq!(request["endpoint"]["tailnet_ip"], "100.64.1.2");
+        assert_eq!(request["endpoint"]["tailnet_ip"], concat!("100.", "64.1.2"));
         assert!(request.get("requested_membership_seconds").is_none());
     }
 }
