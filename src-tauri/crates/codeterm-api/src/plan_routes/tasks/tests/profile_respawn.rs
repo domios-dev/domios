@@ -70,4 +70,46 @@ async fn rest_respawn_profile_refusal_is_typed_and_leaves_no_reservation_attempt
             .unwrap();
         drop(reservation);
     }
+    let sandbox_provider = "rest-respawn-sandbox-fixture";
+    fixture.service.agent_registry.register_provider(Box::new(
+        codeterm_service_core::agent::test_provider::MockProvider::new(sandbox_provider),
+    ));
+    let mut draft = fixture
+        .service
+        .plan_store
+        .build_task_respawn_draft(
+            &plan,
+            &task,
+            TaskRespawnRequest {
+                attempt_id: source.clone(),
+                provider: Some(sandbox_provider.into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    draft.parent_tab_id = Some(owner.clone());
+    let mut params = super::super::respawn::respawn_spawn_params(&draft, "Fixture", None);
+    params.sandbox = Some("read-only".into());
+    let state = crate::test_support::app_state(&fixture);
+    let refusal = crate::agent_routes::spawn_rejection::validate_spawn_options(
+        &state.svc,
+        &draft.provider,
+        &params,
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(refusal.status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(
+        refusal.body["error"]["code"],
+        "execution_sandbox_unsupported"
+    );
+    assert_eq!(refusal.body["error"]["provider"], sandbox_provider);
+    assert_eq!(full_task_record(&fixture, &plan, &task), before);
+    assert_eq!(fixture.service.mux.read().snapshot().tabs.len(), tabs);
+    let reservation = fixture
+        .service
+        .plan_store
+        .reserve_task_respawn_startup(&plan, &task, &source, "sandbox-probe-reservation")
+        .unwrap();
+    drop(reservation);
 }
