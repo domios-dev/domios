@@ -59,6 +59,7 @@ impl ChatBackendProvider for RuntimeTestBackend {
     fn describe(&self) -> crate::agent::provider::ProviderDescriptor {
         let mut descriptor = self.0.describe();
         descriptor.agent_runtime = Some(codeterm_plugin::agent_runtime::AgentRuntimeCapability {
+            launch_profiles: None,
             restricted_cli: None,
             runtime_modes: Vec::new(),
             service_tiers: Vec::new(),

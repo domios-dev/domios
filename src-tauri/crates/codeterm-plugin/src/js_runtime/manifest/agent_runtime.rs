@@ -7,6 +7,9 @@ pub enum RuntimeManifestError {
     CapabilityRequired,
     ChatContractRequired,
     InvalidCommand,
+    ProfileRequired,
+    UnknownProfile,
+    InvalidProfile,
     SubprocessDenied,
     InvalidEnvironmentExclusion,
     InvalidMethods,
@@ -38,16 +41,25 @@ impl PluginManifest {
         let binary = &runtime.command.binary;
         let basename = std::path::Path::new(binary)
             .file_name()
-            .and_then(|s| s.to_str())
+            .and_then(|name| name.to_str())
             .unwrap_or(binary);
         if !self
             .permissions
             .subprocess
             .allow
             .iter()
-            .any(|s| s == binary || s == basename)
+            .any(|allowed| allowed == binary || allowed == basename)
         {
             return Err(RuntimeManifestError::SubprocessDenied);
+        }
+        for profile in runtime
+            .launch_profiles
+            .iter()
+            .flat_map(|profiles| profiles.values())
+        {
+            if !self.permissions.subprocess.allow.contains(&profile.binary) {
+                return Err(RuntimeManifestError::SubprocessDenied);
+            }
         }
         Ok(())
     }
@@ -55,6 +67,7 @@ impl PluginManifest {
     pub fn authorize_agent_runtime(
         &self,
         authority: &LaunchAuthority,
+        profile: Option<&str>,
     ) -> Result<PathBuf, RuntimeManifestError> {
         self.validate_agent_runtime()?;
         if !authority.authorizes_provider(&self.id) {
@@ -64,18 +77,40 @@ impl PluginManifest {
             .agent_runtime
             .as_ref()
             .ok_or(RuntimeManifestError::CapabilityRequired)?
-            .resolve_executable()
+            .resolve_profile_executable(profile)
     }
 }
 
 impl AgentRuntimeCapability {
-    pub fn resolve_executable(&self) -> Result<PathBuf, RuntimeManifestError> {
+    pub fn profile_command(
+        &self,
+        profile: Option<&str>,
+    ) -> Result<crate::agent_runtime::AgentRuntimeCommand, RuntimeManifestError> {
         self.validate_declaration()?;
-        match super::super::probe_bin(&self.command.binary).resolution {
-            super::super::BinResolution::Found(path) => Ok(path),
-            super::super::BinResolution::Missing => Err(RuntimeManifestError::BinaryUnavailable),
-            super::super::BinResolution::Unknown => Err(RuntimeManifestError::BinaryUnknown),
+        match (&self.launch_profiles, profile) {
+            (None, None) => Ok(self.command.clone()),
+            (None, Some(_)) => Err(RuntimeManifestError::UnknownProfile),
+            (Some(_), None) => Err(RuntimeManifestError::ProfileRequired),
+            (Some(profiles), Some(name)) => profiles
+                .get(name)
+                .map(|profile| crate::agent_runtime::AgentRuntimeCommand {
+                    binary: profile.binary.clone(),
+                    args: profile.args.clone(),
+                })
+                .ok_or(RuntimeManifestError::UnknownProfile),
         }
+    }
+
+    pub fn resolve_profile_executable(
+        &self,
+        profile: Option<&str>,
+    ) -> Result<PathBuf, RuntimeManifestError> {
+        let command = self.profile_command(profile)?;
+        resolve_binary(&command.binary)
+    }
+
+    pub fn resolve_executable(&self) -> Result<PathBuf, RuntimeManifestError> {
+        self.resolve_profile_executable(None)
     }
 
     pub fn validate_declaration(&self) -> Result<(), RuntimeManifestError> {
@@ -108,43 +143,45 @@ impl AgentRuntimeCapability {
         }) {
             return Err(RuntimeManifestError::InvalidMethods);
         }
+        validate_command(&self.command)?;
+        if let Some(profiles) = &self.launch_profiles {
+            if profiles.len() > 128 {
+                return Err(RuntimeManifestError::InvalidProfile);
+            }
+            for (name, profile) in profiles {
+                if name.is_empty()
+                    || name.len() > 128
+                    || !name
+                        .bytes()
+                        .all(|b| b.is_ascii_alphanumeric() || b"_-".contains(&b))
+                {
+                    return Err(RuntimeManifestError::InvalidProfile);
+                }
+                validate_command(&crate::agent_runtime::AgentRuntimeCommand {
+                    binary: profile.binary.clone(),
+                    args: profile.args.clone(),
+                })?;
+                if profile.env.len() > 128
+                    || profile.env.iter().any(|(key, value)| {
+                        key.is_empty()
+                            || key.len() > 128
+                            || !key.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+                            || key.to_ascii_uppercase().starts_with("CODETERM")
+                            || value.len() > 16384
+                            || value.contains('\0')
+                    })
+                {
+                    return Err(RuntimeManifestError::InvalidProfile);
+                }
+                if let Some(detection) = &profile.detection {
+                    validate_command(&crate::agent_runtime::AgentRuntimeCommand {
+                        binary: profile.binary.clone(),
+                        args: detection.args.clone(),
+                    })?;
+                }
+            }
+        }
         let command = &self.command;
-        let executable = command
-            .binary
-            .rsplit(['/', '\\'])
-            .next()
-            .unwrap_or(&command.binary)
-            .to_ascii_lowercase();
-        let executable = executable.strip_suffix(".exe").unwrap_or(&executable);
-        if [
-            "sh",
-            "bash",
-            "zsh",
-            "fish",
-            "dash",
-            "csh",
-            "tcsh",
-            "ksh",
-            "cmd",
-            "powershell",
-            "pwsh",
-        ]
-        .contains(&executable)
-        {
-            return Err(RuntimeManifestError::InvalidCommand);
-        }
-
-        if command.binary.is_empty()
-            || command.binary.len() > 4096
-            || command.binary.contains(['\0', '\r', '\n'])
-            || command.args.len() > 128
-            || command
-                .args
-                .iter()
-                .any(|s| s.len() > 16384 || s.contains('\0'))
-        {
-            return Err(RuntimeManifestError::InvalidCommand);
-        }
         let exclusions = &self.inherited_environment_exclusions;
         if exclusions.len() > 128
             || exclusions.iter().any(|name| {
@@ -233,3 +270,53 @@ fn valid_methods(methods: &[String]) -> bool {
 
 #[cfg(test)]
 mod tests;
+
+fn validate_command(
+    command: &crate::agent_runtime::AgentRuntimeCommand,
+) -> Result<(), RuntimeManifestError> {
+    let executable = command
+        .binary
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or(&command.binary)
+        .to_ascii_lowercase();
+    let executable = executable.strip_suffix(".exe").unwrap_or(&executable);
+    if [
+        "sh",
+        "bash",
+        "zsh",
+        "fish",
+        "dash",
+        "csh",
+        "tcsh",
+        "ksh",
+        "cmd",
+        "powershell",
+        "pwsh",
+    ]
+    .contains(&executable)
+    {
+        return Err(RuntimeManifestError::InvalidCommand);
+    }
+
+    if command.binary.is_empty()
+        || command.binary.len() > 4096
+        || command.binary.contains(['\0', '\r', '\n'])
+        || command.args.len() > 128
+        || command
+            .args
+            .iter()
+            .any(|s| s.len() > 16384 || s.contains('\0'))
+    {
+        return Err(RuntimeManifestError::InvalidCommand);
+    }
+    Ok(())
+}
+
+fn resolve_binary(binary: &str) -> Result<PathBuf, RuntimeManifestError> {
+    match super::super::probe_bin(binary).resolution {
+        super::super::BinResolution::Found(path) => Ok(path),
+        super::super::BinResolution::Missing => Err(RuntimeManifestError::BinaryUnavailable),
+        super::super::BinResolution::Unknown => Err(RuntimeManifestError::BinaryUnknown),
+    }
+}

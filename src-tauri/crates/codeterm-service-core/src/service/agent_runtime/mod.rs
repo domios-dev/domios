@@ -17,6 +17,7 @@ mod events;
 pub mod goals;
 mod initialize;
 mod launch_options;
+pub mod launch_profile;
 #[cfg(unix)]
 pub(crate) mod lease;
 pub mod login;

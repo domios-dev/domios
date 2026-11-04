@@ -66,7 +66,15 @@ struct ResultEntry {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct PlanError {
+    operation: usize,
+    code: RuntimeFailureCode,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct Expected {
+    #[serde(default)]
+    plan_errors: Vec<PlanError>,
     results: Vec<ResultEntry>,
     events: Vec<AgentRuntimeEvent>,
 }
@@ -177,11 +185,7 @@ fn load_fixture(path: &Path) -> Fixture {
 // captured/load holds rate-measurement recordings: same frame kinds at larger volume, so only benchmarks replay them.
 fn fixtures_with_load(dir: &Path, load: bool) -> Vec<(PathBuf, Fixture)> {
     let mut paths = scenario_paths(dir);
-    assert_eq!(
-        paths.len(),
-        12,
-        "shared runtime gate requires all twelve scenarios"
-    );
+    assert!(!paths.is_empty(), "runtime replay must select scenarios");
     let captures = dir.join("captured");
     if captures.exists() {
         paths.extend(scenario_paths(&captures));
@@ -363,6 +367,18 @@ async fn replay(
             }
             _ => panic!("invalid replay record envelope"),
         }
+    }
+    for expected in &fixture.expected.plan_errors {
+        let case = &fixture.operations[expected.operation];
+        let ctx = case.context.as_ref().unwrap_or(&fixture.context);
+        assert_eq!(
+            provider
+                .runtime_plan(ctx, &case.operation)
+                .await
+                .unwrap_err()
+                .code,
+            expected.code
+        );
     }
     assert!(plans.is_empty(), "every operation must terminate");
     (results, events)

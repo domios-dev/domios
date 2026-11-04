@@ -252,7 +252,7 @@ function pluginCommands(repoRoot, files) {
       reason: "plugin root metadata changed",
     });
   }
-  const providerSuites = ["provider-claude", "provider-codex", "provider-opencode", "provider-cursor"];
+  const providerSuites = ["provider-claude", "provider-codex", "provider-opencode", "provider-cursor", "provider-acp"];
   for (const provider of directories) {
     if (provider === "analytics" || !existsSync(path.join(repoRoot, "plugins", provider))) continue;
     const suites = provider === "provider-shared" ? providerSuites : [provider];

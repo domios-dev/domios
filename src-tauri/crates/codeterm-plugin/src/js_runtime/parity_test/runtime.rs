@@ -14,6 +14,7 @@ mod replay;
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct GenericFixture {
+    launch_profiles: std::collections::BTreeMap<String, RuntimeLaunchProfile>,
     context: RuntimeContext,
     operations: Vec<OperationCase>,
     reductions: Vec<ReductionCase>,
@@ -73,7 +74,9 @@ fn generic_provider_with_history(dir: &Path, stored_history: bool) -> JsProvider
             ((*kind).into(), methods)
         })
         .collect();
-    let manifest=PluginManifest::from_json_str(&json!({"id":"echo-runtime","version":"1.0.0","displayName":"Fixture","capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},"agentRuntime":{"restrictedCli":{"kind":"execpolicy-service-operations","metadataDirectory":".runtime-policy"},"storedHistory":stored_history,"serviceTiers":[{"id":"priority","name":"Fast","description":""}],"backgroundProcesses":true,"usage":true,"threadHistory":{"actions":["fork","revert"]},"resetCreditsMinVersion":"0.162.1","runtime":"stdio-jsonrpc","command":{"binary":"fixture-engine","args":[]},"requestMethods":methods,"notificationMethods":["item"],"login":{"methods":["browser","device","apiKey"],"terminalCommand":"fixture-engine login"}}},"permissions":{"subprocess":{"allow":["fixture-engine"]}}}).to_string()).unwrap();
+    let fixture: GenericFixture =
+        serde_json::from_str(&std::fs::read_to_string(dir.join("shared.json")).unwrap()).unwrap();
+    let manifest=PluginManifest::from_json_str(&json!({"id":"echo-runtime","version":"1.0.0","displayName":"Fixture","capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},"agentRuntime":{"launchProfiles":fixture.launch_profiles,"restrictedCli":{"kind":"execpolicy-service-operations","metadataDirectory":".runtime-policy"},"storedHistory":stored_history,"serviceTiers":[{"id":"priority","name":"Fast","description":""}],"backgroundProcesses":true,"usage":true,"threadHistory":{"actions":["fork","revert"]},"resetCreditsMinVersion":"0.162.1","runtime":"stdio-jsonrpc","command":{"binary":"fixture-engine","args":[]},"requestMethods":methods,"notificationMethods":["item"],"login":{"methods":["browser","device","apiKey"],"terminalCommand":"fixture-engine login"}}},"permissions":{"subprocess":{"allow":["fixture-engine"]}}}).to_string()).unwrap();
     let source = std::fs::read_to_string(dir.join("plugin.js"))
         .expect("generic runtime plugin path must exist");
     JsProvider::new(
@@ -208,6 +211,14 @@ async fn runtime_native_quickjs_shared_fixture_parity() {
     let js = generic_provider(&dir);
     let native = native::NativeRuntime(js.agent_runtime().unwrap());
     assert_eq!(js.agent_runtime(), native.agent_runtime());
+    assert_eq!(
+        js.agent_runtime()
+            .unwrap()
+            .launch_profiles
+            .as_ref()
+            .unwrap(),
+        &fixture.launch_profiles
+    );
     assert!(js.agent_runtime().unwrap().usage);
     assert_eq!(js.agent_runtime().unwrap().service_tiers.len(), 1);
     assert_eq!(

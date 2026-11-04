@@ -121,3 +121,36 @@ fn runtime_login_declaration_confines_terminal_to_its_binary() {
         assert!(refused, "terminal command must be refused: {command:?}");
     }
 }
+
+#[test]
+fn launch_profiles_refuse_ungranted_shell_and_unknown_fields() {
+    let mut raw = manifest();
+    raw["capabilities"]["agentRuntime"]["launchProfiles"] = json!({"selected":{
+        "binary":"runtime-engine","args":["serve"],"env":{"PROFILE":"fixed"}
+    }});
+    assert!(PluginManifest::from_json_str(&raw.to_string()).is_ok());
+    for (binary, expected) in [
+        ("ungranted", RuntimeManifestError::SubprocessDenied),
+        ("/bin/sh", RuntimeManifestError::InvalidCommand),
+        ("C:\\Windows\\cmd.exe", RuntimeManifestError::InvalidCommand),
+    ] {
+        let mut invalid = raw.clone();
+        invalid["capabilities"]["agentRuntime"]["launchProfiles"]["selected"]["binary"] =
+            json!(binary);
+        let parsed: PluginManifest = serde_json::from_value(invalid).unwrap();
+        assert_eq!(parsed.validate_agent_runtime(), Err(expected));
+    }
+    for pointer in ["unknown", "shell"] {
+        let mut invalid = raw.clone();
+        invalid["capabilities"]["agentRuntime"]["launchProfiles"]["selected"][pointer] =
+            json!(true);
+        assert!(serde_json::from_value::<PluginManifest>(invalid).is_err());
+    }
+    raw["capabilities"]["agentRuntime"]["launchProfiles"]["selected"]["env"] =
+        json!({"CODETERM_TAB_ID":"foreign"});
+    let parsed: PluginManifest = serde_json::from_value(raw).unwrap();
+    assert_eq!(
+        parsed.validate_agent_runtime(),
+        Err(RuntimeManifestError::InvalidProfile)
+    );
+}

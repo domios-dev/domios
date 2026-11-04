@@ -1,0 +1,38 @@
+{
+  "agentRuntime": {
+    "runtime": "stdio-jsonrpc",
+    "command": {
+      "binary": "acp-agent",
+      "args": []
+    },
+    "launchProfiles": {},
+    "requestMethods": {
+      "initialize": [
+        "initialize"
+      ],
+      "openThread": [
+        "session/new"
+      ],
+      "resumeThread": [
+        "session/load",
+        "session/resume"
+      ],
+      "submitTurn": [
+        "session/prompt"
+      ],
+      "interrupt": [
+        "session/cancel"
+      ],
+      "answer": []
+    },
+    "notificationMethods": [
+      "session/update"
+    ]
+  },
+  "chatBackend": {
+    "enabled": true,
+    "spawnable": true,
+    "sessionConfig": true,
+    "agentTasks": true
+  }
+}

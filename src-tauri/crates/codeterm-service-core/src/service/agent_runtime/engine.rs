@@ -592,13 +592,9 @@ async fn ensure_locked(
         let owner = svc.clone();
         let target = tab.to_string();
         let provider_id = provider.to_string();
+        let launch_nonce = context.binding_nonce.clone();
         let process = tokio::task::spawn_blocking(move || {
-            let nonce = owner
-                .mux
-                .read()
-                .get_tab(&target)
-                .and_then(|tab| tab.session_binding_nonce.clone())
-                .ok_or(RuntimeFailure::Superseded)?;
+            let nonce = launch_nonce;
             let authority = LaunchAuthority::verify(
                 &owner,
                 RuntimeLaunchBinding {
@@ -608,9 +604,13 @@ async fn ensure_locked(
                 },
             )
             .map_err(|reason| RuntimeFailure::Refused(reason.to_string()))?;
-            let binary = adapter
-                .authorize_agent_runtime(&authority)
-                .map_err(|reason| RuntimeFailure::Refused(reason.to_string()))?;
+            let launch = super::launch_profile::resolve(
+                &owner,
+                &target,
+                &authority,
+                adapter.as_ref(),
+                &capability,
+            )?;
             let cwd = owner
                 .mux
                 .read()
@@ -630,6 +630,7 @@ async fn ensure_locked(
             env.extend(crate::service::execution_sandbox::environment(
                 &owner, &target,
             ));
+            env.extend(launch.env.clone());
             env.remove(super::cli_exception::SCOPE_ENV);
             if restricted_cli {
                 env.insert(
@@ -637,10 +638,13 @@ async fn ensure_locked(
                     super::cli_exception::SCOPE.into(),
                 );
             }
-            if !super::authority::verifies(&owner, &target, &provider_id, &nonce) {
+            if !super::authority::verifies(&owner, &target, &provider_id, &nonce)
+                || !launch.verifies(&owner, &target)
+            {
                 return Err(RuntimeFailure::Superseded);
             }
-            super::process::spawn(&binary, &capability, &cwd, env, &target).map(Arc::new)
+            super::process::spawn(&launch.binary, &launch.capability, &cwd, env, &target)
+                .map(Arc::new)
         })
         .await
         .map_err(|error| RuntimeFailure::SpawnFailed {
