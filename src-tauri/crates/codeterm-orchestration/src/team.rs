@@ -513,17 +513,13 @@ async fn close_team_inner(
     for tab_id in &cleanup.member_tab_ids {
         svc.settle_lanes_held_by_closed_tab(tab_id);
     }
-    let flagged_plans = changed_plan_ids
-        .iter()
-        .filter_map(|plan_id| svc.plan_store.get(plan_id))
-        .filter_map(|plan| {
-            let reason = plan.orphaned.map(|orphan| orphan.reason)?;
-            Some(close_busy::TeamCloseFlaggedPlan {
-                plan_id: plan.id,
-                reason,
-            })
-        })
-        .collect();
+    let flag_store = std::sync::Arc::clone(&svc.plan_store);
+    let flag_ids = changed_plan_ids.clone();
+    let flagged_plans =
+        tokio::task::spawn_blocking(move || flag_store.team_close_flags_projection(&flag_ids))
+            .await
+            .map_err(|error| format!("Team close flag read task failed: {error}"))
+            .and_then(|result| result.map_err(|error| error.to_string()));
     for plan_id in changed_plan_ids {
         svc.emit_plan_changed(&plan_id);
     }
@@ -551,6 +547,13 @@ async fn close_team_inner(
             busy.tasks.len()
         );
     }
+    let flagged_plans = flagged_plans?
+        .into_iter()
+        .map(|flag| close_busy::TeamCloseFlaggedPlan {
+            plan_id: flag.plan_id,
+            reason: flag.reason,
+        })
+        .collect();
     Ok(TeamCloseResult {
         remote_members,
         team,
