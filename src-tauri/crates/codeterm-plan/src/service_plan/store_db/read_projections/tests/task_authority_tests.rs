@@ -847,6 +847,7 @@ fn startup_owner_and_status_queries_ignore_unselected_history_and_bodies() {
         prior = Some(measured);
     }
 }
+mod checkpoint;
 mod continuity;
 mod creation;
 mod restart;

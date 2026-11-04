@@ -458,29 +458,15 @@ impl super::ServiceContext {
         new_session_id: &str,
         now_ms: u64,
     ) -> Result<(u64, String), String> {
-        self.authenticated_adoption_checkpoint(task_id, new_tab_id, new_session_id)?;
-        let detail = self
-            .plan_store
-            .show_task(task_id)
-            .ok_or_else(|| "task not found".to_string())?;
-        let checkpoint = detail
-            .task
-            .interruption
-            .checkpoint
-            .clone()
-            .ok_or_else(|| "task has no interruption checkpoint".to_string())?;
-        let verified = checkpoint.clone();
-        tokio::task::spawn_blocking(move || verify_git_checkpoint(&verified))
-            .await
-            .map_err(|error| format!("checkpoint verifier failed: {error}"))??;
-        self.persist_checkpoint_adoption(
-            &detail.plan_id,
-            task_id,
-            new_tab_id,
-            new_session_id,
-            checkpoint,
-            now_ms,
-        )
+        let service = self.clone();
+        let task_id = task_id.to_string();
+        let new_tab_id = new_tab_id.to_string();
+        let new_session_id = new_session_id.to_string();
+        tokio::task::spawn_blocking(move || {
+            service.adopt_worker_checkpoint_sync(&task_id, &new_tab_id, &new_session_id, now_ms)
+        })
+        .await
+        .map_err(|error| format!("checkpoint adoption worker failed: {error}"))?
     }
 
     pub fn adopt_worker_checkpoint_sync(
@@ -490,16 +476,13 @@ impl super::ServiceContext {
         new_session_id: &str,
         now_ms: u64,
     ) -> Result<(u64, String), String> {
-        self.authenticated_adoption_checkpoint(task_id, new_tab_id, new_session_id)?;
+        self.authenticate_checkpoint_adopter(new_tab_id, new_session_id)?;
         let detail = self
             .plan_store
-            .show_task(task_id)
-            .ok_or_else(|| "task not found".to_string())?;
+            .task_checkpoint_adoption_projection(task_id)
+            .map_err(|error| error.to_string())?;
         let checkpoint = detail
-            .task
-            .interruption
             .checkpoint
-            .clone()
             .ok_or_else(|| "task has no interruption checkpoint".to_string())?;
         verify_git_checkpoint(&checkpoint)?;
         self.persist_checkpoint_adoption(
@@ -512,9 +495,8 @@ impl super::ServiceContext {
         )
     }
 
-    fn authenticated_adoption_checkpoint(
+    fn authenticate_checkpoint_adopter(
         &self,
-        task_id: &str,
         new_tab_id: &str,
         new_session_id: &str,
     ) -> Result<(), String> {
@@ -527,9 +509,6 @@ impl super::ServiceContext {
         if !authenticated {
             return Err("adoption requires authenticated fresh-owner session binding".into());
         }
-        self.plan_store
-            .show_task(task_id)
-            .ok_or_else(|| "task not found".to_string())?;
         Ok(())
     }
 

@@ -106,7 +106,9 @@ pub(super) mod startup;
 mod continuity;
 pub use continuity::{TaskContinuityDigest, TaskContinuityRead};
 
+mod checkpoint;
 mod creation;
+pub use checkpoint::TaskCheckpointAdoptionRead;
 mod restart;
 mod restoration;
 mod runtime_restore;

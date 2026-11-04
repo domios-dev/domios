@@ -305,6 +305,7 @@ mod startup;
 mod continuity;
 pub(super) use continuity::register_functions;
 
+mod checkpoint;
 mod creation;
 mod restart;
 mod restoration;

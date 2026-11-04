@@ -344,7 +344,7 @@ mod task_authority_projection;
 pub use task_authority_projection::{
     CompletedTaskRestartRead, PlanTaskAdmissionRead, RestartAttemptRead, ReviewBindingRestoreRead,
     ReviewRestoreAttemptRead, RuntimeAttemptRestoreQuery, RuntimeAttemptRestoreRead,
-    TaskAttemptBindingRead, TaskBindingRestoreRead, TaskContextFilesRead, TaskContinuityDigest,
-    TaskContinuityRead, TaskCreationRead, TaskDescriptionRead, TaskOwnerEpochRead,
-    TaskRestartAuthorityRead, TaskRestartQuery,
+    TaskAttemptBindingRead, TaskBindingRestoreRead, TaskCheckpointAdoptionRead,
+    TaskContextFilesRead, TaskContinuityDigest, TaskContinuityRead, TaskCreationRead,
+    TaskDescriptionRead, TaskOwnerEpochRead, TaskRestartAuthorityRead, TaskRestartQuery,
 };
