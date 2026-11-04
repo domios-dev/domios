@@ -76,15 +76,7 @@ impl PlanDatabase {
         &self,
         id: &str,
     ) -> Result<PlanDocumentMetadata, PlanError> {
-        let connection = self.connection.lock();
-        record_query();
-        let document: String = connection.query_row(
-            "SELECT json_object('id', id, 'project_path',project_path,
-                'canonical_project_path',coalesce(json_extract(header_json,'$.canonical_project_path'),''),
-                'status',status) FROM plans WHERE id=?1",
-            [id], |row| column(row,0),
-        ).optional().map_err(db_error)?.ok_or(PlanError::NotFound)?;
-        decode(id, &document)
+        document_metadata_in(&self.connection.lock(), id)
     }
 
     pub(in crate::service_plan) fn section_markdown_rows(
@@ -153,3 +145,23 @@ impl PlanDatabase {
         decode(&id, &document)
     }
 }
+
+fn document_metadata_in(
+    connection: &rusqlite::Connection,
+    id: &str,
+) -> Result<PlanDocumentMetadata, PlanError> {
+    record_query();
+    let document: String = connection.query_row(
+            "SELECT json_object('id', id, 'project_path',project_path,
+                'canonical_project_path',coalesce(json_extract(header_json,'$.canonical_project_path'),''),
+                'status',status) FROM plans WHERE id=?1",
+            [id], |row| column(row,0),
+        ).optional().map_err(db_error)?.ok_or(PlanError::NotFound)?;
+    decode(id, &document)
+}
+
+mod manifest;
+mod tags;
+
+mod cleanup;
+mod regression;
