@@ -5,7 +5,7 @@ use crate::plan::{LoopStatus, QaState, ReviewStage, TaskStatus};
 use super::state::PlanStateSnapshot;
 
 mod input;
-pub(super) use input::{ActionLoop, NextActionInput};
+pub(super) use input::{ActionLane, ActionLoop, NextActionInput};
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -68,7 +68,7 @@ fn dependency_wait_names(waits: &[super::state::DependencyWait]) -> String {
 }
 
 // Running loop with no headroom left: at or one short of budget, or past 80%.
-fn loop_near_limit(l: &ActionLoop) -> bool {
+pub(super) fn loop_near_limit(l: &ActionLoop) -> bool {
     if l.status != LoopStatus::Running || l.budget == 0 {
         return false;
     }

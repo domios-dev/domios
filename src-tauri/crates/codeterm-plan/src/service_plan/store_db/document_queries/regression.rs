@@ -11,24 +11,34 @@ impl PlanDatabase {
     ) -> Result<Option<RegressionInput>, PlanError> {
         let mut guard = self.connection.lock();
         let transaction = guard.transaction().map_err(db_error)?;
-        record_query();
-        let exists: bool = transaction
-            .query_row(
-                "SELECT EXISTS(SELECT 1 FROM plans WHERE id=?1)",
-                [id],
-                |row| row.get(0),
-            )
-            .map_err(db_error)?;
-        if !exists {
-            return Ok(None);
-        }
-        let completed = unsigned_timestamp("t.row_json", "status_changed_at", true);
-        let stride_at = unsigned_timestamp("s.row_json", "ts", false);
-        let override_at = unsigned_timestamp("o.value", "ts", false);
-        let links = string_array("s.row_json", "links", true);
-        let gates = string_array("o.value", "gates", false);
-        let sql = format!(
-            r#"
+        let result = regression_gate_input(&transaction, id)?;
+        transaction.commit().map_err(db_error)?;
+        Ok(result)
+    }
+}
+
+pub(in crate::service_plan::store_db) fn regression_gate_input(
+    connection: &rusqlite::Connection,
+    id: &str,
+) -> Result<Option<RegressionInput>, PlanError> {
+    record_query();
+    let exists: bool = connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM plans WHERE id=?1)",
+            [id],
+            |row| row.get(0),
+        )
+        .map_err(db_error)?;
+    if !exists {
+        return Ok(None);
+    }
+    let completed = unsigned_timestamp("t.row_json", "status_changed_at", true);
+    let stride_at = unsigned_timestamp("s.row_json", "ts", false);
+    let override_at = unsigned_timestamp("o.value", "ts", false);
+    let links = string_array("s.row_json", "links", true);
+    let gates = string_array("o.value", "gates", false);
+    let sql = format!(
+        r#"
             WITH members AS (
                 SELECT position,status,row_json,CASE WHEN json_type(row_json,'$.group')='text'
                     THEN json_extract(row_json,'$.group') ELSE json('invalid group key') END AS group_key
@@ -57,23 +67,25 @@ impl PlanDatabase {
                     WHERE p.id=?1 AND EXISTS(SELECT 1 FROM json_each({gates}) k WHERE k.type='text' AND k.value=g.group_key)))))
             FROM completed g ORDER BY g.position
         "#
-        );
-        record_query();
-        let groups = {
-            let mut statement = transaction.prepare_cached(&sql).map_err(db_error)?;
-            let rows = statement
-                .query_map([id], |row| column::<String>(row, 0))
-                .map_err(db_error)?;
-            rows.map(|row| decode::<RegressionGroupInput>(id, &row.map_err(db_error)?))
-                .collect::<Result<Vec<_>, PlanError>>()?
-        };
-        transaction.commit().map_err(db_error)?;
-        Ok(Some(RegressionInput { groups }))
-    }
+    );
+    record_query();
+    let groups = {
+        let mut statement = connection.prepare_cached(&sql).map_err(db_error)?;
+        let rows = statement
+            .query_map([id], |row| column::<String>(row, 0))
+            .map_err(db_error)?;
+        rows.map(|row| decode::<RegressionGroupInput>(id, &row.map_err(db_error)?))
+            .collect::<Result<Vec<_>, PlanError>>()?
+    };
+    Ok(Some(RegressionInput { groups }))
 }
 
 // Padded decimal tokens preserve unsigned ordering above SQLite's signed integer range.
-fn unsigned_timestamp(document: &str, field: &str, default_zero: bool) -> String {
+pub(in crate::service_plan::store_db) fn unsigned_timestamp(
+    document: &str,
+    field: &str,
+    default_zero: bool,
+) -> String {
     let token = format!("{document}->'$.{field}'");
     let absent = if default_zero {
         "'0'"

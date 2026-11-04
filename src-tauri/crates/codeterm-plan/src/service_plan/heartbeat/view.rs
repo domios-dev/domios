@@ -19,6 +19,10 @@ pub(in crate::service_plan) struct HeartbeatView {
 
 impl HeartbeatView {
     pub(super) fn from_plan(plan: &Plan) -> Self {
+        Self::from_plan_at(plan, now_ms())
+    }
+
+    pub(in crate::service_plan) fn from_plan_at(plan: &Plan, now: u64) -> Self {
         let snapshot = reminder_snapshot(plan);
         let mut actions = String::new();
         let ids = render_actions(plan, &snapshot, &mut actions);
@@ -29,7 +33,7 @@ impl HeartbeatView {
         let mut competition = String::new();
         render_competitive_attempts(plan, &mut competition);
         let mut gates = String::new();
-        render_open_gates(plan, now_ms(), &mut gates);
+        render_open_gates(plan, now, &mut gates);
         let mut skills = String::new();
         render_actionable_skills(plan, &ids, &mut skills);
         Self {
@@ -64,8 +68,7 @@ impl HeartbeatView {
         heartbeat: &OrchestratorHeartbeat,
         extra: &[String],
     ) -> String {
-        let mut out = format!("{HEARTBEAT_BLOCK_OPEN} plan=\"{}\">\nState: in_review={} in_progress={} pending_actionable={} blocked={}\n",
-            self.plan_id,self.counts.in_review,self.counts.in_progress,self.pending_actionable,self.counts.blocked);
+        let mut out = state_header(&self.plan_id, &self.counts, self.pending_actionable);
         out.push_str(&self.actions);
         for learning in heartbeat
             .learnings
@@ -145,4 +148,12 @@ pub(in crate::service_plan) fn control_line(
             .map(|reason| format!(", fallback: heartbeat ({reason})"))
             .unwrap_or_default()
     )
+}
+
+pub(in crate::service_plan) fn state_header(
+    id: &str,
+    counts: &TaskCounts,
+    pending: usize,
+) -> String {
+    format!("{HEARTBEAT_BLOCK_OPEN} plan=\"{id}\">\nState: in_review={} in_progress={} pending_actionable={pending} blocked={}\n",counts.in_review,counts.in_progress,counts.blocked)
 }

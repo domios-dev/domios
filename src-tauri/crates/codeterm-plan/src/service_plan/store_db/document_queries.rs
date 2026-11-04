@@ -164,4 +164,4 @@ mod manifest;
 mod tags;
 
 mod cleanup;
-mod regression;
+pub(super) mod regression;
