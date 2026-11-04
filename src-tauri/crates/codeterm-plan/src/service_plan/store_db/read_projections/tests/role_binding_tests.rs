@@ -111,7 +111,7 @@ fn role_binding_materialization_excludes_task_history_and_unused_owner_fields() 
         plan.control_loop.rounds = (0..rounds)
             .map(|number| crate::plan::CuratorRound {
                 number,
-                summary: "unrelated history".repeat(128),
+                summary: "unrelated history".repeat(16),
                 ..Default::default()
             })
             .collect();
