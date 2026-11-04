@@ -41,27 +41,16 @@ impl PlanStore {
         self.index.read().get(id).map(|row| row.team_id.clone())
     }
 
-    /// Compact exact-plan admission metadata; this never loads or clones the Plan.
+    /// Compact exact-plan admission metadata from one committed statement.
     pub fn plan_team_binding_metadata(
         &self,
         id: &str,
-    ) -> Option<(PlanStatus, Option<String>, bool)> {
-        match self.database.plan_team_binding_metadata(id) {
-            Ok(metadata) => metadata,
-            Err(error) => {
-                log::warn!("[plan.store] {error}; source left unchanged");
-                None
-            }
-        }
+    ) -> Result<Option<(PlanStatus, Option<String>, bool)>, PlanError> {
+        self.database.plan_team_binding_metadata(id)
     }
 
-    pub fn live_active_plan_ids(&self) -> Vec<String> {
-        self.database
-            .live_active_plan_ids()
-            .unwrap_or_else(|error| {
-                log::warn!("[plan.store] live active plan query failed: {error}");
-                Vec::new()
-            })
+    pub fn active_plan_team_bindings(&self) -> Result<Vec<(String, Option<String>)>, PlanError> {
+        self.database.active_plan_team_bindings()
     }
 
     pub fn get_spec(&self, id: &str) -> Option<Spec> {
@@ -178,9 +167,10 @@ impl PlanStore {
 
     pub(super) fn plans_for_update_in_writer(
         &self,
-        _turn: &MutationWriterTurn<'_>,
+        turn: &MutationWriterTurn<'_>,
         predicate: &PlanMatch,
     ) -> Result<Vec<Plan>, PlanError> {
+        turn.assert_store(self);
         self.database
             .plan_ids_matching(predicate)?
             .into_iter()
@@ -244,20 +234,9 @@ impl PlanStore {
         plans
     }
 
-    /// Plans whose stored rows hold a finished task with a lane that may still
-    /// need settling. A superset: callers confirm each one with `plan_matches`.
-    pub fn plan_ids_with_unsettled_lanes(&self) -> Vec<String> {
-        self.database
-            .plans_with_unsettled_lanes()
-            .unwrap_or_else(|error| {
-                log::warn!("[plan.store] unsettled lane query failed: {error}");
-                Vec::new()
-            })
-    }
-
-    /// Judges one plan under its lock without cloning it; unknown is `false`.
-    pub fn plan_matches(&self, id: &str, matches: impl FnOnce(&Plan) -> bool) -> bool {
-        self.plan_arc(id).is_ok_and(|plan| matches(&plan.lock()))
+    /// A SQL superset; selected lane facts make the final settlement decision.
+    pub fn plan_ids_with_unsettled_lanes(&self) -> Result<Vec<String>, PlanError> {
+        self.database.plans_with_unsettled_lanes()
     }
 
     pub fn delete(&self, id: &str) -> std::io::Result<()> {

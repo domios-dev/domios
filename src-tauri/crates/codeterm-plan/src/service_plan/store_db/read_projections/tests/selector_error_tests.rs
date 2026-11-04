@@ -20,12 +20,32 @@ fn loop_preflight_and_curator_bootstrap_refuse_unavailable_storage() {
         vec![plan.id.clone()]
     );
     assert!(store.plan_loads_for_test().is_empty());
+    database.connection.lock().execute(
+        "UPDATE plans SET team_id='committed-team',header_json=json_set(header_json,'$.team_id','committed-team') WHERE id=?1",
+        [&plan.id],
+    ).unwrap();
+    assert_eq!(
+        store.active_plan_team_bindings().unwrap(),
+        vec![(plan.id.clone(), Some("committed-team".into()))]
+    );
+    assert_eq!(
+        store
+            .plan_team_binding_metadata(&plan.id)
+            .unwrap()
+            .unwrap()
+            .1
+            .as_deref(),
+        Some("committed-team")
+    );
     database
         .connection
         .lock()
         .execute_batch("ALTER TABLE plans RENAME TO unavailable_plan_rows")
         .unwrap();
     assert!(store.curator_bootstrap_plan_ids().is_err());
+    assert!(store.active_plan_team_bindings().is_err());
+    assert!(store.plan_team_binding_metadata(&plan.id).is_err());
+    assert!(store.plan_ids_with_unsettled_lanes().is_err());
     for result in [
         store.set_loop("selected", Some(10), None, 10),
         store.stop_loop("selected", 10),
