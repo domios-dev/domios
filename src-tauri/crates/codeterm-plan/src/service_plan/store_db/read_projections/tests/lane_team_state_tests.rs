@@ -49,7 +49,7 @@ fn bounded_state(consumer: &str) {
                     old.reason = "history".repeat(128);
                     old
                 })
-                .chain([operation])
+                .chain([operation.clone()])
                 .collect();
         }
         if matches!(
