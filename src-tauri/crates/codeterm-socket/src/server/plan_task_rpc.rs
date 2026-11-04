@@ -15,6 +15,7 @@ use super::{get_string_param, JsonRpcError};
 use codeterm_service_core::plan::TaskStatus;
 use codeterm_service_core::service::plan::task_queries::TaskListFilter;
 use codeterm_service_core::service::plan::{hints, NewTask, PlanError};
+
 use codeterm_service_core::service::ServiceState;
 use serde_json::{json, Value};
 
@@ -23,6 +24,20 @@ mod respawn;
 mod split;
 mod task_fields;
 use task_fields::task_files_field;
+
+fn draft_mutation_rpc_err(
+    error: codeterm_service_core::service::PlanAuthorityError,
+) -> JsonRpcError {
+    if error == codeterm_service_core::service::PlanAuthorityError::StoreReadFailed {
+        super::plan_task_authority::planning_authority_error(error)
+    } else {
+        JsonRpcError {
+            code: -32003,
+            message: error.to_string(),
+            data: None,
+        }
+    }
+}
 
 pub(super) fn authenticated_caller(
     params: Option<&Value>,
@@ -310,12 +325,8 @@ pub(super) fn dispatch(
                 .resolve_task_section_ids(&id, &requested_sections)
                 .map_err(plan_rpc_err)?;
             let author = svc
-                .authorize_draft_structure_mutation(&id, &authenticated_caller(p))
-                .map_err(|message| JsonRpcError {
-                    code: -32003,
-                    message,
-                    data: None,
-                })?;
+                .authorize_draft_structure_mutation_typed(&id, &authenticated_caller(p))
+                .map_err(draft_mutation_rpc_err)?;
             codeterm_service_core::service::ensure_planner_task_fields_are_structural(
                 &author,
                 p.unwrap_or(&Value::Null),
@@ -492,12 +503,8 @@ pub(super) fn dispatch(
             let (id, tid) = plan_refs::resolve_task(store, params)?;
             let previous_name = store.task_name_projection(&tid).map_err(plan_rpc_err)?;
             let author = svc
-                .authorize_draft_structure_mutation(&id, &authenticated_caller(p))
-                .map_err(|message| JsonRpcError {
-                    code: -32003,
-                    message,
-                    data: None,
-                })?;
+                .authorize_draft_structure_mutation_typed(&id, &authenticated_caller(p))
+                .map_err(draft_mutation_rpc_err)?;
             codeterm_service_core::service::ensure_planner_task_fields_are_structural(
                 &author,
                 p.unwrap_or(&Value::Null),

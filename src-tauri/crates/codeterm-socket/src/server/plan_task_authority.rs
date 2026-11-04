@@ -5,7 +5,7 @@ use codeterm_service_core::service::plan::interruption::TaskMutationAuthority;
 use codeterm_service_core::service::plan::{PlanError, TaskOwnerEpochRead};
 use codeterm_service_core::service::{PlanAuthorityError, ServiceState};
 
-fn planning_authority_error(error: PlanAuthorityError) -> JsonRpcError {
+pub(super) fn planning_authority_error(error: PlanAuthorityError) -> JsonRpcError {
     let mut data = serde_json::json!({ "type": error.diagnostic_type() });
     if error.is_retryable() {
         data["retryable"] = Value::Bool(true);
