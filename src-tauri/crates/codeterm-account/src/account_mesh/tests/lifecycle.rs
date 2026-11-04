@@ -493,6 +493,22 @@ async fn account_mesh_same_account_resumes_and_another_account_cannot() {
     assert_eq!(resumed.traffic(), Traffic::Open);
     assert_eq!(resumed.binding(), Binding::Current);
     assert!(resumed.current_membership(START).is_some());
+    assert!(resumed.self_installation.is_some());
+    assert_eq!(resumed.last_refusal, None);
+    assert_eq!(resumed.cleanup, Cleanup::Confirmed);
+    let own = resumed
+        .signed_registry
+        .as_ref()
+        .unwrap()
+        .rows
+        .iter()
+        .find(|row| row.installation_id == INSTALLATION)
+        .unwrap();
+    assert_eq!(
+        own.presence,
+        wire::RegistryPresence::Present,
+        "peers admit only a present holder; a renew alone leaves the row signed out"
+    );
     assert_eq!(
         harness.calls("enroll"),
         1,
