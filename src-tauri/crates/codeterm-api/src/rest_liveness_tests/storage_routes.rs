@@ -317,3 +317,182 @@ async fn team_adopt_and_transfer_keep_health_list_and_send_responsive_with_plan_
         );
     }
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+async fn acknowledged_dispatch_binding_keeps_mux_and_startup_registry_free_while_sql_is_held() {
+    use codeterm_service_core::service::plan::plan_skills::{
+        create_plan_skill, plan_skill_manifest, NewPlanSkill,
+    };
+    use codeterm_service_core::service::startup_lease::{StartupAuthority, StartupTaskIdentity};
+    let (mut mux, creator) = MultiplexerState::new();
+    mux.set_orchestrator_role(&creator).unwrap();
+    let team = mux
+        .resolve_or_mint_team_for_parent(&creator)
+        .unwrap()
+        .team_id;
+    let workspace = mux.find_workspace_for_tab(&creator).unwrap();
+    let worker = mux.create_tab(&workspace).unwrap();
+    mux.set_tab_role(
+        &worker,
+        codeterm_service_core::multiplexer::types::AgentRole::Worker,
+        Some(&creator),
+    )
+    .unwrap();
+    mux.get_tab_mut(&creator).unwrap().agent_type = Some("opaque-provider".into());
+    mux.link_pty(&worker, "retained-launch-pty".into());
+    let tab = mux.get_tab_mut(&worker).unwrap();
+    tab.agent_type = Some("opaque-provider".into());
+    tab.agent_session_id = Some("retained-session".into());
+    tab.session_binding_nonce = Some("retained-nonce".into());
+    tab.reported_session_binding_nonce = Some("retained-nonce".into());
+    tab.boot_stage = Some(codeterm_service_core::service::boot_stage::BootStage::AgentReady);
+    let fixture = ServiceFixture::new(mux);
+    let state = app_state(&fixture);
+    let store = &state.svc.plan_store;
+    let plan = store
+        .create_plan_for_team(
+            "Retained binding".into(),
+            fixture.temp.path().display().to_string(),
+            codeterm_service_core::plan::OrchestratorRef::from_tab(&creator),
+            team.clone(),
+            vec![],
+            1,
+        )
+        .unwrap();
+    let task = store
+        .add_task(
+            &plan.id,
+            codeterm_service_core::service::plan::NewTask {
+                name: "retained binding task".into(),
+                kind: "task".into(),
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+    let attempt = store
+        .begin_task_dispatch_with_policy(
+            &plan.id,
+            &task,
+            &worker,
+            "Worker",
+            codeterm_service_core::plan::TaskLaneMetadata::default(),
+            codeterm_service_core::plan::ExecutionIntent::Unspecified,
+            None,
+            Some("opaque-provider"),
+            3,
+        )
+        .unwrap();
+    create_plan_skill(
+        store,
+        &plan.id,
+        NewPlanSkill {
+            slug: "retained-binding".into(),
+            title: None,
+            area: None,
+            check: None,
+            rationale: None,
+        },
+    )
+    .unwrap();
+    store
+        .set_attempt_plan_skill_manifest(
+            &plan.id,
+            &task,
+            &attempt,
+            plan_skill_manifest(store, &plan.id).unwrap(),
+            4,
+        )
+        .unwrap();
+    store
+        .acknowledge_task_attempt(&plan.id, &task, &worker, &attempt, 5)
+        .unwrap();
+    let ack = store
+        .acknowledge_task_attempt(&plan.id, &task, &worker, &attempt, 6)
+        .unwrap();
+    assert!(ack.already_acknowledged);
+    state
+        .svc
+        .mux
+        .write()
+        .get_tab_mut(&worker)
+        .unwrap()
+        .task_binding = Some(codeterm_service_core::multiplexer::types::TaskBinding {
+        plan_id: Some(plan.id.clone()),
+        task_id: Some(task.clone()),
+        attempt_id: Some(attempt.clone()),
+        spawn_handle: None,
+        bound_at: 3,
+    });
+    let _armed = state
+        .svc
+        .worker_ack
+        .retain_task_startup_for_test(StartupAuthority {
+            creator_tab_id: creator,
+            child_tab_id: worker.clone(),
+            attempt_id: "retained-launch-pty".into(),
+            team_id: Some(team),
+            task_identity: Some(StartupTaskIdentity {
+                plan_id: plan.id.clone(),
+                task_id: task.clone(),
+                attempt_id: attempt.clone(),
+            }),
+            session_id: None,
+            binding_nonce: Some("retained-nonce".into()),
+            task_owner_epoch: Some(ack.attempt.interruption.owner_epoch),
+        });
+    let database = store.clone();
+    let held = HeldDependency::new(move |entered, release| {
+        database.with_database_held_for_test(|| {
+            entered.send(()).unwrap();
+            release.recv_timeout(Duration::from_secs(10)).unwrap();
+        });
+    })
+    .await;
+    let service = state.svc.clone();
+    let completing = tokio::task::spawn_blocking(move || {
+        service.complete_acknowledged_dispatch_binding(
+            &ack,
+            "retained-nonce",
+            Some("retained-session"),
+            7,
+        )
+    });
+    let observer = store.clone();
+    assert!(tokio::task::spawn_blocking(
+        move || observer.wait_for_active_mutation_for_test(Duration::from_secs(2))
+    )
+    .await
+    .unwrap());
+    assert!(!completing.is_finished());
+    assert!(
+        state.svc.mux.try_write().is_some(),
+        "SQL must not retain a mux reader"
+    );
+    assert!(
+        state.svc.worker_ack.launch_registry_available_for_test(),
+        "SQL must not retain startup registry guards"
+    );
+    crate::rest_liveness_tests::assert_health_list_send_respond(state.clone()).await;
+    assert!(!completing.is_finished());
+    drop(held);
+    let completed = completing.await.unwrap().unwrap();
+    assert_eq!(completed.session_id.as_deref(), Some("retained-session"));
+    assert_eq!(
+        completed.session_binding_nonce.as_deref(),
+        Some("retained-nonce")
+    );
+    let stored = store.get(&plan.id).unwrap();
+    assert_eq!(
+        stored
+            .tasks
+            .iter()
+            .find(|item| item.id == task)
+            .unwrap()
+            .execution_attempts
+            .iter()
+            .find(|item| item.id == attempt)
+            .unwrap(),
+        &completed
+    );
+}
