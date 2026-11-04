@@ -565,3 +565,72 @@ fn socket_respawn_profile_refusal_leaves_no_reservation_attempt_or_tab() {
         drop(reservation);
     }
 }
+
+#[test]
+fn dispatch_profile_creation_preserves_title_and_startup_owner_before_readiness() {
+    for profile in [None, Some("selected")] {
+        let profiles = profile.map(|_| json!({"selected": {"binary": "node", "args": []}}));
+        let (harness, owner, workspace) = fixture_with_profiles(profiles);
+        let svc = &harness.fixture.service;
+        let team = svc
+            .mux
+            .read()
+            .get_tab(&owner)
+            .unwrap()
+            .team_id
+            .clone()
+            .unwrap();
+        let mut plan = svc
+            .plan_store
+            .create_plan_for_team(
+                "startup profile identity".into(),
+                harness.fixture.temp.path().display().to_string(),
+                OrchestratorRef {
+                    tab_id: Some(owner.clone()),
+                    session_id: Some("owner-session".into()),
+                    title: None,
+                },
+                team,
+                vec![],
+                1,
+            )
+            .unwrap();
+        plan.mode = PlanMode::Approved;
+        plan.planning_state = codeterm_service_core::plan::PlanningState::Approved;
+        svc.plan_store.save(&mut plan, 2).unwrap();
+        let added = crate::server::plan_task_rpc::dispatch("plan.task.add", &Some(json!({
+            "plan_id": plan.id, "name": "Profile startup task", "personality": "Beacon", "executor_role": "Probe",
+            "role_guidance": "opaque-role", "body": "opaque-task", "execution_intent": "non_repository",
+            "acceptance_criteria": ["opaque-result"], "test_plan": "opaque-verification",
+            "caller_tab_id": owner, "session_id": "owner-session", "session_binding_nonce": "owner-nonce"
+        })), &Arc::new(svc.clone()), 3).unwrap();
+        let task = added["task_id"].as_str().unwrap();
+        let inspected = Cell::new(false);
+        let error = super::super::dispatch_with_spawn(&Some(json!({
+            "plan_id": plan.id, "task_id": task, "agent": PROVIDER, "launch_profile": profile,
+            "caller_tab_id": owner, "parent_tab_id": owner, "workspace_id": workspace,
+            "session_id": "owner-session", "session_binding_nonce": "owner-nonce", "execution_intent": "read_only"
+        })), &Arc::new(svc.clone()), 10, |service, params, _ready_tx| {
+            let authority = params.task_launch_authority.as_ref().unwrap();
+            let task = service.plan_store.show_task(&authority.task_id).unwrap().task;
+            let attempt = task.execution_attempts.iter().find(|attempt| attempt.id == authority.attempt_id).unwrap();
+            let title = params.title.as_ref().expect("Worker title must exist before launch");
+            assert_eq!(attempt.executor_title.as_ref(), Some(title));
+            assert_eq!(attempt.launch_profile.as_deref(), profile);
+            assert!(attempt.session_id.is_none());
+            assert!(attempt.session_binding_nonce.is_none());
+            assert_eq!(task.status_label.as_deref(), Some("starting"));
+            let owner = service.plan_store.dispatch_startup_owner_candidate(&authority.plan_id, &authority.task_id).unwrap().expect("profile recording must preserve the startup owner");
+            assert_eq!(owner.attempt_id, authority.attempt_id);
+            assert_eq!(owner.tab_id, attempt.executor_tab_id);
+            let titles = service.plan_store.recent_worker_attempt_titles(&workspace, None, 10).unwrap();
+            assert!(titles.contains(title), "the pending Worker title must stay reserved");
+            inspected.set(true);
+            Err("profile startup identity inspected before readiness".into())
+        }, || {}).unwrap_err();
+        assert!(inspected.get());
+        assert!(error
+            .message
+            .contains("profile startup identity inspected before readiness"));
+    }
+}

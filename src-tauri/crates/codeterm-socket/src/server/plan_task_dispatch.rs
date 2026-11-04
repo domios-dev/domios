@@ -928,6 +928,7 @@ where
                     selected_model.clone(),
                     dispatched_provider_resolved_model,
                     dispatched_reasoning_effort,
+                    launch_profile,
                     begin_owner,
                     begin_owner_is_live,
                     true,
@@ -972,20 +973,7 @@ where
         Err(error) => return Err(error),
     };
     let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
-    let spawn = match store
-        .update_attempt_executor_identity(
-            &plan_id,
-            &task_id,
-            &reserved_tab_id,
-            None,
-            None,
-            None,
-            launch_profile.as_deref(),
-            now,
-        )
-        .map_err(|error| error.to_string())
-        .and_then(|_| spawn_agent(svc, spawn_params, Some(ready_tx)))
-    {
+    let spawn = match spawn_agent(svc, spawn_params, Some(ready_tx)) {
         Ok(spawn) => spawn,
         Err(error) => {
             let cleanup = roll_back_dispatch_attempt(
