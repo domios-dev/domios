@@ -1,4 +1,4 @@
-import type { Plan } from "../types";
+import type { PlanView as Plan } from "../planProjection";
 import type { CanvasLayoutSettings } from "../settings";
 import { DEFAULT_CANVAS_SETTINGS } from "../settings";
 import { layoutPlanIntra } from "./intraPlan";

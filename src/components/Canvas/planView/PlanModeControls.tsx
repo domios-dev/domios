@@ -1,9 +1,10 @@
+import type { PlanView as Plan } from "../planProjection";
 import { useCallback, useRef, useState } from "react";
 import { publishNotice } from "../../../lib/notices";
 import { PauseCircle, PlayCircle } from "lucide-react";
 import type { ApiConfig } from "../../../lib/types";
 import { parkPlan, resumePlan } from "../plansApi";
-import type { Plan } from "../types";
+
 
 export interface PlanModeControlsProps {
   plan: Pick<Plan, "id" | "mode" | "status">;

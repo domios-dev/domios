@@ -1,4 +1,5 @@
-import type { OrchestratorRef, Plan } from "../types";
+import type { PlanView as Plan } from "../planProjection";
+import type { OrchestratorRef } from "../types";
 import type { CanvasLayoutSettings } from "../settings";
 import { railAnchorOffsets } from "../settings";
 import { flatSections } from "../sectionRows";
@@ -80,7 +81,7 @@ export function layoutPlanIntra(plan: Plan, s: CanvasLayoutSettings, titleOverri
   for (const e of grid.edges) edges.push(e);
   for (const pt of grid.extraPoints) extraPoints.push(pt);
 
-  const handoffs = plan.elements
+  const handoffs = (plan.elements ?? [])
     .filter((el) => el.kind === "handoff")
     .map((el) => ({ el, seq: handoffSeq(el.content) }))
     .sort((a, b) => a.seq - b.seq || a.el.id.localeCompare(b.el.id));
@@ -94,7 +95,7 @@ export function layoutPlanIntra(plan: Plan, s: CanvasLayoutSettings, titleOverri
     });
   }
 
-  for (const el of plan.elements) {
+  for (const el of plan.elements ?? []) {
     if (el.kind === "handoff") continue;
     if (el.canvas.x == null || el.canvas.y == null) continue;
     const fp = footprintFor(el.kind, el, s);

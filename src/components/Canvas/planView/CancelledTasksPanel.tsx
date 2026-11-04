@@ -1,5 +1,6 @@
+import type { PlanTaskView as Task } from "../planProjection";
 import { Hash } from "lucide-react";
-import type { Task } from "../types";
+
 
 type CancelledTask = Pick<Task, "id" | "name" | "handle">;
 

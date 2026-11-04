@@ -1,4 +1,5 @@
-import type { Plan, Task, TaskStatus } from "../types";
+import type { PlanView as Plan, PlanTaskView as Task } from "../planProjection";
+import type { TaskStatus } from "../types";
 import type { CanvasLayoutSettings } from "../settings";
 import { flatSections } from "../sectionRows";
 import { zoneLabelBox } from "./sectionZones";

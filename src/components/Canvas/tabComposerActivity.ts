@@ -1,8 +1,9 @@
+import type { PlanView as Plan, PlanTaskView as Task } from "./planProjection";
 import type { Tab } from "../../lib/types";
 import { resolvePlannerTabIdFromPlan } from "../shared/resolvePlanPeerPair";
 import { resolveTabCurrentTask } from "./tabCurrentTask";
 import { resolveTabOwnedPlans } from "./tabOwnedPlans";
-import type { Plan, Task } from "./types";
+
 
 function displayPlanTitle(plan: Plan): string {
   const title = plan.title?.trim();
