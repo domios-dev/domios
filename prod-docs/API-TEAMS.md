@@ -12,7 +12,7 @@ Task execution attempts are append-only history on `Task.execution_attempts`. Th
 | GET | `/api/plans/{id}/tasks/{tid}/attempts/{attempt_id}` | — | Show one attempt by stable attempt id, including derived report command, derived prompt, and last report summary when present |
 | POST | `/api/plans/{id}/tasks/{tid}/respawn` | `{attempt_id, provider?, model?, parent_tab_id?, workspace_id?, title?}` | Build a Worker prompt from the task body, selected prior attempt, last report/status, lane branch/worktree hints, and exact `domios agent report --plan ... --task ...` command; spawn a new Worker and append a new `execution_attempts` entry |
 
-Task dispatch requires explicit `execution_intent` (`read_only` or `mutating`). Mutating dispatch requires known provider-allowance telemetry at or above `provider_reserve_pct` (default 5); a stale snapshot emits a warning but uses its last known reserve value instead of deadlocking dispatch. This preflight runs before lane provisioning or task mutation. An interrupted mutating attempt projects `handoff_required` with a digest-verified Git checkpoint until a fresh owner adopts the next owner epoch.
+Task dispatch requires explicit `execution_intent` (`read_only` or `mutating`). The provider allowance is advisory and never blocks dispatch, spawn, respawn or compete: paid credits can carry usage past 100%, so the remainder may be negative. When a mutating dispatch's known allowance is below `provider_reserve_pct` or exhausted, the receipt's `warnings` carry `provider_allowance_low` with the provider and its remaining and reserve percentages, and the daemon logs it; a stale snapshot emits its own warning. An interrupted mutating attempt projects `handoff_required` with a digest-verified Git checkpoint until a fresh owner adopts the next owner epoch.
 
 `POST /api/plans/{id}/tasks/{tid}/adopt-checkpoint` adopts the sealed checkpoint for the nonce-authenticated Worker named by the Domios identity headers. The equivalent CLI command is `domios plan task adopt-checkpoint <plan> <task>`. Successful adoption increments `owner_epoch`, creates a fresh `awaiting_worker_ack` attempt, and fences prior owner sessions.
 
@@ -120,4 +120,4 @@ Team staffing and closing use the authority and confirmation rules above.
 | POST | `/api/teams/{team_id}/members` | Add a Team member. |
 | POST | `/api/teams/{team_id}/rename` | Rename a Team. |
 
-<!-- revision: 12 -->
+<!-- revision: 13 -->

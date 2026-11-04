@@ -22,8 +22,10 @@ impl ProviderAllowance {
         now_ms.saturating_sub(self.observed_at) > self.stale_after_ms
     }
 
-    pub fn permits(&self, intent: &ExecutionIntent, _now_ms: u64) -> bool {
-        *intent != ExecutionIntent::Mutating || self.remaining_pct >= self.reserve_pct
+    /// Advisory only: paid credits can carry usage past 100%, so a low or
+    /// negative remainder never blocks work.
+    pub fn is_low(&self) -> bool {
+        self.remaining_pct <= 0.0 || self.remaining_pct < self.reserve_pct
     }
 }
 

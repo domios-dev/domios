@@ -12,45 +12,86 @@ fn allowance(remaining_pct: f32, observed_at: u64) -> ProviderAllowance {
 }
 
 #[test]
-fn mutating_dispatch_below_provider_reserve_changes_no_bytes() {
-    assert!(provider_allowance_preflight(
-        &ExecutionIntent::Mutating,
-        Some(&allowance(9.0, 100)),
-        100,
-    )
-    .is_err());
-    assert!(provider_allowance_preflight(&ExecutionIntent::ReadOnly, None, 100).is_ok());
+fn below_reserve_or_exhausted_allowance_warns_and_never_blocks() {
+    // Paid credits carry usage past 100%, so remaining goes negative; even a
+    // zero ("no reserve") floor must only warn.
+    for (remaining_pct, reserve_pct, state) in [
+        (9.0, 10.0, "below its reserve"),
+        (0.0, 0.0, "exhausted"),
+        (-37.5, 0.0, "exhausted"),
+        (-37.5, 10.0, "exhausted"),
+    ] {
+        let mut low = allowance(remaining_pct, 100);
+        low.reserve_pct = reserve_pct;
+        let warning = provider_allowance_warning(&ExecutionIntent::Mutating, Some(&low), "codex")
+            .expect("a low allowance is reported on the receipt");
+        assert!(warning.starts_with("provider_allowance_low: provider codex"));
+        assert!(warning.contains(state), "{warning}");
+    }
 }
 
 #[test]
-fn mutating_dispatch_at_healthy_allowance_passes_but_exhausted_refuses() {
-    // remaining >= reserve (session=8/weekly=45 -> 55) must dispatch.
-    assert!(provider_allowance_preflight(
-        &ExecutionIntent::Mutating,
-        Some(&allowance(55.0, 100)),
-        100,
-    )
-    .is_ok());
-    // genuinely exhausted (remaining below reserve) must still refuse.
-    assert!(provider_allowance_preflight(
-        &ExecutionIntent::Mutating,
-        Some(&allowance(0.0, 100)),
-        100,
-    )
-    .is_err());
-}
-
-#[test]
-fn stale_allowance_warns_at_the_host_boundary_but_does_not_block_mutation() {
+fn healthy_read_only_or_unknown_allowance_has_no_warning() {
+    let healthy = allowance(55.0, 100);
+    assert!(provider_allowance_warning(&ExecutionIntent::Mutating, Some(&healthy), "p").is_none());
+    let exhausted = allowance(-5.0, 100);
+    assert!(
+        provider_allowance_warning(&ExecutionIntent::ReadOnly, Some(&exhausted), "p").is_none()
+    );
+    assert!(provider_allowance_warning(&ExecutionIntent::Mutating, None, "p").is_none());
     let stale = allowance(90.0, 1);
     assert!(stale.is_stale(102));
-    assert!(provider_allowance_preflight(&ExecutionIntent::Mutating, Some(&stale), 102,).is_ok());
+    assert!(provider_allowance_warning(&ExecutionIntent::Mutating, Some(&stale), "p").is_none());
+}
 
-    let mut zero_reserve = allowance(0.0, 1);
-    zero_reserve.reserve_pct = 0.0;
-    assert!(
-        provider_allowance_preflight(&ExecutionIntent::Mutating, Some(&zero_reserve), 102,).is_ok()
+#[test]
+fn negative_remaining_dispatch_policy_is_recorded() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let mut plan = Plan::new(
+        "credits".into(),
+        dir.path().display().to_string(),
+        OrchestratorRef::from_tab("orch"),
     );
+    store.save(&mut plan, 1).unwrap();
+    let task_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "mutate on paid credits".into(),
+                kind: "implement".into(),
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+    let mut overdrawn = allowance(-37.5, 3);
+    overdrawn.reserve_pct = 0.0;
+    let attempt_id = store
+        .begin_task_dispatch_with_policy(
+            &plan.id,
+            &task_id,
+            "worker-tab",
+            "Worker",
+            TaskLaneMetadata::default(),
+            ExecutionIntent::Mutating,
+            Some(overdrawn.clone()),
+            Some("codex"),
+            3,
+        )
+        .expect("a negative remaining allowance never blocks dispatch");
+    store
+        .record_dispatch_policy(
+            &plan.id,
+            &task_id,
+            &attempt_id,
+            ExecutionIntent::Mutating,
+            Some(overdrawn.clone()),
+            3,
+        )
+        .expect("a negative remaining allowance never blocks the dispatch policy");
+    let task = store.inspect_task_for_test(&task_id).unwrap().task;
+    assert_eq!(task.interruption.allowance, Some(overdrawn));
 }
 
 fn bound_store() -> (tempfile::TempDir, PlanStore, String, String, String) {
