@@ -29,8 +29,21 @@ impl PlanNoticeRead {
 }
 
 pub struct CuratorScheduleRead {
-    pub(super) plan: Plan,
+    pub(super) metadata: CuratorScheduleMetadata,
     pub(super) connection: rusqlite::Connection,
+    pub(super) complete: bool,
+    pub(super) group_close: Option<u64>,
+}
+
+#[derive(serde::Deserialize)]
+pub struct CuratorScheduleMetadata {
+    pub id: String,
+    pub project_path: String,
+    pub status: crate::plan::PlanStatus,
+    pub mode: crate::plan::PlanMode,
+    pub team_id: Option<String>,
+    pub owner: crate::plan::OrchestratorRef,
+    pub control_loop: crate::plan::ControlLoop,
 }
 
 #[derive(serde::Deserialize)]
@@ -40,8 +53,24 @@ pub struct CuratorAuthorityRead {
 }
 
 impl CuratorScheduleRead {
-    pub fn plan(&self) -> &Plan {
-        &self.plan
+    pub fn metadata(&self) -> &CuratorScheduleMetadata {
+        &self.metadata
+    }
+    pub fn complete(&self) -> bool {
+        self.complete
+    }
+    pub fn group_close(&self) -> Option<u64> {
+        self.group_close
+    }
+    pub fn eligible(&self, enabled: bool, human_wait: bool) -> bool {
+        super::curator::EligibilityInput {
+            team_bound: self.metadata.team_id.is_some(),
+            status: &self.metadata.status,
+            mode: &self.metadata.mode,
+            complete: self.complete,
+            control_mode: &self.metadata.control_loop.mode,
+        }
+        .eligible(enabled, human_wait)
     }
 }
 

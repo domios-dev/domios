@@ -74,7 +74,8 @@ pub use curator_projection::CuratorDigestRead;
 mod store_convert_118;
 mod store_db;
 pub use status_projection::{
-    CuratorAuthorityRead, CuratorScheduleRead, PlanNoticeRead, PlanStatusRead,
+    CuratorAuthorityRead, CuratorScheduleMetadata, CuratorScheduleRead, PlanNoticeRead,
+    PlanStatusRead,
 };
 pub mod board_state;
 mod store_index;

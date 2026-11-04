@@ -140,16 +140,25 @@ impl ServiceContext {
         read: &crate::service::plan::CuratorScheduleRead,
         now: u64,
     ) -> Result<(), String> {
-        let plan = read.plan();
-        let suspended = self.curator_suspended_reason(plan);
-        let eligible = curator::eligible(
-            plan,
+        let plan = read.metadata();
+        let suspended = self.curator_suspended_reason_for_fields(
+            &plan.mode,
+            &plan.status,
+            &plan.team_id,
+            read.complete(),
+        );
+        let eligible = read.eligible(
             self.configuration().orchestration.plan_reminders,
             suspended.is_some(),
         );
         let mut loop_state = plan.control_loop.clone();
         if eligible && loop_state.running.is_some() {
-            loop_state.agent_states = super::movement_sources::observed_agents(self, plan, now);
+            loop_state.agent_states = super::movement_sources::observed_agents(
+                self,
+                &plan.team_id,
+                &plan.control_loop.agent_states,
+                now,
+            );
         }
         if loop_state.cron_id.is_none() {
             loop_state.cron_id = cron
@@ -264,7 +273,7 @@ impl ServiceContext {
             if let Err(reason) = mirror {
                 loop_state.fallback_reason = Some(reason);
             }
-            let close = curator::synthesis::group_close(plan);
+            let close = read.group_close();
             if close.is_some_and(|at| {
                 loop_state
                     .last_synthesis_group_close_at
