@@ -1,4 +1,6 @@
 use super::*;
+mod manifest_tag_tests;
+mod regression_cleanup_tests;
 
 fn decorate(plan: &mut Plan) {
     plan.sections = sections();

@@ -67,31 +67,40 @@ impl PlanDatabase {
     ) -> Result<Option<(SpecCoverageInput, Vec<PlanCoverageInput>)>, PlanError> {
         let mut guard = self.connection.lock();
         let connection = guard.transaction().map_err(db_error)?;
-        record_query();
-        let document: Option<String> = connection.query_row(
+        let result = spec_coverage_input(&connection, id)?;
+        connection.commit().map_err(db_error)?;
+        Ok(result)
+    }
+}
+
+pub(super) fn spec_coverage_input(
+    connection: &Connection,
+    id: &str,
+) -> Result<Option<(SpecCoverageInput, Vec<PlanCoverageInput>)>, PlanError> {
+    record_query();
+    let document: Option<String> = connection.query_row(
             "SELECT json_object('id',id,'sections',json((SELECT json_group_array(json_object('id',json_extract(value,'$.id'),'title',json_extract(value,'$.title'))) FROM (
                 SELECT j.value FROM json_tree(s.row_json,'$.sections') j WHERE j.type='object'
                 AND (j.path='$.sections' OR j.path LIKE '%.subsections') ORDER BY j.id)))) FROM specs s WHERE id=?1",
             [id],|row| column(row,0),
         ).optional().map_err(db_error)?;
-        let Some(document) = document else {
-            connection.commit().map_err(db_error)?;
-            return Ok(None);
-        };
-        let spec = decode(id, &document)?;
-        let mut plans = Vec::<PlanCoverageInput>::new();
-        let mut indices = HashMap::<String, usize>::new();
-        for (plan_id, link) in spec_links(&connection, id)? {
-            let index = *indices.entry(plan_id).or_insert_with(|| {
-                let index = plans.len();
-                plans.push(PlanCoverageInput::default());
-                index
-            });
-            plans[index].spec_links.push(link);
-        }
-        record_query();
-        {
-            let mut statement = connection.prepare_cached(
+    let Some(document) = document else {
+        return Ok(None);
+    };
+    let spec = decode(id, &document)?;
+    let mut plans = Vec::<PlanCoverageInput>::new();
+    let mut indices = HashMap::<String, usize>::new();
+    for (plan_id, link) in spec_links(connection, id)? {
+        let index = *indices.entry(plan_id).or_insert_with(|| {
+            let index = plans.len();
+            plans.push(PlanCoverageInput::default());
+            index
+        });
+        plans[index].spec_links.push(link);
+    }
+    record_query();
+    {
+        let mut statement = connection.prepare_cached(
                 "SELECT t.plan_id,json_object('name','','status',t.status,
                  'section_ids',json(CASE WHEN json_type(t.row_json,'$.section_ids') IS NULL THEN '[]' ELSE t.row_json->'$.section_ids' END))
                  FROM plan_tasks t JOIN plans p ON p.id=t.plan_id WHERE EXISTS(
@@ -100,22 +109,20 @@ impl PlanDatabase {
                         SELECT 1 FROM json_each(t.row_json,'$.section_ids') sid WHERE sid.value=json_extract(l.value,'$.plan_section_id')))
                  ORDER BY t.plan_id,t.position"
             ).map_err(db_error)?;
-            let rows = statement
-                .query_map([id], |row| {
-                    Ok((column::<String>(row, 0)?, column::<String>(row, 1)?))
-                })
-                .map_err(db_error)?;
-            for row in rows {
-                let (plan_id, document) = row.map_err(db_error)?;
-                let index = indices.get(&plan_id).ok_or_else(|| {
-                    PlanError::Io("spec coverage task has no matching link".into())
-                })?;
-                plans[*index].tasks.push(decode(&plan_id, &document)?);
-            }
+        let rows = statement
+            .query_map([id], |row| {
+                Ok((column::<String>(row, 0)?, column::<String>(row, 1)?))
+            })
+            .map_err(db_error)?;
+        for row in rows {
+            let (plan_id, document) = row.map_err(db_error)?;
+            let index = indices
+                .get(&plan_id)
+                .ok_or_else(|| PlanError::Io("spec coverage task has no matching link".into()))?;
+            plans[*index].tasks.push(decode(&plan_id, &document)?);
         }
-        connection.commit().map_err(db_error)?;
-        Ok(Some((spec, plans)))
     }
+    Ok(Some((spec, plans)))
 }
 
 fn section_metadata(
@@ -135,7 +142,10 @@ fn section_metadata(
         .collect()
 }
 
-fn spec_links(connection: &Connection, id: &str) -> Result<Vec<(String, SpecLink)>, PlanError> {
+pub(super) fn spec_links(
+    connection: &Connection,
+    id: &str,
+) -> Result<Vec<(String, SpecLink)>, PlanError> {
     record_query();
     let mut statement = connection
         .prepare_cached(

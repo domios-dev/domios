@@ -148,20 +148,14 @@ fn capture_snapshot(
     Ok((safe_snapshot, safe_histories, measurements))
 }
 
-/// The one full plan read: each plan streams from SQL in turn and never enters the plan cache.
+/// Complete export encodes validated SQL records without constructing a Plan.
 fn exported_plans(
     store: &codeterm_service_core::service::plan::PlanStore,
 ) -> Result<Value, String> {
-    let mut plans = Vec::new();
-    let mut failure = None;
-    store.for_each_plan_uncached(|plan| match sanitize::sanitize_plan(&plan) {
-        Ok(value) => plans.push(value),
-        Err(error) => failure = failure.take().or(Some(error.to_string())),
-    });
-    match failure {
-        Some(error) => Err(error),
-        None => Ok(Value::Array(plans)),
-    }
+    let plans = store
+        .export_all_plan_documents_with(&sanitize::SanitizedPlanRows)
+        .map_err(|error| error.to_string())?;
+    Ok(Value::Array(plans))
 }
 
 pub async fn export(
