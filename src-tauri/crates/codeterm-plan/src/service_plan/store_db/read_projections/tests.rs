@@ -6,11 +6,15 @@ use std::sync::{Arc, Barrier};
 
 mod attachment_charter_tests;
 mod auxiliary_tests;
+mod binding_context_tests;
 mod binding_tests;
+mod chat_header_tests;
 mod curator_digest_tests;
 mod curator_schedule_tests;
 mod document_reader_tests;
+mod export_tests;
 mod header_tests;
+mod index_filter_tests;
 mod notice_tests;
 mod qa_tests;
 mod related_tests;
@@ -431,3 +435,5 @@ fn task_detail_and_chat_keep_committed_snapshots_and_unicode_search() {
     }
     writer.join().unwrap();
 }
+
+mod task_authority_tests;

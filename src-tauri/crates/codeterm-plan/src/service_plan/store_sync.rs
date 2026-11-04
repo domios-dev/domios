@@ -7,6 +7,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 
 // Query columns are VIRTUAL generated columns over `row_json`, so they never drift from the row.
+#[cfg(test)]
 pub(super) const TASK_SCHEMA: &str = r#"
     CREATE TABLE IF NOT EXISTS plan_tasks (
         plan_id TEXT NOT NULL,
@@ -80,6 +81,7 @@ pub(super) const TASK_SCHEMA: &str = r#"
         ON plan_task_attempts(open) WHERE open;
 "#;
 
+#[cfg(test)]
 pub(super) const PLAN_LEVEL_SCHEMA: &str = r#"
     CREATE TABLE IF NOT EXISTS plan_sections (
         plan_id TEXT NOT NULL,

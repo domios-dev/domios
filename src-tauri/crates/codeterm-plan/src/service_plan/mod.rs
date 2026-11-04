@@ -3,6 +3,8 @@ mod attempt_binding_refusal;
 pub use attempt_binding_refusal::AttemptBindingRefusalKind;
 pub mod attachments;
 pub mod batch;
+mod binding_projection;
+pub use binding_projection::{KpiPlanContextRead, TaskBindingRead};
 pub mod body_files;
 pub mod canvas_elements;
 pub mod change_feed;
@@ -14,13 +16,16 @@ pub mod curator;
 mod curator_projection;
 pub mod digest_rules;
 pub mod element_queries;
+mod export_projection;
 pub mod external_refs;
+pub use export_projection::PlanExportEncoder;
 pub mod gates;
 pub mod handoff;
 mod header_projection;
 pub use header_projection::PlanIdentityRead;
 pub mod heartbeat;
 pub mod hints;
+mod index_projection;
 pub mod ingest;
 pub mod interruption;
 pub mod lane_cleanup;
@@ -72,7 +77,8 @@ pub use curator_projection::CuratorDigestRead;
 mod store_convert_118;
 mod store_db;
 pub use status_projection::{
-    CuratorAuthorityRead, CuratorScheduleRead, PlanNoticeRead, PlanStatusRead,
+    CuratorAuthorityRead, CuratorScheduleMetadata, CuratorScheduleRead, PlanNoticeRead,
+    PlanStatusRead,
 };
 pub mod board_state;
 mod document_projection;
@@ -333,3 +339,6 @@ impl PlanStore {
         .expect("start task for test");
     }
 }
+
+mod task_authority_projection;
+pub use task_authority_projection::TaskOwnerEpochRead;

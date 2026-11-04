@@ -42,6 +42,7 @@ pub(crate) fn refusal_class(code: Option<&str>, status: u16) -> RefusalClass {
             delivery::MESH_DELIVERY_WINDOW_SATURATED
             | delivery::TAB_BUSY_REFUSED
             | delivery::PEER_LOCAL_API_UNREACHABLE
+            | delivery::PEER_UNREACHABLE
             | delivery::MESH_TRANSPORT_NOTHING_SENT,
         ) => RefusalClass::Transient,
         _ => match status {
@@ -237,6 +238,22 @@ pub(crate) fn classify_relay_answer(
 
     // A local relay refusal can itself be JSON without being a RelayResponse.
     if !status.is_success() && val.get("ok").is_none() {
+        if val.get("code").and_then(serde_json::Value::as_str) == Some(delivery::PEER_UNREACHABLE) {
+            return Err(failure_of(
+                peer_name,
+                None,
+                val.get("message")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("Peer is paired but not currently connected")
+                    .to_string(),
+                val.get("hint")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("Check `domios mesh peers` for connection progress.")
+                    .to_string(),
+                RefusalClass::Transient,
+            )
+            .with_delivery(Some(delivery::PEER_UNREACHABLE.to_string()), Some(false)));
+        }
         if val.get("code").and_then(serde_json::Value::as_str)
             == Some(delivery::PEER_RELAY_PROTOCOL_MISMATCH)
         {

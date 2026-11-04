@@ -35,23 +35,24 @@ fn scheduler_preserves_complete_compare_value_eligibility_and_group_close() {
     .unwrap();
     let database = fixtures::database(directory.path(), &plan);
     let snapshot = database.curator_schedule_projection(&plan.id).unwrap();
-    let read = snapshot.plan();
+    let read = snapshot.metadata();
     let mut metadata = plan.control_loop.clone();
     metadata.rounds.clear();
     assert_eq!(read.control_loop, metadata);
-    assert_eq!(synthesis::group_close(&read), Some(21));
-    assert_eq!(synthesis::group_close(&read), synthesis::group_close(&plan));
+    assert_eq!(snapshot.group_close(), Some(21));
+    assert_eq!(snapshot.group_close(), synthesis::group_close(&plan));
     for enabled in [false, true] {
         for human_wait in [false, true] {
             assert_eq!(
-                eligible(&read, enabled, human_wait),
+                snapshot.eligible(enabled, human_wait),
                 eligible(&plan, enabled, human_wait)
             );
         }
     }
-    assert!(read.tasks.iter().all(|task| task.body.is_empty()
-        && task.execution_attempts.is_empty()
-        && task.milestones.is_empty()));
+    assert_eq!(
+        snapshot.complete(),
+        crate::service_plan::heartbeat::is_plan_complete(&plan)
+    );
 }
 
 #[test]
@@ -80,19 +81,23 @@ fn scheduler_materialization_does_not_load_unrelated_history_or_bodies() {
         super::super::super::super::store_sync::take_decoded_row_bytes();
         super::super::super::super::store_rows::take_serialized_row_bytes();
         let snapshot = database.curator_schedule_projection(&plan.id).unwrap();
-        let read = snapshot.plan();
+        let read = snapshot.metadata();
         let metrics = take_metrics();
         let decoded = super::super::super::super::store_sync::take_decoded_row_bytes();
         let serialized = super::super::super::super::store_rows::take_serialized_row_bytes();
         let mut metadata = plan.control_loop.clone();
         metadata.rounds.clear();
         assert_eq!(read.control_loop, metadata);
-        assert_eq!(read.tasks.len(), fixtures::TASKS);
+        assert!(!snapshot.complete());
         assert_eq!(metrics.queries, 3);
-        assert!(metrics.materialized_bytes < 256 * 1024);
+        assert!(metrics.materialized_bytes < 4096);
         assert_eq!(serialized, 0);
         assert!(fixtures::audit_counts(&database).is_empty());
-        let response_bytes=serde_json::to_vec(&json!({"eligible":eligible(&read,true,false),"group_close":synthesis::group_close(&read)})).unwrap().len();
+        let response_bytes = serde_json::to_vec(
+            &json!({"eligible":snapshot.eligible(true,false),"group_close":snapshot.group_close()}),
+        )
+        .unwrap()
+        .len();
         println!("fixture={} consumer=curator_schedule tasks={} base_bytes={} old_strides={strides} unrelated_attempts={attempts} extra_body={extra_body} rounds={rounds} queries={} materialized_text_bytes={} decoded_json_bytes={decoded} serialized_row_bytes={serialized} response_bytes={response_bytes} changed_rows=0",fixtures::SEED,fixtures::TASKS,fixtures::CONTENT_BYTES,metrics.queries,metrics.materialized_bytes);
         let measured = (metrics, decoded, response_bytes);
         if let Some(prior) = &prior {
@@ -127,13 +132,16 @@ fn scheduler_snapshot_is_committed_and_decode_failure_is_an_error() {
             .unwrap();
         for index in 0..16 {
             let mutator = connection.transaction().unwrap();
-            let (title, status) = if index % 2 == 0 {
-                ("B", "done")
+            let (mode, status) = if index % 2 == 0 {
+                ("execution", "done")
             } else {
-                ("A", "pending")
+                ("planning", "pending")
             };
             mutator
-                .execute("UPDATE plans SET title=?2 WHERE id=?1", params![id, title])
+                .execute(
+                    "UPDATE plans SET header_json=json_set(header_json,'$.mode',?2) WHERE id=?1",
+                    params![id, mode],
+                )
                 .unwrap();
             mutator.execute("UPDATE plan_tasks SET row_json=json_set(row_json,'$.status',?2) WHERE plan_id=?1",params![id,status]).unwrap();
             writer_barrier.wait();
@@ -144,8 +152,8 @@ fn scheduler_snapshot_is_committed_and_decode_failure_is_an_error() {
     for _ in 0..16 {
         barrier.wait();
         let snapshot = database.curator_schedule_projection(&plan.id).unwrap();
-        let read = snapshot.plan();
-        assert_eq!(read.title == "B", read.tasks[0].status == TaskStatus::Done);
+        let read = snapshot.metadata();
+        assert_eq!(read.mode == PlanMode::Execution, snapshot.complete());
         barrier.wait();
     }
     writer.join().unwrap();
@@ -174,7 +182,7 @@ fn scheduler_exact_cas_preserves_rounds_and_rejects_concurrent_append() {
     }];
     let database = fixtures::database(directory.path(), &plan);
     let snapshot = database.curator_schedule_projection(&plan.id).unwrap();
-    let mut next = snapshot.plan().control_loop.clone();
+    let mut next = snapshot.metadata().control_loop.clone();
     next.next_at = Some(42);
     let mut current = plan.control_loop.clone();
     assert!(snapshot
@@ -284,4 +292,57 @@ fn curator_authority_is_selected_coherent_and_loud_on_malformed_run() {
             Err(PlanError::NotFound)
         ));
     }
+}
+
+#[test]
+fn scheduler_group_aggregate_preserves_terminal_semantics_and_unsigned_timestamps() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut plan = Plan::new(
+        "Groups".into(),
+        directory.path().display().to_string(),
+        OrchestratorRef::default(),
+    );
+    plan.task_groups = serde_json::from_value(json!([
+        {"key":"done","label":"Done"},{"key":"cancelled","label":"Cancelled"},{"key":"open","label":"Open"}
+    ])).unwrap();
+    for (id, group, status, at) in [
+        ("done", "done", TaskStatus::Done, u64::MAX - 20),
+        ("cancel-done", "done", TaskStatus::Cancelled, u64::MAX - 10),
+        ("cancelled", "cancelled", TaskStatus::Cancelled, u64::MAX),
+        ("open-done", "open", TaskStatus::Done, u64::MAX),
+        ("pending", "open", TaskStatus::Pending, 1),
+        ("undeclared", "undeclared", TaskStatus::Done, u64::MAX),
+    ] {
+        let mut task = crate::service_plan::load_audit::task(id, status, None);
+        task.group = Some(group.into());
+        task.status_changed_at = at;
+        plan.tasks.push(task);
+    }
+    let database = fixtures::database(directory.path(), &plan);
+    let read = database.curator_schedule_projection(&plan.id).unwrap();
+    assert_eq!(read.group_close(), Some(u64::MAX - 10));
+    assert_eq!(read.group_close(), synthesis::group_close(&plan));
+    assert!(!read.complete());
+    drop(read);
+    plan.tasks.clear();
+    database.persist_plan(&plan, None).unwrap();
+    assert!(!database
+        .curator_schedule_projection(&plan.id)
+        .unwrap()
+        .complete());
+    plan.tasks.push(crate::service_plan::load_audit::task(
+        "cancelled",
+        TaskStatus::Cancelled,
+        None,
+    ));
+    database.persist_plan(&plan, None).unwrap();
+    let read = database.curator_schedule_projection(&plan.id).unwrap();
+    assert!(read.complete());
+    assert_eq!(read.group_close(), None);
+    drop(read);
+    database.connection.lock().execute("UPDATE plan_tasks SET row_json=json_set(row_json,'$.status','invalid') WHERE plan_id=?1",[&plan.id]).unwrap();
+    assert!(matches!(
+        database.curator_schedule_projection(&plan.id),
+        Err(PlanError::Quarantined { .. })
+    ));
 }
