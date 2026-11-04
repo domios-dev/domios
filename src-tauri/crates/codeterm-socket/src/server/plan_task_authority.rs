@@ -68,7 +68,6 @@ pub(super) const PLAN_OWNER_AUTHORITY_METHODS: &[&str] = &[
     "plan.task.judge",
     "plan.task.rm",
     "plan.task.link",
-    "plan.task.relink",
 ];
 
 pub(super) fn is_recovery_method(method: &str) -> bool {
@@ -381,6 +380,7 @@ pub(super) fn verify_owner_epoch_for_task_mutation(
             | "plan.task.attempt.show"
             | "plan.task.adopt_checkpoint"
             | "plan.task.add"
+            | "plan.task.relink"
             | "plan.task.split"
             | "plan.task.dispatch_unplanned"
     ) {

@@ -293,3 +293,61 @@ fn authority_identity_and_termination_reads_observe_committed_snapshots() {
         .executor_termination_confirmed(&plan.id, "task_exact", &source)
         .is_err());
 }
+
+#[test]
+fn context_files_select_only_requested_task_metadata_across_growth_variants() {
+    let mut prior = None;
+    for (strides, attempts, body, history) in [
+        (0, 1, 0, 0),
+        (2048, 1, 0, 0),
+        (0, 2048, 0, 0),
+        (0, 1, 32768, 0),
+        (0, 1, 0, 2048),
+    ] {
+        let directory = tempfile::tempdir().unwrap();
+        let mut plan = fixtures::fixture(directory.path(), strides, attempts);
+        plan.tasks[0].files.edit = vec!["src/owned.rs".into()];
+        plan.tasks[0].files.read = vec!["docs/contract.md".into()];
+        plan.tasks[0].body.push_str(&"x".repeat(body));
+        plan.tasks[1].body.push_str(&"x".repeat(body));
+        let source = plan.tasks[0].execution_attempts[0].clone();
+        for index in 0..history {
+            let mut old = source.clone();
+            old.id = format!("unselected-{index}");
+            old.closed_at = Some(1);
+            plan.tasks[0].execution_attempts.push(old);
+        }
+        let database = fixtures::database(directory.path(), &plan);
+        fixtures::audit(&database);
+        take_metrics();
+        super::super::super::super::store_sync::take_decoded_row_bytes();
+        super::super::super::super::store_rows::take_serialized_row_bytes();
+        let files = database
+            .task_context_files_projection("fixture-0000")
+            .unwrap();
+        assert_eq!(files.plan_id, plan.id);
+        assert_eq!(files.task_id, "task_0000");
+        assert_eq!(files.files, plan.tasks[0].files);
+        let metrics = take_metrics();
+        let decoded = super::super::super::super::store_sync::take_decoded_row_bytes();
+        let serialized = super::super::super::super::store_rows::take_serialized_row_bytes();
+        let response = serde_json::to_vec(&files).unwrap().len();
+        assert_eq!(metrics.queries, 1);
+        assert!(metrics.materialized_bytes < 256);
+        assert!(decoded < 256);
+        assert_eq!(serialized, 0);
+        assert!(fixtures::audit_counts(&database).is_empty());
+        println!("fixture={} consumer=task_context_files tasks={} base_bytes={} old_strides={strides} unrelated_attempts={attempts} extra_body={body} unselected_target_history={history} queries={} materialized_text_bytes={} decoded_json_bytes={decoded} serialized_row_bytes={serialized} response_bytes={response} changed_rows=0",fixtures::SEED,fixtures::TASKS,fixtures::CONTENT_BYTES,metrics.queries,metrics.materialized_bytes);
+        let measured = (metrics, decoded, response);
+        if let Some(prior) = &prior {
+            assert_eq!(&measured, prior);
+        }
+        prior = Some(measured);
+        assert!(matches!(
+            database.task_context_files_projection("missing"),
+            Err(PlanError::TaskNotFound)
+        ));
+        database.connection.lock().execute("UPDATE plan_tasks SET row_json=json_set(row_json,'$.files.edit',42) WHERE task_id='task_0000'",[]).unwrap();
+        assert!(database.task_context_files_projection("task_0000").is_err());
+    }
+}
