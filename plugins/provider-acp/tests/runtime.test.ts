@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
 import {createTranscriptState,reduceTranscript,projectTranscript} from "../../../packages/chat-core/src/transcript";
+import { runtimeJson } from "./runtimeJson";
 import { foldRow } from "./runtimeRows";
 import { assertRuntimeOperation } from "./runtimeAuthority";
 import type {AgentRuntime, AgentEvent, ChatMsg, JsonValue, Operation, RpcReply, RuntimeAction, RuntimeContext, RuntimeFrame, RuntimePlan, RuntimeStep, StdioAgentRuntimeCapability} from "@codeterm/plugin-sdk";
@@ -21,10 +22,13 @@ function loadHooks():AgentRuntime {
   vm.runInContext(fs.readFileSync(new URL("../plugin.js", import.meta.url), "utf8"), sandbox);
   const hooks=sandbox.module.exports.default as AgentRuntime;
   return {...hooks,
-    runtimePlan(ctx,op) { assertRuntimeOperation(ctx,op);return hooks.runtimePlan(ctx,op); },
-    runtimeResponse(ctx,op,state,reply) { assertRuntimeOperation(ctx,op);return hooks.runtimeResponse(ctx,op,state,reply); },
+    runtimePlan(ctx,op) { assertRuntimeOperation(ctx,op);return runtimeJson(hooks.runtimePlan(ctx,op),"runtimePlan"); },
+    runtimeResponse(ctx,op,state,reply) { assertRuntimeOperation(ctx,op);return runtimeJson(hooks.runtimeResponse(ctx,op,state,reply),"runtimeResponse"); },
+    runtimeReduce(ctx,state,frames) { return runtimeJson(hooks.runtimeReduce(ctx,state,frames),"runtimeReduce"); },
   };
 }
+for (const invalid of [undefined,()=>null,Symbol("opaque"),1n,NaN,Infinity,-Infinity])
+  assert.throws(()=>runtimeJson({state:{nested:[invalid]},events:[]},"runtimeReduce"),/non-JSON/);
 const hooks = loadHooks();
 function assertPlanRefusal(plan:RuntimePlan):void {
   assert.equal(plan.action.kind,"refused");
@@ -42,7 +46,7 @@ const names = fs.readdirSync(root).filter(name=>name.endsWith(".json")).sort();
 assert.ok(descriptor.scenarios.length > 0);
 assert.equal(new Set(descriptor.scenarios).size,descriptor.scenarios.length);
 assert.deepEqual(names,[...descriptor.scenarios].sort());
-for (const name of names) {
+function replayFixture(name:string):void {
   const fixture:Fixture = JSON.parse(fs.readFileSync(new URL(name,root),"utf8"));
   assert.equal(fixture.schemaVersion,1);
   for (const entry of fixture.operations) assertRuntimeOperation(entry.context ?? fixture.context,entry.operation);
@@ -131,6 +135,16 @@ for (const name of names) {
   }
   console.log(`✓ ACP ${name}`);
 }
+const fixtureFailures:string[]=[];
+for (const name of names) {
+  try { replayFixture(name); }
+  catch (error) {
+    const failure=`${name}: ${String(error)}`;
+    fixtureFailures.push(failure);
+    console.error(`✗ ACP ${failure}`);
+  }
+}
+assert.deepEqual(fixtureFailures,[],"every shared fixture must return strict runtime JSON");
 const fixture:Fixture = JSON.parse(fs.readFileSync(new URL("initialize-new-prompt.json",root),"utf8"));
 const ctx = {...fixture.context,tabId:"authority-tab"};
 const init:Operation = {kind:"initialize"};

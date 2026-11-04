@@ -4,8 +4,12 @@ import type { AgentEvent, ChatMsg, JsonValue, RuntimeContext, RuntimeFrame, Oper
 import { reduceStream, settleStream, type StreamCursor } from "../src/runtimeReduce";
 import { foldRow } from "./runtimeRows";
 import { sessionSettings } from "../src/runtimeControls";
-import { runtimePlan, runtimeResponse, runtimeReduce } from "../src/runtime";
+import { runtimePlan as sourcePlan, runtimeResponse as sourceResponse, runtimeReduce as sourceReduce } from "../src/runtime";
+import { runtimeJson } from "./runtimeJson";
 import { reduceTool } from "../src/runtimeReduceTools";
+const runtimePlan=(...args:Parameters<typeof sourcePlan>)=>runtimeJson(sourcePlan(...args),"runtimePlan");
+const runtimeResponse=(...args:Parameters<typeof sourceResponse>)=>runtimeJson(sourceResponse(...args),"runtimeResponse");
+const runtimeReduce=(...args:Parameters<typeof sourceReduce>)=>runtimeJson(sourceReduce(...args),"runtimeReduce");
 
 interface Fixture {
   context:RuntimeContext;

@@ -296,7 +296,8 @@ function emit(state, events, row, patch = false) {
       seq: row.seq,
       type: row.type,
       content: "[ACP row truncated: update exceeded the display budget]",
-      ...row.toolStatus ? { toolStatus: row.toolStatus, toolId: row.toolId } : {}
+      ...row.toolStatus ? { toolStatus: row.toolStatus } : {},
+      ...row.toolId ? { toolId: row.toolId } : {}
     };
   }
   const retained = {
@@ -364,7 +365,7 @@ function settleStream(ctx, raw, reason) {
   const events = [];
   closeChunk(ctx, next, events);
   for (const row of Object.values(next.items)) if (row.toolStatus === "running")
-    emit(next, events, { id: row.id, seq: row.seq, type: row.type, content: "", toolId: row.toolId, toolStatus: "interrupted", toolInterrupted: true }, true);
+    emit(next, events, { id: row.id, seq: row.seq, type: row.type, content: "", ...row.toolId ? { toolId: row.toolId } : {}, toolStatus: "interrupted", toolInterrupted: true }, true);
   events.push({ kind: "turnState", threadId: ctx.threadId, turnId: `${state.sessionId}:turn:${state.turn}`, state: "idle", ...reason === "cancelled" ? { detail: "interrupted" } : {} });
   boundState(next);
   return { state: json(next), events };
@@ -435,7 +436,8 @@ function reduceStream(ctx, raw, frames, cursor, submitted) {
       if (chunk.dropped) continue;
       if (kind === "user_message_chunk" && !state.loading) {
         const claim = ctx.claimedSends.find((claim2) => claim2.threadId === ctx.threadId && !state.evidenced.includes(claim2.sendId) && claim2.input.attachments.length === 0 && (chunk.chars === 0 || claim2.sendId === chunk.echo) && claim2.input.text.slice(chunk.chars, chunk.chars + content.text.length) === content.text);
-        chunk.echo = claim?.sendId;
+        if (claim) chunk.echo = claim.sendId;
+        else delete chunk.echo;
       }
       chunk.chars += content.text.length;
       const type = kind === "user_message_chunk" ? "user" : kind === "agent_thought_chunk" ? "thinking" : "assistant";
