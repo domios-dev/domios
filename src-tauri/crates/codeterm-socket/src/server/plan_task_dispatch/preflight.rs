@@ -155,6 +155,7 @@ pub(super) fn preflight_dispatch_checkout(
 pub(super) fn preflight_review_capacity(
     plan: &codeterm_service_core::plan::Plan,
     task: &codeterm_service_core::plan::Task,
-) -> Result<(), PlanError> {
+) -> Result<(), JsonRpcError> {
     codeterm_service_core::service::plan::review_gate::validate_dispatch_review_capacity(plan, task)
+        .map_err(plan_rpc_err)
 }

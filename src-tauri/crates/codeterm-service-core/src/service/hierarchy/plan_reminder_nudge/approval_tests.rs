@@ -5,7 +5,7 @@ use crate::multiplexer::state::MultiplexerState;
 use crate::plan::{Plan, TaskExecutionAttempt};
 use crate::service::hierarchy::heartbeat_gate::{Telemetry, Worker};
 use crate::service::supporter::SupporterRuntime;
-use codeterm_plan::service_plan::ReminderPlanRead;
+use codeterm_plan::service_plan::ReminderAdmissionRead;
 use parking_lot::Mutex;
 use serde_json::Value;
 use std::sync::Arc;
@@ -55,7 +55,7 @@ impl ReminderHost for FakeHost {
         1800
     }
 
-    fn plan(&self, plan_id: &str) -> Result<Option<ReminderPlanRead>, String> {
+    fn plan(&self, plan_id: &str) -> Result<Option<ReminderAdmissionRead>, String> {
         if let Some(error) = self.read_error.lock().clone() {
             return Err(error);
         }
@@ -67,11 +67,43 @@ impl ReminderHost for FakeHost {
             .map(super::tests::read))
     }
 
-    fn with_plans<R>(&self, read: impl FnOnce(&[ReminderPlanRead]) -> R) -> Result<R, String> {
+    fn worker_bindings(
+        &self,
+        tab: &str,
+        known_plan: Option<&str>,
+    ) -> Result<WorkerBindingRead, String> {
         if let Some(error) = self.read_error.lock().clone() {
             return Err(error);
         }
-        Ok(read(&super::tests::reads(&self.plans.lock())))
+        let plans = self.plans.lock();
+        let mut matches = plans
+            .iter()
+            .filter(|plan| known_plan.is_none_or(|id| plan.id == id))
+            .flat_map(|plan| {
+                plan.tasks
+                    .iter()
+                    .filter(move |task| {
+                        super::non_empty(task.assigned_tab_id.as_deref()) == Some(tab)
+                            && plan.control_loop.mode != crate::plan::ControlLoopMode::Off
+                            && plan.status == crate::plan::PlanStatus::Active
+                            && plan.mode == PlanMode::Execution
+                            && !codeterm_plan::service_plan::heartbeat::is_plan_complete(plan)
+                            && crate::service::plan::state::task_projection(plan, task)
+                                .presentation
+                                .worker_reminder_eligible(&task.status)
+                    })
+                    .map(move |task| (plan, task.id.clone()))
+            })
+            .take(2)
+            .collect::<Vec<_>>();
+        Ok(match (matches.pop(), matches.pop()) {
+            (Some((plan, task_id)), None) => WorkerBindingRead::Bound {
+                plan: Box::new(super::tests::read(plan)),
+                task_id,
+            },
+            (None, _) => WorkerBindingRead::Missing,
+            _ => WorkerBindingRead::Ambiguous,
+        })
     }
 
     fn recipient(&self, tab_id: &str) -> Option<Recipient> {
@@ -85,7 +117,7 @@ impl ReminderHost for FakeHost {
 
     fn observe_owner(
         &self,
-        plan: &ReminderPlanRead,
+        plan: &ReminderAdmissionRead,
         _: &str,
         previous: &Observation,
         _: u64,
@@ -101,7 +133,7 @@ impl ReminderHost for FakeHost {
 
     fn observe_worker(
         &self,
-        plan: &ReminderPlanRead,
+        plan: &ReminderAdmissionRead,
         scope: &Scope,
         previous: &crate::service::hierarchy::heartbeat_gate::Observation,
         _: u64,
@@ -117,7 +149,7 @@ impl ReminderHost for FakeHost {
 
     fn compose(
         &self,
-        plan: &ReminderPlanRead,
+        plan: &ReminderAdmissionRead,
         scope: &Scope,
         _: &Snapshot,
         decision: &Decision,

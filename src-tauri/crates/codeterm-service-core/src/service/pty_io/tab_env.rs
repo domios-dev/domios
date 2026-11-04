@@ -215,10 +215,15 @@ impl ServiceContext {
         };
         if first {
             log::warn!("[plan-env] tab={tab_id}: {message}");
-            self.log_system_notice(
-                format!("Plan state unavailable for tab {tab_id}"),
-                Some(message),
-                Some("warning"),
+            self.create_in_app_notice(
+                format!("Plan state unavailable for tab {tab_id}: {message}"),
+                Vec::new(),
+                codeterm_notifications::notification_create::NotificationOrigin {
+                    caller_tab_id: Some(tab_id.into()),
+                    ..Default::default()
+                },
+                Default::default(),
+                false,
             );
         }
     }
