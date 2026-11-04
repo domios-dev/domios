@@ -96,16 +96,23 @@ fn encoded_frames_tag_the_channel_and_stay_one_sse_line() {
 
 #[test]
 fn only_stream_paths_become_channels() {
-    assert!(matches!(
-        classify_channel_path("/api/mesh/relay-stream?peer=p&path=%2Fapi%2Fevents%2Fstream"),
-        Ok(MuxTarget::Relay(_))
-    ));
-    assert!(matches!(
-        classify_channel_path("/api/output/stream?since=abc"),
-        Ok(MuxTarget::LocalOutput(_))
-    ));
+    for accepted in [
+        "/api/mesh/relay-stream?peer=p&path=%2Fapi%2Fevents%2Fstream",
+        "/api/output/stream?since=abc",
+        "/api/events/stream?since=boot%3A7",
+        "/api/tabs/tab/output/stream?from=9",
+        "/api/surfaces/tab/stream?w=640&h=480&dpr=2",
+    ] {
+        assert_eq!(
+            classify_channel_path(accepted).unwrap().to_string(),
+            accepted
+        );
+    }
     for refused in [
         "/api/mux/state",
+        "/api/surfaces/tab/call",
+        "/api/tabs/tab/other/output/stream",
+        "/api/tabs//output/stream",
         "//evil/api/output/stream",
         "api/output/stream",
         "/api\\output/stream",

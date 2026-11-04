@@ -1,30 +1,11 @@
 use axum::body::Bytes;
-use axum::http::Uri;
 use serde::Serialize;
 use serde_json::value::RawValue;
 
 /// Inner frames must still fit the browser's 2 MiB SSE frame bound once wrapped.
 pub(crate) const CHANNEL_FRAME_CAP: usize = 2 * 1024 * 1024 - 4 * 1024;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum MuxTarget {
-    Relay(Uri),
-    LocalOutput(Uri),
-}
-
-pub(crate) fn classify_channel_path(path: &str) -> Result<MuxTarget, String> {
-    if !path.starts_with('/') || path.starts_with("//") || path.contains('\\') {
-        return Err("Mux channel path must be origin-relative".into());
-    }
-    let uri: Uri = path
-        .parse()
-        .map_err(|_| format!("Invalid mux channel path: {path}"))?;
-    match uri.path() {
-        "/api/mesh/relay-stream" => Ok(MuxTarget::Relay(uri)),
-        "/api/output/stream" => Ok(MuxTarget::LocalOutput(uri)),
-        other => Err(format!("Not a multiplexable stream path: {other}")),
-    }
-}
+pub(crate) use super::paths::classify_channel_path;
 
 pub(crate) fn valid_mux_id(id: &str) -> bool {
     (1..=64).contains(&id.len())

@@ -13,6 +13,7 @@ function fakeDaemon() {
   const opened: Channel[] = [];
   const released: string[] = [];
   let push!: (frame: unknown) => void;
+  let drop!: () => void;
   const fetch = vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
     const url = new URL(String(input));
     const method = init.method ?? "GET";
@@ -21,6 +22,7 @@ function fakeDaemon() {
       if (url.pathname !== "/api/stream-mux") return new Response("unexpected stream", { status: 500 });
       const body = new ReadableStream<Uint8Array>({
         start(controller) {
+          drop = () => controller.error(new Error("fixture mux loss"));
           push = (frame) => controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(frame)}\n\n`));
         },
       });
@@ -36,7 +38,7 @@ function fakeDaemon() {
     }
     return Response.json({ ok: true });
   });
-  return { fetch, longLived, opened, released, push: (frame: unknown) => push(frame) };
+  return { fetch, longLived, opened, released, drop: () => drop(), push: (frame: unknown) => push(frame) };
 }
 
 async function boot() {
@@ -62,6 +64,75 @@ const channelFor = (opened: Channel[], match: (path: URL) => boolean) =>
 afterEach(() => { vi.unstubAllGlobals(); });
 
 describe("one multiplexed stream per origin", () => {
+  it("events, agent-run and surface reconnect through one mux with exact event and byte cursors", async () => {
+    const { daemon } = await boot();
+    const webEvents = await import("./webEvents");
+    const { baseDaemonTransport } = await import("./daemonBootstrap");
+    const { subscribeAgentRunOutput } = await import("../components/AgentRun/agentRunOutput");
+    const { createHttpSseSurfaceTransport } = await import("../components/Surface/httpSseSurfaceTransport");
+    const eventPayloads: unknown[] = [];
+    const agentOutput: string[] = [];
+    const states: unknown[] = [];
+    const resyncs: string[] = [];
+    const { onResync } = await import("./resync");
+    const stopResync = onResync(reason => resyncs.push(reason));
+    const stopEvents = webEvents.webListen("fixture", ({ payload }) => eventPayloads.push(payload));
+    const abort = new AbortController();
+    const stopAgent = subscribeAgentRunOutput(baseDaemonTransport(), "agent", abort.signal, {
+      output: text => agentOutput.push(text), connected() {}, ended() {},
+    });
+    const stopSurface = createHttpSseSurfaceTransport({ baseUrl: ORIGIN, token: "fixture", tabId: "surface", retrySignal: () => () => {} })
+      .connect({ w: 640, h: 480, dpr: 2 }, { open() {}, state: value => states.push(value), frame() {}, notice() {} }, "viewer", "target");
+    try {
+      await vi.waitFor(() => expect(daemon.opened).toHaveLength(3));
+      expect(daemon.longLived).toHaveLength(1);
+      const eventChannel = channelFor(daemon.opened, url => url.pathname === "/api/events/stream");
+      const agentChannel = channelFor(daemon.opened, url => url.pathname === "/api/tabs/agent/output/stream");
+      const surfaceChannel = channelFor(daemon.opened, url => url.pathname === "/api/surfaces/surface/stream");
+      for (const channel of [eventChannel, agentChannel, surfaceChannel]) daemon.push({ channel, open: true, content_type: "text/event-stream" });
+      daemon.push({ channel: eventChannel, data: { boot: "boot", seq: 1, prev_seq: null, event_type: "fixture", data: "first" } });
+      daemon.push({ channel: eventChannel, data: { boot: "boot", seq: 3, prev_seq: 1, event_type: "fixture", data: "after-private" } });
+      daemon.push({ channel: agentChannel, data: { output: "雪", offset: 3 } });
+      daemon.push({ channel: surfaceChannel, event: "state", data: { owner: "fixture" } });
+      await vi.waitFor(() => expect(eventPayloads).toEqual(["first", "after-private"]));
+      await vi.waitFor(() => expect(agentOutput).toEqual(["雪"]));
+      await vi.waitFor(() => expect(states).toEqual([{ owner: "fixture" }]));
+      expect(webEvents.webEventSeqGaps()).toBe(0);
+      // The receive loop announces its reconnect wait before it accepts a wake.
+      const { TERMINAL_VIEWER_DISCONNECTED_EVENT } = await import("./terminalViewerEvents");
+      const disconnected = new Promise<void>(resolve => window.addEventListener(TERMINAL_VIEWER_DISCONNECTED_EVENT, () => resolve(), { once: true }));
+      daemon.drop();
+      await disconnected;
+      webEvents.wakeWebEvents();
+      await vi.waitFor(() => expect(daemon.opened).toHaveLength(6));
+      expect(daemon.longLived).toHaveLength(2);
+      expect(daemon.longLived.every(({ path }) => new URL(path, ORIGIN).pathname === "/api/stream-mux")).toBe(true);
+      const resumedEvents = last(daemon.opened.filter(({ path }) => new URL(path, ORIGIN).pathname === "/api/events/stream"));
+      const resumedAgent = last(daemon.opened.filter(({ path }) => new URL(path, ORIGIN).pathname === "/api/tabs/agent/output/stream"));
+      const resumedSurface = last(daemon.opened.filter(({ path }) => new URL(path, ORIGIN).pathname === "/api/surfaces/surface/stream"));
+      expect(new URL(resumedEvents.path, ORIGIN).searchParams.get("since")).toBe("boot:3");
+      expect(new URL(resumedAgent.path, ORIGIN).searchParams.get("from")).toBe("3");
+      expect(resumedSurface.path).toBe(daemon.opened.find(({ channel }) => channel === surfaceChannel)!.path);
+      daemon.push({ channel: resumedEvents.channel, data: { boot: "boot", seq: 3, prev_seq: 1, event_type: "fixture", data: "duplicate" } });
+      daemon.push({ channel: resumedEvents.channel, data: { boot: "boot", seq: 5, prev_seq: 3, event_type: "fixture", data: "resumed" } });
+      daemon.push({ channel: resumedAgent.channel, data: { output: "!", offset: 4 } });
+      await vi.waitFor(() => expect(eventPayloads).toEqual(["first", "after-private", "resumed"]));
+      await vi.waitFor(() => expect(agentOutput).toEqual(["雪", "!"]));
+      expect(webEvents.webEventSeqGaps()).toBe(0);
+      expect(resyncs).toEqual([]);
+      daemon.push({ channel: resumedEvents.channel, data: { boot: "boot", seq: 9, prev_seq: 8, event_type: "fixture", data: "real-loss" } });
+      await vi.waitFor(() => expect(webEvents.webEventSeqGaps()).toBe(1));
+      expect(resyncs).toEqual(["overflow"]);
+    } finally {
+      stopResync();
+      stopEvents();
+      webEvents.__resetWebEventsForTest();
+      stopAgent();
+      abort.abort();
+      stopSurface();
+    }
+  });
+
   it("N peers x M remote tabs plus a local terminal hold exactly one long-lived connection", async () => {
     const { daemon, remoteEvents, output } = await boot();
     const stops: Array<() => void> = [];

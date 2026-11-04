@@ -1,11 +1,14 @@
 import { TransportError, type StreamEnd } from "./transportClient";
 
-const MUX_STREAM_PATHS = new Set(["/api/mesh/relay-stream", "/api/output/stream"]);
+const MUX_STREAM_PATHS = new Set(["/api/mesh/relay-stream", "/api/output/stream", "/api/events/stream"]);
 
 /** Long-lived streams that ride the shared multiplexed connection instead of their own socket. */
 export function isMuxStreamPath(path: string): boolean {
-  if (!path.startsWith("/") || path.startsWith("//")) return false;
-  return MUX_STREAM_PATHS.has(new URL(path, "http://daemon").pathname);
+  if (!path.startsWith("/") || path.startsWith("//") || path.includes("\\")) return false;
+  const pathname = new URL(path, "http://daemon").pathname;
+  return MUX_STREAM_PATHS.has(pathname)
+    || /^\/api\/tabs\/[^/]+\/output\/stream$/.test(pathname)
+    || /^\/api\/surfaces\/[^/]+\/stream$/.test(pathname);
 }
 
 export type MuxChannelEnd =

@@ -41,10 +41,15 @@ describe("stream mux channel set", () => {
     expect(muxAddChannel(ended.state, "c").effects).toEqual([{ type: "open-stream" }]);
   });
 
-  it("multiplexes relay streams and the aggregate output stream only", () => {
+  it("multiplexes all daemon stream families", () => {
     expect(isMuxStreamPath("/api/mesh/relay-stream?peer=p&path=%2Fapi%2Fevents%2Fstream")).toBe(true);
     expect(isMuxStreamPath("/api/output/stream?since=abc")).toBe(true);
-    expect(isMuxStreamPath("/api/events/stream")).toBe(false);
+    expect(isMuxStreamPath("/api/events/stream?since=boot%3A7")).toBe(true);
+    expect(isMuxStreamPath("/api/tabs/tab/output/stream?from=9")).toBe(true);
+    expect(isMuxStreamPath("/api/surfaces/tab/stream?w=640&h=480&dpr=2")).toBe(true);
+    expect(isMuxStreamPath("/api/surfaces/tab/call")).toBe(false);
+    expect(isMuxStreamPath("/api/tabs/tab/other/output/stream")).toBe(false);
+    expect(isMuxStreamPath("/api\\events/stream")).toBe(false);
     expect(isMuxStreamPath("/api/stream-mux?session=s")).toBe(false);
     expect(isMuxStreamPath("//evil/api/output/stream")).toBe(false);
   });
