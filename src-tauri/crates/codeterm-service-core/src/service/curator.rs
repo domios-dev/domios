@@ -1,7 +1,9 @@
 use super::{AuthenticatedPlanCaller, ServiceContext};
 use crate::cron::store::{commit, CronChange, CronCreateParams, CronJob, CronRunStatus, Prepared};
+#[cfg(test)]
+use crate::plan::Plan;
 use crate::plan::{
-    curator_delay, ControlLoop, CuratorGrant, CuratorRound, CuratorRun, Plan, PlanMode, PlanStatus,
+    curator_delay, ControlLoop, CuratorGrant, CuratorRound, CuratorRun, PlanMode, PlanStatus,
 };
 use codeterm_plan::service_plan::curator::{self, digest, note, ControlLoopUpdate, DueAction};
 use codeterm_types::plan::control_loop::{
@@ -186,21 +188,6 @@ impl ServiceContext {
             .map_err(|error| error.to_string())?;
         self.emit_committed_plan_changed(&plan_id);
         self.control_loop_show(plan_id)
-    }
-
-    pub(crate) fn curator_suspended_reason(&self, plan: &Plan) -> Option<CuratorSuspension> {
-        self.curator_suspended_reason_for_state(
-            plan,
-            crate::service::plan::heartbeat::is_plan_complete(plan),
-        )
-    }
-
-    pub(crate) fn curator_suspended_reason_for_state(
-        &self,
-        plan: &Plan,
-        complete: bool,
-    ) -> Option<CuratorSuspension> {
-        self.curator_suspended_reason_for_fields(&plan.mode, &plan.status, &plan.team_id, complete)
     }
 
     pub(super) fn curator_suspended_reason_for_fields(

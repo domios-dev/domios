@@ -1,8 +1,6 @@
-//! Id queries and small projections behind `PlanMatch`: SQL names the rows a
-//! consumer needs, so no plan outside them is parsed.
+//! Purpose-specific identity and small metadata queries.
 
 use super::{db_error, PlanDatabase};
-use crate::service_plan::plan_match::{self, PlanMatch};
 use crate::service_plan::PlanError;
 
 /// Reference fields of one plan section at any depth.
@@ -42,24 +40,6 @@ impl PlanDatabase {
             .map_err(db_error)?;
         let rows = statement
             .query_map([], |row| super::read_projections::column::<String>(row, 0))
-            .map_err(db_error)?;
-        rows.collect::<Result<_, _>>().map_err(db_error)
-    }
-
-    /// Newest first, so callers that take the first match keep a stable choice.
-    pub(in crate::service_plan) fn plan_ids_matching(
-        &self,
-        predicate: &PlanMatch,
-    ) -> Result<Vec<String>, PlanError> {
-        let (clause, params) = plan_match::compile(predicate);
-        let sql =
-            format!("SELECT p.id FROM plans p WHERE {clause} ORDER BY p.updated_at DESC, p.id");
-        let connection = self.connection.lock();
-        let mut statement = connection.prepare_cached(&sql).map_err(db_error)?;
-        let rows = statement
-            .query_map(rusqlite::params_from_iter(params), |row| {
-                row.get::<_, String>(0)
-            })
             .map_err(db_error)?;
         rows.collect::<Result<_, _>>().map_err(db_error)
     }
