@@ -62,7 +62,7 @@ pub(crate) fn tailscale_binary() -> Option<String> {
         let mut c = std::process::Command::new(cmd);
         c.arg("version");
         codeterm_util::process_util::no_window_std(&mut c);
-        if let Some((true, _)) = run_with_timeout(&mut c, std::time::Duration::from_secs(3)) {
+        if let Some((true, _)) = run_with_timeout(c, std::time::Duration::from_secs(3)) {
             return Some(cmd.to_string());
         }
     }
@@ -78,7 +78,7 @@ pub(crate) fn run_tailscale_json(
         let mut c = std::process::Command::new(cmd);
         c.args(args);
         codeterm_util::process_util::no_window_std(&mut c);
-        let Some((success, raw)) = run_with_timeout(&mut c, timeout) else {
+        let Some((success, raw)) = run_with_timeout(c, timeout) else {
             continue;
         };
         if let Ok(val) = serde_json::from_str::<serde_json::Value>(&raw) {
@@ -121,35 +121,16 @@ fn parse_first_ip(stdout: &str) -> Option<String> {
 }
 
 pub(crate) fn run_with_timeout(
-    cmd: &mut std::process::Command,
+    cmd: std::process::Command,
     timeout: std::time::Duration,
 ) -> Option<(bool, String)> {
-    use std::process::Stdio;
-    let mut child = cmd
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .stdin(Stdio::null())
-        .spawn()
-        .ok()?;
-    let start = std::time::Instant::now();
-    loop {
-        match child.try_wait().ok()? {
-            Some(_status) => break,
-            None => {
-                if start.elapsed() >= timeout {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    log::warn!(
-                        "[mesh] tailscale probe timed out after {:?}, killed",
-                        timeout
-                    );
-                    return None;
-                }
-                std::thread::sleep(std::time::Duration::from_millis(50));
-            }
+    let output = match codeterm_util::process_util::bounded_output(cmd, timeout) {
+        Ok(output) => output,
+        Err(error) => {
+            log::debug!("[mesh] tailscale probe failed: {error}");
+            return None;
         }
-    }
-    let output = child.wait_with_output().ok()?;
+    };
     Some((
         output.status.success(),
         String::from_utf8_lossy(&output.stdout).to_string(),
