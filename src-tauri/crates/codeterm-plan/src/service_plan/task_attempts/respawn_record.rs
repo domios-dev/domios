@@ -13,13 +13,12 @@ impl PlanStore {
         let mut created = None;
         let writer_turn = self.mutation_writer.enter();
         if draft.source_attempt.placement == crate::plan::WorkerPlacement::Shared {
-            let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
-            let task = crate::plan::task_key::find_task(&plan.tasks, task_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            super::super::shared_checkout::validate_shared_files(
-                &self.checkout_peer_plans(&plan),
-                &plan,
-                task,
+            let task = self.task_checkout_projection(plan_id, task_id, false)?;
+            super::super::shared_checkout::validate_shared_files_at(
+                &self.checkout_peer_facts(&task.checkout)?,
+                plan_id,
+                &task.id,
+                &super::super::shared_checkout::canonical_path(&task.checkout),
                 &task.files,
             )
             .map_err(PlanError::InvalidPlanText)?;

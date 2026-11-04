@@ -1,0 +1,151 @@
+use super::{column, decode, record_query};
+use crate::plan::{TaskFiles, WorkerPlacement};
+use crate::service_plan::store_db::{db_error, PlanDatabase};
+use crate::service_plan::{PlanError, PlanStore};
+use rusqlite::params;
+
+#[derive(Debug, PartialEq, serde::Deserialize, serde::Serialize)]
+pub struct CheckoutPeerRead {
+    pub id: String,
+    pub checkout: String,
+    pub tasks: Vec<CheckoutTaskRead>,
+}
+
+#[derive(Debug, PartialEq, serde::Deserialize, serde::Serialize)]
+pub struct CheckoutTaskRead {
+    pub id: String,
+    pub files: TaskFiles,
+    pub execution_attempts: Vec<CheckoutAttemptRead>,
+}
+
+#[derive(Debug, PartialEq, serde::Deserialize, serde::Serialize)]
+pub struct CheckoutAttemptRead {
+    pub id: String,
+    pub placement: WorkerPlacement,
+}
+
+#[derive(Debug, PartialEq, serde::Deserialize, serde::Serialize)]
+pub struct TaskCheckoutRead {
+    pub id: String,
+    pub checkout: String,
+    pub files: TaskFiles,
+    pub live_shared: bool,
+}
+
+impl PlanStore {
+    pub fn task_checkout_projection(
+        &self,
+        plan: &str,
+        task: &str,
+        exact: bool,
+    ) -> Result<TaskCheckoutRead, PlanError> {
+        self.database.task_checkout_projection(plan, task, exact)
+    }
+    pub fn checkout_peer_facts(&self, checkout: &str) -> Result<Vec<CheckoutPeerRead>, PlanError> {
+        let roots = self.database.checkout_roots()?;
+        let checkout = super::super::super::shared_checkout::canonical_path(checkout);
+        let ids = roots
+            .iter()
+            .filter(|(_, root)| {
+                super::super::super::shared_checkout::canonical_path(root) == checkout
+            })
+            .map(|(id, _)| id.clone())
+            .collect::<Vec<_>>();
+        self.database.checkout_peer_facts(&roots, &ids)
+    }
+}
+
+impl PlanDatabase {
+    fn task_checkout_projection(
+        &self,
+        plan: &str,
+        task: &str,
+        exact: bool,
+    ) -> Result<TaskCheckoutRead, PlanError> {
+        let connection = self.connection.lock();
+        record_query();
+        let (exists, raw): (bool,Option<String>) = connection.query_row(&format!(
+            "{selected} SELECT EXISTS(SELECT 1 FROM plans WHERE id=?1),
+                (SELECT json_object('id',t.task_id,'checkout',{root},'files',json(coalesce(json_extract(t.row_json,'$.files'),'{{}}')),
+                    'live_shared',json(CASE WHEN EXISTS(SELECT 1 FROM plan_task_attempts a WHERE a.plan_id=t.plan_id AND a.task_id=t.task_id
+                        AND json_extract(a.row_json,'$.closed_at') IS NULL AND json_extract(a.row_json,'$.retired_at') IS NULL
+                        AND json_extract(a.row_json,'$.placement')='shared') THEN 'true' ELSE 'false' END))
+                 FROM selected_task t JOIN plans p ON p.id=t.plan_id WHERE NOT ?3 OR t.task_id=?2)",
+            selected=super::super::task_authority_queries::SELECTED_TASK_IN_PLAN,
+            root=super::super::match_queries::ROOT
+        ),params![plan,task,exact],|row| Ok((column(row,0)?,column(row,1)?))).map_err(db_error)?;
+        if !exists {
+            return Err(PlanError::NotFound);
+        }
+        decode(plan, &raw.ok_or(PlanError::TaskNotFound)?)
+    }
+    fn checkout_roots(&self) -> Result<Vec<(String, String)>, PlanError> {
+        let connection = self.connection.lock();
+        checkout_roots(&connection)
+    }
+
+    fn checkout_peer_facts(
+        &self,
+        roots: &[(String, String)],
+        ids: &[String],
+    ) -> Result<Vec<CheckoutPeerRead>, PlanError> {
+        let mut connection = self.connection.lock();
+        let tx = connection.transaction().map_err(db_error)?;
+        if checkout_roots(&tx)? != roots {
+            return Err(PlanError::Io(
+                "checkout roots changed during ownership inspection".into(),
+            ));
+        }
+        let ids = serde_json::to_string(ids).map_err(|error| PlanError::Io(error.to_string()))?;
+        record_query();
+        let mut statement = tx.prepare(&format!(
+            "WITH admitted AS (SELECT p.id FROM plans p WHERE p.id IN (SELECT value FROM json_each(?1))
+                AND EXISTS(SELECT 1 FROM plan_task_attempts a WHERE a.plan_id=p.id AND a.open
+                    AND json_extract(a.row_json,'$.placement') IN ('shared','canonical_writer')))
+            SELECT p.id,{root},json_object('id',p.id,'checkout',{root},'tasks',json((SELECT json_group_array(json(task)) FROM (
+                SELECT json_object('id',t.task_id,'files',json(coalesce(json_extract(t.row_json,'$.files'),'{{}}')),
+                    'execution_attempts',json((SELECT json_group_array(json(attempt)) FROM (
+                        SELECT json_object('id',json_extract(a.row_json,'$.id'),
+                            'placement',coalesce(json_extract(a.row_json,'$.placement'),'isolated_lane')) AS attempt
+                        FROM plan_task_attempts a WHERE a.plan_id=t.plan_id AND a.task_id=t.task_id
+                            AND json_extract(a.row_json,'$.closed_at') IS NULL AND json_extract(a.row_json,'$.retired_at') IS NULL
+                        ORDER BY a.position)))) AS task
+                FROM plan_tasks t WHERE t.plan_id=p.id AND EXISTS(SELECT 1 FROM plan_task_attempts a
+                    WHERE a.plan_id=t.plan_id AND a.task_id=t.task_id AND json_extract(a.row_json,'$.closed_at') IS NULL
+                        AND json_extract(a.row_json,'$.retired_at') IS NULL) ORDER BY t.position))))
+            FROM plans p JOIN admitted ON admitted.id=p.id ORDER BY p.updated_at DESC,p.id",
+            root=super::super::match_queries::ROOT
+        )).map_err(db_error)?;
+        let rows = statement
+            .query_map(params![ids], |row| {
+                Ok((column::<String>(row, 0)?, column::<String>(row, 2)?))
+            })
+            .map_err(db_error)?;
+        let result: Result<Vec<CheckoutPeerRead>, PlanError> = rows
+            .map(|row| {
+                let (id, raw) = row.map_err(db_error)?;
+                decode(&id, &raw)
+            })
+            .collect();
+        drop(statement);
+        tx.commit().map_err(db_error)?;
+        result
+    }
+}
+
+fn checkout_roots(connection: &rusqlite::Connection) -> Result<Vec<(String, String)>, PlanError> {
+    record_query();
+    let mut statement = connection
+        .prepare(&format!(
+            "SELECT id,{} FROM plans ORDER BY id",
+            super::super::match_queries::ROOT
+        ))
+        .map_err(db_error)?;
+    let rows = statement
+        .query_map([], |row| Ok((column(row, 0)?, column(row, 1)?)))
+        .map_err(db_error)?;
+    rows.collect::<Result<_, _>>().map_err(db_error)
+}
+
+#[cfg(test)]
+mod tests;
