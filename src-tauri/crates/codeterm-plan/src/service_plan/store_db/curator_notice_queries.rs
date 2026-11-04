@@ -56,7 +56,7 @@ impl PlanDatabase {
         let mut render = Render {
             connection: &connection,
             id,
-            composer: ReminderComposer::with_header(id, header.role.clone()),
+            output: RenderOutput::Reminder(ReminderComposer::with_header(id, header.role.clone())),
             labels: HashMap::new(),
             action_ids: Vec::new(),
             orphaned_active: header.orphaned_active,
@@ -83,7 +83,7 @@ impl PlanDatabase {
                     ready = render.actions(true)?;
                 }
                 if ready {
-                    ready = sections::learnings(&mut render)?;
+                    ready = sections::learnings(&mut render, None)?;
                 }
                 if ready {
                     ready = sections::regression(&mut render)?;
@@ -98,7 +98,7 @@ impl PlanDatabase {
                     ready = sections::control(&mut render)?;
                 }
                 if ready {
-                    ready = sections::skills(&mut render, &header)?;
+                    ready = sections::skills(&mut render, &header.status)?;
                 }
                 if ready {
                     render.append(&format!(
@@ -108,7 +108,7 @@ impl PlanDatabase {
                 }
             }
         }
-        let body = render.composer.finish();
+        let body = render.finish();
         connection.commit().map_err(db_error)?;
         Ok(CuratorNoticeRead {
             owner_tab_id: header.owner_tab_id,
@@ -184,17 +184,52 @@ fn task_counts(connection: &Connection, id: &str) -> Result<TaskCounts, PlanErro
     Ok(counts)
 }
 
+enum RenderOutput {
+    Reminder(ReminderComposer),
+    Text(String),
+}
+
 struct Render<'a> {
     connection: &'a Connection,
     id: &'a str,
-    composer: ReminderComposer,
+    output: RenderOutput,
     labels: HashMap<String, Option<String>>,
     action_ids: Vec<String>,
     orphaned_active: bool,
 }
 
 impl Render<'_> {
+    fn limit(&self) -> i64 {
+        match &self.output {
+            RenderOutput::Reminder(_) => (MAX_REMINDER_BYTES + 1) as i64,
+            RenderOutput::Text(_) => i64::MAX,
+        }
+    }
+
+    fn finish(self) -> String {
+        match self.output {
+            RenderOutput::Reminder(composer) => composer.finish(),
+            RenderOutput::Text(text) => text,
+        }
+    }
+
+    fn take_text(&mut self) -> Result<String, PlanError> {
+        match &mut self.output {
+            RenderOutput::Text(text) => Ok(std::mem::take(text)),
+            RenderOutput::Reminder(_) => Err(PlanError::Io(
+                "cannot take unbounded text from a reminder".into(),
+            )),
+        }
+    }
+
     fn append(&mut self, fragment: &str) -> Result<bool, PlanError> {
+        if let RenderOutput::Text(text) = &mut self.output {
+            text.push_str(fragment);
+            if !fragment.is_empty() && !fragment.ends_with('\n') {
+                text.push('\n');
+            }
+            return Ok(true);
+        }
         let tokens: HashSet<&str> = fragment
             .split(composition::reference_delimiter)
             .filter(|token| !token.is_empty() && !self.labels.contains_key(*token))
@@ -221,7 +256,12 @@ impl Render<'_> {
         let labeled = composition::label_references(fragment, |token| {
             self.labels.get(token).cloned().flatten()
         });
-        Ok(self.composer.append(&labeled))
+        match &mut self.output {
+            RenderOutput::Reminder(composer) => Ok(composer.append(&labeled)),
+            RenderOutput::Text(_) => {
+                Err(PlanError::Io("reminder render changed output mode".into()))
+            }
+        }
     }
 
     fn actions(&mut self, late: bool) -> Result<bool, PlanError> {
@@ -247,7 +287,7 @@ impl Render<'_> {
             .query(params![
                 self.id,
                 super::status_queries::WHITESPACE,
-                MAX_REMINDER_BYTES + 1
+                self.limit()
             ])
             .map_err(db_error)?;
         loop {
@@ -272,4 +312,71 @@ impl Render<'_> {
             }
         }
     }
+}
+
+#[derive(serde::Deserialize)]
+struct HeartbeatScope {
+    mode: PlanMode,
+    status: PlanStatus,
+    orphaned_active: bool,
+}
+
+pub(super) fn heartbeat_snapshot(
+    connection: &Connection,
+    id: &str,
+    now: u64,
+    selection: Option<&[String]>,
+) -> Result<crate::service_plan::heartbeat::view::HeartbeatRead, PlanError> {
+    use crate::service_plan::heartbeat::view::{HeartbeatParts, HeartbeatRead};
+    record_query();
+    let encoded:String=connection.query_row("SELECT json_object(
+        'mode',CASE WHEN json_type(header_json,'$.mode') IS NULL THEN 'planning' ELSE json_extract(header_json,'$.mode') END,
+        'status',status,'orphaned_active',json(CASE WHEN status='active' AND team_id IS NULL THEN CASE
+            WHEN json_type(header_json,'$.orphaned') IS NULL OR json_type(header_json,'$.orphaned')='null' THEN 'false'
+            WHEN json_type(header_json,'$.orphaned')='object' THEN 'true' ELSE json('invalid plan orphan metadata') END ELSE 'false' END)) FROM plans WHERE id=?1",
+        [id],|row|column(row,0)).optional().map_err(db_error)?.ok_or(PlanError::NotFound)?;
+    let scope: HeartbeatScope = decode(id, &encoded)?;
+    let counts = task_counts(connection, id)?;
+    let complete = counts.total > 0 && counts.done + counts.cancelled == counts.total;
+    if complete || matches!(scope.mode, PlanMode::Paused | PlanMode::Complete) {
+        return Ok(HeartbeatRead::Suppressed);
+    }
+    let (_, pending_actionable) = decision_counts(connection, id)?;
+    let mut render = Render {
+        connection,
+        id,
+        output: RenderOutput::Text(String::new()),
+        labels: HashMap::new(),
+        action_ids: Vec::new(),
+        orphaned_active: scope.orphaned_active,
+    };
+    render.actions(false)?;
+    if !scope.orphaned_active {
+        sections::loops(&mut render)?;
+    }
+    render.actions(true)?;
+    let actions = render.take_text()?;
+    sections::learnings(&mut render, selection)?;
+    let learnings = render.take_text()?;
+    let (regression, retrospectives) = sections::regression_lines(connection, id)?;
+    sections::competition(&mut render)?;
+    let competition = render.take_text()?;
+    sections::gates(&mut render, now)?;
+    let gates = render.take_text()?;
+    let control_line = sections::control_line(connection, id)?;
+    sections::skills(&mut render, &scope.status)?;
+    let skills = render.take_text()?;
+    let parts = HeartbeatParts {
+        plan_id: id.into(),
+        counts,
+        pending_actionable,
+        actions,
+        regression,
+        retrospectives,
+        competition,
+        gates,
+        skills,
+        control_line,
+    };
+    Ok(HeartbeatRead::Ready { parts, learnings })
 }
