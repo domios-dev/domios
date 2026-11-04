@@ -1,12 +1,16 @@
 use super::{column, decode, record_query};
 use crate::plan::{ControlLoopMode, PlanMode, PlanStatus, PlanningState, TaskStatus};
-use crate::service_plan::state::TaskProjection;
+use crate::service_plan::state::TaskPresentation;
 use crate::service_plan::{PlanError, PlanStore};
 use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
+use std::collections::BTreeMap;
+use std::rc::Rc;
 
+mod blockers;
 mod functions;
+mod gate;
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, serde::Deserialize, serde::Serialize)]
 pub struct ReminderPlanRead {
     pub id: String,
     pub status: PlanStatus,
@@ -18,6 +22,35 @@ pub struct ReminderPlanRead {
     pub control_loop: ReminderControlRead,
     pub tasks: Vec<ReminderTaskRead>,
     pub state_key_digest: String,
+    #[serde(default)]
+    pub projection: BTreeMap<String, String>,
+    #[serde(default)]
+    pub learning_catalog: BTreeMap<String, String>,
+    #[serde(default)]
+    pub gates: Vec<ReminderGateRead>,
+    #[serde(skip)]
+    connection: Option<Rc<Connection>>,
+    #[serde(skip)]
+    gate_scope: Option<GateScope>,
+    #[cfg(any(test, feature = "test-support"))]
+    #[serde(skip)]
+    _fixture: Option<Rc<tempfile::TempDir>>,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+enum GateScope {
+    Owner,
+    Worker(String),
+}
+
+impl std::fmt::Debug for ReminderPlanRead {
+    fn fmt(&self, output: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        output
+            .debug_struct("ReminderPlanRead")
+            .field("id", &self.id)
+            .field("tasks", &self.tasks)
+            .finish_non_exhaustive()
+    }
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -48,11 +81,200 @@ pub struct ReminderTaskRead {
     pub status: TaskStatus,
     pub assigned_tab_id: Option<String>,
     pub label: String,
-    pub projection: TaskProjection,
+    pub projection: ReminderTaskProjectionRead,
     pub held: bool,
+    #[serde(default)]
+    pub status_changed_at: u64,
+    #[serde(default)]
+    pub handoff_required: bool,
+    #[serde(default)]
+    pub blocked_fingerprint: Option<String>,
+    #[serde(default)]
+    pub last_review: Option<ReminderReviewRead>,
+    #[serde(default)]
+    pub lane_path: Option<String>,
+    #[serde(default)]
+    pub lane_branch: Option<String>,
+    #[serde(default)]
+    pub attempts: Vec<ReminderAttemptRead>,
+    #[serde(default)]
+    pub projection_hashes: BTreeMap<String, String>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct ReminderTaskProjectionRead {
+    pub presentation: TaskPresentation,
+    pub dependency_waits: Vec<ReminderDependencyRead>,
+    pub actionable: bool,
+}
+
+impl ReminderTaskProjectionRead {
+    pub fn needs_orchestrator_action(&self) -> bool {
+        self.actionable
+    }
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct ReminderDependencyRead {
+    pub task_id: String,
+    pub status: Option<TaskStatus>,
+    pub missing: bool,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct ReminderReviewRead {
+    pub id: String,
+    pub verdict: crate::plan::ReviewVerdict,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct ReminderAttemptRead {
+    pub id: String,
+    pub executor_tab_id: String,
+    pub session_id: Option<String>,
+    pub session_binding_nonce: Option<String>,
+    pub worktree_path: Option<String>,
+    pub branch: Option<String>,
+    pub closed: bool,
+    pub acknowledged: bool,
+    pub report_id: Option<String>,
+    pub interruption_fingerprint: Option<String>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct ReminderGateRead {
+    pub id: String,
+    pub status: crate::plan::GateStatus,
+    pub answered: bool,
 }
 
 impl ReminderPlanRead {
+    pub fn digest_input(
+        &self,
+        now: u64,
+        targets: &crate::service_plan::NoticeInventoryTargets,
+    ) -> Result<crate::service_plan::NoticeDigestInput, PlanError> {
+        super::reminder_digests::notice_digest_input(self.connection()?, &self.id, now, targets)
+    }
+    pub fn compose_worker(&self, tab: &str, text: &str) -> Result<String, PlanError> {
+        let read = super::super::charter_queries::worker_assignment(self.connection()?, tab)?;
+        crate::service_plan::worker_charter::prepend_assignment(read, text)
+    }
+    pub fn compose_owner(
+        &self,
+        directive: &str,
+        digests: &[String],
+        selection: Option<&[String]>,
+        plain: bool,
+        now: u64,
+    ) -> Result<String, PlanError> {
+        super::super::curator_notice_queries::bounded_reminder(
+            self.connection()?,
+            &self.id,
+            now,
+            selection,
+            digests,
+            directive,
+            plain,
+        )
+        .map(|read| read.body)
+    }
+
+    pub fn planner_resolution(
+        &self,
+        probe: impl Fn(&str) -> crate::plan::reconcile::TabProbe,
+    ) -> Result<crate::plan::peer::PeerResolution, PlanError> {
+        record_query();
+        let raw:String=self.connection()?.query_row(
+            "SELECT json_quote(CASE json_extract(header_json,'$.planner.kind') WHEN 'tab' THEN json_object('kind','tab','tab_id',json_extract(header_json,'$.planner.tab_id'),'session_id',json_extract(header_json,'$.planner.session_id')) WHEN 'waived' THEN CASE WHEN json_type(header_json,'$.planner.note')='text' THEN json_object('kind','waived','note','') ELSE json('invalid planner waiver') END ELSE CASE WHEN json_type(header_json,'$.planner') IS NULL OR json_type(header_json,'$.planner')='null' THEN NULL ELSE json('invalid planner kind') END END) FROM plans WHERE id=?1",
+            [&self.id],|row|column(row,0)).map_err(super::super::db_error)?;
+        let planner: Option<crate::plan::PlannerRef> = decode(&self.id, &raw)?;
+        Ok(crate::plan::peer::resolve_planner_ref(
+            &planner,
+            &crate::plan::OrchestratorRef::default(),
+            probe,
+        ))
+    }
+    pub fn release_snapshot(&mut self) {
+        self.connection = None;
+    }
+    pub fn with_worker_gate_facts(mut self, task_id: &str) -> Result<Self, PlanError> {
+        let scope = GateScope::Worker(task_id.into());
+        if self.gate_scope.as_ref() != Some(&scope) {
+            self.clear_gate_facts();
+            let connection = self
+                .connection
+                .clone()
+                .ok_or_else(|| PlanError::Validation("reminder snapshot is closed".into()))?;
+            gate::load(&connection, &mut self, Some(task_id))?;
+            self.gate_scope = Some(scope);
+        }
+        Ok(self)
+    }
+
+    pub fn blocker_facts(
+        &self,
+        task_id: Option<&str>,
+    ) -> Result<Vec<ReminderBlockerRead>, PlanError> {
+        blockers::read(self.connection()?, &self.id, task_id)
+    }
+
+    pub fn with_gate_facts(mut self) -> Result<Self, PlanError> {
+        if self.gate_scope != Some(GateScope::Owner) {
+            self.clear_gate_facts();
+            let connection = self
+                .connection
+                .clone()
+                .ok_or_else(|| PlanError::Validation("reminder snapshot is closed".into()))?;
+            gate::load(&connection, &mut self, None)?;
+            self.gate_scope = Some(GateScope::Owner);
+        }
+        Ok(self)
+    }
+
+    fn clear_gate_facts(&mut self) {
+        self.projection.clear();
+        self.gates.clear();
+        self.learning_catalog.clear();
+        for task in &mut self.tasks {
+            task.attempts.clear();
+            task.projection_hashes.clear();
+        }
+    }
+    fn connection(&self) -> Result<&Connection, PlanError> {
+        self.connection
+            .as_deref()
+            .ok_or_else(|| PlanError::Validation("reminder snapshot is closed".into()))
+    }
+
+    pub fn delta_context(
+        &self,
+        delta: &BTreeMap<String, String>,
+        limit: usize,
+    ) -> Result<(BTreeMap<String, serde_json::Value>, bool), PlanError> {
+        gate::context(self.connection()?, self, delta, limit)
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn for_test(plan: &crate::plan::Plan, scrubber: fn(&str) -> String) -> Self {
+        let fixture = Rc::new(tempfile::tempdir().expect("reminder fixture directory"));
+        let database = super::PlanDatabase::open(fixture.path().join("plans.db"))
+            .expect("reminder fixture database");
+        database
+            .persist_plan_rows(plan, None)
+            .expect("reminder fixture rows");
+        let snapshot = database
+            .reminder_read_snapshot(scrubber)
+            .expect("reminder fixture snapshot");
+        let mut read = snapshot
+            .plan(&plan.id)
+            .expect("reminder fixture projection")
+            .expect("reminder fixture plan")
+            .with_gate_facts()
+            .expect("reminder fixture gate facts");
+        read._fixture = Some(fixture);
+        read
+    }
     pub fn complete(&self) -> bool {
         !self.tasks.is_empty() && self.tasks.iter().all(|task| task.status.is_terminal())
     }
@@ -67,18 +289,22 @@ impl ReminderPlanRead {
 }
 
 pub struct ReminderReadSnapshot {
-    connection: Connection,
+    connection: Rc<Connection>,
 }
 
 impl PlanStore {
-    pub fn reminder_read_snapshot(&self) -> Result<ReminderReadSnapshot, PlanError> {
-        self.database.reminder_read_snapshot()
+    pub fn reminder_read_snapshot(
+        &self,
+        scrubber: fn(&str) -> String,
+    ) -> Result<ReminderReadSnapshot, PlanError> {
+        self.database.reminder_read_snapshot(scrubber)
     }
 }
 
 impl super::PlanDatabase {
     pub(in crate::service_plan) fn reminder_read_snapshot(
         &self,
+        scrubber: fn(&str) -> String,
     ) -> Result<ReminderReadSnapshot, PlanError> {
         let connection = Connection::open_with_flags(
             self.path(),
@@ -90,17 +316,24 @@ impl super::PlanDatabase {
             .map_err(super::super::db_error)?;
         super::super::status_queries::register_functions(&connection)?;
         super::super::curator_notice_queries::register_functions(&connection)?;
-        functions::register(&connection)?;
+        super::super::worker_read_queries::register_functions(&connection)?;
+        functions::register(&connection, scrubber)?;
         connection
             .execute_batch("BEGIN DEFERRED TRANSACTION")
             .map_err(super::super::db_error)?;
-        Ok(ReminderReadSnapshot { connection })
+        Ok(ReminderReadSnapshot {
+            connection: Rc::new(connection),
+        })
     }
 }
 
 impl ReminderReadSnapshot {
     pub fn plan(&self, id: &str) -> Result<Option<ReminderPlanRead>, PlanError> {
-        plan(&self.connection, id)
+        let Some(mut read) = plan(&self.connection, id)? else {
+            return Ok(None);
+        };
+        read.connection = Some(self.connection.clone());
+        Ok(Some(read))
     }
 
     pub fn candidates(&self, tab: Option<&str>) -> Result<Vec<ReminderPlanRead>, PlanError> {
@@ -120,7 +353,11 @@ impl ReminderReadSnapshot {
             .collect::<Result<Vec<_>, _>>()
             .map_err(super::super::db_error)?;
         ids.iter()
-            .map(|id| self.plan(id)?.ok_or(PlanError::NotFound))
+            .map(|id| {
+                let mut read = plan(&self.connection, id)?.ok_or(PlanError::NotFound)?;
+                read.connection = Some(self.connection.clone());
+                Ok(read)
+            })
             .collect()
     }
 }
@@ -166,4 +403,11 @@ fn plan(connection: &Connection, id: &str) -> Result<Option<ReminderPlanRead>, P
         .collect::<Result<_, _>>()?;
     read.state_key_digest = functions::state_key(connection, &read)?;
     Ok(Some(read))
+}
+
+#[derive(Debug)]
+pub struct ReminderBlockerRead {
+    pub identity: String,
+    pub summary: String,
+    pub task_ids: std::collections::BTreeSet<String>,
 }

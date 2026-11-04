@@ -63,19 +63,10 @@ pub(in crate::service_plan::store_db) fn regression_gate_input(
     let override_at = unsigned_timestamp("o.value", "ts", false);
     let links = string_array("s.row_json", "links", true);
     let gates = string_array("o.value", "gates", false);
+    let completed_groups = completed_group_facts();
     let sql = format!(
         r#"
-            WITH members AS (
-                SELECT position,status,row_json,CASE WHEN json_type(row_json,'$.group')='text'
-                    THEN json_extract(row_json,'$.group') ELSE json('invalid group key') END AS group_key
-                FROM plan_tasks WHERE plan_id=?1 AND json_type(row_json,'$.group') IS NOT NULL
-                    AND json_type(row_json,'$.group')<>'null'
-            ), completed AS (
-                SELECT group_key,min(position) AS position FROM members GROUP BY group_key
-                HAVING sum(CASE WHEN status IN ('done','cancelled') THEN 0
-                    WHEN status IN ('pending','in_progress','blocked','in_review','paused') THEN 1
-                    ELSE json('invalid task status') END)=0 AND sum(status='done')>0
-            )
+            {completed_groups}
             SELECT json_object('key',g.group_key,'label',
                 CASE WHEN EXISTS(SELECT 1 FROM plans p,json_each(p.header_json,'$.task_groups') d
                     WHERE p.id=?1 AND json_extract(d.value,'$.key')=g.group_key)
@@ -138,4 +129,18 @@ fn string_array(document: &str, field: &str, default_empty: bool) -> String {
         WHEN json_type({document},'$.{field}')='array' THEN {document}->'$.{field}'
         ELSE json('invalid string array') END"
     )
+}
+
+pub(in crate::service_plan::store_db) fn completed_group_facts() -> &'static str {
+    "WITH members AS (
+                SELECT position,status,row_json,CASE WHEN json_type(row_json,'$.group')='text'
+                    THEN json_extract(row_json,'$.group') ELSE json('invalid group key') END AS group_key
+                FROM plan_tasks WHERE plan_id=?1 AND json_type(row_json,'$.group') IS NOT NULL
+                    AND json_type(row_json,'$.group')<>'null'
+            ), completed AS (
+                SELECT group_key,min(position) AS position FROM members GROUP BY group_key
+                HAVING sum(CASE WHEN status IN ('done','cancelled') THEN 0
+                    WHEN status IN ('pending','in_progress','blocked','in_review','paused') THEN 1
+                    ELSE json('invalid task status') END)=0 AND sum(status='done')>0
+            )"
 }

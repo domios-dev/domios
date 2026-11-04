@@ -66,37 +66,7 @@ impl PlanDatabase {
                 attachments: vec![],
             });
         }
-        let mut finished_lanes = 0;
-        let mut lane_candidates = Vec::new();
-        {
-            record_query();
-            let mut statement = transaction.prepare_cached(LANES).map_err(db_error)?;
-            for row in statement
-                .query_map(params![plan_id, super::status_queries::WHITESPACE], |row| {
-                    Ok((
-                        column::<Option<String>>(row, 0)?,
-                        column::<String>(row, 1)?,
-                        column::<String>(row, 2)?,
-                        row.get::<_, bool>(3)?,
-                        row.get::<_, usize>(4)?,
-                    ))
-                })
-                .map_err(db_error)?
-            {
-                let (peer, path, safety, unsafe_lane, count) = row.map_err(db_error)?;
-                finished_lanes = count;
-                let label = match peer {
-                    Some(peer) => format!("{peer}:{path}"),
-                    None => path,
-                };
-                let safety = if unsafe_lane {
-                    "retain dirty/unmerged"
-                } else {
-                    &safety
-                };
-                lane_candidates.push(format!("{label} ({safety})"));
-            }
-        }
+        let (finished_lanes, lane_candidates) = recorded_finished_lanes(&transaction, plan_id)?;
         transaction.commit().map_err(db_error)?;
         Ok(PlanNoticeRead {
             plan,
@@ -104,4 +74,42 @@ impl PlanDatabase {
             lane_candidates,
         })
     }
+}
+
+pub(super) fn recorded_finished_lanes(
+    connection: &rusqlite::Connection,
+    plan_id: &str,
+) -> Result<(usize, Vec<String>), PlanError> {
+    let mut finished_lanes = 0;
+    let mut lane_candidates = Vec::new();
+    {
+        record_query();
+        let mut statement = connection.prepare_cached(LANES).map_err(db_error)?;
+        for row in statement
+            .query_map(params![plan_id, super::status_queries::WHITESPACE], |row| {
+                Ok((
+                    column::<Option<String>>(row, 0)?,
+                    column::<String>(row, 1)?,
+                    column::<String>(row, 2)?,
+                    row.get::<_, bool>(3)?,
+                    row.get::<_, usize>(4)?,
+                ))
+            })
+            .map_err(db_error)?
+        {
+            let (peer, path, safety, unsafe_lane, count) = row.map_err(db_error)?;
+            finished_lanes = count;
+            let label = match peer {
+                Some(peer) => format!("{peer}:{path}"),
+                None => path,
+            };
+            let safety = if unsafe_lane {
+                "retain dirty/unmerged"
+            } else {
+                &safety
+            };
+            lane_candidates.push(format!("{label} ({safety})"));
+        }
+    }
+    Ok((finished_lanes, lane_candidates))
 }

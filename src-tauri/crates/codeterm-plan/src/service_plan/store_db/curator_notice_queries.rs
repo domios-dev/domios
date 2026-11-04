@@ -52,6 +52,18 @@ pub(super) fn bounded_notice(
     selection: Option<&[String]>,
     digests: &[String],
 ) -> Result<CuratorNoticeRead, PlanError> {
+    bounded_reminder(connection, id, now, selection, digests, "", false)
+}
+
+pub(super) fn bounded_reminder(
+    connection: &Connection,
+    id: &str,
+    now: u64,
+    selection: Option<&[String]>,
+    digests: &[String],
+    directive: &str,
+    plain: bool,
+) -> Result<CuratorNoticeRead, PlanError> {
     record_query();
     let encoded:Option<String>=connection.query_row(
         "SELECT json_object('id',json_extract(header_json,'$.id'),
@@ -81,10 +93,13 @@ pub(super) fn bounded_notice(
     let groups = action_groups(connection, id)?;
     let (parked, pending) = decision_counts(connection, id)?;
     let mut ready = render.append(&composition::render_action_groups(groups))?;
+    if ready {
+        ready = render.append(directive)?;
+    }
     if ready && parked > 0 {
         ready = render.append(&format!("{parked} tasks parked for later groups."))?;
     }
-    if ready && !matches!(header.mode, PlanMode::Paused | PlanMode::Complete) {
+    if ready && !plain && !matches!(header.mode, PlanMode::Paused | PlanMode::Complete) {
         let counts = task_counts(connection, id)?;
         if counts.total == 0 || counts.done + counts.cancelled != counts.total {
             ready = render.append(&crate::service_plan::heartbeat::view::state_header(

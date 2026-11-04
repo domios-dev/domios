@@ -1,6 +1,6 @@
 use super::read_projections::{column, decode, record_query};
 use super::{db_error, PlanDatabase};
-use crate::plan::{LoopSpec, Milestone, OrchestratorRef, Task};
+use crate::plan::{LoopSpec, Milestone, OrchestratorRef};
 use crate::service_plan::worker_charter::WorkerAssignmentRead;
 use crate::service_plan::PlanError;
 use rusqlite::{params, Connection, OptionalExtension};
@@ -50,13 +50,26 @@ impl PlanDatabase {
         }
         let mut connection = self.connection.lock();
         let tx = connection.transaction().map_err(db_error)?;
-        if active_owned_plan(&tx, tab)?.is_some() {
-            return Ok(None);
-        }
-        record_query();
-        let selected=tx.query_row(
+        let read = worker_assignment(&tx, tab)?;
+        tx.commit().map_err(db_error)?;
+        Ok(read)
+    }
+}
+
+pub(super) fn worker_assignment(
+    tx: &Connection,
+    tab: &str,
+) -> Result<Option<WorkerAssignmentRead>, PlanError> {
+    if tab.trim().is_empty() {
+        return Ok(None);
+    }
+    if active_owned_plan(tx, tab)?.is_some() {
+        return Ok(None);
+    }
+    record_query();
+    let selected=tx.query_row(
             "SELECT p.id,t.task_id,
-                json_object('id',json_extract(t.row_json,'$.id'),'name',json_extract(t.row_json,'$.name'),'type','','status','pending',
+                json_object('id',json_extract(t.row_json,'$.id'),'name',json_extract(t.row_json,'$.name'),
                     'personality',json_extract(t.row_json,'$.personality'),'role_guidance',json_extract(t.row_json,'$.role_guidance')),
                 json_object('id',p.id,'status',p.status,'project_path',p.project_path,
                     'canonical_project_path',CASE WHEN json_type(p.header_json,'$.canonical_project_path') IS NULL THEN '' ELSE json_extract(p.header_json,'$.canonical_project_path') END),
@@ -75,47 +88,55 @@ impl PlanDatabase {
              ORDER BY p.updated_at DESC,p.id,t.position LIMIT 1",
             params![tab,super::status_queries::WHITESPACE],|row|Ok((column::<String>(row,0)?,column::<String>(row,1)?,column::<String>(row,2)?,column::<String>(row,3)?,column::<Option<String>>(row,4)?,row.get::<_,usize>(5)?)),
         ).optional().map_err(db_error)?;
-        let Some((plan_id, task_id, document, storage, loop_spec, live_attempt_count)) = selected
-        else {
-            return Ok(None);
-        };
-        let mut task: Task = decode(&plan_id, &document)?;
-        let storage: super::auxiliary_queries::StorageMetadata = decode(&plan_id, &storage)?;
-        let loop_spec = loop_spec
-            .map(|document| decode::<LoopSpec>(&plan_id, &document))
-            .transpose()?;
-        record_query();
-        let mut statement=tx.prepare_cached(
+    let Some((plan_id, task_id, document, storage, loop_spec, live_attempt_count)) = selected
+    else {
+        return Ok(None);
+    };
+    #[derive(serde::Deserialize)]
+    struct CharterIdentity {
+        id: String,
+        name: String,
+        personality: Option<String>,
+        role_guidance: Option<String>,
+    }
+    let task: CharterIdentity = decode(&plan_id, &document)?;
+    let mut milestones = Vec::new();
+    let storage: super::auxiliary_queries::StorageMetadata = decode(&plan_id, &storage)?;
+    let loop_spec = loop_spec
+        .map(|document| decode::<LoopSpec>(&plan_id, &document))
+        .transpose()?;
+    record_query();
+    let mut statement=tx.prepare_cached(
             "SELECT json_object('id',json_extract(row_json,'$.id'),'from',json('{}'),'kind',json_extract(row_json,'$.kind'),
                 'text',json_extract(row_json,'$.text'),'ts',json(row_json->'$.ts')) FROM plan_task_milestones
              WHERE plan_id=?1 AND task_id=?2 AND domios_worker_stride_rank(json_extract(row_json,'$.kind')) IS NOT NULL
                 AND trim(coalesce(json_extract(row_json,'$.text'),''),?3)<>''
              ORDER BY domios_worker_stride_rank(json_extract(row_json,'$.kind')),domios_u64_order(row_json->'$.ts') DESC,json_extract(row_json,'$.id') DESC,seq LIMIT ?4"
         ).map_err(db_error)?;
-        for document in statement
-            .query_map(
-                params![
-                    plan_id,
-                    task_id,
-                    super::status_queries::WHITESPACE,
-                    crate::service_plan::stride_context::WORKER_STRIDE_LIMIT
-                ],
-                |row| column::<String>(row, 0),
-            )
-            .map_err(db_error)?
-        {
-            task.milestones
-                .push(decode::<Milestone>(&plan_id, &document.map_err(db_error)?)?);
-        }
-        drop(statement);
-        tx.commit().map_err(db_error)?;
-        drop(connection);
-        Ok(Some(WorkerAssignmentRead {
-            plan_id,
-            state_dir: storage.state_dir_unchecked(),
-            task,
-            loop_spec,
-            live_attempt_count,
-        }))
+    for document in statement
+        .query_map(
+            params![
+                plan_id,
+                task_id,
+                super::status_queries::WHITESPACE,
+                crate::service_plan::stride_context::WORKER_STRIDE_LIMIT
+            ],
+            |row| column::<String>(row, 0),
+        )
+        .map_err(db_error)?
+    {
+        milestones.push(decode::<Milestone>(&plan_id, &document.map_err(db_error)?)?);
     }
+    drop(statement);
+    Ok(Some(WorkerAssignmentRead {
+        plan_id,
+        state_dir: storage.state_dir_unchecked(),
+        task_id: task.id,
+        task_name: task.name,
+        personality: task.personality,
+        role_guidance: task.role_guidance,
+        milestones,
+        loop_spec,
+        live_attempt_count,
+    }))
 }

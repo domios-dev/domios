@@ -2,9 +2,10 @@ use super::approval::{admit, scope_key, scope_keys, ReminderOutcome};
 use super::tests::{plan, task};
 use super::*;
 use crate::multiplexer::state::MultiplexerState;
-use crate::plan::TaskExecutionAttempt;
+use crate::plan::{Plan, TaskExecutionAttempt};
 use crate::service::hierarchy::heartbeat_gate::{Telemetry, Worker};
 use crate::service::supporter::SupporterRuntime;
+use codeterm_plan::service_plan::ReminderPlanRead;
 use parking_lot::Mutex;
 use serde_json::Value;
 use std::sync::Arc;
@@ -35,6 +36,7 @@ struct FakeHost {
     emits: Mutex<Vec<Emitted>>,
     notices: Mutex<Vec<NotifiedBlocker>>,
     emit_error: Mutex<Option<String>>,
+    read_error: Mutex<Option<String>>,
     compose_error: Mutex<Option<String>>,
     compose_hook: Mutex<Option<fn(&FakeHost)>>,
     dir: tempfile::TempDir,
@@ -53,16 +55,23 @@ impl ReminderHost for FakeHost {
         1800
     }
 
-    fn plan(&self, plan_id: &str) -> Option<Plan> {
-        self.plans
+    fn plan(&self, plan_id: &str) -> Result<Option<ReminderPlanRead>, String> {
+        if let Some(error) = self.read_error.lock().clone() {
+            return Err(error);
+        }
+        Ok(self
+            .plans
             .lock()
             .iter()
             .find(|plan| plan.id == plan_id)
-            .cloned()
+            .map(super::tests::read))
     }
 
-    fn with_plans<R>(&self, read: impl FnOnce(&[Plan]) -> R) -> R {
-        read(&self.plans.lock())
+    fn with_plans<R>(&self, read: impl FnOnce(&[ReminderPlanRead]) -> R) -> Result<R, String> {
+        if let Some(error) = self.read_error.lock().clone() {
+            return Err(error);
+        }
+        Ok(read(&super::tests::reads(&self.plans.lock())))
     }
 
     fn recipient(&self, tab_id: &str) -> Option<Recipient> {
@@ -76,36 +85,39 @@ impl ReminderHost for FakeHost {
 
     fn observe_owner(
         &self,
-        plan: &Plan,
+        plan: &ReminderPlanRead,
         _: &str,
         previous: &Observation,
         _: u64,
-    ) -> (Snapshot, Observation) {
+    ) -> Result<(Snapshot, Observation), String> {
         let mut snapshot = self.owner_view.lock().clone();
         snapshot.plan_id = plan.id.clone();
         let observed = Observation {
             projection: Some(snapshot.projection.clone()),
             ..previous.clone()
         };
-        (snapshot, observed)
+        Ok((snapshot, observed))
     }
 
     fn observe_worker(
         &self,
-        plan: &Plan,
+        plan: &ReminderPlanRead,
         scope: &Scope,
         previous: &crate::service::hierarchy::heartbeat_gate::Observation,
         _: u64,
-    ) -> (
-        Snapshot,
-        crate::service::hierarchy::heartbeat_gate::Observation,
-    ) {
+    ) -> Result<
+        (
+            Snapshot,
+            crate::service::hierarchy::heartbeat_gate::Observation,
+        ),
+        String,
+    > {
         crate::service::hierarchy::heartbeat_gate::collect_worker_scope(plan, scope, previous)
     }
 
     fn compose(
         &self,
-        plan: &Plan,
+        plan: &ReminderPlanRead,
         scope: &Scope,
         _: &Snapshot,
         decision: &Decision,
@@ -126,6 +138,7 @@ impl ReminderHost for FakeHost {
             },
         };
         Ok(Emission {
+            digest_rate_marks: Vec::new(),
             text: opaque(scope.kind, &plan.id),
             transport,
         })
@@ -219,6 +232,7 @@ fn host(plans: Vec<Plan>, mux: MultiplexerState) -> FakeHost {
         emits: Mutex::default(),
         notices: Mutex::default(),
         emit_error: Mutex::default(),
+        read_error: Mutex::default(),
         compose_error: Mutex::default(),
         compose_hook: Mutex::default(),
         dir,
@@ -386,7 +400,9 @@ fn plan_reminder_rule_capacity_is_bounded_and_cleanup_releases_it() {
         f.admit(ReminderKind::Owner, 100),
         ReminderOutcome::Suppressed("scope_capacity")
     );
-    f.host.gate.retain(&scope_keys(&f.host.plans.lock()));
+    f.host.gate.retain(&scope_keys(
+        &crate::service::hierarchy::plan_reminder_nudge::tests::reads(&f.host.plans.lock()),
+    ));
     assert_eq!(f.host.gate.scopes(), 0);
     assert_eq!(f.admit(ReminderKind::Owner, 101), ReminderOutcome::Accepted);
 }
@@ -433,6 +449,39 @@ fn composition_failure_is_prewrite_and_does_not_mark_a_reminder_delivered() {
     assert_eq!(
         f.admit(ReminderKind::Worker, 102),
         ReminderOutcome::Accepted
+    );
+    assert_eq!(f.emits(), 1);
+}
+
+#[test]
+fn reminder_read_failure_is_a_failure_before_admission_and_at_handoff() {
+    for kind in [ReminderKind::Owner, ReminderKind::Worker] {
+        let f = fixture(kind);
+        *f.host.read_error.lock() = Some("selected SQL failed".into());
+        assert_eq!(
+            f.admit(kind, 100),
+            ReminderOutcome::Failed("selected SQL failed".into())
+        );
+        assert_eq!(f.emits(), 0);
+    }
+    let f = fixture(ReminderKind::Owner);
+    *f.host.compose_hook.lock() =
+        Some(|host| *host.read_error.lock() = Some("handoff SQL failed".into()));
+    assert_eq!(
+        f.admit(ReminderKind::Owner, 100),
+        ReminderOutcome::Failed("handoff SQL failed".into())
+    );
+    assert_eq!(f.emits(), 0);
+}
+
+#[test]
+fn unchanged_reminder_suppresses_before_lazy_composition_failure() {
+    let f = fixture(ReminderKind::Owner);
+    assert_eq!(f.admit(ReminderKind::Owner, 100), ReminderOutcome::Accepted);
+    *f.host.compose_error.lock() = Some("composition failed".into());
+    assert_eq!(
+        f.admit(ReminderKind::Owner, 200),
+        ReminderOutcome::Suppressed("same_snapshot")
     );
     assert_eq!(f.emits(), 1);
 }

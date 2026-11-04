@@ -193,6 +193,12 @@ pub(super) fn project_task_facts(
 }
 
 impl TaskProjection {
+    pub fn can_age(&self) -> bool {
+        !matches!(
+            self.presentation,
+            TaskPresentation::WaitingOnDependencies | TaskPresentation::ParkedForLaterGroup
+        )
+    }
     // A wait on a missing task never clears by itself, so it stays the owner's to replan.
     pub fn needs_orchestrator_action(&self) -> bool {
         match self.presentation {

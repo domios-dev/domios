@@ -30,6 +30,23 @@ fn enumeration<T: DeserializeOwned>(value: &str) -> rusqlite::Result<T> {
 pub(super) fn register(connection: &Connection) -> Result<(), PlanError> {
     let flags = FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC;
     connection
+        .create_scalar_function("domios_notice_stalled", 3, flags, |context| {
+            let changed = text(context, 0)?
+                .unwrap_or("")
+                .parse::<u64>()
+                .map_err(|error| rusqlite::Error::UserFunctionError(Box::new(error)))?;
+            let now = text(context, 1)?
+                .unwrap_or("")
+                .parse::<u64>()
+                .map_err(|error| rusqlite::Error::UserFunctionError(Box::new(error)))?;
+            let eligible: bool = context.get(2)?;
+            Ok(eligible
+                && changed > 0
+                && crate::plan::reconcile::stale_threshold_ms(&TaskStatus::InProgress)
+                    .is_some_and(|threshold| now.saturating_sub(changed) > threshold))
+        })
+        .map_err(db_error)?;
+    connection
         .create_scalar_function("domios_notice_role", 3, flags, |context| {
             let id = text(context, 0)?
                 .ok_or_else(|| rusqlite::Error::UserFunctionError("missing notice id".into()))?;
@@ -108,6 +125,7 @@ pub(super) fn register(connection: &Connection) -> Result<(), PlanError> {
         let waits=if waiting {vec![DependencyWait {task_id:String::new(),name:String::new(),status:if missing {None} else {Some(TaskStatus::Pending)},missing}]} else {Vec::new()};
         let projection=project_task_facts(&status,waits,&stage,&qa,context.get(5)?,context.get(6)?,context.get(7)?);
         let held:bool=context.get(8)?;
+        let aged_eligible=projection.can_age() && !held;
         let category=if held || !projection.needs_orchestrator_action() {-1} else {
             match projection.presentation {
                 TaskPresentation::InReview|TaskPresentation::QueuedForQa=>0,
@@ -135,7 +153,7 @@ pub(super) fn register(connection: &Connection) -> Result<(), PlanError> {
                 NextActionKind::Dispatch=>Some(501),_=>None,
             }).unwrap_or(if projection.presentation==TaskPresentation::HandoffRequired {601} else {0})
         };
-        Ok(format!("{{\"category\":{category},\"action\":{action},\"parked\":{},\"pending\":{},\"handoff\":{},\"held\":{}}}",i32::from(parked),i32::from(pending),i32::from(handoff),i32::from(held)))
+        Ok(format!("{{\"category\":{category},\"action\":{action},\"parked\":{},\"pending\":{},\"handoff\":{},\"held\":{},\"aged_eligible\":{}}}",i32::from(parked),i32::from(pending),i32::from(handoff),i32::from(held),i32::from(aged_eligible)))
     }).map_err(db_error)
 }
 

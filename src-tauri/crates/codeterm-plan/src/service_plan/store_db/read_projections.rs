@@ -4,6 +4,7 @@ pub(in crate::service_plan) mod hierarchy;
 pub(in crate::service_plan) mod hierarchy_routing;
 pub(in crate::service_plan) mod launch_restore;
 pub(in crate::service_plan) mod reminder;
+pub(in crate::service_plan::store_db) mod reminder_digests;
 pub(in crate::service_plan) mod runtime_identity;
 mod tab;
 pub(in crate::service_plan) mod transfer_authority;
