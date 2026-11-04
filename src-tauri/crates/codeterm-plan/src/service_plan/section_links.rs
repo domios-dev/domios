@@ -173,7 +173,7 @@ pub(super) fn resolve_selectors(
         .collect()
 }
 
-pub(super) fn auto_section_ids_for_task(plan: &Plan, task: &Task) -> Vec<String> {
+pub(super) fn auto_section_ids_for_task(plan: &impl SectionLinkSource, task: &Task) -> Vec<String> {
     if !task.section_ids.is_empty() {
         return task.section_ids.clone();
     }

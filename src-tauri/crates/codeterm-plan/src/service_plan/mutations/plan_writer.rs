@@ -75,7 +75,7 @@ impl PlanStore {
         Ok(result)
     }
 
-    fn publish_hot_receipt(
+    pub(in crate::service_plan) fn publish_hot_receipt(
         &self,
         turn: &MutationWriterTurn<'_>,
         receipt: super::super::store_db::hot_write::CommittedRows,
@@ -92,6 +92,15 @@ impl PlanStore {
             row.updated_at = receipt.updated_at;
         }
         if let Some(root) = receipt.index_root {
+            for (task_id, milestones) in receipt.removed_tasks {
+                super::super::search_index::enqueue_task_removal(
+                    turn,
+                    root.clone(),
+                    &receipt.plan_id,
+                    &task_id,
+                    &milestones,
+                );
+            }
             super::super::search_index::enqueue_plan_time(
                 turn,
                 root,

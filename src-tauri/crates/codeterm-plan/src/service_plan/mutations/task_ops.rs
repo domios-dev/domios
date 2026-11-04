@@ -218,27 +218,12 @@ impl PlanStore {
         depends_on: Vec<String>,
         now_ms: u64,
     ) -> Result<(), PlanError> {
-        let write: Result<Vec<String>, PlanError> = self.with_plan(plan_id, now_ms, |p| {
-            let task_index = crate::plan::task_key::find_task_index(&p.tasks, task_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            let canonical_task_id = p.tasks[task_index].id.clone();
-            let normalized = validate_task_dependencies(p, &canonical_task_id, &depends_on)?;
-            let task = &mut p.tasks[task_index];
-            task.depends_on = normalized.clone();
-            task.updated_at = now_ms;
-            Ok(normalized)
-        });
-        // depends_on refs (e.g. handles) resolve to canonical task ids during the
-        // write; verify against the resolved form or readback always fails.
-        let (write, verify_depends_on) = match write {
-            Ok(resolved) => (Ok(()), resolved),
-            Err(err) => (Err(err), normalized_dependency_ids(&depends_on)),
-        };
-        pending_after_verified(
-            write,
-            self.verify_task_dependencies_updated(plan_id, task_id, &verify_depends_on),
-            Some(task_id.to_string()),
-        )
+        let turn = self.mutation_writer.enter();
+        let receipt = self
+            .database
+            .update_dependencies(plan_id, task_id, &depends_on, now_ms)?;
+        self.publish_hot_receipt(&turn, receipt);
+        Ok(())
     }
 
     pub fn update_task_role_guidance(

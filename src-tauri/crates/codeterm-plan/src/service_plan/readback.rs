@@ -1,7 +1,5 @@
 use super::{PlanError, PlanStore};
-use crate::plan::{
-    ExternalRef, Plan, PlanMode, PlanStatus, PlannerRef, Task, TaskLaneMetadata, TaskPriority,
-};
+use crate::plan::{Plan, PlanMode, PlanStatus, PlannerRef, Task};
 use std::cell::RefCell;
 
 thread_local! {
@@ -30,30 +28,6 @@ pub(in crate::service_plan) fn pending_after_readback<T>(
     }
 }
 
-pub(in crate::service_plan) struct TaskAddExpectation {
-    name: String,
-    kind: String,
-    model: Option<String>,
-    model_rationale: Option<String>,
-    acceptance_criteria: Vec<String>,
-    external_refs: Vec<ExternalRef>,
-    test_plan: Option<String>,
-    qa_plan: Option<String>,
-    correctness: Option<String>,
-    body: String,
-    role_guidance: Option<String>,
-    executor_role: Option<String>,
-    intent: Option<String>,
-    execution_intent: crate::plan::TaskExecutionIntent,
-    parent_task_id: Option<String>,
-    pub(in crate::service_plan) depends_on: Vec<String>,
-    assigned_tab_id: Option<String>,
-    lane: TaskLaneMetadata,
-    group: Option<String>,
-    priority: TaskPriority,
-    section_ids: Option<Vec<String>>,
-}
-
 fn parse_plan_mode(raw: &str) -> Result<PlanMode, PlanError> {
     serde_json::from_value(serde_json::Value::String(raw.into())).map_err(|_| PlanError::BadMode)
 }
@@ -61,35 +35,6 @@ fn parse_plan_mode(raw: &str) -> Result<PlanMode, PlanError> {
 impl PlanStore {
     pub(in crate::service_plan) fn clear_committed_snapshot(&self) {
         COMMITTED_SNAPSHOT.with(|cell| *cell.borrow_mut() = None);
-    }
-
-    pub(in crate::service_plan) fn task_add_expectation(
-        task: &Task,
-        verify_sections: bool,
-    ) -> TaskAddExpectation {
-        TaskAddExpectation {
-            name: task.name.clone(),
-            kind: task.kind.clone(),
-            model: task.model.clone(),
-            model_rationale: task.model_rationale.clone(),
-            acceptance_criteria: task.acceptance_criteria.clone(),
-            external_refs: task.external_refs.clone(),
-            test_plan: task.test_plan.clone(),
-            qa_plan: task.qa_plan.clone(),
-            correctness: task.correctness.clone(),
-            body: task.body.clone(),
-            role_guidance: task.role_guidance.clone(),
-            executor_role: task.executor_role.clone(),
-            intent: task.intent.clone(),
-            execution_intent: task.execution_intent,
-            parent_task_id: task.parent_task_id.clone(),
-            depends_on: task.depends_on.clone(),
-            assigned_tab_id: task.assigned_tab_id.clone(),
-            lane: task.lane.clone(),
-            group: task.group.clone(),
-            priority: task.priority.clone(),
-            section_ids: verify_sections.then(|| task.section_ids.clone()),
-        }
     }
 
     pub(in crate::service_plan) fn task_readback_error(
@@ -180,165 +125,6 @@ impl PlanStore {
         crate::plan::task_key::find_task(&plan.tasks, task_id)
             .cloned()
             .ok_or(PlanError::TaskNotFound)
-    }
-
-    pub(in crate::service_plan) fn verify_task_added(
-        &self,
-        plan_id: &str,
-        task_id: &str,
-        expected: &TaskAddExpectation,
-    ) -> Result<(), PlanError> {
-        let task = self.read_task_for_verification(plan_id, task_id)?;
-        let fail = |field: &str| {
-            Self::task_readback_error("task_add", format!("{field} did not match for {}", task.id))
-        };
-        if task.id != task_id {
-            return Err(Self::task_readback_error(
-                "task_add",
-                format!("expected task id {task_id}, got {}", task.id),
-            ));
-        }
-        if task.name != expected.name {
-            return Err(fail("name"));
-        }
-        if task.kind != expected.kind {
-            return Err(fail("type"));
-        }
-        if task.model != expected.model {
-            return Err(fail("model"));
-        }
-        if task.model_rationale != expected.model_rationale {
-            return Err(fail("why"));
-        }
-        if task.acceptance_criteria != expected.acceptance_criteria {
-            return Err(fail("acceptance_criteria"));
-        }
-        if task.external_refs != expected.external_refs {
-            return Err(fail("external_refs"));
-        }
-        if task.test_plan != expected.test_plan {
-            return Err(fail("test_plan"));
-        }
-        if task.qa_plan != expected.qa_plan {
-            return Err(fail("qa_plan"));
-        }
-        if task.correctness != expected.correctness {
-            return Err(fail("correctness"));
-        }
-        if task.body != expected.body {
-            return Err(fail("body"));
-        }
-        if task.role_guidance != expected.role_guidance {
-            return Err(fail("role_guidance"));
-        }
-        if task.executor_role != expected.executor_role {
-            return Err(fail("executor_role"));
-        }
-        if task.intent != expected.intent {
-            return Err(fail("intent"));
-        }
-        if task.execution_intent != expected.execution_intent {
-            return Err(fail("execution_intent"));
-        }
-        if task.parent_task_id != expected.parent_task_id {
-            return Err(fail("parent_task_id"));
-        }
-        if task.depends_on != expected.depends_on {
-            return Err(fail("depends_on"));
-        }
-        if task.assigned_tab_id != expected.assigned_tab_id {
-            return Err(fail("assigned_tab_id"));
-        }
-        if task.lane != expected.lane {
-            return Err(fail("lane"));
-        }
-        if task.group != expected.group {
-            return Err(fail("group"));
-        }
-        if task.priority != expected.priority {
-            return Err(fail("priority"));
-        }
-        // Handle is server-normalized (slugged, collision-suffixed); comparing the
-        // raw requested handle against the committed one is a false-positive source.
-        if expected
-            .section_ids
-            .as_ref()
-            .is_some_and(|sections| task.section_ids != *sections)
-        {
-            return Err(fail("sections"));
-        }
-        Ok(())
-    }
-
-    pub(in crate::service_plan) fn verify_task_dependencies_updated(
-        &self,
-        plan_id: &str,
-        task_id: &str,
-        depends_on: &[String],
-    ) -> Result<(), PlanError> {
-        let task = self.read_task_for_verification(plan_id, task_id)?;
-        if task.depends_on != depends_on {
-            return Err(Self::task_readback_error(
-                "task_dependency_update",
-                format!("depends_on did not match for {}", task.id),
-            ));
-        }
-        Ok(())
-    }
-
-    pub(in crate::service_plan) fn verify_task_removed(
-        &self,
-        plan_id: &str,
-        task_id: &str,
-    ) -> Result<(), PlanError> {
-        let plan = self
-            .committed_plan_for(plan_id)
-            .ok_or(PlanError::NotFound)?;
-        if crate::plan::task_key::find_task_index(&plan.tasks, task_id).is_some() {
-            return Err(Self::task_readback_error(
-                "task_remove",
-                format!("task {task_id} still exists after removal"),
-            ));
-        }
-        Ok(())
-    }
-
-    pub(in crate::service_plan) fn verify_task_removal_rejected(
-        &self,
-        plan_id: &str,
-        task_id: &str,
-        dependent_task_ids: &[String],
-    ) -> Result<(), PlanError> {
-        let plan = self
-            .committed_plan_for(plan_id)
-            .ok_or(PlanError::NotFound)?;
-        if !crate::plan::task_key::find_task_index(&plan.tasks, task_id).is_some() {
-            return Err(Self::task_readback_error(
-                "task_remove",
-                format!("task {task_id} was removed despite dependency rejection"),
-            ));
-        }
-        for dependent_task_id in dependent_task_ids {
-            let Some(task) = plan.tasks.iter().find(|task| task.id == *dependent_task_id) else {
-                return Err(Self::task_readback_error(
-                    "task_remove",
-                    format!("dependent task {dependent_task_id} missing after rejection"),
-                ));
-            };
-            if !task
-                .depends_on
-                .iter()
-                .any(|dependency_id| dependency_id == task_id)
-            {
-                return Err(Self::task_readback_error(
-                    "task_remove",
-                    format!(
-                        "dependent task {dependent_task_id} no longer references {task_id} after rejection"
-                    ),
-                ));
-            }
-        }
-        Ok(())
     }
 
     pub(in crate::service_plan) fn verify_task_assigned(

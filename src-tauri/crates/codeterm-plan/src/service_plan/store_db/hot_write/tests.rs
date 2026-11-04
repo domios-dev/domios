@@ -737,3 +737,5 @@ fn successful_hot_commit_preserves_canonical_path_normalization() {
 mod task_metadata;
 
 mod remote_attempts;
+
+mod task_structure;
