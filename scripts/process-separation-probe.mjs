@@ -11,6 +11,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { assertServerClosure, SERVER_FEATURES } from './server-artifact.mjs';
+import { SUPPORTED_API_VERSION } from './package-server-component-manifest.mjs';
 
 const deadline = () => AbortSignal.timeout(45000);
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -595,7 +596,7 @@ async function run(options) {
     assert.ok(withinDirectory(home, data), 'Server data directory escaped the disposable home');
     assert.notEqual(data, realpathSync.native(os.homedir()), 'Server data directory resolved to the owner home');
     assert.notEqual(reply.ready.process.pid, process.pid);
-    assert.equal(reply.ready.api_version, 3);
+    assert.equal(reply.ready.api_version, SUPPORTED_API_VERSION);
     assert.equal(reply.ready.api_address, `127.0.0.1:${assertSafePort(port)}`);
     assert.ok(withinDirectory(scratch, launch.probe_sink));
     if (options.case === 'arbitration') {

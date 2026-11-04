@@ -20,7 +20,7 @@ function fixture(platform = "linux") {
     exec: () => { throw new Error("synchronous discovery is forbidden"); },
     execStart: (text: string) => {
       const options = JSON.parse(text);
-      assert.equal(options.timeoutMs, 3000);
+      assert.equal(options.timeoutMs, 10000);
       if (options.args.includes("--verbose")) return JSON.stringify({ jobId: "metadata" });
       starts++;
       return JSON.stringify({ jobId: "catalogue" });

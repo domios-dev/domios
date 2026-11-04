@@ -817,7 +817,7 @@ function completeModelOutput(result) {
 }
 function* probeModels(verbose) {
   try {
-    return yield* host.io.exec({ bin: "opencode", args: verbose ? ["models", "--verbose"] : ["models"], timeoutMs: 3e3 });
+    return yield* host.io.exec({ bin: "opencode", args: verbose ? ["models", "--verbose"] : ["models"], timeoutMs: 1e4 });
   } catch {
     return null;
   }
