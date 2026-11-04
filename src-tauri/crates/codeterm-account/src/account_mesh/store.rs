@@ -3,14 +3,21 @@ use super::state::AccountMeshRecord;
 use async_trait::async_trait;
 use std::{fs, io, path::PathBuf};
 
+mod owner;
+use owner::FileOwner;
+
 pub struct FileAccountMeshStore {
-    path: PathBuf,
+    owner: FileOwner,
 }
 
 impl FileAccountMeshStore {
     pub fn new(data_dir: PathBuf) -> Self {
+        Self::at_path(data_dir.join("state/account/mesh.json"))
+    }
+
+    fn at_path(path: PathBuf) -> Self {
         Self {
-            path: data_dir.join("state/account/mesh.json"),
+            owner: FileOwner::new(path),
         }
     }
 }
@@ -73,17 +80,10 @@ fn write(path: &PathBuf, record: &AccountMeshRecord) -> io::Result<()> {
 #[async_trait]
 impl AccountMeshStore for FileAccountMeshStore {
     async fn load(&self) -> io::Result<AccountMeshRecord> {
-        let path = self.path.clone();
-        tokio::task::spawn_blocking(move || read(&path))
-            .await
-            .map_err(io::Error::other)?
+        self.owner.load().await
     }
     async fn save(&self, record: &AccountMeshRecord) -> io::Result<()> {
-        let path = self.path.clone();
-        let record = record.clone();
-        tokio::task::spawn_blocking(move || write(&path, &record))
-            .await
-            .map_err(io::Error::other)?
+        self.owner.save(record.clone()).await
     }
 }
 
