@@ -98,7 +98,7 @@ const readonlyHost = {
     writeJson: () => { writes++; throw new Error("unexpected settings write"); }},
 };
 const sandbox = {module:{exports:{} as any},exports:{},host:readonlyHost};
-vm.runInNewContext(ioTestContext(source), sandbox);
+vm.runInNewContext(source, ioTestContext(sandbox));
 const plugin = sandbox.module.exports.default;
 check(() => assert.deepEqual(JSON.parse(JSON.stringify(plugin.parseContextUsage(record))), parseContextUsage(record)));
 const delta = plugin.parseSessionDelta(JSON.stringify({type:"assistant",uuid:"own",message:{content:[{type:"text",text:"opaque"}],usage:{input_tokens:9,cache_read_input_tokens:2}}}));

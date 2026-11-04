@@ -189,6 +189,10 @@ function modelWithCapabilities(model) {
     ...profile.defaultEffort ? { defaultReasoningEffort: profile.defaultEffort } : {}
   };
 }
+function reasoningEffortLaunchArgsForModel(model, effort) {
+  const mapped = modelCapabilities(model)?.efforts[effort];
+  return mapped ? ["--effort", mapped] : model ? [] : effort ? ["--effort", effort] : [];
+}
 function modelSettings(args) {
   const enabled = args.includes(MODEL_CAPABILITIES_FLAG);
   const rest = args.filter((arg) => arg !== MODEL_CAPABILITIES_FLAG);
@@ -531,6 +535,57 @@ function* claudeTrustRecord(host2, cwd, grant) {
   }
 }
 
+// plugins/provider-shared/updatePrompt.ts
+function updatePromptSafeChoice(prompt) {
+  if (prompt.options.length < 2 || !prompt.options.some(([label2]) => /\bupdate\b/i.test(label2))) {
+    return null;
+  }
+  const safe = prompt.options.filter(([label2]) => /\b(skip|later|postpone)\b/i.test(label2));
+  const bare = safe.filter(([label2]) => /^\s*(skip|later|postpone)\s*$/i.test(label2));
+  const chosen = safe.length === 1 ? safe : bare;
+  if (chosen.length !== 1) return null;
+  const [label, value] = chosen[0];
+  if (!value || /\bupdate\b/i.test(label)) return null;
+  if (prompt.options.filter(([, candidate]) => candidate === value).length !== 1) return null;
+  return value;
+}
+
+// plugins/provider-claude/src/switchConfirmation.ts
+function parseSwitchConfirmationPrompt(screen, selection) {
+  if (!selection || /\s|[\x00-\x1f]/.test(selection)) return null;
+  const lines = screen.replace(/\r\n?/g, "\n").trimEnd().split("\n");
+  const row = /^\s*(❯\s*)?([12])\.\s+(.+?)\s*$/;
+  const second = row.exec(lines[lines.length - 1] ?? "");
+  const first = row.exec(lines[lines.length - 2] ?? "");
+  if (!first || !second || first[2] !== "1" || second[2] !== "2") return null;
+  if (!first[1] || second[1]) return null;
+  const before = lines.slice(0, -2);
+  let questionIndex = -1;
+  for (let index = before.length - 1; index >= 0; index--) {
+    if (before[index].trim().endsWith("?")) {
+      questionIndex = index;
+      break;
+    }
+  }
+  if (questionIndex < 0 || before.slice(questionIndex + 1).filter((line) => line.trim()).length < 1) return null;
+  if (before.slice(questionIndex).some((line) => /[│┃┌└☐☑]|^\s*[❯>]\s*\d+\./.test(line))) return null;
+  const escaped = selection.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const token = new RegExp(`(?:^|[^a-z0-9_-])${escaped}(?:$|[^a-z0-9_-])`, "i");
+  if (!token.test(first[3]) || token.test(second[3])) return null;
+  return { question: before[questionIndex].trim(), options: [[first[3], "1"], [second[3], "2"]] };
+}
+
+// plugins/provider-claude/src/permissionHook.ts
+function permissionHookCapability() {
+  return {
+    protocol: "claude-permission-request",
+    options: [
+      { label: "Allow", value: "allow" },
+      { label: "Deny", value: "deny" }
+    ]
+  };
+}
+
 // plugins/provider-claude/src/shared.ts
 function manifest() {
   try {
@@ -538,6 +593,214 @@ function manifest() {
   } catch (e) {
     return null;
   }
+}
+
+// plugins/provider-shared/readHome.ts
+function effectiveReadPath(inheritedHome, fallback, subpath, separator) {
+  if (!inheritedHome) return fallback;
+  if (!subpath) return inheritedHome;
+  return inheritedHome + (/[\\/]$/.test(inheritedHome) ? "" : separator) + subpath;
+}
+
+// plugins/provider-claude/src/session.ts
+var CLAUDE_SESSION_DELTA_TYPES = {
+  system: true,
+  user: true,
+  assistant: true,
+  attachment: true,
+  "ai-title": true,
+  edited_text_file: true
+};
+function cleanMetadataValue(value) {
+  if (typeof value !== "string") return null;
+  const cleaned = value.trim();
+  return cleaned && !/[\u0000-\u001f\u007f]/.test(cleaned) ? cleaned : null;
+}
+function aiTitleFromEntry(entry) {
+  return cleanMetadataValue(entry.aiTitle);
+}
+function editedTextFilePath(entry) {
+  const attachment = entry.attachment;
+  return cleanMetadataValue(entry.filename) || cleanMetadataValue(entry.path) || cleanMetadataValue(attachment?.filename) || cleanMetadataValue(attachment?.path);
+}
+function claudeSessionFilePath(cwd, sessionId) {
+  const m = manifest();
+  const root = m && m.sessions && m.sessions.rootDir || "~/.claude/projects";
+  const ext = m && m.sessions && m.sessions.fileExtension || "jsonl";
+  const sep = host.platform() === "windows" ? "\\" : "/";
+  const expanded = effectiveReadPath(host.envGet("CLAUDE_CONFIG_DIR"), host.expandHome(root), "projects", sep);
+  if (!expanded) return null;
+  const encoded = encodeCwdDashed(cwd);
+  return expanded + sep + encoded + sep + sessionId + "." + ext;
+}
+function* sessionModelTranscriptBoundary(cwd, sessionId) {
+  const path = claudeSessionFilePath(cwd, sessionId);
+  if (!path || !(yield* host.io.fs.fileExists(path))) return null;
+  const contents = yield* host.io.fs.readFileTail(path, 4 * 1024 * 1024);
+  if (contents === null) return null;
+  if (!contents) {
+    return {
+      lastEntryUuid: null,
+      lastEntryTimestamp: null,
+      lastEntryType: null,
+      boundaryFound: true
+    };
+  }
+  const lines = contents.split("\n");
+  for (let index = lines.length - 1; index >= 0; index--) {
+    const line = lines[index].trim();
+    if (!line) continue;
+    let entry;
+    try {
+      entry = JSON.parse(line);
+    } catch (_) {
+      continue;
+    }
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+    if (typeof entry.uuid === "string" && entry.uuid) {
+      return {
+        lastEntryUuid: entry.uuid,
+        lastEntryTimestamp: null,
+        lastEntryType: null,
+        boundaryFound: true
+      };
+    }
+    if (entry.type === "user" || entry.type === "assistant") {
+      const timestamp = cleanMetadataValue(entry.timestamp);
+      return timestamp ? {
+        lastEntryUuid: null,
+        lastEntryTimestamp: timestamp,
+        lastEntryType: entry.type,
+        boundaryFound: true
+      } : null;
+    }
+  }
+  return lines.some((line) => line.trim()) ? null : {
+    lastEntryUuid: null,
+    lastEntryTimestamp: null,
+    lastEntryType: null,
+    boundaryFound: true
+  };
+}
+function* detectSessionModelAfterBoundary(cwd, sessionId, boundary) {
+  const path = claudeSessionFilePath(cwd, sessionId);
+  if (!path || !(yield* host.io.fs.fileExists(path))) return null;
+  const contents = yield* host.io.fs.readFileTail(path, 4 * 1024 * 1024);
+  if (!contents) return null;
+  if (!boundary.boundaryFound) return null;
+  const entries = [];
+  for (const line of contents.split("\n")) {
+    if (!line) continue;
+    try {
+      const entry = JSON.parse(line);
+      if (entry && typeof entry === "object" && !Array.isArray(entry)) entries.push(entry);
+    } catch (_) {
+      continue;
+    }
+  }
+  let boundaryIndex = -1;
+  if (boundary.lastEntryUuid !== null) {
+    for (let index = entries.length - 1; index >= 0; index--) {
+      if (entries[index].uuid === boundary.lastEntryUuid) {
+        boundaryIndex = index;
+        break;
+      }
+    }
+    if (boundaryIndex < 0) return null;
+  } else if (boundary.lastEntryTimestamp !== null && boundary.lastEntryType !== null) {
+    for (let index = entries.length - 1; index >= 0; index--) {
+      const entry = entries[index];
+      if (entry.type === boundary.lastEntryType && cleanMetadataValue(entry.timestamp) === boundary.lastEntryTimestamp) {
+        boundaryIndex = index;
+        break;
+      }
+    }
+    if (boundaryIndex < 0) return null;
+  }
+  for (let index = entries.length - 1; index > boundaryIndex; index--) {
+    const entry = entries[index];
+    if (entry.type !== "assistant") continue;
+    const model = entry.message?.model;
+    if (typeof model === "string" && model && model !== "<synthetic>") {
+      return familyFromModelId(model);
+    }
+  }
+  return null;
+}
+function encodeCwdDashed(cwd) {
+  return String(cwd || "").replace(/[^a-zA-Z0-9]/g, "-");
+}
+function isValidClaudeSessionMessage(v) {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return false;
+  if (v.type !== "user" && v.type !== "assistant") return false;
+  if (!v.message || typeof v.message !== "object" || Array.isArray(v.message)) return false;
+  const content = v.message.content;
+  if (typeof content !== "string" && !Array.isArray(content)) return false;
+  return true;
+}
+function validateEntry(v) {
+  return isValidClaudeSessionDelta(v);
+}
+function isValidClaudeSessionDelta(v) {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return false;
+  if (v.type === "ai-title") return aiTitleFromEntry(v) !== null;
+  if (v.type === "edited_text_file") return editedTextFilePath(v) !== null;
+  if (!CLAUDE_SESSION_DELTA_TYPES[v.type]) return false;
+  if (v.type === "system") {
+    const sc = v.content;
+    if (typeof sc === "string" || Array.isArray(sc)) return true;
+    return typeof v.subtype === "string" && v.subtype.length > 0;
+  }
+  if (v.type === "attachment") {
+    const a = v.attachment;
+    return !!a && typeof a === "object" && (a.type === "queued_command" && typeof a.prompt === "string" && a.prompt.length > 0 || a.type === "edited_text_file" && editedTextFilePath(v) !== null);
+  }
+  const msg = v.message;
+  if (!msg || typeof msg !== "object" || Array.isArray(msg)) return false;
+  if (typeof msg.content !== "string" && !Array.isArray(msg.content)) return false;
+  return true;
+}
+function extractSetModelFamily(raw) {
+  const prefix = "Set model to ";
+  if (!raw.startsWith(prefix)) return null;
+  const after = raw.slice(prefix.length);
+  const cleaned = stripAnsi(after).replace(/^[\s`]+/, "");
+  let fam = "";
+  for (let i = 0; i < cleaned.length; i++) {
+    const c = cleaned.charAt(i);
+    if (!/[a-zA-Z]/.test(c)) break;
+    fam += c;
+  }
+  return fam ? capitalize(fam) : null;
+}
+function stripAnsi(s) {
+  let out = "";
+  let i = 0;
+  while (i < s.length) {
+    if (s.charCodeAt(i) === 27 && s.charAt(i + 1) === "[") {
+      i += 2;
+      while (i < s.length && !/[a-zA-Z]/.test(s.charAt(i))) i++;
+      if (i < s.length) i++;
+    } else {
+      out += s.charAt(i);
+      i++;
+    }
+  }
+  return out;
+}
+function familyFromModelId(id) {
+  const m = String(id || "").toLowerCase();
+  const fams = ["opus", "sonnet", "haiku"];
+  for (let i = 0; i < fams.length; i++) {
+    if (m.indexOf(fams[i]) !== -1) return capitalize(fams[i]);
+  }
+  const body = m.indexOf("claude-") === 0 ? m.substring(7) : m;
+  const head = body.split("-")[0] || body;
+  return capitalize(head);
+}
+function capitalize(s) {
+  if (!s) return "";
+  return s.charAt(0).toUpperCase() + s.substring(1).toLowerCase();
 }
 
 // plugins/provider-shared/accessError.ts
@@ -690,8 +953,22 @@ function retryError(record3) {
 }
 
 // plugins/provider-claude/src/signals.ts
+function authStatusProbe() {
+  return { args: ["auth", "status"], timeoutMs: 15e3 };
+}
 function object2(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+}
+function parseAuthStatus(value) {
+  const record3 = object2(value);
+  if (!record3 || typeof record3.loggedIn !== "boolean") return null;
+  const result = { loggedIn: record3.loggedIn };
+  for (const key of ["authMethod", "subscriptionType", "configDirectory"]) {
+    const field = record3[key];
+    if (field !== void 0 && field !== null && (typeof field !== "string" || field.length > 4096)) return null;
+    result[key] = field ?? null;
+  }
+  return result;
 }
 function parseSessionObservations(value) {
   const record3 = object2(value);
@@ -736,13 +1013,6 @@ function parseBackgroundWork(value) {
     }
   }
   return events;
-}
-
-// plugins/provider-shared/readHome.ts
-function effectiveReadPath(inheritedHome, fallback, subpath, separator) {
-  if (!inheritedHome) return fallback;
-  if (!subpath) return inheritedHome;
-  return inheritedHome + (/[\\/]$/.test(inheritedHome) ? "" : separator) + subpath;
 }
 
 // plugins/provider-claude/src/launchSession.ts
@@ -1068,113 +1338,6 @@ function usageParseDayToken(s) {
 }
 function usageIsWeekday(s) {
   return /^(mon|monday|tue|tues|tuesday|wed|wednesday|thu|thur|thurs|thursday|fri|friday|sat|saturday|sun|sunday)$/.test(s);
-}
-
-// plugins/provider-claude/src/session.ts
-var CLAUDE_SESSION_DELTA_TYPES = {
-  system: true,
-  user: true,
-  assistant: true,
-  attachment: true,
-  "ai-title": true,
-  edited_text_file: true
-};
-function cleanMetadataValue(value) {
-  if (typeof value !== "string") return null;
-  const cleaned = value.trim();
-  return cleaned && !/[\u0000-\u001f\u007f]/.test(cleaned) ? cleaned : null;
-}
-function aiTitleFromEntry(entry) {
-  return cleanMetadataValue(entry.aiTitle);
-}
-function editedTextFilePath(entry) {
-  const attachment = entry.attachment;
-  return cleanMetadataValue(entry.filename) || cleanMetadataValue(entry.path) || cleanMetadataValue(attachment?.filename) || cleanMetadataValue(attachment?.path);
-}
-function claudeSessionFilePath(cwd, sessionId) {
-  const m = manifest();
-  const root = m && m.sessions && m.sessions.rootDir || "~/.claude/projects";
-  const ext = m && m.sessions && m.sessions.fileExtension || "jsonl";
-  const sep = host.platform() === "windows" ? "\\" : "/";
-  const expanded = effectiveReadPath(host.envGet("CLAUDE_CONFIG_DIR"), host.expandHome(root), "projects", sep);
-  if (!expanded) return null;
-  const encoded = encodeCwdDashed(cwd);
-  return expanded + sep + encoded + sep + sessionId + "." + ext;
-}
-function encodeCwdDashed(cwd) {
-  return String(cwd || "").replace(/[^a-zA-Z0-9]/g, "-");
-}
-function isValidClaudeSessionMessage(v) {
-  if (!v || typeof v !== "object" || Array.isArray(v)) return false;
-  if (v.type !== "user" && v.type !== "assistant") return false;
-  if (!v.message || typeof v.message !== "object" || Array.isArray(v.message)) return false;
-  const content = v.message.content;
-  if (typeof content !== "string" && !Array.isArray(content)) return false;
-  return true;
-}
-function validateEntry(v) {
-  return isValidClaudeSessionDelta(v);
-}
-function isValidClaudeSessionDelta(v) {
-  if (!v || typeof v !== "object" || Array.isArray(v)) return false;
-  if (v.type === "ai-title") return aiTitleFromEntry(v) !== null;
-  if (v.type === "edited_text_file") return editedTextFilePath(v) !== null;
-  if (!CLAUDE_SESSION_DELTA_TYPES[v.type]) return false;
-  if (v.type === "system") {
-    const sc = v.content;
-    if (typeof sc === "string" || Array.isArray(sc)) return true;
-    return typeof v.subtype === "string" && v.subtype.length > 0;
-  }
-  if (v.type === "attachment") {
-    const a = v.attachment;
-    return !!a && typeof a === "object" && (a.type === "queued_command" && typeof a.prompt === "string" && a.prompt.length > 0 || a.type === "edited_text_file" && editedTextFilePath(v) !== null);
-  }
-  const msg = v.message;
-  if (!msg || typeof msg !== "object" || Array.isArray(msg)) return false;
-  if (typeof msg.content !== "string" && !Array.isArray(msg.content)) return false;
-  return true;
-}
-function extractSetModelFamily(raw) {
-  const prefix = "Set model to ";
-  if (!raw.startsWith(prefix)) return null;
-  const after = raw.slice(prefix.length);
-  const cleaned = stripAnsi(after).replace(/^[\s`]+/, "");
-  let fam = "";
-  for (let i = 0; i < cleaned.length; i++) {
-    const c = cleaned.charAt(i);
-    if (!/[a-zA-Z]/.test(c)) break;
-    fam += c;
-  }
-  return fam ? capitalize(fam) : null;
-}
-function stripAnsi(s) {
-  let out = "";
-  let i = 0;
-  while (i < s.length) {
-    if (s.charCodeAt(i) === 27 && s.charAt(i + 1) === "[") {
-      i += 2;
-      while (i < s.length && !/[a-zA-Z]/.test(s.charAt(i))) i++;
-      if (i < s.length) i++;
-    } else {
-      out += s.charAt(i);
-      i++;
-    }
-  }
-  return out;
-}
-function familyFromModelId(id) {
-  const m = String(id || "").toLowerCase();
-  const fams = ["opus", "sonnet", "haiku"];
-  for (let i = 0; i < fams.length; i++) {
-    if (m.indexOf(fams[i]) !== -1) return capitalize(fams[i]);
-  }
-  const body = m.indexOf("claude-") === 0 ? m.substring(7) : m;
-  const head = body.split("-")[0] || body;
-  return capitalize(head);
-}
-function capitalize(s) {
-  if (!s) return "";
-  return s.charAt(0).toUpperCase() + s.substring(1).toLowerCase();
 }
 
 // plugins/provider-claude/src/models.ts

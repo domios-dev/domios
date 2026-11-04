@@ -1,6 +1,7 @@
 import { ioFileTransaction } from "@codeterm/plugin-sdk";
 import { defineProviderIo, type IoExports } from "@codeterm/plugin-sdk";
-import { ioSqlite, type HostIoSteps } from "@codeterm/plugin-sdk";
+import { ioSqlite, ioResolve, type HostIoSteps } from "@codeterm/plugin-sdk";
+import { updatePromptSafeChoice } from "../../provider-shared/updatePrompt";
 import { runPromptSteps } from "../../provider-shared/runPromptStep";
 import { sessionObservations, turnError } from "./turnErrors";
 import { checkOpencodeUpdate } from "./update";
@@ -433,7 +434,7 @@ const plugin = {
   },
 
   *ensureIntegrationOnStartup(_apiPort: number): HostIoSteps<unknown> {
-    return (yield* this.checkIntegration!());
+    return (yield* ioResolve(this.checkIntegration!()));
   },
 
   *sessionExists(_cwd: string, sessionId: string): HostIoSteps<boolean | null> {
@@ -493,7 +494,7 @@ const plugin = {
     const [sinceMs, seenAtSinceMs] = parsedCursor;
     // Track `time_updated`, not `time_created`: a streamed part keeps its creation
     // instant while its text/output grows, so a creation window skips every update.
-    return (yield* ioSqlite<StructuredChatRow>(host.io.fs, db, "SELECT p.id AS id, p.time_created AS ts_created, p.time_updated AS ts_updated, p.data AS part, " +
+    return (yield* ioSqlite<StructuredChatRow, unknown>(host.io.fs, db, "SELECT p.id AS id, p.time_created AS ts_created, p.time_updated AS ts_updated, p.data AS part, " +
         "CASE WHEN octet_length(m.data) <= ?3 AND json_valid(m.data) THEN json_extract(m.data,'$.role') END AS role " +
         " , NULL AS message FROM part p JOIN message m ON m.id = p.message_id " +
         "WHERE p.session_id = ?1 AND m.session_id = ?1 AND p.time_updated >= ?2 " +
