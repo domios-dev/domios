@@ -9,7 +9,7 @@ export interface SectionRow {
   glyph: SectionRowGlyph;
 }
 
-function flatten(sections: Section[], depth: number, out: Section[]): void {
+function flatten<T extends { subsections: T[] }>(sections: T[], depth: number, out: T[]): void {
   for (const s of sections) {
     out.push(s);
     if (s.subsections?.length) flatten(s.subsections, depth + 1, out);
@@ -23,8 +23,8 @@ export function flatSections(plan: Plan): Section[] {
 }
 
 // Same flatten over a bare section tree (spec sections arrive as Section[], not a Plan).
-export function flattenSections(sections: Section[]): Section[] {
-  const out: Section[] = [];
+export function flattenSections<T extends { subsections: T[] }>(sections: T[]): T[] {
+  const out: T[] = [];
   flatten(sections, 0, out);
   return out;
 }

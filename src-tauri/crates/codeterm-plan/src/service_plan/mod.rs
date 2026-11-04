@@ -342,8 +342,8 @@ impl PlanStore {
         Ok(store)
     }
 
-    #[cfg(test)]
-    pub(crate) fn database_path_for_test(&self) -> PathBuf {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn database_path_for_test(&self) -> PathBuf {
         self.database.path()
     }
 
