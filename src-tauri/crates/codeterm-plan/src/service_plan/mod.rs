@@ -3,6 +3,8 @@ mod attempt_binding_refusal;
 pub use attempt_binding_refusal::AttemptBindingRefusalKind;
 pub mod attachments;
 pub mod batch;
+mod binding_projection;
+pub use binding_projection::{KpiPlanContextRead, TaskBindingRead};
 pub mod body_files;
 pub mod canvas_elements;
 pub mod change_feed;

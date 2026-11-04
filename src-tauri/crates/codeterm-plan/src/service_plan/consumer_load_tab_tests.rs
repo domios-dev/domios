@@ -3,7 +3,7 @@
 
 use super::load_audit::{assert_never_loaded, attempt, execution_plan, planner, seed, start, task};
 use super::task_attempts::CompleteAcknowledgedDispatchBinding;
-use super::{paths, PlanStore};
+use super::{paths, PlanStore, TaskBindingRead};
 use crate::plan::{PlanMode, TaskStatus};
 
 fn fixture() -> (tempfile::TempDir, PlanStore, String) {
@@ -70,10 +70,14 @@ fn task_binding_for_tab_never_loads_unmatched_plans() {
     start(&store);
 
     assert_eq!(
-        store.task_binding_for_tab("tab-a"),
-        Some((matched, "task_m".into()))
+        store.assigned_task_binding_projection("tab-a").unwrap(),
+        Some(TaskBindingRead {
+            plan_id: matched,
+            task_id: "task_m".into()
+        })
     );
     assert_never_loaded(&store, &[&unmatched]);
+    assert!(store.plan_loads_for_test().is_empty());
 }
 
 #[test]
@@ -99,10 +103,16 @@ fn report_pending_task_binding_for_tab_never_loads_unmatched_plans() {
     start(&store);
 
     assert_eq!(
-        store.report_pending_task_binding_for_tab("tab-a"),
-        Some((matched, "task_m".into()))
+        store
+            .report_pending_task_binding_projection("tab-a")
+            .unwrap(),
+        Some(TaskBindingRead {
+            plan_id: matched,
+            task_id: "task_m".into()
+        })
     );
     assert_never_loaded(&store, &[&unmatched]);
+    assert!(store.plan_loads_for_test().is_empty());
 }
 
 #[test]
@@ -149,8 +159,12 @@ fn planner_plan_id_for_tab_never_loads_unmatched_plans() {
     let other = seed(&store, other);
     start(&store);
 
-    assert_eq!(store.planner_plan_id_for_tab("planner-a"), Some(planned));
+    assert_eq!(
+        store.planner_binding_projection("planner-a").unwrap(),
+        Some(planned)
+    );
     assert_never_loaded(&store, &[&other]);
+    assert!(store.plan_loads_for_test().is_empty());
 }
 
 #[test]
@@ -172,10 +186,11 @@ fn taskless_plan_context_candidates_for_tab_never_loads_unmatched_plans() {
     let mut expected = vec![owned, planned];
     expected.sort();
     assert_eq!(
-        store.taskless_plan_context_candidates_for_tab("tab-a"),
+        store.taskless_plan_bindings_projection("tab-a").unwrap(),
         expected
     );
     assert_never_loaded(&store, &[&other]);
+    assert!(store.plan_loads_for_test().is_empty());
 }
 
 #[test]
