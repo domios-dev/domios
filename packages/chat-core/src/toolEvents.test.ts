@@ -350,9 +350,10 @@ console.log("ok - tool event lifecycle");
 }
 
 {
-  const diff = (path: string, additions: number) => ({ path, additions, deletions: 1, hunks: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: ["-a", "+b"] }] });
+  // Counts must match the hunk's own marked lines, or the diff is rejected as malformed.
+  const diff = (path: string) => ({ path, additions: 1, deletions: 1, hunks: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: ["-a", "+b"] }] });
   const edit = (id: string, path: string, patch: Partial<NormalizedChatMessage> = {}): NormalizedChatMessage =>
-    call(id, `t-${id}`, { toolKind: "edit", toolSummary: path, fileDiffs: [diff(path, 2)], sourceSessionId: "s1", ...patch });
+    call(id, `t-${id}`, { toolKind: "edit", toolSummary: path, fileDiffs: [diff(path)], sourceSessionId: "s1", ...patch });
   const items = reduceToolEvents([
     edit("e1", "src/a.rs"),
     edit("e2", "src/b.rs"),
