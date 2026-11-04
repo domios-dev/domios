@@ -119,6 +119,7 @@ fn task_key_contract_socket_add_returns_key_and_reads_accept_id_or_key() {
             .service
             .plan_store
             .task_display_key(&plan_id, &task_id)
+            .unwrap()
             .as_deref(),
         Some(key.as_str())
     );

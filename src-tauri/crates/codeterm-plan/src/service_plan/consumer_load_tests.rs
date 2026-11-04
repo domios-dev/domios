@@ -212,7 +212,7 @@ fn task_key_high_water_never_loads_unmatched_plans() {
     );
     start(&store);
 
-    assert_eq!(store.task_key_high_water().get("AUD"), Some(&7));
+    assert_eq!(store.task_key_high_water().unwrap().get("AUD"), Some(&7));
     assert!(
         store.plan_loads_for_test().is_empty(),
         "keys come from the task rows"

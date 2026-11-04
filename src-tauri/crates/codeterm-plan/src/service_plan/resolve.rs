@@ -253,19 +253,16 @@ pub(super) struct TaskReferenceRead {
 
 impl PlanStore {
     /// Any id currently in the store (plan / spec / task / section / milestone). Mint-time check.
-    pub(super) fn id_taken(&self, id: &str) -> bool {
+    pub(super) fn id_taken(&self, id: &str) -> Result<bool, PlanError> {
         if self.specs.read().contains_key(id) || self.index.read().contains_key(id) {
-            return true;
+            return Ok(true);
         }
-        self.database.id_in_use(id).unwrap_or_else(|error| {
-            log::warn!("[plan.store] id collision query failed: {error}");
-            false
-        })
+        self.database.id_in_use(id)
     }
 
     /// Collision-checked short id. Must NOT be called while holding a plan mutex.
-    pub(super) fn mint_id(&self, prefix: &str) -> String {
-        crate::plan::ids::mint_id(prefix, |c| self.id_taken(c))
+    pub(super) fn mint_id(&self, prefix: &str) -> Result<String, PlanError> {
+        crate::plan::ids::try_mint_id(prefix, |candidate| self.id_taken(candidate))
     }
 
     fn plan_match_items(&self) -> Vec<MatchItem> {

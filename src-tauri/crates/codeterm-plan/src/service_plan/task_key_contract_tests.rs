@@ -319,7 +319,7 @@ fn task_key_contract_task_json_serializes_key_beside_id() {
     assert_eq!(detail["display_key"], "ALP-1");
     assert_eq!(detail["task"]["id"], keyed);
     assert_eq!(
-        store.task_display_key(&plan_id, &keyed).as_deref(),
+        store.task_display_key(&plan_id, &keyed).unwrap().as_deref(),
         Some("ALP-1")
     );
 }

@@ -304,16 +304,6 @@ impl PlanStore {
         })
     }
 
-    /// One text field (a JSON path such as `$.lane.worktree_path`) of every task row holding it.
-    pub fn task_field_values(&self, path: &str) -> Vec<TaskFieldRow> {
-        self.database
-            .task_field_values(path)
-            .unwrap_or_else(|error| {
-                log::warn!("[plan.store] task field query failed: {error}");
-                Vec::new()
-            })
-    }
-
     /// One text field of every attempt row holding it.
     pub fn attempt_field_values(&self, path: &str) -> Vec<AttemptFieldRow> {
         self.database

@@ -779,7 +779,7 @@ impl PlanStore {
             return Err(PlanError::QaNoteRequired);
         }
         let mut result = None;
-        let milestone_id = self.mint_id("ms");
+        let milestone_id = self.mint_id("ms")?;
         self.with_task_rows(
             plan_id,
             task_id,
@@ -944,11 +944,11 @@ impl PlanStore {
                 .read_task_core(plan_id, task_id)
                 .is_ok_and(|task| task.review_round >= max_review_rounds());
         let follow_up_key = self
-            .issue_task_keys(plan_id, usize::from(needs_follow_up))
+            .issue_task_keys(plan_id, usize::from(needs_follow_up))?
             .into_iter()
             .next();
-        let follow_up_id = risk.map(|_| self.mint_id("task"));
-        let milestone_id = self.mint_id("ms");
+        let follow_up_id = risk.map(|_| self.mint_id("task")).transpose()?;
+        let milestone_id = self.mint_id("ms")?;
         self.with_task_rows(
             plan_id,
             task_id,
