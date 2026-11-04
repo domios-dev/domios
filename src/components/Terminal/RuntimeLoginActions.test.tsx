@@ -124,3 +124,32 @@ it("keeps a live notice across same-epoch snapshots and clears it for a new runt
   expect(runtimeStateFromSnapshot(state,{state:"loaded",epoch:4})?.notice).toBe("Transient");
   expect(runtimeStateFromSnapshot(state,{state:"loaded",epoch:5})?.notice).toBeUndefined();
 });
+
+it("keeps declared model, reasoning and session mode controls separately named and focusable", async () => {
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  const state: AgentRuntimeState = {state:"loaded",epoch:4,controls:{
+    configOptions:[
+      {id:"model",name:"Model",category:"model",currentValue:"model-one",options:[{value:"model-one",name:"Model one"}]},
+      {id:"effort",name:"Reasoning effort",currentValue:"high",options:[{value:"high",name:"High"}]},
+    ],
+    mode:"code",modes:[{id:"code",name:"Code"}],
+  }};
+  try {
+    await act(async () => root.render(<RuntimeDeclaredControls tabId="owned" state={state} />));
+    const group = host.querySelector('[role="group"][aria-label="Agent controls"]');
+    expect(group).not.toBeNull();
+    for (const name of ["Model", "Reasoning effort", "Session mode"]) {
+      const control = group!.querySelector<HTMLSelectElement>(`[role="combobox"][aria-label="${name}"]`)!;
+      expect(control).not.toBeNull();
+      expect(control.disabled).toBe(false);
+      expect(control.tabIndex).toBe(0);
+      control.focus();
+      expect(document.activeElement).toBe(control);
+    }
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
