@@ -1,4 +1,4 @@
-import { ioTestExport, ioTestContext } from "../../provider-shared/tests/hostIo";
+import { ioTestExport, ioTestContext, installTestIo } from "../../provider-shared/tests/hostIo";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
@@ -283,7 +283,8 @@ test("Cloud task storage uses the supplied instance data root", () => {
         readFile(path: string) { readPath = path; return null; },
       },
     } as unknown as Host;
-    cloudExports(() => host).viewCall!("read", {sessionId: "tab-fixture"}, VIEW_CONTEXT);
+    const fixtureHost = installTestIo(host);
+    fixtureHost.io.run(ioSource_cloudExports(() => fixtureHost).viewCall("read", {sessionId: "tab-fixture"}, VIEW_CONTEXT));
     assert.equal(readPath, `${root.replace(/[\\/]$/, "")}/codex/tasks/tab-fixture.json`);
   }
 });

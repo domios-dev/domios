@@ -74,7 +74,7 @@ export function remoteChatBackend(storage: RemoteTaskStorage, backend: RemoteTas
     closeSession(sessionId) { epochs.delete(sessionId); sessions.delete(sessionId); },
     listModels: () => [],
     listPresets: () => backend.capability.environments.map(environment => ({id: environment.id, name: environment.label})),
-    *viewCall(method, args) {
+    *viewCall(method, args, _context: Parameters<ViewCall>[2]) {
       const input = args as {sessionId?: string; prompt?: string; branch?: string} | null;
       const sessionId = input?.sessionId;
       if (!sessionId) throw new Error("Remote task tab is not open");

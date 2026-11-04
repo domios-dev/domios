@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
+import { ioTestContext } from "./hostIo";
 import type { HostFs, JsonValue, ParsedSessionRecord, PluginModule, SessionRecordsMeta } from "@codeterm/plugin-sdk";
 
 export function recordInput(text: string, fromOffset = 0, sourceKey?: string): {records: ParsedSessionRecord[]; meta: SessionRecordsMeta} {
@@ -23,7 +24,7 @@ export function loadRecordPlugin(directory: string, fsOverrides: Partial<HostFs>
     host:{platform:()=>"linux",unixNowMs:()=>0,manifestJson:()=>"null",envGet:()=>null,homeDir:()=>"/tmp",
       expandHome:(value:string)=>value,path:{equal:()=>true},shell:{quoteFor:String,quote:String},
       fs:{fileExists:()=>false,readFile:()=>null,readFileHead:()=>null,readFileTail:()=>null,readJson:()=>null,...fsOverrides}}};
-  vm.runInNewContext(fs.readFileSync(path.join(directory,"plugin.js"),"utf8"),context);
+  vm.runInNewContext(fs.readFileSync(path.join(directory,"plugin.js"),"utf8"),ioTestContext(context));
   return context.module.exports.default;
 }
 

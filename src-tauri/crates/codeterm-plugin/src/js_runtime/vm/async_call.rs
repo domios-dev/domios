@@ -29,6 +29,8 @@ where
     R: Send + 'static,
     F: FnOnce(&PluginVm, Arc<operation::Context>) -> Result<R, VmError> + Send + 'static,
 {
+    let runtime = tokio::runtime::Handle::try_current()
+        .map_err(|error| VmError::RuntimeInit(error.to_string()))?;
     let operation = vm.admission.enter(Some(default_call_interrupt(&vm)))?;
     let context = operation.context.clone();
     let _cancel = CancelOnDrop(context.clone());
@@ -36,23 +38,24 @@ where
     let host_env = super::super::host_exec::current_host_env();
     let view = crate::view_host::current_view_call_context(vm.plugin_id());
     let failed_context = context.clone();
-    tokio::task::spawn_blocking(move || {
-        let _operation = operation;
-        let _observer = observer.map(codeterm_decision::physical::RequestScope::enter);
-        let _host_env = super::super::host_exec::host_env_scope(host_env);
-        context.check()?;
-        let call = || work(&vm, context);
-        match view {
-            Some(view) => {
-                crate::view_host::with_view_call_context(vm.plugin_id(), &view, || Ok(call()))
-                    .map_err(|error| VmError::Script(error.to_string()))?
+    runtime
+        .spawn_blocking(move || {
+            let _operation = operation;
+            let _observer = observer.map(codeterm_decision::physical::RequestScope::enter);
+            let _host_env = super::super::host_exec::host_env_scope(host_env);
+            context.check()?;
+            let call = || work(&vm, context);
+            match view {
+                Some(view) => {
+                    crate::view_host::with_view_call_context(vm.plugin_id(), &view, || Ok(call()))
+                        .map_err(|error| VmError::Script(error.to_string()))?
+                }
+                None => call(),
             }
-            None => call(),
-        }
-    })
-    .await
-    .map_err(|_| match failed_context.check() {
-        Err(VmError::IoUnconfirmed) => VmError::IoUnconfirmed,
-        _ => VmError::Script("plugin blocking worker failed".into()),
-    })?
+        })
+        .await
+        .map_err(|_| match failed_context.check() {
+            Err(VmError::IoUnconfirmed) => VmError::IoUnconfirmed,
+            _ => VmError::Script("plugin blocking worker failed".into()),
+        })?
 }

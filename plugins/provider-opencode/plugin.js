@@ -63,6 +63,21 @@ function* ioThen(steps, then) {
   return yield* ioResolve(then(yield* steps));
 }
 
+// plugins/provider-shared/updatePrompt.ts
+function updatePromptSafeChoice(prompt) {
+  if (prompt.options.length < 2 || !prompt.options.some(([label2]) => /\bupdate\b/i.test(label2))) {
+    return null;
+  }
+  const safe = prompt.options.filter(([label2]) => /\b(skip|later|postpone)\b/i.test(label2));
+  const bare = safe.filter(([label2]) => /^\s*(skip|later|postpone)\s*$/i.test(label2));
+  const chosen = safe.length === 1 ? safe : bare;
+  if (chosen.length !== 1) return null;
+  const [label, value] = chosen[0];
+  if (!value || /\bupdate\b/i.test(label)) return null;
+  if (prompt.options.filter(([, candidate]) => candidate === value).length !== 1) return null;
+  return value;
+}
+
 // plugins/provider-shared/runPromptStep.ts
 function bytes(text) {
   let count = 0;
@@ -2042,7 +2057,7 @@ var plugin = {
     });
   },
   *ensureIntegrationOnStartup(_apiPort) {
-    return yield* this.checkIntegration();
+    return yield* ioResolve(this.checkIntegration());
   },
   *sessionExists(_cwd, sessionId) {
     const db = opencodeDbPath();

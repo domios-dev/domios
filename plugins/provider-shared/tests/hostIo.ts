@@ -64,6 +64,9 @@ export function installTestIo<T extends object>(fixture: T): T & {io: HostIo} {
     throw new Error(`Unsupported fixture I/O ${request.op}`);
   };
   const request = (effect: HostIoRequest, then: (value: unknown, failed: boolean) => unknown): unknown => {
+    if (effect.op === "sqliteQuery" && (!effect.nullable || typeof host.sqliteQueryAllJson !== "function") && typeof fs.sqliteQueryAsync === "function") {
+      return invoke(fs, "sqliteQueryAsync", [effect.db, effect.sql, effect.params ?? [], (rows: unknown) => then(rows, false)]);
+    }
     if (effect.op === "awaitJob") {
       const job = jobs.get(effect.job);
       if (!job) return invoke(host, "awaitJob", [effect.job, (value: unknown) => then(parse(value), false)]);
@@ -103,13 +106,14 @@ export function installTestIo<T extends object>(fixture: T): T & {io: HostIo} {
   const io = ((effect: HostIoRequest, then: Fn) => request(effect, (value, failed) => { if (failed) throw value; return then(value); })) as HostIo;
   io.run = run as HostIo["run"];
   io.fs = {} as HostIoFs;
-  for (const name of ["readFile", "fileExists", "isSymlink", "canonicalPath", "lockFile", "removeFile", "makeDirs", "readDir", "listChildDirs"]) {
-    (io.fs as unknown as Port)[name] = function* (path: string) { return yield {op: name, path}; };
+  for (const name of ["readFile", "fileExists", "isSymlink", "canonicalPath", "lockFile", "removeFile", "makeDirs", "readDir", "listChildDirs"] as const) {
+    (io.fs as unknown as Port)[name] = function* (path: string): HostIoSteps<unknown> { return yield {op: name, path}; };
   }
-  for (const name of ["readFileHead", "readFileTail"]) (io.fs as unknown as Port)[name] = function* (path: string, maxBytes: number) { return yield {op: name, path, maxBytes}; };
-  for (const name of ["writeFile", "writeFileAtomic"]) (io.fs as unknown as Port)[name] = function* (path: string, contents: string) { return yield {op: name, path, contents}; };
+  for (const name of ["readFileHead", "readFileTail"] as const) (io.fs as unknown as Port)[name] = function* (path: string, maxBytes: number): HostIoSteps<unknown> { return yield {op: name, path, maxBytes}; };
+  for (const name of ["writeFile", "writeFileAtomic"] as const) (io.fs as unknown as Port)[name] = function* (path: string, contents: string): HostIoSteps<unknown> { return yield {op: name, path, contents}; };
   io.fs.unlockFile = function* (id) { return (yield {op: "unlockFile", id}) as boolean; };
   io.fs.writeTempFile = function* (contents, suffix) { return (yield {op: "writeTempFile", contents, suffix}) as string | null; };
+  io.fs.walkDir = function* (path, maxDepth = 5) { return (yield {op: "walkDir", path, maxDepth}) as import("../../../packages/plugin-sdk/src/host").DirEntry[]; };
   io.fs.sqliteQuery = function* <R>(db: string, sql: string, params?: unknown[] | null) { return (yield {op: "sqliteQuery", db, sql, params}) as R[]; };
   io.fs.sqliteQueryNullable = function* <R>(db: string, sql: string, params?: unknown[] | null) { return (yield {op: "sqliteQuery", db, sql, params, nullable: true}) as R[] | null; };
   io.fs.readJson = function* <R>(path: string) { return (typeof fs.readJson === "function" ? invoke(fs, "readJson", [path]) : parse(yield {op: "readFile", path})) as R | null; };

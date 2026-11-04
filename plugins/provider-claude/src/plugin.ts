@@ -10,13 +10,18 @@ import { isImageDisplayMetadata } from "./imageMetadata";
 import { shouldParseClaudeRecord } from "./recordPrefix";
 import { checkClaudeUpdate } from "./update";
 import { claudeTrustRecord } from "./preTrust";
+import { updatePromptSafeChoice } from "../../provider-shared/updatePrompt";
+import { parseSwitchConfirmationPrompt } from "./switchConfirmation";
+import { permissionHookCapability } from "./permissionHook";
+import { reasoningEffortLaunchArgsForModel } from "./modelCapabilities";
+import { sessionModelTranscriptBoundary, detectSessionModelAfterBoundary } from "./session";
 
 // plugin.js by scripts/build-plugin.mjs. Frontend contract lives in src/index.ts.
 import type { LaunchParams, LaunchSessionDetection, LaunchSessionEvidence, ParsedPrompt, PluginModule, ResumeParams } from "@codeterm/plugin-sdk";
 import { manifest } from "./shared";
 
 import { parseContextUsage, statuslineLaunchArgs } from "./context";
-import { parseSessionObservations } from "./signals";
+import { authStatusProbe, parseAuthStatus, parseSessionObservations } from "./signals";
 import { parseBackgroundWork } from "./backgroundWork";
 import { detectClaudeLaunchSession } from "./launchSession";
 import { fetchClaudeUsage, parseFetchedClaudeUsage, usageBlockIsComplete, usageNormalize, usageParseBlock } from "./usage";

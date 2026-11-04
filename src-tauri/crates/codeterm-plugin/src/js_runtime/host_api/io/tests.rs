@@ -266,6 +266,18 @@ fn current_thread_runtime_refuses_synchronous_dispatch_before_starting_native_wo
 }
 
 #[test]
+fn asynchronous_dispatch_without_a_runtime_refuses_before_admission() {
+    let vm = vm("io-no-runtime", None);
+    let result = futures_executor::block_on(crate::js_runtime::vm::call_json_async::<String>(
+        vm.clone(),
+        "health",
+        Vec::new(),
+    ));
+    assert!(matches!(result, Err(VmError::RuntimeInit(_))));
+    assert_eq!(call_json::<String>(&vm, "health", &[]).unwrap(), "healthy");
+}
+
+#[test]
 fn one_worker_runtime_keeps_scheduling_while_a_native_dependency_is_held() {
     let vm = vm("io-one-worker", None);
     let gates = Gates::new("io-one-worker");
