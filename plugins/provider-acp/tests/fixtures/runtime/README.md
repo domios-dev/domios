@@ -23,9 +23,14 @@ contexts and expected outcomes are adapter assertions, not wire fields.
 - `resume-when-advertised`: sessionCapabilities.resume object and session/resume.
 - `resume-not-advertised`: absent optional capabilities; the expected plan error
   proves refusal without an outbound session method.
-- `cancel`: session/cancel notification targeting the new session.
+- `cancel`: session/cancel notification targeting the new session. The host active
+  turn and local RPC target are adapter authority metadata; no turn id is added
+  to ACP wire parameters.
 - `foreign-session-frame`: a session/update text chunk with its session id
   changed, followed by an own-session chunk as a positive control.
+
+The root scenario roster is declared in `tests/runtime-manifest.json`; native
+and JS replay require the exact discovered set.
 
 Text is baseline ACP v1 prompt content; image, audio and embedded resources are
 not sent. Client permission requests, filesystem and terminal methods are outside

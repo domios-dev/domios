@@ -627,10 +627,10 @@ async fn ensure_locked(
                         reason: error.to_string(),
                     })?,
             );
-            env.extend(crate::service::execution_sandbox::environment(
-                &owner, &target,
-            ));
-            env.extend(launch.env.clone());
+            launch.apply_environment(
+                &mut env,
+                crate::service::execution_sandbox::environment(&owner, &target),
+            );
             env.remove(super::cli_exception::SCOPE_ENV);
             if restricted_cli {
                 env.insert(

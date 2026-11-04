@@ -28,7 +28,8 @@
     {
       "operation": {
         "kind": "interrupt",
-        "threadId": "session-fixture"
+        "threadId": "session-fixture",
+        "activeTurnId": "host-turn-fixture"
       },
       "context": {
         "epoch": 1,
@@ -39,9 +40,15 @@
         "settings": {},
         "providerSettings": {},
         "claimedSends": [],
-        "activeTurns": [],
+        "activeTurns": [
+          {
+            "threadId": "session-fixture",
+            "turnId": "host-turn-fixture"
+          }
+        ],
         "threadParents": [],
-        "threadId": "session-fixture"
+        "threadId": "session-fixture",
+        "activeTurnId": "host-turn-fixture"
       }
     }
   ],
@@ -116,6 +123,10 @@
           "method": "session/cancel",
           "params": {
             "sessionId": "session-fixture"
+          },
+          "target": {
+            "threadId": "session-fixture",
+            "turnId": "host-turn-fixture"
           }
         }
       }

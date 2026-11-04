@@ -49,3 +49,28 @@ fn nonce_mismatch_refuses() {
         );
     }
 }
+
+#[test]
+fn sandbox_environment_overrides_profile_collision() {
+    let launch = ResolvedLaunch {
+        binary: PathBuf::from("fixed-engine"),
+        capability: capability(),
+        env: BTreeMap::from([
+            ("SANDBOX_POLICY".into(), "profile-override".into()),
+            ("PROFILE".into(), "fixed".into()),
+        ]),
+        profile: Some("selected".into()),
+        nonce: "nonce".into(),
+    };
+    let mut env = HashMap::from([("HOST".into(), "fixed".into())]);
+    launch.apply_environment(
+        &mut env,
+        BTreeMap::from([("SANDBOX_POLICY".into(), "immutable".into())]),
+    );
+    assert_eq!(
+        env.get("SANDBOX_POLICY").map(String::as_str),
+        Some("immutable")
+    );
+    assert_eq!(env.get("PROFILE").map(String::as_str), Some("fixed"));
+    assert_eq!(env.get("HOST").map(String::as_str), Some("fixed"));
+}
