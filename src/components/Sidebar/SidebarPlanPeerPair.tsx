@@ -1,7 +1,7 @@
+import type { PlanView as Plan } from "../Canvas/planProjection";
 import { isTabDragDisabled } from "./tabDragModel";
 import { memo } from "react";
 import type { Tab, TabStatus } from "../../lib/types";
-import type { Plan } from "../Canvas/types";
 import type { TabTabActivity } from "../Canvas/tabTabActivity";
 import { resolvePlanPeerPair } from "../shared/PairAffordance";
 import { SortableRow, TAB_PREFIX, type SortableGroupData } from "./sortable";

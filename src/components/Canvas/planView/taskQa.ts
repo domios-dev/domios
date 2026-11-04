@@ -1,4 +1,4 @@
-import type { Plan, Task } from "../types";
+import type { PlanView as Plan, PlanTaskView as Task } from "../planProjection";
 import { canonicalTaskStatusLabel } from "./taskStatusLabel";
 
 export function qaQueuePosition(plan: Plan, task: Task): number | null {
