@@ -23,6 +23,7 @@ pub mod external_refs;
 pub use export_projection::PlanExportEncoder;
 pub mod gates;
 pub mod handoff;
+pub use store_db::read_projections::hierarchy::HierarchyAuthorityRead;
 mod header_projection;
 pub use header_projection::{NoticeDeliveryTargetRead, PlanIdentityRead};
 pub mod heartbeat;

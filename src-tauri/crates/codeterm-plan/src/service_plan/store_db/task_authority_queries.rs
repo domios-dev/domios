@@ -22,7 +22,7 @@ const SELECTED_ACTIVE_TASK: &str = "WITH candidates AS (
                 ORDER BY updated_at DESC,plan_id,position LIMIT 1
              )";
 
-const SELECTED_TASK_IN_PLAN: &str = "WITH candidates AS (
+pub(super) const SELECTED_TASK_IN_PLAN: &str = "WITH candidates AS (
     SELECT t.plan_id,t.task_id,t.row_json,t.assigned_tab_id,t.position,t.task_id=?2 AS exact,
         sum(t.task_id=?2) OVER () AS exact_count,count(*) OVER () AS matches
     FROM plan_tasks t WHERE t.plan_id=?1 AND (t.task_id=?2 OR (?2<>'' AND (

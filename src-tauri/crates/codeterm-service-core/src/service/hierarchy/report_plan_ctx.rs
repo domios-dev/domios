@@ -10,7 +10,7 @@ use crate::agent::reports::ReportDetails;
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::{AgentRole, Tab};
 use crate::plan::{PlanEvidenceClass, PlannerRef, Task};
-use crate::service::plan::PlanStore;
+use crate::service::plan::{PlanError, PlanStore};
 
 /// Marks the refusal class so a wrong-task report stays distinguishable from the
 /// neighbouring nonce and epoch refusals in logs and in the delivered report.
@@ -66,12 +66,15 @@ pub(crate) fn tab_holds(task: &Task, tab_id: &str) -> bool {
         })
 }
 
-fn tab_holds_task(plan_store: &PlanStore, tab_id: &str, plan_id: &str, task_id: &str) -> bool {
-    let Some(plan) = plan_store.get(plan_id) else {
-        return false;
-    };
-    crate::plan::task_key::find_task(&plan.tasks, task_id)
-        .is_some_and(|task| tab_holds(task, tab_id))
+fn tab_holds_task(
+    plan_store: &PlanStore,
+    tab_id: &str,
+    plan_id: &str,
+    task_id: &str,
+) -> Result<bool, String> {
+    plan_store
+        .report_tab_holds_task_projection(plan_id, task_id, tab_id)
+        .map_err(|error| error.to_string())
 }
 
 /// Names both sides of the mismatch — the task the caller pointed at, and what
@@ -120,25 +123,26 @@ pub fn resolve_plan_ctx(
     task_id_hint: Option<&str>,
     notices: &mut Vec<String>,
 ) -> Result<(Option<String>, Option<String>), String> {
-    let valid_plan = plan_id_hint
-        .filter(|s| !s.trim().is_empty())
-        .and_then(|id| {
-            if plan_store.get(id).is_some() {
-                Some(id.to_string())
-            } else {
+    let valid_plan = match plan_id_hint.filter(|s| !s.trim().is_empty()) {
+        Some(id) => match plan_store.plan_identity_projection(id) {
+            Ok(_) => Some(id.to_string()),
+            Err(PlanError::NotFound) => {
                 notices.push(format!(
                     "plan '{}' not found in active plans — ignoring, checking tab assignment",
                     id
                 ));
                 None
             }
-        });
+            Err(error) => return Err(error.to_string()),
+        },
+        None => None,
+    };
 
     if let Some(plan_id) = valid_plan {
         let Some(task_id) = task_id_hint.map(str::trim).filter(|id| !id.is_empty()) else {
             return Ok((Some(plan_id), None));
         };
-        if !tab_holds_task(plan_store, tab_id, &plan_id, task_id) {
+        if !tab_holds_task(plan_store, tab_id, &plan_id, task_id)? {
             return Err(stale_task_hint_refusal(
                 plan_store, tab_id, &plan_id, task_id,
             )?);
@@ -179,10 +183,14 @@ pub(crate) fn verify_planner_report_authority(
     plan_id: &str,
     tab_id: &str,
 ) -> Result<(), String> {
-    let plan = plan_store
-        .get(plan_id)
-        .ok_or_else(|| format!("plan '{plan_id}' not found"))?;
-    let registered_session_id = match &plan.planner {
+    let planner =
+        plan_store
+            .hierarchy_planner_projection(plan_id)
+            .map_err(|error| match error {
+                PlanError::NotFound => format!("plan '{plan_id}' not found"),
+                error => error.to_string(),
+            })?;
+    let registered_session_id = match &planner {
         Some(PlannerRef::Tab {
             tab_id: planner_tab,
             session_id,
@@ -238,8 +246,11 @@ pub fn classify_plan_only_report_authority(
     details: &ReportDetails,
 ) -> Result<PlanOnlyReportAuthority, String> {
     let plan = plan_store
-        .get(plan_id)
-        .ok_or_else(|| format!("plan '{plan_id}' not found"))?;
+        .hierarchy_authority_projection(plan_id, tab_id)
+        .map_err(|error| match error {
+            PlanError::NotFound => format!("plan '{plan_id}' not found"),
+            error => error.to_string(),
+        })?;
     if matches!(
         &plan.planner,
         Some(PlannerRef::Tab { tab_id: planner_tab, .. }) if planner_tab == tab_id

@@ -16,6 +16,7 @@ mod curator_schedule_tests;
 mod document_reader_tests;
 mod export_tests;
 mod header_tests;
+mod hierarchy_tests;
 mod index_filter_tests;
 mod notice_tests;
 mod qa_tests;

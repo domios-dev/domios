@@ -1,3 +1,4 @@
+pub(in crate::service_plan) mod hierarchy;
 use super::{db_error, PlanDatabase};
 use crate::plan::Section;
 use crate::service_plan::PlanError;
