@@ -24,8 +24,42 @@ impl Scheduler {
         }))
     }
 
+    async fn edit<T: Send + 'static>(
+        &self,
+        work: impl FnOnce(&mut model::Model) -> T + Send + 'static,
+    ) -> Option<T> {
+        {
+            if let Some(mut model) = self.0.model.try_lock() {
+                return Some(work(&mut model));
+            }
+        }
+        let shared = self.0.clone();
+        tokio::task::spawn_blocking(move || {
+            work(&mut super::locks::lock(&shared.model, "scheduler"))
+        })
+        .await
+        .ok()
+    }
+
+    fn cleanup(&self, work: impl FnOnce(&mut model::Model) + Send + 'static) {
+        {
+            if let Some(mut model) = self.0.model.try_lock() {
+                work(&mut model);
+                self.0.ready.notify_one();
+                self.0.space.notify_waiters();
+                return;
+            }
+        }
+        let shared = self.0.clone();
+        super::locks::cleanup(move || {
+            work(&mut super::locks::lock(&shared.model, "scheduler"));
+            shared.ready.notify_one();
+            shared.space.notify_waiters();
+        });
+    }
+
     pub fn register(&self, id: String, traffic: Traffic, stream: bool) -> bool {
-        self.0.model.lock().register(id, traffic, stream)
+        super::locks::lock(&self.0.model, "scheduler").register(id, traffic, stream)
     }
 
     pub async fn send(&self, id: &str, bytes: Bytes, kind: Kind) -> Result<(), Push> {
@@ -34,7 +68,11 @@ impl Scheduler {
             let space = self.0.space.notified();
             tokio::pin!(space);
             space.as_mut().enable();
-            let result = { self.0.model.lock().push(id, frame) };
+            let channel = id.to_owned();
+            let result = self
+                .edit(move |model| model.push(&channel, frame))
+                .await
+                .ok_or(Push::Closed)?;
             match result {
                 Ok(()) => {
                     self.0.ready.notify_one();
@@ -52,10 +90,7 @@ impl Scheduler {
     pub async fn recv(&self) -> Option<Bytes> {
         loop {
             let ready = self.0.ready.notified();
-            let (frame, closed) = {
-                let mut model = self.0.model.lock();
-                (model.pop(), model.closed())
-            };
+            let (frame, closed) = self.edit(|model| (model.pop(), model.closed())).await?;
             if frame.is_some() {
                 self.0.space.notify_waiters();
                 return frame;
@@ -67,20 +102,29 @@ impl Scheduler {
         }
     }
 
-    pub fn overflow(&self, id: &str, end: Bytes) {
-        self.0.model.lock().finish_overflow(id, end);
+    pub async fn overflow(&self, id: &str, end: Bytes) {
+        let channel = id.to_owned();
+        let _ = self
+            .edit(move |model| model.finish_overflow(&channel, end))
+            .await;
         self.0.ready.notify_one();
         self.0.space.notify_waiters();
     }
 
     pub fn remove(&self, id: &str) {
-        self.0.model.lock().remove(id);
-        self.0.space.notify_waiters();
+        let channel = id.to_owned();
+        self.cleanup(move |model| model.remove(&channel));
     }
 
     pub fn close(&self) {
-        self.0.model.lock().close();
-        self.0.ready.notify_one();
-        self.0.space.notify_waiters();
+        self.cleanup(|model| model.close());
+    }
+}
+
+#[cfg(test)]
+impl Scheduler {
+    pub(super) fn with_model_held_for_test(&self, hold: impl FnOnce()) {
+        let _guard = self.0.model.lock();
+        hold();
     }
 }
