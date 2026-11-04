@@ -14,6 +14,22 @@ import { ipcLogArgs } from "./ipcLogArgs";
 import { checkBuildMismatch } from "./buildMismatchGuard";
 import { classifyTabTarget, hasCompositeTabArgument, remoteTransportCall } from "./remoteTabTransport";
 import { subscribeRemoteTabEvent } from "./remoteTabEvents";
+import { createPreviewPreparation, type PreviewPreparation } from "./previewPreparation";
+import { EVENT_STREAM_READY } from "./eventStreamReady";
+
+const preparePreviews = createPreviewPreparation({
+  prepare: tabId => {
+    const remote = remoteTransportCall("read_local_preview_file", { tabId });
+    return remote ? invokeRaw<PreviewPreparation>("mesh_remote_tab_action", {
+      ordinaryTabId: remote.ordinaryTabId, peerId: remote.peerId, method: "POST", suffix: "/preview/prepare", body: {},
+    }) : selectedDaemonTransport.json<PreviewPreparation>("POST", `/api/tabs/${encodeURIComponent(tabId)}/preview/prepare`, {});
+  },
+  listen: (tabId, handler) => listen<PreviewPreparation>(`preview-index-state-${tabId}`, event => handler(event.payload)),
+  reconnect: handler => {
+    window.addEventListener(EVENT_STREAM_READY, handler);
+    return () => window.removeEventListener(EVENT_STREAM_READY, handler);
+  },
+});
 
 export type UnlistenFn = () => void;
 export { IS_WEB };
@@ -157,6 +173,12 @@ export async function invoke<T>(cmd: string, args?: Args): Promise<T> {
       throw new Error(`Invalid remote tab id "${target.value}"; local fallback is forbidden`);
     }
     if (invokeForTest) return await invokeForTest<T>(cmd, args);
+    if (["read_local_preview_file", "read_html_preview_file", "check_local_preview_files"].includes(cmd)
+      && !(cmd === "check_local_preview_files" && Array.isArray(args?.paths) && args.paths.length === 0)) {
+      const tabId = String(args?.tabId ?? "");
+      if (!tabId) throw new Error("Local previews require a tab identity");
+      await preparePreviews(tabId);
+    }
     const remote = remoteTransportCall(cmd, args);
     if (remote) {
       const value = await invokeRaw<unknown>("mesh_remote_tab_action", {

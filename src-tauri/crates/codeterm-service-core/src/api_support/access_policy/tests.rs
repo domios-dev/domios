@@ -46,7 +46,7 @@ fn local_only_paths_are_denied_at_every_peer_access_level() {
 
 #[test]
 fn local_preview_routes_follow_read_permissions_and_isolated_tab_ownership() {
-    for suffix in ["read", "check"] {
+    for suffix in ["read", "check", "prepare"] {
         let path = format!("/api/tabs/owned/preview/{suffix}");
         assert!(check_access(&AccessLevel::ReadOnly, &Method::POST, &path));
         assert!(check_access(

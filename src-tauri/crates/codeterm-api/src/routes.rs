@@ -84,6 +84,13 @@ pub(super) fn create_router_with_preview_admission(
 ) -> Router {
     let router = Router::new()
         .route(
+            "/api/tabs/{id}/preview/prepare",
+            super::local_preview_routes::bounded(
+                post(super::local_preview_routes::prepare),
+                &super::local_preview_routes::admission(),
+            ),
+        )
+        .route(
             "/api/tabs/{id}/preview/read",
             super::local_preview_routes::bounded(
                 post(super::local_preview_routes::read),
