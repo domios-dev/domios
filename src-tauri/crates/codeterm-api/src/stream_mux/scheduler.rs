@@ -28,8 +28,12 @@ impl Scheduler {
         self.0.model.lock().register(id, traffic, stream)
     }
 
-    pub async fn send(&self, id: &str, bytes: Bytes, kind: Kind) -> Result<(), Push> {
-        let mut frame = Frame { bytes, kind };
+    pub async fn send(&self, id: &str, bytes: Bytes, kind: Kind, credit: u64) -> Result<(), Push> {
+        let mut frame = Frame {
+            bytes,
+            kind,
+            credit,
+        };
         loop {
             let space = self.0.space.notified();
             tokio::pin!(space);

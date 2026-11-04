@@ -130,16 +130,17 @@ describe("RPC responses over one mux", () => {
 });
 
 describe("mux bulk credit and credential refusal", () => {
-  it("credits every received bulk frame cumulatively, including frames for requests it no longer tracks", async () => {
+  it("credits received bulk bytes coarsely and cumulatively, including frames for requests it no longer tracks", async () => {
     const f = fixture();
     const response = f.client.request!("/api/fixture"); const post = await f.next();
     f.head(post, 200, [["content-type", "application/octet-stream"]]);
-    for (let i = 0; i < 6; i++) f.push({ channel: post.id, chunk: "AA==", enc: "base64", credit: true });
-    for (let i = 0; i < 2; i++) f.push({ channel: "a-cancelled-request", chunk: "AA==", enc: "base64", credit: true });
+    const cost = 64 * 1024;
+    for (let i = 0; i < 6; i++) f.push({ channel: post.id, chunk: "AA==", enc: "base64", credit: cost });
+    for (let i = 0; i < 2; i++) f.push({ channel: "a-cancelled-request", chunk: "AA==", enc: "base64", credit: cost });
     f.push({ channel: post.id, chunk: "AA==", enc: "base64" });
     f.end(post);
     await (await response).arrayBuffer();
-    await vi.waitFor(() => expect(f.credits.map(c => c.received)).toEqual([4, 8]));
+    await vi.waitFor(() => expect(f.credits.map(c => c.received)).toEqual([4 * cost, 8 * cost]));
     expect(new Set(f.credits.map(c => c.session))).toEqual(new Set([f.sessions[0]]));
   });
 

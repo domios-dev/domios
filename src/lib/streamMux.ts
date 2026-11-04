@@ -227,8 +227,8 @@ export function createStreamMux(transport: () => TransportClient, fetcher: Fetch
   let credit = { session: "", received: 0, posted: 0 };
 
   function countCredit(frame: MuxFrame): void {
-    if (frame.kind !== "chunk" || !frame.credit || !live || credit.session !== live) return;
-    credit.received += 1;
+    if (frame.kind !== "chunk" || frame.credit === 0 || !live || credit.session !== live) return;
+    credit.received += frame.credit;
     const due = bulkCreditDue(credit.received, credit.posted);
     if (due === null) return;
     const session = credit.session, previous = credit.posted;

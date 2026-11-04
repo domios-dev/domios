@@ -4,7 +4,17 @@ fn frame(text: &str, kind: Kind) -> Frame {
     Frame {
         bytes: Bytes::copy_from_slice(text.as_bytes()),
         kind,
+        credit: 0,
     }
+}
+/// A credited bulk data frame costing `credit` payload bytes.
+fn credited(model: &mut Model, id: &str, text: &str, credit: u64) {
+    let frame = Frame {
+        bytes: Bytes::copy_from_slice(text.as_bytes()),
+        kind: Kind::Data,
+        credit,
+    };
+    assert!(model.push(id, frame).is_ok());
 }
 fn put(model: &mut Model, id: &str, text: &str, kind: Kind) {
     assert!(model.push(id, frame(text, kind)).is_ok());
@@ -88,6 +98,7 @@ fn session_byte_budget_reserves_interactive_space_and_refuses_oversized_frames()
                     Frame {
                         bytes: Bytes::from(vec![0; FRAME_CAP]),
                         kind: Kind::Data,
+                        credit: 0,
                     },
                 )
                 .is_err()
@@ -106,7 +117,8 @@ fn session_byte_budget_reserves_interactive_space_and_refuses_oversized_frames()
                 "rpc",
                 Frame {
                     bytes: Bytes::from(vec![0; FRAME_CAP + 1]),
-                    kind: Kind::Data
+                    kind: Kind::Data,
+                    credit: 0,
                 }
             )
             .unwrap_err()
@@ -118,56 +130,57 @@ fn session_byte_budget_reserves_interactive_space_and_refuses_oversized_frames()
     assert!(model.pop().is_none());
 }
 
+const QUARTER: u64 = BULK_WINDOW / 4;
+
 #[test]
 fn bulk_window_holds_bulk_until_credited_while_interactive_flows() {
     let mut model = Model::default();
     model.register("bulk".into(), Traffic::Bulk, false);
     model.register("interactive".into(), Traffic::Interactive, false);
-    let mut sent = 0;
-    while sent < BULK_WINDOW {
-        put(&mut model, "bulk", "bulk", Kind::Data);
+    for _ in 0..4 {
+        credited(&mut model, "bulk", "bulk", QUARTER);
         assert_eq!(model.pop().unwrap(), "bulk");
-        sent += 1;
     }
-    put(&mut model, "bulk", "bulk", Kind::Data);
+    credited(&mut model, "bulk", "bulk", QUARTER);
     put(&mut model, "interactive", "rpc", Kind::Data);
     assert_eq!(model.pop().unwrap(), "rpc");
-    assert!(model.pop().is_none(), "bulk must wait for credit");
-    model.credit(1);
+    assert!(
+        model.pop().is_none(),
+        "a full byte window holds bulk until credit"
+    );
+    model.credit(QUARTER);
     assert_eq!(model.pop().unwrap(), "bulk");
     assert!(model.pop().is_none());
 }
 
 #[test]
-fn credit_is_cumulative_and_never_exceeds_frames_sent() {
+fn credit_is_cumulative_and_never_exceeds_bytes_sent() {
     let mut model = Model::default();
     model.register("bulk".into(), Traffic::Bulk, false);
-    for _ in 0..BULK_WINDOW {
-        put(&mut model, "bulk", "bulk", Kind::Data);
+    for _ in 0..4 {
+        credited(&mut model, "bulk", "bulk", QUARTER);
         model.pop().unwrap();
     }
     model.credit(u64::MAX);
-    model.credit(2);
-    for _ in 0..BULK_WINDOW {
-        put(&mut model, "bulk", "bulk", Kind::Data);
+    model.credit(QUARTER);
+    for _ in 0..4 {
+        credited(&mut model, "bulk", "bulk", QUARTER);
         assert_eq!(model.pop().unwrap(), "bulk");
     }
-    put(&mut model, "bulk", "bulk", Kind::Data);
+    credited(&mut model, "bulk", "bulk", QUARTER);
     assert!(
         model.pop().is_none(),
-        "an inflated credit must not open the window beyond frames sent"
+        "an inflated credit must not open the window beyond bytes sent"
     );
 }
 
 #[test]
-fn streams_and_terminal_frames_are_never_held_by_the_bulk_window() {
+fn uncredited_frames_streams_and_terminal_frames_pass_a_full_window() {
     let mut model = Model::default();
     model.register("bulk".into(), Traffic::Bulk, false);
     model.register("stream".into(), Traffic::Bulk, true);
-    for _ in 0..BULK_WINDOW {
-        put(&mut model, "bulk", "bulk", Kind::Data);
-        model.pop().unwrap();
-    }
+    credited(&mut model, "bulk", "bulk", BULK_WINDOW);
+    model.pop().unwrap();
     put(&mut model, "bulk", "end", Kind::End);
     assert_eq!(model.pop().unwrap(), "end");
     put(&mut model, "stream", "frame", Kind::Data);

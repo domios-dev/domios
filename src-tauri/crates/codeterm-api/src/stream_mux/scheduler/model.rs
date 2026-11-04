@@ -7,9 +7,10 @@ const INTERACTIVE_RESERVE: usize = 512 * 1024;
 const TERMINAL_RESERVE: usize = 256 * 1024;
 const CHANNEL_DEPTH: usize = 8;
 const INTERACTIVE_BURST: usize = 8;
-/// Bulk RPC data frames the writer may hand to the socket before the client credits them, so a slow
-/// reader never finds megabytes of bulk queued in kernel buffers ahead of interactive frames.
-pub(crate) const BULK_WINDOW: u64 = 8;
+/// Bulk RPC payload bytes the writer may hand to the socket before the client credits them: large enough
+/// for a remote bandwidth-delay product, small enough that kernel buffers never hold megabytes of bulk
+/// ahead of interactive frames.
+pub(crate) const BULK_WINDOW: u64 = 1024 * 1024;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Traffic {
@@ -27,6 +28,8 @@ pub(crate) enum Kind {
 pub(crate) struct Frame {
     pub bytes: Bytes,
     pub kind: Kind,
+    /// Payload bytes this frame costs against the bulk window; the encoded frame carries the same value.
+    pub credit: u64,
 }
 
 pub(crate) struct Channel {
@@ -126,7 +129,7 @@ impl Model {
         self.bulk_sent.saturating_sub(self.bulk_credit) < BULK_WINDOW
     }
 
-    /// Cumulative count of credited bulk frames the client has received; stale or repeated credits are no-ops.
+    /// Cumulative credited bytes the client has received; stale or repeated credits are no-ops.
     pub fn credit(&mut self, received: u64) {
         self.bulk_credit = self.bulk_credit.max(received.min(self.bulk_sent));
     }
@@ -152,7 +155,7 @@ impl Model {
         let channel = self.channels.get_mut(&id)?;
         let frame = channel.frames.pop_front()?;
         if Self::credited(channel, &frame) {
-            self.bulk_sent += 1;
+            self.bulk_sent += frame.credit;
         }
         self.buffered -= frame.bytes.len();
         if frame.kind == Kind::End {
@@ -165,7 +168,10 @@ impl Model {
 
     /// Frames that count against the bulk window; the writer tags exactly these with `credit`.
     pub(crate) fn credited(channel: &Channel, frame: &Frame) -> bool {
-        frame.kind == Kind::Data && channel.traffic == Traffic::Bulk && !channel.stream
+        frame.credit > 0
+            && frame.kind == Kind::Data
+            && channel.traffic == Traffic::Bulk
+            && !channel.stream
     }
 
     pub fn finish_overflow(&mut self, id: &str, end: Bytes) {

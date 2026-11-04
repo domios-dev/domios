@@ -12,9 +12,10 @@ describe("mux response codec", () => {
   it("carries HTTP status, filtered headers, UTF-8 and binary bytes, and bounded endings", () => {
     expect(decodeMuxFrame({ channel: "c", open: true, status: 503, headers: [["content-type", "application/json"]] }))
       .toEqual({ channel: "c", kind: "open", status: 503, headers: [["content-type", "application/json"]] });
-    expect(decodeMuxFrame({ channel: "c", chunk: "雪", enc: "utf8" })).toEqual({ channel: "c", kind: "chunk", chunk: "雪", enc: "utf8", credit: false });
-    expect(decodeMuxFrame({ channel: "c", chunk: "/w==", enc: "base64" })).toEqual({ channel: "c", kind: "chunk", chunk: "/w==", enc: "base64", credit: false });
-    expect(decodeMuxFrame({ channel: "c", chunk: "/w==", enc: "base64", credit: true })).toMatchObject({ kind: "chunk", credit: true });
+    expect(decodeMuxFrame({ channel: "c", chunk: "雪", enc: "utf8" })).toEqual({ channel: "c", kind: "chunk", chunk: "雪", enc: "utf8", credit: 0 });
+    expect(decodeMuxFrame({ channel: "c", chunk: "/w==", enc: "base64" })).toEqual({ channel: "c", kind: "chunk", chunk: "/w==", enc: "base64", credit: 0 });
+    expect(decodeMuxFrame({ channel: "c", chunk: "/w==", enc: "base64", credit: 8192 })).toMatchObject({ kind: "chunk", credit: 8192 });
+    for (const bad of [-1, 1.5, "8", true]) expect(decodeMuxFrame({ channel: "c", chunk: "/w==", enc: "base64", credit: bad })).toMatchObject({ credit: 0 });
     expect(decodeMuxFrame({ channel: "c", end: { reason: "capacity", bytes: 64 } })).toEqual({ channel: "c", kind: "end", end: { reason: "capacity", bytes: 64 } });
   });
 
