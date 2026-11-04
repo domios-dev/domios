@@ -440,26 +440,27 @@ impl super::ServiceContext {
         checkpoint: InterruptionCheckpoint,
         now_ms: u64,
     ) -> Result<(u64, String), String> {
-        let mut mux = self.mux.write();
-        let tab = mux
-            .get_tab_mut(new_tab_id)
-            .ok_or("adoption tab disappeared")?;
-        let binding = crate::service::task_assignment::authenticated_tab_binding(tab)
-            .filter(|binding| binding.session_id == new_session_id)
-            .ok_or("adoption session binding changed")?;
-        let prior = tab.task_binding.clone().unwrap_or_default();
-        if prior.plan_id.as_deref().is_some_and(|id| id != plan_id)
-            || prior.task_id.as_deref().is_some_and(|id| id != task_id)
-            || prior
-                .attempt_id
-                .as_deref()
-                .is_some_and(|id| id != checkpoint.attempt_id)
-        {
-            return Err("adoption tab already owns a different task attempt".into());
-        }
-        let adopted = self
+        let (captured, binding, prior) = {
+            let mux = self.mux.read();
+            let tab = mux.get_tab(new_tab_id).ok_or("adoption tab disappeared")?;
+            let binding = crate::service::task_assignment::authenticated_tab_binding(tab)
+                .filter(|binding| binding.session_id == new_session_id)
+                .ok_or("adoption session binding changed")?;
+            let prior = tab.task_binding.clone().unwrap_or_default();
+            if prior.plan_id.as_deref().is_some_and(|id| id != plan_id)
+                || prior.task_id.as_deref().is_some_and(|id| id != task_id)
+                || prior
+                    .attempt_id
+                    .as_deref()
+                    .is_some_and(|id| id != checkpoint.attempt_id)
+            {
+                return Err("adoption tab already owns a different task attempt".into());
+            }
+            (tab.clone(), binding, prior)
+        };
+        let receipt = self
             .plan_store
-            .adopt_interrupted_task(
+            .adopt_interrupted_task_with_undo(
                 plan_id,
                 task_id,
                 &checkpoint.diff_sha256,
@@ -469,14 +470,43 @@ impl super::ServiceContext {
                 now_ms,
             )
             .map_err(|error| error.to_string())?;
-        tab.task_binding = Some(crate::multiplexer::types::TaskBinding {
-            plan_id: Some(plan_id.into()),
-            task_id: Some(task_id.into()),
-            attempt_id: Some(adopted.1.clone()),
-            spawn_handle: prior.spawn_handle,
-            bound_at: now_ms,
-        });
-        drop(mux);
+        let adopted = receipt.outcome();
+        let committed = {
+            let mut mux = self.mux.write();
+            mux.get_tab_mut(new_tab_id)
+                .filter(|tab| {
+                    tab.agent_type == captured.agent_type
+                        && tab.agent_session_id == captured.agent_session_id
+                        && tab.session_binding_nonce == captured.session_binding_nonce
+                        && tab.reported_session_binding_nonce
+                            == captured.reported_session_binding_nonce
+                        && tab.task_binding == captured.task_binding
+                        && tab.role == captured.role
+                        && tab.role_profile == captured.role_profile
+                        && tab.team_id == captured.team_id
+                        && tab.parent_tab_id == captured.parent_tab_id
+                        && tab.lifecycle_epoch == captured.lifecycle_epoch
+                })
+                .map(|tab| {
+                    tab.task_binding = Some(crate::multiplexer::types::TaskBinding {
+                        plan_id: Some(plan_id.into()),
+                        task_id: Some(task_id.into()),
+                        attempt_id: Some(adopted.1.clone()),
+                        spawn_handle: prior.spawn_handle,
+                        bound_at: now_ms,
+                    });
+                })
+                .is_some()
+        };
+        if !committed {
+            self.plan_store
+                .undo_checkpoint_adoption(receipt, now_ms)
+                .map_err(|error| format!("checkpoint adoption authority conflict; {error}"))?;
+            return Err(
+                "checkpoint adoption conflict: live launch or assignment changed; retry by intent"
+                    .into(),
+            );
+        }
         self.persist_current_attempt_session_model(new_tab_id);
         Ok(adopted)
     }
@@ -632,4 +662,19 @@ pub fn verify_git_checkpoint(checkpoint: &InterruptionCheckpoint) -> Result<(), 
         return Err("checkpoint working tree changed".into());
     }
     Ok(())
+}
+
+#[cfg(any(test, feature = "test-support"))]
+impl super::ServiceContext {
+    pub fn persist_checkpoint_adoption_for_test(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        tab_id: &str,
+        session: &str,
+        checkpoint: InterruptionCheckpoint,
+        now_ms: u64,
+    ) -> Result<(u64, String), String> {
+        self.persist_checkpoint_adoption(plan_id, task_id, tab_id, session, checkpoint, now_ms)
+    }
 }

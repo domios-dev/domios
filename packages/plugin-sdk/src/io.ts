@@ -8,7 +8,7 @@ export type HostIoRequest =
   | { op: "writeTempFile"; contents: string; suffix?: string | null }
   | { op: "projectWriteAllowed"; root: string }
   | { op: "walkDir"; path: string; maxDepth: number }
-  | { op: "sqliteQuery"; db: string; sql: string; params?: unknown[] | null }
+  | { op: "sqliteQuery"; db: string; sql: string; params?: unknown[] | null; nullable?: boolean }
   | { op: "jsonBooleanRecord"; path: string; keys: string[]; grant: boolean }
   | { op: "providerVersion" | "receiverTarget" | "receiverTargetClear" }
   | { op: "credentialPublic"; id: string }
@@ -45,6 +45,7 @@ export interface HostIoFs {
   listChildDirs(path: string): HostIoSteps<string[] | null>;
   walkDir(path: string, maxDepth?: number): HostIoSteps<DirEntry[]>;
   sqliteQuery<T = Record<string, unknown>>(db: string, sql: string, params?: unknown[] | null): HostIoSteps<T[]>;
+  sqliteQueryNullable<T = Record<string, unknown>>(db: string, sql: string, params?: unknown[] | null): HostIoSteps<T[] | null>;
   readJson<T = unknown>(path: string): HostIoSteps<T | null>;
   writeJson(path: string, value: unknown): HostIoSteps<boolean>;
 }

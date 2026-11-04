@@ -1,7 +1,38 @@
-import type { Plan } from "./types";
+import type { Plan, Section, Task } from "./types";
 
 export type PlanProjectionView = "summary" | "board" | "document" | "list" | "chat" | "task_metadata";
-export type PlanProjection = Plan & { revision: string };
+export type PlanTaskView = Pick<Task,
+  "id" | "name" | "type" | "status" | "model" | "status_label" |
+  "parent_task_id" | "assigned_tab_id" | "peer" | "section_ids" | "canvas"
+> & Partial<Omit<Task,
+  "id" | "name" | "type" | "status" | "model" | "status_label" |
+  "parent_task_id" | "assigned_tab_id" | "peer" | "section_ids" | "canvas"
+>>;
+
+export type PlanSectionView = Pick<Section, "id" | "title"> & {
+  subsections: PlanSectionView[];
+} & Partial<Omit<Section, "id" | "title" | "subsections">>;
+
+export type PlanView = Pick<Plan,
+  "id" | "title" | "status" | "owner" | "project_path" | "created_at" | "updated_at" | "canvas"
+> & Partial<Omit<Plan,
+  "id" | "title" | "status" | "owner" | "project_path" | "created_at" | "updated_at" | "canvas" |
+  "tasks" | "sections"
+>> & { tasks: PlanTaskView[]; sections: PlanSectionView[] };
+
+export type PlanTaskMetadata = Pick<PlanTaskView,
+  "id" | "name" | "type" | "key" | "handle" | "status" | "status_label" | "review_stage" | "qa_state" |
+  "assigned_tab_id" | "lane" | "parent_task_id" | "section_ids" | "group" | "model" | "peer" |
+  "priority" | "created_at" | "updated_at" | "status_changed_at" | "tags" | "canvas" |
+  "execution_attempts" | "criteria_count" | "milestone_count"
+> & { milestones?: Task["milestones"]; acceptance_criteria?: string[] };
+
+export type PlanProjection = Pick<PlanView,
+  "id" | "title" | "status" | "owner" | "planner" | "project_path" | "created_at" | "updated_at" |
+  "mode" | "planning_state" | "team_id" | "canvas" | "goal" | "primary_spec_id" | "spec_links" |
+  "task_groups" | "tag_facets" | "milestone_kinds" | "heartbeat" | "task_counts"
+> & { revision: string; canonical_project_path?: string; spec_refs?: string[];
+  tasks: PlanTaskMetadata[]; sections: PlanSectionView[] };
 
 export interface CommittedPlanChange {
   plan_id: string;

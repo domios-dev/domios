@@ -529,8 +529,10 @@ fn the_new_orchestrator_takes_the_plan_over_and_the_heartbeat_follows() {
     assert_eq!(transfer.from.tab_id.as_deref(), Some(orchestrator.as_str()));
     assert_eq!(transfer.to.tab_id.as_deref(), Some(result.tab_id.as_str()));
 
-    let reloaded = store.get(&plan_id).unwrap();
-    let plans = [reloaded];
+    let snapshot = store
+        .reminder_read_snapshot(|text| text.chars().take(512).collect())
+        .unwrap();
+    let plans = snapshot.candidate_targets(None).unwrap();
     let reminder_targets = timed_plan_reminder_targets(&plans);
     let owner_targets: Vec<&str> = reminder_targets
         .iter()

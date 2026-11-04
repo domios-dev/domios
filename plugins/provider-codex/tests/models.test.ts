@@ -1,3 +1,4 @@
+import { ioTestContext } from "../../provider-shared/tests/hostIo";
 /**
  * Codex model discovery tests cover live cache, missing-cache reporting, and catalog freshness.
  * Run: npx tsx plugins/provider-codex/tests/models.test.ts
@@ -26,7 +27,7 @@ function loadCodexWithHost(host: unknown) {
   const pluginPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "plugin.js");
   const source = fs.readFileSync(pluginPath, "utf8");
   const context = { host, console, module: { exports: {} as { default?: any } }, exports: {} };
-  new vm.Script(source, { filename: pluginPath }).runInNewContext(context);
+  new vm.Script(source, { filename: pluginPath }).runInNewContext(ioTestContext(context));
   return context.module.exports.default;
 }
 
@@ -278,7 +279,6 @@ console.log("\n--- discoverModels: cache priority order wins over array position
     "returned order follows ascending cache priority, not array position",
   );
 }
-
 
 console.log(`
 ${passed} passed, ${failed} failed`);

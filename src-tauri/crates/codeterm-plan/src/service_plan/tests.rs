@@ -304,7 +304,7 @@ fn show_task_includes_parent_label_for_subtasks() {
             20,
         )
         .unwrap();
-    let detail = store.show_task(&child_id).expect("child task");
+    let detail = store.inspect_task_for_test(&child_id).expect("child task");
     let parent = detail.parent.expect("parent label");
     assert_eq!(parent.id, parent_id);
     assert_eq!(parent.name, "n");
@@ -490,7 +490,7 @@ fn close_task_closes_every_live_attempt_not_only_scalar_assignment() {
     let (store, id, tid) = store_with_task(&["status_update"]);
     store.assign_task(&id, &tid, "tab-live", None, 20).unwrap();
     store
-        .with_plan(&id, 25, |plan| {
+        .edit_plan_fixture(&id, 25, |plan| {
             let task = plan.tasks.iter_mut().find(|task| task.id == tid).unwrap();
             task.execution_attempts
                 .push(crate::plan::TaskExecutionAttempt {
@@ -531,7 +531,7 @@ fn close_task_accepts_every_started_lifecycle_state() {
         let (store, id, tid) = store_with_task(&["status_update"]);
         store.assign_task(&id, &tid, "tab-live", None, 20).unwrap();
         store
-            .with_plan(&id, 25, |plan| {
+            .edit_plan_fixture(&id, 25, |plan| {
                 let task = plan.tasks.iter_mut().find(|task| task.id == tid).unwrap();
                 task.status = status.clone();
                 Ok(())
@@ -542,7 +542,7 @@ fn close_task_accepts_every_started_lifecycle_state() {
             .close_task(&id, &tid, None, AgentRef::from_tab("orchestrator"), 30)
             .unwrap();
 
-        let task = store.show_task(&tid).unwrap().task;
+        let task = store.inspect_task_for_test(&tid).unwrap().task;
         assert_eq!(task.status, TaskStatus::Done, "starting status: {status:?}");
         assert!(
             task.assigned_tab_id.is_none(),
@@ -568,11 +568,16 @@ fn closed_task_assignment_is_not_indexed_or_bound() {
 
     let entry = store
         .list_index()
+        .unwrap()
         .into_iter()
         .find(|entry| entry.plan_id == id)
         .unwrap();
     assert!(entry.assigned_tab_ids.is_empty());
-    assert!(store.task_binding_for_tab("tab-live").is_none());
+    assert!(store
+        .assigned_task_binding_projection("tab-live")
+        .unwrap()
+        .map(|binding| (binding.plan_id, binding.task_id))
+        .is_none());
     assert!(store.task_bindings_for_tab("tab-live").unwrap().is_empty());
 }
 

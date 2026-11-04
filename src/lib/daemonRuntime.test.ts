@@ -39,12 +39,13 @@ describe("shared daemon runtime", () => {
     finish(Response.json({ value: "current" }));
     await expect(read).resolves.toEqual({ value: "current" });
     const firstSignal = signal;
-    const staleRead = webJson("GET", "/api/config");
+    // The replacement aborts this read while the test still waits, so its refusal is observed up front.
+    const staleRead = expect(webJson("GET", "/api/config")).rejects.toMatchObject({ name: "AbortError" });
     await vi.waitFor(() => expect(signal).not.toBe(firstSignal));
     configureDaemonTransport({ origin: "http://127.0.0.1:7698", token: "second" });
     await vi.waitFor(() => expect(signal.aborted).toBe(true));
     finish(Response.json({ value: "stale" }));
-    await expect(staleRead).rejects.toMatchObject({ name: "AbortError" });
+    await staleRead;
   });
   it("uses the base for explicit peer streams and selected relay for domain requests", async () => {
     const fetch = vi.fn().mockResolvedValue(Response.json({ ok: true, status: 200, data: { result: "peer" } }));

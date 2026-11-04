@@ -2,6 +2,61 @@ use crate::plan::Task;
 
 use super::task_queries::TaskSection;
 
+pub struct TaskBriefInput<'a> {
+    name: &'a str,
+    parent_task_id: Option<&'a str>,
+    body: &'a str,
+    intent: Option<&'a str>,
+    acceptance_criteria: &'a [String],
+    correctness: Option<&'a str>,
+    test_plan: Option<&'a str>,
+    role_guidance: Option<&'a str>,
+    executor_role: Option<&'a str>,
+    strides: Vec<(&'a str, &'a str)>,
+}
+
+impl<'a> From<&'a Task> for TaskBriefInput<'a> {
+    fn from(task: &'a Task) -> Self {
+        Self {
+            name: &task.name,
+            parent_task_id: task.parent_task_id.as_deref(),
+            body: &task.body,
+            intent: task.intent.as_deref(),
+            acceptance_criteria: &task.acceptance_criteria,
+            correctness: task.correctness.as_deref(),
+            test_plan: task.test_plan.as_deref(),
+            role_guidance: task.role_guidance.as_deref(),
+            executor_role: task.executor_role.as_deref(),
+            strides: task
+                .milestones
+                .iter()
+                .map(|stride| (stride.kind.as_str(), stride.text.as_str()))
+                .collect(),
+        }
+    }
+}
+
+impl<'a> From<&'a super::WorkerTaskBriefRead> for TaskBriefInput<'a> {
+    fn from(task: &'a super::WorkerTaskBriefRead) -> Self {
+        Self {
+            name: &task.name,
+            parent_task_id: task.parent_task_id.as_deref(),
+            body: &task.body,
+            intent: task.intent.as_deref(),
+            acceptance_criteria: &task.acceptance_criteria,
+            correctness: task.correctness.as_deref(),
+            test_plan: task.test_plan.as_deref(),
+            role_guidance: task.role_guidance.as_deref(),
+            executor_role: task.executor_role.as_deref(),
+            strides: task
+                .strides
+                .iter()
+                .map(|stride| (stride.kind.as_str(), stride.text.as_str()))
+                .collect(),
+        }
+    }
+}
+
 pub fn render_plan_skill_manifest(
     plan_id: &str,
     plan_skills: &[crate::plan::PlanSkillManifestEntry],
@@ -35,8 +90,8 @@ pub fn render_authorized_gates(authorized_gates: &[String]) -> String {
     out
 }
 
-pub fn render_task_brief(
-    task: &Task,
+pub fn render_task_brief<'a>(
+    task: impl Into<TaskBriefInput<'a>>,
     sections: &[TaskSection],
     effective_personality: Option<&str>,
     orchestrator_instruction: Option<&str>,
@@ -44,10 +99,15 @@ pub fn render_task_brief(
     plan_skills: &[crate::plan::PlanSkillManifestEntry],
     authorized_gates: &[String],
 ) -> String {
-    let identity =
-        super::worker_identity::compose_task_worker_identity(task, effective_personality);
+    let task = task.into();
+    let identity = super::worker_identity::compose_worker_identity_contract(
+        effective_personality,
+        task.role_guidance,
+        task.executor_role,
+        task.name,
+    );
     let assignment = render_task_assignment(
-        task,
+        &task,
         sections,
         orchestrator_instruction,
         plan_id,
@@ -57,21 +117,26 @@ pub fn render_task_brief(
     super::worker_identity::attach_worker_identity(&identity, &assignment)
 }
 
-pub fn render_tool_less_task_brief(
-    task: &Task,
+pub fn render_tool_less_task_brief<'a>(
+    task: impl Into<TaskBriefInput<'a>>,
     sections: &[TaskSection],
     effective_personality: Option<&str>,
     orchestrator_instruction: Option<&str>,
 ) -> String {
-    let identity =
-        super::worker_identity::compose_task_worker_identity(task, effective_personality);
+    let task = task.into();
+    let identity = super::worker_identity::compose_worker_identity_contract(
+        effective_personality,
+        task.role_guidance,
+        task.executor_role,
+        task.name,
+    );
     let assignment =
-        render_task_assignment(task, sections, orchestrator_instruction, None, &[], &[]);
+        render_task_assignment(&task, sections, orchestrator_instruction, None, &[], &[]);
     [identity, assignment].join("\n\n")
 }
 
 fn render_task_assignment(
-    task: &Task,
+    task: &TaskBriefInput<'_>,
     sections: &[TaskSection],
     orchestrator_instruction: Option<&str>,
     plan_id: Option<&str>,
@@ -102,7 +167,7 @@ fn render_task_assignment(
 
     if !task.acceptance_criteria.is_empty() {
         out.push_str("## Acceptance criteria\n");
-        for criterion in &task.acceptance_criteria {
+        for criterion in task.acceptance_criteria {
             out.push_str(&format!("- {criterion}\n"));
         }
         out.push('\n');
@@ -136,10 +201,10 @@ fn render_task_assignment(
         out.push('\n');
     }
 
-    if !task.milestones.is_empty() {
+    if !task.strides.is_empty() {
         out.push_str("## Strides\n");
-        for milestone in &task.milestones {
-            out.push_str(&format!("- [{}] {}\n", milestone.kind, milestone.text));
+        for (kind, text) in &task.strides {
+            out.push_str(&format!("- [{}] {}\n", kind, text));
         }
         out.push('\n');
     }
@@ -161,53 +226,4 @@ fn render_task_assignment(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn tool_less_task_brief_preserves_task_and_instruction_without_cli_lifecycle_fragments() {
-        let task: Task = serde_json::from_value(serde_json::json!({"id":"task-fixture", "name":"opaque title", "body":"opaque task payload", "type":"research", "status":"pending"})).unwrap();
-        let brief = render_tool_less_task_brief(
-            &task,
-            &[],
-            Some("opaque persona"),
-            Some("opaque dispatch instruction"),
-        );
-        assert_eq!(brief.matches("opaque task payload").count(), 1);
-        assert_eq!(brief.matches("opaque dispatch instruction").count(), 1);
-        assert!(!brief.contains(super::super::worker_identity::WORKER_ACK_INSTRUCTION));
-        assert!(brief.contains("opaque persona"));
-    }
-
-    #[test]
-    fn dispatched_worker_brief_requires_applicable_plan_skills_before_actions() {
-        let manifest = vec![crate::plan::PlanSkillManifestEntry {
-            slug: "dispatch-contract".into(),
-            title: "Dispatch Contract".into(),
-            purpose: "Use for Worker launches.".into(),
-            content_digest: "sha256:abc".into(),
-        }];
-        let rendered = render_plan_skill_manifest("pl_zzmxgb", &manifest);
-        assert!(rendered.contains("sha256:abc"));
-        assert!(!rendered.contains("# Alpha"));
-        assert!(render_plan_skill_manifest("pl_zzmxgb", &[]).is_empty());
-    }
-
-    #[test]
-    fn authorized_gate_tokens_round_trip_without_placeholder_residue() {
-        let task: Task = serde_json::from_value(serde_json::json!({
-            "id": "task_gates",
-            "name": "gate transport",
-            "type": "code",
-            "status": "pending"
-        }))
-        .unwrap();
-        let gates = vec!["gate-token-alpha".into(), "gate-token-beta".into()];
-        let rendered = render_task_brief(&task, &[], None, None, None, &[], &gates);
-
-        for gate in &gates {
-            assert_eq!(rendered.matches(gate).count(), 1);
-        }
-        assert!(!rendered.contains("{authorized_gates}"));
-    }
-}
+mod tests;

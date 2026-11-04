@@ -1,6 +1,7 @@
+import type { PlanView as Plan } from "../Canvas/planProjection";
 import type { Tab } from "../../lib/types";
 import { findPlansForTab, ownerIsTabSelf } from "../Canvas/planTabMatch";
-import type { Plan, PlannerRef } from "../Canvas/types";
+import type { PlannerRef } from "../Canvas/types";
 
 export interface PlanPeerPair {
   planId: string;

@@ -4,6 +4,8 @@ use std::time::Instant;
 use parking_lot::{Condvar, Mutex};
 
 use super::manager::PtySession;
+mod request;
+pub use request::PtyReaper;
 
 /// Bounds the wait after an escalated kill so a missed exit cannot hang a restart request.
 const ESCALATED_EXIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
@@ -99,7 +101,7 @@ fn teardown_boundary_reached(
     child_exited && (!require_cleanup || reader_finished)
 }
 
-pub struct PtyReaper {
+pub(super) struct ActivePtyReaper {
     pub(super) pty_id: String,
     pub(super) session: Arc<PtySession>,
     pub(super) kill_error: Option<String>,
@@ -185,11 +187,7 @@ fn restart_after_grace(
     wait()
 }
 
-impl PtyReaper {
-    pub fn pty_id(&self) -> &str {
-        &self.pty_id
-    }
-
+impl ActivePtyReaper {
     fn kill_failure(&self) -> Option<String> {
         if let Some(error) = &self.kill_error {
             return Some(error.clone());

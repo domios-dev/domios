@@ -66,6 +66,16 @@ const TAB_INDEX_SCHEMA: &str = r#"
     CREATE INDEX IF NOT EXISTS plan_tasks_lane_tab_id
         ON plan_tasks(json_extract(row_json, '$.lane.tab_id'), plan_id)
         WHERE json_extract(row_json, '$.lane.tab_id') IS NOT NULL;
+CREATE INDEX IF NOT EXISTS plan_tasks_event_order ON plan_tasks(
+    plan_id, coalesce(json_extract(row_json,'$.created_at'),0) DESC, position DESC,
+    task_id, json_extract(row_json,'$.name'));
+CREATE INDEX IF NOT EXISTS plan_strides_event_order ON plan_strides(
+    plan_id, coalesce(json_extract(row_json,'$.ts'),0) DESC, seq DESC);
+CREATE INDEX IF NOT EXISTS plan_milestones_event_order ON plan_task_milestones(
+    plan_id, coalesce(json_extract(row_json,'$.ts'),0) DESC, task_id, seq DESC);
+CREATE INDEX IF NOT EXISTS plan_attempts_event_author ON plan_task_attempts(
+    plan_id, task_id, executor_tab_id, position DESC, json_extract(row_json,'$.executor_title'))
+    WHERE json_extract(row_json,'$.executor_title') IS NOT NULL;
 "#;
 
 #[cfg(test)]
@@ -97,6 +107,8 @@ impl PlanDatabase {
         migrations::initialize(&mut connection, &path)?;
         status_queries::register_functions(&connection)?;
         heartbeat_queries::register_functions(&connection)?;
+        reference_resolver_queries::register_functions(&connection)?;
+        task_key_queries::register_functions(&connection)?;
         curator_notice_queries::register_functions(&connection)?;
         auxiliary_queries::register_functions(&connection)?;
         worker_read_queries::register_functions(&connection)?;
@@ -179,6 +191,7 @@ impl PlanDatabase {
     }
 
     /// `Ok(None)` when no row exists; rows that do not parse are `PlanError::Quarantined`.
+    #[cfg(any(test, feature = "test-support"))]
     pub(super) fn load_plan(&self, id: &str) -> Result<Option<Plan>, PlanError> {
         let mut connection = self.connection.lock();
         let transaction = connection.transaction().map_err(db_error)?;
@@ -202,30 +215,7 @@ impl PlanDatabase {
         result
     }
 
-    pub(super) fn delete_spec(&self, id: &str, now_ms: u64) -> Result<(), PlanError> {
-        let mut connection = self.connection.lock();
-        let operation_id = queue_operation(&connection, id, "delete_spec", now_ms)?;
-        let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(db_error)?;
-        transaction
-            .execute(
-                "UPDATE plan_operations SET state = 'running' WHERE id = ?1",
-                [operation_id],
-            )
-            .map_err(db_error)?;
-        transaction
-            .execute("DELETE FROM specs WHERE id = ?1", [id])
-            .map_err(db_error)?;
-        transaction
-            .execute(
-                "UPDATE plan_operations SET state = 'committed', finished_at = ?2 WHERE id = ?1",
-                params![operation_id, now_ms],
-            )
-            .map_err(db_error)?;
-        transaction.commit().map_err(db_error)
-    }
-
+    #[cfg(test)]
     pub(super) fn delete_plan(&self, id: &str, now_ms: u64) -> Result<(), PlanError> {
         let mut connection = self.connection.lock();
         let operation_id = queue_operation(&connection, id, "delete_plan", now_ms)?;
@@ -272,6 +262,7 @@ impl PlanDatabase {
             .map(|_| self.path())
     }
 
+    #[cfg(any(test, feature = "test-support"))]
     pub(super) fn persist_plan_rows(
         &self,
         plan: &Plan,
@@ -445,7 +436,7 @@ fn write_plan_rows_at_revision(
         .query_row(
             "SELECT title, status, project_path,
                     coalesce(json_extract(header_json, '$.canonical_project_path'), ''),
-                    stride_count, stride_digest
+                    stride_count, stride_digest, coalesce(json_extract(header_json,'$._stride_digest_invalid'),0)
              FROM plans WHERE id = ?1",
             [&plan.id],
             |row| {
@@ -455,6 +446,7 @@ fn write_plan_rows_at_revision(
                     row.get(2)?,
                     row.get(3)?,
                     StoredStrides {
+                        invalid: row.get(6)?,
                         count: row.get::<_, i64>(4)? as usize,
                         digest: row.get(5)?,
                     },
@@ -587,18 +579,23 @@ mod change_feed;
 mod charter_queries;
 mod chat_read_queries;
 mod curator_digest_queries;
+pub(in crate::service_plan) mod curator_input_queries;
 mod curator_notice_queries;
 mod curator_queries;
 mod curator_snapshot;
 mod export_queries;
+pub(in crate::service_plan) mod handoff_queries;
 mod header_queries;
 mod heartbeat_queries;
 mod index_queries;
 mod notice_queries;
 mod qa_queries;
+mod reference_resolver_queries;
 mod related_queries;
 mod search_queries;
 mod section_link_queries;
+mod task_key_queries;
+mod transactions;
 mod worker_read_queries;
 pub(super) use index_queries::PlanIndexRow;
 mod board_state_queries;
@@ -607,12 +604,13 @@ mod match_queries;
 pub(super) mod read_projections;
 mod reference_queries;
 mod state_event_queries;
+mod state_event_window;
 mod status_queries;
 mod task_history_queries;
 mod task_list_queries;
 mod task_read_queries;
 mod ui_projections;
-pub use match_queries::{AttemptFieldRow, SectionRefRow, TaskFieldRow, TaskRefRow};
+pub use match_queries::{AttemptLanePathRead, SectionRefRow};
 #[cfg(test)]
 mod schema_tests;
 #[cfg(test)]

@@ -154,7 +154,10 @@ impl ServiceContext {
         spawn_command: String,
     ) -> Result<bool, String> {
         use crate::service::plan::{ambiguous_subject_cause, unresolved_subject_cause};
-        let bound = self.plan_store.live_task_attempts_for_tab(tab_id);
+        let bound = self
+            .plan_store
+            .live_task_attempts_for_tab(tab_id)
+            .map_err(|error| error.to_string())?;
         if bound.is_empty() {
             return Ok(false);
         }

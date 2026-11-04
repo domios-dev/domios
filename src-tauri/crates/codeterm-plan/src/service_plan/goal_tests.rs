@@ -25,7 +25,15 @@ fn goal_persists_and_reloads_from_sidecar() {
         )
         .unwrap();
 
-    let plan_dir = super::store_v2::plan_state_dir(&store.get(&plan.id).unwrap()).unwrap();
+    let reopened = PlanStore::open(store.database.path()).unwrap();
+    let exported: Plan =
+        serde_json::from_value(reopened.export_plan_document(&plan.id).unwrap()).unwrap();
+    assert_eq!(
+        exported.goal.as_ref().unwrap().vector,
+        "Ship the north-star"
+    );
+    let plan_dir = super::store_v2::plan_state_dir(&exported).unwrap();
+    super::store_v2::write_plan(&plan_dir, &exported).unwrap();
     let goal_path = super::store_v2::goal_yaml_path(&plan_dir);
     let plan_path = super::store_v2::plan_yaml_path(&plan_dir);
     let goal_yaml: Goal =

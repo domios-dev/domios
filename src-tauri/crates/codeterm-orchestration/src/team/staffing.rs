@@ -336,6 +336,26 @@ pub fn commit_team_member_spawn(
     expected_role: &str,
     expected_profile: &Option<String>,
 ) -> Result<AddTeamMemberResult, String> {
+    let result = commit_team_member_spawn_staged(
+        mux,
+        team_id,
+        caller_tab_id,
+        tab_id,
+        expected_role,
+        expected_profile,
+    )?;
+    codeterm_service_core::service::publish_mux_state_changed(events);
+    Ok(result)
+}
+
+pub(crate) fn commit_team_member_spawn_staged(
+    mux: &mut MultiplexerState,
+    team_id: &str,
+    caller_tab_id: Option<&str>,
+    tab_id: &str,
+    expected_role: &str,
+    expected_profile: &Option<String>,
+) -> Result<AddTeamMemberResult, String> {
     let (expected_role, expected_kind) =
         ServiceContext::parse_role_kind(expected_role, expected_profile.as_deref())?;
     // An anchoring member takes no parent and binds its Team after placement.
@@ -373,7 +393,6 @@ pub fn commit_team_member_spawn(
         .get_team(team_id)
         .cloned()
         .ok_or_else(|| format!("Team {team_id} not found after member spawn"))?;
-    codeterm_service_core::service::publish_mux_state_changed(events);
     Ok(AddTeamMemberResult {
         tab_id: tab_id.into(),
         team,

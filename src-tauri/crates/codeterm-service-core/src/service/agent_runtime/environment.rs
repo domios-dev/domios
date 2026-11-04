@@ -20,14 +20,14 @@ pub(super) fn compose(
     tab: &str,
     provider: &str,
     nonce: &str,
-) -> HashMap<String, String> {
+) -> Result<HashMap<String, String>, String> {
     let extra = ENVIRONMENTS
         .lock()
         .get(tab)
         .filter(|env| env.provider == provider && env.nonce == nonce)
         .map(|env| env.extra.clone())
         .unwrap_or_default();
-    compose_owned_environment(extra, svc.tab_env(tab))
+    Ok(compose_owned_environment(extra, svc.tab_env(tab)?))
 }
 
 fn compose_owned_environment(

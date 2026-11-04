@@ -48,7 +48,7 @@ fn assignment_attempt_retains_planned_provider_and_model() {
     let mut worker_binding = binding("worker-session");
     worker_binding.reasoning_effort = Some("xhigh".into());
     store
-        .with_plan(&plan, 3, |plan| {
+        .edit_plan_fixture(&plan, 3, |plan| {
             plan.tasks[0].model = Some("codex/gpt-6-luna".into());
             Ok(())
         })
@@ -67,7 +67,7 @@ fn assignment_attempt_retains_planned_provider_and_model() {
         )
         .unwrap();
 
-    let mut detail = store.show_task(&task).unwrap();
+    let mut detail = store.inspect_task_for_test(&task).unwrap();
     let attempt = detail.task.execution_attempts.remove(0);
     assert_eq!(attempt.provider.as_deref(), Some("codex"));
     assert_eq!(attempt.agent_type.as_deref(), Some("codex"));
@@ -114,7 +114,7 @@ fn assigned_review(store: &PlanStore, plan: &str, task: &str, authorized: bool) 
             3,
         )
         .unwrap();
-    let assigned = store.show_task(task).unwrap().task;
+    let assigned = store.inspect_task_for_test(task).unwrap().task;
     let attempt = assigned.execution_attempts.last().unwrap();
     assert_eq!(assigned.status, TaskStatus::Pending);
     assert_eq!(attempt.session_id.as_deref(), Some("worker-session"));
@@ -123,17 +123,20 @@ fn assigned_review(store: &PlanStore, plan: &str, task: &str, authorized: bool) 
     store
         .acknowledge_task_attempt(plan, task, "worker", &attempt_id, 4)
         .unwrap();
-    assert!(store
-        .ingest_bound_worker_report(
-            plan,
-            task,
-            &AgentRef::from_tab("worker"),
-            report(authority(&assigned, "worker")),
-            5
-        )
-        .unwrap());
+    assert!(
+        store
+            .ingest_bound_worker_report(
+                plan,
+                task,
+                &AgentRef::from_tab("worker"),
+                report(authority(&assigned, "worker")),
+                5
+            )
+            .unwrap()
+            .committed_review
+    );
     assert_eq!(
-        store.show_task(task).unwrap().task.status,
+        store.inspect_task_for_test(task).unwrap().task.status,
         TaskStatus::InReview
     );
     attempt_id
@@ -159,7 +162,7 @@ fn roundtrip(authorized: bool) {
     store
         .claim_review_continuation_delivery(&plan, &task, &attempt, continuation.epoch, 7)
         .expect("valid continuation must be claimed");
-    let claimed = store.show_task(&task).unwrap().task;
+    let claimed = store.inspect_task_for_test(&task).unwrap().task;
     assert_eq!(claimed.status, TaskStatus::InReview);
     let claimed_attempt = claimed
         .execution_attempts
@@ -192,7 +195,7 @@ fn roundtrip(authorized: bool) {
     assert!(store
         .finish_review_continuation(&plan, &task, &attempt, continuation.epoch, true, 8)
         .unwrap());
-    let current = store.show_task(&task).unwrap().task;
+    let current = store.inspect_task_for_test(&task).unwrap().task;
     assert_eq!(current.status, TaskStatus::InProgress);
     assert_eq!(current.execution_attempts[0].acknowledged_at, Some(4));
     assert_eq!(current.execution_attempts[0].reported_at, Some(5));
@@ -221,7 +224,7 @@ fn lifecycle_reassignment_review_respawn_ack_preserves_history_and_fences_retire
             5,
         )
         .unwrap();
-    let previous = store.show_task(&task).unwrap().task;
+    let previous = store.inspect_task_for_test(&task).unwrap().task;
     assert!(!previous.review_evidence.is_empty());
     let draft = store
         .build_task_respawn_draft(
@@ -236,7 +239,7 @@ fn lifecycle_reassignment_review_respawn_ack_preserves_history_and_fences_retire
     let replacement = store
         .record_task_respawn_attempt(&plan, &task, "replacement", &draft, Some("worker"), 6)
         .unwrap();
-    let starting = store.show_task(&task).unwrap().task;
+    let starting = store.inspect_task_for_test(&task).unwrap().task;
     assert_eq!(starting.status, TaskStatus::Pending);
     assert_eq!(starting.status_label.as_deref(), Some("starting"));
     assert!(replacement.attempt.acknowledged_at.is_none());
@@ -278,34 +281,40 @@ fn lifecycle_reassignment_review_respawn_ack_preserves_history_and_fences_retire
             7,
         )
         .unwrap();
-    let ready = store.show_task(&task).unwrap().task;
+    let ready = store.inspect_task_for_test(&task).unwrap().task;
     assert_eq!(ready.status, TaskStatus::Pending);
     assert_eq!(ready.status_label.as_deref(), Some("awaiting_worker_ack"));
     assert!(store
         .acknowledge_task_attempt(&plan, &task, "worker", &previous_id, 8)
         .is_err());
-    assert!(!store
-        .ingest_bound_worker_report(
-            &plan,
-            &task,
-            &AgentRef::from_tab("worker"),
-            report(authority(&previous, "worker")),
-            8
-        )
-        .unwrap());
+    assert!(
+        !store
+            .ingest_bound_worker_report(
+                &plan,
+                &task,
+                &AgentRef::from_tab("worker"),
+                report(authority(&previous, "worker")),
+                8
+            )
+            .unwrap()
+            .committed_review
+    );
     let ack = store
         .acknowledge_task_attempt(&plan, &task, "replacement", &replacement.attempt.id, 9)
         .unwrap();
     assert_eq!(ack.attempt.acknowledged_at, Some(9));
-    assert!(store
-        .ingest_bound_worker_report(
-            &plan,
-            &task,
-            &AgentRef::from_tab("replacement"),
-            report(authority(&ready, "replacement")),
-            10
-        )
-        .unwrap());
+    assert!(
+        store
+            .ingest_bound_worker_report(
+                &plan,
+                &task,
+                &AgentRef::from_tab("replacement"),
+                report(authority(&ready, "replacement")),
+                10
+            )
+            .unwrap()
+            .committed_review
+    );
 }
 
 #[test]
@@ -323,7 +332,7 @@ fn lifecycle_reassignment_replacement_retires_same_tab_epoch() {
             3,
         )
         .unwrap();
-    let old = store.show_task(&task).unwrap().task;
+    let old = store.inspect_task_for_test(&task).unwrap().task;
     let old_id = old.execution_attempts[0].id.clone();
     let owner = TaskMutationAuthority {
         tab_id: "owner".into(),
@@ -343,7 +352,7 @@ fn lifecycle_reassignment_replacement_retires_same_tab_epoch() {
             6,
         )
         .unwrap();
-    let new = store.show_task(&task).unwrap().task;
+    let new = store.inspect_task_for_test(&task).unwrap().task;
     assert_eq!(
         new.execution_attempts
             .iter()
@@ -417,7 +426,7 @@ fn lifecycle_reassignment_assignment_cannot_clear_review_or_active_state() {
             3,
         )
         .unwrap();
-    let initial = store.show_task(&task).unwrap().task;
+    let initial = store.inspect_task_for_test(&task).unwrap().task;
     store
         .acknowledge_task_attempt(&plan, &task, "worker", &initial.execution_attempts[0].id, 4)
         .unwrap();

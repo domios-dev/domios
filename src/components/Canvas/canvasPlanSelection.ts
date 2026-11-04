@@ -1,5 +1,4 @@
-import type { Plan } from "./types";
-
+import type { PlanView as Plan } from "./planProjection";
 export function selectCanvasPlans(
   livePlans: readonly Plan[],
   fixturePlans: readonly Plan[],

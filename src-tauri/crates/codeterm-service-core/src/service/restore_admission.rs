@@ -365,7 +365,7 @@ pub fn admit_restored_pty(
     }
     let pty_id = {
         crate::startup::boot_timing::mark(&resolved, None, "pty_claim_enter");
-        let claim = service.pty_ownership.acquire(&resolved);
+        let claim = service.pty_ownership.acquire(&resolved)?;
         crate::startup::boot_timing::mark(&resolved, None, "pty_claim_acquired");
         if service.direct_restored_pty_pending(&resolved) {
             None
@@ -405,7 +405,13 @@ fn schedule_preparation(
         move || {
             let admission = ticket.acquire();
             admission.mark(&resolved, pty_id.as_deref(), "prepare_admitted");
-            let claim = service.pty_ownership.acquire(&resolved);
+            let claim = match service.pty_ownership.acquire(&resolved) {
+                Ok(claim) => claim,
+                Err(error) => {
+                    log::warn!("Restore activation refused tab={resolved}: {error}");
+                    return;
+                }
+            };
             let matches = service.mux.read().get_tab(&resolved).is_some_and(|tab| {
                 preparation_matches(
                     tab.restored_from_snapshot && !tab.agent_booting,
@@ -618,7 +624,7 @@ mod tests {
                     resumable: false,
                 }));
             if deferred {
-                let claim = fixture.service.pty_ownership.acquire(&tab_id);
+                let claim = fixture.service.pty_ownership.acquire(&tab_id).unwrap();
                 fixture
                     .service
                     .ensure_tab_pty_linked_with_claim(&claim, None)
@@ -676,7 +682,7 @@ mod tests {
                     spec,
                     resumable: true,
                 }));
-            let claim = fixture.service.pty_ownership.acquire(&tab_id);
+            let claim = fixture.service.pty_ownership.acquire(&tab_id).unwrap();
             assert!(fixture.service.direct_restored_pty_pending(&tab_id));
             assert!(calls.lock().is_empty());
             assert!(fixture.service.resolve_pty_id(&tab_id).is_err());

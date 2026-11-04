@@ -19,19 +19,20 @@ fn open_and_send_children_receive_host_tab_credential_and_nonce() {
     let vm = vm_with(
         r#"
         let last = "";
-        function probe() {
+        function probe(then) {
             const opts = host.platform() === "windows"
                 ? { bin: "powershell", args: ["-NoProfile", "-Command",
                     "& powershell -NoProfile -Command '[Console]::Out.Write(($env:CODETERM_API_TOKEN, $env:CODETERM_TAB_ID, $env:CODETERM_SESSION_BINDING_NONCE -join [char]124))'"] }
                 : { bin: "sh", args: ["-c", "sh -c 'printf %s \"$CODETERM_API_TOKEN|$CODETERM_TAB_ID|$CODETERM_SESSION_BINDING_NONCE\"'"] };
             opts.env = { CODETERM_API_TOKEN: "owner-secret", CODETERM_TAB_ID: "foreign", CODETERM_SESSION_BINDING_NONCE: "stale" };
-            const out = JSON.parse(host.exec(JSON.stringify(opts)));
-            if (out.code !== 0) throw new Error(JSON.stringify(out));
-            return out.stdout;
+            return host.exec.async(opts, function (out) {
+                if (out.code !== 0) throw new Error(JSON.stringify(out));
+                return then(out.stdout);
+            });
         }
         module.exports.default = {
-            openSession() { last = probe(); return { sessionId: "s1" }; },
-            sendMessage() { last = probe(); },
+            openSession() { return probe(function (value) { last = value; return { sessionId: "s1" }; }); },
+            sendMessage() { return probe(function (value) { last = value; }); },
             poll() { return [{ id: "1", type: "assistant", content: last }]; }
         };
     "#,
@@ -101,7 +102,8 @@ fn chatbackend_host_exec_env_includes_tab_identity() {
             "padDir": "/instance/runtime/agent-pads/chat-tab",
             "config": {}
         }),
-    );
+    )
+    .unwrap();
 
     assert_eq!(
         env.get("CODETERM_TAB_ID").map(String::as_str),
@@ -545,4 +547,26 @@ fn set_model_missing_export_errors() {
     let vm = vm_with(r#"module.exports.default = { poll() { return []; } }"#);
     let b = JsChatBackend::new(vm, "local-shell");
     assert!(b.set_model("s", "m").is_err());
+}
+
+#[test]
+fn host_environment_failure_refuses_session_before_plugin_code_runs() {
+    use crate::host_traits::PluginHostCtx;
+    use crate::js_runtime::host_compute::tests::AnalyticsHost;
+    let mut host = AnalyticsHost::default();
+    host.process_env_error = Some("storage unavailable".into());
+    let host: Arc<dyn PluginHostCtx> = Arc::new(host);
+    assert_eq!(
+        host.tab_process_env("tab", "nonce"),
+        Err("storage unavailable".into())
+    );
+    let vm = vm_with(
+        "module.exports.default = { openSession() { throw new Error('plugin must not run'); } };",
+    );
+    assert!(vm.set_service(Arc::downgrade(&host)));
+    let backend = JsChatBackend::new(vm, "test-chatbackend");
+    let error = backend
+        .open_session(json!({"tabId":"tab","bindingNonce":"nonce"}))
+        .unwrap_err();
+    assert!(matches!(error, ChatBackendError::Call(ref reason) if reason == "storage unavailable"));
 }

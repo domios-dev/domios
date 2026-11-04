@@ -92,7 +92,8 @@ async fn restart_inner(
     let binding = svc
         .authorize_runtime_restart_binding(tab, provider, old_nonce, fresh)
         .map_err(RuntimeFailure::Refused)?;
-    let environment = super::environment::compose(svc, tab, provider, old_nonce);
+    let environment = super::environment::compose(svc, tab, provider, old_nonce)
+        .map_err(|reason| RuntimeFailure::SpawnFailed { reason })?;
     for status in svc
         .chat_send_ledger
         .rpc_uncertain_for_launch(tab, Some(old_nonce))

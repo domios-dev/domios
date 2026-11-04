@@ -1,5 +1,5 @@
 use super::*;
-use crate::plan::{ControlLoopMode, HeartbeatLearning, LoopStatus};
+use crate::plan::{ControlLoopMode, LoopStatus};
 use crate::service_plan::{
     heartbeat, milestone_gates,
     next_actions::{compute_next_actions_from, ActionLoop, NextActionInput},
@@ -18,7 +18,7 @@ pub(super) fn loops(render: &mut Render<'_>) -> Result<bool, PlanError> {
     let connection = render.connection;
     let mut statement=connection.prepare_cached("SELECT json_object('id',json_extract(value,'$.id'),'status',json_extract(value,'$.status'),'count',CASE WHEN json_type(value,'$.count') IS NULL THEN 0 ELSE json_extract(value,'$.count') END,'budget',json_extract(value,'$.budget')) FROM plans p,json_each(CASE WHEN json_type(p.header_json,'$.loops') IS NULL THEN '[]' WHEN json_type(p.header_json,'$.loops')='array' THEN p.header_json->'$.loops' ELSE json('invalid notice loops') END) WHERE p.id=?1 AND domios_notice_loop_due(json_extract(value,'$.status'),CASE WHEN json_type(value,'$.count') IS NULL THEN 0 ELSE json_extract(value,'$.count') END,json_extract(value,'$.budget')) ORDER BY key LIMIT ?2").map_err(db_error)?;
     let mut rows = statement
-        .query(params![render.id, MAX_REMINDER_BYTES + 1])
+        .query(params![render.id, render.limit()])
         .map_err(db_error)?;
     while let Some(row) = rows.next().map_err(db_error)? {
         let item: LoopRead = decode(render.id, &column::<String>(row, 0).map_err(db_error)?)?;
@@ -49,35 +49,48 @@ pub(super) fn loops(render: &mut Render<'_>) -> Result<bool, PlanError> {
     Ok(true)
 }
 
-pub(super) fn learnings(render: &mut Render<'_>) -> Result<bool, PlanError> {
+pub(super) fn learnings(
+    render: &mut Render<'_>,
+    selection: Option<&[String]>,
+) -> Result<bool, PlanError> {
+    let selected = selection
+        .map(serde_json::to_string)
+        .transpose()
+        .map_err(|error| PlanError::Io(error.to_string()))?;
+    let text = facts::text_sql("l.value", "text", false);
+    let id = facts::text_sql("l.value", "id", false);
+    let tag = facts::text_sql("l.value", "tag", true);
+    let source="json_each(CASE WHEN json_type(h.row_json,'$.learnings') IS NULL THEN '[]' WHEN json_type(h.row_json,'$.learnings')='array' THEN h.row_json->'$.learnings' ELSE json('invalid heartbeat learnings') END) l";
     for owner in [true, false] {
         record_query();
         let sql = if owner {
-            "SELECT value FROM plan_heartbeat h,json_each(h.row_json,'$.learnings') WHERE h.plan_id=?1 AND json_extract(value,'$.tag')='owner' ORDER BY key LIMIT ?2"
+            format!("SELECT domios_notice_learning('',{text},1) FROM plan_heartbeat h,{source} WHERE h.plan_id=?1 AND {tag}='owner' ORDER BY l.key LIMIT ?2")
         } else {
-            "SELECT value FROM plan_heartbeat h,json_each(h.row_json,'$.learnings') WHERE h.plan_id=?1 AND coalesce(json_extract(value,'$.tag'),'')<>'owner' AND length(trim(json_extract(value,'$.text'),?3))>0 ORDER BY key DESC LIMIT ?2"
+            format!("WITH learning_rows AS MATERIALIZED (
+                SELECT l.key,l.value,json_extract(l.value,'$.id') AS lookup_id FROM plan_heartbeat h,{source}
+                WHERE h.plan_id=?1 AND coalesce({tag},'')<>'owner'
+             ), selected AS MATERIALIZED (
+                SELECT r.value FROM json_each(?4) r WHERE EXISTS(SELECT 1 FROM learning_rows x
+                    WHERE x.lookup_id=r.value) ORDER BY CAST(r.key AS INTEGER) LIMIT 3
+             ) SELECT domios_notice_learning({id},{text},0) FROM learning_rows l
+                WHERE (?4 IS NULL OR l.lookup_id IN (SELECT value FROM selected))
+                AND length(trim({text},?3))>0 ORDER BY l.key DESC LIMIT ?2")
         };
         let connection = render.connection;
-        let mut statement = connection.prepare_cached(sql).map_err(db_error)?;
+        let mut statement = connection.prepare_cached(&sql).map_err(db_error)?;
         let mut rows = if owner {
-            statement.query(params![render.id, MAX_REMINDER_BYTES + 1])
+            statement.query(params![render.id, render.limit()])
         } else {
             statement.query(params![
                 render.id,
                 heartbeat::MAX_SITUATIONAL_LEARNINGS,
-                super::super::status_queries::WHITESPACE
+                super::super::status_queries::WHITESPACE,
+                selected
             ])
         }
         .map_err(db_error)?;
         while let Some(row) = rows.next().map_err(db_error)? {
-            let learning: HeartbeatLearning =
-                decode(render.id, &column::<String>(row, 0).map_err(db_error)?)?;
-            let mut line = String::new();
-            if owner {
-                heartbeat::render_learning(&learning, &mut line);
-            } else {
-                heartbeat::render_situational_learning(&learning, &mut line);
-            }
+            let line: String = column(row, 0).map_err(db_error)?;
             if !render.append(&line)? {
                 return Ok(false);
             }
@@ -86,24 +99,27 @@ pub(super) fn learnings(render: &mut Render<'_>) -> Result<bool, PlanError> {
     Ok(true)
 }
 
-pub(super) fn regression(render: &mut Render<'_>) -> Result<bool, PlanError> {
-    let input = super::super::document_queries::regression::regression_gate_input(
-        render.connection,
-        render.id,
-    )?
-    .ok_or(PlanError::NotFound)?;
-    for (retrospective, gates) in [
-        (
+pub(super) fn regression_lines(
+    connection: &Connection,
+    id: &str,
+) -> Result<(String, String), PlanError> {
+    let input = super::super::document_queries::regression::regression_gate_input(connection, id)?
+        .ok_or(PlanError::NotFound)?;
+    Ok((
+        heartbeat::regression_line(
+            &milestone_gates::pending_regression_gates(input.clone()),
             false,
-            milestone_gates::pending_regression_gates(input.clone()),
         ),
-        (true, milestone_gates::pending_group_retrospectives(input)),
-    ] {
-        if !render.append(&heartbeat::regression_line(&gates, retrospective))? {
-            return Ok(false);
-        }
+        heartbeat::regression_line(&milestone_gates::pending_group_retrospectives(input), true),
+    ))
+}
+
+pub(super) fn regression(render: &mut Render<'_>) -> Result<bool, PlanError> {
+    let (regression, retrospectives) = regression_lines(render.connection, render.id)?;
+    if !render.append(&regression)? {
+        return Ok(false);
     }
-    Ok(true)
+    render.append(&retrospectives)
 }
 
 pub(super) fn competition(render: &mut Render<'_>) -> Result<bool, PlanError> {
@@ -111,7 +127,7 @@ pub(super) fn competition(render: &mut Render<'_>) -> Result<bool, PlanError> {
     let name = facts::text_sql("t.row_json", "name", false);
     let sql=format!("{}, competing AS (
         SELECT f.task_id,f.position,(SELECT count(*) FROM plan_task_attempts a WHERE a.plan_id=?1 AND a.task_id=f.task_id AND json_extract(a.row_json,'$.closed_at') IS NULL) AS attempts
-        FROM facts f WHERE f.status='in_review' AND json_extract(f.decision,'$.category')>=0
+        FROM facts f WHERE f.status='in_review' AND NOT json_extract(f.decision,'$.held')
     ) SELECT c.task_id,{name},c.attempts FROM competing c JOIN plan_tasks t ON t.plan_id=?1 AND t.task_id=c.task_id
         WHERE c.attempts>1 ORDER BY c.position LIMIT ?3",facts::task_facts());
     let connection = render.connection;
@@ -120,7 +136,7 @@ pub(super) fn competition(render: &mut Render<'_>) -> Result<bool, PlanError> {
         .query(params![
             render.id,
             super::super::status_queries::WHITESPACE,
-            MAX_REMINDER_BYTES + 1
+            render.limit()
         ])
         .map_err(db_error)?;
     let mut first = true;
@@ -167,7 +183,7 @@ pub(super) fn gates(render: &mut Render<'_>, now: u64) -> Result<bool, PlanError
     let connection = render.connection;
     let mut statement = connection.prepare_cached(&sql).map_err(db_error)?;
     let mut rows = statement
-        .query(params![render.id, MAX_REMINDER_BYTES + 1])
+        .query(params![render.id, render.limit()])
         .map_err(db_error)?;
     let mut first = true;
     while let Some(row) = rows.next().map_err(db_error)? {
@@ -196,28 +212,33 @@ pub(super) fn gates(render: &mut Render<'_>, now: u64) -> Result<bool, PlanError
 struct ControlRead {
     mode: ControlLoopMode,
     next_at: Option<u64>,
-    fallback: Option<String>,
+    fallback: Option<crate::plan::CuratorFailure>,
 }
 
-pub(super) fn control(render: &mut Render<'_>) -> Result<bool, PlanError> {
+pub(super) fn control_line(connection: &Connection, id: &str) -> Result<String, PlanError> {
     record_query();
-    let encoded:String=render.connection.query_row("SELECT json_object('mode',CASE WHEN json_type(header_json,'$.control_loop.mode') IS NULL THEN 'curator' ELSE json_extract(header_json,'$.control_loop.mode') END,'next_at',json(header_json->'$.control_loop.next_at'),'fallback',json_extract(header_json,'$.control_loop.fallback_reason')) FROM plans WHERE id=?1",[render.id],|row|column(row,0)).map_err(db_error)?;
-    let control: ControlRead = decode(render.id, &encoded)?;
-    render.append(&format!(
-        "- {}\n",
-        heartbeat::view::control_line(&control.mode, control.next_at, control.fallback.as_deref())
+    let encoded:String=connection.query_row("SELECT json_object('mode',CASE WHEN json_type(header_json,'$.control_loop.mode') IS NULL THEN 'curator' ELSE json_extract(header_json,'$.control_loop.mode') END,'next_at',json(header_json->'$.control_loop.next_at'),'fallback',json_extract(header_json,'$.control_loop.fallback_reason')) FROM plans WHERE id=?1",[id],|row|column(row,0)).map_err(db_error)?;
+    let control: ControlRead = decode(id, &encoded)?;
+    Ok(heartbeat::view::control_line(
+        &control.mode,
+        control.next_at,
+        control.fallback.map(|reason| reason.as_str()),
     ))
 }
 
-pub(super) fn skills(render: &mut Render<'_>, header: &Header) -> Result<bool, PlanError> {
+pub(super) fn control(render: &mut Render<'_>) -> Result<bool, PlanError> {
+    let line = control_line(render.connection, render.id)?;
+    render.append(&format!("- {line}\n"))
+}
+
+pub(super) fn skills(render: &mut Render<'_>, status: &PlanStatus) -> Result<bool, PlanError> {
     if render.action_ids.is_empty() {
         return Ok(true);
     }
     record_query();
     let (project,canonical):(String,String)=render.connection.query_row("SELECT project_path,CASE WHEN json_type(header_json,'$.canonical_project_path') IS NULL THEN '' ELSE json_extract(header_json,'$.canonical_project_path') END FROM plans WHERE id=?1",[render.id],|row|Ok((column(row,0)?,column(row,1)?))).map_err(db_error)?;
     let root = crate::service_plan::paths::sidecar_root(&project, &canonical);
-    let directory =
-        crate::service_plan::paths::plan_state_dir_unchecked(root, &header.status, &header.id);
+    let directory = crate::service_plan::paths::plan_state_dir_unchecked(root, status, render.id);
     let manifest = crate::service_plan::plan_skills::plan_skill_manifest_from_dir(&directory)?;
     if manifest.is_empty() {
         return Ok(true);

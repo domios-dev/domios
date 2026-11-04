@@ -1,7 +1,8 @@
+import type { PlanView as Plan } from "./planProjection";
 import { resolveEdgeEnds } from "./edges";
 import type { Box, LaidOutEdge, Point, WorkspaceLayout } from "./layout";
 import type { ViewportTransform } from "@codeterm/canvas-camera";
-import type { Plan, TaskStatus } from "./types";
+import type { TaskStatus } from "./types";
 import { bumpCanvasChurn } from "./canvasChurn";
 
 export type SceneRecordKind = "node" | "edge" | "group";
@@ -118,7 +119,7 @@ function semanticTextForNode(kind: string, id: string, plan: Plan | undefined, p
   if (kind === "plan" && plan) return plan.title;
   if (kind === "spec" && plan) return plan.primary_spec_id ? `${plan.title} spec ${plan.primary_spec_id}` : `${plan.title} spec`;
   if (kind === "task" && plan) return plan.tasks.find((task) => task.id === id)?.name ?? id;
-  const element = plan?.elements.find((el) => el.id === id);
+  const element = plan?.elements?.find((el) => el.id === id);
   if (element) return `${element.kind} ${element.id}`;
   const ghostId = id.startsWith("ghost:") ? id.slice(6) : id;
   return plansById.get(ghostId)?.title ?? id;

@@ -10,6 +10,7 @@ pub struct DispatchUndo {
     before: StartupFields,
     respawn: bool,
     after_owner_epoch: u64,
+    after_destination: Option<String>,
     attempts: Vec<AttemptUndo>,
 }
 
@@ -28,6 +29,7 @@ struct StartupFields {
     taken_by_role: Option<String>,
     peer: Option<String>,
     lane_tab: Option<String>,
+    destination: Option<String>,
     workspace_id: Option<String>,
     workspace_name: Option<String>,
     worktree_path: Option<String>,
@@ -42,7 +44,6 @@ struct StartupFields {
 
 #[derive(Clone, Debug)]
 struct AttemptUndo {
-    position: usize,
     id: String,
     before_closed: Option<u64>,
     after_closed: Option<u64>,
@@ -66,6 +67,7 @@ impl StartupFields {
             taken_by_role: task.taken_by_role.clone(),
             peer: task.peer.clone(),
             lane_tab: task.lane.tab_id.clone(),
+            destination: task.lane.destination.clone(),
             workspace_id: task.lane.workspace_id.clone(),
             workspace_name: task.lane.workspace_name.clone(),
             worktree_path: task.lane.worktree_path.clone(),
@@ -127,16 +129,15 @@ impl DispatchUndo {
             before: fields,
             respawn: respawn_source.is_some(),
             after_owner_epoch: task.interruption.owner_epoch,
+            after_destination: task.lane.destination.clone(),
             attempts: task
                 .execution_attempts
                 .iter()
-                .enumerate()
-                .filter(|(_, attempt)| {
+                .filter(|attempt| {
                     (attempt.closed_at.is_none() && attempt.competition_group_id.is_none())
                         || respawn_source == Some(attempt.id.as_str())
                 })
-                .map(|(position, attempt)| AttemptUndo {
-                    position,
+                .map(|attempt| AttemptUndo {
                     id: attempt.id.clone(),
                     before_closed: attempt.closed_at,
                     after_closed: attempt.closed_at,
@@ -150,11 +151,12 @@ impl DispatchUndo {
     pub(in crate::service_plan) fn finish(&mut self, mode: &PlanMode, task: &Task) {
         self.after_mode = mode.clone();
         self.after_owner_epoch = task.interruption.owner_epoch;
+        self.after_destination = task.lane.destination.clone();
         for undo in &mut self.attempts {
             if let Some(attempt) = task
                 .execution_attempts
-                .get(undo.position)
-                .filter(|attempt| attempt.id == undo.id)
+                .iter()
+                .find(|attempt| attempt.id == undo.id)
             {
                 undo.after_closed = attempt.closed_at;
                 undo.after_retired = attempt.retired_at;
@@ -162,13 +164,24 @@ impl DispatchUndo {
         }
     }
 
+    pub(super) fn row_attempt_ids(&self) -> Vec<String> {
+        std::iter::once(self.attempt_id.clone())
+            .chain(self.attempts.iter().map(|attempt| attempt.id.clone()))
+            .collect()
+    }
+
     pub(super) fn apply(&self, task: &mut Task) {
         self.before.restore(task, self.respawn);
+        revert(
+            &mut task.lane.destination,
+            &self.before.destination,
+            &self.after_destination,
+        );
         for undo in &self.attempts {
             if let Some(attempt) = task
                 .execution_attempts
-                .get_mut(undo.position)
-                .filter(|attempt| attempt.id == undo.id)
+                .iter_mut()
+                .find(|attempt| attempt.id == undo.id)
             {
                 revert(
                     &mut attempt.closed_at,

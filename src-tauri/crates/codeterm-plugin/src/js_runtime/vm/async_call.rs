@@ -1,6 +1,32 @@
 use super::*;
 use std::sync::Arc;
 
+thread_local! {
+    static BLOCKING_WORKER: Cell<bool> = const { Cell::new(false) };
+}
+
+pub(super) fn on_blocking_worker() -> bool {
+    BLOCKING_WORKER.with(Cell::get)
+}
+
+pub(in crate::js_runtime) fn spawn_blocking<F, R>(work: F) -> tokio::task::JoinHandle<R>
+where
+    F: FnOnce() -> R + Send + 'static,
+    R: Send + 'static,
+{
+    let artifacts = codeterm_util::task_files::current_capture();
+    tokio::task::spawn_blocking(move || {
+        struct Restore(bool);
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                BLOCKING_WORKER.with(|worker| worker.set(self.0));
+            }
+        }
+        let _restore = Restore(BLOCKING_WORKER.with(|worker| worker.replace(true)));
+        codeterm_util::task_files::with_capture(artifacts, work)
+    })
+}
+
 struct CancelOnDrop(Arc<operation::Context>);
 impl Drop for CancelOnDrop {
     fn drop(&mut self) {
@@ -29,6 +55,8 @@ where
     R: Send + 'static,
     F: FnOnce(&PluginVm, Arc<operation::Context>) -> Result<R, VmError> + Send + 'static,
 {
+    let _runtime = tokio::runtime::Handle::try_current()
+        .map_err(|error| VmError::RuntimeInit(error.to_string()))?;
     let operation = vm.admission.enter(Some(default_call_interrupt(&vm)))?;
     let context = operation.context.clone();
     let _cancel = CancelOnDrop(context.clone());
@@ -36,7 +64,7 @@ where
     let host_env = super::super::host_exec::current_host_env();
     let view = crate::view_host::current_view_call_context(vm.plugin_id());
     let failed_context = context.clone();
-    tokio::task::spawn_blocking(move || {
+    spawn_blocking(move || {
         let _operation = operation;
         let _observer = observer.map(codeterm_decision::physical::RequestScope::enter);
         let _host_env = super::super::host_exec::host_env_scope(host_env);

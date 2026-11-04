@@ -18,7 +18,7 @@ vi.mock("../../hooks/useAgentProviders", () => ({ useAgentProviders: () => fixtu
 const presetFixture = vi.hoisted(() => ({ presets: [], loading: false, error: null }));
 vi.mock("../../hooks/useModelPresets", () => ({ useModelPresets: () => presetFixture }));
 vi.mock("../../lib/providerInstallStatus", () => ({ probeProviderInstallMap: async () => ({}) }));
-import type { AppConfig, AtomicSpawn, MultiplexerState, Tab } from "../../lib/types";
+import type { AtomicSpawn, MultiplexerState, Tab } from "../../lib/types";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -75,7 +75,7 @@ async function run() {
         sidebarActionText="" orchestrators={[]} onBeforeOpenPlan={() => {}}
         onActivateTab={() => {}} onCloseTab={() => {}} onRenameTab={() => {}}
       />
-      {picker && <NewSessionPicker {...picker} agentConfig={{ full_access: false } as AppConfig["agent"]} onClose={() => setPicker(null)} />}
+      {picker && <NewSessionPicker {...picker} onClose={() => setPicker(null)} />}
     </SidebarDnd>;
   }
   const host = document.createElement("div");

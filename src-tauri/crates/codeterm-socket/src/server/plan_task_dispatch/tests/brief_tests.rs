@@ -16,7 +16,7 @@ fn dispatched_worker_launch_prompt_carries_ack_instruction_persona_and_brief() {
         "body": body_token,
     }));
     let brief = super::super::canonical_writer::compose_dispatch_brief(
-        build_brief_with_manifest(&t, &[], "plan_dispatched_brief", &[], &[]),
+        build_brief_with_manifest((&t, &[][..]), "plan_dispatched_brief", &[], &[]),
         codeterm_service_core::plan::WorkerPlacement::IsolatedLane,
     );
     let mut spawn_params = codeterm_service_core::service::SpawnAgentParams {
@@ -93,7 +93,7 @@ fn declared_gate_tokens_reach_worker_context_without_placeholder_residue() {
         "type": "code",
         "status": "pending",
     }));
-    let brief = build_brief_with_manifest(&t, &[], "plan_gates", &[], &gates);
+    let brief = build_brief_with_manifest((&t, &[][..]), "plan_gates", &[], &gates);
     let params = codeterm_service_core::service::SpawnAgentParams {
         role: Some("Worker".into()),
         task: Some(brief),
@@ -188,7 +188,7 @@ fn tab_name_contract_dispatch_preserves_only_explicit_user_personality() {
         "personality": "Ada",
         "personality_provenance": IdentityProvenance::UserSupplied,
     }));
-    let (title, provenance) = dispatch_worker_identity(&t);
+    let (title, provenance) = dispatch_worker_identity(t.personality.as_deref());
     assert_eq!(title.as_deref(), Some("Ada"));
     assert_eq!(provenance, Some(SpawnIdentityProvenance::UserSupplied));
 }
@@ -204,7 +204,7 @@ fn tab_name_contract_dispatch_treats_planner_personality_as_provisional() {
         "executor_role": "frontend-dev",
         "personality_provenance": IdentityProvenance::Suggested,
     }));
-    let (title, provenance) = dispatch_worker_identity(&t);
+    let (title, provenance) = dispatch_worker_identity(t.personality.as_deref());
     assert_eq!(title.as_deref(), Some("Ada"));
     assert_eq!(provenance, Some(SpawnIdentityProvenance::UserSupplied));
 }
@@ -219,7 +219,7 @@ fn tab_name_contract_dispatch_never_uses_executor_role_as_tab_name() {
         "executor_role": "dispatch-identity-dev",
     }));
 
-    let (title, provenance) = dispatch_worker_identity(&t);
+    let (title, provenance) = dispatch_worker_identity(t.personality.as_deref());
 
     assert_eq!(title, None);
     assert_eq!(provenance, None);
@@ -234,7 +234,7 @@ fn tab_name_contract_dispatch_treats_batch_personality_without_legacy_provenance
         "status": "pending",
         "personality": "Lamport",
     }));
-    let (title, provenance) = dispatch_worker_identity(&t);
+    let (title, provenance) = dispatch_worker_identity(t.personality.as_deref());
     assert_eq!(title.as_deref(), Some("Lamport"));
     assert_eq!(provenance, Some(SpawnIdentityProvenance::UserSupplied));
 }

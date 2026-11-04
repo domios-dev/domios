@@ -29,13 +29,15 @@ impl ServiceContext {
         worker_tab_id: &str,
         destination_manager_tab_id: &str,
     ) -> Result<bool, String> {
-        let mux = self.mux.read();
-        let Some(worker) = mux.get_tab(worker_tab_id) else {
-            return Ok(false);
-        };
-        if worker.role != Some(AgentRole::Worker)
-            || worker.parent_tab_id.as_deref() == Some(destination_manager_tab_id)
-        {
+        let is_cross_parent_worker = self
+            .mux
+            .read()
+            .get_tab(worker_tab_id)
+            .is_some_and(|worker| {
+                worker.role == Some(AgentRole::Worker)
+                    && worker.parent_tab_id.as_deref() != Some(destination_manager_tab_id)
+            });
+        if !is_cross_parent_worker {
             return Ok(false);
         }
         super::worker_is_task_bound(&self.plan_store, worker_tab_id)
@@ -47,7 +49,12 @@ impl ServiceContext {
         worker_tab_id: &str,
         destination_manager_tab_id: &str,
     ) -> Result<WorkerTransferOutcome, String> {
-        let mut mux = self.mux.write();
+        let history = crate::multiplexer::state::ClosedTabsStore::in_memory();
+        let mut before = self
+            .mux
+            .read()
+            .begin_team_close_transaction_with_store(history);
+        let mux = before.state_mut();
         let worker = mux
             .get_tab(worker_tab_id)
             .ok_or_else(|| "worker transfer refused: Worker tab not found".to_string())?
@@ -235,10 +242,17 @@ impl ServiceContext {
         staged_worker.can_spawn = false;
         staged_worker.report_target_tab_id = Some(destination_manager_tab_id.to_string());
 
-        self.plan_store
-            .with_verified_worker_transfer_binding(&verified, || staged.commit(&mut mux, &[]))
-            .map_err(|error| error.to_string())?;
-        drop(mux);
+        let patch = crate::multiplexer::state::LifecyclePatch::new(before, staged);
+        patch.apply(&mut self.mux.write())?;
+        if let Err(error) = self
+            .plan_store
+            .with_verified_worker_transfer_binding(&verified, || {})
+        {
+            patch
+                .revert(&mut self.mux.write())
+                .map_err(|rollback| format!("{error}; lifecycle rollback conflict: {rollback}"))?;
+            return Err(error.to_string());
+        }
 
         let outcome = WorkerTransferOutcome {
             status: "committed_observation_unconfirmed",

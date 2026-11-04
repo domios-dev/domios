@@ -1,12 +1,14 @@
+import { ioTestContext } from "../../provider-shared/tests/hostIo";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
-import {normalizeClaudeUsage} from "../src/usage";
+import { normalizeClaudeUsage } from "../src/usage";
+
 const fixture = JSON.parse(fs.readFileSync(new URL("./fixtures/usage-limits.json", import.meta.url), "utf8"));
 const module = {exports: {} as {default: {fetchUsage():string; parseUsage(raw:string,now:number):Record<string,unknown>}}};
 let body = fixture;
 const host = {platform:()=>"linux",envGet:()=>null,expandHome:()=>"/fixture",fs:{readFile:()=>JSON.stringify({claudeAiOauth:{accessToken:"opaque-secret"}})},fetch:()=>JSON.stringify({status:200,body:JSON.stringify(body)})};
-vm.runInNewContext(fs.readFileSync(new URL("../plugin.js", import.meta.url), "utf8"), {module,exports:module.exports,host});
+vm.runInNewContext(fs.readFileSync(new URL("../plugin.js", import.meta.url), "utf8"), ioTestContext({module,exports:module.exports,host}));
 const plugin = module.exports.default;
 const raw = plugin.fetchUsage();
 const parsed = plugin.parseUsage(raw, 1);

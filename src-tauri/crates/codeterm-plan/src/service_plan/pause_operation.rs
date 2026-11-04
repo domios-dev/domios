@@ -1,4 +1,4 @@
-use super::mutations::plan_contains_id;
+use super::store_db::hot_write::runtime::PauseRows;
 use super::{PlanError, PlanStore};
 use crate::plan::{
     AgentRef, Milestone, Plan, PlanMode, PlanPauseAgent, PlanPauseOperation, PlanPauseSchedule,
@@ -56,16 +56,20 @@ impl PlanStore {
         if reason.is_empty() {
             return Err(PlanError::PauseRequiresReason);
         }
-        self.with_plan(plan_id, now_ms, |p| {
+        self.with_runtime_rows::<PauseRows, _>(plan_id, now_ms, |p| {
             if p.mode == PlanMode::Paused {
                 return Ok(PlanPauseBegin::AlreadyPaused {
-                    operation: open_pause_operation(p).cloned(),
+                    operation: p
+                        .pause_operations
+                        .last()
+                        .filter(|op| op.resume.is_none())
+                        .cloned(),
                 });
             }
             let operation_id = crate::plan::ids::mint_id("pz", |candidate| {
                 p.pause_operations.iter().any(|op| op.id == candidate)
             });
-            let stride_id = crate::plan::ids::mint_id("ms", |c| plan_contains_id(p, c));
+            let stride_id = crate::plan::ids::short_id("ms");
             let paused_from_mode = p.mode.clone();
             let operation = PlanPauseOperation {
                 id: operation_id,
@@ -109,7 +113,7 @@ impl PlanStore {
         schedule_outcomes: &[(String, PlanPauseStepOutcome)],
         now_ms: u64,
     ) -> Result<PlanPauseOperation, PlanError> {
-        self.with_plan(plan_id, now_ms, |p| {
+        self.with_runtime_rows::<PauseRows, _>(plan_id, now_ms, |p| {
             let operation = operation_mut(p, operation_id)?;
             for (tab_id, outcome) in agent_outcomes {
                 if let Some(agent) = operation.agents.iter_mut().find(|a| &a.tab_id == tab_id) {
@@ -134,7 +138,7 @@ impl PlanStore {
         plan_id: &str,
         now_ms: u64,
     ) -> Result<PlanResumeBegin, PlanError> {
-        self.with_plan(plan_id, now_ms, |p| {
+        self.with_runtime_rows::<PauseRows, _>(plan_id, now_ms, |p| {
             if p.team_id
                 .as_ref()
                 .is_none_or(|team_id| team_id.trim().is_empty())
@@ -179,7 +183,7 @@ impl PlanStore {
         schedule_outcomes: &[(String, PlanPauseStepOutcome)],
         now_ms: u64,
     ) -> Result<PlanPauseOperation, PlanError> {
-        self.with_plan(plan_id, now_ms, |p| {
+        self.with_runtime_rows::<PauseRows, _>(plan_id, now_ms, |p| {
             let operation = operation_mut(p, operation_id)?;
             for (tab_id, outcome) in agent_outcomes {
                 if let Some(agent) = operation.agents.iter_mut().find(|a| &a.tab_id == tab_id) {
@@ -202,7 +206,7 @@ impl PlanStore {
 }
 
 fn operation_mut<'a>(
-    plan: &'a mut Plan,
+    plan: &'a mut PauseRows,
     operation_id: &str,
 ) -> Result<&'a mut PlanPauseOperation, PlanError> {
     plan.pause_operations

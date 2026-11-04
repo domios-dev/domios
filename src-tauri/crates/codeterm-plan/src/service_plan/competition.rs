@@ -33,7 +33,9 @@ pub fn competition_attempts(task: &Task) -> u32 {
         .max(2)
 }
 
-pub fn live_competition_attempt_count(task: &Task) -> usize {
+pub fn live_competition_attempt_count(task: &impl super::state::input::StateTaskSource) -> usize {
+    let input = task.state_task_input();
+    let task = input.as_ref();
     task.execution_attempts
         .iter()
         .filter(|attempt| attempt.competition_group_id.is_some() && attempt.closed_at.is_none())
@@ -41,7 +43,13 @@ pub fn live_competition_attempt_count(task: &Task) -> usize {
 }
 
 pub fn competition_summary(task: &Task) -> Option<String> {
-    let competition = task.competition.as_ref().filter(|c| c.enabled)?;
+    competition_summary_for(task.competition.as_ref())
+}
+
+pub(super) fn competition_summary_for(
+    competition: Option<&TaskCompetitionMetadata>,
+) -> Option<String> {
+    let competition = competition.filter(|c| c.enabled)?;
     let attempts = competition.attempts.unwrap_or(2).max(2);
     let mut parts = vec![format!("{attempts} attempts")];
     if !competition.models.is_empty() {
@@ -108,12 +116,17 @@ impl PlanStore {
         update: TaskCompetitionUpdate,
         now_ms: u64,
     ) -> Result<(), PlanError> {
-        self.with_plan(plan_id, now_ms, |p| {
-            let task = crate::plan::task_key::find_task_mut(&mut p.tasks, task_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            apply_competition_update(&mut task.competition, update);
-            task.updated_at = now_ms;
-            Ok(())
-        })
+        self.with_task_rows(
+            plan_id,
+            task_id,
+            super::store_db::hot_write::TaskHistory::Core,
+            now_ms,
+            |edit| {
+                let task = &mut edit.task;
+                apply_competition_update(&mut task.competition, update);
+                task.updated_at = now_ms;
+                Ok(())
+            },
+        )
     }
 }

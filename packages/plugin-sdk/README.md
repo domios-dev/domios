@@ -24,7 +24,7 @@ before running a job and resumes exactly that invocation's continuation once.
 `host.io.run(steps)` drives a generator; nested helpers use `yield*`:
 
 ```ts
-import type { HostIoSteps } from "@codeterm/plugin-sdk";
+import { defineProviderIo, type HostIoSteps } from "@codeterm/plugin-sdk";
 
 function* readOwnFile(path: string): HostIoSteps<string | null> {
   return yield* host.io.fs.readFile(path);
@@ -49,6 +49,14 @@ network, credential and service bindings. Pure path, string, JSON and manifest
 helpers remain synchronous. `host.io.fs` provides generator equivalents for
 filesystem operations; `host.io.exec` and `host.io.fetch` await their existing
 host-owned process/network jobs. Pure provider exports need no generator.
+Use `defineProviderIo` at the export boundary. It drives effectful generators
+while pure exports return synchronously. Continuation callbacks may delegate to
+generators; a resumed iterator is never rebuilt. Shared-file read/modify/write
+operations use invocation-owned file locks across yields; `ioFileTransaction`
+acquires ordered locks with fail-fast contention and releases them on completion.
+`sqliteQueryNullable` preserves unknown/unavailable separately from an empty
+successful query. The non-nullable query helper returns an empty array instead.
+
 Ordinary calls have bounded admission, an absolute operation deadline and
 cancellation; immutable capabilities remain outside VM execution.
 

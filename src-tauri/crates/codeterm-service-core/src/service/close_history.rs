@@ -17,7 +17,10 @@ pub use capture::close_inventory_error_data;
 #[cfg(test)]
 mod tests;
 
-fn restore_plan_metadata(current: &mut crate::plan::Plan, saved: &crate::plan::Plan) {
+fn restore_plan_metadata(
+    current: &mut crate::plan::Plan,
+    saved: &crate::service::plan::PlanCloseRestoreRead,
+) {
     current.team_id = saved.team_id.clone();
     current.owner = saved.owner.clone();
     current.planner = saved.planner.clone();
@@ -42,7 +45,7 @@ impl Drop for WorkspaceCloseGuard {
 
 #[derive(Clone, Default, Serialize, Deserialize)]
 struct Resources {
-    plans: Vec<crate::plan::Plan>,
+    plans: Vec<crate::service::plan::PlanCloseRestoreRead>,
     crons: Vec<crate::cron::store::CronJob>,
     blueprints: Vec<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -135,7 +138,7 @@ impl ServiceContext {
             super::team_core::now_ms(),
         )?;
         let team_ids: HashSet<_> = record.teams.iter().map(|team| team.id.as_str()).collect();
-        let plans = close_inventory_plans(&self.plan_store, &team_ids);
+        let plans = close_inventory_plans(&self.plan_store, &team_ids)?;
         let in_scope = |workspace_id: &str, team_id: Option<&str>| {
             team.map_or_else(
                 || workspace_id == workspace || team_id.is_some_and(|id| team_ids.contains(id)),
@@ -337,7 +340,7 @@ impl ServiceContext {
     fn restore_history_plans(&self, resources: &Resources) -> Result<(), String> {
         for saved in &resources.plans {
             self.plan_store
-                .with_plan(&saved.id, super::team_core::now_ms(), |current| {
+                .edit_plan_fixture(&saved.id, super::team_core::now_ms(), |current| {
                     restore_plan_metadata(current, saved);
                     Ok(())
                 })
@@ -479,20 +482,12 @@ impl ServiceContext {
     }
 }
 
-/// The plans bound to the closing Teams; no other plan is loaded.
+/// Pairing fields restored after a Team close; task and lane state stay current.
 pub(crate) fn close_inventory_plans(
     store: &crate::service::plan::PlanStore,
     team_ids: &HashSet<&str>,
-) -> Vec<crate::plan::Plan> {
+) -> Result<Vec<crate::service::plan::PlanCloseRestoreRead>, String> {
     store
-        .plans_matching(&crate::service::plan::PlanMatch::Teams(
-            team_ids.iter().map(|id| id.to_string()).collect(),
-        ))
-        .into_iter()
-        .filter(|plan| {
-            plan.team_id
-                .as_deref()
-                .is_some_and(|id| team_ids.contains(id))
-        })
-        .collect()
+        .close_restore_projection(&team_ids.iter().map(|id| id.to_string()).collect::<Vec<_>>())
+        .map_err(|error| error.to_string())
 }

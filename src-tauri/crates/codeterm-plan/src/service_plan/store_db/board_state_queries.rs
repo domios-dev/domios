@@ -1,9 +1,7 @@
 use super::read_projections::{column, decode, record_query};
 use super::{db_error, PlanDatabase};
-use crate::plan::Plan;
-use crate::service_plan::{
-    board_state::BoardStateRead, state::TaskCounts, ui_projections::PlanViewProjection, PlanError,
-};
+use crate::service_plan::{board_state::BoardStateRead, state::TaskCounts, PlanError};
+use rusqlite::OptionalExtension;
 use serde_json::{json, Value};
 
 pub(super) const COUNTS_SQL: &str = "SELECT (SELECT count(*) FROM plan_tasks INDEXED BY plan_tasks_status_summary WHERE plan_id=?1 AND json_extract(row_json,'$.status')='pending'),
@@ -34,9 +32,13 @@ impl PlanDatabase {
     ) -> Result<BoardStateRead, PlanError> {
         let mut guard = self.connection.lock();
         let transaction = guard.transaction().map_err(db_error)?;
-        let header =
-            super::ui_projections::projection(&transaction, id, PlanViewProjection::Summary)?;
-        let mut plan: Plan = serde_json::from_value(header).map_err(super::json_error)?;
+        record_query();
+        let (mode, status, team_id): (String, String, Option<String>) = transaction.query_row(
+            "SELECT coalesce(json_extract(header_json,'$.mode'),'planning'),status,team_id FROM plans WHERE id=?1",
+            [id], |row| Ok((column(row,0)?,column(row,1)?,column(row,2)?)),
+        ).optional().map_err(db_error)?.ok_or(PlanError::NotFound)?;
+        let mode = serde_json::from_value(json!(mode)).map_err(super::json_error)?;
+        let status = serde_json::from_value(json!(status)).map_err(super::json_error)?;
         let counts = task_counts(&transaction, id)?;
         let complete = counts.total > 0 && counts.done + counts.cancelled == counts.total;
         record_query();
@@ -61,8 +63,11 @@ impl PlanDatabase {
             'running',CASE WHEN json_type(header_json,'$.control_loop.running')='object' THEN json_object('number',json_extract(header_json,'$.control_loop.running.number')) END)
             FROM plans WHERE id=?1", [id], |row| column(row,0)).map_err(db_error)?;
         let mut control_loop: Value = decode(id, &raw)?;
-        super::status_queries::refresh_control_counts(&transaction, &mut plan, now_ms)?;
-        control_loop["counts_7d"] = json!(plan.control_loop.counts_7d);
+        control_loop["counts_7d"] = json!(super::status_queries::control_counts(
+            &transaction,
+            id,
+            now_ms
+        )?);
         let events = if include_events {
             super::state_event_queries::event_window(&transaction, id, 50, event_offset)?
         } else {
@@ -81,7 +86,9 @@ impl PlanDatabase {
             "next_event_cursor":next_event_cursor,"event_window_loaded":include_events });
         transaction.commit().map_err(db_error)?;
         Ok(BoardStateRead {
-            plan,
+            mode,
+            status,
+            team_id,
             value,
             complete,
         })

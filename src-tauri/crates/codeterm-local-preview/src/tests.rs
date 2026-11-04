@@ -86,13 +86,11 @@ fn refusal_diagnostics_use_fixed_reasons_without_error_details() {
 
 #[test]
 fn own_pad_policy_allows_only_referenced_nonsecret_descendants() {
-    let home = if cfg!(windows) {
-        "C:/Users/Preview"
-    } else {
-        "/home/preview"
-    };
-    let data = PathBuf::from(home).join(".domios");
+    let temp = tempfile::tempdir().unwrap();
+    let home = crate::html_preview::preview_test_root(temp.path());
+    let data = home.join(".domios");
     let pad = data.join("runtime/agent-pads/owner");
+    std::fs::create_dir_all(&pad).unwrap();
     let image = pad.join("hush/image.png");
     let document = pad.join("notes/report.md");
     let foreign = data.join("runtime/agent-pads/foreign/image.png");
@@ -100,7 +98,8 @@ fn own_pad_policy_allows_only_referenced_nonsecret_descendants() {
     let store = data.join("secrets/store.json");
     let configured = pad.join("private");
     let configured_file = configured.join("report.md");
-    let ordinary = PathBuf::from(home).join("project/report.md");
+    let ordinary = home.join("project/report.md");
+    let prefix_sibling = data.join("runtime/agent-pads/owner-extra/image.png");
     let paths = [
         &image,
         &document,
@@ -109,19 +108,27 @@ fn own_pad_policy_allows_only_referenced_nonsecret_descendants() {
         &store,
         &configured_file,
         &ordinary,
+        &prefix_sibling,
     ];
+    for path in paths {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, b"fixture").unwrap();
+    }
     let policy = PreviewPolicy::new(
         paths.into_iter().map(|p| path_key(p)).collect(),
         std::slice::from_ref(&data),
     )
     .unwrap()
-    .with_own_pad(&pad, &[configured])
+    .with_own_pad(&pad.join("notes/.."), &[configured])
     .unwrap();
     for path in [&image, &document, &ordinary] {
         for raw in [path_key(path), path_key(path).replace('/', "\\")] {
             assert!(
                 policy
-                    .authorize(std::path::Path::new(&raw), Some(path))
+                    .authorize(
+                        std::path::Path::new(&raw),
+                        Some(&path.canonicalize().unwrap())
+                    )
                     .is_ok(),
                 "{raw}"
             );
@@ -132,21 +139,30 @@ fn own_pad_policy_allows_only_referenced_nonsecret_descendants() {
         &secret,
         &store,
         &configured_file,
+        &prefix_sibling,
         &pad.join("unreferenced.md"),
     ] {
+        let canonical = path.canonicalize().ok();
         assert!(
-            policy.authorize(path, Some(path)).is_err(),
+            policy.authorize(path, canonical.as_deref()).is_err(),
             "{}",
             path.display()
         );
     }
-    assert!(policy.authorize(&image, Some(&foreign)).is_err());
-    assert!(policy.authorize(&image, Some(&secret)).is_err());
+    for escaped in [&foreign, &secret, &ordinary] {
+        assert!(policy
+            .authorize(&image, Some(&escaped.canonicalize().unwrap()))
+            .is_err());
+    }
+    assert!(PreviewPolicy::new(Default::default(), &[])
+        .unwrap()
+        .with_own_pad(&pad.join("missing"), &[])
+        .is_err());
     #[cfg(windows)]
     assert!(policy
         .authorize(
             std::path::Path::new(&image.to_string_lossy().to_uppercase()),
-            Some(&image)
+            Some(&image.canonicalize().unwrap())
         )
         .is_ok());
 }
@@ -445,7 +461,11 @@ fn shared_context_policy_preserves_upload_and_own_pad_exceptions_and_private_roo
     let allowed: Vec<_> = uploads
         .iter()
         .map(|dir| dir.join("screenshot.png"))
-        .chain([own.join("report.md")])
+        .chain([
+            own.join("report.md"),
+            root.join("temp.txt"),
+            root.join("repo/src.rs"),
+        ])
         .collect();
     let denied = [
         foreign.join("report.md"),
@@ -453,6 +473,7 @@ fn shared_context_policy_preserves_upload_and_own_pad_exceptions_and_private_roo
         data.join("config.json"),
     ];
     for file in allowed.iter().chain(&denied) {
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
         std::fs::write(file, b"fixture").unwrap();
     }
     let configured = uploads[0].join("private.png");

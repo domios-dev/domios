@@ -167,7 +167,7 @@ fn exact_first_user_ack_and_final_answer_persist_a_real_worker_report() {
     pending.turn_normalization.drop_line_breaks = true;
     let stored_user_text = pending.user_text.replace(['\r', '\n'], "");
     pending.sender_tab = dispatcher.clone();
-    pending.task = fixture.service.reply_relay_task_binding(&worker);
+    pending.task = fixture.service.reply_relay_task_binding(&worker).unwrap();
     let binding = RelayBinding {
         provider: "fixture".into(),
         session: "own-session".into(),
@@ -197,7 +197,8 @@ fn exact_first_user_ack_and_final_answer_persist_a_real_worker_report() {
     assert!(fixture
         .service
         .plan_store
-        .live_task_attempts_for_tab(&worker)[0]
+        .live_task_attempts_for_tab(&worker)
+        .unwrap()[0]
         .attempt
         .acknowledged_at
         .is_none());
@@ -212,13 +213,31 @@ fn exact_first_user_ack_and_final_answer_persist_a_real_worker_report() {
         .unwrap();
     writeln!(file, "{}", serde_json::json!({"text": stored_user_text})).unwrap();
     drop(file);
+    let connection =
+        rusqlite::Connection::open(fixture.temp.path().join(".domios/plans.db")).unwrap();
+    connection.execute("UPDATE plan_task_attempts SET row_json=json_set(row_json,'$.interruption.owner_epoch','invalid') WHERE task_id=?1",[&task_id]).unwrap();
+    fixture
+        .service
+        .observe_tool_less_worker_ack(&worker, &binding, &pending, &state);
+    assert!(matches!(
+        ack.try_recv(),
+        Err(std::sync::mpsc::TryRecvError::Empty)
+    ));
+    assert!(fixture
+        .service
+        .report_store
+        .lock()
+        .get(&dispatcher, false)
+        .is_empty());
+    connection.execute("UPDATE plan_task_attempts SET row_json=json_set(row_json,'$.interruption.owner_epoch',?1) WHERE task_id=?2",rusqlite::params![task.owner_epoch,task_id]).unwrap();
     fixture
         .service
         .observe_tool_less_worker_ack(&worker, &binding, &pending, &state);
     assert!(fixture
         .service
         .plan_store
-        .live_task_attempts_for_tab(&worker)[0]
+        .live_task_attempts_for_tab(&worker)
+        .unwrap()[0]
         .attempt
         .acknowledged_at
         .is_some());
@@ -269,7 +288,12 @@ fn exact_first_user_ack_and_final_answer_persist_a_real_worker_report() {
         .unwrap();
     assert_eq!(worker_report.from_tab_id, worker);
     assert_eq!(worker_report.status, Some(ReportStatus::InReview));
-    let task = fixture.service.plan_store.show_task(&task_id).unwrap().task;
+    let task = fixture
+        .service
+        .plan_store
+        .inspect_task_for_test(&task_id)
+        .unwrap()
+        .task;
     assert_eq!(task.status, crate::plan::TaskStatus::InReview);
     assert!(task
         .milestones

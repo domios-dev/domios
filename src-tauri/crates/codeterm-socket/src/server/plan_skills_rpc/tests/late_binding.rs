@@ -32,7 +32,7 @@ impl LateLaunch {
         caller
             .svc
             .plan_store
-            .with_plan(&caller.plan_id, 8, |plan| {
+            .edit_plan_fixture(&caller.plan_id, 8, |plan| {
                 plan.team_id = Some(team);
                 Ok(())
             })
@@ -176,7 +176,7 @@ impl LateLaunch {
         self.caller
             .svc
             .plan_store
-            .show_task(&self.caller.task_id)
+            .inspect_task_for_test(&self.caller.task_id)
             .unwrap()
             .task
     }
@@ -185,7 +185,7 @@ impl LateLaunch {
         self.caller
             .svc
             .plan_store
-            .with_plan(&self.caller.plan_id, 12, |plan| {
+            .edit_plan_fixture(&self.caller.plan_id, 12, |plan| {
                 edit(
                     plan.tasks
                         .iter_mut()

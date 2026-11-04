@@ -86,6 +86,15 @@
       "sha256": "aef1c06ebde40faff3bc8195dbcfa7e4f9b2cc9441e94623041aee45971d1b38",
       "schema_fingerprint": "5ce5f5193eb8684ff33e97ad98ea27d0b36c222bb723a3f7908db31edd943ece",
       "application_id": 1146113102
+    },
+    {
+      "file": "forward-v5.sql",
+      "tag": "1.19-forward-contract",
+      "source_sha": "prospective",
+      "user_version": 5,
+      "sha256": "3ef2058144758245e38a0599034f1b05bf72f951434b268d4c53566db3b1308a",
+      "schema_fingerprint": "edb27757e0fda9ffe4b8e5cf49271a30248767b44aa4b023a521db333cfd17fb",
+      "application_id": 1146113102
     }
   ],
   "equivalent_releases": [

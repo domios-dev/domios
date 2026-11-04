@@ -156,8 +156,7 @@ fn worker_charter_preserves_owner_priority_mode_task_order_lane_and_retired_atte
             .worker_assignment_projection("worker")
             .unwrap()
             .unwrap()
-            .task
-            .id,
+            .task_id,
         "first"
     );
     first.mode = PlanMode::Planning;
@@ -167,8 +166,7 @@ fn worker_charter_preserves_owner_priority_mode_task_order_lane_and_retired_atte
             .worker_assignment_projection("worker")
             .unwrap()
             .unwrap()
-            .task
-            .id,
+            .task_id,
         "second"
     );
     second.tasks[0].status = TaskStatus::InReview;
@@ -186,8 +184,7 @@ fn worker_charter_preserves_owner_priority_mode_task_order_lane_and_retired_atte
             .worker_assignment_projection("worker")
             .unwrap()
             .unwrap()
-            .task
-            .id,
+            .task_id,
         "second"
     );
     second.tasks[0].lane.tab_id = None;
@@ -199,8 +196,7 @@ fn worker_charter_preserves_owner_priority_mode_task_order_lane_and_retired_atte
             .worker_assignment_projection("worker")
             .unwrap()
             .unwrap()
-            .task
-            .id,
+            .task_id,
         "second"
     );
     database.connection.lock().execute("UPDATE plan_tasks SET row_json=json_set(row_json,'$.role_guidance',42) WHERE plan_id=?1",[&second.id]).unwrap();
@@ -376,7 +372,7 @@ fn worker_charter_reads_task_identity_and_loop_stop_text_in_one_commit() {
             .worker_assignment_projection("worker")
             .unwrap()
             .unwrap();
-        assert_eq!(read.task.role_guidance, read.loop_spec.unwrap().stop_when);
+        assert_eq!(read.role_guidance, read.loop_spec.unwrap().stop_when);
         barrier.wait();
     }
     writer.join().unwrap();

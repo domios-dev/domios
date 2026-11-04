@@ -1,6 +1,9 @@
+import { ioTestExport } from "../../provider-shared/tests/hostIo";
 import assert from "node:assert/strict";
-import {modelCapabilities, modelWithCapabilities, modelSettings, reasoningEffortLaunchArgsForModel} from "../src/modelCapabilities";
-import {composeSettingsArgs} from "../src/context";
+import { modelCapabilities, modelWithCapabilities, modelSettings, reasoningEffortLaunchArgsForModel } from "../src/modelCapabilities";
+import { composeSettingsArgs as ioSource_composeSettingsArgs } from "../src/context";
+const composeSettingsArgs = ioTestExport(ioSource_composeSettingsArgs);
+
 assert.equal(modelCapabilities("opus[1m]")?.contextWindowTokens,1_000_000);
 assert.equal(modelCapabilities("sonnet")?.contextWindowTokens,200_000);
 assert.equal(modelCapabilities("unknown"),null);

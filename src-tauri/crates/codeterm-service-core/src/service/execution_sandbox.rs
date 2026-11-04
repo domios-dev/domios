@@ -241,7 +241,7 @@ pub(crate) fn for_launch(
             tab,
             params,
             &policy.cwd,
-        );
+        )?;
         policy.writable_roots = crate::service::launch_session_detection::host_writable_roots(
             &svc.agent_registry,
             provider,

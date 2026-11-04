@@ -1,3 +1,4 @@
+import { type HostIoSteps } from "@codeterm/plugin-sdk";
 export interface TurnContext {
   used_tokens: number;
   window_tokens: number;
@@ -35,7 +36,7 @@ export function parseContextUsage(record: any): TurnContext | null {
     source: hasStatusline ? "claude-statusline" : "claude-jsonl" };
 }
 
-import {modelSettings} from "./modelCapabilities";
+import { modelSettings } from "./modelCapabilities";
 export const STATUSLINE_FLAG = "--codeterm-statusline";
 export const STATUSLINE_FORWARD = 'payload=$(cat); if [ -n "${CODETERM_API_URL:-}" ] && [ -n "${CODETERM_API_TOKEN:-}" ] && [ -n "${CODETERM_TAB_ID:-}" ]; then printf \'%s\' "$payload" | curl -s --max-time 2 -o /dev/null -X POST "$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/context" -H \'Content-Type: application/json\' -H "Authorization: Bearer $CODETERM_API_TOKEN" -H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE:-}" --data-binary @- || true; fi';
 
@@ -71,7 +72,7 @@ function sortedJson(value: unknown): string {
   });
 }
 
-export function composeSettingsArgs(args: string[]): string[] | null {
+export function* composeSettingsArgs(args: string[]): HostIoSteps<string[] | null> {
   const model = modelSettings(args);
   args = model.args;
   const enabled = args.includes(STATUSLINE_FLAG);
@@ -83,13 +84,13 @@ export function composeSettingsArgs(args: string[]): string[] | null {
     if (arg !== "--settings" && !arg.startsWith("--settings=")) { rest.push(arg); continue; }
     const raw = arg === "--settings" ? args[++index] : arg.slice("--settings=".length);
     if (typeof raw !== "string") return null;
-    const value = settingsObject(raw) ?? settingsObject(host.fs.readFileHead(raw, 65_537));
+    const value = settingsObject(raw) ?? settingsObject((yield* host.io.fs.readFileHead(raw, 65_537)));
     if (!value) return null;
     overlay = { ...overlay, ...value };
   }
   if (enabled) {
     const path = host.expandHome("~/.claude/settings.json");
-    const user = path ? settingsObject(host.fs.fileExists(path) ? host.fs.readFileHead(path, 65_537) : "{}") : null;
+    const user = path ? settingsObject((yield* host.io.fs.fileExists(path)) ? (yield* host.io.fs.readFileHead(path, 65_537)) : "{}") : null;
     const composed = user ? statuslineSettings({ ...user, ...overlay }) : null;
     if (composed) overlay = { ...overlay, ...JSON.parse(composed) };
   }
@@ -102,10 +103,10 @@ export function composeSettingsArgs(args: string[]): string[] | null {
   return [...rest, "--settings", sortedJson(overlay)];
 }
 
-export function statuslineLaunchArgs(args: string[]): string[] | null {
-  const composed = composeSettingsArgs(args);
+export function* statuslineLaunchArgs(args: string[]): HostIoSteps<string[] | null> {
+  const composed = (yield* composeSettingsArgs(args));
   if (!composed) return null;
-  const path = host.fs.writeTempFile(composed[composed.length - 1], ".ct-settings.json");
+  const path = (yield* host.io.fs.writeTempFile(composed[composed.length - 1], ".ct-settings.json"));
   if (!path) return null;
   return [...composed.slice(0, -1), path];
 }

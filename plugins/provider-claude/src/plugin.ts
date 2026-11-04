@@ -1,88 +1,42 @@
+import { readIntegrationSettings } from "./integrationSettings";
+import { ioFileTransaction } from "@codeterm/plugin-sdk";
+import { defineProviderIo, type IoExports } from "@codeterm/plugin-sdk";
+import { ioValue, type HostIoSteps } from "@codeterm/plugin-sdk";
 import { runPromptSteps } from "../../provider-shared/runPromptStep";
 import { sessionRecords, type SessionRecordInput } from "../../provider-shared/sessionRecords";
 import { buildClaudeLaunchCommand, buildClaudeLaunchSpec, hostOwnedLaunchArgs, starterPrompt } from "./launchSpec";
-import { parseSwitchConfirmationPrompt } from "./switchConfirmation";
+
 import { writeClaudeLaunchPrompt } from "./launchPrompt";
 import { isImageDisplayMetadata } from "./imageMetadata";
 import { shouldParseClaudeRecord } from "./recordPrefix";
 import { checkClaudeUpdate } from "./update";
 import { claudeTrustRecord } from "./preTrust";
 import { updatePromptSafeChoice } from "../../provider-shared/updatePrompt";
-// plugin.js by scripts/build-plugin.mjs. Frontend contract lives in src/index.ts.
-import type {
-  LaunchParams,
-  LaunchSessionDetection,
-  LaunchSessionEvidence,
-  ParsedPrompt,
-  PluginModule,
-  ResumeParams,
-} from "@codeterm/plugin-sdk";
-import { manifest } from "./shared";
+import { parseSwitchConfirmationPrompt } from "./switchConfirmation";
 import { permissionHookCapability } from "./permissionHook";
+import { reasoningEffortLaunchArgsForModel } from "./modelCapabilities";
+import { sessionModelTranscriptBoundary, detectSessionModelAfterBoundary } from "./session";
+
+// plugin.js by scripts/build-plugin.mjs. Frontend contract lives in src/index.ts.
+import type { LaunchParams, LaunchSessionDetection, LaunchSessionEvidence, ParsedPrompt, PluginModule, ResumeParams } from "@codeterm/plugin-sdk";
+import { manifest } from "./shared";
+
 import { parseContextUsage, statuslineLaunchArgs } from "./context";
 import { authStatusProbe, parseAuthStatus, parseSessionObservations } from "./signals";
-import {parseBackgroundWork} from "./backgroundWork";
+import { parseBackgroundWork } from "./backgroundWork";
 import { detectClaudeLaunchSession } from "./launchSession";
-import {
-  fetchClaudeUsage,
-  parseFetchedClaudeUsage,
-  usageBlockIsComplete,
-  usageNormalize,
-  usageParseBlock,
-} from "./usage";
-import {
-  ClaudeEntry,
-  aiTitleFromEntry,
-  ClaudeToolUseResult,
-  claudeSessionFilePath,
-  detectSessionModelAfterBoundary,
-  editedTextFilePath,
-  extractSetModelFamily,
-  familyFromModelId,
-  isValidClaudeSessionMessage,
-  sessionModelTranscriptBoundary,
-  validateEntry,
-} from "./session";
+import { fetchClaudeUsage, parseFetchedClaudeUsage, usageBlockIsComplete, usageNormalize, usageParseBlock } from "./usage";
+import { ClaudeEntry, aiTitleFromEntry, ClaudeToolUseResult, claudeSessionFilePath, editedTextFilePath, extractSetModelFamily, familyFromModelId, isValidClaudeSessionMessage, validateEntry } from "./session";
 import { discoverAnthropicModels, manifestModels } from "./models";
-import {reasoningEffortLaunchArgsForModel} from "./modelCapabilities";
+
 import { claudeFileDiffs } from "./fileDiffs";
-import {
-  isAgentActivityBlock,
-  isSubAgentCall,
-  subAgentCallBlock,
-  subAgentLaunchBlock,
-  subAgentNotificationBlock,
-  subAgentUsageSources,
-  xmlTagBody,
-} from "./subagents";
+import { isAgentActivityBlock, isSubAgentCall, subAgentCallBlock, subAgentLaunchBlock, subAgentNotificationBlock, subAgentUsageSources, xmlTagBody } from "./subagents";
 import { canonicalToolFields, toolDescription } from "./toolFields";
-import {
-  classifyClaudeTabState,
-  TabStateSnapshot,
-  TabStateClassification,
-} from "./classify";
-import {
-  buildClaudePromptResponse,
-  claudeOnboardingPrompt,
-  claudeOnboardingNotNowStep,
-  parseClaudeLetteredPrompt,
-  parseClaudeNumberedPrompt,
-  parseClaudeWizardPrompt,
-} from "./prompts";
+import { classifyClaudeTabState, TabStateSnapshot, TabStateClassification } from "./classify";
+import { buildClaudePromptResponse, claudeOnboardingPrompt, claudeOnboardingNotNowStep, parseClaudeLetteredPrompt, parseClaudeNumberedPrompt, parseClaudeWizardPrompt } from "./prompts";
 import { claudePermissionPromptResponse } from "./permissionPrompt";
 import { claudeFolderTrustPrompt, claudeFolderTrustResponse } from "./folderTrust";
-import {
-  CODETERM_HOOK_MARKER,
-  CODETERM_HOOK_TIMEOUT_SECONDS,
-  CODETERM_HOOK_MARKER_ARG,
-  INTEGRATION_HOOK_KEYS,
-  entryCarriesMarker,
-  entryIsLegacyPaneCodetermHook,
-  entriesCarryMarker,
-  entriesHaveBoundedTimeout,
-  isCurrentHookCommand,
-  isCodetermHook,
-} from "./hookOwnership";
+import { CODETERM_HOOK_MARKER, CODETERM_HOOK_TIMEOUT_SECONDS, CODETERM_HOOK_MARKER_ARG, INTEGRATION_HOOK_KEYS, entryCarriesMarker, entryIsLegacyPaneCodetermHook, entriesCarryMarker, entriesHaveBoundedTimeout, isCurrentHookCommand, isCodetermHook } from "./hookOwnership";
 import type { ClaudeSettings, HookEntry } from "./hookOwnership";
 
 const TITLE_RE = /claude/i;
@@ -115,7 +69,6 @@ const NOISE_FRAGMENTS = [
   "Monthly spend limit",
   "hold Space",
 ];
-
 
 function taskNotificationStatus(content: string): string | null {
   const trimmed = content.trim();
@@ -171,7 +124,6 @@ function isBrailleSpinner(ch: string): boolean {
   );
 }
 
-
 function retainForeignPrecompactEntry(entry: HookEntry): boolean {
   if (!entry || !Array.isArray(entry.hooks)) return true;
   const previous = entry.hooks;
@@ -181,7 +133,7 @@ function retainForeignPrecompactEntry(entry: HookEntry): boolean {
   return remaining.length > 0;
 }
 
-const plugin: PluginModule = {
+const plugin = {
   ...runPromptSteps(() => host.agentRun),
   sessionResume: () => ({ exact: true }),
   checkForUpdate: checkClaudeUpdate,
@@ -319,12 +271,12 @@ const plugin: PluginModule = {
     return buildClaudePromptResponse(optionIndex, String(screen || ""));
   },
 
-  preTrustDirectory(path: string) {
-    return claudeTrustRecord(host, path, true);
+  *preTrustDirectory(path: string) {
+    return (yield* claudeTrustRecord(host, path, true));
   },
 
-  isDirectoryTrusted(path: string): boolean {
-    return claudeTrustRecord(host, path, false).status === "already_trusted";
+  *isDirectoryTrusted(path: string): HostIoSteps<boolean> {
+    return (yield* claudeTrustRecord(host, path, false)).status === "already_trusted";
   },
 
   directoryTrustPromptResponse(screen: string): string[] | null {
@@ -345,22 +297,21 @@ const plugin: PluginModule = {
 
   buildLaunchCommand: buildClaudeLaunchCommand,
 
-  buildLaunchSpec(params: LaunchParams | { resume: ResumeParams }) {
-    return manifest()?.commands?.launchSpec ? buildClaudeLaunchSpec(params) : null;
+  *buildLaunchSpec(params: LaunchParams | { resume: ResumeParams }) {
+    return manifest()?.commands?.launchSpec ? (yield* buildClaudeLaunchSpec(params)) : null;
   },
 
-  buildResumeCommand(sessionId: string, skipPermissions?: boolean): string | null {
-    const args = statuslineLaunchArgs([]);
+  *buildResumeCommand(sessionId: string, skipPermissions?: boolean): HostIoSteps<string | null> {
+    const args = (yield* statuslineLaunchArgs([]));
     return args ? [resumeBase(sessionId, skipPermissions), ...args.map(quoteArg)].join(" ") : null;
   },
 
   // `--resume` restores the transcript but not the launch-time system prompt,
   // so it is re-applied through the same declared flag buildLaunchCommand uses.
-  buildResumeCommandWithContext(params: ResumeParams): string | null {
+  *buildResumeCommandWithContext(params: ResumeParams): HostIoSteps<string | null> {
     const p = params || ({} as ResumeParams);
-    const resumeArgs = statuslineLaunchArgs(p.args || []);
+    const resumeArgs = (yield* statuslineLaunchArgs(p.args || []));
     if (!resumeArgs) return null;
-
 
     const parts = [resumeBase(p.sessionId, p.skipPermissions)];
     if (resumeArgs.length > 0) {
@@ -369,7 +320,7 @@ const plugin: PluginModule = {
     parts.push(...hostOwnedLaunchArgs(p.hostOwned).map(quoteArg));
     const systemPrompt = p.systemPrompt;
     {
-      const visiblePath = writeClaudeLaunchPrompt(systemPrompt || "");
+      const visiblePath = (yield* writeClaudeLaunchPrompt(systemPrompt || ""));
       if (!visiblePath) return null;
       parts.push("--append-system-prompt-file");
       parts.push(host.shell.quoteFor(String(visiblePath), host.platform()));
@@ -378,10 +329,10 @@ const plugin: PluginModule = {
   },
 
   // Tail session JSONL to find latest model (`message.model` or `Set model to ...`).
-  detectSessionModel(cwd: string, sessionId: string): string | null {
+  *detectSessionModel(cwd: string, sessionId: string): HostIoSteps<string | null> {
     const path = claudeSessionFilePath(cwd, sessionId);
-    if (!path || !host.fs.fileExists(path)) return null;
-    const contents = host.fs.readFileTail(path, 4 * 1024 * 1024);
+    if (!path || !(yield* host.io.fs.fileExists(path))) return null;
+    const contents = (yield* host.io.fs.readFileTail(path, 4 * 1024 * 1024));
     if (!contents) return null;
     const lines = contents.split("\n");
     const declaration = manifest()?.commands?.modelSwitchCommands?.transcript;
@@ -406,10 +357,10 @@ const plugin: PluginModule = {
   sessionModelTranscriptBoundary,
   detectSessionModelAfterBoundary,
 
-  detectSessionReasoningEffort(cwd: string, sessionId: string): string | null {
+  *detectSessionReasoningEffort(cwd: string, sessionId: string): HostIoSteps<string | null> {
     const path = claudeSessionFilePath(cwd, sessionId);
-    if (!path || !host.fs.fileExists(path)) return null;
-    const contents = host.fs.readFileTail(path, 4 * 1024 * 1024);
+    if (!path || !(yield* host.io.fs.fileExists(path))) return null;
+    const contents = (yield* host.io.fs.readFileTail(path, 4 * 1024 * 1024));
     if (!contents) return null;
     const supported: Record<string, boolean> = { low: true, medium: true, high: true, xhigh: true, max: true };
     const commands = manifest()?.commands?.modelSwitchCommands;
@@ -444,8 +395,8 @@ const plugin: PluginModule = {
 
   // Discovery is genuine-only: null (no keys / failed fetch) keeps the host on
   // the registered manifest seed and must never be persisted as a live snapshot.
-  discoverModels() {
-    return discoverAnthropicModels();
+  *discoverModels() {
+    return (yield* discoverAnthropicModels());
   },
 
   // Parse the `/usage` TUI screen into a UsageSnapshot; null when nothing recognizable was found.
@@ -473,8 +424,8 @@ const plugin: PluginModule = {
     };
   },
 
-  fetchUsage(): unknown {
-    return fetchClaudeUsage(host);
+  *fetchUsage(): HostIoSteps<unknown> {
+    return (yield* fetchClaudeUsage(host));
   },
 
   // Duplicated by design across provider bundles (QuickJS, no imports) — parity guarded by provider-helper-parity.test.ts. Change both or the test fails.
@@ -484,8 +435,8 @@ const plugin: PluginModule = {
 
   // Rust provides complete lines; plugin parses JSON into RichMessage[]. Byte offsets stay in Rust.
   parseSessionDelta,
-  parseSessionRecords(records, meta) {
-    return {...parseSessionDelta(records), new_offset:meta.newOffset};
+  *parseSessionRecords(records, meta) {
+    return {...(yield* parseSessionDelta(records)), new_offset:meta.newOffset};
   },
 
   // Keep JSONL path encoding aligned with `claudeSessionFilePath`.
@@ -494,17 +445,17 @@ const plugin: PluginModule = {
     return claudeSessionFilePath(_cwd, sessionId);
   },
 
-  sessionUsageSources(sessionFilePath: string, sessionId: string): string[] {
-    return subAgentUsageSources(sessionFilePath, sessionId);
+  *sessionUsageSources(sessionFilePath: string, sessionId: string): HostIoSteps<string[]> {
+    return (yield* subAgentUsageSources(sessionFilePath, sessionId));
   },
 
   // Write bridge rule to `~/.claude/rules/codeterm.md` via host APIs.
-  installBridgeRule(payload: string): unknown {
+  *installBridgeRule(payload: string): HostIoSteps<unknown> {
     const m = manifest();
     const rulePath = (m && m.rule && m.rule.path) || "~/.claude/rules/codeterm.md";
     const expanded = host.expandHome(rulePath);
     if (!expanded) return { ok: false, error: "could not expand " + rulePath };
-    const ok = host.writeFile(expanded, payload);
+    const ok = (yield* ioValue<boolean>({ op: "writeFile", path: expanded, contents: payload }));
     if (ok) {
       host.log("info", "[claude-plugin] bridge rule installed to " + expanded);
       return { ok: true };
@@ -512,13 +463,13 @@ const plugin: PluginModule = {
     return { ok: false, error: "writeFile failed for " + expanded };
   },
 
-  uninstallBridgeRule(): unknown {
+  *uninstallBridgeRule(): HostIoSteps<unknown> {
     const m = manifest();
     const rulePath = (m && m.rule && m.rule.path) || "~/.claude/rules/codeterm.md";
     const expanded = host.expandHome(rulePath);
     if (!expanded) return { ok: true }; // nothing to do
-    if (!host.fileExists(expanded)) return { ok: true };
-    const ok = host.removeFile(expanded);
+    if (!(yield* ioValue<boolean>({ op: "fileExists", path: expanded }))) return { ok: true };
+    const ok = (yield* host.io.fs.removeFile(expanded));
     if (ok) {
       host.log("info", "[claude-plugin] bridge rule removed from " + expanded);
       return { ok: true };
@@ -529,11 +480,11 @@ const plugin: PluginModule = {
   // Manage Claude settings hooks for Notification, Stop, SessionStart.
   // Hooks use a versioned source marker and runtime callback identity.
 
-  checkIntegration(): unknown {
+  *checkIntegration(): HostIoSteps<unknown> {
     const m = manifest();
     const path = host.expandHome((m && m.integration && m.integration.settingsPath)
       || "~/.claude/settings.json");
-    if (!path || !host.fileExists(path)) {
+    if (!path || !(yield* ioValue<boolean>({ op: "fileExists", path: path }))) {
       return {
         settings_exists: false,
         hooks_installed: false,
@@ -544,11 +495,11 @@ const plugin: PluginModule = {
 
         session_start_hook: false,
         target: path || "~/.claude/settings.json",
-        backup_exists: !!path && host.fileExists(path + ".codeterm-backup"),
+        backup_exists: !!path && (yield* ioValue<boolean>({ op: "fileExists", path: path + ".codeterm-backup" })),
         proposed_changes: ["PermissionRequest", "Notification", "Stop", "SessionStart"],
       };
     }
-    const json = host.fs.readJson<ClaudeSettings>(path);
+    const json = (yield* host.io.fs.readJson<ClaudeSettings>(path));
     if (!json) {
       return {
         settings_exists: true,
@@ -633,15 +584,12 @@ const plugin: PluginModule = {
 
       session_start_hook: ss,
       target: path,
-      backup_exists: host.fileExists(path + ".codeterm-backup"),
+      backup_exists: (yield* ioValue<boolean>({ op: "fileExists", path: path + ".codeterm-backup" })),
       proposed_changes: ["PermissionRequest", "Notification", "Stop", "SessionStart"],
     };
   },
 
-  installIntegration(
-    _apiPort: number,
-    options?: { consent?: boolean; repair?: boolean },
-  ): unknown {
+  *installIntegration(_apiPort: number, options?: { consent?: boolean; repair?: boolean }): HostIoSteps<unknown> {
     if (!options || options.consent !== true) {
       return { ok: false, error: "provider integration installation requires explicit local-user consent" };
     }
@@ -650,8 +598,9 @@ const plugin: PluginModule = {
       || "~/.claude/settings.json");
     if (!path) return { ok: false, error: "could not expand settingsPath" };
 
-    const existed = host.fileExists(path);
-    const originalValue = existed ? host.fs.readFile(path) : null;
+    return yield* ioFileTransaction(host.io.fs, [path + ".codeterm-integration.lock"], function* () {
+    const existed = (yield* ioValue<boolean>({ op: "fileExists", path: path }));
+    const originalValue = existed ? (yield* host.io.fs.readFile(path)) : null;
     if (existed && typeof originalValue !== "string") {
       return { ok: false, error: "could not read existing settings JSON at " + path };
     }
@@ -733,11 +682,11 @@ const plugin: PluginModule = {
       }
     }
 
-    if (!host.fs.writeFile(path + ".codeterm-backup", original)
-      || !host.fs.writeFile(path + ".codeterm-backup-state", existed ? "present" : "absent")) {
+    if (!(yield* host.io.fs.writeFile(path + ".codeterm-backup", original))
+      || !(yield* host.io.fs.writeFile(path + ".codeterm-backup-state", existed ? "present" : "absent"))) {
       return { ok: false, error: "could not write recoverable backup for " + path };
     }
-    const ok = host.fs.writeJson(path, json);
+    const ok = (yield* host.io.fs.writeJson(path, json));
     if (ok) {
       if (options.repair === true && preservedUnclassified > 0) {
         host.log("warn", "[claude-plugin] repair preserved " + preservedUnclassified + " foreign or unclassifiable hook entries at " + path);
@@ -746,65 +695,58 @@ const plugin: PluginModule = {
       return { ok: true };
     }
     return { ok: false, error: "writeJson failed for " + path };
+
+    });
   },
 
-  uninstallIntegration(): unknown {
+  *uninstallIntegration(): HostIoSteps<unknown> {
     const m = manifest();
     const path = host.expandHome((m && m.integration && m.integration.settingsPath)
       || "~/.claude/settings.json");
-    if (!path || !host.fileExists(path)) return { ok: true };
-    const original = host.fs.readFile(path);
-    if (typeof original !== "string") return { ok: false, error: "could not safely read settings JSON at " + path };
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(original);
-    } catch (_) {
-      return { ok: false, error: "existing settings JSON is malformed at " + path };
-    }
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return { ok: false, error: "existing settings JSON must contain an object at " + path };
-    }
-    const json = parsed as ClaudeSettings;
+    if (!path || !(yield* ioValue<boolean>({ op: "fileExists", path: path }))) return { ok: true };
+    const preflight = yield* readIntegrationSettings(path);
+    if (!preflight.ok) return preflight;
+    if (preflight.settings.hooks === undefined) return { ok: true };
+    return yield* ioFileTransaction(host.io.fs, [path + ".codeterm-integration.lock"], function* () {
+    const current = yield* readIntegrationSettings(path);
+    if (!current.ok) return current;
+    const json = current.settings;
     if (json.hooks === undefined) return { ok: true };
-    if (!json.hooks || typeof json.hooks !== "object" || Array.isArray(json.hooks)) {
-      return { ok: false, error: "hooks is not an object" };
-    }
     const keys = INTEGRATION_HOOK_KEYS;
-    for (let i = 0; i < keys.length; i++) {
-      const k = keys[i];
-      if (json.hooks[k] !== undefined && !Array.isArray(json.hooks[k])) {
-        return { ok: false, error: "hooks." + k + " is not an array" };
-      }
-    }
     for (let i = 0; i < keys.length; i++) {
       const k = keys[i];
       if (Array.isArray(json.hooks[k])) {
         json.hooks[k] = json.hooks[k].filter((entry) => k === "PreCompact" ? retainForeignPrecompactEntry(entry) : !isCodetermHook(entry));
       }
     }
-    const ok = host.fs.writeJson(path, json);
+    const ok = (yield* host.io.fs.writeJson(path, json));
     if (ok) {
       host.log("info", "[claude-plugin] hooks removed from " + path);
       return { ok: true };
     }
     return { ok: false, error: "writeJson failed for " + path };
+
+    });
   },
 
-  restoreIntegration(): unknown {
+  *restoreIntegration(): HostIoSteps<unknown> {
     const m = manifest();
     const path = host.expandHome((m && m.integration && m.integration.settingsPath)
       || "~/.claude/settings.json");
     if (!path) return { ok: false, error: "could not expand settingsPath" };
     const backup = path + ".codeterm-backup";
-    if (!host.fileExists(backup)) return { ok: false, error: "no recoverable backup at " + backup };
-    const original = host.fs.readFile(backup);
+    if (!(yield* ioValue<boolean>({ op: "fileExists", path: backup }))) return { ok: false, error: "no recoverable backup at " + backup };
+    return yield* ioFileTransaction(host.io.fs, [path + ".codeterm-integration.lock"], function* () {
+    const original = (yield* host.io.fs.readFile(backup));
     if (typeof original !== "string") return { ok: false, error: "restore failed for " + path };
-    const state = host.fs.readFile(path + ".codeterm-backup-state");
+    const state = (yield* host.io.fs.readFile(path + ".codeterm-backup-state"));
     const wasAbsent = state === "absent" || (typeof state !== "string" && original === "");
-    if (wasAbsent) return !host.fileExists(path) || host.removeFile(path)
+    if (wasAbsent) return !(yield* ioValue<boolean>({ op: "fileExists", path: path })) || (yield* host.io.fs.removeFile(path))
       ? { ok: true }
       : { ok: false, error: "restore failed for " + path };
-    return host.fs.writeFile(path, original) ? { ok: true } : { ok: false, error: "restore failed for " + path };
+    return (yield* host.io.fs.writeFile(path, original)) ? { ok: true } : { ok: false, error: "restore failed for " + path };
+
+    });
   },
 
   // AS3/AS4 tab-state classification lives in ./classify; the facade delegates.
@@ -813,10 +755,10 @@ const plugin: PluginModule = {
     return classifyClaudeTabState(snapshot);
   },
 
-  detectLaunchSession(evidence: LaunchSessionEvidence): LaunchSessionDetection | null {
-    return detectClaudeLaunchSession(evidence);
+  *detectLaunchSession(evidence: LaunchSessionEvidence): HostIoSteps<LaunchSessionDetection | null> {
+    return (yield* detectClaudeLaunchSession(evidence));
   },
-};
+} satisfies IoExports<PluginModule>;
 
 function exactSourceIdentity(value: unknown): string | undefined {
   if (typeof value !== "string" || !value || value.trim() !== value) return undefined;
@@ -848,7 +790,6 @@ function quoteArg(arg: string): string {
   return /^[A-Za-z0-9_\-.,:=@/+%]+$/.test(arg) ? arg : host.shell.quoteFor(arg, host.platform());
 }
 
-
 function resumeBase(sessionId: string, skipPermissions?: boolean): string {
     const win = host.platform() === "windows";
     const unset = win
@@ -865,8 +806,7 @@ function resumeBase(sessionId: string, skipPermissions?: boolean): string {
     return parts.join(" ");
 }
 
-
-function parseSessionDelta(chunk: SessionRecordInput): {messages: unknown[]} {
+function* parseSessionDelta(chunk: SessionRecordInput): HostIoSteps<{messages: unknown[]}> {
   const out: unknown[] = [];
   let stamped = 0;
   const stampRows = (row: number) => {
@@ -953,7 +893,7 @@ function parseSessionDelta(chunk: SessionRecordInput): {messages: unknown[]} {
       if (!msg) continue;
       const content = msg.content;
       if (typeof content === "string") {
-        const agentNotice = t === "user" ? subAgentNotificationBlock(content, v) : null;
+        const agentNotice = t === "user" ? (yield* subAgentNotificationBlock(content, v)) : null;
         const taskStatus = t === "user" && !agentNotice ? taskNotificationStatus(content) : null;
         if (agentNotice) {
           blocks.push(agentNotice);
@@ -1037,7 +977,7 @@ function parseSessionDelta(chunk: SessionRecordInput): {messages: unknown[]} {
         emitObservations();
         continue;
       }
-      const agentNotice = subAgentNotificationBlock(att.prompt, v);
+      const agentNotice = (yield* subAgentNotificationBlock(att.prompt, v));
       const taskStatus = agentNotice ? null : att.commandMode === "task-notification"
         ? taskNotificationStatus(att.prompt) ?? "Task notification"
         : taskNotificationStatus(att.prompt);
@@ -1127,4 +1067,4 @@ function parseSessionMessages(text: SessionRecordInput): unknown[] {
   return out;
 }
 
-export default plugin;
+export default defineProviderIo(plugin, () => host.io) satisfies PluginModule;

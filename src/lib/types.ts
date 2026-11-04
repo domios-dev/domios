@@ -663,7 +663,6 @@ export interface AgentConfig {
   poll_interval_ms: number;
   idle_timeout_s: number;
   resume_sessions: boolean;
-  full_access?: boolean;
   sandbox_ceiling?: "read-only" | "workspace-write";
 }
 

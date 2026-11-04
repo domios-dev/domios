@@ -670,13 +670,15 @@ describe("chat task and plan links", () => {
     const view = chatPlanRefView(resolvedTask(), [], WORKSPACES, false);
     const host = await render(
       <LinkedText
-        text={`Review ${KEYED.id} in ${TEAM_PLAN.id}`}
+        text={`Review <domios type="task" id="${KEYED.id}" plan="${TEAM_PLAN.id}" /> in ${TEAM_PLAN.id}`}
         resolvePlanRef={() => view}
         onOpenPlan={(planId, targetId, kind) => { opened.push([planId, targetId, kind]); }}
       />,
     );
     const link = host.querySelector('[data-testid="chat-task-link"]') as HTMLButtonElement;
     expect(link.getAttribute("aria-label")).toContain("CT-7 Render the segment");
+    expect(host.querySelector('[data-testid="chat-plan-link"]')).toBeNull();
+    expect(host.textContent).toContain(`in ${TEAM_PLAN.id}`);
     await act(async () => link.click());
     expect(opened).toEqual([[TEAM_PLAN.id, KEYED.id, "task"]]);
   });
@@ -684,10 +686,10 @@ describe("chat task and plan links", () => {
   it("a chat task link opens the side panel without navigating, Escape returns to the link, show full navigates", async () => {
     const setActiveWorkspace = vi.fn();
     const ctx = context({ activeWorkspaceId: OTHER_WS, setActiveWorkspace });
-    const host = await render(<ChatSurface text={`Review ${KEYED.id} in ${TEAM_PLAN.id}`} ctx={ctx} />);
+    const host = await render(<ChatSurface text={`Review <domios type="task" id="${KEYED.id}" plan="${TEAM_PLAN.id}" /> in ${TEAM_PLAN.id}`} ctx={ctx} />);
 
     const link = host.querySelector('[data-testid="chat-task-link"]') as HTMLButtonElement;
-    link.focus();
+    await act(async () => link.focus());
     await act(async () => link.click());
     expect(sidePanel()?.getAttribute("data-task-id")).toBe(KEYED.id);
     expect(setActiveWorkspace).not.toHaveBeenCalled();
@@ -712,10 +714,10 @@ describe("chat task and plan links", () => {
   it("a chat plan link opens the plan side panel without navigating, and show full lands on Plan", async () => {
     const setActiveWorkspace = vi.fn();
     const ctx = context({ activeWorkspaceId: OTHER_WS, setActiveWorkspace });
-    const host = await render(<ChatSurface text={`Plan ${TEAM_PLAN.id} is ready`} ctx={ctx} />);
+    const host = await render(<ChatSurface text={`Plan <domios type="plan" id="${TEAM_PLAN.id}" /> is ready`} ctx={ctx} />);
 
     const link = host.querySelector('[data-testid="chat-plan-link"]') as HTMLButtonElement;
-    link.focus();
+    await act(async () => link.focus());
     await act(async () => link.click());
     expect(sidePanel()?.getAttribute("data-kind")).toBe("plan");
     expect(sidePanelControl("full").getAttribute("aria-label")).toBe("Open plan in full view");

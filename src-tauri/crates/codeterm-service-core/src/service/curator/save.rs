@@ -5,10 +5,10 @@ use std::collections::BTreeSet;
 impl ServiceContext {
     pub fn curator_save_candidates(
         &self,
-        plan: &crate::plan::Plan,
+        plan_id: &str,
+        team_id: &Option<String>,
         now: u64,
     ) -> Result<std::collections::BTreeMap<String, BTreeSet<String>>, String> {
-        let plan_id = &plan.id;
         let ports = self
             .try_ext::<crate::ports::sentinel::SentinelPorts>()
             .ok_or("Blueprints unavailable")?;
@@ -16,30 +16,19 @@ impl ServiceContext {
             .store
             .records()
             .into_iter()
-            .filter(|record| record.team_id == plan.team_id)
+            .filter(|record| &record.team_id == team_id)
             .map(|record| record.id)
             .collect::<BTreeSet<_>>();
         let observed = ports.store.save_candidates();
         self.plan_store
-            .with_plan(plan_id, now, |plan| {
+            .edit_curator_save(plan_id, now, |plan| {
                 retain_live_blueprints(&mut plan.control_loop, &ids);
-                for task in plan
-                    .tasks
-                    .iter()
-                    .filter(|task| task.status == crate::plan::TaskStatus::Done)
-                {
-                    for skill in task
-                        .execution_attempts
-                        .iter()
-                        .filter_map(|attempt| attempt.report.as_ref())
-                        .flat_map(|report| &report.loaded_plan_skills)
-                    {
-                        plan.control_loop
-                            .save_candidates
-                            .entry(format!("plan-skill:{}", skill.slug))
-                            .or_default()
-                            .insert(task.id.clone());
-                    }
+                for (key, episodes) in &plan.completed_skill_episodes {
+                    plan.control_loop
+                        .save_candidates
+                        .entry(key.clone())
+                        .or_default()
+                        .extend(episodes.iter().cloned());
                 }
                 for (id, candidate) in observed.into_iter().filter(|(id, _)| ids.contains(id)) {
                     if plan
@@ -73,7 +62,7 @@ impl ServiceContext {
         save: impl FnOnce(&BTreeSet<String>, bool) -> Result<String, String>,
     ) -> Result<String, String> {
         self.plan_store
-            .with_plan(&identity.plan_id, now, |plan| {
+            .edit_curator_state(&identity.plan_id, now, |plan| {
                 let run = plan
                     .control_loop
                     .running

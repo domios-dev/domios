@@ -1,8 +1,9 @@
+import type { PlanView as Plan } from "./planProjection";
 import type { Tab, Team, Workspace } from "../../lib/types";
 import { anchorsTeam } from "../../lib/roleKind";
 import type { PlanIndexEntry } from "./plansApi";
 import { derivePlanWorkspaceScope } from "./planWorkspaceScope";
-import { TaskStatus, type OrchestratorRef, type Plan } from "./types";
+import { TaskStatus, type OrchestratorRef } from "./types";
 
 /** Read-only context that scopes plans to a single workspace. */
 export interface PlanWorkspaceContext {

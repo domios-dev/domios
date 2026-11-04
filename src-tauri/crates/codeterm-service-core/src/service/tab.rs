@@ -334,7 +334,7 @@ impl ServiceContext {
         validate: impl FnOnce(&crate::multiplexer::state::MultiplexerState, &str) -> Result<(), String>,
         teardown: impl FnOnce() -> Result<(), String>,
         validate_commit: impl FnOnce(
-            &crate::multiplexer::state::MultiplexerState,
+            &mut crate::multiplexer::state::MultiplexerState,
             &str,
         ) -> Result<(), String>,
     ) -> Result<(), String> {
@@ -378,7 +378,7 @@ impl ServiceContext {
         }
         let (close_result, history_batch) = {
             let mut mux = self.mux.write();
-            if let Err(error) = validate_commit(&mux, &canonical_tab_id) {
+            if let Err(error) = validate_commit(&mut mux, &canonical_tab_id) {
                 mux.abort_tab_close(&reservation);
                 return Err(error);
             }
@@ -547,10 +547,11 @@ impl ServiceContext {
         Ok(())
     }
 
-    pub fn link_pty(&self, tab_id: &str, pty_id: String) -> String {
-        let claim = self.pty_ownership.acquire(tab_id);
-        self.link_pty_with_claim(&claim, tab_id, pty_id, false)
-            .pty_id
+    pub fn link_pty(&self, tab_id: &str, pty_id: String) -> Result<String, String> {
+        let claim = self.pty_ownership.acquire(tab_id)?;
+        Ok(self
+            .link_pty_with_claim(&claim, tab_id, pty_id, false)
+            .pty_id)
     }
 
     pub fn link_pty_with_claim(
@@ -631,7 +632,10 @@ impl ServiceContext {
             .get_tab(tab_id)
             .and_then(|tab| tab.pty_id.clone());
         if let Some(pty_id) = pty_id {
-            self.pty.lock().invalidate_guarded_input(&pty_id);
+            let gate = self.pty.lock().guarded_input_gate(&pty_id);
+            if let Some(gate) = gate {
+                gate.invalidate();
+            }
         }
     }
 

@@ -5,6 +5,7 @@ pub(super) const BRACKETED_PASTE_END: &str = "\x1b[201~";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum PasteEncodingCapability {
+    Shell,
     Unsupported,
     TaggedBlock,
     LiveModeOnly,
@@ -37,7 +38,7 @@ impl PasteEncodingCapability {
     fn bracketed(self, text: &str, live_mode: Option<bool>) -> bool {
         match self {
             Self::Unsupported | Self::TaggedBlock => false,
-            Self::LiveModeOnly => live_mode == Some(true),
+            Self::Shell | Self::LiveModeOnly => live_mode == Some(true),
             Self::MultilineTui => {
                 live_mode == Some(true) || text.contains('\r') || text.contains('\n')
             }
@@ -59,8 +60,7 @@ pub(super) fn xterm_paste(
 }
 
 pub(crate) fn live_command_input(text: &str, live_mode: Option<bool>) -> Vec<u8> {
-    let mut input =
-        xterm_paste(text, live_mode, PasteEncodingCapability::LiveModeOnly).into_bytes();
+    let mut input = xterm_paste(text, live_mode, PasteEncodingCapability::Shell).into_bytes();
     input.push(b'\r');
     input
 }
@@ -85,7 +85,9 @@ pub(super) fn encode_paste_payload(
         }
         return normalized.into_bytes();
     }
-    let live_mode = force_bracketed_paste.then_some(true).or(live_mode);
+    let live_mode = (force_bracketed_paste && capability != PasteEncodingCapability::Shell)
+        .then_some(true)
+        .or(live_mode);
     if let Some(marker) = paste_marker.filter(|_| capability.bracketed(text, live_mode)) {
         // Separate paste events can commit out of order when a TUI expands a large paste.
         return xterm_paste(&format!("{text}{marker}"), live_mode, capability).into_bytes();
@@ -104,6 +106,9 @@ pub(super) fn resolve_pty_paste_capability(
         mux.tab_id_for_pty(pty_id)
             .and_then(|tab| mux.get_tab(&tab).and_then(|tab| tab.agent_type.clone()))
     };
+    if provider.is_none() {
+        return (None, PasteEncodingCapability::Shell);
+    }
     let declared = provider.as_ref().and_then(|provider| {
         registry
             .with_provider(provider, |provider| provider.paste_capability())

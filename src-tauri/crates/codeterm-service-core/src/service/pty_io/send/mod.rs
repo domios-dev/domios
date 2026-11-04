@@ -69,11 +69,15 @@ pub(crate) fn build_spawn_dispatch(cmd: &str) -> std::io::Result<Vec<u8>> {
     Ok(format!("/bin/bash {}\r", script_path).into_bytes())
 }
 
-/// Windows keeps bracketed paste (no /bin/bash to script-exec). The leading space
-/// is sacrificial: it absorbs PSReadLine's dropped first byte before the paste handler arms.
 #[cfg(windows)]
 pub(crate) fn build_spawn_dispatch(cmd: &str) -> std::io::Result<Vec<u8>> {
-    Ok(format!("\x1b[200~ {}\x1b[201~", cmd).into_bytes())
+    if cmd.contains(['\r', '\n']) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "spawn command must be a single line",
+        ));
+    }
+    Ok(cmd.as_bytes().to_vec())
 }
 
 #[cfg(unix)]
@@ -361,7 +365,7 @@ impl ServiceContext {
         expected_binding_nonce: &str,
         frame: crate::service::messenger::FramedDelivery,
     ) -> Result<(), String> {
-        let pty_claim = self.pty_ownership.acquire(tab_id);
+        let pty_claim = self.pty_ownership.acquire(tab_id)?;
         let result = self
             .authenticated_pty_delivery(
                 tab_id,
@@ -386,7 +390,7 @@ impl ServiceContext {
         text: &str,
         send: impl FnOnce(AuthenticatedPtyDelivery, &str) -> Result<T, String>,
     ) -> Result<T, String> {
-        let pty_claim = self.pty_ownership.acquire(tab_id);
+        let pty_claim = self.pty_ownership.acquire(tab_id)?;
         let result = self
             .authenticated_pty_delivery(
                 tab_id,

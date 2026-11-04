@@ -1,31 +1,16 @@
+use super::state::input::StateInput;
 use super::state::mission_control::{BounceSummary, EventLog};
 use super::state::PlanStateSnapshot;
 use super::{PlanError, PlanStore};
-use crate::plan::Plan;
 use std::collections::HashMap;
 
 pub struct PlanNoticeRead {
-    pub(super) plan: Plan,
-    pub(super) finished_lanes: usize,
-    pub(super) lane_candidates: Vec<String>,
-}
-
-impl PlanNoticeRead {
-    pub fn plan(&self) -> &Plan {
-        &self.plan
-    }
-
-    pub fn digest_counters(
-        &self,
-        now_ms: u64,
-        stalled_lanes: usize,
-    ) -> super::digest_rules::PlanDigestCounters {
-        let mut counters =
-            super::digest_rules::plan_digest_counters(&self.plan, now_ms, stalled_lanes);
-        counters.finished_lanes = self.finished_lanes;
-        counters.lane_candidates = self.lane_candidates.clone();
-        counters
-    }
+    pub(super) connection: rusqlite::Connection,
+    pub(super) plan_id: String,
+    pub mode: crate::plan::PlanMode,
+    pub owner_tab_id: Option<String>,
+    pub team_id: Option<String>,
+    pub complete: bool,
 }
 
 pub struct CuratorScheduleRead {
@@ -76,7 +61,7 @@ impl CuratorScheduleRead {
 
 pub struct PlanStatusRead {
     pub(super) revision: String,
-    pub(super) plan: Plan,
+    pub(super) input: StateInput,
     pub(super) event_log: EventLog,
     pub(super) bounces: BounceSummary,
     pub(super) held_reviews: HashMap<String, (usize, Option<u64>)>,
@@ -86,8 +71,8 @@ pub struct PlanStatusRead {
 }
 
 impl PlanStatusRead {
-    pub fn plan(&self) -> &Plan {
-        &self.plan
+    pub fn input(&self) -> &StateInput {
+        &self.input
     }
 
     pub fn apply_history_facts(&self, snapshot: &mut PlanStateSnapshot, now_ms: u64) {
@@ -127,14 +112,8 @@ impl PlanStore {
         self.database.curator_authority_projection(plan_id)
     }
 
-    pub fn notice_projection(
-        &self,
-        plan_id: &str,
-        now_ms: u64,
-        selected_learnings: &[String],
-    ) -> Result<PlanNoticeRead, PlanError> {
-        self.database
-            .notice_projection(plan_id, now_ms, selected_learnings)
+    pub fn notice_projection(&self, plan_id: &str) -> Result<PlanNoticeRead, PlanError> {
+        self.database.notice_projection(plan_id)
     }
 
     pub fn curator_schedule_projection(

@@ -2,10 +2,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::path::Path;
 
-use super::readback::pending_after_verified;
-use super::state::{dependency_waits, DependencyWait, TaskPresentation};
-use super::{PlanError, PlanMatch, PlanStore, TaskMatch};
-use crate::plan::{OrchestratorRef, Plan, PlanMode, Section, Task, TaskStatus};
+use super::state::{DependencyWait, TaskPresentation};
+use super::{PlanError, PlanStore};
+use crate::plan::{OrchestratorRef, PlanMode, Task, TaskStatus};
 
 #[derive(Debug, Clone, Default)]
 pub struct TaskListFilter {
@@ -128,39 +127,6 @@ pub(super) fn canonical_project(project_path: &str) -> String {
         .to_string()
 }
 
-fn collect_sections(sections: &[Section], ids: &HashSet<&str>, out: &mut Vec<TaskSection>) {
-    for section in sections {
-        if ids.contains(section.id.as_str()) {
-            out.push(TaskSection {
-                id: section.id.clone(),
-                title: section.title.clone(),
-            });
-        }
-        collect_sections(&section.subsections, ids, out);
-    }
-}
-
-fn task_sections(sections: &[Section], task: &Task) -> Vec<TaskSection> {
-    let ids = task.section_ids.iter().map(String::as_str).collect();
-    let mut out = vec![];
-    collect_sections(sections, &ids, &mut out);
-    out
-}
-
-fn task_label(task: &Task) -> TaskLabel {
-    TaskLabel {
-        id: task.id.clone(),
-        display_key: task.display_key(),
-        name: task.name.clone(),
-        status: task.status.clone(),
-    }
-}
-
-/// Unarchived plans holding a task this reference may name; callers confirm with `find_task`.
-fn task_ref_candidates(task_ref: &str) -> PlanMatch {
-    PlanMatch::active().and(TaskMatch::reference(task_ref))
-}
-
 impl PlanStore {
     pub fn list_tasks(&self, filter: TaskListFilter) -> Result<Vec<TaskSummary>, PlanError> {
         self.list_tasks_with_reason(filter)
@@ -175,18 +141,10 @@ impl PlanStore {
         self.database.task_list_snapshot(&filter)
     }
 
-    pub fn show_task(&self, task_id: &str) -> Option<TaskDetail> {
-        self.plans_matching(&task_ref_candidates(task_id))
-            .iter()
-            .find_map(|plan| detail_from_plan(plan, task_id))
-    }
-
     pub fn show_task_window(&self, task_id: &str) -> Result<TaskDetail, PlanError> {
-        let plan = self
-            .database
-            .task_detail_snapshot(&task_ref_candidates(task_id), task_id, true)?
-            .ok_or(PlanError::TaskNotFound)?;
-        detail_from_plan(&plan, task_id).ok_or(PlanError::TaskNotFound)
+        self.database
+            .task_detail_projection(task_id)?
+            .ok_or(PlanError::TaskNotFound)
     }
 
     pub fn set_task_assignment(
@@ -199,93 +157,47 @@ impl PlanStore {
         let target = self.task_authority_target_projection(task_id)?;
         let plan_id = target.plan_id;
         let canonical_task_id = target.task_id;
-        let write = self.with_plan(&plan_id, now_ms, |p| {
-            let task_index = p
-                .tasks
-                .iter()
-                .position(|task| task.id == canonical_task_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            if let Some(tab) = tab_id.filter(|_| p.tasks[task_index].status == TaskStatus::Pending)
-            {
-                let lane = super::TaskLaneUpdate {
-                    tab_id: Some(Some(tab.to_string())),
-                    ..Default::default()
-                };
-                super::mutations::validate_task_status_transition_with_lane(
-                    p,
-                    &canonical_task_id,
-                    &TaskStatus::Pending,
-                    &TaskStatus::InProgress,
-                    None,
-                    Some(&lane),
-                )?;
-            }
-            let task = &mut p.tasks[task_index];
-            task.assigned_tab_id = tab_id.map(str::to_string);
-            task.taken_by_role = taken_by_role.map(str::to_string);
-            if let Some(tab) = tab_id {
-                let attempt = super::task_attempts::new_assignment_attempt(
-                    task,
-                    tab,
-                    None,
-                    taken_by_role,
-                    now_ms,
-                );
-                task.execution_attempts.push(attempt);
-            }
-            // Binding an executor tab IS the in_progress precondition — taking or dispatching a task starts it, so a live worker never leaves the board stuck at pending while it codes.
-            if tab_id.is_some() && task.status == TaskStatus::Pending {
-                task.status = TaskStatus::InProgress;
-                task.status_changed_at = now_ms;
-                p.mode = PlanMode::Execution;
-            }
-            if tab_id.is_none() {
-                task.peer = None;
-            }
-            task.updated_at = now_ms;
-            Ok(())
-        });
-        pending_after_verified(
-            write,
-            self.verify_task_assignment(&plan_id, &canonical_task_id, tab_id, taken_by_role),
-            Some(canonical_task_id),
+        self.with_task_rows(
+            &plan_id,
+            &canonical_task_id,
+            super::store_db::hot_write::TaskHistory::Core,
+            now_ms,
+            |edit| {
+                if tab_id.is_some() && edit.task.status == TaskStatus::Pending {
+                    edit.progression = Some((
+                        TaskStatus::Pending,
+                        tab_id.is_some_and(|tab| !tab.trim().is_empty()),
+                    ));
+                }
+                let task = &mut edit.task;
+                task.assigned_tab_id = tab_id.map(str::to_string);
+                task.taken_by_role = taken_by_role.map(str::to_string);
+                if let Some(tab) = tab_id {
+                    let attempt = super::task_attempts::new_assignment_attempt(
+                        task,
+                        tab,
+                        None,
+                        taken_by_role,
+                        now_ms,
+                    );
+                    task.execution_attempts.push(attempt);
+                }
+                // Binding an executor tab IS the in_progress precondition — taking or dispatching a task starts it, so a live worker never leaves the board stuck at pending while it codes.
+                if tab_id.is_some() && task.status == TaskStatus::Pending {
+                    task.status = TaskStatus::InProgress;
+                    task.status_changed_at = now_ms;
+                    edit.mode = PlanMode::Execution;
+                }
+                if tab_id.is_none() {
+                    task.peer = None;
+                }
+                task.updated_at = now_ms;
+                Ok(())
+            },
         )?;
         Ok(plan_id)
     }
 }
 
-fn detail_from_plan(plan: &Plan, task_id: &str) -> Option<TaskDetail> {
-    let task = crate::plan::task_key::find_task(&plan.tasks, task_id)?;
-    let parent = task.parent_task_id.as_ref().and_then(|parent_id| {
-        plan.tasks
-            .iter()
-            .find(|candidate| candidate.id == *parent_id)
-            .map(task_label)
-    });
-    let dependency_waits = dependency_waits(&plan, task);
-    Some(TaskDetail {
-        plan_id: plan.id.clone(),
-        plan_title: plan.title.clone(),
-        plan_owner: plan.owner.clone(),
-        display_key: task.display_key(),
-        sections: task_sections(&plan.sections, task),
-        parent,
-        siblings: plan
-            .tasks
-            .iter()
-            .filter(|candidate| {
-                candidate.id != task.id && candidate.parent_task_id == task.parent_task_id
-            })
-            .map(task_label)
-            .collect(),
-        subtasks: plan
-            .tasks
-            .iter()
-            .filter(|candidate| candidate.parent_task_id.as_deref() == Some(&task.id))
-            .map(task_label)
-            .collect(),
-        presentation: super::state::task_projection(&plan, task).presentation,
-        dependency_waits,
-        task: task.clone(),
-    })
-}
+#[cfg(any(test, feature = "test-support"))]
+mod fixture;

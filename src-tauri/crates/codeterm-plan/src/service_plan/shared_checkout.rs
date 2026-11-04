@@ -1,5 +1,7 @@
 use super::{PlanError, PlanStore};
-use crate::plan::{Plan, Task, TaskFiles, WorkerPlacement};
+#[cfg(test)]
+use crate::plan::{Plan, Task};
+use crate::plan::{TaskFiles, WorkerPlacement};
 mod inspection;
 mod report;
 pub use super::store_db::read_projections::checkout::{
@@ -8,6 +10,7 @@ pub use super::store_db::read_projections::checkout::{
 pub(crate) use inspection::{SharedDispatchInspection, SharedReportInspection};
 pub use report::{shared_checkout_head, validate_shared_report};
 
+#[cfg(test)]
 fn canonical(plan: &Plan) -> String {
     let path = if plan.canonical_project_path.trim().is_empty() {
         &plan.project_path
@@ -28,14 +31,7 @@ pub(in crate::service_plan) fn canonical_path(path: &str) -> String {
     )
 }
 
-pub fn live_shared(task: &Task) -> bool {
-    task.execution_attempts.iter().any(|attempt| {
-        attempt.closed_at.is_none()
-            && attempt.retired_at.is_none()
-            && attempt.placement == WorkerPlacement::Shared
-    })
-}
-
+#[cfg(test)]
 pub fn validate_exclusive_checkout(
     plans: &[CheckoutPeerRead],
     plan: &Plan,
@@ -73,6 +69,7 @@ pub(crate) fn validate_exclusive_checkout_at(
     Ok(())
 }
 
+#[cfg(test)]
 pub fn validate_shared_files(
     plans: &[CheckoutPeerRead],
     plan: &Plan,
@@ -93,15 +90,6 @@ pub(crate) fn validate_shared_files_at(
     files.shared_edit_paths()?;
     validate_edit_links_at(checkout, files)?;
     validate_shared_ownership_at(plans, plan_id, task_id, checkout, files)
-}
-
-pub(crate) fn validate_shared_ownership(
-    plans: &[CheckoutPeerRead],
-    plan: &Plan,
-    task: &Task,
-    files: &TaskFiles,
-) -> Result<(), String> {
-    validate_shared_ownership_at(plans, &plan.id, &task.id, &canonical(plan), files)
 }
 
 pub(crate) fn validate_shared_ownership_at(
@@ -142,10 +130,6 @@ pub(crate) fn validate_shared_ownership_at(
     Ok(())
 }
 
-fn validate_edit_links(plan: &Plan, files: &TaskFiles) -> Result<(), String> {
-    validate_edit_links_at(&canonical(plan), files)
-}
-
 fn validate_edit_links_at(checkout: &str, files: &TaskFiles) -> Result<(), String> {
     let root = std::path::PathBuf::from(checkout);
     for edit in files.shared_edit_paths()? {
@@ -179,10 +163,34 @@ fn validate_edit_links_at(checkout: &str, files: &TaskFiles) -> Result<(), Strin
     Ok(())
 }
 
-pub fn choose_placement(
+#[cfg(test)]
+fn choose_placement(
     plans: &[CheckoutPeerRead],
     plan: &Plan,
     task: &Task,
+    requested: Option<&str>,
+) -> Result<(WorkerPlacement, String), String> {
+    choose_placement_facts(
+        plans,
+        &plan.id,
+        &task.id,
+        &canonical(plan),
+        &task.files,
+        task.lane.worktree_path.is_some() || task.lane.branch.is_some(),
+        task.tags.iter().any(|tag| tag == "build-breaking"),
+        requested,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn choose_placement_facts(
+    plans: &[CheckoutPeerRead],
+    plan_id: &str,
+    task_id: &str,
+    checkout: &str,
+    files: &TaskFiles,
+    recorded_lane: bool,
+    build_breaking: bool,
     requested: Option<&str>,
 ) -> Result<(WorkerPlacement, String), String> {
     match requested {
@@ -195,14 +203,15 @@ pub fn choose_placement(
         Some("shared") | None => {}
         Some(value) => return Err(format!("unknown placement '{value}'")),
     }
-    let lane_reason = if task.lane.worktree_path.is_some() || task.lane.branch.is_some() {
+    let checkout = canonical_path(checkout);
+    let lane_reason = if recorded_lane {
         Some("resume recorded lane".into())
-    } else if task.tags.iter().any(|tag| tag == "build-breaking") {
+    } else if build_breaking {
         Some("task is marked build-breaking".into())
     } else {
-        task.files.shared_edit_paths().map_err(|error| format!("{error}. Declare edit files: domios plan task files {} {} --edit-file <path>; or request isolation: domios plan task dispatch {} {} --execution-intent mutating --placement lane", plan.id, task.id, plan.id, task.id))?;
-        validate_edit_links(plan, &task.files)?;
-        match validate_shared_ownership(plans, plan, task, &task.files) {
+        files.shared_edit_paths().map_err(|error| format!("{error}. Declare edit files: domios plan task files {} {} --edit-file <path>; or request isolation: domios plan task dispatch {} {} --execution-intent mutating --placement lane", plan_id, task_id, plan_id, task_id))?;
+        validate_edit_links_at(&checkout, files)?;
+        match validate_shared_ownership_at(plans, plan_id, task_id, &checkout, files) {
             Ok(()) => None,
             Err(error) => Some(error),
         }
@@ -220,9 +229,6 @@ pub fn choose_placement(
 }
 
 impl PlanStore {
-    pub fn checkout_peer_plans(&self, plan: &Plan) -> Result<Vec<CheckoutPeerRead>, PlanError> {
-        self.checkout_peer_facts(&canonical(plan))
-    }
     pub fn extend_task_edit_files(
         &self,
         plan_id: &str,
@@ -248,13 +254,19 @@ impl PlanStore {
             &files,
         )
         .map_err(PlanError::InvalidPlanText)?;
-        self.with_plan_in_writer(&writer_turn, plan_id, now, |plan| {
-            let task = crate::plan::task_key::find_task_mut(&mut plan.tasks, task_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            task.files = files;
-            task.updated_at = now;
-            Ok(())
-        })
+        self.with_task_rows_in_writer(
+            &writer_turn,
+            plan_id,
+            task_id,
+            super::store_db::hot_write::TaskHistory::Core,
+            now,
+            |edit| {
+                let task = &mut edit.task;
+                task.files = files;
+                task.updated_at = now;
+                Ok(())
+            },
+        )
     }
 }
 

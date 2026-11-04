@@ -912,16 +912,27 @@ impl ServiceContext {
             Some(&binding_nonce),
             false,
         );
-        let mux = self.mux.read();
-        mux.get_tab(tab_id).is_some_and(|tab| {
-            live_model_confirmation_matches(
-                &self.agent_registry,
-                tab,
-                provider,
-                session_id,
-                &binding_nonce,
-                observed_model,
-            )
+        let snapshot = self.mux.read().get_tab(tab_id).cloned();
+        let Some(snapshot) = snapshot else {
+            return false;
+        };
+        if !live_model_confirmation_matches(
+            &self.agent_registry,
+            &snapshot,
+            provider,
+            session_id,
+            &binding_nonce,
+            observed_model,
+        ) {
+            return false;
+        }
+        self.mux.read().get_tab(tab_id).is_some_and(|tab| {
+            tab.agent_type == snapshot.agent_type
+                && tab.agent_session_id == snapshot.agent_session_id
+                && tab.session_binding_nonce == snapshot.session_binding_nonce
+                && tab.reported_session_binding_nonce == snapshot.reported_session_binding_nonce
+                && tab.agent_session_model == snapshot.agent_session_model
+                && tab.agent_session_model_identity == snapshot.agent_session_model_identity
         })
     }
 

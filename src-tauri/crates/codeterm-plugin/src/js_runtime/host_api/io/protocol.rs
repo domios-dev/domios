@@ -70,6 +70,8 @@ pub(super) enum Request {
         db: String,
         sql: String,
         params: Option<Value>,
+        #[serde(default)]
+        nullable: bool,
     },
     JsonBooleanRecord {
         path: String,

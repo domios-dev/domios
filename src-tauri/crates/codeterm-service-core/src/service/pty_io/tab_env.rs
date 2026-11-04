@@ -79,6 +79,7 @@ pub(crate) fn compose_launch_env(
     env_vars
 }
 
+#[cfg(test)]
 fn compose_task_env(
     plan_id: &str,
     task_id: &str,
@@ -109,36 +110,46 @@ fn compose_task_env(
 }
 
 #[cfg(test)]
-pub(crate) fn active_tab_lane_base(plan_store: &PlanStore, tab_id: &str) -> Option<String> {
-    tab_task_env(plan_store, tab_id).remove("CODETERM_LANE_BASE")
+pub(crate) fn active_tab_lane_base(
+    plan_store: &PlanStore,
+    tab_id: &str,
+) -> Result<Option<String>, String> {
+    Ok(tab_task_env(plan_store, tab_id)?.remove("CODETERM_LANE_BASE"))
 }
 
-pub(crate) fn tab_task_env(plan_store: &PlanStore, tab_id: &str) -> HashMap<String, String> {
-    if let Some((plan_id, task_id)) = plan_store.task_binding_for_tab(tab_id) {
-        return plan_store
-            .get(&plan_id)
-            .and_then(|plan| {
-                plan.tasks
-                    .iter()
-                    .find(|task| {
-                        task.id == task_id || task.handle.as_deref() == Some(task_id.as_str())
-                    })
-                    .map(|task| {
-                        compose_task_env(
-                            &plan_id,
-                            &task_id,
-                            tab_id,
-                            &task.execution_attempts,
-                            task.lane.base.as_deref(),
-                        )
-                    })
-            })
-            .unwrap_or_default();
+pub(crate) fn tab_task_env(
+    plan_store: &PlanStore,
+    tab_id: &str,
+) -> Result<HashMap<String, String>, String> {
+    if let Some(binding) = plan_store
+        .assigned_task_binding_projection(tab_id)
+        .map_err(|error| error.to_string())?
+    {
+        let Some(task) = plan_store
+            .tab_launch_task_projection(&binding.plan_id, &binding.task_id, tab_id)
+            .map_err(|error| error.to_string())?
+        else {
+            return Ok(HashMap::new());
+        };
+        let mut env = HashMap::from([
+            ("CODETERM_PLAN_ID".into(), binding.plan_id),
+            ("CODETERM_TASK_ID".into(), binding.task_id),
+        ]);
+        if let Some(attempt) = task.attempt_id {
+            env.insert("CODETERM_ATTEMPT_ID".into(), attempt);
+        }
+        if let Some(base) = task.base.filter(|base| !base.trim().is_empty()) {
+            env.insert("CODETERM_LANE_BASE".into(), base);
+        }
+        return Ok(env);
     }
-    if let Some(plan_id) = plan_store.planner_plan_id_for_tab(tab_id) {
-        return HashMap::from([("CODETERM_PLAN_ID".into(), plan_id)]);
+    if let Some(plan) = plan_store
+        .planner_binding_projection(tab_id)
+        .map_err(|error| error.to_string())?
+    {
+        return Ok(HashMap::from([("CODETERM_PLAN_ID".into(), plan)]));
     }
-    HashMap::new()
+    Ok(HashMap::new())
 }
 
 fn task_binding_env(tab: &Tab) -> HashMap<String, String> {
@@ -182,21 +193,59 @@ pub(crate) fn tab_identity_env(tab: &Tab) -> HashMap<String, String> {
     env_vars
 }
 
+#[derive(Default)]
+struct PlanEnvironmentWarnings(parking_lot::Mutex<std::collections::HashSet<String>>);
+
 impl ServiceContext {
+    pub(crate) fn warn_plan_environment_read(&self, tab_id: &str, message: String) {
+        let live = self
+            .mux
+            .read()
+            .all_tabs()
+            .map(|tab| tab.id.clone())
+            .collect::<std::collections::HashSet<_>>();
+        let first = {
+            let mut warnings = self
+                .extensions
+                .get_or_init(PlanEnvironmentWarnings::default)
+                .0
+                .lock();
+            warnings.retain(|id| live.contains(id));
+            warnings.insert(tab_id.to_string())
+        };
+        if first {
+            log::warn!("[plan-env] tab={tab_id}: {message}");
+            self.create_in_app_notice(
+                format!("Plan state unavailable for tab {tab_id}: {message}"),
+                Vec::new(),
+                codeterm_notifications::notification_create::NotificationOrigin {
+                    caller_tab_id: Some(tab_id.into()),
+                    ..Default::default()
+                },
+                Default::default(),
+                false,
+            );
+        }
+    }
+
     /// Pad and nonces are resolved before the mux read so no lock is held across
     /// a record write (lock order: mux, then the rest).
-    fn tab_launch_env(&self, tab_id: &str) -> TabLaunchEnv {
+    fn tab_launch_env(&self, tab_id: &str) -> Result<TabLaunchEnv, String> {
         let pad_dir = self
             .ensure_agent_pad(tab_id)
             .ok()
             .map(|pad| pad.env_value());
         let session_binding_nonce = self.ensure_session_binding_nonce(tab_id);
         let shell_nonce = self.ensure_shell_integration_nonce(tab_id);
-        let (mut identity, mut task, utility_shell, team_shell) = {
+        let (mut identity, mut task, utility_shell, team_shell, requires_plan_env) = {
             let mux = self.mux.read();
             mux.get_tab(tab_id)
                 .map(|tab| {
-                    let task = if tab.is_utility_shell() {
+                    let requires_plan_env = tab.agent_type.is_some()
+                        || tab.role.is_some()
+                        || tab.task_binding.is_some();
+                    let utility_shell = tab.is_utility_shell() && !requires_plan_env;
+                    let task = if utility_shell {
                         HashMap::new()
                     } else {
                         task_binding_env(tab)
@@ -204,25 +253,38 @@ impl ServiceContext {
                     (
                         tab_identity_env(tab),
                         task,
-                        tab.is_utility_shell(),
-                        tab.is_utility_shell()
+                        utility_shell,
+                        utility_shell
                             && tab.team_id.is_some()
                             && !tab
                                 .shell_profile
                                 .as_ref()
                                 .is_some_and(|p| p.wsl_distro.is_some()),
+                        requires_plan_env,
                     )
                 })
                 .unwrap_or_default()
         };
-        if !utility_shell {
-            task.extend(tab_task_env(&self.plan_store, tab_id));
+        match tab_task_env(&self.plan_store, tab_id) {
+            Ok(plan_env) => {
+                self.extensions
+                    .get_or_init(PlanEnvironmentWarnings::default)
+                    .0.lock().remove(tab_id);
+                if !utility_shell {
+                    task.extend(plan_env);
+                }
+            }
+            Err(error) if requires_plan_env => return Err(error),
+            Err(error) => self.warn_plan_environment_read(
+                tab_id,
+                format!("Shell started without plan environment variables because plan state could not be read: {error}"),
+            ),
         }
         if team_shell {
             super::super::spawn_shell::apply_team_shell_path(&mut identity);
         }
         let api_token = self.mint_tab_credential(tab_id, &session_binding_nonce);
-        TabLaunchEnv {
+        Ok(TabLaunchEnv {
             tab_id: tab_id.to_string(),
             pad_dir,
             session_binding_nonce,
@@ -230,26 +292,31 @@ impl ServiceContext {
             api_token,
             identity,
             task,
-        }
+        })
     }
 
-    pub(crate) fn tab_env(&self, tab_id: &str) -> HashMap<String, String> {
-        compose_launch_env(
+    pub(crate) fn tab_env(&self, tab_id: &str) -> Result<HashMap<String, String>, String> {
+        Ok(compose_launch_env(
             &InstanceEnv::from_api_config(self.configuration().api),
-            Some(&self.tab_launch_env(tab_id)),
+            Some(&self.tab_launch_env(tab_id)?),
             LaunchSurface::Service,
-        )
+        ))
     }
 
     /// Frontend/REST spawn, including the post-update auto-resume path. A
     /// `None` tab id is a PTY with no tab record yet: instance vars only.
-    pub fn frontend_pty_env(&self, tab_id: Option<&str>) -> HashMap<String, String> {
-        let tab = tab_id.map(|tab_id| self.tab_launch_env(tab_id));
-        compose_launch_env(
+    pub fn frontend_pty_env(
+        &self,
+        tab_id: Option<&str>,
+    ) -> Result<HashMap<String, String>, String> {
+        let tab = tab_id
+            .map(|tab_id| self.tab_launch_env(tab_id))
+            .transpose()?;
+        Ok(compose_launch_env(
             &InstanceEnv::from_api_config(self.configuration().api),
             tab.as_ref(),
             LaunchSurface::Frontend,
-        )
+        ))
     }
 }
 
