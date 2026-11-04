@@ -33,7 +33,7 @@ function emit(state:StreamState, events:AgentEvent[], row:ChatMsg, patch=false):
   row.seq=previous?.seq ?? ++state.seq;
   if (utf8Length(JSON.stringify(row)) > 32768) {
     row={id:row.id,seq:row.seq,type:row.type,content:"[ACP row truncated: update exceeded the display budget]",
-      ...(row.toolStatus ? {toolStatus:row.toolStatus,toolId:row.toolId} : {})};
+      ...(row.toolStatus ? {toolStatus:row.toolStatus} : {}),...(row.toolId ? {toolId:row.toolId} : {})};
   }
   const retained:ChatMsg={...previous,id:row.id,seq:row.seq,type:row.type,content:"",
     ...(row.toolId ? {toolId:row.toolId} : {}),
@@ -96,7 +96,7 @@ export function settleStream(ctx:RuntimeContext, raw:JsonValue, reason:string):R
   const events:AgentEvent[]=[];
   closeChunk(ctx,next,events);
   for (const row of Object.values(next.items)) if (row.toolStatus === "running")
-    emit(next,events,{id:row.id,seq:row.seq,type:row.type,content:"",toolId:row.toolId,toolStatus:"interrupted",toolInterrupted:true},true);
+    emit(next,events,{id:row.id,seq:row.seq,type:row.type,content:"",...(row.toolId ? {toolId:row.toolId} : {}),toolStatus:"interrupted",toolInterrupted:true},true);
   events.push({kind:"turnState",threadId:ctx.threadId,turnId:`${state.sessionId}:turn:${state.turn}`,state:"idle",...(reason === "cancelled" ? {detail:"interrupted" as const} : {})});
   boundState(next);
   return {state:json(next),events};
@@ -158,7 +158,8 @@ export function reduceStream(ctx:RuntimeContext, raw:JsonValue, frames:readonly 
         const claim=ctx.claimedSends.find(claim=>claim.threadId === ctx.threadId && !state.evidenced.includes(claim.sendId)
           && claim.input.attachments.length === 0 && (chunk.chars === 0 || claim.sendId === chunk.echo)
           && claim.input.text.slice(chunk.chars,chunk.chars+content.text.length) === content.text);
-        chunk.echo=claim?.sendId;
+        if (claim) chunk.echo=claim.sendId;
+        else delete chunk.echo;
       }
       chunk.chars+=content.text.length;
       const type=kind === "user_message_chunk" ? "user" : kind === "agent_thought_chunk" ? "thinking" : "assistant";
