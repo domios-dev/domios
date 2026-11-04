@@ -1,11 +1,12 @@
 use super::{
     engine::Session,
     events,
-    model::{RuntimeFailure, REREADABLE_CACHE_ROWS},
+    model::{ItemCache, RuntimeFailure, REREADABLE_CACHE_ROWS},
 };
 use crate::service::tab_chat::chatbackend_history::{self, ChatBackendHistory};
 use codeterm_plugin::agent_runtime::{AgentRuntimeCapability, RuntimeContext};
 use codeterm_types::agent::chat_types::ChatMsg;
+use parking_lot::Mutex;
 use std::{
     path::Path,
     sync::{
@@ -85,17 +86,13 @@ pub(super) async fn restore(session: &Arc<Session>) -> Result<(), RuntimeFailure
             let current = worker.context.lock();
             same_binding(&current, &context)
         };
-        if !current {
+        if !current || !worker.maps.lock().prepare_restore(&context) {
             return Err(RuntimeFailure::Superseded);
         }
-        let ordinal = {
-            let mut cache = worker.cache.lock();
-            cache.restore_transcript(rows.clone());
-            cache.next_ordinal()
-        };
-        for row in rows {
-            events::reconcile_history(&mut worker.maps.lock(), context.epoch, thread, row);
-        }
+        let ordinal = apply_restored_rows(&worker.cache, &worker.maps, &context, rows, || {
+            let current = worker.context.lock();
+            same_binding(&current, &context)
+        })?;
         let mut current = worker.context.lock();
         if !same_binding(&current, &context) {
             return Err(RuntimeFailure::Superseded);
@@ -113,6 +110,37 @@ pub(super) async fn restore(session: &Arc<Session>) -> Result<(), RuntimeFailure
             Ok(())
         }
     }
+}
+
+pub(super) fn apply_restored_rows(
+    cache: &Mutex<ItemCache>,
+    maps: &Mutex<events::RuntimeMaps>,
+    context: &RuntimeContext,
+    rows: Vec<ChatMsg>,
+    is_current: impl Fn() -> bool,
+) -> Result<u64, RuntimeFailure> {
+    let thread = context
+        .thread_id
+        .as_deref()
+        .ok_or(RuntimeFailure::Superseded)?;
+    let ordinal = {
+        let mut cache = cache.lock();
+        if !is_current() {
+            return Err(RuntimeFailure::Superseded);
+        }
+        cache.restore_transcript(rows.clone());
+        cache.next_ordinal()
+    };
+    for row in rows {
+        if !is_current() {
+            return Err(RuntimeFailure::Superseded);
+        }
+        let mut maps = maps.lock();
+        if !events::reconcile_history_current(&mut maps, context, thread, row) {
+            return Err(RuntimeFailure::Superseded);
+        }
+    }
+    Ok(ordinal)
 }
 
 pub(super) async fn persist(session: &Arc<Session>) {

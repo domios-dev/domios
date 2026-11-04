@@ -374,3 +374,98 @@ fn tool_patches_cannot_blank_or_retype_conversation_rows() {
         assert_eq!(maps.items[0].item, original);
     }
 }
+
+#[test]
+fn binding_change_between_restore_steps_preserves_new_cache_and_maps() {
+    use super::super::model::{ItemCache, RuntimeFailure};
+    use super::super::transcript::apply_restored_rows;
+    use parking_lot::Mutex;
+    use std::cell::{Cell, RefCell};
+
+    let original = RuntimeContext {
+        epoch: 1,
+        thread_id: Some("old-thread".into()),
+        binding_nonce: "old-nonce".into(),
+        ..Default::default()
+    };
+    for changed in [
+        RuntimeContext {
+            epoch: 2,
+            ..original.clone()
+        },
+        RuntimeContext {
+            thread_id: Some("new-thread".into()),
+            ..original.clone()
+        },
+        RuntimeContext {
+            binding_nonce: "new-nonce".into(),
+            ..original.clone()
+        },
+    ] {
+        for before_cache in [true, false] {
+            let current = RefCell::new(original.clone());
+            let cache = Mutex::new(ItemCache::default());
+            let maps = Mutex::new(RuntimeMaps::default());
+            maps.lock().prepare_restore(&original);
+            let mut fresh = item("new-row", false, "New binding body");
+            fresh.kind = "assistant".into();
+            let replace_binding = || {
+                *current.borrow_mut() = changed.clone();
+                let mut target = cache
+                    .try_lock()
+                    .expect("binding changes occur between cache steps");
+                *target = ItemCache::default();
+                target.reconcile(fresh.clone());
+                drop(target);
+                let mut target = maps
+                    .try_lock()
+                    .expect("binding changes occur between map steps");
+                target.reset(changed.epoch);
+                target.sync_active_turn(&changed);
+                reconcile_history(
+                    &mut target,
+                    changed.epoch,
+                    changed.thread_id.as_deref().unwrap(),
+                    fresh.clone(),
+                );
+            };
+            if before_cache {
+                replace_binding();
+            }
+            let checks = Cell::new(0);
+            let result = apply_restored_rows(
+                &cache,
+                &maps,
+                &original,
+                vec![item("old-row", false, "Stale body")],
+                || {
+                    let index = checks.get();
+                    checks.set(index + 1);
+                    if !before_cache && index == 1 {
+                        assert!(cache.try_lock().unwrap().get("old-row").is_some());
+                        replace_binding();
+                    }
+                    let current = current.borrow();
+                    current.epoch == original.epoch
+                        && current.thread_id == original.thread_id
+                        && current.binding_nonce == original.binding_nonce
+                },
+            );
+            assert!(matches!(result, Err(RuntimeFailure::Superseded)));
+            assert_eq!(cache.lock().snapshot(), vec![fresh.clone()]);
+            let mut target = maps.lock();
+            assert_eq!(target.epoch, changed.epoch);
+            assert_eq!(target.items.len(), 1);
+            assert_eq!(target.items[0].item, fresh);
+            assert!(!reconcile_history_current(
+                &mut target,
+                &original,
+                "old-thread",
+                item("late", false, "stale")
+            ));
+            assert!(!target.prepare_restore(&original));
+            assert_eq!(target.epoch, changed.epoch);
+            assert_eq!(target.items.len(), 1);
+        }
+    }
+}

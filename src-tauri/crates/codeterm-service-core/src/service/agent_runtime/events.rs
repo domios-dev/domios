@@ -95,12 +95,34 @@ struct StoredItem {
     closed: bool,
 }
 
+struct RestoreBinding {
+    thread: Option<String>,
+    nonce: String,
+    cwd: String,
+}
+
+impl RestoreBinding {
+    fn from_context(context: &RuntimeContext) -> Self {
+        Self {
+            thread: context.thread_id.clone(),
+            nonce: context.binding_nonce.clone(),
+            cwd: context.cwd.clone(),
+        }
+    }
+    fn matches(&self, context: &RuntimeContext) -> bool {
+        self.thread == context.thread_id
+            && self.nonce == context.binding_nonce
+            && self.cwd == context.cwd
+    }
+}
+
 #[derive(Default)]
 pub struct RuntimeMaps {
     pub authentication: Option<codeterm_plugin::agent_runtime::RuntimeAuthentication>,
     pub background_processes:
         HashMap<String, Vec<codeterm_plugin::agent_runtime::RuntimeBackgroundProcess>>,
     epoch: u64,
+    restore_binding: Option<RestoreBinding>,
     current_turns: HashMap<String, String>,
     append_failures: HashSet<(String, String)>,
     items: Vec<StoredItem>,
@@ -125,6 +147,7 @@ impl RuntimeMaps {
     }
     pub fn sync_active_turn(&mut self, context: &RuntimeContext) {
         self.ensure_epoch(context.epoch);
+        self.restore_binding = Some(RestoreBinding::from_context(context));
         if let Some(thread) = &context.thread_id {
             match &context.active_turn_id {
                 Some(turn) => {
@@ -135,6 +158,20 @@ impl RuntimeMaps {
                 }
             }
         }
+    }
+    pub fn prepare_restore(&mut self, context: &RuntimeContext) -> bool {
+        if self.epoch > context.epoch
+            || self.epoch == context.epoch
+                && self
+                    .restore_binding
+                    .as_ref()
+                    .is_some_and(|binding| !binding.matches(context))
+        {
+            return false;
+        }
+        self.ensure_epoch(context.epoch);
+        self.restore_binding = Some(RestoreBinding::from_context(context));
+        true
     }
     pub fn ensure_epoch(&mut self, epoch: u64) {
         if self.epoch != epoch {
@@ -495,6 +532,24 @@ pub fn reconcile_history(maps: &mut RuntimeMaps, epoch: u64, thread_id: &str, it
         maps.reset(epoch);
     }
     upsert_item(maps, thread_id, item);
+}
+
+pub fn reconcile_history_current(
+    maps: &mut RuntimeMaps,
+    context: &RuntimeContext,
+    thread_id: &str,
+    item: ChatMsg,
+) -> bool {
+    if maps.epoch != context.epoch
+        || !maps
+            .restore_binding
+            .as_ref()
+            .is_some_and(|binding| binding.matches(context))
+    {
+        return false;
+    }
+    upsert_item(maps, thread_id, item);
+    true
 }
 
 pub fn observe(context: &mut RuntimeContext, event: &RuntimeEvent) {
