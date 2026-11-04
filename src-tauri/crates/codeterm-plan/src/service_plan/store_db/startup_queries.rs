@@ -46,7 +46,7 @@ impl PlanDatabase {
         &self,
     ) -> Result<Vec<String>, PlanError> {
         let sql = format!(
-            "SELECT DISTINCT plan_id FROM (SELECT plan_id, row_json AS task FROM plan_tasks) WHERE {UNSETTLED_LANE}"
+            "SELECT DISTINCT selected.plan_id FROM (SELECT plan_id, row_json AS task FROM plan_tasks) selected WHERE {UNSETTLED_LANE} AND EXISTS(SELECT 1 FROM plans p WHERE p.id=selected.plan_id)"
         );
         let connection = self.connection.lock();
         let mut statement = connection.prepare(&sql).map_err(db_error)?;
