@@ -109,3 +109,35 @@ fn attempt_lane_paths_ignore_unrelated_history_and_refuse_invalid_selected_paths
         ));
     }
 }
+
+#[test]
+fn selected_reference_fields_refuse_invalid_types_without_missing_fallbacks() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut plan = Plan::new(
+        "Selected".into(),
+        "project".into(),
+        OrchestratorRef::default(),
+    );
+    plan.sections = serde_json::from_value(json!([{"id":"section","title":"Section"}])).unwrap();
+    let database = fixtures::database(directory.path(), &plan);
+    database.connection.lock().execute("UPDATE plans SET header_json=json_set(header_json,'$.canonical_project_path',null) WHERE id=?1",[&plan.id]).unwrap();
+    assert!(database.plan_roots().is_err());
+    database.connection.lock().execute("UPDATE plans SET header_json=json_set(header_json,'$.canonical_project_path','', '$.loops',json(?2)) WHERE id=?1",params![plan.id,json!([{"id":42,"target":"task"}]).to_string()]).unwrap();
+    assert!(database.loop_rows().is_err());
+    for (path, value) in [
+        ("$.id", json!(42)),
+        ("$.handle", json!({})),
+        ("$.title", json!([])),
+    ] {
+        let original = serde_json::to_string(&plan.sections[0]).unwrap();
+        database
+            .connection
+            .lock()
+            .execute(
+                "UPDATE plan_sections SET row_json=json_set(?2,?3,json(?4)) WHERE plan_id=?1",
+                params![plan.id, original, path, value.to_string()],
+            )
+            .unwrap();
+        assert!(database.section_ref_rows().is_err());
+    }
+}

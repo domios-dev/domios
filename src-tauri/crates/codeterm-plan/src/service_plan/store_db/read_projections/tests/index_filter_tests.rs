@@ -203,3 +203,88 @@ fn filtered_index_rows_and_assignment_metadata_are_one_committed_snapshot() {
         Err(PlanError::Quarantined { .. })
     ));
 }
+
+#[test]
+fn selected_index_metadata_errors_are_loud_and_unmatched_headers_stay_unread() {
+    let directory = tempfile::tempdir().unwrap();
+    let plan = Plan::new(
+        "Selected".into(),
+        "wanted".into(),
+        OrchestratorRef::default(),
+    );
+    let database = fixtures::database(directory.path(), &plan);
+    for owner in [
+        json!(42),
+        json!({"tab_id":42}),
+        json!({"session_id":[]}),
+        json!({"title":false}),
+    ] {
+        database
+            .connection
+            .lock()
+            .execute(
+                "UPDATE plans SET header_json=json_set(header_json,'$.owner',json(?2)) WHERE id=?1",
+                params![plan.id, owner.to_string()],
+            )
+            .unwrap();
+        for (unowned, owner) in [(false, None), (true, None), (false, Some("42"))] {
+            assert!(database
+                .plan_list_index(Some("wanted"), None, unowned, owner)
+                .is_err());
+            assert!(database
+                .plan_list_index(Some("unmatched"), None, unowned, owner)
+                .unwrap()
+                .is_empty());
+        }
+    }
+    database
+        .connection
+        .lock()
+        .execute(
+            "UPDATE plans SET header_json=json_set(header_json,'$.owner',json('{}')) WHERE id=?1",
+            [&plan.id],
+        )
+        .unwrap();
+    assert_eq!(
+        database
+            .plan_list_index(Some("wanted"), None, true, None)
+            .unwrap()
+            .len(),
+        1
+    );
+    for (path, value) in [
+        ("$.canonical_project_path", json!(null)),
+        ("$.loops", json!(42)),
+        ("$.goal", json!([])),
+        ("$.orphaned", json!("invalid")),
+    ] {
+        database
+            .connection
+            .lock()
+            .execute(
+                "UPDATE plans SET header_json=json_set(header_json,?2,json(?3)) WHERE id=?1",
+                params![plan.id, path, value.to_string()],
+            )
+            .unwrap();
+        assert!(database
+            .plan_list_index(Some("wanted"), None, false, None)
+            .is_err());
+        database
+            .connection
+            .lock()
+            .execute(
+                "UPDATE plans SET header_json=json_remove(header_json,?2) WHERE id=?1",
+                params![plan.id, path],
+            )
+            .unwrap();
+    }
+    database
+        .connection
+        .lock()
+        .execute("UPDATE plans SET status='unknown' WHERE id=?1", [&plan.id])
+        .unwrap();
+    assert!(matches!(
+        database.load_index_row(&plan.id),
+        Err(PlanError::Quarantined { .. })
+    ));
+}
