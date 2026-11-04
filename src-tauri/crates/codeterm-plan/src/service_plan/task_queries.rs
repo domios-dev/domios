@@ -1,4 +1,4 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::path::Path;
 
@@ -25,6 +25,19 @@ pub struct TaskSummary {
     pub display_key: String,
     pub task: Task,
     pub section_titles: Vec<String>,
+}
+
+#[derive(Deserialize)]
+pub(super) struct TaskListPlan {
+    pub id: String,
+    pub title: String,
+    pub status: PlanStatus,
+    pub project_path: String,
+    pub owner: OrchestratorRef,
+    #[serde(default)]
+    pub tasks: Vec<Task>,
+    #[serde(default)]
+    pub sections: Vec<Section>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -115,10 +128,10 @@ fn collect_sections(sections: &[Section], ids: &HashSet<&str>, out: &mut Vec<Tas
     }
 }
 
-fn task_sections(plan: &Plan, task: &Task) -> Vec<TaskSection> {
+fn task_sections(sections: &[Section], task: &Task) -> Vec<TaskSection> {
     let ids = task.section_ids.iter().map(String::as_str).collect();
     let mut out = vec![];
-    collect_sections(&plan.sections, &ids, &mut out);
+    collect_sections(sections, &ids, &mut out);
     out
 }
 
@@ -131,7 +144,7 @@ fn task_label(task: &Task) -> TaskLabel {
     }
 }
 
-pub(super) fn plan_in_scope(filter: &TaskListFilter, plan: &Plan) -> bool {
+pub(super) fn plan_in_scope(filter: &TaskListFilter, plan: &TaskListPlan) -> bool {
     if plan.status == PlanStatus::Archived {
         return false;
     }
@@ -148,7 +161,7 @@ pub(super) fn plan_in_scope(filter: &TaskListFilter, plan: &Plan) -> bool {
         .is_some_and(|id| plan.id.as_str() != id)
 }
 
-fn empty_reason(filter: &TaskListFilter, plans: &[Plan]) -> TaskListEmptyReason {
+fn empty_reason(filter: &TaskListFilter, plans: &[TaskListPlan]) -> TaskListEmptyReason {
     if let Some(plan_id) = filter.plan_id.as_deref() {
         let Some(plan) = plans.iter().find(|plan| plan.id == plan_id) else {
             return TaskListEmptyReason::PlanNotFound {
@@ -170,7 +183,7 @@ fn empty_reason(filter: &TaskListFilter, plans: &[Plan]) -> TaskListEmptyReason 
             }
         }
     }
-    let scoped: Vec<&Plan> = plans
+    let scoped: Vec<&TaskListPlan> = plans
         .iter()
         .filter(|plan| plan_in_scope(filter, plan))
         .collect();
@@ -234,7 +247,7 @@ fn task_ref_candidates(task_ref: &str) -> PlanMatch {
 
 impl PlanStore {
     /// The plans in the filter's scope, plus the named plan itself so an empty list can say why.
-    fn task_list_plans(&self, filter: &TaskListFilter) -> Result<Vec<Plan>, PlanError> {
+    fn task_list_plans(&self, filter: &TaskListFilter) -> Result<Vec<TaskListPlan>, PlanError> {
         let mut scope = vec![PlanMatch::active()];
         if let Some(project) = filter.project_path.as_deref() {
             scope.push(PlanMatch::Project(project.to_string()));
@@ -246,7 +259,7 @@ impl PlanStore {
         if let Some(plan_id) = filter.plan_id.as_deref() {
             predicate = PlanMatch::Any(vec![predicate, PlanMatch::Ids(vec![plan_id.into()])]);
         }
-        self.database.task_list_snapshot(&predicate, filter)
+        self.database.task_list_snapshot(&predicate)
     }
 
     #[cfg(any(test, feature = "test-support"))]
@@ -268,7 +281,7 @@ impl PlanStore {
                 if !include_task(&filter, task) {
                     continue;
                 }
-                let sections = task_sections(plan, task);
+                let sections = task_sections(&plan.sections, task);
                 tasks.push(TaskSummary {
                     plan_id: plan.id.clone(),
                     plan_title: plan.title.clone(),
@@ -384,7 +397,7 @@ fn detail_from_plan(plan: &Plan, task_id: &str) -> Option<TaskDetail> {
         plan_title: plan.title.clone(),
         plan_owner: plan.owner.clone(),
         display_key: task.display_key(),
-        sections: task_sections(&plan, task),
+        sections: task_sections(&plan.sections, task),
         parent,
         siblings: plan
             .tasks

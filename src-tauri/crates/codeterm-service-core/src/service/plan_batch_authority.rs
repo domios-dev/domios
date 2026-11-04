@@ -9,10 +9,9 @@
 
 use serde_json::{json, Value};
 
-use crate::plan::Task;
-use crate::service::hierarchy::report_plan_ctx::{tab_holds, STALE_TASK_HINT_REFUSAL};
+use crate::service::hierarchy::report_plan_ctx::STALE_TASK_HINT_REFUSAL;
 use crate::service::plan::batch::{BatchOp, BatchRequest, BatchResult};
-use crate::service::plan::{PlanError, PlanStore};
+use crate::service::plan::{BatchTaskRefusalRead, PlanError, PlanStore};
 
 mod completion;
 
@@ -120,34 +119,19 @@ fn authorize_caller(
     request: &BatchRequest,
     tab_id: Option<&str>,
 ) -> Result<(), BatchWriteError> {
-    // A plan that is not here has no ownership to read; apply_batch reports it.
-    let Some(plan) = store.get(plan_id) else {
-        return Ok(());
-    };
-    let owner_tab = plan
-        .owner
-        .tab_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|tab| !tab.is_empty());
-    if tab_id.is_some() && tab_id == owner_tab {
-        return Ok(());
-    }
-    for op in &request.ops {
-        let Some(selector) = op_task_selector(op) else {
-            continue;
-        };
-        let Some(task) = resolve_task(&plan.tasks, selector) else {
-            continue;
-        };
-        if !task_is_held(task) {
-            continue;
-        }
-        if tab_id.is_some_and(|tab| tab_holds(task, tab)) {
-            continue;
-        }
+    let selectors = request
+        .ops
+        .iter()
+        .filter_map(op_task_selector)
+        .filter(|selector| !selector.starts_with('$'))
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    if let Some(task) = store
+        .batch_task_refusal_projection(plan_id, &selectors, tab_id)
+        .map_err(BatchWriteError::Plan)?
+    {
         return Err(BatchWriteError::Refused(
-            refuse(store, plan_id, task, tab_id).map_err(BatchWriteError::Plan)?,
+            refuse(store, plan_id, &task, tab_id).map_err(BatchWriteError::Plan)?,
         ));
     }
     Ok(())
@@ -167,34 +151,10 @@ fn op_task_selector(op: &BatchOp) -> Option<&str> {
         } => task.as_str(),
         _ => return None,
     };
-    (!selector.starts_with('$')).then_some(selector)
+    Some(selector)
 }
 
-/// Mirrors `find_task_index` in the batch applier, `@latest` included, so the
-/// guard resolves exactly the task the write would land on.
-fn resolve_task<'a>(tasks: &'a [Task], selector: &str) -> Option<&'a Task> {
-    if selector == "@latest" {
-        return tasks
-            .iter()
-            .max_by_key(|task| (task.updated_at, task.created_at));
-    }
-    crate::plan::task_key::find_task(tasks, selector)
-}
-
-/// Someone is executing this task. A task nobody holds has no ownership to
-/// violate — writing it is plan authoring, and the guard must not refuse that.
-fn task_is_held(task: &Task) -> bool {
-    task.assigned_tab_id
-        .as_deref()
-        .is_some_and(|tab| !tab.trim().is_empty())
-        || task.execution_attempts.iter().any(|attempt| {
-            attempt.closed_at.is_none()
-                && attempt.retired_at.is_none()
-                && attempt.competition_group_id.is_some()
-        })
-}
-
-fn holder_label(task: &Task) -> String {
+fn holder_label(task: &BatchTaskRefusalRead) -> String {
     match task.assigned_tab_id.as_deref().map(str::trim) {
         Some(tab) if !tab.is_empty() => format!("tab '{tab}'"),
         _ => "an open competition attempt".to_string(),
@@ -206,7 +166,7 @@ fn holder_label(task: &Task) -> String {
 fn refuse(
     store: &PlanStore,
     plan_id: &str,
-    task: &Task,
+    task: &BatchTaskRefusalRead,
     tab_id: Option<&str>,
 ) -> Result<BatchRefusal, PlanError> {
     let caller = tab_id.unwrap_or("<no caller_tab_id>");
@@ -226,7 +186,7 @@ fn refuse(
                 .join(", ")
         )
     };
-    let task_id = task.id.clone();
+    let task_id = task.task_id.clone();
     let message = format!(
         "{STALE_TASK_HINT_REFUSAL}: tab '{caller}' tried to write task '{task_id}' «{}» in plan \
          '{plan_id}', which is held by {}, but that tab {held}. Nothing was written to \

@@ -112,6 +112,7 @@ fn rest_liveness_health_bypasses_saturated_blocking_pool_with_real_middleware() 
 
 mod logging;
 mod report_reads;
+mod storage_routes;
 
 #[tokio::test]
 async fn published_mux_state_returns_seeded_json_while_state_writers_hold_both_locks() {

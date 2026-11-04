@@ -114,7 +114,11 @@ pub(crate) fn validate_shared_ownership(
 }
 
 fn validate_edit_links(plan: &Plan, files: &TaskFiles) -> Result<(), String> {
-    let root = std::path::PathBuf::from(canonical(plan));
+    validate_edit_links_at(&canonical(plan), files)
+}
+
+fn validate_edit_links_at(checkout: &str, files: &TaskFiles) -> Result<(), String> {
+    let root = std::path::PathBuf::from(checkout);
     for edit in files.shared_edit_paths()? {
         let mut current = root.clone();
         for component in edit.split('/') {

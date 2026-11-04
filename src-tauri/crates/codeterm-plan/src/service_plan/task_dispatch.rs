@@ -139,9 +139,7 @@ impl PlanStore {
         plan_id: &str,
         task_id: &str,
     ) -> Result<(), PlanError> {
-        let status = self
-            .database
-            .task_startup_status_projection(plan_id, task_id)?;
+        let status = self.database.task_status_projection(plan_id, task_id)?;
         task_startup_status(&status).map(|_| ())
     }
 

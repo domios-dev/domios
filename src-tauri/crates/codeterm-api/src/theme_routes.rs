@@ -7,12 +7,18 @@ use serde::Deserialize;
 
 use crate::routes::AppState;
 
+use codeterm_service_core::config::schema::MAX_THEME_BYTES;
+
 pub async fn list_themes_api(
     AxumState(_state): AxumState<AppState>,
     _headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    let ids = codeterm_service_core::config::schema::list_all_theme_ids();
-    Ok(Json(serde_json::json!({ "themes": ids })))
+    tokio::task::spawn_blocking(move || {
+        let ids = codeterm_service_core::config::schema::list_all_theme_ids();
+        Ok(Json(serde_json::json!({ "themes": ids })))
+    })
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Theme operation failed"))?
 }
 
 pub(crate) fn valid_theme_id(id: &str) -> bool {
@@ -34,31 +40,41 @@ pub async fn save_theme_api(
     _headers: HeaderMap,
     Json(body): Json<SaveThemeBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    if !valid_theme_id(&body.id) {
-        return Err((StatusCode::BAD_REQUEST, "Invalid theme identity"));
-    }
-    let dir = codeterm_service_core::config::schema::user_themes_dir().ok_or((
-        StatusCode::INTERNAL_SERVER_ERROR,
-        "Cannot determine themes directory",
-    ))?;
-    std::fs::create_dir_all(&dir).map_err(|_| {
-        (
+    tokio::task::spawn_blocking(move || {
+        if !valid_theme_id(&body.id) {
+            return Err((StatusCode::BAD_REQUEST, "Invalid theme identity"));
+        }
+        if body.toml.len() > MAX_THEME_BYTES {
+            return Err((
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "Theme exceeds the size limit",
+            ));
+        }
+        codeterm_service_core::config::schema::parse_builtin_theme(&body.toml)
+            .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid theme TOML"))?;
+        let dir = codeterm_service_core::config::schema::user_themes_dir().ok_or((
             StatusCode::INTERNAL_SERVER_ERROR,
-            "Failed to create themes dir",
-        )
-    })?;
-    codeterm_service_core::config::schema::parse_builtin_theme(&body.toml)
-        .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid theme TOML"))?;
-    let path = dir.join(format!("{}.toml", body.id));
-    std::fs::write(&path, &body.toml).map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Failed to write theme file",
-        )
-    })?;
-    Ok(Json(
-        serde_json::json!({ "ok": true, "path": path.to_string_lossy() }),
-    ))
+            "Cannot determine themes directory",
+        ))?;
+        std::fs::create_dir_all(&dir).map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to create themes dir",
+            )
+        })?;
+        let path = dir.join(format!("{}.toml", body.id));
+        std::fs::write(&path, &body.toml).map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to write theme file",
+            )
+        })?;
+        Ok(Json(
+            serde_json::json!({ "ok": true, "path": path.to_string_lossy() }),
+        ))
+    })
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Theme operation failed"))?
 }
 
 pub async fn delete_theme_api(
@@ -66,16 +82,20 @@ pub async fn delete_theme_api(
     _headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    if !valid_theme_id(&id) {
-        return Err((StatusCode::BAD_REQUEST, "Invalid theme identity"));
-    }
-    if let Some(dir) = codeterm_service_core::config::schema::user_themes_dir() {
-        let path = dir.join(format!("{}.toml", id));
-        if path.exists() {
-            let _ = std::fs::remove_file(&path);
+    tokio::task::spawn_blocking(move || {
+        if !valid_theme_id(&id) {
+            return Err((StatusCode::BAD_REQUEST, "Invalid theme identity"));
         }
-    }
-    Ok(Json(serde_json::json!({ "ok": true })))
+        if let Some(dir) = codeterm_service_core::config::schema::user_themes_dir() {
+            let path = dir.join(format!("{}.toml", id));
+            if path.exists() {
+                let _ = std::fs::remove_file(&path);
+            }
+        }
+        Ok(Json(serde_json::json!({ "ok": true })))
+    })
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Theme operation failed"))?
 }
 
 #[derive(Deserialize)]
@@ -88,24 +108,42 @@ pub async fn apply_theme_api(
     _headers: HeaderMap,
     Json(body): Json<ApplyThemeBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let config_state = state.config.clone();
-    let mut config = config_state.lock().clone();
-    config.theme.name = body.name.clone();
-    if let Some(mut theme) = codeterm_service_core::config::schema::get_any_theme(&body.name) {
-        theme.name = body.name;
-        config.theme = theme;
+    apply_theme_with(state, body, |state, config| {
+        codeterm_service_core::config::save_config_and_apply(state, config)
+    })
+    .await
+}
+
+pub(super) async fn apply_theme_with(
+    state: AppState,
+    body: ApplyThemeBody,
+    save: impl FnOnce(
+            &codeterm_service_core::config::ConfigState,
+            codeterm_service_core::config::schema::AppConfig,
+        ) -> Result<codeterm_service_core::config::schema::AppConfig, String>
+        + Send
+        + 'static,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    if !valid_theme_id(&body.name) {
+        return Err((StatusCode::BAD_REQUEST, "Invalid theme identity".into()));
     }
-    let config = tokio::task::spawn_blocking(move || {
-        codeterm_service_core::config::save_config_and_apply(&config_state, config)
+    tokio::task::spawn_blocking(move || {
+        let mut config = state.config.lock().clone();
+        config.theme.name = body.name.clone();
+        if let Some(mut theme) = codeterm_service_core::config::schema::get_any_theme(&body.name) {
+            theme.name = body.name;
+            config.theme = theme;
+        }
+        let config = save(&state.config, config)
+            .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?;
+        state.svc.ui.emit(
+            "config-changed",
+            serde_json::to_value(&config).unwrap_or(serde_json::Value::Null),
+        );
+        Ok(Json(serde_json::json!({ "ok": true })))
     })
     .await
     .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
-    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?;
-    state.svc.ui.emit(
-        "config-changed",
-        serde_json::to_value(&config).unwrap_or(serde_json::Value::Null),
-    );
-    Ok(Json(serde_json::json!({ "ok": true })))
 }
 
 /// Query string: `?provider=<id>` (default `claude` for back-compat —

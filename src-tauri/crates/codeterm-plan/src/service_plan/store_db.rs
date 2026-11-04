@@ -130,6 +130,12 @@ impl PlanDatabase {
         self.path.clone()
     }
 
+    #[cfg(any(test, feature = "test-support"))]
+    pub(super) fn with_connection_held_for_test<T>(&self, work: impl FnOnce() -> T) -> T {
+        let _connection = self.connection.lock();
+        work()
+    }
+
     #[cfg(test)]
     pub(super) fn operation_count_for_test(&self, entity_id: Option<&str>) -> usize {
         let connection = self.connection.lock();
@@ -601,6 +607,7 @@ mod reference_queries;
 mod state_event_queries;
 mod status_queries;
 mod task_history_queries;
+mod task_list_queries;
 mod task_read_queries;
 mod ui_projections;
 pub use match_queries::{AttemptFieldRow, SectionRefRow, TaskFieldRow, TaskRefRow};
