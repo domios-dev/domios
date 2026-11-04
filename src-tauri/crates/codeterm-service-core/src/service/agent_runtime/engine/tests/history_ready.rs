@@ -4,6 +4,15 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 #[test]
 fn fresh_runtime_history_is_empty_before_rollout_and_readable_when_ready() {
+    assert_fresh_history_ready(RuntimeAuthState::SignedIn);
+}
+
+#[test]
+fn fresh_runtime_without_auth_evidence_is_ready_before_history() {
+    assert_fresh_history_ready(RuntimeAuthState::Unknown);
+}
+
+fn assert_fresh_history_ready(auth: RuntimeAuthState) {
     let source = RUNTIME_FIXTURE_SOURCE
         .replace("module.exports = {", "module.exports = { runtimeStoredHistoryAvailable: () => false,")
         .replace("resumeThread:'fixture/resume'", "openThread:'fixture/open',resumeThread:'fixture/resume'")
@@ -11,6 +20,7 @@ fn fresh_runtime_history_is_empty_before_rollout_and_readable_when_ready() {
     let (fixture, tab_id, peer, _cleanup) = runtime_fixture_with_stored_history(&source);
     let _storage = fixture.install_seeded_storage_desk();
     let session = for_tab(&tab_id).unwrap();
+    *session.auth.lock() = auth;
     session
         .thread_loaded
         .store(false, std::sync::atomic::Ordering::Release);
@@ -95,7 +105,7 @@ fn fresh_runtime_history_is_empty_before_rollout_and_readable_when_ready() {
         }
     });
     crate::async_runtime::block_on(async {
-        ensure_locked(
+        let result = ensure_locked(
             &fixture.service,
             &tab_id,
             &session.provider,
@@ -103,9 +113,13 @@ fn fresh_runtime_history_is_empty_before_rollout_and_readable_when_ready() {
             &session,
             None,
         )
-        .await
-        .unwrap();
-        peer.await.unwrap();
+        .await;
+        if result.is_err() {
+            peer.abort();
+        }
+        let peer_result = peer.await;
+        result.unwrap();
+        peer_result.unwrap();
     });
     let tab = fixture.service.mux.read().get_tab(&tab_id).unwrap().clone();
     assert!(!tab.agent_booting);
