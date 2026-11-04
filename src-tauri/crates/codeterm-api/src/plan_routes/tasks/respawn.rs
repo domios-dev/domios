@@ -92,7 +92,6 @@ pub async fn task_respawn(
         )
         .map_err(plan_err)?;
     }
-    let original_plan_mode = plan.mode.clone();
     let store = state.svc.plan_store.clone();
     let plan_id = id.clone();
     let task_id = tid.clone();
@@ -125,8 +124,15 @@ pub async fn task_respawn(
     );
     let verify_draft = draft.clone();
     let verify_canonical_cwd = canonical_cwd.clone();
-    let verify_task = original_task.clone();
+    let verify_store = state.svc.plan_store.clone();
     let provenance = tokio::task::spawn_blocking(move || {
+        let verify_task = verify_store
+            .task_launch_projection(
+                &verify_draft.plan_id,
+                &verify_draft.task_id,
+                Some(&verify_draft.source_attempt.id),
+            )
+            .map_err(|error| error.to_string())?;
         codeterm_service_core::service::plan::respawn_lane_verify_respawn_lane(
             &verify_canonical_cwd,
             &verify_task,
@@ -235,7 +241,7 @@ pub async fn task_respawn(
             "blocking task failed",
         )
     })?;
-    let created = match created {
+    let (created, rollback) = match created {
         Ok(created) => created,
         Err(error) => {
             if let Err(close_error) = state.svc.close_tab_async(&spawn.tab_id).await {
@@ -282,8 +288,7 @@ pub async fn task_respawn(
         attempt_id: created.attempt.id.clone(),
         parent_tab_id,
         worker_title: spawn.title.clone(),
-        original_task,
-        original_plan_mode,
+        rollback,
         lane_for_commit,
         canonical_project_path: canonical_cwd,
         provenance,

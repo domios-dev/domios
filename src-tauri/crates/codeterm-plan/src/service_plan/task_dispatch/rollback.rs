@@ -12,19 +12,9 @@ pub enum DispatchRollback {
     },
 }
 
-/// The same current-attempt fence startup deadlines and acknowledgement use. An
-/// attempt that was never recorded owns the task only while nothing else is live.
+/// Compensation uses the same current-attempt fence as startup deadlines and ACK.
 fn rollback_owns_task(task: &crate::plan::Task, tab_id: &str, attempt_id: &str) -> bool {
-    if task
-        .execution_attempts
-        .iter()
-        .any(|attempt| attempt.id == attempt_id)
-    {
-        return startup_attempt(task, tab_id, attempt_id).is_some();
-    }
-    task.execution_attempts
-        .iter()
-        .all(|attempt| attempt.closed_at.is_some())
+    startup_attempt(task, tab_id, attempt_id).is_some()
 }
 
 fn superseded(task: &crate::plan::Task) -> DispatchRollback {
@@ -37,54 +27,53 @@ fn superseded(task: &crate::plan::Task) -> DispatchRollback {
 impl PlanStore {
     pub fn roll_back_task_dispatch_attempt(
         &self,
-        plan_id: &str,
-        snapshot: &crate::plan::Task,
-        plan_mode: crate::plan::PlanMode,
+        undo: &super::DispatchUndo,
         tab_id: &str,
         attempt_id: &str,
         now_ms: u64,
     ) -> Result<DispatchRollback, PlanError> {
-        let task_id = snapshot.id.clone();
-        let current = self.read_task_for_verification(plan_id, &task_id)?;
-        if !rollback_owns_task(&current, tab_id, attempt_id) {
-            return Ok(superseded(&current));
+        if undo.attempt_id != attempt_id {
+            return Err(PlanError::InvalidPlanText(
+                "dispatch rollback token does not match attempt".into(),
+            ));
         }
+        let plan_id = &undo.plan_id;
+        let task_id = undo.task_id.clone();
         let mut outcome = None;
         let mut restored_task = None;
-        let write = self.with_plan(plan_id, now_ms, |plan| {
-            let task = crate::plan::task_key::find_task_mut(&mut plan.tasks, &task_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            if !rollback_owns_task(task, tab_id, attempt_id) {
-                outcome = Some(superseded(task));
-                return Ok(());
-            }
-            let failed_attempt = task
-                .execution_attempts
-                .iter()
-                .find(|attempt| attempt.id == attempt_id)
-                .cloned();
-            let mut restored = snapshot.clone();
-            if let Some(mut failed_attempt) = failed_attempt {
-                failed_attempt.closed_at = Some(now_ms);
-                // Only a destination recorded after dispatch began is integration-owned.
-                if task.lane.destination != failed_attempt.destination {
-                    restored.lane.destination = task.lane.destination.clone();
-                    failed_attempt.destination = task.lane.destination.clone();
+        let mut restored_mode = None;
+        let write = self
+            .with_plan_if_changed(plan_id, now_ms, |plan| {
+                let task = crate::plan::task_key::find_task_mut(&mut plan.tasks, &task_id)
+                    .ok_or(PlanError::TaskNotFound)?;
+                if !rollback_owns_task(task, tab_id, attempt_id) || !undo.owner_epoch_current(task)
+                {
+                    outcome = Some(superseded(task));
+                    return Ok(None);
                 }
-                restored.lane.cleanup_status = task.lane.cleanup_status.clone();
-                restored.lane.cleanup_hints = task.lane.cleanup_hints.clone();
-                restored.execution_attempts.push(failed_attempt);
-                restored.updated_at = now_ms;
-            }
-            restored_task = Some(restored.clone());
-            *task = restored;
-            if snapshot.status == crate::plan::TaskStatus::Blocked {
-                super::unblock::annotate_blocked_unblock_rollback(plan, &task_id, attempt_id);
-            }
-            plan.mode = plan_mode.clone();
-            outcome = Some(DispatchRollback::Restored);
-            Ok(())
-        });
+                let failed_index = task
+                    .execution_attempts
+                    .iter()
+                    .position(|attempt| attempt.id == attempt_id)
+                    .ok_or(PlanError::TaskNotFound)?;
+                undo.apply(task);
+                let mut failed_attempt = task.execution_attempts.remove(failed_index);
+                failed_attempt.closed_at = Some(now_ms);
+                failed_attempt.destination = task.lane.destination.clone();
+                task.execution_attempts.push(failed_attempt);
+                task.updated_at = task.updated_at.max(now_ms);
+                restored_task = Some(task.clone());
+                if undo.restores_blocked() && task.status == crate::plan::TaskStatus::Blocked {
+                    super::unblock::annotate_blocked_unblock_rollback(plan, &task_id, attempt_id);
+                }
+                if undo.before_mode != undo.after_mode && plan.mode == undo.after_mode {
+                    plan.mode = undo.before_mode.clone();
+                }
+                restored_mode = Some(plan.mode.clone());
+                outcome = Some(DispatchRollback::Restored);
+                Ok(Some(()))
+            })
+            .map(|_| ());
         let write = match write {
             Ok(()) => Ok(()),
             Err(error @ PlanError::WritePending { .. }) => Err(error),
@@ -106,7 +95,7 @@ impl PlanStore {
                 if restored_task
                     .as_ref()
                     .is_some_and(|restored| task == restored)
-                    && plan.mode == plan_mode
+                    && restored_mode.as_ref() == Some(&plan.mode)
                 {
                     Ok(())
                 } else {

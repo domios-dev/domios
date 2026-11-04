@@ -259,7 +259,9 @@ impl ServiceContext {
                 Some(_) => {}
             }
         }
-        let assignments = self.in_progress_assignments_for_tab(&canon_target);
+        let assignments = self
+            .in_progress_assignments_for_tab(&canon_target)
+            .map_err(|error| error.to_string())?;
         let agent_caller = caller_tab_id.is_some_and(|caller| !caller.trim().is_empty());
         if agent_caller && !force && !assignments.is_empty() {
             let lines: Vec<String> = assignments.iter().map(|loss| loss.refusal_line()).collect();
@@ -274,8 +276,14 @@ impl ServiceContext {
     }
 
     /// Warnings for a close that bypassed the caller guard (human surfaces).
-    pub fn busy_worker_close_warnings_for(&self, tab_id: &str) -> Vec<String> {
-        busy_worker_close_warnings(tab_id, &self.in_progress_assignments_for_tab(tab_id))
+    pub fn busy_worker_close_warnings_for(
+        &self,
+        tab_id: &str,
+    ) -> Result<Vec<String>, crate::service::plan::PlanError> {
+        Ok(busy_worker_close_warnings(
+            tab_id,
+            &self.in_progress_assignments_for_tab(tab_id)?,
+        ))
     }
 
     pub async fn close_tab_async(&self, tab_id: &str) -> Result<(), String> {

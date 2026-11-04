@@ -48,7 +48,10 @@ impl ServiceContext {
         };
         let binding = tab.task_binding.clone().unwrap_or_default();
         if binding.attempt_id.is_none() {
-            let candidates = self.plan_store.live_task_attempts_for_tab(&tab.id);
+            let candidates = self
+                .plan_store
+                .executor_sources_for_tab_projection(&tab.id)
+                .map_err(|error| error.to_string())?;
             let candidate = match candidates.as_slice() {
                 [] if binding.plan_id.is_none() && binding.task_id.is_none() => return Ok(false),
                 [candidate] => candidate,
@@ -56,9 +59,9 @@ impl ServiceContext {
             };
             self.retire_executor_with(
                 ExecutorSource {
-                    plan_id: &candidate.plan_id,
-                    task_id: &candidate.task_id,
-                    source_attempt: &candidate.attempt,
+                    plan_id: &candidate.0,
+                    task_id: &candidate.1,
+                    source_attempt: &candidate.2,
                     allow_incomplete_binding: true,
                 },
                 reason,
@@ -71,22 +74,24 @@ impl ServiceContext {
         else {
             return Err("executor task binding is incomplete".into());
         };
-        let plan = self
+        let attempt = self
             .plan_store
-            .get(&plan_id)
-            .ok_or("executor plan is unavailable")?;
-        let task = crate::plan::task_key::find_task(&plan.tasks, &task_id)
-            .ok_or("executor task is unavailable")?;
-        let attempt = task
-            .execution_attempts
-            .iter()
-            .find(|attempt| attempt.id == attempt_id)
+            .executor_source_projection(&plan_id, &task_id, &attempt_id)
+            .map_err(|error| match error {
+                crate::service::plan::PlanError::NotFound => {
+                    "executor plan is unavailable".to_string()
+                }
+                crate::service::plan::PlanError::TaskNotFound => {
+                    "executor task is unavailable".to_string()
+                }
+                error => error.to_string(),
+            })?
             .ok_or("executor attempt is unavailable")?;
         self.retire_executor_with(
             ExecutorSource {
                 plan_id: &plan_id,
                 task_id: &task_id,
-                source_attempt: attempt,
+                source_attempt: &attempt,
                 allow_incomplete_binding: false,
             },
             reason,

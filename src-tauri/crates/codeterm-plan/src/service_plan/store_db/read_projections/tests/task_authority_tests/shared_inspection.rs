@@ -83,6 +83,7 @@ fn shared_inspection_preserves_latest_attempt_epoch_and_snapshot_fields() {
         let dispatch = database
             .shared_dispatch_projection(&plan.id, "NAMED")
             .unwrap();
+        assert_eq!(dispatch.task_id, plan.tasks[0].id);
         assert_eq!(dispatch.files, plan.tasks[0].files);
         let expected = if plan.canonical_project_path.trim().is_empty() {
             &plan.project_path
@@ -90,6 +91,14 @@ fn shared_inspection_preserves_latest_attempt_epoch_and_snapshot_fields() {
             &plan.canonical_project_path
         };
         assert_eq!(&dispatch.checkout, expected);
+        assert_eq!(
+            &database.dispatch_checkout_projection(&plan.id).unwrap(),
+            expected
+        );
+        assert!(matches!(
+            database.dispatch_checkout_projection("missing"),
+            Err(PlanError::NotFound)
+        ));
         assert!(matches!(
             database.shared_report_projection("missing", "task_exact", "worker"),
             Err(PlanError::NotFound)

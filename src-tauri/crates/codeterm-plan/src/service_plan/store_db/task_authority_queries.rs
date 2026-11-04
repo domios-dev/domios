@@ -7,7 +7,7 @@ use crate::service_plan::{
 };
 use rusqlite::{params, OptionalExtension};
 
-const SELECTED_ACTIVE_TASK: &str = "WITH candidates AS (
+pub(super) const SELECTED_ACTIVE_TASK: &str = "WITH candidates AS (
                 SELECT p.id AS plan_id,t.task_id,t.row_json,t.assigned_tab_id,p.updated_at,t.position,
                     t.task_id=?1 AS exact,
                     sum(t.task_id=?1) OVER (PARTITION BY p.id) AS exact_count,
@@ -22,7 +22,7 @@ const SELECTED_ACTIVE_TASK: &str = "WITH candidates AS (
                 ORDER BY updated_at DESC,plan_id,position LIMIT 1
              )";
 
-const SELECTED_TASK_IN_PLAN: &str = "WITH candidates AS (
+pub(super) const SELECTED_TASK_IN_PLAN: &str = "WITH candidates AS (
     SELECT t.plan_id,t.task_id,t.row_json,t.assigned_tab_id,t.position,t.task_id=?2 AS exact,
         sum(t.task_id=?2) OVER () AS exact_count,count(*) OVER () AS matches
     FROM plan_tasks t WHERE t.plan_id=?1 AND (t.task_id=?2 OR (?2<>'' AND (
@@ -303,7 +303,10 @@ mod worker_transfer;
 mod startup;
 
 mod continuity;
-pub(super) use continuity::register_functions;
+pub(super) fn register_functions(connection: &rusqlite::Connection) -> Result<(), PlanError> {
+    continuity::register_functions(connection)?;
+    ack::register(connection)
+}
 
 mod checkpoint;
 mod creation;
@@ -330,3 +333,13 @@ mod review_roles;
 mod plan_metadata;
 
 mod respawn_source;
+
+mod worker_loss;
+
+mod ack;
+
+mod lifecycle;
+
+mod launch;
+
+mod deadline;

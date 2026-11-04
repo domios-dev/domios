@@ -540,7 +540,13 @@ pub async fn close_tab(
         .map_err(map_close_error)?;
         return Ok(Json(result.into_json()));
     }
-    let warnings = state.svc.busy_worker_close_warnings_for(&tab_id);
+    let service = state.svc.clone();
+    let warning_tab = tab_id.clone();
+    let warnings =
+        tokio::task::spawn_blocking(move || service.busy_worker_close_warnings_for(&warning_tab))
+            .await
+            .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+            .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     state
         .svc
         .close_tab_async(&tab_id)

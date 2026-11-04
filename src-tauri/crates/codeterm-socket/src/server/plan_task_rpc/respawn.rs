@@ -70,8 +70,12 @@ pub(super) fn respawn(
     let mut draft = store
         .build_task_respawn_draft(&id, &tid, request)
         .map_err(plan_rpc_err)?;
-    let original_task = task.clone();
-    let original_plan_mode = plan.mode.clone();
+    let seed = store
+        .task_dispatch_seed_projection(&id, &tid, "")
+        .map_err(plan_rpc_err)?;
+    let launch = store
+        .task_launch_projection(&id, &tid, Some(&draft.source_attempt.id))
+        .map_err(plan_rpc_err)?;
     let canonical_cwd = if plan.canonical_project_path.trim().is_empty() {
         plan.project_path.clone()
     } else {
@@ -82,7 +86,7 @@ pub(super) fn respawn(
     );
     let provenance = codeterm_service_core::service::plan::respawn_lane::verify_respawn_lane(
         &canonical_cwd,
-        task,
+        &launch,
         &draft,
     )
     .map_err(|error| JsonRpcError {
@@ -146,7 +150,7 @@ pub(super) fn respawn(
     draft.provider = spawn.agent.clone();
     draft.model = spawn.provider_resolved_model.clone();
     draft.reasoning_effort = svc.resolved_worker_launch_effort_for_tab(&spawn.tab_id);
-    let created = record_spawned_attempt(svc, &spawn.tab_id, || {
+    let (created, rollback) = record_spawned_attempt(svc, &spawn.tab_id, || {
         store.record_task_respawn_attempt_with_profile(&id, &tid, &spawn.tab_id, &draft, svc, now)
     })?;
     persist_attempt_executor_identity(store, svc, &id, &tid, &spawn.tab_id, &spawn.title, now)
@@ -160,8 +164,8 @@ pub(super) fn respawn(
             parent_tab_id: &parent_tab_id,
             tab_id: &spawn.tab_id,
             attempt_id: &created.attempt.id,
-            original_task: &original_task,
-            original_plan_mode: &original_plan_mode,
+            seed: &seed,
+            rollback: &rollback,
             provisioned_lane: None,
             now,
         },
@@ -176,8 +180,7 @@ pub(super) fn respawn(
         attempt_id: created.attempt.id.clone(),
         parent_tab_id,
         worker_title: spawn.title.clone(),
-        original_task,
-        original_plan_mode,
+        rollback,
         lane_for_commit: task.lane.clone(),
         canonical_project_path: canonical_cwd.clone(),
         provenance,

@@ -1,6 +1,7 @@
 use super::super::lane_metadata::normalize_lane_metadata;
 use super::super::readback::pending_after_verified;
-use super::super::{AttemptMatch, AttemptState, PlanError, PlanMatch, PlanStore};
+use super::super::task_authority_projection::acknowledging_binding_matches;
+use super::super::{AttemptMatch, AttemptState, PlanError, PlanStore};
 use super::{
     ambiguous_subject_cause, progression_authority, startup_attempt, startup_status_allows,
     superseded_subject_cause, unresolved_subject_cause, LiveTabAttempt,
@@ -172,19 +173,23 @@ impl PlanStore {
         now_ms: u64,
     ) -> Result<super::super::task_attempts::TaskAttemptAcknowledgement, PlanError> {
         let writer_turn = self.mutation_writer.enter();
-        let current_plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
-        let current_task = crate::plan::task_key::find_task(&current_plan.tasks, task_id)
-            .ok_or(PlanError::TaskNotFound)?;
-        let Some((current_attempt, competitive)) =
-            startup_attempt(current_task, tab_id, attempt_id)
-        else {
+        let mut current = self.database.task_ack_authority_projection(
+            plan_id,
+            task_id,
+            tab_id,
+            attempt_id,
+            runtime_binding,
+            enforce_runtime_binding,
+        )?;
+        let Some((current_attempt, competitive)) = current.current(tab_id) else {
             return Err(Self::task_readback_error(
                 "task_dispatch_ack",
                 "attempt no longer owns the acknowledging tab",
             ));
         };
-        if !attempt_matches_acknowledging_binding(
-            current_attempt,
+        if !acknowledging_binding_matches(
+            current_attempt.session.as_deref(),
+            current_attempt.nonce.as_deref(),
             runtime_binding,
             enforce_runtime_binding,
         ) {
@@ -193,16 +198,21 @@ impl PlanStore {
                 "attempt session binding differs from the acknowledging tab",
             ));
         }
-        if current_attempt.acknowledged_at.is_some() {
-            let attempt = current_attempt.clone();
+        if current_attempt.acknowledged {
+            let attempt = current.response_attempt.take().ok_or_else(|| {
+                Self::task_readback_error(
+                    "task_dispatch_ack",
+                    "retained acknowledgement response missing",
+                )
+            })?;
             return Ok(super::super::task_attempts::TaskAttemptAcknowledgement {
-                plan_id: plan_id.to_string(),
-                task_id: current_task.id.clone(),
+                plan_id: plan_id.into(),
+                task_id: current.task_id,
                 attempt,
                 already_acknowledged: true,
             });
         }
-        if !startup_status_allows(current_task) {
+        if !startup_status_allows(&current.status) {
             return Err(Self::task_readback_error(
                 "task_dispatch_ack",
                 "only a live startup assignment can be acknowledged",
@@ -219,7 +229,7 @@ impl PlanStore {
                 .ok_or(PlanError::TaskNotFound)?;
             let authority = startup_attempt(&plan.tasks[task_index], tab_id, attempt_id);
             let competitive = authority.is_some_and(|(_, competitive)| competitive);
-            if authority.is_none() || !startup_status_allows(&plan.tasks[task_index]) {
+            if authority.is_none() || !startup_status_allows(&plan.tasks[task_index].status) {
                 return Err(Self::task_readback_error(
                     "task_dispatch_ack",
                     "attempt no longer owns the acknowledging tab",
@@ -330,38 +340,8 @@ impl PlanStore {
     pub fn superseded_attempt_for_tab(
         &self,
         tab_id: &str,
-    ) -> Option<(String, String, String, String, String)> {
-        let candidates = AttemptMatch::executor(tab_id, AttemptState::Any).into_match();
-        self.plans_matching(&candidates)
-            .into_iter()
-            .find_map(|plan| {
-                let plan_id = plan.id.clone();
-                plan.tasks.into_iter().find_map(|task| {
-                    let (owned_index, owned) = task
-                        .execution_attempts
-                        .iter()
-                        .enumerate()
-                        .rev()
-                        .find(|(_, attempt)| attempt.executor_tab_id == tab_id)?;
-                    owned.closed_at?;
-                    let live = task
-                        .execution_attempts
-                        .iter()
-                        .enumerate()
-                        .skip(owned_index + 1)
-                        .rev()
-                        .find(|(_, attempt)| {
-                            attempt.closed_at.is_none() && attempt.retired_at.is_none()
-                        })?;
-                    Some((
-                        plan_id.clone(),
-                        task.id.clone(),
-                        owned.id.clone(),
-                        live.1.id.clone(),
-                        live.1.executor_tab_id.clone(),
-                    ))
-                })
-            })
+    ) -> Result<Option<(String, String, String, String, String)>, PlanError> {
+        self.database.superseded_attempt_projection(tab_id)
     }
 
     /// The tab binding selects the subject; `plan_hint`/`task_hint` come from the
@@ -418,7 +398,7 @@ impl PlanStore {
         let selected = match acknowledgeable.len() {
             1 => acknowledgeable[0],
             0 => {
-                let cause = match self.superseded_attempt_for_tab(tab_id) {
+                let cause = match self.superseded_attempt_for_tab(tab_id)? {
                     Some((plan_id, task_id, previous_attempt_id, current_attempt_id, live_tab))
                         if bound.is_empty() =>
                     {
@@ -558,53 +538,22 @@ impl PlanStore {
         session_id: &str,
         now_ms: u64,
     ) -> Result<Option<super::super::task_attempts::TaskAttemptCreated>, PlanError> {
-        let candidates = PlanMatch::active().and(
-            AttemptMatch {
-                task_statuses: Some(vec![
-                    crate::plan::TaskStatus::Pending,
-                    crate::plan::TaskStatus::InProgress,
-                ]),
-                ..AttemptMatch::executor(tab_id, AttemptState::Unclosed)
-            }
-            .into_match(),
-        );
-        let matches = self
-            .plans_matching(&candidates)
-            .into_iter()
-            .filter(|plan| plan.status == crate::plan::PlanStatus::Active)
-            .flat_map(|plan| {
-                let plan_id = plan.id.clone();
-                plan.tasks
-                    .into_iter()
-                    .filter(|task| {
-                        matches!(
-                            task.status,
-                            crate::plan::TaskStatus::Pending | crate::plan::TaskStatus::InProgress
-                        )
-                    })
-                    .filter_map(move |task| {
-                        task.execution_attempts
-                            .iter()
-                            .rfind(|attempt| {
-                                attempt.executor_tab_id == tab_id && attempt.closed_at.is_none()
-                            })
-                            .map(|attempt| (plan_id.clone(), task.id, attempt.id.clone()))
-                    })
-            })
-            .collect::<Vec<_>>();
-        match matches.as_slice() {
-            [] => Ok(None),
-            [(plan_id, task_id, attempt_id)] => self
+        let (count, selected) = self.database.runtime_ready_subject_projection(tab_id)?;
+        match (count, selected) {
+            (0, _) => Ok(None),
+            (1, Some((plan_id, task_id, attempt_id))) => self
                 .mark_task_attempt_runtime_ready(
-                    plan_id, task_id, tab_id, attempt_id, session_id, now_ms,
+                    &plan_id,
+                    &task_id,
+                    tab_id,
+                    &attempt_id,
+                    session_id,
+                    now_ms,
                 )
                 .map(Some),
             _ => Err(Self::task_readback_error(
                 "task_attempt_runtime_ready",
-                format!(
-                    "expected at most one live task attempt for tab {tab_id}, found {}",
-                    matches.len()
-                ),
+                format!("expected at most one live task attempt for tab {tab_id}, found {count}"),
             )),
         }
     }
@@ -694,20 +643,10 @@ fn attempt_matches_acknowledging_binding(
     runtime_binding: Option<(&str, &str)>,
     enforce_runtime_binding: bool,
 ) -> bool {
-    if !enforce_runtime_binding {
-        return true;
-    }
-    match (
+    acknowledging_binding_matches(
         attempt.session_id.as_deref(),
         attempt.session_binding_nonce.as_deref(),
         runtime_binding,
-    ) {
-        (None, None, _) => true,
-        (Some(session), Some(nonce), Some((current_session, current_nonce))) => {
-            session == current_session && nonce == current_nonce
-        }
-        (Some(session), None, Some((current_session, _))) => session == current_session,
-        (None, Some(nonce), Some((_, current_nonce))) => nonce == current_nonce,
-        _ => false,
-    }
+        enforce_runtime_binding,
+    )
 }

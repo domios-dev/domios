@@ -73,10 +73,14 @@ fn in_progress_assignments_for_tab_never_loads_unmatched_plans() {
     );
     start(store);
 
-    let losses = fx.service.in_progress_assignments_for_tab("worker-a");
+    let losses = fx
+        .service
+        .in_progress_assignments_for_tab("worker-a")
+        .unwrap();
     assert_eq!(losses.len(), 1);
     assert_eq!(losses[0].plan_id, mine);
     assert_never_loaded(store, &[&other]);
+    assert!(store.plan_loads_for_test().is_empty());
 }
 
 #[test]
@@ -103,12 +107,16 @@ fn worker_losses_for_tab_never_loads_unmatched_plans() {
     );
     start(store);
 
-    let losses = fx.service.worker_losses_for_tab(
-        "worker-a",
-        crate::service::worker_loss::WorkerLossCause::AgentUnavailable,
-    );
+    let losses = fx
+        .service
+        .worker_losses_for_tab(
+            "worker-a",
+            crate::service::worker_loss::WorkerLossCause::AgentUnavailable,
+        )
+        .unwrap();
     assert_eq!(losses.len(), 1);
     assert_never_loaded(store, &[&pending]);
+    assert!(store.plan_loads_for_test().is_empty());
 }
 
 #[test]

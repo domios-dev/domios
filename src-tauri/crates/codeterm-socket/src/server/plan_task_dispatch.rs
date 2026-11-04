@@ -452,6 +452,9 @@ where
     let plan = store
         .get(&plan_id)
         .ok_or_else(|| plan_rpc_err(PlanError::NotFound))?;
+    let seed = store
+        .task_dispatch_seed_projection(&plan_id, &task_id, "")
+        .map_err(plan_rpc_err)?;
     refuse_live_dispatch_startup_owner(store, svc, &plan_id, &task_id)?;
     let regression_warning = regression_dispatch_warning(regression_dispatch_decision(&plan));
     // Same frontier policy for the review WIP gate: decide before any tab
@@ -501,7 +504,7 @@ where
         &execution_intent,
         &detail.task,
         &plan,
-        &store.checkout_peer_plans(&plan),
+        &store.checkout_peer_plans(&plan).map_err(plan_rpc_err)?,
     )?;
     let worker_profile = codeterm_service_core::service::role_profile::dispatch_worker_profile(
         detail.task.executor_role.as_deref(),
@@ -859,8 +862,6 @@ where
         }
         return Err(refusal);
     }
-    let original_task = detail.task.clone();
-    let original_plan_mode = plan.mode.clone();
     let mut lane_for_commit = detail.task.lane.clone();
     if replaces_recorded_lane {
         lane_commit::clear_replaced_lane_routing_fields(&mut lane_for_commit);
@@ -929,7 +930,7 @@ where
                 )
             }
         });
-    let (attempt_id, provisioned_lane) =
+    let (started, provisioned_lane) =
         match finish_unreserved_dispatch(attempt_start, provisioned_lane, || {
             reservation_tab.close()
         }) {
@@ -947,6 +948,8 @@ where
                 return Err(error);
             }
         };
+    let attempt_id = started.attempt_id;
+    let rollback = started.undo;
     let provisioned_lane = match todo_seed::seed_acceptance_or_rollback(todo_seed::DispatchSeed {
         svc,
         store,
@@ -955,8 +958,8 @@ where
         parent_tab_id: &parent_tab_id,
         tab_id: &reserved_tab_id,
         attempt_id: &attempt_id,
-        original_task: &original_task,
-        original_plan_mode: &original_plan_mode,
+        seed: &seed,
+        rollback: &rollback,
         provisioned_lane,
         now,
     }) {
@@ -969,9 +972,7 @@ where
         Err(error) => {
             let cleanup = roll_back_dispatch_attempt(
                 store,
-                &plan_id,
-                &original_task,
-                &original_plan_mode,
+                &rollback,
                 &reserved_tab_id,
                 &attempt_id,
                 provisioned_lane,
@@ -1002,9 +1003,7 @@ where
         );
         let cleanup = roll_back_dispatch_attempt(
             store,
-            &plan_id,
-            &original_task,
-            &original_plan_mode,
+            &rollback,
             &reserved_tab_id,
             &attempt_id,
             provisioned_lane,
@@ -1055,9 +1054,7 @@ where
     {
         let cleanup = roll_back_dispatch_attempt(
             store,
-            &plan_id,
-            &original_task,
-            &original_plan_mode,
+            &rollback,
             &tab_id,
             &attempt_id,
             provisioned_lane,
@@ -1083,9 +1080,7 @@ where
     if let Err(error) = verify_dispatched_task_binding(store, &plan_id, &task_id, &tab_id) {
         let cleanup = roll_back_dispatch_attempt(
             store,
-            &plan_id,
-            &original_task,
-            &original_plan_mode,
+            &rollback,
             &tab_id,
             &attempt_id,
             provisioned_lane,
@@ -1119,8 +1114,7 @@ where
         attempt_id: attempt_id.clone(),
         parent_tab_id,
         worker_title: spawn.title.clone(),
-        original_task,
-        original_plan_mode,
+        rollback,
         lane_for_commit: lane_for_commit.clone(),
         canonical_project_path: canonical_cwd.clone(),
         provenance: initial_provenance.clone(),
@@ -1160,10 +1154,16 @@ where
 }
 
 fn finish_unreserved_dispatch<C>(
-    attempt_start: Result<String, PlanError>,
+    attempt_start: Result<codeterm_service_core::service::plan::DispatchStart, PlanError>,
     provisioned_lane: Option<ProvisionedWorkerLane>,
     close_tab: C,
-) -> Result<(String, Option<ProvisionedWorkerLane>), JsonRpcError>
+) -> Result<
+    (
+        codeterm_service_core::service::plan::DispatchStart,
+        Option<ProvisionedWorkerLane>,
+    ),
+    JsonRpcError,
+>
 where
     C: FnOnce() -> Result<(), String>,
 {

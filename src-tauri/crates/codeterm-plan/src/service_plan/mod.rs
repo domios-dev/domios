@@ -172,9 +172,9 @@ pub use state::{
 pub use store_db::{AttemptFieldRow, SectionRefRow, TaskFieldRow, TaskRefRow};
 pub use task_dispatch::{
     ambiguous_subject_cause, superseded_subject_cause, unresolved_subject_cause, DispatchRollback,
-    DispatchStartupOwner, LiveTabAttempt, TaskDispatchReservation, ACK_CAUSE_AMBIGUOUS_ATTEMPTS,
-    ACK_CAUSE_ATTEMPT_SUPERSEDED, ACK_CAUSE_NO_LIVE_ATTEMPT, ACK_CAUSE_PLAN_NOT_ACTIVE,
-    ACK_CAUSE_TASK_NOT_OPEN,
+    DispatchStart, DispatchStartupOwner, DispatchUndo, LiveTabAttempt, TaskDispatchReservation,
+    ACK_CAUSE_AMBIGUOUS_ATTEMPTS, ACK_CAUSE_ATTEMPT_SUPERSEDED, ACK_CAUSE_NO_LIVE_ATTEMPT,
+    ACK_CAUSE_PLAN_NOT_ACTIVE, ACK_CAUSE_TASK_NOT_OPEN,
 };
 pub use types::{
     IndexEntry, NewTask, OpenSubtask, PlanError, PlanIncident, ReconcileFixResult, SpecIndexEntry,
@@ -344,6 +344,10 @@ impl PlanStore {
 
 mod task_authority_projection;
 pub use document_projection::team::{TeamEventCursor, TeamPlanMetadataRead, TeamPlanRead};
+pub use store_db::read_projections::competition_lane::CompetitionLaneRead;
+pub use store_db::read_projections::provider_switch::{
+    ProviderSwitchTaskContextRead, ProviderSwitchTaskRead,
+};
 pub use task_authority_projection::{
     BatchTaskRefusalRead, CanonicalWriterHoldRead, CompletedTaskRestartRead, LaneIntegrationRead,
     PlanTaskAdmissionRead, ProviderRecoveryRead, RemoteRecoveryAttemptRead,
@@ -353,5 +357,8 @@ pub use task_authority_projection::{
     TaskCheckpointAdoptionRead, TaskContextFilesRead, TaskContinuityDigest, TaskContinuityRead,
     TaskCreationRead, TaskDescriptionRead, TaskInterruptionRead, TaskLaneAdmissionRead,
     TaskLaneOwnerRead, TaskOwnerEpochRead, TaskRestartAuthorityRead, TaskRestartQuery,
-    TaskRuntimeSessionRead, TaskSelectorRead, TaskSplitDefaultsRead,
+    TaskRuntimeSessionRead, TaskSelectorRead, TaskSplitDefaultsRead, WorkerLossRead,
+    WorkerLossRecoveryRead, WorkerLossReplacementRead,
 };
+
+pub use task_authority_projection::{TaskDispatchSeedRead, TaskLaunchRead};
