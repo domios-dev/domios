@@ -11,29 +11,22 @@ pub(super) fn respawn(
     let store = &svc.plan_store;
     let (id, tid) = plan_refs::resolve_task(store, params)?;
     authorize_execution(svc, &id, p)?;
-    let plan = store
-        .get(&id)
-        .ok_or_else(|| plan_rpc_err(PlanError::NotFound))?;
-    let task = plan
-        .tasks
-        .iter()
-        .find(|task| task.id == tid)
-        .ok_or_else(|| plan_rpc_err(PlanError::TaskNotFound))?;
+    let task = store
+        .task_launch_projection(&id, &tid, None)
+        .map_err(plan_rpc_err)?;
     let source_id = get_string_param(params, "attempt_id")?;
-    if let Some(source) = task
-        .execution_attempts
-        .iter()
-        .find(|attempt| attempt.id == source_id && attempt.mesh_peer.is_some())
+    if let Some(source) = store
+        .respawn_remote_source_projection(&id, &tid, &source_id)
+        .map_err(plan_rpc_err)?
     {
         return super::super::plan_task_dispatch::remote_recovery::respawn_remote(
-            params, svc, &id, &tid, source, now,
+            params, svc, &id, &tid, &source, now,
         );
     }
     if task.status == TaskStatus::Pending {
-        codeterm_service_core::service::plan::review_gate::validate_dispatch_review_capacity(
-            &plan, task,
-        )
-        .map_err(plan_rpc_err)?;
+        store
+            .dispatch_review_capacity_warning_projection(&id, &tid)
+            .map_err(plan_rpc_err)?;
     }
     let body = p.ok_or(JsonRpcError {
         code: -32602,
@@ -76,14 +69,12 @@ pub(super) fn respawn(
     let launch = store
         .task_launch_projection(&id, &tid, Some(&draft.source_attempt.id))
         .map_err(plan_rpc_err)?;
-    let canonical_cwd = if plan.canonical_project_path.trim().is_empty() {
-        plan.project_path.clone()
-    } else {
-        plan.canonical_project_path.clone()
-    };
-    let lane_protection = codeterm_service_core::service::LaneProtection::for_dispatch_intent(
-        &task.interruption.execution_intent,
-    );
+    let plan = store
+        .competition_lane_projection(&id, &tid)
+        .map_err(plan_rpc_err)?;
+    let canonical_cwd = plan.canonical_path.clone();
+    let lane_protection =
+        codeterm_service_core::service::LaneProtection::for_dispatch_intent(&task.dispatch_intent);
     let provenance = codeterm_service_core::service::plan::respawn_lane::verify_respawn_lane(
         &canonical_cwd,
         &launch,
@@ -95,17 +86,23 @@ pub(super) fn respawn(
         data: None,
     })?;
     if let Some(provenance) = provenance.as_ref() {
-        super::super::plan_task_dispatch::lane_safety::refuse_unsafe_mutating_write(
-            &plan,
-            &tid,
-            &provenance.worktree_path,
-            task.interruption.execution_intent.clone(),
-        )?;
+        if task.dispatch_intent == codeterm_service_core::plan::ExecutionIntent::Mutating {
+            let verdict = codeterm_service_core::service::task_lane_guard::classify_lane_facts(
+                &plan.canonical_path,
+                &provenance.worktree_path,
+                plan.foreign_lanes
+                    .iter()
+                    .map(|lane| (lane.task_id.as_str(), lane.worktree_path.as_str())),
+            );
+            super::super::plan_task_dispatch::lane_safety::refuse_unsafe_mutating_lane(
+                &plan.id, &tid, verdict,
+            )?;
+        }
     }
     let parent_tab_id = draft
         .parent_tab_id
         .clone()
-        .or_else(|| plan.owner.tab_id.clone())
+        .or_else(|| plan.owner_tab_id.clone())
         .filter(|parent| !parent.trim().is_empty())
         .ok_or(JsonRpcError {
             code: -32602,

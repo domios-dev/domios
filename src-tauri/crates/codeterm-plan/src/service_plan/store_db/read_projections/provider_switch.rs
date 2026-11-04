@@ -54,14 +54,14 @@ impl PlanDatabase {
         let raw: Option<String>=connection.query_row(&format!(
             "{selected} SELECT json_object('plan_id',p.id,'plan_title',p.title,'task',json_object(
                 'id',t.task_id,'name',json_extract(t.row_json,'$.name'),'status',json_extract(t.row_json,'$.status'),
-                'body',coalesce(json_extract(t.row_json,'$.body'),''),
+                'body',CASE WHEN json_type(t.row_json,'$.body') IS NULL THEN '' ELSE json_extract(t.row_json,'$.body') END,
                 'intent',json_extract(t.row_json,'$.intent'),'correctness',json_extract(t.row_json,'$.correctness'),
                 'test_plan',json_extract(t.row_json,'$.test_plan'),
-                'acceptance_criteria',json(coalesce(json_extract(t.row_json,'$.acceptance_criteria'),'[]')),
+                'acceptance_criteria',json(CASE WHEN json_type(t.row_json,'$.acceptance_criteria') IS NULL THEN '[]' ELSE t.row_json->'$.acceptance_criteria' END),
                 'role_guidance',json_extract(t.row_json,'$.role_guidance'),'executor_role',json_extract(t.row_json,'$.executor_role'),
                 'personality',json_extract(t.row_json,'$.personality'),
-                'files',json(coalesce(json_extract(t.row_json,'$.files'),'{{}}')),
-                'lane',json(coalesce(json_extract(t.row_json,'$.lane'),'{{}}'))))
+                'files',json(CASE WHEN json_type(t.row_json,'$.files') IS NULL THEN '{{}}' ELSE t.row_json->'$.files' END),
+                'lane',json(CASE WHEN json_type(t.row_json,'$.lane') IS NULL THEN '{{}}' ELSE t.row_json->'$.lane' END)))
              FROM selected_task t JOIN plans p ON p.id=t.plan_id",
             selected=super::super::task_authority_queries::SELECTED_ACTIVE_TASK
         ),[task],|row|column(row,0)).optional().map_err(db_error)?;

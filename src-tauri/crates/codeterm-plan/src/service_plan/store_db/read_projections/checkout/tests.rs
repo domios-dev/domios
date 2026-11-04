@@ -83,7 +83,15 @@ fn checkout_projection_preserves_plan_admission_live_attempt_order_and_exact_tas
             .live_shared
     );
     plan.project_path = "changed-root".into();
+    plan.canonical_project_path = "\u{2003}".into();
     database.persist_plan_rows(&plan, None).unwrap();
+    assert_eq!(
+        database
+            .task_checkout_projection(&plan.id, "task_0000", true)
+            .unwrap()
+            .checkout,
+        plan.project_path
+    );
     assert!(database
         .checkout_peer_facts(&roots, &[plan.id.clone()])
         .is_err());
