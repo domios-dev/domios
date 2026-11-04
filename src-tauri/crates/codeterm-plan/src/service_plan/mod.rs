@@ -383,3 +383,9 @@ pub use task_authority_projection::{
 };
 
 pub use store_db::read_projections::lane_clean::{ClosedTaskLaneCleanupRead, ClosedTaskLaneRead};
+
+pub use task_authority_projection::TaskDispatchPreflightRead;
+
+pub use task_authority_projection::DispatchCheckoutOccupantRead;
+
+pub use task_authority_projection::RemoteLaneIntegrationRead;

@@ -1,8 +1,13 @@
 use serde_json::json;
+#[cfg(test)]
 use std::collections::HashMap;
 
-use codeterm_service_core::plan::{ExecutionIntent, Plan, TaskLaneMetadata};
-use codeterm_service_core::service::{classify_mutating_lane, LaneProtection, UnsafeMutatingLane};
+use codeterm_service_core::plan::TaskLaneMetadata;
+#[cfg(test)]
+use codeterm_service_core::plan::{ExecutionIntent, Plan};
+use codeterm_service_core::service::UnsafeMutatingLane;
+#[cfg(test)]
+use codeterm_service_core::service::{classify_mutating_lane, LaneProtection};
 
 use super::super::safety_nudge::{
     SafetyNudge, NUDGE_LANE_BASE_UNRECORDED, NUDGE_LANE_BRANCH_UNRECORDED,
@@ -15,6 +20,7 @@ pub(crate) const REFUSAL_MUTATING_WRITE_IN_CANONICAL: &str =
 pub(crate) const REFUSAL_MUTATING_WRITE_IN_FOREIGN_LANE: &str =
     "lane.mutating_write_in_foreign_lane";
 
+#[cfg(test)]
 pub(crate) use codeterm_service_core::service::canonical_path_of;
 
 fn refusal(id: &'static str, message: String, safe_alternative: String) -> JsonRpcError {
@@ -33,6 +39,7 @@ fn refusal(id: &'static str, message: String, safe_alternative: String) -> JsonR
 
 /// The ONLY hard stop here, and only where work in progress would be destroyed:
 /// a mutating Worker writing in canonical or in a lane another task owns.
+#[cfg(test)]
 pub(crate) fn refuse_unsafe_mutating_write(
     plan: &Plan,
     task_id: &str,
@@ -133,6 +140,7 @@ pub(crate) fn dispatch_safety_nudges(
     nudges
 }
 
+#[cfg(test)]
 pub(crate) fn reported_executor_tab_statuses(
     plan: &Plan,
     dispatched_task_id: &str,
@@ -161,6 +169,7 @@ pub(crate) fn reported_executor_tab_statuses(
 
 /// Occupancy protects work in progress from a second writer, so a declared
 /// read-only dispatch is never obstructed by it.
+#[cfg(test)]
 pub(crate) fn preflight_checkout_occupancy(
     plan: &Plan,
     dispatched_task_id: &str,
@@ -195,19 +204,28 @@ pub(crate) fn preflight_checkout_occupancy(
             ))
         })
     });
+    checkout_occupancy_refusal(&plan.id, dispatched_task_id, checkout_path, occupant)
+}
+
+pub(super) fn checkout_occupancy_refusal(
+    plan_id: &str,
+    dispatched_task_id: &str,
+    checkout_path: &str,
+    occupant: Option<(&str, &str, Option<&str>)>,
+) -> Result<(), JsonRpcError> {
     let Some((occupying_task_id, occupying_attempt_id, executor_tab_id)) = occupant else {
         return Ok(());
     };
     let release_command = executor_tab_id.map(|tab_id| format!("domios tab close --tab {tab_id}"));
-    let update_command = isolated_lane_update_command(&plan.id, dispatched_task_id);
+    let update_command = isolated_lane_update_command(plan_id, dispatched_task_id);
     let dispatch_command = format!(
         "domios plan task dispatch {} {}",
-        plan.id, dispatched_task_id
+        plan_id, dispatched_task_id
     );
     let occupancy = format!(
         "checkout '{checkout_path}' is occupied by live attempt '{occupying_attempt_id}' of task \
          '{occupying_task_id}' in plan '{}'",
-        plan.id
+        plan_id
     );
     let remediation = format!(
         " No worker was spawned. Assign an existing isolated lane, then dispatch again:\n  \

@@ -220,11 +220,7 @@ pub(super) fn dispatch(
                     binding_nonce: optional_string(p, "session_binding_nonce"),
                 },
             )
-            .map_err(|message| JsonRpcError {
-                code: -32003,
-                message,
-                data: None,
-            })?;
+            .map_err(|error| super::plan_task_authority::execution_authority_error(error, None))?;
         }
         let plan = svc
             .plan_store
