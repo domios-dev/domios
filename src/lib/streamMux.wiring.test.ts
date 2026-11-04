@@ -12,33 +12,48 @@ function fakeDaemon() {
   const longLived: Array<{ path: string; signal: AbortSignal | null | undefined }> = [];
   const opened: Channel[] = [];
   const released: string[] = [];
-  let push!: (frame: unknown) => void;
+  let wire!: (frame: unknown) => void;
+  const heads = new Set<string>();
+  const push = (value: unknown) => {
+    const frame = value as { channel: string; open?: boolean; content_type?: string; event?: string; data?: unknown; end?: unknown };
+    const head = () => {
+      if (heads.has(frame.channel)) return;
+      heads.add(frame.channel);
+      wire({ channel: frame.channel, open: true, status: 200, headers: [["content-type", frame.content_type ?? "text/event-stream"]] });
+    };
+    if (frame.open) { head(); return; }
+    if ("data" in frame) {
+      head();
+      const event = frame.event ? "event: " + frame.event + "\n" : "";
+      wire({ channel: frame.channel, chunk: event + "data: " + JSON.stringify(frame.data) + "\n\n", enc: "utf8" });
+    } else wire(frame);
+  };
   let drop!: () => void;
   const fetch = vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
     const url = new URL(String(input));
     const method = init.method ?? "GET";
-    if (new Headers(init.headers).get("Accept") === "text/event-stream") {
+    if (url.pathname === "/api/stream-mux") {
       longLived.push({ path: url.pathname + url.search, signal: init.signal });
       if (url.pathname !== "/api/stream-mux") return new Response("unexpected stream", { status: 500 });
       const body = new ReadableStream<Uint8Array>({
         start(controller) {
           drop = () => controller.error(new Error("fixture mux loss"));
-          push = (frame) => controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(frame)}\n\n`));
+          wire = (frame) => controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(frame)}\n\n`));
         },
       });
       return new Response(body, { headers: { "Content-Type": "text/event-stream" } });
     }
     if (method === "POST" && url.pathname.endsWith("/channels")) {
       opened.push(JSON.parse(String(init.body)) as Channel);
-      return Response.json({ ok: true });
+      return Response.json({ accepted: true }, { status: 202 });
     }
     if (method === "DELETE") {
       released.push(url.pathname.split("/").pop()!);
       return Response.json({ ok: true, closed: true });
     }
-    return Response.json({ ok: true });
+    return Response.json({ accepted: true }, { status: 202 });
   });
-  return { fetch, longLived, opened, released, drop: () => drop(), push: (frame: unknown) => push(frame) };
+  return { fetch, longLived, opened, released, drop: () => drop(), push };
 }
 
 async function boot() {
@@ -61,7 +76,7 @@ const last = <T,>(items: T[]): T => items[items.length - 1];
 const channelFor = (opened: Channel[], match: (path: URL) => boolean) =>
   last(opened.filter(({ path }) => match(new URL(path, ORIGIN)))).channel;
 
-afterEach(() => { vi.unstubAllGlobals(); });
+afterEach(async () => { (await import("./streamMux")).__resetStreamMuxesForTest(); vi.unstubAllGlobals(); });
 
 describe("one multiplexed stream per origin", () => {
   it("events, agent-run and surface reconnect through one mux with exact event and byte cursors", async () => {
@@ -176,7 +191,7 @@ describe("one multiplexed stream per origin", () => {
 
     for (const stop of stops) stop();
     output.resetOutputStream();
-    expect(daemon.longLived[0].signal?.aborted).toBe(true);
+    expect(daemon.longLived[0].signal?.aborted).toBe(false);
     expect(daemon.longLived).toHaveLength(1);
   });
 
@@ -199,7 +214,7 @@ describe("one multiplexed stream per origin", () => {
     expect(daemon.longLived).toHaveLength(1);
     expect(daemon.longLived[0].signal?.aborted).toBe(false);
     for (const stop of keepStops) stop();
-    expect(daemon.longLived[0].signal?.aborted).toBe(true);
+    expect(daemon.longLived[0].signal?.aborted).toBe(false);
     output.resetOutputStream();
   });
 
@@ -216,3 +231,4 @@ describe("one multiplexed stream per origin", () => {
     output.resetOutputStream();
   });
 });
+

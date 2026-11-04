@@ -1,6 +1,6 @@
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
-pub(super) const FRONTEND_REQUEST_HEADERS: [&str; 11] = [
+pub(super) const FRONTEND_REQUEST_HEADERS: [&str; 15] = [
     "authorization",
     "if-none-match",
     "content-type",
@@ -12,6 +12,10 @@ pub(super) const FRONTEND_REQUEST_HEADERS: [&str; 11] = [
     "x-codeterm-session-binding-nonce",
     "x-codeterm-plan-confirmation",
     "x-codeterm-blueprint-confirmation",
+    "x-domios-mux-method",
+    "x-domios-mux-path",
+    "x-domios-mux-class",
+    "x-domios-mux-cancellable",
 ];
 
 pub(super) fn configured_origin(origin: &str) -> Option<axum::http::HeaderValue> {
@@ -38,6 +42,7 @@ pub fn cors_layer(frontend_origins: &[String], configured_origins: &[String]) ->
         }
     }
     CorsLayer::new()
+        .max_age(std::time::Duration::from_secs(3600))
         .allow_origin(AllowOrigin::list(origins))
         .allow_methods([
             axum::http::Method::GET,

@@ -10,7 +10,7 @@ pub(crate) fn classify_channel_path(path: &str) -> Result<Uri, String> {
     let segments: Vec<_> = uri.path().split('/').collect();
     let allowed = matches!(
         uri.path(),
-        "/api/mesh/relay-stream" | "/api/output/stream" | "/api/events/stream"
+        "/api/mesh/relay-stream" | "/api/output/stream" | "/api/events/stream" | "/api/startup/events"
     ) || matches!(segments.as_slice(), ["", "api", "tabs", id, "output", "stream"] if !id.is_empty())
         || matches!(segments.as_slice(), ["", "api", "surfaces", id, "stream"] if !id.is_empty());
     if allowed {

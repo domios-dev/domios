@@ -232,7 +232,7 @@ fn frontend_wire_digest_is_pinned_to_api_version() {
             codeterm_service_core::frontend_bundle_api_version::API_VERSION,
             format!("{:016x}", fnv1a64(wire.as_bytes()))
         ),
-        (3, "58b59c0ab964faec".to_string()),
+        (4, "58b59c0ab964faec".to_string()),
         "frontend wire changed; bump API_VERSION and the release contract range, then repin:\n{wire}"
     );
 }
