@@ -168,12 +168,7 @@ fn client_bridges_reject_malformed_and_empty_declarations() {
     let mut raw = manifest();
     raw["capabilities"]["agentRuntime"]["clientBridges"] =
         json!({"fsRead":false,"fsWrite":false,"terminal":false});
-    assert_eq!(
-        PluginManifest::from_json_str(&raw.to_string())
-            .unwrap()
-            .validate_agent_runtime(),
-        Err(RuntimeManifestError::InvalidMethods)
-    );
+    assert!(PluginManifest::from_json_str(&raw.to_string()).is_err());
     raw["capabilities"]["agentRuntime"]["clientBridges"]["fsRead"] = json!(true);
     assert_eq!(
         PluginManifest::from_json_str(&raw.to_string())
@@ -194,12 +189,7 @@ fn interrupt_before_first_turn_requires_explicit_true_and_a_declared_method() {
         assert!(PluginManifest::from_json_str(&raw.to_string()).is_err());
     }
     raw["capabilities"]["agentRuntime"]["interrupt"] = json!({"beforeFirstTurn":true});
-    assert_eq!(
-        PluginManifest::from_json_str(&raw.to_string())
-            .unwrap()
-            .validate_agent_runtime(),
-        Err(RuntimeManifestError::InvalidMethods)
-    );
+    assert!(PluginManifest::from_json_str(&raw.to_string()).is_err());
     raw["capabilities"]["agentRuntime"]["requestMethods"]["interrupt"] = json!(["session/cancel"]);
     assert_eq!(
         PluginManifest::from_json_str(&raw.to_string())
@@ -208,12 +198,7 @@ fn interrupt_before_first_turn_requires_explicit_true_and_a_declared_method() {
         Ok(())
     );
     raw["capabilities"]["agentRuntime"]["interrupt"]["beforeFirstTurn"] = json!(false);
-    assert_eq!(
-        PluginManifest::from_json_str(&raw.to_string())
-            .unwrap()
-            .validate_agent_runtime(),
-        Err(RuntimeManifestError::InvalidMethods)
-    );
+    assert!(PluginManifest::from_json_str(&raw.to_string()).is_err());
 }
 
 #[test]

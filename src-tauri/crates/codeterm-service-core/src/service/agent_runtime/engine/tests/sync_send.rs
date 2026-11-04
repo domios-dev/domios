@@ -111,7 +111,7 @@ pub(super) fn attach_runtime_peer(
         .agent_registry
         .provider_arc(&provider)
         .unwrap();
-    let (process, peer) = crate::async_runtime::block_on(async {
+    let (process, peer) = {
         let (host, peer) = tokio::io::duplex(65536);
         let (reader, writer) = tokio::io::split(host);
         (
@@ -120,7 +120,7 @@ pub(super) fn attach_runtime_peer(
             ))),
             peer,
         )
-    });
+    };
     let mut state = RuntimeState::unloaded(Some(thread.clone()));
     let epoch = state.begin();
     assert!(state.load(epoch, &thread));

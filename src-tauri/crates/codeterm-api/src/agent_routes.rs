@@ -754,18 +754,10 @@ pub async fn respond_prompt(
         .map_err(|error| (StatusCode::BAD_REQUEST, error.to_string()))?;
     let svc = state.svc.clone();
     let pid = tab_id.clone();
-    let outcome = tokio::task::spawn_blocking(move || match identity {
-        Some(identity) => svc.respond_prompt_with_identity(&pid, &value, &identity),
-        None => svc.respond_prompt(&pid, &value),
-    })
-    .await
-    .map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "respond_prompt task join failed".to_string(),
-        )
-    })?
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let outcome = svc
+        .respond_prompt_async(&pid, &value, identity.as_ref())
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(respond_prompt_response(outcome))
 }
 

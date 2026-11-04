@@ -183,7 +183,7 @@ fn answer(prompt: &PendingPrompt, value: &str) -> Result<PromptAnswer, RuntimeFa
     Ok(answer)
 }
 
-pub fn respond(
+pub async fn respond(
     svc: &ServiceContext,
     tab: &str,
     value: &str,
@@ -194,88 +194,112 @@ pub fn respond(
     if !runtime && !has_token {
         return None;
     }
-    Some((|| {
-        let Some(session) = engine::for_tab(tab) else {
-            return Ok(RespondPromptOutcome::StalePrompt);
-        };
-        let captured = session.context.lock().clone();
-        let entry = PROMPTS
-            .lock()
-            .get(tab)
-            .and_then(|queue| queue.front().cloned());
-        let Some(entry) = entry else {
-            return Ok(RespondPromptOutcome::StalePrompt);
-        };
-        let snapshot_identity = PromptIdentity::new(PromptKind::Structured, &entry.prompt);
-        let expected = expected.unwrap_or(&snapshot_identity);
-        if !matching_entry(&entry, &captured, expected)
-            || !current_prompt_matches(svc, tab, &captured, expected)
-        {
-            return Ok(RespondPromptOutcome::StalePrompt);
-        }
-        let answer = match answer(&entry.prompt, value) {
-            Ok(answer) => answer,
-            Err(_) => return Ok(RespondPromptOutcome::InvalidOption),
-        };
-        let _permit =
-            super::blocking::deadline(std::time::Duration::from_secs(30), session.gate.acquire())
-                .map_err(|_| "Runtime approval permit deadline")?
-                .map_err(|_| "Runtime stopped")?;
-        let current = session.context.lock().clone();
-        if !matching_entry(&entry, &current, expected)
-            || !current_prompt_matches(svc, tab, &current, expected)
-            || engine::validate_binding(svc, &session).is_err()
-            || !session.prompts.lock().contains_key(&entry.request)
-        {
-            return Ok(RespondPromptOutcome::StalePrompt);
-        }
-        let process = session
-            .process
-            .lock()
-            .clone()
-            .ok_or("Runtime process unavailable")?;
-        {
-            let mut prompts = PROMPTS.lock();
-            let Some(live) = prompts.get_mut(tab).and_then(|queue| queue.front_mut()) else {
+    Some(
+        async {
+            let Some(session) = engine::for_tab(tab) else {
                 return Ok(RespondPromptOutcome::StalePrompt);
             };
-            if !matching_entry(live, &current, expected) {
+            let captured = session.context.lock().clone();
+            let entry = PROMPTS
+                .lock()
+                .get(tab)
+                .and_then(|queue| queue.front().cloned());
+            let Some(entry) = entry else {
+                return Ok(RespondPromptOutcome::StalePrompt);
+            };
+            let snapshot_identity = PromptIdentity::new(PromptKind::Structured, &entry.prompt);
+            let expected = expected.unwrap_or(&snapshot_identity);
+            if !matching_entry(&entry, &captured, expected)
+                || !current_prompt_matches(svc, tab, &captured, expected)
+            {
                 return Ok(RespondPromptOutcome::StalePrompt);
             }
-            live.claimed = true;
+            let answer = match answer(&entry.prompt, value) {
+                Ok(answer) => answer,
+                Err(_) => return Ok(RespondPromptOutcome::InvalidOption),
+            };
+            let _permit =
+                tokio::time::timeout(std::time::Duration::from_secs(30), session.gate.acquire())
+                    .await
+                    .map_err(|_| "Runtime approval permit deadline")?
+                    .map_err(|_| "Runtime stopped")?;
+            let current = session.context.lock().clone();
+            if !matching_entry(&entry, &current, expected)
+                || !current_prompt_matches(svc, tab, &current, expected)
+                || engine::validate_binding(svc, &session).is_err()
+                || !session.prompts.lock().contains_key(&entry.request)
+            {
+                return Ok(RespondPromptOutcome::StalePrompt);
+            }
+            let process = session
+                .process
+                .lock()
+                .clone()
+                .ok_or("Runtime process unavailable")?;
+            {
+                let mut prompts = PROMPTS.lock();
+                let Some(live) = prompts.get_mut(tab).and_then(|queue| queue.front_mut()) else {
+                    return Ok(RespondPromptOutcome::StalePrompt);
+                };
+                if !matching_entry(live, &current, expected) {
+                    return Ok(RespondPromptOutcome::StalePrompt);
+                }
+                live.claimed = true;
+            }
+            let bridged =
+                super::client_bridge::answer(svc, &session, &process, &entry.request, &answer)
+                    .await
+                    .map_err(|error| error.to_string())?;
+            if bridged {
+                return Ok(RespondPromptOutcome::Structured);
+            }
+            let result = engine::run(
+                svc,
+                &session.provider,
+                &session,
+                &process,
+                RuntimeOperation::Answer {
+                    request_id: entry.request.clone(),
+                    answer,
+                },
+            )
+            .await;
+            if !session.prompts.lock().contains_key(&entry.request) {
+                remove(svc, &captured, Some(&entry.request));
+            }
+            if let Err(error) = result {
+                session.state.lock().degrade(captured.epoch, &error);
+                clear(svc, &captured);
+                engine::publish(svc, tab, &session);
+                return Err(error.to_string());
+            }
+            Ok(RespondPromptOutcome::Structured)
         }
-        let bridged = crate::async_runtime::block_on(super::client_bridge::answer(
-            svc,
-            &session,
-            &process,
-            &entry.request,
-            &answer,
-        ))
-        .map_err(|error| error.to_string())?;
-        if bridged {
-            return Ok(RespondPromptOutcome::Structured);
-        }
-        let result = crate::async_runtime::block_on(engine::run(
-            svc,
-            &session.provider,
-            &session,
-            &process,
-            RuntimeOperation::Answer {
-                request_id: entry.request.clone(),
-                answer,
-            },
-        ));
-        if !session.prompts.lock().contains_key(&entry.request) {
-            remove(svc, &captured, Some(&entry.request));
-        }
-        if let Err(error) = result {
-            session.state.lock().degrade(captured.epoch, &error);
-            clear(svc, &captured);
-            engine::publish(svc, tab, &session);
-            return Err(error.to_string());
-        }
-        Ok(RespondPromptOutcome::Structured)
-    })())
+        .await,
+    )
+}
+
+pub fn respond_blocking(
+    svc: &ServiceContext,
+    tab: &str,
+    value: &str,
+    expected: Option<&PromptIdentity>,
+) -> Option<Result<RespondPromptOutcome, String>> {
+    if !super::requested_for_tab(svc, tab)
+        && !expected.is_some_and(|identity| identity.request_id.is_some())
+    {
+        return None;
+    }
+    let owner = svc.clone();
+    let tab = tab.to_string();
+    let value = value.to_string();
+    let expected = expected.cloned();
+    match super::blocking::task(
+        async move { respond(&owner, &tab, &value, expected.as_ref()).await },
+    ) {
+        Ok(result) => result,
+        Err(error) => Some(Err(error)),
+    }
 }
 
 pub(super) async fn cancel_pending(

@@ -879,9 +879,12 @@ impl ServiceContext {
         value: &str,
         expected_identity: Option<&codeterm_types::pty::PromptIdentity>,
     ) -> Result<RespondPromptOutcome, String> {
-        if let Some(result) =
-            super::agent_runtime::prompt_answers::respond(self, tab_id, value, expected_identity)
-        {
+        if let Some(result) = super::agent_runtime::prompt_answers::respond_blocking(
+            self,
+            tab_id,
+            value,
+            expected_identity,
+        ) {
             return result;
         }
         if let Some(result) = crate::service::permission_decision::respond_with_identity(
@@ -1119,3 +1122,6 @@ mod launch_artifact_close_tests;
 
 #[cfg(test)]
 mod tab_title_tests;
+
+#[path = "tab/runtime_prompt.rs"]
+mod runtime_prompt;

@@ -23,7 +23,7 @@ pub(crate) fn loaded_runtime(
     tab: &Tab,
     adapter: Option<Arc<dyn crate::agent::provider::AgentProvider>>,
 ) -> LiveRuntime {
-    let (process, peer) = crate::async_runtime::block_on(async {
+    let (process, peer) = {
         let (host, peer) = tokio::io::duplex(4096);
         let (reader, writer) = tokio::io::split(host);
         (
@@ -32,7 +32,7 @@ pub(crate) fn loaded_runtime(
             ))),
             peer,
         )
-    });
+    };
     let mut state = RuntimeState::unloaded(tab.agent_session_id.clone());
     let epoch = state.begin();
     assert!(state.load(epoch, tab.agent_session_id.as_deref().unwrap()));
@@ -86,7 +86,9 @@ pub(super) fn stop_test(tab: &str) {
     let session = SESSIONS.lock().remove(tab);
     if let Some(session) = session {
         if let Some(process) = session.process.close() {
-            crate::async_runtime::block_on(process.finish()).unwrap();
+            super::super::blocking::task(async move { process.finish().await })
+                .unwrap()
+                .unwrap();
         }
     }
 }
