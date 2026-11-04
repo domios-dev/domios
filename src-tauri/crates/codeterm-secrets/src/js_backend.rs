@@ -113,6 +113,8 @@ fn vm_error_kind(e: &VmError) -> &'static str {
         VmError::AsyncJobTimedOut => "timed_out",
         VmError::CallCancelled => "cancelled",
         VmError::AdmissionBusy => "busy",
+        VmError::IoUnconfirmed => "io_unconfirmed",
+        VmError::OffRuntimeRequired => "off_runtime_required",
     }
 }
 

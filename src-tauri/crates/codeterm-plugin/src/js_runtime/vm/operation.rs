@@ -1,5 +1,6 @@
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -12,10 +13,13 @@ const MAX_OPERATIONS: usize = 32;
 const OPERATION_BOUND: Duration = Duration::from_secs(5);
 const FRAME_BOUND: Duration = Duration::from_millis(250);
 
-pub(super) struct Context {
+pub(in crate::js_runtime) struct Context {
     cancellation: ConversionCancellation,
     revoked: AtomicBool,
-    pub(super) deadline: Instant,
+    effect_started: AtomicBool,
+    jobs: AtomicUsize,
+    unawaited: Mutex<HashSet<String>>,
+    pub(in crate::js_runtime) deadline: Instant,
 }
 
 impl Context {
@@ -31,29 +35,78 @@ impl Context {
         Self {
             cancellation,
             revoked: AtomicBool::new(false),
+            effect_started: AtomicBool::new(false),
+            jobs: AtomicUsize::new(0),
+            unawaited: Mutex::new(HashSet::new()),
             deadline,
         }
     }
 
-    pub(super) fn check(&self) -> Result<(), VmError> {
+    pub(in crate::js_runtime) fn check(&self) -> Result<(), VmError> {
         if self.revoked.load(Ordering::Acquire) || self.cancellation.is_cancelled() {
-            Err(VmError::CallCancelled)
+            Err(if self.effect_started.load(Ordering::Acquire) {
+                VmError::IoUnconfirmed
+            } else {
+                VmError::CallCancelled
+            })
         } else if Instant::now() >= self.deadline {
-            Err(VmError::AsyncJobTimedOut)
+            Err(if self.effect_started.load(Ordering::Acquire) {
+                VmError::IoUnconfirmed
+            } else {
+                VmError::AsyncJobTimedOut
+            })
         } else {
             Ok(())
         }
     }
 
-    pub(super) fn frame_deadline(&self) -> Instant {
+    pub(in crate::js_runtime) fn begin_effect(&self) -> Result<(), VmError> {
+        self.check()?;
+        self.effect_started.store(true, Ordering::Release);
+        Ok(())
+    }
+
+    pub(in crate::js_runtime) fn finish_check(&self) -> Result<(), VmError> {
+        self.check()?;
+        if self.jobs.load(Ordering::Acquire) != 0 || !self.unawaited.lock().is_empty() {
+            return Err(if self.effect_started.load(Ordering::Acquire) {
+                VmError::IoUnconfirmed
+            } else {
+                VmError::Script("host I/O job was not awaited".into())
+            });
+        }
+        Ok(())
+    }
+
+    pub(in crate::js_runtime) fn register_job(&self, job: String) {
+        self.unawaited.lock().insert(job);
+    }
+    pub(in crate::js_runtime) fn await_job(&self, job: &str) {
+        self.unawaited.lock().remove(job);
+    }
+
+    pub(in crate::js_runtime) fn job(self: &Arc<Self>) -> Job {
+        self.jobs.fetch_add(1, Ordering::AcqRel);
+        Job(self.clone())
+    }
+
+    pub(in crate::js_runtime) fn deadline_error(&self) -> VmError {
+        if self.effect_started.load(Ordering::Acquire) {
+            VmError::IoUnconfirmed
+        } else {
+            VmError::AsyncJobTimedOut
+        }
+    }
+
+    pub(in crate::js_runtime) fn frame_deadline(&self) -> Instant {
         self.deadline.min(Instant::now() + FRAME_BOUND)
     }
 
-    pub(super) fn cancellation(&self) -> &ConversionCancellation {
+    pub(in crate::js_runtime) fn cancellation(&self) -> &ConversionCancellation {
         &self.cancellation
     }
 
-    pub(super) fn revoke(&self) {
+    pub(in crate::js_runtime) fn revoke(&self) {
         self.revoked.store(true, Ordering::Release);
         self.cancellation.notify_change();
     }
@@ -66,13 +119,13 @@ struct State {
 }
 
 #[derive(Default)]
-pub(super) struct Admission {
+pub(in crate::js_runtime) struct Admission {
     state: Mutex<State>,
     next_id: AtomicU64,
 }
 
 impl Admission {
-    pub(super) fn enter(
+    pub(in crate::js_runtime) fn enter(
         self: &Arc<Self>,
         interrupt: Option<(ConversionCancellation, Instant)>,
     ) -> Result<Operation, VmError> {
@@ -91,7 +144,7 @@ impl Admission {
         })
     }
 
-    pub(super) fn pause(self: &Arc<Self>) -> Pause {
+    pub(in crate::js_runtime) fn pause(self: &Arc<Self>) -> Pause {
         let mut state = self.state.lock();
         state.pauses += 1;
         let active = state.active.values().cloned().collect::<Vec<_>>();
@@ -103,10 +156,10 @@ impl Admission {
     }
 }
 
-pub(super) struct Operation {
+pub(in crate::js_runtime) struct Operation {
     admission: Arc<Admission>,
     id: u64,
-    pub(super) context: Arc<Context>,
+    pub(in crate::js_runtime) context: Arc<Context>,
 }
 
 impl Drop for Operation {
@@ -116,11 +169,41 @@ impl Drop for Operation {
     }
 }
 
-pub(super) struct Pause(Arc<Admission>);
+pub(in crate::js_runtime) struct Pause(Arc<Admission>);
 
 impl Drop for Pause {
     fn drop(&mut self) {
         self.0.state.lock().pauses -= 1;
+    }
+}
+
+pub(in crate::js_runtime) struct Job(Arc<Context>);
+
+impl Drop for Job {
+    fn drop(&mut self) {
+        self.0.jobs.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
+thread_local! {
+    static CURRENT: RefCell<Option<Arc<Context>>> = const { RefCell::new(None) };
+}
+
+pub(in crate::js_runtime) fn current() -> Option<Arc<Context>> {
+    CURRENT.with(|slot| slot.borrow().clone())
+}
+
+pub(in crate::js_runtime) struct Scope(Option<Arc<Context>>);
+
+impl Scope {
+    pub(in crate::js_runtime) fn enter(context: Arc<Context>) -> Self {
+        Self(CURRENT.with(|slot| slot.replace(Some(context))))
+    }
+}
+
+impl Drop for Scope {
+    fn drop(&mut self) {
+        CURRENT.with(|slot| *slot.borrow_mut() = self.0.take());
     }
 }
 
