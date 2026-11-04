@@ -1,3 +1,4 @@
+import { ioTestExport } from "../../provider-shared/tests/hostIo";
 /**
  * Hook-independent Claude binding: a process registry record binds only the
  * tab's own process, and only when its process start matches the live process.
@@ -5,7 +6,8 @@
  * Run: node node_modules/tsx/dist/cli.mjs plugins/provider-claude/tests/launch-session.test.ts
  */
 
-import { detectClaudeLaunchSession, registrySessionId } from "../src/launchSession";
+import { detectClaudeLaunchSession as ioSource_detectClaudeLaunchSession, registrySessionId } from "../src/launchSession";
+const detectClaudeLaunchSession = ioTestExport(ioSource_detectClaudeLaunchSession);
 
 let passed = 0;
 let failed = 0;

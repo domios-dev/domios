@@ -1,6 +1,8 @@
 use super::{PlanError, PlanStore};
 use crate::plan::{ExecutionIntent, InterruptionCheckpoint, ProviderAllowance, TaskStatus};
 use sha2::{Digest, Sha256};
+mod adoption;
+pub use adoption::CheckpointAdoption;
 
 #[derive(Debug, Clone)]
 pub struct TaskMutationAuthority {
@@ -432,68 +434,6 @@ impl PlanStore {
             checkpoint,
             now_ms,
         )
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub fn adopt_interrupted_task(
-        &self,
-        plan_id: &str,
-        task_id: &str,
-        expected_digest: &str,
-        expected_base_head: &str,
-        new_tab_id: &str,
-        binding: &super::task_assignment::AssignmentRuntimeBinding,
-        now_ms: u64,
-    ) -> Result<(u64, String), PlanError> {
-        let mut adopted = None;
-        self.with_plan(plan_id, now_ms, |plan| {
-            let task = crate::plan::task_key::find_task_mut(&mut plan.tasks, task_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            let checkpoint = task
-                .interruption
-                .checkpoint
-                .as_ref()
-                .filter(|_| task.interruption.handoff_required)
-                .ok_or_else(|| PlanError::Io("task has no adoptable checkpoint".into()))?;
-            if checkpoint.diff_sha256 != expected_digest
-                || checkpoint.diff_sha256 != checkpoint_digest(&checkpoint.diff_artifact)
-                || checkpoint.base_head != expected_base_head
-            {
-                return Err(PlanError::Io("checkpoint digest or base changed".into()));
-            }
-            let epoch = task.interruption.owner_epoch.saturating_add(1);
-            let mut attempt = super::task_attempts::new_assignment_attempt(
-                task,
-                new_tab_id,
-                None,
-                Some("worker"),
-                now_ms,
-            );
-            attempt.session_id = Some(binding.session_id.clone());
-            attempt.session_binding_nonce = Some(binding.session_binding_nonce.clone());
-            attempt.provider = binding.provider.clone();
-            attempt.agent_type = binding.provider.clone();
-            attempt.requested_model = binding.model.clone();
-            attempt.model = binding.model.clone();
-            attempt.provider_resolved_model = binding.model.clone();
-            attempt.session_model = binding.session_model.clone();
-            attempt.reasoning_effort = binding.reasoning_effort.clone();
-            attempt.interruption.owner_epoch = epoch;
-            let attempt_id = attempt.id.clone();
-            task.execution_attempts.push(attempt);
-            task.interruption.owner_epoch = epoch;
-            task.interruption.owner_tab_id = Some(new_tab_id.to_string());
-            task.interruption.owner_session_id = Some(binding.session_id.clone());
-            task.interruption.handoff_required = false;
-            task.assigned_tab_id = Some(new_tab_id.to_string());
-            task.lane.tab_id = Some(new_tab_id.to_string());
-            task.status = TaskStatus::Pending;
-            task.status_label = Some("awaiting_worker_ack".into());
-            task.updated_at = now_ms;
-            adopted = Some((epoch, attempt_id));
-            Ok(())
-        })?;
-        adopted.ok_or_else(|| PlanError::Io("adoption was not persisted".into()))
     }
 
     pub fn verify_task_owner_epoch(

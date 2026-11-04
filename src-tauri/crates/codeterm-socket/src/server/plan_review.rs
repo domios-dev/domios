@@ -401,13 +401,10 @@ pub(super) fn dispatch(
                     ));
                 }
             }
-            {
-                let mux = svc.mux.read();
-                codeterm_service_core::service::restore_review_attempt_binding_for_mux(
-                    store, &mux, &plan_id, &task_id, now,
-                )
-                .map_err(plan_rpc_err)?;
-            }
+            codeterm_service_core::service::restore_review_attempt_binding(
+                svc, &plan_id, &task_id, now,
+            )
+            .map_err(plan_rpc_err)?;
             todo_reopen::reopen_named_item(svc, p, &plan_id, &task_id, &from, note(p))?;
             let (mut result, recorded) = store
                 .bounce_review_with_recorded_status(

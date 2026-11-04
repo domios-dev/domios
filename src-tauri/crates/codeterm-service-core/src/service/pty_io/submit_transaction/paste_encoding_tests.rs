@@ -234,6 +234,71 @@ fn prompt_line_launch_brief_forces_one_frame_when_live_mode_is_disabled() {
 }
 
 #[test]
+fn shell_without_decset_2004_never_receives_bracketed_paste_bytes() {
+    for mode in [None, Some(false)] {
+        for force in [false, true] {
+            assert_eq!(
+                encode_paste_payload(
+                    "opaque\ncontinuation",
+                    force,
+                    None,
+                    mode,
+                    PasteEncodingCapability::Shell,
+                ),
+                b"opaque\rcontinuation"
+            );
+            assert_eq!(
+                encode_paste_payload("opaque", force, None, mode, PasteEncodingCapability::Shell),
+                b"opaque"
+            );
+        }
+        assert_eq!(
+            live_command_input("Write-Output 'opaque'", mode),
+            b"Write-Output 'opaque'\r"
+        );
+    }
+    let screens = codeterm_pty::pty::screen_state::ScreenState::new();
+    screens.process("shell", b"\x1b[?2004h");
+    assert_eq!(
+        live_command_input("opaque", screens.bracketed_paste_mode("shell")),
+        b"\x1b[200~opaque\x1b[201~\r"
+    );
+    for byte in b"\x1b]633;A\x07" {
+        screens.process("shell", &[*byte]);
+    }
+    assert_eq!(
+        live_command_input("opaque", screens.bracketed_paste_mode("shell")),
+        b"opaque\r"
+    );
+}
+
+#[test]
+fn utility_shell_cannot_inherit_provider_framing_from_a_tui_submit_strategy() {
+    use crate::agent::registry::AgentRegistry;
+    use crate::multiplexer::state::MultiplexerState;
+    let (mut mux, tab) = MultiplexerState::new();
+    mux.link_pty(&tab, "utility-pty".into());
+    let mux = Arc::new(codeterm_util::lock_hold::TimedRwLock::new("test-mux", mux));
+    let registry = AgentRegistry::new();
+    for strategy in [tui(), VerifySubmitStrategy::None] {
+        let (provider, capability) =
+            paste_encoding::resolve_pty_paste_capability(&mux, &registry, "utility-pty", &strategy);
+        assert_eq!(provider, None);
+        assert_eq!(capability, PasteEncodingCapability::Shell);
+        for mode in [None, Some(false)] {
+            assert_eq!(
+                encode_paste_payload("opaque", true, None, mode, capability),
+                b"opaque"
+            );
+            assert_eq!(
+                encode_paste_payload("opaque\ncontinuation", true, None, mode, capability),
+                b"opaque\rcontinuation"
+            );
+        }
+    }
+}
+
+#[test]
 fn declared_paste_refusal_overrides_live_mode_multiline_and_launch_force() {
     let declaration =
         serde_json::from_value(serde_json::json!({"supportsBracketedPaste": false})).unwrap();

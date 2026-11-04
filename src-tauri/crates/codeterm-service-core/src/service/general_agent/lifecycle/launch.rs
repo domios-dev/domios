@@ -116,7 +116,14 @@ pub(super) fn start(
     }
     crate::service::launch_diagnostics::log_launch_environment("general_agent", &tab_id, &env_vars);
 
-    let pty_claim = svc.pty_ownership.acquire(&tab_id);
+    let pty_claim = match svc.pty_ownership.acquire(&tab_id) {
+        Ok(claim) => claim,
+        Err(error) => {
+            let _ = svc.revoke_agent_pad(&tab_id);
+            fail_general_agent_start(svc, mux, &tab_id, &error);
+            return;
+        }
+    };
     let pty_id = {
         let gate = pty.lock().spawn_gate();
         match crate::pty::manager::build_session(
@@ -366,13 +373,10 @@ pub(super) fn start(
         );
     }
     log::info!("[general-agent] Launching on PTY {}", pty_id);
-    let payload: Vec<u8> = if cfg!(windows) {
-        // Bracketed paste + sacrificial space absorbs PSReadLine/ConPTY first-byte race on Windows.
-        format!("\x1b[200~ {}\x1b[201~\r", cmd).into_bytes()
-    } else {
-        // No bracket-paste: zsh ZLE binds the handler only after the first interactive cycle, so the markers leak as literal text on launch.
-        format!("{}\r", cmd).into_bytes()
-    };
+    let payload = crate::service::pty_io::submit_transaction::live_command_input(
+        &cmd,
+        svc.screen_state.bracketed_paste_mode(&pty_id),
+    );
     let launch_authority = svc.user_send_authority(&tab_id).ok().filter(|authority| {
         authority.pty_id.as_deref() == Some(pty_id.as_str()) && authority.binding_nonce == nonce
     });

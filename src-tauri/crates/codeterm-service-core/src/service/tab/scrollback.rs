@@ -92,7 +92,8 @@ mod tests {
 
         let pty_id = fixture
             .service
-            .link_pty(&tab_id, "pty-frontend-first".into());
+            .link_pty(&tab_id, "pty-frontend-first".into())
+            .unwrap();
 
         let tab = fixture
             .service
@@ -163,7 +164,10 @@ mod tests {
             .append(pty_id, b"fresh banner\r\n");
         let held_offset = fixture.service.output_buf.lock().total_written(pty_id);
 
-        fixture.service.link_pty(&tab_id, pty_id.to_string());
+        fixture
+            .service
+            .link_pty(&tab_id, pty_id.to_string())
+            .unwrap();
 
         let buffer = fixture.service.output_buf.lock();
         assert_eq!(buffer.total_written(pty_id), held_offset);
@@ -196,7 +200,10 @@ mod tests {
         tab.scrollback_seed_pending = true;
         tab.pending_scrollback_tail = Some(Arc::from(b"stale shell sidecar".to_vec()));
         let fixture = ServiceFixture::new(mux);
-        let pty_id = fixture.service.link_pty(&tab_id, "pty-tui-restore".into());
+        let pty_id = fixture
+            .service
+            .link_pty(&tab_id, "pty-tui-restore".into())
+            .unwrap();
         let replay = b"\x1b[?1049h\x1b[Hprevious frame";
         let frame = b"\x1b[2J\x1b[Hnew frame\x1b[6;1Hcomposer> ";
         let mut buffer = fixture.service.output_buf.lock();

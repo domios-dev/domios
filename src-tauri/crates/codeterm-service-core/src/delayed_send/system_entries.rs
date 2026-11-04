@@ -76,7 +76,7 @@ pub(super) fn views_for_tab(
         .reminder_read_snapshot(crate::service::hierarchy::heartbeat_gate::scrubbed)
         .map_err(|error| error.to_string())?;
     let plans = read
-        .candidates(Some(tab_id))
+        .candidate_targets(Some(tab_id))
         .map_err(|error| error.to_string())?;
     let projected = project_for_tab(
         &plans,
@@ -92,8 +92,12 @@ pub(super) fn views_for_tab(
         .into_iter()
         .map(|mut item| {
             if let Some(plan) = plans.iter().find(|plan| plan.id == item.plan_id) {
+                let composition = read
+                    .composition(&plan.id)
+                    .map_err(|error| error.to_string())?
+                    .ok_or_else(|| "reminder popup plan is missing".to_string())?;
                 item.text = svc.heartbeat_body_for_popup(
-                    plan,
+                    &composition,
                     tab_id,
                     item.id.starts_with("system:heartbeat:worker:"),
                 )?;

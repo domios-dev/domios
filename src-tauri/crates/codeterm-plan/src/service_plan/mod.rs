@@ -29,7 +29,9 @@ pub use store_db::read_projections::hierarchy_routing::{
 };
 pub use store_db::read_projections::launch_restore::{LaunchLaneRead, TabLaunchTaskRead};
 pub use store_db::read_projections::reminder::{
-    ReminderAttemptRead, ReminderPlanRead, ReminderReadSnapshot, ReminderTaskRead,
+    reminder_targets, ReminderAdmissionRead, ReminderAdmissionTaskRead, ReminderAttemptRead,
+    ReminderCandidateRead, ReminderCompositionRead, ReminderOwnerRowRead, ReminderPlanRead,
+    ReminderReadSnapshot, ReminderTargetRead, ReminderTaskRead, ReminderWorkerBindingRead,
 };
 pub use store_db::read_projections::runtime_identity::RuntimePlanIdentityRead;
 pub use store_db::read_projections::transfer_authority::TransferTaskAuthorityRead;
@@ -97,12 +99,14 @@ pub use status_projection::{
     CuratorAuthorityRead, CuratorScheduleMetadata, CuratorScheduleRead, PlanNoticeRead,
     PlanStatusRead,
 };
+pub use store_db::read_projections::close_inventory::PlanCloseRestoreRead;
 pub use store_db::read_projections::lane_clean::{LaneCleanupPlanRead, LaneCleanupTaskRead};
 pub use store_db::read_projections::lane_readers::TaskLaneReferenceRead;
 pub use store_db::read_projections::lane_settlement::LaneSettlementRead;
 pub use store_db::read_projections::lane_stats::{LaneAttemptRead, LaneWatchRead};
 pub use store_db::read_projections::lane_watchdog::{LaneWatchdogRead, LaneWatchdogTaskRead};
 pub use store_db::read_projections::lifecycle::PlanLifecycleRead;
+pub use store_db::read_projections::team_close::{TeamClosePlanRead, TeamCloseTaskRead};
 pub use store_db::read_projections::team_readers::TeamExecutionRead;
 pub mod board_state;
 mod document_projection;
@@ -338,8 +342,8 @@ impl PlanStore {
         Ok(store)
     }
 
-    #[cfg(test)]
-    pub(crate) fn database_path_for_test(&self) -> PathBuf {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn database_path_for_test(&self) -> PathBuf {
         self.database.path()
     }
 

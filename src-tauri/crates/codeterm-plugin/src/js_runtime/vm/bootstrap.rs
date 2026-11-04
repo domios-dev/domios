@@ -254,6 +254,9 @@ pub(super) const PLUGIN_PREAMBLE: &str = r#"
   // Awaiting a job must release the VM frame so the host can complete it and re-enter only for the continuation.
   var __awaitSeq__ = 0;
   var __awaits__ = {};
+  function ioResult(value) {
+    return value && typeof value.next === "function" ? host.io.run(value) : value;
+  }
   Object.defineProperty(globalThis, "__ct_await_take__", { value: function (k) {
     var entry = __awaits__[k];
     if (!entry) return undefined;
@@ -274,7 +277,7 @@ pub(super) const PLUGIN_PREAMBLE: &str = r#"
     if (typeof then !== "function") { throw new Error("host.awaitJob requires a continuation function"); }
     if (typeof jobId !== "string" || jobId === "") { return then({ error: "host.awaitJob: missing job id" }); }
     var k = String(++__awaitSeq__);
-    __awaits__[k] = {fn:then,job:jobId,logical:surfaceLogical,owner:awaitInvocationId()};
+    __awaits__[k] = {fn:function (value) { return ioResult(then(value)); },job:jobId,logical:surfaceLogical,owner:awaitInvocationId()};
     return { __ctAwait__: { job: jobId, k: k } };
   }
   host.awaitJob = ctAwaitJob;
@@ -302,7 +305,7 @@ pub(super) const PLUGIN_PREAMBLE: &str = r#"
   host.io.run = function (steps) {
     function resume(value, failed) {
       var next = failed ? steps.throw(value) : steps.next(value);
-      if (next.done) return next.value;
+      if (next.done) return ioResult(next.value);
       return ioEnvelope(next.value, function (result) {
         return !result || typeof result.error === "string"
           ? resume(ioError(result), true) : resume(result.value, false);
@@ -325,6 +328,7 @@ pub(super) const PLUGIN_PREAMBLE: &str = r#"
   host.io.fs.writeTempFile = function (contents, suffix) { return ioRequest({ op: "writeTempFile", contents: contents, suffix: suffix || null }); };
   host.io.fs.walkDir = function (path, maxDepth) { return ioRequest({ op: "walkDir", path: path, maxDepth: maxDepth === undefined ? 8 : maxDepth }); };
   host.io.fs.sqliteQuery = function (db, sql, params) { return ioRequest({ op: "sqliteQuery", db: db, sql: sql, params: params || null }); };
+  host.io.fs.sqliteQueryNullable = function (db, sql, params) { return ioRequest({ op: "sqliteQuery", db: db, sql: sql, params: params || null, nullable: true }); };
   host.io.fs.readJson = function* (path) { return parseJson(yield { op: "readFile", path: path }); };
   host.io.fs.writeJson = function (path, value) { return ioRequest({ op: "writeFile", path: path, contents: JSON.stringify(value, null, 2) }); };
   host.io.exec = function* (options) {

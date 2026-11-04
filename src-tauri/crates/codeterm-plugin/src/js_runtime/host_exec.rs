@@ -6,9 +6,7 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader, Read, Write};
-#[cfg(windows)]
-use std::process::Command;
-use std::process::{Child, Stdio};
+use std::process::Stdio;
 use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
 
@@ -22,6 +20,7 @@ use super::host_api::PluginSandbox;
 const MAX_EXEC_JOBS_PER_PLUGIN: usize = 128;
 const EXEC_JOB_RETENTION: Duration = Duration::from_secs(5 * 60);
 const ASYNC_JOB_WAIT_BOUND: Duration = Duration::from_secs(5);
+mod child;
 mod control;
 mod scoped;
 pub(super) use scoped::{abort_scoped_json_job, drop_scoped_json_jobs, start_scoped_json_job};
@@ -151,30 +150,22 @@ pub(super) fn run_with_host_env(
         Ok(command) => command,
         Err(error) => return err(&error),
     };
-    codeterm_util::process_util::no_window_std(&mut command);
-    // Own process group so a timeout kill reaps descendants too — a grandchild
-    // inheriting stdout/stderr would otherwise keep the reader threads blocked.
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        command.process_group(0);
-    }
-    let mut child = match command
-        .args(&opts.args)
-        .envs(&opts.env)
-        .stdin(if opts.stdin.is_some() {
-            Stdio::piped()
-        } else {
-            Stdio::null()
-        })
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-    {
+    let mut child = match child::Owned::spawn(
+        command
+            .args(&opts.args)
+            .envs(&opts.env)
+            .stdin(if opts.stdin.is_some() {
+                Stdio::piped()
+            } else {
+                Stdio::null()
+            })
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped()),
+    ) {
         Ok(c) => c,
         Err(e) => return err(&format!("spawn {}: {e}", opts.bin)),
     };
-    let registration = control::spawned(child.id());
+    let registration = control::spawned(child.target());
     if let Some(s) = &opts.stdin {
         if let Some(mut si) = child.stdin.take() {
             let _ = si.write_all(s.as_bytes());
@@ -183,23 +174,23 @@ pub(super) fn run_with_host_env(
     // would block the child on write() while we wait, deadlocking until timeout.
     let (out_tx, out_rx) = std::sync::mpsc::channel();
     let (err_tx, err_rx) = std::sync::mpsc::channel();
-    let _out_thread = child.stdout.take().map(|mut s| {
-        std::thread::spawn(move || {
+    if let Some(mut s) = child.stdout.take() {
+        child.add_reader(std::thread::spawn(move || {
             let buf = bounded_output(&mut s);
             let _ = out_tx.send(buf);
-        })
-    });
-    let _err_thread = child.stderr.take().map(|mut s| {
-        std::thread::spawn(move || {
+        }));
+    }
+    if let Some(mut s) = child.stderr.take() {
+        child.add_reader(std::thread::spawn(move || {
             let buf = bounded_output(&mut s);
             let _ = err_tx.send(buf);
-        })
-    });
+        }));
+    }
     let timeout = Duration::from_millis(opts.timeout_ms.unwrap_or(30_000).max(1));
     let (status_code, timeout_error) = match child.wait_timeout(timeout) {
         Ok(Some(status)) => (status.code().unwrap_or(-1), None),
         Ok(None) => {
-            terminate_child(&mut child);
+            child.terminate();
             let status = child.wait().ok();
             (
                 status.and_then(|s| s.code()).unwrap_or(-1),
@@ -212,20 +203,11 @@ pub(super) fn run_with_host_env(
         }
         Err(e) => return err(&format!("wait {}: {e}", opts.bin)),
     };
-    // Orphaned grandchildren hold pipe write-ends open after a timeout-kill, so
-    // both channels share ONE short drain deadline rather than adding up.
-    let drain = if timeout_error.is_some() {
-        Duration::from_millis(400)
-    } else {
-        Duration::from_secs(60)
-    };
-    let deadline = std::time::Instant::now() + drain;
-    let recv_until = |rx: &std::sync::mpsc::Receiver<(String, bool)>| {
-        let budget = deadline.saturating_duration_since(std::time::Instant::now());
-        rx.recv_timeout(budget).unwrap_or_default()
-    };
-    let (out, stdout_truncated) = recv_until(&out_rx);
-    let (errout, stderr_truncated) = recv_until(&err_rx);
+    if let Err(error) = child.finish() {
+        return err(&format!("reap {}: {error}", opts.bin));
+    }
+    let (out, stdout_truncated) = out_rx.recv().unwrap_or_default();
+    let (errout, stderr_truncated) = err_rx.recv().unwrap_or_default();
     drop(registration);
     let mut value = serde_json::json!({
         "code": status_code,
@@ -257,25 +239,19 @@ fn run_conversation(opts: &ExecOpts, conversation: &[ExecConversationStep]) -> S
         Ok(command) => command,
         Err(error) => return err(&error),
     };
-    codeterm_util::process_util::no_window_std(&mut command);
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        command.process_group(0);
-    }
-    let mut child = match command
-        .args(&opts.args)
-        .envs(&opts.env)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-    {
+    let mut child = match child::Owned::spawn(
+        command
+            .args(&opts.args)
+            .envs(&opts.env)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped()),
+    ) {
         Ok(child) => child,
         Err(error) => return err(&format!("spawn {}: {error}", opts.bin)),
     };
 
-    let registration = control::spawned(child.id());
+    let registration = control::spawned(child.target());
     let Some(stdout_pipe) = child.stdout.take() else {
         return err("exec conversation stdout pipe unavailable");
     };
@@ -287,7 +263,7 @@ fn run_conversation(opts: &ExecOpts, conversation: &[ExecConversationStep]) -> S
     };
 
     let (line_tx, line_rx) = std::sync::mpsc::channel::<String>();
-    let _out_thread = std::thread::spawn(move || {
+    child.add_reader(std::thread::spawn(move || {
         let mut reader = BufReader::new(stdout_pipe);
         let mut line = String::new();
         loop {
@@ -301,14 +277,14 @@ fn run_conversation(opts: &ExecOpts, conversation: &[ExecConversationStep]) -> S
                 }
             }
         }
-    });
+    }));
     let (err_tx, err_rx) = std::sync::mpsc::channel::<String>();
-    let _err_thread = std::thread::spawn(move || {
+    child.add_reader(std::thread::spawn(move || {
         let mut text = String::new();
         let mut reader = BufReader::new(stderr_pipe);
         let _ = reader.read_to_string(&mut text);
         let _ = err_tx.send(text);
-    });
+    }));
 
     let timeout = Duration::from_millis(opts.timeout_ms.unwrap_or(30_000).max(1));
     let deadline = std::time::Instant::now() + timeout;
@@ -368,14 +344,14 @@ fn run_conversation(opts: &ExecOpts, conversation: &[ExecConversationStep]) -> S
 
     drop(stdin_pipe);
     if failure.is_some() {
-        terminate_child(&mut child);
+        child.terminate();
     }
 
     let (status_code, wait_failure) =
         match child.wait_timeout(deadline.saturating_duration_since(std::time::Instant::now())) {
             Ok(Some(status)) => (status.code().unwrap_or(-1), None),
             Ok(None) => {
-                terminate_child(&mut child);
+                child.terminate();
                 let status = child.wait().ok();
                 (
                     status.and_then(|status| status.code()).unwrap_or(-1),
@@ -389,19 +365,13 @@ fn run_conversation(opts: &ExecOpts, conversation: &[ExecConversationStep]) -> S
             Err(error) => (-1, Some(format!("wait {}: {error}", opts.bin))),
         };
 
-    let drain = Duration::from_millis(400);
-    let drain_deadline = std::time::Instant::now() + drain;
-    loop {
-        let remaining = drain_deadline.saturating_duration_since(std::time::Instant::now());
-        if remaining.is_zero() {
-            break;
-        }
-        match line_rx.recv_timeout(remaining) {
-            Ok(line) => stdout.push_str(&line),
-            Err(_) => break,
-        }
+    if let Err(error) = child.finish() {
+        return err(&format!("reap {}: {error}", opts.bin));
     }
-    let stderr = err_rx.recv_timeout(drain).unwrap_or_default();
+    for line in line_rx.try_iter() {
+        stdout.push_str(&line);
+    }
+    let stderr = err_rx.recv().unwrap_or_default();
     drop(registration);
     let mut value = serde_json::json!({
         "code": status_code,
@@ -437,33 +407,6 @@ fn bounded_output(reader: &mut impl Read) -> (String, bool) {
         }
     }
     (String::from_utf8_lossy(&kept).into_owned(), truncated)
-}
-
-#[cfg(windows)]
-fn terminate_child(child: &mut Child) {
-    let mut command = Command::new("taskkill");
-    codeterm_util::process_util::no_window_std(&mut command);
-    let killed_tree = command
-        .args(["/PID", &child.id().to_string(), "/T", "/F"])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .map(|status| status.success())
-        .unwrap_or(false);
-    if !killed_tree {
-        let _ = child.kill();
-    }
-}
-
-#[cfg(not(windows))]
-fn terminate_child(child: &mut Child) {
-    // Negative pid = the process group set at spawn; falls back to the direct
-    // child if the group kill fails for any reason.
-    let killed_group = unsafe { libc::kill(-(child.id() as i32), libc::SIGKILL) } == 0;
-    if !killed_group {
-        let _ = child.kill();
-    }
 }
 
 /// Extract the binary name from an exec-opts JSON blob, for the permission check.

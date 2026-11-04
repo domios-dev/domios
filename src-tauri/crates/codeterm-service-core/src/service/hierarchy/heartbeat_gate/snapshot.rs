@@ -1,10 +1,10 @@
 use super::*;
 use crate::agent::chat_types::ChatMsg;
 use crate::multiplexer::types::{Tab, TabBacking};
-use crate::plan::{TaskExecutionAttempt, TaskStatus};
+use crate::plan::TaskExecutionAttempt;
 use crate::service::ServiceContext;
 use codeterm_plan::service_plan::{
-    ReminderAttemptRead, ReminderPlanRead as Plan, ReminderTaskRead as Task,
+    ReminderAdmissionRead as Plan, ReminderAdmissionTaskRead as Task, ReminderAttemptRead,
 };
 
 pub(super) fn situational_learning_catalog(plan: &Plan) -> BTreeMap<String, String> {
@@ -19,16 +19,13 @@ pub(super) fn plan_projection(plan: &Plan) -> BTreeMap<String, String> {
     plan.projection.clone()
 }
 
-pub(super) fn task_wake(task_id: &str, status: &TaskStatus) -> HardWake {
-    match status {
-        TaskStatus::Done | TaskStatus::Cancelled => HardWake::TaskClosed(task_id.into()),
-        TaskStatus::Blocked => HardWake::FailedGate(format!("task_blocked:{task_id}")),
-        _ => HardWake::TaskState(task_id.into()),
-    }
-}
-
-fn project_task(_: &Plan, task: &Task, out: &mut BTreeMap<String, String>) {
-    out.extend(task.projection_hashes.clone());
+fn project_task(plan: &Plan, _: &Task, out: &mut BTreeMap<String, String>) {
+    out.extend(
+        plan.projection
+            .iter()
+            .filter(|(key, _)| key.as_str() != "mode")
+            .map(|(key, value)| (key.clone(), value.clone())),
+    );
 }
 
 fn projection_delta(
@@ -215,106 +212,70 @@ pub(crate) fn collect(
         snapshot.hard.push(HardWake::ChoiceAnswer(id.clone()));
     }
     observed.answered_choices = choices;
-    for task in &plan.tasks {
-        if snapshot.delta.contains_key(&format!("task:{}", task.id)) {
-            snapshot.hard.push(task_wake(&task.id, &task.status));
-        }
-        if snapshot.delta.contains_key(&format!("review:{}", task.id)) {
-            if let Some(review) = task
-                .last_review
-                .as_ref()
-                .filter(|e| e.verdict == crate::plan::ReviewVerdict::Bounce)
-            {
-                snapshot.hard.push(HardWake::FailedGate(review.id.clone()));
+    for row in plan
+        .owner_rows(&snapshot.delta)
+        .map_err(|error| error.to_string())?
+    {
+        match row {
+            codeterm_plan::service_plan::ReminderOwnerRowRead::Wake { event, id } => {
+                snapshot.hard.push(match event.as_str() {
+                    "task_closed" => HardWake::TaskClosed(id),
+                    "task_blocked" => HardWake::FailedGate(format!("task_blocked:{id}")),
+                    "task_state" => HardWake::TaskState(id),
+                    "failed_gate" => HardWake::FailedGate(id),
+                    "new_report" => HardWake::NewReport(id),
+                    "incident" => HardWake::Incident(id),
+                    _ => return Err("invalid reminder hard fact".into()),
+                })
             }
-        }
-        for attempt in &task.attempts {
-            if attempt.interruption_fingerprint.is_some()
-                && (!attempt.closed
-                    || snapshot
-                        .delta
-                        .contains_key(&format!("attempt:{}", attempt.id)))
-            {
-                snapshot.hard.push(HardWake::Incident(format!(
-                    "dispatch_or_worker_failure:{}",
-                    attempt.id
-                )));
-            }
-            if let Some(report_id) = &attempt.report_id {
-                if snapshot
-                    .delta
-                    .contains_key(&format!("report:{}", report_id))
-                {
-                    snapshot.hard.push(HardWake::NewReport(report_id.clone()));
+            codeterm_plan::service_plan::ReminderOwnerRowRead::Worker { task } => {
+                for attempt in &task.attempts {
+                    if attempt.closed {
+                        continue;
+                    }
+                    let worker = collect_worker(svc, &task, attempt, previous, now);
+                    if !worker.ack_received {
+                        snapshot
+                            .hard
+                            .push(HardWake::Incident(format!("worker_ack:{}", attempt.id)));
+                    }
+                    if worker.session_key.is_none() || worker.process != "present" {
+                        snapshot.hard.push(HardWake::Incident(format!(
+                            "worker_health:{}",
+                            worker.tab_id
+                        )));
+                    }
+                    let old = previous.workers.get(&worker.tab_id);
+                    let changed = old.is_some_and(|old| {
+                        old.session_key != worker.session_key
+                            || old.last_turn != worker.last_turn
+                            || old.lane_commits != worker.lane_commits
+                    });
+                    let last = if changed || worker.activity == "working" {
+                        now
+                    } else {
+                        previous
+                            .last_activity
+                            .get(&worker.tab_id)
+                            .copied()
+                            .unwrap_or_else(|| {
+                                if task.status_changed_at > 0 {
+                                    (task.status_changed_at / 1000).min(now)
+                                } else {
+                                    now
+                                }
+                            })
+                    };
+                    observed.last_activity.insert(worker.tab_id.clone(), last);
+                    let mut worker = worker;
+                    worker.idle_overdue =
+                        !worker.reported && now.saturating_sub(last) >= IDLE_NO_REPORT_SECS;
+                    observed
+                        .workers
+                        .insert(worker.tab_id.clone(), worker.clone());
+                    snapshot.workers.push(worker);
                 }
             }
-        }
-        if !task.status.counts_as_open_work() {
-            continue;
-        }
-        if task.status == TaskStatus::Pending
-            && task.assigned_tab_id.is_none()
-            && task.projection.needs_orchestrator_action()
-        {
-            snapshot
-                .hard
-                .push(HardWake::Incident(format!("dispatch_required:{}", task.id)));
-        }
-        for attempt in &task.attempts {
-            if attempt.closed {
-                continue;
-            }
-            let worker = collect_worker(svc, task, attempt, previous, now);
-            if !worker.ack_received {
-                snapshot
-                    .hard
-                    .push(HardWake::Incident(format!("worker_ack:{}", attempt.id)));
-            }
-            if worker.session_key.is_none() || worker.process != "present" {
-                snapshot.hard.push(HardWake::Incident(format!(
-                    "worker_health:{}",
-                    worker.tab_id
-                )));
-            }
-            let old = previous.workers.get(&worker.tab_id);
-            let changed = old.is_some_and(|old| {
-                old.session_key != worker.session_key
-                    || old.last_turn != worker.last_turn
-                    || old.lane_commits != worker.lane_commits
-            });
-            let last = if changed || worker.activity == "working" {
-                now
-            } else {
-                previous
-                    .last_activity
-                    .get(&worker.tab_id)
-                    .copied()
-                    .unwrap_or_else(|| {
-                        if task.status_changed_at > 0 {
-                            (task.status_changed_at / 1000).min(now)
-                        } else {
-                            now
-                        }
-                    })
-            };
-            observed.last_activity.insert(worker.tab_id.clone(), last);
-            let mut worker = worker;
-            worker.idle_overdue =
-                !worker.reported && now.saturating_sub(last) >= IDLE_NO_REPORT_SECS;
-            observed
-                .workers
-                .insert(worker.tab_id.clone(), worker.clone());
-            snapshot.workers.push(worker);
-        }
-        if task.status == TaskStatus::InProgress && task.attempts.iter().all(|a| a.closed) {
-            snapshot
-                .hard
-                .push(HardWake::Incident(format!("dispatch_missing:{}", task.id)));
-        }
-        if task.handoff_required {
-            snapshot
-                .hard
-                .push(HardWake::Incident(format!("task_interruption:{}", task.id)));
         }
     }
     let (_, owner_observation) = collect_owner_messages(svc, tab_id, previous);

@@ -35,7 +35,7 @@ fn reminder_digest_facts_match_reference_with_history_and_body_independent_bytes
         let snapshot = database
             .reminder_read_snapshot(|text| text.chars().take(512).collect())
             .unwrap();
-        let read = snapshot.plan(&plan.id).unwrap().unwrap();
+        let read = snapshot.composition(&plan.id).unwrap().unwrap();
         let input = read
             .digest_input(
                 now,
@@ -66,6 +66,8 @@ fn reminder_digest_facts_match_reference_with_history_and_body_independent_bytes
         let serialized = super::super::super::super::store_rows::take_serialized_row_bytes();
         let response = serde_json::to_vec(&input).unwrap().len();
         assert_eq!(serialized, 0);
+        assert!(metrics.materialized_bytes <= response + 4096);
+        assert!(decoded <= response + 4096);
         assert!(fixtures::audit_counts(&database).is_empty());
         println!("fixture={} consumers=reminder_digest_queue,reminder_digest_cartography,reminder_digest_inventory tasks={} old_strides={history} unrelated_attempts={attempts} extra_body={body} queries={} materialized_text_bytes={} decoded_json_bytes={decoded} serialized_row_bytes={serialized} response_bytes={response} changed_rows=0",fixtures::SEED,fixtures::TASKS,metrics.queries,metrics.materialized_bytes);
         let measured = (metrics, decoded, response);
@@ -92,7 +94,7 @@ fn reminder_digest_unsigned_times_group_order_and_exact_project_root_are_preserv
     }
     let database = fixtures::database(directory.path(), &plan);
     let snapshot = database.reminder_read_snapshot(str::to_string).unwrap();
-    let read = snapshot.plan(&plan.id).unwrap().unwrap();
+    let read = snapshot.composition(&plan.id).unwrap().unwrap();
     let input = read.digest_input(u64::MAX, &Default::default()).unwrap();
     assert_eq!(input.project_root, " ");
     assert_eq!(input.queue.oldest_in_review_age_ms, 7);
@@ -109,7 +111,7 @@ fn reminder_digest_unsigned_times_group_order_and_exact_project_root_are_preserv
     }
     database.persist_plan_rows(&plan, None).unwrap();
     let snapshot = database.reminder_read_snapshot(str::to_string).unwrap();
-    let read = snapshot.plan(&plan.id).unwrap().unwrap();
+    let read = snapshot.composition(&plan.id).unwrap().unwrap();
     assert_eq!(
         read.digest_input(u64::MAX, &Default::default())
             .unwrap()

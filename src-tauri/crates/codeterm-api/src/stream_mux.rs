@@ -40,6 +40,10 @@ pub(crate) fn router<S: Clone + Send + Sync + 'static>() -> axum::Router<S> {
             axum::routing::delete(stream_mux_close_channel),
         )
         .route(
+            "/api/stream-mux/{session}/credit",
+            axum::routing::post(stream_mux_credit),
+        )
+        .route(
             "/api/stream-mux/{session}/requests/{id}",
             axum::routing::post(stream_mux_request)
                 .delete(stream_mux_cancel_request)
@@ -247,7 +251,7 @@ pub(crate) async fn stream_mux_open(
         return Err((StatusCode::BAD_REQUEST, "Invalid mux session id".into()));
     }
     let owner = owner(&headers)?;
-    let scheduler = Scheduler::new();
+    let (scheduler, mut receiver) = Scheduler::new();
     let session_id = query.session.clone();
     let registered = scheduler.clone();
     let guard = tokio::task::spawn_blocking(move || -> Result<SessionGuard, Failure> {
@@ -274,7 +278,7 @@ pub(crate) async fn stream_mux_open(
     let stream = async_stream::stream! {
         let _guard = guard;
         yield Ok::<_, std::convert::Infallible>(axum::body::Bytes::from_static(b": mux\n\n"));
-        while let Some(bytes) = scheduler.recv().await { yield Ok(bytes); }
+        while let Some(bytes) = receiver.recv().await { yield Ok(bytes); }
     };
     let mut response = Response::new(Body::from_stream(stream));
     let headers = response.headers_mut();
@@ -332,6 +336,35 @@ async fn cancel(
     })
     .await
     .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+}
+
+#[derive(serde::Deserialize)]
+pub(crate) struct Credit {
+    received: u64,
+}
+
+/// The client acknowledges cumulative credited bulk frames so the writer can release more bulk.
+pub(crate) async fn stream_mux_credit(
+    headers: HeaderMap,
+    Path(session_id): Path<String>,
+    Json(credit): Json<Credit>,
+) -> Result<StatusCode, Failure> {
+    let owner = owner(&headers)?;
+    let scheduler = {
+        let sessions = SESSIONS.lock();
+        match sessions.get(&session_id) {
+            Some(session) if session.owner != owner => {
+                return Err((
+                    StatusCode::FORBIDDEN,
+                    "Mux client differs from session owner".into(),
+                ))
+            }
+            Some(session) => session.scheduler.clone(),
+            None => return Err((StatusCode::GONE, "Unknown mux session".into())),
+        }
+    };
+    scheduler.credit(credit.received);
+    Ok(StatusCode::NO_CONTENT)
 }
 
 pub(crate) async fn stream_mux_close_channel(

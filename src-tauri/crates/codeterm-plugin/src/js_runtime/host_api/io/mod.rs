@@ -289,12 +289,18 @@ fn execute(
         )
         .and_then(|raw| serde_json::from_str(&raw).ok())
         .unwrap_or(Value::Null)),
-        SqliteQuery { db, sql, params } => super::sqlite::query_value(
+        SqliteQuery {
+            db,
+            sql,
+            params,
+            nullable,
+        } => super::sqlite::query_value(
             sandbox,
             observation,
             &db,
             &sql,
             params.as_ref().map(Value::to_string).as_deref(),
+            nullable,
         )
         .map_err(Failure::range),
         #[cfg(test)]

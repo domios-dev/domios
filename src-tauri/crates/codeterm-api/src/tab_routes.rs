@@ -1140,7 +1140,12 @@ pub async fn link_pty(
     Json(body): Json<LinkPtyBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     tokio::task::spawn_blocking(move || {
-        let selected_pty_id = state.svc.link_pty(&tab_id, body.pty_id);
+        let selected_pty_id = state.svc.link_pty(&tab_id, body.pty_id).map_err(|_| {
+            (
+                StatusCode::TOO_MANY_REQUESTS,
+                "tab activation capacity reached",
+            )
+        })?;
         Ok(Json(
             serde_json::json!({"ok": true, "pty_id": selected_pty_id}),
         ))

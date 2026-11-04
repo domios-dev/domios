@@ -1,11 +1,15 @@
-use crate::plan::{PlanMode, PlanStatus, TaskStatus};
+use crate::plan::PlanMode;
+#[cfg(test)]
+use crate::plan::{PlanStatus, TaskStatus};
 use crate::service::hierarchy::heartbeat_gate::{
     self, Decision, Gate, HardWake, Observation, ReminderKind, Scope, Snapshot, TickFact,
 };
 use crate::service::plan::reminders::{NudgeKind, TurnCounter};
 use crate::service::{ServiceContext, ServiceState};
-use codeterm_plan::service_plan::state::TaskPresentation;
-use codeterm_plan::service_plan::{ReminderPlanRead as Plan, ReminderTaskRead as Task};
+use codeterm_plan::service_plan::{
+    ReminderAdmissionRead as Plan, ReminderCandidateRead, ReminderCompositionRead,
+    ReminderTargetRead,
+};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -15,10 +19,12 @@ mod approval_tests;
 #[cfg(test)]
 mod consumer_load_tests;
 mod projection;
+#[cfg(test)]
+mod target_parity_tests;
 
 pub(crate) use projection::{project_for_tab, ProjectedHeartbeat, ProjectedTick};
 
-use approval::{Emission, Recipient, ReminderHost, ReminderRequest, Transport};
+use approval::{Emission, Recipient, ReminderHost, ReminderRequest, Transport, WorkerBindingRead};
 
 const MAX_PLAN_REMINDER_POLL_SECS: u64 = 60;
 
@@ -94,7 +100,11 @@ trait TimeReminderPorts {
     fn agent_lost(&self, tab_id: &str, target: &PlanReminderTarget);
 }
 
-fn effective_interval(plans: &[Plan], target: &PlanReminderTarget, machine_default: u64) -> u64 {
+fn effective_interval(
+    plans: &[ReminderCandidateRead],
+    target: &PlanReminderTarget,
+    machine_default: u64,
+) -> u64 {
     match target {
         PlanReminderTarget::Owner { plan_id } => plans
             .iter()
@@ -106,7 +116,7 @@ fn effective_interval(plans: &[Plan], target: &PlanReminderTarget, machine_defau
     }
 }
 fn send_due_plan_time_reminders_via(
-    plans: &[Plan],
+    plans: &[ReminderCandidateRead],
     counter: &TurnCounter,
     now: u64,
     interval_secs: u64,
@@ -205,7 +215,7 @@ impl<H: ReminderHost, L: Fn(&str, &PlanReminderTarget)> TimeReminderPorts for Ho
 
 fn run_reminder_tick(
     host: &impl ReminderHost,
-    plans: &[Plan],
+    plans: &[ReminderCandidateRead],
     counter: &TurnCounter,
     now: u64,
     interval_secs: u64,
@@ -236,7 +246,8 @@ fn deliver_target(
     let state_key = match target {
         PlanReminderTarget::Owner { plan_id } => host
             .plan(plan_id)?
-            .map(|plan| plan_reminder_state_key(&plan))
+            .map(|plan| plan.cooldown_key().map_err(|error| error.to_string()))
+            .transpose()?
             .unwrap_or_else(|| {
                 crate::service::supporter::criteria_hash(
                     format!("owner:{plan_id}:{kind:?}").as_bytes(),
@@ -374,7 +385,11 @@ fn blocked_notices(
             },
         );
     }
-    let actionable: HashSet<_> = plan.actionable_task_ids().into_iter().collect();
+    let actionable: HashSet<_> = plan
+        .actionable_task_ids()
+        .map_err(|error| error.to_string())?
+        .into_iter()
+        .collect();
     Ok(blockers
         .into_iter()
         .map(|(identity, blocker)| {
@@ -432,20 +447,37 @@ impl ReminderHost for LiveHost<'_> {
         self.svc
             .plan_store
             .reminder_read_snapshot(heartbeat_gate::scrubbed)
-            .and_then(|read| read.plan(plan_id))
+            .and_then(|read| read.admission(plan_id))
             .map_err(|error| error.to_string())
     }
 
-    fn with_plans<R>(&self, read: impl FnOnce(&[Plan]) -> R) -> Result<R, String> {
-        let snapshot = self
+    fn worker_bindings(
+        &self,
+        tab: &str,
+        known_plan: Option<&str>,
+    ) -> Result<WorkerBindingRead, String> {
+        let read = self
             .svc
             .plan_store
             .reminder_read_snapshot(heartbeat_gate::scrubbed)
             .map_err(|error| error.to_string())?;
-        let plans = snapshot
-            .candidates(None)
+        let mut bindings = read
+            .worker_bindings(tab, known_plan)
             .map_err(|error| error.to_string())?;
-        Ok(read(&plans))
+        match (bindings.pop(), bindings.pop()) {
+            (None, _) => Ok(WorkerBindingRead::Missing),
+            (Some(_), Some(_)) => Ok(WorkerBindingRead::Ambiguous),
+            (Some(binding), None) => {
+                let plan = read
+                    .admission(&binding.plan_id)
+                    .map_err(|error| error.to_string())?
+                    .ok_or_else(|| "reminder plan is missing from its snapshot".to_string())?;
+                Ok(WorkerBindingRead::Bound {
+                    plan: Box::new(plan),
+                    task_id: binding.task_id,
+                })
+            }
+        }
     }
 
     fn recipient(&self, tab_id: &str) -> Option<Recipient> {
@@ -495,8 +527,13 @@ impl ReminderHost for LiveHost<'_> {
         snapshot: &Snapshot,
         decision: &Decision,
     ) -> Result<Emission, String> {
-        self.svc
-            .compose_plan_reminder(plan, scope, snapshot, decision, false)
+        self.svc.compose_plan_reminder(
+            &plan.composition().map_err(|error| error.to_string())?,
+            scope,
+            snapshot,
+            decision,
+            false,
+        )
     }
 
     fn emit(
@@ -554,7 +591,7 @@ impl ReminderHost for LiveHost<'_> {
 impl ServiceContext {
     pub(crate) fn heartbeat_body_for_popup(
         &self,
-        plan: &Plan,
+        plan: &ReminderCompositionRead,
         tab_id: &str,
         worker: bool,
     ) -> Result<String, String> {
@@ -595,10 +632,10 @@ impl ServiceContext {
             self.plan_turn_counter.clear_time_reminders();
             return;
         }
-        let mut plans = match self
+        let plans = match self
             .plan_store
             .reminder_read_snapshot(heartbeat_gate::scrubbed)
-            .and_then(|read| read.candidates(None))
+            .and_then(|read| read.candidate_targets(None))
         {
             Ok(plans) => plans,
             Err(error) => {
@@ -610,9 +647,6 @@ impl ServiceContext {
             svc: self,
             interval: cfg.nudge_interval_secs,
         };
-        for plan in &mut plans {
-            plan.release_snapshot();
-        }
         run_reminder_tick(
             &host,
             &plans,
@@ -637,7 +671,7 @@ impl ServiceContext {
         let plans = match self
             .plan_store
             .reminder_read_snapshot(heartbeat_gate::scrubbed)
-            .and_then(|read| read.candidates(None))
+            .and_then(|read| read.candidate_targets(None))
         {
             Ok(plans) => plans,
             Err(error) => {
@@ -652,7 +686,7 @@ impl ServiceContext {
     /// Host-authored reminder text; the model chose only whether it is useful.
     fn compose_plan_reminder(
         &self,
-        plan: &Plan,
+        plan: &ReminderCompositionRead,
         scope: &Scope,
         snapshot: &Snapshot,
         decision: &Decision,
@@ -812,8 +846,9 @@ pub(crate) fn deliver_tab_todo_recitation(
     .map(|delivery| delivery.is_written())
 }
 
+#[cfg(test)]
 fn plan_reminder_state_key(plan: &Plan) -> String {
-    plan.state_key_digest.clone()
+    plan.cooldown_key().expect("fixture cooldown key")
 }
 
 impl PlanReminderTarget {
@@ -839,68 +874,30 @@ pub(crate) fn current_epoch_secs() -> u64 {
         .as_secs()
 }
 
-fn active_execution(plan: &Plan) -> bool {
-    plan.status == PlanStatus::Active
-        && plan.mode == PlanMode::Execution
-        && plan.control_loop.mode != crate::plan::ControlLoopMode::Off
-        && !plan.complete()
-}
-
 fn owner_reminder_eligible(plan: &Plan) -> bool {
-    active_execution(plan)
-        && plan.control_loop.owner_heartbeat()
-        && plan
-            .tasks
-            .iter()
-            .any(|task| task.status.counts_as_open_work() && task.status != TaskStatus::Paused)
-}
-
-fn worker_reminder_eligible(plan: &Plan, task: &Task) -> bool {
-    if !active_execution(plan)
-        || !matches!(
-            task.status,
-            TaskStatus::Pending | TaskStatus::InProgress | TaskStatus::Blocked
-        )
-    {
-        return false;
-    }
-    !matches!(
-        task.projection.clone().presentation,
-        TaskPresentation::WaitingOnDependencies | TaskPresentation::ParkedForLaterGroup
+    plan.control_loop.owner_eligible(
+        &plan.status,
+        &plan.mode,
+        plan.complete(),
+        plan.owner_open_work,
     )
 }
 
-pub fn timed_plan_reminder_targets(plans: &[Plan]) -> Vec<TimedPlanReminderTarget> {
-    let mut targets = BTreeMap::<(String, String), PlanReminderTarget>::new();
-    for plan in plans.iter().filter(|plan| owner_reminder_eligible(plan)) {
-        if let Some(tab_id) = non_empty(plan.owner_tab_id.as_deref()) {
-            targets.insert(
-                (tab_id.to_string(), plan.id.clone()),
-                PlanReminderTarget::Owner {
-                    plan_id: plan.id.clone(),
-                },
-            );
-        }
-    }
-    for plan in plans {
-        for task in plan
-            .tasks
-            .iter()
-            .filter(|task| worker_reminder_eligible(plan, task))
-        {
-            let Some(tab_id) = non_empty(task.assigned_tab_id.as_deref()) else {
-                continue;
-            };
-            if !targets.keys().any(|(owner, _)| owner == tab_id) {
-                targets
-                    .entry((tab_id.to_string(), String::new()))
-                    .or_insert(PlanReminderTarget::Worker);
-            }
-        }
-    }
-    targets
+pub fn timed_plan_reminder_targets(
+    plans: &[ReminderCandidateRead],
+) -> Vec<TimedPlanReminderTarget> {
+    codeterm_plan::service_plan::reminder_targets(plans)
         .into_iter()
-        .map(|((tab_id, _), target)| TimedPlanReminderTarget { tab_id, target })
+        .map(|target| match target {
+            ReminderTargetRead::Owner { tab_id, plan_id } => TimedPlanReminderTarget {
+                tab_id,
+                target: PlanReminderTarget::Owner { plan_id },
+            },
+            ReminderTargetRead::Worker { tab_id } => TimedPlanReminderTarget {
+                tab_id,
+                target: PlanReminderTarget::Worker,
+            },
+        })
         .collect()
 }
 
@@ -909,7 +906,7 @@ fn non_empty(value: Option<&str>) -> Option<&str> {
     (!value.is_empty()).then_some(value)
 }
 
-fn deadline_tabs(plans: &[Plan], _counter: &TurnCounter) -> HashSet<String> {
+fn deadline_tabs(plans: &[ReminderCandidateRead], _counter: &TurnCounter) -> HashSet<String> {
     timed_plan_reminder_targets(plans)
         .into_iter()
         .map(|target| target.tab_id)

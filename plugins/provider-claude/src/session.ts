@@ -1,3 +1,4 @@
+import { type HostIoSteps } from "@codeterm/plugin-sdk";
 import type { SessionModelTranscriptBoundary } from "@codeterm/plugin-sdk";
 import { manifest } from "./shared";
 import { effectiveReadPath } from "../../provider-shared/readHome";
@@ -81,13 +82,10 @@ export function claudeSessionFilePath(cwd: string, sessionId: string): string | 
   return expanded + sep + encoded + sep + sessionId + "." + ext;
 }
 
-export function sessionModelTranscriptBoundary(
-  cwd: string,
-  sessionId: string,
-): SessionModelTranscriptBoundary | null {
+export function* sessionModelTranscriptBoundary(cwd: string, sessionId: string): HostIoSteps<SessionModelTranscriptBoundary | null> {
   const path = claudeSessionFilePath(cwd, sessionId);
-  if (!path || !host.fs.fileExists(path)) return null;
-  const contents = host.fs.readFileTail(path, 4 * 1024 * 1024);
+  if (!path || !(yield* host.io.fs.fileExists(path))) return null;
+  const contents = (yield* host.io.fs.readFileTail(path, 4 * 1024 * 1024));
   if (contents === null) return null;
   if (!contents) {
     return {
@@ -134,14 +132,10 @@ export function sessionModelTranscriptBoundary(
     };
 }
 
-export function detectSessionModelAfterBoundary(
-  cwd: string,
-  sessionId: string,
-  boundary: SessionModelTranscriptBoundary,
-): string | null {
+export function* detectSessionModelAfterBoundary(cwd: string, sessionId: string, boundary: SessionModelTranscriptBoundary): HostIoSteps<string | null> {
   const path = claudeSessionFilePath(cwd, sessionId);
-  if (!path || !host.fs.fileExists(path)) return null;
-  const contents = host.fs.readFileTail(path, 4 * 1024 * 1024);
+  if (!path || !(yield* host.io.fs.fileExists(path))) return null;
+  const contents = (yield* host.io.fs.readFileTail(path, 4 * 1024 * 1024));
   if (!contents) return null;
   if (!boundary.boundaryFound) return null;
   const entries: ClaudeEntry[] = [];

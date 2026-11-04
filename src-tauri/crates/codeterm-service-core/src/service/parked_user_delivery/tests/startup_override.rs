@@ -166,7 +166,9 @@ fn explicit_override_flushes_held_sends_once_in_order_and_binding_retires_startu
         .service
         .pty
         .lock()
-        .invalidate_guarded_input(authority.pty_id.as_deref().unwrap());
+        .guarded_input_gate(authority.pty_id.as_deref().unwrap())
+        .unwrap()
+        .invalidate();
     let mut stale = authority.clone();
     stale.pty_session_generation = authority
         .pty_session_generation
