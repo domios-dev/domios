@@ -347,10 +347,11 @@ async fn close_team_inner(
     let lane_team_id = team_id.to_string();
     let lane_member_ids = prepared.member_tab_ids.clone();
     let plans = tokio::task::spawn_blocking(move || {
-        lane_plan_store.team_close_plans(&lane_team_id, &lane_member_ids)
+        lane_plan_store.team_close_projection(&lane_team_id, &lane_member_ids)
     })
     .await
-    .map_err(|error| format!("Team lane inventory task failed: {error}"))?;
+    .map_err(|error| format!("Team lane inventory task failed: {error}"))?
+    .map_err(|error| error.to_string())?;
     let lanes = team_close_lanes(&plans, team_id, &prepared.member_tab_ids);
     let busy = {
         let mux = svc.mux.read();

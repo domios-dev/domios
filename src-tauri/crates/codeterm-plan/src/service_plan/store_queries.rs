@@ -177,24 +177,6 @@ impl PlanStore {
         self.database.curator_bootstrap_plan_ids()
     }
 
-    /// Ids of the plans whose stored rows match, newest first; no plan is loaded.
-    pub fn plan_ids_matching(&self, predicate: &PlanMatch) -> Vec<String> {
-        self.database
-            .plan_ids_matching(predicate)
-            .unwrap_or_else(|error| {
-                log::warn!("[plan.store] plan match query failed: {error}");
-                Vec::new()
-            })
-    }
-
-    /// Loads, through the cache, only the plans whose stored rows match, newest first.
-    pub fn plans_matching(&self, predicate: &PlanMatch) -> Vec<Plan> {
-        self.plan_ids_matching(predicate)
-            .iter()
-            .filter_map(|id| self.get(id))
-            .collect()
-    }
-
     pub(super) fn plans_for_update_in_writer(
         &self,
         _turn: &MutationWriterTurn<'_>,
@@ -231,11 +213,6 @@ impl PlanStore {
 
     pub(super) fn loop_rows(&self) -> Result<Vec<(String, String, String)>, PlanError> {
         self.database.loop_rows()
-    }
-
-    /// Plans bound to the Team or holding work of one of its member tabs.
-    pub fn team_close_plans(&self, team_id: &str, member_tab_ids: &[String]) -> Vec<Plan> {
-        self.plans_matching(&team_close_candidates(team_id, member_tab_ids))
     }
 
     /// A plan bound to the Team, the active one first; read from the index, nothing loaded.
