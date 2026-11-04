@@ -6,8 +6,8 @@ use super::{
 };
 use crate::plan::{
     AgentRef, Goal, Milestone, MilestoneKind, OrchestratorRef, Plan, PlanMode, PlanStatus,
-    PlannerRef, PlanningAuthor, PlanningState, PlanningTransition, ReviewEvidence, ReviewVerdict,
-    Section, TagFacet, Task, TaskGroup, TaskStatus, TransferRecord,
+    PlannerRef, PlanningAuthor, PlanningState, ReviewEvidence, ReviewVerdict, Section, TagFacet,
+    Task, TaskGroup, TaskStatus, TransferRecord,
 };
 
 mod plan_writer;

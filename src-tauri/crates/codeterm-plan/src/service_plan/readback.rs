@@ -1,7 +1,5 @@
 use super::{PlanError, PlanStore, TaskLaneUpdate};
-use crate::plan::{
-    ExternalRef, Plan, PlanMode, PlanStatus, PlannerRef, Task, TaskLaneMetadata, TaskPriority,
-};
+use crate::plan::{ExternalRef, Plan, PlanMode, PlanStatus, Task, TaskLaneMetadata, TaskPriority};
 use std::cell::RefCell;
 
 thread_local! {
@@ -155,23 +153,6 @@ impl PlanStore {
             if plan.mode != expected {
                 return Err(fail("mode"));
             }
-        }
-        Ok(())
-    }
-
-    pub(in crate::service_plan) fn verify_planner_ref(
-        &self,
-        plan_id: &str,
-        expected: &Option<PlannerRef>,
-    ) -> Result<(), PlanError> {
-        let plan = self
-            .committed_plan_for(plan_id)
-            .ok_or(PlanError::NotFound)?;
-        if &plan.planner != expected {
-            return Err(Self::plan_readback_error(
-                "plan_update",
-                format!("planner did not match for {plan_id}"),
-            ));
         }
         Ok(())
     }

@@ -2,6 +2,18 @@ use super::super::{MutationWriterTurn, PlanError, PlanStore};
 use crate::plan::Plan;
 
 impl PlanStore {
+    pub(in crate::service_plan) fn commit_header_change(
+        &self,
+        plan_id: &str,
+        change: super::super::store_db::hot_write::HeaderChange,
+        now_ms: u64,
+    ) -> Result<bool, PlanError> {
+        let turn = self.mutation_writer.enter();
+        let (changed, receipt) = self.database.change_header(plan_id, change, now_ms)?;
+        self.publish_hot_receipt(&turn, receipt);
+        Ok(changed)
+    }
+
     pub(in crate::service_plan) fn commit_hot_batch(
         &self,
         plan_id: &str,

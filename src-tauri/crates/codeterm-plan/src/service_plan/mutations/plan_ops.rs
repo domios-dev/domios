@@ -1,4 +1,5 @@
 use super::*;
+use crate::service_plan::store_db::hot_write::HeaderChange;
 use crate::service_plan::{retrospective, PlanIncident};
 
 impl PlanStore {
@@ -53,16 +54,8 @@ impl PlanStore {
         planner_ref: Option<PlannerRef>,
         now_ms: u64,
     ) -> Result<(), PlanError> {
-        let expected = planner_ref.clone();
-        let write = self.with_plan(plan_id, now_ms, |p| {
-            p.planner = planner_ref;
-            Ok(())
-        });
-        pending_after_verified(
-            write,
-            self.verify_planner_ref(plan_id, &expected),
-            Some(plan_id.to_string()),
-        )
+        self.commit_header_change(plan_id, HeaderChange::Planner(planner_ref), now_ms)
+            .map(|_| ())
     }
 
     pub fn resolve_planner_tab<F>(
@@ -84,21 +77,10 @@ impl PlanStore {
     }
 
     pub fn set_mode(&self, plan_id: &str, mode: PlanMode, now_ms: u64) -> Result<(), PlanError> {
-        self.with_plan(plan_id, now_ms, |p| {
-            if mode == PlanMode::Paused && p.mode != PlanMode::Paused {
-                p.paused_from_mode = Some(p.mode.clone());
-            } else if mode != PlanMode::Paused {
-                p.paused_from_mode = None;
-            }
-            p.mode = mode;
-            Ok(())
-        })
+        self.commit_header_change(plan_id, HeaderChange::Mode(mode), now_ms)
+            .map(|_| ())
     }
 
-    /// Advance the planner-owned planning_state, recording author + working point.
-    /// Mirrors the lifecycle `mode` so heartbeat/next-actions stay consistent while
-    /// the single execution-task gate keys off planning_state. Idempotent no-op if
-    /// already in the target state.
     pub fn set_planning_state(
         &self,
         plan_id: &str,
@@ -107,31 +89,19 @@ impl PlanStore {
         note: Option<&str>,
         now_ms: u64,
     ) -> Result<(), PlanError> {
-        self.with_plan(plan_id, now_ms, |p| {
-            let from = p.planning_state;
-            if from == to {
-                return Ok(());
-            }
-            p.planning_log.push(PlanningTransition {
-                from,
+        self.commit_header_change(
+            plan_id,
+            HeaderChange::Planning {
                 to,
                 by,
                 note: note
                     .map(str::trim)
-                    .filter(|n| !n.is_empty())
+                    .filter(|note| !note.is_empty())
                     .map(str::to_string),
-                at: now_ms,
-            });
-            p.planning_state = to;
-            // Keep lifecycle mode in lockstep with the planning<->approved boundary;
-            // never override an execution/complete lifecycle.
-            match (to.allows_execution_tasks(), &p.mode) {
-                (true, PlanMode::Planning) => p.mode = PlanMode::Approved,
-                (false, PlanMode::Approved) => p.mode = PlanMode::Planning,
-                _ => {}
-            }
-            Ok(())
-        })
+            },
+            now_ms,
+        )
+        .map(|_| ())
     }
 
     pub fn set_kinds(
@@ -140,10 +110,8 @@ impl PlanStore {
         kinds: Vec<MilestoneKind>,
         now_ms: u64,
     ) -> Result<(), PlanError> {
-        self.with_plan(plan_id, now_ms, |p| {
-            p.milestone_kinds = kinds;
-            Ok(())
-        })
+        self.commit_header_change(plan_id, HeaderChange::Kinds(kinds), now_ms)
+            .map(|_| ())
     }
 
     pub fn set_task_groups(
@@ -152,10 +120,8 @@ impl PlanStore {
         groups: Vec<TaskGroup>,
         now_ms: u64,
     ) -> Result<(), PlanError> {
-        self.with_plan(plan_id, now_ms, |p| {
-            p.task_groups = groups;
-            Ok(())
-        })
+        self.commit_header_change(plan_id, HeaderChange::Groups(groups), now_ms)
+            .map(|_| ())
     }
 
     pub fn set_tag_facets(
@@ -164,30 +130,38 @@ impl PlanStore {
         facets: Vec<TagFacet>,
         now_ms: u64,
     ) -> Result<(), PlanError> {
-        self.with_plan(plan_id, now_ms, |p| {
-            p.tag_facets = facets;
-            Ok(())
-        })
+        self.commit_header_change(plan_id, HeaderChange::Facets(facets), now_ms)
+            .map(|_| ())
     }
 
     pub fn link_plan(&self, plan_id: &str, to: &str, now_ms: u64) -> Result<(), PlanError> {
-        self.with_plan(plan_id, now_ms, |p| {
-            if !p.links.iter().any(|l| l == to) {
-                p.links.push(to.into());
-            }
-            Ok(())
-        })
+        self.commit_header_change(
+            plan_id,
+            HeaderChange::Link {
+                to: to.into(),
+                remove: false,
+            },
+            now_ms,
+        )
+        .map(|_| ())
     }
 
     pub fn unlink_plan(&self, plan_id: &str, to: &str, now_ms: u64) -> Result<(), PlanError> {
-        self.with_plan(plan_id, now_ms, |p| {
-            p.links.retain(|l| l != to);
-            Ok(())
-        })
+        self.commit_header_change(
+            plan_id,
+            HeaderChange::Link {
+                to: to.into(),
+                remove: true,
+            },
+            now_ms,
+        )
+        .map(|_| ())
     }
 
     pub fn owner_of(&self, id: &str) -> Option<OrchestratorRef> {
-        self.plan_arc(id).ok().map(|plan| plan.lock().owner.clone())
+        self.plan_identity_projection(id)
+            .ok()
+            .map(|plan| plan.owner)
     }
 
     pub fn add_section(
@@ -701,20 +675,17 @@ impl PlanStore {
         reason: &str,
         now_ms: u64,
     ) -> Result<(), PlanError> {
-        self.with_plan(plan_id, now_ms, |p| {
-            p.owner_history.push(TransferRecord {
-                from: p.owner.clone(),
-                to: to.clone(),
-                ts: now_ms,
+        self.commit_header_change(
+            plan_id,
+            HeaderChange::Owner {
+                to,
                 reason: reason.into(),
-            });
-            p.owner = to;
-            Ok(())
-        })
+            },
+            now_ms,
+        )
+        .map(|_| ())
     }
 
-    /// Refresh the current owner's live session after its tab restarted.
-    /// A restart is not a handover, so no `owner_history` entry is recorded.
     pub fn refresh_owner_session(
         &self,
         plan_id: &str,
@@ -723,34 +694,19 @@ impl PlanStore {
         title: Option<&str>,
         now_ms: u64,
     ) -> Result<bool, PlanError> {
-        let mut refreshed = false;
-        self.with_plan(plan_id, now_ms, |p| {
-            if p.owner.tab_id.as_deref() != Some(tab_id) {
-                return Ok(());
-            }
-            let session_id = session_id.map(str::to_string);
-            let title = title.map(str::to_string).or_else(|| p.owner.title.clone());
-            if p.owner.session_id != session_id || p.owner.title != title {
-                p.owner.session_id = session_id;
-                p.owner.title = title;
-                refreshed = true;
-            }
-            Ok(())
-        })?;
-        Ok(refreshed)
+        self.commit_header_change(
+            plan_id,
+            HeaderChange::RefreshOwner {
+                tab_id: tab_id.into(),
+                session_id: session_id.map(str::to_string),
+                title: title.map(str::to_string),
+            },
+            now_ms,
+        )
     }
 
     pub fn disown(&self, plan_id: &str, now_ms: u64) -> Result<(), PlanError> {
-        self.with_plan(plan_id, now_ms, |p| {
-            p.owner_history.push(TransferRecord {
-                from: p.owner.clone(),
-                to: OrchestratorRef::default(),
-                ts: now_ms,
-                reason: "disown".into(),
-            });
-            p.owner = OrchestratorRef::default();
-            Ok(())
-        })
+        self.transfer(plan_id, OrchestratorRef::default(), "disown", now_ms)
     }
 
     pub fn claim(
@@ -759,16 +715,7 @@ impl PlanStore {
         new_owner: OrchestratorRef,
         now_ms: u64,
     ) -> Result<(), PlanError> {
-        self.with_plan(plan_id, now_ms, |p| {
-            p.owner_history.push(TransferRecord {
-                from: p.owner.clone(),
-                to: new_owner.clone(),
-                ts: now_ms,
-                reason: "claim".into(),
-            });
-            p.owner = new_owner;
-            Ok(())
-        })
+        self.transfer(plan_id, new_owner, "claim", now_ms)
     }
 
     pub fn update_section(
