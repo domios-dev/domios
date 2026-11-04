@@ -64,7 +64,9 @@ fn owner_execution_plan_with_open_work_is_nudge_eligible_without_task_binding() 
 
     assert_eq!(store.task_binding_for_tab("orch-tab"), None);
     assert_eq!(
-        store.active_owned_plan_with_open_work_for_tab("orch-tab"),
+        store
+            .active_owned_plan_with_open_work_for_tab("orch-tab")
+            .unwrap(),
         Some(plan_id)
     );
 }
@@ -100,7 +102,9 @@ fn owner_planning_plan_with_open_work_is_not_nudge_eligible() {
         .unwrap();
 
     assert_eq!(
-        store.active_owned_plan_with_open_work_for_tab("orch-tab"),
+        store
+            .active_owned_plan_with_open_work_for_tab("orch-tab")
+            .unwrap(),
         None
     );
 }
@@ -118,7 +122,9 @@ fn paused_execution_plan_with_open_work_is_not_nudge_eligible() {
         .unwrap();
 
     assert_eq!(
-        store.active_owned_plan_with_open_work_for_tab("orch-tab"),
+        store
+            .active_owned_plan_with_open_work_for_tab("orch-tab")
+            .unwrap(),
         None
     );
 }
@@ -180,7 +186,9 @@ fn worker_pending_task_binding_is_nudge_eligible() {
         Some((plan_id, task_id))
     );
     assert_eq!(
-        store.active_owned_plan_with_open_work_for_tab("worker-tab"),
+        store
+            .active_owned_plan_with_open_work_for_tab("worker-tab")
+            .unwrap(),
         None
     );
 }
@@ -216,7 +224,9 @@ fn worker_in_review_task_binding_is_not_nudge_eligible_after_report() {
         .unwrap();
 
     assert_eq!(
-        store.active_owned_plan_with_open_work_for_tab("orch-tab"),
+        store
+            .active_owned_plan_with_open_work_for_tab("orch-tab")
+            .unwrap(),
         Some(plan_id.clone())
     );
     assert_eq!(
@@ -279,11 +289,15 @@ fn terminal_done_and_cancelled_work_is_not_nudge_eligible() {
         .unwrap();
 
     assert_eq!(
-        done_store.active_owned_plan_with_open_work_for_tab("done-orch"),
+        done_store
+            .active_owned_plan_with_open_work_for_tab("done-orch")
+            .unwrap(),
         None
     );
     assert_eq!(
-        cancelled_store.active_owned_plan_with_open_work_for_tab("cancelled-orch"),
+        cancelled_store
+            .active_owned_plan_with_open_work_for_tab("cancelled-orch")
+            .unwrap(),
         None
     );
     assert_eq!(

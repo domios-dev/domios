@@ -42,7 +42,7 @@ pub struct AttemptFieldRow {
 }
 
 // Mirrors `paths::plan_sidecar_root`: a blank canonical path falls back to the project path.
-const ROOT: &str = "coalesce(CASE WHEN json_valid(header_json)
+pub(super) const ROOT: &str = "coalesce(CASE WHEN json_valid(header_json)
     AND trim(coalesce(json_extract(header_json, '$.canonical_project_path'), '')) <> ''
     THEN json_extract(header_json, '$.canonical_project_path') END, project_path)";
 

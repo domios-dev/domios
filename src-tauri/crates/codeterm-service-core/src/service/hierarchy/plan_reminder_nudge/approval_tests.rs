@@ -35,6 +35,7 @@ struct FakeHost {
     emits: Mutex<Vec<Emitted>>,
     notices: Mutex<Vec<NotifiedBlocker>>,
     emit_error: Mutex<Option<String>>,
+    compose_error: Mutex<Option<String>>,
     compose_hook: Mutex<Option<fn(&FakeHost)>>,
     dir: tempfile::TempDir,
 }
@@ -102,7 +103,16 @@ impl ReminderHost for FakeHost {
         crate::service::hierarchy::heartbeat_gate::collect_worker_scope(plan, scope, previous)
     }
 
-    fn compose(&self, plan: &Plan, scope: &Scope, _: &Snapshot, decision: &Decision) -> Emission {
+    fn compose(
+        &self,
+        plan: &Plan,
+        scope: &Scope,
+        _: &Snapshot,
+        decision: &Decision,
+    ) -> Result<Emission, String> {
+        if let Some(error) = self.compose_error.lock().clone() {
+            return Err(error);
+        }
         let hook = self.compose_hook.lock().take();
         if let Some(hook) = hook {
             hook(self);
@@ -115,10 +125,10 @@ impl ReminderHost for FakeHost {
                 mode_transition: false,
             },
         };
-        Emission {
+        Ok(Emission {
             text: opaque(scope.kind, &plan.id),
             transport,
-        }
+        })
     }
 
     fn emit(
@@ -209,6 +219,7 @@ fn host(plans: Vec<Plan>, mux: MultiplexerState) -> FakeHost {
         emits: Mutex::default(),
         notices: Mutex::default(),
         emit_error: Mutex::default(),
+        compose_error: Mutex::default(),
         compose_hook: Mutex::default(),
         dir,
     };
@@ -394,4 +405,29 @@ fn plan_reminder_rule_rejects_unbound_worker_and_blocked_task() {
         ReminderOutcome::Suppressed("recipient_unavailable")
     );
     assert_eq!(f.emits(), 0);
+}
+
+#[test]
+fn composition_failure_is_prewrite_and_does_not_mark_a_reminder_delivered() {
+    let f = fixture(ReminderKind::Worker);
+    *f.host.compose_error.lock() = Some("projection lookup failed".into());
+    assert_eq!(
+        f.admit(ReminderKind::Worker, 100),
+        ReminderOutcome::Failed("projection lookup failed".into())
+    );
+    assert_eq!(f.emits(), 0);
+    assert_eq!(f.telemetry(ReminderKind::Worker), (0, 0, 0, 1));
+    *f.host.compose_error.lock() = None;
+    assert_eq!(
+        f.admit(ReminderKind::Worker, 101),
+        ReminderOutcome::Suppressed("same_snapshot")
+    );
+    assert_eq!(f.emits(), 0);
+    assert_eq!(f.telemetry(ReminderKind::Worker), (1, 0, 0, 1));
+    f.change(ReminderKind::Worker, "changed");
+    assert_eq!(
+        f.admit(ReminderKind::Worker, 102),
+        ReminderOutcome::Accepted
+    );
+    assert_eq!(f.emits(), 1);
 }

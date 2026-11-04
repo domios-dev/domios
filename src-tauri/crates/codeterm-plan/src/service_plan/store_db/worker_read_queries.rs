@@ -148,9 +148,8 @@ impl PlanDatabase {
                 ORDER BY domios_u64_order(row_json->'$.ts') DESC,seq DESC) AS rank FROM plan_task_milestones m
                 WHERE plan_id=?1 AND task_id=?2 AND EXISTS(SELECT 1 FROM selected_attempts a WHERE a.executor_tab_id=json_extract(m.row_json,'$.from.tab_id'))),
              context AS (SELECT seq FROM plan_task_milestones WHERE plan_id=?1 AND task_id=?2 AND ?4
-                AND json_extract(row_json,'$.kind')<>'status_update' AND trim(coalesce(json_extract(row_json,'$.text'),''),?6)<>''
-                ORDER BY CASE json_extract(row_json,'$.kind') WHEN 'decision' THEN 0 WHEN 'bounce' THEN 1 WHEN 'note' THEN 1
-                    WHEN 'qa' THEN 1 WHEN 'regression' THEN 1 WHEN 'retrospective' THEN 1 ELSE 2 END,
+                AND domios_worker_stride_rank(json_extract(row_json,'$.kind')) IS NOT NULL AND trim(coalesce(json_extract(row_json,'$.text'),''),?6)<>''
+                ORDER BY domios_worker_stride_rank(json_extract(row_json,'$.kind')),
                     domios_u64_order(row_json->'$.ts') DESC,json_extract(row_json,'$.id') DESC,seq LIMIT ?7),
              chosen AS (SELECT seq FROM reports WHERE rank=1 UNION SELECT seq FROM context)
              SELECT json_object('id',json_extract(m.row_json,'$.id'),'from',json_object('tab_id',json_extract(m.row_json,'$.from.tab_id')),
@@ -184,6 +183,16 @@ impl PlanDatabase {
 pub(super) fn register_functions(connection: &rusqlite::Connection) -> Result<(), PlanError> {
     use rusqlite::functions::FunctionFlags;
     let flags = FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC;
+    connection
+        .create_scalar_function("domios_worker_stride_rank", 1, flags, |context| {
+            let kind = context
+                .get_raw(0)
+                .as_str()
+                .map_err(|error| rusqlite::Error::UserFunctionError(Box::new(error)))?;
+            Ok((!crate::service_plan::stride_context::is_noise(kind))
+                .then(|| crate::service_plan::stride_context::tier_rank(kind)))
+        })
+        .map_err(db_error)?;
     connection
         .create_scalar_function("domios_u64_order", 1, flags, |context| {
             let value = match context.get_raw(0) {

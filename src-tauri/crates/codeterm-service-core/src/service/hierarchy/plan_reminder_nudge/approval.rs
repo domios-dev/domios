@@ -109,7 +109,7 @@ pub(crate) trait ReminderHost {
         scope: &Scope,
         snapshot: &Snapshot,
         decision: &Decision,
-    ) -> Emission;
+    ) -> Result<Emission, String>;
     fn emit(
         &self,
         plan_id: &str,
@@ -270,7 +270,14 @@ fn admit_claimed(
     {
         return suppress(gate, claim, request, now, "recipient_not_actionable");
     }
-    let emission = host.compose(&plan, &scope, &snapshot, &decision);
+    let emission = match host.compose(&plan, &scope, &snapshot, &decision) {
+        Ok(emission) => emission,
+        Err(error) => {
+            gate.failed(key);
+            note_request_tick(gate, request, now, TickFact::Failed);
+            return ReminderOutcome::Failed(error);
+        }
+    };
     // Re-observation and compose can take IO time; the last check is bound to the handoff.
     if current(&plan.id).is_none() || !gate.attempt(claim, &decision) {
         return suppress(gate, claim, request, now, "stale_scope");

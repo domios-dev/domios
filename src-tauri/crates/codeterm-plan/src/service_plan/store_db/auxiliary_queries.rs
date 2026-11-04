@@ -15,6 +15,16 @@ pub(in crate::service_plan) struct StorageMetadata {
 }
 
 impl StorageMetadata {
+    pub(in crate::service_plan) fn state_dir_unchecked(&self) -> std::path::PathBuf {
+        crate::service_plan::paths::plan_state_dir_unchecked(
+            crate::service_plan::paths::sidecar_root(
+                &self.project_path,
+                &self.canonical_project_path,
+            ),
+            &self.status,
+            &self.id,
+        )
+    }
     pub(in crate::service_plan) fn state_dir(&self) -> std::io::Result<std::path::PathBuf> {
         crate::service_plan::paths::plan_state_dir(
             crate::service_plan::paths::sidecar_root(

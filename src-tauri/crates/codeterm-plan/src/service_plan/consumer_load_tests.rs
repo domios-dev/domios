@@ -228,8 +228,12 @@ fn orphan_attachment_dirs_never_loads_unmatched_plans() {
     );
     start(&store);
 
-    assert!(store.orphan_attachment_dirs(project.as_ref()).is_empty());
-    assert_eq!(store.plan_loads_for_test(), vec![here]);
+    assert!(store
+        .orphan_attachment_dirs(project.as_ref())
+        .unwrap()
+        .is_empty());
+    assert_never_loaded(&store, &[&here]);
+    assert!(store.plan_loads_for_test().is_empty());
     assert_never_loaded(&store, &[&elsewhere]);
 }
 

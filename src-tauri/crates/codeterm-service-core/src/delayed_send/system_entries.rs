@@ -63,10 +63,13 @@ pub(crate) fn refuse_system_mutation(id: &str) -> Result<(), String> {
 
 pub fn list_views(svc: &ServiceContext, tab_id: &str) -> Result<Vec<DelayedMessageView>, String> {
     let resolved = super::resolve_tab_id(svc, tab_id)?;
-    Ok(views_for_tab(svc, &resolved))
+    views_for_tab(svc, &resolved)
 }
 
-pub(super) fn views_for_tab(svc: &ServiceContext, tab_id: &str) -> Vec<DelayedMessageView> {
+pub(super) fn views_for_tab(
+    svc: &ServiceContext,
+    tab_id: &str,
+) -> Result<Vec<DelayedMessageView>, String> {
     let cfg = svc.configuration().orchestration;
     let plans = svc.plan_store.reminder_candidate_plans_for_tab(tab_id);
     let projected = project_for_tab(
@@ -87,9 +90,9 @@ pub(super) fn views_for_tab(svc: &ServiceContext, tab_id: &str) -> Vec<DelayedMe
                     plan,
                     tab_id,
                     item.id.starts_with("system:heartbeat:worker:"),
-                );
+                )?;
             }
-            super::to_view(svc, message_from_projection(item))
+            Ok(super::to_view(svc, message_from_projection(item)))
         })
         .collect()
 }
