@@ -598,3 +598,6 @@ mod tests;
 
 pub(in crate::service_plan) mod hot_write;
 mod operation_retention;
+
+#[cfg(test)]
+pub(super) mod release_upgrade_tests;
