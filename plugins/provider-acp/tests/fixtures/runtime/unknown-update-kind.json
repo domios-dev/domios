@@ -45,15 +45,9 @@
         "settings": {},
         "providerSettings": {},
         "claimedSends": [],
-        "activeTurns": [
-          {
-            "threadId": "session-fixture",
-            "turnId": "turn-fixture"
-          }
-        ],
+        "activeTurns": [],
         "threadParents": [],
-        "threadId": "session-fixture",
-        "activeTurnId": "turn-fixture"
+        "threadId": "session-fixture"
       }
     }
   ],
