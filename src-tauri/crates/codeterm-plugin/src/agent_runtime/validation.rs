@@ -420,7 +420,18 @@ pub fn validate_runtime_call(
         let active = ctx.active_turns.iter().any(|turn| {
             turn.thread_id == target.thread_id && target.turn_id.as_ref() == Some(&turn.turn_id)
         });
-        if !active {
+        let before_first = cap
+            .interrupt
+            .as_ref()
+            .is_some_and(|interrupt| interrupt.before_first_turn)
+            && ctx.active_turn_id.is_none()
+            && ctx
+                .claimed_sends
+                .iter()
+                .any(|claim| Some(&claim.thread_id) == ctx.thread_id.as_ref())
+            && Some(&target.thread_id) == ctx.thread_id.as_ref()
+            && target.turn_id.is_none();
+        if !active && !before_first {
             return Err(mismatch("interrupt targets an inactive or unowned turn"));
         }
     } else if let Some(target) = &call.target {

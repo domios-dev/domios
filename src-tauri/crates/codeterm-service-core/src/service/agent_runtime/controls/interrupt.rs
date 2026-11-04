@@ -115,7 +115,14 @@ pub(super) fn interrupt(svc: &ServiceContext, tab: &str) -> Result<bool, String>
         engine::validate_binding(svc, &session)?;
         let context = session.context.lock().clone();
         let target = InterruptTarget::capture(&context)?;
-        let had_turn = !target.turns.is_empty();
+        let before_first = before_first_turn(svc, &session, &context);
+        let had_turn = !target.turns.is_empty() || before_first;
+        let process = session
+            .process
+            .lock()
+            .clone()
+            .ok_or(RuntimeFailure::PipeEof)?;
+        super::super::client_bridge::cancel_all(svc, &session, &process, false).await?;
         if !had_turn {
             super::super::subscriber::publish_events(
                 svc,
@@ -153,11 +160,6 @@ pub(super) fn interrupt(svc: &ServiceContext, tab: &str) -> Result<bool, String>
             current.active_turns = target.turns.clone();
         }
         let mut changes = session.control_changes.subscribe();
-        let process = session
-            .process
-            .lock()
-            .clone()
-            .ok_or(RuntimeFailure::PipeEof)?;
         let mut ended = process.ended.clone();
         let background = super::super::background::supported(&session);
         let captured = if background {
@@ -296,3 +298,39 @@ async fn wait(
 
 #[cfg(test)]
 mod tests;
+
+fn before_first_turn(
+    svc: &ServiceContext,
+    session: &engine::Session,
+    context: &RuntimeContext,
+) -> bool {
+    let current = session.context.lock().clone();
+    if current.tab_id != context.tab_id
+        || current.thread_id != context.thread_id
+        || current.epoch != context.epoch
+        || current.binding_nonce != context.binding_nonce
+    {
+        return false;
+    }
+    let declared = session
+        .adapter
+        .lock()
+        .as_ref()
+        .and_then(|adapter| adapter.agent_runtime())
+        .and_then(|cap| cap.interrupt)
+        .is_some_and(|interrupt| interrupt.before_first_turn);
+    declared
+        && context.active_turn_id.is_none()
+        && context.claimed_sends.iter().any(|claim| {
+            Some(&claim.thread_id) == context.thread_id.as_ref()
+                && svc.chat_send_ledger.has_rpc_handoff(&claim.send_id)
+                && svc
+                    .chat_send_ledger
+                    .status(&claim.send_id)
+                    .is_some_and(|status| {
+                        status.tab_id == context.tab_id
+                            && status.state
+                                == crate::service::chat_send_transaction::ChatSendState::Pending
+                    })
+        })
+}

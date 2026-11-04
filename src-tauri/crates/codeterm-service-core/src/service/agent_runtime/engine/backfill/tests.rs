@@ -37,6 +37,7 @@ fn session() -> (Session, u64) {
         provider_operation_failures: std::sync::atomic::AtomicU32::new(0),
         bookkeeping_warning_emitted: std::sync::atomic::AtomicBool::new(false),
         prompts: Mutex::new(HashMap::new()),
+        prompts_cancelled: std::sync::atomic::AtomicBool::new(false),
         process: crate::service::agent_runtime::process_slot::ProcessSlot::new(None),
         gate: tokio::sync::Semaphore::new(1),
         initialization: Default::default(),

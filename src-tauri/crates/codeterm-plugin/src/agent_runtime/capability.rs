@@ -51,6 +51,10 @@ pub struct RuntimeProfileDetection {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AgentRuntimeCapability {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub interrupt: Option<RuntimeInterruptCapability>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_bridges: Option<RuntimeClientBridges>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub launch_profiles: Option<BTreeMap<String, RuntimeLaunchProfile>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub restricted_cli: Option<RestrictedCliCapability>,
@@ -171,6 +175,20 @@ pub enum RuntimeThreadHistoryAction {
 pub struct RuntimeModeDescriptor {
     pub id: String,
     pub display_name: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RuntimeClientBridges {
+    pub fs_read: bool,
+    pub fs_write: bool,
+    pub terminal: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RuntimeInterruptCapability {
+    pub before_first_turn: bool,
 }
 
 fn is_false(value: &bool) -> bool {

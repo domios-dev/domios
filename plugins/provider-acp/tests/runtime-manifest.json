@@ -60,7 +60,15 @@
     },
     "notificationMethods": [
       "session/update"
-    ]
+    ],
+    "clientBridges": {
+      "fsRead": true,
+      "fsWrite": true,
+      "terminal": true
+    },
+    "interrupt": {
+      "beforeFirstTurn": true
+    }
   },
   "chatBackend": {
     "enabled": true,
@@ -73,14 +81,23 @@
     "cancel.json",
     "commands-modes-config-usage.json",
     "foreign-session-frame.json",
+    "fs-read-approved.json",
+    "fs-write-denied.json",
     "initialize-new-prompt.json",
+    "interrupt-before-first-update.json",
     "load-replay-no-duplicates.json",
     "load-when-advertised.json",
     "lost-stream.json",
+    "permission-allow.json",
+    "permission-cancelled-on-interrupt.json",
+    "permission-reject.json",
     "plan-updates.json",
     "resume-not-advertised.json",
     "resume-when-advertised.json",
     "stream-message-thought-chunks.json",
+    "terminal-lifecycle.json",
+    "tool-call-first-allow.json",
+    "tool-call-first-deny.json",
     "tool-call-lifecycle.json",
     "unknown-update-kind.json",
     "unsupported-version.json",

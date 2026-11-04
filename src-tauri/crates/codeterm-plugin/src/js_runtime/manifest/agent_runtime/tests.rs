@@ -156,6 +156,67 @@ fn launch_profiles_refuse_ungranted_shell_and_unknown_fields() {
 }
 
 #[test]
+fn client_bridges_reject_malformed_and_empty_declarations() {
+    for bridges in [
+        json!({"fsRead":"yes","fsWrite":false,"terminal":false}),
+        json!({"fsRead":true,"fsWrite":true,"terminal":true,"exec":true}),
+    ] {
+        let mut raw = manifest();
+        raw["capabilities"]["agentRuntime"]["clientBridges"] = bridges;
+        assert!(PluginManifest::from_json_str(&raw.to_string()).is_err());
+    }
+    let mut raw = manifest();
+    raw["capabilities"]["agentRuntime"]["clientBridges"] =
+        json!({"fsRead":false,"fsWrite":false,"terminal":false});
+    assert_eq!(
+        PluginManifest::from_json_str(&raw.to_string())
+            .unwrap()
+            .validate_agent_runtime(),
+        Err(RuntimeManifestError::InvalidMethods)
+    );
+    raw["capabilities"]["agentRuntime"]["clientBridges"]["fsRead"] = json!(true);
+    assert_eq!(
+        PluginManifest::from_json_str(&raw.to_string())
+            .unwrap()
+            .validate_agent_runtime(),
+        Ok(())
+    );
+}
+
+#[test]
+fn interrupt_before_first_turn_requires_explicit_true_and_a_declared_method() {
+    let mut raw = manifest();
+    for value in [
+        json!({"beforeFirstTurn":"yes"}),
+        json!({"beforeFirstTurn":true,"always":true}),
+    ] {
+        raw["capabilities"]["agentRuntime"]["interrupt"] = value;
+        assert!(PluginManifest::from_json_str(&raw.to_string()).is_err());
+    }
+    raw["capabilities"]["agentRuntime"]["interrupt"] = json!({"beforeFirstTurn":true});
+    assert_eq!(
+        PluginManifest::from_json_str(&raw.to_string())
+            .unwrap()
+            .validate_agent_runtime(),
+        Err(RuntimeManifestError::InvalidMethods)
+    );
+    raw["capabilities"]["agentRuntime"]["requestMethods"]["interrupt"] = json!(["session/cancel"]);
+    assert_eq!(
+        PluginManifest::from_json_str(&raw.to_string())
+            .unwrap()
+            .validate_agent_runtime(),
+        Ok(())
+    );
+    raw["capabilities"]["agentRuntime"]["interrupt"]["beforeFirstTurn"] = json!(false);
+    assert_eq!(
+        PluginManifest::from_json_str(&raw.to_string())
+            .unwrap()
+            .validate_agent_runtime(),
+        Err(RuntimeManifestError::InvalidMethods)
+    );
+}
+
+#[test]
 fn launch_profiles_require_pinned_packages_and_protect_secret_references() {
     let mut raw = manifest();
     raw["permissions"]["subprocess"]["allow"] = json!(["runtime-engine", "npx"]);

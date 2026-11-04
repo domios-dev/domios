@@ -770,3 +770,27 @@ async fn restricted_cli_context_native_quickjs_authority_parity() {
             .is_err());
     }
 }
+
+#[test]
+fn runtime_client_bridges_native_quickjs_declaration_parity() {
+    let fixture: Value =
+        serde_json::from_str(include_str!("fixtures/runtime/client-bridges.json")).unwrap();
+    let native: RuntimeClientBridges = serde_json::from_value(fixture.clone()).unwrap();
+    let mut raw = json!({"id":"bridge-fixture","version":"1.0.0","displayName":"Bridge fixture","capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},"agentRuntime":{"runtime":"stdio-jsonrpc","command":{"binary":"fixture-engine","args":[]},"requestMethods":{"initialize":["initialize"]},"notificationMethods":[]}},"permissions":{"subprocess":{"allow":["fixture-engine"]}}});
+    raw["capabilities"]["agentRuntime"]["clientBridges"] = fixture;
+    let interrupt: Value =
+        serde_json::from_str(include_str!("fixtures/runtime/interrupt.json")).unwrap();
+    raw["capabilities"]["agentRuntime"]["interrupt"] = interrupt.clone();
+    raw["capabilities"]["agentRuntime"]["requestMethods"]["interrupt"] = json!(["session/cancel"]);
+    let manifest = PluginManifest::from_json_str(&raw.to_string()).unwrap();
+    manifest.validate_agent_runtime().unwrap();
+    let js = JsProvider::new(
+        manifest,
+        Arc::new(PluginVm::from_source("bridge-fixture", "module.exports = {};".into()).unwrap()),
+    );
+    assert_eq!(js.agent_runtime().unwrap().client_bridges, Some(native));
+    assert_eq!(
+        js.agent_runtime().unwrap().interrupt,
+        Some(serde_json::from_value::<RuntimeInterruptCapability>(interrupt).unwrap())
+    );
+}

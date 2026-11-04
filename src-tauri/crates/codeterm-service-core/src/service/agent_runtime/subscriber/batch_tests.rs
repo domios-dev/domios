@@ -298,3 +298,194 @@ async fn bookkeeping_resync_requests_ascending_history_and_lands_it_in_order() {
         [Some(HistoryOrder::Asc); 3]
     );
 }
+
+#[test]
+fn non_bridge_provider_native_named_request_keeps_existing_batch_behavior() {
+    crate::async_runtime::block_on(async {
+        let mut scene = fixtures::scene();
+        let frame = RuntimeFrame::Request {
+            request_id: RpcId::String("opaque-native-name".into()),
+            method: "fs/write_text_file".into(),
+            params: json!({"sessionId":"thread","path":"/outside","content":"opaque"}),
+        };
+        let (step, _) = run(&mut scene, vec![frame.clone()], false, false).await;
+        assert!(matches!(step, Step::Continue));
+        assert_eq!(*scene.probe.reduces.lock(), vec![vec![frame]]);
+        let response = fixtures::read(&mut scene.peer).await;
+        assert_eq!(response["error"]["code"], json!(-32601));
+        assert_eq!(
+            response["error"]["message"],
+            json!("Request not handled by host")
+        );
+        assert_eq!(*scene.session.hook_state.lock(), Value::Null);
+    });
+}
+
+#[test]
+fn native_request_reducer_failure_and_prompt_id_reuse_are_refused_before_service() {
+    for malicious in [false, true] {
+        crate::async_runtime::block_on(async {
+            let mut scene = fixtures::scene();
+            scene.probe.bridges.store(true, Ordering::SeqCst);
+            scene.probe.native_prompt.store(malicious, Ordering::SeqCst);
+            if !malicious {
+                scene.probe.fail_next.store(1, Ordering::SeqCst);
+            }
+            let frame = RuntimeFrame::Request {
+                request_id: RpcId::String("native-only".into()),
+                method: "fs/write_text_file".into(),
+                params: json!({"sessionId":"thread","path":"/outside","content":"opaque"}),
+            };
+            let (_step, frames) = run(&mut scene, vec![frame], false, true).await;
+            assert!(frames
+                .iter()
+                .any(|frame| frame["id"] == "native-only" && frame["error"]["code"] == -32602));
+            let tab = scene.session.context.lock().tab_id.clone();
+            assert!(scene
+                .fixture
+                .service
+                .mux
+                .read()
+                .get_tab(&tab)
+                .unwrap()
+                .pending_prompt
+                .is_none());
+            assert!(scene.session.prompts.lock().is_empty());
+        });
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn native_first_request_starts_provider_turn_before_approval_and_commits() {
+    use crate::agent::provider::AgentProvider;
+    use codeterm_plugin::js_runtime::{JsProvider, PluginManifest, PluginVm};
+    crate::async_runtime::block_on(async {
+        let mut scene = fixtures::scene();
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().canonicalize().unwrap();
+        let mut context = scene.session.context.lock().clone();
+        context.cwd = root.to_string_lossy().into_owned();
+        assert!(context.active_turn_id.is_none());
+        let plugin =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../plugins/provider-acp");
+        let mut raw: Value =
+            serde_json::from_str(&std::fs::read_to_string(plugin.join("plugin.json")).unwrap())
+                .unwrap();
+        raw["id"] = json!(scene.session.provider);
+        let adapter = JsProvider::new(
+            PluginManifest::from_json_str(&raw.to_string()).unwrap(),
+            Arc::new(
+                PluginVm::from_source(
+                    &scene.session.provider,
+                    std::fs::read_to_string(plugin.join("plugin.js")).unwrap(),
+                )
+                .unwrap(),
+            ),
+        );
+        let unbound = RuntimeContext {
+            thread_id: None,
+            ..context.clone()
+        };
+        let init = adapter
+            .runtime_plan(&unbound, &RuntimeOperation::Initialize)
+            .await
+            .unwrap();
+        adapter
+            .runtime_response(
+                &unbound,
+                &RuntimeOperation::Initialize,
+                &init.state,
+                &RpcReply::Success {
+                    value: json!({"protocolVersion":1,"agentCapabilities":{},"authMethods":[]}),
+                },
+            )
+            .await
+            .unwrap();
+        let open = RuntimeOperation::OpenThread {
+            instructions: String::new(),
+            settings: Default::default(),
+        };
+        let planned = adapter.runtime_plan(&unbound, &open).await.unwrap();
+        adapter
+            .runtime_response(
+                &unbound,
+                &open,
+                &planned.state,
+                &RpcReply::Success {
+                    value: json!({"sessionId":"thread"}),
+                },
+            )
+            .await
+            .unwrap();
+        adapter
+            .runtime_plan(
+                &context,
+                &RuntimeOperation::SubmitTurn {
+                    thread_id: "thread".into(),
+                    active_turn_id: None,
+                    send_id: "first-request-send".into(),
+                    input: TurnInput {
+                        text: "opaque".into(),
+                        attachments: Vec::new(),
+                    },
+                    settings: Default::default(),
+                },
+            )
+            .await
+            .unwrap();
+        let declared = adapter.agent_runtime().unwrap().client_bridges;
+        scene
+            .fixture
+            .service
+            .agent_registry
+            .register_provider(Box::new(adapter));
+        *scene.session.adapter.lock() = scene
+            .fixture
+            .service
+            .agent_registry
+            .provider_arc(&scene.session.provider);
+        context.client_bridges = super::super::client_bridge::install(&context, declared).unwrap();
+        *scene.session.context.lock() = context.clone();
+        let frame = RuntimeFrame::Request {
+            request_id: RpcId::String("first-write".into()),
+            method: "fs/write_text_file".into(),
+            params: json!({"sessionId":"thread","path":root.join("file"),"content":"approved-first-request"}),
+        };
+        let (step, _) = run(&mut scene, vec![frame], false, false).await;
+        assert!(matches!(step, Step::Continue));
+        assert_eq!(
+            scene.session.context.lock().active_turn_id.as_deref(),
+            Some("thread:turn:1")
+        );
+        assert!(!root.join("file").exists());
+        assert!(scene
+            .session
+            .prompts
+            .lock()
+            .get(&RpcId::String("first-write".into()))
+            .unwrap()
+            .prompt
+            .is_some());
+        let process = scene.session.process.lock().clone().unwrap();
+        super::super::client_bridge::answer(
+            &scene.fixture.service,
+            &scene.session,
+            &process,
+            &RpcId::String("first-write".into()),
+            &PromptAnswer::Choice {
+                values: vec!["allow_once".into()],
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            std::fs::read_to_string(root.join("file")).unwrap(),
+            "approved-first-request"
+        );
+        assert_eq!(fixtures::read(&mut scene.peer).await["result"], json!({}));
+        super::super::client_bridge::cancel(&scene.fixture.service, &scene.session, &process, true)
+            .await
+            .unwrap();
+    });
+}

@@ -45,7 +45,9 @@ export type RuntimeFailureCode =
   | "method_not_allowed" | "binding_mismatch" | "deadline"
   | "authentication_required" | "process_unavailable" | "protocol_error" | "provider_refused" | "thread_not_found";
 export interface RuntimeFailure { code:RuntimeFailureCode; message:string }
+export interface RuntimeClientBridges {fsRead:boolean; fsWrite:boolean; terminal:boolean}
 export interface RuntimeContext {
+  clientBridges?:RuntimeClientBridges;
   restrictedCli?:RestrictedCliPolicy;
   epoch:number;
   cwd:string;
@@ -144,6 +146,8 @@ export interface RuntimeLaunchProfile {
   ownerConfigured?:boolean;
 }
 export interface StdioAgentRuntimeCapability {
+  interrupt?:{beforeFirstTurn:boolean};
+  clientBridges?:RuntimeClientBridges;
   launchProfiles?:Readonly<Record<string,RuntimeLaunchProfile>>;
   restrictedCli?:{kind:"execpolicy-service-operations";metadataDirectory:string};
   runtimeModes?:readonly {id:string; displayName:string}[];

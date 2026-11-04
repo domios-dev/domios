@@ -9,6 +9,8 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, DuplexStream};
 #[derive(Default)]
 pub(super) struct Probe {
     pub reduces: Mutex<Vec<Vec<RuntimeFrame>>>,
+    pub bridges: std::sync::atomic::AtomicBool,
+    pub native_prompt: std::sync::atomic::AtomicBool,
     pub fail_next: std::sync::atomic::AtomicU32,
     pub reduce_failures: std::sync::atomic::AtomicU32,
     pub history: Mutex<Vec<String>>,
@@ -87,6 +89,16 @@ impl AgentProvider for Adapter {
     }
     fn agent_runtime(&self) -> Option<AgentRuntimeCapability> {
         Some(AgentRuntimeCapability {
+            interrupt: None,
+            client_bridges: self
+                .0
+                .bridges
+                .load(std::sync::atomic::Ordering::SeqCst)
+                .then_some(RuntimeClientBridges {
+                    fs_read: true,
+                    fs_write: true,
+                    terminal: true,
+                }),
             launch_profiles: None,
             restricted_cli: None,
             runtime_modes: Vec::new(),
@@ -176,7 +188,7 @@ impl AgentProvider for Adapter {
     }
     async fn runtime_reduce(
         &self,
-        _: &RuntimeContext,
+        ctx: &RuntimeContext,
         _: &Value,
         frames: &[RuntimeFrame],
     ) -> Result<RuntimeReduction, codeterm_plugin::agent_runtime::RuntimeFailure> {
@@ -195,7 +207,11 @@ impl AgentProvider for Adapter {
         }
         Ok(RuntimeReduction {
             state: Value::Null,
-            events: Vec::new(),
+            events: if self.0.native_prompt.load(Ordering::SeqCst) {
+                frames.iter().filter_map(|frame| match frame {RuntimeFrame::Request {request_id,..} => Some(AgentRuntimeEvent::Prompt {thread_id:ctx.thread_id.clone().unwrap(),request_id:request_id.clone(),prompt:serde_json::from_value(json!({"question":"opaque","options":[{"label":"Allow","value":"yes"}]})).unwrap()}),_ => None}).collect()
+            } else {
+                Vec::new()
+            },
         })
     }
 }
@@ -272,6 +288,7 @@ pub(super) fn scene() -> Scene {
         provider_operation_failures: std::sync::atomic::AtomicU32::new(0),
         bookkeeping_warning_emitted: std::sync::atomic::AtomicBool::new(false),
         prompts: Mutex::new(HashMap::new()),
+        prompts_cancelled: std::sync::atomic::AtomicBool::new(false),
         process: crate::service::agent_runtime::process_slot::ProcessSlot::new(Some(process)),
         gate: tokio::sync::Semaphore::new(1),
         initialization: Default::default(),

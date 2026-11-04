@@ -71,7 +71,10 @@ module.exports = {
       result = {kind:'turnAccepted',threadId:op.threadId,sendId:op.sendId,turnId:'restored-turn'};
       events = [{kind:'controlsConfirmed',threadId:op.threadId,settings:reply.value.params.settings}];
     }
-    if (op.kind === 'interrupt') events = [{kind:'turnState',threadId:op.threadId,turnId:op.activeTurnId,state:'idle'}];
+    if (op.kind === 'interrupt') {
+      events = [{kind:'turnState',threadId:op.threadId,turnId:op.activeTurnId,state:'idle'}];
+      if (ctx.providerSettings && ctx.providerSettings.interruptProbe) events.push({kind:'controlsConfirmed',threadId:op.threadId,settings:{effort:'high'}});
+    }
     if (op.kind === 'control') {
       if (op.value.model === 'refuse') return {kind:'refused',reason:{code:'provider_refused',message:'settings refused'}};
       if (op.value.serviceTier === undefined) events = [{kind:'controlsConfirmed',threadId:op.threadId,settings:op.value}];
@@ -105,6 +108,10 @@ impl Drop for RuntimeFixture {
 }
 
 pub(super) fn runtime_fixture() -> (RuntimeFixture, String) {
+    runtime_fixture_with_interrupt(false)
+}
+
+pub(super) fn runtime_fixture_with_interrupt(before_first: bool) -> (RuntimeFixture, String) {
     let (mut mux, id) = MultiplexerState::new();
     let tab = mux.get_tab_mut(&id).unwrap();
     tab.agent_type = Some(PROVIDER.into());
@@ -149,7 +156,7 @@ pub(super) fn runtime_fixture() -> (RuntimeFixture, String) {
         "id":PROVIDER,"version":"1.0.0","displayName":"Fixture",
         "reasoningEfforts":[{"id":"low","displayName":"Low"},{"id":"high","displayName":"High"}],
         "capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},
-            "agentRuntime":{"runtimeModes":[{"id":"approval-required","displayName":"Approval required"},{"id":"auto-accept-edits","displayName":"Auto accept edits"},{"id":"auto","displayName":"Auto"},{"id":"full-access","displayName":"Full access"}],"serviceTiers":[{"id":"priority","name":"Fast","description":""}],"runtime":"stdio-jsonrpc","command":{"binary":"node","args":[format!("{}/../../../tests/fixtures/agent-runtime/fake-peer.mjs",crate::test_support::fixture_manifest_dir().display())]},"requestMethods":methods,"notificationMethods":["fixture/settings/updated"]}},
+            "agentRuntime":{"interrupt":if before_first {json!({"beforeFirstTurn":true})} else {serde_json::Value::Null},"runtimeModes":[{"id":"approval-required","displayName":"Approval required"},{"id":"auto-accept-edits","displayName":"Auto accept edits"},{"id":"auto","displayName":"Auto"},{"id":"full-access","displayName":"Full access"}],"serviceTiers":[{"id":"priority","name":"Fast","description":""}],"runtime":"stdio-jsonrpc","command":{"binary":"node","args":[format!("{}/../../../tests/fixtures/agent-runtime/fake-peer.mjs",crate::test_support::fixture_manifest_dir().display())]},"requestMethods":methods,"notificationMethods":["fixture/settings/updated"]}},
         "permissions":{"subprocess":{"allow":["node"]}}
     }).to_string()).unwrap();
     fixture

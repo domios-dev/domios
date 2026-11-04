@@ -179,6 +179,8 @@ impl AgentProvider for StoredRuntimeProvider {
     }
     fn agent_runtime(&self) -> Option<AgentRuntimeCapability> {
         Some(AgentRuntimeCapability {
+            interrupt: None,
+            client_bridges: None,
             launch_profiles: None,
             restricted_cli: None,
             runtime_modes: Vec::new(),
