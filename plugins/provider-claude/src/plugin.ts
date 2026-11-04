@@ -1,3 +1,4 @@
+import { readIntegrationSettings } from "./integrationSettings";
 import { ioFileTransaction } from "@codeterm/plugin-sdk";
 import { defineProviderIo, type IoExports } from "@codeterm/plugin-sdk";
 import { ioValue, type HostIoSteps } from "@codeterm/plugin-sdk";
@@ -703,30 +704,15 @@ const plugin = {
     const path = host.expandHome((m && m.integration && m.integration.settingsPath)
       || "~/.claude/settings.json");
     if (!path || !(yield* ioValue<boolean>({ op: "fileExists", path: path }))) return { ok: true };
+    const preflight = yield* readIntegrationSettings(path);
+    if (!preflight.ok) return preflight;
+    if (preflight.settings.hooks === undefined) return { ok: true };
     return yield* ioFileTransaction(host.io.fs, [path + ".codeterm-integration.lock"], function* () {
-    const original = (yield* host.io.fs.readFile(path));
-    if (typeof original !== "string") return { ok: false, error: "could not safely read settings JSON at " + path };
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(original);
-    } catch (_) {
-      return { ok: false, error: "existing settings JSON is malformed at " + path };
-    }
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return { ok: false, error: "existing settings JSON must contain an object at " + path };
-    }
-    const json = parsed as ClaudeSettings;
+    const current = yield* readIntegrationSettings(path);
+    if (!current.ok) return current;
+    const json = current.settings;
     if (json.hooks === undefined) return { ok: true };
-    if (!json.hooks || typeof json.hooks !== "object" || Array.isArray(json.hooks)) {
-      return { ok: false, error: "hooks is not an object" };
-    }
     const keys = INTEGRATION_HOOK_KEYS;
-    for (let i = 0; i < keys.length; i++) {
-      const k = keys[i];
-      if (json.hooks[k] !== undefined && !Array.isArray(json.hooks[k])) {
-        return { ok: false, error: "hooks." + k + " is not an array" };
-      }
-    }
     for (let i = 0; i < keys.length; i++) {
       const k = keys[i];
       if (Array.isArray(json.hooks[k])) {

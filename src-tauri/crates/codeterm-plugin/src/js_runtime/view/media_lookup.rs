@@ -23,7 +23,7 @@ pub(super) async fn lookup(
 ) -> Result<MediaFile, ViewError> {
     let _lifetime = LookupLifetime(cancellation.clone());
     let observer = codeterm_decision::physical::current();
-    tokio::task::spawn_blocking(move || {
+    crate::js_runtime::vm::spawn_blocking(move || {
         let _scope = observer.map(codeterm_decision::physical::RequestScope::enter);
         run(&vm, &plugin, &id, &context, cancellation, deadline)
     })
@@ -71,7 +71,7 @@ pub(super) async fn lookup_run(
         .ok_or_else(|| {
             ViewError::Call("durable media lookup requires observation-only scope".into())
         })?;
-    tokio::task::spawn_blocking(move || {
+    crate::js_runtime::vm::spawn_blocking(move || {
         let _scope = codeterm_decision::physical::RequestScope::enter(observer);
         run_durable(&vm, &plugin, &id, &context, cancellation, deadline)
     })

@@ -151,7 +151,7 @@ impl ViewProvider for JsViewProvider {
         let plugin = self.id.clone();
         let context = serde_json::to_value(context)
             .map_err(|_| ViewError::Call("invalid view context".into()))?;
-        tokio::task::spawn_blocking(move || {
+        crate::js_runtime::vm::spawn_blocking(move || {
             crate::view_host::with_view_call_context(&plugin, &invocation, || {
                 let result = call_json::<Value>(
                     &vm,

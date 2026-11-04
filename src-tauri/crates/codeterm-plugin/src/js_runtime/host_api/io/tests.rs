@@ -17,6 +17,7 @@ module.exports = {
   remembered(request) { rememberedJob = JSON.parse(host.ioStart(JSON.stringify(request))).jobId; return host.awaitJob(rememberedJob, function() { return "owned"; }); },
   steal() { return host.awaitJob(rememberedJob, function() { return "stolen"; }); },
   range(path) { return host.io.run((function*() { try { yield* host.io.fs.readFileHead(path, 2097152); } catch(error) { return error instanceof RangeError; } return false; })()); },
+  tail(path, bytes) { return host.io.run((function*() { try { return yield* host.io.fs.readFileTail(path, bytes); } catch(error) { return {range:error instanceof RangeError}; } })()); },
   query(db, sql) { return host.io({op:"sqliteQuery",db:db,sql:sql,params:[]}, function(rows) { return rows; }); },
   nullableQuery(db, sql) { return host.io({op:"sqliteQuery",db:db,sql:sql,params:[],nullable:true}, function(rows) { return rows; }); },
   generatorCallback(path) { return host.io({op:"readFile",path:path}, function*(text) {
@@ -263,6 +264,45 @@ fn current_thread_runtime_refuses_synchronous_dispatch_before_starting_native_wo
         ));
     });
     assert_eq!(call_json::<String>(&vm, "health", &[]).unwrap(), "healthy");
+}
+
+#[tokio::test]
+async fn current_thread_runtime_allows_owned_blocking_dispatch() {
+    let vm = vm("io-owned-worker", None);
+    let worker_vm = vm.clone();
+    let value = crate::js_runtime::vm::spawn_blocking(move || {
+        call_json::<String>(&worker_vm, "health", &[])
+    })
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(value, "healthy");
+    assert!(matches!(
+        call_json::<String>(&vm, "health", &[]),
+        Err(VmError::OffRuntimeRequired)
+    ));
+}
+
+#[test]
+fn bounded_tail_reads_keep_their_own_limit() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("transcript.jsonl");
+    let contents = "x".repeat(4 * 1024 * 1024);
+    std::fs::write(&path, &contents).unwrap();
+    let vm = vm("io-tail-bound", Some(root.path()));
+    assert_eq!(
+        call_json::<String>(&vm, "tail", &[json!(path), json!(contents.len())]).unwrap(),
+        contents
+    );
+    assert_eq!(
+        call_json::<Value>(&vm, "tail", &[json!(path), json!(contents.len() + 1)]).unwrap(),
+        json!({"range":true})
+    );
+    assert_eq!(
+        call_json::<Value>(&vm, "range", &[json!(path)]).unwrap(),
+        json!(true)
+    );
+    assert!(call_json::<Value>(&vm, "read", &[json!(path)]).is_err());
 }
 
 #[test]
