@@ -315,11 +315,16 @@ fn signal_provider_exhaustion_never_loads_unmatched_plans() {
     start(store);
 
     assert_eq!(
-        fx.service.signal_provider_exhaustion("fixture-provider-a"),
+        fx.service
+            .signal_provider_exhaustion("fixture-provider-a")
+            .unwrap(),
         0,
         "no task names an interruption owner"
     );
-    assert!(store.plan_loads_for_test().contains(&exhausted));
+    assert!(
+        store.plan_loads_for_test().is_empty(),
+        "exhaustion must select {exhausted} without loading a Plan"
+    );
     assert_never_loaded(store, &[&fine]);
 }
 
@@ -349,11 +354,16 @@ fn signal_provider_recovery_never_loads_unmatched_plans() {
     start(store);
 
     assert_eq!(
-        fx.service.signal_provider_recovery("fixture-provider-a"),
+        fx.service
+            .signal_provider_recovery("fixture-provider-a")
+            .unwrap(),
         0,
         "another provider paused it"
     );
-    assert_eq!(store.plan_loads_for_test(), vec![paused]);
+    assert!(
+        store.plan_loads_for_test().is_empty(),
+        "recovery must select {paused} without loading a Plan"
+    );
     assert_never_loaded(store, &[&running]);
 }
 
@@ -381,10 +391,14 @@ fn signal_worker_interruption_never_loads_unmatched_plans() {
 
     assert!(
         !fx.service
-            .signal_worker_interruption("worker-a", WorkerInterruptionEvent::ProviderExhausted),
+            .signal_worker_interruption("worker-a", WorkerInterruptionEvent::ProviderExhausted)
+            .unwrap(),
         "an owner without a session cannot be checkpointed"
     );
-    assert_eq!(store.plan_loads_for_test(), vec![owned]);
+    assert!(
+        store.plan_loads_for_test().is_empty(),
+        "interruption must select {owned} without loading a Plan"
+    );
     assert_never_loaded(store, &[&other]);
 }
 

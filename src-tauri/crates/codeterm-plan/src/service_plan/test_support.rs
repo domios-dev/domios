@@ -6,6 +6,12 @@ use super::ports::{PlanIndexHit, PlanIndexQuery, PlanSearchPort};
 
 static TEST_DATA_DIR: OnceLock<tempfile::TempDir> = OnceLock::new();
 
+impl super::PlanStore {
+    pub fn with_database_held_for_test<T>(&self, work: impl FnOnce() -> T) -> T {
+        self.database.with_connection_held_for_test(work)
+    }
+}
+
 pub(super) fn seed_plan_database(path: &Path) {
     use std::io::Write;
 
