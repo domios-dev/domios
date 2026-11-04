@@ -170,8 +170,8 @@ fn scenario_paths(dir: &Path) -> Vec<PathBuf> {
     paths.sort();
     paths
 }
-fn fixtures(dir: &Path) -> Vec<(PathBuf, Fixture)> {
-    fixtures_with_load(dir, false)
+fn fixtures(inputs: &FixturePaths) -> Vec<(PathBuf, Fixture)> {
+    fixtures_with_load(inputs, false)
 }
 
 fn load_fixture(path: &Path) -> Fixture {
@@ -183,9 +183,32 @@ fn load_fixture(path: &Path) -> Fixture {
 }
 
 // captured/load holds rate-measurement recordings: same frame kinds at larger volume, so only benchmarks replay them.
-fn fixtures_with_load(dir: &Path, load: bool) -> Vec<(PathBuf, Fixture)> {
+fn fixtures_with_load(inputs: &FixturePaths, load: bool) -> Vec<(PathBuf, Fixture)> {
+    let dir = &inputs.dir;
     let mut paths = scenario_paths(dir);
-    assert!(!paths.is_empty(), "runtime replay must select scenarios");
+    let declaration: Value =
+        serde_json::from_str(&std::fs::read_to_string(&inputs.declaration).unwrap()).unwrap();
+    let mut expected: Vec<String> = serde_json::from_value(declaration["scenarios"].clone())
+        .expect("bundle must declare its root runtime scenarios");
+    assert!(
+        !expected.is_empty(),
+        "runtime replay must declare scenarios"
+    );
+    expected.sort();
+    assert!(
+        !expected.windows(2).any(|pair| pair[0] == pair[1]),
+        "runtime scenario declarations must be unique"
+    );
+    let discovered: Vec<_> = paths
+        .iter()
+        .map(|path| path.file_name().unwrap().to_str().unwrap().to_owned())
+        .collect();
+    assert_eq!(
+        discovered,
+        expected,
+        "{} runtime scenario inventory",
+        inputs.declaration.display()
+    );
     let captures = dir.join("captured");
     if captures.exists() {
         paths.extend(scenario_paths(&captures));
@@ -388,7 +411,7 @@ async fn replay(
 async fn runtime_shared_provider_fixture_replay() {
     for paths in paths() {
         let provider = load_provider(&paths.manifest, &paths.declaration);
-        for (path, fixture) in fixtures(&paths.dir) {
+        for (path, fixture) in fixtures(&paths) {
             let (results, events) = replay(&provider, &fixture).await;
             assert_eq!(
                 results,
@@ -421,7 +444,7 @@ async fn runtime_quickjs_frame_mapping_benchmark() {
 }
 
 async fn benchmark(paths: &FixturePaths) {
-    let fixtures = fixtures_with_load(&paths.dir, true);
+    let fixtures = fixtures_with_load(paths, true);
     let (rate, peak) = observed_rates(&fixtures);
     let provider = load_provider(&paths.manifest, &paths.declaration);
     let mut batches = Vec::new();

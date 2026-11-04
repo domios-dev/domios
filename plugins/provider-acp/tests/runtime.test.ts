@@ -12,17 +12,22 @@ interface Fixture {
     | {direction:"inbound"; frame:RuntimeFrame; context?:RuntimeContext})[];
   expected:{results:{operation:number; step:RuntimeStep}[]; events:AgentEvent[]; planErrors?:{operation:number; code:string}[]};
 }
-const sandbox = vm.createContext({module:{exports:{}}, exports:{}, host:new Proxy({}, {get:()=>{throw new Error("Runtime accessed host");}})});
-sandbox.exports = sandbox.module.exports;
-vm.runInContext(fs.readFileSync(new URL("../plugin.js", import.meta.url), "utf8"), sandbox);
-const hooks = sandbox.module.exports.default as AgentRuntime;
+function loadHooks():AgentRuntime {
+  const sandbox = vm.createContext({module:{exports:{}}, exports:{}, host:new Proxy({}, {get:()=>{throw new Error("Runtime accessed host");}})});
+  sandbox.exports = sandbox.module.exports;
+  vm.runInContext(fs.readFileSync(new URL("../plugin.js", import.meta.url), "utf8"), sandbox);
+  return sandbox.module.exports.default as AgentRuntime;
+}
+const hooks = loadHooks();
 const plain = <T>(value:T):T => JSON.parse(JSON.stringify(value));
-const descriptor = JSON.parse(fs.readFileSync(new URL("./runtime-manifest.json",import.meta.url),"utf8")) as {agentRuntime:StdioAgentRuntimeCapability};
+const descriptor = JSON.parse(fs.readFileSync(new URL("./runtime-manifest.json",import.meta.url),"utf8")) as {agentRuntime:StdioAgentRuntimeCapability; scenarios:string[]};
 const declaration = JSON.parse(fs.readFileSync(new URL("../plugin.json",import.meta.url),"utf8"));
 assert.deepEqual(descriptor.agentRuntime, declaration.capabilities.agentRuntime);
 const root = new URL("./fixtures/runtime/",import.meta.url);
 const names = fs.readdirSync(root).filter(name=>name.endsWith(".json")).sort();
-assert.ok(names.length >= 7);
+assert.ok(descriptor.scenarios.length > 0);
+assert.equal(new Set(descriptor.scenarios).size,descriptor.scenarios.length);
+assert.deepEqual(names,[...descriptor.scenarios].sort());
 for (const name of names) {
   const fixture:Fixture = JSON.parse(fs.readFileSync(new URL(name,root),"utf8"));
   assert.equal(fixture.schemaVersion,1);
@@ -89,4 +94,31 @@ for (const resume of [false, true, null, "unsupported"]) {
   assert.throws(()=>hooks.runtimePlan(context,{kind:"resumeThread",threadId:"saved",instructions:"",settings:{}}),error=>(error as {code:string}).code === "provider_refused");
 }
 assert.throws(()=>hooks.runtimePlan(bound,{...submit,input:{text:"hello",attachments:[{id:"image",mimeType:"image/png",path:"/work/image.png"}]}}));
+const cancel:Operation = {kind:"interrupt",threadId:"own",activeTurnId:"turn"};
+assert.throws(()=>hooks.runtimePlan({...bound,activeTurnId:"turn",activeTurns:[{threadId:"foreign",turnId:"turn"}]},cancel),error=>(error as {code:string}).code === "binding_mismatch");
+assert.throws(()=>hooks.runtimePlan(bound,cancel),error=>(error as {code:string}).code === "binding_mismatch");
+const cache = loadHooks();
+const cachedContexts:RuntimeContext[] = [];
+function initializeCached(context:RuntimeContext):void {
+  const plan = cache.runtimePlan(context,init);
+  const step = cache.runtimeResponse(context,init,plan.state,{kind:"success",value:{protocolVersion:1,agentCapabilities:{},authMethods:[]}});
+  assert.equal(step.kind,"complete");
+}
+const fresh:Operation = {kind:"openThread",instructions:"",settings:{}};
+for (let index=0;index<257;index++) {
+  const context = {...ctx,tabId:`cache-tab-${index}`};
+  cachedContexts.push(context);
+  if (index === 256) cache.runtimePlan(cachedContexts[0],fresh);
+  initializeCached(context);
+}
+assert.throws(()=>cache.runtimePlan(cachedContexts[1],fresh),error=>(error as {code:string}).code === "protocol_error");
+cache.runtimePlan(cachedContexts[0],fresh);
+const replacement = {...cachedContexts[256],epoch:2,bindingNonce:"replacement"};
+initializeCached(replacement);
+assert.throws(()=>cache.runtimePlan(cachedContexts[256],fresh),error=>(error as {code:string}).code === "protocol_error");
+cache.runtimePlan(replacement,fresh);
+cache.runtimePlan(cachedContexts[2],fresh);
+for (let index=257;index<520;index++) initializeCached({...ctx,tabId:`cache-tab-${index}`});
+assert.throws(()=>cache.runtimePlan(cachedContexts[0],fresh),error=>(error as {code:string}).code === "protocol_error");
+console.log("✓ ACP cache eviction, same-tab epoch replacement and active-turn cancel authority");
 console.log(`ACP lifecycle: ${names.length} fixture scenarios and binding regressions passed`);

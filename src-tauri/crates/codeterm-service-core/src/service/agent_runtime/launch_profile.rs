@@ -4,7 +4,10 @@ use codeterm_plugin::{
     provider::AgentProvider,
 };
 use serde_json::Value;
-use std::{collections::BTreeMap, path::PathBuf};
+use std::{
+    collections::{BTreeMap, HashMap},
+    path::PathBuf,
+};
 
 pub(super) struct ResolvedLaunch {
     pub binary: PathBuf,
@@ -15,6 +18,15 @@ pub(super) struct ResolvedLaunch {
 }
 
 impl ResolvedLaunch {
+    pub(super) fn apply_environment(
+        &self,
+        env: &mut HashMap<String, String>,
+        sandbox: BTreeMap<String, String>,
+    ) {
+        env.extend(self.env.clone());
+        env.extend(sandbox);
+    }
+
     pub(super) fn verifies(&self, svc: &crate::service::ServiceContext, tab: &str) -> bool {
         let mux = svc.mux.read();
         mux.get_tab(tab).is_some_and(|target| {

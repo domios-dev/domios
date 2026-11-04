@@ -34,5 +34,14 @@
     "spawnable": true,
     "sessionConfig": true,
     "agentTasks": true
-  }
+  },
+  "scenarios": [
+    "cancel.json",
+    "foreign-session-frame.json",
+    "initialize-new-prompt.json",
+    "load-when-advertised.json",
+    "resume-not-advertised.json",
+    "resume-when-advertised.json",
+    "unsupported-version.json"
+  ]
 }

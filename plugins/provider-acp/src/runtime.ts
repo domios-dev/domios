@@ -30,7 +30,20 @@ function negotiated(ctx:RuntimeContext):Negotiation {
   const state = epochs.get(ctx.tabId);
   if (!state || state.epoch !== ctx.epoch || state.nonce !== ctx.bindingNonce)
     fail("protocol_error", "ACP initialization is required for this runtime epoch");
+  touch(ctx.tabId, state);
   return state;
+}
+function touch(tabId:string, state:Negotiation):void {
+  epochs.delete(tabId);
+  epochs.set(tabId,state);
+}
+function remember(ctx:RuntimeContext, state:Negotiation):void {
+  epochs.delete(ctx.tabId);
+  if (epochs.size >= 256) {
+    const oldest = epochs.keys().next();
+    if (!oldest.done) epochs.delete(oldest.value);
+  }
+  epochs.set(ctx.tabId,state);
 }
 function request(method:string, params:JsonValue):RuntimePlan {
   return {action:{kind:"request", call:{method, params}}, state:{method}};
@@ -69,8 +82,13 @@ export function runtimePlan(ctx:RuntimeContext, op:Operation):RuntimePlan {
       prompt.push({type:"text", text:op.input.text});
       return request(methods.prompt, {sessionId, prompt});
     }
-    case "interrupt":
-      return {action:{kind:"notification", notification:{method:methods.cancel, params:{sessionId:ownSession(ctx, state)}}}, state:{method:methods.cancel}};
+    case "interrupt": {
+      const sessionId = ownSession(ctx, state);
+      const turnId = op.activeTurnId ?? ctx.activeTurnId;
+      if (!turnId || !ctx.activeTurns.some(turn=>turn.threadId === sessionId && turn.turnId === turnId))
+        fail("binding_mismatch", "ACP cancel requires this tab's exact active turn");
+      return {action:{kind:"notification", notification:{method:methods.cancel, params:{sessionId}, target:{threadId:sessionId, turnId}}}, state:{method:methods.cancel}};
+    }
     default: fail("unsupported", `ACP operation is unavailable: ${op.kind}`);
   }
 }
@@ -88,8 +106,7 @@ export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue,
     if (value.agentCapabilities !== undefined && !record(value.agentCapabilities)
       || value.authMethods !== undefined && !Array.isArray(value.authMethods))
       return refused("protocol_error", "Invalid ACP initialization response");
-    if (epochs.size >= 256) fail("size_limit", "ACP runtime epoch capacity exceeded");
-    epochs.set(ctx.tabId, {epoch:ctx.epoch, nonce:ctx.bindingNonce,
+    remember(ctx, {epoch:ctx.epoch, nonce:ctx.bindingNonce,
       capabilities:object(value.agentCapabilities), authMethods:Array.isArray(value.authMethods) ? value.authMethods : []});
     return {kind:"complete", result:{kind:"initialized"}};
   }
@@ -128,6 +145,7 @@ export function runtimeReduce(ctx:RuntimeContext, raw:JsonValue, frames:readonly
     const params = object(frame.params);
     if (!ctx.threadId || params.sessionId !== ctx.threadId || !state
       || state.epoch !== ctx.epoch || state.nonce !== ctx.bindingNonce || state.sessionId !== ctx.threadId) continue;
+    touch(ctx.tabId, state);
     const update = object(params.update);
     if (update.sessionUpdate === "agent_message_chunk") events.push({kind:"turnState", threadId:ctx.threadId, state:"working"});
   }
