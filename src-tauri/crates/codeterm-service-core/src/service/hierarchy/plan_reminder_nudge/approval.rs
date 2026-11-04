@@ -4,7 +4,7 @@ use crate::multiplexer::types::Tab;
 use crate::service::hierarchy::heartbeat_gate::{
     self, Claim, Decision, Gate, Observation, ReminderKind, Scope, Snapshot, TickFact,
 };
-use codeterm_plan::service_plan::ReminderPlanRead as Plan;
+use codeterm_plan::service_plan::{ReminderAdmissionRead as Plan, ReminderCandidateRead};
 
 use super::non_empty;
 use super::BlockedNotice;
@@ -87,7 +87,11 @@ pub(crate) trait ReminderHost {
     fn journal_runtime(&self) -> std::sync::Arc<crate::service::supporter::SupporterRuntime>;
     fn interval(&self) -> u64;
     fn plan(&self, plan_id: &str) -> Result<Option<Plan>, String>;
-    fn with_plans<R>(&self, read: impl FnOnce(&[Plan]) -> R) -> Result<R, String>;
+    fn worker_bindings(
+        &self,
+        tab: &str,
+        known_plan: Option<&str>,
+    ) -> Result<WorkerBindingRead, String>;
     fn recipient(&self, tab_id: &str) -> Option<Recipient>;
     fn observe_owner(
         &self,
@@ -125,16 +129,18 @@ pub(crate) fn scope_key(plan_id: &str, tab_id: &str) -> String {
 }
 
 /// Every scope a current candidate plan can produce; the gate keeps no others.
-pub(crate) fn scope_keys(plans: &[Plan]) -> HashSet<String> {
+pub(crate) fn scope_keys(plans: &[ReminderCandidateRead]) -> HashSet<String> {
     plans
         .iter()
         .flat_map(|plan| {
             non_empty(plan.owner_tab_id.as_deref())
                 .into_iter()
                 .chain(
-                    plan.tasks
-                        .iter()
-                        .filter_map(|task| non_empty(task.assigned_tab_id.as_deref())),
+                    plan.retained_scope_tabs
+                        .as_ref()
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|tab| non_empty(Some(tab))),
                 )
                 .map(|tab_id| scope_key(&plan.id, tab_id))
                 .collect::<Vec<_>>()
@@ -360,6 +366,7 @@ fn observe(
             .collect()
     } else {
         plan.actionable_task_ids()
+            .map_err(|error| error.to_string())?
     };
     Ok((snapshot, observation))
 }
@@ -443,23 +450,13 @@ fn resolve_worker(
     known_plan: Option<&str>,
 ) -> Result<(Plan, Scope), ResolveError> {
     let tab_id = request.tab_id.as_str();
-    let mut matches = match known_plan {
-        Some(plan_id) => worker_matches(
-            &host
-                .plan(plan_id)
-                .map_err(ResolveError::Read)?
-                .into_iter()
-                .collect::<Vec<_>>(),
-            tab_id,
-        ),
-        None => host
-            .with_plans(|plans| worker_matches(plans, tab_id))
-            .map_err(ResolveError::Read)?,
-    };
-    let (plan, task_id) = match (matches.pop(), matches.pop()) {
-        (Some(found), None) => found,
-        (None, _) => return Err("binding_missing".into()),
-        _ => return Err("binding_ambiguous".into()),
+    let (plan, task_id) = match host
+        .worker_bindings(tab_id, known_plan)
+        .map_err(ResolveError::Read)?
+    {
+        WorkerBindingRead::Bound { plan, task_id } => (*plan, task_id),
+        WorkerBindingRead::Missing => return Err("binding_missing".into()),
+        WorkerBindingRead::Ambiguous => return Err("binding_ambiguous".into()),
     };
     let plan = plan
         .with_worker_gate_facts(&task_id)
@@ -496,23 +493,6 @@ fn resolve_worker(
         lifecycle,
     )?;
     Ok((plan, scope))
-}
-
-fn worker_matches(plans: &[Plan], tab_id: &str) -> Vec<(Plan, String)> {
-    plans
-        .iter()
-        .flat_map(|plan| {
-            plan.tasks
-                .iter()
-                .filter(move |task| {
-                    non_empty(task.assigned_tab_id.as_deref()) == Some(tab_id)
-                        && super::worker_reminder_eligible(plan, task)
-                })
-                .map(move |task| (plan, task.id.clone()))
-        })
-        .take(2)
-        .map(|(plan, task_id)| (plan.clone(), task_id))
-        .collect()
 }
 
 fn owner_eligible(plan: &Plan, kind: ReminderKind) -> bool {
@@ -576,4 +556,10 @@ fn failed(
     host.gate().failed(claim.key());
     note_request_tick(host.gate(), request, now, TickFact::Failed);
     ReminderOutcome::Failed(error)
+}
+
+pub(crate) enum WorkerBindingRead {
+    Missing,
+    Ambiguous,
+    Bound { plan: Box<Plan>, task_id: String },
 }

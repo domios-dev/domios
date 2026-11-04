@@ -29,7 +29,9 @@ pub use store_db::read_projections::hierarchy_routing::{
 };
 pub use store_db::read_projections::launch_restore::{LaunchLaneRead, TabLaunchTaskRead};
 pub use store_db::read_projections::reminder::{
-    ReminderAttemptRead, ReminderPlanRead, ReminderReadSnapshot, ReminderTaskRead,
+    reminder_targets, ReminderAdmissionRead, ReminderAdmissionTaskRead, ReminderAttemptRead,
+    ReminderCandidateRead, ReminderCompositionRead, ReminderOwnerRowRead, ReminderPlanRead,
+    ReminderReadSnapshot, ReminderTargetRead, ReminderTaskRead, ReminderWorkerBindingRead,
 };
 pub use store_db::read_projections::runtime_identity::RuntimePlanIdentityRead;
 pub use store_db::read_projections::transfer_authority::TransferTaskAuthorityRead;

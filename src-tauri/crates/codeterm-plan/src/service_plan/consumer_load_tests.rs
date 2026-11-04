@@ -551,7 +551,7 @@ fn reminder_candidate_plans_never_loads_unmatched_plans() {
     let ids: Vec<_> = store
         .reminder_read_snapshot(str::to_string)
         .unwrap()
-        .candidates(None)
+        .candidate_targets(None)
         .unwrap()
         .into_iter()
         .map(|plan| plan.id)
@@ -560,7 +560,7 @@ fn reminder_candidate_plans_never_loads_unmatched_plans() {
     let for_tab: Vec<_> = store
         .reminder_read_snapshot(str::to_string)
         .unwrap()
-        .candidates(Some("w1"))
+        .candidate_targets(Some("w1"))
         .unwrap()
         .into_iter()
         .map(|plan| plan.id)

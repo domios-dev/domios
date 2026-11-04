@@ -38,7 +38,7 @@ fn original_state_key(plan: &Plan) -> String {
 }
 
 #[test]
-fn reminder_candidates_keep_decisions_and_digest_with_payload_independent_reads() {
+fn reminder_reference_keeps_decisions_and_digest_with_payload_independent_reads() {
     let mut baseline = None;
     for body in [0, 32768] {
         let directory = tempfile::tempdir().unwrap();
@@ -60,7 +60,7 @@ fn reminder_candidates_keep_decisions_and_digest_with_payload_independent_reads(
         let snapshot = database
             .reminder_read_snapshot(|text| text.chars().take(512).collect())
             .unwrap();
-        let candidates = snapshot.candidates(Some("owner")).unwrap();
+        let candidates = snapshot.candidate_reference(Some("owner")).unwrap();
         assert_eq!(candidates.len(), 1);
         let read = &candidates[0];
         assert_eq!(
@@ -100,7 +100,7 @@ fn reminder_candidates_keep_decisions_and_digest_with_payload_independent_reads(
         assert_eq!(serialized, 0);
         assert!(fixtures::audit_counts(&database).is_empty());
         let response = serde_json::to_vec(&candidates).unwrap().len();
-        println!("fixture={} consumers=reminder_candidate_facts,reminder_state_key tasks={} extra_body={body} queries={} materialized_text_bytes={} decoded_json_bytes={decoded} serialized_row_bytes={serialized} response_bytes={response} changed_rows=0",fixtures::SEED,fixtures::TASKS,metrics.queries,metrics.materialized_bytes);
+        println!("fixture={} consumers=reminder_reference_task_facts,reminder_reference_state_key tasks={} extra_body={body} queries={} materialized_text_bytes={} decoded_json_bytes={decoded} serialized_row_bytes={serialized} response_bytes={response} changed_rows=0",fixtures::SEED,fixtures::TASKS,metrics.queries,metrics.materialized_bytes);
         let measured = (metrics, decoded, response);
         if let Some(baseline) = &baseline {
             assert_eq!(&measured, baseline);
@@ -134,7 +134,7 @@ fn reminder_snapshot_is_pinned_and_sql_errors_remain_errors() {
         before.state_key_digest
     );
     assert!(new.plan("missing").unwrap().is_none());
-    assert!(new.candidates(Some(" \t ")).unwrap().is_empty());
+    assert!(new.candidate_reference(Some(" \t ")).unwrap().is_empty());
     drop(old);
     drop(new);
     database
@@ -146,5 +146,5 @@ fn reminder_snapshot_is_pinned_and_sql_errors_remain_errors() {
         .reminder_read_snapshot(|text| text.chars().take(512).collect())
         .unwrap();
     assert!(broken.plan(&plan.id).is_err());
-    assert!(broken.candidates(None).is_err());
+    assert!(broken.candidate_reference(None).is_err());
 }

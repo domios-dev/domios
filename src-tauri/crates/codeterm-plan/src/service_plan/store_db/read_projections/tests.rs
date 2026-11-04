@@ -33,6 +33,7 @@ mod reference_resolver_tests;
 mod related_tests;
 mod reminder_digest_tests;
 mod reminder_gate_tests;
+mod reminder_target_tests;
 mod reminder_tests;
 mod role_binding_tests;
 mod runtime_identity_tests;
