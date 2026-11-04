@@ -227,7 +227,7 @@ jobs:
       - name: Clear incomplete release uploads for retry
         if: ${{ !(github.event_name == 'workflow_dispatch' && github.workflow == 'Release Windows arm64 platform') && !inputs.dry_run }}
         env:
-          GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           MIRROR_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
           PUBLISH_MIRROR: ${{ inputs.mirror }}
           TAG: ${{ inputs.tag }}
@@ -235,6 +235,7 @@ jobs:
         shell: pwsh
         run: |
           node scripts/release-clear-wedged-assets.mjs "$env:SOURCE_REPO" "$env:TAG" "windows-aarch64"
+          # 1.19 transition mirror: delete after 1.19 ships.
           if ($env:PUBLISH_MIRROR -eq 'true') {
             $env:GH_TOKEN = $env:MIRROR_TOKEN
             node scripts/release-clear-wedged-assets.mjs rollacode/codeterm-releases "$env:TAG" "windows-aarch64"
@@ -271,7 +272,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.tag.outputs.name }}
           SOURCE_REPO: ${{ github.repository }}
-          MANIFEST_REPO: rollacode/codeterm-releases
+          MANIFEST_REPO: ${{ github.repository }}
           PLATFORM_KEY: windows-aarch64
         shell: pwsh
         run: |
@@ -290,8 +291,7 @@ jobs:
           # as the updater bundle; v1Compatible builds emit .nsis.zip. The .sig
           # is NOT uploaded — the updater reads its signature from domios-latest.json.
 
-          # Fragment URL points at the public MIRROR repo (where the asset is mirrored
-          # to and the updater fetches from), not the private source release.
+          # Fragment URL points at the public source release the updater fetches from.
           $ver = "$env:TAG" -replace '^v', ''
           $bname = Split-Path $bundle -Leaf
           $url = "https://github.com/$env:MANIFEST_REPO/releases/download/$env:TAG/$bname"
@@ -312,6 +312,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           gh release upload "$env:TAG" "$bundle" "$out" --clobber --repo "$env:SOURCE_REPO"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      # 1.19 transition mirror: delete after 1.19 ships.
       - name: Mirror to public release repo
         if: ${{ inputs.mirror && !(github.event_name == 'workflow_dispatch' && github.workflow == 'Release Windows arm64 platform') && !inputs.dry_run }}
         env:
@@ -339,6 +340,7 @@ jobs:
         run: |
           node scripts/release-headless-assets.mjs publish "${{ inputs.tag }}" "windows-aarch64" release-artifacts "${{ inputs.source_ref }}" "${{ github.repository }}"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      # 1.19 transition mirror: delete after 1.19 ships.
       - name: Publish and read back headless mirror assets
         if: ${{ inputs.mirror && !(github.event_name == 'workflow_dispatch' && github.workflow == 'Release Windows arm64 platform') && !inputs.dry_run }}
         shell: pwsh

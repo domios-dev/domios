@@ -14,8 +14,8 @@ name: Release Linux x86_64 platform
 # Disable: set repo Variable RELEASE_LINUX_ENABLED=false in
 # Settings -> Secrets and variables -> Actions -> Variables.
 #
-# Required secrets: TAURI_SIGNING_PRIVATE_KEY, PACKAGE_REPOS_TOKEN.
-# PACKAGE_REPOS_TOKEN must have contents:write for rollacode/codeterm-releases.
+# Required secrets: TAURI_SIGNING_PRIVATE_KEY; source writes use GITHUB_TOKEN.
+# 1.19 transition mirror: PACKAGE_REPOS_TOKEN needs contents:write for rollacode/codeterm-releases.
 # Optional secret:  TAURI_KEY_PASSWORD (only if the signing key is
 # encrypted — it evaluates to empty when unset).
 
@@ -186,7 +186,7 @@ jobs:
       - name: Clear incomplete release uploads for retry
         if: ${{ !(github.event_name == 'workflow_dispatch' && github.workflow == 'Release Linux x86_64 platform') && !inputs.dry_run }}
         env:
-          GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           MIRROR_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
           PUBLISH_MIRROR: ${{ inputs.mirror }}
           TAG: ${{ inputs.tag }}
@@ -194,6 +194,7 @@ jobs:
         shell: bash
         run: |
           node scripts/release-clear-wedged-assets.mjs "$SOURCE_REPO" "$TAG" linux-x86_64
+          # 1.19 transition mirror: delete after 1.19 ships.
           if [ "$PUBLISH_MIRROR" = true ]; then
             GH_TOKEN="$MIRROR_TOKEN" node scripts/release-clear-wedged-assets.mjs rollacode/codeterm-releases "$TAG" linux-x86_64
           fi
@@ -273,7 +274,7 @@ jobs:
       - name: Verify local updater signatures before uploads
         env:
           TAG: ${{ inputs.tag }}
-          REPO: rollacode/codeterm-releases
+          REPO: ${{ github.repository }}
           PLATFORM_KEY: linux-x86_64
         run: |
           set -euo pipefail
@@ -293,7 +294,7 @@ jobs:
       - name: Publish the Linux bundles
         if: ${{ !(github.event_name == 'workflow_dispatch' && github.workflow == 'Release Linux x86_64 platform') && !inputs.dry_run }}
         env:
-          GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.tag.outputs.name }}
           PRERELEASE: ${{ steps.channel.outputs.prerelease }}
           SOURCE_REPO: ${{ github.repository }}
@@ -323,7 +324,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.tag.outputs.name }}
           SOURCE_REPO: ${{ github.repository }}
-          MANIFEST_REPO: rollacode/codeterm-releases
+          MANIFEST_REPO: ${{ github.repository }}
           PLATFORM_KEY: linux-x86_64
         shell: bash
         run: |
@@ -363,7 +364,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.tag.outputs.name }}
           SOURCE_REPO: ${{ github.repository }}
-          MANIFEST_REPO: rollacode/codeterm-releases
+          MANIFEST_REPO: ${{ github.repository }}
           PLATFORM_KEY: linux-x86_64
         shell: bash
         run: |
@@ -382,6 +383,7 @@ jobs:
             python3 .github/workflows/build-updater-fragment.py
           gh release upload "$TAG" "$OUT" --clobber --repo "$SOURCE_REPO"
 
+      # 1.19 transition mirror: delete after 1.19 ships.
       - name: Mirror to public release repo
         if: ${{ inputs.mirror && !(github.event_name == 'workflow_dispatch' && github.workflow == 'Release Linux x86_64 platform') && !inputs.dry_run }}
         env:
@@ -410,6 +412,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: node scripts/release-headless-assets.mjs publish "${{ inputs.tag }}" linux-x86_64 release-artifacts "${{ inputs.source_ref }}" "${{ github.repository }}"
 
+      # 1.19 transition mirror: delete after 1.19 ships.
       - name: Publish and read back headless mirror assets
         if: ${{ inputs.mirror && !(github.event_name == 'workflow_dispatch' && github.workflow == 'Release Linux x86_64 platform') && !inputs.dry_run }}
         env:
