@@ -459,7 +459,9 @@ fn current_attempt_other_plan_read_does_not_rebind_or_record_a_load() {
         caller
             .svc
             .plan_store
-            .task_binding_for_tab(&caller.tab_id())
+            .assigned_task_binding_projection(&caller.tab_id())
+            .unwrap()
+            .map(|binding| (binding.plan_id, binding.task_id))
             .unwrap(),
         (caller.plan_id.clone(), caller.task_id.clone())
     );

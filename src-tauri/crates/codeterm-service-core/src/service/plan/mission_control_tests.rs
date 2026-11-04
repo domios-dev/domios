@@ -518,7 +518,12 @@ fn enabled_kpi_hooks_produce_plan_token_and_turn_aggregate() {
         fixture.service.plan_store.save(&mut active, 3).unwrap();
     }
     assert_eq!(
-        fixture.service.plan_store.task_binding_for_tab(&tab_id),
+        fixture
+            .service
+            .plan_store
+            .assigned_task_binding_projection(&tab_id)
+            .unwrap()
+            .map(|binding| (binding.plan_id, binding.task_id)),
         Some((plan.id.clone(), task_id.clone())),
         "the hooks resolve attribution through this binding; without it the test proves nothing"
     );
