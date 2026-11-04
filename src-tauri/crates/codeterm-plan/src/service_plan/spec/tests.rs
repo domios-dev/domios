@@ -18,6 +18,31 @@ fn create_plan(store: &PlanStore, root: &std::path::Path, title: &str) -> Plan {
         .unwrap()
 }
 
+fn export_spec_sidecar(store: &PlanStore, root: &std::path::Path, spec_id: &str) {
+    let spec = store.get_spec(spec_id).unwrap();
+    let global = root.join(".domios/specs").join(format!("{}.yaml", spec.id));
+    if let Some(plan_id) = spec.plan_id.as_deref() {
+        let plan: Plan =
+            serde_json::from_value(store.export_plan_document(plan_id).unwrap()).unwrap();
+        let directory = crate::service_plan::store_v2::plan_state_dir(&plan).unwrap();
+        let target = directory.join("spec.yaml");
+        crate::service_plan::spec_store::write_spec_at(&target, &spec).unwrap();
+        let _ = std::fs::remove_file(global);
+        for bucket in ["active", "archive"] {
+            let previous = root
+                .join(".domios/plans")
+                .join(bucket)
+                .join(plan_id)
+                .join("spec.yaml");
+            if previous != target {
+                let _ = std::fs::remove_file(previous);
+            }
+        }
+    } else {
+        crate::service_plan::spec_store::write_spec_at(&global, &spec).unwrap();
+    }
+}
+
 #[test]
 fn orphan_spec_persists_inline_yaml_and_reloads() {
     let (root, store) = store_root();
@@ -28,6 +53,7 @@ fn orphan_spec_persists_inline_yaml_and_reloads() {
         .add_spec_section(&spec.id, "Login", "body text", None, &[], None, None, 11)
         .unwrap();
 
+    export_spec_sidecar(&store, &root, &spec.id);
     // Orphan (no owning plan) -> global yaml, bodies inline, no json/md fan-out.
     let yaml_path = root
         .join(".domios")
@@ -67,6 +93,7 @@ fn linking_adopts_spec_into_plan_dir() {
         .link_spec_section(&plan.id, &spec.id, &ssec, &psec, 4)
         .unwrap();
 
+    export_spec_sidecar(&store, &root, &spec.id);
     let co_located = crate::service_plan::store_v2::plan_state_dir(&store.get(&plan.id).unwrap())
         .unwrap()
         .join("spec.yaml");
@@ -202,6 +229,7 @@ fn archive_carries_co_located_spec_yaml() {
             3,
         )
         .unwrap();
+    export_spec_sidecar(&store, &root, &spec.id);
     let active_spec = root
         .join(".domios/plans/active")
         .join(&plan.id)
@@ -209,6 +237,7 @@ fn archive_carries_co_located_spec_yaml() {
     assert!(active_spec.is_file());
 
     store.archive(&plan.id, 4).unwrap();
+    export_spec_sidecar(&store, &root, &spec.id);
 
     let archived_spec = root
         .join(".domios/plans/archive")

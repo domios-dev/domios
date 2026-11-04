@@ -148,6 +148,7 @@ pub(super) fn assert_and_clear_writes(database: &PlanDatabase, receipt: &Committ
         ("plan_tasks", receipt.task_rows),
         ("plan_sections", receipt.section_rows),
         ("plan_elements", receipt.element_rows),
+        ("specs", receipt.spec_rows),
         ("plans", receipt.header_rows),
         ("plan_task_attempts", receipt.attempts),
         ("plan_task_milestones", receipt.milestones),
