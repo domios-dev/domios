@@ -82,6 +82,7 @@ pub use status_projection::{
     CuratorAuthorityRead, CuratorScheduleMetadata, CuratorScheduleRead, PlanNoticeRead,
     PlanStatusRead,
 };
+pub use store_db::read_projections::lane_readers::TaskLaneReferenceRead;
 pub mod board_state;
 mod document_projection;
 mod store_index;

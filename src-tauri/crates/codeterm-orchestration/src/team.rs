@@ -792,8 +792,8 @@ fn transfer_team_plan_core(
     now_ms: u64,
 ) -> Result<codeterm_service_core::plan::Plan, TeamPlanError> {
     let source_plan = plan_store
-        .get(plan_id)
-        .ok_or(TeamPlanError::Plan(PlanError::NotFound))?;
+        .plan_identity_projection(plan_id)
+        .map_err(TeamPlanError::Plan)?;
     let source_team_id = source_plan
         .team_id
         .as_deref()
@@ -916,10 +916,12 @@ pub fn team_plan_owner(
             ))
         });
     }
-    let current_owner = plan_store
-        .get(plan_id)
-        .and_then(|plan| plan.owner.tab_id)
-        .filter(|tab_id| anchors.iter().any(|anchor| anchor == tab_id));
+    let current_owner = match plan_store.plan_identity_projection(plan_id) {
+        Ok(plan) => plan.owner.tab_id,
+        Err(PlanError::NotFound) => None,
+        Err(error) => return Err(TeamPlanError::Plan(error)),
+    }
+    .filter(|tab_id| anchors.iter().any(|anchor| anchor == tab_id));
     match (current_owner, anchors.as_slice()) {
         (Some(owner), _) => Ok(owner),
         (None, [only]) => Ok(only.clone()),
