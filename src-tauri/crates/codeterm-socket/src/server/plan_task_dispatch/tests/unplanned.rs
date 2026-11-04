@@ -518,7 +518,10 @@ fn unplanned_foreign_repository_worktree_never_provisions_a_project_lane() {
     );
     let mut request = params(&harness, "foreign repository probe").unwrap();
     request["cwd"] = json!(foreign_worktree);
+    let startups = super::startup_tasks::StartupTasks::install(&harness.fixture.service);
     let response = dispatch(&harness, &Some(request)).unwrap();
+    // Startup verifies the foreign checkout with Git after dispatch has returned.
+    startups.finish();
     let task = harness
         .fixture
         .service

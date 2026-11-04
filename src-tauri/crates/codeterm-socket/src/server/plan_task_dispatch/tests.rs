@@ -50,6 +50,7 @@ mod qa_pass;
 mod recovery_race;
 mod resolved_effort;
 mod runtime_dispatch;
+pub(super) mod startup_tasks;
 mod status_preflight;
 mod unplanned;
 mod worker_ack;
