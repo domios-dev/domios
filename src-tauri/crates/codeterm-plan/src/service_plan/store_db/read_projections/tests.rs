@@ -46,6 +46,7 @@ mod status_tests;
 mod tab_tests;
 mod task_key_reader_tests;
 mod team_close_tests;
+mod team_mutation_tests;
 mod transfer_authority_tests;
 mod worker_read_tests;
 
