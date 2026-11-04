@@ -731,8 +731,18 @@ fn completed_worker_switch_refuses_invalid_identity_before_teardown_or_mutation(
             invalid,
             "pty_id" | "empty_pty" | "lifecycle_epoch" | "sleeping"
         ) {
-            assert!(error.contains("completed_continuity_pty_generation_missing:"));
-            assert!(error.contains("wake or resume this tab"));
+            assert!(
+                error.contains("completed_continuity_pty_generation_missing:"),
+                "{invalid}: {error}; backing={:?}, pty={:?}, epoch={:?}, frozen={}",
+                source.backing,
+                source.pty_id,
+                source.lifecycle_epoch,
+                source.frozen
+            );
+            assert!(
+                error.contains("wake or resume this tab"),
+                "{invalid}: {error}"
+            );
         }
         let after = fixture
             .service
