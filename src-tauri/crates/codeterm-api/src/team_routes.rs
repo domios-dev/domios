@@ -217,7 +217,7 @@ pub async fn add_team_member(
         &headers,
         team_id,
         body,
-        |team_id, caller_tab_id, body: AddTeamMemberBody| async move {
+        |team_id: String, caller_tab_id: Option<String>, body: AddTeamMemberBody| async move {
             codeterm_orchestration::team::add_team_member_checked(
                 &state.svc,
                 &team_id,
