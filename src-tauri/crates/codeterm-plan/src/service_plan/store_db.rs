@@ -206,7 +206,7 @@ impl PlanDatabase {
             return Ok(None);
         };
         let result = store_sync::load_plan_rows(&transaction, id, &header)
-            .and_then(parse_plan_value)
+            .and_then(|value| serde_json::from_value(value).map_err(|error| error.to_string()))
             .map(Some)
             .map_err(|reason| PlanError::Quarantined {
                 plan_id: id.to_string(),
@@ -525,11 +525,7 @@ fn upsert_spec(transaction: &rusqlite::Transaction<'_>, spec: &Spec) -> Result<(
 
 #[cfg(test)]
 fn parse_plan_json(document: &str) -> Result<Plan, String> {
-    parse_plan_value(serde_json::from_str(document).map_err(|error| error.to_string())?)
-}
-
-pub(super) fn parse_plan_value(value: serde_json::Value) -> Result<Plan, String> {
-    serde_json::from_value(value).map_err(|error| error.to_string())
+    serde_json::from_str(document).map_err(|error| error.to_string())
 }
 
 fn load_documents<T: serde::de::DeserializeOwned>(

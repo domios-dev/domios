@@ -17,6 +17,39 @@ impl TeamPlanArchive {
 }
 
 impl PlanStore {
+    pub fn restore_close_plan_metadata(
+        &self,
+        saved: &crate::service_plan::PlanCloseRestoreRead,
+        now_ms: u64,
+    ) -> Result<(), PlanError> {
+        let turn = self.mutation_writer.enter();
+        let selector = PlanMatch::Ids(vec![saved.id.clone()]);
+        let before = self
+            .database
+            .observe_team_rows(&selector, None, &[], false)?;
+        let mut after = before.clone();
+        let current = after.first_mut().ok_or(PlanError::NotFound)?;
+        if current.team_id.is_some() && current.team_id != saved.team_id {
+            return Err(PlanError::Io(format!(
+                "Plan {} belongs to another Team",
+                saved.id
+            )));
+        }
+        if current.owner.tab_id.is_some() && current.owner.tab_id != saved.owner.tab_id {
+            return Err(PlanError::Io(format!(
+                "Plan {} has another Orchestrator",
+                saved.id
+            )));
+        }
+        current.team_id = saved.team_id.clone();
+        current.owner = saved.owner.clone();
+        current.planner = saved.planner.clone();
+        current.status = saved.status.clone();
+        current.orphaned = None;
+        self.commit_team_row_patches(&turn, selector, before, after, now_ms)?;
+        Ok(())
+    }
+
     pub fn close_team_task_attempts_transaction(
         &self,
         team_id: &str,
@@ -300,3 +333,6 @@ pub(super) fn detach_closed_team_plan(plan: &mut LifecyclePlanRows, team_id: &st
         at: now_ms,
     });
 }
+
+#[cfg(test)]
+mod close_restore_tests;
