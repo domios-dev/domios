@@ -928,7 +928,7 @@ impl ServiceContext {
             self.set_agent_session_id(&tab_id, Some(sid.clone()));
         }
 
-        let mut env_vars = self.tab_env(&tab_id);
+        let mut env_vars = self.tab_env(&tab_id)?;
         env_vars.insert("CODETERM_TAB_ID".into(), tab_id.clone());
         let agent_pad = self.ensure_agent_pad(&tab_id).inspect_err(|_| {
             self.rollback_provisional_tab(&ws_id, &tab_id);
@@ -953,7 +953,7 @@ impl ServiceContext {
             env_vars.insert(k.clone(), v.clone());
         }
         env_vars.extend(provider_key_env);
-        env_vars.extend(self.tab_env(&tab_id));
+        env_vars.extend(self.tab_env(&tab_id)?);
         crate::service::launch_diagnostics::log_launch_environment(
             "provider_spawn",
             &tab_id,

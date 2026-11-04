@@ -26,11 +26,17 @@ pub(super) fn command(
             )
         })
     } else {
-        let project = crate::service::launch_session_detection::canonical_project_for_tab(
+        let project = match crate::service::launch_session_detection::canonical_project_for_tab(
             &svc.plan_store,
             tab,
             cwd,
-        );
+        ) {
+            Ok(project) => project,
+            Err(error) => {
+                log::error!("[general-agent] canonical project lookup failed tab={tab}: {error}");
+                return None;
+            }
+        };
         crate::service::launch_session_detection::marked_provider_launch_command_for_service(
             svc,
             &svc.agent_registry,

@@ -31,6 +31,7 @@ fn fixture() -> (ServiceFixture, AppState, String, String, String, String) {
         state
             .svc
             .frontend_pty_env(Some(id))
+            .unwrap()
             .remove("CODETERM_API_TOKEN")
             .unwrap()
     };

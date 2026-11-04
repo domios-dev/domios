@@ -169,7 +169,7 @@ fn map_err(method: &str, e: super::vm::VmError) -> ChatBackendError {
 fn chatbackend_host_exec_env(
     vm: &Arc<PluginVm>,
     ctx: &serde_json::Value,
-) -> HashMap<String, String> {
+) -> Result<HashMap<String, String>, String> {
     let mut env = HashMap::from([("CODETERM_API_TOKEN".into(), String::new())]);
     if let Some(tab_id) = ctx.get("tabId").and_then(|v| v.as_str()) {
         env.insert("CODETERM_TAB_ID".to_string(), tab_id.to_string());
@@ -197,10 +197,10 @@ fn chatbackend_host_exec_env(
             ctx.get("tabId").and_then(|value| value.as_str()),
             ctx.get("bindingNonce").and_then(|value| value.as_str()),
         ) {
-            env.extend(svc.tab_process_env(tab_id, nonce));
+            env.extend(svc.tab_process_env(tab_id, nonce)?);
         }
     }
-    env
+    Ok(env)
 }
 
 impl ChatBackendProvider for JsChatBackend {
@@ -257,7 +257,7 @@ impl ChatBackendProvider for JsChatBackend {
         }
         let context = serde_json::to_value(&request.input).map_err(|e| e.to_string())?;
         let _scope =
-            super::host_exec::host_env_scope(chatbackend_host_exec_env(&self.vm, &context));
+            super::host_exec::host_env_scope(chatbackend_host_exec_env(&self.vm, &context)?);
         let output = super::vm::call_json_interruptible(
             &self.vm,
             "runAgentTask",
@@ -321,7 +321,7 @@ impl ChatBackendProvider for JsChatBackend {
     }
 
     fn open_session(&self, ctx: serde_json::Value) -> Result<String, ChatBackendError> {
-        let exec_env = chatbackend_host_exec_env(&self.vm, &ctx);
+        let exec_env = chatbackend_host_exec_env(&self.vm, &ctx).map_err(ChatBackendError::Call)?;
         let _guard = super::host_exec::host_env_scope(exec_env.clone());
         let out: OpenOut =
             call_json(&self.vm, "openSession", &[ctx]).map_err(|e| map_err("openSession", e))?;

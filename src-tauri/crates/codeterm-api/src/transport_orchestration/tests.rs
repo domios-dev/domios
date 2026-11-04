@@ -47,6 +47,7 @@ fn transport_orchestration_header_claim_preserves_nonce_authority() {
     let tab_token = state
         .svc
         .frontend_pty_env(Some(&tab_id))
+        .unwrap()
         .remove("CODETERM_API_TOKEN")
         .unwrap();
     for token in ["owner-secret", tab_token.as_str()] {

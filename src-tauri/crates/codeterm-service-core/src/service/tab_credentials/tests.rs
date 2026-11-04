@@ -15,6 +15,7 @@ fn fixture() -> (ServiceFixture, String, String) {
 
 fn token(svc: &super::super::ServiceContext, tab: &str) -> String {
     svc.frontend_pty_env(Some(tab))
+        .unwrap()
         .remove("CODETERM_API_TOKEN")
         .unwrap()
 }
@@ -42,6 +43,7 @@ fn credentials_are_distinct_per_tab_and_never_the_host_secret() {
     );
     assert!(!svc
         .frontend_pty_env(None)
+        .unwrap()
         .contains_key("CODETERM_API_TOKEN"));
     assert!(svc.mint_tab_credential("missing-tab", "nonce").is_none());
     assert!(svc.identify_tab_credential("").is_none());
@@ -107,7 +109,7 @@ fn plugin_children_use_the_pty_launch_credential_with_agent_rpc_authority() {
     );
     assert!(svc.authenticate_local_credential(&previous).is_err());
     assert_eq!(credential, token(svc, &tab));
-    let env = svc.tab_process_env(&tab, &launch_nonce);
+    let env = svc.tab_process_env(&tab, &launch_nonce).unwrap();
     assert_eq!(env["CODETERM_API_TOKEN"], credential);
     assert_ne!(credential, "owner-secret");
     let caller = svc
@@ -118,6 +120,7 @@ fn plugin_children_use_the_pty_launch_credential_with_agent_rpc_authority() {
     assert_eq!(caller.binding_nonce, env["CODETERM_SESSION_BINDING_NONCE"]);
     assert!(!svc
         .tab_process_env("missing-tab", "missing-nonce")
+        .unwrap()
         .contains_key("CODETERM_API_TOKEN"));
     for method in [
         "agent.ack",
@@ -152,10 +155,10 @@ fn plugin_children_use_the_pty_launch_credential_with_agent_rpc_authority() {
         .bind_in_process_chatbackend_session(&tab, "credential-probe", &reopened)
         .unwrap();
     assert_ne!(reopened_nonce, launch_nonce);
-    assert!(svc.tab_process_env(&tab, &launch_nonce).is_empty());
+    assert!(svc.tab_process_env(&tab, &launch_nonce).unwrap().is_empty());
     assert!(svc.authenticate_local_credential(&credential).is_err());
     assert_eq!(
-        svc.tab_process_env(&tab, &reopened_nonce)["CODETERM_API_TOKEN"],
+        svc.tab_process_env(&tab, &reopened_nonce).unwrap()["CODETERM_API_TOKEN"],
         reopened
     );
     let mut ack = None;

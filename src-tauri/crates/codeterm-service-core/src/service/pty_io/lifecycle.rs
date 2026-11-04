@@ -591,7 +591,7 @@ impl ServiceContext {
         }
 
         crate::startup::boot_timing::mark(tab_id, None, "pty_env_enter");
-        let env_vars = self.tab_env(tab_id);
+        let env_vars = self.tab_env(tab_id)?;
         crate::startup::boot_timing::mark(tab_id, None, "pty_env_ready");
         let cols = if agent_type.is_some() {
             SEND_AGENT_BACKEND_COLS
