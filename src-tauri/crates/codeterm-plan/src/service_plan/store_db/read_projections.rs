@@ -1,3 +1,10 @@
+mod agent_transition;
+mod curator_lifecycle;
+pub(in crate::service_plan) mod hierarchy;
+pub(in crate::service_plan) mod hierarchy_routing;
+pub(in crate::service_plan) mod runtime_identity;
+mod tab;
+pub(in crate::service_plan) mod transfer_authority;
 use super::{db_error, PlanDatabase};
 use crate::plan::Section;
 use crate::service_plan::PlanError;

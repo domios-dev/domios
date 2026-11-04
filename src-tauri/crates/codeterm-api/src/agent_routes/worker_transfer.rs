@@ -19,7 +19,7 @@ pub(super) fn try_task_bound_worker_transfer(
     let Some(destination_tab_id) = destination_tab_id else {
         return Ok(None);
     };
-    if !service.task_bound_worker_transfer_candidate(worker_tab_id, destination_tab_id) {
+    if !service.task_bound_worker_transfer_candidate(worker_tab_id, destination_tab_id)? {
         return Ok(None);
     }
     if plan_id.is_some() || can_spawn.is_some() {

@@ -371,7 +371,7 @@ fn planner_rehydrate_after_rebind_is_a_bounded_open_gate_list() {
         )
         .unwrap());
 
-    let rebound = store.get(&plan.id).unwrap();
+    let rebound = store.planner_rehydrate_projection(&plan.id).unwrap();
     let payload = planner_rehydrate_payload(&rebound);
 
     assert!(payload.starts_with(PLANNER_REHYDRATE_HEADER));

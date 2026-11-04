@@ -23,6 +23,12 @@ pub mod external_refs;
 pub use export_projection::PlanExportEncoder;
 pub mod gates;
 pub mod handoff;
+pub use store_db::read_projections::hierarchy::HierarchyAuthorityRead;
+pub use store_db::read_projections::hierarchy_routing::{
+    GateAnswerNoticeRead, PlannerRehydrateGateRead, PlannerRehydrateRead, TaskReviewNoticeRead,
+};
+pub use store_db::read_projections::runtime_identity::RuntimePlanIdentityRead;
+pub use store_db::read_projections::transfer_authority::TransferTaskAuthorityRead;
 mod header_projection;
 pub use header_projection::{NoticeDeliveryTargetRead, PlanIdentityRead};
 pub mod heartbeat;
@@ -170,7 +176,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 pub use plan_match::{AttemptMatch, AttemptState, PlanMatch, TaskMatch};
-pub use relink::relink_to_owner;
+pub use relink::{relink_selected_to_owner, relink_to_owner};
 pub use state::{
     build_plan_state_snapshot, planning_approval_blockers, HeartbeatSnapshot, LiveAgent,
     LoopSnapshot, OpenLane, PlanStateSnapshot, PlanningReadiness, StrideSnapshot, TaskCounts,
