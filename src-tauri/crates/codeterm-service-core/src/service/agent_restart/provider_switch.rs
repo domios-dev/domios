@@ -240,7 +240,7 @@ impl ServiceContext {
                 );
             }
             TargetRoute::Pty => {
-                let _pty_claim = self.pty_ownership.acquire(&tab.id);
+                let _pty_claim = self.pty_ownership.acquire(&tab.id)?;
                 self.request_graceful_exit(
                     &snap,
                     force,

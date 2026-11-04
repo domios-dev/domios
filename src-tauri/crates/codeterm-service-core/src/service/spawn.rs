@@ -1108,7 +1108,7 @@ impl ServiceContext {
             crate::pty::manager::PtySpawnGate,
         ) -> Result<crate::pty::manager::BuiltSession, String>,
     ) -> Result<String, String> {
-        let pty_claim = self.pty_ownership.acquire(tab_id);
+        let pty_claim = self.pty_ownership.acquire(tab_id)?;
         let gate = self.pty.lock().spawn_gate();
         let built = build(gate)?;
         let candidate = self.pty.lock().register_session(None, built).0;

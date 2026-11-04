@@ -361,7 +361,7 @@ impl ServiceContext {
         expected_binding_nonce: &str,
         frame: crate::service::messenger::FramedDelivery,
     ) -> Result<(), String> {
-        let pty_claim = self.pty_ownership.acquire(tab_id);
+        let pty_claim = self.pty_ownership.acquire(tab_id)?;
         let result = self
             .authenticated_pty_delivery(
                 tab_id,
@@ -386,7 +386,7 @@ impl ServiceContext {
         text: &str,
         send: impl FnOnce(AuthenticatedPtyDelivery, &str) -> Result<T, String>,
     ) -> Result<T, String> {
-        let pty_claim = self.pty_ownership.acquire(tab_id);
+        let pty_claim = self.pty_ownership.acquire(tab_id)?;
         let result = self
             .authenticated_pty_delivery(
                 tab_id,

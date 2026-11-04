@@ -132,7 +132,16 @@ pub(super) fn reader_finished(svc: &ServiceContext, pty_id: &str) {
     ) else {
         return;
     };
-    let claim = svc.pty_ownership.acquire(&attempt.tab_id);
+    let claim = match svc.pty_ownership.acquire(&attempt.tab_id) {
+        Ok(claim) => claim,
+        Err(error) => {
+            log::warn!(
+                "Direct exit activation refused tab={}: {error}",
+                attempt.tab_id
+            );
+            return;
+        }
+    };
     let ready = svc
         .mux
         .read()

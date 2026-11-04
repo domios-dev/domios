@@ -110,7 +110,14 @@ pub(super) fn start(
     env_vars.extend(svc.tab_env(&tab_id));
     crate::service::launch_diagnostics::log_launch_environment("general_agent", &tab_id, &env_vars);
 
-    let pty_claim = svc.pty_ownership.acquire(&tab_id);
+    let pty_claim = match svc.pty_ownership.acquire(&tab_id) {
+        Ok(claim) => claim,
+        Err(error) => {
+            let _ = svc.revoke_agent_pad(&tab_id);
+            fail_general_agent_start(svc, mux, &tab_id, &error);
+            return;
+        }
+    };
     let pty_id = {
         let gate = pty.lock().spawn_gate();
         match crate::pty::manager::build_session(
