@@ -952,13 +952,17 @@ fn relink_plan_members(
         .tab_id
         .as_deref()
         .ok_or_else(|| "plan rebind requires a destination Orchestrator tab".to_string())?;
-    let mut plan = plan_store
-        .get(&rebind.plan_id)
-        .ok_or_else(|| format!("Plan {} not found", rebind.plan_id))?;
-    plan.planner = None;
-    crate::service::plan::relink_to_owner(
+    let targets = plan_store
+        .relink_targets_projection(&rebind.plan_id, false)
+        .map_err(|error| match error {
+            crate::service::plan::PlanError::NotFound => {
+                format!("Plan {} not found", rebind.plan_id)
+            }
+            error => error.to_string(),
+        })?;
+    crate::service::plan::relink_selected_to_owner(
         &mut crate::service::plan::lane_port_impl::LaneStatePort(mux),
-        &plan,
+        &targets,
         owner_tab_id,
     );
     Ok(())

@@ -32,12 +32,20 @@ fn relink_targets(plan: &Plan) -> Vec<String> {
 /// of tabs whose parent edge was moved. Absent tabs and a target equal to the
 /// new owner are graceful no-ops; idempotent.
 pub fn relink_to_owner(mux: &mut dyn PlanLaneStatePort, plan: &Plan, new_owner_tab: &str) -> usize {
+    relink_selected_to_owner(mux, &relink_targets(plan), new_owner_tab)
+}
+
+pub fn relink_selected_to_owner(
+    mux: &mut dyn PlanLaneStatePort,
+    targets: &[String],
+    new_owner_tab: &str,
+) -> usize {
     let new_owner_tab = new_owner_tab.trim();
     if new_owner_tab.is_empty() {
         return 0;
     }
     let mut relinked = 0;
-    for tab_id in relink_targets(plan) {
+    for tab_id in targets {
         if tab_id != new_owner_tab && mux.repoint_parent(&tab_id, new_owner_tab) {
             relinked += 1;
         }

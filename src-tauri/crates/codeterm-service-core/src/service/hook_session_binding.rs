@@ -77,7 +77,8 @@ pub async fn bind_planner_session_after_claim(
     let bound_tab = tab_id.to_string();
     tokio::task::spawn_blocking(move || service.bind_planner_session(&bound_tab))
         .await
-        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))
+        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))
 }
 
 pub async fn finish_session_binding(

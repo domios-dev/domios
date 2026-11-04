@@ -268,10 +268,12 @@ pub(super) fn persist_local_task_report(
     milestone_kind: Option<&str>,
     now_ms: u64,
 ) -> Result<(), ReportPersistenceFailure> {
-    let binding = store.task_binding_for_tab(tab_id);
+    let binding = store
+        .assigned_task_binding_projection(tab_id)
+        .map_err(|error| plan_failure(tab_id, plan_id, task_id, error))?;
     if binding
         .as_ref()
-        .is_some_and(|(bound_plan, bound_task)| bound_plan == plan_id && bound_task == task_id)
+        .is_some_and(|binding| binding.plan_id == plan_id && binding.task_id == task_id)
     {
         return persist_bound_report(
             store, tab_id, plan_id, task_id, from, message, details, now_ms,

@@ -286,7 +286,7 @@ fn bind_planner_session_never_loads_unmatched_plans() {
     let other = seed(store, other);
     start(store);
 
-    fx.service.bind_planner_session(&planner_tab);
+    fx.service.bind_planner_session(&planner_tab).unwrap();
     assert!(store.plan_loads_for_test().contains(&planned));
     assert_never_loaded(store, &[&other]);
 }
@@ -419,7 +419,8 @@ fn clear_planner_bindings_for_lifecycle_exit_never_loads_unmatched_plans() {
     start(store);
 
     assert_eq!(
-        crate::service::hierarchy::clear_planner_bindings_for_lifecycle_exit(store, "planner-a", 5),
+        crate::service::hierarchy::clear_planner_bindings_for_lifecycle_exit(store, "planner-a", 5)
+            .unwrap(),
         1
     );
     assert_never_loaded(store, &[&other]);

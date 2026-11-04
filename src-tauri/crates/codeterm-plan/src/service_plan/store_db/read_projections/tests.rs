@@ -18,6 +18,7 @@ mod curator_schedule_tests;
 mod document_reader_tests;
 mod export_tests;
 mod header_tests;
+mod hierarchy_routing_tests;
 mod hierarchy_tests;
 mod index_filter_tests;
 mod notice_tests;
@@ -28,6 +29,7 @@ mod search_tests;
 mod section_link_tests;
 mod status_tests;
 mod tab_tests;
+mod transfer_authority_tests;
 mod worker_read_tests;
 
 fn sections() -> Vec<Section> {

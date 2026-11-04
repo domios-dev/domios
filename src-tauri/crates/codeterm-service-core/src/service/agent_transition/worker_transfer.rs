@@ -136,10 +136,15 @@ impl ServiceContext {
             .as_deref()
             .ok_or_else(|| "worker transfer refused: task binding has no attempt".to_string())?;
 
-        let plan = self
-            .plan_store
-            .get(plan_id)
-            .ok_or_else(|| "worker transfer refused: bound plan is missing".to_string())?;
+        let plan =
+            self.plan_store
+                .plan_identity_projection(plan_id)
+                .map_err(|error| match error {
+                    crate::service::plan::PlanError::NotFound => {
+                        "worker transfer refused: bound plan is missing".to_string()
+                    }
+                    error => error.to_string(),
+                })?;
         if plan.owner.tab_id.as_deref() != Some(destination_manager_tab_id)
             || plan
                 .owner
@@ -150,15 +155,18 @@ impl ServiceContext {
         {
             return Err("worker transfer refused: destination does not own the bound plan".into());
         }
-        let task = plan
-            .tasks
-            .iter()
-            .find(|task| task.id == task_id)
-            .ok_or_else(|| "worker transfer refused: bound task is missing".to_string())?;
+        let task = self
+            .plan_store
+            .transfer_task_authority_projection(plan_id, task_id, attempt_id)
+            .map_err(|error| match error {
+                crate::service::plan::PlanError::TaskNotFound => {
+                    "worker transfer refused: bound task is missing".to_string()
+                }
+                error => error.to_string(),
+            })?;
         let attempt = task
-            .execution_attempts
-            .iter()
-            .find(|attempt| attempt.id == attempt_id)
+            .attempt
+            .as_ref()
             .ok_or_else(|| "worker transfer refused: bound attempt is missing".to_string())?;
         let provider = worker
             .agent_type
@@ -181,14 +189,14 @@ impl ServiceContext {
             || attempt.acknowledged_at.is_none()
             || attempt.closed_at.is_some()
             || attempt.retired_at.is_some()
-            || attempt.mesh_peer.is_some()
-            || attempt.remote_dispatch_state.is_some()
+            || attempt.has_mesh_peer
+            || attempt.has_remote_dispatch_state
             || attempt.worktree_path.as_deref() != task.lane.worktree_path.as_deref()
             || task.interruption.handoff_required
-            || task.interruption.checkpoint.is_some()
+            || task.has_checkpoint
             || task.interruption.owner_tab_id.as_deref() != Some(worker_tab_id)
             || task.interruption.owner_session_id.as_deref() != Some(session_id)
-            || attempt.interruption.owner_epoch != task.interruption.owner_epoch
+            || attempt.owner_epoch != task.interruption.owner_epoch
         {
             return Err("worker transfer refused: task ownership is ambiguous or stale".into());
         }

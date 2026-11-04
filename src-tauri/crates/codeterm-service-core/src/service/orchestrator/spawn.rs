@@ -1001,8 +1001,16 @@ impl ServiceContext {
         };
         // The atomic Planner placement already bound this tab; re-writing the
         // ref here would replace a committed binding outside its transaction.
+        let planner = match self.plan_store.hierarchy_planner_projection(plan_id) {
+            Ok(planner) => planner,
+            Err(crate::service::plan::PlanError::NotFound) => None,
+            Err(error) => {
+                log::warn!("[spawn] planner binding lookup failed for plan {plan_id}: {error}");
+                return;
+            }
+        };
         let already_bound = matches!(
-            self.plan_store.get(plan_id).and_then(|plan| plan.planner),
+            planner,
             Some(crate::plan::PlannerRef::Tab { tab_id: bound, .. }) if bound == tab_id
         );
         if already_bound {
