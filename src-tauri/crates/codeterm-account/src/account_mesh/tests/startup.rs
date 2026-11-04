@@ -163,6 +163,35 @@ async fn account_mesh_network_does_not_republish_an_unchanged_expired_endpoint()
 }
 
 #[tokio::test]
+async fn account_mesh_cold_start_republishes_an_expired_unchanged_endpoint_once() {
+    let mut harness = Harness::new().await;
+    harness.registry.script.lock().unwrap().membership_seconds = Some(86400);
+    harness.registry.script.lock().unwrap().endpoint_seconds = Some(3600);
+    *harness.endpoint.0.lock().unwrap() = Some(tailnet_endpoint());
+    harness.sign_in("owner").await;
+    harness
+        .mesh
+        .refresh(EnrollTrigger::Automatic)
+        .await
+        .unwrap();
+    harness.clock.set(START + 3600);
+    harness.log.lock().unwrap().clear();
+    harness.restart().await;
+    harness.sign_in("owner").await;
+    harness
+        .mesh
+        .refresh(EnrollTrigger::Automatic)
+        .await
+        .unwrap();
+    assert_eq!(harness.calls("publish"), 1);
+    assert_eq!(harness.calls("renew"), 0);
+    assert!(harness.registry.endpoint("owner").unwrap().expires_at > START + 3600);
+    assert_eq!(harness.state().publication, Publication::Published);
+    harness.mesh.refresh(EnrollTrigger::Network).await.unwrap();
+    assert_eq!(harness.calls("publish"), 1);
+}
+
+#[tokio::test]
 async fn account_mesh_failed_membership_retries_without_losing_the_default_name() {
     let mut harness = Harness::new().await;
     harness.default_name = Some("BLACKSTAR".into());
