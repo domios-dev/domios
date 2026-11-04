@@ -233,6 +233,7 @@ pub fn startup_task_identity_from_env(
 pub struct WorkerAckRegistry {
     waiters: Mutex<WorkerAckState>,
     startup_waiters: Mutex<HashMap<String, AgentStartupWaiter>>,
+    startup_authority_generations: Mutex<(u64, HashMap<String, u64>)>,
     startup_acknowledged: Mutex<HashMap<String, StartupAuthority>>,
     finalized_startups: Mutex<HashMap<String, StartupAuthority>>,
     pending_task_startup_acks: Mutex<HashMap<String, registry::PendingTaskStartupAck>>,
@@ -244,6 +245,14 @@ impl WorkerAckRegistry {
     fn arm_startup(&self, authority: StartupAuthority) -> AgentStartupArm {
         let (sender, receiver) = mpsc::channel();
         let mut startup_waiters = self.startup_waiters.lock();
+        {
+            let mut generations = self.startup_authority_generations.lock();
+            generations.0 = generations.0.wrapping_add(1);
+            let generation = generations.0;
+            generations
+                .1
+                .insert(authority.child_tab_id.clone(), generation);
+        }
         self.finalized_startups
             .lock()
             .remove(&authority.child_tab_id);
@@ -702,6 +711,7 @@ impl WorkerAckRegistry {
             let mut waiters = self.startup_waiters.lock();
             let waiter = waiters.remove(tab_id);
             self.finalized_startups.lock().remove(tab_id);
+            self.startup_authority_generations.lock().1.remove(tab_id);
             waiter
         };
         if let Some(waiter) = waiter {

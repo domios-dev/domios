@@ -14,6 +14,7 @@ use tokio::sync::Notify;
 use tower::ServiceExt;
 
 mod cancellation;
+mod liveness;
 
 fn app(domains: Router<crate::routes::AppState>, state: crate::routes::AppState) -> Router {
     crate::routes::apply_middleware(domains.merge(super::router()), state)
@@ -292,7 +293,11 @@ async fn predispatch_refusals_bind_owner_reject_recursion_duplicates_unknown_and
             .status(),
         StatusCode::TOO_MANY_REQUESTS
     );
+    let removed = SESSIONS.lock().get(&session).unwrap().removed.clone();
     drop(body);
+    tokio::time::timeout(Duration::from_secs(2), removed.notified())
+        .await
+        .unwrap();
     assert!(!SESSIONS.lock().contains_key(&session));
 }
 

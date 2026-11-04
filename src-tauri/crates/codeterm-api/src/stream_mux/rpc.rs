@@ -45,12 +45,14 @@ pub(crate) async fn stream_mux_open_channel(
         &parts.headers,
         Traffic::Bulk,
         true,
-    )?;
+    )
+    .await?;
     spawn(
         dispatcher,
         reservation,
         dispatch::request(Method::GET, uri, parts.headers, context, Body::empty()),
-    );
+    )
+    .await?;
     Ok(ack())
 }
 
@@ -85,7 +87,7 @@ pub(crate) async fn stream_mux_request(
         "bulk" => Traffic::Bulk,
         _ => return Err((StatusCode::BAD_REQUEST, "Invalid mux class".into())),
     };
-    let reservation = super::reserve(&session, &id, &parts.headers, traffic, false)?;
+    let reservation = super::reserve(&session, &id, &parts.headers, traffic, false).await?;
     let limit = if method == Method::POST && uri.path() == "/api/attachments/upload" {
         spool::UPLOAD_LIMIT
     } else {
@@ -125,11 +127,16 @@ pub(crate) async fn stream_mux_request(
         dispatcher,
         reservation,
         dispatch::request(method, uri, parts.headers, context, stored.into_body()),
-    );
+    )
+    .await?;
     Ok(ack())
 }
 
-fn spawn(dispatcher: Dispatcher, mut reservation: Reservation, request: Request) {
+async fn spawn(
+    dispatcher: Dispatcher,
+    mut reservation: Reservation,
+    request: Request,
+) -> Result<(), Failure> {
     let entry = reservation.entry.clone();
     let task = tokio::spawn(async move {
         let response = dispatcher.call(request).await;
@@ -137,10 +144,16 @@ fn spawn(dispatcher: Dispatcher, mut reservation: Reservation, request: Request)
             || reservation.entry.terminal_queued.load(Ordering::Acquire);
         drop(reservation);
     });
-    *entry.task.lock() = Some(task.abort_handle());
-    if entry.detached.load(Ordering::Acquire) && entry.cancellable.load(Ordering::Acquire) {
-        task.abort();
-    }
+    let handle = task.abort_handle();
+    tokio::task::spawn_blocking(move || {
+        *super::locks::lock(&entry.task, "entry.task") = Some(handle.clone());
+        if entry.detached.load(Ordering::Acquire) && entry.cancellable.load(Ordering::Acquire) {
+            handle.abort();
+        }
+    })
+    .await
+    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    Ok(())
 }
 
 async fn send(reservation: &Reservation, bytes: axum::body::Bytes, kind: Kind) -> bool {
@@ -163,15 +176,18 @@ async fn send(reservation: &Reservation, bytes: axum::body::Bytes, kind: Kind) -
                 .entry
                 .terminal_queued
                 .store(true, Ordering::Release);
-            reservation.scheduler.overflow(
-                &reservation.id,
-                frames::encode_end(
+            reservation
+                .scheduler
+                .overflow(
                     &reservation.id,
-                    &ChannelEnd::Capacity {
-                        bytes: super::scheduler::model::BYTE_BUDGET,
-                    },
-                ),
-            );
+                    frames::encode_end(
+                        &reservation.id,
+                        &ChannelEnd::Capacity {
+                            bytes: super::scheduler::model::BYTE_BUDGET,
+                        },
+                    ),
+                )
+                .await;
             false
         }
         Err(_) => false,

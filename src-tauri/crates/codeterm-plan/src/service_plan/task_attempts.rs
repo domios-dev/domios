@@ -24,7 +24,7 @@ mod runtime_restore;
 pub use runtime_restart::{RuntimeRestartBinding, RuntimeRestartMode};
 pub use runtime_restore::RestoredRuntimeSessionBinding;
 
-pub use launch_binding::CompleteAcknowledgedDispatchBinding;
+pub use launch_binding::{CompleteAcknowledgedDispatchBinding, CompletedDispatchBinding};
 pub(super) use respawn_guard::ensure_respawn_source_current;
 pub use restore_binding::{RestoreCurrentAttemptBinding, RestoreCurrentAttemptBindingResult};
 
