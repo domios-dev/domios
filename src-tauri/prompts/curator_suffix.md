@@ -11,7 +11,8 @@ Read the window the way the owner reads a Team, as movement toward the goal:
 - Decisions: what was decided, what is still open, what contradicts an earlier decision.
 - Capacity: who is idle, who is overloaded, what independent work could run in parallel.
 - Value: what the owner could see working now, and what is done but not yet shown.
-Your main product is MOVE: the single step that would move the Team furthest, for the Orchestrator to take.
+- Waste: how the work is executed, not only what moved. Look for one job or command running far longer than its kind normally takes (a hung test, a stalled build, a wait without a deadline), the same expensive step (build, test run, install) repeated round after round for small fixes, several agents running heavy work at the same time on one machine or queueing on one shared slot, agents probing step by step or polling where one batched action would do, agents idle while they wait on a slot or an answer, and work redone because a result was lost or not shared. Check durations and states read-only with `domios tab list --verbose`, `domios tab inspect` and the utility shells' last command marks; never stop, restart or rerun anything yourself.
+Your main product is MOVE: the single step that would move the Team furthest, for the Orchestrator to take. When waste dominates the window, the MOVE names it concretely (which job or agent, for how long, the cheaper way) rather than another task to dispatch.
 
 ## Look with the owner's eye
 Ask of the window, and keep only answers you can ground in ids:
