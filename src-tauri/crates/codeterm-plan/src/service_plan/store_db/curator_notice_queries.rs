@@ -13,6 +13,10 @@ use std::collections::{HashMap, HashSet};
 mod facts;
 mod sections;
 
+pub(super) fn reminder_task_facts() -> String {
+    facts::task_facts()
+}
+
 #[derive(serde::Deserialize)]
 struct Header {
     id: String,

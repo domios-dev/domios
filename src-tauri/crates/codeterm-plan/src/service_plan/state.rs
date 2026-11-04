@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, HashSet};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::plan::cleanup_debt::CleanupDebtTask;
 use crate::plan::coverage::CoverageReport;
@@ -91,7 +91,7 @@ pub struct OpenLane {
     pub dependency_waits: Vec<DependencyWait>,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum TaskPresentation {
     BlockedOnSubtasks,
@@ -107,7 +107,7 @@ pub enum TaskPresentation {
     Terminal,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DependencyWait {
     pub task_id: String,
     pub name: String,
@@ -115,7 +115,7 @@ pub struct DependencyWait {
     pub missing: bool,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TaskProjection {
     pub presentation: TaskPresentation,
     pub dependency_waits: Vec<DependencyWait>,

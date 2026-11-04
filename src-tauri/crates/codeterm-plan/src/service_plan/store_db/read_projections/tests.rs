@@ -27,6 +27,7 @@ mod launch_restore_tests;
 mod notice_tests;
 mod qa_tests;
 mod related_tests;
+mod reminder_tests;
 mod role_binding_tests;
 mod runtime_identity_tests;
 mod search_tests;
