@@ -97,6 +97,7 @@ pub use status_projection::{
     CuratorAuthorityRead, CuratorScheduleMetadata, CuratorScheduleRead, PlanNoticeRead,
     PlanStatusRead,
 };
+pub use store_db::read_projections::close_inventory::PlanCloseRestoreRead;
 pub use store_db::read_projections::lane_clean::{LaneCleanupPlanRead, LaneCleanupTaskRead};
 pub use store_db::read_projections::lane_readers::TaskLaneReferenceRead;
 pub use store_db::read_projections::lane_settlement::LaneSettlementRead;

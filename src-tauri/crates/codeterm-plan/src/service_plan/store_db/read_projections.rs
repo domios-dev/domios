@@ -1,4 +1,5 @@
 mod agent_transition;
+pub(in crate::service_plan) mod close_inventory;
 mod curator_lifecycle;
 pub(in crate::service_plan) mod hierarchy;
 pub(in crate::service_plan) mod hierarchy_routing;
