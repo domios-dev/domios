@@ -57,6 +57,8 @@ enum Record {
         #[serde(default)]
         frame: Option<RuntimeFrame>,
         #[serde(default)]
+        frames: Option<Vec<RuntimeFrame>>,
+        #[serde(default)]
         context: Option<RuntimeContext>,
     },
 }
@@ -313,6 +315,7 @@ async fn replay(
                 operation: Some(index),
                 reply: Some(reply),
                 frame: None,
+                frames: None,
                 context: None,
                 ..
             } => {
@@ -373,11 +376,17 @@ async fn replay(
             Record::Inbound {
                 operation: None,
                 reply: None,
-                frame: Some(frame),
+                frame,
+                frames,
                 context,
                 ..
             } => {
                 *stage = format!("record {record_index} reduce");
+                let frames = match (frame, frames) {
+                    (Some(frame), None) => std::slice::from_ref(frame),
+                    (None, Some(frames)) => frames.as_slice(),
+                    _ => panic!("exactly one frame or batch is required"),
+                };
                 let ctx = context.as_ref().unwrap_or(&fixture.context);
                 let authority = (
                     ctx.epoch,
@@ -389,10 +398,8 @@ async fn replay(
                     state = Value::Null;
                     binding = Some(authority);
                 }
-                let reduced = provider
-                    .runtime_reduce(ctx, &state, std::slice::from_ref(frame))
-                    .await
-                    .unwrap();
+                let reduced = provider.runtime_reduce(ctx, &state, frames).await.unwrap();
+                crate::agent_runtime::validate_runtime_reduction(ctx, &reduced).unwrap();
                 state = reduced.state;
                 events.extend(reduced.events);
             }

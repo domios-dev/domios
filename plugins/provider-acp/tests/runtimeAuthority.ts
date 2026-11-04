@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { isAbsolute } from "node:path";
-import type { Operation, RuntimeContext, RuntimePlan } from "@codeterm/plugin-sdk";
+import type { Operation, RuntimeContext, RuntimePlan, RuntimeReduction } from "@codeterm/plugin-sdk";
 
 const identifier=(value:string):boolean=>value.length > 0 && Buffer.byteLength(value) <= 4096 && !value.includes("\0");
 function ownsThread(ctx:RuntimeContext, thread:string):boolean {
@@ -89,4 +89,10 @@ export function assertRuntimePlan(ctx:RuntimeContext, op:Operation, plan:Runtime
     assert.ok(op.kind === "resumeThread" && ctx.threadId !== undefined && op.threadId === ctx.threadId,"local action requires the bound resume thread");
   if (plan.action.kind === "questionAnswer")
     assert.equal(op.kind,"answerQuestion","question answer action outside answerQuestion");
+}
+
+export function assertRuntimeReduction(reduction:RuntimeReduction):void {
+  assert.ok(reduction.events.length <= 1024,"runtime reduction exceeds 1024 events");
+  assert.ok(Buffer.byteLength(JSON.stringify(reduction)) <= 4*1024*1024,"runtime reduction exceeds 4 MiB");
+  assert.ok(Buffer.byteLength(JSON.stringify(reduction.state)) <= 256*1024,"runtime state exceeds 256 KiB");
 }

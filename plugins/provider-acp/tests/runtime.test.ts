@@ -4,7 +4,7 @@ import vm from "node:vm";
 import {createTranscriptState,reduceTranscript,projectTranscript} from "../../../packages/chat-core/src/transcript";
 import { runtimeJson } from "./runtimeJson";
 import { foldRow } from "./runtimeRows";
-import { assertRuntimeOperation, assertRuntimePlan } from "./runtimeAuthority";
+import { assertRuntimeOperation, assertRuntimePlan, assertRuntimeReduction } from "./runtimeAuthority";
 import type {AgentRuntime, AgentEvent, ChatMsg, JsonValue, Operation, RpcReply, RuntimeAction, RuntimeContext, RuntimeFrame, RuntimePlan, RuntimeStep, StdioAgentRuntimeCapability} from "@codeterm/plugin-sdk";
 
 interface Fixture {
@@ -13,7 +13,8 @@ interface Fixture {
   operations:{operation:Operation; context?:RuntimeContext}[];
   rpc:({direction:"outbound"; operation:number; action:RuntimeAction}
     | {direction:"inbound"; operation:number; reply:RpcReply}
-    | {direction:"inbound"; frame:RuntimeFrame; context?:RuntimeContext})[];
+    | {direction:"inbound"; frame:RuntimeFrame; context?:RuntimeContext}
+    | {direction:"inbound"; frames:RuntimeFrame[]; context?:RuntimeContext})[];
   expected:{results:{operation:number; step:RuntimeStep}[]; events:AgentEvent[]; planErrors?:{operation:number; code:string}[]};
 }
 function loadHooks():AgentRuntime {
@@ -24,7 +25,7 @@ function loadHooks():AgentRuntime {
   return {...hooks,
     runtimePlan(ctx,op) { assertRuntimeOperation(ctx,op);const plan=runtimeJson(hooks.runtimePlan(ctx,op),"runtimePlan");assertRuntimePlan(ctx,op,plan);return plan; },
     runtimeResponse(ctx,op,state,reply) { assertRuntimeOperation(ctx,op);const step=runtimeJson(hooks.runtimeResponse(ctx,op,state,reply),"runtimeResponse");if (step.kind === "continue") assertRuntimePlan(ctx,op,step.plan);return step; },
-    runtimeReduce(ctx,state,frames) { return runtimeJson(hooks.runtimeReduce(ctx,state,frames),"runtimeReduce"); },
+    runtimeReduce(ctx,state,frames) { const reduction=runtimeJson(hooks.runtimeReduce(ctx,state,frames),"runtimeReduce");assertRuntimeReduction(reduction);return reduction; },
   };
 }
 for (const invalid of [undefined,()=>null,Symbol("opaque"),1n,NaN,Infinity,-Infinity])
@@ -78,7 +79,7 @@ function replayFixture(name:string):void {
         if (step.kind === "complete") events.push(...step.events ?? []);
       }
     } else {
-      const reduction = plain(hooks.runtimeReduce(record.context ?? fixture.context,state,[record.frame]));
+      const reduction = plain(hooks.runtimeReduce(record.context ?? fixture.context,state,"frames" in record ? record.frames : [record.frame]));
       state = reduction.state;
       maxStateBytes=Math.max(maxStateBytes,Buffer.byteLength(JSON.stringify(state)));
       assert.ok(maxStateBytes<65536,`${name}: reducer state below 64 KiB`);
@@ -105,9 +106,9 @@ function replayFixture(name:string):void {
         ? [((record.frame.params as {update:{content:{text:string}}}).update.content.text)] : []).join("");
       assert.equal(final,delivered,"every delivered text character reaches the host row");
       assert.ok(!final.includes("[ACP row truncated:"));
+      assert.equal(events.filter(event=>event.kind === "chatItem" || event.kind === "chatItemAppend").length,fixture.rpc.filter(record=>"frame" in record).length,"one text event per update");
       for (const event of events) if (event.kind === "chatItem" || event.kind === "chatItemAppend") {
         const content=event.kind === "chatItem" ? event.item.content : event.content;
-        assert.ok(Buffer.byteLength(content)<=8192,"text events stay within 8 KiB");
         assert.equal(content.isWellFormed(),true,"each event ends on a code-point boundary");
       }
     }

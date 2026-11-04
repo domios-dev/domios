@@ -118,10 +118,13 @@ append offsets. Cancellation sends session/cancel while session/prompt is
 outstanding, then settles only on its cancelled response. `oversize-single-frame`
 retains a 500,000-character frame and its subsequent chunk in full.
 `large-single-update` delivers over 200 KiB in one update; `large-multi-update`
-delivers multiple large updates ending in a sentinel. Text events are at most
-8 KiB and split on code-point boundaries, including in `oversize-astral-cut`.
-All delivered text must reach the host row without a truncation marker, while
-reducer state retains only identity and offsets. These synthetic stress fixtures share the capture
+delivers multiple large updates ending in a sentinel. Each text update emits one
+row event, including the astral boundary case in `oversize-astral-cut`.
+`batch-text-1024` restores a mixed drain of small and 8–16 KiB text updates.
+Native replay validates the entire reduction against the host event and byte limits.
+Text is retained in full within those limits; byte-limit degradation uses a visible
+marker and preserves subsequent append offsets. Reducer state retains only identity
+and offsets. These synthetic stress fixtures share the capture
 limitations above; they are not live receipts. Both JS and native replay discover
 them through runtime-manifest.json. Native host folding replays their row events
 twice to prove exact final content and stable row count.

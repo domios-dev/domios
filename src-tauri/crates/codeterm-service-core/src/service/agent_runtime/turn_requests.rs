@@ -7,16 +7,24 @@ use super::{
 use crate::service::ServiceContext;
 use codeterm_plugin::agent_runtime::*;
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicU64, Ordering},
     Arc,
 };
 use tokio::sync::watch;
+
+static NEXT_REQUEST: AtomicU64 = AtomicU64::new(1);
+
+enum ActivityError {
+    Deferred,
+    Failed(RuntimeFailure),
+}
 
 pub(super) struct PendingTurn {
     context: RuntimeContext,
     send_id: String,
     settled: AtomicBool,
     started_at: u64,
+    order: u64,
     activity: tokio::sync::OnceCell<()>,
     turn: String,
     witness: Arc<rpc::WriteWitness>,
@@ -123,24 +131,45 @@ async fn publish_written_activity(
     session: &Arc<Session>,
     pending: &PendingTurn,
 ) -> Result<(), RuntimeFailure> {
-    pending
+    let result = pending
         .activity
         .get_or_try_init(|| async {
-            validate(svc, session, &pending.context)?;
+            validate(svc, session, &pending.context).map_err(ActivityError::Failed)?;
             let current = session.context.lock().clone();
             let thread = current
                 .thread_id
                 .clone()
-                .ok_or(RuntimeFailure::Superseded)?;
+                .ok_or(ActivityError::Failed(RuntimeFailure::Superseded))?;
             if pending.settled.load(Ordering::Acquire)
                 || session.completions.lock().contains(&thread, &pending.turn)
-                || current
-                    .active_turn_id
-                    .as_ref()
-                    .is_some_and(|turn| turn != &pending.turn)
             {
                 return Ok(());
             }
+            let earlier = session
+                .turn_requests
+                .lock()
+                .values()
+                .filter(|other| {
+                    other.order < pending.order
+                        && other.context.epoch == current.epoch
+                        && other.context.binding_nonce == current.binding_nonce
+                        && other.context.thread_id == current.thread_id
+                        && other.witness.written()
+                        && !other.settled.load(Ordering::Acquire)
+                })
+                .map(|other| other.turn.clone())
+                .collect::<Vec<_>>();
+            if current
+                .active_turn_id
+                .as_ref()
+                .is_some_and(|turn| turn != &pending.turn)
+                || earlier
+                    .iter()
+                    .any(|turn| !session.completions.lock().contains(&thread, turn))
+            {
+                return Err(ActivityError::Deferred);
+            }
+            // A written request awaiting its reply is already an outstanding turn.
             subscriber::publish_events(
                 svc,
                 session,
@@ -158,9 +187,13 @@ async fn publish_written_activity(
                 pending.started_at,
             )
             .await
+            .map_err(ActivityError::Failed)
         })
-        .await
-        .map(|_| ())
+        .await;
+    match result {
+        Err(ActivityError::Failed(reason)) => Err(reason),
+        _ => Ok(()),
+    }
 }
 
 pub(super) async fn run(
@@ -190,6 +223,7 @@ pub(super) async fn run(
         send_id: send_id.clone(),
         settled: AtomicBool::new(false),
         started_at: now(),
+        order: NEXT_REQUEST.fetch_add(1, Ordering::Relaxed),
         activity: tokio::sync::OnceCell::new(),
         turn,
         witness: Arc::new(rpc::WriteWitness::default()),
@@ -277,6 +311,9 @@ async fn await_reply(
             ));
         }
         validate(svc, session, &pending.context)?;
+        if pending.witness.written() && pending.activity.get().is_none() {
+            publish_written_activity(svc, session, pending).await?;
+        }
         tokio::select! {
             biased;
             reply = &mut reply => break reply?,

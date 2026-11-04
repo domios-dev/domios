@@ -6,11 +6,11 @@ import { foldRow } from "./runtimeRows";
 import { sessionSettings } from "../src/runtimeControls";
 import { runtimePlan as sourcePlan, runtimeResponse as sourceResponse, runtimeReduce as sourceReduce } from "../src/runtime";
 import { runtimeJson } from "./runtimeJson";
-import { assertRuntimePlan } from "./runtimeAuthority";
+import { assertRuntimePlan, assertRuntimeReduction } from "./runtimeAuthority";
 import { reduceTool } from "../src/runtimeReduceTools";
 const runtimePlan=(...args:Parameters<typeof sourcePlan>)=>{const plan=runtimeJson(sourcePlan(...args),"runtimePlan");assertRuntimePlan(args[0],args[1],plan);return plan;};
 const runtimeResponse=(...args:Parameters<typeof sourceResponse>)=>{const step=runtimeJson(sourceResponse(...args),"runtimeResponse");if (step.kind === "continue") assertRuntimePlan(args[0],args[1],step.plan);return step;};
-const runtimeReduce=(...args:Parameters<typeof sourceReduce>)=>runtimeJson(sourceReduce(...args),"runtimeReduce");
+const runtimeReduce=(...args:Parameters<typeof sourceReduce>)=>{const reduction=runtimeJson(sourceReduce(...args),"runtimeReduce");assertRuntimeReduction(reduction);return reduction;};
 
 interface Fixture {
   context:RuntimeContext;
@@ -330,7 +330,7 @@ for (const scenario of ["tool-identities","overlapping-prompts","overlapping-ear
         foldRow(rows,event);
         if (event.kind === "chatItem" || event.kind === "chatItemAppend") {
           const content=event.kind === "chatItem" ? event.item.content : event.content;
-          assert.ok(Buffer.byteLength(content)<=8192);
+          assert.equal(reduction.events.filter(event=>event.kind === "chatItem" || event.kind === "chatItemAppend").length,1);
           assert.equal(content.isWellFormed(),true);
         }
       }
@@ -388,3 +388,29 @@ for (let turn=1;turn<=140;turn++) {
   assert.ok(Buffer.byteLength(JSON.stringify(longSession))<65536);
 }
 console.log("✓ ACP tool admission reclaims settled identities across 140 turns");
+
+for (const [name,values] of [
+  ["single",['"'.repeat(2*1024*1024-150)]],
+  ["aggregate",["x".repeat(3*1024*1024),"y".repeat(1024*1024-600)]],
+  ["event-count",Array.from({length:1024},()=>"z")],
+] as const) {
+  const base={...context,tabId:`byte-limit-${name}`,threadId:undefined,activeTurnId:undefined,activeTurns:[],claimedSends:[]};
+  const init:Operation={kind:"initialize"};
+  runtimeResponse(base,init,runtimePlan(base,init).state,{kind:"success",value:{protocolVersion:1,agentCapabilities:{},authMethods:[]}});
+  const open:Operation={kind:"openThread",instructions:"",settings:{}};
+  runtimeResponse(base,open,runtimePlan(base,open).state,{kind:"success",value:{sessionId:"session-fixture"}});
+  const own={...base,threadId:"session-fixture"};
+  runtimePlan(own,{kind:"submitTurn",threadId:own.threadId,sendId:"budget",input:{text:"opaque",attachments:[]},settings:{}});
+  const frames=values.map(value=>frame("agent_message_chunk",value,"budget"));
+  assert.ok(Buffer.byteLength(JSON.stringify(frames))<=4*1024*1024,"input batch fits host limit");
+  const reduction=runtimeReduce(own,null,frames);
+  assert.ok(Buffer.byteLength(JSON.stringify(reduction.state))<65536);
+  const rows=new Map<string,ChatMsg>();
+  for (const event of reduction.events) foldRow(rows,event);
+  if (name === "event-count") assert.ok(reduction.events.some(event=>event.kind === "notice" && event.message.includes("runtime reduction event limit")));
+  else assert.ok([...rows.values()][0].content.includes("[ACP row truncated: runtime reduction byte limit]"));
+  const next=runtimeReduce(own,reduction.state,[frame("agent_message_chunk","healthy","budget")]);
+  for (const event of next.events) foldRow(rows,event);
+  assert.ok([...rows.values()][0].content.endsWith("healthy"),"continuation offset follows the visible prefix and marker");
+}
+console.log("✓ ACP serialized reduction byte limit degrades only the affected text and preserves continuation offsets");

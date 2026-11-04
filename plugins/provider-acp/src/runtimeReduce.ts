@@ -2,6 +2,7 @@ import type { AgentEvent, ChatMsg, JsonValue, RuntimeContext, RuntimeFrame, Runt
 import { object, text, reduceTool } from "./runtimeReduceTools";
 import { planRow, usage } from "./runtimeReducePlan";
 import { commands, sessionSettings } from "./runtimeControls";
+import { fitTextReduction } from "./runtimeReduceBudget";
 
 export interface StreamCursor { replay:number; prompt:number; loading:boolean }
 interface TextCursor { offset:number; chars:number; echo?:string }
@@ -166,11 +167,9 @@ export function reduceStream(ctx:RuntimeContext, raw:JsonValue, frames:readonly 
       const type=kind === "user_message_chunk" ? "user" : kind === "agent_thought_chunk" ? "thinking" : "assistant";
       const previous=state.items[chunk.id];
       const row:ChatMsg={id:chunk.id,seq:previous?.seq ?? ++state.seq,type,content:"",...(type === "thinking" ? {collapsed:true} : {})};
-      for (const value of textParts(content.text)) {
-        events.push(chunk.offset ? {kind:"chatItemAppend",threadId:state.sessionId,itemId:row.id,content:value,offset:chunk.offset}
-          : {kind:"chatItem",threadId:state.sessionId,item:{...row,content:value}});
-        chunk.offset+=utf8Length(value);
-      }
+      events.push(chunk.offset ? {kind:"chatItemAppend",threadId:state.sessionId,itemId:row.id,content:content.text,offset:chunk.offset}
+        : {kind:"chatItem",threadId:state.sessionId,item:{...row,content:content.text}});
+      chunk.offset+=utf8Length(content.text);
       state.items[row.id]=row;
       if (explicit) state.offsetById[chunk.id]={offset:chunk.offset,chars:chunk.chars,...(chunk.echo ? {echo:chunk.echo} : {})};
       if (!state.loading && !state.started && kind === "agent_message_chunk") events.push({kind:"turnState",threadId:ctx.threadId,turnId:ctx.activeTurnId ?? `${ctx.threadId}:turn:${state.turn}`,state:"working"});
@@ -220,22 +219,7 @@ export function reduceStream(ctx:RuntimeContext, raw:JsonValue, frames:readonly 
     else warn(state,events,kind);
   }
   boundState(state);
-  return {state:json(state),events};
-}
-
-function* textParts(value:string):Generator<string> {
-  let start=0, bytes=0;
-  for (let index=0; index<value.length;) {
-    const point=value.codePointAt(index)!;
-    const size=point <= 0x7f ? 1 : point <= 0x7ff ? 2 : point <= 0xffff ? 3 : 4;
-    if (bytes+size > 8192) {
-      yield value.slice(start,index);
-      start=index;bytes=0;
-    }
-    bytes+=size;
-    index+=point > 0xffff ? 2 : 1;
-  }
-  yield value.slice(start);
+  return fitTextReduction(json(state),events);
 }
 
 function utf8Length(value:string):number {
