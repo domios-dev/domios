@@ -12,7 +12,12 @@ mod profiles;
 
 pub(crate) fn mount(router: Router<AppState>) -> Router<AppState> {
     router
-        .route("/api/agents/providers/{id}/profiles", get(profiles::list).merge(super::plugin_host_action_routes::owner_post(profiles::setup)))
+        .route(
+            "/api/agents/providers/{id}/profiles",
+            get(profiles::list).merge(super::plugin_host_action_routes::owner_post(
+                profiles::setup,
+            )),
+        )
         .route(
             "/api/tabs/{id}/agent/capabilities/refresh",
             post(super::capability_probe_routes::refresh),

@@ -173,4 +173,6 @@ pub struct RuntimeModeDescriptor {
     pub display_name: String,
 }
 
-fn is_false(value: &bool) -> bool { !value }
+fn is_false(value: &bool) -> bool {
+    !value
+}

@@ -252,7 +252,10 @@ impl SpawnTabSpec {
         let starter_prompt =
             starter_prompt_for_creation(agent.role.as_deref(), agent.task.as_deref());
         Ok(SpawnAgentParams {
-            launch_profile: self.chatbackend_launch.as_ref().and_then(|launch| launch.params.launch_profile.clone()),
+            launch_profile: self
+                .chatbackend_launch
+                .as_ref()
+                .and_then(|launch| launch.params.launch_profile.clone()),
             execution_mode: None,
             context_files: None,
             neighbor_authority: self
@@ -468,9 +471,21 @@ impl ServiceContext {
             params,
         )?;
         if let Some(profile) = params.launch_profile.as_deref() {
-            let capability = self.agent_registry.with_provider(agent_cmd, |provider| provider.agent_runtime()).flatten().ok_or("Launch profiles require an agent runtime")?;
-            capability.profile_command(Some(profile)).map_err(|error| error.to_string())?;
-            if params.execution_mode.as_deref().is_some_and(|mode| mode != "local") {return Err("Launch profiles require local execution".into());}
+            let capability = self
+                .agent_registry
+                .with_provider(agent_cmd, |provider| provider.agent_runtime())
+                .flatten()
+                .ok_or("Launch profiles require an agent runtime")?;
+            capability
+                .profile_command(Some(profile))
+                .map_err(|error| error.to_string())?;
+            if params
+                .execution_mode
+                .as_deref()
+                .is_some_and(|mode| mode != "local")
+            {
+                return Err("Launch profiles require local execution".into());
+            }
         }
         if self.validate_remote_spawn(params)? {
             return Ok(true);
