@@ -544,7 +544,7 @@ impl ReminderHost for LiveHost<'_> {
         scope: &Scope,
         snapshot: &Snapshot,
         decision: &Decision,
-    ) -> Emission {
+    ) -> Result<Emission, String> {
         self.svc
             .compose_plan_reminder(plan, scope, snapshot, decision, false)
     }
@@ -603,12 +603,12 @@ impl ServiceContext {
         plan: &Plan,
         tab_id: &str,
         worker: bool,
-    ) -> String {
+    ) -> Result<String, String> {
         if let Some(text) = self
             .ext::<std::sync::Arc<crate::service::hierarchy::heartbeat_gate::Gate>>()
             .last_body(tab_id, &plan.id)
         {
-            return text;
+            return Ok(text);
         }
         let scope = Scope {
             tab_id: tab_id.into(),
@@ -624,14 +624,15 @@ impl ServiceContext {
             scope: scope.clone(),
             ..Default::default()
         };
-        self.compose_plan_reminder(
-            plan,
-            &scope,
-            &snapshot,
-            &heartbeat_gate::cadence(&snapshot),
-            true,
-        )
-        .text
+        Ok(self
+            .compose_plan_reminder(
+                plan,
+                &scope,
+                &snapshot,
+                &heartbeat_gate::cadence(&snapshot),
+                true,
+            )?
+            .text)
     }
 
     fn send_due_plan_time_reminders(&self) {
@@ -680,14 +681,17 @@ impl ServiceContext {
         snapshot: &Snapshot,
         decision: &Decision,
         preview: bool,
-    ) -> Emission {
+    ) -> Result<Emission, String> {
         let tab_id = scope.tab_id.as_str();
-        match scope.kind {
+        Ok(match scope.kind {
             ReminderKind::Worker => {
-                let mut text = self.plan_store.prepend_worker_charter_for_tab(
-                    tab_id,
-                    &crate::service::plan::reminders::worker_nudge_text(),
-                );
+                let mut text = self
+                    .plan_store
+                    .prepend_worker_charter_for_tab(
+                        tab_id,
+                        &crate::service::plan::reminders::worker_nudge_text(),
+                    )
+                    .map_err(|error| error.to_string())?;
                 // The live tick runs on a blocking worker; a popup preview may not.
                 if !preview {
                     if let Some(step) = self.tab_todo_step_line_blocking(tab_id) {
@@ -758,7 +762,7 @@ impl ServiceContext {
                     },
                 }
             }
-        }
+        })
     }
 
     fn deliver_automated_plan_reminder(

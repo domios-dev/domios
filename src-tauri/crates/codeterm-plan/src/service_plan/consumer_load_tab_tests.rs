@@ -129,9 +129,12 @@ fn active_owned_plan_with_open_work_for_tab_never_loads_unmatched_plans() {
     start(&store);
 
     assert_eq!(
-        store.active_owned_plan_with_open_work_for_tab("orch-a"),
+        store
+            .active_owned_plan_with_open_work_for_tab("orch-a")
+            .unwrap(),
         Some(owned)
     );
+    assert!(store.plan_loads_for_test().is_empty());
     assert_never_loaded(&store, &[&other]);
 }
 
@@ -392,7 +395,10 @@ fn prepend_worker_charter_for_tab_never_loads_unmatched_plans() {
     let planning = seed(&store, planning);
     start(&store);
 
-    let text = store.prepend_worker_charter_for_tab("tab-a", "nudge");
+    let text = store
+        .prepend_worker_charter_for_tab("tab-a", "nudge")
+        .unwrap();
     assert!(text.len() > "nudge".len() && text.ends_with("nudge"));
+    assert!(store.plan_loads_for_test().is_empty());
     assert_never_loaded(&store, &[&unmatched, &planning]);
 }

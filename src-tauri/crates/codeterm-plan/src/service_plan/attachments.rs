@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use super::{paths, PlanError, PlanStore};
@@ -140,13 +139,6 @@ fn section_ref<'a>(sections: &'a [Section], id: &str) -> Option<&'a Section> {
         }
     }
     None
-}
-
-fn collect_section_ids(sections: &[Section], out: &mut HashSet<String>) {
-    for section in sections {
-        out.insert(section.id.clone());
-        collect_section_ids(&section.subsections, out);
-    }
 }
 
 pub(super) fn remove_dir_if_exists(path: PathBuf) -> Result<(), PlanError> {
@@ -310,69 +302,51 @@ impl PlanStore {
         ))
     }
 
-    pub fn orphan_attachment_dirs(&self, project_path: &Path) -> Vec<OrphanAttachmentDir> {
-        let mut out = vec![];
+    pub fn orphan_attachment_dirs(
+        &self,
+        project_path: &Path,
+    ) -> Result<Vec<OrphanAttachmentDir>, PlanError> {
         let project_root = paths::project_root(project_path);
-        let ids: Vec<String> = self
-            .plan_roots()
-            .into_iter()
-            .filter(|(_, root)| Path::new(root) == project_root.as_path())
-            .map(|(id, _)| id)
-            .collect();
-        for plan in self.plans_matching(&super::PlanMatch::Ids(ids)) {
-            if paths::plan_sidecar_root(&plan) != project_root.as_path() {
-                continue;
+        let read = self.database.attachment_reference_read()?;
+        let mut out = Vec::new();
+        for id in read.project_plan_ids(&project_root)? {
+            let plan_root = self.plan_data_dir(&id);
+            let mut directories = Vec::new();
+            for target in [
+                AttachmentTarget::Task,
+                AttachmentTarget::Section,
+                AttachmentTarget::Milestone,
+            ] {
+                collect_attachment_dirs(&plan_root, target, &mut directories);
             }
-            let mut task_ids = HashSet::new();
-            let mut milestone_ids = HashSet::new();
-            for task in &plan.tasks {
-                task_ids.insert(task.id.clone());
-                for milestone in &task.milestones {
-                    milestone_ids.insert(milestone.id.clone());
+            let candidates = directories
+                .iter()
+                .map(|(target, id, _)| (target_dir(*target), id.as_str()))
+                .collect::<Vec<_>>();
+            let known = read.known_directories(&id, &candidates)?;
+            for ((_, _, path), live) in directories.into_iter().zip(known) {
+                if !live {
+                    out.push(OrphanAttachmentDir {
+                        plan_id: id.clone(),
+                        path,
+                    })
                 }
             }
-            let mut section_ids = HashSet::new();
-            collect_section_ids(&plan.sections, &mut section_ids);
-            let plan_root = self.plan_data_dir(&plan.id);
-            collect_orphans(
-                &plan_root,
-                &plan.id,
-                AttachmentTarget::Task,
-                &task_ids,
-                &mut out,
-            );
-            collect_orphans(
-                &plan_root,
-                &plan.id,
-                AttachmentTarget::Section,
-                &section_ids,
-                &mut out,
-            );
-            collect_orphans(
-                &plan_root,
-                &plan.id,
-                AttachmentTarget::Milestone,
-                &milestone_ids,
-                &mut out,
-            );
         }
-        out
+        read.finish()?;
+        Ok(out)
     }
 }
 
-fn collect_orphans(
+fn collect_attachment_dirs(
     plan_root: &Path,
-    plan_id: &str,
     target: AttachmentTarget,
-    live_ids: &HashSet<String>,
-    out: &mut Vec<OrphanAttachmentDir>,
+    out: &mut Vec<(AttachmentTarget, String, PathBuf)>,
 ) {
     let root = attachment_dir(plan_root, target, "_")
         .parent()
         .map(Path::to_path_buf);
-    let Some(root) = root else {
-        return;
-    };
+    let Some(root) = root else { return };
     let Ok(entries) = std::fs::read_dir(root) else {
         return;
     };
@@ -380,15 +354,12 @@ fn collect_orphans(
         let Ok(file_type) = entry.file_type() else {
             continue;
         };
-        if !file_type.is_dir() {
-            continue;
-        }
-        let id = entry.file_name().to_string_lossy().to_string();
-        if !live_ids.contains(&id) {
-            out.push(OrphanAttachmentDir {
-                plan_id: plan_id.to_string(),
-                path: entry.path(),
-            });
+        if file_type.is_dir() {
+            out.push((
+                target,
+                entry.file_name().to_string_lossy().to_string(),
+                entry.path(),
+            ))
         }
     }
 }

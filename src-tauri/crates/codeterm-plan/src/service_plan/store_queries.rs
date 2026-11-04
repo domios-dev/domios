@@ -244,25 +244,11 @@ impl PlanStore {
         None
     }
 
-    pub fn active_owned_plan_with_open_work_for_tab(&self, tab_id: &str) -> Option<String> {
-        if tab_id.trim().is_empty() {
-            return None;
-        }
-        let candidates = PlanMatch::active()
-            .and(PlanMatch::Mode(PlanMode::Execution))
-            .and(PlanMatch::owner(tab_id));
-        for plan in self.plans_matching(&candidates) {
-            if plan.status != PlanStatus::Active
-                || plan.mode != PlanMode::Execution
-                || plan.owner.tab_id.as_deref() != Some(tab_id)
-            {
-                continue;
-            }
-            if plan.tasks.iter().any(|t| t.status.counts_as_open_work()) {
-                return Some(plan.id.clone());
-            }
-        }
-        None
+    pub fn active_owned_plan_with_open_work_for_tab(
+        &self,
+        tab_id: &str,
+    ) -> Result<Option<String>, PlanError> {
+        self.database.active_owned_open_plan(tab_id)
     }
 
     /// The plan this tab is the registered live Planner of, if any — a

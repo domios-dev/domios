@@ -905,7 +905,9 @@ fn role_guidance_round_trips_and_worker_charter_prepends_it() {
     let task = plan.tasks.iter().find(|task| task.id == task_id).unwrap();
     assert_eq!(task.role_guidance.as_deref(), Some("opaque-guidance-71"));
 
-    let brief = store.prepend_worker_charter_for_tab("tab_guided", "continue");
+    let brief = store
+        .prepend_worker_charter_for_tab("tab_guided", "continue")
+        .unwrap();
     assert!(brief.starts_with(&format!("<codeterm-worker-charter task=\"{task_id}\">\n")));
     assert_eq!(brief.matches("opaque-guidance-71").count(), 1);
 }

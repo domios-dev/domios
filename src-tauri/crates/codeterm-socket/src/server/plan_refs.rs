@@ -49,7 +49,10 @@ pub(super) fn resolve_plan(
     if let Some((plan_id, _)) = store.task_binding_for_tab(caller_tab) {
         return Ok(plan_id);
     }
-    if let Some(plan_id) = store.active_owned_plan_with_open_work_for_tab(caller_tab) {
+    if let Some(plan_id) = store
+        .active_owned_plan_with_open_work_for_tab(caller_tab)
+        .map_err(super::plan::plan_rpc_err)?
+    {
         return Ok(plan_id);
     }
 
