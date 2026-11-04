@@ -1,6 +1,6 @@
 import { uid } from "./uid";
 import { browserFetch, createTransportClient, SseCapacityError, streamClientId, TransportError, type TransportClient, type TransportOptions, type Unsubscribe } from "./transportClient";
-import { bulkCreditDue, CREDIT_ATTEMPTS, decodeMuxFrame, isMuxStreamPath, muxSessionRefused, type MuxFrame } from "./streamMuxModel";
+import { bulkCreditDue, CREDIT_ATTEMPTS, decodeMuxFrame, isDirectDaemonPath, isMuxStreamPath, muxSessionRefused, type MuxFrame } from "./streamMuxModel";
 import { EMPTY_MUX_POSTS, initialMuxRequest, MUX_REQUEST_TIMEOUT, muxPostCancel, muxPostEnqueue, muxPostRemove, muxPostStart, muxPostTraffic, muxRequestAdmission, muxRequestOperation, muxRequestPolicy, transitionMuxRequest, type MuxPostState, type MuxRequestInit, type MuxRequestState, type MuxTraffic } from "./streamMuxRequestModel";
 import { restRequestTimeoutMs } from "./restTimeoutPolicy";
 import { RECONNECT_FIRST_MS, reconnectDelay, nextReconnectBackoff, shouldResetReconnectBackoff } from "./webReconnectModel";
@@ -372,6 +372,7 @@ export function createStreamMux(transport: () => TransportClient, fetcher: Fetch
       const client = transport(), url = new URL(input instanceof Request ? input.url : String(input), client.origin());
       if (url.origin !== client.origin()) return Promise.reject(new Error("Mux requires its own daemon origin"));
       const path = url.pathname + url.search;
+      if (isDirectDaemonPath(path)) return fetcher(input, init);
       const method = (init.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase();
       const stream = method === "GET" && isMuxStreamPath(path);
       const headers = new Headers(input instanceof Request ? input.headers : undefined);
