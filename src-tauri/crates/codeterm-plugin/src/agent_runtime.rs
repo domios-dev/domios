@@ -1,5 +1,6 @@
 mod authority;
 mod children;
+mod declarations;
 pub use children::*;
 mod history;
 pub use history::*;

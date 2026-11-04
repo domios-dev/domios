@@ -215,3 +215,32 @@ fn interrupt_before_first_turn_requires_explicit_true_and_a_declared_method() {
         Err(RuntimeManifestError::InvalidMethods)
     );
 }
+
+#[test]
+fn launch_profiles_require_pinned_packages_and_protect_secret_references() {
+    let mut raw = manifest();
+    raw["permissions"]["subprocess"]["allow"] = json!(["runtime-engine", "npx"]);
+    raw["capabilities"]["agentRuntime"]["launchProfiles"] = json!({"selected":{
+        "binary":"npx","args":["@fixture/agent@1.2.3","--acp"],"install":{"package":"@fixture/agent@1.2.3"},
+        "secretEnv":{"AGENT_API_KEY":"domios:provider:runtime-fixture:key"}
+    }});
+    assert!(PluginManifest::from_json_str(&raw.to_string())
+        .unwrap()
+        .validate_agent_runtime()
+        .is_ok());
+    for package in [
+        "@fixture/agent",
+        "@fixture/agent@latest",
+        "@fixture/agent@^1.2.3",
+    ] {
+        let mut invalid = raw.clone();
+        invalid["capabilities"]["agentRuntime"]["launchProfiles"]["selected"]["install"]
+            ["package"] = json!(package);
+        assert!(PluginManifest::from_json_str(&invalid.to_string())
+            .map_or(true, |manifest| manifest.validate_agent_runtime().is_err()));
+    }
+    raw["capabilities"]["agentRuntime"]["launchProfiles"]["selected"]["secretEnv"] =
+        json!({"CODETERM_API_TOKEN":"foreign"});
+    assert!(PluginManifest::from_json_str(&raw.to_string())
+        .map_or(true, |manifest| manifest.validate_agent_runtime().is_err()));
+}

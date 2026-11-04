@@ -2,16 +2,21 @@ import type {
   JsonValue, Operation, RpcReply, RuntimeContext, RuntimeFailure,
   RuntimeFrame, RuntimePlan, RuntimeReduction, RuntimeStep,
 } from "@codeterm/plugin-sdk";
+import {decodeAuthMethods, agentAuthMethod, type AuthMethod} from "./auth";
 import { methods, protocolVersion } from "./runtimeProtocol";
 import { clientRequest, reduceStream, settleStream, type StreamCursor } from "./runtimeReduce";
 import { usage } from "./runtimeReducePlan";
 import { runtimePrompt, runtimeAnswer } from "./runtimePrompts";
+import { authentication, sessionSettings } from "./runtimeControls";
 
 interface Negotiation {
   epoch:number;
   nonce:string;
   capabilities:Record<string, JsonValue>;
-  authMethods:JsonValue[];
+  authMethods:AuthMethod[];
+  authenticated?:boolean;
+  required?:boolean;
+  settings?:import("@codeterm/plugin-sdk").RuntimeSettings;
   sessionId?:string;
   instructions?:string;
   cursor:StreamCursor;
@@ -62,17 +67,42 @@ function ownSession(ctx:RuntimeContext, state:Negotiation):string {
   return ctx.threadId;
 }
 
+function clientCapabilities(ctx:RuntimeContext):JsonValue {
+  return {fs:{readTextFile:ctx.clientBridges?.fsRead === true,writeTextFile:ctx.clientBridges?.fsWrite === true},terminal:ctx.clientBridges?.terminal === true};
+}
+
 export function runtimePlan(ctx:RuntimeContext, op:Operation):RuntimePlan {
   binding(ctx, op);
   if (op.kind === "initialize") {
     epochs.delete(ctx.tabId);
     return request(methods.initialize, {
-      protocolVersion, clientCapabilities:{fs:{readTextFile:ctx.clientBridges?.fsRead === true,writeTextFile:ctx.clientBridges?.fsWrite === true},terminal:ctx.clientBridges?.terminal === true},
+      protocolVersion, clientCapabilities:clientCapabilities(ctx),
       clientInfo:{name:"domios", title:"Domios", version:ctx.hostVersion},
     });
   }
   const state = negotiated(ctx);
   if (!state) return refusePlan("ACP initialization is required for this runtime epoch");
+  if (op.kind === "control" && op.action === "auth") {
+    return request(methods.initialize, {protocolVersion, clientCapabilities:clientCapabilities(ctx), clientInfo:{name:"domios",title:"Domios",version:ctx.hostVersion}});
+  }
+  if (op.kind === "control" && op.action === "login") {
+    try {
+      const method = agentAuthMethod(state.authMethods, object(op.value).methodId);
+      return request("authenticate", {methodId:method.id});
+    } catch {return refusePlan("Authentication method was not declared or is unavailable");}
+  }
+  if (op.kind === "control" && ["config", "mode"].includes(op.action)) {
+    const sessionId=ownSession(ctx,state);
+    const value=object(op.value);
+    if (op.action === "mode") {
+      if (typeof op.value !== "string" || !state.settings?.modes?.some(mode=>mode.id === op.value))
+        return refusePlan("Session mode was not advertised");
+      return request("session/set_mode",{sessionId,modeId:op.value});
+    }
+    const option=state.settings?.configOptions?.find(option=>option.id === value.id);
+    if (!option?.options.some(option=>option.value === value.value)) return refusePlan("Configuration value was not advertised");
+    return request("session/set_config_option",{sessionId,configId:option.id,value:value.value});
+  }
   switch (op.kind) {
     case "answer": {
       ownSession(ctx,state);
@@ -94,6 +124,9 @@ export function runtimePlan(ctx:RuntimeContext, op:Operation):RuntimePlan {
     }
     case "submitTurn": {
       const sessionId = ownSession(ctx, state);
+      const slash=op.input.text.match(/^\/([^\s]+)(?:\s|$)/);
+      if (slash && !state.settings?.commands?.some(command=>command.name === slash[1]))
+        return refusePlan("Command was not advertised by this session");
       if (op.input.attachments.length) return refusePlan("ACP lifecycle supports text prompts only");
       const prompt:JsonValue[] = [];
       if (state.instructions) prompt.push({type:"text", text:state.instructions});
@@ -116,10 +149,22 @@ export function runtimePlan(ctx:RuntimeContext, op:Operation):RuntimePlan {
 
 export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue, reply:RpcReply):RuntimeStep {
   binding(ctx, op);
-  if (reply.kind === "error") return refused("provider_refused", reply.error.message);
+  if (reply.kind === "error") {
+    if (reply.error.code === -32000) {
+      const state=negotiated(ctx);
+      if (state) {state.authenticated=false;state.required=true;}
+      return refused("authentication_required",reply.error.message);
+    }
+    return refused("provider_refused", reply.error.message);
+  }
   const value = object(reply.value);
   const method = object(raw).method;
-  if (op.kind === "initialize") {
+  if (op.kind === "control" && op.action === "login" && method === "authenticate") {
+    const next = request(methods.initialize, {protocolVersion, clientCapabilities:clientCapabilities(ctx), clientInfo:{name:"domios",title:"Domios",version:ctx.hostVersion}});
+    next.state = {method:methods.initialize, authenticated:true};
+    return {kind:"continue", plan:next};
+  }
+  if (op.kind === "initialize" || op.kind === "control" && ["auth", "login"].includes(op.action)) {
     if (method !== methods.initialize || value.protocolVersion !== protocolVersion) {
       epochs.delete(ctx.tabId);
       return refused("protocol_error", "ACP agent must negotiate protocolVersion 1");
@@ -127,10 +172,17 @@ export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue,
     if (value.agentCapabilities !== undefined && !record(value.agentCapabilities)
       || value.authMethods !== undefined && !Array.isArray(value.authMethods))
       return refused("protocol_error", "Invalid ACP initialization response");
+    let authMethods:AuthMethod[];
+    try {authMethods = decodeAuthMethods(value.authMethods);} catch {return refused("protocol_error", "Invalid ACP authentication declaration");}
+    const prior = negotiated(ctx);
+    const authenticated = object(raw).authenticated === true || prior?.authenticated === true;
     remember(ctx, {epoch:ctx.epoch, nonce:ctx.bindingNonce,
-      capabilities:object(value.agentCapabilities), authMethods:Array.isArray(value.authMethods) ? value.authMethods : [],
-      cursor:{replay:0,prompt:0,loading:false},inFlight:false});
-    return {kind:"complete", result:{kind:"initialized"}};
+      capabilities:object(value.agentCapabilities), authMethods, authenticated, required:authenticated ? false : prior?.required,
+      sessionId:prior?.sessionId, instructions:prior?.instructions,
+      cursor:prior?.cursor ?? {replay:0,prompt:0,loading:false},inFlight:prior?.inFlight ?? false,
+      projection:prior?.projection, settledProjection:prior?.settledProjection, settings:prior?.settings});
+    return {kind:"complete",result:op.kind === "initialize" ? {kind:"initialized"} : {kind:"done"},
+      events:[{kind:"authentication",authentication:authentication(authMethods,authenticated,authenticated ? false : prior?.required)}]};
   }
   const state = negotiated(ctx);
   if (!state) return refused("provider_refused", "ACP initialization is required for this runtime epoch");
@@ -147,7 +199,16 @@ export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue,
     state.sessionId = sessionId;
     state.instructions = op.instructions;
     state.cursor.loading=false;
-    return {kind:"complete", result:{kind:"threadLoaded", threadId:sessionId, settings:op.settings}};
+    state.settings={commands:[],configOptions:[],modes:[],...sessionSettings(value)};
+    return {kind:"complete", result:{kind:"threadLoaded", threadId:sessionId, settings:{...op.settings,...state.settings}}};
+  }
+  if (op.kind === "control" && ["config","mode"].includes(op.action)) {
+    const sessionId=ownSession(ctx,state);
+    const settings=op.action === "config" && method === "session/set_config_option" && Array.isArray(value.configOptions)
+      ? sessionSettings(value) : op.action === "mode" && method === "session/set_mode" && typeof op.value === "string" ? {mode:op.value} : null;
+    if (!settings) return refused("protocol_error","Invalid session control response");
+    state.settings={...state.settings,...settings};
+    return {kind:"complete",result:{kind:"done"},events:[{kind:"controlsConfirmed",threadId:sessionId,settings}]};
   }
   if (op.kind === "answer" && method === "session/request_permission")
     return {kind:"complete",result:{kind:"done"},events:[{kind:"promptResolved",threadId:ownSession(ctx,state),requestId:op.requestId}]};
@@ -186,5 +247,7 @@ export function runtimeReduce(ctx:RuntimeContext, raw:JsonValue, frames:readonly
   const reduction=reduceStream(ctx,state.settledProjection ?? raw,own,state.cursor);
   delete state.settledProjection;
   state.projection=reduction.state;
+  for (const event of reduction.events) if (event.kind === "controlsConfirmed")
+    state.settings={...state.settings,...event.settings};
   return {...reduction,events:[...reduction.events,...prompts]};
 }

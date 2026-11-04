@@ -247,6 +247,23 @@ pub(super) async fn handle(
     if let Err(reason) =
         super::apply::publish_live_events(svc, session, epoch, reduced.events, received_at).await
     {
+        for (id, _, _) in &native {
+            session.prompts.lock().remove(id);
+            if let Err(reason) = process
+                .client
+                .reply(
+                    id,
+                    Err(RpcFailure {
+                        code: -32602,
+                        message: "Native client turn publication failed".into(),
+                        data: None,
+                    }),
+                )
+                .await
+            {
+                return Step::Close(reason);
+            }
+        }
         return match reason {
             RuntimeFailure::Superseded => Step::Break,
             reason if bookkeeping_protocol(&reason) => Step::Close(reason),

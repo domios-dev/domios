@@ -677,3 +677,35 @@ fn runtime_pending_initial_claim_is_retained_without_replacement() {
         Some(super::RuntimeFirstTurn::Task("new-task".into()))
     );
 }
+
+#[test]
+fn selected_profile_survives_spawn_routing_and_saved_tab_config() {
+    use crate::service::spawn::{SpawnTabSpec, TabCommand};
+    let mut spec = SpawnTabSpec::from_agent_params(crate::service::SpawnAgentParams {
+        agent: Some("profile-fixture".into()),
+        launch_profile: Some("selected-profile".into()),
+        ..Default::default()
+    });
+    spec.route_agent_to_chatbackend().unwrap();
+    let TabCommand::ChatBackend { config, .. } = &spec.command else {
+        panic!("runtime route missing");
+    };
+    assert_eq!(config["launchProfile"], "selected-profile");
+    assert_eq!(
+        spec.chatbackend_launch
+            .as_ref()
+            .unwrap()
+            .params
+            .launch_profile
+            .as_deref(),
+        Some("selected-profile")
+    );
+    let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+    mux.get_tab_mut(&tab_id).unwrap().agent_runtime_config = Some(config.clone());
+    let saved = serde_json::to_vec(mux.get_tab(&tab_id).unwrap()).unwrap();
+    let restored: crate::multiplexer::types::Tab = serde_json::from_slice(&saved).unwrap();
+    assert_eq!(
+        restored.agent_runtime_config.unwrap()["launchProfile"],
+        "selected-profile"
+    );
+}

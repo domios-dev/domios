@@ -11,6 +11,7 @@ mod cli_exception;
 mod client_bridge;
 mod completions;
 pub(crate) mod controls;
+pub mod declared_controls;
 pub mod engine;
 mod envelope_delivery;
 mod environment;
@@ -19,6 +20,7 @@ pub mod goals;
 mod initialize;
 mod launch_options;
 pub mod launch_profile;
+pub mod launch_profile_install;
 #[cfg(unix)]
 pub(crate) mod lease;
 pub mod login;

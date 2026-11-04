@@ -5,7 +5,34 @@
       "binary": "acp-agent",
       "args": []
     },
-    "launchProfiles": {},
+    "launchProfiles": {
+      "deepseek-harness": {
+        "binary": "npx",
+        "args": [
+          "@deepseek-ai/dsh@0.2.1-rc.5",
+          "--profile",
+          "acp"
+        ],
+        "install": {
+          "package": "@deepseek-ai/dsh@0.2.1-rc.5",
+          "registry": "https://registry.npmjs.org"
+        },
+        "secretEnv": {
+          "DEEPSEEK_API_KEY": "domios:provider:acp:deepseek-api-key"
+        }
+      },
+      "gemini-cli": {
+        "binary": "gemini",
+        "args": [
+          "--acp"
+        ]
+      },
+      "local": {
+        "binary": "local-acp-command",
+        "args": [],
+        "ownerConfigured": true
+      }
+    },
     "requestMethods": {
       "initialize": [
         "initialize"
@@ -22,6 +49,12 @@
       ],
       "interrupt": [
         "session/cancel"
+      ],
+      "control": [
+        "initialize",
+        "authenticate",
+        "session/set_mode",
+        "session/set_config_option"
       ],
       "answer": []
     },
@@ -67,6 +100,8 @@
     "tool-call-first-deny.json",
     "tool-call-lifecycle.json",
     "unknown-update-kind.json",
-    "unsupported-version.json"
+    "unsupported-version.json",
+    "controls-selection.json",
+    "declared-auth.json"
   ]
 }

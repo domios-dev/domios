@@ -1,6 +1,7 @@
 import type { AgentEvent, ChatMsg, JsonValue, RuntimeContext, RuntimeFrame, RuntimeReduction } from "@codeterm/plugin-sdk";
 import { object, text, reduceTool } from "./runtimeReduceTools";
 import { planRow, usage } from "./runtimeReducePlan";
+import { commands, configOptions } from "./runtimeControls";
 
 export interface StreamCursor { replay:number; prompt:number; loading:boolean }
 interface StreamState {
@@ -41,8 +42,8 @@ function warn(state:StreamState, events:AgentEvent[], rawKind:string):void {
   if (!Object.prototype.hasOwnProperty.call(state.warnings,kind) && Object.keys(state.warnings).length >= 32) return;
   const count=state.warnings[kind] ?? 0;
   state.warnings[kind]=Math.min(count+1,Number.MAX_SAFE_INTEGER);
-  if (!count) emit(state,events,{id:`${state.sessionId}:unknown:${state.epoch}:${kind}`,seq:0,type:"system",
-    content:`Ignored unknown ACP session update: ${kind}`,systemSubtype:"runtime_warning"});
+  if (!count) events.push({kind:"notice",threadId:state.sessionId,message:`Ignored unknown ACP session update: ${kind}`});
+
 }
 function closeChunk(ctx:RuntimeContext, state:StreamState, events:AgentEvent[]):void {
   const chunk=state.chunk;
@@ -127,6 +128,10 @@ export function reduceStream(ctx:RuntimeContext, raw:JsonValue, frames:readonly 
       emit(state,events,planRow(ctx.threadId,update,state.items[id],state.seq+1));
     } else if (["available_commands_update","config_option_update","session_info_update","current_mode_update"].includes(kind)) {
       rememberControl(state,kind,update);
+      if (kind === "available_commands_update" && Array.isArray(update.availableCommands))
+        events.push({kind:"controlsConfirmed",threadId:ctx.threadId,settings:{commands:commands(update.availableCommands)}});
+      if (kind === "config_option_update" && Array.isArray(update.configOptions))
+        events.push({kind:"controlsConfirmed",threadId:ctx.threadId,settings:{configOptions:configOptions(update.configOptions)}});
       if (kind === "current_mode_update" && typeof update.currentModeId === "string")
         events.push({kind:"controlsConfirmed",threadId:ctx.threadId,settings:{mode:update.currentModeId}});
       const compaction=object(object(update._meta).compaction);
@@ -139,7 +144,10 @@ export function reduceStream(ctx:RuntimeContext, raw:JsonValue, frames:readonly 
     } else if (kind === "compaction_update" || kind === "compaction_summary_chunk") {
       const id=text(update.id) ?? `${ctx.threadId}:compaction:${state.turn}`;
       if (!state.compacted.includes(id)) { state.compacted.push(id);events.push({kind:"contextCompacted",threadId:ctx.threadId,itemId:id}); }
-    } else if (kind === "agent_notice") rememberControl(state,kind,update);
+    } else if (kind === "agent_notice") {
+      if (typeof update.message === "string" && update.message.length)
+        events.push({kind:"notice",threadId:ctx.threadId,message:update.message.slice(0,4096)});
+    }
     else warn(state,events,kind);
   }
   return {state:json(state),events};

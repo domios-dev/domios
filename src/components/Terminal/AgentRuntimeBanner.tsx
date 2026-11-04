@@ -1,3 +1,4 @@
+import { RuntimeDeclaredControls } from "./RuntimeDeclaredControls";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useId } from "react";
 import { CircleAlert } from "lucide-react";
@@ -10,13 +11,17 @@ import { isMissingRuntimeConversation } from "../../lib/describeError";
 import { useStartNewSession } from "./useStartNewSession";
 
 export function AgentRuntimeBanner({ state, onRetry, tabId, iconSvg, startupOwned = false }: { tabId?: string; state: AgentRuntimeState | null; onRetry: () => void; iconSvg?: string | null; startupOwned?: boolean }) {
-  if (tabId && state?.auth === "signedOut" && state.loginMethods?.length) {
+  if (tabId && state && ((state.authentication && state.authentication.state !== "authenticated") || (state.auth === "signedOut" && state.loginMethods?.length))) {
     return <>
+      {tabId && state && <RuntimeDeclaredControls tabId={tabId} state={state} />}
       <RuntimeLoginActions key={`${tabId}:${state.epoch}`} tabId={tabId} state={state} iconSvg={iconSvg} onCheck={onRetry} />
     </>;
   }
   const view = runtimeStatusPresentation(state, startupOwned);
-  return <RuntimeStatusBadge view={view} onRetry={onRetry} tabId={tabId} />;
+  return <>
+    {tabId && state && <RuntimeDeclaredControls tabId={tabId} state={state} />}
+    <RuntimeStatusBadge view={view} onRetry={onRetry} tabId={tabId} />
+  </>;
 }
 
 function RuntimeStatusBadge({ view, onRetry, tabId }: { view: ReturnType<typeof runtimeStatusPresentation>; onRetry: () => void; tabId?: string }) {

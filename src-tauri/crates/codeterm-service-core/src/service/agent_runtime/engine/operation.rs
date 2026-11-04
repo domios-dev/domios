@@ -358,6 +358,10 @@ async fn run_inner(
                 next = plan;
             }
             RuntimeStep::Refused { reason, .. } => {
+                if reason.code == RuntimeFailureCode::AuthenticationRequired {
+                    super::super::declared_controls::require_authentication(svc, session);
+                    return Err(RuntimeFailure::SignInRequired);
+                }
                 if reason.code == RuntimeFailureCode::ThreadNotFound
                     && matches!(operation, RuntimeOperation::ResumeThread { .. })
                 {

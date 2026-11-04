@@ -21,11 +21,38 @@ var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: tru
 var plugin_exports = {};
 __export(plugin_exports, {
   default: () => plugin_default,
+  onAgentCommand: () => onAgentCommand,
   runtimePlan: () => runtimePlan,
   runtimeReduce: () => runtimeReduce,
   runtimeResponse: () => runtimeResponse
 });
 module.exports = __toCommonJS(plugin_exports);
+
+// plugins/provider-acp/src/auth.ts
+function decodeAuthMethods(value) {
+  if (value === void 0) return [];
+  if (!Array.isArray(value) || value.length > 32) throw new Error("Invalid ACP authMethods");
+  const ids = /* @__PURE__ */ new Set();
+  return value.map((raw) => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("Invalid ACP auth method");
+    const method = raw;
+    if (typeof method.id !== "string" || !method.id.length || method.id.length > 128 || /[\u0000-\u001f]/.test(method.id) || typeof method.name !== "string" || !method.name.length || method.name.length > 256 || ids.has(method.id)) throw new Error("Invalid ACP auth method");
+    ids.add(method.id);
+    return { id: method.id, name: method.name, type: method.type === void 0 || method.type === "agent" ? "agent" : method.type === "terminal" ? "terminal" : "unsupported" };
+  });
+}
+function authenticationState(methods2, evidence = {}) {
+  if (!methods2) return "unknown";
+  if (evidence.authenticated) return "authenticated";
+  if (evidence.required || evidence.keyPresent === false) return "needs_auth";
+  if (methods2.length && methods2.every((method) => method.type !== "agent")) return "unavailable";
+  return "unknown";
+}
+function agentAuthMethod(methods2, id) {
+  const method = methods2.find((method2) => method2.id === id && method2.type === "agent");
+  if (!method) throw new Error("Authentication method was not declared or is unavailable");
+  return method;
+}
 
 // plugins/provider-acp/src/runtimeProtocol.ts
 var protocolVersion = 1;
@@ -129,6 +156,53 @@ function usage(value) {
   return mapped;
 }
 
+// plugins/provider-acp/src/runtimeControls.ts
+var object2 = (value) => value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
+var label = (value) => typeof value === "string" && value.length > 0 && value.length <= 256 && !/[\u0000-\u001f]/.test(value);
+function list(value, limit) {
+  return Array.isArray(value) && value.length <= limit ? value.map(object2) : [];
+}
+function commands(value) {
+  const seen = /* @__PURE__ */ new Set();
+  return list(value, 128).flatMap((command) => {
+    if (!label(command.name) || /[\s/]/.test(command.name) || seen.has(command.name)) return [];
+    seen.add(command.name);
+    const hint = object2(command.input).hint;
+    return [{
+      name: command.name,
+      description: typeof command.description === "string" ? command.description.slice(0, 4096) : "",
+      ...typeof hint === "string" ? { argumentHint: hint.slice(0, 4096) } : {}
+    }];
+  });
+}
+function configOptions(value) {
+  const seen = /* @__PURE__ */ new Set();
+  return list(value, 64).flatMap((config) => {
+    if (!label(config.id) || !label(config.name) || seen.has(config.id)) return [];
+    seen.add(config.id);
+    const values = list(config.options, 128).flatMap((entry) => Array.isArray(entry.options) ? list(entry.options, 128) : [entry]);
+    const ids = /* @__PURE__ */ new Set();
+    const options = values.slice(0, 128).flatMap((entry) => {
+      if (!label(entry.value) || !label(entry.name) || ids.has(entry.value)) return [];
+      ids.add(entry.value);
+      return [{ value: entry.value, name: entry.name }];
+    });
+    if (config.type !== "select" || !label(config.currentValue)) return [{ id: config.id, name: config.name, currentValue: String(config.currentValue).slice(0, 256) || "Unknown", options: [] }];
+    return [{ id: config.id, name: config.name, currentValue: config.currentValue, options }];
+  });
+}
+function sessionSettings(value) {
+  const response = object2(value), modes = object2(response.modes);
+  return {
+    ...Array.isArray(response.configOptions) ? { configOptions: configOptions(response.configOptions) } : {},
+    ...Array.isArray(modes.availableModes) ? { modes: list(modes.availableModes, 64).flatMap((mode) => label(mode.id) && label(mode.name) ? [{ id: mode.id, name: mode.name }] : []) } : {},
+    ...label(modes.currentModeId) ? { mode: modes.currentModeId } : {}
+  };
+}
+function authentication(methods2, authenticated, required) {
+  return { state: authenticationState(methods2, { authenticated, required }), methods: methods2.map((method) => ({ id: method.id, name: method.name, available: method.type === "agent" })) };
+}
+
 // plugins/provider-acp/src/runtimeReduce.ts
 var json = (value) => value;
 function initial(ctx, raw, cursor) {
@@ -203,13 +277,7 @@ function warn(state, events, rawKind) {
   if (!Object.prototype.hasOwnProperty.call(state.warnings, kind) && Object.keys(state.warnings).length >= 32) return;
   const count = state.warnings[kind] ?? 0;
   state.warnings[kind] = Math.min(count + 1, Number.MAX_SAFE_INTEGER);
-  if (!count) emit(state, events, {
-    id: `${state.sessionId}:unknown:${state.epoch}:${kind}`,
-    seq: 0,
-    type: "system",
-    content: `Ignored unknown ACP session update: ${kind}`,
-    systemSubtype: "runtime_warning"
-  });
+  if (!count) events.push({ kind: "notice", threadId: state.sessionId, message: `Ignored unknown ACP session update: ${kind}` });
 }
 function closeChunk(ctx, state, events) {
   const chunk = state.chunk;
@@ -306,6 +374,10 @@ function reduceStream(ctx, raw, frames, cursor) {
       emit(state, events, planRow(ctx.threadId, update, state.items[id], state.seq + 1));
     } else if (["available_commands_update", "config_option_update", "session_info_update", "current_mode_update"].includes(kind)) {
       rememberControl(state, kind, update);
+      if (kind === "available_commands_update" && Array.isArray(update.availableCommands))
+        events.push({ kind: "controlsConfirmed", threadId: ctx.threadId, settings: { commands: commands(update.availableCommands) } });
+      if (kind === "config_option_update" && Array.isArray(update.configOptions))
+        events.push({ kind: "controlsConfirmed", threadId: ctx.threadId, settings: { configOptions: configOptions(update.configOptions) } });
       if (kind === "current_mode_update" && typeof update.currentModeId === "string")
         events.push({ kind: "controlsConfirmed", threadId: ctx.threadId, settings: { mode: update.currentModeId } });
       const compaction = object(object(update._meta).compaction);
@@ -324,25 +396,27 @@ function reduceStream(ctx, raw, frames, cursor) {
         state.compacted.push(id);
         events.push({ kind: "contextCompacted", threadId: ctx.threadId, itemId: id });
       }
-    } else if (kind === "agent_notice") rememberControl(state, kind, update);
-    else warn(state, events, kind);
+    } else if (kind === "agent_notice") {
+      if (typeof update.message === "string" && update.message.length)
+        events.push({ kind: "notice", threadId: ctx.threadId, message: update.message.slice(0, 4096) });
+    } else warn(state, events, kind);
   }
   return { state: json(state), events };
 }
 
 // plugins/provider-acp/src/runtimePrompts.ts
 var kinds = /* @__PURE__ */ new Set(["allow_once", "allow_always", "reject_once", "reject_always"]);
-var object2 = (value) => value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
+var object3 = (value) => value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
 function fail(message) {
   throw { code: "provider_refused", message };
 }
 function runtimePrompt(ctx, method, params) {
-  const data = object2(params);
+  const data = object3(params);
   if (method !== "session/request_permission" || !ctx.threadId || data.sessionId !== ctx.threadId) return void 0;
-  const tool = object2(data.toolCall);
+  const tool = object3(data.toolCall);
   if (typeof tool.toolCallId !== "string" || !tool.toolCallId || !Array.isArray(data.options) || !data.options.length || data.options.length > 16) return void 0;
   const seen = /* @__PURE__ */ new Set();
-  const options = data.options.map(object2);
+  const options = data.options.map(object3);
   if (options.some((option) => {
     if (typeof option.optionId !== "string" || !option.optionId || option.optionId.length > 4096 || seen.has(option.optionId) || typeof option.name !== "string" || option.name.length > 4096 || typeof option.kind !== "string" || !kinds.has(option.kind)) return true;
     seen.add(option.optionId);
@@ -363,7 +437,7 @@ function runtimeAnswer(ctx, method, params, _id, answer) {
 
 // plugins/provider-acp/src/runtime.ts
 var epochs = /* @__PURE__ */ new Map();
-var object3 = (value) => value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
+var object4 = (value) => value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
 var record = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 function fail2(code, message) {
   throw { code, message };
@@ -404,18 +478,44 @@ function ownSession(ctx, state) {
   if (!ctx.threadId || state.sessionId !== ctx.threadId) fail2("binding_mismatch", "ACP session is not bound to this tab");
   return ctx.threadId;
 }
+function clientCapabilities(ctx) {
+  return { fs: { readTextFile: ctx.clientBridges?.fsRead === true, writeTextFile: ctx.clientBridges?.fsWrite === true }, terminal: ctx.clientBridges?.terminal === true };
+}
 function runtimePlan(ctx, op) {
   binding(ctx, op);
   if (op.kind === "initialize") {
     epochs.delete(ctx.tabId);
     return request(methods.initialize, {
       protocolVersion,
-      clientCapabilities: { fs: { readTextFile: ctx.clientBridges?.fsRead === true, writeTextFile: ctx.clientBridges?.fsWrite === true }, terminal: ctx.clientBridges?.terminal === true },
+      clientCapabilities: clientCapabilities(ctx),
       clientInfo: { name: "domios", title: "Domios", version: ctx.hostVersion }
     });
   }
   const state = negotiated(ctx);
   if (!state) return refusePlan("ACP initialization is required for this runtime epoch");
+  if (op.kind === "control" && op.action === "auth") {
+    return request(methods.initialize, { protocolVersion, clientCapabilities: clientCapabilities(ctx), clientInfo: { name: "domios", title: "Domios", version: ctx.hostVersion } });
+  }
+  if (op.kind === "control" && op.action === "login") {
+    try {
+      const method = agentAuthMethod(state.authMethods, object4(op.value).methodId);
+      return request("authenticate", { methodId: method.id });
+    } catch {
+      return refusePlan("Authentication method was not declared or is unavailable");
+    }
+  }
+  if (op.kind === "control" && ["config", "mode"].includes(op.action)) {
+    const sessionId = ownSession(ctx, state);
+    const value = object4(op.value);
+    if (op.action === "mode") {
+      if (typeof op.value !== "string" || !state.settings?.modes?.some((mode) => mode.id === op.value))
+        return refusePlan("Session mode was not advertised");
+      return request("session/set_mode", { sessionId, modeId: op.value });
+    }
+    const option = state.settings?.configOptions?.find((option2) => option2.id === value.id);
+    if (!option?.options.some((option2) => option2.value === value.value)) return refusePlan("Configuration value was not advertised");
+    return request("session/set_config_option", { sessionId, configId: option.id, value: value.value });
+  }
   switch (op.kind) {
     case "answer": {
       ownSession(ctx, state);
@@ -428,7 +528,7 @@ function runtimePlan(ctx, op) {
       return request(methods.newSession, { cwd: ctx.cwd, mcpServers: [] });
     case "resumeThread": {
       const capabilities = state.capabilities;
-      const session = object3(capabilities.sessionCapabilities);
+      const session = object4(capabilities.sessionCapabilities);
       const method = record(session.resume) ? methods.resume : capabilities.loadSession === true ? methods.load : null;
       if (!method) return refusePlan("ACP agent did not advertise session/load or session/resume");
       state.sessionId = op.threadId;
@@ -437,11 +537,14 @@ function runtimePlan(ctx, op) {
     }
     case "submitTurn": {
       const sessionId = ownSession(ctx, state);
+      const slash = op.input.text.match(/^\/([^\s]+)(?:\s|$)/);
+      if (slash && !state.settings?.commands?.some((command) => command.name === slash[1]))
+        return refusePlan("Command was not advertised by this session");
       if (op.input.attachments.length) return refusePlan("ACP lifecycle supports text prompts only");
       const prompt = [];
       if (state.instructions) prompt.push({ type: "text", text: state.instructions });
       prompt.push({ type: "text", text: op.input.text });
-      state.cursor.prompt = Math.max(state.cursor.prompt, Number(object3(state.projection).turn) || 0) + 1;
+      state.cursor.prompt = Math.max(state.cursor.prompt, Number(object4(state.projection).turn) || 0) + 1;
       state.cursor.loading = false;
       state.inFlight = true;
       return request(methods.prompt, { sessionId, prompt });
@@ -459,31 +562,65 @@ function runtimePlan(ctx, op) {
 }
 function runtimeResponse(ctx, op, raw, reply) {
   binding(ctx, op);
-  if (reply.kind === "error") return refused("provider_refused", reply.error.message);
-  const value = object3(reply.value);
-  const method = object3(raw).method;
-  if (op.kind === "initialize") {
+  if (reply.kind === "error") {
+    if (reply.error.code === -32e3) {
+      const state2 = negotiated(ctx);
+      if (state2) {
+        state2.authenticated = false;
+        state2.required = true;
+      }
+      return refused("authentication_required", reply.error.message);
+    }
+    return refused("provider_refused", reply.error.message);
+  }
+  const value = object4(reply.value);
+  const method = object4(raw).method;
+  if (op.kind === "control" && op.action === "login" && method === "authenticate") {
+    const next = request(methods.initialize, { protocolVersion, clientCapabilities: clientCapabilities(ctx), clientInfo: { name: "domios", title: "Domios", version: ctx.hostVersion } });
+    next.state = { method: methods.initialize, authenticated: true };
+    return { kind: "continue", plan: next };
+  }
+  if (op.kind === "initialize" || op.kind === "control" && ["auth", "login"].includes(op.action)) {
     if (method !== methods.initialize || value.protocolVersion !== protocolVersion) {
       epochs.delete(ctx.tabId);
       return refused("protocol_error", "ACP agent must negotiate protocolVersion 1");
     }
     if (value.agentCapabilities !== void 0 && !record(value.agentCapabilities) || value.authMethods !== void 0 && !Array.isArray(value.authMethods))
       return refused("protocol_error", "Invalid ACP initialization response");
+    let authMethods;
+    try {
+      authMethods = decodeAuthMethods(value.authMethods);
+    } catch {
+      return refused("protocol_error", "Invalid ACP authentication declaration");
+    }
+    const prior = negotiated(ctx);
+    const authenticated = object4(raw).authenticated === true || prior?.authenticated === true;
     remember(ctx, {
       epoch: ctx.epoch,
       nonce: ctx.bindingNonce,
-      capabilities: object3(value.agentCapabilities),
-      authMethods: Array.isArray(value.authMethods) ? value.authMethods : [],
-      cursor: { replay: 0, prompt: 0, loading: false },
-      inFlight: false
+      capabilities: object4(value.agentCapabilities),
+      authMethods,
+      authenticated,
+      required: authenticated ? false : prior?.required,
+      sessionId: prior?.sessionId,
+      instructions: prior?.instructions,
+      cursor: prior?.cursor ?? { replay: 0, prompt: 0, loading: false },
+      inFlight: prior?.inFlight ?? false,
+      projection: prior?.projection,
+      settledProjection: prior?.settledProjection,
+      settings: prior?.settings
     });
-    return { kind: "complete", result: { kind: "initialized" } };
+    return {
+      kind: "complete",
+      result: op.kind === "initialize" ? { kind: "initialized" } : { kind: "done" },
+      events: [{ kind: "authentication", authentication: authentication(authMethods, authenticated, authenticated ? false : prior?.required) }]
+    };
   }
   const state = negotiated(ctx);
   if (!state) return refused("provider_refused", "ACP initialization is required for this runtime epoch");
   if (op.kind === "openThread" || op.kind === "resumeThread") {
     if (op.kind === "resumeThread") {
-      const allowed = method === methods.load ? state.capabilities.loadSession === true : method === methods.resume && record(object3(state.capabilities.sessionCapabilities).resume);
+      const allowed = method === methods.load ? state.capabilities.loadSession === true : method === methods.resume && record(object4(state.capabilities.sessionCapabilities).resume);
       if (!allowed) return refused("provider_refused", "ACP session method was not advertised");
     } else if (method !== methods.newSession) return refused("protocol_error", "Invalid ACP session response");
     const sessionId = op.kind === "openThread" ? value.sessionId : op.threadId;
@@ -492,7 +629,15 @@ function runtimeResponse(ctx, op, raw, reply) {
     state.sessionId = sessionId;
     state.instructions = op.instructions;
     state.cursor.loading = false;
-    return { kind: "complete", result: { kind: "threadLoaded", threadId: sessionId, settings: op.settings } };
+    state.settings = { commands: [], configOptions: [], modes: [], ...sessionSettings(value) };
+    return { kind: "complete", result: { kind: "threadLoaded", threadId: sessionId, settings: { ...op.settings, ...state.settings } } };
+  }
+  if (op.kind === "control" && ["config", "mode"].includes(op.action)) {
+    const sessionId = ownSession(ctx, state);
+    const settings = op.action === "config" && method === "session/set_config_option" && Array.isArray(value.configOptions) ? sessionSettings(value) : op.action === "mode" && method === "session/set_mode" && typeof op.value === "string" ? { mode: op.value } : null;
+    if (!settings) return refused("protocol_error", "Invalid session control response");
+    state.settings = { ...state.settings, ...settings };
+    return { kind: "complete", result: { kind: "done" }, events: [{ kind: "controlsConfirmed", threadId: sessionId, settings }] };
   }
   if (op.kind === "answer" && method === "session/request_permission")
     return { kind: "complete", result: { kind: "done" }, events: [{ kind: "promptResolved", threadId: ownSession(ctx, state), requestId: op.requestId }] };
@@ -524,7 +669,7 @@ function runtimeReduce(ctx, raw, frames) {
   binding(ctx);
   const state = negotiated(ctx);
   if (!ctx.threadId || !state || state.sessionId !== ctx.threadId) return { state: raw, events: [] };
-  const own = frames.filter((frame) => object3(frame.params).sessionId === ctx.threadId && (frame.kind === "notification" && frame.method === methods.update || frame.kind === "request" && clientRequest(frame.method)));
+  const own = frames.filter((frame) => object4(frame.params).sessionId === ctx.threadId && (frame.kind === "notification" && frame.method === methods.update || frame.kind === "request" && clientRequest(frame.method)));
   const prompts = frames.flatMap((frame) => {
     if (frame.kind !== "request") return [];
     const prompt = runtimePrompt(ctx, frame.method, frame.params);
@@ -534,8 +679,145 @@ function runtimeReduce(ctx, raw, frames) {
   const reduction = reduceStream(ctx, state.settledProjection ?? raw, own, state.cursor);
   delete state.settledProjection;
   state.projection = reduction.state;
+  for (const event of reduction.events) if (event.kind === "controlsConfirmed")
+    state.settings = { ...state.settings, ...event.settings };
   return { ...reduction, events: [...reduction.events, ...prompts] };
 }
 
+// plugins/provider-acp/src/registry.ts
+var registryBounds = { bytes: 2 * 1024 * 1024, agents: 512, string: 4096, args: 128 };
+var targets = /* @__PURE__ */ new Set(["darwin-aarch64", "darwin-x86_64", "linux-aarch64", "linux-x86_64", "windows-aarch64", "windows-x86_64"]);
+function invalid() {
+  throw new Error("Invalid or oversized ACP registry v1 index");
+}
+function object5(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) invalid();
+  return value;
+}
+function fields(value, allowed) {
+  if (Object.keys(value).some((key) => !allowed.includes(key))) invalid();
+}
+function string(value, limit = registryBounds.string) {
+  if (typeof value !== "string" || !value.length || value.length > limit || /[\u0000-\u001f]/.test(value)) invalid();
+  return value;
+}
+function args(value) {
+  if (value === void 0) return [];
+  if (!Array.isArray(value) || value.length > registryBounds.args) invalid();
+  return value.map((value2) => value2 === "" ? "" : string(value2));
+}
+function env(value) {
+  if (value === void 0) return {};
+  const entries = Object.entries(object5(value));
+  if (entries.length > 128) invalid();
+  for (const [key, value2] of entries) {
+    if (!/^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(key) || key.toUpperCase().startsWith("CODETERM")) invalid();
+    if (value2 !== "") string(value2);
+  }
+  return Object.fromEntries(entries);
+}
+function url(value) {
+  const text2 = string(value);
+  if (!/^https:\/\/[^/@\s?#]+(?:\/[^\s#]*)?$/.test(text2)) invalid();
+  return text2;
+}
+function distribution(value) {
+  const raw = object5(value);
+  fields(raw, ["binary", "npx", "uvx"]);
+  if (!Object.keys(raw).length) invalid();
+  const result = {};
+  for (const kind of ["npx", "uvx"]) {
+    if (raw[kind] === void 0) continue;
+    const entry = object5(raw[kind]);
+    fields(entry, ["package", "args", "env"]);
+    result[kind] = { package: string(entry.package, 256), args: args(entry.args), env: env(entry.env) };
+  }
+  if (raw.binary !== void 0) {
+    const entries = Object.entries(object5(raw.binary));
+    if (!entries.length || entries.length > targets.size) invalid();
+    result.binary = Object.fromEntries(entries.map(([target, value2]) => {
+      if (!targets.has(target)) invalid();
+      const entry = object5(value2);
+      fields(entry, ["archive", "cmd", "args", "env", "sha256"]);
+      const sha256 = entry.sha256 === void 0 ? void 0 : string(entry.sha256, 64);
+      if (sha256 !== void 0 && !/^[a-f\d]{64}$/i.test(sha256)) invalid();
+      return [target, { archive: url(entry.archive), cmd: string(entry.cmd), args: args(entry.args), env: env(entry.env), ...sha256 ? { sha256 } : {} }];
+    }));
+  }
+  return result;
+}
+function utf8Bytes(value) {
+  let size = 0;
+  for (const character of value) {
+    const point = character.codePointAt(0);
+    size += point < 128 ? 1 : point < 2048 ? 2 : point < 65536 ? 3 : 4;
+    if (size > registryBounds.bytes) invalid();
+  }
+  return size;
+}
+function decodeRegistry(text2) {
+  if (text2.length > registryBounds.bytes || utf8Bytes(text2) > registryBounds.bytes) invalid();
+  const index = object5(JSON.parse(text2));
+  fields(index, ["version", "agents"]);
+  if (index.version !== "1.0.0" || !Array.isArray(index.agents) || index.agents.length > registryBounds.agents) invalid();
+  const ids = /* @__PURE__ */ new Set();
+  const agents = index.agents.map((value) => {
+    const entry = object5(value);
+    fields(entry, ["id", "name", "version", "description", "distribution", "repository", "website", "authors", "license", "license_url", "icon"]);
+    const id = string(entry.id, 128);
+    if (!/^[a-z][a-z0-9-]*$/.test(id) || ids.has(id)) invalid();
+    ids.add(id);
+    const version = string(entry.version, 128);
+    if (!/^\d+\.\d+\.\d+(?:-[\w.-]+)?$/.test(version)) invalid();
+    for (const field of ["repository", "website", "license_url", "icon"]) if (entry[field] !== void 0) url(entry[field]);
+    if (entry.license !== void 0) string(entry.license);
+    if (entry.authors !== void 0 && (!Array.isArray(entry.authors) || entry.authors.length > 64)) invalid();
+    if (Array.isArray(entry.authors)) entry.authors.forEach((author) => string(author));
+    return { id, name: string(entry.name, 256), version, description: string(entry.description), distribution: distribution(entry.distribution) };
+  });
+  return { version: "1.0.0", agents };
+}
+function searchRegistryCache(cache, query) {
+  const text2 = cache.read();
+  if (text2 === null) return [];
+  const needle = query.trim().slice(0, 256).toLowerCase();
+  return decodeRegistry(text2).agents.filter((agent) => `${agent.id} ${agent.name} ${agent.description}`.toLowerCase().includes(needle));
+}
+function saveRegistryCache(cache, text2) {
+  decodeRegistry(text2);
+  if (!cache.write(text2)) throw new Error("ACP registry cache could not be saved");
+}
+
+// plugins/provider-acp/src/discovery.ts
+var indexUrl = "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json";
+function registryCache(host2) {
+  const path = `${host2.dataDir()}/acp/cache/registry-v1.json`;
+  return { read: () => host2.readFileHead(path, registryBounds.bytes + 1), write: (text2) => host2.writeFileAtomic(path, text2) };
+}
+function discoveryCommand(host2, ctx) {
+  const cache = registryCache(host2);
+  const result = () => ({ result: JSON.stringify(searchRegistryCache(cache, ctx.args.join(" "))) });
+  try {
+    if (ctx.verb === "registry-search") return result();
+    if (ctx.verb === "registry-refresh") {
+      return host2.fetch.async({ url: indexUrl, timeoutMs: 15e3 }, (response) => {
+        if (response.status !== 200 || !response.body || response.error) return { error: "ACP registry unavailable; the previous cache is retained" };
+        try {
+          saveRegistryCache(cache, response.body);
+          return result();
+        } catch {
+          return { error: "Invalid ACP registry; the previous cache is retained" };
+        }
+      });
+    }
+    return { error: "Unknown ACP command" };
+  } catch {
+    return { error: "ACP registry cache is unavailable or invalid" };
+  }
+}
+
 // plugins/provider-acp/src/plugin.ts
-var plugin_default = { runtimePlan, runtimeResponse, runtimeReduce };
+function onAgentCommand(ctx) {
+  return discoveryCommand(host, ctx);
+}
+var plugin_default = { runtimePlan, runtimeResponse, runtimeReduce, onAgentCommand };

@@ -420,7 +420,16 @@
           "kind": "complete",
           "result": {
             "kind": "initialized"
-          }
+          },
+          "events": [
+            {
+              "kind": "authentication",
+              "authentication": {
+                "state": "unknown",
+                "methods": []
+              }
+            }
+          ]
         }
       },
       {
@@ -430,7 +439,11 @@
           "result": {
             "kind": "threadLoaded",
             "threadId": "session-fixture",
-            "settings": {}
+            "settings": {
+              "commands": [],
+              "configOptions": [],
+              "modes": []
+            }
           }
         }
       },
@@ -470,6 +483,13 @@
       }
     ],
     "events": [
+      {
+        "kind": "authentication",
+        "authentication": {
+          "state": "unknown",
+          "methods": []
+        }
+      },
       {
         "kind": "turnState",
         "threadId": "session-fixture",

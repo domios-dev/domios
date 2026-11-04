@@ -54,7 +54,8 @@ pub(super) fn environment(
                 .iter()
                 .any(|excluded| excluded.eq_ignore_ascii_case(key))
     };
-    let mut env: BTreeMap<_, _> = std::env::vars()
+    let mut env: BTreeMap<_, _> = std::env::vars_os()
+        .filter_map(|(key, value)| Some((key.into_string().ok()?, value.into_string().ok()?)))
         .chain(base)
         .filter(|(key, _)| allowed(key))
         .collect();

@@ -197,3 +197,23 @@ for (const kind of ["agent_message_chunk","agent_thought_chunk","user_message_ch
   assert.deepEqual(plain(instance.runtimeReduce(after,repeated.state,[frame]).events.filter(event=>event.kind === "turnState")),[],`${kind} stays started after host publication`);
 }
 console.log("✓ ACP every first own-session update/request starts exactly once");
+
+const controls = loadHooks();
+const controlContext = {...ctx,tabId:"controls-regression"};
+const controlsInitialized = controls.runtimePlan(controlContext,init);
+controls.runtimeResponse(controlContext,init,controlsInitialized.state,{kind:"success",value:{protocolVersion:1,agentCapabilities:{},authMethods:[]}});
+const openControl = controls.runtimePlan(controlContext,fresh);
+controls.runtimeResponse(controlContext,fresh,openControl.state,{kind:"success",value:{sessionId:"own"}});
+const controlBound = {...controlContext,threadId:"own"};
+const commandFrame:RuntimeFrame = {kind:"notification",method:"session/update",params:{sessionId:"own",update:{sessionUpdate:"available_commands_update",availableCommands:[{name:"inspect",description:"Inspect"}]}}};
+controls.runtimeReduce(controlBound,null,[commandFrame]);
+const command:Operation = {kind:"submitTurn",threadId:"own",sendId:"command",input:{text:"/inspect target",attachments:[]},settings:{}};
+assert.equal(controls.runtimePlan(controlBound,command).action.kind,"request");
+controls.runtimeReduce(controlBound,null,[{...commandFrame,params:{sessionId:"foreign",update:{sessionUpdate:"available_commands_update",availableCommands:[{name:"foreign",description:"Foreign"}]}}}]);
+assertPlanRefusal(controls.runtimePlan(controlBound,{...command,input:{text:"/foreign",attachments:[]}}));
+controls.runtimeReduce(controlBound,null,[{...commandFrame,params:{sessionId:"own",update:{sessionUpdate:"available_commands_update",availableCommands:[]}}}]);
+assertPlanRefusal(controls.runtimePlan(controlBound,command));
+assertPlanRefusal(controls.runtimePlan({...controlBound,epoch:2},command));
+const required = controls.runtimeResponse(controlBound,command,{method:"session/prompt"},{kind:"error",error:{code:-32000,message:"Authentication required"}});
+assert.deepEqual(plain(required),{kind:"refused",reason:{code:"authentication_required",message:"Authentication required"},beforeAcceptance:true});
+console.log("✓ ACP command revocation, foreign declaration, epoch and explicit auth-required evidence");

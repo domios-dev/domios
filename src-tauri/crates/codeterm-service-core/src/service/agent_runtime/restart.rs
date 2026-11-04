@@ -113,6 +113,7 @@ async fn restart_inner(
                 context.thread_id = None;
             }
         }
+        super::declared_controls::reset(session, epoch);
         {
             let mut state = session.state.lock();
             state.phase = RuntimePhase::Unloaded { reason: None };

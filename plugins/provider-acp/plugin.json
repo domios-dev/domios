@@ -15,7 +15,34 @@
         "binary": "acp-agent",
         "args": []
       },
-      "launchProfiles": {},
+      "launchProfiles": {
+        "deepseek-harness": {
+          "binary": "npx",
+          "args": [
+            "@deepseek-ai/dsh@0.2.1-rc.5",
+            "--profile",
+            "acp"
+          ],
+          "install": {
+            "package": "@deepseek-ai/dsh@0.2.1-rc.5",
+            "registry": "https://registry.npmjs.org"
+          },
+          "secretEnv": {
+            "DEEPSEEK_API_KEY": "domios:provider:acp:deepseek-api-key"
+          }
+        },
+        "gemini-cli": {
+          "binary": "gemini",
+          "args": [
+            "--acp"
+          ]
+        },
+        "local": {
+          "binary": "local-acp-command",
+          "args": [],
+          "ownerConfigured": true
+        }
+      },
       "requestMethods": {
         "initialize": [
           "initialize"
@@ -32,6 +59,12 @@
         ],
         "interrupt": [
           "session/cancel"
+        ],
+        "control": [
+          "initialize",
+          "authenticate",
+          "session/set_mode",
+          "session/set_config_option"
         ],
         "answer": []
       },
@@ -57,8 +90,22 @@
   "permissions": {
     "subprocess": {
       "allow": [
-        "acp-agent"
+        "acp-agent",
+        "npx",
+        "gemini",
+        "local-acp-command"
+      ]
+    },
+    "secrets": true,
+    "agent_commands": true,
+    "network": {
+      "allow": [
+        "cdn.agentclientprotocol.com"
       ]
     }
-  }
+  },
+  "agentVerbs": [
+    "registry-search [query]",
+    "registry-refresh [query]"
+  ]
 }

@@ -150,8 +150,24 @@ pub(super) async fn thread_history(
     .map_err(|reason| (StatusCode::CONFLICT, reason))
 }
 
+async fn controls(
+    State(state): State<AppState>,
+    Path(tab): Path<String>,
+    Json(request): Json<
+        codeterm_service_core::service::agent_runtime::declared_controls::Selection,
+    >,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    codeterm_service_core::service::agent_runtime::declared_controls::select(
+        &state.svc, &tab, request,
+    )
+    .await
+    .map(Json)
+    .map_err(|reason| (StatusCode::CONFLICT, reason))
+}
+
 pub(super) fn router() -> Router<AppState> {
     Router::new()
+        .route("/api/tabs/{id}/agent/runtime/controls", post(controls))
         .route("/api/tabs/{id}/agent/runtime/goal", post(goal))
         .route("/api/tabs/{id}/agent/runtime/usage", get(tab_usage))
         .route(

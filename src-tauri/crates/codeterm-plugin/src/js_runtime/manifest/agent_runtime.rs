@@ -189,6 +189,47 @@ impl AgentRuntimeCapability {
                 {
                     return Err(RuntimeManifestError::InvalidProfile);
                 }
+                if profile.secret_env.len() > 32
+                    || profile.secret_env.iter().any(|(key, value)| {
+                        key.is_empty()
+                            || key.len() > 128
+                            || !key.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+                            || key.to_ascii_uppercase().starts_with("CODETERM")
+                            || value.is_empty()
+                            || value.len() > 128
+                            || !value
+                                .bytes()
+                                .all(|b| b.is_ascii_alphanumeric() || b"_:-".contains(&b))
+                    })
+                {
+                    return Err(RuntimeManifestError::InvalidProfile);
+                }
+                if profile.owner_configured
+                    && (profile.install.is_some()
+                        || !profile.args.is_empty()
+                        || !profile.env.is_empty()
+                        || !profile.secret_env.is_empty())
+                {
+                    return Err(RuntimeManifestError::InvalidProfile);
+                }
+                if let Some(install) = &profile.install {
+                    let Some((package, version)) = install.package.rsplit_once('@') else {
+                        return Err(RuntimeManifestError::InvalidProfile);
+                    };
+                    if package.is_empty()
+                        || semver::Version::parse(version).is_err()
+                        || install
+                            .registry
+                            .as_deref()
+                            .is_some_and(|registry| registry != "https://registry.npmjs.org")
+                        || profile.binary != "npx"
+                        || profile.args.first() != Some(&install.package)
+                    {
+                        return Err(RuntimeManifestError::InvalidProfile);
+                    }
+                } else if ["npx", "uvx", "npm", "uv"].contains(&profile.binary.as_str()) {
+                    return Err(RuntimeManifestError::InvalidProfile);
+                }
                 if let Some(detection) = &profile.detection {
                     validate_command(&crate::agent_runtime::AgentRuntimeCommand {
                         binary: profile.binary.clone(),
