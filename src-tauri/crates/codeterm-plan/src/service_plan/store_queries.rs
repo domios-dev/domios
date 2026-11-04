@@ -69,47 +69,6 @@ impl PlanStore {
         self.specs.read().get(id).map(|s| s.lock().clone())
     }
 
-    pub fn spec_full(&self, id: &str) -> Result<Option<serde_json::Value>, PlanError> {
-        let Some(spec) = self.get_spec(id) else {
-            return Ok(None);
-        };
-        let Some(coverage) = self.spec_coverage_report(id)? else {
-            return Ok(None);
-        };
-        let links = self.list_spec_links(id)?;
-        Ok(Some(serde_json::json!({
-            "spec": spec,
-            "coverage": coverage,
-            "links": links,
-        })))
-    }
-
-    pub fn effort_bundle(&self, plan_id: &str) -> Result<Option<serde_json::Value>, PlanError> {
-        let Some(plan) = self.get(plan_id) else {
-            return Ok(None);
-        };
-        let specs = plan
-            .spec_refs
-            .iter()
-            .filter_map(|id| self.get_spec(id))
-            .collect::<Vec<_>>();
-        let spec_coverage = specs
-            .iter()
-            .map(|spec| {
-                let coverage = self.spec_coverage_report(&spec.id)?;
-                Ok(serde_json::json!({
-                    "spec_id": spec.id,
-                    "coverage": coverage,
-                }))
-            })
-            .collect::<Result<Vec<_>, PlanError>>()?;
-        Ok(Some(serde_json::json!({
-            "plan": plan,
-            "specs": specs,
-            "spec_coverage": spec_coverage,
-        })))
-    }
-
     pub fn file_manifest(&self, id: &str) -> Result<body_files::PlanFileManifest, PlanError> {
         let plan = self.get(id).ok_or(PlanError::NotFound)?;
         body_files::file_manifest(&plan).map_err(|e| PlanError::Io(e.to_string()))

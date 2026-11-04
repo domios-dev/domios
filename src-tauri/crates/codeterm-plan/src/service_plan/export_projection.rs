@@ -18,6 +18,14 @@ impl PlanExportEncoder for JsonPlanExport {
 }
 
 impl PlanStore {
+    pub fn spec_full(&self, id: &str) -> Result<Option<Value>, PlanError> {
+        self.database.spec_full(id)
+    }
+
+    pub fn effort_bundle(&self, id: &str) -> Result<Option<Value>, PlanError> {
+        self.database.effort_bundle(id)
+    }
+
     pub fn export_plan_document(&self, id: &str) -> Result<Value, PlanError> {
         self.database.export_plan_document(id)
     }
