@@ -15,7 +15,7 @@ function object(value: unknown): Record<string, unknown> {
 function fields(value: Record<string, unknown>, allowed: readonly string[]): void {
   if (Object.keys(value).some(key => !allowed.includes(key))) invalid();
 }
-function string(value: unknown, limit = registryBounds.string): string {
+function string(value: unknown, limit: number = registryBounds.string): string {
   if (typeof value !== "string" || !value.length || value.length > limit || /[\u0000-\u001f]/.test(value)) invalid();
   return value;
 }

@@ -1166,8 +1166,9 @@
   ],
   "launchProfiles": {
     "selected": {
-      "binary": "fixture-engine",
+      "binary": "npx",
       "args": [
+        "@fixture/engine@1.2.3",
         "serve"
       ],
       "env": {
@@ -1179,8 +1180,8 @@
         ]
       },
       "install": {
-        "package": "fixture-engine",
-        "registry": "https://example.invalid"
+        "package": "@fixture/engine@1.2.3",
+        "registry": "https://registry.npmjs.org"
       }
     }
   }
