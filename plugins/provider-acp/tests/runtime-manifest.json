@@ -1,7 +1,7 @@
 {
   "agentRuntime": {
     "runtime": "stdio-jsonrpc",
-      "envelope": "jsonrpc2",
+    "envelope": "jsonrpc2",
     "command": {
       "binary": "acp-agent",
       "args": []
@@ -69,6 +69,14 @@
     },
     "interrupt": {
       "beforeFirstTurn": true
+    },
+    "hostMcp": {
+      "param": "mcpServers",
+      "methods": [
+        "session/new",
+        "session/load",
+        "session/resume"
+      ]
     }
   },
   "chatBackend": {
@@ -103,6 +111,8 @@
     "unknown-update-kind.json",
     "unsupported-version.json",
     "controls-selection.json",
-    "declared-auth.json"
+    "declared-auth.json",
+    "mcp-not-declared.json",
+    "mcp-advertised.json"
   ]
 }

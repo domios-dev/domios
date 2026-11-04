@@ -2,6 +2,8 @@ mod authority;
 mod children;
 mod declarations;
 pub use children::*;
+mod host_mcp;
+pub use host_mcp::{RuntimeHostMcp, RuntimeHostMcpDeclaration};
 mod history;
 pub use history::*;
 mod background;

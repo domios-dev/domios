@@ -19,7 +19,10 @@ impl JsProvider {
                 );
             }
         }
-        let ctx = ctx.clone();
+        let mut ctx = ctx.clone();
+        if cap.host_mcp.is_none() {
+            ctx.host_mcp = None;
+        }
         let op = op.clone();
         let deadline = std::time::Instant::now() + RUNTIME_HOOK_DEADLINE;
         tokio::task::spawn_blocking(move || {
@@ -47,7 +50,10 @@ impl JsProvider {
         let started = std::time::Instant::now();
         let vm = self.vm.clone();
         let cap = self.runtime_capability()?;
-        let ctx = ctx.clone();
+        let mut ctx = ctx.clone();
+        if cap.host_mcp.is_none() {
+            ctx.host_mcp = None;
+        }
         let op = op.clone();
         let state = state.clone();
         let reply = reply.clone();
@@ -87,7 +93,10 @@ impl JsProvider {
     ) -> Result<RuntimeReduction, RuntimeFailure> {
         let vm = self.vm.clone();
         let cap = self.runtime_capability()?;
-        let ctx = ctx.clone();
+        let mut ctx = ctx.clone();
+        if cap.host_mcp.is_none() {
+            ctx.host_mcp = None;
+        }
         let state = state.clone();
         let frames = frames.to_vec();
         let deadline = std::time::Instant::now() + RUNTIME_HOOK_DEADLINE;

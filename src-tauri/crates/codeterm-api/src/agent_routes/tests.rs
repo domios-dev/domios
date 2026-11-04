@@ -616,3 +616,49 @@ fn cwd_refusal_is_unprocessable_not_server_error() {
         "requires_workspace_repair"
     );
 }
+
+#[tokio::test]
+async fn agent_routes_host_mcp_cannot_send_or_report_as_foreign_tab() {
+    use codeterm_service_core::{
+        multiplexer::state::MultiplexerState, service::test_fixture::ServiceFixture,
+    };
+    let (mux, tab) = MultiplexerState::new();
+    let fixture = ServiceFixture::new(mux);
+    let state = crate::test_support::app_state(&fixture);
+    let credential = state
+        .svc
+        .frontend_pty_env(Some(&tab))
+        .remove("CODETERM_API_TOKEN")
+        .unwrap();
+    for (method, body) in [
+        (
+            "tab.send_text",
+            serde_json::json!({"tab_id":"target","source_tab":"foreign","text":"opaque"}),
+        ),
+        (
+            "agent.report",
+            serde_json::json!({"tab_id":"foreign","message":"opaque"}),
+        ),
+    ] {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "authorization",
+            format!("Bearer {credential}").parse().unwrap(),
+        );
+        let request =
+            serde_json::from_value(serde_json::json!({"method":method,"params":body})).unwrap();
+        let error = crate::cli_rpc_routes::dispatch(
+            axum::extract::State(state.clone()),
+            axum::extract::ConnectInfo(std::net::SocketAddr::from(([127, 0, 0, 1], 43210))),
+            headers,
+            axum::Json(request),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(error.0, StatusCode::FORBIDDEN);
+        assert_eq!(
+            error.1 .0["error"]["message"],
+            "Caller tab does not match its credential"
+        );
+    }
+}

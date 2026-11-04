@@ -79,6 +79,14 @@
       },
       "interrupt": {
         "beforeFirstTurn": true
+      },
+      "hostMcp": {
+        "param": "mcpServers",
+        "methods": [
+          "session/new",
+          "session/load",
+          "session/resume"
+        ]
       }
     },
     "chatBackend": {

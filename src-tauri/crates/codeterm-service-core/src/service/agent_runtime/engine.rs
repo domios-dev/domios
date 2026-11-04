@@ -416,6 +416,7 @@ async fn ensure_with_fork(
                     reverted_thread: Mutex::new(None),
                     completions: Mutex::new(Default::default()),
                     context: Mutex::new(RuntimeContext {
+                        host_mcp: None,
                         client_bridges: None,
                         restricted_cli: None,
                         epoch: 0,
@@ -573,6 +574,7 @@ async fn ensure_locked(
             let mut context = session.context.lock();
             context.epoch = epoch;
             context.client_bridges = None;
+            context.host_mcp = None;
             context.claimed_sends.clear();
             context.pending_request = None;
             context.active_turn_id = None;
@@ -613,7 +615,7 @@ async fn ensure_locked(
         let target = tab.to_string();
         let provider_id = provider.to_string();
         let launch_nonce = context.binding_nonce.clone();
-        let process = tokio::task::spawn_blocking(move || {
+        let (process, host_mcp) = tokio::task::spawn_blocking(move || {
             let nonce = launch_nonce;
             let authority = LaunchAuthority::verify(
                 &owner,
@@ -663,8 +665,24 @@ async fn ensure_locked(
             {
                 return Err(RuntimeFailure::Superseded);
             }
+            let minted_local = env
+                .get("CODETERM_API_TOKEN")
+                .and_then(|token| owner.identify_tab_credential(token))
+                .is_some_and(|caller| caller.tab_id == target && caller.binding_nonce == nonce)
+                && env.get("CODETERM_TAB_ID") == Some(&target)
+                && env.get("CODETERM_SESSION_BINDING_NONCE") == Some(&nonce)
+                && env
+                    .get("CODETERM_API_URL")
+                    .is_some_and(|url| !url.is_empty());
+            let host_mcp = super::host_mcp::descriptor(
+                capability.host_mcp.is_some(),
+                minted_local,
+                &target,
+                &nonce,
+                crate::service::instance_env::instance_cli_binary_path(),
+            );
             super::process::spawn(&launch.binary, &launch.capability, &cwd, env, &target)
-                .map(Arc::new)
+                .map(|process| (Arc::new(process), host_mcp))
         })
         .await
         .map_err(|error| RuntimeFailure::SpawnFailed {
@@ -677,6 +695,7 @@ async fn ensure_locked(
             process.finish().await?;
             return Err(RuntimeFailure::Superseded);
         }
+        session.context.lock().host_mcp = host_mcp;
         let bridge_context = session.context.lock().clone();
         let installed = tokio::task::spawn_blocking(move || {
             super::client_bridge::install(&bridge_context, declared_bridges)

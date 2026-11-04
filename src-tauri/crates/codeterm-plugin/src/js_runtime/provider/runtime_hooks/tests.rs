@@ -626,3 +626,39 @@ async fn local_runtime_action_only_resumes_the_exact_bound_thread() {
     ctx.epoch = 0;
     assert!(js.runtime_plan(&ctx, &resume).await.is_err());
 }
+
+#[tokio::test(flavor = "current_thread")]
+async fn host_mcp_context_absent_for_undeclared_plugin() {
+    let mut ctx = context();
+    ctx.host_mcp = Some(RuntimeHostMcp {
+        name: "domios".into(),
+        command: "/trusted/domios".into(),
+        args: vec!["mcp".into(), "serve".into()],
+    });
+    let mut js = provider("module.exports={runtimePlan(ctx){return {action:{kind:'request',call:{method:'handshake',params:{descriptor:ctx.hostMcp || null}}},state:null}}}");
+    let plan = js
+        .runtime_plan(&ctx, &RuntimeOperation::Initialize)
+        .await
+        .unwrap();
+    let RuntimeAction::Request { call } = plan.action else {
+        panic!("expected request")
+    };
+    assert_eq!(call.params["descriptor"], Value::Null);
+    js.manifest
+        .capabilities
+        .agent_runtime
+        .as_mut()
+        .unwrap()
+        .host_mcp = Some(RuntimeHostMcpDeclaration {
+        param: "mcpServers".into(),
+        methods: vec!["submit".into()],
+    });
+    let plan = js
+        .runtime_plan(&ctx, &RuntimeOperation::Initialize)
+        .await
+        .unwrap();
+    let RuntimeAction::Request { call } = plan.action else {
+        panic!("expected request")
+    };
+    assert_eq!(call.params["descriptor"], json!(ctx.host_mcp));
+}

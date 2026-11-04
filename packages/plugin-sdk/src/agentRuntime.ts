@@ -46,7 +46,9 @@ export type RuntimeFailureCode =
   | "authentication_required" | "process_unavailable" | "protocol_error" | "provider_refused" | "thread_not_found";
 export interface RuntimeFailure { code:RuntimeFailureCode; message:string }
 export interface RuntimeClientBridges {fsRead:boolean; fsWrite:boolean; terminal:boolean}
+export interface RuntimeHostMcp {name:string; command:string; args:readonly string[]}
 export interface RuntimeContext {
+  hostMcp?:RuntimeHostMcp;
   clientBridges?:RuntimeClientBridges;
   restrictedCli?:RestrictedCliPolicy;
   epoch:number;
@@ -147,6 +149,7 @@ export interface RuntimeLaunchProfile {
   ownerConfigured?:boolean;
 }
 export interface StdioAgentRuntimeCapability {
+  hostMcp?:{param:string; methods:readonly string[]};
   envelope?:"jsonrpc2";
   interrupt?:{beforeFirstTurn:boolean};
   clientBridges?:RuntimeClientBridges;

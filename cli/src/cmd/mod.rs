@@ -25,6 +25,7 @@ pub mod install;
 pub mod integration;
 pub mod local_io;
 pub mod manifest;
+pub mod mcp;
 pub mod mem;
 pub mod mem_secret;
 pub mod mem_secret_autounlock;
