@@ -17,7 +17,7 @@ import { webGraphLayout, webGraphInitialView, WEB_CARD_SCALE, MACHINE_CARD_SCALE
 import { webGatewayGraph } from "./meshProjection";
 import { TailscaleFooter, TailscaleMachineHint, type CanvasTailscale } from "./TailscaleNodes";
 import { differentNetwork } from "./networkTransport";
-import { suggestsRemoteTailscale } from "./tailscaleSetup";
+import { offersTailscaleSetup, suggestsRemoteTailscale } from "./tailscaleSetup";
 import { MachineLimitPaywall } from "./MachineLimitPaywall";
 import type { MyMachines } from "./useMyMachines";
 
@@ -241,7 +241,7 @@ export const MeshCanvas = memo(function MeshCanvas({
     const name = footer.row.name;
     const seen = peer && !peer.online ? lastSeenMs(peer.last_seen) : null;
     return <PeerAccountFooterView footer={footer} name={name} lastSeen={seen === null ? null : formatAge(seen, account.now)}
-      busy={account.busy === footer.key} actions={account.actions} hint={footer.row.status === "signed_out" ? undefined : tailscaleHint(name, peer?.online ?? false, footer.row.transport)} />;
+      busy={account.busy === footer.key} actions={account.actions} hint={!offersTailscaleSetup(footer.row.status) ? undefined : tailscaleHint(name, peer?.online ?? false, footer.row.transport)} />;
   };
 
   return (
@@ -332,7 +332,7 @@ export const MeshCanvas = memo(function MeshCanvas({
             {p.account && account ? (
               p.account.kind === "node"
                 ? <AccountMachineCard node={p.account.node} busy={account.busy === p.account.node.key} now={account.now} actions={account.actions}
-                  hint={p.account.node.row.status !== "signed_out" && p.account.node.row.target ? tailscaleHint(p.account.node.name, p.account.node.online === true, p.account.node.row.transport) : undefined} />
+                  hint={offersTailscaleSetup(p.account.node.row.status) && p.account.node.row.target ? tailscaleHint(p.account.node.name, p.account.node.online === true, p.account.node.row.transport) : undefined} />
                 : <AccountStateCard card={p.account.card} signingIn={account.signingIn} onSignIn={account.onSignIn} onRetry={account.onRetry} />
             ) : (
               <div style={{ transform: `scale(${MACHINE_CARD_SCALE})` }}>
