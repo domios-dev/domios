@@ -73,6 +73,12 @@ impl From<String> for SpawnTargetRefusal {
     }
 }
 
+impl From<crate::service::spawn_capability::SpawnRejection> for SpawnTargetRefusal {
+    fn from(error: crate::service::spawn_capability::SpawnRejection) -> Self {
+        Self::Other(error.into())
+    }
+}
+
 impl From<&str> for SpawnTargetRefusal {
     fn from(message: &str) -> Self {
         Self::Other(message.into())

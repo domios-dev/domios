@@ -293,7 +293,7 @@ fn prepare(
                 &context.tab_id,
                 &session.provider,
                 &context.binding_nonce,
-            ),
+            )?,
             &command.env,
             &exclusions,
         )?
