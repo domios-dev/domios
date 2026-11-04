@@ -26,6 +26,7 @@ impl PlanStore {
     ) -> Result<T, PlanError> {
         let turn = self.mutation_writer.enter();
         let mut fixture = self.try_get(id)?;
+        let now = now.max(fixture.updated_at);
         let output = edit(&mut fixture)?;
         self.import_payload_in_writer(&turn, &mut fixture, now)
             .map_err(|error| PlanError::Io(error.to_string()))?;
