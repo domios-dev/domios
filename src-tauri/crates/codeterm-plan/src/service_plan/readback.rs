@@ -1,4 +1,4 @@
-use super::{PlanError, PlanStore, TaskLaneUpdate};
+use super::{PlanError, PlanStore};
 use crate::plan::{
     ExternalRef, Plan, PlanMode, PlanStatus, PlannerRef, Task, TaskLaneMetadata, TaskPriority,
 };
@@ -56,13 +56,6 @@ pub(in crate::service_plan) struct TaskAddExpectation {
 
 fn parse_plan_mode(raw: &str) -> Result<PlanMode, PlanError> {
     serde_json::from_value(serde_json::Value::String(raw.into())).map_err(|_| PlanError::BadMode)
-}
-
-fn normalized_lane_value(value: &Option<String>) -> Option<String> {
-    value.as_deref().and_then(|raw| {
-        let trimmed = raw.trim();
-        (!trimmed.is_empty()).then(|| trimmed.to_string())
-    })
 }
 
 impl PlanStore {
@@ -273,113 +266,6 @@ impl PlanStore {
             .is_some_and(|sections| task.section_ids != *sections)
         {
             return Err(fail("sections"));
-        }
-        Ok(())
-    }
-
-    pub(in crate::service_plan) fn verify_task_external_refs_added(
-        &self,
-        plan_id: &str,
-        task_id: &str,
-        expected: &[ExternalRef],
-    ) -> Result<(), PlanError> {
-        let task = self.read_task_for_verification(plan_id, task_id)?;
-        for item in expected {
-            let matches = task
-                .external_refs
-                .iter()
-                .filter(|candidate| {
-                    candidate.kind == item.kind
-                        && candidate.repository == item.repository
-                        && candidate.number == item.number
-                })
-                .count();
-            if matches != 1 {
-                return Err(Self::task_readback_error(
-                    "task_external_refs_update",
-                    format!(
-                        "expected exactly one {}#{} reference for {}",
-                        item.repository, item.number, task.id
-                    ),
-                ));
-            }
-        }
-        Ok(())
-    }
-
-    pub(in crate::service_plan) fn verify_task_lane_updated(
-        &self,
-        plan_id: &str,
-        task_id: &str,
-        expected: &TaskLaneUpdate,
-    ) -> Result<(), PlanError> {
-        let task = self.read_task_for_verification(plan_id, task_id)?;
-        let fail = |field: &str| {
-            Self::task_readback_error(
-                "task_lane_update",
-                format!("{field} did not match for {}", task.id),
-            )
-        };
-        if let Some(value) = &expected.tab_id {
-            let expected = normalized_lane_value(value);
-            if task.lane.tab_id != expected {
-                return Err(fail("lane.tab_id"));
-            }
-        }
-        if let Some(value) = &expected.workspace_id {
-            let expected = normalized_lane_value(value);
-            if task.lane.workspace_id != expected {
-                return Err(fail("lane.workspace_id"));
-            }
-        }
-        if let Some(value) = &expected.workspace_name {
-            let expected = normalized_lane_value(value);
-            if task.lane.workspace_name != expected {
-                return Err(fail("lane.workspace_name"));
-            }
-        }
-        if let Some(value) = &expected.worktree_path {
-            let expected = normalized_lane_value(value);
-            if task.lane.worktree_path != expected {
-                return Err(fail("lane.worktree_path"));
-            }
-        }
-        if let Some(value) = &expected.branch {
-            let expected = normalized_lane_value(value);
-            if task.lane.branch != expected {
-                return Err(fail("lane.branch"));
-            }
-        }
-        if let Some(value) = &expected.base {
-            let expected = normalized_lane_value(value);
-            if task.lane.base != expected {
-                return Err(fail("lane.base"));
-            }
-        }
-        if let Some(value) = &expected.destination {
-            let expected = normalized_lane_value(value);
-            if task.lane.destination != expected {
-                return Err(fail("lane.destination"));
-            }
-        }
-        if let Some(value) = &expected.cleanup_status {
-            let expected = normalized_lane_value(value);
-            if task.lane.cleanup_status != expected {
-                return Err(fail("lane.cleanup_status"));
-            }
-        }
-        if let Some(value) = &expected.cleanup_hints {
-            let mut expected = value.clone();
-            expected.retain(|hint| !hint.trim().is_empty());
-            if task.lane.cleanup_hints != expected {
-                return Err(fail("lane.cleanup_hints"));
-            }
-        }
-        if let Some(value) = &expected.tab_id {
-            let expected = normalized_lane_value(value);
-            if task.assigned_tab_id.is_none() && expected.is_some() {
-                return Err(fail("assigned_tab_id"));
-            }
         }
         Ok(())
     }

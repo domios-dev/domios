@@ -28,6 +28,23 @@ impl PlanStore {
         self.publish_hot_receipt(&turn, receipt);
         Ok(result)
     }
+    pub(in crate::service_plan) fn with_task_rows_in_writer<T>(
+        &self,
+        turn: &MutationWriterTurn<'_>,
+        plan_id: &str,
+        selector: &str,
+        history: super::super::store_db::hot_write::TaskHistory,
+        now_ms: u64,
+        change: impl FnOnce(&mut super::super::store_db::hot_write::TaskRowEdit) -> Result<T, PlanError>,
+    ) -> Result<T, PlanError> {
+        turn.assert_store(self);
+        let (result, receipt) = self
+            .database
+            .with_task_rows(plan_id, selector, history, now_ms, change)?;
+        self.publish_hot_receipt(turn, receipt);
+        Ok(result)
+    }
+
     pub(in crate::service_plan) fn commit_hot_changes(
         &self,
         id: &str,
