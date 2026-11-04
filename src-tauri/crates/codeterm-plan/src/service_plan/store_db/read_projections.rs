@@ -1,4 +1,5 @@
 mod agent_transition;
+mod curator_lifecycle;
 pub(in crate::service_plan) mod hierarchy;
 mod tab;
 use super::{db_error, PlanDatabase};

@@ -180,7 +180,7 @@ fn fallback_learning_ids(connection: &Connection, plan: &Plan) -> Result<Vec<Str
     rows.collect::<Result<Vec<_>, _>>().map_err(db_error)
 }
 
-fn register_functions(connection: &Connection) -> Result<(), PlanError> {
+pub(super) fn register_functions(connection: &Connection) -> Result<(), PlanError> {
     use rusqlite::functions::FunctionFlags;
     let flags = FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC;
     connection
