@@ -23,6 +23,7 @@ mod header_projection;
 pub use header_projection::PlanIdentityRead;
 pub mod heartbeat;
 pub mod hints;
+mod index_projection;
 pub mod ingest;
 pub mod interruption;
 pub mod lane_cleanup;
