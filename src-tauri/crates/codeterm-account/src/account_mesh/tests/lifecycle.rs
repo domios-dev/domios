@@ -482,6 +482,7 @@ async fn account_mesh_account_switch_applies_each_accounts_accepted_admission() 
         script.peer_metadata_revision = metadata_revision;
     };
     set_peer(Some(("d".repeat(64), 2)), 5);
+    harness.registry.script.lock().unwrap().peer_active = Some(false);
     harness.sign_in(UID).await;
     harness
         .mesh
@@ -489,6 +490,7 @@ async fn account_mesh_account_switch_applies_each_accounts_accepted_admission() 
         .await
         .unwrap();
     assert!(harness.state().current_membership(START).is_some());
+    assert!(harness.state().revoked_installations.contains(PEER));
     let taught = harness.state().signed_registry.clone().unwrap();
     let account_registry = |key_id: String, generation: u64, metadata_revision: u64| {
         let mut rows = taught.rows.clone();
@@ -509,6 +511,7 @@ async fn account_mesh_account_switch_applies_each_accounts_accepted_admission() 
 
     harness.logout().await;
     set_peer(None, 0);
+    harness.registry.script.lock().unwrap().peer_active = None;
     harness.sign_in("user-2").await;
     harness
         .mesh
@@ -524,6 +527,10 @@ async fn account_mesh_account_switch_applies_each_accounts_accepted_admission() 
         other.current_membership(START).unwrap().verified.account_id,
         account_id("user-2"),
         "a lower generation in another account's registry is not a rollback"
+    );
+    assert!(
+        !other.revoked_installations.contains(PEER),
+        "a revocation in A does not block the same installation in B"
     );
 
     harness.logout().await;
@@ -556,6 +563,10 @@ async fn account_mesh_account_switch_applies_each_accounts_accepted_admission() 
     assert_eq!(
         back.current_membership(START).unwrap().verified.account_id,
         account_id(UID)
+    );
+    assert!(
+        back.revoked_installations.contains(PEER),
+        "A's revoked generation still blocks the installation after A to B to A"
     );
 }
 

@@ -380,12 +380,14 @@ pub struct RegistryPresenceBinding {
     pub presence: super::wire::RegistryPresence,
 }
 
-/// One account's rollback fences while another account's are active.
+/// One account's rollback fences and revocations while another account's are active.
 #[derive(Clone, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct AccountFences {
     pub peer_keys: BTreeMap<String, KeyBinding>,
     pub peer_presence: BTreeMap<String, RegistryPresenceBinding>,
+    pub revoked_installations: BTreeSet<String>,
+    pub revoked_generations: BTreeMap<String, u64>,
 }
 
 /// Durable lifecycle facts and server-signed registry observations keyed by opaque account id.
@@ -417,7 +419,7 @@ pub struct AccountMeshRecord {
     pub local_revocations: BTreeMap<String, BTreeSet<String>>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub revoked_generations: BTreeMap<String, u64>,
-    /// Account whose registries taught `peer_keys` and `peer_presence`; both are per account.
+    /// Account owning the active fences and revocations; other accounts' are in `account_fences`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fence_account: Option<String>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
