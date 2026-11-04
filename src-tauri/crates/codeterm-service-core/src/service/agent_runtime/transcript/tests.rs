@@ -27,7 +27,14 @@ fn two_turns_restore_in_order_and_new_turn_keeps_distinct_ids() {
     let restored = chatbackend_history::try_read_messages(&path).unwrap();
     let identity = |rows: &[ChatMsg]| {
         rows.iter()
-            .map(|row| (row.id.clone(), row.kind.clone(), row.content.clone(), row.seq))
+            .map(|row| {
+                (
+                    row.id.clone(),
+                    row.kind.clone(),
+                    row.content.clone(),
+                    row.seq,
+                )
+            })
             .collect::<Vec<_>>()
     };
     assert_eq!(identity(&restored), identity(&initial));
@@ -149,4 +156,66 @@ fn transcript_io_failures_are_nonfatal_and_recovery_remains_available() {
         "fixture",
     );
     assert_eq!(io.read_rows(&path, "fixture"), expected);
+}
+
+#[test]
+fn concurrent_refusal_next_tool_turn_settles_and_restore_retains_all_rows() {
+    use super::super::events::{self, RuntimeEvent, RuntimeMaps};
+    use codeterm_plugin::agent_runtime::{AgentRuntimeEvent, RuntimeTurnState};
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../plugins/provider-acp/tests/fixtures/runtime/concurrent-rpc-refusal.json"
+    )))
+    .unwrap();
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("transcript.jsonl");
+    let mut history = ChatBackendHistory::open_at(path.clone());
+    let mut cache = ItemCache::default();
+    let mut maps = RuntimeMaps::default();
+    let mut settled = Vec::new();
+    for value in fixture["expected"]["events"].as_array().unwrap() {
+        let event: AgentRuntimeEvent = serde_json::from_value(value.clone()).unwrap();
+        let Some(runtime) = events::translate_with_items(&event, &mut maps, false) else {
+            continue;
+        };
+        events::fold(&mut maps, 1, &runtime);
+        if let RuntimeEvent::ItemUpdated { item, .. } = &runtime {
+            cache.reconcile(item.clone());
+        }
+        if let AgentRuntimeEvent::TurnState {
+            turn_id: Some(turn),
+            state: RuntimeTurnState::Idle,
+            ..
+        } = event
+        {
+            settled.push(turn);
+            history.snapshot(cache.snapshot()).unwrap();
+        }
+    }
+    assert_eq!(
+        settled,
+        ["session-fixture:turn:1", "session-fixture:turn:3"]
+    );
+    let stored = chatbackend_history::try_read_messages(&path).unwrap();
+    let mut restored = ItemCache::default();
+    restored.restore_transcript(stored.clone());
+    restored.restore_transcript(stored);
+    let restored = restored.snapshot();
+    let identity = |rows: &[ChatMsg]| {
+        rows.iter()
+            .map(|row| {
+                (
+                    row.id.clone(),
+                    row.kind.clone(),
+                    row.content.clone(),
+                    row.seq,
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(identity(&restored), identity(&cache.snapshot()));
+    assert!(restored.iter().any(|row| row.content == "NEXT_TOOL_DONE"));
+    assert!(restored
+        .iter()
+        .any(|row| row.tool_status.as_deref() == Some("completed")));
 }

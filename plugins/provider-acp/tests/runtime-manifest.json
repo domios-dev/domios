@@ -147,6 +147,7 @@
     "batch-text-1024.json",
     "batch-byte-limit.json",
     "batch-event-limit.json",
-    "batch-row-determinism.json"
+    "batch-row-determinism.json",
+    "concurrent-rpc-refusal.json"
   ]
 }

@@ -347,6 +347,7 @@ fn apply(
             }
         }
         RuntimeEvent::ItemUpdated { thread_id, item } if owned(&thread_id) => {
+            super::super::turn_requests::observe_item(session, &context, &item);
             let item = session.cache.lock().reconcile_live(item, at);
             crate::flow_trace::SourceCursor::rpc(
                 &context.tab_id,

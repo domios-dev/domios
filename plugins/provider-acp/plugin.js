@@ -919,7 +919,8 @@ function runtimePlan(ctx, op) {
       const prompt = [];
       if (state.instructions) prompt.push({ type: "text", text: state.instructions });
       prompt.push({ type: "text", text: op.input.text });
-      const ordinal = Math.max(state.cursor.prompt, Number(object4(state.projection).turn) || 0, ctx.restoredRowOrdinal ?? 0, ...(state.queued ?? []).map((value) => value.prompt)) + 1;
+      const ordinal = Math.max(state.promptOrdinal ?? 0, state.cursor.prompt, Number(object4(state.projection).turn) || 0, ctx.restoredRowOrdinal ?? 0, ...(state.queued ?? []).map((value) => value.prompt)) + 1;
+      state.promptOrdinal = ordinal;
       if (state.inFlight) {
         (state.queued ?? (state.queued = [])).push({ prompt: ordinal, sendId: op.sendId });
       } else {
@@ -951,6 +952,14 @@ function runtimeResponse(ctx, op, raw, reply) {
   if (reply.kind === "error") {
     const sessionOperation = op.kind === "openThread" && method === methods.newSession || op.kind === "resumeThread" && (method === methods.load || method === methods.resume);
     const state2 = negotiated(ctx);
+    if (state2 && op.kind === "submitTurn" && method === methods.prompt) {
+      const turn = object4(raw).prompt;
+      state2.queued = state2.queued?.filter((queued) => queued.prompt !== turn || queued.sendId !== op.sendId);
+      if (state2.cursor.prompt === turn && state2.promptSend?.sendId === op.sendId) {
+        state2.inFlight = false;
+        delete state2.promptSend;
+      }
+    }
     if (sessionOperation && ![-32e3, -32002, -32601].includes(reply.error.code) && state2 && !state2.sessionActive && object4(raw).mcpOffered === true && ctx.hostMcp) {
       state2.mcpUnavailable = `Domios tools are unavailable for this agent: ${Array.from(reply.error.message).slice(0, 1e3).join("")}`;
       const plan = request(method, { ...op.kind === "resumeThread" ? { sessionId: op.threadId } : {}, cwd: ctx.cwd, mcpServers: [] });
@@ -1006,6 +1015,7 @@ function runtimeResponse(ctx, op, raw, reply) {
       instructions: prior?.instructions,
       cursor: prior?.cursor ?? { replay: 0, prompt: 0, loading: false },
       inFlight: prior?.inFlight ?? false,
+      promptOrdinal: prior?.promptOrdinal,
       projection: prior?.projection,
       promptSend: prior?.promptSend,
       queued: prior?.queued,

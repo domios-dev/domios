@@ -23,6 +23,7 @@ interface Negotiation {
   instructions?:string;
   cursor:StreamCursor;
   inFlight:boolean;
+  promptOrdinal?:number;
   queued?:{prompt:number;sendId:string;completed?:{cancelled:boolean;usage?:TokenUsage}}[];
   mcpUnavailable?:string;
   projection?:JsonValue;
@@ -193,7 +194,8 @@ export function runtimePlan(ctx:RuntimeContext, op:Operation):RuntimePlan {
       const prompt:JsonValue[] = [];
       if (state.instructions) prompt.push({type:"text", text:state.instructions});
       prompt.push({type:"text", text:op.input.text});
-      const ordinal=Math.max(state.cursor.prompt,Number(object(state.projection).turn) || 0,ctx.restoredRowOrdinal ?? 0,...(state.queued ?? []).map(value=>value.prompt))+1;
+      const ordinal=Math.max(state.promptOrdinal ?? 0,state.cursor.prompt,Number(object(state.projection).turn) || 0,ctx.restoredRowOrdinal ?? 0,...(state.queued ?? []).map(value=>value.prompt))+1;
+      state.promptOrdinal=ordinal;
       if (state.inFlight) {
         (state.queued ??= []).push({prompt:ordinal,sendId:op.sendId});
       } else {
@@ -226,6 +228,14 @@ export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue,
     const sessionOperation=op.kind === "openThread" && method === methods.newSession
       || op.kind === "resumeThread" && (method === methods.load || method === methods.resume);
     const state=negotiated(ctx);
+    if (state && op.kind === "submitTurn" && method === methods.prompt) {
+      const turn=object(raw).prompt;
+      state.queued=state.queued?.filter(queued=>queued.prompt !== turn || queued.sendId !== op.sendId);
+      if (state.cursor.prompt === turn && state.promptSend?.sendId === op.sendId) {
+        state.inFlight=false;
+        delete state.promptSend;
+      }
+    }
     if (sessionOperation && ![-32000,-32002,-32601].includes(reply.error.code) && state && !state.sessionActive && object(raw).mcpOffered === true && ctx.hostMcp) {
       state.mcpUnavailable=`Domios tools are unavailable for this agent: ${Array.from(reply.error.message).slice(0,1000).join("")}`;
       const plan=request(method as string,{...(op.kind === "resumeThread" ? {sessionId:op.threadId} : {}),cwd:ctx.cwd,mcpServers:[]});
@@ -267,7 +277,7 @@ export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue,
       capabilities:object(value.agentCapabilities), authMethods, authenticated, required:authenticated ? false : prior?.required,
       sessionId:prior?.sessionId, sessionActive:prior?.sessionActive, instructions:prior?.instructions,
       cursor:prior?.cursor ?? {replay:0,prompt:0,loading:false},inFlight:prior?.inFlight ?? false,
-      projection:prior?.projection, promptSend:prior?.promptSend, queued:prior?.queued, settings:prior?.settings});
+      promptOrdinal:prior?.promptOrdinal, projection:prior?.projection, promptSend:prior?.promptSend, queued:prior?.queued, settings:prior?.settings});
     return {kind:"complete",result:op.kind === "initialize" ? {kind:"initialized",...agentIdentity(value.agentInfo)} : {kind:"done"},
       events:[{kind:"authentication",authentication:authentication(authMethods,authenticated,authenticated ? false : prior?.required)}]};
   }
