@@ -153,4 +153,3 @@ fn task_metadata_failure_rolls_back_and_concurrent_fields_survive() {
     assert_eq!(task.speed.as_deref(), Some("accepted"));
     assert_eq!(task.test_plan.as_deref(), Some("accepted"));
 }
-

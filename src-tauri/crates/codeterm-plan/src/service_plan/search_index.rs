@@ -26,8 +26,7 @@ mod unit_inputs;
 pub(super) use incremental::PlanIndexScope;
 pub(super) use narrow::{
     enqueue_milestone_index, enqueue_plan_metadata, enqueue_plan_time, enqueue_task_index,
-    enqueue_task_removal,
-    MilestoneIndexDelta, TaskIndexDelta,
+    enqueue_task_removal, MilestoneIndexDelta, TaskIndexDelta,
 };
 pub(in crate::service_plan) use snapshot::{
     PlanSearchInput, PlanSearchSnapshot, SearchHeaderRead, SearchMilestoneRead, SearchSectionRead,
