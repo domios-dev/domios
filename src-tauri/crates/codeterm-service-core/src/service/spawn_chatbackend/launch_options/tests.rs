@@ -1,40 +1,49 @@
 use super::*;
 
+fn permission_provider(id: &str, sandboxed: bool) -> crate::agent::test_provider::MockProvider {
+    use codeterm_plugin::provider::{ExecutionSandboxCapability, ExecutionSandboxMode};
+    let sandbox = if sandboxed {
+        ExecutionSandboxCapability {
+            platforms: vec!["windows".into(), "linux".into(), "macos".into()],
+            read_only: Some(ExecutionSandboxMode {
+                launch_args: vec!["--sandbox".into(), "read-only".into()],
+                runtime_mode: Some("read-only".into()),
+            }),
+            mutating: Some(ExecutionSandboxMode {
+                launch_args: vec!["--sandbox".into(), "workspace-write".into()],
+                runtime_mode: Some("workspace-write".into()),
+            }),
+            ..Default::default()
+        }
+    } else {
+        ExecutionSandboxCapability {
+            unsupported_reason: Some("Fixture provider has no enforcing sandbox".into()),
+            ..Default::default()
+        }
+    };
+    let flags = if sandboxed {
+        vec![
+            "--fixture-bypass-sandbox".into(),
+            "--fixture-bypass-trust".into(),
+        ]
+    } else {
+        vec!["--fixture-bypass-permissions".into()]
+    };
+    crate::agent::test_provider::MockProvider::with_chat_ui(id)
+        .with_auto_approve_flags(flags)
+        .with_execution_sandbox(sandbox)
+}
+
 #[test]
 fn runtime_workers_default_to_full_access_independently_of_global_choice_and_intent() {
     use crate::service::test_fixture::ServiceFixture;
-    use codeterm_plugin::js_runtime::{JsProvider, PluginManifest, PluginVm};
 
     let fixture = ServiceFixture::new(crate::multiplexer::state::MultiplexerState::new().0);
-    for (manifest, source) in [
-        (
-            include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/../../../plugins/provider-codex/plugin.json"
-            )),
-            include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/../../../plugins/provider-codex/plugin.js"
-            )),
-        ),
-        (
-            include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/../../../plugins/provider-claude/plugin.json"
-            )),
-            include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/../../../plugins/provider-claude/plugin.js"
-            )),
-        ),
-    ] {
-        let manifest = PluginManifest::from_json_str(manifest).unwrap();
-        let provider = manifest.id.clone();
-        let vm = std::sync::Arc::new(PluginVm::from_source(&provider, source.into()).unwrap());
+    for (provider, sandboxed) in [("fixture-enforcing", true), ("fixture-unconfined", false)] {
         fixture
             .service
             .agent_registry
-            .register_provider(Box::new(JsProvider::new(manifest, vm)));
+            .register_provider(Box::new(permission_provider(provider, sandboxed)));
         for choice in [None, Some(false), Some(true)] {
             fixture
                 .service
@@ -115,7 +124,7 @@ fn runtime_worker_neighbor_authority_cannot_acquire_an_independent_full_access_g
     fixture
         .service
         .agent_registry
-        .register_provider(Box::new(crate::plugin::agent_claude::ClaudeProvider::new()));
+        .register_provider(Box::new(permission_provider("fixture-neighbor", false)));
     let params = SpawnAgentParams {
         role: Some("Worker".into()),
         neighbor_authority: Some(crate::multiplexer::types::NeighborAuthority {
@@ -125,9 +134,11 @@ fn runtime_worker_neighbor_authority_cannot_acquire_an_independent_full_access_g
         }),
         ..Default::default()
     };
-    assert!(!authorize(&fixture.service, "claude", Some(&params))
-        .unwrap()
-        .permission_bypass_requested("claude"));
+    assert!(
+        !authorize(&fixture.service, "fixture-neighbor", Some(&params))
+            .unwrap()
+            .permission_bypass_requested("fixture-neighbor")
+    );
 }
 
 #[test]
