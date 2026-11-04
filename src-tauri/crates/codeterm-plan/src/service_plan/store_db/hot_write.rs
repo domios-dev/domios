@@ -6,19 +6,21 @@ use crate::service_plan::{store_rows, text_bounds, PlanError};
 use rusqlite::{params, OptionalExtension, Transaction, TransactionBehavior};
 use std::collections::BTreeSet;
 mod batch_rows;
+mod element_rows;
 mod gate_rows;
+pub(in crate::service_plan) mod handoff;
 mod header_edits;
 mod loop_rows;
-pub(in crate::service_plan) mod handoff;
 mod milestones;
 mod plan_audit;
 mod plan_fields;
 mod plan_state;
 mod review_rows;
-mod section_rows;
 pub(in crate::service_plan) mod runtime;
+mod section_rows;
 mod task_fields;
 mod task_structure;
+pub(in crate::service_plan) use element_rows::ElementChange;
 pub(in crate::service_plan) use gate_rows::{GateAsk, GateChange};
 pub(in crate::service_plan) use header_edits::HeaderChange;
 pub(in crate::service_plan) use loop_rows::LoopChange;
@@ -128,7 +130,7 @@ impl std::fmt::Debug for CommittedRows {
 
 #[cfg(test)]
 thread_local! {
-    static LAST_COMMITTED_WORK: std::cell::RefCell<Option<[usize; 10]>> = const { std::cell::RefCell::new(None) };
+    static LAST_COMMITTED_WORK: std::cell::RefCell<Option<[usize; 12]>> = const { std::cell::RefCell::new(None) };
 }
 
 #[cfg(test)]
@@ -145,12 +147,14 @@ pub(in crate::service_plan) fn record_work(receipt: &CommittedRows) {
             receipt.projected_text_bytes,
             receipt.hashed_bytes,
             receipt.section_rows,
+            receipt.element_rows,
+            receipt.heartbeat_rows,
         ])
     });
 }
 
 #[cfg(test)]
-fn take_work() -> [usize; 10] {
+fn take_work() -> [usize; 12] {
     LAST_COMMITTED_WORK.with(|cell| cell.borrow_mut().take().expect("committed hot receipt"))
 }
 
@@ -357,7 +361,7 @@ impl PlanDatabase {
                         receipt.revision,
                         receipt.previous_revision,
                         receipt.tasks.iter().cloned().collect(),
-                        receipt.section_rows > 0,
+                        receipt.section_rows + receipt.element_rows > 0,
                         false,
                     ));
             }

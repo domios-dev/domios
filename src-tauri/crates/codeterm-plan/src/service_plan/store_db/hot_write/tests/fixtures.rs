@@ -91,6 +91,7 @@ pub(in crate::service_plan::store_db) fn audit(database: &PlanDatabase) {
         "plans",
         "plan_tasks",
         "plan_sections",
+        "plan_elements",
         "plan_task_milestones",
         "plan_task_attempts",
         "plan_strides",
@@ -146,6 +147,7 @@ pub(super) fn assert_and_clear_writes(database: &PlanDatabase, receipt: &Committ
     let mut expected: Vec<(String, usize)> = [
         ("plan_tasks", receipt.task_rows),
         ("plan_sections", receipt.section_rows),
+        ("plan_elements", receipt.element_rows),
         ("plans", receipt.header_rows),
         ("plan_task_attempts", receipt.attempts),
         ("plan_task_milestones", receipt.milestones),
