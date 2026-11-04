@@ -42,13 +42,34 @@ pub fn due_action(activity: bool, actionable: bool, last_real: Option<u64>, now:
 }
 
 pub fn eligible(plan: &Plan, enabled: bool, human_wait: bool) -> bool {
-    enabled
-        && !human_wait
-        && plan.team_id.is_some()
-        && plan.status == PlanStatus::Active
-        && matches!(plan.mode, PlanMode::Approved | PlanMode::Execution)
-        && !super::heartbeat::is_plan_complete(plan)
-        && plan.control_loop.mode == ControlLoopMode::Curator
+    EligibilityInput {
+        team_bound: plan.team_id.is_some(),
+        status: &plan.status,
+        mode: &plan.mode,
+        complete: super::heartbeat::is_plan_complete(plan),
+        control_mode: &plan.control_loop.mode,
+    }
+    .eligible(enabled, human_wait)
+}
+
+pub struct EligibilityInput<'a> {
+    pub team_bound: bool,
+    pub status: &'a PlanStatus,
+    pub mode: &'a PlanMode,
+    pub complete: bool,
+    pub control_mode: &'a ControlLoopMode,
+}
+
+impl EligibilityInput<'_> {
+    pub fn eligible(&self, enabled: bool, human_wait: bool) -> bool {
+        enabled
+            && !human_wait
+            && self.team_bound
+            && *self.status == PlanStatus::Active
+            && matches!(self.mode, PlanMode::Approved | PlanMode::Execution)
+            && !self.complete
+            && *self.control_mode == ControlLoopMode::Curator
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

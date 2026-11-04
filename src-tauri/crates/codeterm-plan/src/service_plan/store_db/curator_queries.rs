@@ -1,7 +1,9 @@
 use super::read_projections::{column, decode, record_query};
 use super::{db_error, PlanDatabase};
-use crate::plan::{ControlLoop, CuratorRound, Milestone, Plan, Task};
-use crate::service_plan::{CuratorAuthorityRead, CuratorScheduleRead, PlanError};
+use crate::plan::{ControlLoop, CuratorRound, TaskStatus};
+use crate::service_plan::{
+    CuratorAuthorityRead, CuratorScheduleMetadata, CuratorScheduleRead, PlanError,
+};
 use rusqlite::{Connection, OpenFlags, OptionalExtension};
 
 impl PlanDatabase {
@@ -34,14 +36,13 @@ impl PlanDatabase {
         connection
             .execute_batch("BEGIN DEFERRED TRANSACTION")
             .map_err(db_error)?;
+        register_timestamp(&connection)?;
         record_query();
         let header: String = connection
             .query_row(
-                "SELECT json_object('id',id,'title',title,'project_path',project_path,
-                'created_at',0,'updated_at',updated_at,'status',status,
+                "SELECT json_object('id',id,'project_path',project_path,'status',status,
                 'team_id',team_id,'mode',json_extract(header_json,'$.mode'),
                 'owner',json_extract(header_json,'$.owner'),
-                'task_groups',json_extract(header_json,'$.task_groups'),
                 'control_loop',CASE WHEN json_type(header_json,'$.control_loop.rounds') IS NULL
                     OR json_type(header_json,'$.control_loop.rounds')='array'
                     THEN json_remove(json_extract(header_json,'$.control_loop'),'$.rounds')
@@ -53,40 +54,54 @@ impl PlanDatabase {
             .optional()
             .map_err(db_error)?
             .ok_or(PlanError::NotFound)?;
-        let mut plan: Plan = decode(plan_id, &header)?;
+        let metadata: CuratorScheduleMetadata = decode(plan_id, &header)?;
+        let (mut total, mut terminal) = (0_u64, 0_u64);
         {
             record_query();
-            let mut statement = connection
-                .prepare_cached(
-                    "SELECT json_object('id',task_id,'name','','type','',
-                    'status',status,'group',json_extract(row_json,'$.group'),
-                    'status_changed_at',coalesce(json_extract(row_json,'$.status_changed_at'),0))
-                 FROM plan_tasks WHERE plan_id=?1 ORDER BY position",
-                )
-                .map_err(db_error)?;
+            let mut statement = connection.prepare_cached(
+                "SELECT json_quote(status),count(*) FROM plan_tasks WHERE plan_id=?1 GROUP BY status"
+            ).map_err(db_error)?;
             for row in statement
-                .query_map([plan_id], |row| column::<String>(row, 0))
+                .query_map([plan_id], |row| {
+                    Ok((column::<String>(row, 0)?, row.get::<_, u64>(1)?))
+                })
                 .map_err(db_error)?
             {
-                plan.tasks
-                    .push(decode::<Task>(plan_id, &row.map_err(db_error)?)?);
+                let (status, count) = row.map_err(db_error)?;
+                let status: TaskStatus = decode(plan_id, &status)?;
+                total += count;
+                if status.is_terminal() {
+                    terminal += count;
+                }
             }
         }
         record_query();
-        let closed: Option<String> = connection
-            .query_row(
-                "SELECT json_remove(row_json,'$.text','$.attachments','$.canvas')
-             FROM plan_strides WHERE plan_id=?1 AND json_extract(row_json,'$.kind')='group_close'
-             ORDER BY json_extract(row_json,'$.ts') DESC,seq DESC LIMIT 1",
-                [plan_id],
-                |row| column(row, 0),
-            )
-            .optional()
-            .map_err(db_error)?;
-        if let Some(closed) = closed {
-            plan.strides.push(decode::<Milestone>(plan_id, &closed)?);
-        }
-        Ok(CuratorScheduleRead { plan, connection })
+        let group_close: Option<String> = connection.query_row(
+            "WITH completed_groups AS (
+                SELECT max(domios_schedule_timestamp(coalesce(t.row_json->'$.status_changed_at','0'))) AS ts
+                FROM plan_tasks t JOIN plans p ON p.id=t.plan_id WHERE t.plan_id=?1
+                    AND EXISTS(SELECT 1 FROM json_each(p.header_json,'$.task_groups') g
+                        WHERE domios_schedule_group_key(g.value->'$.key')=
+                            domios_schedule_task_group(t.row_json->'$.group'))
+                GROUP BY json_extract(t.row_json,'$.group')
+                HAVING sum(t.status NOT IN ('done','cancelled'))=0 AND sum(t.status='done')>0
+             ), closes AS (
+                SELECT ts FROM completed_groups UNION ALL
+                SELECT domios_schedule_timestamp(row_json->'$.ts') FROM plan_strides
+                    WHERE plan_id=?1 AND json_extract(row_json,'$.kind')='group_close')
+             SELECT max(ts) FROM closes",
+            [plan_id],|row| column(row,0),
+        ).map_err(db_error)?;
+        let group_close = group_close
+            .map(|value| value.parse::<u64>())
+            .transpose()
+            .map_err(|error| PlanError::Io(error.to_string()))?;
+        Ok(CuratorScheduleRead {
+            metadata,
+            connection,
+            complete: total > 0 && terminal == total,
+            group_close,
+        })
     }
 }
 
@@ -105,7 +120,7 @@ impl CuratorScheduleRead {
         }
         let metadata_matches = {
             let without_rounds = WithoutRounds::new(current);
-            *without_rounds.control == self.plan.control_loop
+            *without_rounds.control == self.metadata.control_loop
         };
         if !metadata_matches {
             return Ok(false);
@@ -118,11 +133,11 @@ impl CuratorScheduleRead {
              WHERE p.id=?1 ORDER BY r.key",
             )
             .map_err(db_error)?;
-        let mut rows = statement.query([&self.plan.id]).map_err(db_error)?;
+        let mut rows = statement.query([&self.metadata.id]).map_err(db_error)?;
         let mut index = 0;
         while let Some(row) = rows.next().map_err(db_error)? {
             let encoded: String = column(row, 0).map_err(db_error)?;
-            let round: CuratorRound = decode(&self.plan.id, &encoded)?;
+            let round: CuratorRound = decode(&self.metadata.id, &encoded)?;
             if current.rounds.get(index) != Some(&round) {
                 return Ok(false);
             }
@@ -155,4 +170,57 @@ impl Drop for WithoutRounds<'_> {
     fn drop(&mut self) {
         self.control.rounds = std::mem::take(&mut self.rounds);
     }
+}
+
+fn register_timestamp(connection: &Connection) -> Result<(), PlanError> {
+    use rusqlite::functions::FunctionFlags;
+    connection
+        .create_scalar_function(
+            "domios_schedule_timestamp",
+            1,
+            FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
+            |context| {
+                let value = context
+                    .get_raw(0)
+                    .as_str()
+                    .map_err(|error| rusqlite::Error::UserFunctionError(Box::new(error)))?;
+                let timestamp = serde_json::from_str::<u64>(value)
+                    .map_err(|error| rusqlite::Error::UserFunctionError(Box::new(error)))?;
+                Ok(format!("{timestamp:020}"))
+            },
+        )
+        .map_err(db_error)?;
+    connection
+        .create_scalar_function(
+            "domios_schedule_group_key",
+            1,
+            FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
+            |context| {
+                let value = context
+                    .get_raw(0)
+                    .as_str()
+                    .map_err(|error| rusqlite::Error::UserFunctionError(Box::new(error)))?;
+                serde_json::from_str::<String>(value)
+                    .map_err(|error| rusqlite::Error::UserFunctionError(Box::new(error)))
+            },
+        )
+        .map_err(db_error)?;
+    connection
+        .create_scalar_function(
+            "domios_schedule_task_group",
+            1,
+            FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
+            |context| {
+                let value = context.get_raw(0);
+                if matches!(value, rusqlite::types::ValueRef::Null) {
+                    return Ok(None);
+                }
+                let value = value
+                    .as_str()
+                    .map_err(|error| rusqlite::Error::UserFunctionError(Box::new(error)))?;
+                serde_json::from_str::<Option<String>>(value)
+                    .map_err(|error| rusqlite::Error::UserFunctionError(Box::new(error)))
+            },
+        )
+        .map_err(db_error)
 }

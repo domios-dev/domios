@@ -3,14 +3,15 @@ use std::collections::{BTreeMap, BTreeSet};
 
 pub(super) fn observed_agents(
     svc: &ServiceContext,
-    plan: &Plan,
+    team_id: &Option<String>,
+    prior: &BTreeMap<String, crate::plan::CuratorAgentState>,
     now: u64,
 ) -> BTreeMap<String, crate::plan::CuratorAgentState> {
     let tabs = svc
         .mux
         .read()
         .all_tabs()
-        .filter(|tab| tab.team_id == plan.team_id && tab.agent_type.is_some())
+        .filter(|tab| &tab.team_id == team_id && tab.agent_type.is_some())
         .cloned()
         .collect::<Vec<_>>();
     tabs.into_iter()
@@ -20,9 +21,7 @@ pub(super) fn observed_agents(
                 .map(|status| status.label())
                 .unwrap_or("unknown")
                 .to_string();
-            let since = plan
-                .control_loop
-                .agent_states
+            let since = prior
                 .get(&tab.id)
                 .filter(|prior| prior.state == state)
                 .map_or(now, |prior| prior.since);
