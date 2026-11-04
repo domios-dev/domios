@@ -50,12 +50,17 @@ impl PlanDatabase {
         let owner = unsigned_timestamp("t.row_json", "interruption.owner_epoch", true);
         let attempt_epoch = unsigned_timestamp("a.row_json", "interruption.owner_epoch", true);
         let (exists,task_exists,raw): (bool,bool,Option<String>) = connection.query_row(
-            &format!("{SELECTED_TASK_IN_PLAN}, chosen AS (
-                SELECT a.plan_id,a.task_id,a.position FROM selected_task t JOIN plan_task_attempts a
+            &format!("{SELECTED_TASK_IN_PLAN}, task_owners AS MATERIALIZED (
+                SELECT t.plan_id,t.task_id,{owner} AS owner_epoch FROM selected_task t
+                WHERE t.assigned_tab_id=?3 AND EXISTS(SELECT 1 FROM plan_task_attempts a
+                    WHERE a.plan_id=t.plan_id AND a.task_id=t.task_id AND json_extract(a.row_json,'$.executor_tab_id')=?3
+                        AND json_extract(a.row_json,'$.closed_at') IS NULL AND json_extract(a.row_json,'$.retired_at') IS NULL)
+             ), chosen AS (
+                SELECT a.plan_id,a.task_id,a.position FROM task_owners t JOIN plan_task_attempts a
                     ON a.plan_id=t.plan_id AND a.task_id=t.task_id
-                WHERE t.assigned_tab_id=?3 AND json_extract(a.row_json,'$.executor_tab_id')=?3
+                WHERE json_extract(a.row_json,'$.executor_tab_id')=?3
                     AND json_extract(a.row_json,'$.closed_at') IS NULL AND json_extract(a.row_json,'$.retired_at') IS NULL
-                    AND ({owner}='0' OR {attempt_epoch}={owner})
+                    AND (t.owner_epoch='0' OR {attempt_epoch}=t.owner_epoch)
                 ORDER BY a.position DESC LIMIT 1)
              SELECT EXISTS(SELECT 1 FROM plans WHERE id=?1),EXISTS(SELECT 1 FROM selected_task),
                 (SELECT json_object('attempt_id',json_extract(a.row_json,'$.id'),'executor_tab_id',json_extract(a.row_json,'$.executor_tab_id'),
