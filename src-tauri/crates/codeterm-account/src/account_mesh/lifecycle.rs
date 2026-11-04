@@ -119,6 +119,7 @@ pub(super) struct Inner {
     pub(super) registry_presence: Option<RegistryPresence>,
     pub(super) registry_notices: super::notice::RegistryNotices,
     pub(super) registry_flight: Option<super::registry_read::RegistryFlight>,
+    pub(super) gossiped_endpoint: Option<(Option<super::wire::MeshEndpoint>, String)>,
     pub(super) published_endpoint: Option<super::wire::MeshEndpoint>,
     pub(super) published_until: u64,
     pub(super) publication_refresh_after: u64,
@@ -133,7 +134,7 @@ pub(super) struct Inner {
     pub(super) lease: u64,
     pub(super) launch_renewal_pending: bool,
     pub(super) retry: super::retry::Retry,
-    store_unreadable: bool,
+    pub(super) store_unreadable: bool,
 }
 
 impl Inner {
@@ -223,6 +224,7 @@ impl Inner {
         self.registry_presence = None;
         self.resolved.clear();
         self.published_endpoint = None;
+        self.gossiped_endpoint = None;
         self.published_until = 0;
         self.publication_refresh_after = 0;
         self.sync_pending = false;
@@ -235,7 +237,7 @@ pub struct AccountMesh {
     pub(super) ports: AccountMeshPorts,
     pub(super) inner: Mutex<Inner>,
     pub(super) watch: watch::Sender<Arc<LifecycleState>>,
-    persist_lock: tokio::sync::Mutex<()>,
+    pub(super) persist_lock: tokio::sync::Mutex<()>,
     push_lock: tokio::sync::Mutex<()>,
     pub(super) key_lock: tokio::sync::Mutex<()>,
     pub(super) admission_lock: tokio::sync::Mutex<()>,
@@ -276,6 +278,7 @@ impl AccountMesh {
                 registry_flight: None,
                 resolved: HashMap::new(),
                 published_endpoint: None,
+                gossiped_endpoint: None,
                 published_until: 0,
                 publication_refresh_after: 0,
                 sync_pending: false,

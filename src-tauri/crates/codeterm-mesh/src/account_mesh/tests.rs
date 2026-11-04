@@ -1,4 +1,5 @@
 mod connection_phases;
+mod endpoint_gossip;
 mod health;
 mod refusals;
 mod registry_gossip;

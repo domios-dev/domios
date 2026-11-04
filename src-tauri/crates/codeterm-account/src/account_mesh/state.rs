@@ -385,6 +385,10 @@ pub struct RegistryPresenceBinding {
 #[serde(default, deny_unknown_fields)]
 pub struct AccountMeshRecord {
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub endpoint_sequences: BTreeMap<String, BTreeMap<String, EndpointSequence>>,
+    #[serde(skip_serializing_if = "is_zero")]
+    pub endpoint_sequence: u64,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub signed_registries: BTreeMap<String, codeterm_entitlements::DetachedGrant>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub terminal_refusals: BTreeMap<String, AccountMeshRefusal>,
@@ -411,4 +415,15 @@ pub struct AccountMeshRecord {
     pub peer_presence: BTreeMap<String, RegistryPresenceBinding>,
     #[serde(skip)]
     pub peer_presence_refresh: bool,
+}
+
+fn is_zero(value: &u64) -> bool {
+    *value == 0
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EndpointSequence {
+    pub sequence: u64,
+    pub digest: [u8; 32],
 }

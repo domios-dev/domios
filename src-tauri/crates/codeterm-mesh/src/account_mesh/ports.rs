@@ -164,6 +164,15 @@ pub struct LinkTarget {
 
 /// Account-owned authority the mesh consults; implemented outside this crate.
 pub trait AccountMeshAuthority: Send + Sync {
+    fn accept_endpoint_sequence<'a>(
+        &'a self,
+        _membership: &'a VerifiedMembership,
+        _sequence: u64,
+        _digest: [u8; 32],
+    ) -> BoxFuture<'a, Result<bool, AdmissionRefusal>> {
+        Box::pin(async { Err(AdmissionRefusal::AuthRefused) })
+    }
+
     fn receive_registry_snapshot<'a>(
         &'a self,
         _snapshot: &'a codeterm_entitlements::DetachedGrant,

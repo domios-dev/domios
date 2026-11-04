@@ -251,7 +251,17 @@ pub(super) async fn run(
                         break;
                     }
                     let now = mesh.lock().now();
-                    let Some(target) = target(row, &own.verified.installation_id, now) else {
+                    let candidate = {
+                        let manager = mesh.lock();
+                        if row.installation_id == own.verified.installation_id {
+                            None
+                        } else if manager.has_endpoint_record(&row.installation_id) {
+                            manager.endpoint_target(&row.installation_id)
+                        } else {
+                            target(row, &own.verified.installation_id, now)
+                        }
+                    };
+                    let Some(target) = candidate else {
                         reconciliation.clear_peer(&row.installation_id);
                         continue;
                     };

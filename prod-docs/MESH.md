@@ -14,7 +14,7 @@ Each side verifies current signed membership and possession of both the installa
 
 ## Web access and endpoints
 
-When Tailscale is connected and both the API and Mesh are enabled, the local web UI/API listens on assigned Tailscale IPv4 and IPv6 addresses, including while the account is signed out. Native address changes update the listener set. The Mesh UI card offers QR, Open and Copy only for health-proven listeners; Open carries the instance API token in a URL fragment. Browser API access requires that token. Account mesh peer requests and handshakes remain blocked while signed out or revoked, and disabling Mesh blocks peer traffic, withdraws the tailnet web listeners and stops their health proofs. Signed-in machines publish their health-proven endpoint to the account.
+When Tailscale is connected and both the API and Mesh are enabled, the local web UI/API listens on assigned Tailscale IPv4 and IPv6 addresses, including while the account is signed out. Native address changes update the listener set. The Mesh UI card offers QR, Open and Copy only for health-proven listeners; Open carries the instance API token in a URL fragment. Browser API access requires that token. Account mesh peer requests and handshakes remain blocked while signed out or revoked, and disabling Mesh blocks peer traffic, withdraws the tailnet web listeners and stops their health proofs. Signed-in machines send health-proven endpoints peer-to-peer as installation-signed records. Each record is checked against the publisher's signed membership and current registry key, generation and slot. Higher sequences win; signed withdrawals remove endpoints. Sequence fences survive restart. A separate server publish happens only for cold start when no peer is reachable. Daily enrollment and renewal include the current endpoint in their existing request.
 
 Verified HTTP works without Tailscale Serve HTTPS. The card prefers verified HTTPS, tailnet HTTP, then LAN HTTP, and labels the route; HTTPS-dependent browser features still need HTTPS. Loopback offers **Open on this machine**, without QR or Copy. After Tailscale or Serve setup, run `domios mesh refresh --json` to re-detect transport, reconcile Serve, verify and publish endpoints, and resync the card. Read `transport.state` and `web_ui.endpoints` there or in `domios mesh status --json` (cached local state, available while signed out). Confirm Open, Copy and QR for the proven endpoint before reporting completion. **Permission needed** distinguishes access denial from stopped or missing Tailscale.
 
@@ -156,4 +156,4 @@ Inventory opens as a full-screen searchable List beside the existing Mesh networ
 |---|---|---|---|
 | POST | `/api/mesh/account-presence` | `{metadata_revision}` | Triggers one rate-limited registry refresh. |
 
-<!-- revision: 76 -->
+<!-- revision: 77 -->
