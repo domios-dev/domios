@@ -6,6 +6,7 @@ use crate::service_plan::{store_rows, text_bounds, PlanError};
 use rusqlite::{params, OptionalExtension, Transaction, TransactionBehavior};
 use std::collections::BTreeSet;
 mod batch_rows;
+pub(in crate::service_plan) mod handoff;
 mod milestones;
 mod review_rows;
 pub(in crate::service_plan) mod runtime;
@@ -73,6 +74,7 @@ pub(in crate::service_plan) struct CommittedRows {
     pub task_rows: usize,
     pub header_rows: usize,
     pub heartbeat_rows: usize,
+    pub element_rows: usize,
     pub decoded_bytes: usize,
     pub serialized_bytes: usize,
     pub projected_text_bytes: usize,
@@ -297,7 +299,8 @@ impl PlanDatabase {
             receipt.revision =
                 super::change_feed::next_revision(receipt.previous_revision, operation_id)?;
             change(&tx, &mut receipt)?;
-            if receipt.heartbeat_rows
+            if receipt.element_rows
+                + receipt.heartbeat_rows
                 + receipt.header_rows
                 + receipt.task_rows
                 + receipt.milestones

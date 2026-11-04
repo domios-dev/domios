@@ -155,3 +155,93 @@ fn concurrent_pause_claims_and_planner_binding_never_load_whole_plans() {
         .is_err());
     assert!(store.plan_loads_for_test().is_empty());
 }
+
+#[test]
+fn curator_round_rows_stay_bounded_and_commit_state_and_stride_atomically() {
+    use crate::plan::CuratorRound;
+    let mut previous = None;
+    for (strides, attempts) in [(0, 0), (2048, 0), (0, 2048)] {
+        let dir = tempfile::tempdir().unwrap();
+        let plan = fixture(dir.path(), strides, attempts);
+        let db = database(dir.path(), &plan);
+        let (_, receipt) = db
+            .edit_runtime_rows::<CuratorRoundRows, _>(&plan.id, 20, |rows| {
+                rows.append_round(CuratorRound {
+                    number: 1,
+                    ended_at: 20,
+                    ..Default::default()
+                });
+                Ok(())
+            })
+            .unwrap();
+        let measured = (
+            receipt.task_rows,
+            receipt.attempts,
+            receipt.strides,
+            receipt.header_rows,
+            receipt.decoded_bytes,
+            receipt.serialized_bytes,
+            receipt.projected_text_bytes,
+        );
+        assert_eq!(
+            (receipt.task_rows, receipt.attempts, receipt.strides),
+            (0, 0, 1)
+        );
+        if let Some(previous) = previous {
+            assert_eq!(previous, measured);
+        }
+        previous = Some(measured);
+        let stored = db.load_plan(&plan.id).unwrap().unwrap();
+        assert_eq!(stored.control_loop.last_round.as_ref().unwrap().number, 1);
+        assert_eq!(stored.control_loop.task_states.len(), plan.tasks.len());
+    }
+}
+
+#[test]
+fn curator_state_failure_rolls_back_and_concurrent_updates_conserve_both_writes() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Arc::new(PlanStore::new_for_test(dir.path()));
+    let mut plan = Plan::new(
+        "curator".into(),
+        dir.path().display().to_string(),
+        OrchestratorRef::default(),
+    );
+    store.save(&mut plan, 1).unwrap();
+    store.reset_plan_loads_for_test();
+    assert!(store
+        .edit_curator_state(&plan.id, 2, |rows| {
+            rows.control_loop.consecutive_failures = 99;
+            Err::<(), _>(PlanError::Validation("injected refusal".into()))
+        })
+        .is_err());
+    let barrier = Arc::new(Barrier::new(3));
+    let handles: Vec<_> = (0..2)
+        .map(|_| {
+            let store = store.clone();
+            let id = plan.id.clone();
+            let barrier = barrier.clone();
+            std::thread::spawn(move || {
+                barrier.wait();
+                store
+                    .edit_curator_state(&id, 3, |rows| {
+                        rows.control_loop.consecutive_failures += 1;
+                        Ok(())
+                    })
+                    .unwrap();
+            })
+        })
+        .collect();
+    barrier.wait();
+    for handle in handles {
+        handle.join().unwrap();
+    }
+    assert!(store.plan_loads_for_test().is_empty());
+    assert_eq!(
+        store
+            .get(&plan.id)
+            .unwrap()
+            .control_loop
+            .consecutive_failures,
+        2
+    );
+}

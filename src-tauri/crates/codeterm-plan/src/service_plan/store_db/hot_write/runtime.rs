@@ -7,11 +7,16 @@ use crate::service_plan::{store_rows, PlanError, PlanStore};
 use rusqlite::{params, OptionalExtension};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
+mod curator;
+pub use curator::{CuratorRoundRows, CuratorSaveRows, CuratorStateRows};
+
 pub(in crate::service_plan) trait RuntimeRows:
     Serialize + DeserializeOwned
 {
     const FIELDS: &'static [&'static str];
     const HEARTBEAT: bool = false;
+    const TASK_STATES: bool = false;
+    const SKILL_EPISODES: bool = false;
     fn strides(&mut self) -> Vec<Milestone> {
         Vec::new()
     }
@@ -108,6 +113,7 @@ impl PlanDatabase {
                     fields.insert("heartbeat".into(), serde_json::from_str(&json).map_err(json_error)?);
                 }
             }
+            curator::load_context::<R>(tx, plan_id, &mut fields, receipt)?;
             let before = serde_json::Value::Object(fields);
             let mut rows: R = serde_json::from_value(before.clone()).map_err(json_error)?;
             let output = change(&mut rows)?;

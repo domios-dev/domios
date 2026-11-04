@@ -116,7 +116,7 @@ pub(super) fn append(
         .map(|notice| notice.id.clone())
         .collect();
     svc.plan_store
-        .with_plan(&plan.id, now, |plan| {
+        .edit_curator_state(&plan.id, now, |plan| {
             plan.control_loop.observed_owner_answers = answers;
             Ok(())
         })
