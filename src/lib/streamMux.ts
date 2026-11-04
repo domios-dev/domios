@@ -320,8 +320,14 @@ export function createStreamMux(transport: () => TransportClient, fetcher: Fetch
       entry.acked = true; deliverHead(entry);
       const end = earlyEnds.get(entry.id); earlyEnds.delete(entry.id);
       if (end) finish(entry, end);
-    } catch (error) { if (current === entry.session) cancelRemote(entry); failure(entry, error); }
-    finally {
+    } catch (error) {
+      // An unreadable request body fails inside the browser before any byte is sent: provably not dispatched.
+      if (error instanceof DOMException && error.name === "NotReadableError" && !entry.acked) {
+        entry.outcome = error; cleanup(entry); releaseBuffer(entry); entry.reject(error); return;
+      }
+      if (current === entry.session) cancelRemote(entry);
+      failure(entry, error);
+    } finally {
       postState = muxPostRemove(postState, entry.id); kick();
       if (reopen && pending.has(entry.id)) void prepare(entry);
     }
