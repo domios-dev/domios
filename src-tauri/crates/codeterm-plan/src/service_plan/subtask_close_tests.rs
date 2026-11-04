@@ -86,7 +86,7 @@ fn close_unstarted_task_refused_or_cancelled() {
             to: TaskStatus::Done
         }
     ));
-    let task = store.show_task(&task_id).unwrap().task;
+    let task = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(task.status, TaskStatus::Pending);
 }
 
@@ -245,7 +245,7 @@ fn update_task_status_cancelled_with_open_subtask_errors() {
 
     assert!(matches!(err, PlanError::OpenSubtasks { .. }));
     assert_eq!(
-        store.show_task(&parent_id).unwrap().task.status,
+        store.inspect_task_for_test(&parent_id).unwrap().task.status,
         TaskStatus::Pending
     );
 }

@@ -51,7 +51,10 @@ pub(super) fn dispatch(
             svc.reconcile_time_reminder_eligibility();
             emit_plan_changed(svc, &id);
             let mut resp = json!({ "ok": true });
-            if let Some(plan) = store.get(&id) {
+            if let Some(plan) = store
+                .closed_task_lane_cleanup_projection(&id, &tid)
+                .map_err(plan_rpc_err)?
+            {
                 let outcome = svc.cleanup_closed_task_lane(&plan, &tid, now);
                 resp["cleanup"] = json!({ "status": outcome.status(), "reason": outcome.reason() });
                 if matches!(
@@ -63,17 +66,12 @@ pub(super) fn dispatch(
                 }
             }
             // Re-read so hints reflect any cleanup that just ran.
-            if let Some(plan) = store.get(&id) {
-                let cleanup =
-                    codeterm_service_core::service::plan::cleanup_debt::detect_plan_cleanup_debt(
-                        &plan,
-                        |tab_id| svc.tab_probe(tab_id).exists,
-                    );
+            if let Some(cleanup) = store
+                .task_cleanup_debt_projection(&id, &tid, |tab_id| svc.tab_probe(tab_id).exists)
+                .map_err(plan_rpc_err)?
+            {
                 let hints = codeterm_service_core::service::plan::cleanup_debt::cleanup_debt_hints(
-                    &cleanup
-                        .into_iter()
-                        .filter(|item| item.task_id == tid)
-                        .collect::<Vec<_>>(),
+                    &cleanup,
                 );
                 push_hints(&mut resp, hints);
             }

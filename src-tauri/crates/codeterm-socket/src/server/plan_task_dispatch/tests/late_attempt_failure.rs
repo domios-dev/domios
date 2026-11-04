@@ -27,7 +27,7 @@ fn approved_task(store: &PlanStore, project: &Path) -> (String, Task) {
             3,
         )
         .unwrap();
-    (plan.id, store.show_task(&task_id).unwrap().task)
+    (plan.id, store.inspect_task_for_test(&task_id).unwrap().task)
 }
 
 /// Drives the dispatch startup producer exactly as `DispatchStartup::run` does.
@@ -134,7 +134,7 @@ fn late_attempt_failure_cannot_reset_a_task_owned_by_a_newer_attempt() {
             7,
         )
         .unwrap();
-    let before = store.show_task(&original.id).unwrap().task;
+    let before = store.inspect_task_for_test(&original.id).unwrap().task;
     let closed = Cell::new(false);
 
     let failure = run_stale_startup(
@@ -155,7 +155,7 @@ fn late_attempt_failure_cannot_reset_a_task_owned_by_a_newer_attempt() {
         Path::new(&worktree_path).exists(),
         "the worktree the newer attempt holds must survive"
     );
-    let after = store.show_task(&original.id).unwrap().task;
+    let after = store.inspect_task_for_test(&original.id).unwrap().task;
     assert_eq!(after, before, "no status reset from the superseded attempt");
     assert_eq!(after.assigned_tab_id.as_deref(), Some(LIVE_TAB));
     assert_eq!(store.get(&plan_id).unwrap().mode, PlanMode::Execution);
@@ -182,15 +182,12 @@ fn late_attempt_failure_of_the_current_attempt_still_rolls_back() {
     let lane = provision_lane_for_test(project.to_str().unwrap(), "current-attempt").unwrap();
     let provenance = lane.verify().unwrap();
     let worktree_path = provenance.worktree_path.clone();
+    let startup_lane =
+        lane_metadata_for_dispatch(&original.lane, &provenance, project.to_str().unwrap());
+    assert!(original.lane.destination.is_none());
+    assert!(startup_lane.destination.is_some());
     let started = store
-        .begin_task_dispatch_with_undo(
-            &plan_id,
-            &original.id,
-            STALE_TAB,
-            "Ada",
-            lane_metadata_for_dispatch(&original.lane, &provenance, project.to_str().unwrap()),
-            4,
-        )
+        .begin_task_dispatch_with_undo(&plan_id, &original.id, STALE_TAB, "Ada", startup_lane, 4)
         .unwrap();
     let attempt = started.attempt_id;
     let undo = started.undo;
@@ -213,12 +210,16 @@ fn late_attempt_failure_of_the_current_attempt_still_rolls_back() {
     assert_eq!(failure["stage"], "agent_ready");
     assert!(closed.get());
     assert!(!Path::new(&worktree_path).exists());
-    let restored = store.show_task(&original.id).unwrap().task;
+    let restored = store.inspect_task_for_test(&original.id).unwrap().task;
     assert_eq!(restored.status, original.status);
     assert_eq!(restored.assigned_tab_id, original.assigned_tab_id);
     assert_eq!(restored.lane, original.lane);
     assert_eq!(restored.execution_attempts.len(), 1);
     assert_eq!(restored.execution_attempts[0].id, attempt);
+    assert_eq!(
+        restored.execution_attempts[0].destination,
+        original.lane.destination
+    );
     assert!(restored.execution_attempts[0].closed_at.is_some());
     assert_eq!(store.get(&plan_id).unwrap().mode, PlanMode::Approved);
 }

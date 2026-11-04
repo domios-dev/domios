@@ -1,8 +1,8 @@
 use std::path::Path;
 use std::process::Command;
 
-use super::{PlanStore, TaskLaneUpdate};
-use crate::plan::{Plan, TaskStatus};
+use super::{ClosedTaskLaneCleanupRead, PlanStore, TaskLaneUpdate};
+use crate::plan::TaskStatus;
 use codeterm_util::process_util;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -107,7 +107,7 @@ where
 
 pub fn try_cleanup_task_lane<F>(
     store: &PlanStore,
-    plan: &Plan,
+    plan: &ClosedTaskLaneCleanupRead,
     task_id: &str,
     mut tab_live: F,
     now_ms: u64,
@@ -115,11 +115,10 @@ pub fn try_cleanup_task_lane<F>(
 where
     F: FnMut(&str) -> bool,
 {
-    let Some(task) = plan.tasks.iter().find(|t| t.id == task_id) else {
+    let Some(task) = plan.task.as_ref().filter(|task| task.id == task_id) else {
         return LaneCleanupOutcome::Noop;
     };
     let already_done = task
-        .lane
         .cleanup_status
         .as_deref()
         .is_some_and(|s| s.eq_ignore_ascii_case("done"));
@@ -128,14 +127,14 @@ where
         .tab_id
         .as_deref()
         .or(task.assigned_tab_id.as_deref());
-    let project_path = plan_project_path(plan);
+    let project_path = plan.canonical_path();
     let worktree_path = non_empty(task.lane.worktree_path.as_deref());
     let branch = non_empty(task.lane.branch.as_deref());
     let has_lane_references = tab_id.is_some()
         || worktree_path.is_some()
         || branch.is_some()
-        || task.lane.workspace_id.is_some()
-        || task.lane.workspace_name.is_some();
+        || task.workspace_id.is_some()
+        || task.workspace_name.is_some();
     if !has_lane_references {
         return LaneCleanupOutcome::Noop;
     }
@@ -146,11 +145,7 @@ where
             tab_id.unwrap_or("worker")
         ));
     }
-    if task
-        .execution_attempts
-        .iter()
-        .any(|attempt| tab_live(&attempt.executor_tab_id))
-    {
+    if task.executor_tabs.iter().any(|tab| tab_live(tab)) {
         return LaneCleanupOutcome::Refused(
             "lane Worker tab is still live; close it before cleanup".into(),
         );
@@ -169,10 +164,10 @@ where
         if worktree_path.is_some() {
             stale_references.worktree_path = Some(None);
         }
-        if task.lane.workspace_id.is_some() {
+        if task.workspace_id.is_some() {
             stale_references.workspace_id = Some(None);
         }
-        if task.lane.workspace_name.is_some() {
+        if task.workspace_name.is_some() {
             stale_references.workspace_name = Some(None);
         }
     }
@@ -291,14 +286,6 @@ fn update_task_lane(
     store
         .update_task_lane(plan_id, task_id, update, now_ms)
         .map_err(|error| format!("task lane metadata update failed: {error}"))
-}
-
-fn plan_project_path(plan: &Plan) -> &str {
-    if plan.canonical_project_path.trim().is_empty() {
-        &plan.project_path
-    } else {
-        &plan.canonical_project_path
-    }
 }
 
 fn branch_is_merged(project_path: &str, branch: &str, target: &str) -> bool {

@@ -35,7 +35,7 @@ fn dispatched_worker_task(
             base + 2,
         )
         .unwrap();
-    let lane = store.show_task(&task_id).unwrap().task.lane;
+    let lane = store.inspect_task_for_test(&task_id).unwrap().task.lane;
     let attempt_id = store
         .begin_task_dispatch(&plan.id, &task_id, tab_id, "Ada", lane.clone(), base + 3)
         .unwrap();
@@ -82,11 +82,11 @@ fn stale_subject_env_still_acknowledges_the_tab_bound_attempt() {
     assert_eq!(acknowledged.attempt.id, attempt_id);
     assert_eq!(acknowledged.attempt.acknowledged_at, Some(200));
     assert_eq!(
-        store.show_task(&task_id).unwrap().task.status,
+        store.inspect_task_for_test(&task_id).unwrap().task.status,
         TaskStatus::InProgress
     );
     // The subject named by the stale environment is untouched.
-    let stale = store.show_task(&stale_task_id).unwrap().task;
+    let stale = store.inspect_task_for_test(&stale_task_id).unwrap().task;
     assert_eq!(stale.status, TaskStatus::Pending);
     assert_eq!(stale.execution_attempts[0].acknowledged_at, None);
 }
@@ -107,7 +107,7 @@ fn respawned_worker_acknowledges_its_live_in_progress_attempt() {
         .unwrap();
     assert_eq!(retirement.retired_attempt_ids, vec![first_attempt_id]);
 
-    let lane = store.show_task(&task_id).unwrap().task.lane;
+    let lane = store.inspect_task_for_test(&task_id).unwrap().task.lane;
     let respawn_attempt_id = store
         .begin_task_dispatch(&plan_id, &task_id, "tab-respawn", "Ada", lane.clone(), 12)
         .unwrap();
@@ -124,7 +124,7 @@ fn respawned_worker_acknowledges_its_live_in_progress_attempt() {
         )
         .unwrap();
     // Proven, not assumed: the respawn meets ack while the task is in_progress.
-    let before_ack = store.show_task(&task_id).unwrap().task;
+    let before_ack = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(before_ack.status, TaskStatus::InProgress);
     assert_eq!(
         before_ack.status_label.as_deref(),
@@ -137,7 +137,7 @@ fn respawned_worker_acknowledges_its_live_in_progress_attempt() {
 
     assert_eq!(acknowledged.attempt.id, respawn_attempt_id);
     assert_eq!(acknowledged.attempt.acknowledged_at, Some(14));
-    let after = store.show_task(&task_id).unwrap().task;
+    let after = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(after.status, TaskStatus::InProgress);
     assert_eq!(after.status_label.as_deref(), Some("acknowledged"));
     assert_eq!(after.assigned_tab_id.as_deref(), Some("tab-respawn"));
@@ -206,7 +206,7 @@ fn respawned_attempt_is_armed_and_ackable() {
         codeterm_service_core::service::launch_delivery::startup_starter_prompt(true, true),
         None
     );
-    let pending = store.show_task(&task_id).unwrap().task;
+    let pending = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(pending.status, TaskStatus::Pending);
     assert!(store.get(&plan_id).unwrap().strides.iter().any(|stride| {
         stride.links.iter().any(|link| link == &task_id)
@@ -233,7 +233,7 @@ fn respawned_attempt_is_armed_and_ackable() {
     assert_eq!(acknowledged.attempt.id, replacement.attempt.id);
     assert_eq!(acknowledged.attempt.acknowledged_at, Some(13));
     assert_eq!(
-        store.show_task(&task_id).unwrap().task.status,
+        store.inspect_task_for_test(&task_id).unwrap().task.status,
         TaskStatus::InProgress
     );
 }
@@ -251,7 +251,7 @@ fn superseded_ack_error_names_retired_and_live_attempts() {
     store
         .retire_stale_task_owner(&plan_id, &task_id, None, |_| false, 11)
         .unwrap();
-    let lane = store.show_task(&task_id).unwrap().task.lane;
+    let lane = store.inspect_task_for_test(&task_id).unwrap().task.lane;
     let live_attempt_id = store
         .begin_task_dispatch(&plan_id, &task_id, "tab-live", "Ada", lane.clone(), 12)
         .unwrap();
@@ -317,14 +317,14 @@ fn retired_attempt_stays_fenced_from_dispatch_ready_and_ack() {
         .unwrap();
     // The same tab respawns, so the late calls clear the assigned-tab rung and
     // reach the retirement fence itself.
-    let lane = store.show_task(&task_id).unwrap().task.lane;
+    let lane = store.inspect_task_for_test(&task_id).unwrap().task.lane;
     let live_attempt_id = store
         .begin_task_dispatch(&plan_id, &task_id, "tab-worker", "Ada", lane.clone(), 12)
         .unwrap();
     assert_ne!(live_attempt_id, retired_attempt_id);
     assert_eq!(
         store
-            .show_task(&task_id)
+            .inspect_task_for_test(&task_id)
             .unwrap()
             .task
             .assigned_tab_id
@@ -351,7 +351,7 @@ fn retired_attempt_stays_fenced_from_dispatch_ready_and_ack() {
         .worker_startup_attempt_owns(&plan_id, &task_id, "tab-worker", &retired_attempt_id, None,)
         .unwrap());
 
-    let after = store.show_task(&task_id).unwrap().task;
+    let after = store.inspect_task_for_test(&task_id).unwrap().task;
     let retired = after
         .execution_attempts
         .iter()
@@ -399,7 +399,12 @@ fn acknowledge_failure_names_the_paused_task_not_the_tab() {
     );
     assert!(error.contains(task_id.as_str()), "{error}");
     assert_eq!(
-        store.show_task(&task_id).unwrap().task.execution_attempts[0].acknowledged_at,
+        store
+            .inspect_task_for_test(&task_id)
+            .unwrap()
+            .task
+            .execution_attempts[0]
+            .acknowledged_at,
         None
     );
 }
@@ -524,7 +529,7 @@ fn worker_ack_transitions_exact_pending_task_to_in_progress() {
             3,
         )
         .unwrap();
-    let original = store.show_task(&task_id).unwrap().task;
+    let original = store.inspect_task_for_test(&task_id).unwrap().task;
     let lane_metadata =
         lane_metadata_for_dispatch(&original.lane, &actual, project.to_str().unwrap());
     let attempt_id = store
@@ -537,7 +542,7 @@ fn worker_ack_transitions_exact_pending_task_to_in_progress() {
             4,
         )
         .unwrap();
-    let starting = store.show_task(&task_id).unwrap().task;
+    let starting = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(starting.status, TaskStatus::Pending);
     assert_eq!(starting.status_label.as_deref(), Some("starting"));
 
@@ -553,7 +558,7 @@ fn worker_ack_transitions_exact_pending_task_to_in_progress() {
             5,
         )
         .unwrap();
-    let awaiting = store.show_task(&task_id).unwrap().task;
+    let awaiting = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(awaiting.status, TaskStatus::Pending);
     assert_eq!(
         awaiting.status_label.as_deref(),
@@ -563,7 +568,7 @@ fn worker_ack_transitions_exact_pending_task_to_in_progress() {
     store
         .acknowledge_live_task_attempt_for_tab("tab-worker", None, None, 6)
         .unwrap();
-    let task = store.show_task(&task_id).unwrap().task;
+    let task = store.inspect_task_for_test(&task_id).unwrap().task;
     let attempt = task.execution_attempts.last().unwrap();
     assert_eq!(task.status, TaskStatus::InProgress);
     assert_eq!(task.status_label.as_deref(), Some("acknowledged"));
@@ -607,11 +612,11 @@ fn plan_store_acknowledges_live_attempt_without_saved_session_binding() {
             3,
         )
         .unwrap();
-    let lane = store.show_task(&task_id).unwrap().task.lane;
+    let lane = store.inspect_task_for_test(&task_id).unwrap().task.lane;
     let attempt_id = store
         .begin_task_dispatch(&plan.id, &task_id, "tab-worker", "Worker", lane, 4)
         .unwrap();
-    let pending = store.show_task(&task_id).unwrap().task;
+    let pending = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(pending.execution_attempts[0].id, attempt_id);
     assert_eq!(pending.execution_attempts[0].session_id, None);
     let acknowledged = store
@@ -620,7 +625,7 @@ fn plan_store_acknowledges_live_attempt_without_saved_session_binding() {
 
     assert_eq!(acknowledged.attempt.acknowledged_at, Some(5));
     assert_eq!(acknowledged.attempt.session_id, None);
-    let persisted = store.show_task(&task_id).unwrap().task;
+    let persisted = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(persisted.status, TaskStatus::InProgress);
     assert_eq!(persisted.execution_attempts[0].acknowledged_at, Some(5));
 }
@@ -656,7 +661,7 @@ fn worker_ack_replay_or_stale_attempt_does_not_transition_task() {
             3,
         )
         .unwrap();
-    let lane = store.show_task(&task_id).unwrap().task.lane;
+    let lane = store.inspect_task_for_test(&task_id).unwrap().task.lane;
     let attempt_id = store
         .begin_task_dispatch(&plan.id, &task_id, "tab-worker", "Ada", lane.clone(), 4)
         .unwrap();
@@ -673,7 +678,7 @@ fn worker_ack_replay_or_stale_attempt_does_not_transition_task() {
     assert!(store
         .acknowledge_task_attempt(&plan.id, &task_id, "tab-worker", &attempt_id, 6)
         .is_err());
-    let still_blocked = store.show_task(&task_id).unwrap().task;
+    let still_blocked = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(still_blocked.status, TaskStatus::Blocked);
     assert_eq!(still_blocked.execution_attempts[0].acknowledged_at, None);
 
@@ -691,7 +696,7 @@ fn worker_ack_replay_or_stale_attempt_does_not_transition_task() {
     assert!(store
         .acknowledge_task_attempt(&plan.id, &task_id, "tab-worker", &attempt_id, 8)
         .is_err());
-    let still_reassigned = store.show_task(&task_id).unwrap().task;
+    let still_reassigned = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(
         still_reassigned.assigned_tab_id.as_deref(),
         Some("replacement-tab")
@@ -713,7 +718,7 @@ fn worker_ack_replay_or_stale_attempt_does_not_transition_task() {
         .unwrap();
     assert!(!ack.already_acknowledged);
     assert_eq!(ack.attempt.acknowledged_at, Some(10));
-    let acknowledged = store.show_task(&task_id).unwrap().task;
+    let acknowledged = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(acknowledged.status, TaskStatus::InProgress);
     assert_eq!(acknowledged.status_label.as_deref(), Some("acknowledged"));
     let first_changed_at = acknowledged.status_changed_at;
@@ -725,7 +730,7 @@ fn worker_ack_replay_or_stale_attempt_does_not_transition_task() {
         .unwrap();
     assert!(replay.already_acknowledged);
     assert_eq!(replay.attempt.acknowledged_at, Some(10));
-    let after_replay = store.show_task(&task_id).unwrap().task;
+    let after_replay = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(after_replay.status_changed_at, first_changed_at);
     assert_eq!(after_replay.status_label.as_deref(), Some("acknowledged"));
     assert_eq!(after_replay.updated_at, first_task_updated_at);
@@ -744,7 +749,11 @@ fn worker_ack_replay_or_stale_attempt_does_not_transition_task() {
     assert_eq!(third_ack.attempt.id, attempt_id);
     assert_eq!(third_ack.attempt.acknowledged_at, Some(10));
     assert_eq!(
-        store.show_task(&task_id).unwrap().task.updated_at,
+        store
+            .inspect_task_for_test(&task_id)
+            .unwrap()
+            .task
+            .updated_at,
         first_task_updated_at
     );
     assert_eq!(
@@ -754,7 +763,7 @@ fn worker_ack_replay_or_stale_attempt_does_not_transition_task() {
     assert!(store
         .acknowledge_task_attempt(&plan.id, &task_id, "stale-tab", &attempt_id, 13)
         .is_err());
-    let after_stale = store.show_task(&task_id).unwrap().task;
+    let after_stale = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(after_stale.status_changed_at, first_changed_at);
     assert_eq!(after_stale.execution_attempts[0].acknowledged_at, Some(10));
 
@@ -770,7 +779,7 @@ fn worker_ack_replay_or_stale_attempt_does_not_transition_task() {
             13,
         )
         .unwrap();
-    let task = store.show_task(&task_id).unwrap().task;
+    let task = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(task.status, TaskStatus::InProgress);
     assert_eq!(task.status_label.as_deref(), Some("acknowledged"));
     assert_eq!(
@@ -790,7 +799,7 @@ fn worker_ack_replay_or_stale_attempt_does_not_transition_task() {
         .acknowledge_task_attempt(&plan.id, &task_id, "tab-worker", &attempt_id, 15)
         .unwrap();
     assert_eq!(replay_after_readiness.attempt.acknowledged_at, Some(10));
-    let after_ready_replay = store.show_task(&task_id).unwrap().task;
+    let after_ready_replay = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(after_ready_replay.status, TaskStatus::InProgress);
     assert_eq!(after_ready_replay.status_label, None);
 }
@@ -822,7 +831,7 @@ fn worker_ack_final_deadline_finalizes_attempt_for_redispatch() {
             3,
         )
         .unwrap();
-    let lane = store.show_task(&task_id).unwrap().task.lane;
+    let lane = store.inspect_task_for_test(&task_id).unwrap().task.lane;
     let attempt_id = store
         .begin_task_dispatch(&plan.id, &task_id, "tab-worker", "Ada", lane, 4)
         .unwrap();
@@ -842,7 +851,7 @@ fn worker_ack_final_deadline_finalizes_attempt_for_redispatch() {
         .unwrap());
     assert_eq!(
         store
-            .show_task(&task_id)
+            .inspect_task_for_test(&task_id)
             .unwrap()
             .task
             .status_label
@@ -855,7 +864,7 @@ fn worker_ack_final_deadline_finalizes_attempt_for_redispatch() {
     assert!(!store
         .mark_worker_startup_deadline(&plan.id, &task_id, "tab-worker", &attempt_id, true, 8,)
         .unwrap());
-    let failed = store.show_task(&task_id).unwrap().task;
+    let failed = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(failed.status_label.as_deref(), Some("startup_failed"));
     assert_eq!(failed.assigned_tab_id, None);
     assert_eq!(failed.lane.tab_id, None);
@@ -891,7 +900,7 @@ fn worker_ack_final_deadline_finalizes_attempt_for_redispatch() {
         )
         .unwrap();
     assert_ne!(replacement_attempt, attempt_id);
-    let redispatched = store.show_task(&task_id).unwrap().task;
+    let redispatched = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(redispatched.assigned_tab_id.as_deref(), Some("tab-worker"));
     assert_eq!(
         redispatched.execution_attempts.last().unwrap().closed_at,
@@ -926,7 +935,7 @@ fn blocked_before_worker_ack_deadline_receives_no_startup_mutation() {
             3,
         )
         .unwrap();
-    let lane = store.show_task(&task_id).unwrap().task.lane;
+    let lane = store.inspect_task_for_test(&task_id).unwrap().task.lane;
     let attempt_id = store
         .begin_task_dispatch(&plan.id, &task_id, "tab-worker", "Ada", lane, 4)
         .unwrap();
@@ -946,7 +955,7 @@ fn blocked_before_worker_ack_deadline_receives_no_startup_mutation() {
     assert!(!store
         .mark_worker_startup_deadline(&plan.id, &task_id, "tab-worker", &attempt_id, true, 7,)
         .unwrap());
-    let unchanged = store.show_task(&task_id).unwrap().task;
+    let unchanged = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(unchanged.status, TaskStatus::Blocked);
     assert_eq!(unchanged.status_label.as_deref(), Some("dependency"));
     assert_eq!(unchanged.assigned_tab_id.as_deref(), Some("tab-worker"));
@@ -1021,7 +1030,11 @@ fn competition_ack_reminder_and_cleanup_use_exact_attempt_authority() {
         attempts.push((tab_id, created.attempt.id));
     }
     assert_eq!(
-        store.show_task(&task_id).unwrap().task.assigned_tab_id,
+        store
+            .inspect_task_for_test(&task_id)
+            .unwrap()
+            .task
+            .assigned_tab_id,
         None
     );
 
@@ -1033,7 +1046,7 @@ fn competition_ack_reminder_and_cleanup_use_exact_attempt_authority() {
         .unwrap();
     // Progression is authorized by the exact live attempt, so the competitive
     // task still carries no single task-level executor tab.
-    let progressed = store.show_task(&task_id).unwrap().task;
+    let progressed = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(progressed.status, TaskStatus::InProgress);
     assert_eq!(progressed.assigned_tab_id, None);
     assert_eq!(progressed.lane.tab_id, None);
@@ -1046,7 +1059,12 @@ fn competition_ack_reminder_and_cleanup_use_exact_attempt_authority() {
         .acknowledge_task_attempt(&plan.id, &task_id, "foreign-tab", &attempts[2].1, 22)
         .is_err());
     assert_eq!(
-        store.show_task(&task_id).unwrap().task.execution_attempts[2].acknowledged_at,
+        store
+            .inspect_task_for_test(&task_id)
+            .unwrap()
+            .task
+            .execution_attempts[2]
+            .acknowledged_at,
         None
     );
     assert!(store
@@ -1102,7 +1120,7 @@ fn competition_ack_reminder_and_cleanup_use_exact_attempt_authority() {
     assert!(store
         .mark_worker_startup_deadline(&plan.id, &task_id, &attempts[2].0, &attempts[2].1, true, 25,)
         .unwrap());
-    let task = store.show_task(&task_id).unwrap().task;
+    let task = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(task.status, TaskStatus::InProgress);
     assert_eq!(task.status_label.as_deref(), Some("competitive"));
     assert_eq!(task.execution_attempts[0].closed_at, None);

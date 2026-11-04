@@ -502,12 +502,12 @@ fn task_bound_runtime_worker_preserves_attempt_and_ack_across_resume_and_fresh()
                 3,
             )
             .unwrap();
-        let before = store.show_task(&task_id).unwrap().task;
+        let before = store.inspect_task_for_test(&task_id).unwrap().task;
         let attempt = before.execution_attempts[0].id.clone();
         store
             .acknowledge_task_attempt(&plan.id, &task_id, &fixture.tab, &attempt, 4)
             .unwrap();
-        let before = store.show_task(&task_id).unwrap().task;
+        let before = store.inspect_task_for_test(&task_id).unwrap().task;
         fixture
             .service
             .mux
@@ -533,7 +533,7 @@ fn task_bound_runtime_worker_preserves_attempt_and_ack_across_resume_and_fresh()
             )
             .unwrap();
         assert!(outcome.agent_ready && outcome.binding_restored);
-        let after = store.show_task(&task_id).unwrap().task;
+        let after = store.inspect_task_for_test(&task_id).unwrap().task;
         assert_eq!(after.execution_attempts.len(), 1);
         let old = &before.execution_attempts[0];
         let current = &after.execution_attempts[0];
@@ -557,7 +557,7 @@ fn task_bound_runtime_worker_preserves_attempt_and_ack_across_resume_and_fresh()
         );
         drop(mux);
         let reopened = crate::service::plan::PlanStore::new_for_test(fixture.temp.path());
-        let persisted = reopened.show_task(&task_id).unwrap().task;
+        let persisted = reopened.inspect_task_for_test(&task_id).unwrap().task;
         assert_eq!(
             persisted.execution_attempts[0].session_id,
             current.session_id

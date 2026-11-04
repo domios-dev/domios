@@ -9,7 +9,7 @@ fn paused_task_dispatch_refuses_before_spawn_without_agent_resume_instruction() 
         "status": "paused"
     }));
 
-    let error = preflight_dispatch_task_status("plan_1", &paused).unwrap_err();
+    let error = preflight_dispatch_task_status("plan_1", &preflight_facts(&paused)).unwrap_err();
     let data = error.data.expect("structured paused-task refusal");
 
     assert_eq!(error.code, -32602);
@@ -28,7 +28,8 @@ fn dispatch_refuses_statuses_that_cannot_reach_startup() {
             "type": "task",
             "status": status,
         }));
-        let error = preflight_dispatch_task_status("plan_1", &candidate).unwrap_err();
+        let error =
+            preflight_dispatch_task_status("plan_1", &preflight_facts(&candidate)).unwrap_err();
         let data = error.data.expect("structured status refusal");
         if status == "paused" {
             assert_eq!(data["type"], "invalid_task_dispatch");
@@ -48,6 +49,6 @@ fn dispatch_refuses_statuses_that_cannot_reach_startup() {
             "type": "task",
             "status": status,
         }));
-        preflight_dispatch_task_status("plan_1", &task).unwrap();
+        preflight_dispatch_task_status("plan_1", &preflight_facts(&task)).unwrap();
     }
 }

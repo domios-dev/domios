@@ -314,7 +314,7 @@ impl ServiceContext {
         };
 
         let job_policy = self.shell_job_policy_for_tab(&tab_id);
-        let env_vars = self.tab_env(&tab_id);
+        let env_vars = self.tab_env(&tab_id)?;
 
         let pty_id = match self.link_hidden_shell_pty_with_builder(&tab_id, |gate| {
             crate::pty::manager::build_shell_session_with_policy(

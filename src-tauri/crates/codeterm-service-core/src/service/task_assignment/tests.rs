@@ -77,7 +77,7 @@ fn roundtrip(authorized: bool) {
         3,
     )
     .unwrap();
-    let assigned = store.show_task(&task).unwrap().task;
+    let assigned = store.inspect_task_for_test(&task).unwrap().task;
     let attempt = &assigned.execution_attempts[0];
     assert_eq!(attempt.session_id.as_deref(), Some("verified-session"));
     assert!(attempt.acknowledged_at.is_none());
@@ -120,7 +120,7 @@ fn roundtrip(authorized: bool) {
     store
         .claim_review_continuation_delivery(&plan, &task, &attempt.id, continuation.epoch, 7)
         .expect("valid continuation must be claimed");
-    let claimed = store.show_task(&task).unwrap().task;
+    let claimed = store.inspect_task_for_test(&task).unwrap().task;
     assert_eq!(claimed.status, TaskStatus::InReview);
     let claimed_attempt = claimed
         .execution_attempts
@@ -154,7 +154,7 @@ fn roundtrip(authorized: bool) {
         .finish_review_continuation(&plan, &task, &attempt.id, continuation.epoch, true, 8)
         .unwrap());
     assert_eq!(
-        store.show_task(&task).unwrap().task.status,
+        store.inspect_task_for_test(&task).unwrap().task.status,
         TaskStatus::InProgress
     );
 }
@@ -175,7 +175,7 @@ fn assignment_captures_model_already_detected_on_its_bound_tab() {
 
     assign_existing_task(&store, &mux, &plan, &task, &tab, None, None, 3).unwrap();
 
-    let mut task = store.show_task(&task).unwrap().task;
+    let mut task = store.inspect_task_for_test(&task).unwrap().task;
     let attempt = task.execution_attempts.remove(0);
     assert_eq!(attempt.provider.as_deref(), Some("codex"));
     assert_eq!(attempt.agent_type.as_deref(), Some("codex"));
@@ -206,7 +206,7 @@ fn assignment_ignores_restored_model_evidence_from_a_foreign_session_or_nonce() 
         assign_existing_task(&store, &mux, &plan, &task, &tab, None, None, 3).unwrap();
 
         let attempt = store
-            .show_task(&task)
+            .inspect_task_for_test(&task)
             .unwrap()
             .task
             .execution_attempts
@@ -305,7 +305,7 @@ fn lifecycle_reassignment_remote_never_copies_colliding_local_identity() {
         3,
     )
     .unwrap();
-    let assigned = store.show_task(&task).unwrap().task;
+    let assigned = store.inspect_task_for_test(&task).unwrap().task;
     let attempt = &assigned.execution_attempts[0];
     assert_eq!(attempt.mesh_peer.as_deref(), Some("remote-peer"));
     assert!(attempt.session_id.is_none());
@@ -317,7 +317,7 @@ fn lifecycle_reassignment_remote_never_copies_colliding_local_identity() {
 fn lifecycle_reassignment_local_assignment_preserves_active_and_held_review() {
     let (_dir, store, mux, plan, task, tab) = fixture();
     assign_existing_task(&store, &mux, &plan, &task, &tab, None, None, 3).unwrap();
-    let initial = store.show_task(&task).unwrap().task;
+    let initial = store.inspect_task_for_test(&task).unwrap().task;
     store
         .acknowledge_task_attempt(&plan, &task, &tab, &initial.execution_attempts[0].id, 4)
         .unwrap();

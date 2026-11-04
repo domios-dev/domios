@@ -151,7 +151,7 @@ fn task_pause_status_preservation_provider_hold() {
         .finish_provider_exhaustion_pause(&plan_id, &task_id, &attempt_id, 1, sealed.clone(), 6)
         .unwrap();
 
-    let held = store.show_task(&task_id).unwrap().task;
+    let held = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(held.status, TaskStatus::Paused);
     assert_eq!(held.status_label.as_deref(), Some("provider_exhausted"));
     assert_eq!(
@@ -165,7 +165,7 @@ fn task_pause_status_preservation_provider_hold() {
     store
         .resume_from_provider_exhaustion(&plan_id, &task_id, "old-tab", "old-session", 1, 7)
         .unwrap();
-    let resumed = store.show_task(&task_id).unwrap().task;
+    let resumed = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(resumed.status, TaskStatus::InProgress);
     assert!(resumed.status_label.is_none());
     assert!(resumed.interruption.checkpoint.is_none());
@@ -190,7 +190,7 @@ fn exhaustion_after_dirty_edit_recovers_handoff_required() {
             5,
         )
         .unwrap();
-    let task = store.show_task(&task_id).unwrap().task;
+    let task = store.inspect_task_for_test(&task_id).unwrap().task;
     assert!(task.interruption.handoff_required);
     assert_eq!(task.status, crate::plan::TaskStatus::InProgress);
     assert_eq!(task.status_label.as_deref(), Some("handoff_required"));
@@ -302,7 +302,7 @@ fn dispatch_persists_resolved_provider_on_exact_attempt() {
             6,
         )
         .unwrap();
-    let task = store.show_task(&task_id).unwrap().task;
+    let task = store.inspect_task_for_test(&task_id).unwrap().task;
     let attempt = task
         .execution_attempts
         .iter()
@@ -502,7 +502,7 @@ fn takeover_between_verification_and_write_is_rejected_atomically() {
         )
         .is_err());
     assert_ne!(
-        store.show_task(&task_id).unwrap().task.status,
+        store.inspect_task_for_test(&task_id).unwrap().task.status,
         TaskStatus::Done
     );
 }

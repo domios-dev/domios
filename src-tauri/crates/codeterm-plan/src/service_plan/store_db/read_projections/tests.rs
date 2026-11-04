@@ -26,6 +26,7 @@ mod hierarchy_tests;
 mod index_filter_tests;
 mod lane_reader_tests;
 mod lane_team_state_tests;
+mod launch_restore_tests;
 mod notice_tests;
 mod qa_tests;
 mod reference_resolver_tests;
@@ -281,14 +282,10 @@ fn task_detail_and_list_preserve_filters_graph_context_and_history_windows() {
     crate::service_plan::load_audit::start(&store);
     let context = store
         .database
-        .task_detail_snapshot(
-            &crate::service_plan::PlanMatch::Ids(vec![plan.id.clone()]),
-            "task_selected",
-            true,
-        )
+        .task_detail_projection("task_selected")
         .expect("SQL task context decodes")
         .unwrap();
-    assert_eq!(context.tasks[1].interruption.owner_epoch, 7);
+    assert_eq!(context.task.interruption.owner_epoch, 7);
     let detail = store.show_task_window("task_selected").unwrap();
     assert_eq!(detail.task.body, "selected body");
     assert_eq!(detail.parent.unwrap().id, "task_parent");
@@ -313,7 +310,7 @@ fn task_detail_and_list_preserve_filters_graph_context_and_history_windows() {
     assert_eq!(detail.task.milestones.last().unwrap().id, "m74");
     assert_eq!(detail.task.execution_attempts.len(), 8);
     assert_eq!(detail.task.execution_attempts.first().unwrap().id, "a12");
-    let authority_detail = store.show_task("task_selected").unwrap();
+    let authority_detail = store.inspect_task_for_test("task_selected").unwrap();
     assert_eq!(authority_detail.task.interruption.owner_epoch, 7);
     assert_eq!(
         authority_detail.task.interruption.owner_tab_id.as_deref(),

@@ -27,6 +27,7 @@ pub use store_db::read_projections::hierarchy::HierarchyAuthorityRead;
 pub use store_db::read_projections::hierarchy_routing::{
     GateAnswerNoticeRead, PlannerRehydrateGateRead, PlannerRehydrateRead, TaskReviewNoticeRead,
 };
+pub use store_db::read_projections::launch_restore::{LaunchLaneRead, TabLaunchTaskRead};
 pub use store_db::read_projections::runtime_identity::RuntimePlanIdentityRead;
 pub use store_db::read_projections::transfer_authority::TransferTaskAuthorityRead;
 mod header_projection;
@@ -185,9 +186,9 @@ pub use state::{
 pub use store_db::{AttemptFieldRow, SectionRefRow};
 pub use task_dispatch::{
     ambiguous_subject_cause, superseded_subject_cause, unresolved_subject_cause, DispatchRollback,
-    DispatchStart, DispatchStartupOwner, DispatchUndo, LiveTabAttempt, TaskDispatchReservation,
-    ACK_CAUSE_AMBIGUOUS_ATTEMPTS, ACK_CAUSE_ATTEMPT_SUPERSEDED, ACK_CAUSE_NO_LIVE_ATTEMPT,
-    ACK_CAUSE_PLAN_NOT_ACTIVE, ACK_CAUSE_TASK_NOT_OPEN,
+    DispatchStart, DispatchStartupOwner, DispatchUndo, LiveTabAttempt, LiveTaskAttemptRead,
+    TaskDispatchReservation, ACK_CAUSE_AMBIGUOUS_ATTEMPTS, ACK_CAUSE_ATTEMPT_SUPERSEDED,
+    ACK_CAUSE_NO_LIVE_ATTEMPT, ACK_CAUSE_PLAN_NOT_ACTIVE, ACK_CAUSE_TASK_NOT_OPEN,
 };
 pub use types::{
     IndexEntry, NewTask, OpenSubtask, PlanError, PlanIncident, ReconcileFixResult, SpecIndexEntry,
@@ -375,3 +376,17 @@ pub use task_authority_projection::{
 };
 
 pub use task_authority_projection::{TaskDispatchSeedRead, TaskLaunchRead};
+
+pub use task_authority_projection::{SpawnAttemptBindingRead, TaskSpawnBindingRead};
+
+pub use task_authority_projection::{
+    TaskBriefStrideRead, WorkerTaskBriefRead, WorkerTaskPreparationRead,
+};
+
+pub use store_db::read_projections::lane_clean::{ClosedTaskLaneCleanupRead, ClosedTaskLaneRead};
+
+pub use task_authority_projection::TaskDispatchPreflightRead;
+
+pub use task_authority_projection::DispatchCheckoutOccupantRead;
+
+pub use task_authority_projection::RemoteLaneIntegrationRead;

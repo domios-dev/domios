@@ -279,7 +279,13 @@ impl ServiceContext {
             return Err(not_authorized(tab_id));
         };
         self.authorize_plan_orchestrator(&plan_id, caller)
-            .map_err(|_| not_authorized(tab_id))?;
+            .map_err(|error| {
+                if error == super::PlanAuthorityError::StoreReadFailed {
+                    TabRepairError::new(TabRepairErrorKind::Storage, error.to_string())
+                } else {
+                    not_authorized(tab_id)
+                }
+            })?;
         Ok(AuthorizedRepairTarget {
             identity: ProviderIdentityEvidence::capture(&tab),
             tab_id: tab.id,

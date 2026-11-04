@@ -26,9 +26,27 @@ impl PlanStore {
     pub fn cleanup_debt_projection(
         &self,
         id: &str,
+        tab_live: impl FnMut(&str) -> bool,
+    ) -> Result<Option<Vec<CleanupDebtTask>>, PlanError> {
+        self.cleanup_debt_projection_for_task(id, None, tab_live)
+    }
+
+    pub fn task_cleanup_debt_projection(
+        &self,
+        id: &str,
+        task: &str,
+        tab_live: impl FnMut(&str) -> bool,
+    ) -> Result<Option<Vec<CleanupDebtTask>>, PlanError> {
+        self.cleanup_debt_projection_for_task(id, Some(task), tab_live)
+    }
+
+    fn cleanup_debt_projection_for_task(
+        &self,
+        id: &str,
+        task: Option<&str>,
         mut tab_live: impl FnMut(&str) -> bool,
     ) -> Result<Option<Vec<CleanupDebtTask>>, PlanError> {
-        let Some(plan) = self.database.cleanup_debt_input(id)? else {
+        let Some(plan) = self.database.cleanup_debt_input(id, task)? else {
             return Ok(None);
         };
         let project_path = if plan.canonical_project_path.trim().is_empty() {

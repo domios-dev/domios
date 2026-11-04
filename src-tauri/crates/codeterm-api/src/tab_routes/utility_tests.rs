@@ -154,6 +154,7 @@ async fn authenticated_tab_header_owns_a_team_utility_shell() {
     let token = state
         .svc
         .frontend_pty_env(Some(&worker))
+        .unwrap()
         .remove("CODETERM_API_TOKEN")
         .unwrap();
     headers.insert("authorization", format!("Bearer {token}").parse().unwrap());
