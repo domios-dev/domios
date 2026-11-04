@@ -65,7 +65,7 @@ impl PlanStore {
         let mut staged = plans.clone();
         for plan in &mut staged {
             let bound = plan.team_id.as_deref() == Some(team_id);
-            close_team_tasks(plan, team_id, &tabs, bound, now_ms);
+            close_team_tasks(plan, team_id, &tabs, bound, now_ms)?;
             if bound {
                 detach_closed_team_plan(plan, team_id, now_ms);
             }
@@ -205,7 +205,7 @@ fn close_team_tasks(
     tabs: &HashSet<&str>,
     include_orphans: bool,
     now_ms: u64,
-) {
+) -> Result<(), PlanError> {
     let mut affected_tasks = 0;
     let mut reset_tasks = 0;
     let mut closed_attempts = 0;
@@ -257,7 +257,8 @@ fn close_team_tasks(
             task.assigned_tab_id = None;
             task.lane.tab_id = None;
             task.taken_by_role = None;
-            task.interruption.owner_epoch = task.interruption.owner_epoch.saturating_add(1);
+            task.interruption.owner_epoch =
+                super::super::interruption::next_owner_epoch(task.interruption.owner_epoch)?;
             task.interruption.owner_tab_id = None;
             task.interruption.owner_session_id = None;
             task.interruption.handoff_required = false;
@@ -301,6 +302,7 @@ fn close_team_tasks(
             attachments: vec![],
         });
     }
+    Ok(())
 }
 
 pub(super) fn detach_closed_team_plan(plan: &mut LifecyclePlanRows, team_id: &str, now_ms: u64) {

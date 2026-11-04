@@ -81,7 +81,7 @@ impl PlanStore {
                 }
                 attempt.session_model = binding.session_model.clone();
                 attempt.reasoning_effort = binding.reasoning_effort.clone();
-                task.interruption.owner_epoch += 1;
+                task.interruption.owner_epoch = super::interruption::next_owner_epoch(task.interruption.owner_epoch)?;
                 task.interruption.owner_tab_id = Some(tab.into());
                 task.interruption.owner_session_id = Some(binding.session_id.clone());
                 task.interruption.handoff_required = false;

@@ -108,7 +108,8 @@ impl PlanStore {
                     });
                 }
                 let retired = retire_attempts(task, now_ms, |attempt| attempt.closed_at.is_none());
-                let owner_epoch = task.interruption.owner_epoch.saturating_add(1);
+                let owner_epoch =
+                    super::interruption::next_owner_epoch(task.interruption.owner_epoch)?;
                 task.interruption.owner_epoch = owner_epoch;
                 task.interruption.owner_tab_id = None;
                 task.interruption.owner_session_id = None;

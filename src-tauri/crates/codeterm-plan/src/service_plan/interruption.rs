@@ -12,6 +12,13 @@ pub struct TaskMutationAuthority {
     pub owner_epoch: u64,
 }
 
+pub(crate) fn next_owner_epoch(current: u64) -> Result<u64, PlanError> {
+    if current >= i64::MAX as u64 {
+        return Err(PlanError::Io("task owner epoch exhausted".into()));
+    }
+    Ok(current + 1)
+}
+
 pub(crate) fn authorize_task_mutation_for_owner(
     owner_tab: Option<&str>,
     task: &crate::plan::Task,
