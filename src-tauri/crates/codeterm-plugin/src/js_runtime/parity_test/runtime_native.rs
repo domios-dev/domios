@@ -71,6 +71,11 @@ impl AgentProvider for NativeRuntime {
     ) -> Result<RuntimePlan, RuntimeFailure> {
         validate_runtime_operation(ctx, op)?;
         let action = match op {
+            RuntimeOperation::Control { action, value, .. } if action == "refuse" => {
+                RuntimeAction::Refused {
+                    reason: value.as_str().unwrap_or_default().into(),
+                }
+            }
             RuntimeOperation::ForkThread {
                 source_thread_id, ..
             } => RuntimeAction::Request {

@@ -19,6 +19,12 @@ function loadHooks():AgentRuntime {
   return sandbox.module.exports.default as AgentRuntime;
 }
 const hooks = loadHooks();
+function assertPlanRefusal(plan:RuntimePlan):void {
+  assert.equal(plan.action.kind,"refused");
+  if (plan.action.kind !== "refused") throw new Error("Expected a local plan refusal");
+  assert.ok(plan.action.reason.length > 0 && plan.action.reason.length <= 4096);
+  assert.equal(plan.state,null);
+}
 const plain = <T>(value:T):T => JSON.parse(JSON.stringify(value));
 const descriptor = JSON.parse(fs.readFileSync(new URL("./runtime-manifest.json",import.meta.url),"utf8")) as {agentRuntime:StdioAgentRuntimeCapability; scenarios:string[]};
 const declaration = JSON.parse(fs.readFileSync(new URL("../plugin.json",import.meta.url),"utf8"));
@@ -65,7 +71,9 @@ for (const name of names) {
   }
   for (const expected of fixture.expected.planErrors ?? []) {
     const entry = fixture.operations[expected.operation];
-    assert.throws(()=>hooks.runtimePlan(entry.context ?? fixture.context,entry.operation),error=> (error as {code:string}).code === expected.code);
+    const plan = hooks.runtimePlan(entry.context ?? fixture.context,entry.operation);
+    assertPlanRefusal(plan);
+    assert.equal(expected.code,"provider_refused",`${name} operation ${expected.operation}`);
   }
   assert.equal(plans.size,0);
   assert.deepEqual(results,fixture.expected.results,`${name} results`);
@@ -83,20 +91,21 @@ hooks.runtimeResponse(ctx,open,opened.state,{kind:"success",value:{sessionId:"ow
 const bound={...ctx,threadId:"own"};
 const submit:Operation={kind:"submitTurn",threadId:"own",sendId:"send",input:{text:"hello",attachments:[]},settings:{}};
 assert.deepEqual(plain(hooks.runtimePlan(bound,submit).action),{kind:"request",call:{method:"session/prompt",params:{sessionId:"own",prompt:[{type:"text",text:"Startup instructions"},{type:"text",text:"hello"}]}}});
-for (const changed of [{...bound,epoch:ctx.epoch+1},{...bound,bindingNonce:"foreign"},{...bound,tabId:"foreign"}]) assert.throws(()=>hooks.runtimePlan(changed,submit));
+for (const changed of [{...bound,epoch:ctx.epoch+1},{...bound,bindingNonce:"foreign"},{...bound,tabId:"foreign"}]) assertPlanRefusal(hooks.runtimePlan(changed,submit));
 assert.throws(()=>hooks.runtimePlan(bound,{...submit,threadId:"foreign"}));
-assert.throws(()=>hooks.runtimePlan(bound,{kind:"forkThread",sourceThreadId:"own",turnId:"turn"}));
+assertPlanRefusal(hooks.runtimePlan(bound,{kind:"forkThread",sourceThreadId:"own",turnId:"turn"}));
 assert.deepEqual(plain(hooks.runtimeReduce(bound,{marker:"unchanged"},[{kind:"notification",method:"session/update",params:{sessionId:"foreign",update:{sessionUpdate:"agent_message_chunk"}}}])),{state:{marker:"unchanged"},events:[]});
 for (const resume of [false, true, null, "unsupported"]) {
   const context = {...ctx,tabId:`invalid-resume-${String(resume)}`,threadId:"saved"};
   const plan = hooks.runtimePlan(context,init);
   hooks.runtimeResponse(context,init,plan.state,{kind:"success",value:{protocolVersion:1,agentCapabilities:{loadSession:false,sessionCapabilities:{resume}},authMethods:[]}});
-  assert.throws(()=>hooks.runtimePlan(context,{kind:"resumeThread",threadId:"saved",instructions:"",settings:{}}),error=>(error as {code:string}).code === "provider_refused");
+  assertPlanRefusal(hooks.runtimePlan(context,{kind:"resumeThread",threadId:"saved",instructions:"",settings:{}}));
 }
-assert.throws(()=>hooks.runtimePlan(bound,{...submit,input:{text:"hello",attachments:[{id:"image",mimeType:"image/png",path:"/work/image.png"}]}}));
+assertPlanRefusal(hooks.runtimePlan(bound,{...submit,input:{text:"hello",attachments:[{id:"image",mimeType:"image/png",path:"/work/image.png"}]}}));
 const cancel:Operation = {kind:"interrupt",threadId:"own",activeTurnId:"turn"};
-assert.throws(()=>hooks.runtimePlan({...bound,activeTurnId:"turn",activeTurns:[{threadId:"foreign",turnId:"turn"}]},cancel),error=>(error as {code:string}).code === "binding_mismatch");
-assert.throws(()=>hooks.runtimePlan(bound,cancel),error=>(error as {code:string}).code === "binding_mismatch");
+assertPlanRefusal(hooks.runtimePlan({...bound,activeTurnId:"turn",activeTurns:[{threadId:"foreign",turnId:"turn"}]},cancel));
+assertPlanRefusal(hooks.runtimePlan(bound,cancel));
+assert.equal(hooks.runtimePlan(bound,submit).action.kind,"request","ordinary refusals preserve another operation's negotiated session");
 const cache = loadHooks();
 const cachedContexts:RuntimeContext[] = [];
 function initializeCached(context:RuntimeContext):void {
@@ -111,14 +120,14 @@ for (let index=0;index<257;index++) {
   if (index === 256) cache.runtimePlan(cachedContexts[0],fresh);
   initializeCached(context);
 }
-assert.throws(()=>cache.runtimePlan(cachedContexts[1],fresh),error=>(error as {code:string}).code === "protocol_error");
+assertPlanRefusal(cache.runtimePlan(cachedContexts[1],fresh));
 cache.runtimePlan(cachedContexts[0],fresh);
 const replacement = {...cachedContexts[256],epoch:2,bindingNonce:"replacement"};
 initializeCached(replacement);
-assert.throws(()=>cache.runtimePlan(cachedContexts[256],fresh),error=>(error as {code:string}).code === "protocol_error");
+assertPlanRefusal(cache.runtimePlan(cachedContexts[256],fresh));
 cache.runtimePlan(replacement,fresh);
 cache.runtimePlan(cachedContexts[2],fresh);
 for (let index=257;index<520;index++) initializeCached({...ctx,tabId:`cache-tab-${index}`});
-assert.throws(()=>cache.runtimePlan(cachedContexts[0],fresh),error=>(error as {code:string}).code === "protocol_error");
+assertPlanRefusal(cache.runtimePlan(cachedContexts[0],fresh));
 console.log("✓ ACP cache eviction, same-tab epoch replacement and active-turn cancel authority");
 console.log(`ACP lifecycle: ${names.length} fixture scenarios and binding regressions passed`);

@@ -540,3 +540,43 @@ fn runtime_network_access_preserves_false_and_refuses_non_boolean_values() {
         );
     }
 }
+
+#[tokio::test(flavor = "current_thread")]
+async fn declared_plan_refusal_preserves_cached_globals_for_other_tabs() {
+    let js = provider("const tabs=new Set();module.exports={runtimePlan(ctx,op){if(op.kind==='control')return {action:{kind:'refused',reason:'operation unavailable'},state:null};const existing=tabs.has(ctx.tabId);tabs.add(ctx.tabId);return {action:{kind:'request',call:{method:'handshake',params:{existing}}},state:null};}}");
+    let first = context();
+    let mut second = context();
+    second.tab_id = "other-tab".into();
+    second.binding_nonce = "other-nonce".into();
+    for ctx in [&first, &second] {
+        let plan = js
+            .runtime_plan(ctx, &RuntimeOperation::Initialize)
+            .await
+            .unwrap();
+        let RuntimeAction::Request { call } = plan.action else {
+            panic!("expected initialization plan")
+        };
+        assert_eq!(call.params["existing"], false);
+    }
+    let failure = js
+        .runtime_plan(
+            &first,
+            &RuntimeOperation::Control {
+                thread_id: None,
+                action: "refuse".into(),
+                value: Value::Null,
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(failure.code, RuntimeFailureCode::ProviderRefused);
+    assert_eq!(failure.message, "operation unavailable");
+    let plan = js
+        .runtime_plan(&second, &RuntimeOperation::Initialize)
+        .await
+        .unwrap();
+    let RuntimeAction::Request { call } = plan.action else {
+        panic!("expected retained initialization plan")
+    };
+    assert_eq!(call.params["existing"], true);
+}

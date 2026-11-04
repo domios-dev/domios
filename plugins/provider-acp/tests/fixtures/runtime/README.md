@@ -19,10 +19,12 @@ contexts and expected outcomes are adapter assertions, not wire fields.
 - `initialize-new-prompt`: v1 initialize, session/new and text prompt examples;
   client filesystem operations and terminal support are explicitly false.
 - `unsupported-version`: initialize example with protocolVersion changed to 2.
+  Initialization returns a protocol error; subsequent planning returns a local
+  refusal because no negotiated epoch exists.
 - `load-when-advertised`: loadSession true and the session/load example.
 - `resume-when-advertised`: sessionCapabilities.resume object and session/resume.
 - `resume-not-advertised`: absent optional capabilities; the expected plan error
-  proves refusal without an outbound session method.
+  proves a returned local refusal action without an outbound session method.
 - `cancel`: session/cancel notification targeting the new session. The host active
   turn and local RPC target are adapter authority metadata; no turn id is added
   to ACP wire parameters.

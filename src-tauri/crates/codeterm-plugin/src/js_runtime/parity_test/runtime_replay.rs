@@ -254,6 +254,7 @@ fn fixtures_with_load(inputs: &FixturePaths, load: bool) -> Vec<(PathBuf, Fixtur
 async fn replay(
     provider: &dyn AgentProvider,
     fixture: &Fixture,
+    fixture_path: &Path,
 ) -> (Vec<ResultEntry>, Vec<AgentRuntimeEvent>) {
     assert_eq!(fixture.schema_version, 1);
     if let Some(capture) = &fixture.captured {
@@ -394,13 +395,22 @@ async fn replay(
     for expected in &fixture.expected.plan_errors {
         let case = &fixture.operations[expected.operation];
         let ctx = case.context.as_ref().unwrap_or(&fixture.context);
+        let failure = match provider.runtime_plan(ctx, &case.operation).await {
+            Err(failure) => failure,
+            Ok(plan) => panic!(
+                "{} operation {} must refuse planning, got {:?}",
+                fixture_path.display(),
+                expected.operation,
+                plan
+            ),
+        };
         assert_eq!(
-            provider
-                .runtime_plan(ctx, &case.operation)
-                .await
-                .unwrap_err()
-                .code,
-            expected.code
+            failure.code,
+            expected.code,
+            "{} operation {} plan refusal: {}",
+            fixture_path.display(),
+            expected.operation,
+            failure.message
         );
     }
     assert!(plans.is_empty(), "every operation must terminate");
@@ -412,7 +422,7 @@ async fn runtime_shared_provider_fixture_replay() {
     for paths in paths() {
         let provider = load_provider(&paths.manifest, &paths.declaration);
         for (path, fixture) in fixtures(&paths) {
-            let (results, events) = replay(&provider, &fixture).await;
+            let (results, events) = replay(&provider, &fixture, &path).await;
             assert_eq!(
                 results,
                 fixture.expected.results,
