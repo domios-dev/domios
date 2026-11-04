@@ -58,7 +58,7 @@ impl HeartbeatView {
             control_line: control_line(
                 &plan.control_loop.mode,
                 plan.control_loop.next_at,
-                plan.control_loop.fallback_reason.as_deref(),
+                plan.control_loop.fallback_reason.map(|reason| reason.as_str()),
             ),
         }
     }
