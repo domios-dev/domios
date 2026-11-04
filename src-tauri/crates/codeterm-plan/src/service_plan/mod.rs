@@ -345,11 +345,13 @@ impl PlanStore {
 mod task_authority_projection;
 pub use document_projection::team::{TeamEventCursor, TeamPlanMetadataRead, TeamPlanRead};
 pub use task_authority_projection::{
-    CompletedTaskRestartRead, PlanTaskAdmissionRead, ProviderRecoveryRead, RestartAttemptRead,
-    ReviewBindingRestoreRead, ReviewRestoreAttemptRead, RuntimeAttemptRestoreQuery,
-    RuntimeAttemptRestoreRead, RuntimeSessionAttemptRead, TaskAttemptBindingRead,
-    TaskBindingRestoreRead, TaskCheckpointAdoptionRead, TaskContextFilesRead, TaskContinuityDigest,
-    TaskContinuityRead, TaskCreationRead, TaskDescriptionRead, TaskInterruptionRead,
-    TaskOwnerEpochRead, TaskRestartAuthorityRead, TaskRestartQuery, TaskRuntimeSessionRead,
-    TaskSplitDefaultsRead,
+    BatchTaskRefusalRead, CanonicalWriterHoldRead, CompletedTaskRestartRead, LaneIntegrationRead,
+    PlanTaskAdmissionRead, ProviderRecoveryRead, RemoteRecoveryAttemptRead,
+    RemoteWorkerBindingRead, RestartAttemptRead, ReviewBindingRestoreRead,
+    ReviewRestoreAttemptRead, RuntimeAttemptRestoreQuery, RuntimeAttemptRestoreRead,
+    RuntimeSessionAttemptRead, TaskAttemptBindingRead, TaskBindingRestoreRead,
+    TaskCheckpointAdoptionRead, TaskContextFilesRead, TaskContinuityDigest, TaskContinuityRead,
+    TaskCreationRead, TaskDescriptionRead, TaskInterruptionRead, TaskLaneAdmissionRead,
+    TaskLaneOwnerRead, TaskOwnerEpochRead, TaskRestartAuthorityRead, TaskRestartQuery,
+    TaskRuntimeSessionRead, TaskSelectorRead, TaskSplitDefaultsRead,
 };

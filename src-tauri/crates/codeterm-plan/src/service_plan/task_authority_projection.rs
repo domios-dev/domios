@@ -126,3 +126,15 @@ pub use split::TaskSplitDefaultsRead;
 
 mod provider_interruption;
 pub use provider_interruption::{ProviderRecoveryRead, TaskInterruptionRead};
+
+mod remote;
+pub use remote::{RemoteRecoveryAttemptRead, RemoteWorkerBindingRead};
+
+mod review;
+pub use review::{CanonicalWriterHoldRead, LaneIntegrationRead};
+
+mod lane_admission;
+pub use lane_admission::{TaskLaneAdmissionRead, TaskLaneOwnerRead};
+
+mod batch;
+pub use batch::{BatchTaskRefusalRead, TaskSelectorRead};
