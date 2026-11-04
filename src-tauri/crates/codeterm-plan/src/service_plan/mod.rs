@@ -178,7 +178,9 @@ mod tests;
 #[cfg(test)]
 mod timestamp_tests;
 
-use crate::plan::{Plan, PlanLifecycleEvent, PlanMode, PlanStatus, Spec, TaskStatus};
+use crate::plan::{Plan, PlanLifecycleEvent, PlanStatus, Spec};
+#[cfg(test)]
+use crate::plan::{PlanMode, TaskStatus};
 use parking_lot::{Condvar, Mutex, RwLock};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

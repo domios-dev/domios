@@ -71,6 +71,7 @@ pub async fn list_tabs(
     };
     let caller_tab_id = if focused_workspace {
         let state = state.clone();
+        let headers = headers.clone();
         tokio::task::spawn_blocking(move || {
             let actor = crate::auth::ActorHeaders::authenticate(&state, headers)
                 .map_err(|(status, _)| (status, "Authenticated local actor or owner required"))?;
