@@ -59,3 +59,28 @@ fn open_builds_the_index_without_parsing_any_plan_row() {
         ]
     );
 }
+
+#[test]
+fn fixture_edit_after_a_newer_product_write_is_committed_with_a_monotonic_timestamp() {
+    let root = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(root.path());
+    let mut plan = Plan::new(
+        "fixture".into(),
+        root.path().display().to_string(),
+        OrchestratorRef::from_tab("owner"),
+    );
+    store.save(&mut plan, 1).unwrap();
+    store
+        .update_plan(&plan.id, Some("product update"), None, None, 1000)
+        .unwrap();
+    store
+        .edit_plan_fixture(&plan.id, 6, |plan| {
+            plan.team_id = Some("missing-team".into());
+            Ok(())
+        })
+        .unwrap();
+    let stored = store.get(&plan.id).unwrap();
+    assert_eq!(stored.team_id.as_deref(), Some("missing-team"));
+    assert_eq!(stored.title, "product update");
+    assert_eq!(stored.updated_at, 1000);
+}
