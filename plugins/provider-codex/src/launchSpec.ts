@@ -78,7 +78,9 @@ export function* buildCodexLaunchSpec(input: LaunchParams | { resume: ResumePara
   return { program: "codex", args, envSet: {}, envUnset: [...exclusions] };
 }
 
-export function codexCommandFromSpec(spec: NonNullable<ReturnType<typeof buildCodexLaunchSpec>>): string {
+type CodexLaunchSpec = NonNullable<ReturnType<typeof buildCodexLaunchSpec> extends HostIoSteps<infer T> ? T : never>;
+
+export function codexCommandFromSpec(spec: CodexLaunchSpec): string {
   const quote = (value: string) => host.shell.quoteFor(value, host.platform());
   const unset = spec.envUnset.length ? "unset " + spec.envUnset.map(quote).join(" ") + " && " : "";
   return unset + [spec.program, ...spec.args].map(value => /^[A-Za-z0-9_\-.,:=@/+%]+$/.test(value) ? value : quote(value)).join(" ");

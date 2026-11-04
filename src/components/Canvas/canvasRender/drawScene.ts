@@ -1,4 +1,4 @@
-
+import type { PlanTaskView as Task } from "../planProjection";
 import { resolveEdgeEnds } from "../edges";
 import type { LaidOutEdge, LaidOutNode, Point } from "../layout";
 import { projectWorldBox } from "../scene";
@@ -11,7 +11,7 @@ import type { CanvasPalette } from "./palette";
 import { PRESENCE_INK, agentInitials, type PresenceAgent } from "../presence/identity";
 import type { ResolvedSceneLod, SectionTaskGroup } from "./sceneLod";
 import { markerToSyntheticNode, resolveSceneLod } from "./sceneLod";
-import type { Task } from "../types";
+
 
 const FONT = "Inter, -apple-system, BlinkMacSystemFont, system-ui, sans-serif";
 const CULL_MARGIN = 280;

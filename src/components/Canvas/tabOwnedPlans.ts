@@ -1,9 +1,10 @@
+import type { PlanView as Plan } from "./planProjection";
 import type { Tab } from "../../lib/types";
 import { ownerIsTabSelf } from "./planTabMatch";
 import { resolvePlanExclusiveTabTasks } from "./tabCurrentTask";
 import { buildTaskPresence } from "./taskPresence";
 import type { PresenceAgent } from "./presence/identity";
-import { TaskStatus, type Plan } from "./types";
+import { TaskStatus } from "./types";
 
 export interface OrchestratorPlanSummary {
   plan: Plan;

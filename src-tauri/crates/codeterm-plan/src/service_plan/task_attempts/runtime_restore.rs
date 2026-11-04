@@ -19,47 +19,54 @@ impl PlanStore {
         request: RestoredRuntimeSessionBinding,
         now_ms: u64,
     ) -> Result<(), PlanError> {
-        self.with_plan_if_changed(&request.plan_id, now_ms, |plan| {
-            let task = plan
-                .tasks
-                .iter_mut()
-                .find(|task| task.id == request.task_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            if request.thread.trim().is_empty()
-                || request.nonce.trim().is_empty()
-                || task.assigned_tab_id.as_deref() != Some(request.executor_tab_id.as_str())
-                || task.interruption.owner_epoch != request.owner_epoch
-                || task
+        self.with_task_rows(
+            &request.plan_id.clone(),
+            &request.task_id.clone(),
+            super::super::store_db::hot_write::TaskHistory::LiveAndTarget(
+                request.attempt_id.clone(),
+            ),
+            now_ms,
+            |edit| {
+                let task = &mut edit.task;
+                if task.id != request.task_id {
+                    return Err(PlanError::TaskNotFound);
+                }
+                if request.thread.trim().is_empty()
+                    || request.nonce.trim().is_empty()
+                    || task.assigned_tab_id.as_deref() != Some(request.executor_tab_id.as_str())
+                    || task.interruption.owner_epoch != request.owner_epoch
+                    || task
+                        .execution_attempts
+                        .iter()
+                        .filter(|attempt| attempt.id == request.attempt_id)
+                        .count()
+                        != 1
+                {
+                    return Err(refused());
+                }
+                let attempt = task
                     .execution_attempts
-                    .iter()
-                    .filter(|attempt| attempt.id == request.attempt_id)
-                    .count()
-                    != 1
-            {
-                return Err(refused());
-            }
-            let attempt = task
-                .execution_attempts
-                .iter_mut()
-                .find(|attempt| attempt.id == request.attempt_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            if attempt.executor_tab_id != request.executor_tab_id
-                || attempt.closed_at.is_some()
-                || attempt.retired_at.is_some()
-                || attempt.session_id != request.expected_thread
-                || attempt.session_binding_nonce != request.expected_nonce
-                || attempt
-                    .session_id
-                    .as_deref()
-                    .is_some_and(|thread| thread != request.thread)
-            {
-                return Err(refused());
-            }
-            attempt.session_id = Some(request.thread.clone());
-            attempt.session_binding_nonce = Some(request.nonce.clone());
-            task.interruption.owner_session_id = Some(request.thread.clone());
-            Ok(Some(()))
-        })?;
+                    .iter_mut()
+                    .find(|attempt| attempt.id == request.attempt_id)
+                    .ok_or(PlanError::TaskNotFound)?;
+                if attempt.executor_tab_id != request.executor_tab_id
+                    || attempt.closed_at.is_some()
+                    || attempt.retired_at.is_some()
+                    || attempt.session_id != request.expected_thread
+                    || attempt.session_binding_nonce != request.expected_nonce
+                    || attempt
+                        .session_id
+                        .as_deref()
+                        .is_some_and(|thread| thread != request.thread)
+                {
+                    return Err(refused());
+                }
+                attempt.session_id = Some(request.thread.clone());
+                attempt.session_binding_nonce = Some(request.nonce.clone());
+                task.interruption.owner_session_id = Some(request.thread.clone());
+                Ok(Some(()))
+            },
+        )?;
         Ok(())
     }
 }

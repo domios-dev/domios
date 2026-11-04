@@ -1,5 +1,6 @@
+import type { PlanView as Plan, PlanTaskView as Task } from "../Canvas/planProjection";
 import type { CronJob, Tab, Team, Workspace } from "../../lib/types";
-import type { Plan, Task } from "../Canvas/types";
+
 import type { BlueprintSnapshot } from "../Automation/types";
 import { tabsInWorkspace } from "./workspaceTabs";
 

@@ -3,7 +3,6 @@ use std::collections::HashSet;
 
 use crate::plan::{AgentRef, Milestone, Plan, TaskStatus};
 
-use super::mutations::plan_contains_id;
 use super::{milestone_gates, PlanError, PlanStore};
 
 /// Default cadence for the gate/bounce reflection trigger (`reflect.every_gates`).
@@ -248,41 +247,29 @@ impl PlanStore {
         if note.is_empty() {
             return Err(PlanError::QaNoteRequired);
         }
-        self.with_plan(plan_id, now_ms, |plan| {
-            if !plan.task_groups.iter().any(|group| group.key == group_key)
-                && plan
-                    .tasks
-                    .iter()
-                    .any(|task| task.group.as_deref() == Some(group_key))
-            {
-                plan.task_groups.push(crate::plan::TaskGroup {
-                    key: group_key.to_string(),
-                    label: group_key.to_string(),
-                    color: None,
-                });
-            }
-            let group = plan
-                .task_groups
-                .iter()
-                .find(|g| g.key == group_key)
-                .ok_or(PlanError::GroupNotFound)?;
-            let link = milestone_gates::regression_link(&group.key);
-            let stride_id =
-                crate::plan::ids::mint_id("ms", |candidate| plan_contains_id(plan, candidate));
-            plan.strides.push(Milestone {
-                id: stride_id,
-                from,
-                kind: GROUP_CLOSE_MILESTONE_KIND.into(),
-                text: note.into(),
-                ts: now_ms,
-                links: vec![link],
-                loop_id: None,
-                iteration: None,
-                canvas: Default::default(),
-                attachments: vec![],
-            });
-            Ok(())
-        })
+        let milestone = Milestone {
+            id: self.mint_id("ms")?,
+            from,
+            kind: GROUP_CLOSE_MILESTONE_KIND.into(),
+            text: note.into(),
+            ts: now_ms,
+            links: vec![milestone_gates::regression_link(group_key)],
+            loop_id: None,
+            iteration: None,
+            canvas: Default::default(),
+            attachments: vec![],
+        };
+        let turn = self.mutation_writer.enter();
+        let receipt = self.database.append_plan_audit(
+            plan_id,
+            milestone,
+            super::store_db::hot_write::PlanAudit::GroupClose {
+                key: group_key.into(),
+            },
+            now_ms,
+        )?;
+        self.publish_hot_receipt(&turn, receipt);
+        Ok(())
     }
 }
 

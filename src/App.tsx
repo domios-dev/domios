@@ -75,8 +75,6 @@ import {
 } from "./store/multiplexer";
 import { appShellStateEqual } from "./store/multiplexer/selectors";
 import type { ExtendedState } from "./store/multiplexer/tree";
-import { defaultSpawnProviderId } from "./lib/agentDescriptorCache";
-import { openNewSessionPicker } from "./lib/newSessionChoice";
 import { zoomedFontSize } from "./lib/appShortcuts";
 import { useAppShortcuts } from "./hooks/useAppShortcuts";
 import { useFolderPicker } from "./hooks/useFolderPicker";
@@ -645,14 +643,6 @@ function AppInner() {
           const wsId = stateRef.current.active_workspace_id ?? stateRef.current.workspaces[0]?.id;
           if (!wsId || precheckFreeLimit(["agent.tabs"])) return;
           const workspace = stateRef.current.workspaces.find((candidate) => candidate.id === wsId);
-          if (config.agent.full_access === undefined) {
-            openNewSessionPicker({
-              workspaceId: wsId,
-              workspaceCwd: workspace?.cwd ?? null,
-              initialProviderId: defaultSpawnProviderId(),
-            });
-            return;
-          }
           const folder = workspace?.cwd || await pickFolder("Choose project folder", workspace?.cwd);
           if (folder) spawnClaudeTab(wsId, folder);
         },
@@ -667,7 +657,6 @@ function AppInner() {
       handleNewWorkspace,
       openSettings,
       showBell,
-      config.agent.full_access,
       config.keybindings,
       pickFolder,
       spawnClaudeTab,

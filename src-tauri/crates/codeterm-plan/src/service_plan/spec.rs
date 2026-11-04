@@ -1,12 +1,8 @@
 use super::mutations::{
-    has_section, push_subsection, rm_section_tree, update_section_fields, update_section_tags,
+    push_subsection, rm_section_tree, update_section_fields, update_section_tags,
 };
 use super::{MutationWriterTurn, PlanError, PlanStore};
 use crate::plan::{EffortLink, EffortLinkRel, PlanStatus, Section, Spec, SpecLink};
-
-fn gen_id(prefix: &str) -> String {
-    crate::plan::ids::short_id(prefix)
-}
 
 impl PlanStore {
     #[cfg(test)]
@@ -31,90 +27,27 @@ impl PlanStore {
         kinds: Vec<crate::plan::MilestoneKind>,
         now_ms: u64,
     ) -> Result<crate::plan::Plan, PlanError> {
-        let spec = self.get_spec(spec_id).ok_or(PlanError::NotFound)?;
-        // Claim ownership before inserting the plan row: a spec-conflict must
-        // leave zero orphan plans behind.
-        if let Some(owner) = spec.plan_id.as_deref() {
-            return Err(PlanError::Io(format!(
-                "spec {spec_id} already owned by plan {owner}"
-            )));
+        super::text_bounds::validate_plan_label("plan title", &title)?;
+        let team_id = team_id.trim().to_string();
+        if team_id.is_empty() {
+            return Err(PlanError::ActivePlanRequiresTeam {
+                plan_id: "new plan".into(),
+            });
         }
-        let mut plan = self.create_plan_for_team_unobserved(
-            title,
-            spec.project_path.clone(),
-            owner,
-            team_id,
-            kinds,
+        let turn = self.mutation_writer.enter();
+        let (plan, receipt) = self.database.create_spec_plan_rows(
+            super::store_db::hot_write::SpecPlanCreate {
+                spec_id: spec_id.into(),
+                title,
+                owner,
+                team_id,
+                kinds,
+            },
             now_ms,
         )?;
-        plan.primary_spec_id = Some(spec_id.to_string());
-        if !plan.spec_refs.iter().any(|id| id == spec_id) {
-            plan.spec_refs.push(spec_id.to_string());
-        }
-
-        fn mirror_sections(
-            source: &[Section],
-            links: &mut Vec<SpecLink>,
-            spec_id: &str,
-        ) -> Vec<Section> {
-            source
-                .iter()
-                .map(|spec_section| {
-                    let mirrored_id = gen_id("sec");
-                    let mirrored_subsections =
-                        mirror_sections(&spec_section.subsections, links, spec_id);
-                    links.push(SpecLink {
-                        spec_id: spec_id.to_string(),
-                        spec_section_id: spec_section.id.clone(),
-                        plan_section_id: mirrored_id.clone(),
-                    });
-                    Section {
-                        id: mirrored_id,
-                        title: spec_section.title.clone(),
-                        handle: None,
-                        tags: vec![],
-                        body: String::new(),
-                        subsections: mirrored_subsections,
-                        canvas: Default::default(),
-                        attachments: vec![],
-                    }
-                })
-                .collect()
-        }
-
-        let mut links = Vec::new();
-        plan.sections = mirror_sections(&spec.sections, &mut links, spec_id);
-        plan.spec_links = links;
-        self.commit_loaded_plan(plan.clone())?;
-        // Roll back the just-committed plan if the claim races another owner,
-        // so no orphan survives the failure.
-        if let Err(e) = self.adopt_spec_to_plan(spec_id, &plan.id, now_ms) {
-            let _ = self.delete(&plan.id);
-            return Err(e);
-        }
+        self.publish_hot_receipt(&turn, receipt);
         self.publish_product_created();
         Ok(plan)
-    }
-
-    /// Bind a spec to its owning plan (1:1). Persisting it then co-locates the
-    /// spec.yaml into the plan dir and drops the orphan global copy.
-    fn adopt_spec_to_plan(
-        &self,
-        spec_id: &str,
-        plan_id: &str,
-        now_ms: u64,
-    ) -> Result<(), PlanError> {
-        self.with_spec(spec_id, now_ms, |spec| {
-            if let Some(owner) = spec.plan_id.as_deref() {
-                if owner != plan_id {
-                    return Err(PlanError::Io(format!(
-                        "spec {spec_id} already owned by plan {owner}"
-                    )));
-                }
-            }
-            spec.plan_id = Some(plan_id.to_string());
-            Ok(())
-        })
     }
 
     pub fn create_spec(
@@ -173,25 +106,8 @@ impl PlanStore {
         F: FnOnce(&mut Spec) -> Result<T, PlanError>,
     {
         turn.assert_store(self);
-        let arc = self
-            .specs
-            .read()
-            .get(id)
-            .cloned()
-            .ok_or(PlanError::NotFound)?;
-        let mut staged = arc.lock().clone();
-        let out = f(&mut staged)?;
-        staged.updated_at = now_ms;
-        if staged.canonical_project_path.trim().is_empty() {
-            staged.canonical_project_path = staged.project_path.clone();
-        }
-        super::tag_model::normalize_sections_for_spec(&mut staged.sections);
-        let path = self
-            .persist_spec_in_writer(turn, &staged)
-            .map_err(|e| PlanError::Io(e.to_string()))?;
-        let entry = Self::spec_index_entry(&staged, path);
-        self.spec_index.write().insert(staged.id.clone(), entry);
-        *arc.lock() = staged;
+        let (out, receipt) = self.database.edit_spec_rows(id, now_ms, f)?;
+        self.publish_hot_receipt(turn, receipt);
         Ok(out)
     }
 
@@ -275,34 +191,17 @@ impl PlanStore {
         plan_section_id: &str,
         now_ms: u64,
     ) -> Result<(), PlanError> {
-        let spec = self.get_spec(spec_id).ok_or(PlanError::NotFound)?;
-        if !has_section(&spec.sections, spec_section_id) {
-            return Err(PlanError::NotFound);
-        }
-        self.with_plan(plan_id, now_ms, |plan| {
-            if !has_section(&plan.sections, plan_section_id) {
-                return Err(PlanError::NotFound);
-            }
-            if !plan.spec_refs.iter().any(|id| id == spec_id) {
-                plan.spec_refs.push(spec_id.into());
-            }
-            if plan.primary_spec_id.is_none() {
-                plan.primary_spec_id = Some(spec_id.into());
-            }
-            let link = SpecLink {
+        let turn = self.mutation_writer.enter();
+        let receipt = self.database.change_spec_link(
+            plan_id,
+            super::store_db::hot_write::SpecLinkChange::Link(SpecLink {
                 spec_id: spec_id.into(),
                 spec_section_id: spec_section_id.into(),
                 plan_section_id: plan_section_id.into(),
-            };
-            if !plan.spec_links.iter().any(|existing| existing == &link) {
-                plan.spec_links.push(link);
-            }
-            Ok(())
-        })?;
-        // First link claims ownership: co-locate the spec into this plan.
-        if spec.plan_id.as_deref() != Some(plan_id) {
-            self.adopt_spec_to_plan(spec_id, plan_id, now_ms)?;
-        }
+            }),
+            now_ms,
+        )?;
+        self.publish_hot_receipt(&turn, receipt);
         Ok(())
     }
 
@@ -314,67 +213,43 @@ impl PlanStore {
         plan_section_id: Option<&str>,
         now_ms: u64,
     ) -> Result<(), PlanError> {
-        self.with_plan(plan_id, now_ms, |plan| {
-            plan.spec_links.retain(|link| {
-                !(link.spec_id == spec_id
-                    && spec_section_id.is_none_or(|sid| link.spec_section_id == sid)
-                    && plan_section_id.is_none_or(|sid| link.plan_section_id == sid))
-            });
-            if !plan.spec_links.iter().any(|link| link.spec_id == spec_id) {
-                plan.spec_refs.retain(|id| id != spec_id);
-                if plan.primary_spec_id.as_deref() == Some(spec_id) {
-                    plan.primary_spec_id = plan.spec_refs.first().cloned();
-                }
-            }
-            Ok(())
-        })
+        let turn = self.mutation_writer.enter();
+        let receipt = self.database.change_spec_link(
+            plan_id,
+            super::store_db::hot_write::SpecLinkChange::Unlink {
+                spec_id: spec_id.into(),
+                spec_section_id: spec_section_id.map(str::to_string),
+                plan_section_id: plan_section_id.map(str::to_string),
+            },
+            now_ms,
+        )?;
+        self.publish_hot_receipt(&turn, receipt);
+        Ok(())
     }
 
     pub fn delete_spec(&self, spec_id: &str, now_ms: u64) -> Result<(), PlanError> {
         let turn = self.mutation_writer.enter();
-        let spec = self.get_spec(spec_id).ok_or(PlanError::NotFound)?;
-        // Scrub references from every plan that points at this spec.
-        let referencing = self
-            .database
-            .plan_ids_matching(&super::PlanMatch::SpecRef(spec_id.to_string()))?;
-        for plan_id in referencing {
-            self.with_plan_in_writer(&turn, &plan_id, now_ms, |plan| {
-                plan.spec_refs.retain(|r| r != spec_id);
-                plan.spec_links.retain(|l| l.spec_id != spec_id);
-                if plan.primary_spec_id.as_deref() == Some(spec_id) {
-                    plan.primary_spec_id = None;
-                }
-                Ok(())
-            })?;
-        }
-        self.database.delete_spec(&spec.id, now_ms)?;
+        let (spec, receipts) = self.database.delete_spec_rows(spec_id, now_ms)?;
         #[cfg(test)]
-        self.remove_test_spec_sidecars(&spec)?;
+        self.database.remove_spec_test_sidecars(&spec)?;
+        #[cfg(test)]
+        let work = receipts
+            .iter()
+            .map(super::store_db::hot_write::work_values)
+            .fold([0; 13], |mut sum, values| {
+                for (total, value) in sum.iter_mut().zip(values) {
+                    *total += value;
+                }
+                sum
+            });
+        for receipt in receipts {
+            self.publish_hot_receipt(&turn, receipt);
+        }
+        #[cfg(test)]
+        super::store_db::hot_write::record_work_values(work);
         self.specs.write().remove(spec_id);
         self.spec_index.write().remove(spec_id);
         super::search_index::remove_spec_from_index(&turn, spec);
-        Ok(())
-    }
-
-    #[cfg(test)]
-    fn remove_test_spec_sidecars(&self, spec: &Spec) -> Result<(), PlanError> {
-        let Some(root) = super::paths::test_project_root(super::paths::spec_sidecar_root(spec))
-        else {
-            return Ok(());
-        };
-        let specs_dir =
-            super::paths::specs_dir(&root).map_err(|error| PlanError::Io(error.to_string()))?;
-        let global = super::spec_store::spec_yaml_path(&specs_dir, &spec.id);
-        let _ = std::fs::remove_file(global);
-        if let Some(plan_id) = spec.plan_id.as_deref() {
-            if let Some(plan) = self.get(plan_id) {
-                let mut normalized = plan.clone();
-                super::paths::normalize_plan_paths(&mut normalized, &root);
-                let dir = super::store_v2::plan_state_dir(&normalized)
-                    .map_err(|error| PlanError::Io(error.to_string()))?;
-                let _ = std::fs::remove_file(super::spec_store::spec_yaml_path_in_plan(&dir));
-            }
-        }
         Ok(())
     }
 
@@ -389,13 +264,12 @@ impl PlanStore {
         rel: EffortLinkRel,
         now_ms: u64,
     ) -> Result<(), PlanError> {
-        self.with_plan(from, now_ms, |plan| {
-            let link = EffortLink { to: to.into(), rel };
-            if !plan.lineage.iter().any(|existing| existing == &link) {
-                plan.lineage.push(link);
-            }
-            Ok(())
-        })
+        self.commit_header_change(
+            from,
+            super::store_db::hot_write::HeaderChange::Effort(EffortLink { to: to.into(), rel }),
+            now_ms,
+        )
+        .map(|_| ())
     }
 }
 

@@ -10,6 +10,35 @@ pub(super) fn edit(
     remove: bool,
     receipt: &mut CommittedRows,
 ) -> Result<(), PlanError> {
+    edit_selected(
+        tx,
+        plan_id,
+        task_id,
+        milestone_id,
+        remove,
+        receipt,
+        |milestone, receipt| {
+            if let Some(kind) = kind {
+                declare_kind(tx, plan_id, kind, false, receipt)?;
+                milestone.kind = kind.into();
+            }
+            if let Some(text) = text {
+                milestone.text = text.into();
+            }
+            Ok(())
+        },
+    )
+}
+
+pub(super) fn edit_selected(
+    tx: &Transaction<'_>,
+    plan_id: &str,
+    task_id: &str,
+    milestone_id: &str,
+    remove: bool,
+    receipt: &mut CommittedRows,
+    change: impl FnOnce(&mut Milestone, &mut CommittedRows) -> Result<(), PlanError>,
+) -> Result<(), PlanError> {
     if !tx
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM plan_tasks WHERE plan_id=?1 AND task_id=?2)",
@@ -30,13 +59,7 @@ pub(super) fn edit(
         )
         .map_err(db_error)?;
     } else {
-        if let Some(kind) = kind {
-            declare_kind(tx, plan_id, kind, false, receipt)?;
-            milestone.kind = kind.into();
-        }
-        if let Some(text) = text {
-            milestone.text = text.into();
-        }
+        change(&mut milestone, receipt)?;
         let json = encode(&milestone, receipt)?;
         tx.execute("UPDATE plan_task_milestones SET row_json=?4 WHERE plan_id=?1 AND task_id=?2 AND seq=?3", params![plan_id, task_id, seq, json]).map_err(db_error)?;
     }
@@ -57,4 +80,39 @@ pub(super) fn edit(
     receipt.task_rows += 1;
     receipt.milestones += 1;
     queue_milestone_index(tx, plan_id, task_id, &milestone, remove, receipt)
+}
+
+impl PlanDatabase {
+    pub(in crate::service_plan) fn with_milestone_rows<T>(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        milestone_id: &str,
+        now_ms: u64,
+        change: impl FnOnce(&mut Milestone) -> Result<T, PlanError>,
+    ) -> Result<(T, CommittedRows), PlanError> {
+        let mut result = None;
+        let receipt = self.hot_transaction(plan_id, now_ms, |tx, receipt| {
+            let mut task = read_task(tx, plan_id, task_id, receipt)?;
+            edit_selected(
+                tx,
+                plan_id,
+                &task.id,
+                milestone_id,
+                false,
+                receipt,
+                |milestone, _| {
+                    result = Some(change(milestone)?);
+                    Ok(())
+                },
+            )?;
+            task.updated_at = now_ms;
+            write_task(tx, plan_id, &task, receipt)?;
+            task_fields::queue_task_index(tx, plan_id, &task, false, false, receipt)
+        })?;
+        Ok((
+            result.ok_or_else(|| PlanError::Io("milestone edit returned no result".into()))?,
+            receipt,
+        ))
+    }
 }

@@ -2,6 +2,30 @@ use super::super::{MutationWriterTurn, PlanError, PlanStore};
 use crate::plan::Plan;
 
 impl PlanStore {
+    pub(in crate::service_plan) fn commit_section_change(
+        &self,
+        plan_id: &str,
+        change: super::super::store_db::hot_write::SectionChange,
+        now_ms: u64,
+    ) -> Result<Vec<String>, PlanError> {
+        let turn = self.mutation_writer.enter();
+        let (removed, receipt) = self.database.change_section(plan_id, change, now_ms)?;
+        self.publish_hot_receipt(&turn, receipt);
+        Ok(removed)
+    }
+
+    pub(in crate::service_plan) fn commit_header_change(
+        &self,
+        plan_id: &str,
+        change: super::super::store_db::hot_write::HeaderChange,
+        now_ms: u64,
+    ) -> Result<bool, PlanError> {
+        let turn = self.mutation_writer.enter();
+        let (changed, receipt) = self.database.change_header(plan_id, change, now_ms)?;
+        self.publish_hot_receipt(&turn, receipt);
+        Ok(changed)
+    }
+
     pub(in crate::service_plan) fn commit_hot_batch(
         &self,
         plan_id: &str,
@@ -28,6 +52,42 @@ impl PlanStore {
         self.publish_hot_receipt(&turn, receipt);
         Ok(result)
     }
+    pub(in crate::service_plan) fn with_task_rows_in_writer<T>(
+        &self,
+        turn: &MutationWriterTurn<'_>,
+        plan_id: &str,
+        selector: &str,
+        history: super::super::store_db::hot_write::TaskHistory,
+        now_ms: u64,
+        change: impl FnOnce(&mut super::super::store_db::hot_write::TaskRowEdit) -> Result<T, PlanError>,
+    ) -> Result<T, PlanError> {
+        turn.assert_store(self);
+        let (result, receipt) = self
+            .database
+            .with_task_rows(plan_id, selector, history, now_ms, change)?;
+        self.publish_hot_receipt(turn, receipt);
+        Ok(result)
+    }
+
+    pub(in crate::service_plan) fn with_task_rows_batch<T>(
+        &self,
+        plan_id: &str,
+        selectors: &[String],
+        history: super::super::store_db::hot_write::TaskHistory,
+        now_ms: u64,
+        change: impl FnMut(
+            usize,
+            &mut super::super::store_db::hot_write::TaskRowEdit,
+        ) -> Result<Option<T>, PlanError>,
+    ) -> Result<Vec<T>, PlanError> {
+        let turn = self.mutation_writer.enter();
+        let (result, receipt) = self
+            .database
+            .with_task_rows_batch(plan_id, selectors, history, now_ms, change)?;
+        self.publish_hot_receipt(&turn, receipt);
+        Ok(result)
+    }
+
     pub(in crate::service_plan) fn commit_hot_changes(
         &self,
         id: &str,
@@ -66,15 +126,45 @@ impl PlanStore {
         turn.assert_store(self);
         #[cfg(test)]
         super::super::store_db::hot_write::record_work(&receipt);
+        for spec in receipt.specs {
+            let existing = self.specs.read().get(&spec.id).cloned();
+            if let Some(existing) = existing {
+                *existing.lock() = spec.clone();
+            } else {
+                self.specs.write().insert(
+                    spec.id.clone(),
+                    std::sync::Arc::new(parking_lot::Mutex::new(spec.clone())),
+                );
+            }
+            self.spec_index.write().insert(
+                spec.id.clone(),
+                Self::spec_index_entry(&spec, self.database.path()),
+            );
+            super::super::search_index::enqueue_spec_index(turn, spec);
+        }
         if receipt.header_rows == 0 {
             return;
         }
         self.clear_committed_snapshot();
         self.plan_cache.evict(&receipt.plan_id);
-        if let Some(row) = self.index.write().get_mut(&receipt.plan_id) {
+        if let Some(metadata) = receipt.plan_metadata {
+            if let Some(root) = receipt.index_root.clone() {
+                super::super::search_index::enqueue_plan_metadata(turn, root, metadata.clone());
+            }
+            self.index.write().insert(receipt.plan_id.clone(), metadata);
+        } else if let Some(row) = self.index.write().get_mut(&receipt.plan_id) {
             row.updated_at = receipt.updated_at;
         }
         if let Some(root) = receipt.index_root {
+            for (task_id, milestones) in receipt.removed_tasks {
+                super::super::search_index::enqueue_task_removal(
+                    turn,
+                    root.clone(),
+                    &receipt.plan_id,
+                    &task_id,
+                    &milestones,
+                );
+            }
             super::super::search_index::enqueue_plan_time(
                 turn,
                 root,
@@ -92,6 +182,9 @@ impl PlanStore {
         }
         for delta in receipt.task_search {
             super::super::search_index::enqueue_task_index(turn, delta);
+        }
+        for delta in receipt.section_search {
+            super::super::search_index::enqueue_section_index(turn, delta);
         }
         log::debug!("[plan.store] hot commit tasks={} attempts={} milestones={} strides={} decoded_bytes={} serialized_bytes={} projected_text_bytes={} hashed_bytes={}", receipt.task_rows, receipt.attempts, receipt.milestones, receipt.strides, receipt.decoded_bytes, receipt.serialized_bytes, receipt.projected_text_bytes, receipt.hashed_bytes);
     }
@@ -119,19 +212,6 @@ impl PlanStore {
         Ok(self
             .with_plan_if_changed_in_writer(turn, id, now_ms, |plan| f(plan).map(Some))?
             .expect("unconditional plan mutation returns a value"))
-    }
-
-    pub(in crate::service_plan) fn with_plan_if_changed<T, F>(
-        &self,
-        id: &str,
-        now_ms: u64,
-        f: F,
-    ) -> Result<Option<T>, PlanError>
-    where
-        F: FnOnce(&mut Plan) -> Result<Option<T>, PlanError>,
-    {
-        let writer_turn = self.mutation_writer.enter();
-        self.with_plan_if_changed_in_writer(&writer_turn, id, now_ms, f)
     }
 
     fn with_plan_if_changed_in_writer<T, F>(

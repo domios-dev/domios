@@ -2,7 +2,7 @@ use serde::Serialize;
 use std::collections::HashSet;
 
 use super::{PlanError, PlanStore};
-use crate::plan::{Plan, Section, Task};
+use crate::plan::{Section, Task};
 
 mod inputs;
 pub(super) use inputs::{SectionLinkInput, SectionLinkSource};
@@ -173,7 +173,7 @@ pub(super) fn resolve_selectors(
         .collect()
 }
 
-pub(super) fn auto_section_ids_for_task(plan: &Plan, task: &Task) -> Vec<String> {
+pub(super) fn auto_section_ids_for_task(plan: &impl SectionLinkSource, task: &Task) -> Vec<String> {
     if !task.section_ids.is_empty() {
         return task.section_ids.clone();
     }

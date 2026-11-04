@@ -286,7 +286,7 @@ fn validate_section(section: &crate::plan::Section) -> Result<(), PlanError> {
     section_text(section, TextBudget::default)
 }
 
-fn validate_stored_section(section: &crate::plan::Section) -> Result<(), PlanError> {
+pub(super) fn validate_stored_section(section: &crate::plan::Section) -> Result<(), PlanError> {
     section_text(section, TextBudget::stored)
 }
 

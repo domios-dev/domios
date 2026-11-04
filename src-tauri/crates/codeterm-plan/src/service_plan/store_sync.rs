@@ -382,6 +382,7 @@ fn stored_attempts(
 /// The stride prefix a plan row records, read before its header is rewritten.
 #[derive(Debug, Default, Clone, Copy)]
 pub(super) struct StoredStrides {
+    pub(super) invalid: bool,
     pub(super) count: usize,
     pub(super) digest: i64,
 }
@@ -507,14 +508,14 @@ fn sync_strides(
     deleted: &mut usize,
 ) -> rusqlite::Result<usize> {
     let count = rows.strides.len();
-    if stored.count == count && stored.digest == rows.stride_digest() {
+    if !stored.invalid && stored.count == count && stored.digest == rows.stride_digest() {
         return Ok(0);
     }
     let prefix_digest = match stored.count {
         0 => Some(0),
         stored => rows.stride_digests.get(stored - 1).copied(),
     };
-    let from = if prefix_digest == Some(stored.digest) {
+    let from = if !stored.invalid && prefix_digest == Some(stored.digest) {
         stored.count
     } else {
         *deleted +=

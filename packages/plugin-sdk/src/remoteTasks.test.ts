@@ -20,7 +20,7 @@ function fixture() {
   let reads = 0;
   let uncertain = false;
   const environment = {id: "environment-fixture", accountRef: "account-fixture", label: "Fixture environment"};
-  const backend = {
+  const backend: RemoteTaskBackend = {
     capability: {backend: "fixture", mode: "cloud", displayName: "Cloud", environments: [environment], availability: {status: "available"}, followUp: false, cancel: false, applyDiff: false},
     environments() { return [environment]; },
     create() { creates++; if (uncertain) throw new Error("connection lost after server accepted"); return {taskId: "task-fixture"}; },

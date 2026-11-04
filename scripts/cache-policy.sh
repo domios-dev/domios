@@ -31,6 +31,7 @@ ct_target_in_worktree() {
 }
 
 ct_verify_target_dir() {
+  ct_select_build_dir || return $?
   local repo target_abs repo_abs
   repo="$(ct_repo_root)"
   repo_abs="$(ct_abs_path "$repo")"
@@ -51,6 +52,35 @@ ct_verify_target_dir() {
   echo "[cache-policy] Set CODETERM_ALLOW_EXTERNAL_TARGET=1 only for audited QA lanes." >&2
   return 2
 }
+
+ct_select_build_dir() {
+  [ "${CMD:-}" != lane-check ] || return 0
+  local checkout target cache directory
+  checkout="$(git rev-parse --show-toplevel)" || return $?
+  target="${1:-${CARGO_TARGET_DIR:-$checkout/src-tauri/target}}"
+  cache="$(ct_cache_home)" || return $?
+  if command -v cygpath >/dev/null 2>&1; then
+    checkout="$(cygpath -m "$checkout")"
+    target="$(cygpath -am "$target")"
+    cache="$(cygpath -m "$cache")"
+  fi
+  directory="$(node "$CT_CACHE_POLICY_SCRIPT_ROOT/scripts/cargo-intermediates.mjs" "$checkout" "$target" "$cache")" || return $?
+  export CARGO_BUILD_BUILD_DIR="$directory"
+  export CODETERM_CACHE_BUILD_DIRECTORY="$directory"
+  echo "[cache-policy] CARGO_BUILD_BUILD_DIR=$directory target=$target"
+}
+
+# Inline target overrides must select the same policy as inherited targets.
+cargo() (
+  local target="${CARGO_TARGET_DIR:-}" previous="" argument
+  for argument in "$@"; do
+    if [ "$previous" = --target-dir ]; then target="$argument"; fi
+    case "$argument" in --target-dir=*) target="${argument#*=}" ;; esac
+    previous="$argument"
+  done
+  ct_select_build_dir "$target" >&2 || return $?
+  command cargo "$@"
+)
 
 ct_forbid_mutable_cache_dir() {
   local repo_abs dir_abs

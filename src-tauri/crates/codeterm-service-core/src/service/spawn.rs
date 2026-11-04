@@ -279,7 +279,6 @@ impl ServiceContext {
             (TabVisibility::Visible, TabCommand::Shell) => self.spawn_visible_shell_impl(spec),
             (TabVisibility::Hidden, TabCommand::Shell) => self.spawn_hidden_shell_impl(spec),
             (_, TabCommand::ChatBackend { .. }) => {
-                super::permission_policy::configured_full_access_for(self)?;
                 self.spawn_chatbackend_with_ready(spec, emit_state_change, ready_tx)
             }
         }
