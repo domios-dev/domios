@@ -413,29 +413,66 @@ pub struct QaWave {
 /// Groups batch-compatible (same task `group`) queued/running QA-stage tasks
 /// into one named wave, mirroring the group-key dedup already used for
 /// regression gates. Read-only: callers decide whether to claim/dispatch.
-pub fn qa_waves(plan: &Plan) -> Vec<QaWave> {
-    let mut by_group: std::collections::BTreeMap<String, Vec<String>> =
-        std::collections::BTreeMap::new();
-    for task in &plan.tasks {
-        if task.status != TaskStatus::InReview || task.review_stage != ReviewStage::Qa {
-            continue;
+#[derive(serde::Deserialize)]
+pub(super) struct QaWaveInput {
+    pub task_groups: Vec<QaWaveGroup>,
+    pub tasks: Vec<QaWaveTask>,
+}
+
+#[derive(serde::Deserialize)]
+pub(super) struct QaWaveGroup {
+    pub key: String,
+    pub label: String,
+}
+
+#[derive(serde::Deserialize)]
+pub(super) struct QaWaveTask {
+    pub id: String,
+    pub group: String,
+}
+
+impl From<&Plan> for QaWaveInput {
+    fn from(plan: &Plan) -> Self {
+        Self {
+            task_groups: plan
+                .task_groups
+                .iter()
+                .map(|group| QaWaveGroup {
+                    key: group.key.clone(),
+                    label: group.label.clone(),
+                })
+                .collect(),
+            tasks: plan
+                .tasks
+                .iter()
+                .filter(|task| {
+                    task.status == TaskStatus::InReview && task.review_stage == ReviewStage::Qa
+                })
+                .filter_map(|task| {
+                    task.group.as_ref().map(|group| QaWaveTask {
+                        id: task.id.clone(),
+                        group: group.clone(),
+                    })
+                })
+                .collect(),
         }
-        let Some(key) = task.group.as_deref() else {
-            continue;
-        };
-        by_group
-            .entry(key.to_string())
-            .or_default()
-            .push(task.id.clone());
+    }
+}
+
+pub(super) fn qa_waves(input: impl Into<QaWaveInput>) -> Vec<QaWave> {
+    let input = input.into();
+    let mut by_group = std::collections::BTreeMap::<String, Vec<String>>::new();
+    for task in input.tasks {
+        by_group.entry(task.group).or_default().push(task.id);
     }
     by_group
         .into_iter()
         .map(|(key, task_ids)| {
-            let label = plan
+            let label = input
                 .task_groups
                 .iter()
-                .find(|g| g.key == key)
-                .map(|g| g.label.clone())
+                .find(|group| group.key == key)
+                .map(|group| group.label.clone())
                 .unwrap_or_else(|| key.clone());
             QaWave {
                 wave_id: format!("wave:{key}"),
@@ -463,7 +500,7 @@ impl PlanStore {
 
     pub fn qa_waves(&self, plan_id: &str) -> Result<Vec<QaWave>, PlanError> {
         let plan = self.database.qa_wave_projection(plan_id)?;
-        Ok(qa_waves(&plan))
+        Ok(qa_waves(plan))
     }
 
     /// Authorizes the next over-round-limit re-entry into review. Consumed

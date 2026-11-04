@@ -4,6 +4,9 @@ use std::collections::HashSet;
 use super::{PlanError, PlanStore};
 use crate::plan::{Plan, Section, Task};
 
+mod inputs;
+pub(super) use inputs::{SectionLinkInput, SectionLinkSource};
+
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct SectionLinkSuggestion {
     pub task_id: String,
@@ -21,7 +24,7 @@ pub struct SectionRelinkReport {
 }
 
 #[derive(Debug, Clone)]
-struct SectionCandidate {
+pub(super) struct SectionCandidate {
     id: String,
     title: String,
     keys: HashSet<String>,
@@ -54,29 +57,43 @@ fn add_key(keys: &mut HashSet<String>, value: &str) {
     }
 }
 
+fn candidate_fields(
+    id: &str,
+    title: &str,
+    handle: Option<&str>,
+    tags: &[String],
+) -> SectionCandidate {
+    let mut keys = HashSet::new();
+    add_key(&mut keys, id);
+    add_key(&mut keys, title);
+    if let Some(handle) = handle {
+        add_key(&mut keys, handle);
+    }
+    for tag in tags {
+        add_key(&mut keys, tag);
+    }
+    SectionCandidate {
+        id: id.into(),
+        title: title.into(),
+        keys,
+    }
+}
+
 fn collect_sections(sections: &[Section], out: &mut Vec<SectionCandidate>) {
     for section in sections {
-        let mut keys = HashSet::new();
-        add_key(&mut keys, &section.id);
-        add_key(&mut keys, &section.title);
-        if let Some(handle) = &section.handle {
-            add_key(&mut keys, handle);
-        }
-        for tag in &section.tags {
-            add_key(&mut keys, tag);
-        }
-        out.push(SectionCandidate {
-            id: section.id.clone(),
-            title: section.title.clone(),
-            keys,
-        });
+        out.push(candidate_fields(
+            &section.id,
+            &section.title,
+            section.handle.as_deref(),
+            &section.tags,
+        ));
         collect_sections(&section.subsections, out);
     }
 }
 
-fn section_candidates(plan: &Plan) -> Vec<SectionCandidate> {
-    let mut out = vec![];
-    collect_sections(&plan.sections, &mut out);
+fn section_candidates(source: &impl SectionLinkSource) -> Vec<SectionCandidate> {
+    let mut out = Vec::new();
+    source.collect_candidates(&mut out);
     out
 }
 
@@ -112,27 +129,21 @@ fn unique_from_text<'a>(
 
 fn suggest_for_task<'a>(
     sections: &'a [SectionCandidate],
-    task: &Task,
+    name: &str,
+    handle: Option<&str>,
+    group: Option<&str>,
 ) -> Option<(&'a SectionCandidate, String)> {
-    if let Some(group) = task
-        .group
-        .as_deref()
-        .filter(|group| !group.trim().is_empty())
-    {
+    if let Some(group) = group.filter(|group| !group.trim().is_empty()) {
         if let Some(hit) = unique_from_text(sections, group) {
             return Some((hit.0, format!("matched group '{group}'")));
         }
     }
-    if let Some(handle) = task
-        .handle
-        .as_deref()
-        .filter(|handle| !handle.trim().is_empty())
-    {
+    if let Some(handle) = handle.filter(|handle| !handle.trim().is_empty()) {
         if let Some(hit) = unique_from_text(sections, handle) {
             return Some((hit.0, format!("matched handle '{handle}'")));
         }
     }
-    let name = normalize(&task.name);
+    let name = normalize(name);
     let matches = sections
         .iter()
         .filter(|section| {
@@ -149,7 +160,10 @@ fn suggest_for_task<'a>(
     }
 }
 
-pub(super) fn resolve_selectors(plan: &Plan, selectors: &[String]) -> Vec<String> {
+pub(super) fn resolve_selectors(
+    plan: &impl SectionLinkSource,
+    selectors: &[String],
+) -> Vec<String> {
     let candidates = section_candidates(plan);
     selectors
         .iter()
@@ -164,10 +178,15 @@ pub(super) fn auto_section_ids_for_task(plan: &Plan, task: &Task) -> Vec<String>
         return task.section_ids.clone();
     }
     let sections = section_candidates(plan);
-    suggest_for_task(&sections, task)
-        .map(|(section, _)| vec![section.id.clone()])
-        .or_else(|| (sections.len() == 1).then(|| vec![sections[0].id.clone()]))
-        .unwrap_or_default()
+    suggest_for_task(
+        &sections,
+        &task.name,
+        task.handle.as_deref(),
+        task.group.as_deref(),
+    )
+    .map(|(section, _)| vec![section.id.clone()])
+    .or_else(|| (sections.len() == 1).then(|| vec![sections[0].id.clone()]))
+    .unwrap_or_default()
 }
 
 impl PlanStore {
@@ -237,7 +256,12 @@ impl PlanStore {
                 .filter(|task| task.section_ids.is_empty())
             {
                 report.unlinked_count += 1;
-                let Some((section, reason)) = suggest_for_task(&sections, task) else {
+                let Some((section, reason)) = suggest_for_task(
+                    &sections,
+                    &task.name,
+                    task.handle.as_deref(),
+                    task.group.as_deref(),
+                ) else {
                     continue;
                 };
                 let suggestion = SectionLinkSuggestion {
@@ -261,9 +285,18 @@ impl PlanStore {
     }
 }
 
-pub(super) fn suggest_section(plan: &Plan, task: &Task) -> Option<SectionLinkSuggestion> {
+pub(super) fn suggest_section(
+    plan: &impl SectionLinkSource,
+    task: &Task,
+) -> Option<SectionLinkSuggestion> {
     let sections = section_candidates(plan);
-    suggest_for_task(&sections, task).map(|(section, reason)| SectionLinkSuggestion {
+    suggest_for_task(
+        &sections,
+        &task.name,
+        task.handle.as_deref(),
+        task.group.as_deref(),
+    )
+    .map(|(section, reason)| SectionLinkSuggestion {
         task_id: task.id.clone(),
         task_name: task.name.clone(),
         section_id: section.id.clone(),
@@ -272,13 +305,18 @@ pub(super) fn suggest_section(plan: &Plan, task: &Task) -> Option<SectionLinkSug
     })
 }
 
-pub(super) fn section_link_preview(plan: &Plan) -> SectionRelinkReport {
+pub(super) fn section_link_preview(plan: &impl SectionLinkSource) -> SectionRelinkReport {
     let sections = section_candidates(plan);
     let mut suggestions = vec![];
     let mut unlinked_count = 0;
-    for task in plan.tasks.iter().filter(|task| task.section_ids.is_empty()) {
+    for task in plan.unlinked_tasks() {
         unlinked_count += 1;
-        if let Some((section, reason)) = suggest_for_task(&sections, task) {
+        if let Some((section, reason)) = suggest_for_task(
+            &sections,
+            &task.name,
+            task.handle.as_deref(),
+            task.group.as_deref(),
+        ) {
             suggestions.push(SectionLinkSuggestion {
                 task_id: task.id.clone(),
                 task_name: task.name.clone(),
