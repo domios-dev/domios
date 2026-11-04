@@ -35,7 +35,7 @@ test("local gallery caps reads and displays resolved slots while other reads rem
   }
 });
 
-test("single-image preview retains its region, filename/path header, reveal and error renderer", async () => {
+test("single-image preview retains its region, filename/path caption, reveal and error renderer", async () => {
   const path = "/work/single image.png";
   let revealed = "";
   configureLocalArtifactLoader(async () => file);
@@ -46,7 +46,7 @@ test("single-image preview retains its region, filename/path header, reveal and 
     const props = { directive: { kind: "image" as const, path }, renderMarkdown: () => null, renderError: (error: string) => <strong role="alert" data-reason={error} /> };
     await act(async () => root.render(<LocalArtifactBlock {...props} />));
     assert(host.querySelector('[aria-label="image preview: single image.png"]'));
-    assert(host.querySelector('header [title="/work/single image.png"]'));
+    assert(host.querySelector('figcaption[title="/work/single image.png"]'));
     await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Reveal single image.png"]')!.click());
     assert.equal(revealed, path);
     configureLocalArtifactLoader(async () => { throw new Error("opaque refusal reason"); });
