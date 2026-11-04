@@ -36,5 +36,30 @@ and JS replay require the exact discovered set.
 
 Text is baseline ACP v1 prompt content; image, audio and embedded resources are
 not sent. Client permission requests, filesystem and terminal methods are outside
-this lifecycle surface. The reducer emits only the lifecycle working state for
-own-session agent chunks; stream projection is a separate task.
+this lifecycle surface. Own-session updates use the same stream reducer for live and loaded history.
+
+## Stream scenarios
+
+The stream scenarios are derived, redacted ACP v1 examples under the same source
+and capture limitations above. Message IDs are optional extension fields; the
+baseline chunks omit them. Consecutive chunk kinds form deterministic rows from
+session, prompt-turn ordinal and item ordinal. A user chunk starts the next turn
+while loading history. Tool IDs remain provider-supplied identities.
+
+`stream-message-thought-chunks` covers split text, split thoughts and foreign
+session rejection. `load-replay-no-duplicates` replays that same conversation twice
+through session/load, with identical final row identities and content.
+`tool-call-lifecycle` carries structured oldText/newText diff content and an
+explicit result; `cancel-mid-tool` retains and interrupts the active tool card.
+`plan-updates` replaces one plan row. `commands-modes-config-usage` retains bounded
+command/config/session information in reducer state, confirms the existing mode
+setting and maps matching usage and compaction facts. Transient notices and the
+command/config control surface remain deferred. `unknown-update-kind` emits one
+bounded system warning per kind and epoch, then continues the turn.
+
+`lost-stream` is only the recorded transcript prefix before transport loss. ACP
+has no pipe-loss notification, so this fixture intentionally contains no invented
+wire frame or successful completion. It proves preservation of the partial row
+and absence of a synthesized prompt. Native process exit, visible failure and
+bounded recovery require the host process/subscriber tests; JS replay alone does
+not establish them.
