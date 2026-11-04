@@ -28,6 +28,7 @@ fn fixture() -> (ServiceFixture, String, String) {
     let token = fixture
         .service
         .frontend_pty_env(Some(&concierge))
+        .unwrap()
         .remove("CODETERM_API_TOKEN")
         .unwrap();
     (fixture, concierge, token)
@@ -378,6 +379,7 @@ fn secret_cli_preflight_refuses_neighbor_credentials_without_entering_the_secret
     let token = fixture
         .service
         .frontend_pty_env(Some(&ordinary))
+        .unwrap()
         .remove("CODETERM_API_TOKEN")
         .unwrap();
     let response = request(&fixture, &token, "mem.secret.authorize", None);
@@ -566,6 +568,7 @@ fn native_socket_local_admission_denies_concierge_and_accepts_ordinary_authentic
     let ordinary_token = fixture
         .service
         .frontend_pty_env(Some(&ordinary))
+        .unwrap()
         .remove("CODETERM_API_TOKEN")
         .unwrap();
     assert_eq!(

@@ -14,7 +14,10 @@ impl ServiceContext {
         super::super::hook_session_binding::SessionStartClaim,
         super::super::hook_session_binding::SessionBindError,
     > {
-        let authority = self.pty_ownership.acquire(target);
+        let authority = self
+            .pty_ownership
+            .acquire(target)
+            .map_err(|error| (axum::http::StatusCode::TOO_MANY_REQUESTS, error, None))?;
         let claim = bind()?;
         if claim.nonce_verified {
             if let Err(error) = self.bind_authenticated_durable_deliveries_claimed(&authority) {
@@ -27,7 +30,7 @@ impl ServiceContext {
     }
 
     pub(crate) fn bind_authenticated_durable_deliveries(&self, target: &str) -> Result<(), String> {
-        let claim = self.pty_ownership.acquire(target);
+        let claim = self.pty_ownership.acquire(target)?;
         self.bind_authenticated_durable_deliveries_claimed(&claim)
     }
 
@@ -111,7 +114,7 @@ impl ServiceContext {
     }
 
     pub(crate) fn settle_closed_durable_deliveries(&self, target: &str) -> Result<(), String> {
-        let _claim = self.pty_ownership.acquire(target);
+        let _claim = self.pty_ownership.acquire(target)?;
         let owner = &self.pending_delivery_payloads.agent_deliveries;
         for record in owner.records(target)? {
             if record.state != AgentDeliveryState::Pending || record.durable_delivery.is_none() {

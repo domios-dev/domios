@@ -20,7 +20,7 @@ fn bounded_read(consumer: &str, identity: bool, inventory: bool) {
         plan.control_loop.rounds = (0..rounds)
             .map(|number| crate::plan::CuratorRound {
                 number,
-                summary: "unrelated history".repeat(128),
+                summary: "unrelated history".repeat(32),
                 ..Default::default()
             })
             .collect();

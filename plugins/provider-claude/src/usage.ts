@@ -1,6 +1,4 @@
-// ── /usage screen parsing (port of the native usage_tui module) ─────────
-// `usageNormalize` + `usageParseBlock` back the provider's parseUsage method;
-
+import { ioEncoded, type HostIoSteps } from "@codeterm/plugin-sdk";
 import { effectiveReadPath } from "../../provider-shared/readHome";
 
 export function usageNormalize(raw: string): string {
@@ -16,26 +14,19 @@ export function usageNormalize(raw: string): string {
 
 interface UsageBlock { pct: number | null; resetsMs: number | null }
 
-interface UsageHost {
-  expandHome(path: string): string | null;
-  envGet(name: string): string | null;
-  platform(): string;
-  exec(opts: string): string;
-  fetch(opts: string): string;
-  fs: { readFile(path: string): string | null };
-}
+type UsageHost = Pick<import("@codeterm/plugin-sdk").Host, "io" | "expandHome" | "envGet" | "platform">;
 
 const CLAUDE_USAGE_KIND = "codeterm_usage_v1";
 
-export function fetchClaudeUsage(host: UsageHost): string {
+export function* fetchClaudeUsage(host: UsageHost): HostIoSteps<string> {
   const inheritedHome = host.envGet("CLAUDE_CONFIG_DIR");
   const credentialsPath = effectiveReadPath(inheritedHome, host.expandHome("~/.claude/.credentials.json"), ".credentials.json", host.platform() === "windows" ? "\\" : "/");
-  const fileCredentials = credentialsPath ? safeJson(host.fs.readFile(credentialsPath)) : null;
-  const credentials = (inheritedHome ? null : readMacOsCredentials(host)) ?? fileCredentials;
+  const fileCredentials = credentialsPath ? safeJson((yield* host.io.fs.readFile(credentialsPath))) : null;
+  const credentials = (inheritedHome ? null : (yield* readMacOsCredentials(host))) ?? fileCredentials;
   const oauth = objectAt(credentials, "claudeAiOauth");
   const accessToken = stringAt(oauth, "accessToken");
   if (!accessToken) throw new Error("usage credentials unavailable");
-  const response = safeJson(host.fetch(JSON.stringify({
+  const response = safeJson((yield* ioEncoded(host.io.fetch({
     url: "https://api.anthropic.com/api/oauth/usage",
     method: "GET",
     timeoutMs: 6000,
@@ -44,7 +35,7 @@ export function fetchClaudeUsage(host: UsageHost): string {
       "anthropic-beta": "oauth-2025-04-20",
       "User-Agent": "codeterm-usage/1.7.8",
     },
-  })));
+  }))));
   const fetchError = stringAt(response, "error");
   if (fetchError) throw new Error(`usage request failed: ${fetchError}`);
   const status = numberAt(response, "status");
@@ -104,13 +95,13 @@ function objectAtValue(value: unknown, key: string): unknown {
   return value && typeof value === "object" ? (value as Record<string, unknown>)[key] : undefined;
 }
 
-function readMacOsCredentials(host: UsageHost): Record<string, unknown> | null {
+function* readMacOsCredentials(host: UsageHost): HostIoSteps<Record<string, unknown> | null> {
   if (host.platform() !== "macos") return null;
   const user = host.envGet("USER");
   const args = ["find-generic-password"];
   if (user) args.push("-a", user);
   args.push("-w", "-s", "Claude Code-credentials");
-  const result = safeJson(host.exec(JSON.stringify({ bin: "security", args, timeoutMs: 5000 })));
+  const result = safeJson((yield* ioEncoded(host.io.exec({ bin: "security", args, timeoutMs: 5000 }))));
   if (numberAt(result, "code") !== 0) return null;
   return safeJson(stringAt(result, "stdout"));
 }

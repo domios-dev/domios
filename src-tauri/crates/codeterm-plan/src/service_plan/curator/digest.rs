@@ -1,6 +1,10 @@
 use crate::plan::Plan;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+mod builder;
+mod metadata_input;
+pub use builder::{is_activity_section, DigestBuilder};
+pub use metadata_input::{append_metadata_task_rows, MetadataTaskInput};
 
 pub const MAX_DIGEST_BYTES: usize = 8192;
 pub const SECTIONS: [(&str, usize); 18] = [
@@ -46,7 +50,7 @@ pub struct PreparedSection {
 
 pub type PreparedRows = BTreeMap<String, PreparedSection>;
 
-fn clean(text: &str, cap: usize) -> String {
+pub(in crate::service_plan) fn clean(text: &str, cap: usize) -> String {
     text.chars()
         .map(|c| if c.is_control() || c == '|' { ' ' } else { c })
         .take(cap)
@@ -88,85 +92,48 @@ pub fn build_bounded(header: &str, rows: &BTreeMap<String, Vec<Row>>, limit: usi
 }
 
 pub fn build_prepared(header: &str, rows: &PreparedRows, limit: usize) -> Digest {
-    let limit = limit.clamp(1, MAX_DIGEST_BYTES);
-    let mut body = format!("{}\n", bounded_text(header, limit.saturating_sub(1)));
-    let mut sizes = BTreeMap::new();
     let activity = SECTIONS.iter().any(|(name, _)| {
-        !matches!(
-            *name,
-            "actionable"
-                | "owner questions"
-                | "waits"
-                | "review backlog"
-                | "time in state"
-                | "agent capacity"
-                | "queues"
-        ) && rows.get(*name).is_some_and(|section| section.total > 0)
+        is_activity_section(name) && rows.get(*name).is_some_and(|section| section.total > 0)
     });
+    let mut builder = DigestBuilder::new(header, limit, activity);
     for (name, cap) in SECTIONS {
         let Some(section) = rows.get(name).filter(|section| section.total > 0) else {
             continue;
         };
-        let start = body.len();
-        let title = format!("\n{name}:\n");
-        if body.len() + title.len() + 16 > limit {
+        if !builder.start_section(name, section.total) {
             break;
         }
-        body.push_str(&title);
-        let mut emitted = 0;
         for row in section.rows.iter().take(cap) {
-            let line = format!(
-                "{} | {} | {} | {}\n",
-                clean(&row.id, 64),
-                clean(&row.kind, 32),
-                clean(&row.state, 32),
-                clean(&row.summary, 120)
-            );
-            if body.len() + line.len() + 24 > limit {
+            if !builder.append(row) {
                 break;
             }
-            body.push_str(&line);
-            emitted += 1;
         }
-        if section.total > emitted {
-            body.push_str(&format!("+{} more\n", section.total - emitted));
-        }
-        sizes.insert(name.into(), body.len() - start);
     }
-    Digest {
-        body,
-        activity,
-        section_sizes: sizes,
-    }
+    builder.finish()
 }
 
 pub fn metadata_rows(plan: &Plan, since: u64) -> BTreeMap<String, Vec<Row>> {
-    let mut sections = BTreeMap::<String, Vec<Row>>::new();
-    for id in super::super::state::orchestrator_actionable_task_ids(plan) {
-        sections.entry("actionable".into()).or_default().push(Row {
-            id,
-            kind: "task".into(),
-            state: "waiting".into(),
-            summary: String::new(),
-        });
-    }
+    let mut sections = BTreeMap::new();
+    let actionable = super::super::state::orchestrator_actionable_task_ids(plan)
+        .into_iter()
+        .collect::<std::collections::BTreeSet<_>>();
     for task in &plan.tasks {
-        if task.status_changed_at > since {
-            sections.entry("tasks moved".into()).or_default().push(Row {
-                id: task.id.clone(),
-                kind: "task".into(),
-                state: format!(
-                    "{} -> {}",
-                    plan.control_loop
-                        .task_states
-                        .get(&task.id)
-                        .map(String::as_str)
-                        .unwrap_or("unknown"),
-                    task.status.key()
-                ),
-                summary: task.name.clone(),
-            });
-        }
+        append_metadata_task_rows(
+            &mut sections,
+            MetadataTaskInput {
+                id: &task.id,
+                name: &task.name,
+                status: &task.status,
+                changed_at: task.status_changed_at,
+                prior: plan
+                    .control_loop
+                    .task_states
+                    .get(&task.id)
+                    .map(String::as_str),
+                actionable: actionable.contains(&task.id),
+            },
+            since,
+        );
     }
     sections
 }

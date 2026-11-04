@@ -1,4 +1,5 @@
-import type { LoopSpec, Plan, Task } from "../types";
+import type { PlanView as Plan, PlanTaskView as Task } from "../planProjection";
+import type { LoopSpec } from "../types";
 
 /** Mirrors src-tauri/src/plan/loop_engine.rs STAGNATION_THRESHOLD. */
 export const LOOP_STAGNATION_THRESHOLD = 2;

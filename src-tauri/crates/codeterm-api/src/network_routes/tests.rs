@@ -46,6 +46,7 @@ async fn web_link_token_route_authority_matrix() {
         state
             .svc
             .frontend_pty_env(Some(id))
+            .unwrap()
             .remove("CODETERM_API_TOKEN")
             .unwrap()
     };

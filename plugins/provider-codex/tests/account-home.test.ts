@@ -1,6 +1,9 @@
+import { ioTestExport } from "../../provider-shared/tests/hostIo";
 import assert from "node:assert/strict";
-import { discoverCodexModels } from "../src/models";
-import { sessionExists } from "../src/sessions";
+import { discoverCodexModels as ioSource_discoverCodexModels } from "../src/models";
+import { sessionExists as ioSource_sessionExists } from "../src/sessions";
+const discoverCodexModels = ioTestExport(ioSource_discoverCodexModels);
+const sessionExists = ioTestExport(ioSource_sessionExists);
 
 const reads: string[] = [];
 (globalThis as any).host = {

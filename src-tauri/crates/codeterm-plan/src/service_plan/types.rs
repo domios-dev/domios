@@ -104,12 +104,6 @@ pub enum PlanError {
     },
     DependencySelfReference,
     DependencyCycle,
-    WritePending {
-        operation: String,
-        committed: bool,
-        committed_id: Option<String>,
-        message: String,
-    },
     ReadbackMismatch {
         operation: String,
         message: String,
@@ -383,18 +377,6 @@ impl fmt::Display for PlanError {
             PlanError::DependencyCycle => {
                 write!(f, "dependency graph would contain a cycle")
             }
-            PlanError::WritePending {
-                operation,
-                committed,
-                committed_id,
-                message,
-            } => {
-                let id = committed_id.as_deref().unwrap_or("unknown");
-                write!(
-                    f,
-                    "{operation} pending after write (committed={committed}, id={id}): {message}"
-                )
-            }
             PlanError::ReadbackMismatch { operation, message } => {
                 write!(f, "{operation} readback mismatch: {message}")
             }
@@ -625,20 +607,6 @@ impl PlanError {
             }
             PlanError::DependencyCycle => {
                 serde_json::json!({ "type": "dependency_cycle" })
-            }
-            PlanError::WritePending {
-                operation,
-                committed,
-                committed_id,
-                message,
-            } => {
-                serde_json::json!({
-                    "type": "write_pending",
-                    "operation": operation,
-                    "committed": committed,
-                    "committed_id": committed_id,
-                    "message": message
-                })
             }
             PlanError::ReadbackMismatch { operation, message } => {
                 serde_json::json!({

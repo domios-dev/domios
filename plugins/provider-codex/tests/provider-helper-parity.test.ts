@@ -3,6 +3,7 @@
  * Run: npx tsx plugins/provider-codex/tests/provider-helper-parity.test.ts
  */
 
+import { ioTestContext } from "../../provider-shared/tests/hostIo";
 import fs from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
@@ -58,7 +59,7 @@ function loadPlugin(relativePluginPath: string) {
     module: { exports: {} as Record<string, any> },
     exports: {},
   };
-  new vm.Script(source, { filename: pluginPath }).runInNewContext(context);
+  new vm.Script(source, { filename: pluginPath }).runInNewContext(ioTestContext(context));
   return context.module.exports;
 }
 

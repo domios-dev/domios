@@ -1,10 +1,13 @@
 use super::read_projections::{column, decode, record_query};
 use super::{db_error, PlanDatabase};
-use crate::plan::{Plan, Section, Task};
+mod views;
+
 use crate::service_plan::ui_projections::PlanViewProjection;
 use crate::service_plan::PlanError;
 use rusqlite::{Connection, OptionalExtension};
-use serde_json::{json, Value};
+use serde_json::Value;
+pub(super) use views::{ListCursorView, ListWindowView, TaskView};
+use views::{PlanDetailsView, PlanHeaderView, PlanView, SectionView};
 
 const HEADER: &str = "json_object(
     'id',p.id,'title',p.title,'status',p.status,'project_path',p.project_path,
@@ -30,6 +33,8 @@ pub(super) const TASK_SUMMARY: &str = "json_object(
     'status_changed_at',json_extract(t.row_json,'$.status_changed_at'),
     'tags',json(coalesce(json_extract(t.row_json,'$.tags'),'[]')),
     'canvas',json_extract(t.row_json,'$.canvas'),
+    'criteria_count',coalesce(json_array_length(t.row_json,'$.acceptance_criteria'),0),
+    'milestone_count',(SELECT count(*) FROM plan_task_milestones m WHERE m.plan_id=t.plan_id AND m.task_id=t.task_id),
     'execution_attempts',json((SELECT json_group_array(json(document)) FROM (
         SELECT json_object('id',attempt_id,'executor_tab_id',executor_tab_id,
             'tab_id',json_extract(row_json,'$.tab_id'),'executor_title',json_extract(row_json,'$.executor_title'),
@@ -55,7 +60,7 @@ impl PlanDatabase {
         let transaction = guard.transaction().map_err(db_error)?;
         let value = projection(&transaction, id, view)?;
         transaction.commit().map_err(db_error)?;
-        Ok(value)
+        serde_json::to_value(value).map_err(super::json_error)
     }
 
     pub(in crate::service_plan) fn ui_plan_summaries(
@@ -76,7 +81,10 @@ impl PlanDatabase {
         };
         let values = ids
             .iter()
-            .map(|id| projection(&transaction, id, PlanViewProjection::Summary))
+            .map(|id| {
+                let view = projection(&transaction, id, PlanViewProjection::Summary)?;
+                serde_json::to_value(view).map_err(super::json_error)
+            })
             .collect::<Result<_, _>>()?;
         transaction.commit().map_err(db_error)?;
         Ok(values)
@@ -87,7 +95,7 @@ pub(super) fn projection(
     connection: &Connection,
     id: &str,
     view: PlanViewProjection,
-) -> Result<Value, PlanError> {
+) -> Result<PlanView, PlanError> {
     projection_with_list(connection, id, view, None)
 }
 
@@ -96,7 +104,7 @@ pub(super) fn projection_with_list(
     id: &str,
     view: PlanViewProjection,
     list: Option<&crate::service_plan::ui_projections::ListWindowQuery>,
-) -> Result<Value, PlanError> {
+) -> Result<PlanView, PlanError> {
     record_query();
     let header: String = connection
         .query_row(
@@ -107,8 +115,8 @@ pub(super) fn projection_with_list(
         .optional()
         .map_err(db_error)?
         .ok_or(PlanError::NotFound)?;
-    let mut document: Value = decode(id, &header)?;
-    if !matches!(
+    let header: PlanHeaderView = decode(id, &header)?;
+    let details = if !matches!(
         view,
         PlanViewProjection::Summary | PlanViewProjection::TaskMetadata
     ) {
@@ -124,13 +132,12 @@ pub(super) fn projection_with_list(
                 'milestone_kinds',json(coalesce(json_extract(header_json,'$.milestone_kinds'),'[]')))
              FROM plans WHERE id=?1", rusqlite::params![id, view == PlanViewProjection::Document], |row| column(row, 0),
         ).map_err(db_error)?;
-        let selected: Value = decode(id, &selected)?;
-        match (document.as_object_mut(), selected) {
-            (Some(header), Value::Object(selected)) => header.extend(selected),
-            _ => return Err(PlanError::Io("Plan projection is not an object".into())),
-        }
-    }
-    let mut plan: Plan = serde_json::from_value(document).map_err(super::json_error)?;
+        Some(decode::<PlanDetailsView>(id, &selected)?)
+    } else {
+        None
+    };
+    let mut sections = Vec::<SectionView>::new();
+    let mut tasks = Vec::<TaskView>::new();
     if view == PlanViewProjection::Document {
         record_query();
         let mut statement = connection
@@ -140,11 +147,10 @@ pub(super) fn projection_with_list(
             .query_map([id], |row| column::<String>(row, 0))
             .map_err(db_error)?
         {
-            plan.sections
-                .push(decode::<Section>(id, &row.map_err(db_error)?)?);
+            sections.push(decode::<SectionView>(id, &row.map_err(db_error)?)?);
         }
     } else if view == PlanViewProjection::List {
-        plan.sections = super::read_projections::section_outline_rows(connection, id)?
+        sections = super::read_projections::section_outline_rows(connection, id)?
             .into_iter()
             .map(|section| serde_json::from_value(section).map_err(super::json_error))
             .collect::<Result<_, _>>()?;
@@ -159,8 +165,7 @@ pub(super) fn projection_with_list(
             .query_map([id], |row| column::<String>(row, 0))
             .map_err(db_error)?
         {
-            plan.tasks
-                .push(decode::<Task>(id, &row.map_err(db_error)?)?);
+            tasks.push(decode::<TaskView>(id, &row.map_err(db_error)?)?);
         }
     }
     let task_window = if matches!(
@@ -170,20 +175,24 @@ pub(super) fn projection_with_list(
         Some(super::list_window_queries::window(
             connection,
             id,
-            &mut plan,
             list.unwrap_or(&Default::default()),
         )?)
     } else {
         None
     };
-    let mut value = serde_json::to_value(plan).map_err(super::json_error)?;
-    super::list_window_queries::apply_task_counts(connection, id, &mut value)?;
-    if let Some(window) = task_window {
-        value["task_window"] = window;
-    }
-    value["task_counts"] = json!(super::board_state_queries::task_counts(connection, id)?);
-    value["revision"] = json!(super::change_feed::revision(connection, id)?.to_string());
-    Ok(value)
+    let task_window = task_window.map(|(selected, window)| {
+        tasks = selected;
+        window
+    });
+    Ok(PlanView {
+        header,
+        details,
+        sections,
+        tasks,
+        task_window,
+        task_counts: super::board_state_queries::task_counts(connection, id)?,
+        revision: super::change_feed::revision(connection, id)?.to_string(),
+    })
 }
 
 #[cfg(test)]

@@ -67,10 +67,11 @@ where
         binding_nonce: owned_str(p, "session_binding_nonce"),
     };
     svc.authorize_plan_orchestrator(&plan_id, &caller)
-        .map_err(|message| JsonRpcError {
-            code: -32003,
-            message,
-            data: Some(json!({ "type": "plan_orchestrator_authorization_required" })),
+        .map_err(|error| {
+            crate::server::plan_task_authority::execution_authority_error(
+                error,
+                Some("plan_orchestrator_authorization_required"),
+            )
         })?;
     let parent_task_id = caller
         .tab_id

@@ -1,13 +1,18 @@
+import { ioTestExport, ioTestContext, installTestIo } from "../../provider-shared/tests/hostIo";
 import assert from "node:assert/strict";
-import {readFileSync} from "node:fs";
-import {test} from "node:test";
+import { readFileSync } from "node:fs";
+import { test } from "node:test";
 import vm from "node:vm";
-import {CLOUD_SIGN_IN_REASON, CODEX_CLOUD_ACCOUNT_REF, cloudTaskBackend, cloudTaskSnapshot} from "../src/cloud/backend";
-import {remoteChatBackend} from "../src/cloud/chatBackend";
-import {cloudExports} from "../src/cloud/plugin";
-import {createCodexCloudTransport} from "../src/cloud/transport";
-import type {Host, ViewCallContext} from "@codeterm/plugin-sdk";
-import type {RemoteTaskBinding, RemoteTaskCapability, RemoteTaskStorage} from "../../../packages/plugin-sdk/src/remoteTasks";
+import { CLOUD_SIGN_IN_REASON, CODEX_CLOUD_ACCOUNT_REF, cloudTaskBackend as ioSource_cloudTaskBackend, cloudTaskSnapshot } from "../src/cloud/backend";
+import { remoteChatBackend as ioSource_remoteChatBackend } from "../src/cloud/chatBackend";
+import { cloudExports as ioSource_cloudExports } from "../src/cloud/plugin";
+import { createCodexCloudTransport as ioSource_createCodexCloudTransport } from "../src/cloud/transport";
+import type { Host, ViewCallContext } from "@codeterm/plugin-sdk";
+import type { RemoteTaskBinding, RemoteTaskCapability, RemoteTaskStorage } from "../../../packages/plugin-sdk/src/remoteTasks";
+const cloudTaskBackend = ioTestExport(ioSource_cloudTaskBackend);
+const remoteChatBackend = ioTestExport(ioSource_remoteChatBackend);
+const cloudExports = ioTestExport(ioSource_cloudExports);
+const createCodexCloudTransport = ioTestExport(ioSource_createCodexCloudTransport);
 
 const VIEW_CONTEXT: ViewCallContext = {
   plugin: "codex", origin: "remote_task", surface: null, instance: null,
@@ -222,7 +227,7 @@ test("built production plugin shows a safe sign-in reason without an account", (
     credentialPublic: () => null,
     fetch: () => { throw new Error("Unexpected unauthenticated request"); },
   };
-  const context = vm.createContext({module: {exports: {}}, host});
+  const context = vm.createContext(ioTestContext({module: {exports: {}}, host}));
   vm.runInContext(readFileSync(new URL("../plugin.js", import.meta.url), "utf8"), context);
   const plugin = context.module.exports.default;
   assert.throws(() => plugin.openSession({tabId: "tab-fixture", config: {executionMode: "cloud"}}), /Sign in to Codex/);
@@ -266,7 +271,6 @@ test("a saved task from a foreign provider refuses restore before remote reads",
   assert.equal(f.calls.length, calls);
 });
 
-
 test("Cloud task storage uses the supplied instance data root", () => {
   for (const root of ["/custom/domios-named/", "C:\\Users\\Owner\\.domios-dev-fixture\\"]) {
     let readPath = "";
@@ -279,7 +283,8 @@ test("Cloud task storage uses the supplied instance data root", () => {
         readFile(path: string) { readPath = path; return null; },
       },
     } as unknown as Host;
-    cloudExports(() => host).viewCall!("read", {sessionId: "tab-fixture"}, VIEW_CONTEXT);
+    const fixtureHost = installTestIo(host);
+    fixtureHost.io.run(ioSource_cloudExports(() => fixtureHost).viewCall("read", {sessionId: "tab-fixture"}, VIEW_CONTEXT));
     assert.equal(readPath, `${root.replace(/[\\/]$/, "")}/codex/tasks/tab-fixture.json`);
   }
 });
@@ -292,4 +297,24 @@ test("Cloud task storage reports an unavailable instance root", () => {
     } as unknown as Host;
     assert.throws(() => cloudExports(() => host).viewCall!("read", {sessionId: "tab-fixture"}, VIEW_CONTEXT), /Cloud task storage is unavailable/);
   }
+});
+
+test("closing while Cloud open is suspended cannot reopen the session or create a task", () => {
+  let creates = 0;
+  const storage = {
+    *read() { yield {op: "fileExists" as const, path: "/open-fixture"}; return null; },
+    compareExchange: () => true,
+  };
+  const backend = {
+    capability,
+    environments: () => capability.environments,
+    create() { creates++; return {taskId: "must-not-create"}; },
+    read() { throw new Error("no bound task"); },
+  };
+  const plugin = ioSource_remoteChatBackend(storage, backend, "remote-fixture");
+  const opening = plugin.openSession({tabId: "tab-fixture", config: {executionMode: "cloud"}, preset: "env-fixture"});
+  assert.equal(opening.next().done, false);
+  plugin.closeSession("tab-fixture");
+  assert.throws(() => opening.next(false), /closed during operation/);
+  assert.equal(creates, 0);
 });

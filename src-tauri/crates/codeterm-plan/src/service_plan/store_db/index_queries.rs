@@ -88,15 +88,6 @@ fn finish_index_row(id: String, status: &str, columns: PlanIndexColumns) -> Opti
 }
 
 impl PlanDatabase {
-    pub(in crate::service_plan) fn task_key_scope(
-        &self,
-        plan_id: &str,
-    ) -> Result<Option<crate::service_plan::ports::TaskKeyScope>, PlanError> {
-        let connection = self.connection.lock();
-        connection.query_row("SELECT id, team_id, project_path, coalesce(json_extract(header_json,'$.canonical_project_path'),'') FROM plans WHERE id=?1", [plan_id], |row| Ok(crate::service_plan::ports::TaskKeyScope { plan_id: row.get(0)?, team_id: row.get(1)?, project_path: row.get(2)?, canonical_project_path: row.get(3)? })).optional().map_err(db_error)
-    }
-
-    /// One `SELECT` over plain `plans` columns: the startup index of every plan.
     pub(in crate::service_plan) fn load_index_rows(&self) -> Result<Vec<PlanIndexRow>, PlanError> {
         let connection = self.connection.lock();
         let mut statement = connection
@@ -130,17 +121,22 @@ impl PlanDatabase {
     }
 
     /// Active plans that are not orphaned: the stored Team binding or an orphan marker decides.
-    pub(in crate::service_plan) fn live_active_plan_ids(&self) -> Result<Vec<String>, PlanError> {
+    pub(in crate::service_plan) fn active_plan_team_bindings(
+        &self,
+    ) -> Result<Vec<(String, Option<String>)>, PlanError> {
         let connection = self.connection.lock();
+        record_query();
         let mut statement = connection
             .prepare_cached(
-                "SELECT id FROM plans WHERE status = 'active' AND NOT (
+                "SELECT id,team_id FROM plans WHERE status = 'active' AND NOT (
                     team_id IS NULL AND coalesce(
                         CASE WHEN json_valid(header_json) THEN json_type(header_json, '$.orphaned') = 'object' END, 0))",
             )
             .map_err(db_error)?;
         let rows = statement
-            .query_map([], |row| row.get::<_, String>(0))
+            .query_map([], |row| {
+                Ok((column::<String>(row, 0)?, column::<Option<String>>(row, 1)?))
+            })
             .map_err(db_error)?;
         rows.collect::<Result<_, _>>().map_err(db_error)
     }
@@ -163,6 +159,7 @@ impl PlanDatabase {
 
     /// `list_index` rows: counts and assigned tabs are SQL aggregates over task, section
     /// and element rows, so no plan is loaded.
+    #[cfg(test)]
     pub(in crate::service_plan) fn list_index_entries(&self) -> Result<Vec<IndexEntry>, PlanError> {
         let connection = self.connection.lock();
         let mut assigned = assigned_tab_ids(&connection)?;
@@ -192,6 +189,7 @@ impl PlanDatabase {
 }
 
 /// Tabs of unfinished assigned tasks per plan, in task order.
+#[cfg(test)]
 fn assigned_tab_ids(
     connection: &rusqlite::Connection,
 ) -> Result<HashMap<String, Vec<String>>, PlanError> {

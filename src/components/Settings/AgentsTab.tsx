@@ -2,7 +2,7 @@ import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { Loader } from "../shared/Loader";
 import { nativeBridge } from "../../lib/nativeBridge";
 import { useCallback, useEffect } from "react";
-import { Bot, ChevronRight, FolderTree, Server, Eye, Timer } from "lucide-react";
+import { ChevronRight, FolderTree, Server, Eye, Timer } from "lucide-react";
 import type { AppConfig, OrchestrationConfig, ProviderConfig } from "../../lib/types";
 import type { HelpSectionId } from "../../help/types";
 import { daemonAuthToken, daemonHttpBase } from "../../lib/webApi";
@@ -62,18 +62,6 @@ export function AgentsOverview({
             </button>
           ))}
         </div>
-      </SettingsCard>
-
-      <SettingsCard
-        icon={<Bot size={16} />}
-        title="Agent access"
-        description="One policy for every provider, applied when an agent starts."
-      >
-        <Toggle
-          label="Full access for agents"
-          checked={config.agent?.full_access ?? true}
-          onChange={(value) => onUpdate("agent", { full_access: value })}
-        />
       </SettingsCard>
 
       <ModelDefaultsCard config={config} onUpdate={onUpdate} onSwitchGeneralProvider={onSwitchGeneralProvider} onOpenGuide={onOpenGuide} />

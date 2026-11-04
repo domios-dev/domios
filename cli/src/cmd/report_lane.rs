@@ -98,7 +98,9 @@ fn task_readiness_scope_from_task_with_canonical_path(
     let lane = task.get("lane");
     // Use one attempt record for worktree and base so a live attempt cannot borrow a stale base from the lane.
     let record = match attempt {
-        Some(attempt) if nonempty(attempt.get("worktree_path")).is_some() => Some(attempt),
+        Some(attempt) if checkout.is_some() || nonempty(attempt.get("worktree_path")).is_some() => {
+            Some(attempt)
+        }
         _ => lane.or(attempt),
     };
     let canonical_checkout_path = if canonical_writer {

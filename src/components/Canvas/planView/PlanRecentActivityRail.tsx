@@ -1,7 +1,7 @@
+import type { PlanView as Plan } from "../planProjection";
 import { useMemo } from "react";
 import type { Tab } from "../../../lib/types";
 import { milestoneColorMap } from "../milestoneColors";
-import type { Plan } from "../types";
 import {
   buildPlanRecentActivity,
   milestoneAbsoluteTitle,

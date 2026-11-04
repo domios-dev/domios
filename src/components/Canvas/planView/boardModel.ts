@@ -1,3 +1,4 @@
+import type { PlanView as Plan, PlanTaskView as Task } from "../planProjection";
 import type { Tab } from "../../../lib/types";
 import { flattenSections } from "../sectionRows";
 import { filterPlansForCanvas, planBelongsToWorkspace, type PlanFilterOpts } from "../planTabMatch";
@@ -6,10 +7,8 @@ import { buildTaskPresence } from "../taskPresence";
 import { historicalExecutorForTask } from "../taskExecutorHistory";
 import {
   TaskStatus,
-  type Plan,
   type PlanningState,
   type Section,
-  type Task,
   type TaskStatus as TaskStatusType,
   type PlanTaskBoardSummary,
   type PlanTaskCompetitionBadge,
@@ -453,7 +452,7 @@ export function planActivityFreshness(plan: Plan): number {
   let max = Math.max(plan.updated_at ?? 0, plan.created_at ?? 0);
   for (const task of plan.tasks) {
     max = Math.max(max, task.status_changed_at ?? 0, task.updated_at ?? 0, task.created_at ?? 0);
-    for (const m of task.milestones) max = Math.max(max, m.ts ?? 0);
+    for (const m of task.milestones ?? []) max = Math.max(max, m.ts ?? 0);
   }
   return max;
 }

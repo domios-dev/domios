@@ -76,7 +76,7 @@ fn review_bounce_finish_success_and_delivery_failure_keep_distinct_results() {
 #[test]
 fn review_bounce_reopens_exact_acknowledged_attempt_and_continues_once() {
     let (_dir, store, plan_id, task_id, attempt_id) = continuation_store();
-    let before = store.show_task(&task_id).unwrap().task;
+    let before = store.inspect_task_for_test(&task_id).unwrap().task;
     let result = store
         .bounce_review(
             &plan_id,
@@ -108,7 +108,7 @@ fn review_bounce_reopens_exact_acknowledged_attempt_and_continues_once() {
     assert!(store
         .finish_review_continuation(&plan_id, &task_id, &attempt_id, 1, true, 8)
         .unwrap());
-    let after = store.show_task(&task_id).unwrap().task;
+    let after = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(
         after.status,
         codeterm_service_core::plan::TaskStatus::InProgress
@@ -144,7 +144,7 @@ fn review_bounce_delivery_failure_stays_visible_and_never_fakes_in_progress() {
     assert!(store
         .finish_review_continuation(&plan_id, &task_id, &attempt_id, 1, false, 7)
         .unwrap());
-    let failed = store.show_task(&task_id).unwrap().task;
+    let failed = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(
         failed.status,
         codeterm_service_core::plan::TaskStatus::InReview
@@ -170,7 +170,7 @@ fn review_bounce_fences_stale_rebound_replacement_and_competition_attempts() {
         .unwrap();
     task.assigned_tab_id = Some("replacement".into());
     store.save(&mut plan, 5).unwrap();
-    let before = store.show_task(&task_id).unwrap().task;
+    let before = store.inspect_task_for_test(&task_id).unwrap().task;
     assert!(store
         .bounce_review(
             &plan_id,
@@ -182,7 +182,7 @@ fn review_bounce_fences_stale_rebound_replacement_and_competition_attempts() {
             6,
         )
         .is_err());
-    assert_eq!(store.show_task(&task_id).unwrap().task, before);
+    assert_eq!(store.inspect_task_for_test(&task_id).unwrap().task, before);
 }
 
 #[test]
@@ -342,7 +342,12 @@ fn plan_review_reopens_when_executor_tab_is_absent() {
     let (fixture, plan_id, task_id, lane_path) = socket_bounce_fixture(false);
     dispatch_bounce(&fixture, &plan_id, &task_id).unwrap();
 
-    let task = fixture.service.plan_store.show_task(&task_id).unwrap().task;
+    let task = fixture
+        .service
+        .plan_store
+        .inspect_task_for_test(&task_id)
+        .unwrap()
+        .task;
     assert_eq!(
         task.status,
         codeterm_service_core::plan::TaskStatus::Pending
@@ -362,12 +367,22 @@ fn plan_review_reopens_when_executor_tab_is_absent() {
 #[test]
 fn plan_review_reopens_after_tab_close_retires_executor_attempt() {
     let (fixture, plan_id, task_id, lane_path) = socket_bounce_fixture(true);
-    let task_before_close = fixture.service.plan_store.show_task(&task_id).unwrap().task;
+    let task_before_close = fixture
+        .service
+        .plan_store
+        .inspect_task_for_test(&task_id)
+        .unwrap()
+        .task;
     let worker_tab_id = task_before_close.assigned_tab_id.unwrap();
 
     fixture.service.close_tab(&worker_tab_id).unwrap();
 
-    let task_after_close = fixture.service.plan_store.show_task(&task_id).unwrap().task;
+    let task_after_close = fixture
+        .service
+        .plan_store
+        .inspect_task_for_test(&task_id)
+        .unwrap()
+        .task;
     assert_eq!(
         task_after_close.status,
         codeterm_service_core::plan::TaskStatus::InReview
@@ -388,7 +403,12 @@ fn plan_review_reopens_after_tab_close_retires_executor_attempt() {
 
     dispatch_bounce(&fixture, &plan_id, &task_id).unwrap();
 
-    let reopened = fixture.service.plan_store.show_task(&task_id).unwrap().task;
+    let reopened = fixture
+        .service
+        .plan_store
+        .inspect_task_for_test(&task_id)
+        .unwrap()
+        .task;
     assert_eq!(
         reopened.status,
         codeterm_service_core::plan::TaskStatus::Pending
@@ -487,7 +507,12 @@ fn plan_review_does_not_reopen_closed_attempt_while_executor_tab_is_present() {
             .and_then(Value::as_str),
         Some("bounce_continuation_failed")
     );
-    let task = fixture.service.plan_store.show_task(&task_id).unwrap().task;
+    let task = fixture
+        .service
+        .plan_store
+        .inspect_task_for_test(&task_id)
+        .unwrap()
+        .task;
     assert_eq!(
         task.status,
         codeterm_service_core::plan::TaskStatus::InReview
@@ -517,7 +542,12 @@ fn plan_review_keeps_missing_remote_worker_attempt_open() {
             .and_then(Value::as_str),
         Some("bounce_continuation_failed")
     );
-    let task = fixture.service.plan_store.show_task(&task_id).unwrap().task;
+    let task = fixture
+        .service
+        .plan_store
+        .inspect_task_for_test(&task_id)
+        .unwrap()
+        .task;
     assert_eq!(
         task.status,
         codeterm_service_core::plan::TaskStatus::InReview

@@ -73,7 +73,7 @@ fn seed_busy_worker() -> BusyWorker {
         .unwrap();
     fx.service
         .plan_store
-        .with_plan(&plan.id, 3, |plan| {
+        .edit_plan_fixture(&plan.id, 3, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()
@@ -148,7 +148,7 @@ fn worker_tab_death_pushes_orchestrator_event() {
         .fx
         .service
         .plan_store
-        .show_task(&busy.task_id)
+        .inspect_task_for_test(&busy.task_id)
         .unwrap()
         .task;
     assert_eq!(task.assigned_tab_id, None);

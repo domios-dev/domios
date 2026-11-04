@@ -30,15 +30,18 @@ fn unplanned_task_in_review_report_moves_to_in_review() {
         .unwrap();
     mark_bound_task_in_progress(&store, &plan.id, &task_id);
 
-    assert!(store
-        .ingest_bound_worker_report(
-            &plan.id,
-            &task_id,
-            &AgentRef::from_tab("worker"),
-            worker_report(ReportStatus::InReview, Some("abc123")),
-            4,
-        )
-        .unwrap());
+    assert!(
+        store
+            .ingest_bound_worker_report(
+                &plan.id,
+                &task_id,
+                &AgentRef::from_tab("worker"),
+                worker_report(ReportStatus::InReview, Some("abc123")),
+                4,
+            )
+            .unwrap()
+            .committed_review
+    );
 
     assert_eq!(
         store.get(&plan.id).unwrap().tasks[0].status,
@@ -50,7 +53,7 @@ fn unplanned_task_in_review_report_moves_to_in_review() {
 fn planned_task_without_qa_plan_is_still_refused() {
     let (_dir, store, plan_id, task_id) = bound_report_store();
     store
-        .with_plan(&plan_id, 3, |plan| {
+        .edit_plan_fixture(&plan_id, 3, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()
@@ -115,15 +118,18 @@ fn unplanned_partial_and_blocked_reports_leave_progress_unchanged() {
         mark_bound_task_in_progress(&store, &plan.id, &task_id);
         let report = worker_report(status, None);
 
-        assert!(!store
-            .ingest_bound_worker_report(
-                &plan.id,
-                &task_id,
-                &AgentRef::from_tab("worker"),
-                report,
-                4,
-            )
-            .unwrap());
+        assert!(
+            !store
+                .ingest_bound_worker_report(
+                    &plan.id,
+                    &task_id,
+                    &AgentRef::from_tab("worker"),
+                    report,
+                    4,
+                )
+                .unwrap()
+                .committed_review
+        );
         assert_eq!(store.get(&plan.id).unwrap().tasks[0].status, expected);
     }
 }

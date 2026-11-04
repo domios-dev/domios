@@ -195,7 +195,7 @@ Settings UI: Settings > Secrets — backend picker, server URL + Apply (Bitwarde
 
 ## Blueprint nodes
 
-The Claude, Codex and OpenCode provider plugins contribute `claude.run_prompt`, `codex.run_prompt` and `opencode.run_prompt`. Each starts one prompt in a separate agent tab using that provider's normal launch path. Agents follow Settings → Agents → Full access; Codex steps always use the read-only sandbox. Supply an existing absolute `cwd`, a `prompt`, and optionally `model` and `timeout_ms` (default 600000, maximum 3600000). A bound text `context` is appended in a fenced block. The node returns `text` and routes to `done` or `failed`; cancellation closes its agent. A lost run is `unknown` and is never resubmitted after a restart. Replies are bounded with an explicit `[truncated]` marker.
+The Claude, Codex and OpenCode provider plugins contribute `claude.run_prompt`, `codex.run_prompt` and `opencode.run_prompt`. Each starts one prompt in a separate agent tab using that provider's normal launch path. Agents default to full machine access; a step that explicitly requests a sandbox stays confined. Supply an existing absolute `cwd`, a `prompt`, and optionally `model` and `timeout_ms` (default 600000, maximum 3600000). A bound text `context` is appended in a fenced block. The node returns `text` and routes to `done` or `failed`; cancellation closes its agent. A lost run is `unknown` and is never resubmitted after a restart. Replies are bounded with an explicit `[truncated]` marker.
 
 This node fragment consumes a preceding `read` node's page text. Use the authoring cookbook for the enclosing graph:
 
@@ -211,4 +211,4 @@ This node fragment consumes a preceding `read` node's page text. Use the authori
   routes: {done: "@next", failed: "@stop"}
 ```
 
-<!-- revision: 16 -->
+<!-- revision: 17 -->

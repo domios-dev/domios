@@ -55,12 +55,12 @@ impl ServiceContext {
         now_ms: u64,
     ) -> Result<ReconcileResult, PlanError> {
         let read = self.plan_store.status_projection(plan_id, now_ms)?;
-        self.reconcile_plan_record(read.plan(), fix, caller_tab_id, now_ms)
+        self.reconcile_plan_record(read.input(), fix, caller_tab_id, now_ms)
     }
 
     pub(crate) fn reconcile_plan_record(
         &self,
-        plan: &crate::plan::Plan,
+        plan: &codeterm_plan::service_plan::state::input::StateInput,
         fix: bool,
         caller_tab_id: Option<&str>,
         now_ms: u64,

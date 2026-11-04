@@ -1,5 +1,7 @@
 use super::super::{AttemptBindingRefusalKind as Refusal, PlanError, PlanStore};
-use crate::plan::{AttemptBindingRestorationReceipt, PlanStatus, TaskStatus, WorkerPlacement};
+#[cfg(test)]
+use crate::plan::PlanStatus;
+use crate::plan::{AttemptBindingRestorationReceipt, TaskStatus, WorkerPlacement};
 
 #[derive(Debug, Clone)]
 pub struct RestoreCurrentAttemptBinding {
@@ -29,22 +31,79 @@ impl PlanStore {
         now_ms: u64,
     ) -> Result<RestoreCurrentAttemptBindingResult, PlanError> {
         let plan_id = request.plan_id.clone();
-        self.with_plan_if_changed(&plan_id, now_ms, |plan| {
-            restore_binding(plan, &request, now_ms)
-        })
+        self.with_task_rows(
+            &plan_id,
+            &request.task_id,
+            super::super::store_db::hot_write::TaskHistory::LiveAndTarget(
+                request.attempt_id.clone(),
+            ),
+            now_ms,
+            |edit| {
+                restore_task_binding(
+                    edit.plan_status == "active",
+                    edit.team_id.as_deref(),
+                    &mut edit.task,
+                    &request,
+                    now_ms,
+                )
+            },
+        )
         .map(|result| result.unwrap_or(RestoreCurrentAttemptBindingResult::AlreadyCurrent))
+    }
+
+    pub fn undo_restored_attempt_binding(
+        &self,
+        request: &RestoreCurrentAttemptBinding,
+        now_ms: u64,
+    ) -> Result<(), PlanError> {
+        self.with_task_rows(
+            &request.plan_id,
+            &request.task_id,
+            super::super::store_db::hot_write::TaskHistory::Attempt(request.attempt_id.clone()),
+            now_ms,
+            |edit| {
+                let task = &mut edit.task;
+                if task.id != request.task_id {
+                    return Err(PlanError::TaskNotFound);
+                }
+                let attempt = task
+                    .execution_attempts
+                    .iter_mut()
+                    .find(|attempt| attempt.id == request.attempt_id)
+                    .ok_or(PlanError::TaskNotFound)?;
+                if task.interruption.owner_epoch != request.owner_epoch
+                    || task.interruption.owner_tab_id.as_deref()
+                        != Some(request.executor_tab_id.as_str())
+                    || attempt.executor_tab_id != request.executor_tab_id
+                    || attempt.session_id.as_deref() != Some(request.session_id.as_str())
+                    || attempt.session_binding_nonce.as_deref()
+                        != Some(request.current_nonce.as_str())
+                    || attempt.binding_restorations.last() != Some(&request.receipt)
+                {
+                    return Err(PlanError::Io(
+                        "attempt restoration rollback conflict: newer authority or receipt".into(),
+                    ));
+                }
+                attempt.session_binding_nonce = Some(request.expected_old_nonce.clone());
+                attempt.binding_restorations.pop();
+                Ok(Some(()))
+            },
+        )
+        .map(|_| ())
     }
 }
 
-fn restore_binding(
-    plan: &mut crate::plan::Plan,
+fn restore_task_binding(
+    active: bool,
+    team_id: Option<&str>,
+    task: &mut crate::plan::Task,
     request: &RestoreCurrentAttemptBinding,
     now_ms: u64,
 ) -> Result<Option<RestoreCurrentAttemptBindingResult>, PlanError> {
-    if plan.id != request.plan_id {
-        return Err(PlanError::NotFound);
+    if task.id != request.task_id {
+        return Err(PlanError::TaskNotFound);
     }
-    if plan.status != PlanStatus::Active
+    if !active
         || request.owner_epoch == 0
         || request.plan_id.trim().is_empty()
         || request.task_id.trim().is_empty()
@@ -55,17 +114,11 @@ fn restore_binding(
         || request.expected_old_nonce.trim().is_empty()
         || request.current_nonce.trim().is_empty()
         || request.team_id.trim().is_empty()
-        || plan.team_id.as_deref() != Some(request.team_id.as_str())
+        || team_id != Some(request.team_id.as_str())
     {
         return Err(Refusal::PlanOrRequestInvalid.refusal());
     }
-    let mut matches = plan
-        .tasks
-        .iter_mut()
-        .filter(|task| task.id == request.task_id);
-    let task = matches.next().ok_or(PlanError::TaskNotFound)?;
-    if matches.next().is_some()
-        || task.assigned_tab_id.as_deref() != Some(request.executor_tab_id.as_str())
+    if task.assigned_tab_id.as_deref() != Some(request.executor_tab_id.as_str())
         || task.lane.tab_id.as_deref() != Some(request.executor_tab_id.as_str())
         || task.peer.is_some()
         || task.competition.is_some()
@@ -203,3 +256,35 @@ mod tests;
 
 #[cfg(test)]
 mod decision_tests;
+
+#[cfg(test)]
+fn restore_binding(
+    plan: &mut crate::plan::Plan,
+    request: &RestoreCurrentAttemptBinding,
+    now_ms: u64,
+) -> Result<Option<RestoreCurrentAttemptBindingResult>, PlanError> {
+    if plan.id != request.plan_id {
+        return Err(PlanError::NotFound);
+    }
+    if plan
+        .tasks
+        .iter()
+        .filter(|task| task.id == request.task_id)
+        .count()
+        != 1
+    {
+        return Err(Refusal::TaskOwnershipMismatch.refusal());
+    }
+    let task = plan
+        .tasks
+        .iter_mut()
+        .find(|task| task.id == request.task_id)
+        .ok_or(PlanError::TaskNotFound)?;
+    restore_task_binding(
+        plan.status == PlanStatus::Active,
+        plan.team_id.as_deref(),
+        task,
+        request,
+        now_ms,
+    )
+}

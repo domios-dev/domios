@@ -76,6 +76,7 @@ fn fixture_with_profiles(
     .collect::<serde_json::Map<String, serde_json::Value>>();
     let mut manifest = json!({
         "id": PROVIDER, "version":"1.0.0", "displayName":"Fixture",
+        "commands":{"autoApproveFlags":["opaque-full-access"]},
         "capabilities":{"agentProvider":true,
             "chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},
             "agentRuntime":{"runtime":"stdio-jsonrpc",
@@ -185,7 +186,7 @@ fn assert_runtime_task_dispatch(
     let task = added["task_id"].as_str().unwrap().to_owned();
     assert_eq!(
         svc.plan_store
-            .show_task(&task)
+            .inspect_task_for_test(&task)
             .unwrap()
             .task
             .personality
@@ -238,7 +239,7 @@ fn assert_runtime_task_dispatch(
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
     while svc
         .plan_store
-        .show_task(&task)
+        .inspect_task_for_test(&task)
         .unwrap()
         .task
         .execution_attempts
@@ -265,6 +266,20 @@ fn assert_runtime_task_dispatch(
             .launch_profile
             .as_deref(),
         Some("selected")
+    );
+    assert!(tab.restorable_launch.execution_sandbox.is_none());
+    assert!(tab.restorable_launch.permission_bypass_requested);
+    assert_eq!(
+        tab.restorable_launch
+            .runtime_launch_options
+            .as_ref()
+            .unwrap()
+            .mode,
+        "full-access"
+    );
+    assert_eq!(
+        tab.agent_runtime_config.as_ref().unwrap()["mode"],
+        "full-access"
     );
     assert!(codeterm_paths::paths_equal(
         tab.cwd.as_deref().unwrap(),
@@ -306,7 +321,7 @@ fn assert_runtime_task_dispatch(
     assert_eq!(binding.plan_id.as_deref(), Some(plan.id.as_str()));
     assert_eq!(binding.task_id.as_deref(), Some(task.as_str()));
     assert_eq!(binding.attempt_id.as_deref(), Some(attempt_id));
-    let detail = svc.plan_store.show_task(&task).unwrap();
+    let detail = svc.plan_store.inspect_task_for_test(&task).unwrap();
     assert_eq!(
         detail.task.status_label.as_deref(),
         Some("awaiting_worker_ack")
@@ -330,7 +345,7 @@ fn assert_runtime_task_dispatch(
     svc.plan_store
         .acknowledge_task_attempt(&plan.id, &task, worker, attempt_id, 11)
         .unwrap();
-    let acknowledged = svc.plan_store.show_task(&task).unwrap().task;
+    let acknowledged = svc.plan_store.inspect_task_for_test(&task).unwrap().task;
     assert_eq!(acknowledged.status, TaskStatus::InProgress);
     assert!(acknowledged
         .execution_attempts
@@ -371,9 +386,10 @@ fn assert_runtime_task_dispatch(
             },
             12,
         )
-        .unwrap();
+        .unwrap()
+        .committed_review;
     assert!(accepted);
-    let persisted = svc.plan_store.show_task(&task).unwrap().task;
+    let persisted = svc.plan_store.inspect_task_for_test(&task).unwrap().task;
     assert_eq!(persisted.status, TaskStatus::InReview);
     let report = persisted
         .execution_attempts
@@ -532,7 +548,8 @@ fn socket_respawn_profile_refusal_leaves_no_reservation_attempt_or_tab() {
     let source = svc.plan_store.list_task_attempts(&plan.id, &task).unwrap()[0]
         .attempt_id
         .clone();
-    let before = serde_json::to_value(svc.plan_store.show_task(&task).unwrap().task).unwrap();
+    let before =
+        serde_json::to_value(svc.plan_store.inspect_task_for_test(&task).unwrap().task).unwrap();
     let tabs = svc.mux.read().snapshot().tabs.len();
     for (profile, code) in [
         ("unknown", "unknown_launch_profile"),
@@ -554,7 +571,8 @@ fn socket_respawn_profile_refusal_leaves_no_reservation_attempt_or_tab() {
         assert_eq!(data["code"], code);
         assert_eq!(data["declared_profile_ids"], json!(["selected"]));
         assert_eq!(
-            serde_json::to_value(svc.plan_store.show_task(&task).unwrap().task).unwrap(),
+            serde_json::to_value(svc.plan_store.inspect_task_for_test(&task).unwrap().task)
+                .unwrap(),
             before
         );
         assert_eq!(svc.mux.read().snapshot().tabs.len(), tabs);
@@ -612,7 +630,7 @@ fn dispatch_profile_creation_preserves_title_and_startup_owner_before_readiness(
             "session_id": "owner-session", "session_binding_nonce": "owner-nonce", "execution_intent": "read_only"
         })), &Arc::new(svc.clone()), 10, |service, params, _ready_tx| {
             let authority = params.task_launch_authority.as_ref().unwrap();
-            let task = service.plan_store.show_task(&authority.task_id).unwrap().task;
+            let task = service.plan_store.inspect_task_for_test(&authority.task_id).unwrap().task;
             let attempt = task.execution_attempts.iter().find(|attempt| attempt.id == authority.attempt_id).unwrap();
             let title = params.title.as_ref().expect("Worker title must exist before launch");
             assert_eq!(attempt.executor_title.as_ref(), Some(title));

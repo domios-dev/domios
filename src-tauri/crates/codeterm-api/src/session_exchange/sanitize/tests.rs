@@ -64,7 +64,6 @@ fn typed_desk_plans_preserve_enums_and_mask_all_free_text() {
             vec![safe.clone()]
         );
         assert!(store.plan_loads_for_test().is_empty());
-        assert!(store.cached_plan_ids_for_test().is_empty());
         assert_eq!(
             serde_json::to_vec(&raw).unwrap().len(),
             serde_json::to_vec(&safe).unwrap().len()

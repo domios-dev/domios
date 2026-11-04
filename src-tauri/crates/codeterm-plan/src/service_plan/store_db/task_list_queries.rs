@@ -98,6 +98,9 @@ impl PlanDatabase {
             SELECT p.id AS plan_id,p.title,p.updated_at,t.position,{LIST_TASK} AS task
             FROM {task_source} JOIN plans p ON p.id=t.plan_id
             WHERE {} AND {}),
+        memberships AS MATERIALIZED (
+            SELECT DISTINCT q.plan_id,json_extract(q.task,'$.id') AS task_id,r.value AS section_id
+            FROM selected q,json_each(q.task,'$.section_ids') r),
         labels AS MATERIALIZED (
             SELECT s.plan_id,s.position,j.id AS ordinal,json_extract(j.value,'$.id') AS id,
                    json_extract(j.value,'$.title') AS title
@@ -105,12 +108,12 @@ impl PlanDatabase {
             WHERE s.plan_id IN (SELECT plan_id FROM selected)
               AND j.type='object' AND (j.fullkey='$' OR j.path LIKE '%.subsections')
               AND json_type(j.value,'$.id')='text'
-              AND json_extract(j.value,'$.id') IN (SELECT r.value FROM selected q,json_each(q.task,'$.section_ids') r WHERE q.plan_id=s.plan_id))
+              AND json_extract(j.value,'$.id') IN (SELECT section_id FROM memberships WHERE plan_id=s.plan_id))
         SELECT x.plan_id,json_object('plan_id',x.plan_id,'plan_title',x.title,
             'plan_owner',json_extract(p.header_json,'$.owner'),'task',json(x.task),
             'section_titles',json((SELECT json_group_array(title) FROM (
                 SELECT l.title FROM labels l WHERE l.plan_id=x.plan_id
-                  AND l.id IN (SELECT value FROM json_each(x.task,'$.section_ids'))
+                  AND l.id IN (SELECT section_id FROM memberships WHERE plan_id=x.plan_id AND task_id=json_extract(x.task,'$.id'))
                 ORDER BY l.position,l.ordinal))))
         FROM selected x JOIN plans p ON p.id=x.plan_id
         ORDER BY x.title COLLATE BINARY,json_extract(x.task,'$.name') COLLATE BINARY,

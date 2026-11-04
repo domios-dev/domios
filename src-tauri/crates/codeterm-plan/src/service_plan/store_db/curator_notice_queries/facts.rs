@@ -30,6 +30,23 @@ fn enumeration<T: DeserializeOwned>(value: &str) -> rusqlite::Result<T> {
 pub(super) fn register(connection: &Connection) -> Result<(), PlanError> {
     let flags = FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC;
     connection
+        .create_scalar_function("domios_notice_stalled", 3, flags, |context| {
+            let changed = text(context, 0)?
+                .unwrap_or("")
+                .parse::<u64>()
+                .map_err(|error| rusqlite::Error::UserFunctionError(Box::new(error)))?;
+            let now = text(context, 1)?
+                .unwrap_or("")
+                .parse::<u64>()
+                .map_err(|error| rusqlite::Error::UserFunctionError(Box::new(error)))?;
+            let eligible: bool = context.get(2)?;
+            Ok(eligible
+                && changed > 0
+                && crate::plan::reconcile::stale_threshold_ms(&TaskStatus::InProgress)
+                    .is_some_and(|threshold| now.saturating_sub(changed) > threshold))
+        })
+        .map_err(db_error)?;
+    connection
         .create_scalar_function("domios_notice_role", 3, flags, |context| {
             let id = text(context, 0)?
                 .ok_or_else(|| rusqlite::Error::UserFunctionError("missing notice id".into()))?;
@@ -50,6 +67,24 @@ pub(super) fn register(connection: &Connection) -> Result<(), PlanError> {
                 .ok_or_else(|| rusqlite::Error::UserFunctionError("missing notice text".into()))?;
             let limit: usize = context.get(1)?;
             Ok(source.chars().take(limit).collect::<String>())
+        })
+        .map_err(db_error)?;
+    connection
+        .create_scalar_function("domios_notice_learning", 3, flags, |context| {
+            let id = text(context, 0)?.unwrap_or("");
+            let value = text(context, 1)?.ok_or_else(|| {
+                rusqlite::Error::UserFunctionError("missing learning text".into())
+            })?;
+            let owner: bool = context.get(2)?;
+            let mut line = String::new();
+            if owner {
+                crate::service_plan::heartbeat::render_learning_text(value, &mut line);
+            } else {
+                crate::service_plan::heartbeat::render_situational_learning_fields(
+                    id, value, &mut line,
+                );
+            }
+            Ok(line)
         })
         .map_err(db_error)?;
     connection
@@ -90,6 +125,9 @@ pub(super) fn register(connection: &Connection) -> Result<(), PlanError> {
         let waits=if waiting {vec![DependencyWait {task_id:String::new(),name:String::new(),status:if missing {None} else {Some(TaskStatus::Pending)},missing}]} else {Vec::new()};
         let projection=project_task_facts(&status,waits,&stage,&qa,context.get(5)?,context.get(6)?,context.get(7)?);
         let held:bool=context.get(8)?;
+        let orchestrator_actionable=!held && projection.needs_orchestrator_action();
+        let reminder_worker=projection.presentation.worker_reminder_eligible(&status);
+        let aged_eligible=projection.can_age() && !held;
         let category=if held || !projection.needs_orchestrator_action() {-1} else {
             match projection.presentation {
                 TaskPresentation::InReview|TaskPresentation::QueuedForQa=>0,
@@ -117,7 +155,8 @@ pub(super) fn register(connection: &Connection) -> Result<(), PlanError> {
                 NextActionKind::Dispatch=>Some(501),_=>None,
             }).unwrap_or(if projection.presentation==TaskPresentation::HandoffRequired {601} else {0})
         };
-        Ok(format!("{{\"category\":{category},\"action\":{action},\"parked\":{},\"pending\":{},\"handoff\":{}}}",i32::from(parked),i32::from(pending),i32::from(handoff)))
+        let blocked=crate::service_plan::state::outstanding_blocked_facts(&status,parked,!projection.dependency_waits.is_empty());
+        Ok(format!("{{\"category\":{category},\"action\":{action},\"parked\":{},\"pending\":{},\"handoff\":{},\"held\":{},\"blocked\":{},\"aged_eligible\":{},\"reminder_worker\":{},\"orchestrator_actionable\":{}}}",i32::from(parked),i32::from(pending),i32::from(handoff),i32::from(held),i32::from(blocked),i32::from(aged_eligible),i32::from(reminder_worker),i32::from(orchestrator_actionable)))
     }).map_err(db_error)
 }
 
@@ -152,13 +191,17 @@ pub(super) fn action_verb(code: i64) -> Result<&'static str, PlanError> {
         .ok_or_else(|| PlanError::Io("notice action has no rendering".into()))
 }
 
-const TASK_FACTS:&str="WITH declared AS (
+const TASK_FACTS:&str="WITH declared AS MATERIALIZED (
     SELECT CAST(key AS INTEGER) AS position,CASE WHEN json_type(value,'$.key')='text' THEN json_extract(value,'$.key') ELSE json('invalid declared group key') END AS group_key
     FROM plans p,json_each(CASE WHEN json_type(p.header_json,'$.task_groups') IS NULL THEN '[]' WHEN json_type(p.header_json,'$.task_groups')='array' THEN p.header_json->'$.task_groups' ELSE json('invalid task groups') END) WHERE p.id=?1
-), open_groups AS MATERIALIZED (
-    SELECT DISTINCT CASE WHEN json_type(row_json,'$.group')='text' THEN json_extract(row_json,'$.group') ELSE json('invalid task group') END AS group_key
+), group_facts AS MATERIALIZED (
+    SELECT task_id,CASE WHEN json_type(row_json,'$.group')='text' THEN json_extract(row_json,'$.group') ELSE json('invalid task group') END AS group_key
     FROM plan_tasks WHERE plan_id=?1 AND status NOT IN ('done','cancelled')
         AND json_type(row_json,'$.group') IS NOT NULL AND json_type(row_json,'$.group')<>'null'
+), open_groups AS MATERIALIZED (
+    SELECT DISTINCT group_key FROM group_facts
+), declared_positions AS MATERIALIZED (
+    SELECT group_key,min(position) AS position FROM declared GROUP BY group_key
 ), active AS (
     SELECT min(d.position) AS position FROM declared d JOIN open_groups g USING(group_key)
 ), open_parents AS MATERIALIZED (
@@ -172,22 +215,43 @@ const TASK_FACTS:&str="WITH declared AS (
                 ON target.plan_id=t.plan_id AND target.task_id=CASE WHEN dep.type='text' THEN dep.value ELSE json('invalid task dependency') END WHERE target.task_id IS NULL OR target.status NOT IN ('done','cancelled')),
             EXISTS(SELECT 1 FROM json_each(CASE WHEN json_type(t.row_json,'$.depends_on') IS NULL THEN '[]' WHEN json_type(t.row_json,'$.depends_on')='array' THEN t.row_json->'$.depends_on' ELSE json('invalid task dependencies') END) dep WHERE NOT EXISTS(
                 SELECT 1 FROM plan_tasks target WHERE target.plan_id=t.plan_id AND target.task_id=CASE WHEN dep.type='text' THEN dep.value ELSE json('invalid task dependency') END)),
-            coalesce(json_extract(t.row_json,'$.interruption.handoff_required'),0),
+            CASE WHEN json_type(t.row_json,'$.interruption') IS NULL THEN 0
+                WHEN json_type(t.row_json,'$.interruption')<>'object' THEN json('invalid task interruption')
+                WHEN json_type(t.row_json,'$.interruption.handoff_required') IS NULL THEN 0
+                WHEN json_type(t.row_json,'$.interruption.handoff_required') IN ('true','false') THEN json_extract(t.row_json,'$.interruption.handoff_required')
+                ELSE json('invalid handoff-required flag') END,
             parent.parent_id IS NOT NULL,
-            t.status='pending' AND coalesce((SELECT min(d.position) FROM declared d WHERE d.group_key=json_extract(t.row_json,'$.group'))>(SELECT position FROM active),0),
-            CASE WHEN t.status='in_review' AND json_extract(t.row_json,'$.review_evidence[#-1].verdict')='hold'
+            t.status='pending' AND coalesce(declared_position.position>(SELECT position FROM active),0),
+            CASE WHEN t.status='in_review' THEN CASE
+                WHEN json_type(t.row_json,'$.review_evidence') IS NULL THEN 0
+                WHEN json_type(t.row_json,'$.review_evidence')<>'array' THEN json('invalid task review evidence')
+                WHEN json_array_length(t.row_json,'$.review_evidence')=0 THEN 0
+                WHEN coalesce(json_extract(t.row_json,'$.review_evidence[#-1].verdict') IN ('accept','bounce','hold'),0)=0 THEN json('invalid review verdict')
+                WHEN json_extract(t.row_json,'$.review_evidence[#-1].verdict')='hold'
                 THEN printf('%20s',NOTICE_REVIEW_AT)>=printf('%20s',NOTICE_CHANGED_AT)
                     AND length(trim(CASE WHEN json_type(t.row_json,'$.review_evidence[#-1].note') IS NULL THEN ''
                         WHEN json_type(t.row_json,'$.review_evidence[#-1].note')='text' THEN json_extract(t.row_json,'$.review_evidence[#-1].note')
                         ELSE json('invalid review hold note') END,?2))>0
-                ELSE 0 END
+                ELSE 0 END ELSE 0 END
         ) AS decision
-    FROM plan_tasks t LEFT JOIN open_parents parent ON parent.parent_id=t.task_id WHERE t.plan_id=?1
+    FROM plan_tasks t LEFT JOIN open_parents parent ON parent.parent_id=t.task_id
+        LEFT JOIN group_facts group_fact ON group_fact.task_id=t.task_id
+        LEFT JOIN declared_positions declared_position ON declared_position.group_key=group_fact.group_key
+    WHERE t.plan_id=?1 NOTICE_TASK_SCOPE
 )";
 
 pub(super) fn task_facts() -> String {
+    scoped_task_facts("")
+}
+
+pub(super) fn worker_task_facts() -> String {
+    scoped_task_facts("AND t.assigned_tab_id IS NOT NULL AND t.status IN ('pending','in_progress','blocked') AND (?3 IS NULL OR trim(t.assigned_tab_id,?2)=?3)")
+}
+
+fn scoped_task_facts(scope: &str) -> String {
     use super::super::document_queries::regression::unsigned_timestamp;
     TASK_FACTS
+        .replace("NOTICE_TASK_SCOPE", scope)
         .replace(
             "NOTICE_REVIEW_AT",
             &unsigned_timestamp("t.row_json", "review_evidence[#-1].at", false),

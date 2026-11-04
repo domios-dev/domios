@@ -106,8 +106,8 @@ pub trait PluginHostCtx: Send + Sync {
         &self,
         _tab_id: &str,
         _binding_nonce: &str,
-    ) -> std::collections::HashMap<String, String> {
-        std::collections::HashMap::new()
+    ) -> Result<std::collections::HashMap<String, String>, String> {
+        Ok(std::collections::HashMap::new())
     }
 
     /// Host-only decision credential lookup; its value never crosses the VM boundary.

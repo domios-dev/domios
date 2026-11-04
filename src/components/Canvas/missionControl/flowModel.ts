@@ -1,5 +1,6 @@
+import type { PlanView as Plan, PlanTaskView as Task } from "../planProjection";
 import type { Tab } from "../../../lib/types";
-import { TaskStatus, type DecisionGate, type Plan, type Task } from "../types";
+import { TaskStatus, type DecisionGate } from "../types";
 import { displayTaskTitle } from "../planView/activeWork";
 import type { MissionControlModel, TaskStation } from "./missionControl";
 import type { AgentProvider, AgentStationState, MissionAgent, MissionControlSnapshot } from "./types";

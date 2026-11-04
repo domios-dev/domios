@@ -222,7 +222,7 @@ fn task_key_contract_every_task_reference_accepts_id_and_key_and_refuses_ambigui
             store.resolve_task_ref(None, reference).unwrap().task_id,
             keyed
         );
-        assert_eq!(store.show_task(reference).unwrap().task.id, keyed);
+        assert_eq!(store.show_task_window(reference).unwrap().task.id, keyed);
     }
 
     let dependent = store
@@ -286,7 +286,7 @@ fn task_key_contract_every_task_reference_accepts_id_and_key_and_refuses_ambigui
                 other => panic!("expected ambiguity for {spelling}, got {other:?}"),
             }
         }
-        assert!(store.show_task(spelling).is_none(), "{spelling}");
+        assert!(store.show_task_window(spelling).is_err(), "{spelling}");
     }
     assert_eq!(
         store
@@ -315,11 +315,11 @@ fn task_key_contract_task_json_serializes_key_beside_id() {
     let keyed_row = rows.iter().find(|row| row["task"]["id"] == keyed).unwrap();
     assert_eq!(keyed_row["display_key"], "ALP-1");
     assert_eq!(keyed_row["task"]["key"], "ALP-1");
-    let detail = serde_json::to_value(store.show_task("ALP-1").unwrap()).unwrap();
+    let detail = serde_json::to_value(store.show_task_window("ALP-1").unwrap()).unwrap();
     assert_eq!(detail["display_key"], "ALP-1");
     assert_eq!(detail["task"]["id"], keyed);
     assert_eq!(
-        store.task_display_key(&plan_id, &keyed).as_deref(),
+        store.task_display_key(&plan_id, &keyed).unwrap().as_deref(),
         Some("ALP-1")
     );
 }

@@ -27,7 +27,7 @@ impl ServiceContext {
             .ok_or_else(|| format!("Tab {target} not found"))?;
         let target = resolved.as_str();
         if payload.durable_delivery.is_some() {
-            let claim = self.pty_ownership.acquire(target);
+            let claim = self.pty_ownership.acquire(target)?;
             if self.capture_saved_delivery(target, &mut payload)? {
                 let owner = &self.pending_delivery_payloads.agent_deliveries;
                 let encoded = serde_json::to_string(&payload).map_err(|error| error.to_string())?;
@@ -59,12 +59,18 @@ impl ServiceContext {
         }
         self.wake_frozen_tab(target)?;
         if crate::paths::is_dev_instance() && payload.trace_id.is_none() {
-            let id = crate::flow_trace::tab_flow(self, target)
-                .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-            crate::flow_trace::record(&id, "message.started", target, "", "accepted", None);
-            payload.trace_id = Some(id);
+            match crate::flow_trace::tab_flow(self, target) {
+                Ok(flow) => {
+                    let id = flow.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+                    crate::flow_trace::record(&id, "message.started", target, "", "accepted", None);
+                    payload.trace_id = Some(id);
+                }
+                Err(error) => {
+                    log::warn!("[flow-trace] delivery binding read failed tab={target}: {error}")
+                }
+            }
         }
-        let pty_claim = self.pty_ownership.acquire(target);
+        let pty_claim = self.pty_ownership.acquire(target)?;
         self.pin_agent_delivery_binding(&pty_claim, &mut payload)?;
         let encoded = serde_json::to_string(&payload)
             .map_err(|_| "agent delivery payload serialization failed")?;
@@ -524,7 +530,14 @@ impl ServiceContext {
             }
             return AgentWriteResult::Continue;
         }
-        let pty_claim = self.pty_ownership.acquire(tab_id);
+        let pty_claim = match self.pty_ownership.acquire(tab_id) {
+            Ok(claim) => claim,
+            Err(error) => {
+                log::debug!("PTY activation refused tab={tab_id}: {error}");
+                owner.block_after_refusal(tab_id, generation);
+                return AgentWriteResult::Refused;
+            }
+        };
         if self.agent_delivery_readiness_expired(record) {
             drop(pty_claim);
             return self.refuse_expired_held_agent_delivery(tab_id, record, generation);

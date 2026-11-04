@@ -18,10 +18,12 @@ async fn local_admission_uses_live_credentials_and_preserves_ordinary_tab_mainte
         .await;
     let ordinary_token = svc
         .frontend_pty_env(Some(&ordinary))
+        .unwrap()
         .remove("CODETERM_API_TOKEN")
         .unwrap();
     let concierge_token = svc
         .frontend_pty_env(Some(&concierge))
+        .unwrap()
         .remove("CODETERM_API_TOKEN")
         .unwrap();
     for operation in ["maintenance", "host-owner", "local-input"] {

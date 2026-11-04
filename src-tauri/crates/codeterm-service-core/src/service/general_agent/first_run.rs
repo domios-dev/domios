@@ -178,7 +178,6 @@ pub fn complete_first_run_core(
     svc: &crate::ServiceState,
     config: &crate::config::ConfigState,
     provider_id: &str,
-    full_access: bool,
 ) -> Result<(), String> {
     let known = svc
         .agent_registry
@@ -191,7 +190,6 @@ pub fn complete_first_run_core(
         let mut snapshot = config.lock().clone();
         snapshot.general_agent.agent_provider = provider_id.to_string();
         snapshot.general_agent.first_run_complete = true;
-        snapshot.agent.full_access = Some(full_access);
         let default_chat_view =
             default_chat_view_for_provider(&snapshot, &svc.agent_registry, provider_id);
         persist_first_run_completion(&snapshot, svc.ui.as_ref(), |snapshot| {

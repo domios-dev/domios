@@ -22,7 +22,7 @@ fn session_name_capability_native_js_parity() {
     assert_eq!(js.auth_status_probe(), None);
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn model_discovery_fingerprint_matches_native_observation_on_both_entry_points() {
     let binary = tempfile::NamedTempFile::new().unwrap();
     std::fs::write(binary.path(), "opaque binary fixture").unwrap();

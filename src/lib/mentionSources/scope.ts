@@ -1,4 +1,4 @@
-import type { Plan } from "../../components/Canvas/types";
+import type { PlanView as Plan } from "../../components/Canvas/planProjection";
 import type { MentionScope } from "../composerMentions";
 import type { MultiplexerState } from "../types";
 

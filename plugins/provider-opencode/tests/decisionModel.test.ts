@@ -1,7 +1,9 @@
+import { ioTestExport } from "../../provider-shared/tests/hostIo";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { DecisionRequest } from "@codeterm/plugin-sdk";
-import { decisionConfig, decisionModel, decisionPrompt, decisionRunOptions, parseDecisionEvents, validateDecision } from "../src/decisionModel";
+import { decisionConfig, decisionModel as ioSource_decisionModel, decisionPrompt, decisionRunOptions, parseDecisionEvents, validateDecision } from "../src/decisionModel";
+const decisionModel = ioTestExport(ioSource_decisionModel);
 
 const request: DecisionRequest = { instructions: "opaque", state: { key: "opaque-state" }, question: { type: "choice", options: { yes: "Yes", no: "No" } } };
 const choice = { type: "choice", choice: "yes", probabilities: { yes: 0.8, no: 0.2 }, confidence: 0.8 };
@@ -56,13 +58,13 @@ test("adapter executes once and maps unavailable timeout and process errors with
   let result: { code?: number; stdout?: string; error?: string } = {};
   const exec = Object.assign(() => JSON.stringify({ code: 0, stdout: "fixture/model" }), {
     async: <T>(opts: unknown, then: (value: typeof result) => T): T => {
-      calls += 1;
       assert.equal(typeof opts, "object");
+      if ((opts as {args: string[]}).args[0] === "models") return then({code: 0, stdout: "fixture/model"});
+      calls += 1;
       return then(result);
     },
   });
-  scope.host = { exec, execStart: () => JSON.stringify({ jobId: "discovery" }),
-    awaitJob: <T>(_id: string, then: (value: unknown) => T) => then({ code: 0, stdout: "fixture/model" }),
+  scope.host = { exec,
     unixNowMs: () => 1_000_000,
     fs: { readFile: () => null, fileExists: () => false }, platform: () => "linux", envGet: () => null, expandHome: (path: string) => path };
   try {

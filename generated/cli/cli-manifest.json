@@ -10237,6 +10237,16 @@
           "aliases": [],
           "args": [
             {
+              "name": "all",
+              "positional": false,
+              "required": false,
+              "value_name": "ALL",
+              "possible_values": [],
+              "default": null,
+              "help": "Return every detail row instead of one bounded page",
+              "aliases": []
+            },
+            {
               "name": "clean",
               "positional": false,
               "required": false,
@@ -10264,6 +10274,16 @@
               "possible_values": [],
               "default": null,
               "help": "Fetch remote refs before assessing lanes (otherwise dry run is offline)",
+              "aliases": []
+            },
+            {
+              "name": "page",
+              "positional": false,
+              "required": false,
+              "value_name": "PAGE",
+              "possible_values": [],
+              "default": "1",
+              "help": "Detail page (50 rows per list); counts and decisions cover the entire plan",
               "aliases": []
             },
             {
@@ -10970,9 +10990,29 @@
         },
         {
           "name": "next",
-          "about": "Prioritized, advisory next-action guidance computed from plan state",
+          "about": "Prioritized next-action page computed from the entire plan",
           "aliases": [],
           "args": [
+            {
+              "name": "all",
+              "positional": false,
+              "required": false,
+              "value_name": "ALL",
+              "possible_values": [],
+              "default": null,
+              "help": "Return every detail row instead of one bounded page",
+              "aliases": []
+            },
+            {
+              "name": "page",
+              "positional": false,
+              "required": false,
+              "value_name": "PAGE",
+              "possible_values": [],
+              "default": "1",
+              "help": "Detail page (50 rows per list); counts and decisions cover the entire plan",
+              "aliases": []
+            },
             {
               "name": "plan_id",
               "positional": true,
@@ -12793,9 +12833,29 @@
         },
         {
           "name": "state",
-          "about": "One read-only state snapshot (counts, coverage, drift, loops, lanes, strides)",
+          "about": "Read-only summary with bounded detail lists; use --page or --all for more",
           "aliases": [],
           "args": [
+            {
+              "name": "all",
+              "positional": false,
+              "required": false,
+              "value_name": "ALL",
+              "possible_values": [],
+              "default": null,
+              "help": "Return every detail row instead of one bounded page",
+              "aliases": []
+            },
+            {
+              "name": "page",
+              "positional": false,
+              "required": false,
+              "value_name": "PAGE",
+              "possible_values": [],
+              "default": "1",
+              "help": "Detail page (50 rows per list); counts and decisions cover the entire plan",
+              "aliases": []
+            },
             {
               "name": "plan_id",
               "positional": true,

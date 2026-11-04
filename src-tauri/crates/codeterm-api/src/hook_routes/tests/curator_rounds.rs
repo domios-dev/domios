@@ -150,7 +150,7 @@ async fn journey(finish: bool, deadline: bool) {
         fixture
             .service
             .plan_store
-            .with_plan(&plan.id, now, |plan| {
+            .edit_plan_fixture(&plan.id, now, |plan| {
                 plan.mode = codeterm_service_core::plan::PlanMode::Execution;
                 plan.team_id = Some(team.clone());
                 plan.owner = OrchestratorRef::from_tab(&owner);

@@ -379,10 +379,14 @@ fn run_plan(
             return Ok(None);
         }
 
-        PlanAction::State { plan_id } => return read_cmd::state(client, json, plan_id),
+        PlanAction::State { plan_id, all, page } => {
+            return read_cmd::state(client, json, plan_id, all, page)
+        }
 
         PlanAction::Lanes {
             plan_id,
+            all,
+            page,
             stale,
             clean,
             confirm,
@@ -391,7 +395,7 @@ fn run_plan(
             if clean {
                 return lane_clean_cmd::clean_lanes(client, json, plan_id, confirm, fetch);
             }
-            return read_cmd::lanes(client, json, plan_id, stale);
+            return read_cmd::lanes(client, json, plan_id, stale, all, page);
         }
 
         PlanAction::LaneRemove {
@@ -415,8 +419,12 @@ fn run_plan(
             return Ok(None);
         }
 
-        PlanAction::Next { plan_id } => {
-            let val = call(client, "plan.next", json!({ "plan_id": plan_id }))?;
+        PlanAction::Next { plan_id, all, page } => {
+            let val = call(
+                client,
+                "plan.next",
+                json!({ "plan_id": plan_id,"all":all,"page":page }),
+            )?;
             if json {
                 return Ok(Some(val));
             }

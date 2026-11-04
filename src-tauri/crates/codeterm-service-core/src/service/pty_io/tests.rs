@@ -388,13 +388,10 @@ fn unix_spawn_dispatch_contains_bash_script_path() {
 
 #[cfg(windows)]
 #[test]
-fn windows_spawn_dispatch_prepends_sacrificial_space_without_glued_enter() {
+fn windows_spawn_dispatch_has_exact_payload_without_unnegotiated_paste() {
     let bytes = build_spawn_dispatch("Remove-Item Env:CLAUDECODE; claude").unwrap();
     let s = String::from_utf8(bytes).unwrap();
-    assert_eq!(s, "\x1b[200~ Remove-Item Env:CLAUDECODE; claude\x1b[201~");
-    let after_opener = &s["\x1b[200~".len()..];
-    assert!(after_opener.starts_with(' '));
-    assert!(after_opener[1..].starts_with("Remove-Item"));
+    assert_eq!(s, "Remove-Item Env:CLAUDECODE; claude");
 }
 
 #[cfg(windows)]
@@ -558,7 +555,7 @@ fn active_tab_lane_base_prefers_live_attempt_base() {
         .unwrap();
 
     assert_eq!(
-        active_tab_lane_base(&store, "tab-a").as_deref(),
+        active_tab_lane_base(&store, "tab-a").unwrap().as_deref(),
         Some("attempt-base")
     );
 }
@@ -568,7 +565,7 @@ fn active_tab_lane_base_falls_back_to_lane_base_when_attempt_missing() {
     let (_dir, store, _plan_id, _task_id) = store_with_bound_task("lane-base");
 
     assert_eq!(
-        active_tab_lane_base(&store, "tab-a").as_deref(),
+        active_tab_lane_base(&store, "tab-a").unwrap().as_deref(),
         Some("lane-base")
     );
 }
@@ -596,17 +593,17 @@ fn active_tab_lane_base_ignores_closed_and_other_tab_attempts() {
         .unwrap();
 
     assert_eq!(
-        active_tab_lane_base(&store, "tab-a").as_deref(),
+        active_tab_lane_base(&store, "tab-a").unwrap().as_deref(),
         Some("lane-base")
     );
-    assert_eq!(active_tab_lane_base(&store, "tab-b"), None);
+    assert_eq!(active_tab_lane_base(&store, "tab-b").unwrap(), None);
 }
 
 #[test]
 fn active_tab_lane_base_none_without_binding() {
     let (_dir, store, _plan_id, _task_id) = store_with_bound_task("lane-base");
 
-    assert_eq!(active_tab_lane_base(&store, "unbound-tab"), None);
+    assert_eq!(active_tab_lane_base(&store, "unbound-tab").unwrap(), None);
 }
 
 #[test]
@@ -624,7 +621,7 @@ fn dispatched_tab_env_carries_its_task_binding() {
         )
         .unwrap();
 
-    let bound = tab_task_env(&store, "tab-a");
+    let bound = tab_task_env(&store, "tab-a").unwrap();
     assert_eq!(
         bound.get("CODETERM_LANE_BASE").map(String::as_str),
         Some("attempt-base")
@@ -642,7 +639,7 @@ fn dispatched_tab_env_carries_its_task_binding() {
 #[test]
 fn unbound_tab_resolves_to_no_binding() {
     let (_dir, store, _plan_id, _task_id) = store_with_bound_task("attempt-base");
-    let plain = tab_task_env(&store, "plain-tab");
+    let plain = tab_task_env(&store, "plain-tab").unwrap();
     assert!(
         plain.is_empty(),
         "unbound Tabs must not inherit plan/task/lane env"

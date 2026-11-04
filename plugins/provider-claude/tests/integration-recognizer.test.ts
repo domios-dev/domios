@@ -15,6 +15,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import Module from "node:module";
+import { installTestIo } from "../../provider-shared/tests/hostIo";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const bundle = path.resolve(here, "../plugin.js");
@@ -39,13 +40,13 @@ function settings(withSource: boolean): unknown {
 
 function loadPlugin(current: unknown) {
   const g = globalThis as Record<string, unknown>;
-  g.host = {
+  g.host = installTestIo({
     platform: () => "linux",
     expandHome: (p: string) => p,
     fileExists: () => true,
     fs: { readJson: () => current, exists: () => true },
     log: () => {},
-  };
+  });
   const asCjs = path.join(path.dirname(bundle), ".integration-recognizer.cjs");
   fs.copyFileSync(bundle, asCjs);
   const require_ = Module.createRequire(import.meta.url);

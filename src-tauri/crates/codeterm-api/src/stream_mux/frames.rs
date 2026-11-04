@@ -65,15 +65,18 @@ pub(crate) fn encode_head(channel: &str, status: StatusCode, headers: &HeaderMap
     )
 }
 
-pub(crate) fn encode_chunk(channel: &str, bytes: &[u8], text: bool) -> Bytes {
-    if text {
-        if let Ok(chunk) = std::str::from_utf8(bytes) {
-            return encode(serde_json::json!({"channel":channel,"chunk":chunk,"enc":"utf8"}));
+/// A non-zero `credit` is the payload cost the client acknowledges through the credit route.
+pub(crate) fn encode_chunk(channel: &str, bytes: &[u8], text: bool, credit: u64) -> Bytes {
+    let mut frame = match std::str::from_utf8(bytes) {
+        Ok(chunk) if text => serde_json::json!({"channel":channel,"chunk":chunk,"enc":"utf8"}),
+        _ => {
+            serde_json::json!({"channel":channel,"chunk":base64::engine::general_purpose::STANDARD.encode(bytes),"enc":"base64"})
         }
+    };
+    if credit > 0 {
+        frame["credit"] = serde_json::Value::from(credit);
     }
-    encode(
-        serde_json::json!({"channel":channel,"chunk":base64::engine::general_purpose::STANDARD.encode(bytes),"enc":"base64"}),
-    )
+    encode(frame)
 }
 
 pub(crate) fn encode_end(channel: &str, end: &ChannelEnd) -> Bytes {

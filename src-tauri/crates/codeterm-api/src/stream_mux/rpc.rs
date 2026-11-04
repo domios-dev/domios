@@ -45,12 +45,14 @@ pub(crate) async fn stream_mux_open_channel(
         &parts.headers,
         Traffic::Bulk,
         true,
-    )?;
+    )
+    .await?;
     spawn(
         dispatcher,
         reservation,
         dispatch::request(Method::GET, uri, parts.headers, context, Body::empty()),
-    );
+    )
+    .await?;
     Ok(ack())
 }
 
@@ -85,7 +87,7 @@ pub(crate) async fn stream_mux_request(
         "bulk" => Traffic::Bulk,
         _ => return Err((StatusCode::BAD_REQUEST, "Invalid mux class".into())),
     };
-    let reservation = super::reserve(&session, &id, &parts.headers, traffic, false)?;
+    let reservation = super::reserve(&session, &id, &parts.headers, traffic, false).await?;
     let limit = if method == Method::POST && uri.path() == "/api/attachments/upload" {
         spool::UPLOAD_LIMIT
     } else {
@@ -125,11 +127,16 @@ pub(crate) async fn stream_mux_request(
         dispatcher,
         reservation,
         dispatch::request(method, uri, parts.headers, context, stored.into_body()),
-    );
+    )
+    .await?;
     Ok(ack())
 }
 
-fn spawn(dispatcher: Dispatcher, mut reservation: Reservation, request: Request) {
+async fn spawn(
+    dispatcher: Dispatcher,
+    mut reservation: Reservation,
+    request: Request,
+) -> Result<(), Failure> {
     let entry = reservation.entry.clone();
     let task = tokio::spawn(async move {
         let response = dispatcher.call(request).await;
@@ -137,19 +144,30 @@ fn spawn(dispatcher: Dispatcher, mut reservation: Reservation, request: Request)
             || reservation.entry.terminal_queued.load(Ordering::Acquire);
         drop(reservation);
     });
-    *entry.task.lock() = Some(task.abort_handle());
-    if entry.detached.load(Ordering::Acquire) && entry.cancellable.load(Ordering::Acquire) {
-        task.abort();
-    }
+    let handle = task.abort_handle();
+    tokio::task::spawn_blocking(move || {
+        *super::locks::lock(&entry.task, "entry.task") = Some(handle.clone());
+        if entry.detached.load(Ordering::Acquire) && entry.cancellable.load(Ordering::Acquire) {
+            handle.abort();
+        }
+    })
+    .await
+    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    Ok(())
 }
 
-async fn send(reservation: &Reservation, bytes: axum::body::Bytes, kind: Kind) -> bool {
+async fn send(
+    reservation: &Reservation,
+    bytes: axum::body::Bytes,
+    kind: Kind,
+    credit: u64,
+) -> bool {
     if reservation.entry.detached.load(Ordering::Acquire) {
         return false;
     }
     match reservation
         .scheduler
-        .send(&reservation.id, bytes, kind)
+        .send(&reservation.id, bytes, kind, credit)
         .await
     {
         Ok(()) => {
@@ -163,15 +181,18 @@ async fn send(reservation: &Reservation, bytes: axum::body::Bytes, kind: Kind) -
                 .entry
                 .terminal_queued
                 .store(true, Ordering::Release);
-            reservation.scheduler.overflow(
-                &reservation.id,
-                frames::encode_end(
+            reservation
+                .scheduler
+                .overflow(
                     &reservation.id,
-                    &ChannelEnd::Capacity {
-                        bytes: super::scheduler::model::BYTE_BUDGET,
-                    },
-                ),
-            );
+                    frames::encode_end(
+                        &reservation.id,
+                        &ChannelEnd::Capacity {
+                            bytes: super::scheduler::model::BYTE_BUDGET,
+                        },
+                    ),
+                )
+                .await;
             false
         }
         Err(_) => false,
@@ -183,6 +204,7 @@ async fn pump(reservation: &Reservation, response: Response) -> bool {
         reservation,
         frames::encode_head(&reservation.id, response.status(), response.headers()),
         Kind::Head,
+        0,
     )
     .await
     {
@@ -201,6 +223,8 @@ async fn pump(reservation: &Reservation, response: Response) -> bool {
     let mut upstream = response.into_body().into_data_stream();
     let mut tail = Vec::new();
     let cap = if text { 8 * 1024 } else { spool::IO_CHUNK };
+    let credited = reservation.entry.traffic == Traffic::Bulk && !reservation.entry.stream;
+    let cost = |len: usize| if credited { len as u64 } else { 0 };
     while let Some(chunk) = upstream.next().await {
         let chunk = match chunk {
             Ok(chunk) => chunk,
@@ -210,6 +234,7 @@ async fn pump(reservation: &Reservation, response: Response) -> bool {
                     reservation,
                     frames::encode_end(&reservation.id, &ChannelEnd::Error { message }),
                     Kind::End,
+                    0,
                 )
                 .await;
             }
@@ -227,8 +252,8 @@ async fn pump(reservation: &Reservation, response: Response) -> bool {
             if size == 0 {
                 continue;
             }
-            let frame = frames::encode_chunk(&reservation.id, &tail[..size], text);
-            if !send(reservation, frame, Kind::Data).await {
+            let frame = frames::encode_chunk(&reservation.id, &tail[..size], text, cost(size));
+            if !send(reservation, frame, Kind::Data, cost(size)).await {
                 return false;
             }
             tail.drain(..size);
@@ -237,8 +262,9 @@ async fn pump(reservation: &Reservation, response: Response) -> bool {
     if !tail.is_empty()
         && !send(
             reservation,
-            frames::encode_chunk(&reservation.id, &tail, false),
+            frames::encode_chunk(&reservation.id, &tail, false, cost(tail.len())),
             Kind::Data,
+            cost(tail.len()),
         )
         .await
     {
@@ -248,6 +274,7 @@ async fn pump(reservation: &Reservation, response: Response) -> bool {
         reservation,
         frames::encode_end(&reservation.id, &ChannelEnd::Eof),
         Kind::End,
+        0,
     )
     .await
 }

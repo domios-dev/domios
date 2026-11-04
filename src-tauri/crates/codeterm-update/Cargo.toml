@@ -23,6 +23,7 @@ codeterm-plugins = { path = "../codeterm-plugins" }
 codeterm-types = { path = "../codeterm-types" }
 async-trait = "0.1"
 log = "0.4"
+httpdate = "1"
 parking_lot = "0.12"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 semver = "1"

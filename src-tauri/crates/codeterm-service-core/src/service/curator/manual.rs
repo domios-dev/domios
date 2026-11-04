@@ -36,7 +36,7 @@ impl ServiceContext {
         );
         drop(read);
         self.plan_store
-            .with_plan(plan_id, now, |plan| {
+            .edit_curator_state(plan_id, now, |plan| {
                 curator::request_round(&mut plan.control_loop, eligible, now)
                     .map_err(crate::service::plan::PlanError::Validation)
             })

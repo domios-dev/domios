@@ -31,8 +31,39 @@ pub struct ReferenceProjection {
     pub status: crate::plan::PlanStatus,
     pub owner: crate::plan::OrchestratorRef,
     pub canonical_project_path: String,
-    pub tasks: Vec<crate::plan::Task>,
-    pub sections: Vec<crate::plan::Section>,
+    pub tasks: Vec<ReferenceTaskRead>,
+    pub task_refs: std::collections::BTreeMap<String, Option<String>>,
+    pub sections: Vec<ReferenceSectionRead>,
+}
+
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
+pub struct ReferenceTaskRead {
+    pub id: String,
+    pub name: String,
+    pub key: Option<String>,
+    pub handle: Option<String>,
+}
+
+impl ReferenceTaskRead {
+    pub fn display_key(&self) -> String {
+        self.key
+            .clone()
+            .unwrap_or_else(|| crate::plan::task_key::fallback_key(&self.id))
+    }
+}
+
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
+pub struct ReferenceSectionRead {
+    pub id: String,
+    pub title: String,
+    pub handle: Option<String>,
+}
+
+impl ReferenceProjection {
+    pub fn task(&self, reference: &str) -> Option<&ReferenceTaskRead> {
+        let id = self.task_refs.get(reference)?.as_ref()?;
+        self.tasks.iter().find(|task| &task.id == id)
+    }
 }
 
 impl PlanStore {

@@ -1,9 +1,10 @@
+import type { PlanView as Plan } from "../planProjection";
 import { InlineErrorNotice } from "../../shared/ErrorNotice";
 import { useEffect, useState } from "react";
 import { DEV_BUILD } from "../../../lib/devBuild";
 import { RichMarkdown } from "@codeterm/chat-ui/MarkdownBody";
 import type { ApiConfig } from "../../../lib/types";
-import type { Milestone, Plan } from "../types";
+import type { Milestone } from "../types";
 import { fetchPlanSkill, fetchPlanSkills, type PlanSkillSummary } from "./planSkillsApi";
 import { skillTimelineForSlug } from "./planRetrospective";
 import { milestoneKindLabel, milestoneTimestampLabel } from "./taskActivityModel";

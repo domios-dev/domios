@@ -108,7 +108,12 @@ fn dispatch_honours_recorded_base_even_when_project_head_differs() {
             4,
         )
         .unwrap();
-    let recorded = fixture.store.show_task(&fixture.mine).unwrap().task.lane;
+    let recorded = fixture
+        .store
+        .inspect_task_for_test(&fixture.mine)
+        .unwrap()
+        .task
+        .lane;
     let lane = dispatch_lane(&fixture, &recorded);
     let provenance = lane.verify().unwrap();
     assert_eq!(

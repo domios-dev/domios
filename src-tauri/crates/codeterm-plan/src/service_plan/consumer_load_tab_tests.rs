@@ -227,7 +227,8 @@ fn live_task_attempts_for_tab_never_loads_unmatched_plans() {
     let (matched, unmatched) = attempt_pair(&store, &project, "tab-a");
     start(&store);
 
-    let live = store.live_task_attempts_for_tab("tab-a");
+    let live = store.live_task_attempts_for_tab("tab-a").unwrap();
+    assert!(store.plan_loads_for_test().is_empty());
     assert_eq!(live.len(), 1);
     assert_eq!(
         (live[0].plan_id.as_str(), live[0].attempt.id.as_str()),

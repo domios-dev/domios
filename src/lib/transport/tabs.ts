@@ -316,7 +316,6 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
         }),
         complete_general_agent_first_run: (a: Args) => clientFor(a).json("POST", "/api/agents/general/complete-first-run", {
             provider_id: s(a, "providerId", "provider_id"),
-            full_access: a.fullAccess === true || a.full_access === true,
         }),
         mux_link_pty: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId"))}/link-pty`, {
             pty_id: a.ptyId,

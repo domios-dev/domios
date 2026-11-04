@@ -130,6 +130,7 @@ fn startup_perf_unsettled_lane_candidates_match_the_rust_rule() {
     let reopened = PlanStore::open(database.clone()).unwrap();
     let candidates: BTreeSet<String> = reopened
         .plan_ids_with_unsettled_lanes()
+        .unwrap()
         .into_iter()
         .collect();
     let connection = rusqlite::Connection::open(&database).unwrap();

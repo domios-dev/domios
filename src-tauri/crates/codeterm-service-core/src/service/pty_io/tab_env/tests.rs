@@ -121,7 +121,7 @@ fn env_compose_both_launch_paths_agree_for_one_tab_record() {
         shell_nonce: "nonce-shell".into(),
         api_token: Some("tab-credential".into()),
         identity: agent_identity(),
-        task: tab_task_env(&store, AGENT_TAB_ID),
+        task: tab_task_env(&store, AGENT_TAB_ID).unwrap(),
     };
     let instance = instance_env();
 
@@ -160,7 +160,7 @@ fn env_compose_restore_path_carries_plan_task_team_lane_and_pad() {
         shell_nonce: "nonce-shell".into(),
         api_token: Some("tab-credential".into()),
         identity: agent_identity(),
-        task: tab_task_env(&store, AGENT_TAB_ID),
+        task: tab_task_env(&store, AGENT_TAB_ID).unwrap(),
     };
 
     let resumed = compose_launch_env(&instance_env(), Some(&tab), LaunchSurface::Frontend);
@@ -201,7 +201,7 @@ fn env_compose_absent_identity_omits_variables_instead_of_blanking_them() {
         shell_nonce: "nonce-shell".into(),
         api_token: Some("tab-credential".into()),
         identity,
-        task: tab_task_env(&store, "plain-tab"),
+        task: tab_task_env(&store, "plain-tab").unwrap(),
     };
     let instance = instance_env();
 
@@ -246,7 +246,7 @@ fn env_compose_service_surface_matches_todays_agent_launch_map() {
         shell_nonce: "nonce-shell".into(),
         api_token: Some("tab-credential".into()),
         identity: agent_identity(),
-        task: tab_task_env(&store, AGENT_TAB_ID),
+        task: tab_task_env(&store, AGENT_TAB_ID).unwrap(),
     };
 
     let service = compose_launch_env(&instance_env(), Some(&tab), LaunchSurface::Service);
@@ -310,7 +310,7 @@ fn env_compose_frontend_spawn_without_tab_record_stamps_no_identity() {
 fn planner_bound_tab_env_carries_plan_id_without_a_task_id() {
     let (_dir, store, plan_id) = store_with_planner_bound_plan();
 
-    let task_env = tab_task_env(&store, PLANNER_TAB_ID);
+    let task_env = tab_task_env(&store, PLANNER_TAB_ID).unwrap();
 
     assert_eq!(
         task_env.get("CODETERM_PLAN_ID").map(String::as_str),
@@ -327,7 +327,7 @@ fn planner_bound_tab_env_carries_plan_id_without_a_task_id() {
 fn unbound_tab_env_carries_no_plan_identity() {
     let (_dir, store, _plan_id) = store_with_planner_bound_plan();
 
-    let task_env = tab_task_env(&store, "tab-unrelated");
+    let task_env = tab_task_env(&store, "tab-unrelated").unwrap();
 
     assert!(task_env.get("CODETERM_PLAN_ID").is_none());
     assert!(task_env.get("CODETERM_TASK_ID").is_none());
@@ -375,7 +375,7 @@ fn dispatched_task_env_reconstructs_the_durable_attempt_id() {
     let task = plan.tasks.iter().find(|task| task.id == task_id).unwrap();
     let attempt = task.execution_attempts.last().unwrap();
     assert_eq!(
-        tab_task_env(&store, AGENT_TAB_ID)["CODETERM_ATTEMPT_ID"],
+        tab_task_env(&store, AGENT_TAB_ID).unwrap()["CODETERM_ATTEMPT_ID"],
         attempt.id
     );
 }
@@ -506,4 +506,44 @@ fn isolated_named_verification_child_environment_keeps_socket_port_and_tab_ident
         );
         assert_eq!(env["CODETERM_API_TOKEN"], "opaque-tab-credential");
     }
+}
+
+#[test]
+fn plan_read_failure_keeps_a_recovery_shell_but_refuses_agent_and_bound_launches() {
+    use crate::multiplexer::types::TaskBinding;
+    use crate::service::test_fixture::ServiceFixture;
+    let (mut mux, owner) = MultiplexerState::new();
+    let workspace = mux.find_workspace_for_tab(&owner).unwrap();
+    let shell = mux.create_tab(&workspace).unwrap();
+    let agent = mux.create_tab(&workspace).unwrap();
+    mux.get_tab_mut(&agent).unwrap().agent_type = Some("opaque".into());
+    let bound = mux.create_tab(&workspace).unwrap();
+    mux.get_tab_mut(&bound).unwrap().task_binding = Some(TaskBinding {
+        plan_id: Some("plan".into()),
+        task_id: Some("task".into()),
+        ..Default::default()
+    });
+    let fixture = ServiceFixture::new(mux);
+    let connection =
+        rusqlite::Connection::open(fixture.temp.path().join(".domios").join("plans.db")).unwrap();
+    connection.execute_batch("DROP TABLE plan_tasks").unwrap();
+    let env = fixture.service.frontend_pty_env(Some(&shell)).unwrap();
+    for key in [
+        "CODETERM_PLAN_ID",
+        "CODETERM_TASK_ID",
+        "CODETERM_ATTEMPT_ID",
+        "CODETERM_LANE_BASE",
+    ] {
+        assert!(!env.contains_key(key));
+    }
+    assert_eq!(fixture.service.notif.lock().list(false).len(), 1);
+    assert!(fixture.service.frontend_pty_env(Some(&shell)).is_ok());
+    assert_eq!(
+        fixture.service.notif.lock().list(false).len(),
+        1,
+        "the recovery warning is emitted once"
+    );
+    assert!(fixture.service.frontend_pty_env(Some(&agent)).is_err());
+    assert!(fixture.service.frontend_pty_env(Some(&bound)).is_err());
+    assert!(fixture.service.frontend_pty_env(None).is_ok());
 }

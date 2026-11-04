@@ -76,7 +76,7 @@ fn task_of(store: &PlanStore, plan_id: &str, task_id: &str) -> crate::plan::Task
 
 fn put_task_in_review(store: &PlanStore, plan_id: &str, task_id: &str) {
     store
-        .with_plan(plan_id, 5, |plan| {
+        .edit_plan_fixture(plan_id, 5, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()

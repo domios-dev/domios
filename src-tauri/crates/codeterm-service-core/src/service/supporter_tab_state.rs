@@ -815,11 +815,18 @@ impl ServiceContext {
         if role != Some(codeterm_types::agent::AgentRole::Worker) || !task_binding {
             return;
         }
-        let parent = plan_id
-            .as_deref()
-            .and_then(|plan_id| self.plan_store.get(plan_id))
-            .and_then(|plan| plan.owner.tab_id)
-            .or(parent_tab_id);
+        let owner = match plan_id.as_deref() {
+            Some(plan) => match self.plan_store.plan_identity_projection(plan) {
+                Ok(identity) => identity.owner.tab_id,
+                Err(crate::service::plan::PlanError::NotFound) => None,
+                Err(error) => {
+                    log::warn!("[tab-state] worker owner lookup failed tab={tab_id}: {error}");
+                    return;
+                }
+            },
+            None => None,
+        };
+        let parent = owner.or(parent_tab_id);
         let last_turn_output = state::last_output_epoch_seconds(tab_id);
         if parent.as_deref().is_some_and(|parent| {
             self.report_store

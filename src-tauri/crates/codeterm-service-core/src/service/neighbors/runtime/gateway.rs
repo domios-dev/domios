@@ -358,20 +358,36 @@ impl Gateway {
             .framed_delivery(&body)
             .to_message()
             .len();
-        let limit = {
+        let (provider, is_pty, nonce) = {
             let mux = self.service.mux.read();
             let tab = mux.get_tab(&self.tab).ok_or(Error::Gateway)?;
-            let provider = tab.agent_type.as_deref().ok_or(Error::Gateway)?;
-            // A paste limit bounds PTY input only; runtime-backed tabs take the turn as structured input.
-            if matches!(tab.backing, crate::multiplexer::types::TabBacking::Pty) {
-                self.service
-                    .agent_registry
-                    .with_provider(provider, |provider| provider.paste_limit_bytes())
-                    .flatten()
-            } else {
-                None
-            }
+            (
+                tab.agent_type.clone().ok_or(Error::Gateway)?,
+                matches!(tab.backing, crate::multiplexer::types::TabBacking::Pty),
+                tab.session_binding_nonce.clone(),
+            )
         };
+        let limit = if is_pty {
+            self.service
+                .agent_registry
+                .with_provider(&provider, |provider| provider.paste_limit_bytes())
+                .flatten()
+        } else {
+            None
+        };
+        if !self
+            .service
+            .mux
+            .read()
+            .get_tab(&self.tab)
+            .is_some_and(|tab| {
+                tab.agent_type.as_deref() == Some(provider.as_str())
+                    && tab.session_binding_nonce == nonce
+                    && matches!(tab.backing, crate::multiplexer::types::TabBacking::Pty) == is_pty
+            })
+        {
+            return Err(Error::Gateway);
+        }
         if limit.is_some_and(|limit| framed_bytes > limit) {
             return Err(Error::Gateway);
         }

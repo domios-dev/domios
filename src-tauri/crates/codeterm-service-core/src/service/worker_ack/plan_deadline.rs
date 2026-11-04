@@ -495,7 +495,11 @@ impl ServiceContext {
             child.as_ref(),
         ) {
             Ok(authority) => {
-                self.extend_worker_ack_deadline_for_tab(tab_id);
+                if let Err(error) = self.extend_worker_ack_deadline_for_tab(tab_id) {
+                    log::warn!(
+                        "[worker-ack] held startup ACK extension read failed tab={tab_id}: {error}"
+                    );
+                }
                 Ok(json!({
                     "ok": true,
                     "held": true,
@@ -693,10 +697,11 @@ impl ServiceContext {
         )
     }
 
-    pub fn extend_worker_ack_deadline_for_tab(&self, tab_id: &str) -> bool {
+    pub fn extend_worker_ack_deadline_for_tab(&self, tab_id: &str) -> Result<bool, String> {
         let armable = self
             .plan_store
             .live_task_attempts_for_tab(tab_id)
+            .map_err(|error| error.to_string())?
             .into_iter()
             .filter(|candidate| {
                 candidate.plan_active
@@ -709,7 +714,7 @@ impl ServiceContext {
             })
             .collect::<Vec<_>>();
         let [candidate] = armable.as_slice() else {
-            return false;
+            return Ok(false);
         };
         let identity = self.worker_ack_identity_for_attempt(
             &candidate.plan_id,
@@ -717,7 +722,7 @@ impl ServiceContext {
             tab_id,
             &candidate.attempt.id,
         );
-        self.worker_ack.extend_deadline(&identity)
+        Ok(self.worker_ack.extend_deadline(&identity))
     }
 
     pub fn acknowledge_worker_ack(

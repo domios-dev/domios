@@ -330,14 +330,33 @@ impl super::ServiceContext {
             policy.message_receipt(self, &sender, &receipt)?;
         }
         let receipt = receipt.map_err(|error| error.to_string())?;
-        if class == DeliveryClass::AgentTraffic
-            && self
+        if class == DeliveryClass::AgentTraffic {
+            let requirement = self
                 .plan_store
-                .task_binding_for_tab(target)
-                .and_then(|(_, task_id)| self.plan_store.show_task(&task_id))
-                .is_some_and(|detail| detail.task.status == crate::plan::TaskStatus::InProgress)
-        {
-            self.gateway.require_worker_report(target);
+                .assigned_task_binding_projection(target)
+                .and_then(|binding| {
+                    let Some(binding) = binding else {
+                        return Ok(false);
+                    };
+                    match self
+                        .plan_store
+                        .task_status_projection(&binding.plan_id, &binding.task_id)
+                    {
+                        Ok(status) => Ok(status == crate::plan::TaskStatus::InProgress),
+                        Err(crate::service::plan::PlanError::TaskNotFound) => Ok(false),
+                        Err(error) => Err(error),
+                    }
+                });
+            let required = match requirement {
+                Ok(required) => required,
+                Err(error) => {
+                    log::warn!("[message-gateway] post-submit worker assignment lookup failed target={target}: {error}");
+                    true
+                }
+            };
+            if required {
+                self.gateway.require_worker_report(target);
+            }
         }
         let delivery = receipt
             .delivery
