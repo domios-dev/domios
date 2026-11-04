@@ -24,6 +24,7 @@ pub use export_projection::PlanExportEncoder;
 pub mod gates;
 pub mod handoff;
 pub use store_db::read_projections::hierarchy::HierarchyAuthorityRead;
+pub use store_db::read_projections::runtime_identity::RuntimePlanIdentityRead;
 mod header_projection;
 pub use header_projection::{NoticeDeliveryTargetRead, PlanIdentityRead};
 pub mod heartbeat;

@@ -23,6 +23,7 @@ mod index_filter_tests;
 mod notice_tests;
 mod qa_tests;
 mod related_tests;
+mod runtime_identity_tests;
 mod search_tests;
 mod section_link_tests;
 mod status_tests;

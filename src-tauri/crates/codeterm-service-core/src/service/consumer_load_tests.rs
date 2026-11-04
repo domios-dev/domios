@@ -583,7 +583,7 @@ fn bound_plan_id_never_loads_unmatched_plans() {
     start(store);
 
     assert_eq!(
-        crate::service::orchestrator::bound_plan_id(store, "member-tab", Some("team-a")),
+        crate::service::orchestrator::bound_plan_id(store, "member-tab", Some("team-a")).unwrap(),
         Some(team_plan)
     );
     assert_never_loaded(store, &[&other]);
