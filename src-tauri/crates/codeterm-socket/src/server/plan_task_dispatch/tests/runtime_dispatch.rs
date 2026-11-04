@@ -70,6 +70,7 @@ fn fixture() -> (RuntimeDispatchFixture, String, String) {
     .collect::<serde_json::Map<String, serde_json::Value>>();
     let manifest = PluginManifest::from_json_str(&json!({
         "id": PROVIDER, "version":"1.0.0", "displayName":"Fixture",
+        "commands":{"autoApproveFlags":["opaque-full-access"]},
         "capabilities":{"agentProvider":true,
             "chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},
             "agentRuntime":{"runtime":"stdio-jsonrpc",
@@ -239,6 +240,20 @@ fn assert_runtime_task_dispatch(
             .expect("dispatch startup did not commit the Worker binding");
     }
     let tab = svc.mux.read().get_tab(worker).unwrap().clone();
+    assert!(tab.restorable_launch.execution_sandbox.is_none());
+    assert!(tab.restorable_launch.permission_bypass_requested);
+    assert_eq!(
+        tab.restorable_launch
+            .runtime_launch_options
+            .as_ref()
+            .unwrap()
+            .mode,
+        "full-access"
+    );
+    assert_eq!(
+        tab.agent_runtime_config.as_ref().unwrap()["mode"],
+        "full-access"
+    );
     assert!(codeterm_paths::paths_equal(
         tab.cwd.as_deref().unwrap(),
         &working_dir.to_string_lossy()
