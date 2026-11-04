@@ -9,7 +9,11 @@ pub(super) fn verify_dispatched_task_binding(
     task_id: &str,
     tab_id: &str,
 ) -> Result<(), String> {
-    match store.task_binding_for_tab(tab_id) {
+    let binding = store
+        .assigned_task_binding_projection(tab_id)
+        .map_err(|error| error.to_string())?
+        .map(|binding| (binding.plan_id, binding.task_id));
+    match binding {
         Some((bound_plan, bound_task)) if bound_plan == plan_id && bound_task == task_id => Ok(()),
         binding => Err(format!(
             "ORCHESTRATION PRODUCT INCIDENT: dispatched Worker tab '{tab_id}' has no matching \

@@ -70,6 +70,7 @@ fn text_err(status: StatusCode, message: impl ToString) -> (StatusCode, Json<Val
 pub(crate) fn plan_authority_err(error: PlanAuthorityError) -> (StatusCode, Json<Value>) {
     let status = match error {
         PlanAuthorityError::PlanNotFound => StatusCode::NOT_FOUND,
+        PlanAuthorityError::StoreReadFailed => StatusCode::INTERNAL_SERVER_ERROR,
         PlanAuthorityError::SessionBindingPending => StatusCode::SERVICE_UNAVAILABLE,
         _ => StatusCode::FORBIDDEN,
     };

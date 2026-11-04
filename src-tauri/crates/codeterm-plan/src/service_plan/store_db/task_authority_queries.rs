@@ -1,7 +1,9 @@
 use super::read_projections::{column, decode, record_query};
 use super::{db_error, PlanDatabase};
 use crate::plan::TaskExecutionAttempt;
-use crate::service_plan::{PlanError, TaskContextFilesRead, TaskOwnerEpochRead};
+use crate::service_plan::{
+    PlanError, PlanTaskAdmissionRead, TaskBindingRead, TaskContextFilesRead, TaskOwnerEpochRead,
+};
 use rusqlite::{params, OptionalExtension};
 
 const SELECTED_ACTIVE_TASK: &str = "WITH candidates AS (
@@ -20,6 +22,84 @@ const SELECTED_ACTIVE_TASK: &str = "WITH candidates AS (
              )";
 
 impl PlanDatabase {
+    pub(in crate::service_plan) fn task_authority_target_projection(
+        &self,
+        reference: &str,
+    ) -> Result<TaskBindingRead, PlanError> {
+        let connection = self.connection.lock();
+        record_query();
+        connection
+            .query_row(
+                &format!("{SELECTED_ACTIVE_TASK} SELECT plan_id,task_id FROM selected_task"),
+                [reference],
+                |row| {
+                    Ok(TaskBindingRead {
+                        plan_id: column(row, 0)?,
+                        task_id: column(row, 1)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(db_error)?
+            .ok_or(PlanError::TaskNotFound)
+    }
+
+    pub(in crate::service_plan) fn plan_task_admission_projection(
+        &self,
+        plan_id: &str,
+    ) -> Result<PlanTaskAdmissionRead, PlanError> {
+        let connection = self.connection.lock();
+        record_query();
+        let encoded: String = connection
+            .query_row(
+                "SELECT json_object('mode',coalesce(json_extract(header_json,'$.mode'),'planning'),
+                'planning_state',coalesce(json_extract(header_json,'$.planning_state'),'drafting'))
+             FROM plans WHERE id=?1",
+                [plan_id],
+                |row| column(row, 0),
+            )
+            .optional()
+            .map_err(db_error)?
+            .ok_or(PlanError::NotFound)?;
+        decode(plan_id, &encoded)
+    }
+
+    pub(in crate::service_plan) fn ensure_plan_exists(
+        &self,
+        plan_id: &str,
+    ) -> Result<(), PlanError> {
+        let connection = self.connection.lock();
+        record_query();
+        let exists: bool = connection
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM plans WHERE id=?1)",
+                [plan_id],
+                |row| column(row, 0),
+            )
+            .map_err(db_error)?;
+        if exists {
+            Ok(())
+        } else {
+            Err(PlanError::NotFound)
+        }
+    }
+
+    pub(in crate::service_plan) fn unplanned_task_section_projection(
+        &self,
+        plan_id: &str,
+        parent_task_id: Option<&str>,
+    ) -> Result<Option<String>, PlanError> {
+        let connection = self.connection.lock();
+        record_query();
+        connection.query_row(
+            "SELECT coalesce(
+                (SELECT json_extract(row_json,'$.section_ids[0]') FROM plan_tasks WHERE plan_id=p.id AND task_id=?2),
+                (SELECT json_extract(row_json,'$.id') FROM plan_sections WHERE plan_id=p.id ORDER BY position LIMIT 1))
+             FROM plans p WHERE id=?1",
+            params![plan_id,parent_task_id], |row| column(row,0),
+        ).optional().map_err(db_error)?.ok_or(PlanError::NotFound)
+    }
+
     pub(in crate::service_plan) fn task_owner_epoch_projection(
         &self,
         reference: &str,

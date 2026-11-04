@@ -1,5 +1,5 @@
 use super::{PlanError, PlanStore};
-use crate::plan::TaskFiles;
+use crate::plan::{PlanMode, PlanningState, TaskFiles};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct TaskOwnerEpochRead {
@@ -20,7 +20,44 @@ pub struct TaskContextFilesRead {
     pub files: TaskFiles,
 }
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct PlanTaskAdmissionRead {
+    pub mode: PlanMode,
+    pub planning_state: PlanningState,
+}
+
+impl PlanTaskAdmissionRead {
+    pub fn execution_tasks_unlocked(&self) -> bool {
+        !matches!(self.mode, PlanMode::Complete | PlanMode::Paused)
+            && (self.planning_state.allows_execution_tasks()
+                || matches!(self.mode, PlanMode::Approved | PlanMode::Execution))
+    }
+}
+
 impl PlanStore {
+    pub fn task_authority_target_projection(
+        &self,
+        task_ref: &str,
+    ) -> Result<super::TaskBindingRead, PlanError> {
+        self.database.task_authority_target_projection(task_ref)
+    }
+
+    pub fn plan_task_admission_projection(
+        &self,
+        plan_id: &str,
+    ) -> Result<PlanTaskAdmissionRead, PlanError> {
+        self.database.plan_task_admission_projection(plan_id)
+    }
+
+    pub fn unplanned_task_section_projection(
+        &self,
+        plan_id: &str,
+        parent_task_id: Option<&str>,
+    ) -> Result<Option<String>, PlanError> {
+        self.database
+            .unplanned_task_section_projection(plan_id, parent_task_id)
+    }
+
     pub fn task_context_files_projection(
         &self,
         task_ref: &str,

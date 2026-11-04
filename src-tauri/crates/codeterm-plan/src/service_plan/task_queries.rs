@@ -312,16 +312,9 @@ impl PlanStore {
         taken_by_role: Option<&str>,
         now_ms: u64,
     ) -> Result<String, PlanError> {
-        let candidates = self.plans_matching(&task_ref_candidates(task_id));
-        let Some((plan_id, canonical_task_id)) = candidates.into_iter().find_map(|plan| {
-            if plan.status == PlanStatus::Archived {
-                return None;
-            }
-            crate::plan::task_key::find_task(&plan.tasks, task_id)
-                .map(|task| (plan.id, task.id.clone()))
-        }) else {
-            return Err(PlanError::TaskNotFound);
-        };
+        let target = self.task_authority_target_projection(task_id)?;
+        let plan_id = target.plan_id;
+        let canonical_task_id = target.task_id;
         let write = self.with_plan(&plan_id, now_ms, |p| {
             let task_index = p
                 .tasks

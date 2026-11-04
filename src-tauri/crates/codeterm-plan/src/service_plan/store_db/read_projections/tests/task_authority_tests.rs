@@ -351,3 +351,151 @@ fn context_files_select_only_requested_task_metadata_across_growth_variants() {
         assert!(database.task_context_files_projection("task_0000").is_err());
     }
 }
+
+#[test]
+fn plan_admission_preserves_mode_and_approval_decisions_and_missing_errors() {
+    use crate::plan::{PlanMode, PlanningState};
+    let directory = tempfile::tempdir().unwrap();
+    let mut plan = authority_plan(directory.path());
+    let database = fixtures::database(directory.path(), &plan);
+    for mode in [
+        PlanMode::Planning,
+        PlanMode::Approved,
+        PlanMode::Execution,
+        PlanMode::Paused,
+        PlanMode::Complete,
+    ] {
+        for state in [
+            PlanningState::Drafting,
+            PlanningState::StructureReady,
+            PlanningState::Approved,
+        ] {
+            plan.mode = mode.clone();
+            plan.planning_state = state;
+            database.persist_plan_rows(&plan, None).unwrap();
+            let selected = database.plan_task_admission_projection(&plan.id).unwrap();
+            assert_eq!(
+                selected.execution_tasks_unlocked(),
+                plan.execution_tasks_unlocked()
+            );
+            assert_eq!(selected.planning_state, plan.planning_state);
+        }
+    }
+    assert!(matches!(
+        database.plan_task_admission_projection("missing"),
+        Err(PlanError::NotFound)
+    ));
+    assert!(matches!(
+        database.ensure_plan_exists("missing"),
+        Err(PlanError::NotFound)
+    ));
+    database.connection.lock().execute("UPDATE plans SET header_json=json_set(header_json,'$.planning_state','invalid') WHERE id=?1",[&plan.id]).unwrap();
+    assert!(database.plan_task_admission_projection(&plan.id).is_err());
+}
+
+#[test]
+fn unplanned_section_prefers_parent_then_first_root_and_distinguishes_absent_plan() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut plan = authority_plan(directory.path());
+    plan.sections = serde_json::from_value(json!([
+        {"id":"first","title":"First","subsections":[{"id":"nested","title":"Nested"}]},
+        {"id":"second","title":"Second"}
+    ]))
+    .unwrap();
+    plan.tasks[0].section_ids = vec!["second".into(), "nested".into()];
+    let database = fixtures::database(directory.path(), &plan);
+    assert_eq!(
+        database
+            .unplanned_task_section_projection(&plan.id, Some("task_exact"))
+            .unwrap()
+            .as_deref(),
+        Some("second")
+    );
+    for parent in [None, Some("missing")] {
+        assert_eq!(
+            database
+                .unplanned_task_section_projection(&plan.id, parent)
+                .unwrap()
+                .as_deref(),
+            Some("first")
+        );
+    }
+    plan.tasks[0].section_ids.clear();
+    database.persist_plan_rows(&plan, None).unwrap();
+    assert_eq!(
+        database
+            .unplanned_task_section_projection(&plan.id, Some("task_exact"))
+            .unwrap()
+            .as_deref(),
+        Some("first")
+    );
+    plan.sections.clear();
+    database.persist_plan_rows(&plan, None).unwrap();
+    assert_eq!(
+        database
+            .unplanned_task_section_projection(&plan.id, None)
+            .unwrap(),
+        None
+    );
+    assert!(matches!(
+        database.unplanned_task_section_projection("missing", None),
+        Err(PlanError::NotFound)
+    ));
+}
+
+#[test]
+fn admission_target_and_unplanned_section_reads_have_fixed_materialization() {
+    let mut prior = None;
+    for (strides, attempts, body, history) in [
+        (0, 1, 0, 0),
+        (2048, 1, 0, 0),
+        (0, 2048, 0, 0),
+        (0, 1, 32768, 0),
+        (0, 1, 0, 2048),
+    ] {
+        let directory = tempfile::tempdir().unwrap();
+        let mut plan = fixtures::fixture(directory.path(), strides, attempts);
+        plan.tasks[0].section_ids = vec!["selected".into()];
+        plan.tasks[0].body.push_str(&"x".repeat(body));
+        plan.tasks[1].body.push_str(&"x".repeat(body));
+        let source = plan.tasks[0].execution_attempts[0].clone();
+        for index in 0..history {
+            let mut old = source.clone();
+            old.id = format!("unselected-{index}");
+            old.closed_at = Some(1);
+            plan.tasks[0].execution_attempts.push(old);
+        }
+        let database = fixtures::database(directory.path(), &plan);
+        fixtures::audit(&database);
+        take_metrics();
+        super::super::super::super::store_sync::take_decoded_row_bytes();
+        super::super::super::super::store_rows::take_serialized_row_bytes();
+        database.ensure_plan_exists(&plan.id).unwrap();
+        let admission = database.plan_task_admission_projection(&plan.id).unwrap();
+        let target = database
+            .task_authority_target_projection("fixture-0000")
+            .unwrap();
+        let section = database
+            .unplanned_task_section_projection(&plan.id, Some("task_0000"))
+            .unwrap();
+        assert_eq!(target.task_id, "task_0000");
+        assert_eq!(section.as_deref(), Some("selected"));
+        let metrics = take_metrics();
+        let decoded = super::super::super::super::store_sync::take_decoded_row_bytes();
+        let serialized = super::super::super::super::store_rows::take_serialized_row_bytes();
+        let response = serde_json::to_vec(&(admission, target, section))
+            .unwrap()
+            .len();
+        assert_eq!(metrics.queries, 4);
+        assert!(metrics.materialized_bytes < 256);
+        assert!(decoded < 256);
+        assert_eq!(serialized, 0);
+        assert!(fixtures::audit_counts(&database).is_empty());
+        println!("fixture={} consumer=task_admission tasks={} base_bytes={} old_strides={strides} unrelated_attempts={attempts} extra_body={body} unselected_target_history={history} queries={} materialized_text_bytes={} decoded_json_bytes={decoded} serialized_row_bytes={serialized} response_bytes={response} changed_rows=0",fixtures::SEED,fixtures::TASKS,fixtures::CONTENT_BYTES,metrics.queries,metrics.materialized_bytes);
+        let measured = (metrics, decoded, response);
+        if let Some(prior) = &prior {
+            assert_eq!(&measured, prior);
+        }
+        prior = Some(measured);
+    }
+}
