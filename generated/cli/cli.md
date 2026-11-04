@@ -380,6 +380,7 @@ Spawn a new agent; roleless unless --role is provided.
 - `--plan` — Plan id to bind — required for `--role Planner` to auto-bind Plan.planner and deliver the peer prompt naming the Orchestrator
 - `--plan-task` — Plan task to bind when spawning `--role Worker` (handle, id, or prefix)
 - `--preset` — Select a provider-owned preset supported by the target provider
+- `--profile` — ACP launch profile declared by the provider
 - `--provider-reserve-pct` — Advisory provider allowance reserve for a mutating Worker: below it, or when exhausted, the receipt warns; it never blocks the spawn
 - `--reason` — Why this Worker needs an unplanned task
 - `--reasoning-effort` — Reasoning-effort level supported by the selected model. The provider's list is used when that model publishes no per-model levels; unsupported values are rejected, never silently downgraded
@@ -1058,6 +1059,17 @@ Show current keep-awake status (default)
 #### `domios keepawake stop`
 
 Stop the current keep-awake session
+
+#### `domios mcp`
+
+Tab-scoped MCP tools using inherited launch authority
+
+#### `domios mcp serve`
+
+Serve tab-scoped Domios tools over MCP stdio using inherited authority
+
+- `--binding-nonce`
+- `--tab`
 
 #### `domios mem`
 
@@ -3026,6 +3038,7 @@ Spawn a worker, assign the task, and deliver its brief in one atomic call
 - `--parent-tab` — Parent tab override (defaults to the caller tab)
 - `--placement`
 - `<plan_id>`
+- `--profile` — ACP launch profile declared by the provider
 - `--provider-reserve-pct` — Advisory provider allowance reserve for mutating work: below it, or when exhausted, the receipt carries a provider_allowance_low warning; never blocks (0 = warn only when exhausted)
 - `--reasoning-effort` — Selected-model reasoning effort; provider fallback applies without per-model levels (rejected if unsupported)
 - `--sandbox` — Explicit OS confinement for this launch; Workers default to full access
@@ -3112,6 +3125,7 @@ Respawn a worker from one prior attempt, inheriting its recorded execution inten
 - `--model`
 - `--parent`
 - `<plan_id>`
+- `--profile` — ACP launch profile; inherits the source attempt when omitted and the provider stays the same
 - `--provider`
 - `--reasoning-effort`
 - `--speed` — Provider-declared service tier for this launch
