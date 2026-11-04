@@ -549,18 +549,24 @@ fn reminder_candidate_plans_never_loads_unmatched_plans() {
     start(&store);
 
     let ids: Vec<_> = store
-        .reminder_candidate_plans()
+        .reminder_read_snapshot(str::to_string)
+        .unwrap()
+        .candidates(None)
+        .unwrap()
         .into_iter()
         .map(|plan| plan.id)
         .collect();
     assert_eq!(ids, vec![working.clone()]);
     let for_tab: Vec<_> = store
-        .reminder_candidate_plans_for_tab("w1")
+        .reminder_read_snapshot(str::to_string)
+        .unwrap()
+        .candidates(Some("w1"))
+        .unwrap()
         .into_iter()
         .map(|plan| plan.id)
         .collect();
-    assert_eq!(for_tab, vec![working]);
-    assert_never_loaded(&store, &[&archived, &finished]);
+    assert_eq!(for_tab, vec![working.clone()]);
+    assert_never_loaded(&store, &[&working, &archived, &finished]);
 }
 
 #[test]

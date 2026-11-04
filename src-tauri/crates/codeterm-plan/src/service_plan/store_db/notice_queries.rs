@@ -1,9 +1,8 @@
-use super::read_projections::{column, record_query};
+use super::read_projections::{column, decode, record_query};
 use super::{db_error, PlanDatabase};
-use crate::plan::Milestone;
 use crate::service_plan::status_projection::PlanNoticeRead;
 use crate::service_plan::PlanError;
-use rusqlite::params;
+use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
 
 const LANES: &str = "WITH eligible AS (
     SELECT task_id,position,row_json,
@@ -27,52 +26,77 @@ const LANES: &str = "WITH eligible AS (
     ) SELECT peer,path,safety,unsafe_lane,count(*) OVER() FROM ranked WHERE rank=1
       ORDER BY unsafe_lane DESC,peer,path LIMIT 5";
 
+#[derive(serde::Deserialize)]
+struct ScopeRead {
+    mode: crate::plan::PlanMode,
+    owner_tab_id: Option<String>,
+    team_id: Option<String>,
+    complete: bool,
+}
+
 impl PlanDatabase {
     pub(in crate::service_plan) fn notice_projection(
         &self,
-        plan_id: &str,
-        now_ms: u64,
-        selected_learnings: &[String],
+        id: &str,
     ) -> Result<PlanNoticeRead, PlanError> {
-        let mut connection = self.connection.lock();
-        let transaction = connection.transaction().map_err(db_error)?;
-        let status = super::status_queries::load_status_projection(
-            &transaction,
-            plan_id,
-            now_ms,
-            selected_learnings,
-        )?;
-        let mut plan = status.plan;
+        let connection = Connection::open_with_flags(
+            self.path(),
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )
+        .map_err(db_error)?;
+        connection
+            .busy_timeout(std::time::Duration::from_secs(5))
+            .map_err(db_error)?;
+        super::status_queries::register_functions(&connection)?;
+        super::curator_notice_queries::register_functions(&connection)?;
+        connection
+            .execute_batch("BEGIN DEFERRED TRANSACTION")
+            .map_err(db_error)?;
         record_query();
-        let latest_map: u64 = transaction.query_row(
-            "SELECT coalesce(max(ts),0) FROM (
-                SELECT json_extract(row_json,'$.ts') AS ts FROM plan_strides
-                WHERE plan_id=?1 AND json_extract(row_json,'$.kind') IN ('map_requested','map_generated')
-                UNION ALL SELECT json_extract(row_json,'$.ts') FROM plan_task_milestones
-                WHERE plan_id=?1 AND json_extract(row_json,'$.kind') IN ('map_requested','map_generated'))",
-            [plan_id], |row| row.get(0),
-        ).map_err(db_error)?;
-        if latest_map > 0 {
-            plan.strides.push(Milestone {
-                id: "sql-notice-map-marker".into(),
-                from: Default::default(),
-                kind: "map_requested".into(),
-                text: String::new(),
-                ts: latest_map,
-                links: vec![],
-                loop_id: None,
-                iteration: None,
-                canvas: Default::default(),
-                attachments: vec![],
-            });
-        }
-        let (finished_lanes, lane_candidates) = recorded_finished_lanes(&transaction, plan_id)?;
-        transaction.commit().map_err(db_error)?;
+        let raw:String=connection.query_row("SELECT json_object('owner_tab_id',CASE WHEN json_type(header_json,'$.owner')='object' THEN json_extract(header_json,'$.owner.tab_id') ELSE json('{}') END,
+            'team_id',json_extract(header_json,'$.team_id'),'mode',CASE WHEN json_type(header_json,'$.mode') IS NULL THEN 'planning' ELSE json_extract(header_json,'$.mode') END,
+            'complete',json(CASE WHEN EXISTS(SELECT 1 FROM plan_tasks WHERE plan_id=?1) AND NOT EXISTS(SELECT 1 FROM plan_tasks WHERE plan_id=?1 AND status NOT IN ('done','cancelled')) THEN 'true' ELSE 'false' END))
+            FROM plans WHERE id=?1",[id],|row|column(row,0)).optional().map_err(db_error)?.ok_or(PlanError::NotFound)?;
+        let scope: ScopeRead = decode(id, &raw)?;
         Ok(PlanNoticeRead {
-            plan,
-            finished_lanes,
-            lane_candidates,
+            connection,
+            plan_id: id.into(),
+            mode: scope.mode,
+            owner_tab_id: scope.owner_tab_id,
+            team_id: scope.team_id,
+            complete: scope.complete,
         })
+    }
+}
+
+impl PlanNoticeRead {
+    pub fn digest_input(
+        &self,
+        now: u64,
+        targets: &crate::service_plan::NoticeInventoryTargets,
+    ) -> Result<crate::service_plan::NoticeDigestInput, PlanError> {
+        super::read_projections::reminder_digests::notice_digest_input(
+            &self.connection,
+            &self.plan_id,
+            now,
+            targets,
+        )
+    }
+
+    pub fn prepend_heartbeat(
+        &self,
+        now: u64,
+        text: &str,
+        digests: &[String],
+        selection: Option<&[String]>,
+    ) -> Result<String, PlanError> {
+        super::curator_notice_queries::heartbeat_snapshot(
+            &self.connection,
+            &self.plan_id,
+            now,
+            selection,
+        )
+        .map(|read| read.prepend(text, digests))
     }
 }
 

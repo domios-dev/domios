@@ -322,22 +322,6 @@ impl PlanStore {
         self.database.loop_rows()
     }
 
-    /// Active execution plans with unfinished work: the only plans reminder ticks act on.
-    pub fn reminder_candidate_plans(&self) -> Vec<Plan> {
-        self.plans_matching(&reminder_candidates())
-    }
-
-    /// Reminder candidates this tab owns or holds an assignment in.
-    pub fn reminder_candidate_plans_for_tab(&self, tab_id: &str) -> Vec<Plan> {
-        if tab_id.trim().is_empty() {
-            return Vec::new();
-        }
-        self.plans_matching(&reminder_candidates().and(PlanMatch::Any(vec![
-            PlanMatch::owner(tab_id),
-            TaskMatch::assigned(tab_id, &plan_match::NON_TERMINAL_TASK_STATUSES),
-        ])))
-    }
-
     /// Plans bound to the Team or holding work of one of its member tabs.
     pub fn team_close_plans(&self, team_id: &str, member_tab_ids: &[String]) -> Vec<Plan> {
         self.plans_matching(&team_close_candidates(team_id, member_tab_ids))
@@ -440,17 +424,6 @@ impl PlanStore {
             self.spec_index.write().remove(&spec_id);
         }
     }
-}
-
-fn reminder_candidates() -> PlanMatch {
-    PlanMatch::active()
-        .and(PlanMatch::Mode(PlanMode::Execution))
-        .and(TaskMatch::with_status(&[
-            TaskStatus::Pending,
-            TaskStatus::InProgress,
-            TaskStatus::InReview,
-            TaskStatus::Blocked,
-        ]))
 }
 
 pub(super) fn team_close_candidates(team_id: &str, member_tab_ids: &[String]) -> PlanMatch {
