@@ -8,6 +8,8 @@ use codeterm_service_core::service::{SpawnAgentParams, TeamMutationCaller};
 use serde_json::{json, Value};
 
 struct UnplannedFixture {
+    // Declared first so dispatch startup joins before the fixture directories drop.
+    startups: super::startup_tasks::StartupTasksGuard,
     fixture: ServiceFixture,
     plan_id: String,
     team_id: String,
@@ -63,6 +65,7 @@ fn fixture() -> UnplannedFixture {
         owner.reported_session_binding_nonce = Some("unplanned-owner-nonce".into());
     }
     let fixture = ServiceFixture::new(mux);
+    let startups = super::startup_tasks::StartupTasks::install(&fixture.service);
     let storage = fixture.install_seeded_storage_desk();
     install_team_close_ports(&fixture, &storage);
     let project = tempfile::tempdir().unwrap();
@@ -105,6 +108,7 @@ fn fixture() -> UnplannedFixture {
         .require_agent_provider_ready("unplanned-dispatch-provider")
         .unwrap();
     UnplannedFixture {
+        startups,
         fixture,
         plan_id: plan.id,
         team_id,
@@ -287,10 +291,9 @@ fn ease_unplanned_worker_keeps_explicit_work_tags_and_infers_missing_tags() {
         if explicit {
             request["tags"] = json!(["work:qa"]);
         }
-        let startups = super::startup_tasks::StartupTasks::install(&harness.fixture.service);
         let response = dispatch(&harness, &Some(request)).unwrap();
         // Startup verifies the lane with Git after dispatch has returned.
-        startups.finish();
+        harness.startups.finish();
         let task = harness
             .fixture
             .service
@@ -420,6 +423,9 @@ fn unplanned_worker_requires_reason_and_orchestrator_authority() {
 fn team_close_cleans_up_unplanned_worker() {
     let harness = fixture();
     let response = dispatch(&harness, &params(&harness, "urgent probe")).unwrap();
+    // Close after startup observed the bound session; an earlier close
+    // would make startup wait out the cold-start deadline.
+    harness.startups.finish();
     let task_id = response["task_id"].as_str().unwrap().to_string();
     let tab_id = response["tab_id"].as_str().unwrap().to_string();
     {
@@ -521,10 +527,9 @@ fn unplanned_foreign_repository_worktree_never_provisions_a_project_lane() {
     );
     let mut request = params(&harness, "foreign repository probe").unwrap();
     request["cwd"] = json!(foreign_worktree);
-    let startups = super::startup_tasks::StartupTasks::install(&harness.fixture.service);
     let response = dispatch(&harness, &Some(request)).unwrap();
     // Startup verifies the foreign checkout with Git after dispatch has returned.
-    startups.finish();
+    harness.startups.finish();
     let task = harness
         .fixture
         .service
