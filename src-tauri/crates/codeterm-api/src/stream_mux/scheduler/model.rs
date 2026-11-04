@@ -10,7 +10,7 @@ const INTERACTIVE_BURST: usize = 8;
 /// Bulk RPC payload bytes the writer may hand to the socket before the client credits them: large enough
 /// for a remote bandwidth-delay product, small enough that kernel buffers never hold megabytes of bulk
 /// ahead of interactive frames.
-pub(crate) const BULK_WINDOW: u64 = 1024 * 1024;
+pub(crate) const BULK_WINDOW: u64 = 4 * 1024 * 1024;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Traffic {
