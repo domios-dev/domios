@@ -42,19 +42,22 @@ fn reported_task() -> (tempfile::TempDir, PlanStore, String, String, String) {
     store
         .assign_task(&plan.id, &task_id, "executor", None, 3)
         .unwrap();
-    assert!(store
-        .ingest_bound_worker_report(
-            &plan.id,
-            &task_id,
-            &AgentRef::from_tab("executor"),
-            BoundWorkerReport {
-                message: "implementation ready".into(),
-                status: Some(ReportStatus::InReview),
-                ..Default::default()
-            },
-            4,
-        )
-        .unwrap());
+    assert!(
+        store
+            .ingest_bound_worker_report(
+                &plan.id,
+                &task_id,
+                &AgentRef::from_tab("executor"),
+                BoundWorkerReport {
+                    message: "implementation ready".into(),
+                    status: Some(ReportStatus::InReview),
+                    ..Default::default()
+                },
+                4,
+            )
+            .unwrap()
+            .committed_review
+    );
     (root, store, plan.id, task_id, checkout)
 }
 

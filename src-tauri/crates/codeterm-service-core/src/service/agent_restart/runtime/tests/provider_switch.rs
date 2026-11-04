@@ -124,7 +124,7 @@ fn completed_worker_switch_preserves_history_without_task_authority_and_delivers
         },
         7,
     );
-    assert!(matches!(report, Ok(false)));
+    assert!(report.is_ok_and(|receipt| !receipt.committed_review && receipt.milestone_id.is_none()));
     assert_eq!(
         store.inspect_task_for_test(&task_id).unwrap().task,
         before.task

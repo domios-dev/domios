@@ -56,15 +56,18 @@ fn real_ingest_fixture() -> (
         session_binding_nonce: "worker-nonce".into(),
         owner_epoch: assigned.interruption.owner_epoch,
     };
-    assert!(store
-        .ingest_bound_worker_report(
-            &plan_id,
-            &task_id,
-            &AgentRef::from_tab("worker"),
-            bound_report(authority.clone(), "first review report"),
-            5,
-        )
-        .unwrap());
+    assert!(
+        store
+            .ingest_bound_worker_report(
+                &plan_id,
+                &task_id,
+                &AgentRef::from_tab("worker"),
+                bound_report(authority.clone(), "first review report"),
+                5,
+            )
+            .unwrap()
+            .committed_review
+    );
     (dir, store, plan_id, task_id, attempt_id, authority)
 }
 
@@ -172,15 +175,18 @@ fn review_bounce_fresh_real_report_starts_new_generation_and_fences_old_epoch() 
         store.inspect_task_for_test(&task_id).unwrap().task.status,
         crate::plan::TaskStatus::InProgress
     );
-    assert!(store
-        .ingest_bound_worker_report(
-            &plan_id,
-            &task_id,
-            &AgentRef::from_tab("worker"),
-            bound_report(authority.clone(), "fresh review report"),
-            9,
-        )
-        .unwrap());
+    assert!(
+        store
+            .ingest_bound_worker_report(
+                &plan_id,
+                &task_id,
+                &AgentRef::from_tab("worker"),
+                bound_report(authority.clone(), "fresh review report"),
+                9,
+            )
+            .unwrap()
+            .committed_review
+    );
     let fresh_entry = store.inspect_task_for_test(&task_id).unwrap().task;
     let fresh_attempt = &fresh_entry.execution_attempts[0];
     assert_eq!(fresh_entry.status, crate::plan::TaskStatus::InReview);
@@ -272,15 +278,18 @@ fn review_bounce_fresh_real_report_starts_new_generation_and_fences_old_epoch() 
         store.inspect_task_for_test(&task_id).unwrap().task.status,
         crate::plan::TaskStatus::InProgress
     );
-    assert!(store
-        .ingest_bound_worker_report(
-            &plan_id,
-            &task_id,
-            &AgentRef::from_tab("worker"),
-            bound_report(authority.clone(), "third review report"),
-            16
-        )
-        .unwrap());
+    assert!(
+        store
+            .ingest_bound_worker_report(
+                &plan_id,
+                &task_id,
+                &AgentRef::from_tab("worker"),
+                bound_report(authority.clone(), "third review report"),
+                16
+            )
+            .unwrap()
+            .committed_review
+    );
     let third = store
         .bounce_review(
             &plan_id,

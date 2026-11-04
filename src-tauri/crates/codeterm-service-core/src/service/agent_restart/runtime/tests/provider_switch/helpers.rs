@@ -117,7 +117,8 @@ pub(super) fn assert_completed_session_has_no_task_authority(
             },
             9,
         )
-        .unwrap();
+        .unwrap()
+        .committed_review;
     assert!(!report);
     assert!(!fixture
         .service

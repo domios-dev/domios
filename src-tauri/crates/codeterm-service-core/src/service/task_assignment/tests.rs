@@ -88,21 +88,24 @@ fn roundtrip(authorized: bool) {
         owner_epoch: assigned.interruption.owner_epoch,
         ..owner
     };
-    assert!(store
-        .ingest_bound_worker_report(
-            &plan,
-            &task,
-            &AgentRef::from_tab(&tab),
-            BoundWorkerReport {
-                message: "candidate".into(),
-                status: Some(ReportStatus::InReview),
-                sha: Some("abcdef123456".into()),
-                authority: Some(authority),
-                ..Default::default()
-            },
-            5
-        )
-        .unwrap());
+    assert!(
+        store
+            .ingest_bound_worker_report(
+                &plan,
+                &task,
+                &AgentRef::from_tab(&tab),
+                BoundWorkerReport {
+                    message: "candidate".into(),
+                    status: Some(ReportStatus::InReview),
+                    sha: Some("abcdef123456".into()),
+                    authority: Some(authority),
+                    ..Default::default()
+                },
+                5
+            )
+            .unwrap()
+            .committed_review
+    );
     let bounce = store
         .bounce_review(
             &plan,

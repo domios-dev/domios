@@ -123,15 +123,18 @@ fn assigned_review(store: &PlanStore, plan: &str, task: &str, authorized: bool) 
     store
         .acknowledge_task_attempt(plan, task, "worker", &attempt_id, 4)
         .unwrap();
-    assert!(store
-        .ingest_bound_worker_report(
-            plan,
-            task,
-            &AgentRef::from_tab("worker"),
-            report(authority(&assigned, "worker")),
-            5
-        )
-        .unwrap());
+    assert!(
+        store
+            .ingest_bound_worker_report(
+                plan,
+                task,
+                &AgentRef::from_tab("worker"),
+                report(authority(&assigned, "worker")),
+                5
+            )
+            .unwrap()
+            .committed_review
+    );
     assert_eq!(
         store.inspect_task_for_test(task).unwrap().task.status,
         TaskStatus::InReview
@@ -284,28 +287,34 @@ fn lifecycle_reassignment_review_respawn_ack_preserves_history_and_fences_retire
     assert!(store
         .acknowledge_task_attempt(&plan, &task, "worker", &previous_id, 8)
         .is_err());
-    assert!(!store
-        .ingest_bound_worker_report(
-            &plan,
-            &task,
-            &AgentRef::from_tab("worker"),
-            report(authority(&previous, "worker")),
-            8
-        )
-        .unwrap());
+    assert!(
+        !store
+            .ingest_bound_worker_report(
+                &plan,
+                &task,
+                &AgentRef::from_tab("worker"),
+                report(authority(&previous, "worker")),
+                8
+            )
+            .unwrap()
+            .committed_review
+    );
     let ack = store
         .acknowledge_task_attempt(&plan, &task, "replacement", &replacement.attempt.id, 9)
         .unwrap();
     assert_eq!(ack.attempt.acknowledged_at, Some(9));
-    assert!(store
-        .ingest_bound_worker_report(
-            &plan,
-            &task,
-            &AgentRef::from_tab("replacement"),
-            report(authority(&ready, "replacement")),
-            10
-        )
-        .unwrap());
+    assert!(
+        store
+            .ingest_bound_worker_report(
+                &plan,
+                &task,
+                &AgentRef::from_tab("replacement"),
+                report(authority(&ready, "replacement")),
+                10
+            )
+            .unwrap()
+            .committed_review
+    );
 }
 
 #[test]

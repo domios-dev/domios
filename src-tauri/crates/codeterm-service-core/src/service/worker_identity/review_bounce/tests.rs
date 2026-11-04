@@ -241,26 +241,28 @@ fn reported_second_round_restart_bounce_restores_the_idle_continuation_epoch() {
         .finish_review_continuation(&f.plan_id, &f.task_id, &f.attempt_id, epoch, true, 9)
         .unwrap();
     let task = f.store.inspect_task_for_test(&f.task_id).unwrap().task;
-    assert!(f
-        .store
-        .ingest_bound_worker_report(
-            &f.plan_id,
-            &f.task_id,
-            &AgentRef::from_tab(&f.tab_id),
-            crate::service::plan::task_attempts::BoundWorkerReport {
-                message: "second report".into(),
-                status: Some(ReportStatus::InReview),
-                authority: Some(crate::service::plan::interruption::TaskMutationAuthority {
-                    tab_id: f.tab_id.clone(),
-                    session_id: SESSION.into(),
-                    session_binding_nonce: CURRENT_NONCE.into(),
-                    owner_epoch: task.interruption.owner_epoch,
-                }),
-                ..Default::default()
-            },
-            10,
-        )
-        .unwrap());
+    assert!(
+        f.store
+            .ingest_bound_worker_report(
+                &f.plan_id,
+                &f.task_id,
+                &AgentRef::from_tab(&f.tab_id),
+                crate::service::plan::task_attempts::BoundWorkerReport {
+                    message: "second report".into(),
+                    status: Some(ReportStatus::InReview),
+                    authority: Some(crate::service::plan::interruption::TaskMutationAuthority {
+                        tab_id: f.tab_id.clone(),
+                        session_id: SESSION.into(),
+                        session_binding_nonce: CURRENT_NONCE.into(),
+                        owner_epoch: task.interruption.owner_epoch,
+                    }),
+                    ..Default::default()
+                },
+                10,
+            )
+            .unwrap()
+            .committed_review
+    );
     let mut f = f;
     drop(f.store);
     f.store = PlanStore::new_for_test(f.dir.path());

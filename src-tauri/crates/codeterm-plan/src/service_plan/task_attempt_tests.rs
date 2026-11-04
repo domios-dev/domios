@@ -314,15 +314,18 @@ fn undeclared_gate_claim_is_rejected_by_stable_error_code_before_persistence() {
 #[test]
 fn bound_in_review_report_advances_atomically() {
     let (_dir, store, plan_id, task_id) = bound_report_store();
-    assert!(store
-        .ingest_bound_worker_report(
-            &plan_id,
-            &task_id,
-            &AgentRef::from_tab("worker"),
-            worker_report(ReportStatus::InReview, Some("abc123")),
-            4,
-        )
-        .unwrap());
+    assert!(
+        store
+            .ingest_bound_worker_report(
+                &plan_id,
+                &task_id,
+                &AgentRef::from_tab("worker"),
+                worker_report(ReportStatus::InReview, Some("abc123")),
+                4,
+            )
+            .unwrap()
+            .committed_review
+    );
 
     let task = store.get(&plan_id).unwrap().tasks.remove(0);
     assert_eq!(task.status, TaskStatus::InReview);
@@ -336,15 +339,18 @@ fn bound_in_review_report_advances_atomically() {
 #[test]
 fn in_review_report_without_sha_still_advances_bound_task() {
     let (_dir, store, plan_id, task_id) = bound_report_store();
-    assert!(store
-        .ingest_bound_worker_report(
-            &plan_id,
-            &task_id,
-            &AgentRef::from_tab("worker"),
-            worker_report(ReportStatus::InReview, None),
-            4,
-        )
-        .unwrap());
+    assert!(
+        store
+            .ingest_bound_worker_report(
+                &plan_id,
+                &task_id,
+                &AgentRef::from_tab("worker"),
+                worker_report(ReportStatus::InReview, None),
+                4,
+            )
+            .unwrap()
+            .committed_review
+    );
     let task = store.get(&plan_id).unwrap().tasks.remove(0);
     assert_eq!(task.status, TaskStatus::InReview);
     assert!(task.execution_attempts[0].report.is_some());
@@ -355,15 +361,18 @@ fn in_review_report_without_sha_still_advances_bound_task() {
 fn partial_report_keeps_bound_task_actionable() {
     let (_dir, store, plan_id, task_id) = bound_report_store();
     mark_bound_task_in_progress(&store, &plan_id, &task_id);
-    assert!(!store
-        .ingest_bound_worker_report(
-            &plan_id,
-            &task_id,
-            &AgentRef::from_tab("worker"),
-            worker_report(ReportStatus::Partial, Some("abc123")),
-            4,
-        )
-        .unwrap());
+    assert!(
+        !store
+            .ingest_bound_worker_report(
+                &plan_id,
+                &task_id,
+                &AgentRef::from_tab("worker"),
+                worker_report(ReportStatus::Partial, Some("abc123")),
+                4,
+            )
+            .unwrap()
+            .committed_review
+    );
     let task = store.get(&plan_id).unwrap().tasks.remove(0);
     assert_eq!(task.status, TaskStatus::InProgress);
     assert_eq!(task.assigned_tab_id.as_deref(), Some("worker"));
@@ -389,9 +398,18 @@ fn blocked_report_is_persisted_as_a_proposal_without_moving_the_task() {
         .unwrap();
     let report = worker_report(ReportStatus::Blocked, None);
     let reason = report.message.clone();
-    assert!(!store
-        .ingest_bound_worker_report(&plan_id, &task_id, &AgentRef::from_tab("worker"), report, 4,)
-        .unwrap());
+    assert!(
+        !store
+            .ingest_bound_worker_report(
+                &plan_id,
+                &task_id,
+                &AgentRef::from_tab("worker"),
+                report,
+                4,
+            )
+            .unwrap()
+            .committed_review
+    );
 
     let task = store.get(&plan_id).unwrap().tasks.remove(0);
     assert_eq!(task.status, TaskStatus::InProgress);
@@ -426,15 +444,18 @@ fn blocked_report_on_in_review_task_is_kept_as_a_milestone() {
 
     let mut blocked = worker_report(ReportStatus::Blocked, None);
     blocked.message = "review already owns this task".into();
-    assert!(!store
-        .ingest_bound_worker_report(
-            &plan_id,
-            &task_id,
-            &AgentRef::from_tab("worker"),
-            blocked,
-            5,
-        )
-        .unwrap());
+    assert!(
+        !store
+            .ingest_bound_worker_report(
+                &plan_id,
+                &task_id,
+                &AgentRef::from_tab("worker"),
+                blocked,
+                5,
+            )
+            .unwrap()
+            .committed_review
+    );
 
     let task = store.get(&plan_id).unwrap().tasks.remove(0);
     assert_eq!(task.status, TaskStatus::InReview);
@@ -468,15 +489,18 @@ fn partial_report_then_redispatch_reuses_its_own_lane() {
             Ok(())
         })
         .unwrap();
-    assert!(!store
-        .ingest_bound_worker_report(
-            &plan_id,
-            &task_id,
-            &AgentRef::from_tab("worker"),
-            worker_report(ReportStatus::Partial, Some("abc123")),
-            5,
-        )
-        .unwrap());
+    assert!(
+        !store
+            .ingest_bound_worker_report(
+                &plan_id,
+                &task_id,
+                &AgentRef::from_tab("worker"),
+                worker_report(ReportStatus::Partial, Some("abc123")),
+                5,
+            )
+            .unwrap()
+            .committed_review
+    );
 
     let reported = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(reported.status, TaskStatus::Pending);
@@ -550,24 +574,30 @@ fn duplicate_stale_or_unbound_reports_never_regress_task() {
             4,
         )
         .unwrap();
-    assert!(!store
-        .ingest_bound_worker_report(
-            &plan_id,
-            &task_id,
-            &AgentRef::from_tab("worker"),
-            worker_report(ReportStatus::Partial, Some("old")),
-            3,
-        )
-        .unwrap());
-    assert!(!store
-        .ingest_bound_worker_report(
-            &plan_id,
-            &task_id,
-            &AgentRef::from_tab("unbound"),
-            worker_report(ReportStatus::InReview, Some("other")),
-            5,
-        )
-        .unwrap());
+    assert!(
+        !store
+            .ingest_bound_worker_report(
+                &plan_id,
+                &task_id,
+                &AgentRef::from_tab("worker"),
+                worker_report(ReportStatus::Partial, Some("old")),
+                3,
+            )
+            .unwrap()
+            .committed_review
+    );
+    assert!(
+        !store
+            .ingest_bound_worker_report(
+                &plan_id,
+                &task_id,
+                &AgentRef::from_tab("unbound"),
+                worker_report(ReportStatus::InReview, Some("other")),
+                5,
+            )
+            .unwrap()
+            .committed_review
+    );
     let task = store.get(&plan_id).unwrap().tasks.remove(0);
     assert_eq!(task.status, TaskStatus::InReview);
     assert_eq!(
@@ -1103,4 +1133,38 @@ fn concurrent_dispatch_reservations_allow_exactly_one_live_attempt() {
         .collect();
     assert_eq!(open.len(), 1);
     assert_eq!(open[0].id, winner_attempt);
+}
+
+#[test]
+fn bound_report_receipt_identifies_committed_non_review_milestone_and_refused_replay() {
+    let (_dir, store, plan_id, task_id) = bound_report_store();
+    let receipt = store
+        .ingest_bound_worker_report(
+            &plan_id,
+            &task_id,
+            &AgentRef::from_tab("worker"),
+            worker_report(ReportStatus::Blocked, None),
+            4,
+        )
+        .unwrap();
+    assert!(!receipt.committed_review);
+    let id = receipt
+        .milestone_id
+        .expect("a stored report returns its own committed milestone");
+    let task = store.inspect_task_for_test(&task_id).unwrap().task;
+    assert_eq!(task.milestones.len(), 1);
+    assert_eq!(task.milestones[0].id, id);
+    assert_eq!(task.milestones[0].kind, "worker_report");
+    let replay = store
+        .ingest_bound_worker_report(
+            &plan_id,
+            &task_id,
+            &AgentRef::from_tab("worker"),
+            worker_report(ReportStatus::Blocked, None),
+            4,
+        )
+        .unwrap();
+    assert!(!replay.committed_review);
+    assert!(replay.milestone_id.is_none());
+    assert_eq!(store.inspect_task_for_test(&task_id).unwrap().task, task);
 }
