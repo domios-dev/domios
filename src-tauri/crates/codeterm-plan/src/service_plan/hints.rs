@@ -85,7 +85,26 @@ pub fn orchestration_reminder_for_count(count: u64) -> Option<String> {
     }
 }
 
+#[cfg(test)]
+thread_local! {static FIXED_REMINDER_COUNT:std::cell::Cell<Option<u64>>=const {std::cell::Cell::new(None)};}
+#[cfg(test)]
+pub(in crate::service_plan) struct ReminderCountGuard(Option<u64>);
+#[cfg(test)]
+impl Drop for ReminderCountGuard {
+    fn drop(&mut self) {
+        FIXED_REMINDER_COUNT.with(|count| count.set(self.0));
+    }
+}
+#[cfg(test)]
+pub(in crate::service_plan) fn fixed_reminder_count(count: u64) -> ReminderCountGuard {
+    ReminderCountGuard(FIXED_REMINDER_COUNT.with(|value| value.replace(Some(count))))
+}
+
 pub fn maybe_orchestration_reminder() -> Option<String> {
+    #[cfg(test)]
+    if let Some(count) = FIXED_REMINDER_COUNT.with(|value| value.get()) {
+        return orchestration_reminder_for_count(count);
+    }
     let count = ORCHESTRATION_REMINDER_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
     orchestration_reminder_for_count(count)
 }

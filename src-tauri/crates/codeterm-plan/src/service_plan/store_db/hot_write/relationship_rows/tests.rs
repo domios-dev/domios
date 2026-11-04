@@ -150,10 +150,10 @@ fn failed_section_attachment_removes_the_copied_file() {
     );
     plan.sections.push(section());
     let database = fixtures::database(root.path(), &plan);
-    database.connection.lock().execute_batch("CREATE TRIGGER fail_section BEFORE UPDATE ON plan_sections BEGIN SELECT RAISE(ABORT,'injected'); END;").unwrap();
     crate::service_plan::store_db::hot_write::tests::fixtures::remove_observers(&database);
     drop(database);
     let store = PlanStore::open(root.path().join("plans.db")).unwrap();
+    store.database.connection.lock().execute_batch("CREATE TRIGGER fail_section BEFORE UPDATE ON plan_sections BEGIN SELECT RAISE(ABORT,'injected'); END;").unwrap();
     let source = root.path().join("source.txt");
     std::fs::write(&source, "bytes").unwrap();
     assert!(store
