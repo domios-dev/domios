@@ -478,6 +478,11 @@ fn apply(
                     )
                 }
                 RuntimeTurnState::Idle => {
+                    super::super::turn_requests::retire_refused_claims(
+                        session,
+                        &context,
+                        turn_id.as_deref(),
+                    );
                     engine::record_completed_turn(session, &thread_id, turn_id.as_deref());
                     session.state.lock().completed(at, completed_at);
                 }

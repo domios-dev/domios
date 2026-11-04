@@ -135,6 +135,30 @@ pub(super) fn observe_item(
     }
 }
 
+pub(super) fn retire_refused_claims(
+    session: &Session,
+    expected: &RuntimeContext,
+    turn: Option<&str>,
+) {
+    let expired = session
+        .maps
+        .lock()
+        .settle_refused_claims(expected.epoch, turn);
+    if expired.is_empty() {
+        return;
+    }
+    let mut current = session.context.lock();
+    if current.epoch == expected.epoch
+        && current.binding_nonce == expected.binding_nonce
+        && current.thread_id == expected.thread_id
+    {
+        // Keep late refusal evidence eligible only until the next other turn settles.
+        current
+            .claimed_sends
+            .retain(|claim| !expired.contains(&claim.send_id));
+    }
+}
+
 pub(super) fn started_at(
     session: &Session,
     context: &RuntimeContext,

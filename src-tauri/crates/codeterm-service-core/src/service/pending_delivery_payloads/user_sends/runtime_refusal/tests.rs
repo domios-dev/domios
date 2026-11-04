@@ -89,3 +89,49 @@ fn rpc_refusal_is_durable_before_retry_and_later_evidence_discards_it() {
         ChatSendState::Sent
     );
 }
+
+#[test]
+fn unreadable_rpc_refusal_receipt_refuses_loading_and_admission_until_removed() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = UserSendStore::open(dir.path()).unwrap();
+    assert!(store.records("tab").unwrap().is_empty());
+    let path = store.tab("tab").dir.join("index.json");
+    let mut index = serde_json::to_value(UserIndex::default()).unwrap();
+    index["receipts"] = serde_json::json!([{
+        "send_id": uuid::Uuid::new_v4().to_string(), "tab_id":"tab", "client_token":null,
+        "ledger_sequence":"unreadable", "state":"RpcRefused"
+    }]);
+    let unreadable = serde_json::to_vec(&index).unwrap();
+    fs::write(&path, &unreadable).unwrap();
+    drop(store);
+    let reopened = UserSendStore::open(dir.path()).unwrap();
+    assert!(reopened.records("tab").is_err());
+    assert!(reopened.receipts("tab").is_err());
+    assert!(reopened
+        .reserve(
+            UserSendAuthority {
+                tab_id: "tab".into(),
+                pty_id: None,
+                binding_nonce: "nonce".into(),
+                pty_session_generation: None,
+                provider_id: "fixture".into(),
+                session_id: Some("thread".into()),
+                observed_session_id: Some("thread".into()),
+                prelaunch: false,
+            },
+            None,
+            || (uuid::Uuid::new_v4().to_string(), 1)
+        )
+        .is_err());
+    assert_eq!(fs::read(&path).unwrap(), unreadable);
+    // Operator recovery removes only the unreadable refusal receipts before reopening the owner.
+    index["receipts"]
+        .as_array_mut()
+        .unwrap()
+        .retain(|receipt| receipt["state"] != "RpcRefused");
+    fs::write(&path, serde_json::to_vec(&index).unwrap()).unwrap();
+    drop(reopened);
+    let recovered = UserSendStore::open(dir.path()).unwrap();
+    assert!(recovered.records("tab").unwrap().is_empty());
+    assert!(recovered.receipts("tab").unwrap().is_empty());
+}

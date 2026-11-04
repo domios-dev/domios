@@ -193,3 +193,9 @@ settles. Native transcript coverage persists at those settlement events and
 restores the complete ordered rows twice without duplicates. The raw probe used
 stdin credentials in the child environment, scrubbed before writing, and created
 no QA tabs. It proves the wire cause, not the application's repaired live UI.
+
+`active-error-queued-prompt.json` covers an active A prompt returning a correlated
+RPC error while B is queued. A's projection is settled and the queued head is
+promoted exactly as on success, so B's subsequent updates and completion end at
+idle turn 2. A remains a typed Refused result, with no fabricated delivery or
+completion events: the host owns refusal settlement and deferred B activity.

@@ -221,6 +221,27 @@ export function runtimePlan(ctx:RuntimeContext, op:Operation):RuntimePlan {
   }
 }
 
+
+function promoteQueued(ctx:RuntimeContext, state:Negotiation):import("@codeterm/plugin-sdk").AgentEvent[] {
+  const sessionId=ownSession(ctx,state);
+  const events:import("@codeterm/plugin-sdk").AgentEvent[]=[];
+  for (let queued=state.queued?.shift(); queued; queued=state.queued?.shift()) {
+    state.cursor.prompt=queued.prompt;
+    state.promptSend={sendId:queued.sendId};
+    state.inFlight=true;
+    const next=reduceStream(ctx,state.projection ?? null,[],state.cursor);
+    state.projection={...object(next.state),started:true};
+    events.push({kind:"turnState",threadId:sessionId,turnId:`${sessionId}:turn:${queued.prompt}`,state:"working"});
+    if (!queued.completed) break;
+    const settledQueued=settleStream(ctx,state.projection,queued.completed.cancelled ? "cancelled" : "end_turn");
+    state.projection=settledQueued.state;
+    state.inFlight=false;
+    if (queued.completed.usage) events.push({kind:"usage",threadId:sessionId,usage:queued.completed.usage});
+    events.push(...settledQueued.events);
+  }
+  return events;
+}
+
 export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue, reply:RpcReply):RuntimeStep {
   binding(ctx, op);
   const method = object(raw).method;
@@ -234,6 +255,10 @@ export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue,
       if (state.cursor.prompt === turn && state.promptSend?.sendId === op.sendId) {
         state.inFlight=false;
         delete state.promptSend;
+        const projected=reduceStream(ctx,state.projection ?? null,[],state.cursor).state;
+        state.projection=settleStream(ctx,projected,"error").state;
+        // The host settles refusals and starts deferred activity; keep the successor projection ready.
+        promoteQueued(ctx,state);
       }
     }
     if (sessionOperation && ![-32000,-32002,-32601].includes(reply.error.code) && state && !state.sessionActive && object(raw).mcpOffered === true && ctx.hostMcp) {
@@ -346,20 +371,7 @@ export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue,
     state.projection=settled.state;
     const mapped=usage(value.usage);
     const events:import("@codeterm/plugin-sdk").AgentEvent[]=[...(mapped ? [{kind:"usage" as const,threadId:sessionId,usage:mapped}] : []),...settled.events];
-    for (let queued=state.queued?.shift(); queued; queued=state.queued?.shift()) {
-      state.cursor.prompt=queued.prompt;
-      state.promptSend={sendId:queued.sendId};
-      state.inFlight=true;
-      const next=reduceStream(ctx,state.projection,[],state.cursor);
-      state.projection={...object(next.state),started:true};
-      events.push({kind:"turnState",threadId:sessionId,turnId:`${sessionId}:turn:${queued.prompt}`,state:"working"});
-      if (!queued.completed) break;
-      const settledQueued=settleStream(ctx,state.projection,queued.completed.cancelled ? "cancelled" : "end_turn");
-      state.projection=settledQueued.state;
-      state.inFlight=false;
-      if (queued.completed.usage) events.push({kind:"usage",threadId:sessionId,usage:queued.completed.usage});
-      events.push(...settledQueued.events);
-    }
+    events.push(...promoteQueued(ctx,state));
     return {kind:"complete", result:{kind:"turnAccepted", threadId:sessionId, sendId:op.sendId,turnId:`${sessionId}:turn:${turn}`},events};
 
   }
