@@ -8,10 +8,11 @@ use std::collections::BTreeMap;
 const ROWS: &str = "WITH history AS (
     SELECT row_json FROM plan_strides WHERE plan_id=?1
     UNION ALL SELECT row_json FROM plan_task_milestones WHERE plan_id=?1
+    ), completed_tasks AS MATERIALIZED (
+    SELECT plan_id,task_id FROM plan_tasks WHERE plan_id=?1 AND status='done'
     ), episodes AS (
     SELECT DISTINCT json_extract(s.value,'$.slug') AS slug,t.task_id
-    FROM plan_tasks t JOIN plan_task_attempts a USING(plan_id,task_id),json_each(a.row_json,'$.report.loaded_plan_skills') s
-    WHERE t.plan_id=?1 AND t.status='done'
+    FROM completed_tasks t JOIN plan_task_attempts a USING(plan_id,task_id),json_each(a.row_json,'$.report.loaded_plan_skills') s
     ), carried AS MATERIALIZED (
     SELECT json_extract(l.value,'$.id') AS id,json_extract(l.value,'$.text') AS text
     FROM plan_heartbeat h,json_each(h.row_json,'$.learnings') l

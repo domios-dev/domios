@@ -210,7 +210,7 @@ pub(super) fn edit_task_rows<T>(
                 + owner.session_id.as_ref().map_or(0, String::len)
                 + owner.nonce.as_ref().map_or(0, String::len);
         }
-        let superseded = tx.query_row("SELECT EXISTS(SELECT 1 FROM plan_task_attempts prior JOIN plan_task_attempts current ON current.plan_id=prior.plan_id AND current.task_id=prior.task_id WHERE current.plan_id=?1 AND current.task_id=?2 AND current.attempt_id=?3 AND prior.position<current.position AND (prior.executor_tab_id=?4 OR coalesce(json_extract(prior.row_json,'$.interruption.owner_epoch'),0)<coalesce(json_extract(current.row_json,'$.interruption.owner_epoch'),0)))", params![plan_id, task.id, attempt, tab], |row| row.get(0)).map_err(db_error)?;
+        let superseded = tx.query_row("WITH current_attempts AS MATERIALIZED (SELECT plan_id,task_id,position,coalesce(json_extract(row_json,'$.interruption.owner_epoch'),0) AS owner_epoch FROM plan_task_attempts WHERE plan_id=?1 AND task_id=?2 AND attempt_id=?3) SELECT EXISTS(SELECT 1 FROM plan_task_attempts prior JOIN current_attempts current ON current.plan_id=prior.plan_id AND current.task_id=prior.task_id WHERE prior.position<current.position AND (prior.executor_tab_id=?4 OR coalesce(json_extract(prior.row_json,'$.interruption.owner_epoch'),0)<current.owner_epoch))", params![plan_id, task.id, attempt, tab], |row| row.get(0)).map_err(db_error)?;
         (owners, superseded)
     } else {
         (Vec::new(), false)
