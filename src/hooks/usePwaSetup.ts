@@ -13,6 +13,7 @@ interface BeforeInstallPromptEvent extends Event {
 
 async function bootstrapManifestCookie(token: string): Promise<boolean> {
   try {
+    // biome-ignore lint/style/noRestrictedGlobals: HttpOnly manifest cookie requires a browser HTTP response.
     const resp = await fetch("/manifest-bootstrap", {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },

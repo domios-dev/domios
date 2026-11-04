@@ -1,3 +1,5 @@
+import { muxMockFetch } from "../../lib/muxMockFetch.testdata";
+import { __resetStreamMuxesForTest } from "../../lib/streamMux";
 // Run: npx tsx src/components/Surface/httpSseSurfaceTransport.test.ts
 
 import { configureDaemonTransport } from "../../lib/daemonBootstrap";
@@ -208,29 +210,36 @@ test("invoke rejects with the reply error", async () => {
 });
 
 for (const peerId of [undefined, "eight"]) {
-  test(`default transport delivers page frames and controls on ${peerId ?? "direct daemon"}`, async () => {
-    const fake = createFakeFetch();
-    const body = fake.live();
+  test("default transport delivers page frames and controls on " + (peerId ?? "direct daemon"), async () => {
+    const calls = new Recorder<FetchCall>();
+    let controller!: ReadableStreamDefaultController<Uint8Array>;
+    const encoder = new TextEncoder();
+    const body = new ReadableStream<Uint8Array>({ start(value) { controller = value; } });
+    const send = (event: string, data: unknown) => controller.enqueue(encoder.encode("event: " + event + "\ndata: " + JSON.stringify(data) + "\n\n"));
+    let domain = async (_url: RequestInfo | URL, _init?: RequestInit) => new Response(body, { headers: { "Content-Type": "text/event-stream" } });
+    const carrier = muxMockFetch((url, init) => domain(url, init));
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = ((url, init) => fake.fetch(String(url), init ?? {})) as typeof fetch;
-    configureDaemonTransport({ origin: base, token: `local-${peerId ?? "direct"}` });
+    globalThis.fetch = (async (url, init = {}) => { calls.push({ url: String(url), init }); return carrier(url, init); }) as typeof fetch;
+    configureDaemonTransport({ origin: base, token: "local-" + (peerId ?? "direct") });
     let disconnect: (() => void) | undefined;
     try {
       const { events, handlers } = recordHandlers();
       const transport = createHttpSseSurfaceTransport({ baseUrl: base, token: "unused", tabId: "88a2dfa7", peerId, retrySignal: signal().retrySignal });
       disconnect = transport.connect(viewport, handlers);
-      const [stream] = await fake.calls.until(1);
-      const url = new URL(stream.url);
+      const [mux, stream] = await calls.until(2);
+      assert.equal(new URL(mux.url).pathname, "/api/stream-mux");
+      const url = new URL(JSON.parse(String(stream.init.body)).path, base);
       if (peerId) {
         assert.equal(url.pathname, "/api/mesh/relay-stream");
         assert.equal(url.searchParams.get("peer"), peerId);
         assert.equal(url.searchParams.get("path"), "/api/surfaces/88a2dfa7/stream?w=640&h=480&dpr=2");
       } else assert.equal(url.pathname, "/api/surfaces/88a2dfa7/stream");
-      assert.equal(new Headers(stream.init.headers).get("Authorization"), `Bearer local-${peerId ?? "direct"}`);
-      body.send('event: state\ndata: {"owner":"Prism","url":"https://page.test/"}\n\nevent: frame\ndata: {"data":"QUJD","metadata":{"deviceWidth":640,"deviceHeight":480}}\n\n');
+      assert.equal(new Headers(stream.init.headers).get("Authorization"), "Bearer local-" + (peerId ?? "direct"));
+      send("state", { owner: "Prism", url: "https://page.test/" });
+      send("frame", { data: "QUJD", metadata: { deviceWidth: 640, deviceHeight: 480 } });
       assert.deepEqual((await events.until(3)).map(event => event.type), ["open", "state", "frame"]);
       const result = { url: "https://next.test/" };
-      globalThis.fetch = (async (url, init) => {
+      domain = async (url, init) => {
         const path = new URL(String(url)).pathname;
         if (peerId) {
           assert.equal(path, "/api/mesh/relay-to");
@@ -243,17 +252,16 @@ for (const peerId of [undefined, "eight"]) {
           assert.deepEqual(JSON.parse(String(init?.body)), { method: "goto", args: { url: result.url } });
         }
         return new Response(JSON.stringify(peerId ? { ok: true, status: 200, data: { result } } : { result }), { headers: { "Content-Type": "application/json" } });
-      }) as typeof fetch;
+      };
       assert.deepEqual(await transport.invoke("goto", { url: result.url }), result);
-      body.send(`event: state\ndata: ${JSON.stringify({ owner: "Prism", url: result.url })}\n\n`);
+      send("state", { owner: "Prism", url: result.url });
       assert.deepEqual((await events.until(4))[3], { type: "state", value: { owner: "Prism", url: result.url } });
     } finally {
-      disconnect?.();
+      disconnect?.(); __resetStreamMuxesForTest();
       globalThis.fetch = originalFetch;
     }
   });
 }
-
 async function main() {
   let failed = 0;
   for (const [name, fn] of tests) {
@@ -271,3 +279,4 @@ async function main() {
 }
 
 void main();
+
