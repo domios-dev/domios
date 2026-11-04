@@ -323,7 +323,7 @@ export function createTransportClient(options: TransportOptions): TransportClien
           if (controller.signal.aborted) end = { reason: "abort", error: controller.signal.reason };
           else {
             end = error instanceof SseCapacityError ? { reason: "capacity", bytes: error.bytes }
-              : error instanceof TransportError
+              : error instanceof TransportError && !("retryable" in error && error.retryable === true)
               ? { reason: "http", status: error.status, error }
               : { reason: "error", error };
             if (error instanceof SseCapacityError && !init.onEnd) {

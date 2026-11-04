@@ -12,6 +12,7 @@ function fakeDaemon() {
   const longLived: Array<{ path: string; signal: AbortSignal | null | undefined }> = [];
   const opened: Channel[] = [];
   const released: string[] = [];
+  const rpcs: Array<{ channel: string; method: string; path: string }> = [];
   let wire!: (frame: unknown) => void;
   const heads = new Set<string>();
   const push = (value: unknown) => {
@@ -51,9 +52,22 @@ function fakeDaemon() {
       released.push(url.pathname.split("/").pop()!);
       return Response.json({ ok: true, closed: true });
     }
-    return Response.json({ accepted: true }, { status: 202 });
+    const parts = url.pathname.split("/");
+    if (method === "POST" && parts[2] === "stream-mux" && parts[4] === "requests") {
+      const channel = parts[5];
+      const headers = new Headers(init.headers);
+      rpcs.push({ channel, method: headers.get("X-Domios-Mux-Method")!, path: headers.get("X-Domios-Mux-Path")! });
+      // Early frames precede the ack, as on the real daemon.
+      wire({ channel, open: true, status: 200, headers: [["content-type", "application/json"]] });
+      const path = headers.get("X-Domios-Mux-Path")!;
+      const answer = path === "/api/mesh/relay-to" ? { ok: true, status: 200, data: { data: channel } } : { data: channel };
+      wire({ channel, chunk: JSON.stringify(answer), enc: "utf8" });
+      wire({ channel, end: { reason: "eof" } });
+      return Response.json({ accepted: true }, { status: 202 });
+    }
+    return new Response("UI request bypassed the mux", { status: 500 });
   });
-  return { fetch, longLived, opened, released, drop: () => drop(), push };
+  return { fetch, longLived, opened, released, rpcs, drop: () => drop(), push };
 }
 
 async function boot() {
@@ -193,6 +207,30 @@ describe("one multiplexed stream per origin", () => {
     output.resetOutputStream();
     expect(daemon.longLived[0].signal?.aborted).toBe(false);
     expect(daemon.longLived).toHaveLength(1);
+  });
+
+  it("N peers x M remote tabs x K previews plus events answer over one long-lived connection", async () => {
+    const { daemon, remoteEvents } = await boot();
+    const { daemonTransportForPeer, baseDaemonTransport } = await import("./daemonBootstrap");
+    const webEvents = await import("./webEvents");
+    const stops = [webEvents.webListen("fixture", () => {})];
+    for (let peer = 0; peer < PEERS; peer++) {
+      for (let tab = 0; tab < TABS_PER_PEER; tab++) {
+        stops.push(remoteEvents.subscribeRemoteTabEvent(`tab-chat-msg-${remoteTab(peer, tab)}`, () => {})!);
+      }
+    }
+    const previews = 24;
+    const reads = Array.from({ length: previews }, (_, index) => baseDaemonTransport()
+      .json<{ data: string }>("POST", `/api/tabs/local/preview/read`, { path: `card-${index}.png`, kind: "image" }));
+    const peerReads = Array.from({ length: PEERS }, (_, peer) => daemonTransportForPeer(peerId(peer))
+      .json<{ data: string }>("GET", "/api/tabs"));
+    const answers = await Promise.all([...reads, ...peerReads]);
+    expect(answers.every(answer => typeof answer.data === "string")).toBe(true);
+    expect(daemon.rpcs.filter(({ path }) => path === "/api/mesh/relay-to")).toHaveLength(PEERS);
+    expect(daemon.rpcs.filter(({ path }) => path.endsWith("/preview/read"))).toHaveLength(previews);
+    expect(daemon.longLived.map(({ path }) => new URL(path, ORIGIN).pathname)).toEqual(["/api/stream-mux"]);
+    for (const stop of stops) stop();
+    webEvents.__resetWebEventsForTest();
   });
 
   it("closing one remote tab releases only its channels and keeps the shared stream", async () => {

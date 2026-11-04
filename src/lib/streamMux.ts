@@ -21,8 +21,19 @@ export class RetryableMuxError extends TransportError {
   constructor(path: string, message: string) { super(0, path, message); this.name = "RetryableTransportError"; }
 }
 
+// Body readers rethrow the typed carrier outcome; runtimes may wrap stream errors.
+class MuxResponse extends Response {
+  constructor(body: BodyInit | null, init: ResponseInit, private readonly outcome: () => unknown) { super(body, init); }
+  private typed<T>(read: Promise<T>): Promise<T> { return read.catch((error: unknown) => { throw this.outcome() ?? error; }); }
+  override text(): Promise<string> { return this.typed(super.text()); }
+  override json(): Promise<any> { return this.typed(super.json()); }
+  override arrayBuffer(): Promise<ArrayBuffer> { return this.typed(super.arrayBuffer()); }
+  override blob(): Promise<Blob> { return this.typed(super.blob()); }
+}
+
 interface Pending {
   id: string;
+  outcome: unknown;
   path: string;
   method: string;
   init: MuxRequestInit;
@@ -96,6 +107,7 @@ export function createStreamMux(transport: () => TransportClient, fetcher: Fetch
     const reason = error instanceof SseCapacityError && entry.stream ? error
       : !entry.state.cancellable && entry.session !== null && step.action !== "not-dispatched" ? new OutcomeUnknown(entry.method, entry.path)
       : new RetryableMuxError(entry.path, error instanceof Error ? error.message : "Mux connection lost");
+    entry.outcome = reason;
     cleanup(entry); releaseBuffer(entry);
     entry.aborter.abort(reason);
     entry.reject(reason);
@@ -132,6 +144,7 @@ export function createStreamMux(transport: () => TransportClient, fetcher: Fetch
     entry.state = step.state;
     if (step.action === "cancel-read" || step.action === "detach-mutation") cancelRemote(entry);
     const rejection = step.action === "detach-mutation" ? new OutcomeUnknown(entry.method, entry.path) : reason;
+    entry.outcome = rejection;
     cleanup(entry); releaseBuffer(entry); entry.aborter.abort(reason);
     entry.reject(rejection);
     try { entry.controller?.error(rejection); } catch {}
@@ -159,7 +172,7 @@ export function createStreamMux(transport: () => TransportClient, fetcher: Fetch
       cancel(reason) { cancel(entry, reason); },
     }, { highWaterMark: 0 });
     const nullBody = entry.method === "HEAD" || [204, 205, 304].includes(entry.head.status);
-    const response = new Response(nullBody ? null : body, { status: entry.head.status, headers: entry.head.headers });
+    const response = new MuxResponse(nullBody ? null : body, { status: entry.head.status, headers: entry.head.headers }, () => entry.outcome);
     entry.resolved = true;
     entry.resolve(response);
     drain(entry);
@@ -337,7 +350,7 @@ export function createStreamMux(transport: () => TransportClient, fetcher: Fetch
           id: uid(), method, path, init: options, stream, traffic: policy.traffic,
           postTraffic,
           state: initialMuxRequest(stream || policy.cancellable), session: null, acked: false, head: null,
-          resolved: false, ended: false, queue: [], buffered: 0, tracked: true, demand: false, controller: null,
+          outcome: undefined, resolved: false, ended: false, queue: [], buffered: 0, tracked: true, demand: false, controller: null,
           aborter, post: null, detach: () => {}, resolve, reject,
         };
         const timeout = stream ? null : restRequestTimeoutMs(operation.method, operation.path, options[MUX_REQUEST_TIMEOUT]);
