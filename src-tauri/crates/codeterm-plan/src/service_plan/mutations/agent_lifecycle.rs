@@ -52,9 +52,10 @@ impl PlanStore {
         let writer_turn = self.mutation_writer.enter();
         let mut originals = Vec::new();
         let mut staged = Vec::new();
-        let plans = self.plans_matching(&PlanMatch::Any(
-            changes.iter().map(lifecycle_candidates).collect(),
-        ));
+        let plans = self.plans_for_update_in_writer(
+            &writer_turn,
+            &PlanMatch::Any(changes.iter().map(lifecycle_candidates).collect()),
+        )?;
 
         for original in plans {
             let mut candidate = original.clone();

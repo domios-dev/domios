@@ -17,6 +17,7 @@ mod curator_notice_tests;
 mod curator_schedule_tests;
 mod document_reader_tests;
 mod export_tests;
+mod handoff_reader_tests;
 mod header_tests;
 mod heartbeat_display_tests;
 mod heartbeat_owner_tests;

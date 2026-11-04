@@ -270,7 +270,10 @@ impl PlanStore {
             PlanMatch::Owners(tab_ids.to_vec()),
             PlanMatch::Teams(team_ids.to_vec()),
         ]);
-        for mut plan in self.plans_matching(&candidates) {
+        for mut plan in self
+            .plans_for_update_in_writer(&writer_turn, &candidates)
+            .map_err(|error| std::io::Error::other(error.to_string()))?
+        {
             let bound = plan
                 .owner
                 .tab_id

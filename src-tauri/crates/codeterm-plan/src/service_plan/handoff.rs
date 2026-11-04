@@ -5,7 +5,7 @@ use serde_json::{json, Value};
 
 use super::batch::{BatchOp, BatchRequest};
 use super::{heartbeat, PlanError, PlanStore};
-use crate::plan::{AgentRef, Plan, TaskStatus};
+use crate::plan::{AgentRef, Plan};
 use codeterm_util::process_util;
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -134,7 +134,7 @@ fn content_seq(content: &Value) -> u64 {
     content.get("seq").and_then(|v| v.as_u64()).unwrap_or(0)
 }
 
-fn derive_goal(req: &HandoffCreateRequest, plan: &Plan) -> String {
+fn derive_goal(req: &HandoffCreateRequest, title: &str) -> String {
     req.goal
         .clone()
         .or_else(|| {
@@ -143,65 +143,34 @@ fn derive_goal(req: &HandoffCreateRequest, plan: &Plan) -> String {
                 .and_then(|body| body.lines().find(|line| !line.trim().is_empty()))
                 .map(|line| line.trim().to_string())
         })
-        .unwrap_or_else(|| plan.title.clone())
+        .unwrap_or_else(|| title.to_string())
 }
 
-fn resume_prompt(plan: &Plan, seq: u64) -> String {
+fn resume_prompt(plan_id: &str, seq: u64) -> String {
     format!(
         "Run `domios plan handoff show {} --latest --markdown` FIRST for handoff #{}. Read `domios docs ORCHESTRATION` and the project's instructions, run `domios plan get {}`, resume from next_actions, and do not re-handoff.",
-        plan.id, seq, plan.id
+        plan_id, seq, plan_id
     )
 }
 
-fn plan_counts(plan: &Plan) -> (usize, usize) {
-    let total = plan.tasks.len();
-    let done = plan
-        .tasks
-        .iter()
-        .filter(|task| matches!(task.status, TaskStatus::Done | TaskStatus::Cancelled))
-        .count();
-    (done, total)
-}
-
-fn task_handle(task: &crate::plan::Task) -> String {
-    task.handle.clone().unwrap_or_else(|| task.id.clone())
-}
-
-fn compose_content(plan: &Plan, req: &HandoffCreateRequest, seq: u64) -> Value {
-    let (done, total) = plan_counts(plan);
+fn compose_content(
+    plan: &super::store_db::handoff_queries::HandoffCreateRead,
+    req: &HandoffCreateRequest,
+    seq: u64,
+) -> Value {
+    let (done, total) = (plan.done, plan.total);
     let coverage_pct = if total == 0 {
         0
     } else {
         ((done as f64 / total as f64) * 100.0).round() as u64
     };
-    let in_flight = plan
-        .tasks
-        .iter()
-        .filter(|task| !matches!(task.status, TaskStatus::Done | TaskStatus::Cancelled))
-        .map(|task| {
-            json!({
-                "task_id": task.id,
-                "task_handle": task_handle(task),
-                "status": task.status,
-                "assigned_tab_id": task.assigned_tab_id,
-                "peer": task.peer,
-            })
-        })
-        .collect::<Vec<_>>();
-    let milestone_decisions = plan
-        .tasks
-        .iter()
-        .flat_map(|task| task.milestones.iter())
-        .filter(|ms| ms.kind == "decision")
-        .map(|ms| ms.text.clone())
-        .collect::<Vec<_>>();
     let open_decisions = if req.open_decisions.is_empty() {
-        milestone_decisions
+        &plan.decisions
     } else {
-        req.open_decisions.clone()
+        &req.open_decisions
     };
     json!({
-        "goal": derive_goal(req, plan),
+        "goal": derive_goal(req, &plan.title),
         "plan_snapshot": {
             "plan_id": plan.id,
             "plan_title": plan.title,
@@ -210,7 +179,7 @@ fn compose_content(plan: &Plan, req: &HandoffCreateRequest, seq: u64) -> Value {
             "coverage_pct": coverage_pct,
             "updated_at": plan.updated_at,
         },
-        "in_flight": in_flight,
+        "in_flight": plan.in_flight,
         "next_actions": req.next_actions,
         "foundational_rules": req.foundational_rules,
         "open_decisions": open_decisions,
@@ -222,7 +191,7 @@ fn compose_content(plan: &Plan, req: &HandoffCreateRequest, seq: u64) -> Value {
             },
             "plan_updated_at": plan.updated_at,
         },
-        "resume_prompt": resume_prompt(plan, seq),
+        "resume_prompt": resume_prompt(&plan.id, seq),
     })
 }
 
@@ -277,14 +246,6 @@ fn element_has_active_reseed_for_tab(element: &crate::plan::CanvasElement, tab_i
         && reseed_state(&element.content).is_some_and(active_reseed_state)
 }
 
-/// Plans holding a handoff element whose reseed is pending for this tab.
-fn reseed_candidates(tab_id: &str) -> super::PlanMatch {
-    super::PlanMatch::Element {
-        kind: "handoff".into(),
-        fields: vec![("$.content.reseed_pending.tab_id", tab_id.to_string())],
-    }
-}
-
 fn plan_has_active_reseed_for_tab(plan: &Plan, tab_id: &str) -> bool {
     plan.elements
         .iter()
@@ -319,15 +280,10 @@ impl PlanStore {
         req: HandoffCreateRequest,
         now_ms: u64,
     ) -> Result<HandoffCreateResult, PlanError> {
-        let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
-        let seq = plan
-            .elements
-            .iter()
-            .filter(|element| element.kind == "handoff")
-            .map(|element| content_seq(&element.content))
-            .max()
-            .unwrap_or(0)
-            + 1;
+        let plan = self
+            .database
+            .handoff_create_input(plan_id, req.open_decisions.is_empty())?;
+        let seq = plan.seq;
         let content = compose_content(&plan, &req, seq);
         let result = self.apply_batch(
             plan_id,
@@ -350,27 +306,13 @@ impl PlanStore {
             .get("handoff")
             .cloned()
             .ok_or_else(|| PlanError::Io("handoff id missing".into()))?;
-        let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
-        let element = plan
-            .elements
-            .iter()
-            .find(|element| element.id == handoff_id)
-            .ok_or(PlanError::NotFound)?;
+        let (body_path, resume_prompt) =
+            self.database.handoff_create_receipt(plan_id, &handoff_id)?;
         Ok(HandoffCreateResult {
             handoff_id,
             seq,
-            body_path: element
-                .content
-                .get("body_path")
-                .and_then(|v| v.as_str())
-                .unwrap_or_default()
-                .to_string(),
-            resume_prompt: element
-                .content
-                .get("resume_prompt")
-                .and_then(|v| v.as_str())
-                .unwrap_or_default()
-                .to_string(),
+            body_path,
+            resume_prompt,
         })
     }
 
@@ -508,17 +450,13 @@ impl PlanStore {
         if force {
             return Ok(());
         }
-        for plan_id in self.plan_ids_matching(&reseed_candidates(tab_id)) {
-            if except_plan_id == Some(plan_id.as_str()) {
-                continue;
-            }
-            if let Some(plan) = self.get(&plan_id) {
-                if plan_has_active_reseed_for_tab(&plan, tab_id) {
-                    return Err(PlanError::Io(format!(
-                        "handoff reseed already pending for tab {tab_id}; use --force to override"
-                    )));
-                }
-            }
+        if self
+            .database
+            .active_reseed_for_tab(tab_id, except_plan_id)?
+        {
+            return Err(PlanError::Io(format!(
+                "handoff reseed already pending for tab {tab_id}; use --force to override"
+            )));
         }
         Ok(())
     }
@@ -529,27 +467,13 @@ impl PlanStore {
         new_session_id: &str,
         now_ms: u64,
     ) -> Result<Option<HandoffResumeSend>, PlanError> {
-        for plan_snapshot in self.plans_matching(&reseed_candidates(tab_id)) {
-            let candidate = plan_snapshot
-                .elements
-                .iter()
-                .filter(|element| element.kind == "handoff")
-                .find(|element| {
-                    pending_for_tab(&element.content, tab_id)
-                        && reseed_state(&element.content) == Some("new_sent")
-                        && element
-                            .content
-                            .get("reseed_pending")
-                            .and_then(|v| v.get("source_session_id"))
-                            .and_then(|v| v.as_str())
-                            .is_some_and(|source| source != new_session_id)
-                })
-                .map(|element| element.id.clone());
-            let Some(handoff_id) = candidate else {
-                continue;
-            };
+        for candidate in self
+            .database
+            .handoff_resume_candidates(tab_id, new_session_id)?
+        {
+            let handoff_id = candidate.handoff_id;
             let mut out = None;
-            self.with_plan(&plan_snapshot.id, now_ms, |plan| {
+            self.with_plan(&candidate.plan_id, now_ms, |plan| {
                 let heartbeat_plan_id = plan.id.clone();
                 let heartbeat = plan.heartbeat.clone();
                 let Some(element) = plan

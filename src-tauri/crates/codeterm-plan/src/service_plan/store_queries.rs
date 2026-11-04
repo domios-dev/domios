@@ -191,18 +191,15 @@ impl PlanStore {
             .collect()
     }
 
-    /// The stored rows of the matching plans, read from SQL around the cache: for a
-    /// caller holding a plan or mux lock, which taking a cached plan's lock could deadlock.
-    pub fn stored_plans_matching(&self, predicate: &PlanMatch) -> Vec<Plan> {
-        self.plan_ids_matching(predicate)
-            .iter()
-            .filter_map(|id| match self.load_plan_from_sql(id) {
-                Ok(plan) => plan,
-                Err(error) => {
-                    log::warn!("[plan.store] {error}; source left unchanged");
-                    None
-                }
-            })
+    pub(super) fn plans_for_update_in_writer(
+        &self,
+        _turn: &MutationWriterTurn<'_>,
+        predicate: &PlanMatch,
+    ) -> Result<Vec<Plan>, PlanError> {
+        self.database
+            .plan_ids_matching(predicate)?
+            .into_iter()
+            .map(|id| self.try_get(&id))
             .collect()
     }
 
