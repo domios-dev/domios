@@ -900,7 +900,8 @@ fn dead_owner_session_absent_tab_lets_bound_orchestrator_recover_update() {
         &plan_id,
         Some("dead-worker-tab"),
         Some("worker-session"),
-    ));
+    )
+    .unwrap());
 
     let mut params = owner_params(&owner);
     params.insert("plan_id".into(), json!(plan_id.clone()));
@@ -942,7 +943,8 @@ fn lingering_tab_with_rebound_session_is_a_gone_owner() {
             &plan_id,
             Some(&rebound_tab),
             Some("worker-session"),
-        ),
+        )
+        .unwrap(),
         "a tab rebound to a new session is not the live owner"
     );
 
@@ -984,7 +986,8 @@ fn live_owner_session_refuses_recovery_and_keeps_the_epoch_guard() {
             &plan_id,
             Some(&live_worker),
             Some("worker-session"),
-        ),
+        )
+        .unwrap(),
         "a live owner session must never be recoverable by a foreign caller"
     );
 

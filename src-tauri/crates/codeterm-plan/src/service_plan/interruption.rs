@@ -504,10 +504,7 @@ impl PlanStore {
         owner_epoch: u64,
     ) -> Result<(), PlanError> {
         let owner = self.task_owner_epoch_projection(task_id)?;
-        if owner.handoff_required
-            || owner.owner_epoch != owner_epoch
-            || owner.owner_tab_id.as_deref() != Some(tab_id)
-        {
+        if !owner.matches_owner_epoch(tab_id, owner_epoch) {
             return Err(PlanError::Io("stale task owner epoch".into()));
         }
         Ok(())

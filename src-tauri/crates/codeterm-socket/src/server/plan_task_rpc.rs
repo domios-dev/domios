@@ -649,9 +649,8 @@ pub(super) fn dispatch(
                     .map_err(plan_rpc_err)?;
             }
             let updated_task = store
-                .show_task(&tid)
-                .ok_or_else(|| plan_rpc_err(PlanError::TaskNotFound))?
-                .task;
+                .task_description_projection(&tid)
+                .map_err(plan_rpc_err)?;
             if previous_name != updated_task.name {
                 if let Some(tab_id) = updated_task.assigned_tab_id.as_deref() {
                     set_task_description(svc, p, tab_id, &updated_task.name, true)?;
@@ -670,9 +669,8 @@ pub(super) fn dispatch(
                 }
             }
             if let Some(nudge) = store
-                .get(&id)
-                .as_ref()
-                .and_then(|plan| hints::planner_ownership_nudge(plan, caller_tab))
+                .planner_nudge_projection(&id, caller_tab)
+                .map_err(plan_rpc_err)?
             {
                 resp["_planner_nudge"] = json!(nudge);
             }

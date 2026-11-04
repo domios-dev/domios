@@ -74,14 +74,12 @@ impl ServiceContext {
         let now = self.curator_now()?;
         let read = self
             .plan_store
-            .notice_projection(&identity.plan_id, now, &[])
+            .curator_notice_projection(&identity.plan_id, now)
             .map_err(|error| error.to_string())?;
-        let plan = read.plan();
-        if plan.owner.tab_id.as_deref() != Some(target) {
+        if read.owner_tab_id.as_deref() != Some(target) {
             return Err("Curator may message only its Orchestrator".into());
         }
-        let prefix = self.curator_heartbeat_body(plan);
-        drop(read);
+        let prefix = read.body;
         self.plan_store
             .with_plan(&identity.plan_id, now, |plan| {
                 let run = plan.control_loop.running.as_mut().ok_or_else(|| {
