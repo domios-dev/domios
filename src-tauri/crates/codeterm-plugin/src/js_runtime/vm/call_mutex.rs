@@ -37,6 +37,13 @@ impl<T> CallMutex<T> {
         })
     }
 
+    pub(super) fn try_lock_for(&self, timeout: std::time::Duration) -> Option<Guard<'_, T>> {
+        self.inner.try_lock_for(timeout).map(|inner| Guard {
+            inner: Some(inner),
+            owner: self,
+        })
+    }
+
     pub(super) fn enter(&self, context: &Arc<Context>) -> Result<Guard<'_, T>, VmError> {
         self.waiters.lock().push(context.clone());
         let _waiter = Waiter {
