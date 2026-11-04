@@ -1,3 +1,4 @@
+import { localFetch } from "../../../lib/webApi";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "../../../lib/bridge";
 import {
@@ -28,7 +29,7 @@ export function useEmbedder(apiBase: string, apiHeaders: HeadersInit) {
   const load = useCallback(async () => {
     try {
       const next = await readJson<EmbedderListing>(
-        await fetch(`${apiBase}/api/mem/embedder/providers`, { headers: headers.current }),
+        await localFetch(`/api/mem/embedder/providers`, { headers: headers.current }),
       );
       setListing(next);
       setStatus(next.status);
@@ -62,7 +63,7 @@ export function useEmbedder(apiBase: string, apiHeaders: HeadersInit) {
       const { provider, model } = parseOption(value);
       const query = new URLSearchParams({ provider, model });
       return readJson<SwitchPreview>(
-        await fetch(`${apiBase}/api/mem/embedder/preview?${query}`, { headers: headers.current }),
+        await localFetch(`/api/mem/embedder/preview?${query}`, { headers: headers.current }),
       );
     },
     [apiBase],
@@ -72,7 +73,7 @@ export function useEmbedder(apiBase: string, apiHeaders: HeadersInit) {
     async (value: string): Promise<SwitchPreview> => {
       const { provider, model } = parseOption(value);
       const result = await readJson<SwitchPreview>(
-        await fetch(`${apiBase}/api/mem/embedder/use`, {
+        await localFetch(`/api/mem/embedder/use`, {
           method: "POST",
           headers: { ...headers.current, "Content-Type": "application/json" },
           body: JSON.stringify({ provider, model }),
