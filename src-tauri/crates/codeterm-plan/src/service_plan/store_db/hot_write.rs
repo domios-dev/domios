@@ -12,12 +12,14 @@ mod loop_rows;
 mod milestones;
 mod plan_audit;
 mod plan_fields;
+mod plan_state;
 mod review_rows;
 mod task_fields;
 pub(in crate::service_plan) use gate_rows::{GateAsk, GateChange};
 pub(in crate::service_plan) use header_edits::HeaderChange;
 pub(in crate::service_plan) use loop_rows::LoopChange;
 pub(in crate::service_plan) use plan_audit::PlanAudit;
+pub(in crate::service_plan) use plan_state::PlanEdit;
 pub(in crate::service_plan) use review_rows::{TaskHistory, TaskRowEdit};
 pub(in crate::service_plan) use task_fields::TaskFields;
 
@@ -85,6 +87,7 @@ pub(in crate::service_plan) struct CommittedRows {
     pub projected_text_bytes: usize,
     pub hashed_bytes: usize,
     pub index_root: Option<std::path::PathBuf>,
+    pub plan_metadata: Option<super::PlanIndexRow>,
     pub reset_tabs: Vec<String>,
     pub search: Vec<crate::service_plan::search_index::MilestoneIndexDelta>,
     pub task_search: Vec<crate::service_plan::search_index::TaskIndexDelta>,

@@ -23,29 +23,13 @@ impl PlanStore {
         if let Some(title) = title {
             crate::service_plan::text_bounds::validate_plan_label("plan title", title)?;
         }
-        let status_for_write = status.clone();
-        let write = self.with_plan(plan_id, now_ms, |p| {
-            if let Some(t) = title {
-                p.title = t.into();
-            }
-            if let Some(s) = status_for_write {
-                if s == PlanStatus::Active && p.status == PlanStatus::Archived {
-                    return Err(PlanError::PlanActivationRequiresUnarchive {
-                        plan_id: plan_id.into(),
-                    });
-                }
-                p.status = s;
-            }
-            if let Some(mode) = mode {
-                p.mode = parse_plan_mode(mode)?;
-            }
-            Ok(())
-        });
-        pending_after_verified(
-            write,
-            self.verify_plan_updated(plan_id, title, status, mode),
-            Some(plan_id.to_string()),
-        )
+        let edit = crate::service_plan::store_db::hot_write::PlanEdit {
+            title: title.map(str::to_string),
+            status,
+            mode: mode.map(parse_plan_mode).transpose()?,
+            ..Default::default()
+        };
+        self.commit_plan_state(plan_id, edit, now_ms)
     }
 
     pub fn set_planner_ref(
@@ -596,66 +580,66 @@ impl PlanStore {
         self.archive_with_incident(plan_id, None, now_ms)
     }
 
-    /// Archive status and its incident evidence are ONE write. `with_plan` commits
-    /// only after the file persists, so neither lands without the other.
     pub fn archive_with_incident(
         &self,
         plan_id: &str,
         incident: Option<PlanIncident>,
         now_ms: u64,
     ) -> Result<(), PlanError> {
-        let mid = self.mint_id("ms")?;
-        self.with_plan(plan_id, now_ms, |p| {
-            if let Some(incident) = incident.as_ref() {
-                if incident.kind.trim().is_empty() || incident.text.trim().is_empty() {
-                    return Err(PlanError::Io(
-                        "plan archive incident requires a kind and text".into(),
-                    ));
-                }
-                p.strides.push(Milestone {
-                    id: mid.clone(),
-                    from: incident.from.clone(),
-                    kind: incident.kind.clone(),
-                    text: incident.text.clone(),
-                    ts: now_ms,
-                    links: vec![],
-                    loop_id: None,
-                    iteration: None,
-                    canvas: Default::default(),
-                    attachments: vec![],
-                });
+        let incident = if let Some(incident) = incident {
+            if incident.kind.trim().is_empty() || incident.text.trim().is_empty() {
+                return Err(PlanError::Io(
+                    "plan archive incident requires a kind and text".into(),
+                ));
             }
-            p.status = PlanStatus::Archived;
-            Ok(())
-        })
+            Some(Milestone {
+                id: self.mint_id("ms")?,
+                from: incident.from,
+                kind: incident.kind,
+                text: incident.text,
+                ts: now_ms,
+                links: vec![],
+                loop_id: None,
+                iteration: None,
+                canvas: Default::default(),
+                attachments: vec![],
+            })
+        } else {
+            None
+        };
+        self.commit_plan_state(
+            plan_id,
+            crate::service_plan::store_db::hot_write::PlanEdit {
+                status: Some(PlanStatus::Archived),
+                incident,
+                ..Default::default()
+            },
+            now_ms,
+        )
     }
 
     pub fn unarchive(&self, plan_id: &str, now_ms: u64) -> Result<(), PlanError> {
-        let writer_turn = self.mutation_writer.enter();
-        let plan = self.plan_identity_projection(plan_id)?;
-        let team_id = plan
-            .team_id
-            .as_deref()
-            .filter(|team_id| !team_id.trim().is_empty());
-        #[cfg(not(test))]
-        let team_id = Some(team_id.ok_or_else(|| PlanError::ActivePlanRequiresTeam {
-            plan_id: plan_id.into(),
-        })?);
-        if let Some(team_id) = team_id {
-            if let Some((existing_plan_id, existing_title)) = self.active_plan_for_team(team_id) {
-                if existing_plan_id != plan_id {
-                    return Err(PlanError::TeamAlreadyHasActivePlan {
-                        team_id: team_id.into(),
-                        existing_plan_id,
-                        existing_title,
-                    });
-                }
-            }
-        }
-        self.with_plan_in_writer(&writer_turn, plan_id, now_ms, |p| {
-            p.status = PlanStatus::Active;
-            Ok(())
-        })
+        self.commit_plan_state(
+            plan_id,
+            crate::service_plan::store_db::hot_write::PlanEdit {
+                status: Some(PlanStatus::Active),
+                unarchive: true,
+                ..Default::default()
+            },
+            now_ms,
+        )
+    }
+
+    fn commit_plan_state(
+        &self,
+        plan_id: &str,
+        edit: crate::service_plan::store_db::hot_write::PlanEdit,
+        now_ms: u64,
+    ) -> Result<(), PlanError> {
+        let turn = self.mutation_writer.enter();
+        let receipt = self.database.edit_plan_state(plan_id, edit, now_ms)?;
+        self.publish_hot_receipt(&turn, receipt);
+        Ok(())
     }
 
     pub fn transfer(

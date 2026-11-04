@@ -1,5 +1,5 @@
 use super::{PlanError, PlanStore, TaskLaneUpdate};
-use crate::plan::{ExternalRef, Plan, PlanMode, PlanStatus, Task, TaskLaneMetadata, TaskPriority};
+use crate::plan::{ExternalRef, Plan, Task, TaskLaneMetadata, TaskPriority};
 use std::cell::RefCell;
 
 thread_local! {
@@ -50,10 +50,6 @@ pub(in crate::service_plan) struct TaskAddExpectation {
     group: Option<String>,
     priority: TaskPriority,
     section_ids: Option<Vec<String>>,
-}
-
-fn parse_plan_mode(raw: &str) -> Result<PlanMode, PlanError> {
-    serde_json::from_value(serde_json::Value::String(raw.into())).map_err(|_| PlanError::BadMode)
 }
 
 fn normalized_lane_value(value: &Option<String>) -> Option<String> {
@@ -124,37 +120,6 @@ impl PlanStore {
             Some(plan) if plan.id == plan_id => Some(plan),
             _ => self.get(plan_id),
         }
-    }
-
-    pub(in crate::service_plan) fn verify_plan_updated(
-        &self,
-        plan_id: &str,
-        title: Option<&str>,
-        status: Option<PlanStatus>,
-        mode: Option<&str>,
-    ) -> Result<(), PlanError> {
-        let plan = self
-            .committed_plan_for(plan_id)
-            .ok_or(PlanError::NotFound)?;
-        let fail = |field: &str| {
-            Self::plan_readback_error(
-                "plan_update",
-                format!("{field} did not match for {plan_id}"),
-            )
-        };
-        if title.is_some_and(|expected| plan.title != expected) {
-            return Err(fail("title"));
-        }
-        if status.is_some_and(|expected| plan.status != expected) {
-            return Err(fail("status"));
-        }
-        if let Some(raw_mode) = mode {
-            let expected = parse_plan_mode(raw_mode)?;
-            if plan.mode != expected {
-                return Err(fail("mode"));
-            }
-        }
-        Ok(())
     }
 
     pub(in crate::service_plan) fn read_task_for_verification(

@@ -83,7 +83,12 @@ impl PlanStore {
         }
         self.clear_committed_snapshot();
         self.plan_cache.evict(&receipt.plan_id);
-        if let Some(row) = self.index.write().get_mut(&receipt.plan_id) {
+        if let Some(metadata) = receipt.plan_metadata {
+            if let Some(root) = receipt.index_root.clone() {
+                super::super::search_index::enqueue_plan_metadata(turn, root, metadata.clone());
+            }
+            self.index.write().insert(receipt.plan_id.clone(), metadata);
+        } else if let Some(row) = self.index.write().get_mut(&receipt.plan_id) {
             row.updated_at = receipt.updated_at;
         }
         if let Some(root) = receipt.index_root {

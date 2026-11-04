@@ -23,8 +23,8 @@ mod snapshot;
 mod unit_inputs;
 pub(super) use incremental::PlanIndexScope;
 pub(super) use narrow::{
-    enqueue_milestone_index, enqueue_plan_time, enqueue_task_index, MilestoneIndexDelta,
-    TaskIndexDelta,
+    enqueue_milestone_index, enqueue_plan_metadata, enqueue_plan_time, enqueue_task_index,
+    MilestoneIndexDelta, TaskIndexDelta,
 };
 pub(in crate::service_plan) use snapshot::{
     PlanSearchInput, PlanSearchSnapshot, SearchHeaderRead, SearchMilestoneRead, SearchSectionRead,
@@ -103,6 +103,7 @@ struct Unit {
 }
 
 enum IndexJob {
+    PlanMetadata(PathBuf, super::store_db::PlanIndexRow),
     PlanTime(PathBuf, String, u64),
     DeleteUnit(PathBuf, String),
     Status(PathBuf, narrow::StatusDelta),
@@ -120,6 +121,9 @@ enum IndexJob {
 impl IndexJob {
     fn key(&self) -> String {
         match self {
+            Self::PlanMetadata(_, row) => {
+                format!("{}:plan-metadata:{}", self.project_key(), row.id)
+            }
             Self::PlanTime(_, id, _) => format!("{}:plan-time:{}", self.project_key(), id),
             Self::Status(_, delta) => format!("{}:status:{}", self.project_key(), delta.key),
             Self::DeleteUnit(_, id) => format!("{}:unit:{}", self.project_key(), id),
@@ -139,6 +143,7 @@ impl IndexJob {
 
     fn project_key(&self) -> String {
         match self {
+            Self::PlanMetadata(root, _) => project_scope(root),
             Self::PlanTime(root, _, _) => project_scope(root),
             Self::Status(root, _) | Self::Unit(root, _) | Self::DeleteUnit(root, _) => {
                 project_scope(root)
@@ -298,6 +303,7 @@ fn index_queue() -> Arc<IndexQueue> {
 
 fn run_job(job: &IndexJob) -> Result<(), String> {
     match job {
+        IndexJob::PlanMetadata(root, row) => narrow::mirror_plan_metadata(root, row),
         IndexJob::PlanTime(root, id, at) => narrow::mirror_plan_time(root, id, *at),
         IndexJob::DeleteUnit(root, id) => narrow::delete_unit(root, id),
         IndexJob::Status(root, delta) => narrow::mirror_status(root, delta),
