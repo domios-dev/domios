@@ -941,18 +941,27 @@ pub async fn send_text(
     let svc = state.svc.clone();
     let target = tab_id.clone();
     let payload = raw_text.clone();
-    let (delivery, pad_file) = run_programmatic_delivery(&tab_id, move || {
+    let (delivery, pad_file, restored_send) = run_programmatic_delivery(&tab_id, move || {
         let class =
             if envelope.kind == codeterm_service_core::service::messenger::MessageKind::System {
                 codeterm_service_core::service::message_gateway::DeliveryClass::SystemNotice
             } else {
                 codeterm_service_core::service::message_gateway::DeliveryClass::AgentTraffic
             };
+        let restored_send = svc.public_send_restores_agent(&target);
         svc.gateway_deliver_with_pad_file(&target, envelope, &payload, class)
+            .map(|(delivery, pad)| (delivery, pad, restored_send))
     })
     .await?;
     record_push_activity(&state, &svc_token_match, &tab_id, &raw_text);
-    let delivery = state.svc.public_delivery_receipt(&tab_id, delivery);
+    let delivery = if restored_send {
+        state
+            .svc
+            .await_restored_send_receipt(&tab_id, delivery, std::time::Duration::from_secs(30))
+            .await
+    } else {
+        state.svc.public_delivery_receipt(&tab_id, delivery)
+    };
     use codeterm_service_core::service::messenger::Delivery;
     let (delivery_state, send_id, bytes_written) = match delivery {
         Delivery::Pending { delivery_id } => ("pending", Some(delivery_id), false),
