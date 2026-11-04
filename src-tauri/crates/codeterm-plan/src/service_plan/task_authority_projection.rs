@@ -168,3 +168,6 @@ mod shared_inspection;
 pub(super) use shared_inspection::{SharedDispatchRead, SharedReportRead};
 
 mod plan_metadata;
+
+mod respawn_source;
+pub(super) use respawn_source::{ensure_respawn_source_fields, TaskRespawnSourceRead};
