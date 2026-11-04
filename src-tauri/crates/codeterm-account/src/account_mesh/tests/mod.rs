@@ -25,3 +25,4 @@ mod lease;
 mod registry_revocation;
 
 mod calm;
+mod local_admission;

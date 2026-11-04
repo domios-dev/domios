@@ -162,10 +162,17 @@ impl AccountMesh {
             inner.record.revoked_generations.clear();
             inner.observe_registry_keys(&verified.rows, &self.installation());
             inner.record.revoked_installations = verified.revoked_installations.clone();
+            if let Some(local) = inner.record.local_revocations.get(account) {
+                inner
+                    .record
+                    .revoked_installations
+                    .extend(local.iter().cloned());
+            }
             let revoked = inner.record.revoked_installations.clone();
             let own_allowed = verified.rows.iter().any(|row| {
                 row.installation_id == self.installation()
                     && row.active
+                    && row.eligibility == super::wire::Eligibility::Eligible
                     && row.presence == RegistryPresence::Present
                     && inner.state.membership.as_ref().is_none_or(|membership| {
                         row.key_id == membership.verified.key_id

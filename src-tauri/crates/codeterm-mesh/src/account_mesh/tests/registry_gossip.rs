@@ -23,15 +23,26 @@ async fn every_handshake_exchanges_latest_envelopes_in_both_directions() {
     link_installation_with(&a.mesh, &transport, &b.installation_id)
         .await
         .unwrap();
-    assert_eq!(*a.authority.snapshots.lock(), vec![snapshot("newer")]);
-    assert_eq!(*b.authority.snapshots.lock(), vec![snapshot("older")]);
+    assert_eq!(
+        *a.authority.snapshots.lock(),
+        vec![snapshot("newer"), snapshot("newer")]
+    );
+    assert_eq!(
+        *b.authority.snapshots.lock(),
+        vec![snapshot("older"), snapshot("older")]
+    );
     b.mesh.lock().signed_registry = Some(snapshot("after-offline"));
     link_installation_with(&a.mesh, &transport, &b.installation_id)
         .await
         .unwrap();
     assert_eq!(
         *a.authority.snapshots.lock(),
-        vec![snapshot("newer"), snapshot("after-offline")]
+        vec![
+            snapshot("newer"),
+            snapshot("newer"),
+            snapshot("after-offline"),
+            snapshot("after-offline")
+        ]
     );
     assert_eq!(transport.posts.load(Ordering::SeqCst), 6);
 }
@@ -75,5 +86,5 @@ async fn signed_registry_slot_change_closes_open_stream_and_blocks_old_membershi
     );
     assert!(a.mesh.lock().client_for(&b.id()).is_none());
     assert!(a.mesh.lock().sign_request_for(&b.id()).is_err());
-    assert_eq!(a.authority.authorize_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(a.authority.authorize_calls.load(Ordering::SeqCst), 0);
 }

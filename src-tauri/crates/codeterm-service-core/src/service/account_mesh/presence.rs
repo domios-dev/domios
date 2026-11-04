@@ -59,10 +59,7 @@ impl ServiceContext {
         let service = self.account_mesh().await?;
         match service.mesh.receive_registry_snapshot(snapshot).await {
             Ok(applied) => Ok(applied),
-            Err(error) => {
-                let _ = service.mesh.list_fresh().await;
-                Err(format!("Signed registry rejected: {error:?}"))
-            }
+            Err(error) => Err(format!("Signed registry rejected: {error:?}")),
         }
     }
 }

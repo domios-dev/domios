@@ -8,7 +8,6 @@ mod callable_budget;
 mod key;
 mod lease_timer;
 mod lifecycle;
-mod link_authorization;
 mod membership;
 mod notice;
 mod operations;
@@ -28,11 +27,10 @@ pub mod wire;
 pub use key::{verify_possession, InstallationKey, ProofContext};
 pub use lifecycle::{AccountMesh, AccountMeshConfig, AccountMeshPorts};
 pub use membership::{
-    account_id, membership_token, parse_membership_token, verify_link_permit, verify_membership,
-    LinkPermitExpectation, MembershipExpectation, MembershipRefusal, MembershipTrust,
-    VerifiedMembership, NOT_BEFORE_SKEW_SECONDS,
+    account_id, membership_token, parse_membership_token, verify_membership, MembershipExpectation,
+    MembershipRefusal, MembershipTrust, VerifiedMembership, NOT_BEFORE_SKEW_SECONDS,
 };
-pub use operations::{LinkAuthorization, LinkTarget};
+pub use operations::LinkTarget;
 pub use ports::{
     AccountMeshStore, Clock, EndpointSource, InstallationKeyStore, MeshRegistry, MeshTransport,
     RegistryResult, SessionSource, SystemClock, UnavailableRegistry,
