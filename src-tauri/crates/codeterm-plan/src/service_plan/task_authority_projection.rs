@@ -123,3 +123,6 @@ pub use restoration::{ReviewBindingRestoreRead, ReviewRestoreAttemptRead, TaskBi
 pub use runtime_restore::{RuntimeAttemptRestoreQuery, RuntimeAttemptRestoreRead};
 pub use runtime_session::{RuntimeSessionAttemptRead, TaskRuntimeSessionRead};
 pub use split::TaskSplitDefaultsRead;
+
+mod provider_interruption;
+pub use provider_interruption::{ProviderRecoveryRead, TaskInterruptionRead};

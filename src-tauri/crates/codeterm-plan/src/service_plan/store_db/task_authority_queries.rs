@@ -314,3 +314,5 @@ mod review;
 mod runtime_restore;
 mod runtime_session;
 mod split;
+
+mod provider_interruption;

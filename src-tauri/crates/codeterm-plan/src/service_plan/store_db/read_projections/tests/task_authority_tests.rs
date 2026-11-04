@@ -858,3 +858,5 @@ mod runtime_restore;
 mod runtime_session;
 mod split;
 mod startup_ownership;
+
+mod provider_interruption;

@@ -419,10 +419,18 @@ async fn run_probe_for(inner: Arc<UsagePollerInner>, key: AccountKey) -> Result<
                             let exhausted = snapshot_is_exhausted(&snap);
                             match register_exhaustion_reading(&inner, &key, exhausted) {
                                 Some(ExhaustionSignal::Confirmed) => {
-                                    inner.svc.signal_provider_exhaustion(&key.provider);
+                                    if let Err(error) =
+                                        inner.svc.signal_provider_exhaustion(&key.provider)
+                                    {
+                                        log::error!("[worker-interruption] signal failed: {error}");
+                                    }
                                 }
                                 Some(ExhaustionSignal::Recovered) => {
-                                    inner.svc.signal_provider_recovery(&key.provider);
+                                    if let Err(error) =
+                                        inner.svc.signal_provider_recovery(&key.provider)
+                                    {
+                                        log::error!("[worker-interruption] signal failed: {error}");
+                                    }
                                 }
                                 None => {}
                             }
