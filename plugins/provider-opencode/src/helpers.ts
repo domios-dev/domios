@@ -1,6 +1,8 @@
+import { ioResolve } from "@codeterm/plugin-sdk";
+import { ioSqlite, type HostIoSteps } from "@codeterm/plugin-sdk";
 import modelRejections from "./modelRejections.json";
 import { modelMetadata, modelUnavailable, rejectedModelIds } from "./turnErrors";
-import type { FetchOpts, Host, ModelInfo, ParsedPrompt } from "@codeterm/plugin-sdk";
+import type { FetchOpts, ModelInfo, ParsedPrompt } from "@codeterm/plugin-sdk";
 import { parseModelVariants } from "./modelVariants";
 import { bindingModelSwitchSource } from "./bindingModelSwitch";
 import { opencodeFileDiffs } from "./fileDiffs";
@@ -278,7 +280,7 @@ export function isQuestionMenuFooter(line: string): boolean {
 }
 
 // Model discovery (requires host.exec, host.fs, etc. passed as parameter or from global host)
-declare const host: Host;
+declare const host: import("@codeterm/plugin-sdk").Host;
 
 const MODEL_CATALOGUE_TTL_MS = 10 * 60 * 1000;
 interface CatalogueAttempt {
@@ -294,43 +296,39 @@ export function cachedOpencodeModels(): ModelInfo[] | null {
   return lastGoodCatalogue;
 }
 
-export function discoverOpencodeModels(inputFingerprint?: string | null): ModelInfo[] | null {
-  return withOpencodeModels(inputFingerprint, (models) => models);
+export function* discoverOpencodeModels(inputFingerprint?: string | null): HostIoSteps<ModelInfo[] | null> {
+  return (yield* withOpencodeModels(inputFingerprint, (models) => models));
 }
 
-export function withOpencodeModels<T>(inputFingerprint: string | null | undefined, then: (models: ModelInfo[] | null) => T): T {
+export function* withOpencodeModels<T>(inputFingerprint: string | null | undefined, then: (models: ModelInfo[] | null) => T | HostIoSteps<T>): HostIoSteps<T> {
   const now = host.unixNowMs();
-  if (inputFingerprint === undefined && modelCatalogue?.pending) return then(null);
+  if (inputFingerprint === undefined && modelCatalogue?.pending) return yield* ioResolve(then(null));
   const stamp = inputFingerprint ?? "unresolved";
   if (modelCatalogue && modelCatalogue.stamp === stamp && now >= modelCatalogue.since && now - modelCatalogue.since < MODEL_CATALOGUE_TTL_MS) {
-    return then(modelCatalogue.pending ? null : modelCatalogue.models);
+    return yield* ioResolve(then(modelCatalogue.pending ? null : modelCatalogue.models));
   }
   const attempt: CatalogueAttempt = { stamp, since: now, pending: true, models: null };
   modelCatalogue = attempt;
-  const finish = (models: ModelInfo[] | null): T => {
-    if (modelCatalogue !== attempt) return then(null);
+  const finish = function* (models: ModelInfo[] | null): HostIoSteps<T> {
+    if (modelCatalogue !== attempt) return yield* ioResolve(then(null));
     attempt.pending = false;
     attempt.models = models;
     attempt.since = host.unixNowMs();
     if (models !== null) lastGoodCatalogue = models;
-    return then(models);
+    return yield* ioResolve(then(models));
   };
-  return probeModels(false, (result) => {
-    if (modelCatalogue !== attempt) return then(null);
-    if (!completeModelOutput(result)) return finish(null);
-    const identities = parseOpencodeModels(result.stdout);
-    if (identities === null) return finish(null);
-    return probeModels(true, (metadataResult) => {
-      if (modelCatalogue !== attempt) return then(null);
-      const verbose = metadataResult?.code === 0 && !metadataResult.error && typeof metadataResult.stdout === "string"
-        ? metadataResult.stdout : "";
-      const metadata = modelMetadata(verbose);
-      const enriched = new Map((parseOpencodeModels(verbose) ?? []).map((model) => [model.id, model]));
-      const models = identities.filter((model) => !modelUnavailable(metadata.get(model.id)))
-        .map((model) => enriched.get(model.id) ?? model);
-      return finish(filterRejectedModels(models));
-    });
-  });
+  const result = yield* probeModels(false);
+  if (modelCatalogue !== attempt) return yield* ioResolve(then(null));
+  if (!completeModelOutput(result)) return yield* finish(null);
+  const identities = parseOpencodeModels(result.stdout);
+  if (identities === null) return yield* finish(null);
+  const metadataResult = yield* probeModels(true);
+  if (modelCatalogue !== attempt) return yield* ioResolve(then(null));
+  const verbose = metadataResult?.code === 0 && !metadataResult.error && typeof metadataResult.stdout === "string" ? metadataResult.stdout : "";
+  const metadata = modelMetadata(verbose);
+  const enriched = new Map((parseOpencodeModels(verbose) ?? []).map((model) => [model.id, model]));
+  const models = identities.filter((model) => !modelUnavailable(metadata.get(model.id))).map((model) => enriched.get(model.id) ?? model);
+  return yield* finish(yield* filterRejectedModels(models));
 }
 
 interface ModelCommandResult {
@@ -344,21 +342,18 @@ function completeModelOutput(result: ModelCommandResult | null): result is Model
   return result?.code === 0 && !result.error && !result.truncated && typeof result.stdout === "string";
 }
 
-function probeModels<T>(verbose: boolean, then: (result: ModelCommandResult | null) => T): T {
-  const started = safeJson(host.execStart(JSON.stringify({
-    bin: "opencode",
-    args: verbose ? ["models", "--verbose"] : ["models"],
-    timeoutMs: 3000,
-  }))) as { jobId?: string } | null;
-  return started?.jobId ? host.awaitJob(started.jobId, then) : then(null);
+function* probeModels(verbose: boolean): HostIoSteps<ModelCommandResult | null> {
+  try {
+    return yield* host.io.exec({ bin: "opencode", args: verbose ? ["models", "--verbose"] : ["models"], timeoutMs: 3000 });
+  } catch { return null; }
 }
 
 export const MODEL_REJECTION_QUERY = modelRejections.query;
 
-function filterRejectedModels(models: ModelInfo[]): ModelInfo[] {
+function* filterRejectedModels(models: ModelInfo[]): HostIoSteps<ModelInfo[]> {
   const db = opencodeDbPath();
-  if (!db || !host.fs.fileExists(db)) return models;
-  const rows = host.fs.sqliteQuery<{ data: string }>(db, MODEL_REJECTION_QUERY, [ASSISTANT_MESSAGE_MAX_BYTES]);
+  if (!db || !(yield* host.io.fs.fileExists(db))) return models;
+  const rows = (yield* host.io.fs.sqliteQuery<{ data: string }>(db, MODEL_REJECTION_QUERY, [ASSISTANT_MESSAGE_MAX_BYTES]));
   const rejected = rejectedModelIds(rows.map((row) => {
     const message = safeJson(row.data);
     return { model: sessionModelIdentity(message), message };
@@ -421,11 +416,11 @@ export const GROUP_USAGE_TTL_MS = 60_000;
 let groupUsageCache: { stamp: string; atMs: number; rows: ModelUsageRow[] } | null = null;
 
 // The WAL takes every write until a checkpoint, so the stamp covers both files.
-export function opencodeDbStamp(db: string): string | null {
+export function* opencodeDbStamp(db: string): HostIoSteps<string | null> {
   const slash = Math.max(db.lastIndexOf("/"), db.lastIndexOf("\\"));
   if (slash < 0) return null;
   const name = db.slice(slash + 1);
-  const entries = host.fs.readDir(db.slice(0, slash));
+  const entries = (yield* host.io.fs.readDir(db.slice(0, slash)));
   const stamps = [name, name + "-wal"].map((file) => {
     const entry = entries.find((e) => e.name === file);
     return entry ? entry.size + "@" + entry.modifiedMs : "-";
@@ -433,18 +428,19 @@ export function opencodeDbStamp(db: string): string | null {
   return stamps[0] === "-" ? null : db + "|" + stamps.join("|");
 }
 
-export function withOpencodeGroupUsage<T>(then: (usage: ModelGroupUsage[]) => T): T {
+export function* withOpencodeGroupUsage<T>(then: (usage: ModelGroupUsage[]) => T | HostIoSteps<T>): HostIoSteps<T> {
   const db = opencodeDbPath();
-  if (!db || !host.fs.fileExists(db)) return then([]);
-  const stamp = opencodeDbStamp(db);
+  if (!db || !(yield* host.io.fs.fileExists(db))) return yield* ioResolve(then([]));
+  const stamp = (yield* opencodeDbStamp(db));
   const cached = groupUsageCache;
   if (stamp && cached && cached.stamp === stamp && host.unixNowMs() - cached.atMs < GROUP_USAGE_TTL_MS) {
-    return withGroupBalances(cached.rows, () => then(groupUsageFromRows(cached.rows)));
+    return yield* withGroupBalances(cached.rows, function*() { return (yield* ioResolve(then(groupUsageFromRows(cached.rows)))); });
   }
-  return host.fs.sqliteQueryAsync<ModelUsageRow, T>(db, GROUP_USAGE_SQL, [], (rows) => {
-    groupUsageCache = stamp ? { stamp, atMs: host.unixNowMs(), rows } : null;
-    return withGroupBalances(rows, () => then(groupUsageFromRows(rows)));
-  });
+  return (yield* ioSqlite<ModelUsageRow, T>(host.io.fs, db, GROUP_USAGE_SQL, [], function* (rows) {
+    const currentStamp = yield* opencodeDbStamp(db);
+    groupUsageCache = stamp && currentStamp === stamp ? { stamp, atMs: host.unixNowMs(), rows } : null;
+    return yield* withGroupBalances(rows, function*() { return (yield* ioResolve(then(groupUsageFromRows(rows)))); });
+  }));
 }
 
 function groupUsageFromRows(rows: ModelUsageRow[]): ModelGroupUsage[] {
@@ -487,19 +483,17 @@ function cachedBalanceCents(group: string): number | null {
 }
 
 // A stale balance is refreshed through a yielded fetch before the usage is built.
-function withGroupBalances<T>(rows: ModelUsageRow[], then: () => T): T {
+let balanceRequestGeneration = 0;
+
+function* withGroupBalances<T>(rows: ModelUsageRow[], then: () => T | HostIoSteps<T>): HostIoSteps<T> {
   const now = host.unixNowMs();
-  let stale: string | null = null;
-  for (let i = 0; i < rows.length && !stale; i++) {
-    const group = rows[i].g;
-    if (typeof group === "string" && BALANCE_BY_GROUP[group] && !balanceFresh(group, now)) stale = group;
-  }
-  if (!stale || typeof host.fetch !== "function" || typeof host.fetch.async !== "function") return then();
-  const group = stale;
-  return host.fetch.async(balanceRequest(group), (response) => {
-    balanceCache = { group: group, atMs: host.unixNowMs(), cents: balanceCentsFrom(response) };
-    return then();
-  });
+  const group = rows.map(row => row.g).find(group => typeof group === "string" && BALANCE_BY_GROUP[group] && !balanceFresh(group, now));
+  if (typeof group !== "string") return yield* ioResolve(then());
+  const generation = ++balanceRequestGeneration;
+  let response: import("@codeterm/plugin-sdk").FetchResult | null = null;
+  try { response = yield* host.io.fetch(balanceRequest(group)); } catch { /* An unavailable balance stays unknown. */ }
+  if (generation === balanceRequestGeneration) balanceCache = { group, atMs: host.unixNowMs(), cents: balanceCentsFrom(response) };
+  return yield* ioResolve(then());
 }
 
 function balanceRequest(group: string): FetchOpts {
@@ -948,8 +942,8 @@ export function opencodeBindingPluginSource(): string {
   ].join("\n");
 }
 
-export function scanMessagesForModel(db: string, sql: string, params: unknown[]): string | null {
-  const rows = host.fs.sqliteQuery<{ data?: string }>(db, sql, params);
+export function* scanMessagesForModel(db: string, sql: string, params: unknown[]): HostIoSteps<string | null> {
+  const rows = (yield* host.io.fs.sqliteQuery<{ data?: string }>(db, sql, params));
   for (let i = 0; i < rows.length; i++) {
     const raw = rows[i].data;
     if (!raw) continue;
@@ -962,14 +956,10 @@ export function scanMessagesForModel(db: string, sql: string, params: unknown[])
   return null;
 }
 
-export function scanMessagesForQualifiedModel(db: string, sessionId: string): string | null {
+export function* scanMessagesForQualifiedModel(db: string, sessionId: string): HostIoSteps<string | null> {
   try {
-    const rows = host.fs.sqliteQuery<{ data?: string }>(
-      db,
-      "SELECT data FROM message WHERE session_id = ?1 AND octet_length(data) <= ?2 " +
-        "ORDER BY time_created DESC LIMIT 20",
-      [sessionId, ASSISTANT_MESSAGE_MAX_BYTES],
-    );
+    const rows = (yield* host.io.fs.sqliteQuery<{ data?: string }>(db, "SELECT data FROM message WHERE session_id = ?1 AND octet_length(data) <= ?2 " +
+        "ORDER BY time_created DESC LIMIT 20", [sessionId, ASSISTANT_MESSAGE_MAX_BYTES]));
     for (let i = 0; i < rows.length; i++) {
       const raw = rows[i].data;
       if (!raw) continue;
@@ -984,13 +974,9 @@ export function scanMessagesForQualifiedModel(db: string, sessionId: string): st
   return null;
 }
 
-export function scanSessionDirectory(db: string, sessionId: string): string | null {
+export function* scanSessionDirectory(db: string, sessionId: string): HostIoSteps<string | null> {
   try {
-    const rows = host.fs.sqliteQuery<{ id?: string; directory?: string }>(
-      db,
-      "SELECT id, directory FROM session WHERE id = ?1 LIMIT 1",
-      [sessionId],
-    );
+    const rows = (yield* host.io.fs.sqliteQuery<{ id?: string; directory?: string }>(db, "SELECT id, directory FROM session WHERE id = ?1 LIMIT 1", [sessionId]));
     const session = rows.find((row) => row.id === sessionId);
     return typeof session?.directory === "string" && session.directory.trim()
       ? session.directory
@@ -1000,12 +986,8 @@ export function scanSessionDirectory(db: string, sessionId: string): string | nu
   }
 }
 
-export function scanSessionModel(db: string, sessionId: string): string | null {
-  const rows = host.fs.sqliteQuery<{ id?: string; model?: string }>(
-    db,
-    "SELECT id, model FROM session WHERE id = ?1 AND octet_length(model) <= ?2 LIMIT 1",
-    [sessionId, MESSAGE_ROLE_MAX_BYTES],
-  );
+export function* scanSessionModel(db: string, sessionId: string): HostIoSteps<string | null> {
+  const rows = (yield* host.io.fs.sqliteQuery<{ id?: string; model?: string }>(db, "SELECT id, model FROM session WHERE id = ?1 AND octet_length(model) <= ?2 LIMIT 1", [sessionId, MESSAGE_ROLE_MAX_BYTES]));
   const session = rows.find((row) => row.id === sessionId);
   const model = session?.model ? safeJson(session.model) as { providerID?: unknown; id?: unknown } | null : null;
   return sessionModelIdentity({ role: "assistant", providerID: model?.providerID, modelID: model?.id });

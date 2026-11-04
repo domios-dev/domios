@@ -1,12 +1,6 @@
+import { type HostIoSteps } from "@codeterm/plugin-sdk";
 export interface ProjectTrustCarryHost {
-  fs: {
-    fileExists(path: string): boolean;
-    isSymlink(path: string): boolean | null;
-    readFile(path: string): string | null;
-    writeFileAtomic(path: string, contents: string): boolean;
-    lockFile(path: string): string | null;
-    unlockFile(id: string): boolean;
-  };
+  io: Pick<import("@codeterm/plugin-sdk").HostIo, "fs">;
   log?(level: "warn", message: string): void;
 }
 
@@ -386,25 +380,21 @@ export function mergeTrustedProjectEntries(profile: string, config: string): str
   return config + separator + appended;
 }
 
-export function carryCodexProjectTrust(
-  host: ProjectTrustCarryHost,
-  profilePath: string,
-  configPath: string,
-): boolean {
-  const lockId = host.fs.lockFile(configPath + ".project-trust.lock");
+export function* carryCodexProjectTrust(host: ProjectTrustCarryHost, profilePath: string, configPath: string): HostIoSteps<boolean> {
+  const lockId = (yield* host.io.fs.lockFile(configPath + ".project-trust.lock"));
   if (lockId === null) {
     host.log?.("warn", "Codex project trust carry-over skipped because the shared config lock is busy");
     return false;
   }
   try {
-    if (host.fs.isSymlink(configPath) !== false) {
+    if ((yield* host.io.fs.isSymlink(configPath)) !== false) {
       host.log?.("warn", "Codex project trust carry-over skipped because the shared config path could not be safely replaced");
       return false;
     }
-    const profile = host.fs.readFile(profilePath);
+    const profile = (yield* host.io.fs.readFile(profilePath));
     if (profile === null) return false;
-    const configExists = host.fs.fileExists(configPath);
-    const config = configExists ? host.fs.readFile(configPath) : "";
+    const configExists = (yield* host.io.fs.fileExists(configPath));
+    const config = configExists ? (yield* host.io.fs.readFile(configPath)) : "";
     if (config === null) return false;
     const merged = mergeTrustedProjectEntries(profile, config);
     if (merged === null) {
@@ -412,22 +402,22 @@ export function carryCodexProjectTrust(
       return false;
     }
     if (merged === config) return true;
-    const currentExists = host.fs.fileExists(configPath);
-    const current = currentExists ? host.fs.readFile(configPath) : "";
+    const currentExists = (yield* host.io.fs.fileExists(configPath));
+    const current = currentExists ? (yield* host.io.fs.readFile(configPath)) : "";
     if (current === null || currentExists !== configExists || current !== config) {
       host.log?.("warn", "Codex project trust carry-over skipped after a concurrent config change");
       return false;
     }
-    if (host.fs.isSymlink(configPath) !== false) {
+    if ((yield* host.io.fs.isSymlink(configPath)) !== false) {
       host.log?.("warn", "Codex project trust carry-over skipped because the shared config path could not be safely replaced");
       return false;
     }
-    if (!host.fs.writeFileAtomic(configPath, merged)) {
+    if (!(yield* host.io.fs.writeFileAtomic(configPath, merged))) {
       host.log?.("warn", "Codex project trust carry-over could not atomically update the shared config");
       return false;
     }
     return true;
   } finally {
-    host.fs.unlockFile(lockId);
+    (yield* host.io.fs.unlockFile(lockId));
   }
 }

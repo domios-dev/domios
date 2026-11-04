@@ -1,7 +1,8 @@
-import type {HostFs} from "./host";
-import type {RemoteTaskBinding, RemoteTaskStorage} from "./remoteTasks";
+import { type HostIoSteps } from "./ioPrograms";
+import type { HostIoFs } from "./io";
+import type { RemoteTaskBinding, RemoteTaskStorage } from "./remoteTasks";
 
-type StorageFs = Pick<HostFs, "readFile" | "writeFileAtomic" | "lockFile" | "unlockFile" | "makeDirs">;
+type StorageFs = Pick<HostIoFs, "readFile" | "writeFileAtomic" | "lockFile" | "unlockFile" | "makeDirs">;
 
 export class RemoteTaskFileStorage implements RemoteTaskStorage {
   constructor(private readonly fs: StorageFs, private readonly root: string) {}
@@ -11,12 +12,12 @@ export class RemoteTaskFileStorage implements RemoteTaskStorage {
     return `${this.root}/${tabId}.json`;
   }
 
-  read(tabId: string): RemoteTaskBinding | null {
-    return this.readFile(this.path(tabId));
+  *read(tabId: string): HostIoSteps<RemoteTaskBinding | null> {
+    return (yield* this.readFile(this.path(tabId)));
   }
 
-  private readFile(path: string): RemoteTaskBinding | null {
-    const raw = this.fs.readFile(path);
+  private *readFile(path: string): HostIoSteps<RemoteTaskBinding | null> {
+    const raw = (yield* this.fs.readFile(path));
     if (raw === null) return null;
     const binding = JSON.parse(raw) as RemoteTaskBinding;
     if (!binding || !Number.isSafeInteger(binding.revision) || binding.revision < 0
@@ -28,17 +29,17 @@ export class RemoteTaskFileStorage implements RemoteTaskStorage {
     return binding;
   }
 
-  compareExchange(tabId: string, revision: number | null, next: RemoteTaskBinding): boolean {
+  *compareExchange(tabId: string, revision: number | null, next: RemoteTaskBinding): HostIoSteps<boolean> {
     const path = this.path(tabId);
-    if (!this.fs.makeDirs(this.root)) throw new Error("Remote task storage is unavailable");
-    const lock = this.fs.lockFile(`${path}.lock`);
+    if (!(yield* this.fs.makeDirs(this.root))) throw new Error("Remote task storage is unavailable");
+    const lock = (yield* this.fs.lockFile(`${path}.lock`));
     if (!lock) throw new Error("Remote task storage is busy; creation was not repeated");
     try {
-      if ((this.readFile(path)?.revision ?? null) !== revision) return false;
-      if (!this.fs.writeFileAtomic(path, JSON.stringify(next))) throw new Error("Remote task binding could not be saved");
+      if (((yield* this.readFile(path))?.revision ?? null) !== revision) return false;
+      if (!(yield* this.fs.writeFileAtomic(path, JSON.stringify(next)))) throw new Error("Remote task binding could not be saved");
       return true;
     } finally {
-      this.fs.unlockFile(lock);
+      (yield* this.fs.unlockFile(lock));
     }
   }
 }
