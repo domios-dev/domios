@@ -109,6 +109,7 @@ fn bind_live_worker_session(bw: &BoundWorker) {
             None,
             Some("worker-session"),
             Some("worker-nonce"),
+            None,
             4,
         )
         .unwrap();

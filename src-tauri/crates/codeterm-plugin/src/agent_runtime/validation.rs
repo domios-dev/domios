@@ -469,6 +469,7 @@ pub fn validate_runtime_call(
             return Err(mismatch("call target is outside operation authority"));
         }
     }
+    super::host_mcp::validate(cap, ctx, &call.method, &call.params)?;
     if !cap.permits_method(op, &call.method) {
         return Err(RuntimeFailure::new(
             RuntimeFailureCode::MethodNotAllowed,
@@ -529,11 +530,37 @@ pub fn validate_runtime_step(
                 {
                     return Err(mismatch("correlated response cannot confirm delivery"));
                 }
+                if events.len() > MAX_RUNTIME_BATCH {
+                    return Err(RuntimeFailure::new(
+                        RuntimeFailureCode::SizeLimit,
+                        "too many runtime events",
+                    ));
+                }
+                let mut remaining = events.clone();
+                if let (
+                    RuntimeOperation::OpenThread { .. },
+                    RuntimeResult::ThreadLoaded { thread_id, .. },
+                ) = (op, result)
+                {
+                    let (notices, other): (Vec<_>, Vec<_>) = remaining
+                        .into_iter()
+                        .partition(|event| matches!(event, AgentRuntimeEvent::Notice { .. }));
+                    let mut loaded_context = ctx.clone();
+                    loaded_context.thread_id = Some(thread_id.clone());
+                    validate_runtime_reduction(
+                        &loaded_context,
+                        &RuntimeReduction {
+                            state: Value::Null,
+                            events: notices,
+                        },
+                    )?;
+                    remaining = other;
+                }
                 validate_runtime_reduction(
                     ctx,
                     &RuntimeReduction {
                         state: Value::Null,
-                        events: events.clone(),
+                        events: remaining,
                     },
                 )?;
             }
@@ -561,6 +588,15 @@ fn validate_runtime_result(
     op: &RuntimeOperation,
     result: &RuntimeResult,
 ) -> Result<(), RuntimeFailure> {
+    if let RuntimeResult::Initialized {
+        agent_name: Some(name),
+        ..
+    } = result
+    {
+        if name.is_empty() || name.len() > 256 || name.chars().any(char::is_control) {
+            return Err(invalid("invalid runtime agent name"));
+        }
+    }
     if let RuntimeResult::ThreadLoaded { settings, .. } = result {
         validate_runtime_settings(settings)?;
     }

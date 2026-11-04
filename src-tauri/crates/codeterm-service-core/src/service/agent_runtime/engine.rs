@@ -424,6 +424,7 @@ async fn ensure_with_fork(
                     reverted_thread: Mutex::new(None),
                     completions: Mutex::new(Default::default()),
                     context: Mutex::new(RuntimeContext {
+                        host_mcp: None,
                         client_bridges: None,
                         restricted_cli: None,
                         epoch: 0,
@@ -577,6 +578,7 @@ async fn ensure_locked(
         let epoch = {
             let mut state = session.state.lock();
             state.binary_version = None;
+            state.agent_name = None;
             state.begin()
         };
         session
@@ -589,6 +591,7 @@ async fn ensure_locked(
             let mut context = session.context.lock();
             context.epoch = epoch;
             context.client_bridges = None;
+            context.host_mcp = None;
             context.claimed_sends.clear();
             context.pending_request = None;
             context.active_turn_id = None;
@@ -630,7 +633,7 @@ async fn ensure_locked(
         let target = tab.to_string();
         let provider_id = provider.to_string();
         let launch_nonce = context.binding_nonce.clone();
-        let process = tokio::task::spawn_blocking(move || {
+        let (process, host_mcp) = tokio::task::spawn_blocking(move || {
             let nonce = launch_nonce;
             let authority = LaunchAuthority::verify(
                 &owner,
@@ -680,8 +683,23 @@ async fn ensure_locked(
             {
                 return Err(RuntimeFailure::Superseded);
             }
+            let minted_local = super::host_mcp::minted_local(
+                &env,
+                &crate::service::tab_credentials::TabCaller {
+                    tab_id: target.clone(),
+                    binding_nonce: nonce.clone(),
+                },
+                |token| owner.identify_tab_credential(token),
+            );
+            let host_mcp = super::host_mcp::descriptor(
+                capability.host_mcp.is_some(),
+                minted_local,
+                &target,
+                &nonce,
+                crate::service::instance_env::instance_cli_binary_path(),
+            );
             super::process::spawn(&launch.binary, &launch.capability, &cwd, env, &target)
-                .map(Arc::new)
+                .map(|process| (Arc::new(process), host_mcp))
         })
         .await
         .map_err(|error| RuntimeFailure::SpawnFailed {
@@ -694,6 +712,7 @@ async fn ensure_locked(
             process.finish().await?;
             return Err(RuntimeFailure::Superseded);
         }
+        session.context.lock().host_mcp = host_mcp;
         let bridge_context = session.context.lock().clone();
         let installed = tokio::task::spawn_blocking(move || {
             super::client_bridge::install(&bridge_context, declared_bridges)
@@ -731,12 +750,18 @@ async fn ensure_locked(
                 RuntimeOperation::Initialize,
             )
             .await?;
-            let RuntimeResult::Initialized { binary_version } = result else {
+            let RuntimeResult::Initialized {
+                binary_version,
+                agent_name,
+            } = result
+            else {
                 return Err(RuntimeFailure::HookFailed(
                     "Initialize result is invalid".into(),
                 ));
             };
-            session.state.lock().binary_version = binary_version;
+            let mut state = session.state.lock();
+            state.binary_version = binary_version;
+            state.agent_name = agent_name;
             Ok(())
         })
         .await?;
@@ -789,9 +814,10 @@ async fn ensure_locked(
             },
         },
     };
+    session.state.lock().pending_load_notice = None;
     let result = resume::load(svc, provider, session, &process, operation).await?;
     let context = session.context.lock().clone();
-    let (thread_id, settings) = match (fork, result) {
+    let (thread_id, settings, load_notice) = match (fork, result) {
         (
             Some((expected_source, expected_turn)),
             RuntimeResult::ThreadForked {
@@ -803,7 +829,7 @@ async fn ensure_locked(
             && turn_id == *expected_turn
             && thread_id != *expected_source =>
         {
-            (thread_id, context.settings.clone())
+            (thread_id, context.settings.clone(), None)
         }
         (
             None,
@@ -831,15 +857,16 @@ async fn ensure_locked(
                     )
                 );
             }
-            validate_loaded_settings(&context.settings, &settings, |requested, reported| {
-                crate::service::session_model::session_model_matches(
-                    &svc.agent_registry,
-                    provider,
-                    requested,
-                    reported,
-                )
-            })?;
-            (thread_id, settings)
+            let notice =
+                validate_loaded_settings(&context.settings, &settings, |requested, reported| {
+                    crate::service::session_model::session_model_matches(
+                        &svc.agent_registry,
+                        provider,
+                        requested,
+                        reported,
+                    )
+                })?;
+            (thread_id, settings, notice)
         }
         _ => {
             return Err(RuntimeFailure::HookFailed(
@@ -869,6 +896,8 @@ async fn ensure_locked(
     )?;
     let settings = session.context.lock().settings.clone();
     super::projections::controls(svc, session, settings);
+    session.state.lock().finish_load_notice(load_notice);
+    publish_controls(svc, tab, session);
     if let Err(reason) = super::controls::refresh_service_tiers(svc, session).await {
         log::debug!("Runtime service tier catalogue unavailable: {reason}");
     }

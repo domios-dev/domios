@@ -3,6 +3,9 @@ use super::spawn::{AgentSpawnSpec, SpawnTabSpec, TabCommand, TabVisibility};
 use super::ServiceContext;
 use crate::multiplexer::types::{WatcherPolicy, WatcherSpec};
 
+mod launch_profile;
+pub use launch_profile::{LaunchProfileRefusal, SpawnTargetRefusal};
+
 pub fn starter_prompt_for_role(role: Option<&str>) -> crate::agent::provider::StarterPrompt {
     if role.is_none() {
         crate::agent::provider::StarterPrompt::NoStarter
@@ -449,7 +452,7 @@ impl ServiceContext {
         &self,
         agent_cmd: &str,
         params: &SpawnAgentParams,
-    ) -> Result<bool, String> {
+    ) -> Result<bool, SpawnTargetRefusal> {
         if params.cwd.is_some()
             || params.workspace_id.is_some()
             || params.parent_tab_id.is_some()
@@ -470,22 +473,14 @@ impl ServiceContext {
             agent_cmd,
             params,
         )?;
-        if let Some(profile) = params.launch_profile.as_deref() {
-            let capability = self
-                .agent_registry
-                .with_provider(agent_cmd, |provider| provider.agent_runtime())
-                .flatten()
-                .ok_or("Launch profiles require an agent runtime")?;
-            capability
-                .profile_command(Some(profile))
-                .map_err(|error| error.to_string())?;
-            if params
+        self.validate_launch_profile(agent_cmd, params.launch_profile.as_deref())?;
+        if params.launch_profile.is_some()
+            && params
                 .execution_mode
                 .as_deref()
                 .is_some_and(|mode| mode != "local")
-            {
-                return Err("Launch profiles require local execution".into());
-            }
+        {
+            return Err("Launch profiles require local execution".into());
         }
         if self.validate_remote_spawn(params)? {
             return Ok(true);
@@ -503,12 +498,13 @@ impl ServiceContext {
                     return Err(format!(
                         "'{}' is a chat backend that is not user-spawnable",
                         agent_cmd
-                    ));
+                    )
+                    .into());
                 }
                 if params.args.as_ref().is_some_and(|args| !args.is_empty()) {
                     return Err(format!(
                         "--args applies only to PTY agents; '{agent_cmd}' is a chatBackend shell, so remove it"
-                    ));
+                    ).into());
                 }
                 if watcher
                     && !self
@@ -520,7 +516,7 @@ impl ServiceContext {
                     return Err(format!(
                         "watcher spawn requires a watcher-capable chatBackend provider; '{}' is not watcher-capable",
                         agent_cmd
-                    ));
+                    ).into());
                 }
                 Ok(true)
             }
@@ -529,7 +525,7 @@ impl ServiceContext {
                     return Err(format!(
                         "watcher spawn requires a watcher-capable chatBackend provider; '{}' is a PTY provider",
                         agent_cmd
-                    ));
+                    ).into());
                 }
                 reject_chat_backend_only_fields(agent_cmd, params)?;
                 self.require_agent_provider_ready(agent_cmd)?;
@@ -540,7 +536,7 @@ impl ServiceContext {
                     return Err(format!(
                         "watcher spawn requires a watcher-capable chatBackend provider; '{}' is not a chatBackend provider",
                         agent_cmd
-                    ));
+                    ).into());
                 }
                 reject_chat_backend_only_fields(agent_cmd, params)?;
                 self.require_agent_provider_ready(agent_cmd)?;

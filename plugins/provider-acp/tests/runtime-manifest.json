@@ -39,11 +39,13 @@
         "initialize"
       ],
       "openThread": [
-        "session/new"
+        "session/new",
+        "session/set_config_option"
       ],
       "resumeThread": [
         "session/load",
-        "session/resume"
+        "session/resume",
+        "session/set_config_option"
       ],
       "submitTurn": [
         "session/prompt"
@@ -72,7 +74,15 @@
     },
     "turnScopedRequests": [
       "submitTurn"
-    ]
+    ],
+    "hostMcp": {
+      "param": "mcpServers",
+      "methods": [
+        "session/new",
+        "session/load",
+        "session/resume"
+      ]
+    }
   },
   "chatBackend": {
     "enabled": true,
@@ -106,6 +116,12 @@
     "unknown-update-kind.json",
     "unsupported-version.json",
     "controls-selection.json",
-    "declared-auth.json"
+    "declared-auth.json",
+    "model-option-undeclared-refused.json",
+    "model-option-declared-selected.json",
+    "agent-info-identity.json",
+    "model-option-load-refused.json",
+    "mcp-not-declared.json",
+    "mcp-advertised.json"
   ]
 }

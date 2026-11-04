@@ -89,6 +89,7 @@ impl AgentProvider for Adapter {
     }
     fn agent_runtime(&self) -> Option<AgentRuntimeCapability> {
         Some(AgentRuntimeCapability {
+            host_mcp: None,
             envelope: None,
             interrupt: None,
             client_bridges: self

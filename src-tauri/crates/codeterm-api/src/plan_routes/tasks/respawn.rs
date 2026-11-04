@@ -112,6 +112,13 @@ pub async fn task_respawn(
         Ok((draft, criteria))
     })
     .await?;
+    crate::agent_routes::spawn_rejection::validate_spawn_profile(
+        &state.svc,
+        &draft.provider,
+        draft.launch_profile.as_deref(),
+    )
+    .await
+    .map_err(|error| (error.status, Json(error.body)))?;
     let parent_tab_id = draft
         .parent_tab_id
         .clone()
@@ -207,6 +214,7 @@ pub async fn task_respawn(
                 workspace_id: draft.workspace_id.clone(),
                 spawned_by_tab_id: draft.parent_tab_id.clone(),
                 model: draft.model.clone(),
+                launch_profile: draft.launch_profile.clone(),
                 planned_model: draft.planned_model.clone(),
                 planned_reasoning_effort: draft.reasoning_effort.clone(),
                 reasoning_effort: draft.reasoning_effort.clone(),

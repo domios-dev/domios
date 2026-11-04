@@ -57,6 +57,8 @@ pub struct RuntimeProfileDetection {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AgentRuntimeCapability {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_mcp: Option<super::RuntimeHostMcpDeclaration>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub envelope: Option<AgentRuntimeEnvelope>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub interrupt: Option<RuntimeInterruptCapability>,

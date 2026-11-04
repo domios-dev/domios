@@ -1,7 +1,7 @@
 import type { AgentEvent, ChatMsg, JsonValue, RuntimeContext, RuntimeFrame, RuntimeReduction, TurnInput } from "@codeterm/plugin-sdk";
 import { object, text, reduceTool } from "./runtimeReduceTools";
 import { planRow, usage } from "./runtimeReducePlan";
-import { commands, configOptions } from "./runtimeControls";
+import { commands, sessionSettings } from "./runtimeControls";
 
 export interface StreamCursor { replay:number; prompt:number; loading:boolean }
 interface StreamState {
@@ -145,7 +145,7 @@ export function reduceStream(ctx:RuntimeContext, raw:JsonValue, frames:readonly 
       if (kind === "available_commands_update" && Array.isArray(update.availableCommands))
         events.push({kind:"controlsConfirmed",threadId:ctx.threadId,settings:{commands:commands(update.availableCommands)}});
       if (kind === "config_option_update" && Array.isArray(update.configOptions))
-        events.push({kind:"controlsConfirmed",threadId:ctx.threadId,settings:{configOptions:configOptions(update.configOptions)}});
+        events.push({kind:"controlsConfirmed",threadId:ctx.threadId,settings:sessionSettings(update)});
       if (kind === "current_mode_update" && typeof update.currentModeId === "string")
         events.push({kind:"controlsConfirmed",threadId:ctx.threadId,settings:{mode:update.currentModeId}});
       const compaction=object(object(update._meta).compaction);

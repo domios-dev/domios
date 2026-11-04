@@ -249,3 +249,16 @@ const nextInit=reattach.runtimePlan(nextEpoch,init);
 reattach.runtimeResponse(nextEpoch,init,nextInit.state,{kind:"success",value:{protocolVersion:1,agentCapabilities:{sessionCapabilities:{resume:{}}},authMethods:[]}});
 assert.deepEqual(plain(reattach.runtimePlan(nextEpoch,resume).action),{kind:"request",call:{method:"session/resume",params:{sessionId:"own",cwd:nextEpoch.cwd,mcpServers:[]}}});
 console.log("✓ ACP same-epoch local reattach preserves row identity; foreign session refused; new epoch resumes");
+
+
+for (const [name, reason] of [
+  ["model-option-undeclared-refused.json", "This agent declared no model option"],
+  ["model-option-declared-selected.json", "Model was not declared by this agent"],
+] as const) {
+  const fixture:Fixture=JSON.parse(fs.readFileSync(new URL(name,root),"utf8"));
+  const index=fixture.expected.planErrors![0].operation;
+  const entry=fixture.operations[index];
+  assert.deepEqual(plain(hooks.runtimePlan(entry.context ?? fixture.context,entry.operation)),{action:{kind:"refused",reason},state:null});
+  assert.equal(fixture.rpc.some(frame=>frame.direction === "outbound" && frame.operation === index),false);
+}
+console.log("✓ ACP honest model refusal reasons and zero outbound frames");

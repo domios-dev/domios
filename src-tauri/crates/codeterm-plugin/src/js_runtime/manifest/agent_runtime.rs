@@ -114,6 +114,28 @@ impl AgentRuntimeCapability {
     }
 
     pub fn validate_declaration(&self) -> Result<(), RuntimeManifestError> {
+        if self.host_mcp.as_ref().is_some_and(|declaration| {
+            declaration.param.is_empty()
+                || declaration.param.len() > 128
+                || !declaration
+                    .param
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+                || declaration.methods.is_empty()
+                || declaration
+                    .methods
+                    .iter()
+                    .enumerate()
+                    .any(|(index, method)| {
+                        declaration.methods[..index].contains(method)
+                            || !self
+                                .request_methods
+                                .values()
+                                .any(|methods| methods.contains(method))
+                    })
+        }) {
+            return Err(RuntimeManifestError::InvalidMethods);
+        }
         if self.interrupt.as_ref().is_some_and(|interrupt| {
             !interrupt.before_first_turn
                 || self

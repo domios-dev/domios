@@ -17,6 +17,7 @@ mod envelope_delivery;
 mod environment;
 mod events;
 pub mod goals;
+mod host_mcp;
 mod initialize;
 mod launch_options;
 pub mod launch_profile;

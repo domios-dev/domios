@@ -49,9 +49,12 @@ pub fn persist_attempt_executor_identity_for_mux(
     now: u64,
 ) -> Result<(), PlanError> {
     let mux = mux.read();
-    let binding = mux
-        .get_tab(tab_id)
-        .and_then(super::task_assignment::authenticated_tab_binding);
+    let tab = mux.get_tab(tab_id);
+    let binding = tab.and_then(super::task_assignment::authenticated_tab_binding);
+    let profile = tab
+        .and_then(|tab| tab.agent_runtime_config.as_ref())
+        .and_then(|config| config.get("launchProfile"))
+        .and_then(serde_json::Value::as_str);
     store.update_attempt_executor_identity(
         plan_id,
         task_id,
@@ -61,6 +64,7 @@ pub fn persist_attempt_executor_identity_for_mux(
         binding
             .as_ref()
             .map(|binding| binding.session_binding_nonce.as_str()),
+        profile,
         now,
     )
 }
@@ -119,6 +123,7 @@ mod tests {
             .unwrap();
         let source_attempt = store.show_task(&task_id).unwrap().task.execution_attempts[0].clone();
         let draft = crate::service::plan::task_attempts::TaskRespawnDraft {
+            launch_profile: None,
             plan_id: plan.id.clone(),
             task_id: task_id.clone(),
             execution_intent: crate::plan::ExecutionIntent::Mutating,

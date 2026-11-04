@@ -109,3 +109,20 @@ fn scoped_mesh_and_local_installer_are_admitted_before_payload_or_process_work()
         Some(Operation::Maintenance)
     );
 }
+
+#[test]
+fn mcp_serve_child_admission_refuses_ungranted_operation() {
+    let cli = crate::Cli::try_parse_from([
+        "domios",
+        "--json",
+        "agent",
+        "report",
+        "--from-pad=report.md",
+    ])
+    .unwrap();
+    let operation = operation_for_cli(&cli, true).unwrap();
+    let mut refused = AdmissionRpc(Ok(serde_json::json!({"authorized":false})));
+    assert!(require_rpc(&mut refused, operation).is_err());
+    let mut admitted = AdmissionRpc(Ok(serde_json::json!({"authorized":true})));
+    assert!(require_rpc(&mut admitted, operation).is_ok());
+}

@@ -171,4 +171,10 @@ Domios tracks and restores terminal state across sessions:
 - **Already-bound sessions**: `sessions resume` reuses a tab only while its bound agent is ready. A degraded, failed or unverified tab returns a conflict with `domios agent restart --tab ID` as its recovery command. For an `agentRuntime` Chat tab rebound to another session, that restart stops the old runtime and resumes the recorded session and its own history.
 - **Auto-save**: Session state is persisted every 30 seconds.
 
-<!-- revision: 33 -->
+## Domios MCP tools
+
+Agents that negotiate ACP v1 can receive the `domios` stdio tool server from the host. Available tools are `send`, `agent_report`, `agent_startup_ack`, `mem_search`, `mem_get`, `task_show`, and `notify_send`. They use the same tab authority and CLI checks as commands from that tab. `send`, `agent_report`, and `notify_send` take `from_pad` paths; write the payload into your own pad first. Reports use your own inherited task binding. No tool accepts caller, instance, URL, credential or mesh overrides.
+
+The host supplies the descriptor. The MCP child must inherit the tab environment; missing credentials or a changed tab or binding nonce refuses startup. ACP v1 requires stdio MCP support; `mcpCapabilities` advertises optional HTTP/SSE transports and does not gate this stdio server. Without a host descriptor, the agent receives no server.
+
+<!-- revision: 35 -->

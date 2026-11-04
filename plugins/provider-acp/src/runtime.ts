@@ -7,7 +7,7 @@ import { methods, protocolVersion } from "./runtimeProtocol";
 import { clientRequest, reduceStream, settleStream, type StreamCursor } from "./runtimeReduce";
 import { usage } from "./runtimeReducePlan";
 import { runtimePrompt, runtimeAnswer } from "./runtimePrompts";
-import { authentication, sessionSettings } from "./runtimeControls";
+import { authentication, sessionSettings, modelOption, label } from "./runtimeControls";
 
 interface Negotiation {
   epoch:number;
@@ -68,8 +68,37 @@ function ownSession(ctx:RuntimeContext, state:Negotiation):string {
   return ctx.threadId;
 }
 
+function agentIdentity(raw:unknown):{agentName?:string;binaryVersion?:string} {
+  const info=object(raw);
+  if (!label(info.name) || !label(info.version) || info.title !== undefined && !label(info.title)) return {};
+  return {agentName:typeof info.title === "string" ? info.title : info.name,binaryVersion:info.version};
+}
+function unappliedModelNotice(requested:string | undefined, settings:Negotiation["settings"], threadId:string) {
+  if (!requested || requested === modelOption(settings)?.currentValue) return {};
+  const option=modelOption(settings);
+  const reason=!option ? "This agent declared no model option" : option.options.some(value=>value.value === requested)
+    ? "Model was not applied by this agent" : "Model was not declared by this agent";
+  return {events:[{kind:"notice" as const,threadId,message:`Requested model was not applied: ${reason}`}]};
+}
+
+function loadedThread(op:Extract<Operation,{kind:"openThread"|"resumeThread"}>, state:Negotiation, sessionId:string, selectModel:boolean, refusal?:string):RuntimeStep {
+  const option=modelOption(state.settings);
+  const requested=op.settings.model;
+  if (selectModel && requested && requested !== option?.currentValue && option?.options.some(value=>value.value === requested))
+    return {kind:"continue",plan:request("session/set_config_option",{sessionId,configId:option.id,value:requested})};
+  return {kind:"complete",result:{kind:"threadLoaded",threadId:sessionId,settings:state.settings ?? {}},
+    ...(refusal === undefined ? unappliedModelNotice(requested,state.settings,sessionId)
+      : {events:[{kind:"notice" as const,threadId:sessionId,message:`Requested model was not applied: ${Array.from(refusal).slice(0,1000).join("")}`}]})};
+}
+
 function clientCapabilities(ctx:RuntimeContext):JsonValue {
   return {fs:{readTextFile:ctx.clientBridges?.fsRead === true,writeTextFile:ctx.clientBridges?.fsWrite === true},terminal:ctx.clientBridges?.terminal === true};
+}
+
+function hostMcpServers(ctx:RuntimeContext):JsonValue[] {
+  const descriptor=ctx.hostMcp;
+  return descriptor
+    ? [{name:descriptor.name,command:descriptor.command,args:[...descriptor.args],env:[]}] : [];
 }
 
 export function runtimePlan(ctx:RuntimeContext, op:Operation):RuntimePlan {
@@ -92,6 +121,16 @@ export function runtimePlan(ctx:RuntimeContext, op:Operation):RuntimePlan {
       return request("authenticate", {methodId:method.id});
     } catch {return refusePlan("Authentication method was not declared or is unavailable");}
   }
+  if (op.kind === "control" && op.action === "settings") {
+    const sessionId=ownSession(ctx,state);
+    const value=object(op.value);
+    const option=modelOption(state.settings);
+    if (value.model === undefined || value.model === option?.currentValue)
+      return {action:{kind:"local"},state:{method:"unchangedSettings"}};
+    if (!option) return refusePlan("This agent declared no model option");
+    if (!option.options.some(entry=>entry.value === value.model)) return refusePlan("Model was not declared by this agent");
+    return request("session/set_config_option",{sessionId,configId:option.id,value:value.model});
+  }
   if (op.kind === "control" && ["config", "mode"].includes(op.action)) {
     const sessionId=ownSession(ctx,state);
     const value=object(op.value);
@@ -113,7 +152,7 @@ export function runtimePlan(ctx:RuntimeContext, op:Operation):RuntimePlan {
     }
     case "openThread":
       if (ctx.threadId || state.sessionId) return refusePlan("ACP session is already bound");
-      return request(methods.newSession, {cwd:ctx.cwd, mcpServers:[]});
+      return request(methods.newSession, {cwd:ctx.cwd, mcpServers:hostMcpServers(ctx)});
     case "resumeThread": {
       if (state.sessionId && state.sessionId !== op.threadId) return refusePlan("ACP session does not belong to this runtime");
       if (state.sessionActive && state.sessionId === op.threadId)
@@ -125,7 +164,7 @@ export function runtimePlan(ctx:RuntimeContext, op:Operation):RuntimePlan {
       state.sessionActive=false;
       state.sessionId=op.threadId;
       state.cursor={replay:state.cursor.replay+1,prompt:0,loading:true};
-      return request(method, {sessionId:op.threadId, cwd:ctx.cwd, mcpServers:[]});
+      return request(method, {sessionId:op.threadId, cwd:ctx.cwd, mcpServers:hostMcpServers(ctx)});
     }
     case "submitTurn": {
       const sessionId = ownSession(ctx, state);
@@ -160,7 +199,14 @@ export function runtimePlan(ctx:RuntimeContext, op:Operation):RuntimePlan {
 
 export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue, reply:RpcReply):RuntimeStep {
   binding(ctx, op);
+  const method = object(raw).method;
   if (reply.kind === "error") {
+    if ((op.kind === "openThread" || op.kind === "resumeThread") && method === "session/set_config_option") {
+      const state=negotiated(ctx);
+      if (!state?.sessionActive || !state.sessionId || op.kind === "resumeThread" && state.sessionId !== op.threadId)
+        return refused("binding_mismatch","ACP session is not active in this runtime");
+      return loadedThread(op,state,state.sessionId,false,reply.error.message);
+    }
     if (reply.error.code === -32000) {
       const state=negotiated(ctx);
       if (state) {state.authenticated=false;state.required=true;}
@@ -169,7 +215,6 @@ export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue,
     return refused("provider_refused", reply.error.message);
   }
   const value = object(reply.value);
-  const method = object(raw).method;
   if (op.kind === "control" && op.action === "login" && method === "authenticate") {
     const next = request(methods.initialize, {protocolVersion, clientCapabilities:clientCapabilities(ctx), clientInfo:{name:"domios",title:"Domios",version:ctx.hostVersion}});
     next.state = {method:methods.initialize, authenticated:true};
@@ -192,14 +237,22 @@ export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue,
       sessionId:prior?.sessionId, sessionActive:prior?.sessionActive, instructions:prior?.instructions,
       cursor:prior?.cursor ?? {replay:0,prompt:0,loading:false},inFlight:prior?.inFlight ?? false,
       projection:prior?.projection, promptSend:prior?.promptSend, settings:prior?.settings});
-    return {kind:"complete",result:op.kind === "initialize" ? {kind:"initialized"} : {kind:"done"},
+    return {kind:"complete",result:op.kind === "initialize" ? {kind:"initialized",...agentIdentity(value.agentInfo)} : {kind:"done"},
       events:[{kind:"authentication",authentication:authentication(authMethods,authenticated,authenticated ? false : prior?.required)}]};
   }
   const state = negotiated(ctx);
   if (!state) return refused("provider_refused", "ACP initialization is required for this runtime epoch");
+  if ((op.kind === "openThread" || op.kind === "resumeThread") && method === "session/set_config_option") {
+    if (!state.sessionActive || !state.sessionId || op.kind === "resumeThread" && state.sessionId !== op.threadId)
+      return refused("binding_mismatch","ACP session is not active in this runtime");
+    if (!Array.isArray(value.configOptions)) return refused("protocol_error","Invalid session model response");
+    delete state.settings?.model;
+    state.settings={...state.settings,...sessionSettings(value)};
+    return loadedThread(op,state,state.sessionId,false);
+  }
   if (op.kind === "resumeThread" && method === "boundSession") {
     if (!state.sessionActive || state.sessionId !== op.threadId) return refused("binding_mismatch", "ACP session is not active in this runtime");
-    return {kind:"complete",result:{kind:"threadLoaded",threadId:ownSession(ctx,state),settings:{...op.settings,mode:undefined,...state.settings}}};
+    return loadedThread(op,state,ownSession(ctx,state),true);
   }
   if (op.kind === "openThread" || op.kind === "resumeThread") {
     if (op.kind === "resumeThread") {
@@ -216,15 +269,22 @@ export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue,
     state.instructions = op.instructions;
     state.cursor.loading=false;
     state.settings={commands:[],configOptions:[],modes:[],...sessionSettings(value)};
-    return {kind:"complete", result:{kind:"threadLoaded", threadId:sessionId, settings:{...op.settings,mode:undefined,...state.settings}}};
+    return loadedThread(op,state,sessionId,true);
   }
-  if (op.kind === "control" && ["config","mode"].includes(op.action)) {
+  if (op.kind === "control" && op.action === "settings" && method === "unchangedSettings")
+    return {kind:"complete",result:{kind:"done"},events:[{kind:"controlsConfirmed",threadId:ownSession(ctx,state),settings:state.settings ?? {}}]};
+  if (op.kind === "control" && ["config","mode","settings"].includes(op.action)) {
     const sessionId=ownSession(ctx,state);
-    const settings=op.action === "config" && method === "session/set_config_option" && Array.isArray(value.configOptions)
+    const settings:import("@codeterm/plugin-sdk").RuntimeSettings | null=["config","settings"].includes(op.action) && method === "session/set_config_option" && Array.isArray(value.configOptions)
       ? sessionSettings(value) : op.action === "mode" && method === "session/set_mode" && typeof op.value === "string" ? {mode:op.value} : null;
     if (!settings) return refused("protocol_error","Invalid session control response");
     state.settings={...state.settings,...settings};
-    return {kind:"complete",result:{kind:"done"},events:[{kind:"controlsConfirmed",threadId:sessionId,settings}]};
+    if (settings.configOptions) {
+      delete state.settings.model;
+      const model=modelOption(settings)?.currentValue;
+      if (model) state.settings.model=model;
+    }
+    return {kind:"complete",result:{kind:"done"},events:[{kind:"controlsConfirmed",threadId:sessionId,settings:op.action === "settings" ? state.settings : settings}]};
   }
   if (op.kind === "answer" && method === "session/request_permission")
     return {kind:"complete",result:{kind:"done"},events:[{kind:"promptResolved",threadId:ownSession(ctx,state),requestId:op.requestId}]};
@@ -262,7 +322,13 @@ export function runtimeReduce(ctx:RuntimeContext, raw:JsonValue, frames:readonly
   if (!own.length) return {state:raw,events:prompts};
   const reduction=reduceStream(ctx,state.projection ?? raw,own,state.cursor,state.inFlight ? state.promptSend : undefined);
   state.projection=reduction.state;
-  for (const event of reduction.events) if (event.kind === "controlsConfirmed")
+  for (const event of reduction.events) if (event.kind === "controlsConfirmed") {
     state.settings={...state.settings,...event.settings};
+    if (event.settings.configOptions) {
+      delete state.settings.model;
+      const model=modelOption(event.settings)?.currentValue;
+      if (model) state.settings.model=model;
+    }
+  }
   return {...reduction,events:[...reduction.events,...prompts]};
 }

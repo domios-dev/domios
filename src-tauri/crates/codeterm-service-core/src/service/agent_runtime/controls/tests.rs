@@ -647,3 +647,33 @@ fn unchanged_settings_confirm_without_a_new_provider_event() {
     }
     assert!(unchanged_settings(&RuntimeSettings::default(), &RuntimeSettings::default()).is_none());
 }
+
+
+#[test]
+fn model_switch_preserves_the_current_mode_and_clears_the_previous_notice() {
+    let (fixture, id) = runtime_fixture();
+    let session = crate::async_runtime::block_on(engine::ensure(&fixture.service, &id)).unwrap();
+    session.context.lock().settings.mode = Some("auto".into());
+    session.state.lock().notice = Some("Requested model was not applied".into());
+    let outcome = fixture.service.agent_switch_model_with_options(&id, "target", None, false).unwrap();
+    assert!(matches!(outcome.confirmation, ModelSwitchConfirmation::Observed { model, .. } if model == "target"));
+    assert_eq!(session.context.lock().settings.mode.as_deref(), Some("auto"));
+    assert!(session.state.lock().notice.is_none());
+    let mux = fixture.service.mux.read();
+    let tab = mux.get_tab(&id).unwrap();
+    assert_eq!(tab.agent_session_model.as_deref(), Some("target"));
+    assert_eq!(tab.restorable_launch.model.as_deref(), Some("target"));
+    assert_eq!(tab.restorable_launch.structured_runtime_mode.as_deref(), Some("auto"));
+    assert_eq!(tab.agent_runtime_state.as_ref().unwrap()["notice"], serde_json::Value::Null);
+}
+
+#[test]
+fn confirmed_model_change_clears_a_stale_load_notice() {
+    let (fixture, id) = runtime_fixture();
+    let session = crate::async_runtime::block_on(engine::ensure(&fixture.service, &id)).unwrap();
+    session.state.lock().notice = Some("Old requested model was not applied".into());
+    super::super::projections::controls(&fixture.service, &session, RuntimeSettings { model: Some("reported-change".into()), ..Default::default() });
+    assert!(session.state.lock().notice.is_none());
+    let mux = fixture.service.mux.read();
+    assert_eq!(mux.get_tab(&id).unwrap().agent_runtime_state.as_ref().unwrap()["notice"], serde_json::Value::Null);
+}

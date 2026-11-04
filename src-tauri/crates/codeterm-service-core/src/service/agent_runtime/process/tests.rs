@@ -33,6 +33,7 @@ fn init_process_boundary_test_logger() {
 
 fn capability() -> AgentRuntimeCapability {
     AgentRuntimeCapability {
+        host_mcp: None,
         envelope: None,
         interrupt: None,
         client_bridges: None,

@@ -326,6 +326,8 @@ async fn switch_inner(
             }
         }
     }
+    session.state.lock().notice = None;
+    engine::publish_controls(svc, tab, &session);
     crate::service::session_persist::persist_session_after_mutation(
         svc,
         crate::service::session_persist::SessionPersistUrgency::Prompt,

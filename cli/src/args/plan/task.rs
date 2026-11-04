@@ -402,6 +402,12 @@ pub enum PlanTaskAction {
         #[arg(long, allow_hyphen_values = true)]
         model: Option<String>,
         #[arg(
+            long = "profile",
+            value_name = "ID",
+            help = "ACP launch profile declared by the provider"
+        )]
+        launch_profile: Option<String>,
+        #[arg(
             long,
             value_name = "TIER",
             help = "Provider-declared service tier for this launch"
@@ -500,6 +506,12 @@ pub enum PlanTaskAction {
         provider: Option<String>,
         #[arg(long)]
         model: Option<String>,
+        #[arg(
+            long = "profile",
+            value_name = "ID",
+            help = "ACP launch profile; inherits the source attempt when omitted and the provider stays the same"
+        )]
+        launch_profile: Option<String>,
         #[arg(long)]
         reasoning_effort: Option<String>,
         #[arg(

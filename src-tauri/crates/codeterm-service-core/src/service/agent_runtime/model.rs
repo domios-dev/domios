@@ -119,6 +119,12 @@ pub struct RuntimeState {
         skip_serializing_if = "Option::is_none"
     )]
     pub binary_version: Option<String>,
+    #[serde(default, rename = "agentName", skip_serializing_if = "Option::is_none")]
+    pub agent_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notice: Option<String>,
+    #[serde(skip)]
+    pub pending_load_notice: Option<String>,
     pub thread_id: Option<String>,
     pub phase: RuntimePhase,
     pub active_turn_started_at_ms: Option<u64>,
@@ -135,6 +141,10 @@ pub struct RuntimeSnapshot {
         skip_serializing_if = "Option::is_none"
     )]
     pub binary_version: Option<String>,
+    #[serde(default, rename = "agentName", skip_serializing_if = "Option::is_none")]
+    pub agent_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notice: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -160,6 +170,8 @@ impl RuntimeState {
         };
         RuntimeSnapshot {
             binary_version: self.binary_version.clone(),
+            agent_name: self.agent_name.clone(),
+            notice: self.notice.clone(),
             history: None,
             history_pages: None,
             history_error: None,
@@ -175,12 +187,31 @@ impl RuntimeState {
         Self {
             epoch: 0,
             binary_version: None,
+            agent_name: None,
+            notice: None,
+            pending_load_notice: None,
             thread_id,
             phase: RuntimePhase::Unloaded { reason: None },
             active_turn_started_at_ms: None,
             last_turn_duration_ms: None,
         }
     }
+    pub fn finish_load_notice(&mut self, host_notice: Option<String>) {
+        let messages = [self.pending_load_notice.take(), host_notice]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>();
+        self.notice = (!messages.is_empty()).then(|| {
+            let mut message = messages.join("\n");
+            let mut end = message.len().min(4096);
+            while !message.is_char_boundary(end) {
+                end -= 1;
+            }
+            message.truncate(end);
+            message
+        });
+    }
+
     pub fn restore_timing(&mut self, snapshot: Option<&serde_json::Value>) {
         let Some(snapshot) = snapshot else {
             return;
@@ -207,6 +238,8 @@ impl RuntimeState {
     pub fn begin(&mut self) -> u64 {
         self.epoch = self.epoch.wrapping_add(1);
         self.phase = RuntimePhase::Loading;
+        self.notice = None;
+        self.pending_load_notice = None;
         self.epoch
     }
     pub fn load(&mut self, epoch: u64, thread: &str) -> bool {
