@@ -64,7 +64,7 @@ pub(in crate::service_plan) struct ChatAttemptRead {
     role: Option<String>,
     model: Option<String>,
     session_model: Option<String>,
-    assigned_at: u64,
+    assigned_at: Option<u64>,
 }
 
 pub(in crate::service_plan) fn snapshot(
