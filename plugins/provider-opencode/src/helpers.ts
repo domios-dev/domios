@@ -344,7 +344,8 @@ function completeModelOutput(result: ModelCommandResult | null): result is Model
 
 function* probeModels(verbose: boolean): HostIoSteps<ModelCommandResult | null> {
   try {
-    return yield* host.io.exec({ bin: "opencode", args: verbose ? ["models", "--verbose"] : ["models"], timeoutMs: 3000 });
+    // WHY: `opencode models` measured ~3.1 s on BLACKSTAR; discovery runs in the background, so 10 s bounds only a hung CLI.
+    return yield* host.io.exec({ bin: "opencode", args: verbose ? ["models", "--verbose"] : ["models"], timeoutMs: 10000 });
   } catch { return null; }
 }
 
