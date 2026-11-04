@@ -39,40 +39,6 @@ fn xterm_paste_keeps_single_line_chat_input_in_one_paste_frame() {
 }
 
 #[test]
-fn shell_without_decset_2004_never_receives_bracketed_paste_bytes() {
-    for mode in [None, Some(false)] {
-        for capability in [
-            PasteEncodingCapability::LiveModeOnly,
-            PasteEncodingCapability::MultilineTui,
-        ] {
-            for force in [false, true] {
-                assert_eq!(
-                    encode_paste_payload("opaque\ncontinuation", force, None, mode, capability),
-                    b"opaque\rcontinuation"
-                );
-            }
-        }
-        assert_eq!(
-            live_command_input("Write-Output 'opaque'", mode),
-            b"Write-Output 'opaque'\r"
-        );
-    }
-    let screens = codeterm_pty::pty::screen_state::ScreenState::new();
-    screens.process("shell", b"\x1b[?2004h");
-    assert_eq!(
-        live_command_input("opaque", screens.bracketed_paste_mode("shell")),
-        b"\x1b[200~opaque\x1b[201~\r"
-    );
-    for byte in b"\x1b]633;A\x07" {
-        screens.process("shell", &[*byte]);
-    }
-    assert_eq!(
-        live_command_input("opaque", screens.bracketed_paste_mode("shell")),
-        b"opaque\r"
-    );
-}
-
-#[test]
 fn complete_routed_frame_is_one_bracketed_insertion_with_both_tags() {
     for (body, suffix) in [
         ("opaque body\nopaque continuation", " [opaque hint]"),
@@ -90,8 +56,7 @@ fn complete_routed_frame_is_one_bracketed_insertion_with_both_tags() {
             suffix: suffix.into(),
         };
         let message = frame.to_message();
-        {
-            let live_mode = Some(true);
+        for live_mode in [Some(true), Some(false)] {
             let encoded = encode_paste_payload(
                 &message,
                 false,
@@ -149,8 +114,7 @@ fn large_38_line_paste_keeps_body_and_marker_in_one_provider_event() {
     let marker = codeterm_wire::domios::pasted_marker_tail();
     assert_eq!(marker.len(), 17);
     let expected = format!("{text}{marker}");
-    {
-        let mode = Some(true);
+    for mode in [Some(true), Some(false), None] {
         let encoded = encode_paste_payload(
             &text,
             false,
@@ -226,7 +190,7 @@ fn multiline_tui_bootstrap_encodes_as_one_hidden_system_turn() {
     let frames = initial_submit_frames(
         &payload,
         b"\r",
-        Some(true),
+        None,
         PasteEncodingCapability::for_strategy(&tui()),
     );
     assert_eq!(frames.len(), 2);
@@ -255,7 +219,7 @@ fn multiline_tui_bootstrap_encodes_as_one_hidden_system_turn() {
 }
 
 #[test]
-fn prompt_line_launch_brief_cannot_force_a_disabled_live_mode() {
+fn prompt_line_launch_brief_forces_one_frame_when_live_mode_is_disabled() {
     let brief = "opaque guidance";
     assert_eq!(
         encode_paste_payload(
@@ -265,8 +229,73 @@ fn prompt_line_launch_brief_cannot_force_a_disabled_live_mode() {
             Some(false),
             PasteEncodingCapability::MultilineTui
         ),
-        b"opaque guidance"
+        b"\x1b[200~opaque guidance\x1b[201~"
     );
+}
+
+#[test]
+fn shell_without_decset_2004_never_receives_bracketed_paste_bytes() {
+    for mode in [None, Some(false)] {
+        for force in [false, true] {
+            assert_eq!(
+                encode_paste_payload(
+                    "opaque\ncontinuation",
+                    force,
+                    None,
+                    mode,
+                    PasteEncodingCapability::Shell,
+                ),
+                b"opaque\rcontinuation"
+            );
+            assert_eq!(
+                encode_paste_payload("opaque", force, None, mode, PasteEncodingCapability::Shell),
+                b"opaque"
+            );
+        }
+        assert_eq!(
+            live_command_input("Write-Output 'opaque'", mode),
+            b"Write-Output 'opaque'\r"
+        );
+    }
+    let screens = codeterm_pty::pty::screen_state::ScreenState::new();
+    screens.process("shell", b"\x1b[?2004h");
+    assert_eq!(
+        live_command_input("opaque", screens.bracketed_paste_mode("shell")),
+        b"\x1b[200~opaque\x1b[201~\r"
+    );
+    for byte in b"\x1b]633;A\x07" {
+        screens.process("shell", &[*byte]);
+    }
+    assert_eq!(
+        live_command_input("opaque", screens.bracketed_paste_mode("shell")),
+        b"opaque\r"
+    );
+}
+
+#[test]
+fn utility_shell_cannot_inherit_provider_framing_from_a_tui_submit_strategy() {
+    use crate::agent::registry::AgentRegistry;
+    use crate::multiplexer::state::MultiplexerState;
+    let (mut mux, tab) = MultiplexerState::new();
+    mux.link_pty(&tab, "utility-pty".into());
+    let mux = Arc::new(codeterm_util::lock_hold::TimedRwLock::new("test-mux", mux));
+    let registry = AgentRegistry::new();
+    for strategy in [tui(), VerifySubmitStrategy::None] {
+        let (provider, capability) =
+            paste_encoding::resolve_pty_paste_capability(&mux, &registry, "utility-pty", &strategy);
+        assert_eq!(provider, None);
+        assert_eq!(capability, PasteEncodingCapability::Shell);
+        for mode in [None, Some(false)] {
+            assert_eq!(
+                encode_paste_payload("opaque", true, None, mode, capability),
+                b"opaque"
+            );
+            assert_eq!(
+                encode_paste_payload("opaque\ncontinuation", true, None, mode, capability),
+                b"opaque\rcontinuation"
+            );
+        }
+    }
 }
 
 #[test]
@@ -293,7 +322,7 @@ fn absent_or_supported_paste_declarations_preserve_tui_framing() {
     for declaration in [None, Some(&supported)] {
         let capability = PasteEncodingCapability::for_provider(&tui(), declaration);
         assert_eq!(
-            encode_paste_payload("a\nb", false, None, Some(true), capability),
+            encode_paste_payload("a\nb", false, None, Some(false), capability),
             b"\x1b[200~a\nb\x1b[201~"
         );
     }
@@ -453,7 +482,7 @@ fn long_routed_report_and_next_sender_each_have_one_complete_paste() {
             &input.body,
             false,
             None,
-            Some(true),
+            Some(false),
             PasteEncodingCapability::MultilineTui,
         );
         let expected = format!(
@@ -529,7 +558,7 @@ fn every_non_human_agent_delivery_has_exactly_one_frame_in_one_paste() {
             &input.body,
             false,
             None,
-            Some(true),
+            Some(false),
             PasteEncodingCapability::MultilineTui,
         );
         let encoded = std::str::from_utf8(&bytes).unwrap();
@@ -576,7 +605,7 @@ fn human_input_is_one_unframed_paste() {
         body,
         false,
         None,
-        Some(true),
+        Some(false),
         PasteEncodingCapability::MultilineTui,
     );
     assert_eq!(
@@ -603,7 +632,7 @@ fn restored_framed_delivery_keeps_existing_marker_and_tip_in_one_paste() {
         &input.body,
         false,
         None,
-        Some(true),
+        Some(false),
         PasteEncodingCapability::MultilineTui,
     );
     assert_eq!(
