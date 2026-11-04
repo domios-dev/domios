@@ -149,7 +149,7 @@ impl MeshRegistry for FakeRegistry {
         };
         let previous = self
             .revision
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |old| {
+            .try_update(Ordering::SeqCst, Ordering::SeqCst, |old| {
                 Some((old + 1).max(requested))
             })
             .unwrap();

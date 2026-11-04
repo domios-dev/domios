@@ -489,6 +489,7 @@ impl DoneEvent {
         self.cv.notify_all();
     }
 
+    #[cfg(test)]
     fn wait_for(&self, timeout: Duration) -> bool {
         let mut done = self.done.lock();
         if !*done {
@@ -682,6 +683,7 @@ pub(super) fn drop_plugin_jobs(plugin_id: &str) {
     }
 }
 
+#[cfg(test)]
 pub(super) fn wait_json_interruptible(
     plugin_id: &str,
     job_id: &str,
@@ -751,6 +753,7 @@ pub(super) enum WaitResult {
     TimedOut,
 }
 
+#[cfg(test)]
 pub(super) fn wait_json(plugin_id: &str, job_id: &str) -> WaitResult {
     if !observation_wait_allowed(plugin_id, job_id) {
         return WaitResult::Completed(err("effect job unavailable during observation"));
