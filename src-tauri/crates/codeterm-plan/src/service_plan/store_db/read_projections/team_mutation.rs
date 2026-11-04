@@ -20,7 +20,42 @@ pub struct TeamPlanMutationRead {
     pub latest_owner_transfer: Option<TransferRecord>,
 }
 
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
+pub struct TeamCloseFlagRead {
+    pub plan_id: String,
+    pub reason: String,
+}
+
 impl PlanDatabase {
+    pub(in crate::service_plan) fn team_close_flags_projection(
+        &self,
+        ids: &[String],
+    ) -> Result<Vec<TeamCloseFlagRead>, PlanError> {
+        let selected = serde_json::to_string(ids).map_err(super::super::json_error)?;
+        let connection = self.connection.lock();
+        record_query();
+        let mut statement = connection
+            .prepare_cached(
+                "SELECT p.id,json_object('plan_id',p.id,'reason',CASE
+                WHEN json_type(p.header_json,'$.orphaned')='object'
+                    THEN json_extract(p.header_json,'$.orphaned.reason') ELSE json('false') END)
+             FROM json_each(?1) selected JOIN plans p ON p.id=selected.value
+             WHERE json_type(p.header_json,'$.orphaned') NOT IN ('null')
+             ORDER BY CAST(selected.key AS INTEGER)",
+            )
+            .map_err(db_error)?;
+        let rows = statement
+            .query_map([selected], |row| {
+                Ok((column::<String>(row, 0)?, column::<String>(row, 1)?))
+            })
+            .map_err(db_error)?;
+        rows.map(|row| {
+            let (id, raw) = row.map_err(db_error)?;
+            decode(&id, &raw)
+        })
+        .collect()
+    }
+
     pub(in crate::service_plan) fn team_plan_mutation_projection(
         &self,
         id: &str,
@@ -46,6 +81,13 @@ impl PlanDatabase {
 }
 
 impl PlanStore {
+    pub fn team_close_flags_projection(
+        &self,
+        ids: &[String],
+    ) -> Result<Vec<TeamCloseFlagRead>, PlanError> {
+        self.database.team_close_flags_projection(ids)
+    }
+
     pub fn team_plan_mutation_projection(
         &self,
         id: &str,

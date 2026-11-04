@@ -116,3 +116,63 @@ fn team_mutation_response_refuses_malformed_selected_fields_and_unknown_plans() 
         );
     }
 }
+
+#[test]
+fn team_close_flags_select_only_ordered_reasons_and_propagate_selected_errors() {
+    let mut previous = None;
+    for (strides, attempts, body, unfinished) in [
+        (0, 1, 0, 0),
+        (2048, 1, 0, 0),
+        (0, 2048, 0, 0),
+        (0, 1, 32768, 0),
+        (0, 1, 0, 2048),
+    ] {
+        let directory = tempfile::tempdir().unwrap();
+        let mut plan = fixtures::fixture(directory.path(), strides, attempts);
+        plan.tasks[0].body.push_str(&"x".repeat(body));
+        plan.orphaned = Some(crate::plan::PlanOrphan {
+            team_id: "closed".into(),
+            reason: "unfinished work".into(),
+            at: u64::MAX,
+            unfinished_task_ids: (0..unfinished)
+                .map(|index| format!("task-{index}"))
+                .collect(),
+        });
+        let database = fixtures::database(directory.path(), &plan);
+        fixtures::audit(&database);
+        take_metrics();
+        super::super::super::super::store_sync::take_decoded_row_bytes();
+        super::super::super::super::store_rows::take_serialized_row_bytes();
+        let flags = database
+            .team_close_flags_projection(&["missing".into(), plan.id.clone(), plan.id.clone()])
+            .unwrap();
+        assert_eq!(flags.len(), 2);
+        assert_eq!(flags[0].plan_id, plan.id);
+        assert_eq!(flags[0].reason, "unfinished work");
+        assert_eq!(flags[1].plan_id, plan.id);
+        let metrics = take_metrics();
+        let decoded = super::super::super::super::store_sync::take_decoded_row_bytes();
+        let serialized = super::super::super::super::store_rows::take_serialized_row_bytes();
+        let response = serde_json::to_vec(&flags).unwrap().len();
+        assert_eq!(metrics.queries, 1);
+        assert!(metrics.materialized_bytes < 1024);
+        assert!(decoded < 1024);
+        assert_eq!(serialized, 0);
+        assert!(fixtures::audit_counts(&database).is_empty());
+        println!("fixture={} consumer=team_close_flags tasks={} base_bytes={} old_strides={strides} unrelated_attempts={attempts} extra_body={body} unfinished_ids={unfinished} queries={} materialized_text_bytes={} decoded_json_bytes={decoded} serialized_row_bytes={serialized} response_bytes={response} changed_rows=0",fixtures::SEED,fixtures::TASKS,fixtures::CONTENT_BYTES,metrics.queries,metrics.materialized_bytes);
+        let measured = (metrics, decoded, response);
+        if let Some(previous) = &previous {
+            assert_eq!(&measured, previous);
+        }
+        previous = Some(measured);
+        database.connection.lock().execute("UPDATE plans SET header_json=json_set(header_json,'$.orphaned.reason',17) WHERE id=?1",[&plan.id]).unwrap();
+        assert!(database
+            .team_close_flags_projection(&[])
+            .unwrap()
+            .is_empty());
+        assert!(matches!(
+            database.team_close_flags_projection(&[plan.id.clone()]),
+            Err(PlanError::Quarantined { .. })
+        ));
+    }
+}
