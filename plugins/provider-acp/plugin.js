@@ -193,10 +193,15 @@ function configOptions(value) {
 }
 function sessionSettings(value) {
   const response = object2(value), modes = object2(response.modes);
+  const seen = /* @__PURE__ */ new Set();
   return {
     ...Array.isArray(response.configOptions) ? { configOptions: configOptions(response.configOptions) } : {},
-    ...Array.isArray(modes.availableModes) ? { modes: list(modes.availableModes, 64).flatMap((mode) => label(mode.id) && label(mode.name) ? [{ id: mode.id, name: mode.name }] : []) } : {},
-    ...label(modes.currentModeId) ? { mode: modes.currentModeId } : {}
+    ...Array.isArray(modes.availableModes) ? { modes: list(modes.availableModes, 64).flatMap((mode) => {
+      if (!label(mode.id) || !label(mode.name) || seen.has(mode.id)) return [];
+      seen.add(mode.id);
+      return [{ id: mode.id, name: mode.name }];
+    }) } : {},
+    ...label(modes.currentModeId) && seen.has(modes.currentModeId) ? { mode: modes.currentModeId } : {}
   };
 }
 function authentication(methods2, authenticated, required) {
@@ -298,12 +303,13 @@ function settleStream(ctx, raw, reason) {
   if (source.sessionId !== ctx.threadId || source.epoch !== ctx.epoch || source.nonce !== ctx.bindingNonce)
     return { state: raw, events: [{ kind: "turnState", threadId: ctx.threadId, state: "idle", ...reason === "cancelled" ? { detail: "interrupted" } : {} }] };
   const state = source;
+  if (state.settled) return { state: raw, events: [] };
   const next = { ...state, items: Object.assign(/* @__PURE__ */ Object.create(null), state.items), evidenced: [...state.evidenced], settled: true };
   const events = [];
   closeChunk(ctx, next, events);
   for (const row of Object.values(next.items)) if (row.toolStatus === "running")
     emit(next, events, { ...row, toolStatus: "interrupted", toolInterrupted: true });
-  events.push({ kind: "turnState", threadId: ctx.threadId, state: "idle", ...reason === "cancelled" ? { detail: "interrupted" } : {} });
+  events.push({ kind: "turnState", threadId: ctx.threadId, turnId: `${state.sessionId}:turn:${state.turn}`, state: "idle", ...reason === "cancelled" ? { detail: "interrupted" } : {} });
   return { state: json(next), events };
 }
 function clientRequest(method) {
@@ -315,13 +321,19 @@ function startTurn(ctx, state, events) {
     events.push({ kind: "turnState", threadId: state.sessionId, turnId: `${state.sessionId}:turn:${state.turn}`, state: "working" });
   }
 }
-function reduceStream(ctx, raw, frames, cursor) {
+function reduceStream(ctx, raw, frames, cursor, submitted) {
   if (!ctx.threadId) return { state: raw, events: [] };
   const state = initial(ctx, raw, cursor);
   const events = [];
+  const ownSubmitted = submitted && ctx.claimedSends.some((claim) => claim.sendId === submitted.sendId && claim.threadId === state.sessionId) ? submitted : void 0;
   for (const frame of frames) {
     const params = object(frame.params);
     if (params.sessionId !== ctx.threadId) continue;
+    const submittedId = `${state.sessionId}:turn:${state.turn}:item:1`;
+    if (ownSubmitted && !state.loading && !state.settled && !state.items[submittedId]) {
+      state.ordinal = 1;
+      emit(state, events, { id: submittedId, seq: 0, type: "user", content: ownSubmitted.input.text });
+    }
     if (frame.kind === "request" && clientRequest(frame.method)) {
       startTurn(ctx, state, events);
       continue;
@@ -331,11 +343,18 @@ function reduceStream(ctx, raw, frames, cursor) {
     const kind = text(update.sessionUpdate);
     if (!kind) continue;
     startTurn(ctx, state, events);
+    if (ownSubmitted && !state.loading && !state.settled && !state.evidenced.includes(ownSubmitted.sendId)) {
+      if (!events.some((event) => event.kind === "chatItem" && event.item.id === submittedId))
+        events.push({ kind: "chatItem", threadId: state.sessionId, item: state.items[submittedId] });
+      state.evidenced.push(ownSubmitted.sendId);
+      events.push({ kind: "sendEvidence", threadId: state.sessionId, sendId: ownSubmitted.sendId, turnId: `${state.sessionId}:turn:${state.turn}`, itemId: submittedId });
+    }
     if (kind === "user_message_chunk" || kind === "agent_message_chunk" || kind === "agent_thought_chunk") {
       const content = object(update.content);
       if (content.type !== "text" || typeof content.text !== "string" || state.settled && !state.loading) continue;
+      if (kind === "user_message_chunk" && submitted && state.evidenced.includes(submitted.sendId)) continue;
       const explicit = text(update.messageId);
-      if (!state.chunk || state.chunk.kind !== kind || explicit && state.chunk.id !== explicit) {
+      if (!state.chunk || state.chunk.kind !== kind || explicit && state.chunk.id !== `${state.sessionId}:turn:${state.turn}:message:${explicit}`) {
         closeChunk(ctx, state, events);
         if (kind === "user_message_chunk" && state.loading && state.ordinal > 0) {
           state.turn++;
@@ -343,7 +362,7 @@ function reduceStream(ctx, raw, frames, cursor) {
           state.seenItems = [];
         }
         state.ordinal++;
-        const id = explicit ?? `${ctx.threadId}:turn:${state.turn}:item:${state.ordinal}`;
+        const id = explicit ? `${state.sessionId}:turn:${state.turn}:message:${explicit}` : `${ctx.threadId}:turn:${state.turn}:item:${state.ordinal}`;
         state.chunk = { kind, id, content: explicit ? state.textById[id] ?? "" : "" };
       }
       state.chunk.content += content.text;
@@ -551,7 +570,13 @@ function runtimePlan(ctx, op) {
       state.cursor.prompt = Math.max(state.cursor.prompt, Number(object4(state.projection).turn) || 0) + 1;
       state.cursor.loading = false;
       state.inFlight = true;
-      return request(methods.prompt, { sessionId, prompt });
+      state.promptSend = { sendId: op.sendId, input: op.input };
+      state.projection = reduceStream(ctx, state.projection ?? null, [], state.cursor).state;
+      const plan = request(methods.prompt, { sessionId, prompt });
+      if (plan.action.kind === "request")
+        plan.action.call.target = { threadId: sessionId, turnId: `${sessionId}:turn:${state.cursor.prompt}` };
+      plan.state = { method: methods.prompt, prompt: state.cursor.prompt };
+      return plan;
     }
     case "interrupt": {
       const sessionId = ownSession(ctx, state);
@@ -612,7 +637,7 @@ function runtimeResponse(ctx, op, raw, reply) {
       cursor: prior?.cursor ?? { replay: 0, prompt: 0, loading: false },
       inFlight: prior?.inFlight ?? false,
       projection: prior?.projection,
-      settledProjection: prior?.settledProjection,
+      promptSend: prior?.promptSend,
       settings: prior?.settings
     });
     return {
@@ -625,7 +650,7 @@ function runtimeResponse(ctx, op, raw, reply) {
   if (!state) return refused("provider_refused", "ACP initialization is required for this runtime epoch");
   if (op.kind === "resumeThread" && method === "boundSession") {
     if (!state.sessionActive || state.sessionId !== op.threadId) return refused("binding_mismatch", "ACP session is not active in this runtime");
-    return { kind: "complete", result: { kind: "threadLoaded", threadId: ownSession(ctx, state), settings: { ...op.settings, ...state.settings } } };
+    return { kind: "complete", result: { kind: "threadLoaded", threadId: ownSession(ctx, state), settings: { ...op.settings, mode: void 0, ...state.settings } } };
   }
   if (op.kind === "openThread" || op.kind === "resumeThread") {
     if (op.kind === "resumeThread") {
@@ -640,7 +665,7 @@ function runtimeResponse(ctx, op, raw, reply) {
     state.instructions = op.instructions;
     state.cursor.loading = false;
     state.settings = { commands: [], configOptions: [], modes: [], ...sessionSettings(value) };
-    return { kind: "complete", result: { kind: "threadLoaded", threadId: sessionId, settings: { ...op.settings, ...state.settings } } };
+    return { kind: "complete", result: { kind: "threadLoaded", threadId: sessionId, settings: { ...op.settings, mode: void 0, ...state.settings } } };
   }
   if (op.kind === "control" && ["config", "mode"].includes(op.action)) {
     const sessionId = ownSession(ctx, state);
@@ -652,24 +677,22 @@ function runtimeResponse(ctx, op, raw, reply) {
   if (op.kind === "answer" && method === "session/request_permission")
     return { kind: "complete", result: { kind: "done" }, events: [{ kind: "promptResolved", threadId: ownSession(ctx, state), requestId: op.requestId }] };
   if (op.kind === "interrupt" && method === methods.cancel) {
-    state.inFlight = false;
-    const settled = settleStream(ctx, state.projection ?? null, "cancelled");
-    state.projection = settled.state;
-    state.settledProjection = settled.state;
-    return { kind: "complete", result: { kind: "done" }, events: settled.events };
+    return { kind: "complete", result: { kind: "done" }, events: [] };
   }
   if (op.kind === "submitTurn" && method === methods.prompt) {
-    state.inFlight = false;
     const sessionId = ownSession(ctx, state);
     if (typeof value.stopReason !== "string") return refused("protocol_error", "ACP prompt response is missing stopReason");
+    const turn = typeof object4(raw).prompt === "number" ? object4(raw).prompt : object4(state.projection).turn;
+    if (turn !== state.cursor.prompt || !state.inFlight)
+      return { kind: "complete", result: { kind: "turnAccepted", threadId: sessionId, sendId: op.sendId, turnId: `${sessionId}:turn:${turn}` }, events: [] };
+    state.inFlight = false;
     state.instructions = void 0;
     const settled = settleStream(ctx, state.projection ?? null, value.stopReason);
     state.projection = settled.state;
-    state.settledProjection = settled.state;
     const mapped = usage(value.usage);
     return {
       kind: "complete",
-      result: { kind: "turnAccepted", threadId: sessionId, sendId: op.sendId },
+      result: { kind: "turnAccepted", threadId: sessionId, sendId: op.sendId, turnId: `${sessionId}:turn:${object4(state.projection).turn}` },
       events: [...mapped ? [{ kind: "usage", threadId: sessionId, usage: mapped }] : [], ...settled.events]
     };
   }
@@ -686,8 +709,7 @@ function runtimeReduce(ctx, raw, frames) {
     return prompt ? [{ kind: "prompt", threadId: ctx.threadId, requestId: frame.requestId, prompt }] : [];
   });
   if (!own.length) return { state: raw, events: prompts };
-  const reduction = reduceStream(ctx, state.settledProjection ?? raw, own, state.cursor);
-  delete state.settledProjection;
+  const reduction = reduceStream(ctx, state.projection ?? raw, own, state.cursor, state.inFlight ? state.promptSend : void 0);
   state.projection = reduction.state;
   for (const event of reduction.events) if (event.kind === "controlsConfirmed")
     state.settings = { ...state.settings, ...event.settings };

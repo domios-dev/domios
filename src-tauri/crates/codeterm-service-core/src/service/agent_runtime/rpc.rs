@@ -7,7 +7,7 @@ use serde_json::{json, Value};
 use std::{
     collections::HashMap,
     sync::{
-        atomic::{AtomicBool, AtomicI64, Ordering},
+        atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering},
         Arc,
     },
     time::Duration,
@@ -18,7 +18,13 @@ use tokio::{
 };
 
 pub type Reply = Result<Value, RpcFailure>;
-type Pending = oneshot::Sender<Result<Reply, RuntimeFailure>>;
+type Pending = oneshot::Sender<Result<TurnReply, RuntimeFailure>>;
+type PendingResponse = oneshot::Receiver<Result<TurnReply, RuntimeFailure>>;
+
+pub(super) struct TurnReply {
+    pub result: Reply,
+    pub through: u64,
+}
 
 pub(crate) type PrewriteGuard = Arc<dyn Fn() -> Result<(), RuntimeFailure> + Send + Sync>;
 
@@ -26,6 +32,14 @@ struct Write {
     text: String,
     guard: Option<PrewriteGuard>,
     written: oneshot::Sender<Result<(), RuntimeFailure>>,
+    turn_write: Option<Arc<AtomicU64>>,
+}
+
+#[derive(Clone)]
+pub(super) struct Ingress {
+    pub frame: RuntimeFrame,
+    pub write_generation: u64,
+    pub sequence: u64,
 }
 
 enum WireFrame {
@@ -43,8 +57,10 @@ struct Inner {
     state: Mutex<State>,
     next_id: AtomicI64,
     outgoing: mpsc::Sender<Write>,
-    events: broadcast::Sender<RuntimeFrame>,
-    initial_events: Mutex<Option<broadcast::Receiver<RuntimeFrame>>>,
+    events: broadcast::Sender<Ingress>,
+    write_generation: AtomicU64,
+    event_sequence: AtomicU64,
+    initial_events: Mutex<Option<broadcast::Receiver<Ingress>>>,
     ended: watch::Sender<Option<RuntimeFailure>>,
 }
 
@@ -82,6 +98,8 @@ impl Client {
             }),
             next_id: AtomicI64::new(1),
             outgoing,
+            write_generation: AtomicU64::new(0),
+            event_sequence: AtomicU64::new(0),
             events,
             initial_events: Mutex::new(Some(initial_events)),
             ended,
@@ -110,6 +128,11 @@ impl Client {
                 };
                 match sent {
                     Ok(Ok(())) => {
+                        if let Some(anchor) = text.turn_write {
+                            let generation =
+                                sender.0.write_generation.fetch_add(1, Ordering::AcqRel) + 1;
+                            anchor.store(generation, Ordering::Release);
+                        }
                         let _ = text.written.send(Ok(()));
                     }
                     Ok(Err(error)) => {
@@ -144,13 +167,20 @@ impl Client {
                 };
                 if let WireFrame::Response { id, result } = frame {
                     if let Some(reply) = receiver.0.state.lock().pending.remove(&id) {
-                        let _ = reply.send(Ok(result));
+                        let _ = reply.send(Ok(TurnReply {
+                            result,
+                            through: receiver.0.event_sequence.load(Ordering::Acquire),
+                        }));
                     }
                 } else if let WireFrame::Event(frame) = frame {
                     if receiver.0.trace_bound.load(Ordering::Relaxed) {
                         super::model::responsiveness::ingress(&frame);
                     }
-                    let _ = receiver.0.events.send(frame);
+                    let _ = receiver.0.events.send(Ingress {
+                        frame,
+                        sequence: receiver.0.event_sequence.fetch_add(1, Ordering::AcqRel) + 1,
+                        write_generation: receiver.0.write_generation.load(Ordering::Acquire),
+                    });
                 }
             }
         });
@@ -167,7 +197,7 @@ impl Client {
     pub fn ended(&self) -> watch::Receiver<Option<RuntimeFailure>> {
         self.0.ended.subscribe()
     }
-    pub fn subscribe(&self) -> broadcast::Receiver<RuntimeFrame> {
+    pub(super) fn subscribe(&self) -> broadcast::Receiver<Ingress> {
         self.0
             .initial_events
             .lock()
@@ -197,6 +227,33 @@ impl Client {
         call: &RpcCall,
         guard: Option<PrewriteGuard>,
     ) -> Result<Reply, RuntimeFailure> {
+        let (pending, received) = self.start_request(call, guard, None).await?;
+        let result = tokio::time::timeout(Duration::from_secs(30), received)
+            .await
+            .map_err(|_| RuntimeFailure::Deadline)?
+            .map_err(|_| RuntimeFailure::PipeEof)?;
+        drop(pending);
+        result.map(|reply| reply.result)
+    }
+
+    pub(super) async fn request_turn(
+        &self,
+        call: &RpcCall,
+        guard: Option<PrewriteGuard>,
+        anchor: Arc<AtomicU64>,
+    ) -> Result<TurnReply, RuntimeFailure> {
+        let (pending, received) = self.start_request(call, guard, Some(anchor)).await?;
+        let result = received.await.map_err(|_| RuntimeFailure::PipeEof)?;
+        drop(pending);
+        result
+    }
+
+    async fn start_request(
+        &self,
+        call: &RpcCall,
+        guard: Option<PrewriteGuard>,
+        turn_write: Option<Arc<AtomicU64>>,
+    ) -> Result<(PendingRequest, PendingResponse), RuntimeFailure> {
         let id = RpcId::Number(self.0.next_id.fetch_add(1, Ordering::Relaxed));
         let (reply, received) = oneshot::channel();
         {
@@ -210,17 +267,13 @@ impl Client {
             client: self.clone(),
             id: id.clone(),
         };
-        self.queue_guarded(
+        self.queue_with_anchor(
             json!({"id":id,"method":call.method,"params":call.params}),
             guard,
+            turn_write,
         )
         .await?;
-        let result = tokio::time::timeout(Duration::from_secs(30), received)
-            .await
-            .map_err(|_| RuntimeFailure::Deadline)?
-            .map_err(|_| RuntimeFailure::PipeEof)?;
-        drop(pending);
-        result
+        Ok((pending, received))
     }
 
     pub async fn notify(&self, call: &RpcCall) -> Result<(), RuntimeFailure> {
@@ -239,8 +292,16 @@ impl Client {
     }
     async fn queue_guarded(
         &self,
+        frame: Value,
+        guard: Option<PrewriteGuard>,
+    ) -> Result<(), RuntimeFailure> {
+        self.queue_with_anchor(frame, guard, None).await
+    }
+    async fn queue_with_anchor(
+        &self,
         mut frame: Value,
         guard: Option<PrewriteGuard>,
+        turn_write: Option<Arc<AtomicU64>>,
     ) -> Result<(), RuntimeFailure> {
         if let Some(reason) = self.0.state.lock().closed.clone() {
             return Err(reason);
@@ -259,6 +320,7 @@ impl Client {
                 text,
                 guard,
                 written,
+                turn_write,
             })
             .map_err(|error| RuntimeFailure::PipeFailure {
                 stream: "stdin".into(),

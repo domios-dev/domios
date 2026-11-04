@@ -36,6 +36,8 @@ pub struct Session {
     pub(super) login: Mutex<super::login::LoginState>,
     pub thread_loaded: std::sync::atomic::AtomicBool,
     pub hook_state: Mutex<Value>,
+    pub(super) stream_progress: tokio::sync::watch::Sender<u64>,
+    pub(super) turn_requests: Mutex<HashMap<String, Arc<super::turn_requests::PendingTurn>>>,
     pub maps: Mutex<super::events::RuntimeMaps>,
     pub(super) provider_operation_failures: std::sync::atomic::AtomicU32,
     pub(super) bookkeeping_warning_emitted: std::sync::atomic::AtomicBool,
@@ -260,6 +262,12 @@ async fn stop_session(
         return Err(RuntimeFailure::Superseded.to_string());
     }
     cancel_stop_retry(svc, tab);
+    super::turn_requests::end_for_lifecycle(
+        svc,
+        &session,
+        "Runtime stopped before the turn completion reply",
+    )
+    .await;
     let permit = session.gate.try_acquire().ok();
     session.gate.close();
     let process = session.process.lock().clone();
@@ -438,6 +446,8 @@ async fn ensure_with_fork(
                     auth: Mutex::new(RuntimeAuthState::Unknown),
                     login: Mutex::new(Default::default()),
                     thread_loaded: std::sync::atomic::AtomicBool::new(false),
+                    stream_progress: tokio::sync::watch::channel(0).0,
+                    turn_requests: Mutex::new(HashMap::new()),
                     hook_state: Mutex::new(Value::Null),
                     maps: Mutex::new(super::events::RuntimeMaps::default()),
                     provider_operation_failures: std::sync::atomic::AtomicU32::new(0),
@@ -558,6 +568,12 @@ async fn ensure_locked(
             old.finish().await?;
             cancelled?;
         }
+        super::turn_requests::end_for_lifecycle(
+            svc,
+            session,
+            "Runtime epoch replaced before the turn completion reply",
+        )
+        .await;
         let epoch = {
             let mut state = session.state.lock();
             state.binary_version = None;
@@ -579,6 +595,7 @@ async fn ensure_locked(
             context.active_turns.clear();
             context.thread_parents.clear();
         }
+        session.stream_progress.send_replace(0);
         super::declared_controls::reset(session, epoch);
         session
             .thread_loaded

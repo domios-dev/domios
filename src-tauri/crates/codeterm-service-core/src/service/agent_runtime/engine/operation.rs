@@ -277,6 +277,22 @@ async fn run_inner(
                     );
                 }
                 handed_off.store(true, Ordering::Release);
+                if capability
+                    .turn_scoped_requests
+                    .iter()
+                    .any(|kind| kind == operation.kind())
+                {
+                    return super::super::turn_requests::run(
+                        svc,
+                        session,
+                        process,
+                        context.clone(),
+                        operation.clone(),
+                        next.clone(),
+                        Some(guard),
+                    )
+                    .await;
+                }
                 process.client.request_guarded(call, Some(guard)).await?
             }
             RuntimeAction::Notification { notification } => {

@@ -97,7 +97,7 @@ const opened = hooks.runtimePlan(ctx,open);
 hooks.runtimeResponse(ctx,open,opened.state,{kind:"success",value:{sessionId:"own"}});
 const bound={...ctx,threadId:"own"};
 const submit:Operation={kind:"submitTurn",threadId:"own",sendId:"send",input:{text:"hello",attachments:[]},settings:{}};
-assert.deepEqual(plain(hooks.runtimePlan(bound,submit).action),{kind:"request",call:{method:"session/prompt",params:{sessionId:"own",prompt:[{type:"text",text:"Startup instructions"},{type:"text",text:"hello"}]}}});
+assert.deepEqual(plain(hooks.runtimePlan(bound,submit).action),{kind:"request",call:{method:"session/prompt",params:{sessionId:"own",prompt:[{type:"text",text:"Startup instructions"},{type:"text",text:"hello"}]},target:{threadId:"own",turnId:"own:turn:1"}}});
 for (const changed of [{...bound,epoch:ctx.epoch+1},{...bound,bindingNonce:"foreign"},{...bound,tabId:"foreign"}]) assertPlanRefusal(hooks.runtimePlan(changed,submit));
 assert.throws(()=>hooks.runtimePlan(bound,{...submit,threadId:"foreign"}));
 assert.throws(()=>hooks.runtimePlan(bound,{kind:"forkThread",sourceThreadId:"own",turnId:"turn"}),/fork requires an unbound runtime/);

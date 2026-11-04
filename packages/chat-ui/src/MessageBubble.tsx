@@ -500,6 +500,7 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
             text={message.content}
             label={label}
             testId="chat-system-meta"
+            previewWhenCollapsed
             expanded={expanded}
             onToggle={setExpandedPersistent}
           />

@@ -164,6 +164,7 @@ export interface StdioAgentRuntimeCapability {
   command:{binary:string; args:readonly string[]};
   login?: {methods:readonly RuntimeLoginMethod[]; terminalCommand?:string};
   inheritedEnvironmentExclusions?:readonly string[];
+  turnScopedRequests?:readonly "submitTurn"[];
   requestMethods:Partial<Record<Operation["kind"], readonly string[]>>;
   notificationMethods:readonly string[];
 }

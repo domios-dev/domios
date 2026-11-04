@@ -104,7 +104,7 @@ async fn process_start_notification_is_retained_before_subscriber_attachment() {
     .unwrap();
     let mut events = client.subscribe();
     assert!(
-        matches!(events.try_recv().unwrap(), RuntimeFrame::Notification { method, .. } if method == "fixture/started")
+        matches!(events.try_recv().unwrap().frame, RuntimeFrame::Notification { method, .. } if method == "fixture/started")
     );
 }
 
@@ -227,7 +227,7 @@ async fn parallel_tool_output_burst_stays_inside_the_event_queue() {
     .unwrap();
     let mut seen = 0;
     while let Ok(frame) = events.try_recv() {
-        let RuntimeFrame::Notification { params, .. } = frame else {
+        let RuntimeFrame::Notification { params, .. } = frame.frame else {
             panic!("unexpected frame")
         };
         assert_eq!(params["seq"], seen);
@@ -255,7 +255,7 @@ async fn responsiveness_disabled_observer_keeps_ingress_order_and_payload() {
             .await
             .unwrap()
             .unwrap();
-        let RuntimeFrame::Notification { method, params } = event else {
+        let RuntimeFrame::Notification { method, params } = event.frame else {
             panic!("unexpected request");
         };
         assert_eq!(method, frame["method"].as_str().unwrap());
@@ -380,5 +380,45 @@ async fn unattributable_agent_error_closes_epoch_and_all_pending_requests() {
     };
     assert_eq!(result, Err(failure.clone()));
     assert_eq!(*client.ended().borrow(), Some(failure));
+    assert!(client.0.state.lock().pending.is_empty());
+}
+
+#[tokio::test]
+async fn undeclared_request_keeps_its_thirty_second_deadline() {
+    let (host, peer) = tokio::io::duplex(4096);
+    let (read, write) = tokio::io::split(host);
+    let client = Client::attach(read, write);
+    let call = RpcCall {
+        target: None,
+        method: "opaque/submit".into(),
+        params: json!({}),
+    };
+    let request = client.request_guarded(&call, None);
+    tokio::pin!(request);
+    let ready = async {
+        let mut peer = BufReader::new(peer);
+        let mut line = String::new();
+        peer.read_line(&mut line).await.unwrap();
+        client
+            .notify(&RpcCall {
+                target: None,
+                method: "opaque/barrier".into(),
+                params: json!({}),
+            })
+            .await
+            .unwrap();
+        peer
+    };
+    let _peer = tokio::select! {
+        biased;
+        result = &mut request => panic!("request completed before its reply or deadline: {result:?}"),
+        peer = ready => peer,
+    };
+    tokio::time::pause();
+    let (reply, ()) = tokio::join!(biased;
+        &mut request,
+        async { tokio::time::advance(Duration::from_secs(31)).await; },
+    );
+    assert_eq!(reply, Err(RuntimeFailure::Deadline));
     assert!(client.0.state.lock().pending.is_empty());
 }

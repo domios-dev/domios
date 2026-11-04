@@ -457,3 +457,47 @@ fn cloud_launch_record_never_materializes_a_local_runtime() {
         Some("opaque-cloud")
     );
 }
+
+#[test]
+fn undeclared_saved_modes_are_cleared_before_same_session_materialization() {
+    let (mut mux, id) = MultiplexerState::new();
+    let tab = mux.get_tab_mut(&id).unwrap();
+    tab.agent_type = Some("session-modes".into());
+    tab.agent_session_id = Some("saved-thread".into());
+    tab.agent_runtime_config = Some(serde_json::json!({"mode":"auto-accept-edits"}));
+    tab.structured_runtime_mode = Some("auto-accept-edits".into());
+    tab.restorable_launch.structured_runtime_mode = Some("auto-accept-edits".into());
+    let fixture = ServiceFixture::new(MultiplexerState::from_session_snapshot(
+        &mux.to_session_snapshot(),
+    ));
+    let manifest = codeterm_plugin::js_runtime::PluginManifest::from_json_str(&serde_json::json!({
+        "id":"session-modes","version":"1.0.0","displayName":"Fixture",
+        "capabilities":{"agentProvider":true,"chatBackend":{"enabled":true,"spawnable":true,"sessionConfig":true,"agentTasks":true},"agentRuntime":{"runtime":"stdio-jsonrpc",
+            "command":{"binary":"fixture-cli","args":[]},"requestMethods":{"initialize":["initialize"]},"notificationMethods":[]}},
+        "permissions":{"subprocess":{"allow":["fixture-cli"]}}
+    }).to_string()).unwrap();
+    let vm = Arc::new(
+        codeterm_plugin::js_runtime::PluginVm::from_source(
+            "session-modes",
+            "module.exports={}".into(),
+        )
+        .unwrap(),
+    );
+    fixture.service.agent_registry.register_provider(Box::new(
+        codeterm_plugin::js_runtime::JsProvider::new(manifest, vm),
+    ));
+    assert!(super::tab(&fixture.service, &id).unwrap());
+    let mux = fixture.service.mux.read();
+    let tab = mux.get_tab(&id).unwrap();
+    assert_eq!(tab.agent_session_id.as_deref(), Some("saved-thread"));
+    assert!(matches!(tab.backing, TabBacking::ChatBackend { .. }));
+    assert!(tab.chat_view);
+    assert!(tab
+        .agent_runtime_config
+        .as_ref()
+        .unwrap()
+        .get("mode")
+        .is_none());
+    assert!(tab.structured_runtime_mode.is_none());
+    assert!(tab.restorable_launch.structured_runtime_mode.is_none());
+}

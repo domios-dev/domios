@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import type { AgentEvent, ChatMsg, JsonValue, RuntimeContext, RuntimeFrame, Operation } from "@codeterm/plugin-sdk";
 import { reduceStream, settleStream, type StreamCursor } from "../src/runtimeReduce";
+import { sessionSettings } from "../src/runtimeControls";
+import { runtimePlan, runtimeResponse, runtimeReduce } from "../src/runtime";
 import { reduceTool } from "../src/runtimeReduceTools";
 
 interface Fixture {
@@ -71,7 +73,7 @@ assert.equal(cancelled.rows.length,1);
 assert.equal(cancelled.rows[0].id,"call-cancel");
 assert.equal(cancelled.rows[0].toolStatus,"interrupted");
 assert.equal(cancelled.state.sessionId,"session-fixture");
-assert.deepEqual(cancelled.events.at(-1),{kind:"turnState",threadId:"session-fixture",state:"idle",detail:"interrupted"});
+assert.deepEqual(cancelled.events.at(-1),{kind:"turnState",threadId:"session-fixture",turnId:"session-fixture:turn:1",state:"idle",detail:"interrupted"});
 const lost=scenarios.get("lost-stream")!;
 assert.equal(lost.rows.length,1);
 assert.equal(lost.rows[0].content,"Partial output");
@@ -94,13 +96,13 @@ assert.equal(first.events.some(event=>event.kind === "sendEvidence"),false);
 const second=reduceStream(context,first.state,[frame("user_message_chunk","lo","user-id")],cursor);
 assert.equal(second.events.some(event=>event.kind === "sendEvidence"),false,"a matching prefix cannot confirm an unfinished user chunk");
 const closed=reduceStream(context,second.state,[frame("agent_thought_chunk","Thinking")],cursor);
-assert.ok(closed.events.some(event=>event.kind === "chatItem" && event.item.id === "user-id" && event.item.content === "Hello"),"evidence and its exact user row must share a host validation batch");
-assert.deepEqual(closed.events.filter(event=>event.kind === "sendEvidence"),[{kind:"sendEvidence",threadId:"session-fixture",sendId:"claimed",turnId:"turn",itemId:"user-id"}]);
+assert.ok(closed.events.some(event=>event.kind === "chatItem" && event.item.id === "session-fixture:turn:1:message:user-id" && event.item.content === "Hello"),"evidence and its exact user row must share a host validation batch");
+assert.deepEqual(closed.events.filter(event=>event.kind === "sendEvidence"),[{kind:"sendEvidence",threadId:"session-fixture",sendId:"claimed",turnId:"turn",itemId:"session-fixture:turn:1:message:user-id"}]);
 const loaded=reduceStream(context,second.state,[frame("user_message_chunk","Hello","user-id")],{prompt:0,replay:1,loading:true});
 assert.equal(loaded.events.some(event=>event.kind === "sendEvidence"),false,"load replay cannot confirm a live send");
 assert.equal(Object.keys(loaded.state && (loaded.state as Record<string,JsonValue>).items as object).length,1);
 const interleaved=reduceStream(context,null,[frame("agent_message_chunk","first","message-id"),frame("agent_thought_chunk","thought","thought-id"),frame("agent_message_chunk"," second","message-id")],cursor);
-assert.equal(((interleaved.state as Record<string,JsonValue>).items as Record<string,ChatMsg>)["message-id"].content,"first second");
+assert.equal(((interleaved.state as Record<string,JsonValue>).items as Record<string,ChatMsg>)["session-fixture:turn:1:message:message-id"].content,"first second");
 const unmatched=reduceStream({...context,claimedSends:[{sendId:"foreign",threadId:"foreign",input:{text:"Hello",attachments:[]}}]},null,[frame("user_message_chunk","Hello"),frame("agent_message_chunk","Answer")],cursor);
 assert.equal(unmatched.events.some(event=>event.kind === "sendEvidence"),false,"a foreign claimed send cannot authorize evidence");
 const historyFrames:RuntimeFrame[]=[frame("user_message_chunk","One"),
@@ -123,3 +125,94 @@ assert.equal(bounded.events.length,32);
 assert.ok(bounded.events.every(event=>event.kind === "notice" && event.message.length < 200));
 for (const name of names) console.log(`✓ ACP stream ${name}`);
 console.log(`ACP stream: ${names.length} scenarios; exact replay row counts, pure reduction and bounded warnings passed`);
+
+const liveFixture=JSON.parse(fs.readFileSync(new URL("./fixtures/live-turns.json",import.meta.url),"utf8")) as {
+  firstPrompt:string;secondPrompt:string;updates:JsonValue[];secondUpdate:JsonValue;completedReply:JsonValue;cancelledReply:JsonValue;
+};
+const updateFrame=(update:JsonValue):RuntimeFrame=>({kind:"notification",method:"session/update",params:{sessionId:"session-fixture",update}});
+const failures:string[]=[];
+for (const scenario of ["no-echo-delivery", "cancel-race", "two-turn-retention", "empty-session-modes"]) {
+  try {
+    const base={...context,tabId:`live-${scenario}`,threadId:undefined,activeTurnId:undefined,activeTurns:[],claimedSends:[]};
+    const init:Operation={kind:"initialize"};
+    const ip=runtimePlan(base,init);
+    runtimeResponse(base,init,ip.state,{kind:"success",value:{protocolVersion:1,agentCapabilities:{sessionCapabilities:{resume:{}}},authMethods:[]}});
+    const open:Operation={kind:"openThread",instructions:"",settings:{mode:"auto-accept-edits"}};
+    const op=runtimePlan(base,open);
+    const opened=runtimeResponse(base,open,op.state,{kind:"success",value:{sessionId:"session-fixture",modes:{availableModes:[],currentModeId:"auto-accept-edits"}}});
+    if (scenario === "empty-session-modes") {
+      assert.ok(opened.kind === "complete" && opened.result.kind === "threadLoaded");
+      assert.equal(opened.result.settings.mode,undefined);
+      const resumed={...base,epoch:2,threadId:"session-fixture"};
+      const reinit=runtimePlan(resumed,init);
+      runtimeResponse(resumed,init,reinit.state,{kind:"success",value:{protocolVersion:1,agentCapabilities:{sessionCapabilities:{resume:{}}},authMethods:[]}});
+      const resume:Operation={kind:"resumeThread",threadId:resumed.threadId,instructions:"",settings:{}};
+      const plan=runtimePlan(resumed,resume);
+      assert.deepEqual(plan.action,{kind:"request",call:{method:"session/resume",params:{sessionId:resumed.threadId,cwd:resumed.cwd,mcpServers:[]}}});
+      const restored=runtimeResponse(resumed,resume,plan.state,{kind:"success",value:{modes:{availableModes:[]}}});
+      assert.ok(restored.kind === "complete" && restored.result.kind === "threadLoaded");
+      assert.equal(restored.result.threadId,"session-fixture");
+      assert.equal(restored.result.settings.mode,undefined);
+      console.log(`✓ ACP live ${scenario}`);
+      continue;
+    }
+    const bound={...base,threadId:"session-fixture"};
+    const submit:Operation={kind:"submitTurn",threadId:bound.threadId,sendId:"live-send-1",input:{text:liveFixture.firstPrompt,attachments:[]},settings:{}};
+    const plan=runtimePlan(bound,submit);
+    const claimed={...bound,claimedSends:[{sendId:submit.sendId,threadId:bound.threadId,input:submit.input}]};
+    const requestFirst=scenario === "cancel-race"
+      ? runtimeReduce(claimed,null,[{kind:"request",method:"terminal/output",requestId:"read-output",params:{sessionId:bound.threadId,terminalId:"terminal"}}]) : null;
+    if (requestFirst) {
+      assert.equal(requestFirst.events.filter(event=>event.kind === "sendEvidence").length,0,"client requests cannot confirm delivery");
+      assert.equal(requestFirst.events.filter(event=>event.kind === "chatItem")[0]?.item.type,"user");
+    }
+    const first=runtimeReduce(claimed,requestFirst?.state ?? null,[updateFrame(liveFixture.updates[0])]);
+    if (scenario === "no-echo-delivery") {
+      assert.deepEqual(first.events.filter(e=>e.kind === "chatItem").map(e=>[e.item.type,e.item.content,e.item.seq]),[["user","First prompt",1],["thinking","Thinking",2]]);
+      assert.equal(first.events.filter(e=>e.kind === "sendEvidence").length,1);
+      const echo=runtimeReduce(claimed,first.state,[frame("user_message_chunk","First ","echo"),frame("user_message_chunk","prompt","echo")]);
+      assert.equal(echo.events.filter(e=>e.kind === "chatItem" || e.kind === "sendEvidence").length,0,"optional user echoes cannot duplicate or replace the submitted row");
+      const foreign=runtimeReduce(claimed,first.state,[{...frame("agent_message_chunk","foreign"),params:{sessionId:"foreign",update:{sessionUpdate:"agent_message_chunk",content:{type:"text",text:"foreign"}}}}]);
+      assert.equal(foreign.events.length,0);
+    }
+    const running={...claimed,activeTurnId:"session-fixture:turn:1",activeTurns:[{threadId:bound.threadId,turnId:"session-fixture:turn:1"}]};
+    let streamed=runtimeReduce(running,first.state,[updateFrame(liveFixture.updates[1])]);
+    if (scenario !== "cancel-race") streamed=runtimeReduce(running,streamed.state,[updateFrame({sessionUpdate:"tool_call_update",toolCallId:"live-tool",status:"completed"})]);
+    streamed=runtimeReduce(running,streamed.state,[updateFrame(liveFixture.updates[2])]);
+    for (let index=0;index<100;index++) streamed=runtimeReduce(running,streamed.state,[frame("agent_message_chunk",".","answer")]);
+    if (scenario === "cancel-race") {
+      const interrupt:Operation={kind:"interrupt",threadId:bound.threadId,activeTurnId:running.activeTurnId};
+      const cancel=runtimePlan(running,interrupt);
+      assert.equal(cancel.action.kind,"notification");
+      const ack=runtimeResponse(running,interrupt,cancel.state,{kind:"success",value:{}});
+      assert.ok(ack.kind === "complete");
+      assert.equal(ack.events?.length ?? 0,0,"cancel write acknowledgement cannot settle a prompt");
+    }
+    const reason=scenario === "cancel-race" ? "cancelled" : "end_turn";
+    const settled=runtimeResponse(running,submit,plan.state,{kind:"success",value:reason === "cancelled" ? liveFixture.cancelledReply : liveFixture.completedReply});
+    assert.ok(settled.kind === "complete");
+    assert.deepEqual(settled.events?.filter(e=>e.kind === "turnState"),[{kind:"turnState",threadId:bound.threadId,turnId:running.activeTurnId,state:"idle",...(reason === "cancelled" ? {detail:"interrupted"} : {})}]);
+    const late=runtimeReduce(bound,streamed.state,[frame("agent_message_chunk","late")]);
+    assert.equal(late.events.filter(e=>e.kind === "turnState" || e.kind === "chatItem").length,0,"late frames never reopen a settled prompt");
+    const twice=runtimeResponse(bound,submit,plan.state,{kind:"success",value:reason === "cancelled" ? liveFixture.cancelledReply : liveFixture.completedReply});
+    assert.ok(twice.kind === "complete");
+    assert.equal(twice.events?.filter(e=>e.kind === "turnState").length,0,"prompt reply settles exactly once");
+    if (scenario === "two-turn-retention") {
+      const next={...submit,sendId:"live-send-2",input:{text:liveFixture.secondPrompt,attachments:[]}};
+      const secondPlan=runtimePlan(bound,next);
+      const duplicate=runtimeResponse(bound,submit,plan.state,{kind:"success",value:{stopReason:"cancelled"}});
+      assert.ok(duplicate.kind === "complete");
+      assert.equal(duplicate.events?.length,0,"old reply cannot settle a later prompt");
+      const second=runtimeReduce({...bound,claimedSends:[{sendId:next.sendId,threadId:bound.threadId,input:next.input}]},streamed.state,[updateFrame(liveFixture.secondUpdate)]);
+      const rows=Object.values((second.state as Record<string,JsonValue>).items as Record<string,ChatMsg>).sort((a,b)=>a.seq-b.seq);
+      assert.deepEqual(rows.map(row=>[row.type,row.content]),[["user","First prompt"],["thinking","Thinking"],["tool_call",""],["assistant",`First answer${".".repeat(100)}`],["user","Second prompt"],["assistant","Second answer"]]);
+      assert.equal(new Set(rows.map(row=>row.id)).size,6);
+      assert.deepEqual(rows.map(row=>row.seq),[1,2,3,4,5,6]);
+      runtimeResponse(bound,next,secondPlan.state,{kind:"success",value:{stopReason:"end_turn"}});
+    }
+    console.log(`✓ ACP live ${scenario}`);
+  } catch (error) {failures.push(`${scenario}: ${String(error)}`);}
+}
+assert.deepEqual(failures,[]);
+
+assert.deepEqual(sessionSettings({modes:{availableModes:[{id:"safe",name:"Safe"},{id:"safe",name:"Duplicate"}],currentModeId:"safe"}}),{modes:[{id:"safe",name:"Safe"}],mode:"safe"});

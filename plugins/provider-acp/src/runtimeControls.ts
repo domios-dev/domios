@@ -32,9 +32,13 @@ export function configOptions(value:unknown):NonNullable<RuntimeSettings["config
 }
 export function sessionSettings(value:unknown):RuntimeSettings {
   const response=object(value), modes=object(response.modes);
+  const seen=new Set<string>();
   return {...(Array.isArray(response.configOptions) ? {configOptions:configOptions(response.configOptions)} : {}),
-    ...(Array.isArray(modes.availableModes) ? {modes:list(modes.availableModes,64).flatMap(mode=>label(mode.id) && label(mode.name) ? [{id:mode.id,name:mode.name}] : [])} : {}),
-    ...(label(modes.currentModeId) ? {mode:modes.currentModeId} : {})};
+    ...(Array.isArray(modes.availableModes) ? {modes:list(modes.availableModes,64).flatMap(mode=>{
+      if (!label(mode.id) || !label(mode.name) || seen.has(mode.id)) return [];
+      seen.add(mode.id);return [{id:mode.id,name:mode.name}];
+    })} : {}),
+    ...(label(modes.currentModeId) && seen.has(modes.currentModeId) ? {mode:modes.currentModeId} : {})};
 }
 export function authentication(methods:AuthMethod[], authenticated?:boolean, required?:boolean):RuntimeAuthentication {
   return {state:authenticationState(methods,{authenticated,required}),methods:methods.map(method=>({id:method.id,name:method.name,available:method.type === "agent"}))};

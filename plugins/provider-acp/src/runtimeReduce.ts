@@ -1,4 +1,4 @@
-import type { AgentEvent, ChatMsg, JsonValue, RuntimeContext, RuntimeFrame, RuntimeReduction } from "@codeterm/plugin-sdk";
+import type { AgentEvent, ChatMsg, JsonValue, RuntimeContext, RuntimeFrame, RuntimeReduction, TurnInput } from "@codeterm/plugin-sdk";
 import { object, text, reduceTool } from "./runtimeReduceTools";
 import { planRow, usage } from "./runtimeReducePlan";
 import { commands, configOptions } from "./runtimeControls";
@@ -65,12 +65,13 @@ export function settleStream(ctx:RuntimeContext, raw:JsonValue, reason:string):R
   if (source.sessionId !== ctx.threadId || source.epoch !== ctx.epoch || source.nonce !== ctx.bindingNonce)
     return {state:raw,events:[{kind:"turnState",threadId:ctx.threadId,state:"idle",...(reason === "cancelled" ? {detail:"interrupted" as const} : {})}]};
   const state=source as unknown as StreamState;
+  if (state.settled) return {state:raw,events:[]};
   const next:StreamState={...state,items:Object.assign(Object.create(null),state.items),evidenced:[...state.evidenced],settled:true};
   const events:AgentEvent[]=[];
   closeChunk(ctx,next,events);
   for (const row of Object.values(next.items)) if (row.toolStatus === "running")
     emit(next,events,{...row,toolStatus:"interrupted",toolInterrupted:true});
-  events.push({kind:"turnState",threadId:ctx.threadId,state:"idle",...(reason === "cancelled" ? {detail:"interrupted" as const} : {})});
+  events.push({kind:"turnState",threadId:ctx.threadId,turnId:`${state.sessionId}:turn:${state.turn}`,state:"idle",...(reason === "cancelled" ? {detail:"interrupted" as const} : {})});
   return {state:json(next),events};
 }
 export function clientRequest(method:string):boolean {
@@ -82,28 +83,41 @@ function startTurn(ctx:RuntimeContext, state:StreamState, events:AgentEvent[]):v
     events.push({kind:"turnState",threadId:state.sessionId,turnId:`${state.sessionId}:turn:${state.turn}`,state:"working"});
   }
 }
-export function reduceStream(ctx:RuntimeContext, raw:JsonValue, frames:readonly RuntimeFrame[], cursor:StreamCursor):RuntimeReduction {
+export function reduceStream(ctx:RuntimeContext, raw:JsonValue, frames:readonly RuntimeFrame[], cursor:StreamCursor, submitted?:{sendId:string;input:TurnInput}):RuntimeReduction {
   if (!ctx.threadId) return {state:raw,events:[]};
   const state=initial(ctx,raw,cursor);
   const events:AgentEvent[]=[];
+  const ownSubmitted=submitted && ctx.claimedSends.some(claim=>claim.sendId === submitted.sendId && claim.threadId === state.sessionId) ? submitted : undefined;
   for (const frame of frames) {
     const params=object(frame.params);
     if (params.sessionId !== ctx.threadId) continue;
+    const submittedId=`${state.sessionId}:turn:${state.turn}:item:1`;
+    if (ownSubmitted && !state.loading && !state.settled && !state.items[submittedId]) {
+      state.ordinal=1;
+      emit(state,events,{id:submittedId,seq:0,type:"user",content:ownSubmitted.input.text});
+    }
     if (frame.kind === "request" && clientRequest(frame.method)) { startTurn(ctx,state,events);continue; }
     if (frame.kind !== "notification" || frame.method !== "session/update") continue;
     const update=object(params.update);
     const kind=text(update.sessionUpdate);
     if (!kind) continue;
     startTurn(ctx,state,events);
+    if (ownSubmitted && !state.loading && !state.settled && !state.evidenced.includes(ownSubmitted.sendId)) {
+      if (!events.some(event=>event.kind === "chatItem" && event.item.id === submittedId))
+        events.push({kind:"chatItem",threadId:state.sessionId,item:state.items[submittedId]});
+      state.evidenced.push(ownSubmitted.sendId);
+      events.push({kind:"sendEvidence",threadId:state.sessionId,sendId:ownSubmitted.sendId,turnId:`${state.sessionId}:turn:${state.turn}`,itemId:submittedId});
+    }
     if (kind === "user_message_chunk" || kind === "agent_message_chunk" || kind === "agent_thought_chunk") {
       const content=object(update.content);
       if (content.type !== "text" || typeof content.text !== "string" || state.settled && !state.loading) continue;
+      if (kind === "user_message_chunk" && submitted && state.evidenced.includes(submitted.sendId)) continue;
       const explicit=text(update.messageId);
-      if (!state.chunk || state.chunk.kind !== kind || explicit && state.chunk.id !== explicit) {
+      if (!state.chunk || state.chunk.kind !== kind || explicit && state.chunk.id !== `${state.sessionId}:turn:${state.turn}:message:${explicit}`) {
         closeChunk(ctx,state,events);
         if (kind === "user_message_chunk" && state.loading && state.ordinal > 0) { state.turn++;state.ordinal=0;state.seenItems=[]; }
         state.ordinal++;
-        const id=explicit ?? `${ctx.threadId}:turn:${state.turn}:item:${state.ordinal}`;
+        const id=explicit ? `${state.sessionId}:turn:${state.turn}:message:${explicit}` : `${ctx.threadId}:turn:${state.turn}:item:${state.ordinal}`;
         state.chunk={kind,id,content:explicit ? state.textById[id] ?? "" : ""};
       }
       state.chunk.content+=content.text;

@@ -199,6 +199,7 @@ impl AgentProvider for StoredRuntimeProvider {
             },
             inherited_environment_exclusions: Vec::new(),
             login: None,
+            turn_scoped_requests: Vec::new(),
             request_methods: Default::default(),
             notification_methods: Vec::new(),
         })

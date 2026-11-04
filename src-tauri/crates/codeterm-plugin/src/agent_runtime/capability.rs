@@ -88,6 +88,8 @@ pub struct AgentRuntimeCapability {
     pub inherited_environment_exclusions: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub login: Option<RuntimeLoginCapability>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub turn_scoped_requests: Vec<String>,
     pub request_methods: BTreeMap<String, Vec<String>>,
     pub notification_methods: Vec<String>,
 }

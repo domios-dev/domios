@@ -67,3 +67,19 @@ fn fast_tier_projection_requires_confirmation_and_retains_own_binding() {
         );
     }
 }
+
+#[test]
+fn declared_session_modes_never_become_persisted_host_runtime_modes() {
+    let (mut mux, id) = crate::multiplexer::state::MultiplexerState::new();
+    let tab = mux.get_tab_mut(&id).unwrap();
+    apply_runtime_controls(
+        tab,
+        "thread",
+        &codeterm_plugin::agent_runtime::RuntimeSettings {
+            mode: Some("session-mode".into()),
+            modes: Some(Vec::new()),
+            ..Default::default()
+        },
+    );
+    assert!(tab.structured_runtime_mode.is_none());
+}

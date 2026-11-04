@@ -79,7 +79,10 @@
       },
       "interrupt": {
         "beforeFirstTurn": true
-      }
+      },
+      "turnScopedRequests": [
+        "submitTurn"
+      ]
     },
     "chatBackend": {
       "enabled": true,

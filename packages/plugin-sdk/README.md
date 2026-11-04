@@ -292,3 +292,21 @@ export default plugin;
 
 `localRecordingTrigger.button` supplies the selected interface/collection, report schema, approved singleton button usages, press usage and duplicate window. Native adapters validate that declared shape instead of branching on manufacturer identity. A missing native mapping remains unavailable.
 
+
+## Turn-scoped runtime requests
+
+A stdio provider can declare `agentRuntime.turnScopedRequests: ["submitTurn"]`
+when its submit request replies at the end of the turn. Its request must carry
+an exact `call.target` with the bound `threadId` and a valid provider-owned
+`turnId`. The target is host metadata and is not added to the wire payload.
+
+The first validated own-session `sendEvidence` for that request returns the
+existing `turnAccepted` outcome. The host retains the pending RPC under that
+session, binding nonce, epoch and turn, and routes its eventual reply through
+`runtimeResponse`. The reply settles the turn; it never proves delivery or
+permits replay. Process exit, pipe closure, restart and tab closure end the
+pending request with a visible failure. Cancellation has one bounded grace for
+the completion reply, then settles interrupted with a visible notice. Ordinary
+request and operation deadlines continue to apply to undeclared operations.
+This declaration grants no new filesystem, environment, network or host API
+authority.

@@ -48,6 +48,35 @@ pub fn drain_ready<T>(first: Poll<T>, mut poll: impl FnMut() -> Poll<T>, cap: us
     }
 }
 
+pub(super) async fn handle_stamped(
+    svc: &ServiceContext,
+    session: &Arc<Session>,
+    process: &Arc<Process>,
+    epoch: u64,
+    frames: Vec<super::super::rpc::Ingress>,
+    lagged: bool,
+) -> Step {
+    let through = frames.last().map_or(0, |frame| frame.sequence);
+    let frames = frames
+        .into_iter()
+        .filter(|ingress| {
+            !super::super::turn_requests::before_write(
+                session,
+                ingress.write_generation,
+                &ingress.frame,
+            )
+        })
+        .map(|ingress| ingress.frame)
+        .collect();
+    let result = handle(svc, session, process, epoch, frames, lagged).await;
+    let context = session.context.lock();
+    if context.epoch == epoch {
+        let previous = *session.stream_progress.borrow();
+        session.stream_progress.send_replace(previous.max(through));
+    }
+    result
+}
+
 pub(super) async fn handle(
     svc: &ServiceContext,
     session: &Arc<Session>,

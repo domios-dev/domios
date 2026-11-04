@@ -171,6 +171,10 @@
                 "text": "Hello"
               }
             ]
+          },
+          "target": {
+            "threadId": "session-fixture",
+            "turnId": "session-fixture:turn:1"
           }
         }
       }
@@ -252,14 +256,7 @@
           "result": {
             "kind": "done"
           },
-          "events": [
-            {
-              "kind": "turnState",
-              "threadId": "session-fixture",
-              "state": "idle",
-              "detail": "interrupted"
-            }
-          ]
+          "events": []
         }
       },
       {
@@ -269,14 +266,16 @@
           "result": {
             "kind": "turnAccepted",
             "threadId": "session-fixture",
-            "sendId": "send-fixture"
+            "sendId": "send-fixture",
+            "turnId": "session-fixture:turn:1"
           },
           "events": [
             {
               "kind": "turnState",
               "threadId": "session-fixture",
               "state": "idle",
-              "detail": "interrupted"
+              "detail": "interrupted",
+              "turnId": "session-fixture:turn:1"
             }
           ]
         }
@@ -294,13 +293,8 @@
         "kind": "turnState",
         "threadId": "session-fixture",
         "state": "idle",
-        "detail": "interrupted"
-      },
-      {
-        "kind": "turnState",
-        "threadId": "session-fixture",
-        "state": "idle",
-        "detail": "interrupted"
+        "detail": "interrupted",
+        "turnId": "session-fixture:turn:1"
       }
     ]
   }

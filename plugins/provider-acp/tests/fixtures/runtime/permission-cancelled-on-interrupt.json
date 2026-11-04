@@ -365,14 +365,7 @@
           "result": {
             "kind": "done"
           },
-          "events": [
-            {
-              "kind": "turnState",
-              "threadId": "session-fixture",
-              "state": "idle",
-              "detail": "interrupted"
-            }
-          ]
+          "events": []
         }
       }
     ],
@@ -414,12 +407,6 @@
         "kind": "promptResolved",
         "threadId": "session-fixture",
         "requestId": "permission-fixture"
-      },
-      {
-        "kind": "turnState",
-        "threadId": "session-fixture",
-        "state": "idle",
-        "detail": "interrupted"
       }
     ]
   }

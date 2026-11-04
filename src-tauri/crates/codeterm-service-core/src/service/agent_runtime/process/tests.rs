@@ -56,6 +56,7 @@ fn capability() -> AgentRuntimeCapability {
         },
         inherited_environment_exclusions: Vec::new(),
         login: None,
+        turn_scoped_requests: Vec::new(),
         request_methods: std::collections::BTreeMap::from([(
             "control".into(),
             vec![

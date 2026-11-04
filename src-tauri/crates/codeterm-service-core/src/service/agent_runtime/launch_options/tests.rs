@@ -354,3 +354,41 @@ fn contradictory_neighbor_bypass_records_require_current_root_grant_for_both_res
         }
     }
 }
+
+#[test]
+fn undeclared_spawn_default_is_not_persisted_as_a_runtime_mode() {
+    use crate::{multiplexer::state::MultiplexerState, service::test_fixture::ServiceFixture};
+    let (mut mux, id) = MultiplexerState::new();
+    let tab = mux.get_tab_mut(&id).unwrap();
+    tab.agent_type = Some("pad-runtime".into());
+    tab.session_binding_nonce = Some("nonce".into());
+    let directory = tempfile::tempdir().unwrap();
+    tab.cwd = Some(directory.path().to_string_lossy().into_owned());
+    let fixture = ServiceFixture::new(mux);
+    fixture.install_seeded_storage_desk();
+    register_neighbor_runtime(&fixture.service);
+    let params = SpawnAgentParams {
+        agent: Some("pad-runtime".into()),
+        skip_permissions: Some(false),
+        ..Default::default()
+    };
+    fixture
+        .service
+        .prepare_agent_runtime_launch_options(&id, &params)
+        .unwrap();
+    let mux = fixture.service.mux.read();
+    let tab = mux.get_tab(&id).unwrap();
+    assert!(tab
+        .agent_runtime_config
+        .as_ref()
+        .unwrap()
+        .get("mode")
+        .is_none());
+    let options = tab
+        .restorable_launch
+        .runtime_launch_options
+        .as_ref()
+        .unwrap();
+    assert!(options.mode.is_empty());
+    assert!(runtime_settings(options).mode.is_none());
+}

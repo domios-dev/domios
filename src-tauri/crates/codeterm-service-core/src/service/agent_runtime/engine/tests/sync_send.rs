@@ -43,19 +43,25 @@ pub(super) fn runtime_fixture_with_notifications(
     source: &str,
     notifications: &[&str],
 ) -> (ServiceFixture, String, tokio::io::DuplexStream, Cleanup) {
-    runtime_fixture_options(source, notifications, false, true)
+    runtime_fixture_options(source, notifications, false, true, false)
 }
 
 pub(super) fn runtime_fixture_with_stored_history(
     source: &str,
 ) -> (ServiceFixture, String, tokio::io::DuplexStream, Cleanup) {
-    runtime_fixture_options(source, &[], true, true)
+    runtime_fixture_options(source, &[], true, true, false)
 }
 
 pub(super) fn runtime_fixture_without_remote_history(
     source: &str,
 ) -> (ServiceFixture, String, tokio::io::DuplexStream, Cleanup) {
-    runtime_fixture_options(source, &[], true, false)
+    runtime_fixture_options(source, &[], true, false, false)
+}
+
+pub(in crate::service::agent_runtime) fn runtime_fixture_turn_scoped(
+    source: &str,
+) -> (ServiceFixture, String, tokio::io::DuplexStream, Cleanup) {
+    runtime_fixture_options(source, &[], false, true, true)
 }
 
 fn runtime_fixture_options(
@@ -63,6 +69,7 @@ fn runtime_fixture_options(
     notifications: &[&str],
     stored_history: bool,
     remote_history: bool,
+    turn_scoped: bool,
 ) -> (ServiceFixture, String, tokio::io::DuplexStream, Cleanup) {
     const PROVIDER: &str = "sync-send-fixture";
     let (mut mux, tab_id) = MultiplexerState::new();
@@ -92,6 +99,11 @@ fn runtime_fixture_options(
                 "requestMethods":{"control":["fixture/control"],"initialize":["fixture/initialize"],"openThread":["fixture/open"],"resumeThread":["fixture/resume"],"readHistory":["fixture/history"],"submitTurn":["fixture/submit"]},"notificationMethods":notifications}},
         "permissions":{"subprocess":{"allow":["fixture-cli"]}}
     });
+    if turn_scoped {
+        manifest["capabilities"]["agentRuntime"]["turnScopedRequests"] = json!(["submitTurn"]);
+        manifest["capabilities"]["agentRuntime"]["requestMethods"]["interrupt"] =
+            json!(["fixture/cancel"]);
+    }
     if !remote_history {
         manifest["capabilities"]["agentRuntime"]["requestMethods"]
             .as_object_mut()
@@ -164,6 +176,8 @@ pub(super) fn attach_runtime_peer(
         login: Mutex::new(Default::default()),
         auth: Mutex::new(RuntimeAuthState::SignedIn),
         thread_loaded: std::sync::atomic::AtomicBool::new(true),
+        stream_progress: tokio::sync::watch::channel(0).0,
+        turn_requests: Mutex::new(HashMap::new()),
         hook_state: Mutex::new(Value::Null),
         maps: Mutex::new(super::super::super::events::RuntimeMaps::default()),
         provider_operation_failures: std::sync::atomic::AtomicU32::new(0),

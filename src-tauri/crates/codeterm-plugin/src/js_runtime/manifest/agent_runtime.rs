@@ -289,6 +289,14 @@ impl AgentRuntimeCapability {
                 .request_methods
                 .get("backgroundProcesses")
                 .is_none_or(|methods| methods.is_empty()))
+            || has_duplicates(&self.turn_scoped_requests)
+            || self.turn_scoped_requests.iter().any(|kind| {
+                kind != "submitTurn"
+                    || self
+                        .request_methods
+                        .get(kind)
+                        .is_none_or(|methods| methods.is_empty())
+            })
             || self.request_methods.is_empty()
             || self
                 .request_methods

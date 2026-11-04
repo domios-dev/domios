@@ -419,6 +419,20 @@ pub fn validate_runtime_call(
         {
             return Err(mismatch("background request lacks exact owned target"));
         }
+    } else if cap
+        .turn_scoped_requests
+        .iter()
+        .any(|kind| kind == op.kind())
+    {
+        let target = call
+            .target
+            .as_ref()
+            .ok_or_else(|| mismatch("turn-scoped request lacks target"))?;
+        if ctx.thread_id.as_ref() != Some(&target.thread_id)
+            || target.turn_id.as_ref().is_none_or(|turn| !identifier(turn))
+        {
+            return Err(mismatch("turn-scoped request lacks an exact owned turn"));
+        }
     } else if matches!(op, RuntimeOperation::Interrupt { .. }) {
         let target = call
             .target
@@ -1123,3 +1137,6 @@ pub fn validate_active_turns(ctx: &RuntimeContext) -> Result<(), RuntimeFailure>
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;

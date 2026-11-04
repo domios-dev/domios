@@ -60,6 +60,17 @@ async fn publish_with_origin(
         {
             continue;
         }
+        if let AgentRuntimeEvent::SendEvidence {
+            send_id,
+            thread_id,
+            turn_id,
+            ..
+        } = &event.event
+        {
+            if !super::super::turn_requests::evidence(session, send_id, thread_id, turn_id) {
+                continue;
+            }
+        }
         let mut runtime = events::translate(&event.event);
         if !super::turn_lifecycle::prepare(svc, session, at, &mut runtime) {
             continue;

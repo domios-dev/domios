@@ -148,26 +148,31 @@ describe("concise thoughts", () => {
     expect(view.textContent).toBe("");
   });
 
-  it("shows Claude thinking below its caption and expands the shared preview on demand", async () => {
+  it("keeps reasoning hidden by default and expands it on demand", async () => {
     const full = `Plan the edit carefully\n${"then apply it ".repeat(40).trim()}`;
     const view = await render([thought("claude-think", full, { provider: "claude", sourceSessionId: CLAUDE })]);
     const [line] = all(view, "chat-thought");
-    const toggle = line.querySelector("button");
+    const toggle = line.querySelector('button[aria-expanded="false"]');
+    expect(toggle?.textContent).toBe("Thinking");
     expect(all(view, "chat-thought")).toHaveLength(1);
     expect(toggle?.getAttribute("aria-expanded")).toBe("false");
     expect(line.querySelector('[data-testid="chat-thought-line"]')?.textContent).toBe(full);
     expect(line.querySelector('[data-testid="chat-thought-text"]')?.textContent).toBe(full);
-    expect(line.querySelector('[role="region"]')?.hasAttribute("hidden")).toBe(false);
+    expect(line.querySelector('[role="region"]')?.hasAttribute("hidden")).toBe(true);
 
     await click(toggle);
     expect(toggle?.getAttribute("aria-expanded")).toBe("true");
     expect(line.querySelector('[data-testid="chat-thought-text"]')?.textContent).toBe(full);
   });
 
-  it("shows the entire available single-line summary without an expand control", async () => {
+  it("keeps a single-line reasoning row collapsed until expanded", async () => {
     const summary = `Available summary… ${"complete text ".repeat(60)}`;
     const view = await render([thought("summary", summary)]);
-    expect(view.querySelector("button")).toBeNull();
+    const toggle = view.querySelector('button[aria-expanded="false"]');
+    expect(toggle?.textContent).toBe("Thinking");
+    expect(view.querySelector('[role="region"][aria-label="Thinking"]')?.hasAttribute("hidden")).toBe(true);
+    await click(toggle);
+    expect(view.querySelector('[role="region"][aria-label="Thinking"]')?.hasAttribute("hidden")).toBe(false);
     expect(view.querySelector('[data-testid="chat-thought-line"]')?.textContent).toBe(summary);
   });
 

@@ -73,6 +73,14 @@ async fn restart_inner(
             return Ok(None);
         }
     }
+    if let Some(session) = &session {
+        super::turn_requests::end_for_lifecycle(
+            svc,
+            session,
+            "Runtime restarted before the turn completion reply",
+        )
+        .await;
+    }
     let old_thread = svc
         .mux
         .read()
