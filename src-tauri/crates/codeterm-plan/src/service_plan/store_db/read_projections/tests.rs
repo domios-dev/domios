@@ -27,6 +27,7 @@ mod lane_reader_tests;
 mod lane_team_state_tests;
 mod notice_tests;
 mod qa_tests;
+mod reference_resolver_tests;
 mod related_tests;
 mod role_binding_tests;
 mod runtime_identity_tests;
