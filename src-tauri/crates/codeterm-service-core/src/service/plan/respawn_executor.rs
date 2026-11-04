@@ -159,6 +159,14 @@ impl ServiceContext {
         reason: TabCloseReason,
         cause: &str,
     ) -> Result<bool, String> {
+        if !self
+            .plan_store
+            .executor_sources_for_tab_projection(&tab.id)
+            .map_err(|error| error.to_string())?
+            .is_empty()
+        {
+            return Err("executor orphan binding conflicts with a live plan/task attempt".into());
+        }
         let tabs = closing_tabs(&self.mux.read(), &tab.id);
         let validate = |mux: &MultiplexerState, id: &str| {
             let current = mux.get_tab(id).ok_or("orphan executor disappeared")?;
