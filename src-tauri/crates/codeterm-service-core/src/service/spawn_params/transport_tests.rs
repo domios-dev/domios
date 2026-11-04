@@ -167,7 +167,7 @@ fn chat_backend_spawn_keeps_its_fields_and_refuses_pty_launch_args() {
             }),
         )
         .expect_err("PTY launch args have no chatBackend meaning");
-    assert!(error.contains("--args"), "{error}");
+    assert!(error.to_string().contains("--args"), "{error}");
 }
 
 #[test]
