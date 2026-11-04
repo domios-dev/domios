@@ -35,8 +35,8 @@ The root scenario roster is declared in `tests/runtime-manifest.json`; native
 and JS replay require the exact discovered set.
 
 Text is baseline ACP v1 prompt content; image, audio and embedded resources are
-not sent. Client permission requests, filesystem and terminal methods are outside
-this lifecycle surface. Own-session updates use the same stream reducer for live and loaded history.
+not sent. Client permission requests use the host approval queue. Filesystem and terminal
+requests are delegated to native handlers. Own-session updates use the same stream reducer for live and loaded history.
 
 ## Stream scenarios
 
@@ -63,3 +63,30 @@ wire frame or successful completion. It proves preservation of the partial row
 and absence of a synthesized prompt. Native process exit, visible failure and
 bounded recovery require the host process/subscriber tests; JS replay alone does
 not establish them.
+
+## Permission and bridge scenarios
+
+The permission scenarios use the same schema-derived provenance, with opaque
+option IDs and all four option kinds. `permission-cancelled-on-interrupt` records
+the cancellation answer before the host cancellation notification. It proves
+adapter mapping; native prompt queue cancellation is a separate host test.
+
+`fs-read-approved`, `fs-write-denied`, and `terminal-lifecycle` prove installed
+capability advertisement and that native requests produce no plugin prompt or
+execution action. These plugin fixtures do not prove filesystem outcomes or
+process retirement: those are covered by `client_bridge::tests` in service-core.
+
+Wire shapes were checked against schema/v1/schema.json on 2026-11-04
+(SHA-256 `0d0b1ca83c4872e5473f68926a894c7a8203b59b118e2a79bfe43dd76fbcbc1a`).
+No live ACP interoperability or platform execution is claimed by these fixtures.
+
+`tool-call-first-allow` and `tool-call-first-deny` submit a prompt before the first
+tool notification. The provider publishes the deterministic turn start before
+permission or native filesystem handling. The allow scenario delegates a native
+write before tool completion; native approval is still independently required.
+`interrupt-before-first-update` keeps the prompt RPC outstanding, sends a
+session-scoped cancel without a fabricated active turn, and settles interrupted.
+
+The `interrupt.beforeFirstTurn` declaration is provider-neutral. The host uses it
+only with an exact outstanding RPC send from its current epoch; the provider
+also refuses cancellation when its own prompt cursor is not in flight.

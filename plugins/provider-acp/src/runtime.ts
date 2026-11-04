@@ -2,9 +2,10 @@ import type {
   JsonValue, Operation, RpcReply, RuntimeContext, RuntimeFailure,
   RuntimeFrame, RuntimePlan, RuntimeReduction, RuntimeStep,
 } from "@codeterm/plugin-sdk";
-import { clientCapabilities, methods, protocolVersion } from "./runtimeProtocol";
-import { reduceStream, settleStream, type StreamCursor } from "./runtimeReduce";
+import { methods, protocolVersion } from "./runtimeProtocol";
+import { clientRequest, reduceStream, settleStream, type StreamCursor } from "./runtimeReduce";
 import { usage } from "./runtimeReducePlan";
+import { runtimePrompt, runtimeAnswer } from "./runtimePrompts";
 
 interface Negotiation {
   epoch:number;
@@ -14,6 +15,7 @@ interface Negotiation {
   sessionId?:string;
   instructions?:string;
   cursor:StreamCursor;
+  inFlight:boolean;
   projection?:JsonValue;
   settledProjection?:JsonValue;
 }
@@ -65,13 +67,19 @@ export function runtimePlan(ctx:RuntimeContext, op:Operation):RuntimePlan {
   if (op.kind === "initialize") {
     epochs.delete(ctx.tabId);
     return request(methods.initialize, {
-      protocolVersion, clientCapabilities,
+      protocolVersion, clientCapabilities:{fs:{readTextFile:ctx.clientBridges?.fsRead === true,writeTextFile:ctx.clientBridges?.fsWrite === true},terminal:ctx.clientBridges?.terminal === true},
       clientInfo:{name:"domios", title:"Domios", version:ctx.hostVersion},
     });
   }
   const state = negotiated(ctx);
   if (!state) return refusePlan("ACP initialization is required for this runtime epoch");
   switch (op.kind) {
+    case "answer": {
+      ownSession(ctx,state);
+      const pending=ctx.pendingRequest;
+      if (!pending || pending.requestId !== op.requestId) return refusePlan("Unknown permission request");
+      return {action:{kind:"reply",requestId:op.requestId,result:{kind:"success",value:runtimeAnswer(ctx,pending.method,pending.params,op.requestId,op.answer)}},state:{method:pending.method}};
+    }
     case "openThread":
       if (ctx.threadId || state.sessionId) return refusePlan("ACP session is already bound");
       return request(methods.newSession, {cwd:ctx.cwd, mcpServers:[]});
@@ -92,14 +100,15 @@ export function runtimePlan(ctx:RuntimeContext, op:Operation):RuntimePlan {
       prompt.push({type:"text", text:op.input.text});
       state.cursor.prompt=Math.max(state.cursor.prompt,Number(object(state.projection).turn) || 0)+1;
       state.cursor.loading=false;
+      state.inFlight=true;
       return request(methods.prompt, {sessionId, prompt});
     }
     case "interrupt": {
       const sessionId = ownSession(ctx, state);
       const turnId = op.activeTurnId ?? ctx.activeTurnId;
-      if (!turnId || !ctx.activeTurns.some(turn=>turn.threadId === sessionId && turn.turnId === turnId))
-        return refusePlan("ACP cancel requires this tab's exact active turn");
-      return {action:{kind:"notification", notification:{method:methods.cancel, params:{sessionId}, target:{threadId:sessionId, turnId}}}, state:{method:methods.cancel}};
+      if (turnId ? !ctx.activeTurns.some(turn=>turn.threadId === sessionId && turn.turnId === turnId) : !state.inFlight)
+        return refusePlan("ACP cancel requires this tab's active prompt");
+      return {action:{kind:"notification", notification:{method:methods.cancel, params:{sessionId}, target:{threadId:sessionId,...(turnId ? {turnId} : {})}}}, state:{method:methods.cancel}};
     }
     default: return refusePlan(`ACP operation is unavailable: ${op.kind}`);
   }
@@ -120,7 +129,7 @@ export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue,
       return refused("protocol_error", "Invalid ACP initialization response");
     remember(ctx, {epoch:ctx.epoch, nonce:ctx.bindingNonce,
       capabilities:object(value.agentCapabilities), authMethods:Array.isArray(value.authMethods) ? value.authMethods : [],
-      cursor:{replay:0,prompt:0,loading:false}});
+      cursor:{replay:0,prompt:0,loading:false},inFlight:false});
     return {kind:"complete", result:{kind:"initialized"}};
   }
   const state = negotiated(ctx);
@@ -140,12 +149,16 @@ export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue,
     state.cursor.loading=false;
     return {kind:"complete", result:{kind:"threadLoaded", threadId:sessionId, settings:op.settings}};
   }
+  if (op.kind === "answer" && method === "session/request_permission")
+    return {kind:"complete",result:{kind:"done"},events:[{kind:"promptResolved",threadId:ownSession(ctx,state),requestId:op.requestId}]};
   if (op.kind === "interrupt" && method === methods.cancel) {
+    state.inFlight=false;
     const settled=settleStream(ctx,state.projection ?? null,"cancelled");
     state.projection=settled.state;state.settledProjection=settled.state;
     return {kind:"complete",result:{kind:"done"},events:settled.events};
   }
   if (op.kind === "submitTurn" && method === methods.prompt) {
+    state.inFlight=false;
     const sessionId = ownSession(ctx, state);
     if (typeof value.stopReason !== "string") return refused("protocol_error", "ACP prompt response is missing stopReason");
     state.instructions = undefined;
@@ -162,10 +175,16 @@ export function runtimeReduce(ctx:RuntimeContext, raw:JsonValue, frames:readonly
   binding(ctx);
   const state=negotiated(ctx);
   if (!ctx.threadId || !state || state.sessionId !== ctx.threadId) return {state:raw,events:[]};
-  const own=frames.filter(frame=>frame.kind === "notification" && frame.method === methods.update && object(frame.params).sessionId === ctx.threadId);
-  if (!own.length) return {state:raw,events:[]};
+  const own=frames.filter(frame=>object(frame.params).sessionId === ctx.threadId &&
+    (frame.kind === "notification" && frame.method === methods.update || frame.kind === "request" && clientRequest(frame.method)));
+  const prompts=frames.flatMap(frame=>{
+    if (frame.kind !== "request") return [];
+    const prompt=runtimePrompt(ctx,frame.method,frame.params);
+    return prompt ? [{kind:"prompt" as const,threadId:ctx.threadId!,requestId:frame.requestId,prompt}] : [];
+  });
+  if (!own.length) return {state:raw,events:prompts};
   const reduction=reduceStream(ctx,state.settledProjection ?? raw,own,state.cursor);
   delete state.settledProjection;
   state.projection=reduction.state;
-  return reduction;
+  return {...reduction,events:[...reduction.events,...prompts]};
 }

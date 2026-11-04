@@ -168,6 +168,8 @@ async fn run_inner(
         context.pending_request = Some(pending.request.clone());
     }
     if matches!(operation, RuntimeOperation::SubmitTurn { .. }) {
+        session.prompts_cancelled.store(false, Ordering::Release);
+        super::super::client_bridge::begin_turn(&context);
         process.begin_turn().await?;
     }
     let adapter = session

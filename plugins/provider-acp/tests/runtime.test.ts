@@ -158,3 +158,42 @@ for (let index=257;index<520;index++) initializeCached({...ctx,tabId:`cache-tab-
 assertPlanRefusal(cache.runtimePlan(cachedContexts[0],fresh));
 console.log("✓ ACP cache eviction, same-tab epoch replacement and active-turn cancel authority");
 console.log(`ACP lifecycle: ${names.length} fixture scenarios and binding regressions passed`);
+
+const permissionFixture:Fixture=JSON.parse(fs.readFileSync(new URL("permission-allow.json",root),"utf8"));
+const permissionContext={...permissionFixture.operations[2].context!,tabId:"permission-authority"};
+const setup={...permissionContext,threadId:undefined,activeTurnId:undefined,activeTurns:[],pendingRequest:undefined};
+const initialized=hooks.runtimePlan(setup,init);
+hooks.runtimeResponse(setup,init,initialized.state,{kind:"success",value:{protocolVersion:1,agentCapabilities:{},authMethods:[]}});
+const opening=hooks.runtimePlan(setup,open);
+hooks.runtimeResponse(setup,open,opening.state,{kind:"success",value:{sessionId:"session-fixture"}});
+for (const answer of [{kind:"choice",values:["foreign"]},{kind:"choice",values:["allow","reject"]},{kind:"text",text:"allow"}] as const) {
+  assert.throws(()=>hooks.runtimePlan(permissionContext,{kind:"answer",requestId:"permission-fixture",answer}));
+}
+for (const changed of [{...permissionContext,epoch:2},{...permissionContext,bindingNonce:"stale"}]) {
+  assertPlanRefusal(hooks.runtimePlan(changed,{kind:"answer",requestId:"permission-fixture",answer:{kind:"choice",values:["allow"]}}));
+}
+const request=permissionContext.pendingRequest!;
+assert.deepEqual(plain(hooks.runtimeReduce(permissionContext,null,[{kind:"request",requestId:"foreign",method:request.method,params:{...(request.params as Record<string,JsonValue>),sessionId:"foreign"}}])).events,[]);
+assert.equal(hooks.runtimeReduce(permissionContext,null,[{kind:"request",requestId:"valid",method:request.method,params:request.params}]).events[0]?.kind,"prompt");
+console.log("✓ ACP permission options and stale session/epoch/nonce boundaries");
+assert.throws(()=>hooks.runtimePlan({...permissionContext,threadId:"foreign"},{kind:"answer",requestId:"permission-fixture",answer:{kind:"cancel"}}));
+
+for (const kind of ["agent_message_chunk","agent_thought_chunk","user_message_chunk","tool_call","plan","extension-update",...(["session/request_permission","fs/read_text_file","fs/write_text_file","terminal/create","terminal/output","terminal/wait_for_exit","terminal/kill","terminal/release"])]) {
+  const instance=loadHooks();
+  const initial={...ctx,tabId:`first-signal-${kind}`,threadId:undefined,activeTurnId:undefined,activeTurns:[]};
+  const initializing=instance.runtimePlan(initial,init);
+  instance.runtimeResponse(initial,init,initializing.state,{kind:"success",value:{protocolVersion:1,agentCapabilities:{},authMethods:[]}});
+  const opening=instance.runtimePlan(initial,open);
+  instance.runtimeResponse(initial,open,opening.state,{kind:"success",value:{sessionId:"own"}});
+  const context={...initial,threadId:"own"};
+  instance.runtimePlan(context,submit);
+  const frame:RuntimeFrame=kind.includes("/") ? {kind:"request",requestId:"first",method:kind,params:{sessionId:"own"}} :
+    {kind:"notification",method:"session/update",params:{sessionId:"own",update:{sessionUpdate:kind,content:{type:"text",text:"opaque"},toolCallId:"opaque-tool",entries:[]}}};
+  const first=instance.runtimeReduce(context,null,[frame]);
+  assert.deepEqual(plain(first.events.filter(event=>event.kind === "turnState")),[{kind:"turnState",threadId:"own",turnId:"own:turn:1",state:"working"}],kind);
+  const repeated=instance.runtimeReduce(context,first.state,[frame]);
+  assert.deepEqual(plain(repeated.events.filter(event=>event.kind === "turnState")),[],`${kind} starts once`);
+  const after={...context,activeTurnId:"own:turn:1",activeTurns:[{threadId:"own",turnId:"own:turn:1"}]};
+  assert.deepEqual(plain(instance.runtimeReduce(after,repeated.state,[frame]).events.filter(event=>event.kind === "turnState")),[],`${kind} stays started after host publication`);
+}
+console.log("✓ ACP every first own-session update/request starts exactly once");

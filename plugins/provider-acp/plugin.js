@@ -38,10 +38,6 @@ var methods = {
   cancel: "session/cancel",
   update: "session/update"
 };
-var clientCapabilities = {
-  fs: { readTextFile: false, writeTextFile: false },
-  terminal: false
-};
 
 // plugins/provider-acp/src/runtimeReduceTools.ts
 var object = (value) => value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
@@ -74,8 +70,8 @@ function reduceTool(update, previous, seq) {
     row.toolName = update.title;
   }
   if (typeof update.kind === "string") {
-    const kinds = { execute: "command", edit: "edit", read: "read", search: "search" };
-    row.toolKind = Object.prototype.hasOwnProperty.call(kinds, update.kind) ? kinds[update.kind] : "generic";
+    const kinds2 = { execute: "command", edit: "edit", read: "read", search: "search" };
+    row.toolKind = Object.prototype.hasOwnProperty.call(kinds2, update.kind) ? kinds2[update.kind] : "generic";
   }
   if (update.rawInput !== void 0) {
     row.toolInput = update.rawInput;
@@ -155,7 +151,8 @@ function initial(ctx, raw, cursor) {
       compacted: [],
       seenItems: [],
       loading: cursor.loading,
-      settled: false
+      settled: false,
+      started: false
     };
   const state = previous;
   const copy = {
@@ -177,6 +174,7 @@ function initial(ctx, raw, cursor) {
     copy.textById = /* @__PURE__ */ Object.create(null);
     delete copy.chunk;
     copy.settled = false;
+    copy.started = false;
   } else if (copy.prompt !== cursor.prompt) {
     copy.turn = Math.max(copy.turn + 1, cursor.prompt);
     copy.ordinal = 0;
@@ -184,6 +182,7 @@ function initial(ctx, raw, cursor) {
     copy.textById = /* @__PURE__ */ Object.create(null);
     delete copy.chunk;
     copy.settled = false;
+    copy.started = false;
   }
   copy.prompt = cursor.prompt;
   copy.loading = cursor.loading;
@@ -239,17 +238,31 @@ function settleStream(ctx, raw, reason) {
   events.push({ kind: "turnState", threadId: ctx.threadId, state: "idle", ...reason === "cancelled" ? { detail: "interrupted" } : {} });
   return { state: json(next), events };
 }
+function clientRequest(method) {
+  return ["session/request_permission", "fs/read_text_file", "fs/write_text_file", "terminal/create", "terminal/output", "terminal/wait_for_exit", "terminal/kill", "terminal/release"].includes(method);
+}
+function startTurn(ctx, state, events) {
+  if (!state.loading && !state.settled && state.prompt > 0 && !state.started && !ctx.activeTurnId) {
+    state.started = true;
+    events.push({ kind: "turnState", threadId: state.sessionId, turnId: `${state.sessionId}:turn:${state.turn}`, state: "working" });
+  }
+}
 function reduceStream(ctx, raw, frames, cursor) {
   if (!ctx.threadId) return { state: raw, events: [] };
   const state = initial(ctx, raw, cursor);
   const events = [];
   for (const frame of frames) {
-    if (frame.kind !== "notification" || frame.method !== "session/update") continue;
     const params = object(frame.params);
     if (params.sessionId !== ctx.threadId) continue;
+    if (frame.kind === "request" && clientRequest(frame.method)) {
+      startTurn(ctx, state, events);
+      continue;
+    }
+    if (frame.kind !== "notification" || frame.method !== "session/update") continue;
     const update = object(params.update);
     const kind = text(update.sessionUpdate);
     if (!kind) continue;
+    startTurn(ctx, state, events);
     if (kind === "user_message_chunk" || kind === "agent_message_chunk" || kind === "agent_thought_chunk") {
       const content = object(update.content);
       if (content.type !== "text" || typeof content.text !== "string" || state.settled && !state.loading) continue;
@@ -269,7 +282,7 @@ function reduceStream(ctx, raw, frames, cursor) {
       if (explicit) state.textById[state.chunk.id] = state.chunk.content;
       const type = kind === "user_message_chunk" ? "user" : kind === "agent_thought_chunk" ? "thinking" : "assistant";
       emit(state, events, { id: state.chunk.id, seq: 0, type, content: state.chunk.content, ...type === "thinking" ? { collapsed: true } : {} });
-      if (!state.loading && kind === "agent_message_chunk") events.push({ kind: "turnState", threadId: ctx.threadId, turnId: ctx.activeTurnId ?? `${ctx.threadId}:turn:${state.turn}`, state: "working" });
+      if (!state.loading && !state.started && kind === "agent_message_chunk") events.push({ kind: "turnState", threadId: ctx.threadId, turnId: ctx.activeTurnId ?? `${ctx.threadId}:turn:${state.turn}`, state: "working" });
       continue;
     }
     if (kind === "tool_call" || kind === "tool_call_update") {
@@ -317,20 +330,51 @@ function reduceStream(ctx, raw, frames, cursor) {
   return { state: json(state), events };
 }
 
+// plugins/provider-acp/src/runtimePrompts.ts
+var kinds = /* @__PURE__ */ new Set(["allow_once", "allow_always", "reject_once", "reject_always"]);
+var object2 = (value) => value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
+function fail(message) {
+  throw { code: "provider_refused", message };
+}
+function runtimePrompt(ctx, method, params) {
+  const data = object2(params);
+  if (method !== "session/request_permission" || !ctx.threadId || data.sessionId !== ctx.threadId) return void 0;
+  const tool = object2(data.toolCall);
+  if (typeof tool.toolCallId !== "string" || !tool.toolCallId || !Array.isArray(data.options) || !data.options.length || data.options.length > 16) return void 0;
+  const seen = /* @__PURE__ */ new Set();
+  const options = data.options.map(object2);
+  if (options.some((option) => {
+    if (typeof option.optionId !== "string" || !option.optionId || option.optionId.length > 4096 || seen.has(option.optionId) || typeof option.name !== "string" || option.name.length > 4096 || typeof option.kind !== "string" || !kinds.has(option.kind)) return true;
+    seen.add(option.optionId);
+    return false;
+  })) return void 0;
+  const question = JSON.stringify({ toolCall: tool });
+  if (question.length > 65536) return void 0;
+  return { question, options: options.map((option) => ({ label: `${option.name} (${option.kind})`, value: String(option.optionId) })) };
+}
+function runtimeAnswer(ctx, method, params, _id, answer) {
+  const prompt = runtimePrompt(ctx, method, params);
+  if (!prompt) fail("Permission request does not belong to this session");
+  if (answer.kind === "cancel") return { outcome: { outcome: "cancelled" } };
+  if (answer.kind !== "choice" || answer.values.length !== 1 || !prompt.options.some((option) => option.value === answer.values[0]))
+    fail("Permission requires one declared optionId");
+  return { outcome: { outcome: "selected", optionId: answer.values[0] } };
+}
+
 // plugins/provider-acp/src/runtime.ts
 var epochs = /* @__PURE__ */ new Map();
-var object2 = (value) => value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
+var object3 = (value) => value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
 var record = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
-function fail(code, message) {
+function fail2(code, message) {
   throw { code, message };
 }
 function refused(code, message) {
   return { kind: "refused", reason: { code, message }, beforeAcceptance: true };
 }
 function binding(ctx, op) {
-  if (!ctx.tabId || !ctx.bindingNonce || !Number.isSafeInteger(ctx.epoch)) fail("binding_mismatch", "Missing runtime binding");
+  if (!ctx.tabId || !ctx.bindingNonce || !Number.isSafeInteger(ctx.epoch)) fail2("binding_mismatch", "Missing runtime binding");
   if (op && "threadId" in op && op.threadId && ctx.threadId !== op.threadId)
-    fail("binding_mismatch", "Session does not belong to this tab");
+    fail2("binding_mismatch", "Session does not belong to this tab");
 }
 function negotiated(ctx) {
   const state = epochs.get(ctx.tabId);
@@ -357,7 +401,7 @@ function request(method, params) {
   return { action: { kind: "request", call: { method, params } }, state: { method } };
 }
 function ownSession(ctx, state) {
-  if (!ctx.threadId || state.sessionId !== ctx.threadId) fail("binding_mismatch", "ACP session is not bound to this tab");
+  if (!ctx.threadId || state.sessionId !== ctx.threadId) fail2("binding_mismatch", "ACP session is not bound to this tab");
   return ctx.threadId;
 }
 function runtimePlan(ctx, op) {
@@ -366,19 +410,25 @@ function runtimePlan(ctx, op) {
     epochs.delete(ctx.tabId);
     return request(methods.initialize, {
       protocolVersion,
-      clientCapabilities,
+      clientCapabilities: { fs: { readTextFile: ctx.clientBridges?.fsRead === true, writeTextFile: ctx.clientBridges?.fsWrite === true }, terminal: ctx.clientBridges?.terminal === true },
       clientInfo: { name: "domios", title: "Domios", version: ctx.hostVersion }
     });
   }
   const state = negotiated(ctx);
   if (!state) return refusePlan("ACP initialization is required for this runtime epoch");
   switch (op.kind) {
+    case "answer": {
+      ownSession(ctx, state);
+      const pending = ctx.pendingRequest;
+      if (!pending || pending.requestId !== op.requestId) return refusePlan("Unknown permission request");
+      return { action: { kind: "reply", requestId: op.requestId, result: { kind: "success", value: runtimeAnswer(ctx, pending.method, pending.params, op.requestId, op.answer) } }, state: { method: pending.method } };
+    }
     case "openThread":
       if (ctx.threadId || state.sessionId) return refusePlan("ACP session is already bound");
       return request(methods.newSession, { cwd: ctx.cwd, mcpServers: [] });
     case "resumeThread": {
       const capabilities = state.capabilities;
-      const session = object2(capabilities.sessionCapabilities);
+      const session = object3(capabilities.sessionCapabilities);
       const method = record(session.resume) ? methods.resume : capabilities.loadSession === true ? methods.load : null;
       if (!method) return refusePlan("ACP agent did not advertise session/load or session/resume");
       state.sessionId = op.threadId;
@@ -391,16 +441,17 @@ function runtimePlan(ctx, op) {
       const prompt = [];
       if (state.instructions) prompt.push({ type: "text", text: state.instructions });
       prompt.push({ type: "text", text: op.input.text });
-      state.cursor.prompt = Math.max(state.cursor.prompt, Number(object2(state.projection).turn) || 0) + 1;
+      state.cursor.prompt = Math.max(state.cursor.prompt, Number(object3(state.projection).turn) || 0) + 1;
       state.cursor.loading = false;
+      state.inFlight = true;
       return request(methods.prompt, { sessionId, prompt });
     }
     case "interrupt": {
       const sessionId = ownSession(ctx, state);
       const turnId = op.activeTurnId ?? ctx.activeTurnId;
-      if (!turnId || !ctx.activeTurns.some((turn) => turn.threadId === sessionId && turn.turnId === turnId))
-        return refusePlan("ACP cancel requires this tab's exact active turn");
-      return { action: { kind: "notification", notification: { method: methods.cancel, params: { sessionId }, target: { threadId: sessionId, turnId } } }, state: { method: methods.cancel } };
+      if (turnId ? !ctx.activeTurns.some((turn) => turn.threadId === sessionId && turn.turnId === turnId) : !state.inFlight)
+        return refusePlan("ACP cancel requires this tab's active prompt");
+      return { action: { kind: "notification", notification: { method: methods.cancel, params: { sessionId }, target: { threadId: sessionId, ...turnId ? { turnId } : {} } } }, state: { method: methods.cancel } };
     }
     default:
       return refusePlan(`ACP operation is unavailable: ${op.kind}`);
@@ -409,8 +460,8 @@ function runtimePlan(ctx, op) {
 function runtimeResponse(ctx, op, raw, reply) {
   binding(ctx, op);
   if (reply.kind === "error") return refused("provider_refused", reply.error.message);
-  const value = object2(reply.value);
-  const method = object2(raw).method;
+  const value = object3(reply.value);
+  const method = object3(raw).method;
   if (op.kind === "initialize") {
     if (method !== methods.initialize || value.protocolVersion !== protocolVersion) {
       epochs.delete(ctx.tabId);
@@ -421,9 +472,10 @@ function runtimeResponse(ctx, op, raw, reply) {
     remember(ctx, {
       epoch: ctx.epoch,
       nonce: ctx.bindingNonce,
-      capabilities: object2(value.agentCapabilities),
+      capabilities: object3(value.agentCapabilities),
       authMethods: Array.isArray(value.authMethods) ? value.authMethods : [],
-      cursor: { replay: 0, prompt: 0, loading: false }
+      cursor: { replay: 0, prompt: 0, loading: false },
+      inFlight: false
     });
     return { kind: "complete", result: { kind: "initialized" } };
   }
@@ -431,7 +483,7 @@ function runtimeResponse(ctx, op, raw, reply) {
   if (!state) return refused("provider_refused", "ACP initialization is required for this runtime epoch");
   if (op.kind === "openThread" || op.kind === "resumeThread") {
     if (op.kind === "resumeThread") {
-      const allowed = method === methods.load ? state.capabilities.loadSession === true : method === methods.resume && record(object2(state.capabilities.sessionCapabilities).resume);
+      const allowed = method === methods.load ? state.capabilities.loadSession === true : method === methods.resume && record(object3(state.capabilities.sessionCapabilities).resume);
       if (!allowed) return refused("provider_refused", "ACP session method was not advertised");
     } else if (method !== methods.newSession) return refused("protocol_error", "Invalid ACP session response");
     const sessionId = op.kind === "openThread" ? value.sessionId : op.threadId;
@@ -442,13 +494,17 @@ function runtimeResponse(ctx, op, raw, reply) {
     state.cursor.loading = false;
     return { kind: "complete", result: { kind: "threadLoaded", threadId: sessionId, settings: op.settings } };
   }
+  if (op.kind === "answer" && method === "session/request_permission")
+    return { kind: "complete", result: { kind: "done" }, events: [{ kind: "promptResolved", threadId: ownSession(ctx, state), requestId: op.requestId }] };
   if (op.kind === "interrupt" && method === methods.cancel) {
+    state.inFlight = false;
     const settled = settleStream(ctx, state.projection ?? null, "cancelled");
     state.projection = settled.state;
     state.settledProjection = settled.state;
     return { kind: "complete", result: { kind: "done" }, events: settled.events };
   }
   if (op.kind === "submitTurn" && method === methods.prompt) {
+    state.inFlight = false;
     const sessionId = ownSession(ctx, state);
     if (typeof value.stopReason !== "string") return refused("protocol_error", "ACP prompt response is missing stopReason");
     state.instructions = void 0;
@@ -468,12 +524,17 @@ function runtimeReduce(ctx, raw, frames) {
   binding(ctx);
   const state = negotiated(ctx);
   if (!ctx.threadId || !state || state.sessionId !== ctx.threadId) return { state: raw, events: [] };
-  const own = frames.filter((frame) => frame.kind === "notification" && frame.method === methods.update && object2(frame.params).sessionId === ctx.threadId);
-  if (!own.length) return { state: raw, events: [] };
+  const own = frames.filter((frame) => object3(frame.params).sessionId === ctx.threadId && (frame.kind === "notification" && frame.method === methods.update || frame.kind === "request" && clientRequest(frame.method)));
+  const prompts = frames.flatMap((frame) => {
+    if (frame.kind !== "request") return [];
+    const prompt = runtimePrompt(ctx, frame.method, frame.params);
+    return prompt ? [{ kind: "prompt", threadId: ctx.threadId, requestId: frame.requestId, prompt }] : [];
+  });
+  if (!own.length) return { state: raw, events: prompts };
   const reduction = reduceStream(ctx, state.settledProjection ?? raw, own, state.cursor);
   delete state.settledProjection;
   state.projection = reduction.state;
-  return reduction;
+  return { ...reduction, events: [...reduction.events, ...prompts] };
 }
 
 // plugins/provider-acp/src/plugin.ts

@@ -279,3 +279,90 @@ fn mock_runtime_interrupt_waits_for_events_and_deadline_degrades_without_idle() 
     });
     engine::stop_blocking(&fixture.service, &id).unwrap();
 }
+
+#[test]
+fn before_first_update_interrupt_requires_declaration_and_exact_outstanding_submit() {
+    for (declared, outstanding, invoked) in [
+        (false, true, false),
+        (true, false, false),
+        (true, true, true),
+    ] {
+        let (fixture, id) = super::super::tests::runtime_fixture_with_interrupt(declared);
+        crate::async_runtime::block_on(async {
+            let session = engine::ensure(&fixture.service, &id).await.unwrap();
+            let context = session.context.lock().clone();
+            assert!(context.active_turn_id.is_none());
+            session.context.lock().provider_settings["interruptProbe"] = serde_json::json!(true);
+            if outstanding {
+                let status = fixture
+                    .service
+                    .chat_send_ledger
+                    .try_start_scoped_with_normalization(
+                        &id,
+                        "opaque",
+                        None,
+                        None,
+                        Default::default(),
+                    )
+                    .unwrap();
+                assert!(fixture.service.chat_send_ledger.bind_rpc_send(
+                    &status.send_id,
+                    crate::service::chat_send_transaction::SendLiveBinding {
+                        session_id: context.thread_id.clone(),
+                        binding_nonce: Some(context.binding_nonce.clone())
+                    }
+                ));
+                session.context.lock().claimed_sends.push(
+                    codeterm_plugin::agent_runtime::ClaimedSend {
+                        send_id: status.send_id,
+                        thread_id: context.thread_id.unwrap(),
+                        input: codeterm_plugin::agent_runtime::TurnInput {
+                            text: "opaque".into(),
+                            attachments: Vec::new(),
+                        },
+                    },
+                );
+            }
+            let captured = session.context.lock().clone();
+            assert!(!before_first_turn(
+                &fixture.service,
+                &session,
+                &RuntimeContext {
+                    epoch: captured.epoch + 1,
+                    ..captured.clone()
+                }
+            ));
+            assert!(!before_first_turn(
+                &fixture.service,
+                &session,
+                &RuntimeContext {
+                    binding_nonce: "foreign".into(),
+                    ..captured.clone()
+                }
+            ));
+            assert!(!before_first_turn(
+                &fixture.service,
+                &session,
+                &RuntimeContext {
+                    thread_id: Some("foreign".into()),
+                    ..captured.clone()
+                }
+            ));
+            assert_eq!(
+                before_first_turn(&fixture.service, &session, &captured),
+                declared && outstanding
+            );
+            let result = crate::service::stop_execution::stop_agent_turn(
+                fixture.service.clone(),
+                id.clone(),
+            )
+            .await
+            .unwrap();
+            assert_eq!(result["stopped"], serde_json::json!(invoked));
+            assert_eq!(
+                session.context.lock().settings.effort.as_deref() == Some("high"),
+                invoked
+            );
+        });
+    }
+}

@@ -33,7 +33,7 @@ pub(in crate::service::agent_runtime) fn runtime_fixture(
     runtime_fixture_with(RUNTIME_FIXTURE_SOURCE)
 }
 
-pub(in crate::service::agent_runtime::engine) fn runtime_fixture_with(
+pub(in crate::service::agent_runtime) fn runtime_fixture_with(
     source: &str,
 ) -> (ServiceFixture, String, tokio::io::DuplexStream, Cleanup) {
     runtime_fixture_with_notifications(source, &[])
@@ -155,6 +155,7 @@ pub(super) fn attach_runtime_peer(
         provider_operation_failures: std::sync::atomic::AtomicU32::new(0),
         bookkeeping_warning_emitted: std::sync::atomic::AtomicBool::new(false),
         prompts: Mutex::new(HashMap::new()),
+        prompts_cancelled: std::sync::atomic::AtomicBool::new(false),
         process: crate::service::agent_runtime::process_slot::ProcessSlot::new(Some(process)),
         gate: tokio::sync::Semaphore::new(1),
         initialization: Default::default(),

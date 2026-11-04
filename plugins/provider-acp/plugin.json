@@ -37,7 +37,15 @@
       },
       "notificationMethods": [
         "session/update"
-      ]
+      ],
+      "clientBridges": {
+        "fsRead": true,
+        "fsWrite": true,
+        "terminal": true
+      },
+      "interrupt": {
+        "beforeFirstTurn": true
+      }
     },
     "chatBackend": {
       "enabled": true,

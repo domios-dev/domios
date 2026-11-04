@@ -114,6 +114,22 @@ impl AgentRuntimeCapability {
     }
 
     pub fn validate_declaration(&self) -> Result<(), RuntimeManifestError> {
+        if self.interrupt.as_ref().is_some_and(|interrupt| {
+            !interrupt.before_first_turn
+                || self
+                    .request_methods
+                    .get("interrupt")
+                    .is_none_or(Vec::is_empty)
+        }) {
+            return Err(RuntimeManifestError::InvalidMethods);
+        }
+        if self
+            .client_bridges
+            .as_ref()
+            .is_some_and(|bridges| !bridges.fs_read && !bridges.fs_write && !bridges.terminal)
+        {
+            return Err(RuntimeManifestError::InvalidMethods);
+        }
         if self
             .reset_credits_min_version
             .as_ref()

@@ -1,0 +1,329 @@
+use std::{
+    fs::File,
+    io::Read,
+    path::{Component, Path, PathBuf},
+};
+
+pub(super) const MAX_BYTES: usize = 1024 * 1024;
+pub(super) const MAX_PATH: usize = 4096;
+
+pub(super) fn relative(root: &Path, raw: &str) -> Result<PathBuf, String> {
+    if raw.is_empty()
+        || raw.len() > MAX_PATH
+        || raw.chars().any(char::is_control)
+        || raw.starts_with("//")
+        || raw.starts_with("\\\\")
+        || raw.contains('\\')
+        || raw
+            .split('/')
+            .any(|part| part == ".." || part.contains(':'))
+    {
+        return Err("Invalid bridge path".into());
+    }
+    let path = Path::new(raw);
+    if !path.is_absolute()
+        || path
+            .components()
+            .any(|part| matches!(part, Component::ParentDir | Component::CurDir))
+    {
+        return Err("Bridge paths must be absolute without traversal".into());
+    }
+    let relative = path
+        .strip_prefix(root)
+        .map_err(|_| "Path outside workspace")?;
+    if relative.as_os_str().is_empty() {
+        return Err("Expected a workspace file".into());
+    }
+    Ok(relative.to_path_buf())
+}
+
+pub(super) fn machine_secret(path: &Path) -> bool {
+    path.components().any(|part| {
+        [
+            ".ssh",
+            ".aws",
+            ".azure",
+            ".kube",
+            ".gnupg",
+            ".domios",
+            ".codeterm",
+        ]
+        .contains(
+            &part
+                .as_os_str()
+                .to_string_lossy()
+                .to_ascii_lowercase()
+                .as_str(),
+        )
+    })
+}
+
+pub(super) fn secret(path: &Path) -> bool {
+    path.components().any(|part| {
+        let name = part.as_os_str().to_string_lossy().to_ascii_lowercase();
+        name.starts_with(".env")
+            || name.ends_with(".pem")
+            || name.starts_with("id_rsa")
+            || name.starts_with("id_ed25519")
+            || name.contains("credential")
+            || name.contains("token")
+            || name.contains("secret")
+            || [".npmrc", ".netrc", ".pypirc", "auth.json"].contains(&name.as_str())
+            || [
+                ".ssh",
+                ".aws",
+                ".azure",
+                ".kube",
+                ".gnupg",
+                ".domios",
+                ".codeterm",
+            ]
+            .contains(&name.as_str())
+    })
+}
+
+pub(super) fn check(root: &Path, relative: &Path, missing_leaf: bool) -> Result<(), String> {
+    let mut path = root.to_path_buf();
+    let parts = relative.components().collect::<Vec<_>>();
+    for (index, part) in parts.iter().enumerate() {
+        if !matches!(part, Component::Normal(_)) {
+            return Err("Invalid path component".into());
+        }
+        path.push(part.as_os_str());
+        match std::fs::symlink_metadata(&path) {
+            Ok(metadata) => {
+                if metadata.file_type().is_symlink() {
+                    return Err("Symlink traversal denied".into());
+                }
+                #[cfg(windows)]
+                {
+                    use std::os::windows::fs::MetadataExt;
+                    if metadata.file_attributes() & 0x400 != 0 {
+                        return Err("Reparse traversal denied".into());
+                    }
+                }
+                if index + 1 == parts.len() {
+                    if !metadata.is_file() {
+                        return Err("Non-regular file denied".into());
+                    }
+                } else if !metadata.is_dir() {
+                    return Err("Non-directory component".into());
+                }
+            }
+            Err(error)
+                if missing_leaf
+                    && index + 1 == parts.len()
+                    && error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.to_string()),
+        }
+    }
+    Ok(())
+}
+
+pub(super) fn read(
+    root: &Path,
+    root_handle: &File,
+    relative: &Path,
+    line: Option<usize>,
+    limit: Option<usize>,
+) -> Result<String, String> {
+    check(root, relative, false)?;
+    root_matches(root, root_handle)?;
+    #[cfg(unix)]
+    let file = codeterm_blueprint_types::code_source::open_file_at(
+        root_handle,
+        relative.to_str().ok_or("Invalid UTF-8 path")?,
+    )
+    .map_err(str::to_string)?;
+    #[cfg(not(unix))]
+    let file = codeterm_blueprint_types::code_source::open_file(
+        root,
+        relative.to_str().ok_or("Invalid UTF-8 path")?,
+    )
+    .map_err(str::to_string)?;
+    read_file(file, line, limit)
+}
+
+fn read_file(file: File, line: Option<usize>, limit: Option<usize>) -> Result<String, String> {
+    if file.metadata().map_err(|error| error.to_string())?.len() > MAX_BYTES as u64 {
+        return Err("Read exceeds 1 MiB".into());
+    }
+    let mut text = String::new();
+    file.take(MAX_BYTES as u64 + 1)
+        .read_to_string(&mut text)
+        .map_err(|error| error.to_string())?;
+    if text.len() > MAX_BYTES {
+        return Err("Read exceeds 1 MiB".into());
+    }
+    let start = line
+        .unwrap_or(1)
+        .checked_sub(1)
+        .ok_or("Line is one-based")?;
+    if line.is_none() && limit.is_none() {
+        return Ok(text);
+    }
+    Ok(text
+        .split_inclusive('\n')
+        .skip(start)
+        .take(limit.unwrap_or(usize::MAX))
+        .collect())
+}
+
+#[cfg(unix)]
+pub(super) fn write(
+    root: &Path,
+    root_handle: &File,
+    relative: &Path,
+    content: &str,
+    commit: impl FnOnce(&mut dyn FnMut() -> Result<(), String>) -> Result<(), String>,
+) -> Result<(), String> {
+    use std::{
+        ffi::CString,
+        io::Write,
+        os::fd::{AsRawFd, FromRawFd},
+    };
+    if content.len() > MAX_BYTES {
+        return Err("Write exceeds 1 MiB".into());
+    }
+    check(root, relative, true)?;
+    root_matches(root, root_handle)?;
+    let mut parent_handle = root_handle.try_clone().map_err(|error| error.to_string())?;
+    let parts = relative.components().collect::<Vec<_>>();
+    for part in &parts[..parts.len().saturating_sub(1)] {
+        let name =
+            CString::new(part.as_os_str().as_encoded_bytes()).map_err(|error| error.to_string())?;
+        let fd = unsafe {
+            libc::openat(
+                parent_handle.as_raw_fd(),
+                name.as_ptr(),
+                libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+            )
+        };
+        if fd < 0 {
+            return Err(std::io::Error::last_os_error().to_string());
+        }
+        parent_handle = unsafe { File::from_raw_fd(fd) };
+    }
+    let name = CString::new(
+        relative
+            .file_name()
+            .ok_or("Missing filename")?
+            .as_encoded_bytes(),
+    )
+    .map_err(|error| error.to_string())?;
+    let temporary = CString::new(format!(".domios-bridge-{}", uuid::Uuid::new_v4()))
+        .map_err(|error| error.to_string())?;
+    let fd = unsafe {
+        libc::openat(
+            parent_handle.as_raw_fd(),
+            temporary.as_ptr(),
+            libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+            0o600,
+        )
+    };
+    if fd < 0 {
+        return Err(std::io::Error::last_os_error().to_string());
+    }
+    let result = (|| {
+        let mut file = unsafe { File::from_raw_fd(fd) };
+        file.write_all(content.as_bytes())
+            .map_err(|error| error.to_string())?;
+        file.sync_all().map_err(|error| error.to_string())?;
+        let mut apply = || {
+            root_matches(root, root_handle)?;
+            check(root, relative, true)?;
+            let current_parent =
+                directory(root_handle, relative.parent().ok_or("Missing parent")?)?;
+            use std::os::unix::fs::MetadataExt;
+            let current = current_parent
+                .metadata()
+                .map_err(|error| error.to_string())?;
+            let held = parent_handle
+                .metadata()
+                .map_err(|error| error.to_string())?;
+            if current.dev() != held.dev() || current.ino() != held.ino() {
+                return Err("Workspace parent changed".into());
+            }
+            if unsafe {
+                libc::renameat(
+                    parent_handle.as_raw_fd(),
+                    temporary.as_ptr(),
+                    parent_handle.as_raw_fd(),
+                    name.as_ptr(),
+                )
+            } != 0
+            {
+                return Err(std::io::Error::last_os_error().to_string());
+            }
+            Ok(())
+        };
+        commit(&mut apply)?;
+        parent_handle.sync_all().map_err(|error| error.to_string())
+    })();
+    if result.is_err() {
+        unsafe {
+            libc::unlinkat(parent_handle.as_raw_fd(), temporary.as_ptr(), 0);
+        }
+    }
+    result
+}
+
+#[cfg(not(unix))]
+pub(super) fn write(
+    _root: &Path,
+    _root_handle: &File,
+    _relative: &Path,
+    _content: &str,
+    _commit: impl FnOnce(&mut dyn FnMut() -> Result<(), String>) -> Result<(), String>,
+) -> Result<(), String> {
+    Err("Atomic no-follow writes are unavailable on this platform".into())
+}
+
+#[cfg(unix)]
+pub(super) fn root_matches(root: &Path, held: &File) -> Result<(), String> {
+    use std::os::unix::fs::MetadataExt;
+    let current = codeterm_blueprint_types::code_source::open_directory_no_follow(root)
+        .map_err(str::to_string)?
+        .metadata()
+        .map_err(|error| error.to_string())?;
+    let held = held.metadata().map_err(|error| error.to_string())?;
+    if current.dev() != held.dev() || current.ino() != held.ino() {
+        return Err("Workspace root replaced".into());
+    }
+    Ok(())
+}
+#[cfg(not(unix))]
+pub(super) fn root_matches(_root: &Path, _held: &File) -> Result<(), String> {
+    Err("Client bridge unavailable".into())
+}
+
+#[cfg(unix)]
+pub(super) fn directory(root: &File, relative: &Path) -> Result<File, String> {
+    use std::{
+        ffi::CString,
+        os::fd::{AsRawFd, FromRawFd},
+    };
+    let mut parent = root.try_clone().map_err(|error| error.to_string())?;
+    for part in relative.components() {
+        let Component::Normal(part) = part else {
+            return Err("Invalid directory component".into());
+        };
+        let name = CString::new(part.as_encoded_bytes()).map_err(|error| error.to_string())?;
+        let fd = unsafe {
+            libc::openat(
+                parent.as_raw_fd(),
+                name.as_ptr(),
+                libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+            )
+        };
+        if fd < 0 {
+            return Err(std::io::Error::last_os_error().to_string());
+        }
+        parent = unsafe { File::from_raw_fd(fd) };
+    }
+    Ok(parent)
+}
+#[cfg(not(unix))]
+pub(super) fn directory(_root: &File, _relative: &Path) -> Result<File, String> {
+    Err("Client bridge unavailable".into())
+}

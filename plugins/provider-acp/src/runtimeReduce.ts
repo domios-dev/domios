@@ -7,21 +7,21 @@ interface StreamState {
   epoch:number; nonce:string; sessionId:string; replay:number; prompt:number;
   turn:number; ordinal:number; seq:number; chunk?:{kind:string; id:string; content:string};
   items:Record<string,ChatMsg>; textById:Record<string,string>; warnings:Record<string,number>; controls:Record<string,JsonValue>;
-  evidenced:string[]; compacted:string[]; seenItems:string[]; loading:boolean; settled:boolean;
+  evidenced:string[]; compacted:string[]; seenItems:string[]; loading:boolean; settled:boolean; started:boolean;
 }
 const json=(value:unknown):JsonValue=>value as JsonValue;
 function initial(ctx:RuntimeContext, raw:JsonValue, cursor:StreamCursor):StreamState {
   const previous=object(raw);
   if (previous.epoch !== ctx.epoch || previous.nonce !== ctx.bindingNonce || previous.sessionId !== ctx.threadId)
     return {epoch:ctx.epoch,nonce:ctx.bindingNonce,sessionId:ctx.threadId!,replay:cursor.replay,prompt:cursor.prompt,
-      turn:cursor.prompt || 1,ordinal:0,seq:0,items:Object.create(null),textById:Object.create(null),warnings:Object.create(null),controls:Object.create(null),evidenced:[],compacted:[],seenItems:[],loading:cursor.loading,settled:false};
+      turn:cursor.prompt || 1,ordinal:0,seq:0,items:Object.create(null),textById:Object.create(null),warnings:Object.create(null),controls:Object.create(null),evidenced:[],compacted:[],seenItems:[],loading:cursor.loading,settled:false,started:false};
   const state=previous as unknown as StreamState;
   const copy:StreamState={...state,items:Object.assign(Object.create(null),state.items),textById:Object.assign(Object.create(null),state.textById),warnings:Object.assign(Object.create(null),state.warnings),controls:{...state.controls},
     evidenced:[...state.evidenced],compacted:[...state.compacted],seenItems:[...state.seenItems],...(state.chunk ? {chunk:{...state.chunk}} : {})};
   if (copy.replay !== cursor.replay) {
-    copy.replay=cursor.replay;copy.turn=1;copy.ordinal=0;copy.seenItems=[];copy.textById=Object.create(null);delete copy.chunk;copy.settled=false;
+    copy.replay=cursor.replay;copy.turn=1;copy.ordinal=0;copy.seenItems=[];copy.textById=Object.create(null);delete copy.chunk;copy.settled=false;copy.started=false;
   } else if (copy.prompt !== cursor.prompt) {
-    copy.turn=Math.max(copy.turn+1,cursor.prompt);copy.ordinal=0;copy.seenItems=[];copy.textById=Object.create(null);delete copy.chunk;copy.settled=false;
+    copy.turn=Math.max(copy.turn+1,cursor.prompt);copy.ordinal=0;copy.seenItems=[];copy.textById=Object.create(null);delete copy.chunk;copy.settled=false;copy.started=false;
   }
   copy.prompt=cursor.prompt;copy.loading=cursor.loading;
   return copy;
@@ -72,17 +72,28 @@ export function settleStream(ctx:RuntimeContext, raw:JsonValue, reason:string):R
   events.push({kind:"turnState",threadId:ctx.threadId,state:"idle",...(reason === "cancelled" ? {detail:"interrupted" as const} : {})});
   return {state:json(next),events};
 }
+export function clientRequest(method:string):boolean {
+  return ["session/request_permission","fs/read_text_file","fs/write_text_file","terminal/create","terminal/output","terminal/wait_for_exit","terminal/kill","terminal/release"].includes(method);
+}
+function startTurn(ctx:RuntimeContext, state:StreamState, events:AgentEvent[]):void {
+  if (!state.loading && !state.settled && state.prompt > 0 && !state.started && !ctx.activeTurnId) {
+    state.started=true;
+    events.push({kind:"turnState",threadId:state.sessionId,turnId:`${state.sessionId}:turn:${state.turn}`,state:"working"});
+  }
+}
 export function reduceStream(ctx:RuntimeContext, raw:JsonValue, frames:readonly RuntimeFrame[], cursor:StreamCursor):RuntimeReduction {
   if (!ctx.threadId) return {state:raw,events:[]};
   const state=initial(ctx,raw,cursor);
   const events:AgentEvent[]=[];
   for (const frame of frames) {
-    if (frame.kind !== "notification" || frame.method !== "session/update") continue;
     const params=object(frame.params);
     if (params.sessionId !== ctx.threadId) continue;
+    if (frame.kind === "request" && clientRequest(frame.method)) { startTurn(ctx,state,events);continue; }
+    if (frame.kind !== "notification" || frame.method !== "session/update") continue;
     const update=object(params.update);
     const kind=text(update.sessionUpdate);
     if (!kind) continue;
+    startTurn(ctx,state,events);
     if (kind === "user_message_chunk" || kind === "agent_message_chunk" || kind === "agent_thought_chunk") {
       const content=object(update.content);
       if (content.type !== "text" || typeof content.text !== "string" || state.settled && !state.loading) continue;
@@ -98,7 +109,7 @@ export function reduceStream(ctx:RuntimeContext, raw:JsonValue, frames:readonly 
       if (explicit) state.textById[state.chunk.id]=state.chunk.content;
       const type=kind === "user_message_chunk" ? "user" : kind === "agent_thought_chunk" ? "thinking" : "assistant";
       emit(state,events,{id:state.chunk.id,seq:0,type,content:state.chunk.content,...(type === "thinking" ? {collapsed:true} : {})});
-      if (!state.loading && kind === "agent_message_chunk") events.push({kind:"turnState",threadId:ctx.threadId,turnId:ctx.activeTurnId ?? `${ctx.threadId}:turn:${state.turn}`,state:"working"});
+      if (!state.loading && !state.started && kind === "agent_message_chunk") events.push({kind:"turnState",threadId:ctx.threadId,turnId:ctx.activeTurnId ?? `${ctx.threadId}:turn:${state.turn}`,state:"working"});
       continue;
     }
     if (kind === "tool_call" || kind === "tool_call_update") {

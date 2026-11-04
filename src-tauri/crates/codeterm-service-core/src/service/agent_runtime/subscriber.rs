@@ -104,6 +104,11 @@ pub fn start(svc: ServiceContext, _provider: String, session: Arc<Session>, proc
             let unexpected = unexpected_exit(observed.as_ref());
             let interrupted = session.context.lock().active_turn_id.is_some();
             let permit = session.gate.try_acquire().ok();
+            let bridge_cleanup =
+                super::client_bridge::cancel_all(&svc, &session, &process, true).await;
+            if let Err(reason) = bridge_cleanup {
+                log::error!("[agent-runtime] client bridge cleanup failed: {reason}");
+            }
             let cleanup = super::background::cleanup(
                 &svc,
                 &session,
