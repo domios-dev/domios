@@ -179,6 +179,7 @@ impl AgentProvider for StoredRuntimeProvider {
     }
     fn agent_runtime(&self) -> Option<AgentRuntimeCapability> {
         Some(AgentRuntimeCapability {
+            host_mcp: None,
             envelope: None,
             interrupt: None,
             client_bridges: None,

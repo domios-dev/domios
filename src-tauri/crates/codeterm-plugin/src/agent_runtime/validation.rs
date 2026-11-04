@@ -455,6 +455,7 @@ pub fn validate_runtime_call(
             return Err(mismatch("call target is outside operation authority"));
         }
     }
+    super::host_mcp::validate(cap, ctx, &call.method, &call.params)?;
     if !cap.permits_method(op, &call.method) {
         return Err(RuntimeFailure::new(
             RuntimeFailureCode::MethodNotAllowed,

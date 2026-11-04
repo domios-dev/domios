@@ -71,6 +71,11 @@ pub struct Cli {
     reason = "Clap command enums keep parsed options inline."
 )]
 pub enum Commands {
+    /// Tab-scoped MCP tools using inherited launch authority
+    Mcp {
+        #[command(subcommand)]
+        action: super::mcp::McpAction,
+    },
     /// Finish the current Team Curator round
     Curator {
         #[command(subcommand)]

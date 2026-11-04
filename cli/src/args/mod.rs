@@ -11,6 +11,7 @@ pub mod delayed;
 pub mod effort;
 pub mod essence_map;
 pub mod integration;
+pub mod mcp;
 pub mod mem;
 pub mod misc;
 pub mod model_provider;
