@@ -3,8 +3,10 @@ import { muxRequestPolicy } from "./streamMuxRequestModel";
 
 type FetchPort = NonNullable<TransportOptions["fetch"]>;
 
+// Sessions outlive one fake, so a test can swap daemon fakes under an already open mux.
+const sessions = new Map<string, ReadableStreamDefaultController<Uint8Array>>();
+
 export function muxMockFetch(domain: FetchPort): FetchPort {
-  const sessions = new Map<string, ReadableStreamDefaultController<Uint8Array>>();
   const jobs = new Map<string, { aborter: AbortController; detached: boolean; cancellable: boolean }>();
   const encoder = new TextEncoder();
   function emit(session: string, frame: unknown) {
@@ -64,3 +66,4 @@ export function muxMockFetch(domain: FetchPort): FetchPort {
     return Response.json({ accepted: true }, { status: 202 });
   };
 }
+

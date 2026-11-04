@@ -19,20 +19,31 @@ let webEvents: typeof import("../../lib/webEvents");
 let transcriptStore: typeof import("./transcriptStore");
 let useChatSession: typeof import("./useChatSession")["useChatSession"];
 
+// The origin mux outlives one harness, so channels keep using the stream opened first.
+let mux: ReadableStreamDefaultController<Uint8Array> | undefined;
+
 function installStream(): StreamHarness {
   const requests: string[] = [];
   const controllers = new Map<string, (frame: unknown) => void>();
   const encode = (frame: unknown) => new TextEncoder().encode(`data: ${JSON.stringify(frame)}\n\n`);
-  let mux: ReadableStreamDefaultController<Uint8Array> | undefined;
   vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input));
     if (url.pathname.startsWith("/api/stream-mux/")) {
       if (init?.method === "POST") {
         const opened = JSON.parse(String(init.body)) as { channel: string; path: string };
         const channelUrl = new URL(opened.path, url).href;
-        const owner = mux!;
         requests.push(channelUrl);
-        controllers.set(channelUrl, (frame) => owner.enqueue(encode({ channel: opened.channel, data: frame })));
+        let headSent = false;
+        controllers.set(channelUrl, (frame) => {
+          if (!headSent) {
+            headSent = true;
+            mux!.enqueue(encode({ channel: opened.channel, open: true, status: 200, headers: [["content-type", "text/event-stream"]] }));
+          }
+          mux!.enqueue(encode({ channel: opened.channel, chunk: `data: ${JSON.stringify(frame)}
+
+`, enc: "utf8" }));
+        });
+        return Response.json({ accepted: true }, { status: 202 });
       }
       return Response.json({ ok: true });
     }
@@ -44,7 +55,7 @@ function installStream(): StreamHarness {
           controllers.set(String(input), (frame) => next.enqueue(encode(frame)));
         }
       },
-    }));
+    }), { headers: { "Content-Type": "text/event-stream" } });
   });
   return { controllers, requests };
 }

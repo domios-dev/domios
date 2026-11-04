@@ -1,3 +1,4 @@
+import { muxMockFetch } from "./muxMockFetch.testdata";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { frontendApiCompatible, frontendApiContract } from "./frontendApiContract";
 import { configureDaemonTransport } from "./daemonBootstrap";
@@ -8,6 +9,11 @@ import {
 } from "./buildMismatchGuard";
 import { BUILD_DRIFT_RECORD_KEY, WEB_BOOT_CHANGED_EVENT, WEB_EVENTS_READY_EVENT } from "./buildDriftReload";
 import { FRONTEND_BOOT_KEY } from "./daemonBootstrap";
+
+function daemonFake<T extends Parameters<typeof muxMockFetch>[0]>(domain: T): T {
+  vi.stubGlobal("fetch", muxMockFetch(domain));
+  return domain;
+}
 
 class MemoryStorage {
   values = new Map<string, string>();
@@ -35,7 +41,7 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 function health(apiVersion: unknown, build = "independent-daemon-hash", version = "independent-daemon-version") {
   const fetcher = vi.fn(async (..._args: Parameters<typeof fetch>) => new Response(JSON.stringify({ apiVersion, build, version }), { headers: { "Content-Type": "application/json" } }));
-  vi.stubGlobal("fetch", fetcher);
+  daemonFake(fetcher);
   return fetcher;
 }
 
@@ -69,7 +75,7 @@ describe("frontend API compatibility", () => {
     expect(removed).not.toHaveBeenCalled();
   });
   it("does not classify a network failure as incompatibility or cache it as proof", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("unreachable")));
+    daemonFake(vi.fn().mockRejectedValue(new Error("unreachable")));
     expect(await checkBuildMismatch()).toBeNull();
     const fetcher = health(1);
     expect(await checkBuildMismatch()).not.toBeNull();
@@ -152,7 +158,7 @@ describe("web build drift reload", () => {
   it("drops a stale health response when a newer trigger already decided", async () => {
     const { reload } = driftEnv();
     let resolveStale!: (r: Response) => void;
-    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(resolve => { resolveStale = resolve; })));
+    daemonFake(vi.fn(() => new Promise<Response>(resolve => { resolveStale = resolve; })));
     const stale = checkBuildMismatch();
     await recheckBuildDrift("frontend-hash");
     resolveStale(new Response(JSON.stringify({ apiVersion: compatible(), build: "stale-build" })));
@@ -173,7 +179,7 @@ describe("web build drift reload", () => {
   it("keeps the banner, not a reload, when health is unreadable after an attempted reload", async () => {
     const { storage, reload } = driftEnv();
     storage.setItem(BUILD_DRIFT_RECORD_KEY, JSON.stringify({ origin: "http://127.0.0.1:7686", build: "daemon-build", at: 1 }));
-    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
+    daemonFake(vi.fn().mockRejectedValue(new Error("offline")));
     expect(await checkBuildMismatch()).toMatchObject({ reason: "build-unreachable" });
     expect(reload).not.toHaveBeenCalled();
     expect(storage.getItem(BUILD_DRIFT_RECORD_KEY)).not.toBeNull();

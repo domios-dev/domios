@@ -11,8 +11,8 @@ const SESSION_BUFFER = 4 * 1024 * 1024;
 const REQUEST_BUFFER = 512 * 1024;
 
 export class OutcomeUnknown extends Error {
-  constructor(public method: string, public path: string) {
-    super("The daemon request may have completed; reconcile its status before sending again");
+  constructor(public method: string, public path: string, cause?: string) {
+    super("The daemon request may have completed; reconcile its status before sending again" + (cause ? ` (${cause})` : ""));
     this.name = "OutcomeUnknown";
   }
 }
@@ -105,7 +105,7 @@ export function createStreamMux(transport: () => TransportClient, fetcher: Fetch
     const step = transitionMuxRequest(entry.state, { type: "lost" });
     entry.state = step.state;
     const reason = error instanceof SseCapacityError && entry.stream ? error
-      : !entry.state.cancellable && entry.session !== null && step.action !== "not-dispatched" ? new OutcomeUnknown(entry.method, entry.path)
+      : !entry.state.cancellable && entry.session !== null && step.action !== "not-dispatched" ? new OutcomeUnknown(entry.method, entry.path, error instanceof Error ? error.message : undefined)
       : new RetryableMuxError(entry.path, error instanceof Error ? error.message : "Mux connection lost");
     entry.outcome = reason;
     cleanup(entry); releaseBuffer(entry);
