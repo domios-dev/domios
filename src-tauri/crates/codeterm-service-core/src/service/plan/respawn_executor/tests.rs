@@ -367,6 +367,59 @@ fn native_pty_exit_is_observed_before_retirement_returns() {
 }
 
 #[test]
+fn restored_chat_worker_close_requires_absence_or_a_live_runtime_witness() {
+    use crate::multiplexer::types::TabBacking;
+    use crate::service::agent_runtime::{engine, model::RuntimeFailure};
+
+    for live in [false, true] {
+        let (fixture, draft) = fixture();
+        let svc = &fixture.service;
+        let source = &draft.source_attempt;
+        let prepared = {
+            let mut mux = svc.mux.write();
+            let tab = mux.get_tab_mut(&source.executor_tab_id).unwrap();
+            tab.agent_type = Some("source-provider".into());
+            tab.backing = TabBacking::ChatBackend {
+                plugin_id: "source-provider".into(),
+                session_id: "source-session".into(),
+            };
+            tab.clone()
+        };
+        let snapshot = svc.mux.read().to_session_snapshot();
+        *svc.mux.write() = MultiplexerState::from_session_snapshot(&snapshot);
+        assert!(
+            svc.mux
+                .read()
+                .get_tab(&source.executor_tab_id)
+                .unwrap()
+                .restored_from_snapshot
+        );
+        let _runtime = live.then(|| engine::test_support::live_runtime(&prepared));
+        let process = engine::for_tab(&source.executor_tab_id)
+            .and_then(|runtime| runtime.process.lock().clone());
+
+        svc.close_tab_guarded(Some("owner"), &source.executor_tab_id, true)
+            .unwrap();
+
+        assert!(svc.mux.read().get_tab(&source.executor_tab_id).is_none());
+        assert!(engine::for_tab(&source.executor_tab_id).is_none());
+        if let Some(process) = process {
+            assert!(matches!(
+                *process.ended.borrow(),
+                Some(RuntimeFailure::ProcessExited { .. })
+            ));
+        }
+        let (mux, _) = MultiplexerState::new();
+        let restarted = ServiceFixture::new_at(mux, fixture.temp.path());
+        assert!(restarted
+            .service
+            .plan_store
+            .task_executor_termination_confirmed("plan", "task", source)
+            .unwrap());
+    }
+}
+
+#[test]
 fn runtime_provider_change_keeps_one_live_executor_after_confirmed_exit() {
     use crate::multiplexer::types::TabBacking;
     use crate::service::agent_runtime::engine;
