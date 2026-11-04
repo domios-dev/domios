@@ -1,6 +1,7 @@
 import React, { useContext } from "react";
 import { MentionChip, PlanReference, type OpenPlan, type ResolvedChatPlanRef } from "./codeterm/LinkedText";
 import { canonicalMentions } from "./codeterm/canonicalMentions";
+import { referenceMarkers } from "./codeterm/referenceMarkers";
 import { linkifyPlanRefs } from "./codeterm/planRefs";
 import { splitAttachedPunctuation } from "./codeterm/attachedPunctuation";
 
@@ -17,6 +18,27 @@ interface HastNode {
   value?: string;
   properties?: Record<string, unknown>;
   children?: HastNode[];
+}
+
+export function remarkReferenceMarkers() {
+  interface Node { type: string; value?: string; children?: Node[] }
+  function visit(node: Node): void {
+    if (!node.children || ["code", "inlineCode", "link"].includes(node.type)) return;
+    node.children = node.children.flatMap((child): Node[] => {
+      if (child.type !== "html" || !child.value) { visit(child); return [child]; }
+      const nodes: Node[] = [];
+      let cursor = 0;
+      for (const marker of referenceMarkers(child.value)) {
+        if (marker.start > cursor) nodes.push({ type: "html", value: child.value.slice(cursor, marker.start) });
+        nodes.push({ type: "text", value: marker.text });
+        cursor = marker.end;
+      }
+      if (!cursor) return [child];
+      if (cursor < child.value.length) nodes.push({ type: "html", value: child.value.slice(cursor) });
+      return nodes;
+    });
+  }
+  return visit;
 }
 
 export function rehypePlanRefs() {

@@ -78,13 +78,13 @@ fn references_materialize_only_requested_labels_without_bodies_or_histories() {
     fixtures::audit(&database);
     super::super::read_projections::take_metrics();
     let reference = database
-        .reference_projection(&plan.id, Some("fixture-0001"), Some("section"))
+        .reference_projection(&plan.id, &["fixture-0001".into()], &["section".into()])
         .unwrap();
     assert_eq!(reference.tasks.len(), 1);
     assert_eq!(reference.tasks[0].id, "task_0001");
     assert!(reference.tasks[0].body.is_empty() && reference.tasks[0].execution_attempts.is_empty());
     assert_eq!(reference.sections[0].title, "Requested title");
-    assert!(reference.sections[0].body.is_empty() && reference.strides.is_empty());
+    assert!(reference.sections[0].body.is_empty());
     assert!(super::super::read_projections::take_metrics().materialized_bytes < 4096);
     assert!(fixtures::audit_counts(&database).is_empty());
 }
@@ -124,4 +124,43 @@ fn task_reference_metadata_scopes_keys_and_preserves_global_canonical_identity()
             .unwrap()["plan_id"],
         plan.id
     );
+}
+
+#[test]
+fn reference_batch_sql_hot_1162_two_plans_has_invariant_bytes_and_zero_plan_loads() {
+    let mut baseline = None;
+    for (strides, attempts, body) in [(0, 0, 0), (2048, 2048, 32768)] {
+        let root = tempfile::tempdir().unwrap();
+        let mut plan = fixtures::fixture(root.path(), strides, attempts);
+        plan.tasks[100].body.push_str(&"x".repeat(body));
+        let store = crate::service_plan::PlanStore::new_for_test(root.path());
+        store.database.persist_plan_rows(&plan, None).unwrap();
+        let mut second = plan.clone();
+        second.id = "second-hot-plan".into();
+        store.database.persist_plan_rows(&second, None).unwrap();
+        crate::service_plan::load_audit::start(&store);
+        super::super::read_projections::take_metrics();
+        crate::service_plan::store_sync::take_decoded_row_bytes();
+        let ids: Vec<String> = (0..10).map(|i| format!("task_{i:04}")).collect();
+        for id in [&plan.id, &second.id] {
+            let selected = store.reference_projection(id, &ids, &[]).unwrap();
+            assert_eq!(selected.tasks.len(), 10);
+            assert_eq!(selected.tasks[0].id, ids[0]);
+            assert!(selected
+                .tasks
+                .iter()
+                .all(|task| task.body.is_empty() && task.execution_attempts.is_empty()));
+        }
+        let metrics = super::super::read_projections::take_metrics();
+        let decoded = crate::service_plan::store_sync::take_decoded_row_bytes();
+        assert_eq!(metrics.queries, 2);
+        assert!(metrics.materialized_bytes < 8192);
+        assert!(decoded < 8192);
+        assert!(store.plan_loads_for_test().is_empty());
+        let measured = (metrics.queries, metrics.materialized_bytes, decoded);
+        if let Some(baseline) = baseline {
+            assert_eq!(measured, baseline);
+        }
+        baseline = Some(measured);
+    }
 }
