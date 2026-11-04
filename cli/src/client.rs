@@ -414,6 +414,16 @@ impl SocketClient {
         method: &str,
         params: Option<serde_json::Value>,
     ) -> Result<serde_json::Value, SocketCallError> {
+        let result = self.call_transport(method, params)?;
+        crate::cmd::print::exit_if_daemon_failure(&result);
+        Ok(result)
+    }
+
+    fn call_transport(
+        &mut self,
+        method: &str,
+        params: Option<serde_json::Value>,
+    ) -> Result<serde_json::Value, SocketCallError> {
         let id = self.next_id;
         self.next_id += 1;
         let req = JsonRpcRequest {
