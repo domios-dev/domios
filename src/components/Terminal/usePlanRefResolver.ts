@@ -43,6 +43,7 @@ const RESOLUTION_FIELDS = [
   "title",
   "plan_title",
   "task_title",
+  "task_key",
   "section_title",
   "file_path",
   "canonical_project_path",
@@ -80,7 +81,9 @@ export function usePlanRefResolver(
   const [invalidationGeneration, setInvalidationGeneration] = useState(0);
   const [unreachable, setUnreachable] = useState(false);
   const cacheRef = useRef(new Map<string, ResolvedPlanRefView>());
-  const fetchedGenerationRef = useRef(0);
+  const dirtyPlansRef = useRef(new Map<string, number>());
+  const invalidateAllRef = useRef(0);
+  const fetchedEpochsRef = useRef(new Map<string, string>());
   const orderedRefs = useMemo(() => {
     const seen = new Set<string>();
     const next: PlanRefDescriptor[] = [];
@@ -100,26 +103,21 @@ export function usePlanRefResolver(
   useEffect(() => {
     let active = true;
     if (!api.enabled) return;
-    const generation = invalidationGeneration;
-    const revalidate = fetchedGenerationRef.current !== generation;
+    const allGeneration = invalidateAllRef.current;
+    const dirty = new Map(dirtyPlansRef.current);
     const currentRefs = orderedRefsRef.current;
-    const targets = revalidate
-      ? currentRefs
-      : currentRefs.filter((ref) => !cacheRef.current.has(keyOf(ref)));
-    if (targets.length === 0) {
-      fetchedGenerationRef.current = generation;
-      return;
-    }
+    const epochOf = (ref: PlanRefDescriptor) => `${allGeneration}:${dirty.get(ref.planId) ?? 0}`;
+    const targets = currentRefs.filter((ref) => !cacheRef.current.has(keyOf(ref))
+      || fetchedEpochsRef.current.get(keyOf(ref)) !== epochOf(ref));
+    if (targets.length === 0) return;
     const ctrl = new AbortController();
     void resolvePlanRefs(api, targets.map(toRequest), ctrl.signal)
       .then((resolved) => {
         if (!active) return;
-        fetchedGenerationRef.current = generation;
-        if (revalidate) {
-          const visible = new Set(currentRefs.map(keyOf));
-          for (const key of [...cacheRef.current.keys()]) {
-            if (!visible.has(key)) cacheRef.current.delete(key);
-          }
+        for (const ref of targets) fetchedEpochsRef.current.set(keyOf(ref), epochOf(ref));
+        const visible = new Set(currentRefs.map(keyOf));
+        for (const key of cacheRef.current.keys()) {
+          if (!visible.has(key)) { cacheRef.current.delete(key); fetchedEpochsRef.current.delete(key); }
         }
         let changed = false;
         for (const item of resolved) {
@@ -147,15 +145,22 @@ export function usePlanRefResolver(
     let active = true;
     let offChanged: (() => void) | null = null;
     let offLoaded: (() => void) | null = null;
-    const invalidate = () => {
-      if (active) setInvalidationGeneration((n) => n + 1);
+    const invalidate = (planId?: string) => {
+      if (!active) return;
+      if (planId) {
+        dirtyPlansRef.current.set(planId, (dirtyPlansRef.current.get(planId) ?? 0) + 1);
+        if (!orderedRefsRef.current.some((ref) => ref.planId === planId)) return;
+      } else invalidateAllRef.current++;
+      setInvalidationGeneration((n) => n + 1);
     };
-    const offResync = onResync(invalidate);
-    void listen("plan-changed", invalidate).then((fn) => {
+    const offResync = onResync(() => invalidate());
+    void listen<{ plan_id?: string }>("plan-changed", ({ payload }) => {
+      if (payload.plan_id) invalidate(payload.plan_id);
+    }).then((fn) => {
       if (!active) fn();
       else offChanged = fn;
     });
-    void listen("plans-loaded", invalidate).then((fn) => {
+    void listen("plans-loaded", () => invalidate()).then((fn) => {
       if (!active) fn();
       else offLoaded = fn;
     });
