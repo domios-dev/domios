@@ -21,6 +21,7 @@ pub(crate) fn compose_observed(
     prepared: startup::early_api::PreparedStartup,
 ) -> Result<ComposedService, String> {
     let api = prepared.api;
+    let plan_store = Arc::new(service::plan::PlanStore::new().map_err(|error| error.to_string())?);
     if let Some(resources) = &resource_dir {
         startup::setup_conpty_host(resources)?;
     }
@@ -379,6 +380,7 @@ pub(crate) fn compose_observed(
     let startup_step = startup::StartupStep::logged("service state construction");
     let svc_ctx = codeterm_service_core::service::build_service_context(
         &states,
+        plan_store,
         ui.clone(),
         shell,
         codeterm_service_core::async_runtime::handle().clone(),
