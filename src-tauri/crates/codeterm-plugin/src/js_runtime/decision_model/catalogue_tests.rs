@@ -29,20 +29,14 @@ fn cold_catalogue_shares_one_discovery_without_blocking_cheap_vm_calls() {
         let prefix = format!(
             r#"
             let starts = {{}};
-            host.exec = function () {{ throw new Error('synchronous discovery'); }};
-            host.execStart = function (text) {{
-                const key = JSON.stringify(JSON.parse(text).args);
+            host.io.exec = function* (options) {{
+                const key = JSON.stringify(options.args);
                 starts[key] = (starts[key] || 0) + 1;
-                const jobId = host.testGateStart({release:?});
-                host.testGateOpen({entered:?});
-                return JSON.stringify({{ jobId }});
+                yield {{op:'testGate', entered:{entered:?}, release:{release:?}, completed:{release:?} + '.completed'}};
+                return {{code:0, stdout:'fixture/model'}};
             }};
-            const awaitJob = host.awaitJob;
-            host.awaitJob = function (job, then) {{
-                return awaitJob(job, function (result) {{ result.stdout = 'fixture/model'; return then(result); }});
-            }};
-            host.fs.fileExists = function () {{ return false; }};
-            host.fs.readFile = function () {{ return null; }};
+            host.io.fs.fileExists = function* () {{ return false; }};
+            host.io.fs.readFile = function* () {{ return null; }};
         "#
         );
         let source = prefix

@@ -2,7 +2,7 @@
 
 mod arguments;
 mod async_call;
-pub(super) use async_call::{call_json_async, with_blocking_operation};
+pub(super) use async_call::{call_json_async, spawn_blocking, with_blocking_operation};
 mod call_mutex;
 mod connection;
 mod objects;
@@ -609,6 +609,9 @@ pub(super) fn call_records<R: serde::de::DeserializeOwned>(
 }
 
 fn blocking_dispatch<T>(work: impl FnOnce() -> Result<T, VmError>) -> Result<T, VmError> {
+    if async_call::on_blocking_worker() {
+        return work();
+    }
     match tokio::runtime::Handle::try_current() {
         Err(_) => work(),
         Ok(runtime) if runtime.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread => {
