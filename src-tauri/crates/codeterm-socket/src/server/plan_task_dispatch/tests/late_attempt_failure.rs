@@ -184,8 +184,8 @@ fn late_attempt_failure_of_the_current_attempt_still_rolls_back() {
     let worktree_path = provenance.worktree_path.clone();
     let startup_lane =
         lane_metadata_for_dispatch(&original.lane, &provenance, project.to_str().unwrap());
-    let mut expected_lane = original.lane.clone();
-    expected_lane.destination = startup_lane.destination.clone();
+    assert!(original.lane.destination.is_none());
+    assert!(startup_lane.destination.is_some());
     let started = store
         .begin_task_dispatch_with_undo(&plan_id, &original.id, STALE_TAB, "Ada", startup_lane, 4)
         .unwrap();
@@ -213,15 +213,12 @@ fn late_attempt_failure_of_the_current_attempt_still_rolls_back() {
     let restored = store.show_task(&original.id).unwrap().task;
     assert_eq!(restored.status, original.status);
     assert_eq!(restored.assigned_tab_id, original.assigned_tab_id);
-    assert_eq!(
-        restored.lane, expected_lane,
-        "startup routing is restored while the integration destination survives"
-    );
+    assert_eq!(restored.lane, original.lane);
     assert_eq!(restored.execution_attempts.len(), 1);
     assert_eq!(restored.execution_attempts[0].id, attempt);
     assert_eq!(
         restored.execution_attempts[0].destination,
-        expected_lane.destination
+        original.lane.destination
     );
     assert!(restored.execution_attempts[0].closed_at.is_some());
     assert_eq!(store.get(&plan_id).unwrap().mode, PlanMode::Approved);

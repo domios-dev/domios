@@ -352,3 +352,72 @@ fn dispatch_rollback_refuses_a_changed_owner_epoch_without_reverting_edits() {
     ));
     assert_eq!(task_of(&store, &original.id), before);
 }
+
+#[test]
+fn dispatch_rollback_reverts_only_the_destination_written_by_startup() {
+    for (before, concurrent) in [
+        (None, None),
+        (Some("existing-integration"), None),
+        (None, Some("new-integration")),
+    ] {
+        let (_dir, store, plan_id, original) = pending_task();
+        store
+            .with_plan(&plan_id, 3, |plan| {
+                plan.tasks
+                    .iter_mut()
+                    .find(|task| task.id == original.id)
+                    .unwrap()
+                    .lane
+                    .destination = before.map(str::to_string);
+                Ok(())
+            })
+            .unwrap();
+        let started = store
+            .begin_task_dispatch_with_undo(
+                &plan_id,
+                &original.id,
+                STALE_TAB,
+                "Ada",
+                TaskLaneMetadata {
+                    destination: Some("startup-destination".into()),
+                    ..Default::default()
+                },
+                4,
+            )
+            .unwrap();
+        assert_eq!(
+            task_of(&store, &original.id).lane.destination.as_deref(),
+            before.or(Some("startup-destination"))
+        );
+        if let Some(destination) = concurrent {
+            store
+                .with_plan(&plan_id, 5, |plan| {
+                    plan.tasks
+                        .iter_mut()
+                        .find(|task| task.id == original.id)
+                        .unwrap()
+                        .lane
+                        .destination = Some(destination.into());
+                    Ok(())
+                })
+                .unwrap();
+        }
+        assert_eq!(
+            store
+                .roll_back_task_dispatch_attempt(&started.undo, STALE_TAB, &started.attempt_id, 6,)
+                .unwrap(),
+            DispatchRollback::Restored
+        );
+        let restored = task_of(&store, &original.id);
+        assert_eq!(restored.lane.destination.as_deref(), concurrent.or(before));
+        assert_eq!(
+            restored
+                .execution_attempts
+                .last()
+                .unwrap()
+                .destination
+                .as_deref(),
+            concurrent.or(before)
+        );
+    }
+}
