@@ -106,10 +106,37 @@ struct Bridge {
     epoch: u64,
     nonce: String,
     root: PathBuf,
+    #[cfg(windows)]
+    root_alias: PathBuf,
     root_handle: std::fs::File,
     capability: RuntimeClientBridges,
     state: Mutex<State>,
     inflight: Arc<tokio::sync::Semaphore>,
+}
+impl Bridge {
+    fn file_relative(&self, raw: &str) -> Result<PathBuf, String> {
+        #[cfg(not(windows))]
+        {
+            fs::relative(&self.root, raw)
+        }
+        #[cfg(windows)]
+        {
+            if let Ok(relative) = fs::relative(&self.root, raw) {
+                return Ok(relative);
+            }
+            let relative = fs::windows::relative_directory(&self.root_alias, raw)?;
+            if relative.as_os_str().is_empty() {
+                return Err("Expected a workspace file".into());
+            }
+            Ok(relative)
+        }
+    }
+
+    #[cfg(windows)]
+    fn directory_relative(&self, raw: &str) -> Result<PathBuf, String> {
+        fs::windows::relative_directory(&self.root, raw)
+            .or_else(|_| fs::windows::relative_directory(&self.root_alias, raw))
+    }
 }
 static BRIDGES: LazyLock<Mutex<HashMap<String, Arc<Bridge>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
@@ -157,6 +184,8 @@ pub(super) fn install(
             epoch: context.epoch,
             nonce: context.binding_nonce.clone(),
             root,
+            #[cfg(windows)]
+            root_alias: PathBuf::from(&context.cwd),
             root_handle,
             capability: capability.clone(),
             state: Mutex::new(State {
@@ -214,7 +243,7 @@ fn prepare(
             if !bridge.capability.fs_read || *line == Some(0) {
                 return Err("Read denied".into());
             }
-            let relative = fs::relative(&bridge.root, path)?;
+            let relative = bridge.file_relative(path)?;
             if fs::machine_secret(&relative) {
                 return Err("Machine credential store denied".into());
             }
@@ -235,7 +264,7 @@ fn prepare(
             if !bridge.capability.fs_write {
                 return Err("Write denied".into());
             }
-            let relative = fs::relative(&bridge.root, path)?;
+            let relative = bridge.file_relative(path)?;
             if fs::machine_secret(&relative) {
                 return Err("Machine credential store denied".into());
             }
@@ -563,7 +592,7 @@ async fn execute(
                 if state.closed || state.generation != generation {
                     return Err("Bridge closed".into());
                 }
-                let relative = fs::relative(&bridge.root, &path)?;
+                let relative = bridge.file_relative(&path)?;
                 fs::read(&bridge.root, &bridge.root_handle, &relative, line, limit)
                     .map(|content| json!({"content":content}))
             })
@@ -579,7 +608,7 @@ async fn execute(
                 if state.closed || state.generation != generation {
                     return Err("Bridge closed".into());
                 }
-                let relative = fs::relative(&bridge.root, &path)?;
+                let relative = bridge.file_relative(&path)?;
                 fs::write(
                     &bridge.root,
                     &bridge.root_handle,
@@ -754,7 +783,7 @@ fn terminal_cwd(bridge: &Bridge, command: &terminal::Command) -> Result<PathBuf,
     if std::path::Path::new(cwd) == bridge.root {
         return Ok(bridge.root.clone());
     }
-    let relative = fs::windows::relative_directory(&bridge.root, cwd)?;
+    let relative = bridge.directory_relative(cwd)?;
     fs::directory(&bridge.root_handle, &relative)?;
     Ok(bridge.root.join(relative))
 }

@@ -153,10 +153,10 @@ fn windows_program_resolution_refuses_shells_relative_search_and_cwd_impostors()
         ("PATHEXT".into(), ".CMD;.BAT".into()),
     ]);
     for command in ["batch", "batch.cmd", "script.BAT", "./where.exe"] {
-        assert!(terminal::windows::program(command, &env).is_err());
+        assert!(terminal::windows::program(command, &env, false).is_err());
     }
     assert_eq!(
-        terminal::windows::program("where", &env)
+        terminal::windows::program("where", &env, false)
             .unwrap()
             .path
             .canonicalize()
@@ -165,7 +165,7 @@ fn windows_program_resolution_refuses_shells_relative_search_and_cwd_impostors()
     );
     std::fs::write(tools.join("utility.com"), "native-com").unwrap();
     assert_eq!(
-        terminal::windows::program("utility", &env)
+        terminal::windows::program("utility", &env, false)
             .unwrap()
             .path
             .canonicalize()
@@ -176,7 +176,7 @@ fn windows_program_resolution_refuses_shells_relative_search_and_cwd_impostors()
     let system = PathBuf::from(system).join("System32");
     let env = BTreeMap::from([("PATH".into(), system.to_string_lossy().into_owned())]);
     assert_eq!(
-        terminal::windows::program("cmd", &env)
+        terminal::windows::program("cmd", &env, false)
             .unwrap()
             .path
             .canonicalize()
@@ -504,8 +504,38 @@ fn windows_host_short_paths_do_not_relax_agent_name_denials() {
         installed.root.canonicalize().unwrap(),
         workspace.canonicalize().unwrap()
     );
+    let alias_tail = short_workspace
+        .join(short_tools.file_name().unwrap())
+        .join("utility.exe");
+    assert!(installed
+        .file_relative(alias_tail.to_str().unwrap())
+        .is_err());
+    let original_spelling = short_workspace.join("program files/utility.exe");
+    let relative = installed
+        .file_relative(original_spelling.to_str().unwrap())
+        .unwrap();
+    assert_eq!(relative, Path::new("program files/utility.exe"));
+    assert_eq!(
+        fs::read(
+            &installed.root,
+            &installed.root_handle,
+            &relative,
+            None,
+            None
+        )
+        .unwrap(),
+        "native fixture"
+    );
+    let command = terminal::Command {
+        command: "unused.exe".into(),
+        args: vec![],
+        cwd: Some(short_workspace.to_string_lossy().into_owned()),
+        env: vec![],
+        output_byte_limit: None,
+    };
+    assert_eq!(terminal_cwd(&installed, &command).unwrap(), installed.root);
     let env = BTreeMap::from([("PATH".into(), short_tools.to_string_lossy().into_owned())]);
-    let program = terminal::windows::program("utility", &env).unwrap();
+    let program = terminal::windows::program("utility", &env, false).unwrap();
     assert_eq!(
         program.path.canonicalize().unwrap(),
         tools.join("utility.exe").canonicalize().unwrap()
@@ -521,10 +551,56 @@ fn windows_program_holds_parent_and_leaf_pins_until_spawn_boundary() {
     let file = tools.join("utility.exe");
     std::fs::write(&file, "native fixture").unwrap();
     let env = BTreeMap::from([("PATH".into(), tools.to_string_lossy().into_owned())]);
-    let program = terminal::windows::program("utility", &env).unwrap();
+    let program = terminal::windows::program("utility", &env, false).unwrap();
     assert!(std::fs::rename(&file, tools.join("replaced.exe")).is_err());
     assert!(std::fs::write(&file, "mutated").is_err());
     assert!(std::fs::rename(&tools, root.join("moved")).is_err());
     drop(program);
     std::fs::rename(&file, tools.join("replaced.exe")).unwrap();
+}
+
+#[test]
+fn windows_agent_path_cannot_use_host_aliases_or_reparse_entries() {
+    let (_temp, root) = tests::root();
+    let tools = root.join("program files");
+    std::fs::create_dir(&tools).unwrap();
+    std::fs::write(tools.join("utility.exe"), "native fixture").unwrap();
+    let short_tools = short_path(&tools);
+    assert_ne!(
+        short_tools.file_name(),
+        tools.file_name(),
+        "Windows peer must generate short aliases"
+    );
+    let inherited = BTreeMap::from([("PATH".into(), short_tools.to_string_lossy().into_owned())]);
+    assert!(terminal::windows::program("utility", &inherited, true).is_err());
+    assert!(terminal::environment(
+        HashMap::new(),
+        &[terminal::Env {
+            name: "pAtH".into(),
+            value: short_tools.to_string_lossy().into_owned()
+        }],
+        &[]
+    )
+    .is_err());
+    let linked = root.join("linked tools");
+    std::os::windows::fs::symlink_dir(&tools, &linked).unwrap();
+    let changes = [terminal::Env {
+        name: "PATH".into(),
+        value: linked.to_string_lossy().into_owned(),
+    }];
+    assert!(terminal::environment(HashMap::new(), &changes, &[]).is_err());
+    assert!(terminal::windows::program("utility", &inherited, false).is_ok());
+    let changes = [terminal::Env {
+        name: "pAtH".into(),
+        value: tools.to_string_lossy().into_owned(),
+    }];
+    let agent_env = terminal::environment(HashMap::new(), &changes, &[]).unwrap();
+    assert_eq!(
+        agent_env
+            .keys()
+            .filter(|key| key.eq_ignore_ascii_case("PATH"))
+            .count(),
+        1
+    );
+    assert!(terminal::windows::program("utility", &agent_env, true).is_ok());
 }

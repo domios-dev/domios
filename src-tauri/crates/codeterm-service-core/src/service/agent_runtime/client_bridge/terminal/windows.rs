@@ -37,10 +37,31 @@ fn executable(path: &Path, host_parent: bool) -> Result<Program, String> {
     })
 }
 
+pub(super) fn validate_agent_path(search: &str) -> Result<(), String> {
+    use super::super::fs::windows as fs;
+    for directory in std::env::split_paths(search) {
+        if directory.as_os_str().is_empty() {
+            continue;
+        }
+        let directory = fs::disk_path(&directory)?;
+        let _pins = fs::pinned(&directory)?;
+    }
+    Ok(())
+}
+
 pub(in super::super) fn program(
     command: &str,
     env: &BTreeMap<String, String>,
+    agent_path: bool,
 ) -> Result<Program, String> {
+    if agent_path {
+        let search = env
+            .iter()
+            .find(|(key, _)| key.eq_ignore_ascii_case("PATH"))
+            .map(|(_, value)| value)
+            .ok_or("Agent PATH unavailable")?;
+        validate_agent_path(search)?;
+    }
     let path = Path::new(command);
     if path.is_absolute() {
         return executable(path, false);
@@ -67,7 +88,7 @@ pub(in super::super) fn program(
             continue;
         }
         for name in &names {
-            if let Ok(program) = executable(&directory.join(name), true) {
+            if let Ok(program) = executable(&directory.join(name), !agent_path) {
                 return Ok(program);
             }
         }

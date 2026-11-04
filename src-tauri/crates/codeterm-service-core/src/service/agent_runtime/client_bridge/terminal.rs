@@ -69,6 +69,13 @@ pub(super) fn environment(
         if !allowed(&entry.name) || entry.value.len() > 4096 || entry.value.contains('\0') {
             return Err("Environment change denied".into());
         }
+        #[cfg(windows)]
+        {
+            if entry.name.eq_ignore_ascii_case("PATH") {
+                windows::validate_agent_path(&entry.value)?;
+            }
+            env.retain(|key, _| !key.eq_ignore_ascii_case(&entry.name));
+        }
         env.insert(entry.name.clone(), entry.value.clone());
     }
     Ok(env)
@@ -96,7 +103,13 @@ impl Terminal {
         env: &BTreeMap<String, String>,
     ) -> Result<Arc<Self>, String> {
         #[cfg(windows)]
-        let resolved_program = windows::program(&spec.command, env)?;
+        let resolved_program = windows::program(
+            &spec.command,
+            env,
+            spec.env
+                .iter()
+                .any(|entry| entry.name.eq_ignore_ascii_case("PATH")),
+        )?;
         #[cfg(windows)]
         let program = &resolved_program.path;
         #[cfg(not(windows))]
