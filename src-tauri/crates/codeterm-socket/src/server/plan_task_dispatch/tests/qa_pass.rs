@@ -135,7 +135,13 @@ fn qa_pass_atomically_closes_attempt_checkout_binding_and_task() {
     assert_eq!(accepted_task.assigned_tab_id, None);
     assert_eq!(accepted_task.lane.tab_id, None);
     assert_eq!(accepted_task.status, TaskStatus::Done);
-    assert_eq!(store.task_binding_for_tab("qa"), None);
+    assert_eq!(
+        store
+            .assigned_task_binding_projection("qa")
+            .unwrap()
+            .map(|binding| (binding.plan_id, binding.task_id)),
+        None
+    );
     assert!(store.task_bindings_for_tab("executor").unwrap().is_empty());
 }
 

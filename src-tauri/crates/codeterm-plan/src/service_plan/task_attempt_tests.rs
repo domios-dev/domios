@@ -718,7 +718,11 @@ fn terminal_status_update_leaves_history_but_no_active_presence() {
     assert_eq!(task.execution_attempts.len(), 1);
     assert_eq!(task.execution_attempts[0].executor_tab_id, "tab_live");
     assert_eq!(task.execution_attempts[0].closed_at, Some(4));
-    assert!(store.task_binding_for_tab("tab_live").is_none());
+    assert!(store
+        .assigned_task_binding_projection("tab_live")
+        .unwrap()
+        .map(|binding| (binding.plan_id, binding.task_id))
+        .is_none());
     assert!(store.task_bindings_for_tab("tab_live").unwrap().is_empty());
 }
 

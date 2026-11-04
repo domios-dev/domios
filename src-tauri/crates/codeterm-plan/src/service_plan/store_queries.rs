@@ -91,30 +91,6 @@ impl PlanStore {
         }
     }
 
-    pub fn task_binding_for_tab(&self, tab_id: &str) -> Option<(String, String)> {
-        if tab_id.trim().is_empty() {
-            return None;
-        }
-        let candidates = PlanMatch::active().and(TaskMatch::assigned(
-            tab_id,
-            &plan_match::NON_TERMINAL_TASK_STATUSES,
-        ));
-        for plan in self.plans_matching(&candidates) {
-            if plan.status != PlanStatus::Active {
-                continue;
-            }
-            if let Some(task) = plan
-                .tasks
-                .iter()
-                .filter(|t| !matches!(t.status, TaskStatus::Done | TaskStatus::Cancelled))
-                .find(|t| t.assigned_tab_id.as_deref() == Some(tab_id))
-            {
-                return Some((plan.id.clone(), task.id.clone()));
-            }
-        }
-        None
-    }
-
     pub fn open_attempt_task_for_tab(
         &self,
         tab_id: &str,
@@ -148,70 +124,11 @@ impl PlanStore {
         )
     }
 
-    pub fn report_pending_task_binding_for_tab(&self, tab_id: &str) -> Option<(String, String)> {
-        if tab_id.trim().is_empty() {
-            return None;
-        }
-        let candidates = PlanMatch::active()
-            .and(PlanMatch::Mode(PlanMode::Execution))
-            .and(TaskMatch::assigned(
-                tab_id,
-                &[
-                    TaskStatus::Pending,
-                    TaskStatus::InProgress,
-                    TaskStatus::Blocked,
-                ],
-            ));
-        for plan in self.plans_matching(&candidates) {
-            if plan.status != PlanStatus::Active || plan.mode != PlanMode::Execution {
-                continue;
-            }
-            if let Some(task) = plan
-                .tasks
-                .iter()
-                .filter(|t| {
-                    matches!(
-                        t.status,
-                        TaskStatus::Pending | TaskStatus::InProgress | TaskStatus::Blocked
-                    )
-                })
-                .find(|t| t.assigned_tab_id.as_deref() == Some(tab_id))
-            {
-                return Some((plan.id.clone(), task.id.clone()));
-            }
-        }
-        None
-    }
-
     pub fn active_owned_plan_with_open_work_for_tab(
         &self,
         tab_id: &str,
     ) -> Result<Option<String>, PlanError> {
         self.database.active_owned_open_plan(tab_id)
-    }
-
-    /// The plan this tab is the registered live Planner of, if any — a
-    /// Planner binds directly, never through a task assignment.
-    pub fn planner_plan_id_for_tab(&self, tab_id: &str) -> Option<String> {
-        if tab_id.trim().is_empty() {
-            return None;
-        }
-        let candidates = PlanMatch::active().and(PlanMatch::Planner(tab_id.to_string()));
-        for plan in self.plans_matching(&candidates) {
-            if plan.status != PlanStatus::Active {
-                continue;
-            }
-            if let Some(crate::plan::PlannerRef::Tab {
-                tab_id: planner_tab_id,
-                ..
-            }) = &plan.planner
-            {
-                if planner_tab_id == tab_id {
-                    return Some(plan.id.clone());
-                }
-            }
-        }
-        None
     }
 
     pub fn task_bindings_for_tab(&self, tab_id: &str) -> Result<Vec<(String, String)>, PlanError> {
@@ -256,6 +173,10 @@ impl PlanStore {
         self.spec_index.read().values().cloned().collect()
     }
 
+    pub fn curator_bootstrap_plan_ids(&self) -> Result<Vec<String>, PlanError> {
+        self.database.curator_bootstrap_plan_ids()
+    }
+
     /// Ids of the plans whose stored rows match, newest first; no plan is loaded.
     pub fn plan_ids_matching(&self, predicate: &PlanMatch) -> Vec<String> {
         self.database
@@ -274,18 +195,15 @@ impl PlanStore {
             .collect()
     }
 
-    /// The stored rows of the matching plans, read from SQL around the cache: for a
-    /// caller holding a plan or mux lock, which taking a cached plan's lock could deadlock.
-    pub fn stored_plans_matching(&self, predicate: &PlanMatch) -> Vec<Plan> {
-        self.plan_ids_matching(predicate)
-            .iter()
-            .filter_map(|id| match self.load_plan_from_sql(id) {
-                Ok(plan) => plan,
-                Err(error) => {
-                    log::warn!("[plan.store] {error}; source left unchanged");
-                    None
-                }
-            })
+    pub(super) fn plans_for_update_in_writer(
+        &self,
+        _turn: &MutationWriterTurn<'_>,
+        predicate: &PlanMatch,
+    ) -> Result<Vec<Plan>, PlanError> {
+        self.database
+            .plan_ids_matching(predicate)?
+            .into_iter()
+            .map(|id| self.try_get(&id))
             .collect()
     }
 
@@ -297,13 +215,6 @@ impl PlanStore {
     }
 
     /// `(plan_id, project root)` per plan: the canonical path when set, else the project path.
-    pub fn plan_roots(&self) -> Vec<(String, String)> {
-        self.database.plan_roots().unwrap_or_else(|error| {
-            log::warn!("[plan.store] plan root query failed: {error}");
-            Vec::new()
-        })
-    }
-
     /// One text field of every attempt row holding it.
     pub fn attempt_field_values(&self, path: &str) -> Vec<AttemptFieldRow> {
         self.database

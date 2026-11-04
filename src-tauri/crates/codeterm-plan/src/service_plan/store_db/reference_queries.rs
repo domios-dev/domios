@@ -51,15 +51,21 @@ impl PlanDatabase {
             serde_json::to_string(section_refs).map_err(|e| PlanError::Io(e.to_string()))?;
         record_query();
         let raw: String = connection.query_row(&format!(
-            "WITH requested_tasks AS (SELECT coalesce(
-               (SELECT task_id FROM plan_tasks WHERE plan_id=?1 AND task_id COLLATE NOCASE=r.value LIMIT 1),
-               (SELECT task_id FROM plan_tasks WHERE plan_id=?1 AND (json_extract(row_json,'$.key') COLLATE NOCASE=r.value
-                 OR json_extract(row_json,'$.handle')=r.value) ORDER BY position LIMIT 1)) AS task_id FROM json_each(?2) r)
+            "WITH requested AS (SELECT key AS request,value FROM json_each(?2)),
+             exact AS MATERIALIZED (SELECT r.request,t.task_id FROM requested r JOIN plan_tasks t ON t.plan_id=?1 AND t.task_id=r.value),
+             named_requests AS MATERIALIZED (SELECT r.request,r.value FROM requested r WHERE NOT EXISTS(SELECT 1 FROM exact e WHERE e.request=r.request)),
+             ranked AS MATERIALIZED (SELECT request,task_id,0 AS tier FROM exact UNION ALL SELECT r.request,t.task_id,
+                domios_task_ref_rank(t.task_id,json_extract(t.row_json,'$.handle'),json_extract(t.row_json,'$.key'),r.value) AS tier
+                FROM named_requests r JOIN plan_tasks t ON t.plan_id=?1),
+             best AS (SELECT request,min(tier) AS tier FROM ranked WHERE tier IN (0,1) GROUP BY request),
+             chosen AS (SELECT r.request,r.task_id FROM ranked r JOIN best b USING(request,tier)),
+             requested_tasks AS (SELECT request,min(task_id) AS task_id FROM chosen GROUP BY request HAVING count(*)=1)
              SELECT json_object('title',p.title,'status',p.status,
              'owner',json(coalesce(json_extract(p.header_json,'$.owner'),'{{}}')),
              'canonical_project_path',coalesce(nullif(trim(json_extract(p.header_json,'$.canonical_project_path')),''),p.project_path),
+             'task_refs',json((SELECT json_group_object(r.value,chosen.task_id) FROM requested r LEFT JOIN requested_tasks chosen USING(request))),
              'tasks',json((SELECT json_group_array(json_object('id',t.task_id,'name',json_extract(t.row_json,'$.name'),
-               'type',json_extract(t.row_json,'$.type'),'status',t.status,'key',json_extract(t.row_json,'$.key'),'handle',json_extract(t.row_json,'$.handle')))
+               'key',json_extract(t.row_json,'$.key'),'handle',json_extract(t.row_json,'$.handle')))
                FROM plan_tasks t WHERE t.plan_id=p.id AND t.task_id IN (SELECT task_id FROM requested_tasks))),
              'sections',json((SELECT json_group_array(json_object('id',id,'title',title,'handle',handle))
                FROM ({SECTION_ROWS}) selected_sections WHERE EXISTS(SELECT 1 FROM json_each(?3) r

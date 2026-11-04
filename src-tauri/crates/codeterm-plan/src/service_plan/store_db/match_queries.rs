@@ -29,6 +29,26 @@ pub(super) const ROOT: &str = "coalesce(CASE WHEN json_valid(header_json)
     THEN json_extract(header_json, '$.canonical_project_path') END, project_path)";
 
 impl PlanDatabase {
+    pub(in crate::service_plan) fn curator_bootstrap_plan_ids(
+        &self,
+    ) -> Result<Vec<String>, PlanError> {
+        let connection = self.connection.lock();
+        super::read_projections::record_query();
+        let mut statement = connection
+            .prepare_cached(
+                "SELECT id FROM plans WHERE status='active'
+             OR json_extract(header_json,'$.control_loop.running') IS NOT NULL
+             OR json_extract(header_json,'$.control_loop.cron_id') IS NOT NULL
+             OR json_extract(header_json,'$.control_loop.next_at') IS NOT NULL
+             ORDER BY updated_at DESC,id",
+            )
+            .map_err(db_error)?;
+        let rows = statement
+            .query_map([], |row| super::read_projections::column::<String>(row, 0))
+            .map_err(db_error)?;
+        rows.collect::<Result<_, _>>().map_err(db_error)
+    }
+
     /// Newest first, so callers that take the first match keep a stable choice.
     pub(in crate::service_plan) fn plan_ids_matching(
         &self,

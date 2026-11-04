@@ -289,7 +289,9 @@ fn mission_control_spend_charges_orchestrator_and_planner_tabs_to_their_active_p
         fixture
             .service
             .plan_store
-            .task_binding_for_tab(&orchestrator),
+            .assigned_task_binding_projection(&orchestrator)
+            .unwrap()
+            .map(|binding| (binding.plan_id, binding.task_id)),
         None,
         "neither tab holds a task assignment; that is the gap under test"
     );

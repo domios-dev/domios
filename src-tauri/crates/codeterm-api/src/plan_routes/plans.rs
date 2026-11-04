@@ -418,9 +418,10 @@ fn resolve_ref(
             owner_session_id,
         },
         ResolveTargetKind::Task => {
-            let task = item.target_id.as_deref().and_then(|task_id| {
-                codeterm_service_core::plan::task_key::find_task(&plan.tasks, task_id)
-            });
+            let task = item
+                .target_id
+                .as_deref()
+                .and_then(|task_id| plan.task(task_id));
             let task_title = task
                 .map(|task| task.name.trim())
                 .filter(|title| !title.is_empty())
@@ -498,18 +499,12 @@ fn classify_load_error(error: &PlanError) -> &'static str {
 }
 
 fn find_section<'a>(
-    sections: &'a [codeterm_service_core::plan::Section],
+    sections: &'a [codeterm_service_core::service::plan::ui_projections::ReferenceSectionRead],
     section_id: &str,
-) -> Option<&'a codeterm_service_core::plan::Section> {
-    for section in sections {
-        if section.id == section_id || section.handle.as_deref() == Some(section_id) {
-            return Some(section);
-        }
-        if let Some(found) = find_section(&section.subsections, section_id) {
-            return Some(found);
-        }
-    }
-    None
+) -> Option<&'a codeterm_service_core::service::plan::ui_projections::ReferenceSectionRead> {
+    sections
+        .iter()
+        .find(|section| section.id == section_id || section.handle.as_deref() == Some(section_id))
 }
 
 #[cfg(test)]

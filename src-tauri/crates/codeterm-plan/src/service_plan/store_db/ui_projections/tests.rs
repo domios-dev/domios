@@ -82,9 +82,15 @@ fn references_materialize_only_requested_labels_without_bodies_or_histories() {
         .unwrap();
     assert_eq!(reference.tasks.len(), 1);
     assert_eq!(reference.tasks[0].id, "task_0001");
-    assert!(reference.tasks[0].body.is_empty() && reference.tasks[0].execution_attempts.is_empty());
+    assert!(serde_json::to_value(&reference.tasks[0])
+        .unwrap()
+        .get("body")
+        .is_none());
     assert_eq!(reference.sections[0].title, "Requested title");
-    assert!(reference.sections[0].body.is_empty());
+    assert!(serde_json::to_value(&reference.sections[0])
+        .unwrap()
+        .get("body")
+        .is_none());
     assert!(super::super::read_projections::take_metrics().materialized_bytes < 4096);
     assert!(fixtures::audit_counts(&database).is_empty());
 }
@@ -149,7 +155,7 @@ fn reference_batch_sql_hot_1162_two_plans_has_invariant_bytes_and_zero_plan_load
             assert!(selected
                 .tasks
                 .iter()
-                .all(|task| task.body.is_empty() && task.execution_attempts.is_empty()));
+                .all(|task| serde_json::to_value(task).unwrap().get("body").is_none()));
         }
         let metrics = super::super::read_projections::take_metrics();
         let decoded = crate::service_plan::store_sync::take_decoded_row_bytes();
@@ -163,4 +169,31 @@ fn reference_batch_sql_hot_1162_two_plans_has_invariant_bytes_and_zero_plan_load
         }
         baseline = Some(measured);
     }
+}
+
+#[test]
+fn reference_batch_refuses_ambiguous_alias_even_when_an_exact_sibling_is_requested() {
+    let root = tempfile::tempdir().unwrap();
+    let mut plan = fixtures::fixture(root.path(), 0, 0);
+    plan.tasks.truncate(3);
+    plan.tasks[0].key = Some("KEY-1".into());
+    plan.tasks[0].handle = Some("Mixed-Handle".into());
+    plan.tasks[1].handle = Some("KEY-1".into());
+    plan.tasks[1].key = Some("KEY-2".into());
+    plan.tasks[2].handle = Some(plan.tasks[0].id.clone());
+    let database = fixtures::database(root.path(), &plan);
+    let exact = plan.tasks[0].id.clone();
+    let refs = vec![
+        "key-1".into(),
+        exact.clone(),
+        "mixed-handle".into(),
+        "KEY-2".into(),
+        "missing".into(),
+    ];
+    let read = database.reference_projection(&plan.id, &refs, &[]).unwrap();
+    assert!(read.task("key-1").is_none());
+    assert_eq!(read.task(&exact).unwrap().id, exact);
+    assert_eq!(read.task("mixed-handle").unwrap().id, exact);
+    assert_eq!(read.task("KEY-2").unwrap().id, plan.tasks[1].id);
+    assert!(read.task("missing").is_none());
 }

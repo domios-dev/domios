@@ -603,6 +603,7 @@ mod curator_notice_queries;
 mod curator_queries;
 mod curator_snapshot;
 mod export_queries;
+pub(in crate::service_plan) mod handoff_queries;
 mod header_queries;
 mod heartbeat_queries;
 mod index_queries;

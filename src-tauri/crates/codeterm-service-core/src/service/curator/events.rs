@@ -7,17 +7,10 @@ pub(crate) struct CuratorTabs(pub parking_lot::RwLock<std::collections::BTreeMap
 
 /// Active plans, and any plan whose control loop still holds a run, cron job or
 /// wake time to settle; other plans have no curator state to reconcile.
-pub(crate) fn curator_bootstrap_ids(store: &crate::service::plan::PlanStore) -> BTreeSet<String> {
-    use crate::service::plan::PlanMatch;
-    store
-        .plan_ids_matching(&PlanMatch::Any(vec![
-            PlanMatch::active(),
-            PlanMatch::HeaderSet("$.control_loop.running"),
-            PlanMatch::HeaderSet("$.control_loop.cron_id"),
-            PlanMatch::HeaderSet("$.control_loop.next_at"),
-        ]))
-        .into_iter()
-        .collect()
+pub(crate) fn curator_bootstrap_ids(
+    store: &crate::service::plan::PlanStore,
+) -> Result<BTreeSet<String>, crate::service::plan::PlanError> {
+    Ok(store.curator_bootstrap_plan_ids()?.into_iter().collect())
 }
 
 impl ServiceContext {
@@ -38,7 +31,11 @@ impl ServiceContext {
             })
             .await
             {
-                Ok(plans) => plans,
+                Ok(Ok(plans)) => plans,
+                Ok(Err(error)) => {
+                    log::error!("[curator] bootstrap read: {error}");
+                    return;
+                }
                 Err(error) => {
                     log::debug!("[curator] bootstrap: {error}");
                     return;
@@ -73,9 +70,12 @@ impl ServiceContext {
                             })
                             .await
                             {
-                                Ok(current) => {
+                                Ok(Ok(current)) => {
                                     plans.extend(current);
                                     pending.extend(plans.iter().cloned());
+                                }
+                                Ok(Err(error)) => {
+                                    log::error!("[curator] plan resync read: {error}")
                                 }
                                 Err(error) => log::debug!("[curator] plan resync: {error}"),
                             }

@@ -92,7 +92,13 @@ fn late_bound_no_id_report_persists_exact_task_milestone() {
     );
     store.save(&mut plan, 1).unwrap();
     let task_id = add_task(&store, &plan.id, "fresh dispatch", 2);
-    assert_eq!(store.task_binding_for_tab("worker"), None);
+    assert_eq!(
+        store
+            .assigned_task_binding_projection("worker")
+            .unwrap()
+            .map(|binding| (binding.plan_id, binding.task_id)),
+        None
+    );
     store
         .assign_task(&plan.id, &task_id, "worker", None, 3)
         .unwrap();
