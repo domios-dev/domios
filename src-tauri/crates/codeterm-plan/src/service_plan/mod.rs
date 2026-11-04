@@ -17,6 +17,8 @@ pub mod element_queries;
 pub mod external_refs;
 pub mod gates;
 pub mod handoff;
+mod header_projection;
+pub use header_projection::PlanIdentityRead;
 pub mod heartbeat;
 pub mod hints;
 pub mod ingest;
