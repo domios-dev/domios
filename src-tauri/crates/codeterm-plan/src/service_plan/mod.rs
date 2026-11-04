@@ -340,7 +340,8 @@ impl PlanStore {
 
 mod task_authority_projection;
 pub use task_authority_projection::{
-    CompletedTaskRestartRead, PlanTaskAdmissionRead, RestartAttemptRead, TaskAttemptBindingRead,
-    TaskContextFilesRead, TaskContinuityDigest, TaskContinuityRead, TaskOwnerEpochRead,
-    TaskRestartAuthorityRead, TaskRestartQuery,
+    CompletedTaskRestartRead, PlanTaskAdmissionRead, RestartAttemptRead, ReviewBindingRestoreRead,
+    ReviewRestoreAttemptRead, TaskAttemptBindingRead, TaskBindingRestoreRead, TaskContextFilesRead,
+    TaskContinuityDigest, TaskContinuityRead, TaskOwnerEpochRead, TaskRestartAuthorityRead,
+    TaskRestartQuery,
 };
