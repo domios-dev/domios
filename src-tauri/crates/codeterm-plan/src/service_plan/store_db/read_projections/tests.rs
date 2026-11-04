@@ -6,6 +6,7 @@ use std::sync::{Arc, Barrier};
 
 mod attachment_charter_tests;
 mod auxiliary_tests;
+mod binding_context_tests;
 mod binding_tests;
 mod curator_digest_tests;
 mod curator_schedule_tests;
