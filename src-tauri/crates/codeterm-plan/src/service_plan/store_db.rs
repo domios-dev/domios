@@ -599,6 +599,7 @@ mod change_feed;
 mod charter_queries;
 mod chat_read_queries;
 mod curator_digest_queries;
+pub(in crate::service_plan) mod curator_input_queries;
 mod curator_notice_queries;
 mod curator_queries;
 mod curator_snapshot;

@@ -92,7 +92,9 @@ pub mod spec_render;
 pub mod spec_store;
 pub mod state;
 mod status_projection;
-pub use curator_projection::CuratorDigestRead;
+pub use curator_projection::{
+    CuratorDigestRead, CuratorDigestScope, CuratorRoundCursorRead, CuratorRuntimeNotice,
+};
 mod store_convert_118;
 mod store_db;
 pub use status_projection::{
