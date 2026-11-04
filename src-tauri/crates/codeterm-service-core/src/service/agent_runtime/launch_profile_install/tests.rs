@@ -59,7 +59,7 @@ fn receipt_is_durable_outside_workspace_and_declaration_bound() {
     let mut profile = profile();
     let script = app.path().join("agent.js");
     std::fs::write(&script, b"fixture script").unwrap();
-    let readiness_before = crate::provider::profile_readiness_revision();
+    let readiness_before = crate::provider::profile_readiness_revision(&root);
     let saved = receipt(
         &root,
         "fixture",
@@ -73,7 +73,7 @@ fn receipt_is_durable_outside_workspace_and_declaration_bound() {
         },
     )
     .unwrap();
-    assert!(crate::provider::profile_readiness_revision() > readiness_before);
+    assert!(crate::provider::profile_readiness_revision(&root) > readiness_before);
     assert_eq!(
         read_receipt(&root, "fixture", &profile).unwrap(),
         Some(saved)

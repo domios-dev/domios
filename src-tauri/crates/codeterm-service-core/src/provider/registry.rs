@@ -14,7 +14,7 @@ pub(super) type CatalogueRevision = (
     Vec<crate::agent::model_catalog::ModelCatalogueChanged>,
     u64,
     u64,
-    u64,
+    Vec<(String, u64)>,
 );
 
 pub struct ProviderRegistry {
@@ -132,7 +132,11 @@ impl ProviderRegistry {
             .and_then(|provider| provider.agent_runtime())
             .is_some_and(|runtime| runtime.launch_profiles.is_some())
         {
-            super::profile_readiness::invalidate();
+            if let Ok(root) =
+                crate::service::agent_runtime::launch_profile_install::profile_root(id)
+            {
+                super::profile_readiness::invalidate(&root);
+            }
         }
     }
 
@@ -189,7 +193,7 @@ impl ProviderRegistry {
             crate::agent::model_catalog::version_snapshot(),
             codeterm_plugin::provider_version::revision(),
             crate::service::provider_update::revision(),
-            super::profile_readiness::revision(),
+            super::profile_readiness::provider_revisions(self.agents.provider_ids()),
         )
     }
 

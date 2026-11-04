@@ -5,20 +5,39 @@ use codeterm_plugin::{
 };
 
 use parking_lot::Mutex;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::{
+    collections::BTreeMap,
+    path::{Path, PathBuf},
+    sync::LazyLock,
+};
 
-static REVISION: AtomicU64 = AtomicU64::new(0);
+static REVISIONS: LazyLock<Mutex<BTreeMap<PathBuf, u64>>> =
+    LazyLock::new(|| Mutex::new(BTreeMap::new()));
 pub(super) type ProfileCache = super::catalogue_cache::RevisionCache<
     (codeterm_plugin::agent_runtime::RuntimeLaunchProfile, u64),
     Option<bool>,
 >;
 
-pub(crate) fn revision() -> u64 {
-    REVISION.load(Ordering::Acquire)
+pub(crate) fn revision(root: &Path) -> u64 {
+    REVISIONS.lock().get(root).copied().unwrap_or_default()
 }
 
-pub(crate) fn invalidate() {
-    REVISION.fetch_add(1, Ordering::AcqRel);
+pub(super) fn provider_revisions(mut ids: Vec<String>) -> Vec<(String, u64)> {
+    ids.sort();
+    ids.into_iter()
+        .map(|id| {
+            let generation = launch_profile_install::profile_root(&id)
+                .map(|root| revision(&root))
+                .unwrap_or_default();
+            (id, generation)
+        })
+        .collect()
+}
+
+pub(crate) fn invalidate(root: &Path) {
+    let mut revisions = REVISIONS.lock();
+    let generation = revisions.entry(root.to_path_buf()).or_default();
+    *generation = generation.wrapping_add(1);
 }
 
 fn cached_profile(
@@ -59,7 +78,7 @@ fn observe_from_root(
     cache: &Mutex<ProfileCache>,
 ) -> Option<ProviderCliStatus> {
     let profiles = capability.launch_profiles.as_ref()?;
-    let generation = revision();
+    let generation = root.as_deref().map(revision).unwrap_or_default();
     Some(status_from_profiles(
         profiles
             .iter()
