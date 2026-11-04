@@ -45,7 +45,14 @@ impl PlanDatabase {
         let connection = self.connection.lock();
         record_query();
         let mut statement = connection.prepare_cached(
-            "SELECT p.id,json_object('plan_id',p.id,'project_path',p.project_path,
+            "WITH eligible AS MATERIALIZED (
+                SELECT DISTINCT h.plan_id FROM plan_tasks h
+                WHERE ?3 IS NOT NULL AND (?1 IS NULL OR h.plan_id=?1)
+                    AND h.status IN ('done','cancelled') AND (h.assigned_tab_id=?3
+                        OR json_extract(h.row_json,'$.lane.tab_id')=?3
+                        OR EXISTS(SELECT 1 FROM plan_task_attempts ha WHERE ha.plan_id=h.plan_id
+                            AND ha.task_id=h.task_id AND ha.executor_tab_id=?3))
+             ) SELECT p.id,json_object('plan_id',p.id,'project_path',p.project_path,
                 'canonical_project_path',coalesce(json_extract(p.header_json,'$.canonical_project_path'),''),
                 'task_id',t.task_id,'status',t.status,
                 'bound_tabs',json((SELECT json_group_array(tab) FROM (
@@ -61,10 +68,7 @@ impl PlanDatabase {
                 'cleanup_status',json_extract(t.row_json,'$.lane.cleanup_status'))
              FROM plans p JOIN plan_tasks t ON t.plan_id=p.id
              WHERE (?1 IS NULL OR p.id=?1) AND (?2 IS NULL OR t.task_id=?2)
-                AND (?3 IS NULL OR EXISTS(SELECT 1 FROM plan_tasks h WHERE h.plan_id=p.id
-                    AND h.status IN ('done','cancelled') AND (h.assigned_tab_id=?3
-                        OR json_extract(h.row_json,'$.lane.tab_id')=?3
-                        OR EXISTS(SELECT 1 FROM plan_task_attempts ha WHERE ha.plan_id=h.plan_id AND ha.task_id=h.task_id AND ha.executor_tab_id=?3))))
+                AND (?3 IS NULL OR p.id IN (SELECT plan_id FROM eligible))
                 AND t.status IN ('done','cancelled')
                 AND (json_extract(t.row_json,'$.lane.worktree_path') IS NOT NULL OR json_extract(t.row_json,'$.lane.branch') IS NOT NULL)
              ORDER BY p.updated_at DESC,p.id,t.position"

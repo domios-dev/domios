@@ -66,12 +66,14 @@ pub(super) fn learnings(
         let sql = if owner {
             format!("SELECT domios_notice_learning('',{text},1) FROM plan_heartbeat h,{source} WHERE h.plan_id=?1 AND {tag}='owner' ORDER BY l.key LIMIT ?2")
         } else {
-            format!("SELECT domios_notice_learning({id},{text},0) FROM plan_heartbeat h,{source}
+            format!("WITH learning_rows AS MATERIALIZED (
+                SELECT l.key,l.value,json_extract(l.value,'$.id') AS lookup_id FROM plan_heartbeat h,{source}
                 WHERE h.plan_id=?1 AND coalesce({tag},'')<>'owner'
-                AND (?4 IS NULL OR {id} IN (SELECT r.value FROM json_each(?4) r
-                    WHERE EXISTS(SELECT 1 FROM json_each(h.row_json,'$.learnings') x
-                        WHERE json_extract(x.value,'$.id')=r.value AND coalesce(json_extract(x.value,'$.tag'),'')<>'owner')
-                    ORDER BY CAST(r.key AS INTEGER) LIMIT 3))
+             ), selected AS MATERIALIZED (
+                SELECT r.value FROM json_each(?4) r WHERE EXISTS(SELECT 1 FROM learning_rows x
+                    WHERE x.lookup_id=r.value) ORDER BY CAST(r.key AS INTEGER) LIMIT 3
+             ) SELECT domios_notice_learning({id},{text},0) FROM learning_rows l
+                WHERE (?4 IS NULL OR l.lookup_id IN (SELECT value FROM selected))
                 AND length(trim({text},?3))>0 ORDER BY l.key DESC LIMIT ?2")
         };
         let connection = render.connection;

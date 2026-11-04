@@ -305,11 +305,11 @@ pub(super) fn load_heartbeat(
 ) -> Result<(), PlanError> {
     record_query();
     let document: Option<String> = connection.query_row(
-        "SELECT json_set(row_json,'$.learnings',json((SELECT json_group_array(json(value)) FROM (
-            SELECT key,value FROM json_each(h.row_json,'$.learnings') WHERE json_extract(value,'$.tag')='owner'
-               OR json_extract(value,'$.id') IN (SELECT value FROM json_each(?2))
-               OR key IN (SELECT key FROM json_each(h.row_json,'$.learnings') WHERE coalesce(json_extract(value,'$.tag'),'')<>'owner' ORDER BY key DESC LIMIT 50)
-            ORDER BY key)))) FROM plan_heartbeat h WHERE plan_id=?1",
+        &format!("{} SELECT json_set(row_json,'$.learnings',json((SELECT json_group_array(json(value)) FROM (
+            SELECT key,value FROM learning_rows WHERE tag='owner'
+               OR id IN (SELECT value FROM json_each(?2))
+               OR key IN (SELECT key FROM recent_learnings)
+            ORDER BY key)))) FROM plan_heartbeat h WHERE plan_id=?1",super::heartbeat_queries::LEARNING_WINDOW),
         params![plan.id,serde_json::to_string(selected_learnings).map_err(|error| PlanError::Io(error.to_string()))?],|row| column(row,0)
     ).optional().map_err(db_error)?;
     if let Some(document) = document {
