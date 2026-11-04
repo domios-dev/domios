@@ -1,4 +1,5 @@
 //! Brief-composition and persona tests (split from tests.rs for the size gate).
+use super::super::preflight::preflight_review_capacity;
 use super::*;
 
 #[test]

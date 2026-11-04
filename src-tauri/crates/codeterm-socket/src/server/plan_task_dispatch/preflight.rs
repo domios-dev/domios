@@ -90,7 +90,7 @@ pub(super) fn selected_regression_dispatch_warning(
         .map_err(plan_rpc_err)?
         .ok_or_else(|| plan_rpc_err(PlanError::NotFound))?;
     Ok(regression_dispatch_warning(regression_dispatch_decision(
-        &input,
+        input,
     )))
 }
 
@@ -149,4 +149,13 @@ pub(super) fn preflight_dispatch_checkout(
         }),
     )?;
     Ok(())
+}
+
+#[cfg(test)]
+pub(super) fn preflight_review_capacity(
+    plan: &codeterm_service_core::plan::Plan,
+    task: &codeterm_service_core::plan::Task,
+) -> Result<(), JsonRpcError> {
+    codeterm_service_core::service::plan::review_gate::validate_dispatch_review_capacity(plan, task)
+        .map_err(plan_rpc_err)
 }

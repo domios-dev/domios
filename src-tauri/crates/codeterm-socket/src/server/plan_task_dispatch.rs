@@ -55,11 +55,9 @@ use lane_resolution::{
     checkout_required, invalid_dispatch, refuse_missing_explicit_cwd, resolve_dispatch_lane,
     DispatchLanePlacement,
 };
-use lane_safety::{atomic_lane_commitment, dispatch_safety_nudges};
 #[cfg(test)]
-use lane_safety::{
-    preflight_checkout_occupancy, refuse_unsafe_mutating_write, reported_executor_tab_statuses,
-};
+use lane_safety::preflight_checkout_occupancy;
+use lane_safety::{atomic_lane_commitment, dispatch_safety_nudges};
 #[cfg(test)]
 use preflight::preflight_dispatch_placement;
 #[cfg(test)]
