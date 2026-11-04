@@ -1,5 +1,4 @@
-import type { Plan, Section, Task } from "./types";
-
+import type { PlanView as Plan, PlanSectionView as Section, PlanTaskView as Task } from "./planProjection";
 export type SectionRowGlyph = "done" | "progress" | "uncovered";
 
 export interface SectionRow {
@@ -18,7 +17,7 @@ function flatten<T extends { subsections: T[] }>(sections: T[], depth: number, o
 
 // Ordered flat list of every section (subsections inline after their parent).
 // The layout's anchor math and the PlanNode card MUST iterate this same order.
-export function flatSections(plan: Plan): Section[] {
+export function flatSections<T extends { subsections: T[] }>(plan: { sections: T[] }): T[] {
   return flattenSections(plan.sections);
 }
 

@@ -1,6 +1,7 @@
+import type { PlanView as Plan } from "../Canvas/planProjection";
 import type { ApiConfig } from "../../lib/types";
 import { assertWebRequestContext, webRequestContext } from "../../lib/webApi";
-import type { Plan } from "../Canvas/types";
+
 import { fetchRequestedPlanTaskMetadata } from "../Canvas/plansApi";
 
 export async function readTeamClosePlanMetadata(api: ApiConfig, headers: readonly Plan[]): Promise<Plan[]> {
