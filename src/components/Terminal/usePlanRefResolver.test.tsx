@@ -2,6 +2,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
 import { __setListenForTest } from "../../lib/bridge";
+import { configureDaemonTransport } from "../../lib/daemonBootstrap";
 import { usePlanRefResolver, type PlanRefDescriptor } from "./usePlanRefResolver";
 
 type TestFn = () => void | Promise<void>;
@@ -57,8 +58,6 @@ interface Harness {
   teardown: () => Promise<void>;
 }
 
-/** Mounts one chip-shaped probe over the hook; a missing map entry is exactly
- *  what TabSessionChat renders as the "loading" chip state. */
 async function mountResolver(responses: ResolvedBody[], additionalRefs: PlanRefDescriptor[] = []): Promise<Harness> {
   setupDom();
   const listeners = new Map<string, Array<(e: { payload: unknown }) => void>>();
@@ -71,16 +70,19 @@ async function mountResolver(responses: ResolvedBody[], additionalRefs: PlanRefD
 
   const fetchCalls: string[] = [];
   const queue = [...responses];
-  Object.defineProperty(globalThis, "fetch", {
-    configurable: true,
-    value: async (_url: string, init?: RequestInit) => {
-      fetchCalls.push(String(init?.body ?? ""));
-      const body = queue.shift() ?? { refs: [] };
-      return {
-        ok: true,
-        json: async () => body,
-      };
-    },
+  const pending: Array<(response: Response) => void> = [];
+  const client = configureDaemonTransport({ origin: window.location.origin, token: "test-token" });
+  const originalRequest = client.request;
+  client.request = (path, init) => {
+    assert(path === "/api/plans/resolve-refs", `unexpected request: ${path}`);
+    fetchCalls.push(String(init?.body ?? ""));
+    return new Promise(resolve => pending.push(resolve));
+  };
+  const respond = async () => act(() => {
+    const deliver = pending.shift();
+    const body = queue.shift();
+    assert(deliver && body, "expected one pending reference request and response");
+    deliver(Response.json(body));
   });
 
   const api = { enabled: true, host: "127.0.0.1", port: 7686, token: null, cors: false };
@@ -100,24 +102,20 @@ async function mountResolver(responses: ResolvedBody[], additionalRefs: PlanRefD
   await act(async () => {
     root.render(<Probe />);
   });
-  await act(async () => {
-    await Promise.resolve();
-  });
+  assert(snapshots.length > 0 && snapshots.every(item => item.state == null), "the chip stays loading until its first response");
+  await respond();
 
   return {
     fetchCalls,
     snapshots,
     dispatchPlanChanged: async (planId = "pl_test") => {
       await act(async () => {
-        for (const handler of listeners.get("plan-changed") ?? []) handler({ payload: { plan_id: planId } });
-        await Promise.resolve();
+        const handlers = listeners.get("plan-changed");
+        assert(handlers?.length, "plan-changed subscription is installed");
+        for (const handler of handlers) handler({ payload: { plan_id: planId } });
       });
-      await act(async () => {
-        await Promise.resolve();
-      });
+      if (pending.length) await respond();
     },
-    // Consecutive-collapsed chip states: the sequence of distinct views the
-    // chip actually transitioned through, "loading" when unresolved.
     chipStates: () => snapshots
       .map((s) => (s.state == null ? "loading" : `${s.state}:${s.title}`))
       .filter((state, index, all) => index === 0 || state !== all[index - 1]),
@@ -126,6 +124,8 @@ async function mountResolver(responses: ResolvedBody[], additionalRefs: PlanRefD
         root.unmount();
       });
       host.remove();
+      assert(pending.length === 0 && queue.length === 0, "all reference responses were consumed");
+      client.request = originalRequest;
       __setListenForTest(null);
     },
   };
