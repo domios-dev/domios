@@ -258,20 +258,18 @@ fn metadata_update_preserves_startup_owner(
     else {
         return Ok(false);
     };
-    Ok(svc.plan_store.worker_startup_attempt_owns(
-        plan_id,
-        &task.id,
-        tab_id,
-        &owner.attempt_id,
-        None,
-    ) && (svc.plan_store.task_dispatch_startup_reservation_owns(
-        plan_id,
-        &task.id,
-        &owner.attempt_id,
-        tab_id,
-    ) || super::plan_task_dispatch::dispatch_startup_owner_is_live(
-        svc, plan_id, &task.id, tab_id,
-    )))
+    Ok(svc
+        .plan_store
+        .worker_startup_attempt_owns(plan_id, &task.id, tab_id, &owner.attempt_id, None)
+        .map_err(super::plan::plan_rpc_err)?
+        && (svc.plan_store.task_dispatch_startup_reservation_owns(
+            plan_id,
+            &task.id,
+            &owner.attempt_id,
+            tab_id,
+        ) || super::plan_task_dispatch::dispatch_startup_owner_is_live(
+            svc, plan_id, &task.id, tab_id,
+        )))
 }
 
 fn lane_metadata_only_task_update(method: &str, params: &Option<Value>) -> bool {

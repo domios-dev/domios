@@ -10,6 +10,42 @@ const ATTEMPT: &str = "json_object('id',json_extract(a.row_json,'$.id'),'executo
     'has_report',json(CASE WHEN json_extract(a.row_json,'$.report') IS NOT NULL THEN 'true' ELSE 'false' END))";
 
 impl PlanDatabase {
+    pub(in crate::service_plan) fn worker_startup_state_projection(
+        &self,
+        plan_id: &str,
+        task_ref: &str,
+        tab: &str,
+        attempt: &str,
+    ) -> Result<(TaskStartupRead, bool), PlanError> {
+        let connection = self.connection.lock();
+        record_query();
+        let (exists, active, raw): (bool, bool, Option<String>) = connection.query_row(
+            &format!("{SELECTED_TASK_IN_PLAN} SELECT EXISTS(SELECT 1 FROM plans WHERE id=?1),
+                EXISTS(SELECT 1 FROM plans WHERE id=?1 AND status='active'),
+                (SELECT json_object('status',json_extract(t.row_json,'$.status'),'assigned_tab',t.assigned_tab_id,
+                    'first_matching',json((SELECT {ATTEMPT} FROM plan_task_attempts a
+                        WHERE a.plan_id=?1 AND a.task_id=t.task_id AND a.open=1
+                            AND a.executor_tab_id=?3 AND json_extract(a.row_json,'$.id')=?4
+                        ORDER BY a.position LIMIT 1)),
+                    'latest_unclosed',json((SELECT json_object('id',json_extract(a.row_json,'$.id'))
+                        FROM plan_task_attempts a WHERE a.plan_id=?1 AND a.task_id=t.task_id
+                            AND json_extract(a.row_json,'$.closed_at') IS NULL ORDER BY a.position DESC LIMIT 1)),
+                    'latest_group',json((SELECT json_object('group',json_extract(a.row_json,'$.competition_group_id'))
+                        FROM plan_task_attempts a WHERE a.plan_id=?1 AND a.task_id=t.task_id
+                            AND json_extract(a.row_json,'$.closed_at') IS NULL
+                            AND json_extract(a.row_json,'$.competition_group_id') IS NOT NULL ORDER BY a.position DESC LIMIT 1)))
+                 FROM selected_task t)"),
+            params![plan_id,task_ref,tab,attempt], |row| Ok((column(row,0)?,column(row,1)?,column(row,2)?)),
+        ).map_err(db_error)?;
+        if !exists {
+            return Err(PlanError::NotFound);
+        }
+        Ok((
+            decode(plan_id, &raw.ok_or(PlanError::TaskNotFound)?)?,
+            active,
+        ))
+    }
+
     pub(in crate::service_plan) fn task_startup_status_projection(
         &self,
         plan_id: &str,
