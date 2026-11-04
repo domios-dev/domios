@@ -2948,7 +2948,7 @@ EOF
     prepare_dev_frontend_dist "$(pwd -P)"
     prepare_bundle_stubs
     check_log="$(ct_gateway_dir)/jobs/$CT_BUILD_JOB_ID.cargo-check.log"
-    cargo check --manifest-path src-tauri/Cargo.toml 2>&1 | tee "$check_log"
+    cargo check --manifest-path src-tauri/Cargo.toml "${@:2}" 2>&1 | tee "$check_log"
     check_status="${PIPESTATUS[0]}"
     check_warning_summary < "$check_log"
     exit "$check_status"
