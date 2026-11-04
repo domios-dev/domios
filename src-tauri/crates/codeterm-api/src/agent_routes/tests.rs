@@ -630,6 +630,7 @@ async fn agent_routes_host_mcp_cannot_send_or_report_as_foreign_tab() {
     let credential = state
         .svc
         .frontend_pty_env(Some(&tab))
+        .expect("fixture tab environment")
         .remove("CODETERM_API_TOKEN")
         .unwrap();
     for (method, body) in [
