@@ -14,7 +14,13 @@ fn provider_readiness_uses_receipts_and_rechecks_changed_profiles() {
     }))
     .unwrap();
     let observe = |capability: &AgentRuntimeCapability| {
-        observe_from_root(capability, Ok(root.path().to_path_buf())).unwrap()
+        observe_from_root(
+            "fixture",
+            capability,
+            Ok(root.path().to_path_buf()),
+            &parking_lot::Mutex::new(ProfileCache::default()),
+        )
+        .unwrap()
     };
     assert_eq!(observe(&capability).installed, Some(false));
     let profile = &capability.launch_profiles.as_ref().unwrap()["configured"];
@@ -53,5 +59,101 @@ fn provider_readiness_uses_receipts_and_rechecks_changed_profiles() {
     std::fs::remove_file(root.path().join("configured.json")).unwrap();
     assert_eq!(observe(&capability).installed, Some(false));
     capability.launch_profiles = None;
-    assert!(observe_from_root(&capability, Ok(root.path().to_path_buf())).is_none());
+    assert!(observe_from_root(
+        "fixture",
+        &capability,
+        Ok(root.path().to_path_buf()),
+        &parking_lot::Mutex::new(ProfileCache::default()),
+    )
+    .is_none());
+}
+
+#[test]
+fn profile_readiness_cache_reuses_observations_until_revision_or_declaration_changes() {
+    use std::cell::Cell;
+    let cache = parking_lot::Mutex::new(ProfileCache::default());
+    let profile: codeterm_plugin::agent_runtime::RuntimeLaunchProfile =
+        serde_json::from_value(json!({"binary":"fixture", "args":[]})).unwrap();
+    let reads = Cell::new(0);
+    let observe = || {
+        reads.set(reads.get() + 1);
+        Some(true)
+    };
+    assert_eq!(
+        cached_profile(&cache, "provider", "first", &profile, 1, observe),
+        Some(true)
+    );
+    assert_eq!(
+        cached_profile(&cache, "provider", "first", &profile, 1, || panic!(
+            "cached status performed I/O"
+        )),
+        Some(true)
+    );
+    assert_eq!(reads.get(), 1);
+    assert_eq!(
+        cached_profile(&cache, "provider", "second", &profile, 1, observe),
+        Some(true)
+    );
+    assert_eq!(reads.get(), 2);
+    assert_eq!(
+        cached_profile(&cache, "provider", "first", &profile, 2, || Some(false)),
+        Some(false)
+    );
+    let mut changed = profile.clone();
+    changed.args.push("changed".into());
+    assert_eq!(
+        cached_profile(&cache, "provider", "first", &changed, 2, || None),
+        None
+    );
+    assert_eq!(
+        cached_profile(&cache, "provider", "first", &changed, 2, || panic!(
+            "unknown status must be cached"
+        )),
+        None
+    );
+}
+
+#[test]
+fn readiness_invalidation_during_observation_cannot_publish_a_stale_cache_hit() {
+    use std::cell::Cell;
+    let generation = Cell::new(1);
+    let cache = parking_lot::Mutex::new(ProfileCache::default());
+    let profile: codeterm_plugin::agent_runtime::RuntimeLaunchProfile =
+        serde_json::from_value(json!({"binary":"fixture", "args":[]})).unwrap();
+    assert_eq!(
+        cached_profile(
+            &cache,
+            "provider",
+            "profile",
+            &profile,
+            generation.get(),
+            || {
+                generation.set(2);
+                Some(false)
+            }
+        ),
+        Some(false)
+    );
+    assert_eq!(
+        cached_profile(
+            &cache,
+            "provider",
+            "profile",
+            &profile,
+            generation.get(),
+            || Some(true)
+        ),
+        Some(true)
+    );
+    assert_eq!(
+        cached_profile(
+            &cache,
+            "provider",
+            "profile",
+            &profile,
+            generation.get(),
+            || panic!("fresh observation must be retained")
+        ),
+        Some(true)
+    );
 }

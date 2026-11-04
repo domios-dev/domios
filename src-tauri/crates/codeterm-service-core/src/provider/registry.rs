@@ -14,11 +14,13 @@ pub(super) type CatalogueRevision = (
     Vec<crate::agent::model_catalog::ModelCatalogueChanged>,
     u64,
     u64,
+    u64,
 );
 
 pub struct ProviderRegistry {
     agents: Arc<AgentRegistry>,
     chat_backends: ChatBackendRegistryHandle,
+    profile_readiness_cache: parking_lot::Mutex<super::profile_readiness::ProfileCache>,
     cli_status_cache: parking_lot::Mutex<
         RevisionCache<CliRevision, codeterm_plugin::provider_cli::ProviderCliStatus>,
     >,
@@ -31,6 +33,7 @@ impl ProviderRegistry {
         Self {
             agents,
             chat_backends,
+            profile_readiness_cache: Default::default(),
             cli_status_cache: Default::default(),
             catalogue_values_cache: Default::default(),
         }
@@ -59,7 +62,11 @@ impl ProviderRegistry {
                     crate::agent::provider::ProviderAvailability::Unknown
                 } else if let Some(status) =
                     descriptor.agent_runtime.as_ref().and_then(|capability| {
-                        super::profile_readiness::observe(&descriptor.id, capability)
+                        super::profile_readiness::observe(
+                            &descriptor.id,
+                            capability,
+                            &self.profile_readiness_cache,
+                        )
                     })
                 {
                     status.availability
@@ -112,9 +119,21 @@ impl ProviderRegistry {
     ) -> Option<codeterm_plugin::provider_cli::ProviderCliStatus> {
         let provider = self.agents.provider_arc(id)?;
         let capability = provider.agent_runtime()?;
-        let mut status = super::profile_readiness::observe(id, &capability)?;
+        let mut status =
+            super::profile_readiness::observe(id, &capability, &self.profile_readiness_cache)?;
         status.display_name = Some(provider.display_name().to_owned());
         Some(status)
+    }
+
+    pub(crate) fn recheck_profiles(&self, id: &str) {
+        if self
+            .agents
+            .provider_arc(id)
+            .and_then(|provider| provider.agent_runtime())
+            .is_some_and(|runtime| runtime.launch_profiles.is_some())
+        {
+            super::profile_readiness::invalidate();
+        }
     }
 
     pub(crate) fn cli_status(
@@ -170,6 +189,7 @@ impl ProviderRegistry {
             crate::agent::model_catalog::version_snapshot(),
             codeterm_plugin::provider_version::revision(),
             crate::service::provider_update::revision(),
+            super::profile_readiness::revision(),
         )
     }
 

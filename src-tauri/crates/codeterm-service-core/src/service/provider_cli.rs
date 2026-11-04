@@ -4,6 +4,7 @@ pub fn provider_cli_status(
     provider_id: &str,
     platform: &str,
 ) -> Result<ProviderCliStatus, String> {
+    registry.recheck_profiles(provider_id);
     registry.cli_status(provider_id, platform)
 }
 

@@ -35,8 +35,6 @@ pub fn list_agent_provider_values(
             cache_started.elapsed().as_micros(),
             started.elapsed().as_micros()
         );
-        let mut values = values;
-        super::profile_readiness::refresh_values(registry, &mut values);
         return values;
     }
     let cache_us = cache_started.elapsed().as_micros();
