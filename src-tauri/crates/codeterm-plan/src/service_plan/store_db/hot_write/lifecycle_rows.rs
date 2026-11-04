@@ -176,7 +176,7 @@ impl PlanDatabase {
                     .map(|id| (id, now))
             })
             .collect::<Result<_, _>>()?;
-        let result = (|| {
+        let result: Result<Vec<CommittedRows>, PlanError> = (|| {
             let tx = connection
                 .transaction_with_behavior(TransactionBehavior::Immediate)
                 .map_err(db_error)?;
