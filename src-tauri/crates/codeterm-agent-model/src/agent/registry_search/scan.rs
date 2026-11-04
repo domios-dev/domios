@@ -162,7 +162,12 @@ fn scan_session_files(
                         }
                     }
                     tally.parsed += 1;
-                    let messages = provider.parse_session_messages(Path::new(&candidate.file_path));
+                    let Ok(messages) =
+                        provider.parse_session_messages(Path::new(&candidate.file_path))
+                    else {
+                        tally.skip(SessionSkipReason::Unreadable, 1);
+                        continue;
+                    };
                     if let Some(mut hit) = match_messages(
                         candidate,
                         &messages,

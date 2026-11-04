@@ -67,11 +67,14 @@ impl AgentProvider for StubSearchProvider {
     fn session_content_source(&self) -> SessionContentSource {
         self.source
     }
-    fn parse_session_messages(&self, path: &std::path::Path) -> Vec<SessionMessage> {
+    fn parse_session_messages(
+        &self,
+        path: &std::path::Path,
+    ) -> Result<Vec<SessionMessage>, String> {
         let key = path.to_str().unwrap_or("").to_string();
         self.parsed.fetch_add(1, Ordering::SeqCst);
         self.parsed_paths.lock().push(key.clone());
-        self.messages.get(&key).cloned().unwrap_or_default()
+        Ok(self.messages.get(&key).cloned().unwrap_or_default())
     }
 }
 
