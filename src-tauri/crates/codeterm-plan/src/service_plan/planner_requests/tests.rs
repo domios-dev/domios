@@ -173,13 +173,14 @@ fn requests_are_durable_and_claimed_once() {
     store
         .accept_planner_request(&plan.id, "req_1", "sid-p", "nonce-p", 4)
         .unwrap();
-    store
+    let completed = store
         .complete_planner_request(&plan.id, "req_1", 5)
         .unwrap();
-    assert_eq!(
-        store.get(&plan.id).unwrap().planner_requests[0].state,
-        PlannerRequestState::Completed
-    );
+    let committed = store.get(&plan.id).unwrap().planner_requests.remove(0);
+    assert_eq!(committed.state, PlannerRequestState::Completed);
+    assert_eq!(completed, committed);
+    assert_eq!(completed.completed_at, Some(5));
+    assert_eq!(completed.lease_expires_at, None);
 }
 
 #[test]

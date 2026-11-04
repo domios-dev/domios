@@ -375,12 +375,7 @@ impl ServiceContext {
         }
         self.plan_store
             .complete_planner_request(plan_id, request_id, epoch_ms())
-            .map_err(|error| error.to_string())?;
-        self.plan_store
-            .planner_gate_context(plan_id, Some(request_id))
-            .map_err(|error| error.to_string())?
-            .and_then(|context| context.request)
-            .ok_or_else(|| "planner request not found".into())
+            .map_err(|error| error.to_string())
     }
     pub fn set_can_spawn(&self, tab_id: &str, can_spawn: bool) -> Result<(), String> {
         self.mux.write().set_can_spawn(tab_id, can_spawn)?;
