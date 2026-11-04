@@ -1,7 +1,7 @@
+use super::state::input::StateInput;
 use super::state::mission_control::{BounceSummary, EventLog};
 use super::state::PlanStateSnapshot;
 use super::{PlanError, PlanStore};
-use crate::plan::Plan;
 use std::collections::HashMap;
 
 pub struct PlanNoticeRead {
@@ -61,7 +61,7 @@ impl CuratorScheduleRead {
 
 pub struct PlanStatusRead {
     pub(super) revision: String,
-    pub(super) plan: Plan,
+    pub(super) input: StateInput,
     pub(super) event_log: EventLog,
     pub(super) bounces: BounceSummary,
     pub(super) held_reviews: HashMap<String, (usize, Option<u64>)>,
@@ -71,8 +71,8 @@ pub struct PlanStatusRead {
 }
 
 impl PlanStatusRead {
-    pub fn plan(&self) -> &Plan {
-        &self.plan
+    pub fn input(&self) -> &StateInput {
+        &self.input
     }
 
     pub fn apply_history_facts(&self, snapshot: &mut PlanStateSnapshot, now_ms: u64) {

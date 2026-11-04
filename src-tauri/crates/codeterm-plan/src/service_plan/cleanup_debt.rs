@@ -1,11 +1,11 @@
+use crate::service_plan::state::input::StateSource;
 use std::path::Path;
 
 use crate::plan::cleanup_debt::{
     detect_cleanup_debt, render_cleanup_debt_hint, CleanupDebtInput, CleanupDebtTask,
 };
-use crate::plan::Plan;
 
-fn plan_project_path(plan: &Plan) -> &str {
+fn plan_project_path(plan: &crate::service_plan::state::input::StateInput) -> &str {
     if plan.canonical_project_path.trim().is_empty() {
         &plan.project_path
     } else {
@@ -13,10 +13,12 @@ fn plan_project_path(plan: &Plan) -> &str {
     }
 }
 
-pub fn detect_plan_cleanup_debt<F>(plan: &Plan, mut tab_live: F) -> Vec<CleanupDebtTask>
+pub fn detect_plan_cleanup_debt<F>(plan: &impl StateSource, mut tab_live: F) -> Vec<CleanupDebtTask>
 where
     F: FnMut(&str) -> bool,
 {
+    let input = plan.state_input();
+    let plan = input.as_ref();
     plan.tasks
         .iter()
         .filter_map(|task| {

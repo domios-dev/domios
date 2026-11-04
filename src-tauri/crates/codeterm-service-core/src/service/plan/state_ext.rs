@@ -41,11 +41,10 @@ impl ServiceContext {
         plan_id: &str,
         now_ms: u64,
     ) -> Result<PlanStateSnapshot, PlanError> {
-        self.reconcile_curator_id(plan_id, now_ms)?;
         let read = self.plan_store.status_projection(plan_id, now_ms)?;
-        let plan = read.plan();
+        let plan = read.input();
         let coverage = compute_coverage_report(plan);
-        let reconcile = self.reconcile_plan_record(&plan, false, None, now_ms)?;
+        let reconcile = self.reconcile_plan_record(plan, false, None, now_ms)?;
         let drift = reconcile.drift;
         let cleanup_debt = reconcile.cleanup_debt;
 
@@ -63,11 +62,11 @@ impl ServiceContext {
                 live_tabs.insert(tab_id.clone());
             }
         }
-        let lanes = lane_rows::build_lane_rows(&plan, |p| self.tab_probe(p), now_ms);
+        let lanes = lane_rows::build_lane_rows(plan, |p| self.tab_probe(p), now_ms);
         let planner_resolution =
             resolve_planner_ref(&plan.planner, &plan.owner, |tab_id| self.tab_probe(tab_id));
         let mut snapshot = build_plan_state_snapshot(
-            &plan,
+            plan,
             coverage,
             drift,
             cleanup_debt,
@@ -78,7 +77,14 @@ impl ServiceContext {
         );
         read.apply_history_facts(&mut snapshot, now_ms);
         snapshot.mission_control.kpi = super::mission_control_ext::plan_kpi(self, plan_id);
-        snapshot.control_loop.suspended_reason = self.curator_suspended_reason(plan);
+        snapshot.control_loop.suspended_reason = self.curator_suspended_reason_for_fields(
+            &plan.mode,
+            &plan.status,
+            &plan.team_id,
+            snapshot.task_counts.total > 0
+                && snapshot.task_counts.done + snapshot.task_counts.cancelled
+                    == snapshot.task_counts.total,
+        );
         if snapshot.control_loop.suspended_reason.is_some() {
             snapshot.control_loop.next_at = None;
         }

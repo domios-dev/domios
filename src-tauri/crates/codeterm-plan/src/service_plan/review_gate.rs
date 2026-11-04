@@ -115,10 +115,14 @@ pub(in crate::service_plan) fn review_gate_status_for(
 }
 
 pub fn clears_review_capacity(plan: &Plan, task: &Task) -> bool {
-    plan.review_policy
+    clears_review_capacity_for(&plan.review_policy, &task.id)
+}
+
+pub(super) fn clears_review_capacity_for(policy: &ReviewPolicy, task_id: &str) -> bool {
+    policy
         .capacity_grants
         .iter()
-        .any(|grant| grant.task_id == task.id)
+        .any(|grant| grant.task_id == task_id)
 }
 
 pub fn validate_dispatch_review_capacity(plan: &Plan, task: &Task) -> Result<(), PlanError> {
