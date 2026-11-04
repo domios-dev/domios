@@ -580,6 +580,12 @@ pub enum AgentRuntimeEvent {
         thread_id: String,
         item: ChatMsg,
     },
+    ChatItemAppend {
+        thread_id: String,
+        item_id: String,
+        content: String,
+        offset: usize,
+    },
     TurnState {
         thread_id: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]

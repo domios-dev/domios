@@ -132,6 +132,40 @@ impl RuntimeMaps {
     }
 }
 
+pub fn translate_with_items(event: &AgentRuntimeEvent, maps: &RuntimeMaps) -> RuntimeEvent {
+    if let AgentRuntimeEvent::ChatItemAppend {
+        thread_id,
+        item_id,
+        content,
+        offset,
+    } = event
+    {
+        if let Some(stored) = maps
+            .items
+            .iter()
+            .find(|stored| stored.thread_id == *thread_id && stored.item.id == *item_id)
+        {
+            if matches!(stored.item.kind.as_str(), "user" | "assistant" | "thinking")
+                && stored.item.content.len() == *offset
+            {
+                let mut next = stored.item.clone();
+                next.content.push_str(content);
+                return RuntimeEvent::ItemUpdated {
+                    thread_id: thread_id.clone(),
+                    item: next,
+                };
+            }
+        }
+        return RuntimeEvent::Notice {
+            thread_id: thread_id.clone(),
+            message:
+                "Streamed row could not be continued because its retained content is unavailable."
+                    .into(),
+        };
+    }
+    translate(event)
+}
+
 pub fn translate(event: &AgentRuntimeEvent) -> RuntimeEvent {
     match event {
         AgentRuntimeEvent::Authentication { authentication } => {
@@ -190,6 +224,10 @@ pub fn translate(event: &AgentRuntimeEvent) -> RuntimeEvent {
             rate_limits: rate_limits.clone(),
             resets: resets.clone(),
             account_credits: account_credits.clone(),
+        },
+        AgentRuntimeEvent::ChatItemAppend { thread_id, .. } => RuntimeEvent::Notice {
+            thread_id: thread_id.clone(),
+            message: "Streamed row requires retained content.".into(),
         },
         AgentRuntimeEvent::ChatItem { thread_id, item } => RuntimeEvent::ItemUpdated {
             thread_id: thread_id.clone(),

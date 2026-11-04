@@ -327,3 +327,17 @@ All frames still reach the reducer. The provider uses this metadata to preserve
 previous-turn chunks and session controls while attributing only postwrite
 updates to the new prompt. These host-only values add no wire fields or I/O
 authority.
+
+
+## Incremental runtime rows
+
+Emit `chatItem` for the first content of a row, then `chatItemAppend` with
+`threadId`, `itemId`, `content` and `offset`. The offset is the UTF-8 byte length
+of the content already emitted for that row. The host appends only when the
+exact thread, row and byte offset match its retained row, then publishes the
+updated row through the ordinary chat path. A missing row or mismatched offset
+produces a visible notice without changing the retained content. Loading replay
+starts each row again with `chatItem` and the same deterministic ID, so it replaces
+the previous projection before appending. Reducer state should retain offsets
+and bounded metadata instead of message bodies. This event adds no host I/O or
+filesystem, environment, network or session authority.

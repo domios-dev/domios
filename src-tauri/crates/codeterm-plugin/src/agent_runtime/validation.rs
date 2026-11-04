@@ -937,6 +937,14 @@ pub fn validate_runtime_reduction(
             | AgentRuntimeEvent::Auth { .. }
             | AgentRuntimeEvent::AuthLogin { .. }
             | AgentRuntimeEvent::Authentication { .. } => continue,
+            AgentRuntimeEvent::ChatItemAppend {
+                thread_id, item_id, ..
+            } => {
+                if !identifier(item_id) {
+                    return Err(invalid("invalid chat item id"));
+                }
+                thread_id
+            }
             AgentRuntimeEvent::ChatItem { thread_id, item } => {
                 if !identifier(&item.id) {
                     return Err(invalid("invalid chat item id"));

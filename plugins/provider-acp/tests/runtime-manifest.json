@@ -132,6 +132,9 @@
     "mcp-fallback-generic-error.json",
     "mcp-no-fallback-auth.json",
     "mcp-no-fallback-session-missing.json",
-    "mcp-no-fallback-method-not-found.json"
+    "mcp-no-fallback-method-not-found.json",
+    "long-stream-complete.json",
+    "long-stream-cancel.json",
+    "oversize-single-frame.json"
   ]
 }

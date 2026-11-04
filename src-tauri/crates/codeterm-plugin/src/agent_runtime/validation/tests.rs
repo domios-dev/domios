@@ -49,3 +49,25 @@ fn stream_window_refuses_malformed_ids_and_sequence_boundaries() {
         assert!(validate_runtime_context(&ctx).is_err());
     }
 }
+
+#[test]
+fn append_events_preserve_item_and_thread_authority() {
+    let context = RuntimeContext {
+        thread_id: Some("own".into()),
+        ..Default::default()
+    };
+    let reduction = |thread: &str, id: &str| RuntimeReduction {
+        state: Value::Null,
+        events: vec![AgentRuntimeEvent::ChatItemAppend {
+            thread_id: thread.into(),
+            item_id: id.into(),
+            content: "delta".into(),
+            offset: 4,
+        }],
+    };
+    assert!(validate_runtime_reduction(&context, &reduction("own", "item")).is_ok());
+    for id in ["", "bad\0id", &"x".repeat(4097)] {
+        assert!(validate_runtime_reduction(&context, &reduction("own", id)).is_err());
+    }
+    assert!(validate_runtime_reduction(&context, &reduction("foreign", "item")).is_err());
+}

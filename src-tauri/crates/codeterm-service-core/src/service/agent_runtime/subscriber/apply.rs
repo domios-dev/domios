@@ -71,11 +71,24 @@ async fn publish_with_origin(
                 continue;
             }
         }
-        let mut runtime = events::translate(&event.event);
+        let append = matches!(&event.event, AgentRuntimeEvent::ChatItemAppend { .. });
+        let mut runtime = if append {
+            let mut maps = session.maps.lock();
+            if maps.epoch != epoch {
+                maps.reset(epoch);
+            }
+            let runtime = events::translate_with_items(&event.event, &maps);
+            events::fold(&mut maps, epoch, &runtime);
+            runtime
+        } else {
+            events::translate(&event.event)
+        };
         if !super::turn_lifecycle::prepare(svc, session, at, &mut runtime) {
             continue;
         }
-        events::fold(&mut session.maps.lock(), epoch, &runtime);
+        if !append {
+            events::fold(&mut session.maps.lock(), epoch, &runtime);
+        }
         if let RuntimeEvent::RequestUpdated {
             thread_id,
             item_id: Some(item_id),

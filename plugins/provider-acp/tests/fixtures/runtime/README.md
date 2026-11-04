@@ -108,3 +108,16 @@ a second failure refuses visibly. Environment credentials use placeholders only.
 `mcp-no-fallback-{auth,session-missing,method-not-found}` keep ACP v1 errors
 -32000, -32002 and -32601 on their existing typed refusal paths without a retry.
 `mcp-fallback-generic-error` proves that a generic -32603 still retries once.
+
+
+## Bounded stream fixtures
+
+`long-stream-complete` and `long-stream-cancel` extend the schema-derived text
+chunk shape to 128 chunks totaling 512 KiB, including non-ASCII text to pin UTF-8
+append offsets. Cancellation sends session/cancel while session/prompt is
+outstanding, then settles only on its cancelled response. `oversize-single-frame`
+projects a visible truncation marker for a 500,000-character frame and retains
+the subsequent healthy chunk. These synthetic stress fixtures share the capture
+limitations above; they are not live receipts. Both JS and native replay discover
+them through runtime-manifest.json. Native host folding replays their row events
+twice to prove exact final content and stable row count.

@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
+import { foldRow } from "./runtimeRows";
 import { assertRuntimeOperation } from "./runtimeAuthority";
-import type {AgentRuntime, AgentEvent, JsonValue, Operation, RpcReply, RuntimeAction, RuntimeContext, RuntimeFrame, RuntimePlan, RuntimeStep, StdioAgentRuntimeCapability} from "@codeterm/plugin-sdk";
+import type {AgentRuntime, AgentEvent, ChatMsg, JsonValue, Operation, RpcReply, RuntimeAction, RuntimeContext, RuntimeFrame, RuntimePlan, RuntimeStep, StdioAgentRuntimeCapability} from "@codeterm/plugin-sdk";
 
 interface Fixture {
   schemaVersion:1;
@@ -48,6 +49,7 @@ for (const name of names) {
   const results:{operation:number; step:RuntimeStep}[] = [];
   const events:AgentEvent[] = [];
   let state:JsonValue = null;
+  let maxStateBytes=0;
   for (const record of fixture.rpc) {
     if (record.direction === "outbound") {
       const entry = fixture.operations[record.operation];
@@ -73,6 +75,8 @@ for (const name of names) {
     } else {
       const reduction = plain(hooks.runtimeReduce(record.context ?? fixture.context,state,[record.frame]));
       state = reduction.state;
+      maxStateBytes=Math.max(maxStateBytes,Buffer.byteLength(JSON.stringify(state)));
+      assert.ok(maxStateBytes<65536,`${name}: reducer state below 64 KiB`);
       events.push(...reduction.events);
     }
   }
@@ -85,6 +89,20 @@ for (const name of names) {
   assert.equal(plans.size,0);
   assert.deepEqual(results,fixture.expected.results,`${name} results`);
   assert.deepEqual(events,fixture.expected.events,`${name} events`);
+  if (name.startsWith("long-stream-") || name === "oversize-single-frame.json") {
+    const rows=new Map<string,ChatMsg>();
+    for (const event of events) foldRow(rows,event);
+    assert.equal(rows.size,1);
+    const final=[...rows.values()][0].content;
+    if (name.startsWith("long-stream-")) assert.equal(final,("x".repeat(4092)+"🌍").repeat(128));
+    else {
+      assert.ok(final.includes("[ACP row truncated: oversized text update]"));
+      assert.ok(final.endsWith("healthy"));
+    }
+    assert.ok(events.some(event=>event.kind === "turnState" && event.state === "idle"
+      && (name !== "long-stream-cancel.json" || event.detail === "interrupted")));
+    console.log(`✓ ACP ${name}: final row ${Buffer.byteLength(final)} bytes; max state ${maxStateBytes} bytes`);
+  }
   console.log(`✓ ACP ${name}`);
 }
 const fixture:Fixture = JSON.parse(fs.readFileSync(new URL("initialize-new-prompt.json",root),"utf8"));
@@ -236,10 +254,12 @@ const loaded=reattach.runtimeResponse(attachBound,resume,local.state,{kind:"succ
 assert.deepEqual(plain(loaded),{kind:"complete",result:{kind:"threadLoaded",threadId:"own",settings:{commands:[],configOptions:[],modes:[{id:"safe",name:"Safe"}],mode:"safe"}}});
 const afterAttach=reattach.runtimeReduce(attachBound,beforeAttach.state,[chunk]);
 const beforeItems=beforeAttach.events.filter(event=>event.kind === "chatItem");
-const afterItems=afterAttach.events.filter(event=>event.kind === "chatItem");
+const afterItems=afterAttach.events.filter(event=>event.kind === "chatItem" || event.kind === "chatItemAppend");
 assert.ok(beforeItems.length && afterItems.length);
-assert.equal(afterItems[0].item.id,beforeItems[0].item.id);
-assert.equal(afterItems[0].item.content,"firstfirst");
+assert.equal(afterItems[0].kind === "chatItemAppend" && afterItems[0].itemId,beforeItems[0].item.id);
+assert.equal(afterItems[0].kind === "chatItemAppend" && afterItems[0].content,"first");
+assert.equal(afterItems[0].kind,"chatItemAppend");
+assert.equal(afterItems[0].kind === "chatItemAppend" && afterItems[0].offset,5);
 assert.throws(()=>reattach.runtimePlan(attachBound,{...resume,threadId:"foreign"}));
 assertPlanRefusal(reattach.runtimePlan({...attachBound,threadId:"foreign"},{...resume,threadId:"foreign"}));
 assertPlanRefusal(reattach.runtimePlan({...attachBound,epoch:attachBound.epoch+1},resume));
@@ -278,3 +298,53 @@ for (const offered of [false,true]) {
   assert.equal(instance.runtimeResponse(bound,input,prompting.state,error).kind,"refused");
   assert.equal(JSON.stringify(prompting.state).includes("<credential-placeholder>"),false);
 }
+
+const {reduceStream,settleStream}=await import("../src/runtimeReduce");
+const streamContext={...bound,tabId:"long-stream",claimedSends:[]};
+const streamFrame=(value:string):RuntimeFrame=>({kind:"notification",method:"session/update",params:{sessionId:"own",update:{sessionUpdate:"agent_message_chunk",messageId:"long",content:{type:"text",text:value}}}});
+let longState:JsonValue=null;
+for (let index=0;index<128;index++) {
+  const reduced=reduceStream(streamContext,longState,[streamFrame("x".repeat(4096))],{replay:0,prompt:1,loading:false});
+  longState=reduced.state;
+  assert.ok(JSON.stringify(longState).length<65536,"long stream state stays below 64 KiB");
+}
+assert.ok(settleStream(streamContext,longState,"cancelled").events.some(event=>event.kind==="turnState" && event.detail==="interrupted"));
+console.log("✓ ACP bounded 512 KiB long stream and cancellation");
+
+const projectionRows=new Map<string,ChatMsg>();
+let projected:JsonValue=null;
+for (const replay of [0,1,2]) {
+  for (const value of ["one🌍","two","three"]) {
+    const reduction=reduceStream(streamContext,projected,[streamFrame(value)],{replay,prompt:1,loading:replay>0});
+    projected=reduction.state;
+    for (const event of reduction.events) foldRow(projectionRows,event);
+  }
+  assert.equal(projectionRows.size,1);
+  assert.equal([...projectionRows.values()][0].content,"one🌍twothree");
+}
+let interleaved:JsonValue=null;
+const interleavedRows=new Map<string,ChatMsg>();
+for (const frame of [streamFrame("first"),{...streamFrame("thought"),params:{sessionId:"own",update:{sessionUpdate:"agent_thought_chunk",messageId:"thought",content:{type:"text",text:"thought"}}}} as RuntimeFrame,streamFrame("last")]) {
+  const reduction=reduceStream(streamContext,interleaved,[frame],{replay:0,prompt:1,loading:false});
+  interleaved=reduction.state;
+  for (const event of reduction.events) foldRow(interleavedRows,event);
+}
+assert.equal(interleavedRows.get("own:turn:1:message:long")?.content,"firstlast");
+assert.equal(interleavedRows.size,2);
+console.log("✓ ACP UTF-8 offsets, explicit-id continuation, and remote load replay preserve row content and identity");
+
+let many:JsonValue=null;
+const manyRows=new Map<string,ChatMsg>();
+for (let index=0;index<512;index++) {
+  const original=streamFrame("part");
+  const frame:RuntimeFrame={...original,params:{sessionId:"own",update:{sessionUpdate:"agent_message_chunk",messageId:index === 0 ? "long" : `message-${index}-${"a".repeat(100)}`,content:{type:"text",text:"part"}}}};
+  const reduced=reduceStream(streamContext,many,[frame],{replay:0,prompt:1,loading:false});
+  many=reduced.state;
+  assert.ok(Buffer.byteLength(JSON.stringify(many))<65536);
+  for (const event of reduced.events) foldRow(manyRows,event);
+}
+const continued=reduceStream(streamContext,many,[streamFrame("last")],{replay:0,prompt:1,loading:false});
+for (const event of continued.events) foldRow(manyRows,event);
+assert.equal(manyRows.get("own:turn:1:message:long")?.content,"partlast");
+assert.ok([...manyRows.values()].some(row=>row.content.includes("message identity budget exhausted")));
+console.log("✓ ACP bounded identity metadata degrades new rows visibly while retaining earlier continuation offsets");

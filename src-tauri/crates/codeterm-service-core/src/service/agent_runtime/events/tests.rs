@@ -207,3 +207,67 @@ fn authentication_declarations_are_cleared_with_the_runtime_epoch() {
     maps.reset(2);
     assert!(maps.authentication.is_none());
 }
+
+#[test]
+fn shared_long_stream_fixtures_fold_append_content_and_survive_replay() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../plugins/provider-acp/tests/fixtures/runtime");
+    for name in [
+        "long-stream-complete",
+        "long-stream-cancel",
+        "oversize-single-frame",
+    ] {
+        let fixture: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(root.join(format!("{name}.json"))).unwrap(),
+        )
+        .unwrap();
+        let events: Vec<AgentRuntimeEvent> =
+            serde_json::from_value(fixture["expected"]["events"].clone()).unwrap();
+        let mut maps = RuntimeMaps::default();
+        for _ in 0..2 {
+            for source in &events {
+                let event = translate_with_items(source, &maps);
+                fold(&mut maps, 1, &event);
+            }
+            assert_eq!(maps.items.len(), 1);
+            let content = &maps.items[0].item.content;
+            if name == "oversize-single-frame" {
+                assert!(content.contains("[ACP row truncated: oversized text update]"));
+                assert!(content.ends_with("healthy"));
+            } else {
+                assert_eq!(*content, format!("{}🌍", "x".repeat(4092)).repeat(128));
+                assert_eq!(content.len(), 512 * 1024);
+            }
+        }
+        if name == "long-stream-cancel" {
+            assert!(events.iter().any(|event| matches!(
+                event,
+                AgentRuntimeEvent::TurnState {
+                    state: RuntimeTurnState::Idle,
+                    detail: Some(RuntimeTurnDetail::Interrupted),
+                    ..
+                }
+            )));
+        }
+    }
+}
+
+#[test]
+fn append_requires_the_exact_thread_row_and_byte_offset() {
+    let mut maps = RuntimeMaps::default();
+    let mut row = item("row", false, "🌍");
+    row.kind = "assistant".into();
+    put(&mut maps, 1, row);
+    for (thread, id, offset) in [("foreign", "row", 4), ("t", "missing", 4), ("t", "row", 1)] {
+        let source = AgentRuntimeEvent::ChatItemAppend {
+            thread_id: thread.into(),
+            item_id: id.into(),
+            content: "suffix".into(),
+            offset,
+        };
+        let event = translate_with_items(&source, &maps);
+        assert!(matches!(event, RuntimeEvent::Notice { .. }));
+        fold(&mut maps, 1, &event);
+        assert_eq!(maps.items[0].item.content, "🌍");
+    }
+}
