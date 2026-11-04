@@ -747,3 +747,5 @@ mod binding_rows;
 mod task_authority;
 
 mod local_dispatch;
+
+mod adoption_attachments;
