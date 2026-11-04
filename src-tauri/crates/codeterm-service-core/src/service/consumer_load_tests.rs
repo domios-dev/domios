@@ -493,7 +493,11 @@ fn run_lane_watchdog_never_loads_unmatched_plans() {
     start(store);
 
     fx.service.run_lane_watchdog();
-    assert!(store.plan_loads_for_test().contains(&running));
+    assert!(store
+        .lane_watchdog_projection()
+        .unwrap()
+        .iter()
+        .any(|plan| plan.id == running));
     assert_never_loaded(store, &[&queued, &archived]);
 }
 

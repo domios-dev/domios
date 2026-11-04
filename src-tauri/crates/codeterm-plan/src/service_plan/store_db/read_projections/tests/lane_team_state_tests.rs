@@ -61,6 +61,9 @@ fn bounded_state(consumer: &str) {
         ) {
             plan.tasks[0].status = crate::plan::TaskStatus::Done;
         }
+        if consumer == "run_lane_watchdog" {
+            plan.tasks[0].assigned_tab_id = Some("worker".into());
+        }
         let database = fixtures::database(directory.path(), &plan);
         fixtures::audit(&database);
         take_metrics();
@@ -115,6 +118,30 @@ fn bounded_state(consumer: &str) {
                 assert_eq!(read[0].canonical_path(), "/canonical");
                 serde_json::to_vec(&read).unwrap()
             }
+            "clean_plan_lanes_with_progress" => {
+                let read = database.lane_cleanup_projection(&plan.id).unwrap();
+                assert_eq!(
+                    serde_json::to_value(&read).unwrap(),
+                    serde_json::to_value(crate::service_plan::LaneCleanupPlanRead::from(&plan))
+                        .unwrap()
+                );
+                assert_eq!(read.tasks.len(), fixtures::TASKS);
+                serde_json::to_vec(&read).unwrap()
+            }
+            "run_lane_watchdog" => {
+                let read = database.lane_watchdog_projection().unwrap();
+                assert_eq!(read.len(), 1);
+                assert_eq!(
+                    serde_json::to_value(&read[0]).unwrap(),
+                    serde_json::to_value(crate::service_plan::LaneWatchdogRead::from(&plan))
+                        .unwrap()
+                );
+                assert_eq!(
+                    read[0].tasks[0].expected_session.as_deref(),
+                    Some("session")
+                );
+                serde_json::to_vec(&read).unwrap()
+            }
             "lifecycle_plan" => {
                 let read = database.plan_lifecycle_projection(&plan.id).unwrap();
                 let expected = crate::service_plan::PlanLifecycleRead::from(&plan);
@@ -136,8 +163,13 @@ fn bounded_state(consumer: &str) {
         let decoded = crate::service_plan::store_sync::take_decoded_row_bytes();
         let serialized = crate::service_plan::store_rows::take_serialized_row_bytes();
         assert_eq!(metrics.queries, 1);
-        assert!(metrics.materialized_bytes < 512);
-        assert!(decoded < 512);
+        let limit = if consumer == "clean_plan_lanes_with_progress" {
+            1024 * 1024
+        } else {
+            512
+        };
+        assert!(metrics.materialized_bytes < limit);
+        assert!(decoded < limit);
         assert_eq!(serialized, 0);
         assert!(fixtures::audit_counts(&database).is_empty());
         println!("fixture={} consumer={consumer} tasks={} base_bytes={} strides={strides} unrelated_attempts={attempts} extra_body={body} rounds={rounds} queries={} materialized_text_bytes={} decoded_json_bytes={decoded} serialized_row_bytes={serialized} response_bytes={} changed_rows=0", fixtures::SEED, fixtures::TASKS, fixtures::CONTENT_BYTES, metrics.queries, metrics.materialized_bytes, response.len());
@@ -261,4 +293,46 @@ fn settle_lanes_held_by_closed_tab_selected_bytes() {
 #[test]
 fn settle_finished_lane_history_selected_bytes() {
     bounded_state("settle_finished_lane_history");
+}
+
+#[test]
+fn clean_plan_lanes_with_progress_selected_bytes() {
+    bounded_state("clean_plan_lanes_with_progress");
+}
+#[test]
+fn run_lane_watchdog_selected_bytes() {
+    bounded_state("run_lane_watchdog");
+}
+
+#[test]
+fn cleanup_watchdog_and_lifecycle_read_errors_are_loud() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut plan = fixtures::fixture(directory.path(), 0, 0);
+    plan.tasks[0].status = crate::plan::TaskStatus::InProgress;
+    let database = fixtures::database(directory.path(), &plan);
+    assert!(matches!(
+        database.lane_cleanup_projection("missing"),
+        Err(PlanError::NotFound)
+    ));
+    assert!(matches!(
+        database.plan_lifecycle_projection("missing"),
+        Err(PlanError::NotFound)
+    ));
+    database
+        .connection
+        .lock()
+        .execute(
+            "UPDATE plans SET header_json=json_set(header_json,'$.owner.tab_id',17) WHERE id=?1",
+            [&plan.id],
+        )
+        .unwrap();
+    assert!(database.plan_lifecycle_projection(&plan.id).is_err());
+    assert!(database.lane_watchdog_projection().is_err());
+    database
+        .connection
+        .lock()
+        .execute_batch("DROP TABLE plan_task_attempts")
+        .unwrap();
+    assert!(database.lane_cleanup_projection(&plan.id).is_err());
+    assert!(database.lane_watchdog_projection().is_err());
 }

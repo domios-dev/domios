@@ -33,7 +33,7 @@ use crate::plan::reconcile::{
     detect_lane_demotions, detect_plan_drift, DriftItem, DriftKind, ReconcileConfig, TabProbe,
     TabRole, DEFAULT_STALE_REVIEW_MS,
 };
-use crate::plan::{PlanStatus, Task, TaskStatus};
+use crate::plan::TaskStatus;
 use crate::service::plan::{cleanup_debt, PlanError, ReconcileFixResult};
 
 #[derive(Debug, Clone, Serialize)]
@@ -162,21 +162,25 @@ impl ServiceContext {
         let now_ms = now_ms();
         let thresholds = LaneThresholds::default();
         let mut changed_plans = Vec::new();
-        let candidates = crate::service::plan::PlanMatch::active().and(
-            crate::service::plan::TaskMatch::with_status(&[TaskStatus::InProgress]),
-        );
-        for plan in self.plan_store.plans_matching(&candidates) {
-            if plan.status != PlanStatus::Active {
-                continue;
+        let plans = match self.plan_store.lane_watchdog_projection() {
+            Ok(plans) => plans,
+            Err(error) => {
+                log::error!("[lane-watchdog] cannot read candidates: {error}");
+                return;
             }
+        };
+        for plan in plans {
             let mut config = ReconcileConfig::new(now_ms);
-            config.current_orchestrator_tab_id = plan.owner.tab_id.clone();
+            config.current_orchestrator_tab_id = plan.owner_tab_id.clone();
             let expected: HashMap<String, String> = plan
                 .tasks
                 .iter()
                 .filter(|task| task.status == TaskStatus::InProgress)
                 .filter_map(|task| {
-                    Some((task.assigned_tab_id.clone()?, live_attempt_session(task)?))
+                    Some((
+                        task.assigned_tab_id.clone()?,
+                        task.expected_session.clone()?,
+                    ))
                 })
                 .collect();
             let demotions = detect_lane_demotions(&plan, &config, &thresholds, |tab_id| {
@@ -294,10 +298,7 @@ fn now_ms() -> u64 {
         .unwrap_or_default()
 }
 
-fn live_attempt_session(task: &Task) -> Option<String> {
-    live_attempt_session_for_assignment(task.assigned_tab_id.as_deref(), &task.execution_attempts)
-}
-
+#[cfg(test)]
 fn live_attempt_session_for_assignment(
     assigned_tab_id: Option<&str>,
     attempts: &[crate::plan::TaskExecutionAttempt],
