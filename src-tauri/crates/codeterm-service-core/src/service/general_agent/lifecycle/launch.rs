@@ -107,7 +107,13 @@ pub(super) fn start(
             return;
         }
     }
-    env_vars.extend(svc.tab_env(&tab_id));
+    match svc.tab_env(&tab_id) {
+        Ok(env) => env_vars.extend(env),
+        Err(error) => {
+            fail_general_agent_start(svc, mux, &tab_id, &error);
+            return;
+        }
+    }
     crate::service::launch_diagnostics::log_launch_environment("general_agent", &tab_id, &env_vars);
 
     let pty_claim = svc.pty_ownership.acquire(&tab_id);

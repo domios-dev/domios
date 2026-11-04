@@ -101,7 +101,8 @@ fn chatbackend_host_exec_env_includes_tab_identity() {
             "padDir": "/instance/runtime/agent-pads/chat-tab",
             "config": {}
         }),
-    );
+    )
+    .unwrap();
 
     assert_eq!(
         env.get("CODETERM_TAB_ID").map(String::as_str),
@@ -545,4 +546,26 @@ fn set_model_missing_export_errors() {
     let vm = vm_with(r#"module.exports.default = { poll() { return []; } }"#);
     let b = JsChatBackend::new(vm, "local-shell");
     assert!(b.set_model("s", "m").is_err());
+}
+
+#[test]
+fn host_environment_failure_refuses_session_before_plugin_code_runs() {
+    use crate::host_traits::PluginHostCtx;
+    use crate::js_runtime::host_compute::tests::AnalyticsHost;
+    let mut host = AnalyticsHost::default();
+    host.process_env_error = Some("storage unavailable".into());
+    let host: Arc<dyn PluginHostCtx> = Arc::new(host);
+    assert_eq!(
+        host.tab_process_env("tab", "nonce"),
+        Err("storage unavailable".into())
+    );
+    let vm = vm_with(
+        "module.exports.default = { openSession() { throw new Error('plugin must not run'); } };",
+    );
+    assert!(vm.set_service(Arc::downgrade(&host)));
+    let backend = JsChatBackend::new(vm, "test-chatbackend");
+    let error = backend
+        .open_session(json!({"tabId":"tab","bindingNonce":"nonce"}))
+        .unwrap_err();
+    assert!(matches!(error, ChatBackendError::Call(ref reason) if reason == "storage unavailable"));
 }

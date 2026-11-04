@@ -619,7 +619,8 @@ async fn ensure_locked(
                 .ok_or_else(|| RuntimeFailure::SpawnFailed {
                     reason: "Runtime cwd missing".into(),
                 })?;
-            let mut env = super::environment::compose(&owner, &target, &provider_id, &nonce);
+            let mut env = super::environment::compose(&owner, &target, &provider_id, &nonce)
+                .map_err(|reason| RuntimeFailure::SpawnFailed { reason })?;
             env.extend(
                 owner
                     .model_provider_launch_env(&provider_id)

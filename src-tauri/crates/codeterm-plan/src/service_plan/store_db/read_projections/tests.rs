@@ -21,6 +21,7 @@ mod header_tests;
 mod hierarchy_routing_tests;
 mod hierarchy_tests;
 mod index_filter_tests;
+mod launch_restore_tests;
 mod notice_tests;
 mod qa_tests;
 mod related_tests;

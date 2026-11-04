@@ -125,6 +125,7 @@ async fn descendants_inherit_each_machine_level_and_keep_the_original_root_autho
             );
             let token = service
                 .frontend_pty_env(Some(&child))
+                .unwrap()
                 .remove("CODETERM_API_TOKEN")
                 .unwrap();
             for (friendship, allowed) in [("a".repeat(64), true), ("b".repeat(64), false)] {

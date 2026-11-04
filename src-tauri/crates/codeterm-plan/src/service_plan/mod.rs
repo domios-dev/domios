@@ -27,6 +27,7 @@ pub use store_db::read_projections::hierarchy::HierarchyAuthorityRead;
 pub use store_db::read_projections::hierarchy_routing::{
     GateAnswerNoticeRead, PlannerRehydrateGateRead, PlannerRehydrateRead, TaskReviewNoticeRead,
 };
+pub use store_db::read_projections::launch_restore::{LaunchLaneRead, TabLaunchTaskRead};
 pub use store_db::read_projections::runtime_identity::RuntimePlanIdentityRead;
 pub use store_db::read_projections::transfer_authority::TransferTaskAuthorityRead;
 mod header_projection;

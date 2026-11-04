@@ -29,13 +29,27 @@ pub(super) fn build_relaunch_command(
     };
     let session_id = snap.session_id.as_deref();
     let cwd = snap.cwd.as_deref().unwrap_or_default();
-    let canonical_project = snap.cwd.as_deref().and_then(|cwd| {
-        crate::service::launch_session_detection::canonical_project_for_tab(
-            &svc.plan_store,
-            &snap.tab_id,
-            cwd,
-        )
-    });
+    let canonical_project = match snap
+        .cwd
+        .as_deref()
+        .map(|cwd| {
+            crate::service::launch_session_detection::canonical_project_for_tab(
+                &svc.plan_store,
+                &snap.tab_id,
+                cwd,
+            )
+        })
+        .transpose()
+    {
+        Ok(project) => project.flatten(),
+        Err(error) => {
+            log::error!(
+                "[agent-restart] canonical project lookup failed tab={}: {error}",
+                snap.tab_id
+            );
+            return None;
+        }
+    };
     let structured_prompt_server = svc
         .agent_registry
         .with_provider(provider, |p| p.needs_structured_prompt_server())

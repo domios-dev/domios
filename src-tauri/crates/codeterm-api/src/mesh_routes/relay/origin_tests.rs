@@ -124,6 +124,7 @@ async fn relay_wire_round_trips_preserve_agent_and_owner_authority_through_neste
     let agent = first
         .svc
         .frontend_pty_env(Some(&tab))
+        .unwrap()
         .remove("CODETERM_API_TOKEN")
         .unwrap();
     let peer = second.mesh.lock().sign_request().unwrap();
@@ -405,6 +406,7 @@ async fn agent_mesh_send_and_tab_list_succeed_without_owner_authority() {
     let token = first
         .svc
         .frontend_pty_env(Some(&source_tab))
+        .unwrap()
         .remove("CODETERM_API_TOKEN")
         .unwrap();
     let app = Router::new()
