@@ -90,7 +90,9 @@ fn prepared_compaction_refuses_concurrent_append_without_losing_history() {
         .append(key(), LifecycleTransition::LaunchReady)
         .unwrap();
     journal.cursor.lock().compact_at_records = 1;
-    let error = journal.commit_compaction(&prepared, 1, 1, 1).unwrap_err();
+    let error = journal
+        .commit_compaction(&prepared, 1, 1, 1, None)
+        .unwrap_err();
     assert!(error.contains("compaction conflict"), "{error}");
     let history = journal.load();
     assert!(history.tail.is_intact());
@@ -138,4 +140,35 @@ fn held_file_writer_does_not_block_epoch_or_index_reads() {
         LifecycleEpoch(2)
     );
     assert_eq!(journal.load().records.len(), 1);
+}
+
+#[test]
+fn stale_compaction_cannot_publish_quarantine_or_overwrite_a_concurrent_append() {
+    let dir = tempfile::tempdir().unwrap();
+    let journal = TabLifecycleJournal::for_dir(dir.path().into());
+    journal
+        .append(key(), LifecycleTransition::EpochOpened)
+        .unwrap();
+    OpenOptions::new()
+        .append(true)
+        .open(journal.path())
+        .unwrap()
+        .write_all(b"{not json\n")
+        .unwrap();
+    let load = journal.load();
+    let (quarantine, original_len) = prepare_refused_tail(journal.path(), &load)
+        .unwrap()
+        .unwrap();
+    let prepared = dir.path().join("prepared.jsonl");
+    write_all_records(&prepared, &load.records).unwrap();
+    journal
+        .append(key(), LifecycleTransition::LaunchReady)
+        .unwrap();
+    let before = fs::read(journal.path()).unwrap();
+    let error = journal
+        .commit_compaction(&prepared, 1, 1, 1, Some((&quarantine, original_len)))
+        .unwrap_err();
+    assert!(error.contains("compaction conflict"), "{error}");
+    assert_eq!(fs::read(journal.path()).unwrap(), before);
+    assert!(!refused_tail_path(journal.path()).exists());
 }
