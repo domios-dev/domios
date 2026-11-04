@@ -7,6 +7,18 @@ mod build_roots;
 mod ceiling;
 mod neighbor;
 
+pub const EXECUTION_SANDBOX_UNSUPPORTED: &str = "execution_sandbox_unsupported";
+
+fn unsupported(message: String) -> String {
+    format!("{EXECUTION_SANDBOX_UNSUPPORTED}: {message}")
+}
+
+pub fn unsupported_message(error: &str) -> Option<&str> {
+    error
+        .strip_prefix(EXECUTION_SANDBOX_UNSUPPORTED)?
+        .strip_prefix(": ")
+}
+
 /// Every caller identity a delegated spawn names, plus the request's caller header, bounds its sandbox.
 pub fn enforce_delegation_ceiling(
     svc: &ServiceContext,
@@ -108,11 +120,11 @@ fn mode_for_intent(
             crate::agent::provider::current_platform_tag(),
             runtime,
         )
-        .map_err(|reason| format!("Provider {provider}: {reason}"))?;
+        .map_err(|reason| unsupported(format!("Provider {provider}: {reason}")))?;
     let Some(mode) = mode else {
-        return Err(format!(
+        return Err(unsupported(format!(
             "Provider {provider}: requested sandbox is unsupported"
-        ));
+        )));
     };
     capability.validate_arguments(arguments)?;
     if !arguments.is_empty() {

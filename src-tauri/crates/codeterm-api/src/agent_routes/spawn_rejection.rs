@@ -31,6 +31,15 @@ pub(crate) const SPAWN_REFUSAL_CLASS_UNCLASSIFIED: &str = "unknown";
 
 impl From<String> for SpawnRejection {
     fn from(message: String) -> Self {
+        if let Some(detail) =
+            codeterm_service_core::service::execution_sandbox::unsupported_message(&message)
+        {
+            return Self::new(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                codeterm_service_core::service::execution_sandbox::EXECUTION_SANDBOX_UNSUPPORTED,
+                detail.to_string(),
+            );
+        }
         if let Some((code, _)) = message.split_once(':') {
             if matches!(
                 code,

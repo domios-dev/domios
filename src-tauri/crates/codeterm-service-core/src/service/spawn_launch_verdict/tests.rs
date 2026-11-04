@@ -110,6 +110,7 @@ fn spawn_reports_pre_ready_exit_as_error() {
     let data = failure.data();
     assert_eq!(data["type"], SpawnLaunchFailure::CODE);
     assert_eq!(data["tab_id"], tab_id);
+    assert!(data.get("launch_state").is_none());
 }
 
 #[test]
@@ -139,4 +140,84 @@ fn spawn_verdict_waits_for_readiness_and_never_calls_a_deadline_ready() {
         .service
         .emit_boot_stage(&tab_id, BootStage::AgentReady, None);
     assert_eq!(waiter.join().unwrap(), Ok(SpawnLaunchVerdict::Ready));
+}
+
+#[test]
+fn runtime_spawn_requires_own_bound_session_and_reports_pending_without_waiting() {
+    let (mut mux, tab_id) = MultiplexerState::new();
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.backing = crate::multiplexer::types::TabBacking::ChatBackend {
+        plugin_id: "opaque-runtime".into(),
+        session_id: String::new(),
+    };
+    tab.agent_booting = false;
+    for state in [None, Some("loading"), Some("loaded"), Some("loginPending")] {
+        tab.agent_runtime_state =
+            state.map(|state| serde_json::json!({"state": state, "epoch": 1}));
+        assert_eq!(
+            classify_spawn_launch(Some(tab)),
+            Some(SpawnLaunchVerdict::Pending)
+        );
+    }
+    tab.agent_runtime_state = Some(serde_json::json!({"state":"loaded","epoch":1}));
+    tab.backing = crate::multiplexer::types::TabBacking::ChatBackend {
+        plugin_id: "opaque-runtime".into(),
+        session_id: "own-session".into(),
+    };
+    tab.agent_session_id = Some("own-session".into());
+    tab.session_binding_nonce = Some("own-nonce".into());
+    tab.reported_session_binding_nonce = Some("stale-nonce".into());
+    assert_eq!(
+        classify_spawn_launch(Some(tab)),
+        Some(SpawnLaunchVerdict::Pending)
+    );
+    tab.reported_session_binding_nonce = tab.session_binding_nonce.clone();
+    assert_eq!(
+        classify_spawn_launch(Some(tab)),
+        Some(SpawnLaunchVerdict::Bound)
+    );
+    assert_eq!(SpawnLaunchVerdict::Bound.launch_state(), "bound");
+    tab.agent_runtime_state = Some(
+        serde_json::json!({"state":"degraded","reason":"Provider refused: protocol_error","epoch":1}),
+    );
+    let fixture = ServiceFixture::new(mux);
+    let failure = fixture
+        .service
+        .await_spawn_launch_verdict(&tab_id, Duration::from_secs(60))
+        .unwrap_err();
+    assert_eq!(failure.reason, "Provider refused: protocol_error");
+    assert_eq!(failure.data()["reason"], "Provider refused: protocol_error");
+    assert_eq!(failure.data()["launch_state"], "failed");
+    assert!(!failure.data()["retry_hint"]
+        .as_str()
+        .unwrap()
+        .contains("exited"));
+}
+
+#[test]
+fn runtime_spawn_pending_is_a_snapshot_even_with_a_long_verdict_deadline() {
+    let (mut mux, tab_id) = MultiplexerState::new();
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.backing = crate::multiplexer::types::TabBacking::ChatBackend {
+        plugin_id: "opaque-runtime".into(),
+        session_id: String::new(),
+    };
+    tab.agent_runtime_state = Some(serde_json::json!({"state":"loading","epoch":1}));
+    let fixture = ServiceFixture::new(mux);
+    let verdict = fixture
+        .service
+        .await_spawn_launch_verdict(&tab_id, Duration::from_secs(60))
+        .unwrap();
+    assert_eq!(verdict.launch_state(), "pending");
+    assert!(verdict.warning(&tab_id).is_some());
+}
+
+#[test]
+fn pty_spawn_verdict_ignores_runtime_state_and_keeps_existing_ready_label() {
+    let mut tab = tab_at(None, false, None);
+    tab.agent_runtime_state =
+        Some(serde_json::json!({"state":"degraded","reason":"opaque failure"}));
+    let verdict = classify_spawn_launch(Some(&tab)).unwrap();
+    assert_eq!(verdict, SpawnLaunchVerdict::Ready);
+    assert_eq!(verdict.launch_state(), "ready");
 }
