@@ -499,3 +499,138 @@ fn admission_target_and_unplanned_section_reads_have_fixed_materialization() {
         prior = Some(measured);
     }
 }
+
+#[test]
+fn worker_transfer_projection_keeps_unique_counts_and_fixed_selected_metadata() {
+    use crate::plan::{PlanMode, TaskLaneMetadata};
+    use crate::service_plan::mutations::agent_lifecycle::VerifiedWorkerTransferBinding;
+    let mut prior = None;
+    for (strides, attempts, body, history) in [
+        (0, 1, 0, 0),
+        (2048, 1, 0, 0),
+        (0, 2048, 0, 0),
+        (0, 1, 32768, 0),
+        (0, 1, 0, 2048),
+    ] {
+        let directory = tempfile::tempdir().unwrap();
+        let mut plan = fixtures::fixture(directory.path(), strides, attempts);
+        plan.mode = PlanMode::Execution;
+        plan.team_id = Some("team".into());
+        let task = &mut plan.tasks[0];
+        task.status = TaskStatus::InProgress;
+        task.assigned_tab_id = Some("worker".into());
+        task.lane = TaskLaneMetadata {
+            tab_id: Some("worker".into()),
+            workspace_id: Some("workspace".into()),
+            worktree_path: Some("/fixture/lane".into()),
+            branch: Some("lane/worker".into()),
+            base: Some("base".into()),
+            ..Default::default()
+        };
+        task.interruption.owner_epoch = 7;
+        task.interruption.owner_tab_id = Some("worker".into());
+        task.interruption.owner_session_id = Some("session".into());
+        let attempt = &mut task.execution_attempts[0];
+        attempt.provider = Some("provider".into());
+        attempt.agent_type = Some("provider".into());
+        attempt.worktree_path = task.lane.worktree_path.clone();
+        attempt.branch = task.lane.branch.clone();
+        attempt.base = task.lane.base.clone();
+        attempt.acknowledged_at = Some(4);
+        attempt.interruption.owner_epoch = 7;
+        let source = attempt.clone();
+        for index in 0..history {
+            let mut old = source.clone();
+            old.id = format!("unselected-{index}");
+            old.closed_at = Some(1);
+            task.execution_attempts.push(old);
+        }
+        task.body.push_str(&"x".repeat(body));
+        task.lane.cleanup_hints.push("x".repeat(body));
+        plan.tasks[1].body.push_str(&"x".repeat(body));
+        let expected = VerifiedWorkerTransferBinding {
+            plan_id: plan.id.clone(),
+            team_id: "team".into(),
+            owner_tab_id: "owner".into(),
+            owner_session_id: "owner-session".into(),
+            task_id: "task_0000".into(),
+            attempt_id: "current".into(),
+            worker_tab_id: "worker".into(),
+            workspace_id: "workspace".into(),
+            worktree_path: "/fixture/lane".into(),
+            session_id: "session".into(),
+            binding_nonce: "nonce".into(),
+            provider: "provider".into(),
+            owner_epoch: 7,
+        };
+        let database = fixtures::database(directory.path(), &plan);
+        fixtures::audit(&database);
+        take_metrics();
+        super::super::super::super::store_sync::take_decoded_row_bytes();
+        super::super::super::super::store_rows::take_serialized_row_bytes();
+        let read = database.worker_transfer_projection(&expected).unwrap();
+        assert_eq!(
+            (
+                read.assignments,
+                read.lanes,
+                read.worktrees,
+                read.open_attempts
+            ),
+            (1, 1, 1, 1)
+        );
+        assert!(read.subject.as_ref().unwrap().matches(&expected));
+        let metrics = take_metrics();
+        let decoded = super::super::super::super::store_sync::take_decoded_row_bytes();
+        let serialized = super::super::super::super::store_rows::take_serialized_row_bytes();
+        let response = serde_json::to_vec(&read).unwrap().len();
+        assert_eq!(metrics.queries, 1);
+        assert!(metrics.materialized_bytes < 2048);
+        assert!(decoded < 2048);
+        assert_eq!(serialized, 0);
+        assert!(fixtures::audit_counts(&database).is_empty());
+        println!("fixture={} consumer=worker_transfer tasks={} base_bytes={} old_strides={strides} unrelated_attempts={attempts} extra_body={body} unselected_target_history={history} queries={} materialized_text_bytes={} decoded_json_bytes={decoded} serialized_row_bytes={serialized} response_bytes={response} changed_rows=0",fixtures::SEED,fixtures::TASKS,fixtures::CONTENT_BYTES,metrics.queries,metrics.materialized_bytes);
+        let measured = (metrics, decoded, response);
+        if let Some(prior) = &prior {
+            assert_eq!(&measured, prior);
+        }
+        prior = Some(measured);
+        database.connection.lock().execute("UPDATE plan_task_attempts SET row_json=json_set(row_json,'$.acknowledged_at','invalid') WHERE attempt_id='current'",[]).unwrap();
+        assert!(database.worker_transfer_projection(&expected).is_err());
+    }
+}
+
+#[test]
+fn task_name_projection_does_not_materialize_body_or_history() {
+    let mut prior = None;
+    for (strides, attempts, body) in [(0, 1, 0), (2048, 1, 0), (0, 2048, 0), (0, 1, 32768)] {
+        let directory = tempfile::tempdir().unwrap();
+        let mut plan = fixtures::fixture(directory.path(), strides, attempts);
+        plan.tasks[0].body.push_str(&"x".repeat(body));
+        let database = fixtures::database(directory.path(), &plan);
+        fixtures::audit(&database);
+        take_metrics();
+        super::super::super::super::store_sync::take_decoded_row_bytes();
+        super::super::super::super::store_rows::take_serialized_row_bytes();
+        let name = database.task_name_projection("fixture-0000").unwrap();
+        assert_eq!(name, plan.tasks[0].name);
+        let metrics = take_metrics();
+        assert_eq!(metrics.queries, 1);
+        assert_eq!(metrics.materialized_bytes, name.len());
+        let decoded = super::super::super::super::store_sync::take_decoded_row_bytes();
+        let serialized = super::super::super::super::store_rows::take_serialized_row_bytes();
+        assert_eq!(decoded, 0);
+        assert_eq!(serialized, 0);
+        assert!(fixtures::audit_counts(&database).is_empty());
+        let response = serde_json::to_vec(&name).unwrap().len();
+        println!("fixture={} consumer=task_name tasks={} base_bytes={} old_strides={strides} unrelated_attempts={attempts} extra_body={body} queries={} materialized_text_bytes={} decoded_json_bytes={decoded} serialized_row_bytes={serialized} response_bytes={response} changed_rows=0",fixtures::SEED,fixtures::TASKS,fixtures::CONTENT_BYTES,metrics.queries,metrics.materialized_bytes);
+        let measured = (metrics, response);
+        if let Some(prior) = &prior {
+            assert_eq!(&measured, prior);
+        }
+        prior = Some(measured);
+        assert!(matches!(
+            database.task_name_projection("missing"),
+            Err(PlanError::TaskNotFound)
+        ));
+    }
+}

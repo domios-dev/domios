@@ -34,7 +34,21 @@ impl PlanTaskAdmissionRead {
     }
 }
 
+pub(super) struct TabAttemptOwnerRead {
+    pub plan_id: String,
+    pub task_id: String,
+    pub attempt_id: Option<String>,
+    pub assigned_tab: Option<String>,
+    pub competition_group: Option<String>,
+    pub session_id: Option<String>,
+    pub nonce: Option<String>,
+}
+
 impl PlanStore {
+    pub fn task_name_projection(&self, task_ref: &str) -> Result<String, PlanError> {
+        self.database.task_name_projection(task_ref)
+    }
+
     pub fn task_authority_target_projection(
         &self,
         task_ref: &str,
@@ -72,3 +86,5 @@ impl PlanStore {
         self.database.task_owner_epoch_projection(task_ref)
     }
 }
+
+pub(super) mod worker_transfer;

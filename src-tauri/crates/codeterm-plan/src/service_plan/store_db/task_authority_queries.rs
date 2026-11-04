@@ -1,6 +1,7 @@
 use super::read_projections::{column, decode, record_query};
 use super::{db_error, PlanDatabase};
 use crate::plan::TaskExecutionAttempt;
+use crate::service_plan::task_authority_projection::TabAttemptOwnerRead;
 use crate::service_plan::{
     PlanError, PlanTaskAdmissionRead, TaskBindingRead, TaskContextFilesRead, TaskOwnerEpochRead,
 };
@@ -22,6 +23,18 @@ const SELECTED_ACTIVE_TASK: &str = "WITH candidates AS (
              )";
 
 impl PlanDatabase {
+    pub(in crate::service_plan) fn task_name_projection(
+        &self,
+        reference: &str,
+    ) -> Result<String, PlanError> {
+        let connection = self.connection.lock();
+        record_query();
+        connection.query_row(
+            &format!("{SELECTED_ACTIVE_TASK} SELECT json_extract(row_json,'$.name') FROM selected_task"),
+            [reference], |row| column(row,0),
+        ).optional().map_err(db_error)?.ok_or(PlanError::TaskNotFound)
+    }
+
     pub(in crate::service_plan) fn task_authority_target_projection(
         &self,
         reference: &str,
@@ -156,6 +169,30 @@ impl PlanDatabase {
         session: &str,
         nonce: &str,
     ) -> Result<Option<(String, String, String)>, PlanError> {
+        let rows = self.tab_attempt_owners_projection(tab)?;
+        let mut current = None;
+        for row in rows {
+            let attempt = row.attempt_id.ok_or_else(|| {
+                PlanError::Io("plan skill assignment has no current attempt".into())
+            })?;
+            if current.is_some()
+                || (row.competition_group.is_none() && row.assigned_tab.as_deref() != Some(tab))
+                || row.session_id.as_deref() != Some(session)
+                || row.nonce.as_deref() != Some(nonce)
+            {
+                return Err(PlanError::Io(
+                    "plan skill caller does not identify exactly one current attempt".into(),
+                ));
+            }
+            current = Some((row.plan_id, row.task_id, attempt));
+        }
+        Ok(current)
+    }
+
+    pub(in crate::service_plan) fn tab_attempt_owners_projection(
+        &self,
+        tab: &str,
+    ) -> Result<Vec<TabAttemptOwnerRead>, PlanError> {
         let connection = self.connection.lock();
         record_query();
         let mut statement = connection.prepare_cached(
@@ -171,36 +208,18 @@ impl PlanDatabase {
         ).map_err(db_error)?;
         let rows = statement
             .query_map([tab], |row| {
-                Ok((
-                    column::<String>(row, 0)?,
-                    column::<String>(row, 1)?,
-                    column::<Option<String>>(row, 2)?,
-                    column::<Option<String>>(row, 3)?,
-                    column::<Option<String>>(row, 4)?,
-                    column::<Option<String>>(row, 5)?,
-                    column::<Option<String>>(row, 6)?,
-                ))
+                Ok(TabAttemptOwnerRead {
+                    plan_id: column(row, 0)?,
+                    task_id: column(row, 1)?,
+                    attempt_id: column(row, 2)?,
+                    assigned_tab: column(row, 3)?,
+                    competition_group: column(row, 4)?,
+                    session_id: column(row, 5)?,
+                    nonce: column(row, 6)?,
+                })
             })
-            .map_err(db_error)?
-            .collect::<Result<Vec<_>, _>>()
             .map_err(db_error)?;
-        let mut current = None;
-        for (plan, task, attempt, assigned, competition, held_session, held_nonce) in rows {
-            let attempt = attempt.ok_or_else(|| {
-                PlanError::Io("plan skill assignment has no current attempt".into())
-            })?;
-            if current.is_some()
-                || (competition.is_none() && assigned.as_deref() != Some(tab))
-                || held_session.as_deref() != Some(session)
-                || held_nonce.as_deref() != Some(nonce)
-            {
-                return Err(PlanError::Io(
-                    "plan skill caller does not identify exactly one current attempt".into(),
-                ));
-            }
-            current = Some((plan, task, attempt));
-        }
-        Ok(current)
+        rows.collect::<Result<_, _>>().map_err(db_error)
     }
 
     pub(in crate::service_plan) fn executor_termination_confirmed(
@@ -251,3 +270,5 @@ impl PlanDatabase {
         Ok(confirmed)
     }
 }
+
+mod worker_transfer;
