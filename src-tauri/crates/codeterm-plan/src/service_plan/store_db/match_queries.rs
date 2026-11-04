@@ -14,13 +14,10 @@ pub struct SectionRefRow {
     pub title: String,
 }
 
-/// A text field of one attempt row, with the row's plan, task and attempt ids.
 #[derive(Debug, Clone, PartialEq)]
-pub struct AttemptFieldRow {
-    pub plan_id: String,
-    pub task_id: String,
+pub struct AttemptLanePathRead {
     pub attempt_id: String,
-    pub value: String,
+    pub worktree_path: String,
 }
 
 // Mirrors `paths::plan_sidecar_root`: a blank canonical path falls back to the project path.
@@ -79,28 +76,35 @@ impl PlanDatabase {
         rows.collect::<Result<_, _>>().map_err(db_error)
     }
 
-    pub(in crate::service_plan) fn attempt_field_values(
+    pub(in crate::service_plan) fn attempt_lane_paths(
         &self,
-        path: &str,
-    ) -> Result<Vec<AttemptFieldRow>, PlanError> {
+    ) -> Result<Vec<AttemptLanePathRead>, PlanError> {
         let connection = self.connection.lock();
+        super::read_projections::record_query();
         let mut statement = connection
             .prepare_cached(
-                "SELECT plan_id, task_id, attempt_id, json_extract(row_json, ?1) FROM plan_task_attempts
-                 WHERE json_type(row_json, ?1) = 'text'",
+                "SELECT plan_id,attempt_id,row_json->'$.worktree_path' FROM plan_task_attempts
+             WHERE json_type(row_json,'$.worktree_path') IS NOT NULL
+                AND json_type(row_json,'$.worktree_path')<>'null'",
             )
             .map_err(db_error)?;
         let rows = statement
-            .query_map([path], |row| {
-                Ok(AttemptFieldRow {
-                    plan_id: row.get(0)?,
-                    task_id: row.get(1)?,
-                    attempt_id: row.get(2)?,
-                    value: row.get(3)?,
-                })
+            .query_map([], |row| {
+                Ok((
+                    super::read_projections::column::<String>(row, 0)?,
+                    super::read_projections::column::<String>(row, 1)?,
+                    super::read_projections::column::<String>(row, 2)?,
+                ))
             })
             .map_err(db_error)?;
-        rows.collect::<Result<_, _>>().map_err(db_error)
+        rows.map(|row| {
+            let (plan_id, attempt_id, raw) = row.map_err(db_error)?;
+            Ok(AttemptLanePathRead {
+                attempt_id,
+                worktree_path: super::read_projections::decode(&plan_id, &raw)?,
+            })
+        })
+        .collect()
     }
 
     /// Sections and their nested subsections, read from the section rows.

@@ -204,7 +204,10 @@ pub fn tag_report(input: impl Into<TagReportInput>) -> TagReport {
     }
 }
 
-fn normalize_sections(sections: &mut [Section], used: &mut HashSet<String>) {
+pub(in crate::service_plan) fn normalize_sections(
+    sections: &mut [Section],
+    used: &mut HashSet<String>,
+) {
     for section in sections {
         let seed = section
             .handle

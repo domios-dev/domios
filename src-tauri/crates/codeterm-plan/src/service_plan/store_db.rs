@@ -629,7 +629,7 @@ mod task_history_queries;
 mod task_list_queries;
 mod task_read_queries;
 mod ui_projections;
-pub use match_queries::{AttemptFieldRow, SectionRefRow};
+pub use match_queries::{AttemptLanePathRead, SectionRefRow};
 #[cfg(test)]
 mod schema_tests;
 #[cfg(test)]

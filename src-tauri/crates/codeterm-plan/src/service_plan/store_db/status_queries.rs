@@ -47,14 +47,15 @@ const RECENT: &str = "WITH history AS (
     ) SELECT task_id,json_remove(row_json,'$.attachments','$.canvas') FROM history
     ORDER BY ts DESC,phase,task_position,seq LIMIT 10";
 
-const REGRESSION: &str = "WITH records AS (
-    SELECT row_json,seq,json_extract(row_json,'$.kind') AS kind,
-           row_number() OVER (PARTITION BY json_extract(row_json,'$.kind'),link.value
-              ORDER BY json_extract(row_json,'$.ts') DESC,seq DESC) AS rank
-    FROM plan_strides,json_each(row_json,'$.links') link
+const REGRESSION: &str = "WITH strides AS MATERIALIZED (
+    SELECT json_remove(row_json,'$.text','$.attachments','$.canvas') AS row_json,seq,
+        json_extract(row_json,'$.kind') AS kind,json_extract(row_json,'$.ts') AS at,
+        row_json->'$.links' AS links FROM plan_strides
     WHERE plan_id=?1 AND json_extract(row_json,'$.kind') IN ('regression','group_close')
-      AND link.value LIKE 'group:%'
-    ) SELECT DISTINCT json_remove(row_json,'$.text','$.attachments','$.canvas') FROM records WHERE rank=1";
+    ), records AS (
+    SELECT row_json,seq,kind,row_number() OVER (PARTITION BY kind,link.value ORDER BY at DESC,seq DESC) AS rank
+    FROM strides,json_each(links) link WHERE link.value LIKE 'group:%'
+    ) SELECT DISTINCT row_json FROM records WHERE rank=1";
 
 pub(super) const WHITESPACE: &str = "\t\n\u{b}\u{c}\r \u{85}\u{a0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200a}\u{2028}\u{2029}\u{202f}\u{205f}\u{3000}";
 

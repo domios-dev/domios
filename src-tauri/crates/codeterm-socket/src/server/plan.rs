@@ -428,7 +428,7 @@ pub(super) fn dispatch(
                 } else {
                     None
                 };
-            let mut entries = store.list_index();
+            let mut entries = store.list_index().map_err(plan_rpc_err)?;
             if let Some(want) = &want {
                 let matching = store
                     .plan_project_ids_projection(want)

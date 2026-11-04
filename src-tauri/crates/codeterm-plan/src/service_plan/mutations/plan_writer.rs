@@ -2,6 +2,30 @@ use super::super::{MutationWriterTurn, PlanError, PlanStore};
 use crate::plan::Plan;
 
 impl PlanStore {
+    pub(in crate::service_plan) fn commit_section_change(
+        &self,
+        plan_id: &str,
+        change: super::super::store_db::hot_write::SectionChange,
+        now_ms: u64,
+    ) -> Result<Vec<String>, PlanError> {
+        let turn = self.mutation_writer.enter();
+        let (removed, receipt) = self.database.change_section(plan_id, change, now_ms)?;
+        self.publish_hot_receipt(&turn, receipt);
+        Ok(removed)
+    }
+
+    pub(in crate::service_plan) fn commit_header_change(
+        &self,
+        plan_id: &str,
+        change: super::super::store_db::hot_write::HeaderChange,
+        now_ms: u64,
+    ) -> Result<bool, PlanError> {
+        let turn = self.mutation_writer.enter();
+        let (changed, receipt) = self.database.change_header(plan_id, change, now_ms)?;
+        self.publish_hot_receipt(&turn, receipt);
+        Ok(changed)
+    }
+
     pub(in crate::service_plan) fn commit_hot_batch(
         &self,
         plan_id: &str,
@@ -107,7 +131,12 @@ impl PlanStore {
         }
         self.clear_committed_snapshot();
         self.plan_cache.evict(&receipt.plan_id);
-        if let Some(row) = self.index.write().get_mut(&receipt.plan_id) {
+        if let Some(metadata) = receipt.plan_metadata {
+            if let Some(root) = receipt.index_root.clone() {
+                super::super::search_index::enqueue_plan_metadata(turn, root, metadata.clone());
+            }
+            self.index.write().insert(receipt.plan_id.clone(), metadata);
+        } else if let Some(row) = self.index.write().get_mut(&receipt.plan_id) {
             row.updated_at = receipt.updated_at;
         }
         if let Some(root) = receipt.index_root {
@@ -137,6 +166,9 @@ impl PlanStore {
         }
         for delta in receipt.task_search {
             super::super::search_index::enqueue_task_index(turn, delta);
+        }
+        for delta in receipt.section_search {
+            super::super::search_index::enqueue_section_index(turn, delta);
         }
         log::debug!("[plan.store] hot commit tasks={} attempts={} milestones={} strides={} decoded_bytes={} serialized_bytes={} projected_text_bytes={} hashed_bytes={}", receipt.task_rows, receipt.attempts, receipt.milestones, receipt.strides, receipt.decoded_bytes, receipt.serialized_bytes, receipt.projected_text_bytes, receipt.hashed_bytes);
     }

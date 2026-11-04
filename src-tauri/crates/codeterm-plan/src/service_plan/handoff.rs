@@ -5,7 +5,9 @@ use serde_json::{json, Value};
 
 use super::batch::{BatchOp, BatchRequest};
 use super::{heartbeat, PlanError, PlanStore};
-use crate::plan::{AgentRef, Plan};
+use crate::plan::AgentRef;
+#[cfg(test)]
+use crate::plan::Plan;
 use codeterm_util::process_util;
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -227,52 +229,6 @@ fn content_str(content: &Value, key: &str) -> Option<String> {
         .map(str::to_string)
 }
 
-fn active_reseed_state(state: &str) -> bool {
-    matches!(state, "new_sent" | "session_seen" | "resume_sent")
-}
-
-fn pending_for_tab(content: &Value, tab_id: &str) -> bool {
-    content
-        .get("reseed_pending")
-        .and_then(|v| v.as_object())
-        .and_then(|obj| obj.get("tab_id"))
-        .and_then(|v| v.as_str())
-        == Some(tab_id)
-}
-
-fn element_has_active_reseed_for_tab(element: &crate::plan::CanvasElement, tab_id: &str) -> bool {
-    element.kind == "handoff"
-        && pending_for_tab(&element.content, tab_id)
-        && reseed_state(&element.content).is_some_and(active_reseed_state)
-}
-
-fn plan_has_active_reseed_for_tab(plan: &Plan, tab_id: &str) -> bool {
-    plan.elements
-        .iter()
-        .any(|element| element_has_active_reseed_for_tab(element, tab_id))
-}
-
-fn reseed_state(content: &Value) -> Option<&str> {
-    content.get("reseed_state").and_then(|v| v.as_str())
-}
-
-fn select_handoff_index(plan: &Plan, selector: Option<&str>) -> Option<usize> {
-    if let Some(selector) = selector {
-        plan.elements.iter().position(|element| {
-            element.kind == "handoff"
-                && (element.id == selector
-                    || selector.parse::<u64>().ok() == Some(content_seq(&element.content)))
-        })
-    } else {
-        plan.elements
-            .iter()
-            .enumerate()
-            .filter(|(_, element)| element.kind == "handoff")
-            .max_by_key(|(_, element)| content_seq(&element.content))
-            .map(|(idx, _)| idx)
-    }
-}
-
 impl PlanStore {
     pub fn create_handoff(
         &self,
@@ -382,63 +338,72 @@ impl PlanStore {
         let _guard = self.reseed_prepare_lock.lock();
         self.reject_active_reseed_for_tab(&req.tab_id, req.force, Some(plan_id))?;
         let selector = req.selector.clone();
-        self.with_plan(plan_id, now_ms, |plan| {
-            if !req.force && plan_has_active_reseed_for_tab(plan, &req.tab_id) {
-                return Err(PlanError::Io(format!(
-                    "handoff reseed already pending for tab {}; use --force to override",
-                    req.tab_id
-                )));
-            }
-            let idx = select_handoff_index(plan, selector.as_deref()).ok_or(PlanError::NotFound)?;
-            let element = &mut plan.elements[idx];
-            let state = if req.mode == "compact" {
-                "resume_sent"
-            } else {
-                "new_sent"
-            };
-            if req.dry_run {
-                return Ok(HandoffReseedResult {
+        self.edit_handoff(
+            plan_id,
+            selector.as_deref(),
+            Some(&req.tab_id),
+            false,
+            now_ms,
+            |plan| {
+                if !req.force && plan.active_reseed {
+                    return Err(PlanError::Io(format!(
+                        "handoff reseed already pending for tab {}; use --force to override",
+                        req.tab_id
+                    )));
+                }
+                let idx = (!plan.elements.is_empty())
+                    .then_some(0)
+                    .ok_or(PlanError::NotFound)?;
+                let element = &mut plan.elements[idx];
+                let state = if req.mode == "compact" {
+                    "resume_sent"
+                } else {
+                    "new_sent"
+                };
+                if req.dry_run {
+                    return Ok(HandoffReseedResult {
+                        ok: true,
+                        dry_run: true,
+                        mode: req.mode.clone(),
+                        plan_id: plan.id.clone(),
+                        handoff_id: element.id.clone(),
+                        tab_id: req.tab_id.clone(),
+                        source_session_id: req.source_session_id.clone(),
+                        sends: reseed_sends(&req.mode, provider_command, resume_seed),
+                        state: "dry_run".into(),
+                    });
+                }
+                let obj = element
+                    .content
+                    .as_object_mut()
+                    .ok_or_else(|| PlanError::Io("handoff content must be an object".into()))?;
+                obj.insert("reseed_state".into(), Value::from(state));
+                obj.insert(
+                    "reseed_pending".into(),
+                    json!({
+                        "tab_id": req.tab_id,
+                        "handoff_id": element.id,
+                        "source_session_id": req.source_session_id,
+                        "state": state,
+                        "mode": req.mode,
+                        "created_at": now_ms,
+                        "updated_at": now_ms,
+                        "resume_prompt": resume_seed,
+                    }),
+                );
+                Ok(HandoffReseedResult {
                     ok: true,
-                    dry_run: true,
+                    dry_run: false,
                     mode: req.mode.clone(),
                     plan_id: plan.id.clone(),
                     handoff_id: element.id.clone(),
                     tab_id: req.tab_id.clone(),
                     source_session_id: req.source_session_id.clone(),
                     sends: reseed_sends(&req.mode, provider_command, resume_seed),
-                    state: "dry_run".into(),
-                });
-            }
-            let obj = element
-                .content
-                .as_object_mut()
-                .ok_or_else(|| PlanError::Io("handoff content must be an object".into()))?;
-            obj.insert("reseed_state".into(), Value::from(state));
-            obj.insert(
-                "reseed_pending".into(),
-                json!({
-                    "tab_id": req.tab_id,
-                    "handoff_id": element.id,
-                    "source_session_id": req.source_session_id,
-                    "state": state,
-                    "mode": req.mode,
-                    "created_at": now_ms,
-                    "updated_at": now_ms,
-                    "resume_prompt": resume_seed,
-                }),
-            );
-            Ok(HandoffReseedResult {
-                ok: true,
-                dry_run: false,
-                mode: req.mode.clone(),
-                plan_id: plan.id.clone(),
-                handoff_id: element.id.clone(),
-                tab_id: req.tab_id.clone(),
-                source_session_id: req.source_session_id.clone(),
-                sends: reseed_sends(&req.mode, provider_command, resume_seed),
-                state: state.into(),
-            })
-        })
+                    state: state.into(),
+                })
+            },
+        )
     }
 
     fn reject_active_reseed_for_tab(
@@ -473,54 +438,67 @@ impl PlanStore {
         {
             let handoff_id = candidate.handoff_id;
             let mut out = None;
-            self.with_plan(&candidate.plan_id, now_ms, |plan| {
-                let heartbeat_plan_id = plan.id.clone();
-                let heartbeat = plan.heartbeat.clone();
-                let Some(element) = plan
-                    .elements
-                    .iter_mut()
-                    .find(|element| element.id == handoff_id && element.kind == "handoff")
-                else {
-                    return Ok(());
-                };
-                let fallback_resume_prompt =
-                    content_str(&element.content, "resume_prompt").unwrap_or_default();
-                let Some(obj) = element.content.as_object_mut() else {
-                    return Ok(());
-                };
-                let Some(pending) = obj
-                    .get_mut("reseed_pending")
-                    .and_then(|v| v.as_object_mut())
-                else {
-                    return Ok(());
-                };
-                if pending.get("state").and_then(|v| v.as_str()) != Some("new_sent") {
-                    return Ok(());
-                }
-                let text = pending
-                    .get("resume_prompt")
-                    .and_then(|v| v.as_str())
-                    .map(str::to_string)
-                    .unwrap_or(fallback_resume_prompt);
-                let text = heartbeat::prepend_heartbeat_snapshot(
-                    &heartbeat_plan_id,
-                    &heartbeat,
-                    &plan.loops,
-                    &text,
-                );
-                pending.insert("state".into(), Value::from("session_seen"));
-                pending.insert("target_session_id".into(), Value::from(new_session_id));
-                pending.insert("updated_at".into(), Value::from(now_ms));
-                pending.insert("session_seen_at".into(), Value::from(now_ms));
-                obj.insert("reseed_state".into(), Value::from("session_seen"));
-                out = Some(HandoffResumeSend {
-                    plan_id: plan.id.clone(),
-                    handoff_id: element.id.clone(),
-                    tab_id: tab_id.to_string(),
-                    text,
-                });
-                Ok(())
-            })?;
+            self.edit_handoff(
+                &candidate.plan_id,
+                Some(&handoff_id),
+                None,
+                true,
+                now_ms,
+                |plan| {
+                    let heartbeat_plan_id = plan.id.clone();
+                    let heartbeat = plan.heartbeat.clone();
+                    let Some(element) = plan
+                        .elements
+                        .iter_mut()
+                        .find(|element| element.id == handoff_id && element.kind == "handoff")
+                    else {
+                        return Ok(());
+                    };
+                    let fallback_resume_prompt =
+                        content_str(&element.content, "resume_prompt").unwrap_or_default();
+                    let Some(obj) = element.content.as_object_mut() else {
+                        return Ok(());
+                    };
+                    let Some(pending) = obj
+                        .get_mut("reseed_pending")
+                        .and_then(|v| v.as_object_mut())
+                    else {
+                        return Ok(());
+                    };
+                    if pending.get("tab_id").and_then(|v| v.as_str()) != Some(tab_id)
+                        || pending
+                            .get("source_session_id")
+                            .and_then(|v| v.as_str())
+                            .is_none_or(|source| source == new_session_id)
+                        || pending.get("state").and_then(|v| v.as_str()) != Some("new_sent")
+                    {
+                        return Ok(());
+                    }
+                    let text = pending
+                        .get("resume_prompt")
+                        .and_then(|v| v.as_str())
+                        .map(str::to_string)
+                        .unwrap_or(fallback_resume_prompt);
+                    let text = heartbeat::prepend_heartbeat_snapshot(
+                        &heartbeat_plan_id,
+                        &heartbeat,
+                        &plan.loops,
+                        &text,
+                    );
+                    pending.insert("state".into(), Value::from("session_seen"));
+                    pending.insert("target_session_id".into(), Value::from(new_session_id));
+                    pending.insert("updated_at".into(), Value::from(now_ms));
+                    pending.insert("session_seen_at".into(), Value::from(now_ms));
+                    obj.insert("reseed_state".into(), Value::from("session_seen"));
+                    out = Some(HandoffResumeSend {
+                        plan_id: plan.id.clone(),
+                        handoff_id: element.id.clone(),
+                        tab_id: tab_id.to_string(),
+                        text,
+                    });
+                    Ok(())
+                },
+            )?;
             if out.is_some() {
                 return Ok(out);
             }
@@ -534,7 +512,7 @@ impl PlanStore {
         handoff_id: &str,
         now_ms: u64,
     ) -> Result<(), PlanError> {
-        self.with_plan(plan_id, now_ms, |plan| {
+        self.edit_handoff(plan_id, Some(handoff_id), None, false, now_ms, |plan| {
             let Some(element) = plan
                 .elements
                 .iter_mut()
@@ -568,7 +546,7 @@ impl PlanStore {
         handoff_id: &str,
         now_ms: u64,
     ) -> Result<(), PlanError> {
-        self.with_plan(plan_id, now_ms, |plan| {
+        self.edit_handoff(plan_id, Some(handoff_id), None, false, now_ms, |plan| {
             let Some(element) = plan
                 .elements
                 .iter_mut()

@@ -90,51 +90,53 @@ impl ServiceContext {
                     return;
                 }
             };
-            let result = service.plan_store.with_plan(&plan_id, now, |plan| {
-                let Some(run) = plan
-                    .control_loop
-                    .running
-                    .as_mut()
-                    .filter(|run| run.tab_id.as_deref() == Some(&tab_id))
-                else {
-                    return Ok(None);
-                };
-                run.turns += 1;
-                run.output_tokens = tokens;
-                if run.turns < CURATOR_MAX_TURNS
-                    && tokens.is_none_or(|n| n < CURATOR_MAX_OUTPUT_TOKENS)
-                {
-                    return Ok(None);
-                }
-                let round = CuratorRound {
-                    run_id: run.run_id.clone(),
-                    tab_id: run.tab_id.clone(),
-                    number: run.number,
-                    started_at: run.started_at,
-                    ended_at: now,
-                    outcome: codeterm_types::plan::CuratorOutcome::Partial,
-                    reason: if run.turns >= CURATOR_MAX_TURNS {
-                        "turns"
-                    } else {
-                        "tokens"
+            let result = service
+                .plan_store
+                .edit_curator_round(&plan_id, now, |plan| {
+                    let Some(run) = plan
+                        .control_loop
+                        .running
+                        .as_mut()
+                        .filter(|run| run.tab_id.as_deref() == Some(&tab_id))
+                    else {
+                        return Ok(None);
+                    };
+                    run.turns += 1;
+                    run.output_tokens = tokens;
+                    if run.turns < CURATOR_MAX_TURNS
+                        && tokens.is_none_or(|n| n < CURATOR_MAX_OUTPUT_TOKENS)
+                    {
+                        return Ok(None);
                     }
-                    .into(),
-                    summary: "Curator round reached its resource cap".into(),
-                    next_delay_secs: curator_delay(None),
-                    turns: run.turns,
-                    output_tokens: tokens,
-                    save_id: run.save_id.clone(),
-                    synthesis: run.synthesis,
-                    digest_hash: run.digest_hash.clone(),
-                    section_sizes: run.section_sizes.clone(),
-                    duration_ms: now.saturating_sub(run.started_at),
-                    ..Default::default()
-                };
-                plan.control_loop.running = None;
-                plan.control_loop.last_real_round_at = Some(now);
-                curator::append_round(plan, round.clone());
-                Ok(Some(round))
-            });
+                    let round = CuratorRound {
+                        run_id: run.run_id.clone(),
+                        tab_id: run.tab_id.clone(),
+                        number: run.number,
+                        started_at: run.started_at,
+                        ended_at: now,
+                        outcome: codeterm_types::plan::CuratorOutcome::Partial,
+                        reason: if run.turns >= CURATOR_MAX_TURNS {
+                            "turns"
+                        } else {
+                            "tokens"
+                        }
+                        .into(),
+                        summary: "Curator round reached its resource cap".into(),
+                        next_delay_secs: curator_delay(None),
+                        turns: run.turns,
+                        output_tokens: tokens,
+                        save_id: run.save_id.clone(),
+                        synthesis: run.synthesis,
+                        digest_hash: run.digest_hash.clone(),
+                        section_sizes: run.section_sizes.clone(),
+                        duration_ms: now.saturating_sub(run.started_at),
+                        ..Default::default()
+                    };
+                    plan.control_loop.running = None;
+                    plan.control_loop.last_real_round_at = Some(now);
+                    plan.append_round(round.clone());
+                    Ok(Some(round))
+                });
             match result {
                 Ok(Some(round)) => {
                     service.journal_curator(&plan_id, &round);
