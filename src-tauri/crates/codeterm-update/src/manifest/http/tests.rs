@@ -10,6 +10,65 @@ fn reply(status: u16, version: &str, etag: Option<&str>, retry: Option<&str>) ->
 }
 
 #[tokio::test(start_paused = true)]
+async fn slow_endpoint_does_not_block_other_endpoints_or_cache_hits() {
+    let cache = Cache::default();
+    let cached = cache
+        .check("cached", |_| async { Ok(reply(200, "1.0.0", None, None)) })
+        .await
+        .unwrap();
+    let (release, response) = tokio::sync::oneshot::channel();
+    let (entered, mut started) = tokio::sync::oneshot::channel();
+    let slow = cache.check("slow", |_| async {
+        entered.send(()).unwrap();
+        response.await.unwrap();
+        Ok(reply(200, "2.0.0", Some("\"slow\""), None))
+    });
+    tokio::pin!(slow);
+    tokio::select! {
+        biased;
+        result = &mut slow => panic!("response must remain held: {result:?}"),
+        _ = std::future::ready(()) => {}
+    }
+    started.try_recv().unwrap();
+    let overlapping = cache.check("slow", |_| async { panic!("duplicate request") });
+    tokio::pin!(overlapping);
+    tokio::select! {
+        biased;
+        result = &mut overlapping => panic!("same endpoint must join its flight: {result:?}"),
+        _ = std::future::ready(()) => {}
+    }
+    tokio::select! {
+        biased;
+        result = cache.check("other", |_| async { Ok(reply(200, "3.0.0", None, None)) }) => {
+            assert_eq!(result.unwrap().version, "3.0.0");
+        }
+        _ = std::future::ready(()) => panic!("another endpoint was blocked"),
+    }
+    tokio::select! {
+        biased;
+        result = cache.check("cached", |_| async { panic!("cache hit must not send") }) => {
+            assert_eq!(result.unwrap(), cached);
+        }
+        _ = std::future::ready(()) => panic!("a cache hit was blocked"),
+    }
+    release.send(()).unwrap();
+    let result = slow.await.unwrap();
+    assert_eq!(result.version, "2.0.0");
+    assert_eq!(overlapping.await.unwrap(), result);
+}
+
+#[test]
+fn endpoint_limit_preserves_existing_flights() {
+    let cache = Cache::default();
+    let first = cache.endpoint("first").unwrap();
+    for index in 1..16 {
+        cache.endpoint(&format!("endpoint-{index}")).unwrap();
+    }
+    assert!(cache.endpoint("overflow").is_err());
+    assert!(Arc::ptr_eq(&first, &cache.endpoint("first").unwrap()));
+}
+
+#[tokio::test(start_paused = true)]
 async fn conditional_discovery_retains_304_content_and_replaces_a_changed_offer() {
     let mut endpoint = Endpoint::default();
     let clock = tokio::time::Instant::now;

@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap,
     future::Future,
+    sync::Arc,
     time::{Duration, SystemTime},
 };
 
@@ -8,8 +9,16 @@ use super::Manifest;
 use crate::discovery_policy::{backoff, EVENT_THROTTLE};
 
 const LIMIT: usize = 1024 * 1024;
-static CACHE: tokio::sync::Mutex<Option<HashMap<String, Endpoint>>> =
-    tokio::sync::Mutex::const_new(None);
+type EndpointFlight = Arc<tokio::sync::Mutex<Endpoint>>;
+
+static CACHE: Cache = Cache {
+    endpoints: parking_lot::Mutex::new(None),
+};
+
+#[derive(Default)]
+struct Cache {
+    endpoints: parking_lot::Mutex<Option<HashMap<String, EndpointFlight>>>,
+}
 
 #[derive(Default)]
 struct Endpoint {
@@ -28,18 +37,30 @@ struct Reply {
 }
 
 pub(super) async fn fetch(url: &str) -> Result<Manifest, String> {
-    let mut cache = CACHE.lock().await;
-    let cache = cache.get_or_insert_with(HashMap::new);
-    if !cache.contains_key(url) && cache.len() >= 16 {
-        return Err("Too many manifest discovery endpoints".into());
+    CACHE.check(url, |etag| send(url, etag)).await
+}
+
+impl Cache {
+    fn endpoint(&self, url: &str) -> Result<EndpointFlight, String> {
+        let mut cache = self.endpoints.lock();
+        let cache = cache.get_or_insert_with(HashMap::new);
+        if !cache.contains_key(url) && cache.len() >= 16 {
+            return Err("Too many manifest discovery endpoints".into());
+        }
+        Ok(Arc::clone(cache.entry(url.into()).or_default()))
     }
-    cache
-        .entry(url.into())
-        .or_default()
-        .check(tokio::time::Instant::now, SystemTime::now(), |etag| {
-            send(url, etag)
-        })
-        .await
+
+    async fn check<F, Fut>(&self, url: &str, send: F) -> Result<Manifest, String>
+    where
+        F: FnOnce(Option<String>) -> Fut,
+        Fut: Future<Output = Result<Reply, String>>,
+    {
+        let endpoint = self.endpoint(url)?;
+        let mut endpoint = endpoint.lock().await;
+        endpoint
+            .check(tokio::time::Instant::now, SystemTime::now(), send)
+            .await
+    }
 }
 
 impl Endpoint {
