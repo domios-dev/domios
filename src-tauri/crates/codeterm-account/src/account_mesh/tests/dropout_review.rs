@@ -67,24 +67,18 @@ async fn account_mesh_stuck_typed_forbidden_backs_off_for_hours_without_repeated
 }
 
 #[test]
-fn account_mesh_short_lease_margin_is_capped_at_ten_minutes() {
-    let membership = |duration| VerifiedMembership {
-        account_id: "account".into(),
-        installation_id: INSTALLATION.into(),
-        key_id: "a".repeat(64),
-        key_generation: 1,
-        slot_revision: 1,
-        issued_at: START,
-        expires_at: START + duration,
-    };
-    for duration in [1, 119, 120, 121, 600, 1800, 2400, 3600, 86400] {
-        let latest_margin = 120u64.max(duration / 24).min(duration / 2);
-        let earliest_margin = 600u64.max(duration / 12).min(duration / 2);
-        let due = membership(duration).refresh_after();
-        assert!(
-            (START + duration - earliest_margin..=START + duration - latest_margin).contains(&due)
-        );
-        assert!(due > START);
+fn account_mesh_renewal_margin_is_one_twelfth_of_each_granted_lifetime() {
+    for duration in [1, 119, 120, 121, 600, 1800, 2400, 3600, 86400, 172800] {
+        let membership = VerifiedMembership {
+            account_id: "account".into(),
+            installation_id: INSTALLATION.into(),
+            key_id: "a".repeat(64),
+            key_generation: 1,
+            slot_revision: 1,
+            issued_at: START,
+            expires_at: START + duration,
+        };
+        assert_eq!(membership.refresh_after(), START + duration - duration / 12);
     }
 }
 

@@ -1,8 +1,6 @@
 use super::support::*;
 use crate::account_mesh::wire::RegistryRefusal;
 use crate::account_mesh::*;
-use std::sync::Arc;
-use tokio::sync::Notify;
 
 #[tokio::test]
 async fn account_mesh_exhausted_retries_wait_for_explicit_or_network_trigger() {
@@ -37,27 +35,44 @@ async fn account_mesh_exhausted_retries_wait_for_explicit_or_network_trigger() {
     }
 }
 
+fn immediate<F: std::future::Future>(future: F) -> F::Output {
+    let mut future = std::pin::pin!(future);
+    let mut context = std::task::Context::from_waker(std::task::Waker::noop());
+    match std::future::Future::poll(future.as_mut(), &mut context) {
+        std::task::Poll::Ready(value) => value,
+        std::task::Poll::Pending => panic!("cached mesh operation must complete without waiting"),
+    }
+}
+
 #[tokio::test]
-async fn account_mesh_notice_and_online_list_share_one_registry_flight() {
+async fn account_mesh_notice_and_cached_list_never_start_a_registry_flight() {
     let harness = Harness::new().await;
     harness.sign_in("owner").await;
-    harness
-        .mesh
-        .refresh(EnrollTrigger::Automatic)
+    wait_for_event(harness.mesh.refresh(EnrollTrigger::Automatic))
         .await
         .unwrap();
-    let before = harness.calls("list");
-    let gate = Arc::new(Notify::new());
-    harness.registry.script.lock().unwrap().list_gate = Some(gate.clone());
-    let notice = harness.mesh.presence_notice("peer", "changed", 1);
-    let list = harness.mesh.list();
-    let release = async {
-        harness.registry.list_entered.notified().await;
-        gate.notify_waiters();
-    };
-    let (notice, list, ()) = tokio::join!(biased; notice, list, release);
-    assert_eq!(notice, Ok(true));
-    let list = list.unwrap();
-    assert_eq!(harness.state().registry.as_ref(), Some(&list));
-    assert_eq!(harness.calls("list"), before + 1);
+    let expected = harness.state().registry.clone().unwrap();
+    let before = count(&harness.log, "registry:");
+    {
+        let mut script = harness.registry.script.lock().unwrap();
+        script.list = Some(RegistryRefusal::Offline);
+        script.membership = Some(RegistryRefusal::Offline);
+        script.publication = Some(RegistryRefusal::Offline);
+    }
+    assert_eq!(
+        immediate(harness.mesh.presence_notice("peer", "changed", 1)),
+        Ok(false)
+    );
+    assert_eq!(immediate(harness.mesh.list()).unwrap(), expected);
+    for trigger in [
+        EnrollTrigger::Automatic,
+        EnrollTrigger::Lease,
+        EnrollTrigger::Network,
+    ] {
+        assert_eq!(immediate(harness.mesh.refresh(trigger)), Ok(()));
+    }
+    assert_eq!(harness.calls("list"), 0);
+    assert_eq!(harness.calls("sync"), 0);
+    assert_eq!(harness.calls("renew"), 0);
+    assert_eq!(count(&harness.log, "registry:"), before);
 }

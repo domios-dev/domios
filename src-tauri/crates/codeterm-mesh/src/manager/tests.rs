@@ -117,7 +117,7 @@ fn peer_inventory_uses_authenticated_lease_without_mutating_cached_registry() {
 }
 
 #[test]
-fn apply_announce_replaces_address_list_wholesale() {
+fn apply_announce_requires_a_signed_endpoint_record_to_replace_addresses() {
     let mut m = make_mesh_with_peer("peer-A", vec!["192.168.1.5", "100.64.0.5"]);
     let ann = PeerAnnounce {
         instance_id: "peer-A".into(),
@@ -129,16 +129,16 @@ fn apply_announce_replaces_address_list_wholesale() {
         relay_protocol_version: types::RELAY_PROTOCOL_VERSION,
     };
     let change = m.apply_announce("peer-A", &ann).expect("ok");
-    assert!(change.addresses_changed);
+    assert!(!change.addresses_changed);
     assert_eq!(
         change.previous_addresses.len(),
         2,
         "old list returned for logging"
     );
     let after = &m.paired_peers["peer-A"];
-    assert_eq!(after.addresses.len(), 1, "list fully replaced, not merged");
-    assert_eq!(after.addresses[0].ip, "100.99.99.99");
-    assert_eq!(after.api_port, 7777);
+    assert_eq!(after.addresses.len(), 2);
+    assert_eq!(after.addresses[0].ip, "192.168.1.5");
+    assert_ne!(after.api_port, 7777);
 }
 
 #[test]

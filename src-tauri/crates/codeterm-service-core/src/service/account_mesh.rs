@@ -132,6 +132,51 @@ struct TransportBridge {
 }
 #[async_trait]
 impl MeshTransport for TransportBridge {
+    fn peers_reachable(&self) -> bool {
+        self.service
+            .upgrade()
+            .and_then(|service| {
+                service.try_ext::<crate::MeshStateHandle>().map(|mesh| {
+                    let manager = mesh.lock();
+                    manager
+                        .account_mesh_pairs()
+                        .iter()
+                        .filter_map(|peer| peer.installation_id.as_deref())
+                        .any(|id| manager.has_healthy_connection(id))
+                })
+            })
+            .unwrap_or(false)
+    }
+
+    async fn endpoint_changed(
+        &self,
+        endpoint: Option<MeshEndpoint>,
+        sequence: u64,
+        membership: &str,
+    ) -> bool {
+        let Some(service) = self.service.upgrade() else {
+            return false;
+        };
+        if !service.configuration().mesh.enabled {
+            return false;
+        }
+        let Some(mesh) = service.try_ext::<crate::MeshStateHandle>().cloned() else {
+            return false;
+        };
+        let endpoint = endpoint.map(|endpoint| codeterm_mesh::endpoint_gossip::EndpointAddress {
+            tailnet_ip: endpoint.ip().to_string(),
+            api_port: endpoint.port(),
+        });
+        let record = mesh
+            .lock()
+            .sign_endpoint_record(endpoint, sequence, membership);
+        let Ok(record) = record else {
+            return false;
+        };
+        codeterm_mesh::presence_notice::broadcast_endpoint_record(&mesh, record).await;
+        true
+    }
+
     async fn registry_changed(&self, snapshot: &codeterm_entitlements::DetachedGrant) {
         if let Some(service) = self.service.upgrade() {
             if service.configuration().mesh.enabled {

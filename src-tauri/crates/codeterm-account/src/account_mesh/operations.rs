@@ -478,6 +478,8 @@ impl AccountMesh {
             inner.published_until = published_until;
             inner.publication_refresh_after = published_until;
             inner.record.published = endpoint.is_some();
+            let cleanup_confirmed = inner.record.cleanup_pending;
+            inner.record.cleanup_pending = false;
             inner.update(&self.watch, |state| {
                 state.publication = if endpoint.is_some() && published_until > self.now() {
                     Publication::Published
@@ -485,6 +487,9 @@ impl AccountMesh {
                     Publication::NotReady
                 };
                 state.publication_failure = None;
+                if cleanup_confirmed {
+                    state.cleanup = Cleanup::Confirmed;
+                }
                 state.membership_epoch += 1;
                 state.self_installation = Some(SelfInstallation {
                     installation_id: verified.installation_id.clone(),
@@ -505,12 +510,10 @@ impl AccountMesh {
         if result.operation == MembershipOperation::Recover
             && self.with(|inner| inner.rotation_attempt == Some(epoch))
         {
-            let observed = self.read_registry(&signed).await;
             self.ports
                 .transport
                 .installation_revoked(&installation)
                 .await;
-            observed?;
         }
         self.push().await;
         self.reconcile_publication(&signed).await
@@ -557,131 +560,6 @@ impl AccountMesh {
         self.read_registry(signed).await?;
         self.with(|inner| inner.metadata_revision)
             .ok_or(AccountMeshRefusal::Invalid)
-    }
-
-    /// Publishes (`Some`) or withdraws (`None`) this installation's endpoint; true when published.
-    async fn publish(&self, signed: &Signed, endpoint: Option<MeshEndpoint>) -> Outcome<bool> {
-        let expected_metadata_revision = self.metadata_revision(signed).await?;
-        let operation = match endpoint {
-            Some(endpoint) => MeshOperation::Publish {
-                expected_metadata_revision,
-                endpoint: endpoint.wire(),
-            },
-            None => MeshOperation::Withdraw {
-                expected_metadata_revision,
-            },
-        };
-        let result = self.admission(signed, operation).await;
-        if result == Err(AccountMeshRefusal::Conflict) {
-            self.with(|inner| inner.metadata_revision = None);
-        }
-        let installation = self.installation();
-        let (published, metadata_revision) = match result? {
-            MeshResult::Published(result) if result.installation_id == installation => {
-                self.with(|inner| {
-                    if inner.is_current(signed.epoch) {
-                        inner.published_until = result.endpoint.expires_at;
-                        inner.publication_refresh_after = super::sync::publication_refresh_after(
-                            self.now(),
-                            result.endpoint.expires_at,
-                        );
-                    }
-                });
-                (true, result.metadata_revision)
-            }
-            MeshResult::Withdrawn(result) if result.installation_id == installation => {
-                (false, result.metadata_revision)
-            }
-            _ => return Err(AccountMeshRefusal::Invalid),
-        };
-        self.remember_metadata(signed.epoch, metadata_revision, None);
-        Ok(published)
-    }
-
-    /// Publishes only a listener that is already reachable; publication intent is durable
-    /// before the call so sign-out always knows a withdrawal may be owed.
-    async fn reconcile_publication(&self, signed: &Signed) -> Outcome<()> {
-        let ready = self.ports.endpoint.ready_endpoint();
-        if self.with(|inner| {
-            inner.published_endpoint == ready
-                && match &ready {
-                    Some(_) => {
-                        inner.state.publication == Publication::Published
-                            && inner.publication_refresh_after > self.now()
-                    }
-                    None => !inner.record.published,
-                }
-                && inner.state.publication_failure.is_none()
-        }) {
-            return Ok(());
-        }
-        let intended = self.with(|inner| {
-            if !inner.is_current(signed.epoch) {
-                return None;
-            }
-            let published = inner.record.published;
-            if ready.is_some() {
-                inner.record.published = true;
-            }
-            Some(published)
-        });
-        let Some(was_published) = intended else {
-            return Err(AccountMeshRefusal::Cancelled);
-        };
-        if ready.is_some() && !was_published {
-            self.persist().await;
-        }
-        let mut failure = None;
-        let mut cleanup_confirmed = false;
-        let publication = match ready.clone() {
-            Some(endpoint) => match self.publish(signed, Some(endpoint)).await {
-                Ok(true) => {
-                    cleanup_confirmed = true;
-                    Publication::Published
-                }
-                Err(refusal) => {
-                    failure = Some(refusal);
-                    self.state().publication
-                }
-                Ok(false) => Publication::NotReady,
-            },
-            None if was_published => {
-                let result = self.publish(signed, None).await;
-                failure = result.err();
-                if result == Ok(false) {
-                    cleanup_confirmed = true;
-                    self.with(|inner| inner.record.published = false);
-                    self.persist().await;
-                }
-                Publication::NotReady
-            }
-            None => Publication::NotReady,
-        };
-        let changed = self.with(|inner| {
-            if !inner.is_current(signed.epoch) {
-                return false;
-            }
-            if failure.is_none() {
-                inner.published_endpoint = ready;
-            }
-            let cleanup_confirmed = cleanup_confirmed && inner.record.cleanup_pending;
-            if cleanup_confirmed {
-                inner.record.cleanup_pending = false;
-            }
-            inner.update(&self.watch, |state| {
-                if cleanup_confirmed {
-                    state.cleanup = Cleanup::Confirmed;
-                }
-                state.publication = publication;
-                state.publication_failure = failure;
-            });
-            true
-        });
-        if changed {
-            self.persist().await;
-            self.push().await;
-        }
-        failure.map_or(Ok(()), Err)
     }
 
     /// The outgoing account's still-valid session, restricted to its enrolled key.
@@ -946,10 +824,6 @@ impl AccountMesh {
         if self.state().signed_registry.is_none() {
             let _ = self.read_registry(&signed).await;
         }
-        self.ports
-            .transport
-            .installation_revoked(&revoked.target_installation_id)
-            .await;
         Ok(revoked)
     }
 
@@ -1019,6 +893,10 @@ impl AccountMesh {
         )?;
         let accepted = self.with(|inner| {
             inner.state.signed_in_account() == Some(verified.account_id.as_str())
+                && !inner
+                    .state
+                    .unavailable_installations
+                    .contains(&verified.installation_id)
                 && inner
                     .state
                     .signed_registry
