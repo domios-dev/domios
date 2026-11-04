@@ -154,7 +154,6 @@ fn start(
     operation.check().map_err(|error| error.to_string())?;
     let resources =
         current_file_lock_resources().ok_or("host I/O invocation resources unavailable")?;
-    let permit = admission::Permit::enter(sandbox.plugin_id())?;
     let job_owner = operation.job();
     #[cfg(test)]
     let completion = match &request {
@@ -173,13 +172,15 @@ fn start(
     let cancel_operation = operation.clone();
     let owner_operation = operation.clone();
     let owner_root = root.clone();
-    let job = host_exec::start_scoped_json_job(
+    let admitted = plugin.clone();
+    let job = host_exec::start_admitted_scoped_json_job(
         &plugin,
         &root,
         operation.deadline,
         Arc::new(move || cancel_operation.revoke()),
         json!({"error":"io_unconfirmed", "requestMayHaveStarted":!read_only && effects_allowed}),
-        move || {
+        move |launch| admission::submit(&admitted, launch),
+        move |permit: admission::Permit| {
             let encoded = {
                 let _permit = permit;
                 let _job_owner = job_owner;

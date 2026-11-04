@@ -9,7 +9,9 @@ pub(super) fn on_blocking_worker() -> bool {
     BLOCKING_WORKER.with(Cell::get)
 }
 
-pub(in crate::js_runtime) fn spawn_blocking<F, R>(work: F) -> tokio::task::JoinHandle<R>
+/// Runs synchronous plugin calls on a Tokio blocking thread that the VM recognizes as
+/// off-runtime, including under a current-thread runtime.
+pub fn spawn_blocking<F, R>(work: F) -> tokio::task::JoinHandle<R>
 where
     F: FnOnce() -> R + Send + 'static,
     R: Send + 'static,

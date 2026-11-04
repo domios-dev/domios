@@ -394,8 +394,13 @@ fn cancellation_does_not_release_native_capacity_until_started_jobs_exit() {
             Err(VmError::CallCancelled)
         ));
     }
+    let queued_vm = vm.clone();
+    let queued_path = path.clone();
+    let queued =
+        std::thread::spawn(move || call_json::<Value>(&queued_vm, "read", &[json!(queued_path)]));
     assert!(
-        matches!(call_json::<Value>(&vm, "read", &[json!(path)]), Err(VmError::Script(message)) if message.contains("admission is busy"))
+        admission::wait_queued("io-capacity", 1, WEDGED),
+        "a read beyond retained capacity must queue, not run or fail"
     );
     let other = self::vm("io-capacity-independent", None);
     assert_eq!(
@@ -406,10 +411,48 @@ fn cancellation_does_not_release_native_capacity_until_started_jobs_exit() {
         gates.finish();
         caller.join().unwrap();
     }
-    assert_eq!(
-        call_json::<Value>(&vm, "read", &[json!(path)]).unwrap(),
-        "healthy"
+    assert_eq!(queued.join().unwrap().unwrap(), "healthy");
+}
+
+#[test]
+fn saturated_capacity_queues_concurrent_status_reads_and_completes_every_one() {
+    let plugin = "io-saturation";
+    let vm = vm(plugin, None);
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("status.txt");
+    std::fs::write(&path, "healthy").unwrap();
+    let slow = (0..4)
+        .map(|index| {
+            let gates = Gates::new(&format!("io-saturation-slow-{index}"));
+            let request = gates.request();
+            let caller_vm = vm.clone();
+            let caller =
+                std::thread::spawn(move || call_json::<String>(&caller_vm, "pause", &[request]));
+            gates.entered();
+            (gates, caller)
+        })
+        .collect::<Vec<_>>();
+    let readers = (0..8)
+        .map(|_| {
+            let reader_vm = vm.clone();
+            let reader_path = path.clone();
+            std::thread::spawn(move || {
+                call_json::<Value>(&reader_vm, "read", &[json!(reader_path)])
+            })
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        admission::wait_queued(plugin, 8, WEDGED),
+        "every status read must wait for capacity instead of failing"
     );
+    assert_eq!(call_json::<String>(&vm, "health", &[]).unwrap(), "healthy");
+    for (gates, caller) in slow {
+        gates.finish();
+        assert_eq!(caller.join().unwrap().unwrap(), "resumed");
+    }
+    for reader in readers {
+        assert_eq!(reader.join().unwrap().unwrap(), "healthy");
+    }
 }
 
 #[test]

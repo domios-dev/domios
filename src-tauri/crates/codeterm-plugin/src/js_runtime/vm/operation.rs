@@ -11,7 +11,6 @@ use crate::converter::ConversionCancellation;
 
 const MAX_OPERATIONS: usize = 32;
 const OPERATION_BOUND: Duration = Duration::from_secs(5);
-const FRAME_BOUND: Duration = Duration::from_millis(250);
 
 pub(in crate::js_runtime) struct Context {
     cancellation: ConversionCancellation,
@@ -88,18 +87,6 @@ impl Context {
     pub(in crate::js_runtime) fn job(self: &Arc<Self>) -> Job {
         self.jobs.fetch_add(1, Ordering::AcqRel);
         Job(self.clone())
-    }
-
-    pub(in crate::js_runtime) fn deadline_error(&self) -> VmError {
-        if self.effect_started.load(Ordering::Acquire) {
-            VmError::IoUnconfirmed
-        } else {
-            VmError::AsyncJobTimedOut
-        }
-    }
-
-    pub(in crate::js_runtime) fn frame_deadline(&self) -> Instant {
-        self.deadline.min(Instant::now() + FRAME_BOUND)
     }
 
     pub(in crate::js_runtime) fn cancellation(&self) -> &ConversionCancellation {

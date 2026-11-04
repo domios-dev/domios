@@ -10,6 +10,32 @@ pub(in crate::js_runtime) fn start_scoped_json_job<F>(
 where
     F: FnOnce() -> String + Send + 'static,
 {
+    start_admitted_scoped_json_job(
+        plugin_id,
+        scope,
+        deadline,
+        cancel,
+        timeout_result,
+        |launch: Box<dyn FnOnce(()) + Send>| launch(()),
+        move |()| work(),
+    )
+}
+
+/// Registers the job now and hands its worker launch to `admit`, which starts it with
+/// a capacity token immediately or later; the job id is valid for awaiting either way.
+pub(in crate::js_runtime) fn start_admitted_scoped_json_job<T, F>(
+    plugin_id: &str,
+    scope: &str,
+    deadline: Instant,
+    cancel: Arc<dyn Fn() + Send + Sync>,
+    timeout_result: serde_json::Value,
+    admit: impl FnOnce(Box<dyn FnOnce(T) + Send>),
+    work: F,
+) -> Result<String, String>
+where
+    T: Send + 'static,
+    F: FnOnce(T) -> String + Send + 'static,
+{
     let job_id = start_exec_job(plugin_id)?;
     let mut failure = timeout_result.clone();
     failure["error"] = serde_json::Value::String(
@@ -35,10 +61,13 @@ where
     if !installed {
         return Err("host job revoked before admission".into());
     }
-    spawn_json_worker(job_id.clone(), move || {
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(work))
-            .unwrap_or_else(|_| failure.to_string())
-    });
+    let worker = job_id.clone();
+    admit(Box::new(move |token| {
+        spawn_json_worker(worker, move || {
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || work(token)))
+                .unwrap_or_else(|_| failure.to_string())
+        });
+    }));
     Ok(job_id)
 }
 pub(in crate::js_runtime) fn abort_scoped_json_job(plugin: &str, scope: &str, id: &str) -> bool {

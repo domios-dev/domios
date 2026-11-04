@@ -37,8 +37,9 @@ function readSettings(path: string): string | null {
 
 The job owner checks the original sandbox, canonical paths and captured host
 authority. Jobs grant no additional filesystem, environment, credential or
-service access. Each yielded request is admitted once. Capacity refusal has no
-synchronous fallback; cancellation never replays an effect. A started native
+service access. Each yielded request is admitted once. When worker capacity is
+saturated, jobs wait in submission order within their call's deadline; there is
+no synchronous fallback, and cancellation never replays an effect. A started native
 operation can outlive cancellation, retains its bounded worker capacity and
 invocation-owned file locks until it exits, and produces an unconfirmed outcome
 when its effect cannot be observed. Late completion cannot resume a cancelled
@@ -58,7 +59,8 @@ acquires ordered locks with fail-fast contention and releases them on completion
 successful query. The non-nullable query helper returns an empty array instead.
 
 Ordinary calls have bounded admission, an absolute operation deadline and
-cancellation; immutable capabilities remain outside VM execution.
+cancellation; every VM frame of a call shares that deadline. Immutable
+capabilities remain outside VM execution.
 
 The synchronous host APIs remain a **legacy surface in 1.19** for external
 capability plugins pending their own migrations. Native synchronous callbacks
