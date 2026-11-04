@@ -82,7 +82,7 @@ pub(super) fn dispatch(
     let attempt_claim = caller::optional_claim(body, "attempt_id")?;
     if task_claim.is_none()
         && attempt_claim.is_none()
-        && !caller::requires_current_receipt(store, &plan_id, &caller)
+        && !caller::requires_current_receipt(store, &plan_id, &caller)?
     {
         return Ok(result);
     }

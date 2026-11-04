@@ -46,7 +46,7 @@ impl PlanDatabase {
         ))
     }
 
-    pub(in crate::service_plan) fn task_startup_status_projection(
+    pub(in crate::service_plan) fn task_status_projection(
         &self,
         plan_id: &str,
         reference: &str,

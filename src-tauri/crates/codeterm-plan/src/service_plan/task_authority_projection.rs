@@ -53,6 +53,31 @@ pub(super) struct TabAttemptOwnerRead {
 }
 
 impl PlanStore {
+    pub fn task_status_projection(
+        &self,
+        plan: &str,
+        task: &str,
+    ) -> Result<crate::plan::TaskStatus, PlanError> {
+        self.database.task_status_projection(plan, task)
+    }
+
+    pub fn task_assignment_projection(
+        &self,
+        plan: &str,
+        task: &str,
+    ) -> Result<Option<String>, PlanError> {
+        self.database.task_assignment_projection(plan, task)
+    }
+
+    pub fn plan_skill_receipt_projection(
+        &self,
+        plan: &str,
+        team: Option<&str>,
+        tab: &str,
+    ) -> Result<bool, PlanError> {
+        self.database.plan_skill_receipt_projection(plan, team, tab)
+    }
+
     pub fn plan_work_facet_projection(&self, plan_id: &str) -> Result<bool, PlanError> {
         self.database.plan_work_facet_projection(plan_id)
     }
