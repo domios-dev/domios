@@ -1,6 +1,7 @@
 use super::*;
 
-#[tokio::test]
+// The daemon serves REST on a multi-thread runtime; plugin dispatch refuses a current-thread one.
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn sessions_resume_refuses_a_degraded_bound_tab_with_a_recovery_command() {
     use codeterm_plugin::js_runtime::{JsProvider, PluginManifest, PluginVm};
     use codeterm_service_core::multiplexer::{state::MultiplexerState, types::TabBacking};
