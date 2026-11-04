@@ -1,15 +1,13 @@
-//! One-time conversion of a 1.17 plans.db into the 1.18 row schema. This module is
-//! the only reader of the legacy plan-document shape; 1.18.1 deletes it whole.
-
-use super::store_db::{self, SCHEMA_VERSION};
+use super::store_db;
+#[cfg(test)]
+use super::store_db::SCHEMA_VERSION;
 use super::store_rows::{self, join_plan, StoredTask};
 use super::store_sync::parse;
 use super::{Plan, PlanError};
-use rusqlite::{params, Connection, DatabaseName, OptionalExtension, TransactionBehavior};
+use rusqlite::{params, Connection, DatabaseName, OptionalExtension, Transaction};
 use serde_json::Value;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::time::Instant;
 
 const BACKUP_SUFFIX: &str = ".pre-1.18";
 mod schema;
@@ -21,73 +19,23 @@ pub(super) struct ConversionReport {
     pub(super) quarantined: usize,
 }
 
-/// Admits complete known schemas before backing up and converting a legacy store.
+#[cfg(test)]
 pub(super) fn convert_legacy_database(
     connection: &mut Connection,
     path: &Path,
 ) -> Result<Option<ConversionReport>, PlanError> {
-    let legacy = admit(connection)?;
-    *connection = Connection::open(path).map_err(db_error)?;
-    if admit(connection)? != legacy {
-        return Err(PlanError::Io("plan schema changed during admission".into()));
-    }
-    if !legacy {
-        return Ok(None);
-    }
-    let started = Instant::now();
-    back_up(connection, path)?;
-    let report = convert(connection)?;
-    log::info!(
-        "[plan.store] 1.18 conversion converted={} quarantined={} elapsed_ms={}",
-        report.converted,
-        report.quarantined,
-        started.elapsed().as_millis()
-    );
-    Ok(Some(report))
+    store_db::migrations::initialize(connection, path)
 }
 
-fn admit(connection: &Connection) -> Result<bool, PlanError> {
-    let version: i64 = connection
-        .query_row("PRAGMA user_version", [], |row| row.get(0))
-        .map_err(db_error)?;
-    let empty: bool = connection
-        .query_row(
-            "SELECT NOT EXISTS(SELECT 1 FROM sqlite_schema)",
-            [],
-            |row| row.get(0),
-        )
-        .map_err(db_error)?;
-    if version == 0 && empty {
-        return Ok(false);
-    }
+pub(super) fn validate_legacy(connection: &Connection) -> Result<(), PlanError> {
     let expected = Connection::open_in_memory().map_err(db_error)?;
-    match version {
-        SCHEMA_VERSION => {
-            store_db::create_schema(&expected).map_err(db_error)?;
-            if has_table(connection, "plan_fts").map_err(db_error)? {
-                expected
-                    .execute_batch(schema::RETIRED_FTS_SCHEMA)
-                    .map_err(db_error)?;
-            }
-            store_db::admission::validate(connection, &expected)?;
-            return Ok(false);
-        }
-        0 => {
-            expected.execute_batch(LEGACY_SCHEMA).map_err(db_error)?;
-            if has_table(connection, "legacy_imports").map_err(db_error)? {
-                expected
-                    .execute_batch(LEGACY_IMPORTS_SCHEMA)
-                    .map_err(db_error)?;
-            }
-        }
-        _ => {
-            return Err(PlanError::Io(format!(
-                "unsupported plan database version {version}"
-            )));
-        }
+    expected.execute_batch(LEGACY_SCHEMA).map_err(db_error)?;
+    if has_table(connection, "legacy_imports").map_err(db_error)? {
+        expected
+            .execute_batch(LEGACY_IMPORTS_SCHEMA)
+            .map_err(db_error)?;
     }
-    store_db::admission::validate(connection, &expected)?;
-    Ok(true)
+    store_db::admission::validate(connection, &expected)
 }
 
 fn has_table(connection: &Connection, name: &str) -> rusqlite::Result<bool> {
@@ -114,7 +62,7 @@ fn backup_path(path: &Path) -> PathBuf {
 }
 
 /// Writes a consistent online copy to `plans.db.pre-1.18`; any failure refuses the conversion.
-fn back_up(connection: &Connection, path: &Path) -> Result<PathBuf, PlanError> {
+pub(super) fn back_up(connection: &Connection, path: &Path) -> Result<PathBuf, PlanError> {
     let backup = backup_path(path);
     let mut staging = backup.clone().into_os_string();
     staging.push(".partial");
@@ -146,12 +94,9 @@ struct LegacySpec {
     document: String,
 }
 
-fn convert(connection: &mut Connection) -> Result<ConversionReport, PlanError> {
-    let transaction = connection
-        .transaction_with_behavior(TransactionBehavior::Immediate)
-        .map_err(db_error)?;
-    let plans = read_legacy_plans(&transaction).map_err(db_error)?;
-    let specs = read_legacy_specs(&transaction).map_err(db_error)?;
+pub(super) fn convert(transaction: &Transaction<'_>) -> Result<ConversionReport, PlanError> {
+    let plans = read_legacy_plans(transaction).map_err(db_error)?;
+    let specs = read_legacy_specs(transaction).map_err(db_error)?;
     transaction
         .execute_batch(
             "DROP TABLE plan_task_milestones;
@@ -163,7 +108,7 @@ fn convert(connection: &mut Connection) -> Result<ConversionReport, PlanError> {
              DROP TABLE plan_fts;",
         )
         .map_err(db_error)?;
-    store_db::create_schema(&transaction).map_err(db_error)?;
+    store_db::migrations::create_v1(transaction).map_err(db_error)?;
 
     let mut report = ConversionReport::default();
     let mut converted = HashSet::new();
@@ -174,7 +119,7 @@ fn convert(connection: &mut Connection) -> Result<ConversionReport, PlanError> {
         });
         match split {
             Ok((plan, rows)) => {
-                store_db::write_plan_rows(&transaction, &plan, &rows)?;
+                store_db::write_plan_rows(transaction, &plan, &rows)?;
                 converted.insert(plan_id);
                 report.converted += 1;
             }
@@ -212,10 +157,6 @@ fn convert(connection: &mut Connection) -> Result<ConversionReport, PlanError> {
             )
             .map_err(db_error)?;
     }
-    transaction
-        .pragma_update(None, "user_version", SCHEMA_VERSION)
-        .map_err(db_error)?;
-    transaction.commit().map_err(db_error)?;
     Ok(report)
 }
 

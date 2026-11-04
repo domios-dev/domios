@@ -5,9 +5,10 @@ use parking_lot::Mutex;
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use std::path::PathBuf;
 
-/// `PRAGMA user_version` of the 1.18 row schema; older databases are converted once on open.
-pub(super) const SCHEMA_VERSION: i64 = 1;
+pub(super) const SCHEMA_VERSION: i64 = migrations::SCHEMA_VERSION;
+pub(in crate::service_plan) mod migrations;
 
+#[cfg(test)]
 const PLAN_SCHEMA: &str = r#"
     CREATE TABLE IF NOT EXISTS plans (
         id TEXT PRIMARY KEY,
@@ -28,9 +29,6 @@ const PLAN_SCHEMA: &str = r#"
         ON plans(status, updated_at DESC);
     CREATE INDEX IF NOT EXISTS plans_owner_tab_id
         ON plans(owner_tab_id) WHERE owner_tab_id IS NOT NULL;
-    CREATE INDEX IF NOT EXISTS plans_planner_tab_id
-        ON plans(json_extract(header_json, '$.planner.tab_id'), id)
-        WHERE json_extract(header_json, '$.planner.tab_id') IS NOT NULL;
 
     CREATE TABLE IF NOT EXISTS specs (
         id TEXT PRIMARY KEY,
@@ -60,11 +58,23 @@ const PLAN_SCHEMA: &str = r#"
 
 "#;
 
-/// Creates every missing table and index of the current schema.
+#[cfg(test)]
+const TAB_INDEX_SCHEMA: &str = r#"
+    CREATE INDEX IF NOT EXISTS plans_planner_tab_id
+        ON plans(json_extract(header_json, '$.planner.tab_id'), id)
+        WHERE json_extract(header_json, '$.planner.tab_id') IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS plan_tasks_lane_tab_id
+        ON plan_tasks(json_extract(row_json, '$.lane.tab_id'), plan_id)
+        WHERE json_extract(row_json, '$.lane.tab_id') IS NOT NULL;
+"#;
+
+#[cfg(test)]
 pub(super) fn create_schema(connection: &Connection) -> rusqlite::Result<()> {
     connection.execute_batch(PLAN_SCHEMA)?;
     connection.execute_batch(store_sync::TASK_SCHEMA)?;
-    connection.execute_batch(store_sync::PLAN_LEVEL_SCHEMA)
+    connection.execute_batch(store_sync::PLAN_LEVEL_SCHEMA)?;
+    connection.execute_batch(TAB_INDEX_SCHEMA)?;
+    connection.pragma_update(None, "application_id", 0x44504c4e_i64)
 }
 
 pub(super) struct PlanDatabase {
@@ -84,7 +94,7 @@ impl PlanDatabase {
             Connection::open_in_memory()
         }
         .map_err(db_error)?;
-        super::store_convert_118::convert_legacy_database(&mut connection, &path)?;
+        migrations::initialize(&mut connection, &path)?;
         status_queries::register_functions(&connection)?;
         auxiliary_queries::register_functions(&connection)?;
         worker_read_queries::register_functions(&connection)?;
@@ -95,17 +105,6 @@ impl PlanDatabase {
         connection
             .pragma_update(None, "journal_mode", "WAL")
             .map_err(db_error)?;
-        let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(db_error)?;
-        transaction
-            .execute_batch("DROP TABLE IF EXISTS plan_fts;")
-            .map_err(db_error)?;
-        create_schema(&transaction).map_err(db_error)?;
-        transaction
-            .pragma_update(None, "user_version", SCHEMA_VERSION)
-            .map_err(db_error)?;
-        transaction.commit().map_err(db_error)?;
         connection
             .execute_batch(
                 "PRAGMA synchronous = NORMAL;
@@ -614,9 +613,6 @@ mod document_queries;
 pub(in crate::service_plan) mod hot_write;
 mod operation_retention;
 
-<<<<<<< HEAD
-mod task_authority_queries;
-=======
 #[cfg(test)]
 pub(super) mod release_upgrade_tests;
->>>>>>> hotfix/plan-index-admission
+mod task_authority_queries;
