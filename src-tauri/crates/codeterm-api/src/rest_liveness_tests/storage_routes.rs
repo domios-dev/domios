@@ -498,3 +498,5 @@ async fn acknowledged_dispatch_binding_keeps_mux_and_startup_registry_free_while
 }
 
 mod restoration;
+
+mod checkpoint_adoption;
