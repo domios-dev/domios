@@ -1,3 +1,4 @@
+use super::state::input::{StateInput, StateSource};
 use serde::Serialize;
 
 use super::prompts_plan::REGRESSION_MILESTONE_KIND;
@@ -31,7 +32,9 @@ pub fn regression_link(group_key: &str) -> String {
     format!("{GROUP_REGRESSION_LINK_PREFIX}{group_key}")
 }
 
-fn group_label(plan: &Plan, key: &str) -> String {
+fn group_label(plan: &impl StateSource, key: &str) -> String {
+    let input = plan.state_input();
+    let plan = input.as_ref();
     plan.task_groups
         .iter()
         .find(|g| g.key == key)
@@ -40,7 +43,9 @@ fn group_label(plan: &Plan, key: &str) -> String {
 }
 
 // >=1 Done required so an all-cancelled group (shipped nothing) never gates.
-pub fn group_completion(plan: &Plan, key: &str) -> Option<u64> {
+pub fn group_completion(plan: &impl StateSource, key: &str) -> Option<u64> {
+    let input = plan.state_input();
+    let plan = input.as_ref();
     let members: Vec<&_> = plan
         .tasks
         .iter()
@@ -61,7 +66,9 @@ pub fn group_completion(plan: &Plan, key: &str) -> Option<u64> {
     members.iter().map(|t| t.status_changed_at).max()
 }
 
-fn latest_regression_ts(plan: &Plan, key: &str) -> Option<u64> {
+fn latest_regression_ts(plan: &impl StateSource, key: &str) -> Option<u64> {
+    let input = plan.state_input();
+    let plan = input.as_ref();
     let link = regression_link(key);
     plan.strides
         .iter()
@@ -87,6 +94,12 @@ pub struct RegressionInput {
 
 impl From<&Plan> for RegressionInput {
     fn from(plan: &Plan) -> Self {
+        Self::from(&StateInput::from(plan))
+    }
+}
+
+impl From<&StateInput> for RegressionInput {
+    fn from(plan: &StateInput) -> Self {
         let mut seen = std::collections::HashSet::new();
         let groups = plan
             .tasks
