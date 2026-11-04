@@ -4,7 +4,7 @@ import vm from "node:vm";
 import {createTranscriptState,reduceTranscript,projectTranscript} from "../../../packages/chat-core/src/transcript";
 import { runtimeJson } from "./runtimeJson";
 import { foldRow } from "./runtimeRows";
-import { assertRuntimeOperation } from "./runtimeAuthority";
+import { assertRuntimeOperation, assertRuntimePlan } from "./runtimeAuthority";
 import type {AgentRuntime, AgentEvent, ChatMsg, JsonValue, Operation, RpcReply, RuntimeAction, RuntimeContext, RuntimeFrame, RuntimePlan, RuntimeStep, StdioAgentRuntimeCapability} from "@codeterm/plugin-sdk";
 
 interface Fixture {
@@ -22,8 +22,8 @@ function loadHooks():AgentRuntime {
   vm.runInContext(fs.readFileSync(new URL("../plugin.js", import.meta.url), "utf8"), sandbox);
   const hooks=sandbox.module.exports.default as AgentRuntime;
   return {...hooks,
-    runtimePlan(ctx,op) { assertRuntimeOperation(ctx,op);return runtimeJson(hooks.runtimePlan(ctx,op),"runtimePlan"); },
-    runtimeResponse(ctx,op,state,reply) { assertRuntimeOperation(ctx,op);return runtimeJson(hooks.runtimeResponse(ctx,op,state,reply),"runtimeResponse"); },
+    runtimePlan(ctx,op) { assertRuntimeOperation(ctx,op);const plan=runtimeJson(hooks.runtimePlan(ctx,op),"runtimePlan");assertRuntimePlan(ctx,op,plan);return plan; },
+    runtimeResponse(ctx,op,state,reply) { assertRuntimeOperation(ctx,op);const step=runtimeJson(hooks.runtimeResponse(ctx,op,state,reply),"runtimeResponse");if (step.kind === "continue") assertRuntimePlan(ctx,op,step.plan);return step; },
     runtimeReduce(ctx,state,frames) { return runtimeJson(hooks.runtimeReduce(ctx,state,frames),"runtimeReduce"); },
   };
 }
@@ -144,7 +144,7 @@ for (const name of names) {
     console.error(`✗ ACP ${failure}`);
   }
 }
-assert.deepEqual(fixtureFailures,[],"every shared fixture must return strict runtime JSON");
+assert.deepEqual(fixtureFailures,[],"every shared fixture must obey runtime JSON and authority rules");
 const fixture:Fixture = JSON.parse(fs.readFileSync(new URL("initialize-new-prompt.json",root),"utf8"));
 const ctx = {...fixture.context,tabId:"authority-tab"};
 const init:Operation = {kind:"initialize"};
