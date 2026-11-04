@@ -849,3 +849,5 @@ fn startup_owner_and_status_queries_ignore_unselected_history_and_bodies() {
 }
 mod continuity;
 mod restart;
+mod restoration;
+mod runtime_restore;
