@@ -336,8 +336,7 @@
               "image": false,
               "audio": false,
               "embeddedContext": false
-            },
-            "mcpCapabilities": {}
+            }
           },
           "authMethods": []
         }
@@ -415,7 +414,9 @@
           "protocolVersion": 1,
           "agentCapabilities": {
             "loadSession": true,
-            "mcpCapabilities": {}
+            "mcpCapabilities": {
+              "http": true
+            }
           },
           "authMethods": []
         }
@@ -493,8 +494,7 @@
           "agentCapabilities": {
             "sessionCapabilities": {
               "resume": {}
-            },
-            "mcpCapabilities": {}
+            }
           },
           "authMethods": []
         }

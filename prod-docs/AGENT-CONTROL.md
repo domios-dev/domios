@@ -173,8 +173,8 @@ Domios tracks and restores terminal state across sessions:
 
 ## Domios MCP tools
 
-Agents that declare MCP capabilities can receive the `domios` stdio tool server from the host. Available tools are `send`, `agent_report`, `agent_startup_ack`, `mem_search`, `mem_get`, `task_show`, and `notify_send`. They use the same tab authority and CLI checks as commands from that tab. `send`, `agent_report`, and `notify_send` take `from_pad` paths; write the payload into your own pad first. Reports use your own inherited task binding. No tool accepts caller, instance, URL, credential or mesh overrides.
+Agents that negotiate ACP v1 can receive the `domios` stdio tool server from the host. Available tools are `send`, `agent_report`, `agent_startup_ack`, `mem_search`, `mem_get`, `task_show`, and `notify_send`. They use the same tab authority and CLI checks as commands from that tab. `send`, `agent_report`, and `notify_send` take `from_pad` paths; write the payload into your own pad first. Reports use your own inherited task binding. No tool accepts caller, instance, URL, credential or mesh overrides.
 
-The host supplies the descriptor. The MCP child must inherit the tab environment; missing credentials or a changed tab or binding nonce refuses startup. An agent that does not declare MCP capabilities receives no server.
+The host supplies the descriptor. The MCP child must inherit the tab environment; missing credentials or a changed tab or binding nonce refuses startup. ACP v1 requires stdio MCP support; `mcpCapabilities` advertises optional HTTP/SSE transports and does not gate this stdio server. Without a host descriptor, the agent receives no server.
 
-<!-- revision: 34 -->
+<!-- revision: 35 -->

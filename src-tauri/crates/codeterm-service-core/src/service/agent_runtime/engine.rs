@@ -665,15 +665,14 @@ async fn ensure_locked(
             {
                 return Err(RuntimeFailure::Superseded);
             }
-            let minted_local = env
-                .get("CODETERM_API_TOKEN")
-                .and_then(|token| owner.identify_tab_credential(token))
-                .is_some_and(|caller| caller.tab_id == target && caller.binding_nonce == nonce)
-                && env.get("CODETERM_TAB_ID") == Some(&target)
-                && env.get("CODETERM_SESSION_BINDING_NONCE") == Some(&nonce)
-                && env
-                    .get("CODETERM_API_URL")
-                    .is_some_and(|url| !url.is_empty());
+            let minted_local = super::host_mcp::minted_local(
+                &env,
+                &crate::service::tab_credentials::TabCaller {
+                    tab_id: target.clone(),
+                    binding_nonce: nonce.clone(),
+                },
+                |token| owner.identify_tab_credential(token),
+            );
             let host_mcp = super::host_mcp::descriptor(
                 capability.host_mcp.is_some(),
                 minted_local,

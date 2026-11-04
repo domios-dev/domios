@@ -15,19 +15,7 @@
         "providerSettings": {},
         "claimedSends": [],
         "activeTurns": [],
-        "threadParents": [],
-        "hostMcp": {
-          "name": "domios",
-          "command": "/opt/domios/bin/domios",
-          "args": [
-            "mcp",
-            "serve",
-            "--tab",
-            "mcp-not-declared",
-            "--binding-nonce",
-            "nonce-fixture"
-          ]
-        }
+        "threadParents": []
       }
     },
     {
@@ -46,19 +34,7 @@
         "providerSettings": {},
         "claimedSends": [],
         "activeTurns": [],
-        "threadParents": [],
-        "hostMcp": {
-          "name": "domios",
-          "command": "/opt/domios/bin/domios",
-          "args": [
-            "mcp",
-            "serve",
-            "--tab",
-            "mcp-not-declared",
-            "--binding-nonce",
-            "nonce-fixture"
-          ]
-        }
+        "threadParents": []
       }
     },
     {
@@ -75,19 +51,7 @@
         "providerSettings": {},
         "claimedSends": [],
         "activeTurns": [],
-        "threadParents": [],
-        "hostMcp": {
-          "name": "domios",
-          "command": "/opt/domios/bin/domios",
-          "args": [
-            "mcp",
-            "serve",
-            "--tab",
-            "mcp-not-declared",
-            "--binding-nonce",
-            "nonce-fixture"
-          ]
-        }
+        "threadParents": []
       }
     },
     {
@@ -108,18 +72,6 @@
         "claimedSends": [],
         "activeTurns": [],
         "threadParents": [],
-        "hostMcp": {
-          "name": "domios",
-          "command": "/opt/domios/bin/domios",
-          "args": [
-            "mcp",
-            "serve",
-            "--tab",
-            "mcp-not-declared",
-            "--binding-nonce",
-            "nonce-fixture"
-          ]
-        },
         "threadId": "session-fixture"
       }
     },
@@ -137,19 +89,7 @@
         "providerSettings": {},
         "claimedSends": [],
         "activeTurns": [],
-        "threadParents": [],
-        "hostMcp": {
-          "name": "domios",
-          "command": "/opt/domios/bin/domios",
-          "args": [
-            "mcp",
-            "serve",
-            "--tab",
-            "mcp-not-declared",
-            "--binding-nonce",
-            "nonce-fixture"
-          ]
-        }
+        "threadParents": []
       }
     },
     {
@@ -170,18 +110,6 @@
         "claimedSends": [],
         "activeTurns": [],
         "threadParents": [],
-        "hostMcp": {
-          "name": "domios",
-          "command": "/opt/domios/bin/domios",
-          "args": [
-            "mcp",
-            "serve",
-            "--tab",
-            "mcp-not-declared",
-            "--binding-nonce",
-            "nonce-fixture"
-          ]
-        },
         "threadId": "session-fixture"
       }
     }
@@ -517,18 +445,6 @@
     "providerSettings": {},
     "claimedSends": [],
     "activeTurns": [],
-    "threadParents": [],
-    "hostMcp": {
-      "name": "domios",
-      "command": "/opt/domios/bin/domios",
-      "args": [
-        "mcp",
-        "serve",
-        "--tab",
-        "mcp-not-declared",
-        "--binding-nonce",
-        "nonce-fixture"
-      ]
-    }
+    "threadParents": []
   }
 }

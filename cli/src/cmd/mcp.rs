@@ -48,7 +48,6 @@ pub fn serve(tab: &str, nonce: &str) {
         std::io::stdin().lock(),
         &mut std::io::stdout().lock(),
         &token,
-        crate::local_admission::host_scoped(),
         |args| {
             let mut command = std::process::Command::new(&executable);
             command.args(args);
@@ -80,6 +79,8 @@ struct ToolCall {
     name: String,
     #[serde(default = "empty_object")]
     arguments: Value,
+    #[serde(rename = "_meta", default)]
+    _meta: Option<Value>,
 }
 fn empty_object() -> Value {
     json!({})
@@ -107,7 +108,6 @@ pub(super) fn protocol(
     mut input: impl BufRead,
     output: &mut impl Write,
     token: &str,
-    scoped: bool,
     mut execute: impl FnMut(&[String]) -> Result<String, &'static str>,
 ) -> std::io::Result<()> {
     loop {
@@ -154,22 +154,13 @@ pub(super) fn protocol(
                         Err(reason) => Err((-32602, reason)),
                         Ok(args) => {
                             if !token.is_empty() && args.iter().any(|arg| arg.contains(token)) {
-                                let response = json!({"jsonrpc":"2.0","id":null,"error":{"code":-32602,"message":"Credential material is not a tool argument"}});
-                                writeln!(output, "{response}")?;
-                                output.flush()?;
-                                continue;
-                            }
-                            let cli = <crate::Cli as clap::Parser>::try_parse_from(
+                                Err((-32602, "Credential material is not a tool argument"))
+                            } else if <crate::Cli as clap::Parser>::try_parse_from(
                                 std::iter::once("domios".to_owned()).chain(args.clone()),
-                            );
-                            if cli.as_ref().is_err()
-                                || (scoped
-                                    && cli.as_ref().is_ok_and(|cli| {
-                                        crate::local_admission::operation_for_cli(cli, true)
-                                            .is_some()
-                                    }))
+                            )
+                            .is_err()
                             {
-                                Err((-32602, "Tool refused by CLI scope"))
+                                Err((-32602, "Invalid CLI tool arguments"))
                             } else {
                                 match execute(&args) {
                                     Ok(text) => {

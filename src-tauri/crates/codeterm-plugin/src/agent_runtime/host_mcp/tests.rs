@@ -104,3 +104,30 @@ fn host_mcp_manifest_refuses_undeclared_duplicate_and_invalid_methods() {
         assert!(cap.validate_declaration().is_err());
     }
 }
+
+#[test]
+fn host_mcp_refuses_tampering_on_other_outbound_methods() {
+    let mut cap = capability();
+    cap.request_methods
+        .insert("initialize".into(), vec!["handshake".into()]);
+    let ctx = context();
+    let mut tampered = ctx.host_mcp.as_ref().unwrap().descriptor();
+    tampered["command"] = json!("/foreign");
+    for params in [
+        json!({"mcpServers":[tampered]}),
+        json!({"mcpServers":[{"url":"http://foreign"}]}),
+    ] {
+        let call = RpcCall {
+            method: "handshake".into(),
+            params,
+            target: None,
+        };
+        assert!(validate_runtime_call(&cap, &ctx, &RuntimeOperation::Initialize, &call).is_err());
+    }
+    let call = RpcCall {
+        method: "handshake".into(),
+        params: json!({}),
+        target: None,
+    };
+    assert!(validate_runtime_call(&cap, &ctx, &RuntimeOperation::Initialize, &call).is_ok());
+}

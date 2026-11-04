@@ -1,5 +1,22 @@
+use crate::service::tab_credentials::TabCaller;
 use codeterm_plugin::agent_runtime::RuntimeHostMcp;
-use std::path::PathBuf;
+use std::{collections::HashMap, path::PathBuf};
+
+pub(super) fn minted_local(
+    env: &HashMap<String, String>,
+    expected: &TabCaller,
+    identify: impl FnOnce(&str) -> Option<TabCaller>,
+) -> bool {
+    env.get("CODETERM_API_TOKEN")
+        .filter(|token| !token.trim().is_empty())
+        .and_then(|token| identify(token))
+        .is_some_and(|caller| caller == *expected)
+        && env.get("CODETERM_TAB_ID") == Some(&expected.tab_id)
+        && env.get("CODETERM_SESSION_BINDING_NONCE") == Some(&expected.binding_nonce)
+        && env
+            .get("CODETERM_API_URL")
+            .is_some_and(|url| !url.trim().is_empty())
+}
 
 pub(super) fn descriptor(
     declared: bool,

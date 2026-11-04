@@ -26,3 +26,51 @@ fn agent_runtime_host_mcp_absent_without_minted_local_credential_or_declaration(
         serde_json::json!({"name":"domios","command":"/trusted/domios","args":["mcp","serve","--tab","own","--binding-nonce","nonce"],"env":[]})
     );
 }
+
+#[test]
+fn agent_runtime_host_mcp_minted_local_refuses_foreign_stale_or_incomplete_environment() {
+    use crate::service::tab_credentials::TabCaller;
+    use std::collections::HashMap;
+    let env = HashMap::from([
+        ("CODETERM_API_TOKEN".into(), "opaque-test-credential".into()),
+        ("CODETERM_API_URL".into(), "http://127.0.0.1:43210".into()),
+        ("CODETERM_TAB_ID".into(), "own".into()),
+        ("CODETERM_SESSION_BINDING_NONCE".into(), "nonce".into()),
+    ]);
+    let own = TabCaller {
+        tab_id: "own".into(),
+        binding_nonce: "nonce".into(),
+    };
+    assert!(minted_local(&env, &own, |_| Some(own.clone())));
+    for caller in [
+        TabCaller {
+            tab_id: "foreign".into(),
+            ..own.clone()
+        },
+        TabCaller {
+            binding_nonce: "stale".into(),
+            ..own.clone()
+        },
+    ] {
+        assert!(!minted_local(&env, &own, |_| Some(caller)));
+    }
+    for key in [
+        "CODETERM_API_TOKEN",
+        "CODETERM_API_URL",
+        "CODETERM_TAB_ID",
+        "CODETERM_SESSION_BINDING_NONCE",
+    ] {
+        let mut missing = env.clone();
+        missing.remove(key);
+        assert!(!minted_local(&missing, &own, |_| Some(own.clone())));
+        let mut empty = env.clone();
+        empty.insert(key.into(), String::new());
+        assert!(!minted_local(&empty, &own, |_| Some(own.clone())));
+    }
+    for key in ["CODETERM_TAB_ID", "CODETERM_SESSION_BINDING_NONCE"] {
+        let mut mismatch = env.clone();
+        mismatch.insert(key.into(), "foreign".into());
+        assert!(!minted_local(&mismatch, &own, |_| Some(own.clone())));
+    }
+    assert!(!minted_local(&env, &own, |_| None));
+}

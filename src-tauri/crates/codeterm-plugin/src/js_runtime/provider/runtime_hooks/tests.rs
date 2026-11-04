@@ -628,37 +628,56 @@ async fn local_runtime_action_only_resumes_the_exact_bound_thread() {
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn host_mcp_context_absent_for_undeclared_plugin() {
+async fn host_mcp_context_absent_for_undeclared_plugin_across_all_hooks() {
     let mut ctx = context();
     ctx.host_mcp = Some(RuntimeHostMcp {
         name: "domios".into(),
         command: "/trusted/domios".into(),
         args: vec!["mcp".into(), "serve".into()],
     });
-    let mut js = provider("module.exports={runtimePlan(ctx){return {action:{kind:'request',call:{method:'handshake',params:{descriptor:ctx.hostMcp || null}}},state:null}}}");
-    let plan = js
-        .runtime_plan(&ctx, &RuntimeOperation::Initialize)
-        .await
-        .unwrap();
-    let RuntimeAction::Request { call } = plan.action else {
-        panic!("expected request")
-    };
-    assert_eq!(call.params["descriptor"], Value::Null);
-    js.manifest
-        .capabilities
-        .agent_runtime
-        .as_mut()
-        .unwrap()
-        .host_mcp = Some(RuntimeHostMcpDeclaration {
-        param: "mcpServers".into(),
-        methods: vec!["submit".into()],
-    });
-    let plan = js
-        .runtime_plan(&ctx, &RuntimeOperation::Initialize)
-        .await
-        .unwrap();
-    let RuntimeAction::Request { call } = plan.action else {
-        panic!("expected request")
-    };
-    assert_eq!(call.params["descriptor"], json!(ctx.host_mcp));
+    let mut js = provider("function plan(ctx){return {action:{kind:'request',call:{method:'handshake',params:{descriptor:ctx.hostMcp || null}}},state:null}}; module.exports={runtimePlan:plan,runtimeResponse(ctx){return {kind:'continue',plan:plan(ctx)}},runtimeReduce(ctx){return {state:{descriptor:ctx.hostMcp || null},events:[]}}}");
+    for declared in [false, true] {
+        if declared {
+            js.manifest
+                .capabilities
+                .agent_runtime
+                .as_mut()
+                .unwrap()
+                .host_mcp = Some(RuntimeHostMcpDeclaration {
+                param: "mcpServers".into(),
+                methods: vec!["submit".into()],
+            });
+        }
+        let expected = if declared {
+            json!(ctx.host_mcp)
+        } else {
+            Value::Null
+        };
+        let plan = js
+            .runtime_plan(&ctx, &RuntimeOperation::Initialize)
+            .await
+            .unwrap();
+        let RuntimeAction::Request { call } = plan.action else {
+            panic!("expected request")
+        };
+        assert_eq!(call.params["descriptor"], expected);
+        let response = js
+            .runtime_response(
+                &ctx,
+                &RuntimeOperation::Initialize,
+                &Value::Null,
+                &RpcReply::Success { value: json!({}) },
+            )
+            .await
+            .unwrap();
+        let RuntimeStep::Continue { plan, .. } = response else {
+            panic!("expected continuation")
+        };
+        let RuntimeAction::Request { call } = plan.action else {
+            panic!("expected request")
+        };
+        assert_eq!(call.params["descriptor"], expected);
+        let reduction = js.runtime_reduce(&ctx, &Value::Null, &[]).await.unwrap();
+        assert_eq!(reduction.state["descriptor"], expected);
+    }
 }

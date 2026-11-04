@@ -109,13 +109,9 @@ fn mcp_serve_values_cannot_inject_cli_flags_or_caller_identity() {
 fn mcp_serve_token_never_reaches_protocol_output() {
     let input = b"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"mem_get\",\"arguments\":{\"id\":\"opaque\"}}}\n";
     let mut output = Vec::new();
-    protocol(
-        &input[..],
-        &mut output,
-        "opaque-test-credential",
-        false,
-        |_| Ok("opaque-test-credential".into()),
-    )
+    protocol(&input[..], &mut output, "opaque-test-credential", |_| {
+        Ok("opaque-test-credential".into())
+    })
     .unwrap();
     assert!(!String::from_utf8(output)
         .unwrap()
@@ -123,18 +119,19 @@ fn mcp_serve_token_never_reaches_protocol_output() {
 }
 
 #[test]
-fn mcp_serve_restricted_scope_refuses_out_of_scope_tools() {
+fn mcp_serve_child_admission_refusal_becomes_tool_error() {
     let input = b"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"agent_report\",\"arguments\":{\"from_pad\":\"report.md\"}}}\n";
     let mut output = Vec::new();
-    protocol(
-        &input[..],
-        &mut output,
-        "opaque-test-credential",
-        true,
-        |_| panic!("must refuse before execution"),
-    )
+    let mut executed = false;
+    protocol(&input[..], &mut output, "opaque-test-credential", |args| {
+        assert_eq!(args, ["--json", "agent", "report", "--from-pad=report.md"]);
+        executed = true;
+        Err("Child CLI admission refused")
+    })
     .unwrap();
-    assert!(String::from_utf8(output).unwrap().contains("scope"));
+    let reply: Value = serde_json::from_slice(&output).unwrap();
+    assert!(executed);
+    assert_eq!(reply["result"]["isError"], true);
 }
 
 #[test]
@@ -148,14 +145,13 @@ fn mcp_serve_refuses_mesh_target_and_token_in_arguments() {
     }
     let input = b"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"mem_get\",\"arguments\":{\"id\":\"opaque-test-credential\"}}}\n";
     let mut output = Vec::new();
-    protocol(
-        &input[..],
-        &mut output,
-        "opaque-test-credential",
-        false,
-        |_| panic!("credential must never become an argument"),
-    )
+    protocol(&input[..], &mut output, "opaque-test-credential", |_| {
+        panic!("credential must never become an argument")
+    })
     .unwrap();
+    let reply: Value = serde_json::from_slice(&output).unwrap();
+    assert_eq!(reply["id"], 1);
+    assert_eq!(reply["error"]["code"], -32602);
     assert!(!String::from_utf8(output)
         .unwrap()
         .contains("opaque-test-credential"));
@@ -164,9 +160,9 @@ fn mcp_serve_refuses_mesh_target_and_token_in_arguments() {
 #[test]
 fn mcp_serve_initialize_list_and_call_delegate_through_cli_port() {
     let input = [
-        json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{}}}),
-        json!({"jsonrpc":"2.0","method":"notifications/initialized"}),
-        json!({"jsonrpc":"2.0","id":2,"method":"tools/list"}),
+        json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"_meta":{"correlation":"initialize"}}}),
+        json!({"jsonrpc":"2.0","method":"notifications/initialized","params":{"_meta":{"correlation":"ready"}}}),
+        json!({"jsonrpc":"2.0","id":2,"method":"tools/list","params":{"_meta":{"correlation":"list"}}}),
         json!({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"mem_get","arguments":{"id":"opaque"}}}),
     ].iter().map(|frame|format!("{frame}\n")).collect::<String>();
     let mut output = Vec::new();
@@ -175,7 +171,6 @@ fn mcp_serve_initialize_list_and_call_delegate_through_cli_port() {
         input.as_bytes(),
         &mut output,
         "opaque-test-credential",
-        false,
         |args| {
             calls.push(args.to_vec());
             Ok("opaque-result".into())
@@ -195,4 +190,36 @@ fn mcp_serve_initialize_list_and_call_delegate_through_cli_port() {
         json!([{"type":"text","text":"opaque-result"}])
     );
     assert_eq!(calls, vec![vec!["--json", "mem", "get", "--", "opaque"]]);
+}
+
+#[test]
+fn mcp_serve_tool_meta_is_ignored_but_other_unknown_params_refuse() {
+    let input = [
+        json!({"jsonrpc":"2.0","id":"progress-call","method":"tools/call","params":{"name":"mem_get","arguments":{"id":"opaque"},"_meta":{"progressToken":"opaque-progress","correlation":"opaque"}}}),
+        json!({"jsonrpc":"2.0","id":"unknown-param","method":"tools/call","params":{"name":"mem_get","arguments":{"id":"opaque"},"extra":true}}),
+    ].iter().map(|frame| format!("{frame}\n")).collect::<String>();
+    let mut output = Vec::new();
+    let mut executions = 0;
+    protocol(
+        input.as_bytes(),
+        &mut output,
+        "opaque-test-credential",
+        |_| {
+            executions += 1;
+            Ok("opaque-result".into())
+        },
+    )
+    .unwrap();
+    let replies = String::from_utf8(output)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(executions, 1);
+    assert_eq!(replies[0]["id"], "progress-call");
+    assert_eq!(
+        replies[0]["result"]["content"],
+        json!([{"type":"text","text":"opaque-result"}])
+    );
+    assert_eq!(replies[1]["error"]["code"], -32602);
 }

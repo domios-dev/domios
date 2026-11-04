@@ -72,9 +72,9 @@ function clientCapabilities(ctx:RuntimeContext):JsonValue {
   return {fs:{readTextFile:ctx.clientBridges?.fsRead === true,writeTextFile:ctx.clientBridges?.fsWrite === true},terminal:ctx.clientBridges?.terminal === true};
 }
 
-function hostMcpServers(ctx:RuntimeContext, state:Negotiation):JsonValue[] {
+function hostMcpServers(ctx:RuntimeContext):JsonValue[] {
   const descriptor=ctx.hostMcp;
-  return record(state.capabilities.mcpCapabilities) && descriptor
+  return descriptor
     ? [{name:descriptor.name,command:descriptor.command,args:[...descriptor.args],env:[]}] : [];
 }
 
@@ -119,7 +119,7 @@ export function runtimePlan(ctx:RuntimeContext, op:Operation):RuntimePlan {
     }
     case "openThread":
       if (ctx.threadId || state.sessionId) return refusePlan("ACP session is already bound");
-      return request(methods.newSession, {cwd:ctx.cwd, mcpServers:hostMcpServers(ctx,state)});
+      return request(methods.newSession, {cwd:ctx.cwd, mcpServers:hostMcpServers(ctx)});
     case "resumeThread": {
       if (state.sessionId && state.sessionId !== op.threadId) return refusePlan("ACP session does not belong to this runtime");
       if (state.sessionActive && state.sessionId === op.threadId)
@@ -131,7 +131,7 @@ export function runtimePlan(ctx:RuntimeContext, op:Operation):RuntimePlan {
       state.sessionActive=false;
       state.sessionId=op.threadId;
       state.cursor={replay:state.cursor.replay+1,prompt:0,loading:true};
-      return request(method, {sessionId:op.threadId, cwd:ctx.cwd, mcpServers:hostMcpServers(ctx,state)});
+      return request(method, {sessionId:op.threadId, cwd:ctx.cwd, mcpServers:hostMcpServers(ctx)});
     }
     case "submitTurn": {
       const sessionId = ownSession(ctx, state);

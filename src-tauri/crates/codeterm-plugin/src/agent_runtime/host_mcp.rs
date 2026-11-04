@@ -32,14 +32,15 @@ pub(super) fn validate(
     let Some(declaration) = &cap.host_mcp else {
         return Ok(());
     };
-    if !declaration
-        .methods
-        .iter()
-        .any(|declared| declared == method)
+    let servers = params.get(&declaration.param);
+    if servers.is_none()
+        && !declaration
+            .methods
+            .iter()
+            .any(|declared| declared == method)
     {
         return Ok(());
     }
-    let servers = params.get(&declaration.param);
     if servers == Some(&json!([]))
         || ctx
             .host_mcp
