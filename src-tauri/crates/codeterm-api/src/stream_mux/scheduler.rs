@@ -10,6 +10,20 @@ struct Shared {
     model: Mutex<model::Model>,
     ready: Notify,
     space: Notify,
+    #[cfg(test)]
+    contended_finished: Notify,
+}
+
+impl Shared {
+    fn edit_locked<T>(&self, work: impl FnOnce(&mut model::Model) -> T) -> T {
+        let result = {
+            let mut model = super::locks::lock(&self.model, "scheduler");
+            work(&mut model)
+        };
+        #[cfg(test)]
+        self.contended_finished.notify_one();
+        result
+    }
 }
 
 #[derive(Clone)]
@@ -21,6 +35,8 @@ impl Scheduler {
             model: Mutex::new(model::Model::default()),
             ready: Notify::new(),
             space: Notify::new(),
+            #[cfg(test)]
+            contended_finished: Notify::new(),
         }))
     }
 
@@ -34,11 +50,9 @@ impl Scheduler {
             }
         }
         let shared = self.0.clone();
-        tokio::task::spawn_blocking(move || {
-            work(&mut super::locks::lock(&shared.model, "scheduler"))
-        })
-        .await
-        .ok()
+        tokio::task::spawn_blocking(move || shared.edit_locked(work))
+            .await
+            .ok()
     }
 
     fn cleanup(&self, work: impl FnOnce(&mut model::Model) + Send + 'static) {
@@ -90,15 +104,28 @@ impl Scheduler {
     pub async fn recv(&self) -> Option<Bytes> {
         loop {
             let ready = self.0.ready.notified();
-            let (frame, closed) = self.edit(|model| (model.pop(), model.closed())).await?;
-            if frame.is_some() {
-                self.0.space.notify_waiters();
-                return frame;
+            let inspected = {
+                if let Some(mut model) = self.0.model.try_lock() {
+                    if let Some(frame) = model.pop() {
+                        self.0.space.notify_waiters();
+                        return Some(frame);
+                    }
+                    if model.closed() {
+                        return None;
+                    }
+                    true
+                } else {
+                    false
+                }
+            };
+            if inspected {
+                ready.await;
+            } else {
+                let shared = self.0.clone();
+                tokio::task::spawn_blocking(move || shared.edit_locked(|_| ()))
+                    .await
+                    .ok()?;
             }
-            if closed {
-                return None;
-            }
-            ready.await;
         }
     }
 
@@ -123,6 +150,10 @@ impl Scheduler {
 
 #[cfg(test)]
 impl Scheduler {
+    pub(super) async fn contended_operation_finished_for_test(&self) {
+        self.0.contended_finished.notified().await;
+    }
+
     pub(super) fn with_model_held_for_test(&self, hold: impl FnOnce()) {
         let _guard = self.0.model.lock();
         hold();
