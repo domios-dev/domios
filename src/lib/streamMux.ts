@@ -1,6 +1,6 @@
 import { uid } from "./uid";
 import { browserFetch, createTransportClient, SseCapacityError, streamClientId, TransportError, type TransportClient, type TransportOptions, type Unsubscribe } from "./transportClient";
-import { decodeMuxFrame, isMuxStreamPath, type MuxFrame } from "./streamMuxModel";
+import { bulkCreditDue, decodeMuxFrame, isMuxStreamPath, muxSessionRefused, type MuxFrame } from "./streamMuxModel";
 import { EMPTY_MUX_POSTS, initialMuxRequest, MUX_REQUEST_TIMEOUT, muxPostCancel, muxPostEnqueue, muxPostRemove, muxPostStart, muxPostTraffic, muxRequestAdmission, muxRequestOperation, muxRequestPolicy, transitionMuxRequest, type MuxPostState, type MuxRequestInit, type MuxRequestState, type MuxTraffic } from "./streamMuxRequestModel";
 import { restRequestTimeoutMs } from "./restTimeoutPolicy";
 import { RECONNECT_FIRST_MS, reconnectDelay, nextReconnectBackoff, shouldResetReconnectBackoff } from "./webReconnectModel";
@@ -105,6 +105,7 @@ export function createStreamMux(transport: () => TransportClient, fetcher: Fetch
     const step = transitionMuxRequest(entry.state, { type: "lost" });
     entry.state = step.state;
     const reason = error instanceof SseCapacityError && entry.stream ? error
+      : error instanceof TransportError && muxSessionRefused(error.status) ? error
       : !entry.state.cancellable && entry.session !== null && step.action !== "not-dispatched" ? new OutcomeUnknown(entry.method, entry.path, error instanceof Error ? error.message : undefined)
       : new RetryableMuxError(entry.path, error instanceof Error ? error.message : "Mux connection lost");
     entry.outcome = reason;
@@ -192,6 +193,7 @@ export function createStreamMux(transport: () => TransportClient, fetcher: Fetch
   function route(value: unknown): void {
     const frame = decodeMuxFrame(value);
     if (!frame) throw new Error("Invalid mux response frame");
+    countCredit(frame);
     const entry = pending.get(frame.channel);
     if (!entry) return;
     if (frame.kind === "open") {
@@ -222,6 +224,32 @@ export function createStreamMux(transport: () => TransportClient, fetcher: Fetch
 
   const earlyEnds = new Map<string, Extract<MuxFrame, { kind: "end" }>["end"]>();
 
+  let credit = { session: "", received: 0, posted: 0 };
+
+  function countCredit(frame: MuxFrame): void {
+    if (frame.kind !== "chunk" || !frame.credit || !live || credit.session !== live) return;
+    credit.received += 1;
+    const due = bulkCreditDue(credit.received, credit.posted);
+    if (due === null) return;
+    const session = credit.session, previous = credit.posted;
+    credit.posted = due;
+    void control("/api/stream-mux/" + session + "/credit", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ received: due }),
+    }).then(response => response.body?.cancel(), () => {
+      // The next credited frame re-posts the cumulative count.
+      if (credit.session === session && credit.posted === due) credit.posted = previous;
+    });
+  }
+
+  function refused(owner: string, status: number): void {
+    if (current !== owner) return;
+    current = null; live = null; closeStream = null;
+    const error = new TransportError(status, "/api/stream-mux", "Daemon refused this client's credentials");
+    const waiters = [...waiting.values()]; waiting.clear();
+    for (const waiter of waiters) waiter.reject(error);
+    for (const entry of [...pending.values()]) if (entry.state.phase !== "registered") failure(entry, error);
+  }
+
   function lost(owner: string, error?: unknown): void {
     if (current !== owner) return;
     current = null; live = null; closeStream = null;
@@ -246,10 +274,12 @@ export function createStreamMux(transport: () => TransportClient, fetcher: Fetch
       onReady() {
         if (current !== owner) return;
         live = owner;
+        credit = { session: owner, received: 0, posted: 0 };
         const waiters = [...waiting.values()]; waiting.clear();
         for (const waiter of waiters) waiter.resolve(owner);
       },
       onEnd(end) {
+        if (end.reason === "http" && end.status !== undefined && muxSessionRefused(end.status)) { refused(owner, end.status); return; }
         if (shouldResetReconnectBackoff(sawFrame, Date.now() - started)) backoff = RECONNECT_FIRST_MS;
         lost(owner, end.error);
       },

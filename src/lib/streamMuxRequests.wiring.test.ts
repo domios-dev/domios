@@ -6,7 +6,8 @@ import type { TransportOptions } from "./transportClient";
 interface Posted { id: string; session: string; path: string; method: string; init: RequestInit }
 
 function fixture() {
-  const posted: Posted[] = [], deleted: string[] = [], sessions: string[] = [];
+  const posted: Posted[] = [], deleted: string[] = [], sessions: string[] = [], credits: Array<{ session: string; received: number }> = [];
+  let refuseMux = 0;
   const waiting: Array<(post: Posted) => void> = [];
   const cancellations: Array<(id: string) => void> = [];
   let cursor = 0, deleteCursor = 0;
@@ -16,9 +17,14 @@ function fixture() {
     const url = new URL(String(input));
     if (url.pathname === "/api/stream-mux") {
       sessions.push(url.searchParams.get("session")!);
+      if (refuseMux) return new Response("unauthorized", { status: refuseMux });
       return new Response(new ReadableStream<Uint8Array>({ start(value) { controller = value; } }), { headers: { "Content-Type": "text/event-stream" } });
     }
     const parts = url.pathname.split("/");
+    if (parts[4] === "credit") {
+      credits.push({ session: parts[3], received: (JSON.parse(String(init.body)) as { received: number }).received });
+      return new Response(null, { status: 204 });
+    }
     if (init.method === "DELETE") {
       deleted.push(parts[5]); cancellations.shift()?.(parts[5]);
       return Response.json({ accepted: true });
@@ -31,7 +37,8 @@ function fixture() {
   const client = withStreamMux({ origin: "http://mux.fixture", token: "fixture-token", fetch });
   const push = (value: unknown) => controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(value)}\n\n`));
   return {
-    client, posted, deleted, sessions, push,
+    client, posted, deleted, sessions, credits, push,
+    refuse(status: number) { refuseMux = status; },
     head(post: Posted, status = 200, headers: [string, string][] = [["content-type", "application/json"]]) { push({ channel: post.id, open: true, status, headers }); },
     text(post: Posted, chunk: string) { push({ channel: post.id, chunk, enc: "utf8" }); },
     end(post: Posted) { push({ channel: post.id, end: { reason: "eof" } }); },
@@ -119,5 +126,28 @@ describe("RPC responses over one mux", () => {
     const rejected = expect(received.text()).rejects.toMatchObject({ name: "TimeoutError" });
     await vi.advanceTimersByTimeAsync(10); await rejected;
     expect(await f.cancelled()).toBe(post.id);
+  });
+});
+
+describe("mux bulk credit and credential refusal", () => {
+  it("credits every received bulk frame cumulatively, including frames for requests it no longer tracks", async () => {
+    const f = fixture();
+    const response = f.client.request!("/api/fixture"); const post = await f.next();
+    f.head(post, 200, [["content-type", "application/octet-stream"]]);
+    for (let i = 0; i < 6; i++) f.push({ channel: post.id, chunk: "AA==", enc: "base64", credit: true });
+    for (let i = 0; i < 2; i++) f.push({ channel: "a-cancelled-request", chunk: "AA==", enc: "base64", credit: true });
+    f.push({ channel: post.id, chunk: "AA==", enc: "base64" });
+    f.end(post);
+    await (await response).arrayBuffer();
+    await vi.waitFor(() => expect(f.credits.map(c => c.received)).toEqual([4, 8]));
+    expect(new Set(f.credits.map(c => c.session))).toEqual(new Set([f.sessions[0]]));
+  });
+
+  it("fails waiting requests with the 401 instead of reconnecting forever", async () => {
+    const f = fixture();
+    f.refuse(401);
+    await expect(f.client.localJson("GET", "/api/workspaces")).rejects.toMatchObject({ name: "WebApiError", status: 401 });
+    expect(f.sessions).toHaveLength(1);
+    expect(f.posted).toHaveLength(0);
   });
 });

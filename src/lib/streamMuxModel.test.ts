@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decodeMuxFrame, isMuxStreamPath } from "./streamMuxModel";
+import { BULK_CREDIT_STEP, bulkCreditDue, decodeMuxFrame, isMuxStreamPath, muxSessionRefused } from "./streamMuxModel";
 
 describe("mux stream routes", () => {
   it("shares events, startup, output, relay, agent-run and surface streams", () => {
@@ -12,8 +12,9 @@ describe("mux response codec", () => {
   it("carries HTTP status, filtered headers, UTF-8 and binary bytes, and bounded endings", () => {
     expect(decodeMuxFrame({ channel: "c", open: true, status: 503, headers: [["content-type", "application/json"]] }))
       .toEqual({ channel: "c", kind: "open", status: 503, headers: [["content-type", "application/json"]] });
-    expect(decodeMuxFrame({ channel: "c", chunk: "雪", enc: "utf8" })).toEqual({ channel: "c", kind: "chunk", chunk: "雪", enc: "utf8" });
-    expect(decodeMuxFrame({ channel: "c", chunk: "/w==", enc: "base64" })).toEqual({ channel: "c", kind: "chunk", chunk: "/w==", enc: "base64" });
+    expect(decodeMuxFrame({ channel: "c", chunk: "雪", enc: "utf8" })).toEqual({ channel: "c", kind: "chunk", chunk: "雪", enc: "utf8", credit: false });
+    expect(decodeMuxFrame({ channel: "c", chunk: "/w==", enc: "base64" })).toEqual({ channel: "c", kind: "chunk", chunk: "/w==", enc: "base64", credit: false });
+    expect(decodeMuxFrame({ channel: "c", chunk: "/w==", enc: "base64", credit: true })).toMatchObject({ kind: "chunk", credit: true });
     expect(decodeMuxFrame({ channel: "c", end: { reason: "capacity", bytes: 64 } })).toEqual({ channel: "c", kind: "end", end: { reason: "capacity", bytes: 64 } });
   });
 
@@ -23,5 +24,19 @@ describe("mux response codec", () => {
       { channel: "c", open: true, status: 199, headers: [] }, { channel: "c", open: true, status: 200, headers: [["bad"]] },
       { channel: "c", chunk: "x", enc: "other" }, { channel: "c", end: { reason: "http", status: 404 } },
     ]) expect(decodeMuxFrame(invalid)).toBeNull();
+  });
+});
+
+describe("mux flow control and refusal", () => {
+  it("posts a cumulative bulk credit once every step and never before", () => {
+    expect(bulkCreditDue(BULK_CREDIT_STEP - 1, 0)).toBeNull();
+    expect(bulkCreditDue(BULK_CREDIT_STEP, 0)).toBe(BULK_CREDIT_STEP);
+    expect(bulkCreditDue(BULK_CREDIT_STEP * 2 + 1, BULK_CREDIT_STEP)).toBe(BULK_CREDIT_STEP * 2 + 1);
+    expect(bulkCreditDue(BULK_CREDIT_STEP, BULK_CREDIT_STEP)).toBeNull();
+  });
+
+  it("treats only credential refusals of the session as final", () => {
+    for (const status of [401, 403]) expect(muxSessionRefused(status)).toBe(true);
+    for (const status of [undefined, 0, 404, 410, 429, 500, 503]) expect(muxSessionRefused(status)).toBe(false);
   });
 });

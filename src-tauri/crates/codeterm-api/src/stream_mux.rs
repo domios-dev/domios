@@ -39,6 +39,10 @@ pub(crate) fn router<S: Clone + Send + Sync + 'static>() -> axum::Router<S> {
             axum::routing::delete(stream_mux_close_channel),
         )
         .route(
+            "/api/stream-mux/{session}/credit",
+            axum::routing::post(stream_mux_credit),
+        )
+        .route(
             "/api/stream-mux/{session}/requests/{id}",
             axum::routing::post(stream_mux_request)
                 .delete(stream_mux_cancel_request)
@@ -268,6 +272,35 @@ async fn cancel(
         }
     }
     Ok(Json(serde_json::json!({"accepted":true,"closed":closed})))
+}
+
+#[derive(serde::Deserialize)]
+pub(crate) struct Credit {
+    received: u64,
+}
+
+/// The client acknowledges cumulative credited bulk frames so the writer can release more bulk.
+pub(crate) async fn stream_mux_credit(
+    headers: HeaderMap,
+    Path(session_id): Path<String>,
+    Json(credit): Json<Credit>,
+) -> Result<StatusCode, Failure> {
+    let owner = owner(&headers)?;
+    let scheduler = {
+        let sessions = SESSIONS.lock();
+        match sessions.get(&session_id) {
+            Some(session) if session.owner != owner => {
+                return Err((
+                    StatusCode::FORBIDDEN,
+                    "Mux client differs from session owner".into(),
+                ))
+            }
+            Some(session) => session.scheduler.clone(),
+            None => return Err((StatusCode::GONE, "Unknown mux session".into())),
+        }
+    };
+    scheduler.credit(credit.received);
+    Ok(StatusCode::NO_CONTENT)
 }
 
 pub(crate) async fn stream_mux_close_channel(

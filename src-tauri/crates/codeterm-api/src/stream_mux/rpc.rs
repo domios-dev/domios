@@ -200,6 +200,7 @@ async fn pump(reservation: &Reservation, response: Response) -> bool {
     let mut upstream = response.into_body().into_data_stream();
     let mut tail = Vec::new();
     let cap = if text { 8 * 1024 } else { spool::IO_CHUNK };
+    let credit = reservation.entry.traffic == Traffic::Bulk && !reservation.entry.stream;
     while let Some(chunk) = upstream.next().await {
         let chunk = match chunk {
             Ok(chunk) => chunk,
@@ -226,7 +227,7 @@ async fn pump(reservation: &Reservation, response: Response) -> bool {
             if size == 0 {
                 continue;
             }
-            let frame = frames::encode_chunk(&reservation.id, &tail[..size], text);
+            let frame = frames::encode_chunk(&reservation.id, &tail[..size], text, credit);
             if !send(reservation, frame, Kind::Data).await {
                 return false;
             }
@@ -236,7 +237,7 @@ async fn pump(reservation: &Reservation, response: Response) -> bool {
     if !tail.is_empty()
         && !send(
             reservation,
-            frames::encode_chunk(&reservation.id, &tail, false),
+            frames::encode_chunk(&reservation.id, &tail, false, credit),
             Kind::Data,
         )
         .await

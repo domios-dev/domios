@@ -65,15 +65,18 @@ pub(crate) fn encode_head(channel: &str, status: StatusCode, headers: &HeaderMap
     )
 }
 
-pub(crate) fn encode_chunk(channel: &str, bytes: &[u8], text: bool) -> Bytes {
-    if text {
-        if let Ok(chunk) = std::str::from_utf8(bytes) {
-            return encode(serde_json::json!({"channel":channel,"chunk":chunk,"enc":"utf8"}));
+/// `credit` marks bulk RPC data the client must acknowledge through the credit route.
+pub(crate) fn encode_chunk(channel: &str, bytes: &[u8], text: bool, credit: bool) -> Bytes {
+    let mut frame = match std::str::from_utf8(bytes) {
+        Ok(chunk) if text => serde_json::json!({"channel":channel,"chunk":chunk,"enc":"utf8"}),
+        _ => {
+            serde_json::json!({"channel":channel,"chunk":base64::engine::general_purpose::STANDARD.encode(bytes),"enc":"base64"})
         }
+    };
+    if credit {
+        frame["credit"] = serde_json::Value::Bool(true);
     }
-    encode(
-        serde_json::json!({"channel":channel,"chunk":base64::engine::general_purpose::STANDARD.encode(bytes),"enc":"base64"}),
-    )
+    encode(frame)
 }
 
 pub(crate) fn encode_end(channel: &str, end: &ChannelEnd) -> Bytes {

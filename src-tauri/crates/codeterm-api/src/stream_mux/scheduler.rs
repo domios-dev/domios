@@ -67,6 +67,11 @@ impl Scheduler {
         }
     }
 
+    pub fn credit(&self, received: u64) {
+        self.0.model.lock().credit(received);
+        self.0.ready.notify_one();
+    }
+
     pub fn overflow(&self, id: &str, end: Bytes) {
         self.0.model.lock().finish_overflow(id, end);
         self.0.ready.notify_one();
