@@ -42,6 +42,8 @@ fn cancelled_call_exits_while_vm_dependency_remains_held() {
 #[test]
 fn ordinary_calls_interrupt_unbounded_javascript_and_release_the_vm() {
     let vm = fixture("vm-default-deadline");
+    // The call deadline alone bounds runaway frames; a short bound keeps the proof fast.
+    super::super::host_exec::set_test_wait_bound("vm-default-deadline", Duration::from_millis(100));
     let worker_vm = vm.clone();
     let (result_tx, result_rx) = mpsc::channel();
     let worker = std::thread::spawn(move || {

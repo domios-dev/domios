@@ -10,7 +10,54 @@ pub(in crate::js_runtime) fn start_scoped_json_job<F>(
 where
     F: FnOnce() -> String + Send + 'static,
 {
+    start_admitted_scoped_json_job(
+        plugin_id,
+        scope,
+        deadline,
+        cancel,
+        timeout_result,
+        |launch: Box<dyn FnOnce(()) + Send>| {
+            launch(());
+            Ok(())
+        },
+        move |()| work(),
+    )
+}
+
+/// Finishes a job record whose worker launch is dropped without running, so a
+/// withdrawn or refused job never leaves an unfinished record behind.
+struct Unlaunched {
+    job: Option<String>,
+    outcome: String,
+}
+
+impl Drop for Unlaunched {
+    fn drop(&mut self) {
+        if let Some(job) = self.job.take() {
+            finish_json_job(&job, &self.outcome);
+        }
+    }
+}
+
+/// Registers the job now and hands its worker launch to `admit`, which starts it with
+/// a capacity token immediately or later; the job id is valid for awaiting either way.
+pub(in crate::js_runtime) fn start_admitted_scoped_json_job<T, F>(
+    plugin_id: &str,
+    scope: &str,
+    deadline: Instant,
+    cancel: Arc<dyn Fn() + Send + Sync>,
+    timeout_result: serde_json::Value,
+    admit: impl FnOnce(Box<dyn FnOnce(T) + Send>) -> Result<(), String>,
+    work: F,
+) -> Result<String, String>
+where
+    T: Send + 'static,
+    F: FnOnce(T) -> String + Send + 'static,
+{
     let job_id = start_exec_job(plugin_id)?;
+    let mut not_started = timeout_result.clone();
+    not_started["error"] = "unavailable".into();
+    not_started["requestMayHaveStarted"] = false.into();
     let mut failure = timeout_result.clone();
     failure["error"] = serde_json::Value::String(
         if failure["requestMayHaveStarted"] == true {
@@ -35,10 +82,24 @@ where
     if !installed {
         return Err("host job revoked before admission".into());
     }
-    spawn_json_worker(job_id.clone(), move || {
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(work))
-            .unwrap_or_else(|_| failure.to_string())
-    });
+    let mut pending = Unlaunched {
+        job: Some(job_id.clone()),
+        outcome: not_started.to_string(),
+    };
+    let admitted = admit(Box::new(move |token| {
+        let Some(worker) = pending.job.take() else {
+            return;
+        };
+        spawn_json_worker(worker, move || {
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || work(token)))
+                .unwrap_or_else(|_| failure.to_string())
+        });
+    }));
+    if let Err(error) = admitted {
+        let refused = EXEC_JOBS.lock().remove(&job_id);
+        drop(refused);
+        return Err(error);
+    }
     Ok(job_id)
 }
 pub(in crate::js_runtime) fn abort_scoped_json_job(plugin: &str, scope: &str, id: &str) -> bool {

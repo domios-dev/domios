@@ -394,8 +394,13 @@ fn cancellation_does_not_release_native_capacity_until_started_jobs_exit() {
             Err(VmError::CallCancelled)
         ));
     }
+    let queued_vm = vm.clone();
+    let queued_path = path.clone();
+    let queued =
+        std::thread::spawn(move || call_json::<Value>(&queued_vm, "read", &[json!(queued_path)]));
     assert!(
-        matches!(call_json::<Value>(&vm, "read", &[json!(path)]), Err(VmError::Script(message)) if message.contains("admission is busy"))
+        admission::wait_queued("io-capacity", 1, WEDGED),
+        "a read beyond retained capacity must queue, not run or fail"
     );
     let other = self::vm("io-capacity-independent", None);
     assert_eq!(
@@ -405,6 +410,107 @@ fn cancellation_does_not_release_native_capacity_until_started_jobs_exit() {
     for (gates, _, _, caller) in running {
         gates.finish();
         caller.join().unwrap();
+    }
+    assert_eq!(queued.join().unwrap().unwrap(), "healthy");
+}
+
+#[test]
+fn saturated_capacity_queues_concurrent_status_reads_and_completes_every_one() {
+    let plugin = "io-saturation";
+    let vm = vm(plugin, None);
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("status.txt");
+    std::fs::write(&path, "healthy").unwrap();
+    let slow = (0..4)
+        .map(|index| {
+            let gates = Gates::new(&format!("io-saturation-slow-{index}"));
+            let request = gates.request();
+            let caller_vm = vm.clone();
+            let caller =
+                std::thread::spawn(move || call_json::<String>(&caller_vm, "pause", &[request]));
+            gates.entered();
+            (gates, caller)
+        })
+        .collect::<Vec<_>>();
+    let readers = (0..8)
+        .map(|_| {
+            let reader_vm = vm.clone();
+            let reader_path = path.clone();
+            std::thread::spawn(move || {
+                call_json::<Value>(&reader_vm, "read", &[json!(reader_path)])
+            })
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        admission::wait_queued(plugin, 8, WEDGED),
+        "every status read must wait for capacity instead of failing"
+    );
+    assert_eq!(call_json::<String>(&vm, "health", &[]).unwrap(), "healthy");
+    for (gates, caller) in slow {
+        gates.finish();
+        assert_eq!(caller.join().unwrap().unwrap(), "resumed");
+    }
+    for reader in readers {
+        assert_eq!(reader.join().unwrap().unwrap(), "healthy");
+    }
+}
+
+#[test]
+fn cancelled_queued_reads_free_queue_and_job_slots_while_workers_stay_held() {
+    let plugin = "io-queue-cancel";
+    let vm = vm(plugin, None);
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("status.txt");
+    std::fs::write(&path, "healthy").unwrap();
+    let held = (0..4)
+        .map(|index| {
+            let gates = Gates::new(&format!("io-queue-cancel-held-{index}"));
+            let request = gates.request();
+            let caller_vm = vm.clone();
+            let caller = std::thread::spawn(move || {
+                call_json_interruptible::<String>(
+                    &caller_vm,
+                    "pause",
+                    &[request],
+                    ConversionCancellation::default(),
+                    Instant::now() + Duration::from_secs(60),
+                )
+            });
+            gates.entered();
+            (gates, caller)
+        })
+        .collect::<Vec<_>>();
+    let held_jobs = crate::js_runtime::host_exec::plugin_job_count(plugin);
+    // More cycles than the queue bound: a retained entry or job record would surface.
+    for _ in 0..40 {
+        let cancellation = ConversionCancellation::default();
+        let caller_cancel = cancellation.clone();
+        let caller_vm = vm.clone();
+        let caller_path = path.clone();
+        let caller = std::thread::spawn(move || {
+            call_json_interruptible::<Value>(
+                &caller_vm,
+                "read",
+                &[json!(caller_path)],
+                caller_cancel,
+                Instant::now() + Duration::from_secs(60),
+            )
+        });
+        assert!(admission::wait_queued(plugin, 1, WEDGED));
+        cancellation.cancel();
+        assert!(matches!(
+            caller.join().unwrap(),
+            Err(VmError::CallCancelled)
+        ));
+        assert_eq!(admission::queued(plugin), 0);
+        assert_eq!(
+            crate::js_runtime::host_exec::plugin_job_count(plugin),
+            held_jobs
+        );
+    }
+    for (gates, caller) in held {
+        gates.finish();
+        assert_eq!(caller.join().unwrap().unwrap(), "resumed");
     }
     assert_eq!(
         call_json::<Value>(&vm, "read", &[json!(path)]).unwrap(),
