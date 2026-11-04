@@ -178,3 +178,18 @@ writing. The reasoning capture recorded the thought, answer and usage updates;
 its reader reached the 90-second bound before recording completion. The smaller
 `dsh-raw.jsonl` capture includes an assistant answer and end_turn completion.
 Neither receipt by itself proves the repaired application UI.
+
+## Concurrent prompt rejection
+
+`concurrent-rpc-refusal.json` derives A/B/C ordering and replies from
+`../raw/dsh-concurrent-refusal-raw.jsonl` (2026-11-04, installed dsh profile,
+reasoning Off). Raw reply id 5 rejects B with JSON-RPC code -32602 before reply
+id 4 completes A. The capture then includes C's write call, completed update,
+`NEXT_TOOL_DONE` answer and end_turn reply. Only session/cwd are normalized in
+updates; the fixture uses Domios client identity and host contexts. It does not
+infer acceptance from an error message or elapsed time. B reserves ordinal 2,
+gets no delivery evidence, and is removed from the queue; C uses ordinal 3 and
+settles. Native transcript coverage persists at those settlement events and
+restores the complete ordered rows twice without duplicates. The raw probe used
+stdin credentials in the child environment, scrubbed before writing, and created
+no QA tabs. It proves the wire cause, not the application's repaired live UI.

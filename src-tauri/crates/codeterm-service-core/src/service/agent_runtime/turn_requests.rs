@@ -12,6 +12,8 @@ use std::sync::{
 };
 use tokio::sync::watch;
 
+mod refusal;
+
 static NEXT_REQUEST: AtomicU64 = AtomicU64::new(1);
 
 enum ActivityError {
@@ -23,6 +25,9 @@ pub(super) struct PendingTurn {
     context: RuntimeContext,
     send_id: String,
     settled: AtomicBool,
+    refused: AtomicBool,
+    observed: AtomicBool,
+    had_predecessor: bool,
     started_at: u64,
     order: u64,
     activity: tokio::sync::OnceCell<()>,
@@ -90,11 +95,12 @@ pub(super) fn evidence(session: &Session, send: &str, thread: &str, turn: &str) 
         || pending.turn != turn
         || current.epoch != pending.context.epoch
         || current.binding_nonce != pending.context.binding_nonce
-        || pending.settled.load(Ordering::Acquire)
+        || pending.settled.load(Ordering::Acquire) && !pending.refused.load(Ordering::Acquire)
         || !pending.witness.written()
     {
         return false;
     }
+    pending.observed.store(true, Ordering::Release);
     if pending.outcome.borrow().is_none() {
         pending
             .outcome
@@ -105,6 +111,28 @@ pub(super) fn evidence(session: &Session, send: &str, thread: &str, turn: &str) 
             })));
     }
     true
+}
+
+pub(super) fn observe_item(
+    session: &Session,
+    context: &RuntimeContext,
+    item: &codeterm_types::agent::chat_types::ChatMsg,
+) {
+    if !matches!(
+        item.kind.as_str(),
+        "user" | "assistant" | "thinking" | "tool" | "tool_call" | "tool_result"
+    ) {
+        return;
+    }
+    for pending in session.turn_requests.lock().values() {
+        if pending.context.epoch == context.epoch
+            && pending.context.binding_nonce == context.binding_nonce
+            && pending.context.thread_id == context.thread_id
+            && context.active_turn_id.as_deref() == Some(pending.turn.as_str())
+        {
+            pending.observed.store(true, Ordering::Release);
+        }
+    }
 }
 
 pub(super) fn started_at(
@@ -222,6 +250,9 @@ pub(super) async fn run(
         context: context.clone(),
         send_id: send_id.clone(),
         settled: AtomicBool::new(false),
+        refused: AtomicBool::new(false),
+        observed: AtomicBool::new(false),
+        had_predecessor: written_pending(session, &context),
         started_at: now(),
         order: NEXT_REQUEST.fetch_add(1, Ordering::Relaxed),
         activity: tokio::sync::OnceCell::new(),
@@ -347,6 +378,14 @@ async fn await_reply(
     .map_err(|reason| RuntimeFailure::HookFailed(reason.to_string()))?;
     validate_runtime_step(&capability, &pending.context, operation, &reply, &step)
         .map_err(|reason| RuntimeFailure::Refused(reason.to_string()))?;
+    if let RuntimeStep::Refused {
+        reason,
+        before_acceptance,
+    } = &step
+    {
+        refusal::apply(svc, session, pending, &reply, reason, *before_acceptance).await?;
+        return Err(RuntimeFailure::Refused(reason.message.clone()));
+    }
     let RuntimeStep::Complete {
         result,
         events,

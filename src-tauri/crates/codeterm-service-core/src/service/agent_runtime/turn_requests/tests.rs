@@ -189,6 +189,9 @@ async fn stream_window_reports_prewrite_boundary_and_successful_receipt() {
         context,
         send_id: "send".into(),
         settled: AtomicBool::new(false),
+        refused: AtomicBool::new(false),
+        observed: AtomicBool::new(false),
+        had_predecessor: false,
         started_at: 1000,
         order: 1,
         activity: tokio::sync::OnceCell::new(),
@@ -275,6 +278,9 @@ async fn completion_waits_for_prior_ingress_projection() {
         context: session.context.lock().clone(),
         send_id: "send".into(),
         settled: AtomicBool::new(false),
+        refused: AtomicBool::new(false),
+        observed: AtomicBool::new(false),
+        had_predecessor: false,
         started_at: now(),
         order: 1,
         activity: tokio::sync::OnceCell::new(),
@@ -665,4 +671,152 @@ async fn queued_written_prompt_starts_after_active_turn_settles_without_updates(
     })
     .await
     .expect("queued written activity must follow active-turn settlement");
+}
+
+#[tokio::test]
+async fn concurrent_rpc_refusal_preserves_active_turn_and_late_delivery_wins() {
+    use crate::service::chat_send_transaction::{ChatSendState, SendLiveBinding};
+    use crate::service::pending_delivery_payloads::user_sends::{
+        continuity::ReceiptState, UserSendAuthority,
+    };
+    let source = SOURCE
+        .replace("turnId:'turn'", "turnId:op.sendId")
+        .replace("beforeAcceptance:false", "beforeAcceptance:true");
+    let (fixture, tab, peer, _cleanup) = runtime_fixture_turn_scoped(&source);
+    let session = engine::for_tab(&tab).unwrap();
+    let process = session.process.lock().clone().unwrap();
+    let (release, wait) = tokio::sync::oneshot::channel::<()>();
+    let server = async move {
+        let mut peer = BufReader::new(peer);
+        let mut requests = Vec::new();
+        for _ in 0..2 {
+            let mut line = String::new();
+            peer.read_line(&mut line).await.unwrap();
+            requests.push(serde_json::from_str::<Value>(&line).unwrap());
+        }
+        let first = &requests[0];
+        let second = &requests[1];
+        let reply = json!({"id":second["id"],"error":{"code":-32602,"message":"opaque"}});
+        peer.get_mut()
+            .write_all(format!("{reply}\n").as_bytes())
+            .await
+            .unwrap();
+        wait.await.unwrap();
+        let reply = json!({"id":first["id"],"result":{"stopReason":"end_turn"}});
+        peer.get_mut()
+            .write_all(format!("{reply}\n").as_bytes())
+            .await
+            .unwrap();
+        peer
+    };
+    let exercise = async {
+        let mut first = operation(&session.context.lock());
+        if let RuntimeOperation::SubmitTurn { send_id, .. } = &mut first {
+            *send_id = "a".into();
+        }
+        let (_, written) = engine::run_submit(&fixture.service, &session, &process, first).await;
+        assert!(written);
+        let context = session.context.lock().clone();
+        let store = &fixture.service.pending_delivery_payloads.user_sends;
+        let ledger = &fixture.service.chat_send_ledger;
+        let reservation = store
+            .reserve(
+                UserSendAuthority {
+                    tab_id: tab.clone(),
+                    pty_id: None,
+                    binding_nonce: context.binding_nonce.clone(),
+                    pty_session_generation: None,
+                    provider_id: "fixture".into(),
+                    session_id: context.thread_id.clone(),
+                    observed_session_id: context.thread_id.clone(),
+                    prelaunch: false,
+                },
+                None,
+                || ledger.reserve_identity(),
+            )
+            .unwrap();
+        let record = store.admit(&reservation, "opaque", "opaque", None).unwrap();
+        drop(reservation);
+        ledger.admit_user(&record);
+        assert!(ledger.bind_rpc_send(
+            &record.send_id,
+            SendLiveBinding {
+                session_id: context.thread_id.clone(),
+                binding_nonce: Some(context.binding_nonce.clone()),
+            }
+        ));
+        assert!(store.claim(&record, context.thread_id.as_deref()).unwrap());
+        session.context.lock().claimed_sends.push(ClaimedSend {
+            send_id: record.send_id.clone(),
+            thread_id: context.thread_id.clone().unwrap(),
+            input: TurnInput {
+                text: "opaque".into(),
+                attachments: vec![],
+            },
+        });
+        let mut second = operation(&context);
+        if let RuntimeOperation::SubmitTurn {
+            send_id,
+            active_turn_id,
+            ..
+        } = &mut second
+        {
+            *send_id = record.send_id.clone();
+            *active_turn_id = context.active_turn_id.clone();
+        }
+        let mut changes = session.control_changes.subscribe();
+        let (_, written) = engine::run_submit(&fixture.service, &session, &process, second).await;
+        assert!(written);
+        loop {
+            changes.borrow_and_update();
+            if ledger.status(&record.send_id).unwrap().state == ChatSendState::Failed {
+                break;
+            }
+            changes.changed().await.unwrap();
+        }
+        assert_eq!(session.context.lock().active_turn_id.as_deref(), Some("a"));
+        assert_eq!(
+            store.receipts(&tab).unwrap()[0].state,
+            ReceiptState::RpcRefused
+        );
+        store.finish_handoff(&record, false).unwrap();
+        store.complete(&record).unwrap();
+        subscriber::publish_events(
+            &fixture.service,
+            &session,
+            context.epoch,
+            vec![AgentRuntimeEvent::SendEvidence {
+                thread_id: context.thread_id.clone().unwrap(),
+                send_id: record.send_id.clone(),
+                turn_id: record.send_id.clone(),
+                item_id: None,
+            }],
+            now(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            ledger.status(&record.send_id).unwrap().state,
+            ChatSendState::Sent
+        );
+        assert_eq!(
+            store.receipts(&tab).unwrap()[0].state,
+            ReceiptState::Delivered
+        );
+        assert_eq!(session.context.lock().active_turn_id.as_deref(), Some("a"));
+        release.send(()).unwrap();
+        loop {
+            changes.borrow_and_update();
+            if session.completions.lock().contains("own-thread", "a") {
+                break;
+            }
+            changes.changed().await.unwrap();
+        }
+        assert!(session.context.lock().active_turn_id.is_none());
+    };
+    tokio::time::timeout(Duration::from_secs(5), async {
+        tokio::join!(exercise, server);
+    })
+    .await
+    .expect("correlated refusal must settle independently without replay");
 }
