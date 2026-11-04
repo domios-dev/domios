@@ -486,6 +486,7 @@ fn shared_context_policy_preserves_upload_and_own_pad_exceptions_and_private_roo
             private: vec![data, pads],
             uploads,
             own_pad: Some(own),
+            workspace: None,
             ssh: None,
         },
     )
@@ -637,4 +638,83 @@ fn claimed_routed_wrappers_never_supply_their_own_reference_provenance() {
     );
     actual.content = tag;
     assert_eq!(referenced_paths(&[actual], None), [path_key(&owned)].into());
+}
+
+#[test]
+fn provisioned_workspace_under_the_data_dir_previews_while_other_private_paths_stay_refused() {
+    let temp = tempfile::tempdir().unwrap();
+    let canonical = temp.path().canonicalize().unwrap();
+    let text = canonical.to_string_lossy();
+    let root = PathBuf::from(text.strip_prefix(r"\\?\").unwrap_or(&text));
+    let data = root.join(".domios-dev-qa");
+    let pads = data.join("runtime/agent-pads");
+    let workspace = data.join("provisioned-workspaces/drill");
+    let allowed = [
+        workspace.join("repo-check.png"),
+        workspace.join("src/diagram.svg"),
+    ];
+    let denied = [
+        workspace.join(".env"),
+        workspace.join("secrets/key.png"),
+        data.join("config.json"),
+        pads.join("foreign/report.md"),
+        data.join("provisioned-workspaces/other/image.png"),
+    ];
+    for file in allowed.iter().chain(&denied) {
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(file, b"fixture").unwrap();
+    }
+    let unreferenced = workspace.join("unreferenced.png");
+    std::fs::write(&unreferenced, b"fixture").unwrap();
+    let policy = |workspace: PathBuf| {
+        PreviewPolicy::for_context(
+            allowed
+                .iter()
+                .chain(&denied)
+                .map(|file| path_key(file))
+                .collect(),
+            PreviewRoots {
+                configured: Vec::new(),
+                private: vec![data.clone(), pads.clone()],
+                uploads: Vec::new(),
+                own_pad: None,
+                workspace: Some(workspace),
+                ssh: None,
+            },
+        )
+        .unwrap()
+    };
+    let scoped = policy(workspace.clone());
+    let read = |policy: &PreviewPolicy, file: &PathBuf| {
+        read_local_preview_file_guarded(
+            file.to_str().unwrap(),
+            "document",
+            |requested, canonical| policy.authorize(requested, canonical),
+        )
+    };
+    for file in &allowed {
+        assert!(read(&scoped, file).is_ok(), "{} previews", file.display());
+    }
+    for file in &denied {
+        assert_eq!(
+            read(&scoped, file).unwrap_err(),
+            "Preview path is private",
+            "{}",
+            file.display()
+        );
+    }
+    assert!(
+        read(&scoped, &unreferenced).is_err(),
+        "unreferenced workspace files stay refused"
+    );
+    // A workspace that contains the data dir grants nothing beyond the ordinary policy.
+    let broad = policy(root.clone());
+    for file in allowed.iter().chain(&denied) {
+        assert_eq!(
+            read(&broad, file).unwrap_err(),
+            "Preview path is private",
+            "{}",
+            file.display()
+        );
+    }
 }
