@@ -477,6 +477,8 @@ pub enum AgentAction {
             allow_hyphen_values = true
         )]
         authorized_gates: Vec<String>,
+        /// Advisory provider allowance reserve for a mutating Worker: below it,
+        /// or when exhausted, the receipt warns; it never blocks the spawn.
         #[arg(long = "provider-reserve-pct", default_value_t = 0.0)]
         provider_reserve_pct: f32,
         /// Declare the tab non-user-facing (bench/probe): its prompts and exits

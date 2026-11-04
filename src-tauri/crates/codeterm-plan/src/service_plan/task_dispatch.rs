@@ -515,7 +515,6 @@ impl PlanStore {
         dispatched_metadata: Option<DispatchedAttemptMetadata>,
         now_ms: u64,
     ) -> Result<DispatchStart, PlanError> {
-        super::interruption::provider_allowance_preflight(&intent, allowance.as_ref(), now_ms)?;
         let dispatch_attempt_id = reserved_attempt_id
             .map(str::to_string)
             .unwrap_or_else(|| crate::plan::ids::short_id("attempt"));
