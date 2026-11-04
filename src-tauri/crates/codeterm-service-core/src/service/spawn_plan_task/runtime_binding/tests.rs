@@ -302,7 +302,7 @@ fn assert_restored_worker_preserves_status(status: crate::plan::TaskStatus) {
     fixture
         .service
         .plan_store
-        .with_plan(&plan, 12, |plan| {
+        .edit_plan_fixture(&plan, 12, |plan| {
             let entry = plan
                 .tasks
                 .iter_mut()

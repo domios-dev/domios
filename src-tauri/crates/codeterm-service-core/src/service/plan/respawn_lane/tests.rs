@@ -103,7 +103,7 @@ fn respawn_fixture(
         )
         .unwrap();
     store
-        .with_plan(&plan.id, 4, |plan| {
+        .edit_plan_fixture(&plan.id, 4, |plan| {
             let task = crate::plan::task_key::find_task_mut(&mut plan.tasks, &task_id).unwrap();
             task.interruption.execution_intent = intent;
             Ok(())

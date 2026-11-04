@@ -226,7 +226,6 @@ fn curator_notice_materialization_is_bounded_by_output_not_task_history_or_body_
             assert!(decoded < 4096);
             assert_eq!(serialized, 0);
             assert!(store.plan_loads_for_test().is_empty());
-            assert!(store.cached_plan_ids_for_test().is_empty());
             assert!(fixtures::audit_counts(&database).is_empty());
             println!("fixture={} consumer=curator_notice tasks={} base_bytes={} sparse={sparse} old_strides={strides} unrelated_attempts={attempts} extra_body={body} selected_history={selected_history} rounds={rounds} baseline_decoded_json_bytes={baseline} queries={} materialized_text_bytes={} decoded_json_bytes={decoded} serialized_row_bytes={serialized} response_bytes={} changed_rows=0",fixtures::SEED,fixtures::TASKS,fixtures::CONTENT_BYTES,metrics.queries,metrics.materialized_bytes,actual.body.len());
             let measured = (metrics, decoded, actual.body.len());

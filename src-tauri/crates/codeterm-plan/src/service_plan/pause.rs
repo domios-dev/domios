@@ -257,9 +257,10 @@ pub fn execute_plan_pause(
         })
         .collect();
     let title = store
-        .get(plan_id)
-        .map(|plan| plan.title)
-        .unwrap_or_default();
+        .database
+        .load_index_row(plan_id)?
+        .ok_or(PlanError::NotFound)?
+        .title;
     let notice = pause_notice_text(plan_id, &title, &operation.reason);
     let agent_outcomes: Vec<_> = operation
         .agents
@@ -328,9 +329,10 @@ pub fn execute_plan_resume(
         .collect();
     let live: Vec<bool> = operation.agents.iter().map(is_live).collect();
     let title = store
-        .get(plan_id)
-        .map(|plan| plan.title)
-        .unwrap_or_default();
+        .database
+        .load_index_row(plan_id)?
+        .ok_or(PlanError::NotFound)?
+        .title;
     let notice = resume_notice_text(plan_id, &title, &restored_mode);
     let agent_outcomes: Vec<_> = operation
         .agents

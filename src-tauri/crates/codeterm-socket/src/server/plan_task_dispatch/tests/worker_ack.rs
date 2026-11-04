@@ -152,7 +152,7 @@ fn respawned_attempt_is_armed_and_ackable() {
         dispatched_worker_task(&store, &project, "blocked-respawn", "tab-first", 1);
     let block_reason = "awaiting dependency evidence";
     store
-        .with_plan(&plan_id, 10, |plan| {
+        .edit_plan_fixture(&plan_id, 10, |plan| {
             let task =
                 codeterm_service_core::plan::task_key::find_task_mut(&mut plan.tasks, &task_id)
                     .unwrap();

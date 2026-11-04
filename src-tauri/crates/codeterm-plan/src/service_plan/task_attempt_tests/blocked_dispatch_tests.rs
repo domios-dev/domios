@@ -5,7 +5,7 @@ fn failed_blocked_respawn_restores_reason_and_marks_unblock_stride_rolled_back()
     let (_dir, store, plan_id, task_id) = bound_report_store();
     let block_reason = "awaiting dependency evidence";
     store
-        .with_plan(&plan_id, 4, |plan| {
+        .edit_plan_fixture(&plan_id, 4, |plan| {
             let task = crate::plan::task_key::find_task_mut(&mut plan.tasks, &task_id).unwrap();
             task.status = TaskStatus::Blocked;
             task.status_label = Some(block_reason.into());
@@ -39,7 +39,7 @@ fn failed_blocked_respawn_restores_reason_and_marks_unblock_stride_rolled_back()
         .unwrap();
 
     store
-        .with_plan(&plan_id, 5, |plan| {
+        .edit_plan_fixture(&plan_id, 5, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()
@@ -72,7 +72,7 @@ fn failed_blocked_dispatch_restores_reason_and_marks_unblock_stride_rolled_back(
     let (_dir, store, plan_id, task_id) = bound_report_store();
     let block_reason = "awaiting dependency evidence";
     store
-        .with_plan(&plan_id, 4, |plan| {
+        .edit_plan_fixture(&plan_id, 4, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()
@@ -121,7 +121,7 @@ fn reverted_blocked_dispatch_restores_reason_and_annotates_unblock_stride() {
     let (_dir, store, plan_id, task_id) = bound_report_store();
     let block_reason = "awaiting dependency evidence";
     store
-        .with_plan(&plan_id, 4, |plan| {
+        .edit_plan_fixture(&plan_id, 4, |plan| {
             let task = crate::plan::task_key::find_task_mut(&mut plan.tasks, &task_id).unwrap();
             task.status = TaskStatus::Blocked;
             task.status_label = Some(block_reason.into());

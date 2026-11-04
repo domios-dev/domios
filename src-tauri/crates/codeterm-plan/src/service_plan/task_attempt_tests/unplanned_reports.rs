@@ -53,7 +53,7 @@ fn unplanned_task_in_review_report_moves_to_in_review() {
 fn planned_task_without_qa_plan_is_still_refused() {
     let (_dir, store, plan_id, task_id) = bound_report_store();
     store
-        .with_plan(&plan_id, 3, |plan| {
+        .edit_plan_fixture(&plan_id, 3, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()

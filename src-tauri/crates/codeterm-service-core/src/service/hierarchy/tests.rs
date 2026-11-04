@@ -458,7 +458,7 @@ fn bound_blocked_report_and_hierarchy_mapping_agree() {
             .unwrap();
         if matches!(report_status, ReportStatus::Partial | ReportStatus::Blocked) {
             store
-                .with_plan(&plan.id, index as u64 + 3, |plan| {
+                .edit_plan_fixture(&plan.id, index as u64 + 3, |plan| {
                     let task = plan
                         .tasks
                         .iter_mut()

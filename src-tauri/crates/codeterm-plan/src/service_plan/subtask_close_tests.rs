@@ -95,7 +95,7 @@ fn add_task_rejects_terminal_and_child_parents() {
     let (store, plan_id, parent_id) = store_with_task();
     for status in [TaskStatus::Done, TaskStatus::Cancelled] {
         store
-            .with_plan(&plan_id, 11, |plan| {
+            .edit_plan_fixture(&plan_id, 11, |plan| {
                 plan.tasks
                     .iter_mut()
                     .find(|task| task.id == parent_id)
@@ -123,7 +123,7 @@ fn add_task_rejects_terminal_and_child_parents() {
         ));
     }
     store
-        .with_plan(&plan_id, 13, |plan| {
+        .edit_plan_fixture(&plan_id, 13, |plan| {
             plan.tasks
                 .iter_mut()
                 .find(|task| task.id == parent_id)

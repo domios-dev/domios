@@ -512,7 +512,7 @@ fn worker_transfer_generic_task_bound_worker_transfer_refuses_before_revoking_as
         .unwrap();
     fixture
         .store
-        .with_plan(&fixture.plan_id, 5, |plan| {
+        .edit_plan_fixture(&fixture.plan_id, 5, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()

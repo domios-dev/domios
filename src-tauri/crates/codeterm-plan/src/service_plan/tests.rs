@@ -490,7 +490,7 @@ fn close_task_closes_every_live_attempt_not_only_scalar_assignment() {
     let (store, id, tid) = store_with_task(&["status_update"]);
     store.assign_task(&id, &tid, "tab-live", None, 20).unwrap();
     store
-        .with_plan(&id, 25, |plan| {
+        .edit_plan_fixture(&id, 25, |plan| {
             let task = plan.tasks.iter_mut().find(|task| task.id == tid).unwrap();
             task.execution_attempts
                 .push(crate::plan::TaskExecutionAttempt {
@@ -531,7 +531,7 @@ fn close_task_accepts_every_started_lifecycle_state() {
         let (store, id, tid) = store_with_task(&["status_update"]);
         store.assign_task(&id, &tid, "tab-live", None, 20).unwrap();
         store
-            .with_plan(&id, 25, |plan| {
+            .edit_plan_fixture(&id, 25, |plan| {
                 let task = plan.tasks.iter_mut().find(|task| task.id == tid).unwrap();
                 task.status = status.clone();
                 Ok(())

@@ -72,7 +72,7 @@ fn team_close_skips_remote_lane_without_touching_peer_worktree() {
         )
         .unwrap();
     store
-        .with_plan(&plan_id, 3, |plan| {
+        .edit_plan_fixture(&plan_id, 3, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()

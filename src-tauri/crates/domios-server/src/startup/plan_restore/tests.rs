@@ -71,7 +71,7 @@ fn archived_plan_with_finished_lane(
         )
         .unwrap();
     store
-        .with_plan(&plan.id, 4, |plan| {
+        .edit_plan_fixture(&plan.id, 4, |plan| {
             plan.status = PlanStatus::Archived;
             plan.team_id = None;
             plan.tasks[0].status = TaskStatus::Done;

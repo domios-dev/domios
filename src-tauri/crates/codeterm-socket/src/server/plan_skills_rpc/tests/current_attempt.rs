@@ -106,7 +106,7 @@ fn current_attempt_stale_owner_epoch_refuses_manifest_refresh_without_mutation()
         caller
             .svc
             .plan_store
-            .with_plan(&caller.plan_id, 8, |plan| {
+            .edit_plan_fixture(&caller.plan_id, 8, |plan| {
                 let task = plan
                     .tasks
                     .iter_mut()
@@ -243,7 +243,7 @@ fn current_attempt_explicit_conflicts_and_ambiguity_refuse_without_receipts() {
     caller
         .svc
         .plan_store
-        .with_plan(&caller.plan_id, 8, |plan| {
+        .edit_plan_fixture(&caller.plan_id, 8, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()
@@ -287,7 +287,7 @@ fn current_attempt_team_default_follows_changed_active_plan() {
     caller
         .svc
         .plan_store
-        .with_plan(&caller.plan_id, 8, |plan| {
+        .edit_plan_fixture(&caller.plan_id, 8, |plan| {
             plan.team_id = Some(team_id.clone());
             Ok(())
         })
@@ -404,7 +404,7 @@ fn current_attempt_other_plan_read_does_not_rebind_or_record_a_load() {
     caller
         .svc
         .plan_store
-        .with_plan(&caller.plan_id, 8, |plan| {
+        .edit_plan_fixture(&caller.plan_id, 8, |plan| {
             plan.team_id = Some(team_id.clone());
             Ok(())
         })
@@ -468,7 +468,7 @@ fn current_attempt_other_plan_read_does_not_rebind_or_record_a_load() {
     caller
         .svc
         .plan_store
-        .with_plan(&caller.plan_id, 9, |plan| {
+        .edit_plan_fixture(&caller.plan_id, 9, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()
@@ -733,7 +733,7 @@ fn current_attempt_startup_ack_keeps_existing_runtime_qualification() {
     caller
         .svc
         .plan_store
-        .with_plan(&caller.plan_id, 8, |plan| {
+        .edit_plan_fixture(&caller.plan_id, 8, |plan| {
             let attempt = &mut plan
                 .tasks
                 .iter_mut()

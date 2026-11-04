@@ -10,7 +10,7 @@ fn prepared() -> (
         crate::service_plan::task_attempt_tests::bound_report_store();
     crate::service_plan::paths::mark_test_project_root(dir.path());
     store
-        .with_plan(&plan_id, 4, |plan| {
+        .edit_plan_fixture(&plan_id, 4, |plan| {
             plan.team_id = Some("launch-team".into());
             Ok(())
         })
@@ -109,7 +109,7 @@ fn acknowledged_launch_binding_refuses_partial_foreign_owner_and_cross_task_ambi
                 .unwrap();
         } else {
             store
-                .with_plan(&request.plan_id, 8, |plan| {
+                .edit_plan_fixture(&request.plan_id, 8, |plan| {
                     let task = plan
                         .tasks
                         .iter_mut()
@@ -148,7 +148,7 @@ fn launch_binding_undo_preserves_concurrent_edits_and_refuses_newer_binding() {
             .complete_acknowledged_dispatch_binding_with_undo(request.clone(), 8)
             .unwrap();
         store
-            .with_plan(&request.plan_id, 9, |plan| {
+            .edit_plan_fixture(&request.plan_id, 9, |plan| {
                 plan.title = "concurrent metadata".into();
                 if newer_binding {
                     let task = plan

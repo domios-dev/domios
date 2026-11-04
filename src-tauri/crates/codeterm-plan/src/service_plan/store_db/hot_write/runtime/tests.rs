@@ -98,7 +98,6 @@ fn concurrent_pause_claims_and_planner_binding_never_load_whole_plans() {
         OrchestratorRef::default(),
     );
     store.save(&mut plan, 1).unwrap();
-    store.clear_plan_cache_for_test();
     store.reset_plan_loads_for_test();
     let barrier = Arc::new(Barrier::new(3));
     let handles: Vec<_> = (0..2)

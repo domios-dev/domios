@@ -126,7 +126,7 @@ fn terminal_cleanup_clears_removed_lane_before_the_next_dispatch() {
         .unwrap();
     fixture
         .store
-        .with_plan(&fixture.plan.id, 5, |plan| {
+        .edit_plan_fixture(&fixture.plan.id, 5, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()
@@ -472,7 +472,7 @@ fn vanished_recorded_lane_is_cleared_and_a_fresh_lane_is_provisioned() {
         .unwrap();
     fixture
         .store
-        .with_plan(&fixture.plan.id, 5, |plan| {
+        .edit_plan_fixture(&fixture.plan.id, 5, |plan| {
             plan.tasks
                 .iter_mut()
                 .find(|task| task.id == fixture.mine)

@@ -1,7 +1,6 @@
-use super::store_rows::{
-    join_plan, join_plan_level, AttemptRow, KeyedRow, PlanRows, StoredPlanLevel, StoredTask,
-    TaskRows,
-};
+#[cfg(any(test, feature = "test-support"))]
+use super::store_rows::{join_plan, join_plan_level, StoredPlanLevel, StoredTask};
+use super::store_rows::{AttemptRow, KeyedRow, PlanRows, TaskRows};
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -563,6 +562,7 @@ fn sync_heartbeat(
 }
 
 /// Joins a plan header with its task and plan-level rows into the full plan document.
+#[cfg(any(test, feature = "test-support"))]
 pub(super) fn load_plan_rows(
     connection: &Connection,
     plan_id: &str,
@@ -625,6 +625,7 @@ pub(super) fn load_plan_rows(
     join_plan_level(plan, level)
 }
 
+#[cfg(any(test, feature = "test-support"))]
 fn ordered_documents(
     connection: &Connection,
     sql: &str,
@@ -640,6 +641,7 @@ fn ordered_documents(
         .collect()
 }
 
+#[cfg(any(test, feature = "test-support"))]
 pub(super) fn grouped_documents(
     connection: &Connection,
     sql: &str,

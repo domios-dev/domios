@@ -26,6 +26,7 @@ mod review_rows;
 pub(in crate::service_plan) mod runtime;
 mod section_rows;
 mod spec_rows;
+mod storage_rows;
 mod task_fields;
 mod task_structure;
 pub(in crate::service_plan) use element_rows::ElementChange;
@@ -37,6 +38,7 @@ pub(in crate::service_plan) use plan_state::PlanEdit;
 pub(in crate::service_plan) use review_rows::{TaskHistory, TaskRowEdit};
 pub(in crate::service_plan) use section_rows::SectionChange;
 pub(in crate::service_plan) use spec_rows::{SpecLinkChange, SpecPlanCreate};
+pub(in crate::service_plan) use storage_rows::DeletedPlanRows;
 pub(in crate::service_plan) use task_fields::TaskFields;
 
 #[derive(Default)]

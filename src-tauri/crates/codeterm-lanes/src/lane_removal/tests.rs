@@ -412,7 +412,7 @@ fn lane_remove_is_idempotent_for_an_already_removed_worktree() {
     let (store, plan_id, task_id) = task_store(root.path(), &project);
     record_lane(&store, &plan_id, &task_id, &lane);
     store
-        .with_plan(&plan_id, 4, |plan| {
+        .edit_plan_fixture(&plan_id, 4, |plan| {
             plan.tasks
                 .iter_mut()
                 .find(|task| task.id == task_id)
@@ -472,7 +472,7 @@ fn lane_checkpoint_refs_are_deleted_when_lane_is_removed() {
     let (store, plan_id, task_id) = task_store(root.path(), &project);
     record_lane(&store, &plan_id, &task_id, &lane);
     store
-        .with_plan(&plan_id, 4, |plan| {
+        .edit_plan_fixture(&plan_id, 4, |plan| {
             plan.tasks
                 .iter_mut()
                 .find(|task| task.id == task_id)
@@ -629,7 +629,7 @@ fn cleanup_status_done_clears_vanished_lane_references() {
     let (store, plan_id, task_id) = task_store(root.path(), &project);
     record_lane(&store, &plan_id, &task_id, &lane);
     store
-        .with_plan(&plan_id, 4, |plan| {
+        .edit_plan_fixture(&plan_id, 4, |plan| {
             plan.tasks
                 .iter_mut()
                 .find(|task| task.id == task_id)

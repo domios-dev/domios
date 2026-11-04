@@ -73,7 +73,7 @@ fn seed_busy_worker() -> BusyWorker {
         .unwrap();
     fx.service
         .plan_store
-        .with_plan(&plan.id, 3, |plan| {
+        .edit_plan_fixture(&plan.id, 3, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()

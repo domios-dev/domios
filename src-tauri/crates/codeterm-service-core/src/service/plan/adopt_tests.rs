@@ -41,7 +41,7 @@ fn make_source_plan(root: &Path) -> (PlanStore, String, String, PathBuf) {
         )
         .unwrap();
     store
-        .with_plan(&plan.id, 30, |plan| {
+        .edit_plan_fixture(&plan.id, 30, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()

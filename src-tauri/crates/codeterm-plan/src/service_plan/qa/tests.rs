@@ -81,7 +81,7 @@ fn setup() -> (tempfile::TempDir, PlanStore, String, String, String) {
             .unwrap();
     }
     store
-        .with_plan(&plan.id, 5, |plan| {
+        .edit_plan_fixture(&plan.id, 5, |plan| {
             for task in &mut plan.tasks {
                 let tab_id = executor_tab(&task.id);
                 let attempt_id = format!("attempt-{}", task.id);
@@ -247,7 +247,7 @@ fn fail_bounces_to_in_progress_and_restores_implementer() {
         )
         .unwrap();
     store
-        .with_plan(&plan_id, 9, |plan| {
+        .edit_plan_fixture(&plan_id, 9, |plan| {
             let task = plan.tasks.iter_mut().find(|task| task.id == first).unwrap();
             task.execution_attempts[0].executor_tab_id = "impl-tab".into();
             Ok(())
@@ -295,7 +295,7 @@ fn fail_bounces_to_in_progress_and_restores_implementer() {
 fn fail_warns_after_three_stagnant_bounces_and_threads_reset_flags() {
     let (_dir, store, plan_id, first, _second) = setup();
     store
-        .with_plan(&plan_id, 9, |plan| {
+        .edit_plan_fixture(&plan_id, 9, |plan| {
             let task = plan.tasks.iter_mut().find(|task| task.id == first).unwrap();
             for at in [7, 8] {
                 task.review_evidence.push(ReviewEvidence {

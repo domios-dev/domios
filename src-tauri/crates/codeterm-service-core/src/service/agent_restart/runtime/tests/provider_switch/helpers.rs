@@ -9,7 +9,7 @@ pub(super) fn complete_switch_task(fixture: &RuntimeFixture, task_id: &str) {
     fixture
         .service
         .plan_store
-        .with_plan(&detail.plan_id, 5, |plan| {
+        .edit_plan_fixture(&detail.plan_id, 5, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()

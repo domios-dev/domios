@@ -78,7 +78,7 @@ fn team_close_force_keeps_plan_active_flagged() {
         )
         .unwrap();
     store
-        .with_plan(&plan.id, 4, |plan| {
+        .edit_plan_fixture(&plan.id, 4, |plan| {
             for task in &mut plan.tasks {
                 if task.id == busy {
                     task.status = TaskStatus::InProgress;

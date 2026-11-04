@@ -129,11 +129,11 @@ fn a_closed_attempt_without_a_newer_live_dispatch_is_not_reported_as_superseded(
 }
 
 #[test]
-fn acknowledgement_reads_current_task_after_dispatch_despite_retained_snapshot() {
+fn acknowledgement_reads_current_task_after_dispatch_despite_prior_read() {
     let (_dir, store, plan_id, task_id) = bound_report_store();
     let mut before_dispatch = store.get(&plan_id).unwrap();
     before_dispatch.tasks.clear();
-    store.record_committed_snapshot(&before_dispatch);
+    assert!(before_dispatch.tasks.is_empty());
 
     let acknowledged = store
         .acknowledge_live_task_attempt_for_tab("worker", Some(&plan_id), Some(&task_id), 4)

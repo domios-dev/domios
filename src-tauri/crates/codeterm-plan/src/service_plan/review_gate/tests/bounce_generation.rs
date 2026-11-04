@@ -75,7 +75,7 @@ fn real_ingest_fixture() -> (
 fn ease_partial_report_bounces_to_the_bound_worker_without_earning_credit() {
     let (_dir, store, plan_id, task_id, attempt_id, authority) = real_ingest_fixture();
     store
-        .with_plan(&plan_id, 6, |plan| {
+        .edit_plan_fixture(&plan_id, 6, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()

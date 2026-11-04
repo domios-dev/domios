@@ -41,7 +41,7 @@ pub(super) fn bound_report_store() -> (tempfile::TempDir, PlanStore, String, Str
 
 fn mark_bound_task_in_progress(store: &PlanStore, plan_id: &str, task_id: &str) {
     store
-        .with_plan(plan_id, 3, |plan| {
+        .edit_plan_fixture(plan_id, 3, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()
@@ -177,7 +177,7 @@ fn dispatch_of_blocked_task_unblocks_atomically_and_ack_succeeds() {
     let (_dir, store, plan_id, task_id) = bound_report_store();
     let block_reason = "awaiting dependency evidence";
     store
-        .with_plan(&plan_id, 4, |plan| {
+        .edit_plan_fixture(&plan_id, 4, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()
@@ -273,7 +273,7 @@ fn dispatch_without_declared_gates_records_an_explicit_empty_policy() {
 fn undeclared_gate_claim_is_rejected_by_stable_error_code_before_persistence() {
     let (_dir, store, plan_id, task_id) = bound_report_store();
     store
-        .with_plan(&plan_id, 4, |plan| {
+        .edit_plan_fixture(&plan_id, 4, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()
@@ -386,7 +386,7 @@ fn blocked_report_is_persisted_as_a_proposal_without_moving_the_task() {
     let (_dir, store, plan_id, task_id) = bound_report_store();
     mark_bound_task_in_progress(&store, &plan_id, &task_id);
     store
-        .with_plan(&plan_id, 3, |plan| {
+        .edit_plan_fixture(&plan_id, 3, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()
@@ -476,7 +476,7 @@ fn partial_report_then_redispatch_reuses_its_own_lane() {
         ..Default::default()
     };
     store
-        .with_plan(&plan_id, 4, |plan| {
+        .edit_plan_fixture(&plan_id, 4, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()

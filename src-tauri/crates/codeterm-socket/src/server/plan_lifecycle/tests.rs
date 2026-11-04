@@ -43,7 +43,7 @@ fn owner_close_and_record_persist_direct_completion_for_each_open_status() {
                 )
                 .unwrap();
             svc.plan_store
-                .with_plan(&plan.id, 3, |plan| {
+                .edit_plan_fixture(&plan.id, 3, |plan| {
                     plan.tasks[0].status = status.clone();
                     Ok(())
                 })
