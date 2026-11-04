@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use super::{paths, PlanError, PlanStore};
-use crate::plan::{AttachmentRef, Plan, Section};
+use crate::plan::{AttachmentRef, Plan};
 
 pub const MAX_ATTACHMENTS_PER_RECORD: usize = 12;
 pub const MAX_ATTACHMENT_BYTES: u64 = 25 * 1024 * 1024;
@@ -117,30 +117,6 @@ fn copy_attachment(
     })
 }
 
-fn section_mut<'a>(sections: &'a mut [Section], id: &str) -> Option<&'a mut Section> {
-    for section in sections {
-        if section.id == id || section.handle.as_deref() == Some(id) {
-            return Some(section);
-        }
-        if let Some(found) = section_mut(&mut section.subsections, id) {
-            return Some(found);
-        }
-    }
-    None
-}
-
-fn section_ref<'a>(sections: &'a [Section], id: &str) -> Option<&'a Section> {
-    for section in sections {
-        if section.id == id || section.handle.as_deref() == Some(id) {
-            return Some(section);
-        }
-        if let Some(found) = section_ref(&section.subsections, id) {
-            return Some(found);
-        }
-    }
-    None
-}
-
 pub(super) fn remove_dir_if_exists(path: PathBuf) -> Result<(), PlanError> {
     match std::fs::remove_dir_all(&path) {
         Ok(()) => Ok(()),
@@ -214,24 +190,36 @@ impl PlanStore {
     ) -> Result<AttachmentRef, PlanError> {
         let mut attached = None;
         let plan_root = self.plan_data_dir(plan_id);
-        self.with_plan(plan_id, now_ms, |plan| {
-            let section =
-                section_ref(&plan.sections, section_id).ok_or(PlanError::ElementNotFound)?;
-            if section.attachments.len() >= MAX_ATTACHMENTS_PER_RECORD {
-                return Err(PlanError::Io(format!(
-                    "section attachment cap is {}",
-                    MAX_ATTACHMENTS_PER_RECORD
-                )));
+        let turn = self.mutation_writer.enter();
+        let result = self
+            .database
+            .edit_section_rows(plan_id, section_id, now_ms, |section| {
+                if section.attachments.len() >= MAX_ATTACHMENTS_PER_RECORD {
+                    return Err(PlanError::Io(format!(
+                        "section attachment cap is {}",
+                        MAX_ATTACHMENTS_PER_RECORD
+                    )));
+                }
+                let attachment = copy_attachment(
+                    &plan_root,
+                    AttachmentTarget::Section,
+                    &section.id,
+                    source,
+                    now_ms,
+                )?;
+                section.attachments.push(attachment.clone());
+                attached = Some(attachment);
+                Ok(())
+            });
+        match result {
+            Ok(((), receipt)) => self.publish_hot_receipt(&turn, receipt),
+            Err(error) => {
+                if let Some(attachment) = attached {
+                    let _ = std::fs::remove_file(plan_root.join(attachment.path));
+                }
+                return Err(error);
             }
-            let sid = section.id.clone();
-            let attachment =
-                copy_attachment(&plan_root, AttachmentTarget::Section, &sid, source, now_ms)?;
-            let section =
-                section_mut(&mut plan.sections, &sid).ok_or(PlanError::ElementNotFound)?;
-            section.attachments.push(attachment.clone());
-            attached = Some(attachment);
-            Ok(())
-        })?;
+        }
         attached.ok_or_else(|| PlanError::Io("attachment was not recorded".into()))
     }
 

@@ -19,6 +19,7 @@ mod milestones;
 mod plan_audit;
 mod plan_fields;
 mod plan_state;
+mod relationship_rows;
 pub(in crate::service_plan) mod review_header;
 mod review_rows;
 pub(in crate::service_plan) mod runtime;

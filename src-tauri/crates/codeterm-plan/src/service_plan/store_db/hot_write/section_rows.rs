@@ -44,6 +44,24 @@ impl PlanDatabase {
         })?;
         Ok((removed, receipt))
     }
+    pub(in crate::service_plan) fn edit_section_rows<T>(
+        &self,
+        plan_id: &str,
+        selector: &str,
+        now_ms: u64,
+        change: impl FnOnce(&mut Section) -> Result<T, PlanError>,
+    ) -> Result<(T, CommittedRows), PlanError> {
+        let mut output = None;
+        let receipt=self.hot_transaction(plan_id,now_ms,|tx,receipt| {
+            let document:String=tx.query_row("SELECT row_json FROM plan_sections s WHERE plan_id=?1 AND EXISTS(SELECT 1 FROM json_tree(s.row_json) j WHERE j.type='object' AND (j.fullkey='$' OR j.path LIKE '%.subsections') AND (json_extract(j.value,'$.id')=?2 OR json_extract(j.value,'$.handle')=?2)) ORDER BY position LIMIT 1",params![plan_id,selector],|row|row.get(0)).optional().map_err(db_error)?.ok_or(PlanError::ElementNotFound)?;
+            receipt.decoded_bytes += document.len();
+            let mut root:Section=serde_json::from_str(&document).map_err(json_error)?;
+            output=Some(change(selected_mut(std::slice::from_mut(&mut root),selector).ok_or(PlanError::ElementNotFound)?)?);
+            apply(tx,plan_id,SectionChange::ReplaceRoot { section:root,existing:true },now_ms,receipt)?;
+            Ok(())
+        })?;
+        Ok((output.ok_or(PlanError::ElementNotFound)?, receipt))
+    }
 }
 
 pub(super) fn apply(
