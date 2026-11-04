@@ -18,6 +18,7 @@ mod export_tests;
 mod header_tests;
 mod index_filter_tests;
 mod lane_reader_tests;
+mod lane_team_state_tests;
 mod notice_tests;
 mod qa_tests;
 mod related_tests;

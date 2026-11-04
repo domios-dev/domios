@@ -698,7 +698,7 @@ fn commit_team_member_with_plan_takeover<F>(
     take_over: F,
 ) -> Result<AddTeamMemberResult, String>
 where
-    F: FnOnce(&mut MultiplexerState) -> Option<staffing::PlanTakeover>,
+    F: FnOnce(&mut MultiplexerState) -> Result<Option<staffing::PlanTakeover>, String>,
 {
     let mut result = commit_team_member_spawn(
         mux,
@@ -713,10 +713,12 @@ where
         return Ok(result);
     }
     let takeover = take_over(mux);
-    if let Some(cause) = takeover
-        .as_ref()
-        .and_then(|takeover| takeover.error.as_deref())
-    {
+    let cause = match &takeover {
+        Ok(Some(takeover)) => takeover.error.as_deref(),
+        Ok(None) => None,
+        Err(error) => Some(error.as_str()),
+    };
+    if let Some(cause) = cause {
         if let Some(tab) = mux.get_tab_mut(tab_id) {
             tab.team_id = None;
         }
@@ -726,7 +728,7 @@ where
             })?;
         return Err(format!("plan takeover failed: {cause}"));
     }
-    result.plan_takeover = takeover;
+    result.plan_takeover = takeover?;
     Ok(result)
 }
 

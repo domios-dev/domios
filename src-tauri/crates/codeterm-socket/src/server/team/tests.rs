@@ -49,13 +49,12 @@ fn team_show_keeps_the_team_object_and_includes_durable_remote_members() {
 #[test]
 fn team_lifecycle_advances_after_plan_approval_and_retains_closing() {
     let mut team = codeterm_types::team::Team::new("ws", 1);
-    let mut plan = codeterm_service_core::plan::Plan::new(
-        "Approved work".into(),
-        "/project".into(),
-        codeterm_service_core::plan::OrchestratorRef::from_tab("orch"),
-    );
-    plan.team_id = Some(team.id.clone());
-    plan.mode = codeterm_service_core::plan::PlanMode::Approved;
+    let plan = codeterm_service_core::service::plan::TeamExecutionRead {
+        id: "plan".into(),
+        team_id: team.id.clone(),
+        mode: codeterm_service_core::plan::PlanMode::Approved,
+        has_running_tasks: false,
+    };
     assert_eq!(
         lifecycle_for_team(&team, &[plan.clone()]),
         codeterm_types::team::TeamLifecycle::Active
@@ -161,10 +160,11 @@ fn active_team_plans_never_loads_unmatched_plans() {
     let other = seed(store, other);
     start(store);
 
-    let plans = active_team_plans(&service, vec!["team-listed".into()]);
+    let plans = active_team_plans(&service, vec!["team-listed".into()]).unwrap();
     assert_eq!(
         plans.into_iter().map(|plan| plan.id).collect::<Vec<_>>(),
         vec![listed]
     );
     assert_never_loaded(store, &[&other]);
+    assert!(store.plan_loads_for_test().is_empty());
 }

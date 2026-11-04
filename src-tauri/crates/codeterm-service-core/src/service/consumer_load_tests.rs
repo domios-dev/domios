@@ -199,8 +199,9 @@ fn restore_lane_watches_never_loads_unmatched_plans() {
     );
     start(store);
 
-    fx.service.restore_lane_watches();
-    assert_eq!(store.plan_loads_for_test(), vec![laned]);
+    fx.service.restore_lane_watches().unwrap();
+    assert!(store.plan_loads_for_test().is_empty());
+    assert_never_loaded(store, &[&laned]);
     assert_never_loaded(store, &[&settled, &laneless]);
 }
 
@@ -224,7 +225,11 @@ fn find_lane_attempt_never_loads_unmatched_plans() {
     );
     start(store);
 
-    assert!(crate::service::lane_stats::find_lane_attempt(store, "worker-a").is_some());
+    assert!(
+        crate::service::lane_stats::find_lane_attempt(store, "worker-a")
+            .unwrap()
+            .is_some()
+    );
     assert_never_loaded(store, &[&other]);
 }
 

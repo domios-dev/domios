@@ -83,6 +83,8 @@ pub use status_projection::{
     PlanStatusRead,
 };
 pub use store_db::read_projections::lane_readers::TaskLaneReferenceRead;
+pub use store_db::read_projections::lane_stats::{LaneAttemptRead, LaneWatchRead};
+pub use store_db::read_projections::team_readers::TeamExecutionRead;
 pub mod board_state;
 mod document_projection;
 mod store_index;
