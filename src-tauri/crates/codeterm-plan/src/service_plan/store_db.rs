@@ -611,4 +611,9 @@ mod document_queries;
 pub(in crate::service_plan) mod hot_write;
 mod operation_retention;
 
+<<<<<<< HEAD
 mod task_authority_queries;
+=======
+#[cfg(test)]
+pub(super) mod release_upgrade_tests;
+>>>>>>> hotfix/plan-index-admission

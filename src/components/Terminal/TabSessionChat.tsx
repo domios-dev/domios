@@ -585,7 +585,7 @@ function TabSessionChatBody({
     webDropHandlers,
   } = useAttachments({
     chatRootRef,
-    enabled: !loading && !error && !readOnly,
+    enabled: !readOnly,
     onError: showComposerError,
   });
   const pasteIntoComposer = useLatestCallback(handlePasteEvent, [tabId]);

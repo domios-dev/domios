@@ -1,0 +1,37 @@
+{
+  "format": 1,
+  "ddl_sources": [
+    {
+      "file": "store_db.rs",
+      "constant": "PLAN_SCHEMA"
+    },
+    {
+      "file": "store_sync.rs",
+      "constant": "TASK_SCHEMA"
+    },
+    {
+      "file": "store_sync.rs",
+      "constant": "PLAN_LEVEL_SCHEMA"
+    }
+  ],
+  "target": {
+    "user_version": 1,
+    "schema_fingerprint": "a1c7165d4605c8ed7c635287c817ae7144b26b5f1243439e740ca25f95cafd82",
+    "fixture": "v1.18.7.sql"
+  },
+  "migrations": [
+    {
+      "user_version": 1,
+      "schema_fingerprint": "a1c7165d4605c8ed7c635287c817ae7144b26b5f1243439e740ca25f95cafd82",
+      "fixture": "v1.18.7.sql",
+      "id": "1.18.8-admit-published-v1",
+      "strategy": "Real PlanDatabase::open: retain v0 converter; admit missing nonunique indexes in v1; transactionally create indexes and retire FTS",
+      "from_fixtures": [
+        "v1.18.6.sql",
+        "v1.18.7.sql",
+        "supported-v0.sql"
+      ],
+      "creation_fingerprint": "abe93e7bfcc27eab5a3f0378dc8fd3a8695eed1824c3b261c4c746f9789a034b"
+    }
+  ]
+}
