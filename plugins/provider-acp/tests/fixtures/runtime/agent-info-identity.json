@@ -1,0 +1,489 @@
+{
+  "schemaVersion": 1,
+  "context": {
+    "epoch": 1,
+    "cwd": "/work/project",
+    "hostVersion": "1.18.7",
+    "tabId": "agent-info-identity",
+    "bindingNonce": "nonce-fixture",
+    "settings": {},
+    "providerSettings": {},
+    "claimedSends": [],
+    "activeTurns": [],
+    "threadParents": []
+  },
+  "operations": [
+    {
+      "operation": {
+        "kind": "initialize"
+      }
+    },
+    {
+      "operation": {
+        "kind": "initialize"
+      }
+    },
+    {
+      "operation": {
+        "kind": "initialize"
+      }
+    },
+    {
+      "operation": {
+        "kind": "initialize"
+      }
+    },
+    {
+      "operation": {
+        "kind": "initialize"
+      }
+    },
+    {
+      "operation": {
+        "kind": "initialize"
+      }
+    }
+  ],
+  "rpc": [
+    {
+      "direction": "outbound",
+      "operation": 0,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "initialize",
+          "params": {
+            "protocolVersion": 1,
+            "clientCapabilities": {
+              "fs": {
+                "readTextFile": false,
+                "writeTextFile": false
+              },
+              "terminal": false
+            },
+            "clientInfo": {
+              "name": "domios",
+              "title": "Domios",
+              "version": "1.18.7"
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 0,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "protocolVersion": 1,
+          "agentCapabilities": {
+            "promptCapabilities": {
+              "image": false,
+              "audio": false,
+              "embeddedContext": false
+            }
+          },
+          "authMethods": [],
+          "agentInfo": {
+            "name": "wire-agent",
+            "title": "Wire Agent",
+            "version": "0.0.1"
+          }
+        }
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 1,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "initialize",
+          "params": {
+            "protocolVersion": 1,
+            "clientCapabilities": {
+              "fs": {
+                "readTextFile": false,
+                "writeTextFile": false
+              },
+              "terminal": false
+            },
+            "clientInfo": {
+              "name": "domios",
+              "title": "Domios",
+              "version": "1.18.7"
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 1,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "protocolVersion": 1,
+          "agentCapabilities": {
+            "promptCapabilities": {
+              "image": false,
+              "audio": false,
+              "embeddedContext": false
+            }
+          },
+          "authMethods": []
+        }
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 2,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "initialize",
+          "params": {
+            "protocolVersion": 1,
+            "clientCapabilities": {
+              "fs": {
+                "readTextFile": false,
+                "writeTextFile": false
+              },
+              "terminal": false
+            },
+            "clientInfo": {
+              "name": "domios",
+              "title": "Domios",
+              "version": "1.18.7"
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 2,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "protocolVersion": 1,
+          "agentCapabilities": {
+            "promptCapabilities": {
+              "image": false,
+              "audio": false,
+              "embeddedContext": false
+            }
+          },
+          "authMethods": [],
+          "agentInfo": {
+            "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "version": "1"
+          }
+        }
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 3,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "initialize",
+          "params": {
+            "protocolVersion": 1,
+            "clientCapabilities": {
+              "fs": {
+                "readTextFile": false,
+                "writeTextFile": false
+              },
+              "terminal": false
+            },
+            "clientInfo": {
+              "name": "domios",
+              "title": "Domios",
+              "version": "1.18.7"
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 3,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "protocolVersion": 1,
+          "agentCapabilities": {
+            "promptCapabilities": {
+              "image": false,
+              "audio": false,
+              "embeddedContext": false
+            }
+          },
+          "authMethods": [],
+          "agentInfo": {
+            "name": "wire-agent",
+            "version": "0.0.1"
+          }
+        }
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 4,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "initialize",
+          "params": {
+            "protocolVersion": 1,
+            "clientCapabilities": {
+              "fs": {
+                "readTextFile": false,
+                "writeTextFile": false
+              },
+              "terminal": false
+            },
+            "clientInfo": {
+              "name": "domios",
+              "title": "Domios",
+              "version": "1.18.7"
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 4,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "protocolVersion": 1,
+          "agentCapabilities": {
+            "promptCapabilities": {
+              "image": false,
+              "audio": false,
+              "embeddedContext": false
+            }
+          },
+          "authMethods": [],
+          "agentInfo": {
+            "name": "wire-agent",
+            "title": "bad\u007f",
+            "version": "1"
+          }
+        }
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 5,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "initialize",
+          "params": {
+            "protocolVersion": 1,
+            "clientCapabilities": {
+              "fs": {
+                "readTextFile": false,
+                "writeTextFile": false
+              },
+              "terminal": false
+            },
+            "clientInfo": {
+              "name": "domios",
+              "title": "Domios",
+              "version": "1.18.7"
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 5,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "protocolVersion": 1,
+          "agentCapabilities": {
+            "promptCapabilities": {
+              "image": false,
+              "audio": false,
+              "embeddedContext": false
+            }
+          },
+          "authMethods": [],
+          "agentInfo": {
+            "name": "wire-agent",
+            "version": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          }
+        }
+      }
+    }
+  ],
+  "expected": {
+    "results": [
+      {
+        "operation": 0,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "initialized",
+            "binaryVersion": "0.0.1",
+            "agentName": "Wire Agent"
+          },
+          "events": [
+            {
+              "kind": "authentication",
+              "authentication": {
+                "state": "unknown",
+                "methods": []
+              }
+            }
+          ]
+        }
+      },
+      {
+        "operation": 1,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "initialized"
+          },
+          "events": [
+            {
+              "kind": "authentication",
+              "authentication": {
+                "state": "unknown",
+                "methods": []
+              }
+            }
+          ]
+        }
+      },
+      {
+        "operation": 2,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "initialized"
+          },
+          "events": [
+            {
+              "kind": "authentication",
+              "authentication": {
+                "state": "unknown",
+                "methods": []
+              }
+            }
+          ]
+        }
+      },
+      {
+        "operation": 3,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "initialized",
+            "binaryVersion": "0.0.1",
+            "agentName": "wire-agent"
+          },
+          "events": [
+            {
+              "kind": "authentication",
+              "authentication": {
+                "state": "unknown",
+                "methods": []
+              }
+            }
+          ]
+        }
+      },
+      {
+        "operation": 4,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "initialized"
+          },
+          "events": [
+            {
+              "kind": "authentication",
+              "authentication": {
+                "state": "unknown",
+                "methods": []
+              }
+            }
+          ]
+        }
+      },
+      {
+        "operation": 5,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "initialized"
+          },
+          "events": [
+            {
+              "kind": "authentication",
+              "authentication": {
+                "state": "unknown",
+                "methods": []
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "events": [
+      {
+        "kind": "authentication",
+        "authentication": {
+          "state": "unknown",
+          "methods": []
+        }
+      },
+      {
+        "kind": "authentication",
+        "authentication": {
+          "state": "unknown",
+          "methods": []
+        }
+      },
+      {
+        "kind": "authentication",
+        "authentication": {
+          "state": "unknown",
+          "methods": []
+        }
+      },
+      {
+        "kind": "authentication",
+        "authentication": {
+          "state": "unknown",
+          "methods": []
+        }
+      },
+      {
+        "kind": "authentication",
+        "authentication": {
+          "state": "unknown",
+          "methods": []
+        }
+      },
+      {
+        "kind": "authentication",
+        "authentication": {
+          "state": "unknown",
+          "methods": []
+        }
+      }
+    ]
+  }
+}

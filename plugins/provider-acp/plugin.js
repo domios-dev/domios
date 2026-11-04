@@ -158,7 +158,16 @@ function usage(value) {
 
 // plugins/provider-acp/src/runtimeControls.ts
 var object2 = (value) => value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
-var label = (value) => typeof value === "string" && value.length > 0 && value.length <= 256 && !/[\u0000-\u001f]/.test(value);
+function label(value) {
+  if (typeof value !== "string" || !value.length || value.length > 256 || /[\u0000-\u001f\u007f-\u009f]/.test(value)) return false;
+  let bytes = 0;
+  for (const character of value) {
+    const point = character.codePointAt(0);
+    if (point >= 55296 && point <= 57343) return false;
+    bytes += point <= 127 ? 1 : point <= 2047 ? 2 : point <= 65535 ? 3 : 4;
+  }
+  return bytes <= 256;
+}
 function list(value, limit) {
   return Array.isArray(value) && value.length <= limit ? value.map(object2) : [];
 }
@@ -188,13 +197,24 @@ function configOptions(value) {
       return [{ value: entry.value, name: entry.name }];
     });
     if (config.type !== "select" || !label(config.currentValue)) return [{ id: config.id, name: config.name, currentValue: String(config.currentValue).slice(0, 256) || "Unknown", options: [] }];
-    return [{ id: config.id, name: config.name, currentValue: config.currentValue, options }];
+    return [{
+      id: config.id,
+      name: config.name,
+      currentValue: config.currentValue,
+      options,
+      ...label(config.category) ? { category: config.category } : {}
+    }];
   });
+}
+function modelOption(settings) {
+  return settings?.configOptions?.find((option) => option.category === "model");
 }
 function sessionSettings(value) {
   const response = object2(value), modes = object2(response.modes);
+  const declared = Array.isArray(response.configOptions) ? configOptions(response.configOptions) : void 0;
+  const model = modelOption({ configOptions: declared })?.currentValue;
   return {
-    ...Array.isArray(response.configOptions) ? { configOptions: configOptions(response.configOptions) } : {},
+    ...declared ? { configOptions: declared, ...model ? { model } : {} } : {},
     ...Array.isArray(modes.availableModes) ? { modes: list(modes.availableModes, 64).flatMap((mode) => label(mode.id) && label(mode.name) ? [{ id: mode.id, name: mode.name }] : []) } : {},
     ...label(modes.currentModeId) ? { mode: modes.currentModeId } : {}
   };
@@ -377,7 +397,7 @@ function reduceStream(ctx, raw, frames, cursor) {
       if (kind === "available_commands_update" && Array.isArray(update.availableCommands))
         events.push({ kind: "controlsConfirmed", threadId: ctx.threadId, settings: { commands: commands(update.availableCommands) } });
       if (kind === "config_option_update" && Array.isArray(update.configOptions))
-        events.push({ kind: "controlsConfirmed", threadId: ctx.threadId, settings: { configOptions: configOptions(update.configOptions) } });
+        events.push({ kind: "controlsConfirmed", threadId: ctx.threadId, settings: sessionSettings(update) });
       if (kind === "current_mode_update" && typeof update.currentModeId === "string")
         events.push({ kind: "controlsConfirmed", threadId: ctx.threadId, settings: { mode: update.currentModeId } });
       const compaction = object(object(update._meta).compaction);
@@ -478,6 +498,28 @@ function ownSession(ctx, state) {
   if (!ctx.threadId || state.sessionId !== ctx.threadId) fail2("binding_mismatch", "ACP session is not bound to this tab");
   return ctx.threadId;
 }
+function agentIdentity(raw) {
+  const info = object4(raw);
+  if (!label(info.name) || !label(info.version) || info.title !== void 0 && !label(info.title)) return {};
+  return { agentName: typeof info.title === "string" ? info.title : info.name, binaryVersion: info.version };
+}
+function unappliedModelNotice(requested, settings, threadId) {
+  if (!requested || requested === modelOption(settings)?.currentValue) return {};
+  const option = modelOption(settings);
+  const reason = !option ? "This agent declared no model option" : option.options.some((value) => value.value === requested) ? "Model was not applied by this agent" : "Model was not declared by this agent";
+  return { events: [{ kind: "notice", threadId, message: `Requested model was not applied: ${reason}` }] };
+}
+function loadedThread(op, state, sessionId, selectModel) {
+  const option = modelOption(state.settings);
+  const requested = op.settings.model;
+  if (selectModel && requested && requested !== option?.currentValue && option?.options.some((value) => value.value === requested))
+    return { kind: "continue", plan: request("session/set_config_option", { sessionId, configId: option.id, value: requested }) };
+  return {
+    kind: "complete",
+    result: { kind: "threadLoaded", threadId: sessionId, settings: state.settings ?? {} },
+    ...unappliedModelNotice(requested, state.settings, sessionId)
+  };
+}
 function clientCapabilities(ctx) {
   return { fs: { readTextFile: ctx.clientBridges?.fsRead === true, writeTextFile: ctx.clientBridges?.fsWrite === true }, terminal: ctx.clientBridges?.terminal === true };
 }
@@ -503,6 +545,16 @@ function runtimePlan(ctx, op) {
     } catch {
       return refusePlan("Authentication method was not declared or is unavailable");
     }
+  }
+  if (op.kind === "control" && op.action === "settings") {
+    const sessionId = ownSession(ctx, state);
+    const value = object4(op.value);
+    const option = modelOption(state.settings);
+    if (value.model === void 0 || value.model === option?.currentValue)
+      return { action: { kind: "local" }, state: { method: "unchangedSettings" } };
+    if (!option) return refusePlan("This agent declared no model option");
+    if (!option.options.some((entry) => entry.value === value.model)) return refusePlan("Model was not declared by this agent");
+    return request("session/set_config_option", { sessionId, configId: option.id, value: value.model });
   }
   if (op.kind === "control" && ["config", "mode"].includes(op.action)) {
     const sessionId = ownSession(ctx, state);
@@ -617,15 +669,23 @@ function runtimeResponse(ctx, op, raw, reply) {
     });
     return {
       kind: "complete",
-      result: op.kind === "initialize" ? { kind: "initialized" } : { kind: "done" },
+      result: op.kind === "initialize" ? { kind: "initialized", ...agentIdentity(value.agentInfo) } : { kind: "done" },
       events: [{ kind: "authentication", authentication: authentication(authMethods, authenticated, authenticated ? false : prior?.required) }]
     };
   }
   const state = negotiated(ctx);
   if (!state) return refused("provider_refused", "ACP initialization is required for this runtime epoch");
+  if ((op.kind === "openThread" || op.kind === "resumeThread") && method === "session/set_config_option") {
+    if (!state.sessionActive || !state.sessionId || op.kind === "resumeThread" && state.sessionId !== op.threadId)
+      return refused("binding_mismatch", "ACP session is not active in this runtime");
+    if (!Array.isArray(value.configOptions)) return refused("protocol_error", "Invalid session model response");
+    delete state.settings?.model;
+    state.settings = { ...state.settings, ...sessionSettings(value) };
+    return loadedThread(op, state, state.sessionId, false);
+  }
   if (op.kind === "resumeThread" && method === "boundSession") {
     if (!state.sessionActive || state.sessionId !== op.threadId) return refused("binding_mismatch", "ACP session is not active in this runtime");
-    return { kind: "complete", result: { kind: "threadLoaded", threadId: ownSession(ctx, state), settings: { ...op.settings, ...state.settings } } };
+    return loadedThread(op, state, ownSession(ctx, state), true);
   }
   if (op.kind === "openThread" || op.kind === "resumeThread") {
     if (op.kind === "resumeThread") {
@@ -640,13 +700,20 @@ function runtimeResponse(ctx, op, raw, reply) {
     state.instructions = op.instructions;
     state.cursor.loading = false;
     state.settings = { commands: [], configOptions: [], modes: [], ...sessionSettings(value) };
-    return { kind: "complete", result: { kind: "threadLoaded", threadId: sessionId, settings: { ...op.settings, ...state.settings } } };
+    return loadedThread(op, state, sessionId, true);
   }
-  if (op.kind === "control" && ["config", "mode"].includes(op.action)) {
+  if (op.kind === "control" && op.action === "settings" && method === "unchangedSettings")
+    return { kind: "complete", result: { kind: "done" }, events: [{ kind: "controlsConfirmed", threadId: ownSession(ctx, state), settings: state.settings ?? {} }] };
+  if (op.kind === "control" && ["config", "mode", "settings"].includes(op.action)) {
     const sessionId = ownSession(ctx, state);
-    const settings = op.action === "config" && method === "session/set_config_option" && Array.isArray(value.configOptions) ? sessionSettings(value) : op.action === "mode" && method === "session/set_mode" && typeof op.value === "string" ? { mode: op.value } : null;
+    const settings = ["config", "settings"].includes(op.action) && method === "session/set_config_option" && Array.isArray(value.configOptions) ? sessionSettings(value) : op.action === "mode" && method === "session/set_mode" && typeof op.value === "string" ? { mode: op.value } : null;
     if (!settings) return refused("protocol_error", "Invalid session control response");
     state.settings = { ...state.settings, ...settings };
+    if (settings.configOptions) {
+      delete state.settings.model;
+      const model = modelOption(settings)?.currentValue;
+      if (model) state.settings.model = model;
+    }
     return { kind: "complete", result: { kind: "done" }, events: [{ kind: "controlsConfirmed", threadId: sessionId, settings }] };
   }
   if (op.kind === "answer" && method === "session/request_permission")
@@ -689,8 +756,14 @@ function runtimeReduce(ctx, raw, frames) {
   const reduction = reduceStream(ctx, state.settledProjection ?? raw, own, state.cursor);
   delete state.settledProjection;
   state.projection = reduction.state;
-  for (const event of reduction.events) if (event.kind === "controlsConfirmed")
+  for (const event of reduction.events) if (event.kind === "controlsConfirmed") {
     state.settings = { ...state.settings, ...event.settings };
+    if (event.settings.configOptions) {
+      delete state.settings.model;
+      const model = modelOption(event.settings)?.currentValue;
+      if (model) state.settings.model = model;
+    }
+  }
   return { ...reduction, events: [...reduction.events, ...prompts] };
 }
 

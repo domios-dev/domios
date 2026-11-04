@@ -1,7 +1,16 @@
 import type {JsonValue, RuntimeSettings, RuntimeAuthentication} from "@codeterm/plugin-sdk";
 import {authenticationState, type AuthMethod} from "./auth";
 const object=(value:unknown):Record<string,JsonValue>=>value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string,JsonValue> : {};
-const label=(value:unknown):value is string=>typeof value === "string" && value.length > 0 && value.length <= 256 && !/[\u0000-\u001f]/.test(value);
+export function label(value:unknown):value is string {
+  if (typeof value !== "string" || !value.length || value.length > 256 || /[\u0000-\u001f\u007f-\u009f]/.test(value)) return false;
+  let bytes=0;
+  for (const character of value) {
+    const point=character.codePointAt(0)!;
+    if (point >= 0xd800 && point <= 0xdfff) return false;
+    bytes+=point <= 0x7f ? 1 : point <= 0x7ff ? 2 : point <= 0xffff ? 3 : 4;
+  }
+  return bytes <= 256;
+}
 function list(value:unknown, limit:number):Record<string,JsonValue>[] {
   return Array.isArray(value) && value.length <= limit ? value.map(object) : [];
 }
@@ -27,12 +36,18 @@ export function configOptions(value:unknown):NonNullable<RuntimeSettings["config
       ids.add(entry.value);return [{value:entry.value,name:entry.name}];
     });
     if (config.type !== "select" || !label(config.currentValue)) return [{id:config.id,name:config.name,currentValue:String(config.currentValue).slice(0,256) || "Unknown",options:[]}];
-    return [{id:config.id,name:config.name,currentValue:config.currentValue,options}];
+    return [{id:config.id,name:config.name,currentValue:config.currentValue,options,
+      ...(label(config.category) ? {category:config.category} : {})}];
   });
+}
+export function modelOption(settings:RuntimeSettings | undefined) {
+  return settings?.configOptions?.find(option=>option.category === "model");
 }
 export function sessionSettings(value:unknown):RuntimeSettings {
   const response=object(value), modes=object(response.modes);
-  return {...(Array.isArray(response.configOptions) ? {configOptions:configOptions(response.configOptions)} : {}),
+  const declared=Array.isArray(response.configOptions) ? configOptions(response.configOptions) : undefined;
+  const model=modelOption({configOptions:declared})?.currentValue;
+  return {...(declared ? {configOptions:declared, ...(model ? {model} : {})} : {}),
     ...(Array.isArray(modes.availableModes) ? {modes:list(modes.availableModes,64).flatMap(mode=>label(mode.id) && label(mode.name) ? [{id:mode.id,name:mode.name}] : [])} : {}),
     ...(label(modes.currentModeId) ? {mode:modes.currentModeId} : {})};
 }

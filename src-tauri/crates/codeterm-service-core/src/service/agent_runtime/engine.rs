@@ -561,6 +561,7 @@ async fn ensure_locked(
         let epoch = {
             let mut state = session.state.lock();
             state.binary_version = None;
+            state.agent_name = None;
             state.begin()
         };
         session
@@ -714,12 +715,18 @@ async fn ensure_locked(
                 RuntimeOperation::Initialize,
             )
             .await?;
-            let RuntimeResult::Initialized { binary_version } = result else {
+            let RuntimeResult::Initialized {
+                binary_version,
+                agent_name,
+            } = result
+            else {
                 return Err(RuntimeFailure::HookFailed(
                     "Initialize result is invalid".into(),
                 ));
             };
-            session.state.lock().binary_version = binary_version;
+            let mut state = session.state.lock();
+            state.binary_version = binary_version;
+            state.agent_name = agent_name;
             Ok(())
         })
         .await?;

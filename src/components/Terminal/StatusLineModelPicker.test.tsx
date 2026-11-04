@@ -1,7 +1,7 @@
 import type { RuntimeServiceTierSelection as ServiceTierSelection } from "../../../packages/plugin-sdk/src/agentRuntime";
 import "./ChatComposer.composition.harness";
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test } from "vitest";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { TransportError } from "../../lib/transportClient";
@@ -34,7 +34,7 @@ function descriptor(model_switch: ProviderDescriptor["model_switch"]): ProviderD
   } as ProviderDescriptor;
 }
 
-async function mount(provider: ProviderDescriptor | undefined, currentServiceTier?: ServiceTierSelection, serviceTierAvailability?: Record<string, readonly import("../../../packages/plugin-sdk/src/agentRuntime").RuntimeServiceTier[]>, currentRuntimeMode?: string) {
+async function mount(provider: ProviderDescriptor | undefined, currentServiceTier?: ServiceTierSelection, serviceTierAvailability?: Record<string, readonly import("../../../packages/plugin-sdk/src/agentRuntime").RuntimeServiceTier[]>, currentRuntimeMode?: string, runtimeControls?: import("@codeterm/plugin-sdk").RuntimeSettings) {
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);
@@ -44,6 +44,8 @@ async function mount(provider: ProviderDescriptor | undefined, currentServiceTie
     <StatusLineModelPicker
       tabId="tab"
       descriptor={provider}
+      runtimeControls={runtimeControls}
+      runtimeIdentity={runtimeControls ? {agentName:"Wire Agent",binaryVersion:"0.0.1"} : undefined}
       facts={{ hasSession: true }}
       label="Vendor · deep · high"
       modelCandidates={["deep"]}
@@ -649,4 +651,41 @@ test("sent switches expose pending confirmation and cannot cancel an already wri
   await act(async () => button("Cancel").click());
   assert.deepEqual(calls,[]);
  } finally {await view.unmount();__setTabModelApiForTest(null);}
+});
+
+
+test("catalogue-free runtime lists only the bound agent model declaration", async () => {
+  const calls = recordSwitches();
+  const provider = {...descriptor("unsupported"), available_models:[], agent_runtime:{}, transport:"chat_backend"} as ProviderDescriptor;
+  const view = await mount(provider, undefined, undefined, undefined, {configOptions:[
+    {id:"choice",name:"Engine",category:"model",currentValue:"wire-one",options:[{value:"wire-one",name:"First declared"},{value:"wire-two",name:"Second declared"}]},
+    {id:"other",name:"Other",currentValue:"unrelated",options:[{value:"unrelated",name:"Unrelated"}]},
+  ]});
+  try {
+    assert.match(view.trigger()!.textContent!, /Wire Agent.*0.0.1.*First declared/);
+    await act(async () => view.trigger()!.click());
+    assert.deepEqual(Array.from(document.body.querySelectorAll('[role="option"]')).map(row => row.textContent?.includes("declared")), [true,true]);
+    assert.equal(document.body.querySelector('[aria-label="Refresh models"]'), null);
+    assert.equal(view.option("Deep"), undefined);
+    assert.equal(view.option("Unrelated"), undefined);
+    await act(async () => view.option("Second declared").click());
+    await act(async () => button("Apply").click());
+    assert.deepEqual(calls, [["tab","wire-two",undefined]]);
+    assert.match(view.trigger()!.textContent!, /First declared/);
+    assert.doesNotMatch(view.trigger()!.textContent!, /Second declared/);
+  } finally { await view.unmount(); __setTabModelApiForTest(null); }
+});
+
+test("catalogue-free runtime refuses model-name heuristics with a visible disabled state", async () => {
+  const provider = {...descriptor("unsupported"), available_models:[], agent_runtime:{}} as ProviderDescriptor;
+  const view = await mount(provider, undefined, undefined, undefined, {configOptions:[
+    {id:"model",name:"Model",currentValue:"undeclared",options:[{value:"undeclared",name:"Undeclared"}]},
+  ]});
+  try {
+    assert.equal(view.trigger()!.disabled, true);
+    assert.match(view.trigger()!.textContent!, /This agent declared no model option/);
+    assert.doesNotMatch(view.trigger()!.textContent!, /deep|Undeclared/);
+    await act(async () => view.trigger()!.click());
+    assert.equal(view.picker(), null);
+  } finally { await view.unmount(); }
 });

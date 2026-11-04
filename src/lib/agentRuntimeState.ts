@@ -1,5 +1,7 @@
 import { describeError, isPendingRuntimeDeadline } from "./describeError";
 export interface AgentRuntimeState {
+  agentName?: string;
+  binaryVersion?: string;
   controls?: import("@codeterm/plugin-sdk").RuntimeSettings;
   authentication?: import("@codeterm/plugin-sdk").RuntimeAuthentication;
   notice?: string;

@@ -50,6 +50,8 @@ export function TabStatusLineModelPicker({ tab, label }: { tab: Tab; label: stri
     <StatusLineModelPicker
       tabId={tab.id}
       descriptor={descriptor}
+      runtimeControls={tab.agent_runtime_state?.controls}
+      runtimeIdentity={tab.agent_runtime_state}
       facts={{ hasSession: Boolean(tab.pty_id) || tab.backing?.kind === "chat_backend" }}
       label={label}
       modelCandidates={[statusLineModelName(tab)]}
@@ -76,8 +78,12 @@ export function StatusLineModelPicker({
   currentRuntimeMode,
   serviceTierAvailability,
   pendingSelection,
+  runtimeControls,
+  runtimeIdentity,
 }: {
   tabId: string;
+  runtimeControls?: import("@codeterm/plugin-sdk").RuntimeSettings;
+  runtimeIdentity?: {agentName?:string;binaryVersion?:string} | null;
   descriptor: ProviderDescriptor | undefined;
   facts: StatusLineTabFacts;
   label: string;
@@ -88,8 +94,12 @@ export function StatusLineModelPicker({
   serviceTierAvailability?: Record<string,readonly import("../../../packages/plugin-sdk/src/agentRuntime").RuntimeServiceTier[]>;
   pendingSelection?: { model: string; effort: string | null; confirmation_pending?: boolean };
 }) {
+  const declaredModels = Boolean(descriptor?.agent_runtime && !descriptor.available_models.length);
+  const modelOption = declaredModels ? runtimeControls?.configOptions?.find(option => option.category === "model") : undefined;
+  if (declaredModels && descriptor) descriptor = { ...descriptor, model_switch: "live",
+    available_models: modelOption?.options.map(option => ({id:option.value,display_name:option.name,reasoning_efforts:[]})) ?? [] };
   const gate = statusLineSwitchGate(descriptor, facts);
-  const currentModel = currentModelId(descriptor, modelCandidates);
+  const currentModel = declaredModels ? modelOption?.currentValue : currentModelId(descriptor, modelCandidates);
   const [open, setOpen] = useState(false);
   const [applied, setApplied] = useState<PickerSelection | null>(null);
   const [applying, setApplying] = useState(false);
@@ -148,13 +158,20 @@ export function StatusLineModelPicker({
   const modelName = descriptor?.available_models.find((model) => matchesModel(model, selection.model))?.display_name
     || selection.model;
   const afterTurn = Boolean(pendingSelection);
-  const displayedLabel = tabMetaParts(modelName, serviceTierLabel(descriptor, currentServiceTier), selection.effort, pendingSelection?.confirmation_pending ? "Switch sent; confirms when this turn ends" : afterTurn ? "after this turn" : undefined).join(" · ");
+  const confirmedModelName = declaredModels ? descriptor?.available_models.find(model => model.id === currentModel)?.display_name ?? currentModel : modelName;
+  const displayedLabel = tabMetaParts(confirmedModelName, serviceTierLabel(descriptor, currentServiceTier), selection.effort, pendingSelection?.confirmation_pending ? "Switch sent; confirms when this turn ends" : afterTurn ? "after this turn" : undefined, runtimeIdentity).join(" · ");
   const harnessName = descriptor?.display_name ?? label.split(" · ")[0];
   const glyph = descriptor ? (
     <span aria-hidden="true" className="ct-status-identity__glyph" data-testid="status-harness-glyph" title={harnessName}>
       <ProviderGlyph iconSvg={descriptor.icon_svg} iconColor={descriptor.icon_color} iconHint={descriptor.icon_hint} />
     </span>
   ) : null;
+
+  if (declaredModels && !modelOption?.options.length) return (
+    <button type="button" disabled data-testid="status-model-trigger" title="This agent declared no model option" aria-label="This agent declared no model option">
+      {displayedLabel && <span>{displayedLabel} · </span>}This agent declared no model option
+    </button>
+  );
 
   if (!gate.interactive || !descriptor) {
     return (
@@ -190,8 +207,9 @@ export function StatusLineModelPicker({
           key={descriptor.id}
           descriptor={descriptor}
           gate={gate}
+          declaredModels={declaredModels}
           triggerRef={triggerRef}
-          currentModel={selection.model}
+          currentModel={declaredModels ? currentModel : selection.model}
           currentServiceTier={selection.serviceTier}
           currentRuntimeMode={selection.runtimeMode}
           serviceTierAvailability={serviceTierAvailability}
@@ -234,6 +252,7 @@ export function ModelPickerPopover({
   currentRuntimeMode,
   serviceTierAvailability,
   showReasoning = true,
+  declaredModels = false,
   busy,
   failure,
   onCommit,
@@ -248,6 +267,7 @@ export function ModelPickerPopover({
   currentRuntimeMode?: string;
   serviceTierAvailability?: Record<string,readonly import("../../../packages/plugin-sdk/src/agentRuntime").RuntimeServiceTier[]>;
   showReasoning?: boolean;
+  declaredModels?: boolean;
   busy: boolean;
   failure: { message: string; selection: PickerSelection } | null;
   onCommit: (selection: PickerSelection, restart: boolean) => void;
@@ -268,7 +288,7 @@ export function ModelPickerPopover({
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(failure?.message ?? null);
   const searchable = pickerNeedsSearch(descriptor);
-  const groups = pickerModelGroups(descriptor, staged?.model, query, showAll, currentModel);
+  const groups = pickerModelGroups(descriptor, staged?.model, query, showAll, declaredModels ? "" : currentModel);
   const efforts = showReasoning ? effortChoices(descriptor, staged?.model) : [];
   const hasRuntimeModes = Boolean(descriptor.agent_runtime?.runtimeModes?.length);
   const hasServiceTiers = Boolean(descriptor.agent_runtime?.serviceTiers?.length);
@@ -382,7 +402,7 @@ export function ModelPickerPopover({
             <Search size={13} aria-hidden />
           </button>
         )}
-        <button
+        {!declaredModels && <button
           type="button"
           className="ct-model-picker__refresh"
           aria-label="Refresh models"
@@ -391,7 +411,7 @@ export function ModelPickerPopover({
           onClick={() => void refresh()}
         >
           <BusySpinner icon={RotateCw} size={13} spinning={refreshing} />
-        </button>
+        </button>}
       </div>
       {searchable && searchOpen && (
         <div className="relative">

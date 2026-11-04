@@ -119,6 +119,10 @@ pub struct RuntimeState {
         skip_serializing_if = "Option::is_none"
     )]
     pub binary_version: Option<String>,
+    #[serde(default, rename = "agentName", skip_serializing_if = "Option::is_none")]
+    pub agent_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notice: Option<String>,
     pub thread_id: Option<String>,
     pub phase: RuntimePhase,
     pub active_turn_started_at_ms: Option<u64>,
@@ -135,6 +139,10 @@ pub struct RuntimeSnapshot {
         skip_serializing_if = "Option::is_none"
     )]
     pub binary_version: Option<String>,
+    #[serde(default, rename = "agentName", skip_serializing_if = "Option::is_none")]
+    pub agent_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notice: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -160,6 +168,8 @@ impl RuntimeState {
         };
         RuntimeSnapshot {
             binary_version: self.binary_version.clone(),
+            agent_name: self.agent_name.clone(),
+            notice: self.notice.clone(),
             history: None,
             history_pages: None,
             history_error: None,
@@ -175,6 +185,8 @@ impl RuntimeState {
         Self {
             epoch: 0,
             binary_version: None,
+            agent_name: None,
+            notice: None,
             thread_id,
             phase: RuntimePhase::Unloaded { reason: None },
             active_turn_started_at_ms: None,
@@ -207,6 +219,7 @@ impl RuntimeState {
     pub fn begin(&mut self) -> u64 {
         self.epoch = self.epoch.wrapping_add(1);
         self.phase = RuntimePhase::Loading;
+        self.notice = None;
         self.epoch
     }
     pub fn load(&mut self, epoch: u64, thread: &str) -> bool {

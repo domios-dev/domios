@@ -1,7 +1,7 @@
 {
   "agentRuntime": {
     "runtime": "stdio-jsonrpc",
-      "envelope": "jsonrpc2",
+    "envelope": "jsonrpc2",
     "command": {
       "binary": "acp-agent",
       "args": []
@@ -39,11 +39,13 @@
         "initialize"
       ],
       "openThread": [
-        "session/new"
+        "session/new",
+        "session/set_config_option"
       ],
       "resumeThread": [
         "session/load",
-        "session/resume"
+        "session/resume",
+        "session/set_config_option"
       ],
       "submitTurn": [
         "session/prompt"
@@ -103,6 +105,9 @@
     "unknown-update-kind.json",
     "unsupported-version.json",
     "controls-selection.json",
-    "declared-auth.json"
+    "declared-auth.json",
+    "model-option-undeclared-refused.json",
+    "model-option-declared-selected.json",
+    "agent-info-identity.json"
   ]
 }
