@@ -504,6 +504,7 @@ fn unplanned_worker_refuses_unbound_team() {
 #[test]
 fn unplanned_foreign_repository_worktree_never_provisions_a_project_lane() {
     let harness = fixture();
+    let startups = super::startup_tasks::StartupTasks::install(&harness.fixture.service);
     let (foreign_root, foreign_project) = super::git_project();
     let foreign_worktree = foreign_root.path().join("worker");
     super::git(
@@ -519,6 +520,8 @@ fn unplanned_foreign_repository_worktree_never_provisions_a_project_lane() {
     let mut request = params(&harness, "foreign repository probe").unwrap();
     request["cwd"] = json!(foreign_worktree);
     let response = dispatch(&harness, &Some(request)).unwrap();
+    // Startup verifies the foreign checkout with Git after dispatch has returned.
+    startups.finish();
     let task = harness
         .fixture
         .service
