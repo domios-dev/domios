@@ -261,7 +261,13 @@ fn settle_lanes_held_by_closed_tab_never_loads_unmatched_plans() {
     start(store);
 
     fx.service.settle_lanes_held_by_closed_tab("closed-tab");
-    assert!(store.plan_loads_for_test().contains(&held));
+    assert_eq!(
+        store
+            .lane_settlement_projection(Some(&held), None)
+            .unwrap()
+            .len(),
+        1
+    );
     assert_never_loaded(store, &[&running, &elsewhere]);
 }
 

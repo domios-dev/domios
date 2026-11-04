@@ -35,6 +35,32 @@ fn bounded_state(consumer: &str) {
                 ..Default::default()
             })
             .collect();
+        if consumer == "lifecycle_plan" {
+            plan.mode = crate::plan::PlanMode::Paused;
+            plan.paused_from_mode = Some(crate::plan::PlanMode::Execution);
+            let operation: crate::plan::PlanPauseOperation = serde_json::from_value(json!({
+                "id":"current-pause","paused_at":1,"paused_from_mode":"execution",
+                "reason":"pause","stage":"complete"
+            }))
+            .unwrap();
+            plan.pause_operations = (0..rounds)
+                .map(|_| {
+                    let mut old = operation.clone();
+                    old.reason = "history".repeat(128);
+                    old
+                })
+                .chain([operation])
+                .collect();
+        }
+        if matches!(
+            consumer,
+            "settle_lane"
+                | "run_settlement"
+                | "settle_lanes_held_by_closed_tab"
+                | "settle_finished_lane_history"
+        ) {
+            plan.tasks[0].status = crate::plan::TaskStatus::Done;
+        }
         let database = fixtures::database(directory.path(), &plan);
         fixtures::audit(&database);
         take_metrics();
@@ -67,6 +93,35 @@ fn bounded_state(consumer: &str) {
                 assert_eq!(read[0].team_id, "team");
                 assert_eq!(read[0].mode, plan.mode);
                 assert!(read[0].has_running_tasks);
+                serde_json::to_vec(&read).unwrap()
+            }
+            "settle_lane"
+            | "run_settlement"
+            | "settle_lanes_held_by_closed_tab"
+            | "settle_finished_lane_history" => {
+                let read = if consumer == "settle_lanes_held_by_closed_tab" {
+                    database
+                        .lane_settlement_projection(None, None, Some("worker"))
+                        .unwrap()
+                } else {
+                    database
+                        .lane_settlement_projection(Some(&plan.id), Some(&plan.tasks[0].id), None)
+                        .unwrap()
+                };
+                assert_eq!(read.len(), 1);
+                assert_eq!(read[0].task_id, plan.tasks[0].id);
+                assert_eq!(read[0].bound_tabs, vec!["worker"]);
+                assert_eq!(read[0].worktree.as_deref(), Some("/lane"));
+                assert_eq!(read[0].canonical_path(), "/canonical");
+                serde_json::to_vec(&read).unwrap()
+            }
+            "lifecycle_plan" => {
+                let read = database.plan_lifecycle_projection(&plan.id).unwrap();
+                let expected = crate::service_plan::PlanLifecycleRead::from(&plan);
+                assert_eq!(
+                    serde_json::to_value(&read).unwrap(),
+                    serde_json::to_value(expected).unwrap()
+                );
                 serde_json::to_vec(&read).unwrap()
             }
             "take_over_team_plan" => {
@@ -184,4 +239,26 @@ fn lane_and_team_state_preserve_selection_and_surface_selected_errors() {
         .execute_batch("DROP TABLE specs; DROP TABLE plans")
         .unwrap();
     assert!(database.team_owner_projection("team").is_err());
+}
+
+#[test]
+fn lifecycle_plan_selected_bytes() {
+    bounded_state("lifecycle_plan");
+}
+
+#[test]
+fn settle_lane_selected_bytes() {
+    bounded_state("settle_lane");
+}
+#[test]
+fn run_settlement_selected_bytes() {
+    bounded_state("run_settlement");
+}
+#[test]
+fn settle_lanes_held_by_closed_tab_selected_bytes() {
+    bounded_state("settle_lanes_held_by_closed_tab");
+}
+#[test]
+fn settle_finished_lane_history_selected_bytes() {
+    bounded_state("settle_finished_lane_history");
 }

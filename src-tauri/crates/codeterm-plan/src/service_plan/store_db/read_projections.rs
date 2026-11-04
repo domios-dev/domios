@@ -5,7 +5,9 @@ use rusqlite::{params, OptionalExtension};
 use serde_json::{json, Value};
 
 pub(in crate::service_plan) mod lane_readers;
+pub(in crate::service_plan) mod lane_settlement;
 pub(in crate::service_plan) mod lane_stats;
+pub(in crate::service_plan) mod lifecycle;
 pub(in crate::service_plan) mod team_readers;
 
 pub(super) const SECTION_ROWS: &str = "SELECT s.position, j.id AS traversal,
