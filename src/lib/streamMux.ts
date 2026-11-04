@@ -1,6 +1,6 @@
 import { uid } from "./uid";
 import { browserFetch, createTransportClient, SseCapacityError, streamClientId, TransportError, type TransportClient, type TransportOptions, type Unsubscribe } from "./transportClient";
-import { bulkCreditDue, decodeMuxFrame, isMuxStreamPath, muxSessionRefused, type MuxFrame } from "./streamMuxModel";
+import { bulkCreditDue, CREDIT_ATTEMPTS, decodeMuxFrame, isMuxStreamPath, muxSessionRefused, type MuxFrame } from "./streamMuxModel";
 import { EMPTY_MUX_POSTS, initialMuxRequest, MUX_REQUEST_TIMEOUT, muxPostCancel, muxPostEnqueue, muxPostRemove, muxPostStart, muxPostTraffic, muxRequestAdmission, muxRequestOperation, muxRequestPolicy, transitionMuxRequest, type MuxPostState, type MuxRequestInit, type MuxRequestState, type MuxTraffic } from "./streamMuxRequestModel";
 import { restRequestTimeoutMs } from "./restTimeoutPolicy";
 import { RECONNECT_FIRST_MS, reconnectDelay, nextReconnectBackoff, shouldResetReconnectBackoff } from "./webReconnectModel";
@@ -231,13 +231,17 @@ export function createStreamMux(transport: () => TransportClient, fetcher: Fetch
     credit.received += frame.credit;
     const due = bulkCreditDue(credit.received, credit.posted);
     if (due === null) return;
-    const session = credit.session, previous = credit.posted;
     credit.posted = due;
+    postCredit(credit.session, due, 1);
+  }
+
+  // A closed window sends no further credited frames, so a lost credit is re-posted here; it is cumulative and idempotent.
+  function postCredit(session: string, received: number, attempt: number): void {
     void control("/api/stream-mux/" + session + "/credit", {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ received: due }),
-    }).then(response => response.body?.cancel(), () => {
-      // The next credited frame re-posts the cumulative count.
-      if (credit.session === session && credit.posted === due) credit.posted = previous;
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ received }),
+    }).then(response => { void response.body?.cancel(); return response.ok; }, () => false).then(ok => {
+      if (ok || credit.session !== session || live !== session || attempt >= CREDIT_ATTEMPTS) return;
+      postCredit(session, credit.posted, attempt + 1);
     });
   }
 
