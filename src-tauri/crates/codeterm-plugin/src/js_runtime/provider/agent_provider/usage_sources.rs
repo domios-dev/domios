@@ -1,31 +1,9 @@
 use super::session_wire::WireUsageSource;
 use super::{provider, JsProvider, UsageSourceSpec};
 use serde_json::json;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 impl JsProvider {
-    pub(super) fn js_additional_usage_sources(
-        &self,
-        session_file: &Path,
-        session_id: &str,
-    ) -> Vec<PathBuf> {
-        if !self.has_js("sessionUsageSources") {
-            return self
-                .native()
-                .map(|n| n.additional_usage_sources(session_file, session_id))
-                .unwrap_or_default();
-        }
-        self.try_call::<Vec<String>>(
-            "sessionUsageSources",
-            &[json!(session_file.to_string_lossy()), json!(session_id)],
-        )
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|path| !path.is_empty())
-        .map(PathBuf::from)
-        .collect()
-    }
-
     pub(super) fn js_usage_sources(&self, cwd: &str, session_id: &str) -> Vec<UsageSourceSpec> {
         if self.has_js("usageSources") {
             // An exported `usageSources` is authoritative: a null or failed reply
