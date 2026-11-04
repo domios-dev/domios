@@ -581,7 +581,14 @@ impl ServiceContext {
     /// Marks every unsettled lane of a finished task terminal so history is never re-checked.
     pub fn settle_finished_lane_history(&self) {
         let now = unix_time_millis();
-        for plan_id in self.plan_store.plan_ids_with_unsettled_lanes() {
+        let plans = match self.plan_store.plan_ids_with_unsettled_lanes() {
+            Ok(plans) => plans,
+            Err(error) => {
+                log::error!("[lane-settle] cannot read finished lane candidates: {error}");
+                return;
+            }
+        };
+        for plan_id in plans {
             let reads = match self
                 .plan_store
                 .lane_settlement_projection(Some(&plan_id), None)
