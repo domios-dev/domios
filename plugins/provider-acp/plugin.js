@@ -899,6 +899,12 @@ function agentIdentity(raw) {
   if (!label(info.name) || !label(info.version) || info.title !== void 0 && !label(info.title)) return {};
   return { agentName: typeof info.title === "string" ? info.title : info.name, binaryVersion: info.version };
 }
+function sessionAuthentication(state) {
+  if (!state.authMethods.length || state.authenticated === true && state.required !== true) return [];
+  state.authenticated = true;
+  state.required = false;
+  return [{ kind: "authentication", authentication: authentication(state.authMethods, true, false) }];
+}
 function threadNotices(state, threadId, events) {
   if (state.mcpUnavailable) {
     events.push({ kind: "notice", threadId, message: state.mcpUnavailable });
@@ -906,18 +912,18 @@ function threadNotices(state, threadId, events) {
   }
   return events.length ? { events } : {};
 }
-function loadedThread(op, state, sessionId, attempted = []) {
+function loadedThread(op, state, sessionId, attempted = [], confirmAuthentication = true) {
   const selection = launchSelection(op.settings, state.settings, attempted);
   if (selection.kind === "refused") return refused("provider_refused", selection.message);
   if (selection.kind === "set") {
     const plan = request("session/set_config_option", { sessionId, configId: selection.id, value: selection.value });
-    plan.state = { method: "session/set_config_option", attempted: [...attempted, selection.category] };
+    plan.state = { method: "session/set_config_option", attempted: [...attempted, selection.category], confirmAuthentication };
     return { kind: "continue", plan };
   }
   return {
     kind: "complete",
     result: { kind: "threadLoaded", threadId: sessionId, settings: state.settings ?? {} },
-    ...threadNotices(state, sessionId, [])
+    ...threadNotices(state, sessionId, confirmAuthentication ? sessionAuthentication(state) : [])
   };
 }
 function clientCapabilities(ctx) {
@@ -1152,11 +1158,11 @@ function runtimeResponse(ctx, op, raw, reply) {
     const attempted = object4(raw).attempted;
     if (!Array.isArray(attempted) || attempted.length > 2 || !attempted.every((value2) => value2 === "model" || value2 === "thought_level"))
       return refused("protocol_error", "Invalid session selection continuation");
-    return loadedThread(op, state, state.sessionId, attempted);
+    return loadedThread(op, state, state.sessionId, attempted, object4(raw).confirmAuthentication === true);
   }
   if (op.kind === "resumeThread" && method === "boundSession") {
     if (!state.sessionActive || state.sessionId !== op.threadId) return refused("binding_mismatch", "ACP session is not active in this runtime");
-    return loadedThread(op, state, ownSession(ctx, state));
+    return loadedThread(op, state, ownSession(ctx, state), [], false);
   }
   if (op.kind === "openThread" || op.kind === "resumeThread") {
     if (op.kind === "resumeThread") {
@@ -1200,7 +1206,7 @@ function runtimeResponse(ctx, op, raw, reply) {
     if (turn !== state.cursor.prompt || !state.inFlight) {
       const queued = state.queued?.find((queued2) => queued2.prompt === turn);
       if (queued && !queued.completed) queued.completed = { cancelled: value.stopReason === "cancelled", usage: usage(value.usage) };
-      return { kind: "complete", result: { kind: "turnAccepted", threadId: sessionId, sendId: op.sendId, turnId: `${sessionId}:turn:${turn}` }, events: [] };
+      return { kind: "complete", result: { kind: "turnAccepted", threadId: sessionId, sendId: op.sendId, turnId: `${sessionId}:turn:${turn}` }, events: queued ? sessionAuthentication(state) : [] };
     }
     state.inFlight = false;
     state.instructions = void 0;
@@ -1208,7 +1214,7 @@ function runtimeResponse(ctx, op, raw, reply) {
     const settled = settleStream(ctx, projected.state, value.stopReason);
     state.projection = settled.state;
     const mapped = usage(value.usage);
-    const events = [...mapped ? [{ kind: "usage", threadId: sessionId, usage: mapped }] : [], ...projected.events, ...settled.events];
+    const events = [...sessionAuthentication(state), ...mapped ? [{ kind: "usage", threadId: sessionId, usage: mapped }] : [], ...projected.events, ...settled.events];
     events.push(...promoteQueued(ctx, state));
     return { kind: "complete", result: { kind: "turnAccepted", threadId: sessionId, sendId: op.sendId, turnId: `${sessionId}:turn:${turn}` }, events };
   }

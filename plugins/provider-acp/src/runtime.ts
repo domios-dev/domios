@@ -78,6 +78,12 @@ function agentIdentity(raw:unknown):{agentName?:string;binaryVersion?:string} {
   if (!label(info.name) || !label(info.version) || info.title !== undefined && !label(info.title)) return {};
   return {agentName:typeof info.title === "string" ? info.title : info.name,binaryVersion:info.version};
 }
+function sessionAuthentication(state:Negotiation):import("@codeterm/plugin-sdk").AgentEvent[] {
+  if (!state.authMethods.length || state.authenticated === true && state.required !== true) return [];
+  state.authenticated=true;
+  state.required=false;
+  return [{kind:"authentication",authentication:authentication(state.authMethods,true,false)}];
+}
 function threadNotices(state:Negotiation, threadId:string, events:import("@codeterm/plugin-sdk").AgentEvent[]) {
   if (state.mcpUnavailable) {
     events.push({kind:"notice",threadId,message:state.mcpUnavailable});
@@ -86,16 +92,16 @@ function threadNotices(state:Negotiation, threadId:string, events:import("@codet
   return events.length ? {events} : {};
 }
 
-function loadedThread(op:Extract<Operation,{kind:"openThread"|"resumeThread"}>, state:Negotiation, sessionId:string, attempted:string[]=[]):RuntimeStep {
+function loadedThread(op:Extract<Operation,{kind:"openThread"|"resumeThread"}>, state:Negotiation, sessionId:string, attempted:string[]=[], confirmAuthentication=true):RuntimeStep {
   const selection=launchSelection(op.settings,state.settings,attempted);
   if (selection.kind === "refused") return refused("provider_refused",selection.message);
   if (selection.kind === "set") {
     const plan=request("session/set_config_option",{sessionId,configId:selection.id,value:selection.value});
-    plan.state={method:"session/set_config_option",attempted:[...attempted,selection.category]};
+    plan.state={method:"session/set_config_option",attempted:[...attempted,selection.category],confirmAuthentication};
     return {kind:"continue",plan};
   }
   return {kind:"complete",result:{kind:"threadLoaded",threadId:sessionId,settings:state.settings ?? {}},
-    ...threadNotices(state,sessionId,[])};
+    ...threadNotices(state,sessionId,confirmAuthentication ? sessionAuthentication(state) : [])};
 }
 
 function clientCapabilities(ctx:RuntimeContext):JsonValue {
@@ -313,11 +319,11 @@ export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue,
     const attempted=object(raw).attempted;
     if (!Array.isArray(attempted) || attempted.length > 2 || !attempted.every(value=>value === "model" || value === "thought_level"))
       return refused("protocol_error","Invalid session selection continuation");
-    return loadedThread(op,state,state.sessionId,attempted as string[]);
+    return loadedThread(op,state,state.sessionId,attempted as string[],object(raw).confirmAuthentication === true);
   }
   if (op.kind === "resumeThread" && method === "boundSession") {
     if (!state.sessionActive || state.sessionId !== op.threadId) return refused("binding_mismatch", "ACP session is not active in this runtime");
-    return loadedThread(op,state,ownSession(ctx,state));
+    return loadedThread(op,state,ownSession(ctx,state),[],false);
   }
   if (op.kind === "openThread" || op.kind === "resumeThread") {
     if (op.kind === "resumeThread") {
@@ -364,7 +370,7 @@ export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue,
     if (turn !== state.cursor.prompt || !state.inFlight) {
       const queued=state.queued?.find(queued=>queued.prompt === turn);
       if (queued && !queued.completed) queued.completed={cancelled:value.stopReason === "cancelled",usage:usage(value.usage)};
-      return {kind:"complete",result:{kind:"turnAccepted",threadId:sessionId,sendId:op.sendId,turnId:`${sessionId}:turn:${turn}`},events:[]};
+      return {kind:"complete",result:{kind:"turnAccepted",threadId:sessionId,sendId:op.sendId,turnId:`${sessionId}:turn:${turn}`},events:queued ? sessionAuthentication(state) : []};
     }
     state.inFlight=false;
     state.instructions = undefined;
@@ -372,7 +378,7 @@ export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue,
     const settled=settleStream(ctx,projected.state,value.stopReason);
     state.projection=settled.state;
     const mapped=usage(value.usage);
-    const events:import("@codeterm/plugin-sdk").AgentEvent[]=[...(mapped ? [{kind:"usage" as const,threadId:sessionId,usage:mapped}] : []),...projected.events,...settled.events];
+    const events:import("@codeterm/plugin-sdk").AgentEvent[]=[...sessionAuthentication(state),...(mapped ? [{kind:"usage" as const,threadId:sessionId,usage:mapped}] : []),...projected.events,...settled.events];
     events.push(...promoteQueued(ctx,state));
     return {kind:"complete", result:{kind:"turnAccepted", threadId:sessionId, sendId:op.sendId,turnId:`${sessionId}:turn:${turn}`},events};
 

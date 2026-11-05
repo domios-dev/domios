@@ -171,6 +171,7 @@
     "initialize-client-capability-mask.json",
     "cancel-before-first-update.json",
     "profile-selection-valid.json",
-    "profile-selection-invalid.json"
+    "profile-selection-invalid.json",
+    "session-authenticated.json"
   ]
 }
