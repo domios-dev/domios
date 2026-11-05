@@ -1,6 +1,11 @@
 [
   {
     "method": "GET",
+    "path": "/api/neighbors/sidebar",
+    "reason": "Internal owner-only sidebar projection for selected Mesh peers; exposes only concierge bindings and friend display names."
+  },
+  {
+    "method": "GET",
     "path": "/api/debug/clock",
     "reason": "Internal diagnostic or test-clock control; not a public automation contract."
   },

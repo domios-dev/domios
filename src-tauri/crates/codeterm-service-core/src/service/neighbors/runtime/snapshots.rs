@@ -1,6 +1,40 @@
 use super::*;
 
 impl ServiceContext {
+    pub async fn neighbor_sidebar_projection(&self) -> Result<Value, String> {
+        let generation = self.neighbor_history_generation();
+        let account = self.account().await?;
+        let Some(session) = account.session().await else {
+            return Ok(json!({}));
+        };
+        let metadata = Metadata::new(self.account_data_root()?, &session.identity.uid);
+        let settings = metadata
+            .settings()
+            .await
+            .map_err(|error| error.to_string())?;
+        let projection = {
+            let names = self.neighbor_cell().names.lock();
+            Value::Object(
+                settings
+                    .bindings
+                    .iter()
+                    .filter_map(|(friendship, tab)| {
+                        let name = names.get(friendship)?;
+                        Some((
+                            friendship.clone(),
+                            json!({"tab_id": tab, "friend_display_name": name}),
+                        ))
+                    })
+                    .collect(),
+            )
+        };
+        self.require_neighbor_generation(generation)?;
+        if !super::super::same_session(account.session().await.as_ref(), &session) {
+            return Err("Neighbor account changed".into());
+        }
+        Ok(projection)
+    }
+
     pub(in crate::service::neighbors) fn patch_neighbor_registry_pause(
         &self,
         friendship: &str,

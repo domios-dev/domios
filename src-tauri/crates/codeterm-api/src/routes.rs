@@ -541,6 +541,10 @@ pub(super) fn create_router_with_preview_admission(
             post(super::analytics_routes::consent),
         )
         .route("/api/analytics/event", post(super::analytics_routes::event))
+        .route(
+            "/api/neighbors/sidebar",
+            get(super::account_routes::neighbor_sidebar::read),
+        )
         .route("/api/account/plan", get(super::account_routes::plan))
         .route("/api/account/upgrade", post(super::account_routes::upgrade))
         .route("/api/account/portal", post(super::account_routes::portal))

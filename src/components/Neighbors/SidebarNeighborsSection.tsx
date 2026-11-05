@@ -31,11 +31,19 @@ import { resetNeighborStatus, useNeighborStatus } from "./neighborStatusStore";
 import { resetPausedFriends, setFriendPaused, usePausedFriends } from "./neighborPause";
 import { FriendReceiveConfirm, friendReceiveItems, friendReceivingLine, useFriendReceiveRequest } from "./neighborFriendReceiving";
 import { friendReceiverState } from "./useReceiverState";
+import { useNeighborPeer } from "./neighborProjection";
+import { RemoteNeighborSection } from "./RemoteNeighborSection";
 
 const ROW = "sidebar-tab sidebar-tab-dimmed group flex items-center hover:bg-[var(--ct-hover)]";
 
 /** Your connected Neighbors as sidebar rows, each with its concierge tucked under it; hidden until you have one. */
-export function SidebarNeighborsSection({ uiFontScale, touchMode, onNavigateToTab, enabled = true, activeChat = null, activeTabId = null, client, runtimeClient = neighborRuntimeClient,
+export function SidebarNeighborsSection(props: Parameters<typeof LocalNeighborsSection>[0]) {
+  const peer = useNeighborPeer();
+  return peer ? <RemoteNeighborSection key={peer} peer={peer} touchMode={props.touchMode} activeTabId={props.activeTabId} onNavigateToTab={props.onNavigateToTab} />
+    : <LocalNeighborsSection {...props} />;
+}
+
+function LocalNeighborsSection({ uiFontScale, touchMode, onNavigateToTab, enabled = true, activeChat = null, activeTabId = null, client, runtimeClient = neighborRuntimeClient,
   conciergeClient = neighborConciergeClient }: {
   uiFontScale?: number; touchMode: boolean; onNavigateToTab?: () => void; enabled?: boolean; activeChat?: string | null;
   /** The session tab shown in the workspace view, the same source ordinary tab rows highlight from. */
@@ -82,7 +90,10 @@ export function SidebarNeighborsSection({ uiFontScale, touchMode, onNavigateToTa
   const listBindings = Object.fromEntries(friends.flatMap(friend => friend.gateway_tab ? [[friend.friendship_id, friend.gateway_tab]] : []));
   const allBindings = Object.fromEntries(Object.entries({ ...listBindings, ...(status?.bindings ?? {}), ...bindings }).filter(([, tab]) => tab !== ""));
   const bindingKey = JSON.stringify(allBindings);
-  useEffect(() => { publishNeighborGateways(JSON.parse(bindingKey) as Record<string, string>); }, [bindingKey]);
+  useEffect(() => {
+    publishNeighborGateways(JSON.parse(bindingKey) as Record<string, string>);
+    return () => publishNeighborGateways({});
+  }, [bindingKey]);
   useEffect(() => {
     let stop: (() => void) | undefined;
     let live = true;
@@ -177,9 +188,9 @@ export function conciergeModelLine(tab: Tab): string {
   return effort ? `${name} · ${effort}` : name;
 }
 
-function ConciergeRow({ tab, friendName, text, touchMode, subline, working, paused, pauseItem, receiveItems, active, onOpen, onChangeAgent, onViewPermissions, onEditWithGeneral }: {
-  tab: Tab; friendName: string; text: string; touchMode: boolean; subline: string; working: boolean; paused: boolean; pauseItem: { label: string; onClick: () => void };
-  receiveItems: DropdownMenuItem[]; active: boolean; onOpen: () => void; onChangeAgent: () => void; onViewPermissions: () => void; onEditWithGeneral: () => void;
+export function ConciergeRow({ tab, friendName, text, touchMode, subline, working, paused, pauseItem, receiveItems = [], active, onOpen, onChangeAgent, onViewPermissions, onEditWithGeneral }: {
+  tab: Tab; friendName: string; text: string; touchMode: boolean; subline: string; working: boolean; paused?: boolean; pauseItem?: { label: string; onClick: () => void };
+  receiveItems?: DropdownMenuItem[]; active: boolean; onOpen: () => void; onChangeAgent?: () => void; onViewPermissions?: () => void; onEditWithGeneral?: () => void;
 }) {
   const label = `${friendName}'s concierge`;
   const row = useRef<HTMLDivElement>(null);
@@ -201,7 +212,7 @@ function ConciergeRow({ tab, friendName, text, touchMode, subline, working, paus
         <span className="sidebar-tab-body__sub block truncate text-[10px] leading-3 text-[var(--ct-muted-fg)]">{subline}</span>
       </span>
     </button>
-    <DropdownMenu className={touchMode ? "sr-only" : "sidebar-tab-kebab"} contextMenuTargetRef={row} menuLabel={`${label} actions`}
+    {onChangeAgent && onViewPermissions && onEditWithGeneral && pauseItem && <DropdownMenu className={touchMode ? "sr-only" : "sidebar-tab-kebab"} contextMenuTargetRef={row} menuLabel={`${label} actions`}
       items={[
         { label: "Change agent", onClick: onChangeAgent },
         { label: "View permissions", onClick: onViewPermissions },
@@ -209,6 +220,6 @@ function ConciergeRow({ tab, friendName, text, touchMode, subline, working, paus
         ...receiveItems,
         pauseItem,
       ]}
-      trigger={<RowMenuButton label={`Actions for ${label}`} title="Concierge actions" touchMode={touchMode} />} />
+      trigger={<RowMenuButton label={`Actions for ${label}`} title="Concierge actions" touchMode={touchMode} />} />}
   </div>;
 }

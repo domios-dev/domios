@@ -7,6 +7,7 @@ use axum::{
 };
 use codeterm_account::Status;
 mod login_paste;
+pub(crate) mod neighbor_sidebar;
 type Error = (StatusCode, String);
 pub(crate) fn admit(caller: Option<&Extension<CallerIdentity>>) -> Result<(), Error> {
     if matches!(caller.map(|c| &c.0), Some(CallerIdentity::Local)) {
