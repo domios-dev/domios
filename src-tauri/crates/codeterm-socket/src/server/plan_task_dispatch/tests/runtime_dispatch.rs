@@ -643,6 +643,7 @@ fn dispatch_profile_creation_preserves_title_and_startup_owner_before_readiness(
             assert_eq!(owner.tab_id, attempt.executor_tab_id);
             assert_eq!(task.lane.workspace_id, None);
             assert!(service.mux.read().get_tab(&owner.tab_id).is_some(), "the pending Worker tab must stay reserved");
+            assert_eq!(&service.mux.read().display_label_for_tab(&owner.tab_id), title, "the pending Worker title must stay reserved");
             let pending = service.plan_store.show_task_attempt(&authority.plan_id, &authority.task_id, &authority.attempt_id).unwrap();
             assert_eq!(pending.attempt.executor_title.as_ref(), Some(title));
             assert_eq!(pending.attempt.executor_tab_id, owner.tab_id);
