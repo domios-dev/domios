@@ -65,6 +65,8 @@
   "src/components/MeshPanel/accountMachines.test.tsx",
   "src/components/MeshPanel/AccountMeshCanvas.test.tsx",
   "src/components/MeshPanel/MeshCanvas.web.test.tsx",
+  "src/components/MeshPanel/MeshCanvas.touch.test.tsx",
+  "src/components/MeshPanel/meshViewportModel.test.ts",
   "src/components/MeshPanel/tailscaleSetup.test.tsx",
   "src/components/MeshPanel/accountMeshFailure.test.ts",
   "src/components/MeshPanel/accountMeshLimitNotice.test.ts",
