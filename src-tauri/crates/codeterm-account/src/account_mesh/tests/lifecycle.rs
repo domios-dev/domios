@@ -505,7 +505,7 @@ async fn account_mesh_account_switch_applies_each_accounts_accepted_admission() 
             "schema_version": 1, "iss": "domios-mesh-registry",
             "aud": {"project": PROJECT, "env": "test"}, "policy_epoch": EPOCH,
             "account_id": account_id(UID), "revision": taught.revision + 10, "issued_at": START,
-            "members": rows, "revoked_installations": [],
+            "members": rows, "revoked_installations": taught.revoked_installations,
         }))
     };
 
@@ -541,11 +541,19 @@ async fn account_mesh_account_switch_applies_each_accounts_accepted_admission() 
     harness.sign_in(UID).await;
     for (key_id, generation, metadata_revision) in [("c".repeat(64), 1, 5), ("d".repeat(64), 2, 0)]
     {
+        let regressed = account_registry(key_id, generation, metadata_revision);
+        let verified = crate::account_mesh::registry_snapshot::verify_registry(
+            &regressed,
+            &Issuer::new().trust(),
+            &account_id(UID),
+            START,
+        );
+        assert!(
+            verified.is_ok(),
+            "only a fence can refuse this signed registry"
+        );
         assert_eq!(
-            harness
-                .mesh
-                .receive_registry_snapshot(&account_registry(key_id, generation, metadata_revision))
-                .await,
+            harness.mesh.receive_registry_snapshot(&regressed).await,
             Err(AccountMeshRefusal::Invalid),
             "A's own fences still refuse a regressed A registry after visiting B"
         );

@@ -8,6 +8,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { Window } from "happy-dom";
 import type { CatalogEntry } from "./pluginCatalog";
 import type { ActionKind, ActionOptions } from "./PluginDetailPanel";
+import { __resetStreamMuxesForTest } from "../../lib/streamMux";
 
 const win = new Window({ url: "http://localhost/" });
   Object.assign(win, { __CODETERM_DAEMON__: { origin: /^https?:/.test(win.location.origin) ? win.location.origin : "http://127.0.0.1:7686", token: "test-token" } });
@@ -174,6 +175,8 @@ async function main() {
   await uninstalledPluginOffersInstallOnly();
   await pluginNameAppearsOnceOnTheDetailPage();
   await codexWithoutHtmlUiOffersNoView();
+  // A daemon request left waiting would keep the mux reconnect timer, and the test process, alive.
+  __resetStreamMuxesForTest();
   console.log("PluginDetailHeader behavior: 5/5 passed");
 }
 
