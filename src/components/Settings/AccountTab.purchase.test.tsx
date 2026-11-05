@@ -5,7 +5,7 @@ import type { Notification } from "../../lib/types";
 import { MultiplexerActionsContext, type MultiplexerActionsContextType } from "../../store/multiplexer/context";
 import { NotificationToastContainer } from "../Notifications/NotificationToast";
 import { desktopCatalogFixture } from "../billing/desktopBilling.testdata";
-import { PURCHASES_ENABLED } from "../billing/purchaseSwitch";
+import { PURCHASES_DEFAULT } from "../billing/purchaseSwitch";
 
 const daemon = vi.hoisted(() => {
   const state = {
@@ -453,7 +453,7 @@ it("shows the typed no-customer fallback when a paid subscription readback has b
 it("while purchase is off, the Plan card offers the free-key notice and redemption instead of any purchase", async () => {
   daemon.state.identity = { uid: "free-user", display_name: "Ada", email: "ada@example.test", provider: "fake" };
   daemon.state.paidPlan = null;
-  await mount(PURCHASES_ENABLED);
+  await mount(PURCHASES_DEFAULT);
   await settle();
   expect(host.querySelector('[role="group"][aria-label="Subscription plans"]')).toBeNull();
   expect(host.querySelector('section[aria-label$=" plan"]')).toBeNull();
@@ -467,7 +467,7 @@ it("while purchase is off, a paying subscriber can still manage the subscription
   daemon.state.identity = { uid: "paid-user", display_name: "Ada", email: "ada@example.test", provider: "fake" };
   daemon.state.account = { plan: "pro", fullAccess: false };
   daemon.state.paidPlan = "pro";
-  await mount(PURCHASES_ENABLED);
+  await mount(PURCHASES_DEFAULT);
   await settle();
   await click(host, "Manage subscription");
   expect(daemon.state.portals).toBe(1);

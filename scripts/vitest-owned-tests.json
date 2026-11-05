@@ -339,6 +339,7 @@
   "src/components/billing/PlanCards.test.tsx",
   "src/components/billing/freeLimitModel.test.ts",
   "src/components/billing/FreeLimitPlansModal.test.tsx",
+  "src/components/billing/purchaseSwitch.test.tsx",
   "src/components/billing/freeLimitTriggers.test.tsx",
   "src/components/billing/freeLimitLocks.test.tsx",
   "src/components/billing/lockSurfaces.test.ts",

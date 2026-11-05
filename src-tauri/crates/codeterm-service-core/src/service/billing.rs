@@ -85,6 +85,33 @@ impl ServiceContext {
         .map_err(|error| error.to_string())?
     }
 
+    /// Fetches the remote purchase switch at startup and every five hours; a failed fetch
+    /// leaves purchases off until the next one. A change reaches the UI as account status.
+    pub fn start_purchase_switch(&self) {
+        let service = self.weak_self();
+        crate::async_runtime::spawn(async move {
+            let Some(installation) = (match service.upgrade() {
+                Some(owner) => owner.installation_id().await.ok(),
+                None => None,
+            }) else {
+                return;
+            };
+            let mut schedule =
+                tokio::time::interval(codeterm_account::remote_config::REFRESH_INTERVAL);
+            schedule.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            loop {
+                schedule.tick().await;
+                let changed = codeterm_account::remote_config::refresh(&installation).await;
+                let Some(owner) = service.upgrade() else {
+                    return;
+                };
+                if changed {
+                    owner.ui.emit("account-changed", serde_json::Value::Null);
+                }
+            }
+        });
+    }
+
     pub async fn billing(&self) -> Result<Arc<Billing>, String> {
         let billing = self
             .ext::<crate::service::billing::BillingCell>()

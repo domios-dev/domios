@@ -6,11 +6,12 @@ import { UI_BUTTON, UI_TEXT } from "../shared/design";
 import { MachineManagement } from "./AddPeerPanel";
 import type { MyMachines } from "./useMyMachines";
 import { failureMessage } from "./accountMachines";
-import { PURCHASES_ENABLED } from "../billing/purchaseSwitch";
+import { usePurchasesEnabled } from "../billing/purchaseSwitch";
 import { CommunityKeysNotice } from "../shared/CommunityLinks";
 
 export function MachineLimitPaywall({ machines }: { machines: MyMachines }) {
   const [managing, setManaging] = useState(false);
+  const purchases = usePurchasesEnabled();
   const { view, snapshot, busy } = machines;
   if (view.kind !== "account" || !view.machineLimit) return null;
   const { limit } = view.machineLimit;
@@ -24,9 +25,9 @@ export function MachineLimitPaywall({ machines }: { machines: MyMachines }) {
         Your {limit === 2 ? "Free " : ""}plan includes {limit} machines. This one is not in your mesh yet.
       </p>
     </div>
-    {!PURCHASES_ENABLED && <CommunityKeysNotice compact />}
+    {!purchases && <CommunityKeysNotice compact />}
     <div className="flex flex-wrap gap-2">
-      {PURCHASES_ENABLED && <button type="button" onClick={() => machines.openPlans("__self__")} className={`${UI_BUTTON.primary} ${UI_BUTTON.compact}`}>See plans</button>}
+      {purchases && <button type="button" onClick={() => machines.openPlans("__self__")} className={`${UI_BUTTON.primary} ${UI_BUTTON.compact}`}>See plans</button>}
       <button type="button" onClick={() => setManaging(!managing)} aria-expanded={managing} className={`${UI_BUTTON.ghost} ${UI_BUTTON.compact}`}>Manage machines</button>
       {canJoin && <button type="button" onClick={() => void machines.retryEnrollment()} disabled={busy !== null} aria-busy={busy === "enrollment"} className={`${UI_BUTTON.accent} ${UI_BUTTON.compact}`}>Join mesh</button>}
     </div>

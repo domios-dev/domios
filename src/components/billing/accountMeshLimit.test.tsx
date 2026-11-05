@@ -18,7 +18,7 @@ import { AccountMeshClientProvider } from "../MeshPanel/accountMeshClient";
 import { FakeAccountMeshClient, macRow, lenovoRow, NOW, snapshot } from "../MeshPanel/accountMachines.testdata";
 import { useMyMachines } from "../MeshPanel/useMyMachines";
 import { MachineLimitPaywall } from "../MeshPanel/MachineLimitPaywall";
-import { PURCHASES_ENABLED } from "./purchaseSwitch";
+import { PURCHASES_DEFAULT } from "./purchaseSwitch";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -100,7 +100,7 @@ describe("automatic enroll after sign-in or restore", () => {
     expect(client.enrollCalls).toBe(0);
   });
 
-  it.runIf(PURCHASES_ENABLED)("opens the existing plans dialog from the refused machine's See plans control", async () => {
+  it.runIf(PURCHASES_DEFAULT)("opens the existing plans dialog from the refused machine's See plans control", async () => {
     const client = new FakeAccountMeshClient(snapshot({ self: null, traffic: "plan_limit_locked", enrollment: "refused", last_refusal: machineLimit() as { reason: "mesh.machines"; limit: number; active_count: number }, registry: { observed_at: NOW, rows: [macRow, lenovoRow] } }));
     const onSignIn = () => {};
     function RefusedMachine() {

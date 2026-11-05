@@ -12,7 +12,7 @@ import { scheduledPlanCopy, tierName } from "../billing/desktopBilling";
 import { PlanChangeDialog, type SelectedPlanChange } from "../billing/PlanChangeDialog";
 import { usePlanCatalog } from "../billing/planCatalogContext";
 import { usePurchaseIntent } from "../billing/usePurchaseIntent";
-import { PURCHASES_ENABLED } from "../billing/purchaseSwitch";
+import { usePurchasesEnabled } from "../billing/purchaseSwitch";
 import { CommunityKeysNotice } from "../shared/CommunityLinks";
 import { ACCOUNT_ENTRY_OPTIONS, SIGN_IN_PROVIDER_OPTIONS } from "./accountSignInOptions";
 import { CopyRow, SettingsCard, SettingsPage, SettingsPill } from "./shared";
@@ -28,7 +28,9 @@ import { SESSION_REVOKED_MESSAGE, accountInitials, type LoginHint } from "./acco
 
 const MUTED = "m-0 text-xs text-[var(--ct-muted-fg)]";
 
-export function AccountTab({ focusCard, purchases = PURCHASES_ENABLED }: { focusCard?: SettingsCardAnchorId; purchases?: boolean }) {
+export function AccountTab({ focusCard, purchases: explicitPurchases }: { focusCard?: SettingsCardAnchorId; purchases?: boolean }) {
+  const remotePurchases = usePurchasesEnabled();
+  const purchases = explicitPurchases ?? remotePurchases;
   const { upsertToast } = useMultiplexer();
   const notify = createNoticePublisher({ upsertToast });
   const { model, signIn, signOut } = useAccount((message) => notify({

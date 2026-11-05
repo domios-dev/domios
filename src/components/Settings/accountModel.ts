@@ -18,6 +18,8 @@ export interface AccountStatus {
   session_revoked?: boolean;
   server_stop_unconfirmed?: boolean;
   last_sign_in_failure?: SignInFailure | null;
+  /** The remote purchase switch; purchase is on only when this is exactly true. */
+  purchases_enabled?: boolean;
 }
 export type AccountModel =
   | { kind: "signed_out"; sessionRevoked?: boolean }

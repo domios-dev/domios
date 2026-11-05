@@ -34,6 +34,8 @@ pub struct Status {
     pub pending: bool,
     pub session_only: bool,
     pub last_sign_in_failure: Option<SignInFailure>,
+    /// The remote purchase switch; false unless the last fetch said exactly "true".
+    pub purchases_enabled: bool,
 }
 #[derive(Default)]
 struct State {
@@ -111,6 +113,7 @@ impl Account {
             pending: state.busy,
             session_only: state.session.is_some() && state.session_only,
             last_sign_in_failure: state.last_sign_in_failure,
+            purchases_enabled: crate::remote_config::purchases_enabled(),
         }
     }
     #[cfg(debug_assertions)]

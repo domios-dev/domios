@@ -111,6 +111,7 @@ impl StartupAccount {
             server_stop_unconfirmed: false,
             session_revoked: false,
             last_sign_in_failure: None,
+            purchases_enabled: codeterm_account::remote_config::purchases_enabled(),
         }
     }
 
