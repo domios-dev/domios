@@ -1,3 +1,4 @@
+use super::BridgeError;
 #[cfg(not(windows))]
 use std::path::{Component, PathBuf};
 #[cfg(windows)]
@@ -90,7 +91,7 @@ pub(super) fn secret(path: &Path) -> bool {
 }
 
 #[cfg(not(windows))]
-pub(super) fn check(root: &Path, relative: &Path, missing_leaf: bool) -> Result<(), String> {
+pub(super) fn check(root: &Path, relative: &Path, missing_leaf: bool) -> Result<(), BridgeError> {
     let mut path = root.to_path_buf();
     let parts = relative.components().collect::<Vec<_>>();
     for (index, part) in parts.iter().enumerate() {
@@ -122,7 +123,14 @@ pub(super) fn check(root: &Path, relative: &Path, missing_leaf: bool) -> Result<
                 if missing_leaf
                     && index + 1 == parts.len()
                     && error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => return Err(error.to_string()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Err(if index + 1 == parts.len() {
+                    BridgeError::NotFound
+                } else {
+                    "Workspace parent unavailable".into()
+                });
+            }
+            Err(error) => return Err(error.to_string().into()),
         }
     }
     Ok(())
@@ -134,9 +142,9 @@ pub(super) fn read(
     relative: &Path,
     line: Option<usize>,
     limit: Option<usize>,
-) -> Result<String, String> {
-    check(root, relative, false)?;
+) -> Result<String, BridgeError> {
     root_matches(root, root_handle)?;
+    check(root, relative, false)?;
     #[cfg(unix)]
     let file = {
         let parent = directory(root_handle, relative.parent().ok_or("Missing parent")?)?;
@@ -147,7 +155,7 @@ pub(super) fn read(
                 .as_encoded_bytes(),
         )
         .map_err(|error| error.to_string())?;
-        let file = open_at_no_follow(&parent, &name, libc::O_RDONLY | libc::O_NONBLOCK)?;
+        let file = open_read_at_no_follow(&parent, &name, libc::O_RDONLY | libc::O_NONBLOCK)?;
         if !file
             .metadata()
             .map_err(|error| error.to_string())?
@@ -165,7 +173,7 @@ pub(super) fn read(
     .map_err(str::to_string)?;
     #[cfg(windows)]
     let file = windows::read(root_handle, relative)?;
-    read_file(file, line, limit)
+    read_file(file, line, limit).map_err(BridgeError::from)
 }
 
 fn read_file(file: File, line: Option<usize>, limit: Option<usize>) -> Result<String, String> {
@@ -219,7 +227,7 @@ pub(super) fn write_with_sync(
     if content.len() > MAX_BYTES {
         return Err("Write exceeds 1 MiB".into());
     }
-    check(root, relative, true)?;
+    check(root, relative, true).map_err(|error| error.to_string())?;
     root_matches(root, root_handle)?;
     let parent_handle = directory(root_handle, relative.parent().ok_or("Missing parent")?)?;
     let name = CString::new(
@@ -243,7 +251,7 @@ pub(super) fn write_with_sync(
         file.sync_all().map_err(|error| error.to_string())?;
         let mut apply = || {
             root_matches(root, root_handle)?;
-            check(root, relative, true)?;
+            check(root, relative, true).map_err(|error| error.to_string())?;
             let current_parent =
                 directory(root_handle, relative.parent().ok_or("Missing parent")?)?;
             use std::os::unix::fs::MetadataExt;
@@ -340,6 +348,18 @@ pub(super) fn open_at_no_follow(
     name: &std::ffi::CStr,
     flags: i32,
 ) -> Result<File, String> {
+    open_read_at_no_follow(parent, name, flags).map_err(|error| match error {
+        BridgeError::NotFound => "Workspace component unavailable".into(),
+        BridgeError::Refused(message) => message,
+    })
+}
+
+#[cfg(unix)]
+fn open_read_at_no_follow(
+    parent: &File,
+    name: &std::ffi::CStr,
+    flags: i32,
+) -> Result<File, BridgeError> {
     use std::os::fd::{AsRawFd, FromRawFd};
     let fd = unsafe {
         libc::openat(
@@ -366,8 +386,10 @@ pub(super) fn open_at_no_follow(
                 && unsafe { metadata.assume_init() }.st_mode & libc::S_IFMT == libc::S_IFLNK);
         return Err(if symlink {
             "reparse_point: Symlink traversal denied".into()
+        } else if error.kind() == std::io::ErrorKind::NotFound {
+            BridgeError::NotFound
         } else {
-            error.to_string()
+            error.to_string().into()
         });
     }
     Ok(unsafe { File::from_raw_fd(fd) })
@@ -379,6 +401,6 @@ pub(super) fn directory(_root: &File, _relative: &Path) -> Result<File, String> 
 }
 
 #[cfg(windows)]
-pub(super) fn check(root: &Path, relative: &Path, missing_leaf: bool) -> Result<(), String> {
+pub(super) fn check(root: &Path, relative: &Path, missing_leaf: bool) -> Result<(), BridgeError> {
     windows::check(root, relative, missing_leaf)
 }

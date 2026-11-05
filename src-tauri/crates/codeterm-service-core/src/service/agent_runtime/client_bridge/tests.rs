@@ -76,7 +76,10 @@ fn symlink_in_root_and_escaping_and_nonregular_files_are_denied() {
         "external-link/regular",
         "self-link/regular",
     ] {
-        assert!(fs::read(&root, &handle, Path::new(path), None, None).is_err());
+        assert_eq!(
+            bridge_failure(fs::read(&root, &handle, Path::new(path), None, None).unwrap_err()).code,
+            -32602,
+        );
         assert!(
             fs::write(&root, &handle, Path::new(path), "replace", |commit| commit(
             ))
@@ -900,7 +903,9 @@ fn unix_symlink_leaf_and_native_nofollow_errors_report_reparse_point() {
     std::os::unix::fs::symlink(&root, root.join("directory-link")).unwrap();
     let handle = open_root(&root);
     for message in [
-        fs::read(&root, &handle, Path::new("leaf"), None, None).unwrap_err(),
+        fs::read(&root, &handle, Path::new("leaf"), None, None)
+            .unwrap_err()
+            .to_string(),
         fs::write(&root, &handle, Path::new("leaf"), "blocked", |apply| {
             apply()
         })
@@ -965,4 +970,136 @@ fn unix_committed_sync_failure_reports_written_even_when_superseded() {
             )
         );
     }
+}
+
+#[test]
+fn only_typed_missing_leaf_maps_to_resource_not_found() {
+    let missing = bridge_failure(BridgeError::NotFound);
+    assert_eq!(missing.code, -32002);
+    assert_eq!(missing.message, "Resource not found");
+    assert_eq!(missing.data, None);
+    for message in [
+        "Invalid bridge path",
+        "Path outside workspace",
+        "reparse_point: Symlink traversal denied",
+        "Reparse attribute denied",
+        "Non-regular file denied",
+        "Machine credential store denied",
+        "Read denied",
+        "Workspace parent unavailable",
+    ] {
+        let refused = bridge_failure(BridgeError::from(message));
+        assert_eq!(refused.code, -32602, "{message}");
+        assert_ne!(refused.message, "Resource not found");
+    }
+}
+
+#[cfg(any(unix, windows))]
+#[test]
+fn missing_leaf_read_reply_allows_subsequent_approved_creation() {
+    crate::async_runtime::block_on(async {
+        let (_temp, root) = root();
+        let (fixture, tab, peer, _cleanup) = engine::test_support::runtime_fixture();
+        let session = engine::for_tab(&tab).unwrap();
+        {
+            let mut ctx = session.context.lock();
+            ctx.cwd = root.to_string_lossy().into_owned();
+            ctx.active_turn_id = Some("turn".into());
+        }
+        let context = session.context.lock().clone();
+        install(&context, Some(capabilities())).unwrap();
+        let process = session.process.lock().clone().unwrap();
+        let path = root.join("created.txt");
+        let mut reader = BufReader::new(peer);
+        let mut line = String::new();
+        handle(
+            &fixture.service,
+            &session,
+            &process,
+            &RpcId::Number(71),
+            "fs/read_text_file",
+            &json!({"sessionId":context.thread_id,"path":path}),
+        )
+        .await
+        .unwrap();
+        reader.read_line(&mut line).await.unwrap();
+        assert_eq!(
+            serde_json::from_str::<Value>(&line).unwrap(),
+            json!({"id":71,"error":{"code":-32002,"message":"Resource not found"}}),
+        );
+        assert!(!path.exists());
+        let installed = bridge(&context).unwrap();
+        assert_eq!(
+            bridge_failure(
+                fs::read(
+                    &root,
+                    &installed.root_handle,
+                    Path::new("created.txt"),
+                    None,
+                    None
+                )
+                .unwrap_err()
+            )
+            .code,
+            -32002,
+        );
+        handle(
+            &fixture.service,
+            &session,
+            &process,
+            &RpcId::Number(72),
+            "fs/write_text_file",
+            &json!({"sessionId":context.thread_id,"path":path,"content":"created through ACP"}),
+        )
+        .await
+        .unwrap();
+        assert!(!path.exists());
+        answer(
+            &fixture.service,
+            &session,
+            &process,
+            &RpcId::Number(72),
+            &PromptAnswer::Choice {
+                values: vec!["allow_once".into()],
+            },
+        )
+        .await
+        .unwrap();
+        line.clear();
+        reader.read_line(&mut line).await.unwrap();
+        assert_eq!(
+            serde_json::from_str::<Value>(&line).unwrap(),
+            json!({"id":72,"result":{}}),
+        );
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "created through ACP"
+        );
+        std::fs::create_dir(root.join("directory")).unwrap();
+        for denied in [
+            root.join("../escape"),
+            root.join("directory"),
+            root.join(".ssh/absent"),
+        ] {
+            handle(
+                &fixture.service,
+                &session,
+                &process,
+                &RpcId::Number(73),
+                "fs/read_text_file",
+                &json!({"sessionId":context.thread_id,"path":denied}),
+            )
+            .await
+            .unwrap();
+            line.clear();
+            reader.read_line(&mut line).await.unwrap();
+            assert_eq!(
+                serde_json::from_str::<Value>(&line).unwrap()["error"]["code"],
+                -32602
+            );
+        }
+        cancel(&fixture.service, &session, &process, true)
+            .await
+            .unwrap();
+    });
 }

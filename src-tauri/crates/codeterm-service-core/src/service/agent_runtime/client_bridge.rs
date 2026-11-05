@@ -220,6 +220,44 @@ pub(super) fn method_supported(method: &str) -> bool {
             | "terminal/release"
     )
 }
+#[derive(Debug, PartialEq, Eq)]
+enum BridgeError {
+    NotFound,
+    Refused(String),
+}
+
+impl From<String> for BridgeError {
+    fn from(message: String) -> Self {
+        Self::Refused(message)
+    }
+}
+
+impl From<&str> for BridgeError {
+    fn from(message: &str) -> Self {
+        Self::Refused(message.into())
+    }
+}
+
+impl std::fmt::Display for BridgeError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotFound => formatter.write_str("Resource not found"),
+            Self::Refused(message) => formatter.write_str(message),
+        }
+    }
+}
+
+fn bridge_failure(error: BridgeError) -> RpcFailure {
+    match error {
+        BridgeError::NotFound => RpcFailure {
+            code: -32002,
+            message: "Resource not found".into(),
+            data: None,
+        },
+        BridgeError::Refused(message) => failure(message),
+    }
+}
+
 fn failure(message: String) -> RpcFailure {
     let refusal = message
         .split_once(':')
@@ -305,7 +343,7 @@ fn prepare(
     context: &RuntimeContext,
     bridge: &Bridge,
     request: &Request,
-) -> Result<(Option<PendingPrompt>, BTreeMap<String, String>), String> {
+) -> Result<(Option<PendingPrompt>, BTreeMap<String, String>), BridgeError> {
     if context.thread_id.as_deref() != Some(request.session()) {
         return Err("Foreign client session".into());
     }
@@ -318,6 +356,7 @@ fn prepare(
             if fs::machine_secret(&relative) {
                 return Err("Machine credential store denied".into());
             }
+            fs::root_matches(&bridge.root, &bridge.root_handle)?;
             fs::check(&bridge.root, &relative, false)?;
             if fs::secret(&relative) {
                 Some(format!(
@@ -507,7 +546,7 @@ pub(super) async fn handle(
     let (prompt, env) = match prepared {
         Ok(prepared) => prepared,
         Err(error) => {
-            process.client.reply(id, Err(failure(error))).await?;
+            process.client.reply(id, Err(bridge_failure(error))).await?;
             return Ok(true);
         }
     };
@@ -572,7 +611,7 @@ pub(super) async fn handle(
                 &owner, &session, &context, &bridge, generation, request, env,
             )
             .await
-            .map_err(failure);
+            .map_err(bridge_failure);
             let _ = process.client.reply(&id, result).await;
         });
     }
@@ -613,7 +652,7 @@ pub(super) async fn answer(
         },
     );
     let result = if let Err(error) = policy {
-        Err(error)
+        Err(error.into())
     } else if !unchanged {
         Err("Approval request changed".into())
     } else if !granted {
@@ -632,7 +671,10 @@ pub(super) async fn answer(
         )
         .await
     };
-    process.client.reply(id, result.map_err(failure)).await?;
+    process
+        .client
+        .reply(id, result.map_err(bridge_failure))
+        .await?;
     Ok(true)
 }
 
@@ -644,7 +686,7 @@ async fn execute(
     generation: u64,
     request: Request,
     env: BTreeMap<String, String>,
-) -> Result<Value, String> {
+) -> Result<Value, BridgeError> {
     engine::validate_binding(svc, session).map_err(|error| error.to_string())?;
     let current = session.context.lock().clone();
     if current.epoch != context.epoch
@@ -661,7 +703,7 @@ async fn execute(
             tokio::task::spawn_blocking(move || {
                 let state = bridge.state.lock();
                 if state.closed || state.generation != generation {
-                    return Err("Bridge closed".into());
+                    return Err(BridgeError::from("Bridge closed"));
                 }
                 let relative = bridge.file_relative(&path)?;
                 fs::read(&bridge.root, &bridge.root_handle, &relative, line, limit)
@@ -677,7 +719,7 @@ async fn execute(
             tokio::task::spawn_blocking(move || {
                 let state = bridge.state.lock();
                 if state.closed || state.generation != generation {
-                    return Err("Bridge closed".into());
+                    return Err(BridgeError::from("Bridge closed"));
                 }
                 let relative = bridge.file_relative(&path)?;
                 fs::write(
@@ -699,7 +741,7 @@ async fn execute(
             tokio::task::spawn_blocking(move || {
                 let mut state = bridge.state.lock();
                 if state.closed || state.generation != generation || state.terminals.len() >= 8 {
-                    return Err("Terminal capacity unavailable".into());
+                    return Err(BridgeError::from("Terminal capacity unavailable"));
                 }
                 let current = session.context.lock();
                 if current.epoch != expected.epoch
@@ -707,7 +749,7 @@ async fn execute(
                     || current.thread_id != expected.thread_id
                     || current.active_turn_id != expected.active_turn_id
                 {
-                    return Err("Command grant expired before spawn".into());
+                    return Err(BridgeError::from("Command grant expired before spawn"));
                 }
                 fs::root_matches(&bridge.root, &bridge.root_handle)?;
                 let cwd = terminal_cwd(&bridge, &command)?;
@@ -735,7 +777,7 @@ async fn execute(
             let terminal = {
                 let state = bridge.state.lock();
                 if state.closed || state.generation != generation {
-                    return Err("Bridge closed".into());
+                    return Err(BridgeError::from("Bridge closed"));
                 }
                 state
                     .terminals
@@ -751,7 +793,7 @@ async fn execute(
                 return Ok(json!({}));
             }
             if wait {
-                terminal.wait().await
+                terminal.wait().await.map_err(BridgeError::from)
             } else if kill {
                 Ok(json!({}))
             } else {

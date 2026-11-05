@@ -218,12 +218,15 @@ fn windows_denies_all_reparse_components_and_nonregular_files() {
         "self-link/regular",
         "directory",
     ] {
-        assert!(fs::read(&root, &handle, Path::new(path), None, None).is_err());
+        assert_eq!(
+            bridge_failure(fs::read(&root, &handle, Path::new(path), None, None).unwrap_err()).code,
+            -32602,
+        );
         assert!(fs::write(&root, &handle, Path::new(path), "changed", |apply| apply()).is_err());
     }
     let error = fs::read(&root, &handle, Path::new("internal-file"), None, None).unwrap_err();
     assert!(
-        error.contains("Reparse attribute"),
+        error.to_string().contains("Reparse attribute"),
         "file read must fail on reparse attribute: {error}"
     );
     let error = fs::write(
@@ -879,12 +882,15 @@ fn windows_exclusive_reader_reports_neutral_file_locked_refusal() {
         .open(&path)
         .unwrap();
     let message = fs::read(&root, &handle, Path::new("locked"), None, None).unwrap_err();
-    assert!(message.starts_with("file_locked:"), "{message}");
+    assert!(message.to_string().starts_with("file_locked:"), "{message}");
     assert!(
-        !message.contains("delete access"),
+        !message.to_string().contains("delete access"),
         "read locking must not claim a delete-sharing cause"
     );
-    assert_eq!(failure(message).data, Some(json!({"reason":"file_locked"})));
+    assert_eq!(
+        bridge_failure(message).data,
+        Some(json!({"reason":"file_locked"}))
+    );
     drop(held);
     assert_eq!(
         fs::read(&root, &handle, Path::new("locked"), None, None).unwrap(),

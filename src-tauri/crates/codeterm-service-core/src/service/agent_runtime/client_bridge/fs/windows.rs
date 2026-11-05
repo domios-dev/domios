@@ -229,7 +229,8 @@ fn validate(file: &File, directory: bool) -> Result<(), String> {
 }
 
 fn open_at(parent: &File, name: &OsStr, directory: bool, create: bool) -> Result<File, String> {
-    optional_open_at(parent, name, directory, create)?.ok_or("File component does not exist".into())
+    optional_open_at(parent, name, directory, create)?
+        .ok_or("Workspace component unavailable".into())
 }
 
 fn optional_open_at(
@@ -345,7 +346,7 @@ fn native_open(
 
 pub(in super::super) fn pinned(path: &Path) -> Result<Vec<File>, String> {
     pinned_if_exists(path)
-        .and_then(|handles| handles.ok_or_else(|| "Host directory does not exist".into()))
+        .and_then(|handles| handles.ok_or_else(|| "Host directory unavailable".into()))
         .map_err(|error| format!("{error} (no-follow directory {})", path.display()))
 }
 
@@ -479,14 +480,15 @@ pub(in super::super) fn directory(root: &File, relative: &Path) -> Result<File, 
         .ok_or("Missing directory".into())
 }
 
-pub(in super::super) fn read(root: &File, relative: &Path) -> Result<File, String> {
+pub(in super::super) fn read(root: &File, relative: &Path) -> Result<File, BridgeError> {
     let handles = directory_chain(root, relative.parent().ok_or("Missing parent")?)?;
-    let file = open_at(
+    let file = optional_open_at(
         handles.last().ok_or("Missing parent")?,
         relative.file_name().ok_or("Missing filename")?,
         false,
         false,
-    )?;
+    )?
+    .ok_or(BridgeError::NotFound)?;
     resolved_policy(root, relative, &file)?;
     Ok(file)
 }
@@ -638,7 +640,7 @@ pub(in super::super) fn write(
     let held = handles.last().ok_or("Missing parent")?;
     let name = relative.file_name().ok_or("Missing filename")?;
     valid_name(name)?;
-    check(root, relative, true)?;
+    check(root, relative, true).map_err(|error| error.to_string())?;
     let temporary = OsString::from(format!(".domios-bridge-{}", uuid::Uuid::new_v4()));
     let mut file = open_at(held, &temporary, false, true)?;
     delete_on_close(&file, true)?;
@@ -649,7 +651,7 @@ pub(in super::super) fn write(
         let mut apply = || {
             root_matches(root, root_handle)?;
             same(&directory(root_handle, parent)?, held)?;
-            check(root, relative, true)?;
+            check(root, relative, true).map_err(|error| error.to_string())?;
             let destination = native_open(
                 held,
                 name,
@@ -676,7 +678,7 @@ pub(in super::super) fn check(
     root: &Path,
     relative: &Path,
     missing_leaf: bool,
-) -> Result<(), String> {
+) -> Result<(), BridgeError> {
     let root_chain = pinned(root)?;
     let held = root_chain.last().ok_or("Missing root")?;
     let parents = directory_chain(held, relative.parent().ok_or("Missing parent")?)?;
@@ -684,8 +686,8 @@ pub(in super::super) fn check(
     let name = relative.file_name().ok_or("Missing filename")?;
     valid_name(name)?;
     match optional_open_at(parent, name, false, false)? {
-        Some(leaf) => resolved_policy(held, relative, &leaf),
+        Some(leaf) => resolved_policy(held, relative, &leaf).map_err(BridgeError::from),
         None if missing_leaf => Ok(()),
-        None => Err("Workspace file does not exist".into()),
+        None => Err(BridgeError::NotFound),
     }
 }
