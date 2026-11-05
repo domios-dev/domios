@@ -89,7 +89,12 @@ pub(in crate::service::agent_runtime) async fn completed(session: &Arc<Session>)
     let thread = session.context.lock().thread_id.clone().unwrap();
     loop {
         changes.borrow_and_update();
-        if session.completions.lock().contains(&thread, "turn") {
+        let recorded = session.completions.lock().contains(&thread, "turn");
+        let pending = session.turn_requests.lock().values().any(|request| {
+            request.context.thread_id.as_deref() == Some(thread.as_str()) && request.turn == "turn"
+        });
+        // The retirement marker blocks stale updates before Idle finishes projecting and persisting.
+        if recorded && !pending {
             return;
         }
         changes.changed().await.unwrap();
@@ -558,7 +563,11 @@ fn silent_written_reply_confirms_only_success_and_clears_its_claim() {
             ChatSendState::Unknown
         );
         release.send(()).unwrap();
-        crate::async_runtime::block_on(completed(&session));
+        crate::async_runtime::block_on(async {
+            tokio::time::timeout(Duration::from_secs(5), completed(&session))
+                .await
+                .expect("silent reply projection and request retirement must settle");
+        });
         assert_eq!(
             fixture
                 .service
@@ -891,4 +900,58 @@ async fn refused_claim_survives_its_own_idle_and_expires_at_next_other_settlemen
         .claimed_sends
         .iter()
         .any(|claim| claim.send_id == "unrelated"));
+}
+
+#[tokio::test]
+async fn silent_reply_settlement_follows_the_retirement_marker() {
+    use std::{future::Future, task::Poll};
+    let (fixture, tab, peer, _cleanup) = runtime_fixture_turn_scoped(SOURCE);
+    let session = engine::for_tab(&tab).unwrap();
+    let process = session.process.lock().clone().unwrap();
+    let op = operation(&session.context.lock());
+    let (release, written) = tokio::sync::oneshot::channel();
+    let exercise = async {
+        let (result, handed_off) =
+            engine::run_submit(&fixture.service, &session, &process, op).await;
+        assert!(handed_off);
+        assert!(matches!(
+            result,
+            Err(RuntimeFailure::WrittenAwaitingEvidence)
+        ));
+        engine::record_completed_turn(&session, "own-thread", Some("turn"));
+        assert!(session.completions.lock().contains("own-thread", "turn"));
+        assert_eq!(
+            session.context.lock().active_turn_id.as_deref(),
+            Some("turn")
+        );
+        let mut settled = Box::pin(completed(&session));
+        let pending =
+            std::future::poll_fn(|cx| Poll::Ready(settled.as_mut().poll(cx).is_pending())).await;
+        assert!(
+            pending,
+            "a retirement marker alone is not a completed request"
+        );
+        release.send(()).unwrap();
+        settled.await;
+        assert!(session.context.lock().active_turn_id.is_none());
+        assert!(session.turn_requests.lock().is_empty());
+    };
+    let server = async {
+        let mut peer = BufReader::new(peer);
+        let mut line = String::new();
+        peer.read_line(&mut line).await.unwrap();
+        let request: Value = serde_json::from_str(&line).unwrap();
+        written.await.unwrap();
+        let reply = json!({"id":request["id"],"result":{"stopReason":"end_turn"}});
+        peer.get_mut()
+            .write_all(format!("{reply}\n").as_bytes())
+            .await
+            .unwrap();
+        peer
+    };
+    tokio::time::timeout(Duration::from_secs(5), async {
+        tokio::join!(exercise, server);
+    })
+    .await
+    .expect("settlement waits must follow request retirement without sleeps");
 }
