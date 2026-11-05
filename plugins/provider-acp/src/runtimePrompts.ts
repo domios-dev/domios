@@ -1,10 +1,58 @@
 import type { JsonValue, PendingPrompt, PromptAnswer, RpcId, RuntimeContext, RuntimeFailure } from "@codeterm/plugin-sdk";
-import { canonicalJson } from "./runtimeReduceTools";
 
 const kinds = new Set(["allow_once", "allow_always", "reject_once", "reject_always"]);
 const object = (value:unknown):Record<string,JsonValue> =>
   value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string,JsonValue> : {};
 function fail(message:string):never { throw {code:"provider_refused",message} satisfies RuntimeFailure; }
+function readable(value:JsonValue|undefined, limit=384):string {
+  if (typeof value !== "string") return "";
+  const text=value.slice(0,limit+1).replace(/\r\n?/g,"\n").replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g,"");
+  if (value.length <= limit) return text;
+  let end=Math.min(text.length,limit-1);
+  if (/[\uD800-\uDBFF]/.test(text[end-1])) end--;
+  return `${text.slice(0,end)}…`;
+}
+function lineCount(value:JsonValue|undefined):number {
+  if (typeof value !== "string" || !value.length) return 0;
+  let count=value.endsWith("\n") ? 0 : 1;
+  for (let i=0;i<value.length;i++) if (value[i] === "\n") count++;
+  return count;
+}
+function preview(value:JsonValue|undefined, prefix=""):string[] {
+  const text=readable(value);
+  if (!text) return [];
+  const lines=text.split("\n",4);
+  if (lines[lines.length-1] === "") lines.pop();
+  return lines.slice(0,3).map(line=>`${prefix}${line}`).concat(lines.length > 3 ? ["…"] : []);
+}
+function permissionQuestion(tool:Record<string,JsonValue>):string {
+  const title=readable(tool.title,256).trim() || "Tool permission requested";
+  const kind=readable(tool.kind,64).trim() || "other";
+  const lines=[`${title}\nKind: ${kind}`];
+  const paths=new Set<string>();
+  const addPath=(value:JsonValue|undefined):void=>{
+    const path=readable(value,512);
+    if (path && !paths.has(path) && paths.size < 4) { paths.add(path);lines.push(`Path: ${path}`); }
+  };
+  if (Array.isArray(tool.locations)) for (const location of tool.locations.slice(0,4)) addPath(object(location).path);
+  const input=object(tool.rawInput);
+  addPath(input.path);
+  const command=readable(input.command || input.commandLine || input.cmd,768);
+  if (command) lines.push(`Command: ${command}`);
+  if (Array.isArray(tool.content)) for (const entry of tool.content.slice(0,4)) {
+    const content=object(entry);
+    if (content.type === "diff") {
+      addPath(content.path);
+      lines.push(`Diff: ${readable(content.path,512) || "file"} (+${lineCount(content.newText)} added, -${lineCount(content.oldText)} removed lines)`);
+      lines.push(...preview(content.oldText,"- "),...preview(content.newText,"+ "));
+    } else if (content.type === "content") {
+      const block=object(content.content);
+      if (block.type === "text") lines.push(...preview(block.text));
+    }
+  }
+  lines.push("Allow this tool call?");
+  return readable(lines.join("\n"),2048);
+}
 export function runtimePrompt(ctx:RuntimeContext, method:string, params:JsonValue):PendingPrompt|undefined {
   const data=object(params);
   if (method !== "session/request_permission" || !ctx.threadId || data.sessionId !== ctx.threadId) return undefined;
@@ -19,8 +67,7 @@ export function runtimePrompt(ctx:RuntimeContext, method:string, params:JsonValu
     seen.add(option.optionId);
     return false;
   })) return undefined;
-  const question=canonicalJson({toolCall:tool});
-  if (question.length > 65536) return undefined;
+  const question=permissionQuestion(tool);
   return {question,options:options.map(option=>({label:`${option.name} (${option.kind})`,value:String(option.optionId)}))};
 }
 export function runtimeAnswer(ctx:RuntimeContext, method:string, params:JsonValue, _id:RpcId, answer:PromptAnswer):JsonValue {

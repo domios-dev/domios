@@ -297,6 +297,38 @@ for (const changed of [{...permissionContext,epoch:2},{...permissionContext,bind
 const request=permissionContext.pendingRequest!;
 assert.deepEqual(plain(hooks.runtimeReduce(permissionContext,null,[{kind:"request",requestId:"foreign",method:request.method,params:{...(request.params as Record<string,JsonValue>),sessionId:"foreign"}}])).events,[]);
 assert.equal(hooks.runtimeReduce(permissionContext,null,[{kind:"request",requestId:"valid",method:request.method,params:request.params}]).events[0]?.kind,"prompt");
+function permissionPrompt(toolCall:JsonValue) {
+  const params={...(request.params as Record<string,JsonValue>),toolCall};
+  const event=hooks.runtimeReduce(permissionContext,null,[{kind:"request",requestId:"readable",method:request.method,params}]).events.find(event=>event.kind === "prompt");
+  assert.ok(event && event.kind === "prompt");
+  return {params,prompt:event.prompt};
+}
+const nativePath="C:\\Users\\Owner\\allow-test.txt";
+const diffPermission=permissionPrompt({toolCallId:"diff",title:"Create empty file allow-test.txt",kind:"edit",locations:[{path:nativePath}],
+  content:[{type:"diff",path:nativePath,oldText:"",newText:"ALLOWED\r\nsecond\r\n"}]});
+assert.match(diffPermission.prompt.question,/Create empty file allow-test.txt\nKind: edit/);
+assert.ok(diffPermission.prompt.question.includes(`Path: ${nativePath}`));
+assert.ok(diffPermission.prompt.question.includes(`Diff: ${nativePath} (+2 added, -0 removed lines)\n+ ALLOWED\n+ second`));
+assert.deepEqual(plain(diffPermission.prompt.options),plain((hooks.runtimeReduce(permissionContext,null,[{kind:"request",requestId:"original",method:request.method,params:request.params}]).events[0] as Extract<AgentEvent,{kind:"prompt"}>).prompt.options));
+const diffAnswer=hooks.runtimePlan({...permissionContext,pendingRequest:{...request,params:diffPermission.params}},
+  {kind:"answer",requestId:request.requestId,answer:{kind:"choice",values:["allow"]}});
+assert.deepEqual(plain(diffAnswer.action),{kind:"reply",requestId:request.requestId,result:{kind:"success",value:{outcome:{outcome:"selected",optionId:"allow"}}}});
+const executePermission=permissionPrompt({toolCallId:"execute",title:"Run a command",kind:"execute",rawInput:{command:"type nul > x.txt"}});
+assert.match(executePermission.prompt.question,/Kind: execute\nCommand: type nul > x.txt/);
+const deletePermission=permissionPrompt({toolCallId:"delete",title:"Delete file",kind:"delete",locations:[{path:nativePath}]});
+assert.ok(deletePermission.prompt.question.includes(`Kind: delete\nPath: ${nativePath}`));
+const replacementPermission=permissionPrompt({toolCallId:"replace",title:"Replace file",kind:"edit",
+  content:[{type:"diff",path:nativePath,oldText:"before\n",newText:"after\n"}]});
+assert.match(replacementPermission.prompt.question,/\(\+1 added, -1 removed lines\)\n- before\n\+ after/);
+const textPermission=permissionPrompt({toolCallId:"fetch",title:"Fetch resource",kind:"fetch",content:[{type:"content",content:{type:"text",text:"Resource preview"}}]});
+assert.match(textPermission.prompt.question,/Resource preview/);
+const largePermission=permissionPrompt({toolCallId:"large",title:"Large edit",kind:"edit",content:Array.from({length:8},()=>({type:"diff",path:nativePath+"x".repeat(450),
+  oldText:"old\n".repeat(20000),newText:"😀".repeat(20000)}))});
+assert.ok(largePermission.prompt.question.length <= 2048);
+assert.ok(largePermission.prompt.question.endsWith("…"));
+assert.ok(!/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u.test(largePermission.prompt.question));
+assert.equal(permissionPrompt({toolCallId:"minimal"}).prompt.question,"Tool permission requested\nKind: other\nAllow this tool call?");
+console.log("✓ ACP readable permission summaries retain native paths, option IDs and bounded previews");
 console.log("✓ ACP permission options and stale session/epoch/nonce boundaries");
 assert.throws(()=>hooks.runtimePlan({...permissionContext,threadId:"foreign"},{kind:"answer",requestId:"permission-fixture",answer:{kind:"cancel"}}));
 

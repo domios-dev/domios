@@ -734,6 +734,59 @@ var object3 = (value) => value !== null && typeof value === "object" && !Array.i
 function fail(message) {
   throw { code: "provider_refused", message };
 }
+function readable(value, limit = 384) {
+  if (typeof value !== "string") return "";
+  const text2 = value.slice(0, limit + 1).replace(/\r\n?/g, "\n").replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "");
+  if (value.length <= limit) return text2;
+  let end = Math.min(text2.length, limit - 1);
+  if (/[\uD800-\uDBFF]/.test(text2[end - 1])) end--;
+  return `${text2.slice(0, end)}\u2026`;
+}
+function lineCount(value) {
+  if (typeof value !== "string" || !value.length) return 0;
+  let count = value.endsWith("\n") ? 0 : 1;
+  for (let i = 0; i < value.length; i++) if (value[i] === "\n") count++;
+  return count;
+}
+function preview(value, prefix2 = "") {
+  const text2 = readable(value);
+  if (!text2) return [];
+  const lines = text2.split("\n", 4);
+  if (lines[lines.length - 1] === "") lines.pop();
+  return lines.slice(0, 3).map((line) => `${prefix2}${line}`).concat(lines.length > 3 ? ["\u2026"] : []);
+}
+function permissionQuestion(tool) {
+  const title = readable(tool.title, 256).trim() || "Tool permission requested";
+  const kind = readable(tool.kind, 64).trim() || "other";
+  const lines = [`${title}
+Kind: ${kind}`];
+  const paths = /* @__PURE__ */ new Set();
+  const addPath = (value) => {
+    const path = readable(value, 512);
+    if (path && !paths.has(path) && paths.size < 4) {
+      paths.add(path);
+      lines.push(`Path: ${path}`);
+    }
+  };
+  if (Array.isArray(tool.locations)) for (const location of tool.locations.slice(0, 4)) addPath(object3(location).path);
+  const input = object3(tool.rawInput);
+  addPath(input.path);
+  const command = readable(input.command || input.commandLine || input.cmd, 768);
+  if (command) lines.push(`Command: ${command}`);
+  if (Array.isArray(tool.content)) for (const entry of tool.content.slice(0, 4)) {
+    const content = object3(entry);
+    if (content.type === "diff") {
+      addPath(content.path);
+      lines.push(`Diff: ${readable(content.path, 512) || "file"} (+${lineCount(content.newText)} added, -${lineCount(content.oldText)} removed lines)`);
+      lines.push(...preview(content.oldText, "- "), ...preview(content.newText, "+ "));
+    } else if (content.type === "content") {
+      const block = object3(content.content);
+      if (block.type === "text") lines.push(...preview(block.text));
+    }
+  }
+  lines.push("Allow this tool call?");
+  return readable(lines.join("\n"), 2048);
+}
 function runtimePrompt(ctx, method, params) {
   const data = object3(params);
   if (method !== "session/request_permission" || !ctx.threadId || data.sessionId !== ctx.threadId) return void 0;
@@ -746,8 +799,7 @@ function runtimePrompt(ctx, method, params) {
     seen.add(option.optionId);
     return false;
   })) return void 0;
-  const question = canonicalJson({ toolCall: tool });
-  if (question.length > 65536) return void 0;
+  const question = permissionQuestion(tool);
   return { question, options: options.map((option) => ({ label: `${option.name} (${option.kind})`, value: String(option.optionId) })) };
 }
 function runtimeAnswer(ctx, method, params, _id, answer) {

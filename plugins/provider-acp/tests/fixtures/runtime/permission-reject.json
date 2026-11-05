@@ -325,7 +325,7 @@
         "threadId": "session-fixture",
         "requestId": "permission-fixture",
         "prompt": {
-          "question": "{\"toolCall\":{\"kind\":\"edit\",\"locations\":[{\"path\":\"/work/project/file.txt\"}],\"rawInput\":{\"content\":\"opaque\",\"path\":\"/work/project/file.txt\"},\"title\":\"Write file\",\"toolCallId\":\"tool-fixture\"}}",
+          "question": "Write file\nKind: edit\nPath: /work/project/file.txt\nAllow this tool call?",
           "options": [
             {
               "label": "Allow once (allow_once)",
