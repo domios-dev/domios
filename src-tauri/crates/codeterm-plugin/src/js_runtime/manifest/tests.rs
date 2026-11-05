@@ -1062,6 +1062,7 @@ fn launch_profile_icons_load_only_sanitized_bundle_assets() {
         "id":"fixture", "version":"1.0.0", "displayName":"Fixture",
         "capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},"agentRuntime":{
             "runtime":"stdio-jsonrpc","command":{"binary":"fixture","args":[]},"requestMethods":{"initialize":["initialize"]},
+            "notificationMethods":[],
             "launchProfiles":{"selected":{"binary":"fixture","args":[],"icon":"badge.svg"}}
         }},"permissions":{"subprocess":{"allow":["fixture"]}}
     });
