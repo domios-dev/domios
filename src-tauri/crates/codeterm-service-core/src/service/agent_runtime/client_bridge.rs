@@ -221,11 +221,57 @@ pub(super) fn method_supported(method: &str) -> bool {
     )
 }
 fn failure(message: String) -> RpcFailure {
+    let reason = message
+        .split_once(':')
+        .map(|(reason, _)| reason)
+        .filter(|reason| {
+            matches!(
+                *reason,
+                "file_in_use"
+                    | "atomic_replace_unsupported"
+                    | "file_locked"
+                    | "reparse_point"
+                    | "write_committed_superseded"
+            )
+        })
+        .unwrap_or_else(|| {
+            if message.starts_with("Reparse attribute") {
+                "reparse_point"
+            } else {
+                "client_bridge_refused"
+            }
+        });
+    let mut data = json!({"reason":reason});
+    if reason == "write_committed_superseded" {
+        data["committed"] = json!(true);
+    }
     RpcFailure {
         code: -32602,
         message,
-        data: None,
+        data: Some(data),
     }
+}
+
+fn commit_scoped_write(
+    context: &Mutex<RuntimeContext>,
+    expected: &RuntimeContext,
+    commit: &mut dyn FnMut() -> Result<(), String>,
+) -> Result<(), String> {
+    let granted = || {
+        let current = context.lock();
+        current.epoch == expected.epoch
+            && current.binding_nonce == expected.binding_nonce
+            && current.thread_id == expected.thread_id
+            && current.active_turn_id == expected.active_turn_id
+    };
+    if !granted() {
+        return Err("Write grant expired before commit".into());
+    }
+    commit()?;
+    if !granted() {
+        return Err("write_committed_superseded: File was written, but the turn was superseded before confirmation".into());
+    }
+    Ok(())
 }
 
 fn prepare(
@@ -614,17 +660,7 @@ async fn execute(
                     &bridge.root_handle,
                     &relative,
                     &content,
-                    |commit| {
-                        let current = session.context.lock();
-                        if current.epoch != expected.epoch
-                            || current.binding_nonce != expected.binding_nonce
-                            || current.thread_id != expected.thread_id
-                            || current.active_turn_id != expected.active_turn_id
-                        {
-                            return Err("Write grant expired before commit".into());
-                        }
-                        commit()
-                    },
+                    |commit| commit_scoped_write(&session.context, &expected, commit),
                 )?;
                 Ok(json!({}))
             })

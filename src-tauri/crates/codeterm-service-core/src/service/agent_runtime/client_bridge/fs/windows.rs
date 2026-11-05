@@ -41,6 +41,7 @@ enum OpenPurpose {
 
 pub(in super::super) enum CommitRefusal {
     FileInUse,
+    FileLocked,
     PosixUnsupported,
 }
 
@@ -48,6 +49,7 @@ impl std::fmt::Display for CommitRefusal {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter.write_str(match self {
             Self::FileInUse => "file_in_use: File is in use by a reader that does not share delete access",
+            Self::FileLocked => "file_locked: File has an incompatible open handle",
             Self::PosixUnsupported => "atomic_replace_unsupported: Native POSIX replacement is unavailable and legacy atomic rename failed",
         })
     }
@@ -322,7 +324,11 @@ fn native_open(
         return Ok(None);
     }
     if result == STATUS_SHARING_VIOLATION {
-        return Err(CommitRefusal::FileInUse.to_string());
+        return Err(match purpose {
+            OpenPurpose::ReplaceProbe => CommitRefusal::FileInUse,
+            _ => CommitRefusal::FileLocked,
+        }
+        .to_string());
     }
     if result == STATUS_REPARSE_POINT_ENCOUNTERED {
         return Err("Reparse attribute traversal denied by native no-reparse open".into());
@@ -340,7 +346,7 @@ fn native_open(
 pub(in super::super) fn pinned(path: &Path) -> Result<Vec<File>, String> {
     pinned_if_exists(path)
         .and_then(|handles| handles.ok_or_else(|| "Host directory does not exist".into()))
-        .map_err(|error| format!("No-follow directory {}: {error}", path.display()))
+        .map_err(|error| format!("{error} (no-follow directory {})", path.display()))
 }
 
 pub(in super::super) fn pinned_if_exists(path: &Path) -> Result<Option<Vec<File>>, String> {
