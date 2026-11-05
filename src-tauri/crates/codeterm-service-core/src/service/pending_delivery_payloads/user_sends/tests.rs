@@ -485,10 +485,15 @@ fn junction_owner_is_refused_before_acl_changes_or_external_payload_writes() {
     assert!(command.status().unwrap().success());
     let before = super::super::acl_setup_calls();
     let store = UserSendStore::open(dir.path()).unwrap();
-    let ticket = reserve(&store, 1);
-    let error = store
-        .admit(&ticket, "opaque-original", "opaque-transport", None)
-        .unwrap_err();
+    // WHY: storage requalification may refuse the junction at reservation, before admission.
+    let error = match store.reserve(authority(), Some("token-1".into()), || {
+        (uuid::Uuid::new_v4().to_string(), 1)
+    }) {
+        Err(error) => error,
+        Ok(ticket) => store
+            .admit(&ticket, "opaque-original", "opaque-transport", None)
+            .unwrap_err(),
+    };
     assert!(error.contains("reparse point"));
     assert_eq!(super::super::acl_setup_calls(), before);
     assert_eq!(

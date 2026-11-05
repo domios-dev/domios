@@ -528,8 +528,8 @@ mod tests {
             assert!(has_long(add, flag), "plan task add lost --{flag}");
         }
         assert!(
-            !required_long(add, "personality"),
-            "plan task add must allow the task name to supply the personality"
+            required_long(add, "personality"),
+            "plan task add must require an explicit --personality"
         );
         assert!(
             !has_long(add, "acceptance"),
