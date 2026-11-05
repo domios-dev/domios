@@ -84,6 +84,20 @@ impl RuntimeFixture {
         fixture
     }
     fn prepared(source: &str, storage: bool) -> Self {
+        Self::prepared_with_profile(source, storage, false)
+    }
+    fn prepared_with_profile(source: &str, storage: bool, secret_profile: bool) -> Self {
+        Self::prepared_with_launch_profiles(
+            source,
+            storage,
+            secret_profile.then(|| json!({"credential":{"binary":"node","args":[],"secretEnv":{"OPAQUE_KEY":"domios:provider:restart-fixture:key"}}})),
+        )
+    }
+    fn prepared_with_launch_profiles(
+        source: &str,
+        storage: bool,
+        launch_profiles: Option<Value>,
+    ) -> Self {
         let (mut mux, tab) = MultiplexerState::new();
         let target = mux.get_tab_mut(&tab).unwrap();
         target.agent_type = Some(PROVIDER.into());
@@ -110,9 +124,14 @@ impl RuntimeFixture {
         let (request_changed, request_events) = tokio::sync::watch::channel(0);
         let exits = Arc::new(parking_lot::Mutex::new(Vec::new()));
         let server_exits = exits.clone();
+        let env_tab = tab.clone();
         let process_ports = agent_runtime::process::test_ports::register(&tab, move || {
             crate::async_runtime::block_on(async {
                 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+                // Replies report the key the host injected, so a fixture can require it.
+                let auth_key = agent_runtime::process::test_ports::spawned_env(&env_tab)
+                    .get("OPAQUE_AUTH_KEY")
+                    .cloned();
                 let (process, peer) = agent_runtime::process::test_ports::connected();
                 let (peer_reader, mut peer_writer) = tokio::io::split(peer);
                 let captured = captured.clone();
@@ -130,7 +149,7 @@ impl RuntimeFixture {
                         let frame: Value = serde_json::from_str(&line).unwrap();
                         captured.lock().push(frame.clone());
                         request_changed.send_modify(|count| *count += 1);
-                        let reply = json!({"id":frame["id"],"result":{"params":frame["params"]}});
+                        let reply = json!({"id":frame["id"],"result":{"params":frame["params"],"authKey":auth_key}});
                         if peer_writer
                             .write_all(format!("{reply}\n").as_bytes())
                             .await
@@ -154,7 +173,7 @@ impl RuntimeFixture {
         .into_iter()
         .map(|kind| (kind.to_string(), json!([kind])))
         .collect::<serde_json::Map<String, Value>>();
-        let manifest = PluginManifest::from_json_str(&json!({
+        let mut raw_manifest = json!({
             "id":PROVIDER,"version":"1.0.0","displayName":"Fixture","binaryName":"node",
             "capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},
                 "agentRuntime":{"runtimeModes":[{"id":"auto-accept-edits","displayName":"Auto accept edits"}],"runtime":"stdio-jsonrpc","command":{"binary":"node","args":[]},"requestMethods":methods,"notificationMethods":[],"login":{"methods":["browser"]}}},
@@ -162,7 +181,11 @@ impl RuntimeFixture {
                 "taskDelivery":"inline_flag","systemPromptDelivery":{"kind":"cli_flag","flag":"--opaque-system"},
                 "verifySubmit":{"kind":"none"}},
             "permissions":{"subprocess":{"allow":["node"]}}
-        }).to_string()).unwrap();
+        });
+        if let Some(launch_profiles) = launch_profiles {
+            raw_manifest["capabilities"]["agentRuntime"]["launchProfiles"] = launch_profiles;
+        }
+        let manifest = PluginManifest::from_json_str(&raw_manifest.to_string()).unwrap();
         fixture
             .service
             .agent_registry

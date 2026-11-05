@@ -107,7 +107,7 @@ fn crashed_worker_resumes_own_thread_once_and_replacement_crash_stops() {
     assert!(records.iter().any(|record| matches!(record,
         crate::session::lifecycle::JournalRecord::Transition { entry }
         if matches!(&entry.transition, crate::session::lifecycle::LifecycleTransition::RuntimeExited { diagnostics }
-            if diagnostics.contains("PipeEof") && diagnostics.contains("after_compaction=false") && diagnostics.contains("requested: false")))), "runtime exit must be journaled before replacement requests: {records:?}");
+            if diagnostics.contains("PipeEof") && diagnostics.contains("after_compaction=false") && diagnostics.contains("unexpected=true") && diagnostics.contains("requested: false")))), "runtime exit must be journaled before replacement requests: {records:?}");
     session
         .process
         .lock()

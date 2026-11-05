@@ -13,6 +13,7 @@ const TASK_LOCAL_ONLY: &str = "task management is local-only — run it on the t
 /// One row per `Commands` variant, updated only with an intentional transport change.
 /// Column 0 is the clap name, so coverage can be compared against the parser.
 const FROZEN: &[(&str, &[&str], Local, MeshRelay, ApiVerdict)] = &[
+    ("mcp", &["codeterm", "mcp", "serve", "--tab", "own", "--binding-nonce", "nonce"], Local::PreSocket, MeshRelay::Fallthrough, ApiVerdict::Unsupported("MCP stdio is local-only")),
     ("app", &["codeterm", "app", "quit", "--exact"], Local::PreSocket, MeshRelay::Fallthrough, ApiVerdict::Unsupported("app lifecycle is local-only; run on the owning machine")),
     ("account", &["codeterm", "account", "plan"], Local::PreSocket, MeshRelay::Fallthrough, ApiVerdict::Unsupported("account is local-only; run on the owning machine")),
     ("analytics", &["codeterm", "analytics", "status"], Local::PreSocket, MeshRelay::Fallthrough, ApiVerdict::Unsupported("analytics is local-only; run on the owning machine")),
@@ -456,7 +457,7 @@ fn mesh_unsupported_reasons_are_preserved() {
         assert!(body.is_none(), "`{name}` refusal must carry no body");
         checked += 1;
     }
-    assert_eq!(checked, 29, "unsupported command count changed");
+    assert_eq!(checked, 30, "unsupported command count changed");
 }
 
 #[test]

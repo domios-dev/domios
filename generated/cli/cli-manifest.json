@@ -929,6 +929,16 @@
               "aliases": []
             },
             {
+              "name": "method",
+              "positional": false,
+              "required": false,
+              "value_name": "ID",
+              "possible_values": [],
+              "default": null,
+              "help": "Authenticate with a method the agent declared (listed by --show); add --api-key-stdin when that method takes an API key",
+              "aliases": []
+            },
+            {
               "name": "show",
               "positional": false,
               "required": false,
@@ -1590,6 +1600,16 @@
               "possible_values": [],
               "default": null,
               "help": "Select a provider-owned preset supported by the target provider",
+              "aliases": []
+            },
+            {
+              "name": "profile",
+              "positional": false,
+              "required": false,
+              "value_name": "ID",
+              "possible_values": [],
+              "default": null,
+              "help": "ACP launch profile declared by the provider",
               "aliases": []
             },
             {
@@ -4544,6 +4564,42 @@
           "about": "Stop the current keep-awake session",
           "aliases": [],
           "args": [],
+          "subcommands": []
+        }
+      ]
+    },
+    {
+      "name": "mcp",
+      "about": "Tab-scoped MCP tools using inherited launch authority",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "serve",
+          "about": "Serve tab-scoped Domios tools over MCP stdio using inherited authority",
+          "aliases": [],
+          "args": [
+            {
+              "name": "binding-nonce",
+              "positional": false,
+              "required": true,
+              "value_name": "BINDING_NONCE",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "tab",
+              "positional": false,
+              "required": true,
+              "value_name": "TAB",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
           "subcommands": []
         }
       ]
@@ -13645,6 +13701,16 @@
                   "aliases": []
                 },
                 {
+                  "name": "profile",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "ACP launch profile declared by the provider",
+                  "aliases": []
+                },
+                {
                   "name": "provider-reserve-pct",
                   "positional": false,
                   "required": false,
@@ -14127,6 +14193,16 @@
                   "possible_values": [],
                   "default": null,
                   "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "profile",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "ACP launch profile; inherits the source attempt when omitted and the provider stays the same",
                   "aliases": []
                 },
                 {

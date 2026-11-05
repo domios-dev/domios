@@ -26,6 +26,7 @@
     "packages/plugin-sdk/src",
     "plugins/provider-claude/src/plugin.ts",
     "plugins/provider-codex/src/plugin.ts",
+    "plugins/provider-acp/src/plugin.ts",
     "plugins/provider-opencode/src/plugin.ts",
     "plugins/provider-cursor/src/plugin.ts",
     "plugins/analytics/src",

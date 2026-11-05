@@ -11,7 +11,7 @@ mod agent_cli;
 #[path = "agent_compatibility.rs"]
 mod agent_compatibility;
 #[path = "agent_login.rs"]
-mod agent_login;
+pub(crate) mod agent_login;
 #[path = "agent_model_switch.rs"]
 mod agent_model_switch;
 #[path = "agent_models.rs"]
@@ -351,6 +351,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             show,
             tab,
             device,
+            method,
             api_key_stdin,
             cancel,
         } => agent_login::run(
@@ -360,6 +361,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             tab,
             agent_login::LoginOptions {
                 device,
+                method,
                 api_key_stdin,
                 cancel,
                 show,

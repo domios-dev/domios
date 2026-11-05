@@ -39,6 +39,8 @@ The protected General Agent home tab (`main` / `general`) is the exception: its 
 
 ---
 
+For ACP launch profiles, use `--profile` on spawn, dispatch or respawn as described in the shared CLI reference above.
+
 ## Spawning open agent shells (only if one is installed)
 
 Besides PTY agents (claude/codex/...), `agent spawn` can open an **open agent
@@ -85,4 +87,4 @@ The always-on protocol lives in your provider rules and fires regardless of whic
 
 Task drafting, retained-send inspection and checklist schemas follow the shared CLI reference above. `blueprint list --all` requires owner or Orchestrator authority; cross-scope inspection does not authorize mutation.
 
-<!-- revision: 91 -->
+<!-- revision: 92 -->

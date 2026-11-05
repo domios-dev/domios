@@ -53,10 +53,17 @@ pub fn persist_attempt_executor_identity_for_mux(
     now: u64,
 ) -> Result<(), PlanError> {
     let capture = || {
-        mux.read()
-            .get_tab(tab_id)
+        let mux = mux.read();
+        let tab = mux.get_tab(tab_id);
+        let binding = tab
             .and_then(super::task_assignment::authenticated_tab_binding)
-            .map(|binding| (binding.session_id, binding.session_binding_nonce))
+            .map(|binding| (binding.session_id, binding.session_binding_nonce));
+        let profile = tab
+            .and_then(|tab| tab.agent_runtime_config.as_ref())
+            .and_then(|config| config.get("launchProfile"))
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned);
+        (binding, profile)
     };
     let binding = capture();
     let receipt = store.update_attempt_executor_identity_with_undo(
@@ -64,8 +71,9 @@ pub fn persist_attempt_executor_identity_for_mux(
         task_id,
         tab_id,
         Some(title),
-        binding.as_ref().map(|binding| binding.0.as_str()),
-        binding.as_ref().map(|binding| binding.1.as_str()),
+        binding.0.as_ref().map(|binding| binding.0.as_str()),
+        binding.0.as_ref().map(|binding| binding.1.as_str()),
+        binding.1.as_deref(),
         now,
     )?;
     if capture() != binding {

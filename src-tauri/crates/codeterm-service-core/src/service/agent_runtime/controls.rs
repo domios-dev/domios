@@ -285,6 +285,10 @@ async fn switch_inner(
         .model
         .clone()
         .ok_or_else(|| RuntimeFailure::Refused("Runtime model confirmation absent".into()))?;
+    let persisted_mode = confirmed
+        .mode
+        .clone()
+        .filter(|_| before.settings.modes.is_none() && confirmed.modes.is_none());
     {
         let mut mux = svc.mux.write();
         let target = mux.get_tab_mut(tab).ok_or(RuntimeFailure::Superseded)?;
@@ -300,10 +304,10 @@ async fn switch_inner(
             target.agent_requested_model = Some(model.trim().into());
         }
         target.restorable_launch.resolved_reasoning_effort = confirmed.effort.clone();
-        target.restorable_launch.structured_runtime_mode = confirmed.mode.clone();
+        target.restorable_launch.structured_runtime_mode = persisted_mode.clone();
         if let (Some(options), Some(mode)) = (
             target.restorable_launch.runtime_launch_options.as_mut(),
-            confirmed.mode.as_ref(),
+            persisted_mode.as_ref(),
         ) {
             options.mode = mode.clone();
         }
@@ -315,13 +319,15 @@ async fn switch_inner(
         for (key, value) in [
             ("model", &confirmed.model),
             ("effort", &confirmed.effort),
-            ("mode", &confirmed.mode),
+            ("mode", &persisted_mode),
         ] {
             if let Some(value) = value {
                 config[key] = value.clone().into();
             }
         }
     }
+    session.state.lock().notice = None;
+    engine::publish_controls(svc, tab, &session);
     crate::service::session_persist::persist_session_after_mutation(
         svc,
         crate::service::session_persist::SessionPersistUrgency::Prompt,
@@ -438,6 +444,7 @@ pub(crate) async fn refresh_service_tiers(
 mod tests;
 
 mod interrupt;
+pub(crate) use interrupt::before_first_turn_pending;
 
 pub fn interrupt(svc: &ServiceContext, tab: &str) -> Result<bool, String> {
     interrupt::interrupt(svc, tab)

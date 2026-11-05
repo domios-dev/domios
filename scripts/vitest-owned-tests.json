@@ -383,5 +383,8 @@
   "packages/chat-ui/src/ExpandableReader.test.tsx",
   "src/lib/streamMuxRequestModel.test.ts",
   "src/lib/streamMuxRequests.wiring.test.ts",
+  "src/components/Terminal/LaunchProfilePicker.test.tsx",
+  "src/lib/tabMetaLabel.test.ts",
+  "src/components/Terminal/StatusLineModelPicker.test.tsx",
   "src/lib/streamMux.startup.test.ts"
 ]

@@ -36,15 +36,24 @@ static USAGE: LazyLock<Mutex<HashMap<String, UsageProjection>>> =
 
 pub fn controls(svc: &ServiceContext, session: &Session, settings: RuntimeSettings) {
     let context = session.context.lock().clone();
+    if settings.model.is_some() && settings.model != context.settings.model {
+        session.state.lock().notice = None;
+    }
     svc.record_runtime_controls(&session.provider, &context, &settings);
     *session.controls_confirmation.lock() = Some(settings.clone());
     let settings = merge_settings(&context.settings, settings);
     session.context.lock().settings = settings;
     session.control_changes.send_replace(());
+    super::engine::publish_controls(svc, &context.tab_id, session);
 }
 
 fn merge_settings(previous: &RuntimeSettings, confirmed: RuntimeSettings) -> RuntimeSettings {
     RuntimeSettings {
+        commands: confirmed.commands.or_else(|| previous.commands.clone()),
+        config_options: confirmed
+            .config_options
+            .or_else(|| previous.config_options.clone()),
+        modes: confirmed.modes.or_else(|| previous.modes.clone()),
         service_tier: confirmed
             .service_tier
             .or_else(|| previous.service_tier.clone()),

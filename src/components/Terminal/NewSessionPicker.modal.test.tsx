@@ -395,3 +395,36 @@ it("shows Cloud only under Codex and explains its unavailable environment state"
   expect(dialog().querySelector<HTMLButtonElement>('[data-testid="picker-confirm"]')?.disabled).toBe(true);
   expect(fixture.actions.spawnAgentTab).not.toHaveBeenCalled();
 });
+
+describe("NewSessionPicker launch profiles", () => {
+  it("offers one ACP provider with a labelled nested choice and passes the chosen profile once", async () => {
+    fixture.providers.providers = [
+      {id:"opencode",display_name:"OpenCode",available_models:[],reasoning_efforts:[]},
+      {id:"opaque-acp",display_name:"ACP",transport:"chat_backend",available_models:[],agent_runtime:{launchProfiles:{
+        "deepseek-harness":{binary:"npx",args:["@deepseek-ai/dsh@0.2.1-rc.5","--profile","acp"]},
+        "gemini-cli":{binary:"gemini",args:["--acp"]},
+      }}},
+    ] as never[];
+    vi.mocked(invoke).mockImplementation(async command => command === "provider_launch_profiles" ? [
+      {id:"deepseek-harness",install:"installed",auth:"unknown",canInstall:true,ownerConfigured:false},
+      {id:"gemini-cli",install:"detected",auth:"unknown",canInstall:false,ownerConfigured:false},
+    ] : undefined);
+    await renderPicker();
+    await choose("Agent provider","ACP");
+    const select = dialog().querySelector<HTMLSelectElement>('select[aria-label="Agent profile"]');
+    expect(select).not.toBeNull();
+    expect(select!.options.length).toBe(3);
+    expect(fixture.actions.spawnAgentTab).not.toHaveBeenCalled();
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype,"value")!.set!;
+      setter.call(select,"gemini-cli");
+      select!.dispatchEvent(new window.Event("change",{bubbles:true}));
+    });
+    expect(dialog().querySelector('[role="status"]')?.textContent).toContain("detected");
+    const start = dialog().querySelector<HTMLButtonElement>('[data-testid="picker-confirm"]');
+    expect(start).not.toBeNull();
+    await act(async () => start!.click());
+    expect(fixture.actions.spawnAgentTab).toHaveBeenCalledTimes(1);
+    expect(fixture.actions.spawnAgentTab).toHaveBeenCalledWith("workspace","opaque-acp","/workspace",undefined,undefined,undefined,undefined,undefined,"gemini-cli");
+  });
+});

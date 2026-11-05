@@ -1,0 +1,136 @@
+{
+  "id": "acp",
+  "version": "0.1.0",
+  "minCodeterm": "1.18.7",
+  "hostApi": 2,
+  "displayName": "ACP",
+  "description": "Agent Client Protocol v1 runtime with host-owned launch profiles.",
+  "entry": "plugin.js",
+  "icon": "icon.svg",
+  "capabilities": {
+    "agentProvider": true,
+    "agentRuntime": {
+      "runtime": "stdio-jsonrpc",
+      "envelope": "jsonrpc2",
+      "command": {
+        "binary": "acp-agent",
+        "args": []
+      },
+      "launchProfiles": {
+        "deepseek-harness": {
+          "binary": "npx",
+          "args": [
+            "@deepseek-ai/dsh@0.2.1-rc.5",
+            "--profile",
+            "acp"
+          ],
+          "install": {
+            "package": "@deepseek-ai/dsh@0.2.1-rc.5",
+            "registry": "https://registry.npmjs.org"
+          },
+          "secretEnv": {
+            "DEEPSEEK_API_KEY": "domios:provider:acp:deepseek-api-key"
+          }
+        },
+        "gemini-cli": {
+          "binary": "gemini",
+          "args": [
+            "--acp"
+          ],
+          "env": {
+            "GEMINI_CLI_TRUST_WORKSPACE": "true"
+          },
+          "authEnv": {
+            "GEMINI_API_KEY": {
+              "secret": "domios:provider:acp:gemini-api-key",
+              "methods": [
+                "gemini-api-key"
+              ]
+            }
+          }
+        },
+        "local": {
+          "binary": "local-acp-command",
+          "args": [],
+          "ownerConfigured": true
+        }
+      },
+      "requestMethods": {
+        "initialize": [
+          "initialize"
+        ],
+        "openThread": [
+          "session/new",
+          "session/set_config_option"
+        ],
+        "resumeThread": [
+          "session/load",
+          "session/resume",
+          "session/set_config_option"
+        ],
+        "submitTurn": [
+          "session/prompt"
+        ],
+        "interrupt": [
+          "session/cancel"
+        ],
+        "control": [
+          "initialize",
+          "authenticate",
+          "session/set_mode",
+          "session/set_config_option"
+        ],
+        "answer": []
+      },
+      "notificationMethods": [
+        "session/update"
+      ],
+      "clientBridges": {
+        "fsRead": true,
+        "fsWrite": true,
+        "terminal": true
+      },
+      "interrupt": {
+        "beforeFirstTurn": true
+      },
+      "turnScopedRequests": [
+        "submitTurn"
+      ],
+      "hostMcp": {
+        "param": "mcpServers",
+        "methods": [
+          "session/new",
+          "session/load",
+          "session/resume"
+        ]
+      }
+    },
+    "chatBackend": {
+      "enabled": true,
+      "spawnable": true,
+      "sessionConfig": true,
+      "agentTasks": true
+    }
+  },
+  "permissions": {
+    "subprocess": {
+      "allow": [
+        "acp-agent",
+        "npx",
+        "gemini",
+        "local-acp-command"
+      ]
+    },
+    "secrets": true,
+    "agent_commands": true,
+    "network": {
+      "allow": [
+        "cdn.agentclientprotocol.com"
+      ]
+    }
+  },
+  "agentVerbs": [
+    "registry-search [query]",
+    "registry-refresh [query]"
+  ]
+}

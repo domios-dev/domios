@@ -116,6 +116,7 @@ check("only authenticated descendant spawn frames publish nested child metadata"
   assert.equal(hooks.runtimeReduce({...context,threadParents:[]},null,[frame]).events.length,0);
 });
 function allowed(op:Operation, action:RuntimeAction) {
+  if (action.kind === "refused") {assert.ok(action.reason);return;}
   if (action.kind === "questionAnswer") {assert.equal(op.kind,"answerQuestion");return;}
   if (action.kind === "reply") {assert.equal(op.kind,"answer"); return;}
   const call = action.kind === "request" ? action.call : action.notification;

@@ -190,12 +190,15 @@ fn sanitize_saved_controls(
         })
         .cloned()
         .collect::<Vec<_>>();
+    let mut saved_modes = saved_modes;
+    saved_modes.sort();
+    saved_modes.dedup();
     let unsupported_modes = saved_modes
         .iter()
         .filter(|mode| !supported_modes.iter().any(|supported| supported == *mode))
         .cloned()
         .collect::<Vec<_>>();
-    if !unsupported_modes.is_empty() {
+    if !supported_modes.is_empty() && !unsupported_modes.is_empty() {
         log::error!(
             "[agent-runtime-restore] tab={tab_id}: saved runtime modes {:?} are unsupported; refusing to resume",
             unsupported_modes
@@ -205,8 +208,9 @@ fn sanitize_saved_controls(
             unsupported_modes
         ));
     }
+    let drop_mode = supported_modes.is_empty() && !saved_modes.is_empty();
     let drop_effort = !unsupported_efforts.is_empty();
-    if !drop_effort {
+    if !drop_effort && !drop_mode {
         return Ok(());
     }
     {
@@ -216,6 +220,20 @@ fn sanitize_saved_controls(
             .ok_or("Restored runtime tab closed")?;
         if tab.agent_type.as_deref() != Some(provider_id) {
             return Err("Restored runtime provider changed during settings validation".into());
+        }
+        if drop_mode {
+            if let Some(object) = tab
+                .agent_runtime_config
+                .as_mut()
+                .and_then(serde_json::Value::as_object_mut)
+            {
+                object.remove("mode");
+            }
+            tab.structured_runtime_mode = None;
+            tab.restorable_launch.structured_runtime_mode = None;
+            if let Some(options) = tab.restorable_launch.runtime_launch_options.as_mut() {
+                options.mode.clear();
+            }
         }
         if drop_effort {
             if let Some(config) = tab.agent_runtime_config.as_mut() {

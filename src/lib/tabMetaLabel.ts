@@ -1,8 +1,8 @@
 import type { ProviderDescriptor, Tab } from "./types";
 import type { RuntimeServiceTierSelection as ServiceTierSelection } from "../../packages/plugin-sdk/src/agentRuntime";
 
-export function tabMetaParts(model: string | null | undefined, tierLabel: string | undefined, role?: string | null, status?: string | null): string[] {
-  return [model, tierLabel, role, status].filter((part): part is string => Boolean(part));
+export function tabMetaParts(model: string | null | undefined, tierLabel: string | undefined, role?: string | null, status?: string | null, identity?: {agentName?:string; binaryVersion?:string} | null): string[] {
+  return [identity?.agentName, identity?.binaryVersion, model, tierLabel, role, status].filter((part): part is string => Boolean(part));
 }
 
 export function confirmedTabServiceTier(tab: Tab, descriptor: ProviderDescriptor | undefined): ServiceTierSelection | undefined {

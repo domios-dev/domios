@@ -109,16 +109,18 @@ pub(super) fn dispatch(
                 spawn_params.model.as_deref(),
             )
             .map_err(super::model_errors::invalid_model_rpc_error)?;
+            let default_provider = svc.configuration().general_agent.agent_provider;
+            svc.validate_spawn_options(
+                spawn_params.agent.as_deref().unwrap_or(&default_provider),
+                &spawn_params,
+            )
+            .map_err(super::model_errors::spawn_target_rpc_error)?;
             let plan_task = spawn_params.plan_task.clone();
 
             let svc_ref = &**svc;
             let result = svc_ref
                 .spawn_agent_sync(spawn_params)
-                .map_err(|e| JsonRpcError {
-                    code: -32603,
-                    message: e,
-                    data: None,
-                })?;
+                .map_err(super::model_errors::spawn_rpc_error)?;
             svc.emit_mux_state_changed_empty();
             let ack_warning = if let Some(task_ref) = plan_task.as_deref() {
                 match svc.arm_bound_worker_ack_deadline_for_tab(

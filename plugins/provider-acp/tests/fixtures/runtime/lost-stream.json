@@ -1,0 +1,192 @@
+{
+  "schemaVersion": 1,
+  "context": {
+    "epoch": 1,
+    "cwd": "/work/project",
+    "hostVersion": "1.18.7",
+    "tabId": "lost-stream",
+    "bindingNonce": "nonce-fixture",
+    "settings": {},
+    "providerSettings": {},
+    "claimedSends": [],
+    "activeTurns": [],
+    "threadParents": []
+  },
+  "operations": [
+    {
+      "operation": {
+        "kind": "initialize"
+      }
+    },
+    {
+      "operation": {
+        "kind": "openThread",
+        "instructions": "",
+        "settings": {}
+      }
+    }
+  ],
+  "rpc": [
+    {
+      "direction": "outbound",
+      "operation": 0,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "initialize",
+          "params": {
+            "protocolVersion": 1,
+            "clientCapabilities": {
+              "fs": {
+                "readTextFile": false,
+                "writeTextFile": false
+              },
+              "terminal": false
+            },
+            "clientInfo": {
+              "name": "domios",
+              "title": "Domios",
+              "version": "1.18.7"
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 0,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "protocolVersion": 1,
+          "agentCapabilities": {
+            "loadSession": true
+          },
+          "authMethods": []
+        }
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 1,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "session/new",
+          "params": {
+            "cwd": "/work/project",
+            "mcpServers": []
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 1,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "sessionId": "session-fixture"
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "session/update",
+        "params": {
+          "sessionId": "session-fixture",
+          "update": {
+            "sessionUpdate": "agent_message_chunk",
+            "content": {
+              "type": "text",
+              "text": "Partial output"
+            }
+          }
+        }
+      },
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/project",
+        "hostVersion": "1.18.7",
+        "tabId": "lost-stream",
+        "bindingNonce": "nonce-fixture",
+        "settings": {},
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [
+          {
+            "threadId": "session-fixture",
+            "turnId": "turn-fixture"
+          }
+        ],
+        "threadParents": [],
+        "threadId": "session-fixture",
+        "activeTurnId": "turn-fixture"
+      }
+    }
+  ],
+  "expected": {
+    "results": [
+      {
+        "operation": 0,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "initialized"
+          },
+          "events": [
+            {
+              "kind": "authentication",
+              "authentication": {
+                "state": "unknown",
+                "methods": []
+              }
+            }
+          ]
+        }
+      },
+      {
+        "operation": 1,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "threadLoaded",
+            "threadId": "session-fixture",
+            "settings": {
+              "commands": [],
+              "configOptions": [],
+              "modes": []
+            }
+          }
+        }
+      }
+    ],
+    "events": [
+      {
+        "kind": "authentication",
+        "authentication": {
+          "state": "unknown",
+          "methods": []
+        }
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "session-fixture",
+        "item": {
+          "id": "session-fixture:turn:1:item:1",
+          "seq": 1,
+          "type": "assistant",
+          "content": "Partial output"
+        }
+      },
+      {
+        "kind": "turnState",
+        "threadId": "session-fixture",
+        "state": "working",
+        "turnId": "turn-fixture"
+      }
+    ]
+  }
+}

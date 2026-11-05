@@ -56,7 +56,7 @@ import {
 import { useTabProvider, useShellSessionModel } from "../../lib/useTabProvider";
 import { getAgentDescriptor } from "../../lib/agentDescriptorCache";
 import { formatModelBadge } from "../../lib/formatModelBadge";
-import { statusLineModelName } from "./statusLinePickerModel";
+import { runtimeStatusLineIdentity, statusLineModelName } from "./statusLinePickerModel";
 import { usePlanIndexOptional } from "../Canvas/PlansProvider";
 import { usePlanTargetNavigation } from "../Canvas/teamViewNavigation";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
@@ -1088,6 +1088,8 @@ function TabSessionChatBody({
           channelLoadingLabel={chatChannelLoadingRow(chatLoading, setupView, snapshotReady, hasHeldWindow) === "model"
             ? `${provider?.displayName ?? tabProvider} loading chat` : undefined}
           providerName={provider?.displayName ?? tabProvider}
+          identityLabel={descriptor?.agent_runtime && !descriptor.available_models.length
+            ? runtimeStatusLineIdentity(tab?.agent_runtime_state) || descriptor.display_name : undefined}
           model={workingModelBadge}
           reasoningEffort={tab?.reasoning_effort_identity}
           className="ct-composer-lane mx-auto w-full"

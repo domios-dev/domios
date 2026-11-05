@@ -73,6 +73,13 @@ pub struct RuntimeServiceTier {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RuntimeSettings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub commands: Option<Vec<RuntimeCommand>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config_options: Option<Vec<RuntimeConfigOption>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub modes: Option<Vec<RuntimeMode>>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub service_tier: Option<RuntimeServiceTierSelection>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub service_tier_availability:
@@ -87,6 +94,58 @@ pub struct RuntimeSettings {
     pub additional_directories: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub network_access: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RuntimeCommand {
+    pub name: String,
+    pub description: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub argument_hint: Option<String>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RuntimeConfigOption {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
+    pub id: String,
+    pub name: String,
+    pub current_value: String,
+    pub options: Vec<RuntimeConfigValue>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RuntimeConfigValue {
+    pub value: String,
+    pub name: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RuntimeMode {
+    pub id: String,
+    pub name: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RuntimeAuthentication {
+    pub state: RuntimeAuthenticationState,
+    pub methods: Vec<RuntimeAuthenticationMethod>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RuntimeAuthenticationState {
+    Authenticated,
+    NeedsAuth,
+    Unavailable,
+    Unknown,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RuntimeAuthenticationMethod {
+    pub id: String,
+    pub name: String,
+    pub available: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -117,6 +176,7 @@ pub enum RuntimeFailureCode {
     ProcessUnavailable,
     ProtocolError,
     ProviderRefused,
+    AuthenticationRequired,
     ThreadNotFound,
 }
 
@@ -162,6 +222,14 @@ pub struct PendingRuntimeRequest {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RuntimeContext {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub restored_row_ordinal: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stream_window: Option<super::RuntimeStreamWindow>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_mcp: Option<super::RuntimeHostMcp>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_bridges: Option<super::RuntimeClientBridges>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub restricted_cli: Option<RestrictedCliPolicy>,
     #[serde(default)]
@@ -298,6 +366,8 @@ pub struct RpcCall {
     deny_unknown_fields
 )]
 pub enum RuntimeAction {
+    Local,
+    Refused { reason: String },
     QuestionAnswer { input: TurnInput },
     Request { call: RpcCall },
     Notification { notification: RpcCall },
@@ -351,6 +421,8 @@ pub enum RuntimeResult {
     Initialized {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         binary_version: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        agent_name: Option<String>,
     },
     ThreadLoaded {
         thread_id: String,
@@ -470,6 +542,13 @@ impl RuntimeTurnDetail {
     deny_unknown_fields
 )]
 pub enum AgentRuntimeEvent {
+    Authentication {
+        authentication: RuntimeAuthentication,
+    },
+    Notice {
+        thread_id: String,
+        message: String,
+    },
     BackgroundProcesses {
         thread_id: String,
         processes: Vec<super::RuntimeBackgroundProcess>,
@@ -502,6 +581,16 @@ pub enum AgentRuntimeEvent {
     ChatItem {
         thread_id: String,
         item: ChatMsg,
+    },
+    ChatItemPatch {
+        thread_id: String,
+        item: ChatMsg,
+    },
+    ChatItemAppend {
+        thread_id: String,
+        item_id: String,
+        content: String,
+        offset: usize,
     },
     TurnState {
         thread_id: String,

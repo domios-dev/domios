@@ -1289,6 +1289,15 @@
         "/api/tabs/tab/agent/runtime/thread-history"
       ]
     ],
+    "provider_launch_profiles": [
+      ["GET", "/api/agents/providers/provider/profiles"]
+    ],
+    "provider_setup_profile": [
+      ["POST", "/api/agents/providers/provider/profiles"]
+    ],
+    "agent_runtime_controls": [
+      ["POST", "/api/tabs/tab/agent/runtime/controls"]
+    ],
     "agent_runtime_login": [
       [
         "POST",

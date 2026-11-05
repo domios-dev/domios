@@ -1,6 +1,9 @@
 {
   "agentRuntime": {
-    "restrictedCli": {"kind":"execpolicy-service-operations","metadataDirectory":".codex"},
+    "restrictedCli": {
+      "kind": "execpolicy-service-operations",
+      "metadataDirectory": ".codex"
+    },
     "storedHistory": true,
     "runtime": "stdio-jsonrpc",
     "runtimeModes": [
@@ -168,5 +171,19 @@
     "spawnable": true,
     "sessionConfig": true,
     "agentTasks": true
-  }
+  },
+  "scenarios": [
+    "approval-or-question.json",
+    "interrupt-during-tool-work.json",
+    "interrupt.json",
+    "multi-turn.json",
+    "restricted-cli.json",
+    "resume.json",
+    "runtime-restart.json",
+    "stalled-turn.json",
+    "steering.json",
+    "thread-fork.json",
+    "thread-revert.json",
+    "tool-call.json"
+  ]
 }

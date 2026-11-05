@@ -191,6 +191,13 @@ fn main_impl() {
         cmd::system::handle_api_token(true);
         return;
     }
+    if let Commands::Mcp {
+        action: args::mcp::McpAction::Serve { tab, binding_nonce },
+    } = &cli.command
+    {
+        cmd::mcp::serve(tab, binding_nonce, cli.mesh.as_deref());
+        return;
+    }
     let scoped = std::env::var_os("CODETERM_CLI_SCOPE").is_some();
     if let Some(operation) = local_admission::operation_for_cli(&cli, scoped) {
         if local_admission::requires_admission(scoped) {
@@ -666,6 +673,7 @@ fn main_impl() {
         Commands::Config { .. } => unreachable!(),
 
         // cli-manifest is handled before socket connect (introspects clap tree)
+        Commands::Mcp { .. } => unreachable!(),
         Commands::CliManifest { .. } => unreachable!(),
 
         // plugin is handled before socket connect (filesystem-local)

@@ -7,23 +7,38 @@ pub(crate) fn deadline<F: Future>(
     crate::async_runtime::block_on(async { tokio::time::timeout(duration, future).await })
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn sync_permit_deadline_enters_runtime_before_constructing_timer() {
-        std::thread::spawn(|| {
-            assert!(tokio::runtime::Handle::try_current().is_err());
-            let gate = tokio::sync::Semaphore::new(1);
-            let permit = deadline(Duration::from_secs(1), gate.acquire())
-                .unwrap()
-                .unwrap();
-            assert_eq!(gate.available_permits(), 0);
-            drop(permit);
-            assert_eq!(gate.available_permits(), 1);
-        })
-        .join()
-        .unwrap();
+pub(crate) fn task<F>(future: F) -> Result<F::Output, String>
+where
+    F: Future + Send + 'static,
+    F::Output: Send + 'static,
+{
+    let current = tokio::runtime::Handle::try_current().ok();
+    if current.as_ref().is_some_and(|handle| {
+        handle.id() == crate::async_runtime::handle().id()
+            && handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::CurrentThread
+    }) {
+        return Err(
+            "Use the asynchronous prompt response on a current-thread service runtime".into(),
+        );
+    }
+    let (send, receive) = std::sync::mpsc::sync_channel(1);
+    crate::async_runtime::spawn(async move {
+        let result = future.await;
+        let _ = send.send(result);
+    });
+    let receive = || {
+        receive
+            .recv()
+            .map_err(|error| format!("Runtime response task failed: {error}"))
+    };
+    if current
+        .is_some_and(|handle| handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread)
+    {
+        tokio::task::block_in_place(receive)
+    } else {
+        receive()
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -110,6 +110,7 @@ fn late_bound_no_id_report_persists_exact_task_milestone() {
             None,
             Some("worker-session"),
             Some("worker-nonce"),
+            None,
             4,
         )
         .unwrap();
@@ -413,6 +414,7 @@ fn verified_nonce_resolves_missing_report_session_id() {
             None,
             Some("live-session"),
             Some("live-nonce"),
+            None,
             4,
         )
         .unwrap();
@@ -482,6 +484,7 @@ fn current_tab_binding_resolves_missing_report_identity_before_persistence() {
             None,
             Some("live-session"),
             Some("live-nonce"),
+            None,
             4,
         )
         .unwrap();

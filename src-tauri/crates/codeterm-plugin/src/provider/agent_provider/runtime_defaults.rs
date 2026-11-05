@@ -78,13 +78,14 @@ macro_rules! agent_provider_runtime_defaults {
         fn authorize_agent_runtime(
             &self,
             authority: &crate::agent_runtime::LaunchAuthority,
+            profile: Option<&str>,
         ) -> Result<PathBuf, crate::js_runtime::manifest::RuntimeManifestError> {
             if !authority.authorizes_provider(self.id()) {
                 return Err(crate::js_runtime::manifest::RuntimeManifestError::ConsentRequired);
             }
             self.agent_runtime()
                 .ok_or(crate::js_runtime::manifest::RuntimeManifestError::CapabilityRequired)?
-                .resolve_executable()
+                .resolve_profile_executable(profile)
         }
     };
 }

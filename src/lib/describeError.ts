@@ -56,7 +56,7 @@ function serialize(input: unknown): string {
   try { return JSON.stringify(input) ?? String(input); } catch { return String(input); }
 }
 
-function unpack(input: unknown): { raw: string; code: string; status: unknown; message: string } {
+function unpack(input: unknown): { raw: string; code: string; status: unknown; message: string; reported?: string } {
   const object = record(input);
   const raw = input == null ? "" : typeof input === "string" ? input : typeof object?.body === "string" ? object.body
     : input instanceof Error ? input.message : typeof object?.raw === "string" ? object.raw
@@ -68,7 +68,25 @@ function unpack(input: unknown): { raw: string; code: string; status: unknown; m
   }
   const detail = record(parsed?.error) ?? parsed;
   return { raw, code: String(object?.code ?? object?.kind ?? detail?.code ?? detail?.kind ?? ""), status: detail?.status ?? object?.status,
-    message: typeof detail?.message === "string" ? detail.message : raw };
+    message: typeof detail?.message === "string" ? detail.message : raw,
+    reported: typeof detail?.message === "string" ? detail.message : undefined };
+}
+
+export function describeRuntimeConnectionError(input: unknown): ErrorDescription {
+  const {raw, code, reported: message} = unpack(input);
+  const summaries: Record<string, string> = {
+    provider_refused: "The agent refused this operation.",
+    authentication_required: "Sign in to continue.",
+    binding_mismatch: "The conversation no longer matches this tab.",
+    protocol_error: "The agent could not complete the connection.",
+    conversationMissing: "The saved conversation is unavailable.",
+    deadline: "The agent did not respond in time.",
+  };
+  const summary = Object.prototype.hasOwnProperty.call(summaries, code) ? summaries[code] : "The connection to the agent could not be completed.";
+  const reported = code && message ? message.trim() : "";
+  const title = reported && !/https?:\/\/|\/api\/|\bHTTP\s+\d{3}\b|[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}/i.test(reported)
+    && reported.length <= 512 && !reported.toLowerCase().replace(/[^a-z0-9]/g, "").includes(code.toLowerCase().replace(/[^a-z0-9]/g, "")) ? reported : summary;
+  return {title, cause:"", actions:["retry"], raw};
 }
 
 export function isPendingRuntimeDeadline(input: unknown): boolean {

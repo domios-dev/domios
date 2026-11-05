@@ -1,3 +1,5 @@
+import { tabMetaParts } from "../../lib/tabMetaLabel";
+import type { AgentRuntimeState } from "../../lib/agentRuntimeState";
 import type { RuntimeServiceTierSelection as ServiceTierSelection } from "../../../packages/plugin-sdk/src/agentRuntime";
 import { modelSwitchModeSupported } from "../../lib/modelSwitch";
 import { agentModelForBadge } from "../../lib/agentLabel";
@@ -53,6 +55,12 @@ export const PICKER_SEARCH_THRESHOLD = 8;
 
 export function pickerHasPrimaryModels(descriptor: ProviderDescriptor): boolean {
   return descriptor.available_models.some((model) => model.primary === true);
+}
+
+export function runtimeStatusLineIdentity(state: Pick<AgentRuntimeState, "agentName" | "binaryVersion" | "controls"> | null | undefined, tierLabel?: string, effort?: string, status?: string): string {
+  const model = state?.controls?.configOptions?.find(option => option.category === "model");
+  const name = model?.options.find(option => option.value === model.currentValue)?.name ?? model?.currentValue;
+  return tabMetaParts(name, tierLabel, effort, status, state).join(" · ");
 }
 
 export function statusLineModelName(

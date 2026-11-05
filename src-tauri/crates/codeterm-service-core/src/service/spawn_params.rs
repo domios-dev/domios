@@ -3,6 +3,9 @@ use super::spawn::{AgentSpawnSpec, SpawnTabSpec, TabCommand, TabVisibility};
 use super::ServiceContext;
 use crate::multiplexer::types::{WatcherPolicy, WatcherSpec};
 
+mod launch_profile;
+pub use launch_profile::{LaunchProfileRefusal, SpawnTargetRefusal};
+
 pub fn starter_prompt_for_role(role: Option<&str>) -> crate::agent::provider::StarterPrompt {
     if role.is_none() {
         crate::agent::provider::StarterPrompt::NoStarter
@@ -78,6 +81,9 @@ impl SpawnTabSpec {
                 params.charter.as_deref(),
                 params.tick_interval_secs,
             );
+            if let Some(profile) = &params.launch_profile {
+                config["launchProfile"] = serde_json::json!(profile);
+            }
             if let Some(mode) = &params.execution_mode {
                 config["executionMode"] = serde_json::json!(mode);
             }
@@ -203,6 +209,9 @@ impl SpawnTabSpec {
             None,
             None,
         );
+        if let Some(profile) = &params.launch_profile {
+            config["launchProfile"] = serde_json::json!(profile);
+        }
         if let Some(effort) = agent.reasoning_effort.as_deref() {
             config["effort"] = serde_json::json!(effort);
         }
@@ -246,6 +255,10 @@ impl SpawnTabSpec {
         let starter_prompt =
             starter_prompt_for_creation(agent.role.as_deref(), agent.task.as_deref());
         Ok(SpawnAgentParams {
+            launch_profile: self
+                .chatbackend_launch
+                .as_ref()
+                .and_then(|launch| launch.params.launch_profile.clone()),
             execution_mode: None,
             context_files: None,
             neighbor_authority: self
@@ -439,7 +452,7 @@ impl ServiceContext {
         &self,
         agent_cmd: &str,
         params: &SpawnAgentParams,
-    ) -> Result<bool, String> {
+    ) -> Result<bool, SpawnTargetRefusal> {
         if params.cwd.is_some()
             || params.workspace_id.is_some()
             || params.parent_tab_id.is_some()
@@ -460,6 +473,15 @@ impl ServiceContext {
             agent_cmd,
             params,
         )?;
+        self.validate_spawn_options(agent_cmd, params)?;
+        if params.launch_profile.is_some()
+            && params
+                .execution_mode
+                .as_deref()
+                .is_some_and(|mode| mode != "local")
+        {
+            return Err("Launch profiles require local execution".into());
+        }
         if self.validate_remote_spawn(params)? {
             return Ok(true);
         }
@@ -476,12 +498,13 @@ impl ServiceContext {
                     return Err(format!(
                         "'{}' is a chat backend that is not user-spawnable",
                         agent_cmd
-                    ));
+                    )
+                    .into());
                 }
                 if params.args.as_ref().is_some_and(|args| !args.is_empty()) {
                     return Err(format!(
                         "--args applies only to PTY agents; '{agent_cmd}' is a chatBackend shell, so remove it"
-                    ));
+                    ).into());
                 }
                 if watcher
                     && !self
@@ -493,7 +516,7 @@ impl ServiceContext {
                     return Err(format!(
                         "watcher spawn requires a watcher-capable chatBackend provider; '{}' is not watcher-capable",
                         agent_cmd
-                    ));
+                    ).into());
                 }
                 Ok(true)
             }
@@ -502,7 +525,7 @@ impl ServiceContext {
                     return Err(format!(
                         "watcher spawn requires a watcher-capable chatBackend provider; '{}' is a PTY provider",
                         agent_cmd
-                    ));
+                    ).into());
                 }
                 reject_chat_backend_only_fields(agent_cmd, params)?;
                 self.require_agent_provider_ready(agent_cmd)?;
@@ -513,7 +536,7 @@ impl ServiceContext {
                     return Err(format!(
                         "watcher spawn requires a watcher-capable chatBackend provider; '{}' is not a chatBackend provider",
                         agent_cmd
-                    ));
+                    ).into());
                 }
                 reject_chat_backend_only_fields(agent_cmd, params)?;
                 self.require_agent_provider_ready(agent_cmd)?;
@@ -597,6 +620,7 @@ mod tests {
     fn worker_launch_has_no_manager_bootstrap() {
         let spec = SpawnTabSpec::from_agent_params(SpawnAgentParams {
             execution_mode: None,
+            launch_profile: None,
             context_files: None,
             context_skills: None,
             agent: Some("worker-provider".into()),
@@ -628,6 +652,7 @@ mod tests {
     fn tab_name_contract_spawn_name_paths_keep_name_and_description_separate() {
         let spec = SpawnTabSpec::from_agent_params(SpawnAgentParams {
             execution_mode: None,
+            launch_profile: None,
             context_files: None,
             context_skills: None,
             agent: Some("codex".into()),
@@ -654,6 +679,7 @@ mod tests {
     fn assigned_worker_task_authority_reaches_pty_spec() {
         let mut params = SpawnAgentParams {
             execution_mode: None,
+            launch_profile: None,
             context_files: None,
             context_skills: None,
             agent: Some("worker-provider".into()),
@@ -844,6 +870,7 @@ mod tests {
     fn team_attach_fields_round_trip_through_the_tab_spec() {
         let spec = SpawnTabSpec::from_agent_params(SpawnAgentParams {
             execution_mode: None,
+            launch_profile: None,
             context_files: None,
             context_skills: None,
             agent: Some("claude".into()),

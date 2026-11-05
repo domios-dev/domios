@@ -947,6 +947,7 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
         | Commands::Task { .. }
         | Commands::Radar { .. }
         | Commands::Canvas { .. }
+        | Commands::Mcp { .. }
         | Commands::CliManifest { .. }
         | Commands::Capabilities
         | Commands::Pad { .. }

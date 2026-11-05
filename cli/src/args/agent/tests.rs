@@ -796,3 +796,37 @@ fn launch_commands_accept_provider_owned_speed() {
         Cli::try_parse_from(args).unwrap();
     }
 }
+
+#[test]
+fn agent_spawn_profile_is_separate_from_worker_kind_and_model() {
+    for kind in ["--kind", "--role-profile"] {
+        let parsed = Cli::try_parse_from([
+            "domios",
+            "agent",
+            "spawn",
+            "acp",
+            "--profile",
+            "deepseek-harness",
+            kind,
+            "qa",
+        ])
+        .unwrap();
+        let crate::Commands::Agent {
+            action:
+                AgentAction::Spawn {
+                    agent,
+                    launch_profile,
+                    kind,
+                    model,
+                    ..
+                },
+        } = parsed.command
+        else {
+            panic!("expected spawn");
+        };
+        assert_eq!(agent.as_deref(), Some("acp"));
+        assert_eq!(launch_profile.as_deref(), Some("deepseek-harness"));
+        assert_eq!(kind.as_deref(), Some("qa"));
+        assert!(model.is_none());
+    }
+}

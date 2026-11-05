@@ -87,6 +87,7 @@ impl SpawnAgentParams {
             system_prompt: json_str(params, "system_prompt").or_else(|| json_str(params, "system")),
             preset: json_str(params, "preset"),
             execution_mode: json_str(params, "execution_mode"),
+            launch_profile: json_str(params, "launch_profile"),
             resume_session_id: json_str(params, "resume_session_id"),
             charter: json_str(params, "charter"),
             tick_interval_secs: json_u64(params, "tick_interval_secs"),

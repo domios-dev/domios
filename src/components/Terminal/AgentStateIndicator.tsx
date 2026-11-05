@@ -28,6 +28,7 @@ export function AgentStateIndicator({
   tab,
   runtimeState,
   providerName,
+  identityLabel,
   model,
   reasoningEffort,
   className,
@@ -44,6 +45,7 @@ export function AgentStateIndicator({
   runtimeState?: AgentRuntimeState | null;
   tab?: Tab | null;
   providerName?: string | null;
+  identityLabel?: string;
   model?: string | null;
   reasoningEffort?: Tab["reasoning_effort_identity"] | null;
   className?: string;
@@ -73,7 +75,7 @@ export function AgentStateIndicator({
   const actualEffort = reasoningEffort?.actual_source === "session-owned"
     ? reasoningEffort.actual?.trim()
     : null;
-  const identity = [providerName?.trim(), model?.trim(), actualEffort].filter(Boolean).join(" · ");
+  const identity = identityLabel ?? [providerName?.trim(), model?.trim(), actualEffort].filter(Boolean).join(" · ");
   const text = [identity, status].filter(Boolean).join(" · ");
   const animated = activity.active && !background;
   // One fixed-width slot: still dots beside a resting label, moving dots while working, the clock while starting.

@@ -16,7 +16,9 @@
       },
       "reply": {
         "kind": "success",
-        "value": {"binaryVersion": "7.8.9"}
+        "value": {
+          "binaryVersion": "7.8.9"
+        }
       },
       "plan": {
         "action": {
@@ -923,6 +925,63 @@
           "nextCursor": "next-page"
         }
       }
+    },
+    {
+      "operation": {
+        "kind": "control",
+        "action": "refuse",
+        "value": "Opaque fixture refusal"
+      },
+      "plan": {
+        "action": {
+          "kind": "refused",
+          "reason": "Opaque fixture refusal"
+        },
+        "state": null
+      },
+      "planError": {
+        "code": "provider_refused",
+        "message": "Opaque fixture refusal"
+      }
+    },
+    {
+      "context": {
+        "epoch": 1,
+        "tabId": "fixture-tab",
+        "bindingNonce": "fixture-nonce",
+        "cwd": "/fixture",
+        "hostVersion": "1.0.0",
+        "claimedSends": [],
+        "settings": {},
+        "providerSettings": {
+          "localResume": true
+        },
+        "threadId": "thread-a"
+      },
+      "operation": {
+        "kind": "resumeThread",
+        "threadId": "thread-a",
+        "instructions": "",
+        "settings": {}
+      },
+      "reply": {
+        "kind": "success",
+        "value": null
+      },
+      "plan": {
+        "action": {
+          "kind": "local"
+        },
+        "state": null
+      },
+      "step": {
+        "kind": "complete",
+        "result": {
+          "kind": "threadLoaded",
+          "threadId": "thread-a",
+          "settings": {}
+        }
+      }
     }
   ],
   "reductions": [
@@ -1142,6 +1201,306 @@
           }
         ]
       }
+    },
+    {
+      "context": {
+        "epoch": 1,
+        "tabId": "fixture-tab",
+        "bindingNonce": "fixture-nonce",
+        "cwd": "/fixture",
+        "hostVersion": "1.0.0",
+        "claimedSends": [],
+        "threadId": "thread-a",
+        "settings": {},
+        "providerSettings": {}
+      },
+      "state": null,
+      "frames": [
+        {
+          "kind": "notification",
+          "method": "item",
+          "params": {
+            "usageEvent": {
+              "kind": "controlsConfirmed",
+              "threadId": "thread-a",
+              "settings": {
+                "commands": [
+                  {
+                    "name": "inspect",
+                    "description": "Inspect",
+                    "argumentHint": "target"
+                  }
+                ],
+                "configOptions": [
+                  {
+                    "id": "policy",
+                    "name": "Policy",
+                    "currentValue": "safe",
+                    "options": [
+                      {
+                        "value": "safe",
+                        "name": "Safe"
+                      }
+                    ]
+                  }
+                ],
+                "modes": [
+                  {
+                    "id": "code",
+                    "name": "Code"
+                  }
+                ],
+                "mode": "code"
+              }
+            }
+          }
+        },
+        {
+          "kind": "notification",
+          "method": "item",
+          "params": {
+            "usageEvent": {
+              "kind": "notice",
+              "threadId": "thread-a",
+              "message": "Transient fixture"
+            }
+          }
+        },
+        {
+          "kind": "notification",
+          "method": "item",
+          "params": {
+            "usageEvent": {
+              "kind": "authentication",
+              "authentication": {
+                "state": "unknown",
+                "methods": [
+                  {
+                    "id": "opaque",
+                    "name": "Declared sign-in",
+                    "available": true
+                  },
+                  {
+                    "id": "terminal",
+                    "name": "Terminal only",
+                    "available": false
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "kind": "notification",
+          "method": "item",
+          "params": {
+            "usageEvent": {
+              "kind": "authentication",
+              "authentication": {
+                "state": "needs_auth",
+                "methods": [
+                  {
+                    "id": "opaque",
+                    "name": "Declared sign-in",
+                    "available": true
+                  },
+                  {
+                    "id": "terminal",
+                    "name": "Terminal only",
+                    "available": false
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "kind": "notification",
+          "method": "item",
+          "params": {
+            "usageEvent": {
+              "kind": "authentication",
+              "authentication": {
+                "state": "unavailable",
+                "methods": [
+                  {
+                    "id": "opaque",
+                    "name": "Declared sign-in",
+                    "available": true
+                  },
+                  {
+                    "id": "terminal",
+                    "name": "Terminal only",
+                    "available": false
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "kind": "notification",
+          "method": "item",
+          "params": {
+            "usageEvent": {
+              "kind": "authentication",
+              "authentication": {
+                "state": "authenticated",
+                "methods": [
+                  {
+                    "id": "opaque",
+                    "name": "Declared sign-in",
+                    "available": true
+                  },
+                  {
+                    "id": "terminal",
+                    "name": "Terminal only",
+                    "available": false
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "expected": {
+        "state": {
+          "count": 6
+        },
+        "events": [
+          {
+            "kind": "controlsConfirmed",
+            "threadId": "thread-a",
+            "settings": {
+              "commands": [
+                {
+                  "name": "inspect",
+                  "description": "Inspect",
+                  "argumentHint": "target"
+                }
+              ],
+              "configOptions": [
+                {
+                  "id": "policy",
+                  "name": "Policy",
+                  "currentValue": "safe",
+                  "options": [
+                    {
+                      "value": "safe",
+                      "name": "Safe"
+                    }
+                  ]
+                }
+              ],
+              "modes": [
+                {
+                  "id": "code",
+                  "name": "Code"
+                }
+              ],
+              "mode": "code"
+            }
+          },
+          {
+            "kind": "notice",
+            "threadId": "thread-a",
+            "message": "Transient fixture"
+          },
+          {
+            "kind": "authentication",
+            "authentication": {
+              "state": "unknown",
+              "methods": [
+                {
+                  "id": "opaque",
+                  "name": "Declared sign-in",
+                  "available": true
+                },
+                {
+                  "id": "terminal",
+                  "name": "Terminal only",
+                  "available": false
+                }
+              ]
+            }
+          },
+          {
+            "kind": "authentication",
+            "authentication": {
+              "state": "needs_auth",
+              "methods": [
+                {
+                  "id": "opaque",
+                  "name": "Declared sign-in",
+                  "available": true
+                },
+                {
+                  "id": "terminal",
+                  "name": "Terminal only",
+                  "available": false
+                }
+              ]
+            }
+          },
+          {
+            "kind": "authentication",
+            "authentication": {
+              "state": "unavailable",
+              "methods": [
+                {
+                  "id": "opaque",
+                  "name": "Declared sign-in",
+                  "available": true
+                },
+                {
+                  "id": "terminal",
+                  "name": "Terminal only",
+                  "available": false
+                }
+              ]
+            }
+          },
+          {
+            "kind": "authentication",
+            "authentication": {
+              "state": "authenticated",
+              "methods": [
+                {
+                  "id": "opaque",
+                  "name": "Declared sign-in",
+                  "available": true
+                },
+                {
+                  "id": "terminal",
+                  "name": "Terminal only",
+                  "available": false
+                }
+              ]
+            }
+          }
+        ]
+      }
     }
-  ]
+  ],
+  "launchProfiles": {
+    "selected": {
+      "binary": "npx",
+      "args": [
+        "@fixture/engine@1.2.3",
+        "serve"
+      ],
+      "env": {
+        "PROFILE": "fixed"
+      },
+      "detection": {
+        "args": [
+          "--version"
+        ]
+      },
+      "install": {
+        "package": "@fixture/engine@1.2.3",
+        "registry": "https://registry.npmjs.org"
+      }
+    }
+  }
 }

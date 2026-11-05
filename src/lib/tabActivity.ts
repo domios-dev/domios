@@ -1,4 +1,5 @@
 import type { Tab, TabAgentState, TabStatus } from "./types";
+import { runtimeResponseDeadlinePending } from "./agentRuntimeState";
 import { providerErrorReason } from "./providerSignals";
 import { shellStateLabel } from "./shellCommandState";
 
@@ -105,9 +106,13 @@ export function tabActivity(tab: TabActivityInput | null | undefined, status?: T
     || tab?.boot_stage === "awaiting_owner_prompt"
     || (declaresAgent && !sessionBound && tab?.boot_stage !== "agent_ready"))
     && !lazyComposerReady && !boundSessionRetiresShellStartup(tab) && !curatorWorking;
+  const runtimeFailed = tab?.backing?.kind === "chat_backend"
+    && (tab.agent_runtime_state?.state === "degraded"
+      || (tab.agent_runtime_state?.state === "unloaded" && Boolean(tab.agent_runtime_state.reason)))
+    && !runtimeResponseDeadlinePending(tab.agent_runtime_state, tab.boot_failure_reason);
   const authoritativeStatus = status ?? "Idle";
   let kind: TabActivity["kind"];
-  if (status === "Dead" || status === "Error" || tab?.boot_stage === "spawn_failed") kind = "failed";
+  if (runtimeFailed || status === "Dead" || status === "Error" || tab?.boot_stage === "spawn_failed") kind = "failed";
   else if (tab?.pending_prompt || tab?.boot_stage === "awaiting_owner_prompt") kind = "waiting-on-user";
   else if (launching) kind = "starting";
   else if (authoritativeStatus === "Waiting") kind = "waiting-on-user";

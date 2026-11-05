@@ -1104,6 +1104,7 @@ export interface ProviderDescriptor {
   attachments?: ProviderAttachmentCapabilities;
   remote_task?: import("../../packages/plugin-sdk/src/remoteTasks").RemoteTaskCapability;
   agent_runtime?: {
+    launchProfiles?: Readonly<Record<string, import("../../packages/plugin-sdk/src/agentRuntime").RuntimeLaunchProfile>>;
     runtimeModes?: readonly { id: string; displayName: string }[];
     serviceTiers?: readonly import("../../packages/plugin-sdk/src/agentRuntime").RuntimeServiceTier[];
     usage?: boolean;

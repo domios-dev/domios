@@ -1,12 +1,17 @@
 mod authority;
 mod children;
+mod declarations;
 pub use children::*;
+mod host_mcp;
+pub use host_mcp::{RuntimeHostMcp, RuntimeHostMcpDeclaration};
 mod history;
 pub use history::*;
 mod background;
 mod capability;
 pub use authority::*;
 pub use background::*;
+mod stream_window;
+pub use stream_window::*;
 mod validation;
 mod wire;
 pub use validation::*;
