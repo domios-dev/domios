@@ -63,6 +63,13 @@ commit, and verifies the anonymous download. Every install refreshes `codeterm-c
 For 1.19 only, a marked transition step publishes the same archive to `rollacode/codeterm-releases`
 for 1.18.x clients.
 
+Application publication also publishes the verified source commit's core channel after public
+updater verification, under the same channel concurrency lock as standalone plugin releases.
+If the public channel is absent, recover it with `node scripts/release-plugin.mjs check`, then
+`node scripts/publish-core-channel.mjs publish <verified-source-sha> domios-dev/domios` from that
+source checkout with publication GO. Retain embedded plugin versions and verify the anonymous
+archive checksum, source-commit receipt and client `domios update check --force` result.
+
 ## Application train
 
 | Branch | Purpose |
@@ -570,4 +577,4 @@ never sweep caches or delete worktrees merely because the release ended.
 Implementation entry points: [release stage](../../../scripts/release-stage.mjs),
 [macOS x64 helper](../../../scripts/release-macos-x86_64.sh).
 
-<!-- revision: 22 -->
+<!-- revision: 23 -->
