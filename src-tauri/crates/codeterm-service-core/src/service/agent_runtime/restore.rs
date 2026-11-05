@@ -4,6 +4,101 @@ use crate::{
 };
 use codeterm_types::plan::ExecutionIntent;
 
+fn diagnostic(text: &str) -> String {
+    let bounded: String = text.chars().take(4096).collect();
+    codeterm_util::redact::text(&bounded)
+        .chars()
+        .take(1024)
+        .collect()
+}
+
+fn resume_reason(name: &str, cause: &str) -> String {
+    let cause = cause.strip_prefix("Provider refused: ").unwrap_or(cause);
+    if cause.contains(" could not resume the session: ") {
+        return diagnostic(cause);
+    }
+    format!(
+        "{} could not resume the session: {}",
+        diagnostic(name),
+        diagnostic(cause)
+    )
+}
+
+fn saved_name(tab: &Tab) -> Option<&str> {
+    tab.agent_runtime_state
+        .as_ref()
+        .and_then(|state| state["agent_name"].as_str())
+        .or_else(|| {
+            tab.agent_runtime_config
+                .as_ref()
+                .and_then(|config| config["launchProfile"].as_str())
+        })
+        .filter(|name| !name.trim().is_empty())
+}
+
+pub(super) fn refusal(
+    svc: &ServiceContext,
+    session: &super::engine::Session,
+    saved: Option<&serde_json::Value>,
+    reason: super::model::RuntimeFailure,
+) -> super::model::RuntimeFailure {
+    let super::model::RuntimeFailure::Refused(cause) = reason else {
+        return reason;
+    };
+    let context = session.context.lock().clone();
+    if context.thread_id.is_none() {
+        return super::model::RuntimeFailure::Refused(cause);
+    }
+    let agent_name = session.state.lock().agent_name.clone();
+    let name = agent_name
+        .filter(|name| !name.trim().is_empty())
+        .or_else(|| {
+            saved
+                .and_then(|state| state["agent_name"].as_str())
+                .map(str::to_owned)
+        })
+        .or_else(|| {
+            svc.mux
+                .read()
+                .get_tab(&context.tab_id)
+                .and_then(saved_name)
+                .map(str::to_owned)
+        })
+        .or_else(|| {
+            svc.agent_registry
+                .with_provider(&session.provider, |provider| {
+                    provider.display_name().to_owned()
+                })
+        })
+        .unwrap_or_else(|| session.provider.clone());
+    super::model::RuntimeFailure::Refused(resume_reason(&name, &cause))
+}
+
+pub(super) fn rpc_reason(error: &codeterm_plugin::agent_runtime::RpcFailure) -> String {
+    let detail = error
+        .data
+        .as_ref()
+        .and_then(|data| {
+            data.as_str()
+                .or_else(|| data.get("details").and_then(serde_json::Value::as_str))
+                .or_else(|| data.get("message").and_then(serde_json::Value::as_str))
+                .or_else(|| {
+                    data.pointer("/error/message")
+                        .and_then(serde_json::Value::as_str)
+                })
+        })
+        .filter(|detail| !detail.trim().is_empty())
+        .map(diagnostic);
+    format!(
+        "JSON-RPC {}: {}{}",
+        error.code,
+        diagnostic(&error.message),
+        detail
+            .map(|detail| format!("; {detail}"))
+            .unwrap_or_default()
+    )
+}
+
 fn materialize(tab: &mut Tab, runtime_declared: bool) -> bool {
     if tab.restorable_launch.execution_mode.is_some()
         || !runtime_declared
@@ -15,7 +110,7 @@ fn materialize(tab: &mut Tab, runtime_declared: bool) -> bool {
     }
     let provider = tab.agent_type.clone().expect("Checked provider");
     tab.backing = TabBacking::ChatBackend {
-        plugin_id: provider,
+        plugin_id: provider.clone(),
         session_id: tab.agent_session_id.clone().unwrap_or_default(),
     };
     tab.pty_id = None;
@@ -24,6 +119,22 @@ fn materialize(tab: &mut Tab, runtime_declared: bool) -> bool {
         && tab.session_binding_nonce.is_some()
         && tab.reported_session_binding_nonce == tab.session_binding_nonce;
     tab.agent_booting = !ready;
+    if tab.agent_runtime_state.as_ref().is_some_and(|state| {
+        state["state"] == "degraded" && state["failure_code"] == "provider_refused"
+    }) {
+        let name = saved_name(tab).unwrap_or(&provider).to_owned();
+        if let Some(reason) = tab
+            .agent_runtime_state
+            .as_ref()
+            .and_then(|state| state["reason"].as_str())
+        {
+            let reason =
+                super::model::RuntimeFailure::Refused(resume_reason(&name, reason)).to_string();
+            tab.agent_runtime_state
+                .as_mut()
+                .expect("Checked runtime state")["reason"] = reason.into();
+        }
+    }
     crate::service::boot_stage::apply_boot_stage(
         tab,
         if ready {

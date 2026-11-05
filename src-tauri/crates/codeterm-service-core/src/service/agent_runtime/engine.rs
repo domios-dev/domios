@@ -507,7 +507,8 @@ async fn ensure_with_fork(
     })
     .await
     .map_err(|_| RuntimeFailure::Deadline)
-    .and_then(|result| result);
+    .and_then(|result| result)
+    .map_err(|reason| super::restore::refusal(svc, &session, saved_state.as_ref(), reason));
     if let Err(reason) = result {
         if attempted.load(std::sync::atomic::Ordering::Acquire) {
             let epoch = session.state.lock().epoch;

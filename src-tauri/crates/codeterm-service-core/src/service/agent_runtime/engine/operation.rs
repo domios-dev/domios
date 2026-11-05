@@ -402,7 +402,20 @@ async fn run_inner(
                 {
                     return Err(RuntimeFailure::ConversationMissing);
                 }
-                return Err(RuntimeFailure::Refused(reason.to_string()));
+                let cause = if matches!(
+                    operation,
+                    RuntimeOperation::Initialize | RuntimeOperation::ResumeThread { .. }
+                ) {
+                    match &reply {
+                        RpcReply::Error { error } => {
+                            format!("{} ({})", reason, super::super::restore::rpc_reason(error))
+                        }
+                        _ => reason.to_string(),
+                    }
+                } else {
+                    reason.to_string()
+                };
+                return Err(RuntimeFailure::Refused(cause));
             }
             RuntimeStep::Complete {
                 result,
