@@ -57,9 +57,24 @@ where
     R: Send + 'static,
     F: FnOnce(&PluginVm, Arc<operation::Context>) -> Result<R, VmError> + Send + 'static,
 {
+    let interrupt = default_call_interrupt(&vm);
+    with_blocking_operation_interruptible(vm, interrupt, work).await
+}
+
+/// Runs `work` like [`with_blocking_operation`], with `interrupt` as the whole
+/// operation's cancellation and deadline, host I/O jobs included.
+pub(in crate::js_runtime) async fn with_blocking_operation_interruptible<R, F>(
+    vm: Arc<PluginVm>,
+    interrupt: (crate::converter::ConversionCancellation, std::time::Instant),
+    work: F,
+) -> Result<R, VmError>
+where
+    R: Send + 'static,
+    F: FnOnce(&PluginVm, Arc<operation::Context>) -> Result<R, VmError> + Send + 'static,
+{
     let _runtime = tokio::runtime::Handle::try_current()
         .map_err(|error| VmError::RuntimeInit(error.to_string()))?;
-    let operation = vm.admission.enter(Some(default_call_interrupt(&vm)))?;
+    let operation = vm.admission.enter(Some(interrupt))?;
     let context = operation.context.clone();
     let _cancel = CancelOnDrop(context.clone());
     let observer = codeterm_decision::physical::current();

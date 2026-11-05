@@ -6,8 +6,14 @@ impl JsProvider {
         if !self.has_js("discoverModels") {
             return None;
         }
-        let result =
-            crate::js_runtime::vm::with_blocking_operation(self.vm.clone(), |vm, context| {
+        let interrupt = (
+            crate::converter::ConversionCancellation::default(),
+            std::time::Instant::now() + crate::model_catalog::MODEL_DISCOVERY_DEADLINE,
+        );
+        let result = crate::js_runtime::vm::with_blocking_operation_interruptible(
+            self.vm.clone(),
+            interrupt,
+            |vm, context| {
                 let _catalogue = vm.catalogue_gate.enter(&context)?;
                 let fingerprint = vm.binary_fingerprint();
                 crate::js_runtime::vm::call_in_operation::<Option<Vec<SerdeModelInfo>>>(
@@ -16,8 +22,9 @@ impl JsProvider {
                     &[json!(fingerprint)],
                     context,
                 )
-            })
-            .await;
+            },
+        )
+        .await;
         match result {
             Ok(models) => models.map(|models| models.iter().map(ModelInfo::from).collect()),
             Err(error) => {

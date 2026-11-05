@@ -96,7 +96,18 @@ impl DecisionModel for JsDecisionModel {
         let Ok(_env) = self.exec_env_scope() else {
             return Vec::new();
         };
-        let _catalogue = self.vm.catalogue_gate.lock();
+        // A running discovery holds the gate for seconds; with a cached list the
+        // reader answers from it instead of queueing behind that discovery.
+        let _catalogue = match self.vm.catalogue_gate.try_lock() {
+            Some(guard) => guard,
+            None => {
+                let cached = self.cached_models();
+                if !cached.is_empty() {
+                    return cached;
+                }
+                self.vm.catalogue_gate.lock()
+            }
+        };
         let fingerprint = self
             .catalogue_fingerprint
             .get_or_init(|| self.vm.binary_fingerprint());

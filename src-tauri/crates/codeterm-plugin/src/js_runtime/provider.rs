@@ -243,3 +243,6 @@ mod tests;
 
 #[cfg(test)]
 mod effect_tests;
+
+#[cfg(test)]
+mod discovery_deadline_tests;
