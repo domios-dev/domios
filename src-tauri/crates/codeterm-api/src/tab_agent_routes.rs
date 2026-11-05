@@ -1,6 +1,7 @@
 use crate::blocking_json::handler as blocking_json;
 use axum::{
-    routing::{get, post},
+    middleware,
+    routing::{delete, get, post},
     Router,
 };
 
@@ -17,6 +18,22 @@ pub(crate) fn mount(router: Router<AppState>) -> Router<AppState> {
             "/api/agents/providers/{id}/profiles",
             get(profiles::list).merge(super::plugin_host_action_routes::owner_post(
                 profiles::setup,
+            )),
+        )
+        .route(
+            "/api/agents/providers/acp/registry",
+            get(profiles::registry::search).route_layer(middleware::from_fn(
+                super::plugin_host_action_routes::require_local_owner,
+            )),
+        )
+        .route(
+            "/api/agents/providers/acp/registry/install",
+            super::plugin_host_action_routes::owner_post(profiles::registry::install),
+        )
+        .route(
+            "/api/agents/providers/acp/profiles/{name}",
+            delete(profiles::registry::remove).route_layer(middleware::from_fn(
+                super::plugin_host_action_routes::require_local_owner,
             )),
         )
         .route(

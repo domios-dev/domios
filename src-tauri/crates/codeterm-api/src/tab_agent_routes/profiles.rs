@@ -6,6 +6,8 @@ use axum::{
 };
 use codeterm_service_core::service::agent_runtime::launch_profile_install as profiles;
 
+pub(super) mod registry;
+
 pub(super) async fn list(
     State(state): State<AppState>,
     Path(provider): Path<String>,

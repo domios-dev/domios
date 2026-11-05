@@ -40,6 +40,9 @@ An unknown id on an authoritative catalogue or a published free-form live list i
 |--------|------|-----------|
 | GET | `/api/agents/providers/{id}/profiles` | Read the provider's declared launch profiles and installation state. |
 | POST | `/api/agents/providers/{id}/profiles` | Confirm an installation or configure an owner-controlled local command. |
+| GET | `/api/agents/providers/acp/registry` | Search the ACP registry as the local owner. |
+| POST | `/api/agents/providers/acp/registry/install` | Accept an asynchronous pinned ACP registry installation. |
+| DELETE | `/api/agents/providers/acp/profiles/{name}` | Remove an owner-added ACP profile unless its setup is active. |
 
 Both routes require authenticated API access. POST additionally requires the local
 owner identity (desktop app or owner's web session); tab, relayed, peer and service
@@ -88,4 +91,42 @@ and unavailable receipt storage become terminal `failed` jobs. Failure to accept
 the setup worker returns `500` (`Profile setup unavailable`). Malformed JSON/schema errors use the standard
 Axum JSON rejection. Neither route creates an agent tab.
 
-<!-- revision: 10 -->
+### ACP registry management
+
+All three ACP management routes require the same local owner identity as POST
+profiles. Tabs (including Orchestrators), peers, relayed callers and services receive
+`403` before validation or registry access. These REST responses are raw JSON,
+without the CLI `result` wrapper.
+
+GET registry accepts optional query parameter `q` (default empty, maximum 256
+UTF-8 bytes). Success is `200` with an array of
+`{id, name, version, description, iconUrl}`; `iconUrl` is a URL or `null`. Search
+uses the CLI's bounded index fetch and 20-second deadline. Invalid queries, fetch
+failures and invalid indexes return `400` with the same bounded text cause as the CLI.
+
+POST registry/install accepts only `{"id":"registry-agent-id"}`. The owner action
+itself confirms installation; there is no additional `confirmed` field. Success
+is `202` with `{jobId, providerId:"acp", profileId:id, state:"accepted"}`. Subscribe
+to `provider-profile-setup` before POST. The same job subsequently emits
+`installing`, then `installed` or `failed` with optional `error`; GET profiles
+includes the job for reconnect/reopen recovery. Before the installed profile is
+saved, its job-only row has `install:"not_installed"`, `auth:"unknown"`,
+`canInstall:false`, `ownerConfigured:false` and `setup`. It is not yet a configured
+launch profile. A failed import retains its job-only status for this daemon session.
+
+Invalid names, existing/built-in profile names, an unavailable ACP provider,
+duplicate setup or installer capacity refuse immediately with `400`. Registry
+lookup/fetch, unknown registry ids, unsupported distributions, pinning, checksum
+and installation failures become terminal failed jobs after acceptance. Installation
+uses the same mapping, verification, receipt and profile storage as the CLI;
+`installed` is emitted only after the owner profile has been saved. Worker startup
+failure returns `500`; malformed or unknown JSON fields use Axum's JSON rejection.
+
+DELETE profiles/{name} returns `200` with `{"id":"name"}` after removing an
+owner-added profile from storage and invalidating readiness. Built-ins, missing
+owner profiles, invalid names and profiles with active setup return `400` with a
+text reason. Installed package files remain on disk. Deletion and CLI mutation
+share the same reservation. Terminal setup state is cleared on successful removal.
+These routes create no agent tab.
+
+<!-- revision: 11 -->

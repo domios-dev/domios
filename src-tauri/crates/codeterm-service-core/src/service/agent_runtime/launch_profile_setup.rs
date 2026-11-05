@@ -98,6 +98,23 @@ pub fn current(provider: &str, profile: &str) -> Option<SetupJob> {
         .cloned()
 }
 
+pub fn for_provider(provider: &str) -> Vec<SetupJob> {
+    JOBS.lock()
+        .0
+        .values()
+        .filter(|job| job.provider_id == provider)
+        .cloned()
+        .collect()
+}
+
+pub(super) fn forget_finished(provider: &str, id: &str) {
+    let key = (provider.to_owned(), id.to_owned());
+    let mut jobs = JOBS.lock();
+    if jobs.0.get(&key).is_some_and(|job| !job.active()) {
+        jobs.0.remove(&key);
+    }
+}
+
 fn advance(svc: &ServiceContext, job: &SetupJob, state: SetupState, error: Option<String>) {
     let updated = JOBS.lock().advance(job, state, error);
     if let Some(updated) = updated {
@@ -120,20 +137,29 @@ pub fn begin(
     if command.is_some() && !profile.owner_configured {
         return Err("Only owner-configured profiles accept a local command".into());
     }
+    start(svc, provider, id.clone(), move || {
+        if let Some(command) = command {
+            profiles::confirm_local(&root, &id, &profile, command, true)
+        } else {
+            crate::async_runtime::block_on(profiles::install(&root, &id, &profile, true))
+        }
+        .map(|_| ())
+    })
+}
+
+pub(super) fn start(
+    svc: &ServiceContext,
+    provider: String,
+    id: String,
+    operation: impl FnOnce() -> Result<(), String> + Send + 'static,
+) -> Result<SetupJob, String> {
     let job = JOBS.lock().reserve(&provider, &id)?;
     svc.ui.emit(EVENT, serde_json::json!(job));
     let accepted = job.clone();
     let svc = svc.clone();
     crate::async_runtime::spawn(async move {
         advance(&svc, &job, SetupState::Installing, None);
-        let result = tokio::task::spawn_blocking(move || {
-            if let Some(command) = command {
-                profiles::confirm_local(&root, &id, &profile, command, true)
-            } else {
-                crate::async_runtime::block_on(profiles::install(&root, &id, &profile, true))
-            }
-        })
-        .await;
+        let result = tokio::task::spawn_blocking(operation).await;
         match result {
             Ok(Ok(_)) => advance(&svc, &job, SetupState::Installed, None),
             Ok(Err(error)) => advance(&svc, &job, SetupState::Failed, Some(error)),

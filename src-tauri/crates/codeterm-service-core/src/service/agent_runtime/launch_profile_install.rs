@@ -347,7 +347,7 @@ pub fn catalog(
         .launch_profiles
         .ok_or("Provider has no launch profiles")?;
     let root = profile_root(provider)?;
-    Ok(profiles
+    let mut states: Vec<_> = profiles
         .iter()
         .map(|(id, profile)| ProfileState {
             id: id.clone(),
@@ -357,7 +357,21 @@ pub fn catalog(
             owner_configured: profile.owner_configured,
             setup: super::launch_profile_setup::current(provider, id),
         })
-        .collect())
+        .collect();
+    for job in super::launch_profile_setup::for_provider(provider) {
+        if !profiles.contains_key(&job.profile_id) {
+            states.push(ProfileState {
+                id: job.profile_id.clone(),
+                install: InstallState::NotInstalled,
+                auth: "unknown",
+                can_install: false,
+                owner_configured: false,
+                setup: Some(job),
+            });
+        }
+    }
+    states.sort_by(|left, right| left.id.cmp(&right.id));
+    Ok(states)
 }
 pub fn declaration(
     svc: &crate::service::ServiceContext,

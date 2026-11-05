@@ -126,15 +126,30 @@ fn parse_add(request: Add) -> Result<(String, RuntimeLaunchProfile), String> {
 }
 
 fn validate(svc: &ServiceContext, id: &str, profile: &RuntimeLaunchProfile) -> Result<(), String> {
+    let mut capability = available_name(svc, id)?;
+    capability
+        .launch_profiles
+        .as_mut()
+        .ok_or("ACP launch profiles unavailable")?
+        .insert(id.into(), profile.clone());
+    capability
+        .validate_declaration()
+        .map_err(|_| "Invalid ACP launch profile declaration".to_string())
+}
+
+fn available_name(
+    svc: &ServiceContext,
+    id: &str,
+) -> Result<codeterm_plugin::agent_runtime::AgentRuntimeCapability, String> {
     owner_profiles::valid_name(id)?;
-    let mut capability = svc
+    let capability = svc
         .agent_registry
         .with_provider(PROVIDER, |p| p.agent_runtime())
         .flatten()
         .ok_or("ACP provider unavailable")?;
     let profiles = capability
         .launch_profiles
-        .as_mut()
+        .as_ref()
         .ok_or("ACP launch profiles unavailable")?;
     if let Some(existing) = profiles
         .keys()
@@ -145,10 +160,7 @@ fn validate(svc: &ServiceContext, id: &str, profile: &RuntimeLaunchProfile) -> R
             owner_profiles::load(PROVIDER)?.contains_key(existing),
         ));
     }
-    profiles.insert(id.into(), profile.clone());
-    capability
-        .validate_declaration()
-        .map_err(|_| "Invalid ACP launch profile declaration".to_string())
+    Ok(capability)
 }
 
 fn name_conflict(id: &str, owner_added: bool) -> String {
@@ -175,8 +187,70 @@ fn save(id: &str, profile: RuntimeLaunchProfile) -> Result<Value, String> {
         profiles.insert(id.into(), profile);
         Ok(())
     })?;
+    super::launch_profile_setup::forget_finished(PROVIDER, id);
     changed()?;
     Ok(json!({"id":id}))
+}
+
+fn no_active_setup(id: &str) -> Result<(), String> {
+    if super::launch_profile_setup::current(PROVIDER, id).is_some_and(|job| job.active()) {
+        return Err(
+            "Profile setup is still in progress; wait for completion before changing it".into(),
+        );
+    }
+    Ok(())
+}
+
+pub fn remove(id: &str) -> Result<Value, String> {
+    let _mutation = super::launch_profile_setup::mutation()?;
+    owner_profiles::valid_name(id)?;
+    no_active_setup(id)?;
+    owner_profiles::update(PROVIDER, |profiles| {
+        profiles
+            .remove(id)
+            .map(|_| ())
+            .ok_or("Only owner-added profiles can be removed".into())
+    })?;
+    super::launch_profile_setup::forget_finished(PROVIDER, id);
+    changed()?;
+    Ok(json!({"id":id}))
+}
+
+pub fn registry_search(query: &str) -> Result<Value, String> {
+    registry::search(query)
+}
+
+fn install_registry(svc: &ServiceContext, id: &str) -> Result<Value, String> {
+    let mut profile = registry::profile(id)?;
+    validate(svc, id, &profile)?;
+    crate::async_runtime::block_on(installer::install(
+        &installer::profile_root(PROVIDER)?,
+        id,
+        &profile,
+        true,
+    ))?;
+    if let Some(url) = &profile.icon_url {
+        profile.icon_svg =
+            crate::async_runtime::block_on(codeterm_plugin::plugin_icon::registry::resolve(
+                crate::paths::data_dir_path()
+                    .join(PROVIDER)
+                    .join("cache/icons"),
+                url,
+            ));
+    }
+    save(id, profile)
+}
+
+pub fn begin_registry_install(
+    svc: &ServiceContext,
+    id: String,
+) -> Result<super::launch_profile_setup::SetupJob, String> {
+    let _mutation = super::launch_profile_setup::mutation()?;
+    available_name(svc, &id)?;
+    let service = svc.clone();
+    super::launch_profile_setup::start(svc, PROVIDER.into(), id.clone(), move || {
+        install_registry(&service, &id).map(|_| ())
+    })
 }
 
 fn catalog(svc: &ServiceContext) -> Result<Value, String> {
@@ -241,6 +315,7 @@ pub fn execute(svc: &ServiceContext, params: &Value) -> Result<Value, String> {
             let request =
                 serde_json::from_value(params.clone()).map_err(|_| "Invalid ACP add parameters")?;
             let (id, profile) = parse_add(request)?;
+            no_active_setup(&id)?;
             validate(svc, &id, &profile)?;
             let root = installer::profile_root(PROVIDER)?;
             installer::confirm_local(
@@ -255,48 +330,13 @@ pub fn execute(svc: &ServiceContext, params: &Value) -> Result<Value, String> {
             )?;
             save(&id, profile)
         }
-        "remove" => {
-            let _mutation = super::launch_profile_setup::mutation()?;
-            let id = text("name")?;
-            owner_profiles::valid_name(id)?;
-            if super::launch_profile_setup::current(PROVIDER, id).is_some_and(|job| job.active()) {
-                return Err(
-                    "Profile setup is still in progress; wait for completion before removing it"
-                        .into(),
-                );
-            }
-            owner_profiles::update(PROVIDER, |profiles| {
-                profiles
-                    .remove(id)
-                    .map(|_| ())
-                    .ok_or("Only owner-added profiles can be removed".into())
-            })?;
-            changed()?;
-            Ok(json!({"id":id}))
-        }
-        "registry_search" => registry::search(text("query")?),
+        "remove" => remove(text("name")?),
+        "registry_search" => registry_search(text("query")?),
         "registry_install" => {
             let _mutation = super::launch_profile_setup::mutation()?;
             let id = text("id")?;
-            let mut profile = registry::profile(id)?;
-            validate(svc, id, &profile)?;
-            crate::async_runtime::block_on(installer::install(
-                &installer::profile_root(PROVIDER)?,
-                id,
-                &profile,
-                true,
-            ))?;
-            if let Some(url) = &profile.icon_url {
-                profile.icon_svg = crate::async_runtime::block_on(
-                    codeterm_plugin::plugin_icon::registry::resolve(
-                        crate::paths::data_dir_path()
-                            .join(PROVIDER)
-                            .join("cache/icons"),
-                        url,
-                    ),
-                );
-            }
-            save(id, profile)
+            no_active_setup(id)?;
+            install_registry(svc, id)
         }
         _ => Err("Unknown ACP operation".into()),
     }
