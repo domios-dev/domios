@@ -134,6 +134,7 @@ pub struct ModelProvider {
     model_catalogue: crate::agent::provider::ModelCatalogueCapability,
     cli_binary: Option<&'static str>,
     install_command: Option<&'static str>,
+    runtime: Option<codeterm_plugin::agent_runtime::AgentRuntimeCapability>,
 }
 
 impl ModelProvider {
@@ -160,6 +161,7 @@ impl ModelProvider {
             model_catalogue: Default::default(),
             cli_binary: None,
             install_command: None,
+            runtime: None,
         }
     }
 
@@ -179,6 +181,9 @@ impl ModelProvider {
 }
 
 impl crate::agent::provider::AgentProvider for ModelProvider {
+    fn agent_runtime(&self) -> Option<codeterm_plugin::agent_runtime::AgentRuntimeCapability> {
+        self.runtime.clone()
+    }
     fn id(&self) -> &str {
         self.id
     }
@@ -426,6 +431,7 @@ fn fresh_agent_model_keeps_explicit_model() {
 fn fresh_agent_model_canonicalizes_display_name() {
     let registry = registry_with(ModelProvider {
         id: "model-test-display",
+        runtime: None,
         models: vec![crate::agent::provider::ModelInfo {
             default_reasoning_effort: None,
             id: "gpt-5.5".into(),

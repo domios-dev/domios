@@ -366,47 +366,12 @@
       {
         "operation": 1,
         "step": {
-          "kind": "complete",
-          "result": {
-            "kind": "threadLoaded",
-            "threadId": "refused-session",
-            "settings": {
-              "commands": [],
-              "configOptions": [
-                {
-                  "id": "engine-choice",
-                  "name": "Engine",
-                  "category": "model",
-                  "currentValue": "wire-one",
-                  "options": [
-                    {
-                      "value": "wire-one",
-                      "name": "First declared"
-                    },
-                    {
-                      "value": "wire-two",
-                      "name": "Second declared"
-                    }
-                  ]
-                }
-              ],
-              "modes": [
-                {
-                  "id": "code",
-                  "name": "Code"
-                }
-              ],
-              "model": "wire-one",
-              "mode": "code"
-            }
+          "kind": "refused",
+          "reason": {
+            "code": "provider_refused",
+            "message": "Requested session options were refused: Agent declined the requested engine"
           },
-          "events": [
-            {
-              "kind": "notice",
-              "threadId": "refused-session",
-              "message": "Requested model was not applied: Agent declined the requested engine"
-            }
-          ]
+          "beforeAcceptance": true
         }
       },
       {
@@ -430,47 +395,12 @@
       {
         "operation": 3,
         "step": {
-          "kind": "complete",
-          "result": {
-            "kind": "threadLoaded",
-            "threadId": "refused-session",
-            "settings": {
-              "commands": [],
-              "configOptions": [
-                {
-                  "id": "engine-choice",
-                  "name": "Engine",
-                  "category": "model",
-                  "currentValue": "wire-one",
-                  "options": [
-                    {
-                      "value": "wire-one",
-                      "name": "First declared"
-                    },
-                    {
-                      "value": "wire-two",
-                      "name": "Second declared"
-                    }
-                  ]
-                }
-              ],
-              "modes": [
-                {
-                  "id": "code",
-                  "name": "Code"
-                }
-              ],
-              "model": "wire-one",
-              "mode": "code"
-            }
+          "kind": "refused",
+          "reason": {
+            "code": "provider_refused",
+            "message": "Requested session options were refused: Agent declined the requested engine"
           },
-          "events": [
-            {
-              "kind": "notice",
-              "threadId": "refused-session",
-              "message": "Requested model was not applied: Agent declined the requested engine"
-            }
-          ]
+          "beforeAcceptance": true
         }
       }
     ],
@@ -483,21 +413,11 @@
         }
       },
       {
-        "kind": "notice",
-        "threadId": "refused-session",
-        "message": "Requested model was not applied: Agent declined the requested engine"
-      },
-      {
         "kind": "authentication",
         "authentication": {
           "state": "unknown",
           "methods": []
         }
-      },
-      {
-        "kind": "notice",
-        "threadId": "refused-session",
-        "message": "Requested model was not applied: Agent declined the requested engine"
       }
     ]
   }

@@ -157,35 +157,12 @@
       {
         "operation": 1,
         "step": {
-          "kind": "complete",
-          "result": {
-            "kind": "threadLoaded",
-            "threadId": "session-fixture",
-            "settings": {
-              "commands": [],
-              "configOptions": [
-                {
-                  "id": "model",
-                  "name": "Model",
-                  "currentValue": "not-a-model-declaration",
-                  "options": [
-                    {
-                      "value": "unreported-request",
-                      "name": "Undeclared"
-                    }
-                  ]
-                }
-              ],
-              "modes": []
-            }
+          "kind": "refused",
+          "reason": {
+            "code": "provider_refused",
+            "message": "Requested model 'unreported-request' is not offered; offered values: none"
           },
-          "events": [
-            {
-              "kind": "notice",
-              "threadId": "session-fixture",
-              "message": "Requested model was not applied: This agent declared no model option"
-            }
-          ]
+          "beforeAcceptance": true
         }
       }
     ],
@@ -196,11 +173,6 @@
           "state": "unknown",
           "methods": []
         }
-      },
-      {
-        "kind": "notice",
-        "threadId": "session-fixture",
-        "message": "Requested model was not applied: This agent declared no model option"
       }
     ],
     "planErrors": [

@@ -954,7 +954,8 @@ pub(super) fn agent_to_api(action: &AgentAction) -> (String, String, Option<Stri
             Some(crate::cmd::agent::agent_login::request_body(*device, method.as_deref(), *cancel).to_string()),
         ),
         crate::AgentAction::Login { .. } => unsupported("API keys must be entered on the provider's own machine"),
-        crate::AgentAction::Providers | crate::AgentAction::Models { .. } => {
+        crate::AgentAction::Models { profile: Some(_), .. } => unsupported("profile option catalogs are local-only; run on the target machine"),
+        crate::AgentAction::Providers | crate::AgentAction::Models { profile: None, .. } => {
             ("GET".into(), "/api/agents/providers".into(), None)
         }
         crate::AgentAction::Restart {

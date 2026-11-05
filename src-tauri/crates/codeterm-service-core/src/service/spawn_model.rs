@@ -192,6 +192,17 @@ pub fn resolve_fresh_agent_model_with_notice(
     requested: Option<String>,
     resume_session_id: Option<&str>,
 ) -> FreshAgentModelResolution {
+    if super::spawn_model_catalogue::profile_scoped_options(registry, provider_id) {
+        let requested = requested.and_then(non_empty_model);
+        return FreshAgentModelResolution {
+            model: requested.clone(),
+            requested_model: requested,
+            provider_resolved_model: None,
+            fallback_notice: None,
+            restore_notification: None,
+            warning: None,
+        };
+    }
     if let Some(requested_model) = requested
         .as_deref()
         .map(|model| normalize_requested_model(provider_id, model))

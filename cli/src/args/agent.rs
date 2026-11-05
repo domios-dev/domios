@@ -327,6 +327,9 @@ pub enum AgentAction {
     Models {
         /// Provider id (e.g. "claude"). Required.
         provider: String,
+        /// Last declared model and effort options for this launch profile.
+        #[arg(long)]
+        profile: Option<String>,
     },
     /// Spawn a new agent; roleless unless --role is provided.
     ///

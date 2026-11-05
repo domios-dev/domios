@@ -210,13 +210,17 @@ function configOptions(value) {
 function modelOption(settings) {
   return settings?.configOptions?.find((option) => option.category === "model");
 }
+function effortOption(settings) {
+  return settings?.configOptions?.find((option) => option.category === "thought_level");
+}
 function sessionSettings(value) {
   const response = object2(value), modes = object2(response.modes);
   const seen = /* @__PURE__ */ new Set();
   const declared = Array.isArray(response.configOptions) ? configOptions(response.configOptions) : void 0;
   const model = modelOption({ configOptions: declared })?.currentValue;
+  const effort = effortOption({ configOptions: declared })?.currentValue;
   return {
-    ...declared ? { configOptions: declared, ...model ? { model } : {} } : {},
+    ...declared ? { configOptions: declared, ...model ? { model } : {}, ...effort ? { effort } : {} } : {},
     ...Array.isArray(modes.availableModes) ? { modes: list(modes.availableModes, 64).flatMap((mode) => {
       if (!label(mode.id) || !label(mode.name) || seen.has(mode.id)) return [];
       seen.add(mode.id);
@@ -830,6 +834,23 @@ function runtimeAnswer(ctx, method, params, _id, answer) {
   return { outcome: { outcome: "selected", optionId: answer.values[0] } };
 }
 
+// plugins/provider-acp/src/launchSelection.ts
+function launchSelection(requested, reported, attempted) {
+  for (const [category, value, title] of [["model", requested.model, "model"], ["thought_level", requested.effort, "reasoning effort"]]) {
+    if (!value) continue;
+    const option = reported?.configOptions?.find((option2) => option2.category === category);
+    const offered = option?.options.map((choice) => choice.value).join(", ") || "none";
+    const choices = Array.from(offered).slice(0, 2e3).join("");
+    if (!option || !option.options.some((choice) => choice.value === value))
+      return { kind: "refused", message: `Requested ${title} '${value}' is not offered; offered values: ${choices}` };
+    if (option.currentValue === value) continue;
+    if (attempted.includes(category))
+      return { kind: "refused", message: `Agent did not confirm requested ${title} '${value}'; offered values: ${choices}` };
+    return { kind: "set", category, id: option.id, value };
+  }
+  return { kind: "complete" };
+}
+
 // plugins/provider-acp/src/runtime.ts
 var epochs = /* @__PURE__ */ new Map();
 var object4 = (value) => value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
@@ -878,12 +899,6 @@ function agentIdentity(raw) {
   if (!label(info.name) || !label(info.version) || info.title !== void 0 && !label(info.title)) return {};
   return { agentName: typeof info.title === "string" ? info.title : info.name, binaryVersion: info.version };
 }
-function unappliedModelNotice(requested, settings, threadId) {
-  if (!requested || requested === modelOption(settings)?.currentValue) return {};
-  const option = modelOption(settings);
-  const reason = !option ? "This agent declared no model option" : option.options.some((value) => value.value === requested) ? "Model was not applied by this agent" : "Model was not declared by this agent";
-  return { events: [{ kind: "notice", threadId, message: `Requested model was not applied: ${reason}` }] };
-}
 function threadNotices(state, threadId, events) {
   if (state.mcpUnavailable) {
     events.push({ kind: "notice", threadId, message: state.mcpUnavailable });
@@ -891,15 +906,18 @@ function threadNotices(state, threadId, events) {
   }
   return events.length ? { events } : {};
 }
-function loadedThread(op, state, sessionId, selectModel, refusal) {
-  const option = modelOption(state.settings);
-  const requested = op.settings.model;
-  if (selectModel && requested && requested !== option?.currentValue && option?.options.some((value) => value.value === requested))
-    return { kind: "continue", plan: request("session/set_config_option", { sessionId, configId: option.id, value: requested }) };
+function loadedThread(op, state, sessionId, attempted = []) {
+  const selection = launchSelection(op.settings, state.settings, attempted);
+  if (selection.kind === "refused") return refused("provider_refused", selection.message);
+  if (selection.kind === "set") {
+    const plan = request("session/set_config_option", { sessionId, configId: selection.id, value: selection.value });
+    plan.state = { method: "session/set_config_option", attempted: [...attempted, selection.category] };
+    return { kind: "continue", plan };
+  }
   return {
     kind: "complete",
     result: { kind: "threadLoaded", threadId: sessionId, settings: state.settings ?? {} },
-    ...threadNotices(state, sessionId, refusal === void 0 ? unappliedModelNotice(requested, state.settings, sessionId).events ?? [] : [{ kind: "notice", threadId: sessionId, message: `Requested model was not applied: ${Array.from(refusal).slice(0, 1e3).join("")}` }])
+    ...threadNotices(state, sessionId, [])
   };
 }
 function clientCapabilities(ctx) {
@@ -1065,7 +1083,7 @@ function runtimeResponse(ctx, op, raw, reply) {
       const state3 = negotiated(ctx);
       if (!state3?.sessionActive || !state3.sessionId || op.kind === "resumeThread" && state3.sessionId !== op.threadId)
         return refused("binding_mismatch", "ACP session is not active in this runtime");
-      return loadedThread(op, state3, state3.sessionId, false, reply.error.message);
+      return refused("provider_refused", `Requested session options were refused: ${Array.from(reply.error.message).slice(0, 1e3).join("")}`);
     }
     if (reply.error.code === -32e3) {
       const state3 = negotiated(ctx);
@@ -1127,14 +1145,18 @@ function runtimeResponse(ctx, op, raw, reply) {
   if ((op.kind === "openThread" || op.kind === "resumeThread") && method === "session/set_config_option") {
     if (!state.sessionActive || !state.sessionId || op.kind === "resumeThread" && state.sessionId !== op.threadId)
       return refused("binding_mismatch", "ACP session is not active in this runtime");
-    if (!Array.isArray(value.configOptions)) return refused("protocol_error", "Invalid session model response");
+    if (!Array.isArray(value.configOptions)) return refused("protocol_error", "Invalid session option response");
     delete state.settings?.model;
+    delete state.settings?.effort;
     state.settings = { ...state.settings, ...sessionSettings(value) };
-    return loadedThread(op, state, state.sessionId, false);
+    const attempted = object4(raw).attempted;
+    if (!Array.isArray(attempted) || attempted.length > 2 || !attempted.every((value2) => value2 === "model" || value2 === "thought_level"))
+      return refused("protocol_error", "Invalid session selection continuation");
+    return loadedThread(op, state, state.sessionId, attempted);
   }
   if (op.kind === "resumeThread" && method === "boundSession") {
     if (!state.sessionActive || state.sessionId !== op.threadId) return refused("binding_mismatch", "ACP session is not active in this runtime");
-    return loadedThread(op, state, ownSession(ctx, state), true);
+    return loadedThread(op, state, ownSession(ctx, state));
   }
   if (op.kind === "openThread" || op.kind === "resumeThread") {
     if (op.kind === "resumeThread") {
@@ -1149,7 +1171,7 @@ function runtimeResponse(ctx, op, raw, reply) {
     state.instructions = op.instructions;
     state.cursor.loading = false;
     state.settings = { commands: [], configOptions: [], modes: [], ...sessionSettings(value) };
-    return loadedThread(op, state, sessionId, true);
+    return loadedThread(op, state, sessionId);
   }
   if (op.kind === "control" && ["config", "mode", "settings"].includes(op.action)) {
     const sessionId = ownSession(ctx, state);
@@ -1158,8 +1180,11 @@ function runtimeResponse(ctx, op, raw, reply) {
     state.settings = { ...state.settings, ...settings };
     if (settings.configOptions) {
       delete state.settings.model;
+      delete state.settings.effort;
       const model = modelOption(settings)?.currentValue;
       if (model) state.settings.model = model;
+      const effort = effortOption(settings)?.currentValue;
+      if (effort) state.settings.effort = effort;
     }
     return { kind: "complete", result: { kind: "done" }, events: [{ kind: "controlsConfirmed", threadId: sessionId, settings: op.action === "settings" ? state.settings : settings }] };
   }
@@ -1221,8 +1246,11 @@ function runtimeReduce(ctx, raw, frames) {
     state.settings = { ...state.settings, ...event.settings };
     if (event.settings.configOptions) {
       delete state.settings.model;
+      delete state.settings.effort;
       const model = modelOption(event.settings)?.currentValue;
       if (model) state.settings.model = model;
+      const effort = effortOption(event.settings)?.currentValue;
+      if (effort) state.settings.effort = effort;
     }
   }
   const bounded = fitTextReduction(projection, [...reduction.events, ...prompts]);

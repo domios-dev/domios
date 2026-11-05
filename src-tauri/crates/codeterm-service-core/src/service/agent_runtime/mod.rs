@@ -36,6 +36,7 @@ pub(crate) mod plan_warning;
 pub(crate) mod process;
 mod process_boundary;
 mod process_slot;
+pub(crate) mod profile_options;
 pub(crate) mod projections;
 pub mod reset_credits;
 pub mod thread_history;

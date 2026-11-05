@@ -40,6 +40,7 @@ pub enum InstallState {
 #[serde(rename_all = "camelCase")]
 pub struct ProfileState {
     pub id: String,
+    pub config_options: Vec<codeterm_plugin::agent_runtime::RuntimeConfigOption>,
     pub install: InstallState,
     pub auth: &'static str,
     pub can_install: bool,
@@ -70,7 +71,7 @@ fn receipt_path(root: &Path, id: &str) -> Result<PathBuf, String> {
     valid_id(id)?;
     Ok(root.join(format!("{id}.json")))
 }
-fn fingerprint(profile: &RuntimeLaunchProfile) -> Result<String, String> {
+pub(super) fn fingerprint(profile: &RuntimeLaunchProfile) -> Result<String, String> {
     let mut declaration = profile.clone();
     declaration.icon_svg = None;
     let bytes = serde_json::to_vec(&declaration).map_err(|_| "Invalid launch profile")?;
@@ -351,6 +352,7 @@ pub fn catalog(
         .iter()
         .map(|(id, profile)| ProfileState {
             id: id.clone(),
+            config_options: super::profile_options::read(&root, id, profile),
             install: detect(&root, id, profile),
             auth: "unknown",
             can_install: profile.install.is_some(),
@@ -362,6 +364,7 @@ pub fn catalog(
         if !profiles.contains_key(&job.profile_id) {
             states.push(ProfileState {
                 id: job.profile_id.clone(),
+                config_options: Vec::new(),
                 install: InstallState::NotInstalled,
                 auth: "unknown",
                 can_install: false,

@@ -1,0 +1,174 @@
+use codeterm_plugin::agent_runtime::{RuntimeConfigOption, RuntimeLaunchProfile, RuntimeSettings};
+use parking_lot::Mutex;
+use serde::{Deserialize, Serialize};
+use std::{
+    collections::BTreeMap,
+    io::Read,
+    path::{Path, PathBuf},
+    sync::LazyLock,
+};
+
+const MAX_BYTES: u64 = 256 * 1024;
+const MAX_PENDING: usize = 256;
+
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct Snapshot {
+    declaration_sha256: String,
+    config_options: Vec<RuntimeConfigOption>,
+}
+
+#[derive(Default)]
+struct Writes {
+    running: bool,
+    pending: BTreeMap<PathBuf, Snapshot>,
+    latest: BTreeMap<PathBuf, Snapshot>,
+}
+static WRITES: LazyLock<Mutex<Writes>> = LazyLock::new(|| Mutex::new(Writes::default()));
+
+fn path(root: &Path, id: &str) -> Option<PathBuf> {
+    if id.is_empty()
+        || id.len() > 128
+        || codeterm_plugin::agent_runtime::install_validation::reserved_name(id)
+        || !id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"_-".contains(&b))
+    {
+        return None;
+    }
+    Some(root.join(format!("{id}.options.json")))
+}
+
+pub(super) fn read(
+    root: &Path,
+    id: &str,
+    profile: &RuntimeLaunchProfile,
+) -> Vec<RuntimeConfigOption> {
+    let Some(path) = path(root, id) else {
+        return Vec::new();
+    };
+    let pending = WRITES.lock().latest.get(&path).cloned();
+    let snapshot = pending.or_else(|| {
+        let file = std::fs::File::open(path).ok()?;
+        if file.metadata().ok()?.len() > MAX_BYTES {
+            return None;
+        }
+        let mut bytes = Vec::new();
+        file.take(MAX_BYTES + 1).read_to_end(&mut bytes).ok()?;
+        if bytes.len() as u64 > MAX_BYTES {
+            return None;
+        }
+        serde_json::from_slice::<Snapshot>(&bytes).ok()
+    });
+    let Some(snapshot) = snapshot else {
+        return Vec::new();
+    };
+    if super::launch_profile_install::fingerprint(profile)
+        .ok()
+        .as_deref()
+        != Some(snapshot.declaration_sha256.as_str())
+    {
+        return Vec::new();
+    }
+    let settings = RuntimeSettings {
+        config_options: Some(snapshot.config_options.clone()),
+        ..Default::default()
+    };
+    if codeterm_plugin::agent_runtime::validate_runtime_settings(&settings).is_err() {
+        return Vec::new();
+    }
+    snapshot
+        .config_options
+        .into_iter()
+        .filter(selectable)
+        .collect()
+}
+
+fn selectable(option: &RuntimeConfigOption) -> bool {
+    matches!(option.category.as_deref(), Some("model" | "thought_level"))
+}
+
+fn snapshot(profile: &RuntimeLaunchProfile, settings: &RuntimeSettings) -> Option<Snapshot> {
+    codeterm_plugin::agent_runtime::validate_runtime_settings(settings).ok()?;
+    let snapshot = Snapshot {
+        declaration_sha256: super::launch_profile_install::fingerprint(profile).ok()?,
+        config_options: settings
+            .config_options
+            .as_ref()?
+            .iter()
+            .filter(|option| selectable(option))
+            .cloned()
+            .collect(),
+    };
+    (serde_json::to_vec(&snapshot).ok()?.len() as u64 <= MAX_BYTES).then_some(snapshot)
+}
+
+fn write(path: &Path, snapshot: &Snapshot) -> Result<(), String> {
+    let bytes = serde_json::to_vec(snapshot).map_err(|error| error.to_string())?;
+    if bytes.len() as u64 > MAX_BYTES {
+        return Err("Profile options exceed storage limit".into());
+    }
+    std::fs::create_dir_all(path.parent().ok_or("Missing profile directory")?)
+        .map_err(|error| error.to_string())?;
+    codeterm_util::atomic_write::write_atomic(path, bytes).map_err(|error| error.to_string())
+}
+
+pub(crate) fn record(
+    svc: &crate::service::ServiceContext,
+    provider: &str,
+    id: &str,
+    settings: &RuntimeSettings,
+) {
+    if settings.config_options.is_none() {
+        return;
+    }
+    let Ok(profile) = super::launch_profile_install::declaration(svc, provider, id) else {
+        return;
+    };
+    let Some(snapshot) = snapshot(&profile, settings) else {
+        return;
+    };
+    let Some(path) = super::launch_profile_install::profile_root(provider)
+        .ok()
+        .and_then(|root| path(&root, id))
+    else {
+        return;
+    };
+    let mut writes = WRITES.lock();
+    if writes.latest.get(&path) == Some(&snapshot) {
+        return;
+    }
+    if writes.pending.len() >= MAX_PENDING && !writes.pending.contains_key(&path) {
+        log::debug!("Profile option persistence queue is full");
+        return;
+    }
+    if writes.latest.len() >= MAX_PENDING && !writes.latest.contains_key(&path) {
+        writes.latest.pop_first();
+    }
+    writes.latest.insert(path.clone(), snapshot.clone());
+    writes.pending.insert(path, snapshot);
+    if writes.running {
+        return;
+    }
+    writes.running = true;
+    drop(writes);
+    crate::async_runtime::spawn_blocking(|| loop {
+        let next = {
+            let mut writes = WRITES.lock();
+            match writes.pending.pop_first() {
+                Some(next) => Some(next),
+                None => {
+                    writes.running = false;
+                    None
+                }
+            }
+        };
+        let Some((path, snapshot)) = next else { break };
+        if let Err(error) = write(&path, &snapshot) {
+            log::debug!("Profile options could not be saved: {error}");
+        }
+    });
+}
+
+#[cfg(test)]
+mod tests;

@@ -733,7 +733,8 @@
                 }
               ],
               "modes": [],
-              "model": "[\"deepseek-official\",\"deepseek-v4-flash\"]"
+              "model": "[\"deepseek-official\",\"deepseek-v4-flash\"]",
+              "effort": "high"
             }
           }
         }

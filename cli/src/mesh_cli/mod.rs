@@ -260,7 +260,7 @@ pub fn run_via_mesh(cli: super::Cli, target: &str) {
             relay::announce_answering_peer(target, answer.peer.as_ref());
         }
         let output = match action {
-            super::AgentAction::Models { provider } => {
+            super::AgentAction::Models { provider, .. } => {
                 crate::cmd::agent::render_agent_models(&answer.data, provider, cli.json)
             }
             _ => crate::cmd::agent::render_agent_providers(&answer.data, cli.json),

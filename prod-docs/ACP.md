@@ -185,15 +185,21 @@ is available; an installed profile is not proof of authentication.
 ```bash
 domios agent spawn acp --profile gemini-cli --description "Work with Gemini"
 domios agent spawn acp --profile deepseek-harness --description "Work with DeepSeek"
-domios agent spawn acp --profile local --model MODEL_ID --description "Work with the local agent"
+domios agent models acp --profile local
+domios agent spawn acp --profile local --model MODEL_ID --reasoning-effort EFFORT_ID --description "Work with the local agent"
 ```
 
 `--profile` selects the launch command; `--model` selects a model within that
-agent's session. Omit the model to use the agent's default. ACP reads the session's
-declared model configuration; a requested model is applied only when advertised.
-If no model option exists or selection fails, the tab shows a notice that the
-requested model was not applied. Check the reported session model before claiming
-that selection succeeded. Unknown, missing required, or uninstalled profiles
+agent's session. `--reasoning-effort` selects the declared `thought_level` choice.
+Omitting either flag preserves the agent's default for that option. The models
+command shows this profile's last declared model and effort option IDs, values and
+labels; an empty catalog means no choices have been observed yet. These cached
+choices are advisory. Each new or restored session validates requested values
+against its own declarations and confirms them before the bootstrap task is sent.
+An unavailable value fails readiness with the offered values; a rejected or
+unconfirmed change also fails readiness. The task is never silently sent with a
+different selection. The same selection applies to plan dispatch/respawn and HTTP
+spawn (`model` and `reasoning_effort` alongside the profile). Unknown, missing required, or uninstalled profiles
 refuse before tab creation. Local profile setup is required even if its executable
 already exists on PATH.
 
@@ -244,4 +250,4 @@ It can also cancel a turn waiting for a permission response.
   the current index and refuses unsupported distributions; neither proves agent
   authentication or compatibility.
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->

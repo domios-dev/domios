@@ -43,12 +43,16 @@ export function configOptions(value:unknown):NonNullable<RuntimeSettings["config
 export function modelOption(settings:RuntimeSettings | undefined) {
   return settings?.configOptions?.find(option=>option.category === "model");
 }
+export function effortOption(settings:RuntimeSettings | undefined) {
+  return settings?.configOptions?.find(option=>option.category === "thought_level");
+}
 export function sessionSettings(value:unknown):RuntimeSettings {
   const response=object(value), modes=object(response.modes);
   const seen=new Set<string>();
   const declared=Array.isArray(response.configOptions) ? configOptions(response.configOptions) : undefined;
   const model=modelOption({configOptions:declared})?.currentValue;
-  return {...(declared ? {configOptions:declared,...(model ? {model} : {})} : {}),
+  const effort=effortOption({configOptions:declared})?.currentValue;
+  return {...(declared ? {configOptions:declared,...(model ? {model} : {}),...(effort ? {effort} : {})} : {}),
     ...(Array.isArray(modes.availableModes) ? {modes:list(modes.availableModes,64).flatMap(mode=>{
       if (!label(mode.id) || !label(mode.name) || seen.has(mode.id)) return [];
       seen.add(mode.id);return [{id:mode.id,name:mode.name}];

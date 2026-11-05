@@ -399,7 +399,30 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 crate::cmd::print::fail(1, e.to_string());
             }
         },
-        AgentAction::Models { provider } => {
+        AgentAction::Models {
+            provider,
+            profile: Some(profile),
+        } => {
+            let response = local_http
+                .get(format!(
+                    "{base}/api/agents/providers/{}/profiles",
+                    urlencoding::encode(&provider)
+                ))
+                .send()
+                .unwrap_or_else(|error| crate::cmd::print::fail(1, error.to_string()));
+            let status = response.status();
+            let value: serde_json::Value = response.json().unwrap_or_default();
+            if !status.is_success() {
+                crate::cmd::print::fail_http(1, status.as_u16(), &value.to_string());
+            }
+            let output = agent_models::render_profile_options(&value, &provider, &profile, json)
+                .unwrap_or_else(|error| crate::cmd::print::exit_with_cli_error(json, &error));
+            print!("{output}");
+        }
+        AgentAction::Models {
+            provider,
+            profile: None,
+        } => {
             match local_http
                 .get(format!("{}/api/agents/providers", base))
                 .send()

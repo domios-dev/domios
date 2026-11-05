@@ -50,9 +50,19 @@ credentials are refused with `403` before setup. A `confirmed: true` body does n
 grant owner authority.
 
 GET has no body and returns a JSON array of
-`{id, install, auth, canInstall, ownerConfigured, setup?}`. `install` is `not_installed`,
+`{id, install, auth, canInstall, ownerConfigured, configOptions, setup?}`. `install` is `not_installed`,
 `installed`, `detected` or `unknown`; `auth` currently reports `unknown`.
 `canInstall` means the declaration has a supported install specification.
+`configOptions` is the profile's last declared model and `thought_level` options:
+each has `id`, `name`, `category`, `currentValue` and `options: [{value, name}]`.
+It is empty before discovery and persists across daemon restarts, bound to the
+profile's launch declaration. Cached choices are advisory. To start ACP with a
+choice, send `agent: "acp"`, `launch_profile`, `model` and `reasoning_effort` on the existing
+spawn request. Omit a choice to preserve the agent's default. After session loading,
+the runtime validates against the live declarations and confirms each requested
+option before bootstrap submission. Missing, rejected or unconfirmed choices fail
+readiness; unsupported values report the offered IDs. Such failures can occur after
+the spawn response has created a tab, and appear as runtime readiness errors.
 No runtime provider or no declared profiles returns `400` with a text reason;
 a catalogue worker failure returns `500` (`Profile catalog unavailable`).
 
@@ -129,4 +139,4 @@ text reason. Installed package files remain on disk. Deletion and CLI mutation
 share the same reservation. Terminal setup state is cleared on successful removal.
 These routes create no agent tab.
 
-<!-- revision: 11 -->
+<!-- revision: 12 -->

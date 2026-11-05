@@ -574,47 +574,12 @@
       {
         "operation": 1,
         "step": {
-          "kind": "complete",
-          "result": {
-            "kind": "threadLoaded",
-            "threadId": "session-fixture",
-            "settings": {
-              "commands": [],
-              "configOptions": [
-                {
-                  "id": "engine-choice",
-                  "name": "Engine",
-                  "category": "model",
-                  "currentValue": "wire-one",
-                  "options": [
-                    {
-                      "value": "wire-one",
-                      "name": "First declared"
-                    },
-                    {
-                      "value": "wire-two",
-                      "name": "Second declared"
-                    }
-                  ]
-                }
-              ],
-              "modes": [
-                {
-                  "id": "code",
-                  "name": "Code"
-                }
-              ],
-              "model": "wire-one",
-              "mode": "code"
-            }
+          "kind": "refused",
+          "reason": {
+            "code": "provider_refused",
+            "message": "Requested model 'unreported-request' is not offered; offered values: wire-one, wire-two"
           },
-          "events": [
-            {
-              "kind": "notice",
-              "threadId": "session-fixture",
-              "message": "Requested model was not applied: Model was not declared by this agent"
-            }
-          ]
+          "beforeAcceptance": true
         }
       },
       {
@@ -770,11 +735,6 @@
           "state": "unknown",
           "methods": []
         }
-      },
-      {
-        "kind": "notice",
-        "threadId": "session-fixture",
-        "message": "Requested model was not applied: Model was not declared by this agent"
       },
       {
         "kind": "controlsConfirmed",
