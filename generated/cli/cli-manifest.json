@@ -654,6 +654,151 @@
           "subcommands": []
         },
         {
+          "name": "acp",
+          "about": "Manage local ACP launch profiles (local owner or Orchestrator only)",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "add",
+              "about": "Add an owner-configured installed ACP command (local owner or Orchestrator only)",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "arg",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "ARGS",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "auth-env",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "AUTH_ENV",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Optional sign-in secrets as KEY=secret-name:method",
+                  "aliases": []
+                },
+                {
+                  "name": "binary",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "BINARY",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "env",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "ENV",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Non-secret environment entries as KEY=VALUE",
+                  "aliases": []
+                },
+                {
+                  "name": "name",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "NAME",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "secret-env",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "SECRET_ENV",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Required secrets as KEY=secret-name; never pass secret values",
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "list",
+              "about": "List configured ACP profiles and their installation and authentication state",
+              "aliases": [],
+              "args": [],
+              "subcommands": []
+            },
+            {
+              "name": "registry",
+              "about": "Discover and install pinned agents from the ACP registry",
+              "aliases": [],
+              "args": [],
+              "subcommands": [
+                {
+                  "name": "install",
+                  "about": "Install the registry's exact declared distribution as an owner profile",
+                  "aliases": [],
+                  "args": [
+                    {
+                      "name": "id",
+                      "positional": true,
+                      "required": true,
+                      "value_name": "ID",
+                      "possible_values": [],
+                      "default": null,
+                      "help": null,
+                      "aliases": []
+                    }
+                  ],
+                  "subcommands": []
+                },
+                {
+                  "name": "search",
+                  "about": "Search the ACP registry",
+                  "aliases": [],
+                  "args": [
+                    {
+                      "name": "query",
+                      "positional": true,
+                      "required": true,
+                      "value_name": "QUERY",
+                      "possible_values": [],
+                      "default": null,
+                      "help": null,
+                      "aliases": []
+                    }
+                  ],
+                  "subcommands": []
+                }
+              ]
+            },
+            {
+              "name": "remove",
+              "about": "Remove an owner-added ACP profile",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "name",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "NAME",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
+        },
+        {
           "name": "allow-spawn",
           "about": "Toggle whether a tab can spawn children",
           "aliases": [],

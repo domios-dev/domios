@@ -210,6 +210,47 @@ Acknowledge receipt and ownership of the assigned task
 - `--tab` — Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
 - `--task` — Task id (default: $CODETERM_TASK_ID)
 
+#### `domios agent acp`
+
+Manage local ACP launch profiles (local owner or Orchestrator only)
+
+#### `domios agent acp add`
+
+Add an owner-configured installed ACP command (local owner or Orchestrator only)
+
+- `--arg`
+- `--auth-env` — Optional sign-in secrets as KEY=secret-name:method
+- `--binary`
+- `--env` — Non-secret environment entries as KEY=VALUE
+- `<name>`
+- `--secret-env` — Required secrets as KEY=secret-name; never pass secret values
+
+#### `domios agent acp list`
+
+List configured ACP profiles and their installation and authentication state
+
+#### `domios agent acp registry`
+
+Discover and install pinned agents from the ACP registry
+
+#### `domios agent acp registry install`
+
+Install the registry's exact declared distribution as an owner profile
+
+- `<id>`
+
+#### `domios agent acp registry search`
+
+Search the ACP registry
+
+- `<query>`
+
+#### `domios agent acp remove`
+
+Remove an owner-added ACP profile
+
+- `<name>`
+
 #### `domios agent allow-spawn`
 
 Toggle whether a tab can spawn children
