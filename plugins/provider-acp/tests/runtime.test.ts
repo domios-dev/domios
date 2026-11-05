@@ -39,7 +39,9 @@ function loadHooks():AgentRuntime {
   const hooks=sandbox.module.exports.default as AgentRuntime;
   return {...hooks,
     runtimePlan(ctx,op) { assertRuntimeOperation(ctx,op);const plan=runtimeJson(hooks.runtimePlan(ctx,op),"runtimePlan");assertRuntimePlan(ctx,op,plan);return plan; },
-    runtimeResponse(ctx,op,state,reply) { assertRuntimeOperation(ctx,op);const step=runtimeJson(hooks.runtimeResponse(ctx,op,state,reply),"runtimeResponse");if (step.kind === "continue") assertRuntimePlan(ctx,op,step.plan);return step; },
+    runtimeResponse(ctx,op,state,reply) { assertRuntimeOperation(ctx,op);const step=runtimeJson(hooks.runtimeResponse(ctx,op,state,reply),"runtimeResponse");if (step.kind === "continue") assertRuntimePlan(ctx,op,step.plan);
+      if (step.kind === "complete") assert.ok(!step.events?.some(event=>event.kind === "sendEvidence"),"correlated response cannot confirm delivery");
+      return step; },
     runtimeReduce(ctx,state,frames) {
       const before={characters:metrics.characters,scanned:metrics.scanned};
       const track=ctx.tabId === "batch-text-1024" && frames.length === 1024;

@@ -281,13 +281,6 @@
               }
             },
             {
-              "kind": "sendEvidence",
-              "threadId": "session-fixture",
-              "sendId": "send-fixture",
-              "turnId": "session-fixture:turn:1",
-              "itemId": "session-fixture:turn:1:item:1"
-            },
-            {
               "kind": "turnState",
               "threadId": "session-fixture",
               "state": "idle",
@@ -315,13 +308,6 @@
           "type": "user",
           "content": "Hello"
         }
-      },
-      {
-        "kind": "sendEvidence",
-        "threadId": "session-fixture",
-        "sendId": "send-fixture",
-        "turnId": "session-fixture:turn:1",
-        "itemId": "session-fixture:turn:1:item:1"
       },
       {
         "kind": "turnState",

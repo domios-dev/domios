@@ -445,12 +445,12 @@ function submittedRow(state, events, submitted, evidenced) {
     events.push({ kind: "sendEvidence", threadId: state.sessionId, sendId: submitted.sendId, turnId: `${state.sessionId}:turn:${state.turn}`, itemId: id });
   }
 }
-function reduceStream(ctx, raw, frames, cursor, submitted, confirmed = false) {
+function reduceStream(ctx, raw, frames, cursor, submitted, retainSubmitted = false) {
   if (!ctx.threadId) return { state: raw, events: [] };
   const state = initial(ctx, raw, cursor);
   const events = [];
   const ownSubmitted = submitted && ctx.claimedSends.some((claim) => claim.sendId === submitted.sendId && claim.threadId === state.sessionId) ? submitted : void 0;
-  if (confirmed && ownSubmitted && !state.loading && !state.settled) submittedRow(state, events, ownSubmitted, true);
+  if (retainSubmitted && ownSubmitted && !state.loading && !state.settled) submittedRow(state, events, ownSubmitted, false);
   let bounded = false;
   for (const frame of frames) {
     const params = object(frame.params);

@@ -125,12 +125,12 @@ function submittedRow(state:StreamState, events:AgentEvent[], submitted:{sendId:
     events.push({kind:"sendEvidence",threadId:state.sessionId,sendId:submitted.sendId,turnId:`${state.sessionId}:turn:${state.turn}`,itemId:id});
   }
 }
-export function reduceStream(ctx:RuntimeContext, raw:JsonValue, frames:readonly RuntimeFrame[], cursor:StreamCursor, submitted?:{sendId:string;input:TurnInput}, confirmed=false):RuntimeReduction {
+export function reduceStream(ctx:RuntimeContext, raw:JsonValue, frames:readonly RuntimeFrame[], cursor:StreamCursor, submitted?:{sendId:string;input:TurnInput}, retainSubmitted=false):RuntimeReduction {
   if (!ctx.threadId) return {state:raw,events:[]};
   const state=initial(ctx,raw,cursor);
   const events:AgentEvent[]=[];
   const ownSubmitted=submitted && ctx.claimedSends.some(claim=>claim.sendId === submitted.sendId && claim.threadId === state.sessionId) ? submitted : undefined;
-  if (confirmed && ownSubmitted && !state.loading && !state.settled) submittedRow(state,events,ownSubmitted,true);
+  if (retainSubmitted && ownSubmitted && !state.loading && !state.settled) submittedRow(state,events,ownSubmitted,false);
   let bounded=false;
   for (const frame of frames) {
     const params=object(frame.params);

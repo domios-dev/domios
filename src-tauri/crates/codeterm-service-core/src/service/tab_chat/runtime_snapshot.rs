@@ -59,9 +59,6 @@ fn cached(
                     == Some(thread)
             })
         });
-    if !session.thread_loaded.load(Ordering::Acquire) && !fresh_unused {
-        return Ok(None);
-    }
     let current = tab
         .as_ref()
         .is_some_and(|tab| owns(tab, &session.provider, &context));
@@ -69,6 +66,9 @@ fn cached(
         return Err("Runtime transcript binding is not current".into());
     }
     let messages = session.cache.lock().snapshot();
+    if !session.thread_loaded.load(Ordering::Acquire) && !fresh_unused && messages.is_empty() {
+        return Ok(None);
+    }
     let current_context = session.context.lock().clone();
     let current = svc
         .mux

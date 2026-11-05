@@ -511,7 +511,7 @@ fn written_uncertain_send_is_confirmed_by_late_own_evidence_without_replay() {
 }
 
 #[test]
-fn silent_written_reply_confirms_only_success_and_clears_its_claim() {
+fn silent_written_reply_without_session_evidence_keeps_its_claim() {
     use crate::service::{
         chat_send_transaction::ChatSendState,
         delivery_error::DeliveryError,
@@ -575,11 +575,7 @@ fn silent_written_reply_confirms_only_success_and_clears_its_claim() {
                 .status(&pending.send_id)
                 .unwrap()
                 .state,
-            if success {
-                ChatSendState::Sent
-            } else {
-                ChatSendState::Unknown
-            }
+            ChatSendState::Unknown
         );
         assert_eq!(
             session
@@ -588,7 +584,7 @@ fn silent_written_reply_confirms_only_success_and_clears_its_claim() {
                 .claimed_sends
                 .iter()
                 .any(|claim| claim.send_id == pending.send_id),
-            !success
+            true
         );
         assert!(session.context.lock().active_turn_id.is_none());
         if !success {

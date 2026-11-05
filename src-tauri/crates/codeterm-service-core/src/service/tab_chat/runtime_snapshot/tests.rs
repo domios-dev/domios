@@ -327,3 +327,60 @@ fn runtime_stored_history_missing_and_corrupt_are_distinct_from_fresh_empty() {
         Some(StoredHistoryFailure::Corrupt)
     );
 }
+
+#[test]
+fn failed_resume_keeps_restored_failed_turn_rows_without_claiming_loaded() {
+    let (fixture, cwd, provider, tab_id) = fixture(false);
+    let _runtime = attach(&fixture, &tab_id, "unused fixture row");
+    let session = engine::for_tab(&tab_id).unwrap();
+    *session.cache.lock() = Default::default();
+    session.cache.lock().reconcile(ChatMsg {
+        id: "saved-user".into(),
+        kind: "user".into(),
+        content: "opaque original prompt".into(),
+        ..Default::default()
+    });
+    session.cache.lock().reconcile(ChatMsg {
+        id: "saved-failure".into(),
+        kind: "status".into(),
+        content: "opaque quota failure".into(),
+        ..Default::default()
+    });
+    session.thread_loaded.store(false, Ordering::Release);
+    let epoch = session.context.lock().epoch;
+    session.state.lock().degrade(
+        epoch,
+        &crate::service::agent_runtime::model::RuntimeFailure::Refused(
+            "opaque resume refusal".into(),
+        ),
+    );
+    let process = session.process.close().unwrap();
+    crate::async_runtime::block_on(process.finish()).unwrap();
+    let expected = session.cache.lock().snapshot();
+    let (rows, count) = super::super::tab_chat_snapshot(&fixture.service, &tab_id, 0).unwrap();
+    assert_eq!(rows, expected);
+    assert_eq!(count, 2);
+    let (rows, count) = super::super::session_chat_snapshot(
+        &fixture.service,
+        &provider,
+        cwd.path().to_str().unwrap(),
+        "own-thread",
+        0,
+    )
+    .unwrap();
+    assert_eq!(rows, expected);
+    assert_eq!(count, 2);
+    assert!(!session.thread_loaded.load(Ordering::Acquire));
+    assert!(matches!(
+        session.state.lock().phase,
+        crate::service::agent_runtime::model::RuntimePhase::Degraded { .. }
+    ));
+    fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(&tab_id)
+        .unwrap()
+        .session_binding_nonce = Some("foreign-nonce".into());
+    assert!(super::super::tab_chat_snapshot(&fixture.service, &tab_id, 0).is_err());
+}

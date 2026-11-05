@@ -9,7 +9,7 @@ fn written_turn_end_before_output_keeps_one_user_row_and_next_turn_order() {
     for cancelled in [true, false] {
         let source = SOURCE.replace("turnId:'turn'","turnId:op.sendId").replace(
         "events:[{kind:'turnState'",
-        "events:[{kind:'chatItem',threadId:op.threadId,item:{id:'user-'+op.sendId,seq:op.input.text==='opaque next prompt' ? 2 : 1,type:'user',content:op.input.text}},{kind:'sendEvidence',threadId:op.threadId,sendId:op.sendId,turnId:op.sendId,itemId:'user-'+op.sendId},{kind:'turnState'",
+        "events:[{kind:'chatItem',threadId:op.threadId,item:{id:'user-'+op.sendId,seq:op.input.text==='opaque next prompt' ? 2 : 1,type:'user',content:op.input.text}},{kind:'turnState'",
     );
         let (fixture, tab, peer, _cleanup) = runtime_fixture_turn_scoped(&source);
         let session = engine::for_tab(&tab).unwrap();
@@ -17,6 +17,7 @@ fn written_turn_end_before_output_keeps_one_user_row_and_next_turn_order() {
             Messenger::from(MessageEnvelope::default()).framed_delivery("opaque cancelled prompt");
         assert!(frame.to_message().starts_with("<domios from=\"cli\""));
         assert_eq!(frame.body(), "opaque cancelled prompt");
+        let wire = frame.to_message();
         let first = fixture
             .service
             .chat_send_ledger
@@ -79,8 +80,8 @@ fn written_turn_end_before_output_keeps_one_user_row_and_next_turn_order() {
             assert!(super::super::super::controls::interrupt(&fixture.service, &tab).unwrap());
         } else {
             release.send(()).unwrap();
-            crate::async_runtime::block_on(wait_retired(&session, &first.send_id));
         }
+        crate::async_runtime::block_on(wait_retired(&session, &first.send_id));
         assert_eq!(
             fixture
                 .service
@@ -88,11 +89,7 @@ fn written_turn_end_before_output_keeps_one_user_row_and_next_turn_order() {
                 .status(&first.send_id)
                 .unwrap()
                 .state,
-            if cancelled {
-                crate::service::chat_send_transaction::ChatSendState::Sent
-            } else {
-                crate::service::chat_send_transaction::ChatSendState::Unknown
-            }
+            crate::service::chat_send_transaction::ChatSendState::Unknown
         );
         let rows = session.cache.lock().snapshot();
         let users: Vec<_> = rows.iter().filter(|row| row.kind == "user").collect();
@@ -101,6 +98,34 @@ fn written_turn_end_before_output_keeps_one_user_row_and_next_turn_order() {
         assert_eq!(users[0].inbound_kind.as_deref(), Some("cli"));
         assert_eq!(users[0].content, expected.content);
         assert_eq!(users[0].segments, expected.segments);
+        if cancelled {
+            assert!(rows.iter().all(|row| row.kind != "status"));
+            crate::async_runtime::block_on(confirm_echo(
+                &fixture.service,
+                &session,
+                &first.send_id,
+                &wire,
+            ));
+            assert_eq!(
+                fixture
+                    .service
+                    .chat_send_ledger
+                    .status(&first.send_id)
+                    .unwrap()
+                    .state,
+                crate::service::chat_send_transaction::ChatSendState::Sent
+            );
+            assert_eq!(
+                session
+                    .cache
+                    .lock()
+                    .snapshot()
+                    .iter()
+                    .filter(|row| row.kind == "user")
+                    .count(),
+                1
+            );
+        }
         let next = fixture
             .service
             .chat_send_ledger
@@ -117,6 +142,22 @@ fn written_turn_end_before_output_keeps_one_user_row_and_next_turn_order() {
             Ok(()) | Err(DeliveryError::SubmitUnconfirmed { .. })
         ));
         crate::async_runtime::block_on(wait_retired(&session, &next.send_id));
+        assert!(matches!(
+            fixture
+                .service
+                .chat_send_ledger
+                .status(&next.send_id)
+                .unwrap()
+                .state,
+            crate::service::chat_send_transaction::ChatSendState::Unknown
+                | crate::service::chat_send_transaction::ChatSendState::Written
+        ));
+        crate::async_runtime::block_on(confirm_echo(
+            &fixture.service,
+            &session,
+            &next.send_id,
+            "opaque next prompt",
+        ));
         let rows = session.cache.lock().snapshot();
         let users: Vec<_> = rows.iter().filter(|row| row.kind == "user").collect();
         assert_eq!(users.len(), 2);
@@ -160,6 +201,35 @@ async fn wait_retired(session: &Arc<Session>, turn: &str) {
             changes.changed().await.unwrap();
         }
     })
+    .await
+    .unwrap();
+}
+
+async fn confirm_echo(svc: &ServiceContext, session: &Arc<Session>, send: &str, text: &str) {
+    let epoch = session.context.lock().epoch;
+    subscriber::publish_events(
+        svc,
+        session,
+        epoch,
+        vec![
+            AgentRuntimeEvent::ChatItem {
+                thread_id: "own-thread".into(),
+                item: ChatMsg {
+                    id: format!("user-{send}"),
+                    kind: "user".into(),
+                    content: text.into(),
+                    ..Default::default()
+                },
+            },
+            AgentRuntimeEvent::SendEvidence {
+                thread_id: "own-thread".into(),
+                send_id: send.into(),
+                turn_id: send.into(),
+                item_id: Some(format!("user-{send}")),
+            },
+        ],
+        10,
+    )
     .await
     .unwrap();
 }
