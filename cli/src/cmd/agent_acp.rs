@@ -58,4 +58,5 @@ pub(super) fn run(client: &mut SocketClient, json_output: bool, action: AcpActio
 }
 
 #[cfg(test)]
+#[path = "agent_acp/tests.rs"]
 mod tests;
