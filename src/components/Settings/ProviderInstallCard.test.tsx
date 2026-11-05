@@ -120,13 +120,13 @@ describe("provider CLI controls", () => {
     expect(button("Install CLI for fixture")).toBeNull();
     const recheck = button("Re-check launch profiles for fixture");
     expect(recheck).not.toBeNull();
-    expect(fixture.invoke.mock.calls.filter(([command]) => command === "provider_cli_status").at(-1)?.[1]).toEqual({ providerId: "fixture" });
+    expect(fixture.invoke.mock.calls.filter(([command]) => command === "provider_cli_status").slice(-1)[0]?.[1]).toEqual({ providerId: "fixture" });
     const before = statusCalls();
     status = { ...missing, required: false, installed: false, binary: null, installer: null,
       launch_profiles: [{ id: "configured", installed: false }] };
     await act(async () => recheck!.click());
     expect(statusCalls()).toBe(before + 1);
-    expect(fixture.invoke.mock.calls.filter(([command]) => command === "provider_cli_status").at(-1)?.[1]).toEqual({ providerId: "fixture", refresh: true });
+    expect(fixture.invoke.mock.calls.filter(([command]) => command === "provider_cli_status").slice(-1)[0]?.[1]).toEqual({ providerId: "fixture", refresh: true });
     expect(statusText()).toBe("No launch profiles ready");
     expect(host.querySelector('[aria-label="Install command"]')).toBeNull();
   });

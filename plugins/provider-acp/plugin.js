@@ -464,8 +464,9 @@ function reduceStream(ctx, raw, frames, cursor, submitted) {
       if (kind === "user_message_chunk" || kind === "agent_message_chunk" || kind === "agent_thought_chunk") {
         const content = object(update.content);
         if (content.type !== "text" || typeof content.text !== "string" || state.settled && !state.loading) continue;
+        const text2 = content.text;
         if (kind === "user_message_chunk" && submitted && state.evidenced.includes(submitted.sendId)) continue;
-        const messageId = text(update.messageId);
+        const messageId = text2(update.messageId);
         const explicit = messageId ? `${kind}:${messageId}` : void 0;
         if (!state.chunk || state.chunk.kind !== kind || explicit && state.chunk.id !== `${state.sessionId}:turn:${state.turn}:message:${explicit}`) {
           closeChunk(ctx, state, events);
@@ -490,7 +491,7 @@ function reduceStream(ctx, raw, frames, cursor, submitted) {
         const chunk = state.chunk;
         if (chunk.dropped) continue;
         if (kind === "user_message_chunk" && !state.loading) {
-          const claim = ctx.claimedSends.find((claim2) => claim2.threadId === ctx.threadId && !state.evidenced.includes(claim2.sendId) && claim2.input.attachments.length === 0 && (chunk.chars === 0 || claim2.sendId === chunk.echo) && claim2.input.text.slice(chunk.chars, chunk.chars + content.text.length) === content.text);
+          const claim = ctx.claimedSends.find((claim2) => claim2.threadId === ctx.threadId && !state.evidenced.includes(claim2.sendId) && claim2.input.attachments.length === 0 && (chunk.chars === 0 || claim2.sendId === chunk.echo) && claim2.input.text.slice(chunk.chars, chunk.chars + text2.length) === text2);
           if (claim) chunk.echo = claim.sendId;
           else delete chunk.echo;
         }

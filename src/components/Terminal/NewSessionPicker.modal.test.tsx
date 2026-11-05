@@ -409,7 +409,7 @@ describe("NewSessionPicker launch profiles", () => {
       {id:"deepseek-harness",install:"installed",auth:"unknown",canInstall:true,ownerConfigured:false},
       {id:"gemini-cli",install:"detected",auth:"unknown",canInstall:false,ownerConfigured:false},
     ] : undefined);
-    await renderPicker({fullAccess:false});
+    await renderPicker();
     await choose("Agent provider","ACP");
     const select = dialog().querySelector<HTMLSelectElement>('select[aria-label="Agent profile"]');
     expect(select).not.toBeNull();
