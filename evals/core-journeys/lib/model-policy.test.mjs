@@ -9,7 +9,7 @@ import { spawnOne } from "../journeys/spawn.mjs";
 import { launchApiPair, uiPairChoice } from "../journeys/team.mjs";
 import { completeFirstRun } from "./setup.mjs";
 import { sendText } from "./tabs.mjs";
-import { catalogueSelection, modelIdentity, modelSelections, preparePolicy } from "./model-policy.mjs";
+import { catalogueSelection, modelIdentity, modelSelections, preparePolicy, refreshAfterStartup } from "./model-policy.mjs";
 import { fixtureProviderId } from "./fixture-control.mjs";
 
 const provider = "arbitrary-harness", model = "vendor/exact-identity";
@@ -27,6 +27,7 @@ function fixture() {
     options: { mode: "setup", models: modelSelections([`${provider}=${model}`]) },
     state: { run: "fixture", workspace: { id: "workspace", cwd: "/owned" }, tabs: [{ id: "owned", provider, journey: "J1" }] },
     deadlines: { ready: 100 }, save() {},
+    catalogueEvents: async () => ({ next: async () => { throw new Error("deadline"); }, close() {} }),
     api: async (path, options) => {
       calls.push({ path, options });
       if (path === "/api/agents/providers") return descriptors;
@@ -215,4 +216,68 @@ test("identity checks exact requested, catalogue-resolved and runtime identities
     const value = record(); delete value[field];
     assert.throws(() => modelIdentity(value, provider, model), /unknown/);
   }
+});
+
+
+test("startup catalogue waits only on a newer event for its own provider before one final refresh", async () => {
+  const calls = [], changes = [
+    { event_type: "mux-state-changed" },
+    { event_type: "model-catalogue-changed", data: { provider: "other", version: 99 } },
+    { event_type: "model-catalogue-changed", data: { provider, version: 12 } },
+    { event_type: "model-catalogue-changed", data: { provider, version: 13 } },
+  ];
+  let closed = false;
+  const ctx = {
+    catalogueEvents: async () => {
+      calls.push("subscribe");
+      return { next: async () => { calls.push("event"); return changes.shift(); }, close: () => { closed = true; } };
+    },
+    api: async (_path, options) => {
+      assert.deepEqual(options.body, { provider_id: provider });
+      calls.push("refresh");
+      return calls.filter(value => value === "refresh").length === 1
+        ? { ...refreshed(), refreshed: false } : { ...refreshed(), version: 13 };
+    },
+  };
+  assert.equal((await refreshAfterStartup(ctx, provider)).refreshed, true);
+  assert.deepEqual(calls, ["subscribe", "refresh", "event", "event", "event", "event", "refresh"]);
+  assert.equal(closed, true);
+});
+
+test("completed refresh needs no future change event and closes its observation", async () => {
+  let closed = false, calls = 0;
+  const ctx = {
+    catalogueEvents: async () => ({ next: async () => { assert.fail("completed refresh must not wait"); }, close: () => { closed = true; } }),
+    api: async () => { calls++; return refreshed(); },
+  };
+  assert.deepEqual(await refreshAfterStartup(ctx, provider), refreshed());
+  assert.equal(calls, 1);
+  assert.equal(closed, true);
+});
+
+test("missing startup catalogue event fails explicitly without another refresh or paid launch", async () => {
+  const f = fixture();
+  f.setRefresh({ ...refreshed(), refreshed: false });
+  await assert.rejects(f.prepare(), /startup catalogue completion event did not arrive before the 60 s deadline/);
+  assert.equal(f.calls.filter(call => call.path === "/api/agents/providers/refresh").length, 1);
+  assert.deepEqual(paidCalls(f.calls), []);
+});
+
+
+test("startup completion followed by a refused refresh never loops or weakens model policy", async () => {
+  const f = fixture();
+  f.setRefresh({ ...refreshed(), refreshed: false });
+  f.ctx.catalogueEvents = async () => ({
+    next: async () => ({ event_type: "model-catalogue-changed", data: { provider, version: 13 } }), close() {},
+  });
+  await assert.rejects(f.prepare(), /catalogue refresh unavailable/);
+  assert.equal(f.calls.filter(call => call.path === "/api/agents/providers/refresh").length, 2);
+  assert.deepEqual(paidCalls(f.calls), []);
+});
+
+test("startup catalogue subscription deadline reports the provider before any refresh", async () => {
+  const f = fixture();
+  f.ctx.catalogueEvents = async () => { throw new Error("deadline"); };
+  await assert.rejects(f.prepare(), new RegExp(`${provider} startup catalogue completion event did not arrive`));
+  assert.equal(f.calls.some(call => call.path === "/api/agents/providers/refresh"), false);
 });

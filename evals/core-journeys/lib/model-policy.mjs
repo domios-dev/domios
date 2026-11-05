@@ -1,3 +1,4 @@
+import { Events } from "./env.mjs";
 import { installed, selectProviders } from "./oracle.mjs";
 import { fixtureProviderId } from "./fixture-control.mjs";
 
@@ -62,8 +63,28 @@ export function generalSelection(config, provider, selected) {
   if (general?.first_run_complete && general.agent_provider !== provider) refuse("conflicting General provider");
 }
 
-export async function freshCatalogue(api, provider, selected, expectedRoster, fixture = () => undefined) {
-  const refresh = await api("/api/agents/providers/refresh", { method: "POST", body: { provider_id: provider } });
+export async function refreshAfterStartup(ctx, provider, { signal = AbortSignal.timeout(60_000) } = {}) {
+  const open = ctx.catalogueEvents ?? ((signal) => new Events(ctx.dev, signal).open());
+  let events;
+  const refresh = () => ctx.api("/api/agents/providers/refresh", { method: "POST", body: { provider_id: provider }, signal });
+  try {
+    events = await open(signal);
+    const initial = await refresh();
+    if (initial?.discovery_required !== true || initial.refreshed !== false) return initial;
+    for (;;) {
+      const event = await events.next();
+      if (event?.event_type === "model-catalogue-changed" && event.data?.provider === provider
+        && Number.isSafeInteger(event.data.version) && event.data.version > initial.version) break;
+    }
+    return await refresh();
+  } catch (error) {
+    if (signal.aborted || error?.message === "deadline") refuse(`${provider} startup catalogue completion event did not arrive before the 60 s deadline`);
+    throw error;
+  } finally { events?.close(); }
+}
+
+export async function freshCatalogue(api, provider, selected, expectedRoster, fixture = () => undefined, observedRefresh) {
+  const refresh = observedRefresh ?? await api("/api/agents/providers/refresh", { method: "POST", body: { provider_id: provider } });
   const descriptors = (await api("/api/agents/providers")).filter(descriptor => descriptor.id !== fixture());
   if (expectedRoster && !same(descriptors.filter(installed).map((descriptor) => descriptor.id), expectedRoster)) refuse("installed provider roster changed");
   return catalogueSelection(descriptors.find((descriptor) => descriptor.id === provider), selected, refresh);
@@ -87,7 +108,10 @@ export async function preparePolicy(ctx, { readRecord, configure = false, requir
   if (previous && (!same(previous.roster, ids) || !same(Object.entries(previous.selections).map((entry) => JSON.stringify(entry)), Object.entries(selections).map((entry) => JSON.stringify(entry))))) refuse("persisted restart policy differs from explicit selections or roster");
   if (!configure && !previous) refuse("persisted restart policy absent");
   const catalogues = {};
-  for (const provider of ids) catalogues[provider] = await freshCatalogue(ctx.api, provider, selectedModel(selections, provider), ids, fixture);
+  for (const provider of ids) {
+    const refresh = await refreshAfterStartup(ctx, provider);
+    catalogues[provider] = await freshCatalogue(ctx.api, provider, selectedModel(selections, provider), ids, fixture, refresh);
+  }
   const policy = previous ?? { selections: { ...selections }, roster: ids, catalogues: {}, launches: [], identities: {}, first_sends: {} };
   Object.assign(policy.catalogues, catalogues);
   const config = await ctx.api("/api/config");
