@@ -50,9 +50,7 @@ impl UserSendStore {
         if replay_only {
             return Err("admission_unknown: replay token has no retained admission".into());
         }
-        if tab.revoked.load(Ordering::Acquire) || tab.failed.load(Ordering::Acquire) {
-            return Err("user send owner is held or revoked".into());
-        }
+        tab.check_available()?;
         if admissions.pending.len() + tab.unsettled.load(Ordering::Acquire) >= MAX_UNSETTLED {
             return Err("user send capacity: 32 unsettled admissions".into());
         }

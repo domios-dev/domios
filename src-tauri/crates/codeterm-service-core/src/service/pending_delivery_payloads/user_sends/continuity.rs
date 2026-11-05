@@ -171,9 +171,7 @@ impl UserSendStore {
         let tab = self.tab(tab_id);
         let mut data = tab.data.lock();
         let loaded = self.load(&tab, &mut data)?;
-        if tab.revoked.load(Ordering::Acquire) || tab.failed.load(Ordering::Acquire) {
-            return Err("fresh restart user owner is held or revoked".into());
-        }
+        tab.check_available()?;
         let mut next = loaded.index.clone();
         let ended = settle_fresh_launch(&mut next, possibly_written);
         self.persist(&tab, &next)?;
