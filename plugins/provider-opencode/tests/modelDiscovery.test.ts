@@ -8,10 +8,10 @@ function fixture(platform = "linux") {
   let now = 1_000_000;
   let modified = 1;
   let configuration = 1;
-  let plainResult: unknown;
+  let verboseResult: unknown;
   const continuations: Array<(result: unknown) => unknown> = [];
   let starts = 0;
-  let plainStarts = 0;
+  let verboseStarts = 0;
   let continuation: ((result: unknown) => unknown) | undefined;
   const host = {
     platform: () => platform,
@@ -22,15 +22,15 @@ function fixture(platform = "linux") {
     execStart: (text: string) => {
       const options = JSON.parse(text);
       assert.equal(options.timeoutMs, 10000);
-      if (!options.args.includes("--verbose")) {
-        plainStarts++;
-        return JSON.stringify({ jobId: "plain" });
+      if (options.args.includes("--verbose")) {
+        verboseStarts++;
+        return JSON.stringify({ jobId: "verbose" });
       }
       starts++;
-      return JSON.stringify({ jobId: "catalogue" });
+      return JSON.stringify({ jobId: "plain" });
     },
     awaitJob: (id: string, then: (result: unknown) => unknown) => {
-      if (id === "plain") return then(plainResult);
+      if (id === "verbose") return then(verboseResult);
       continuation = then;
       continuations.push(then);
       return { awaiting: true };
@@ -47,15 +47,16 @@ function fixture(platform = "linux") {
   return {
     plugin,
     starts: () => starts,
-    plainStarts: () => plainStarts,
+    verboseStarts: () => verboseStarts,
     fingerprint: () => JSON.stringify({ path: platform === "windows" ? "C:/bin/opencode.exe" : "/bin/opencode", len: 1, modified_unix: modified, configuration }),
     discover: () => plugin.discoverModels(JSON.stringify({ path: platform === "windows" ? "C:/bin/opencode.exe" : "/bin/opencode", len: 1, modified_unix: modified, configuration })),
     advance: (ms: number) => { now += ms; },
     replaceBinary: () => { modified++; },
     changeConfiguration: () => { configuration++; },
+    // Resolves the deferred plain listing with `plain`; the verbose enrichment then answers `result`.
     complete: (result: unknown = { code: 0, stdout: "fixture/model" }, index?: number, plain: unknown = result) => {
-      plainResult = plain;
-      return JSON.parse(JSON.stringify((index === undefined ? continuation! : continuations[index])(result)));
+      verboseResult = result;
+      return JSON.parse(JSON.stringify((index === undefined ? continuation! : continuations[index])(plain)));
     },
   };
 }
@@ -70,7 +71,7 @@ test("discovery yields while cheap detection and cached Supporter reads remain c
   assert.equal(f.starts(), 1);
   const models = f.complete();
   assert.equal(models[0].id, "fixture/model");
-  assert.equal(f.plainStarts(), 0);
+  assert.equal(f.verboseStarts(), 1);
   for (let i = 0; i < 30; i++) {
     assert.equal((f.plugin.models() as Array<{ id: string }>)[0].id, "fixture/model");
     assert.equal(f.plugin.selectModel("fixture/model"), true);
@@ -97,28 +98,37 @@ test("catalogue refresh honours the ten-minute TTL and binary mtime on both plat
   }
 });
 
-test("failed and abandoned discovery attempts do not create repeated subprocess bursts", () => {
+test("a failed attempt is never cached and an abandoned one blocks retries only within the pending window", () => {
   const f = fixture();
   f.discover();
   assert.equal(f.complete({ code: 1, stdout: "" }), null);
-  f.discover();
-  assert.equal(f.starts(), 1);
-  f.advance(600_000);
-  f.discover();
+  assert.deepEqual(JSON.parse(JSON.stringify(f.discover())), { awaiting: true });
   assert.equal(f.starts(), 2);
-  f.advance(600_000);
+  f.advance(29_999);
+  assert.equal(f.discover(), null);
+  assert.equal(f.starts(), 2);
+  f.advance(1);
   f.discover();
   assert.equal(f.starts(), 3);
-  f.complete();
+  assert.equal(f.complete()[0].id, "fixture/model");
 });
 
-test("Supporter retries a null cold catalogue after its TTL while a valid empty catalogue stays warm", () => {
+test("a truncated verbose listing keeps the plain identities from one plain exec", () => {
+  const f = fixture();
+  f.discover();
+  const models = f.complete({ code: 0, stdout: "endpoint/partial", truncated: true }, undefined, { code: 0, stdout: "endpoint/first\nendpoint/plain" });
+  assert.deepEqual(models.map((model: { id: string }) => model.id), ["endpoint/first", "endpoint/plain"]);
+  assert.equal(f.starts(), 1);
+  assert.equal(f.verboseStarts(), 1);
+  f.discover();
+  assert.equal(f.starts(), 1);
+});
+
+test("Supporter retries a failed cold catalogue at once while a valid empty catalogue stays warm", () => {
   const f = fixture();
   f.plugin.models(f.fingerprint());
   assert.deepEqual(f.complete({ code: 1, stdout: "" }), []);
-  assert.deepEqual(JSON.parse(JSON.stringify(f.plugin.models(f.fingerprint()))), []);
   assert.equal(f.starts(), 1);
-  f.advance(600_000);
   assert.deepEqual(JSON.parse(JSON.stringify(f.plugin.models(f.fingerprint()))), { awaiting: true });
   assert.equal(f.starts(), 2);
   assert.equal(f.complete()[0].id, "fixture/model");
@@ -161,18 +171,19 @@ test("failed new-input discovery preserves cheap last-good reads without adverti
   f.discover(); f.complete();
   f.changeConfiguration(); f.discover();
   assert.equal(f.complete({ code: 1, stdout: "" }), null);
-  assert.equal(f.discover(), null);
+  assert.equal((f.plugin.models() as Array<{id: string}>)[0].id, "fixture/model");
+  assert.deepEqual(JSON.parse(JSON.stringify(f.discover())), { awaiting: true });
   assert.equal((f.plugin.models() as Array<{id: string}>)[0].id, "fixture/model");
 });
 
-test("one complete verbose listing is authoritative; only a failed or unparseable one falls back to the plain list", () => {
+test("a complete verbose listing enriches the plain list; a failed or unparseable one keeps the plain list", () => {
   const ids = (models: Array<{id: string}>) => models.map((model) => model.id);
   const f = fixture();
   f.discover();
   const models = f.complete({ code: 0, stdout: 'endpoint/first\n{"variants":{"high":{}}}\nendpoint/latest\nendpoint/gone\n{"status":"deprecated"}\n' });
   assert.deepEqual(ids(models), ["endpoint/first", "endpoint/latest"]);
   assert.deepEqual(models[0].reasoningEfforts.map((effort: {id: string}) => effort.id), ["default", "high"]);
-  assert.equal(f.plainStarts(), 0);
+  assert.equal(f.starts(), 1);
   for (const verbose of [
     { code: 0, stdout: "endpoint/partial", truncated: true },
     { code: 0, stdout: "endpoint/failure", error: "timeout" },
@@ -181,7 +192,8 @@ test("one complete verbose listing is authoritative; only a failed or unparseabl
     f.changeConfiguration(); f.discover();
     assert.deepEqual(ids(f.complete(verbose, undefined, { code: 0, stdout: "endpoint/first\nendpoint/plain" })), ["endpoint/first", "endpoint/plain"]);
   }
-  assert.equal(f.plainStarts(), 3);
+  assert.equal(f.starts(), 4);
+  assert.equal(f.verboseStarts(), 4);
   f.changeConfiguration(); f.discover();
   assert.equal(f.complete({ code: 1, stdout: "" }, undefined, { code: 0, stdout: "endpoint/partial", truncated: true }), null);
 });

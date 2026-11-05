@@ -774,6 +774,7 @@ function isQuestionMenuFooter(line) {
   return lc.indexOf("select") !== -1 && lc.indexOf("submit") !== -1 && lc.indexOf("dismiss") !== -1;
 }
 var MODEL_CATALOGUE_TTL_MS = 10 * 60 * 1e3;
+var MODEL_ATTEMPT_PENDING_MS = 30 * 1e3;
 var modelCatalogue = null;
 var lastGoodCatalogue = null;
 function cachedOpencodeModels() {
@@ -786,30 +787,35 @@ function* withOpencodeModels(inputFingerprint, then) {
   const now = host.unixNowMs();
   if (inputFingerprint === void 0 && modelCatalogue?.pending) return yield* ioResolve(then(null));
   const stamp = inputFingerprint ?? "unresolved";
-  if (modelCatalogue && modelCatalogue.stamp === stamp && now >= modelCatalogue.since && now - modelCatalogue.since < MODEL_CATALOGUE_TTL_MS) {
+  const reuseMs = modelCatalogue?.pending ? MODEL_ATTEMPT_PENDING_MS : MODEL_CATALOGUE_TTL_MS;
+  if (modelCatalogue && modelCatalogue.stamp === stamp && now >= modelCatalogue.since && now - modelCatalogue.since < reuseMs) {
     return yield* ioResolve(then(modelCatalogue.pending ? null : modelCatalogue.models));
   }
   const attempt = { stamp, since: now, pending: true, models: null };
   modelCatalogue = attempt;
-  const finish = function* (models3) {
-    if (modelCatalogue !== attempt) return yield* ioResolve(then(null));
+  let rejected = null;
+  const settle = function* (models2) {
+    if (rejected === null) rejected = yield* rejectedModelSet();
+    if (modelCatalogue !== attempt) return false;
     attempt.pending = false;
-    attempt.models = models3;
+    attempt.models = models2.filter((model) => !rejected.has(model.id));
     attempt.since = host.unixNowMs();
-    if (models3 !== null) lastGoodCatalogue = models3;
-    return yield* ioResolve(then(models3));
+    lastGoodCatalogue = attempt.models;
+    return true;
   };
+  const plain = yield* probeModels(false);
+  if (modelCatalogue !== attempt) return yield* ioResolve(then(null));
+  const identities = completeModelOutput(plain) ? parseOpencodeModels(plain.stdout) : null;
+  if (identities !== null && !(yield* settle(identities))) return yield* ioResolve(then(null));
   const verbose = yield* probeModels(true);
   if (modelCatalogue !== attempt) return yield* ioResolve(then(null));
-  let models2 = completeModelOutput(verbose) ? parseOpencodeModels(verbose.stdout) : null;
-  if (models2 === null) {
-    const plain = yield* probeModels(false);
-    if (modelCatalogue !== attempt) return yield* ioResolve(then(null));
-    if (!completeModelOutput(plain)) return yield* finish(null);
-    models2 = parseOpencodeModels(plain.stdout);
-    if (models2 === null) return yield* finish(null);
+  const enriched = completeModelOutput(verbose) ? parseOpencodeModels(verbose.stdout) : null;
+  if (enriched !== null && !(yield* settle(enriched))) return yield* ioResolve(then(null));
+  if (attempt.pending) {
+    modelCatalogue = null;
+    return yield* ioResolve(then(null));
   }
-  return yield* finish(yield* filterRejectedModels(models2));
+  return yield* ioResolve(then(attempt.models));
 }
 function completeModelOutput(result) {
   return result?.code === 0 && !result.error && !result.truncated && typeof result.stdout === "string";
@@ -822,15 +828,14 @@ function* probeModels(verbose) {
   }
 }
 var MODEL_REJECTION_QUERY = modelRejections_default.query;
-function* filterRejectedModels(models2) {
+function* rejectedModelSet() {
   const db = opencodeDbPath();
-  if (!db || !(yield* host.io.fs.fileExists(db))) return models2;
+  if (!db || !(yield* host.io.fs.fileExists(db))) return /* @__PURE__ */ new Set();
   const rows = yield* host.io.fs.sqliteQuery(db, MODEL_REJECTION_QUERY, [ASSISTANT_MESSAGE_MAX_BYTES]);
-  const rejected = rejectedModelIds(rows.map((row) => {
+  return rejectedModelIds(rows.map((row) => {
     const message = safeJson(row.data);
     return { model: sessionModelIdentity(message), message };
   }));
-  return models2.filter((model) => !rejected.has(model.id));
 }
 function parseOpencodeModels(stdout) {
   if (stdout.length > 1048576) return null;

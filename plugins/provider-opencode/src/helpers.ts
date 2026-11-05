@@ -283,6 +283,8 @@ export function isQuestionMenuFooter(line: string): boolean {
 declare const host: import("@codeterm/plugin-sdk").Host;
 
 const MODEL_CATALOGUE_TTL_MS = 10 * 60 * 1000;
+// WHY: an attempt cut off by its call deadline never settles; past the longest deadline a new call retries.
+const MODEL_ATTEMPT_PENDING_MS = 30 * 1000;
 interface CatalogueAttempt {
   stamp: string;
   since: number;
@@ -304,31 +306,37 @@ export function* withOpencodeModels<T>(inputFingerprint: string | null | undefin
   const now = host.unixNowMs();
   if (inputFingerprint === undefined && modelCatalogue?.pending) return yield* ioResolve(then(null));
   const stamp = inputFingerprint ?? "unresolved";
-  if (modelCatalogue && modelCatalogue.stamp === stamp && now >= modelCatalogue.since && now - modelCatalogue.since < MODEL_CATALOGUE_TTL_MS) {
+  const reuseMs = modelCatalogue?.pending ? MODEL_ATTEMPT_PENDING_MS : MODEL_CATALOGUE_TTL_MS;
+  if (modelCatalogue && modelCatalogue.stamp === stamp && now >= modelCatalogue.since && now - modelCatalogue.since < reuseMs) {
     return yield* ioResolve(then(modelCatalogue.pending ? null : modelCatalogue.models));
   }
   const attempt: CatalogueAttempt = { stamp, since: now, pending: true, models: null };
   modelCatalogue = attempt;
-  const finish = function* (models: ModelInfo[] | null): HostIoSteps<T> {
-    if (modelCatalogue !== attempt) return yield* ioResolve(then(null));
+  let rejected: Set<string> | null = null;
+  const settle = function* (models: ModelInfo[]): HostIoSteps<boolean> {
+    if (rejected === null) rejected = yield* rejectedModelSet();
+    if (modelCatalogue !== attempt) return false;
     attempt.pending = false;
-    attempt.models = models;
+    attempt.models = models.filter((model) => !rejected!.has(model.id));
     attempt.since = host.unixNowMs();
-    if (models !== null) lastGoodCatalogue = models;
-    return yield* ioResolve(then(models));
+    lastGoodCatalogue = attempt.models;
+    return true;
   };
-  // WHY: one plugin call shares the VM's 5 s deadline, so the happy path runs a single exec.
+  // WHY: the plain list is small and fast; verbose output only enriches it and can exceed the host output cap.
+  const plain = yield* probeModels(false);
+  if (modelCatalogue !== attempt) return yield* ioResolve(then(null));
+  const identities = completeModelOutput(plain) ? parseOpencodeModels(plain.stdout) : null;
+  if (identities !== null && !(yield* settle(identities))) return yield* ioResolve(then(null));
   const verbose = yield* probeModels(true);
   if (modelCatalogue !== attempt) return yield* ioResolve(then(null));
-  let models = completeModelOutput(verbose) ? parseOpencodeModels(verbose.stdout) : null;
-  if (models === null) {
-    const plain = yield* probeModels(false);
-    if (modelCatalogue !== attempt) return yield* ioResolve(then(null));
-    if (!completeModelOutput(plain)) return yield* finish(null);
-    models = parseOpencodeModels(plain.stdout);
-    if (models === null) return yield* finish(null);
+  const enriched = completeModelOutput(verbose) ? parseOpencodeModels(verbose.stdout) : null;
+  if (enriched !== null && !(yield* settle(enriched))) return yield* ioResolve(then(null));
+  if (attempt.pending) {
+    // A failed attempt is never cached: the next call retries while readers keep the last good list.
+    modelCatalogue = null;
+    return yield* ioResolve(then(null));
   }
-  return yield* finish(yield* filterRejectedModels(models));
+  return yield* ioResolve(then(attempt.models));
 }
 
 interface ModelCommandResult {
@@ -351,15 +359,14 @@ function* probeModels(verbose: boolean): HostIoSteps<ModelCommandResult | null> 
 
 export const MODEL_REJECTION_QUERY = modelRejections.query;
 
-function* filterRejectedModels(models: ModelInfo[]): HostIoSteps<ModelInfo[]> {
+function* rejectedModelSet(): HostIoSteps<Set<string>> {
   const db = opencodeDbPath();
-  if (!db || !(yield* host.io.fs.fileExists(db))) return models;
+  if (!db || !(yield* host.io.fs.fileExists(db))) return new Set();
   const rows = (yield* host.io.fs.sqliteQuery<{ data: string }>(db, MODEL_REJECTION_QUERY, [ASSISTANT_MESSAGE_MAX_BYTES]));
-  const rejected = rejectedModelIds(rows.map((row) => {
+  return rejectedModelIds(rows.map((row) => {
     const message = safeJson(row.data);
     return { model: sessionModelIdentity(message), message };
   }));
-  return models.filter((model) => !rejected.has(model.id));
 }
 
 export function parseOpencodeModels(stdout: string): ModelInfo[] | null {
