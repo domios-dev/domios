@@ -6,6 +6,7 @@ import { Window } from "happy-dom";
 import type { PluginSnapshot } from "./types";
 import { __setInvokeForTest } from "../../lib/bridge";
 import { __resetPluginSnapshotStoreForTest } from "../../lib/pluginSnapshotStore";
+import { __resetStreamMuxesForTest } from "../../lib/streamMux";
 
 type TestFn = () => void | Promise<void>;
 
@@ -196,6 +197,8 @@ async function openChannels(host: HTMLElement) {
 function cleanup() {
   __resetPluginSnapshotStoreForTest();
   __setInvokeForTest(null);
+  // A daemon request left waiting would keep the mux reconnect timer, and the test process, alive.
+  __resetStreamMuxesForTest();
 }
 
 setupDom();
