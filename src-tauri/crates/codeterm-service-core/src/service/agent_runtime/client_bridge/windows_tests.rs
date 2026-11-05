@@ -535,7 +535,7 @@ fn windows_terminal_handle_bound_refuses_ninth_and_release_reclaims_slots() {
         )
         .await
         .unwrap_err();
-        assert_eq!(refused, "Terminal capacity unavailable");
+        assert_eq!(refused, "Terminal capacity unavailable".into());
         assert_eq!(bridge.state.lock().terminals.len(), 8);
         for terminal_id in ids {
             execute(
