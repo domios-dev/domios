@@ -1,6 +1,15 @@
 use super::*;
 use crate::{multiplexer::state::MultiplexerState, service::test_fixture::ServiceFixture};
 
+#[test]
+fn built_in_name_conflicts_do_not_suggest_removing_a_built_in() {
+    assert_eq!(
+        name_conflict("gemini-cli", false),
+        "gemini-cli is a built-in profile; choose another name"
+    );
+    assert!(name_conflict("custom", true).contains("remove the owner profile"));
+}
+
 fn request(value: Value) -> Result<(String, RuntimeLaunchProfile), String> {
     parse_add(serde_json::from_value(value).unwrap())
 }

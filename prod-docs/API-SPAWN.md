@@ -47,7 +47,7 @@ credentials are refused with `403` before setup. A `confirmed: true` body does n
 grant owner authority.
 
 GET has no body and returns a JSON array of
-`{id, install, auth, canInstall, ownerConfigured}`. `install` is `not_installed`,
+`{id, install, auth, canInstall, ownerConfigured, setup?}`. `install` is `not_installed`,
 `installed`, `detected` or `unknown`; `auth` currently reports `unknown`.
 `canInstall` means the declaration has a supported install specification.
 No runtime provider or no declared profiles returns `400` with a text reason;
@@ -69,18 +69,23 @@ For an `ownerConfigured` profile, supply an installed executable and its argumen
 
 There is no environment field. A local command must resolve to an installed file;
 shell commands and package-fetching launchers (`npx`, `npm`, `uvx`, `uv`, `env`) are
-refused. Installation uses the profile's pinned npm package and registry, checks
-the downloaded archive and saves a receipt. Success is `200` with
-`{profileId, declarationSha256, package, version, command, timestampMs, sha256?}`;
-the local receipt's `version` is `local` and its `package` is the resolved binary
-path. Receipts bind setup to the current profile declaration; setup invalidates
-cached readiness.
+refused. Installation uses the profile's pinned distribution, verifies its archive
+and saves a declaration-bound receipt. POST returns `202 Accepted` with
+`{jobId, providerId, profileId, state:"accepted"}` before installation completes.
+The `provider-profile-setup` event carries that job through `installing` to
+`installed` or `failed`; a failed job includes an `error` string. GET includes the
+latest job as `setup`, so clients can subscribe before reading and recover after
+reconnecting without polling or replaying POST. `installed` follows the saved
+receipt and readiness invalidation, not a download log. An accepted job continues
+if its original HTTP client disconnects. Active jobs are bounded and duplicate
+setups for the same profile are refused. Completed job state lasts for this daemon
+session; saved receipts remain authoritative across daemon restarts.
 
-Setup failures return `400` with a text reason: missing confirmation, unknown
-profile, invalid command/provider id, missing binary, unsupported installer,
-download/checksum/package failure, or unavailable receipt storage. A setup worker
-failure returns `500` (`Local profile setup unavailable` or
-`Profile installer unavailable`). Malformed JSON/schema errors use the standard
+Admission failures return `400` with a text reason: missing confirmation, unknown
+profile, invalid provider id, unsupported installer, duplicate setup or installer
+capacity. Command validation, missing binaries, download/checksum/package failures
+and unavailable receipt storage become terminal `failed` jobs. Failure to accept
+the setup worker returns `500` (`Profile setup unavailable`). Malformed JSON/schema errors use the standard
 Axum JSON rejection. Neither route creates an agent tab.
 
-<!-- revision: 9 -->
+<!-- revision: 10 -->

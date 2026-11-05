@@ -5,6 +5,35 @@ use std::collections::{BTreeMap, BTreeSet};
 
 const INDEX: &str = "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json";
 const MAX_BYTES: usize = 2 * 1024 * 1024;
+const FETCH_SECONDS: u64 = 20;
+
+fn failure(context: &str, reason: impl std::fmt::Display) -> String {
+    let reason: String = reason
+        .to_string()
+        .chars()
+        .filter(|character| !character.is_control())
+        .take(240)
+        .collect();
+    format!("ACP registry {context}: {reason}")
+}
+
+fn transport_failure(error: reqwest::Error) -> String {
+    if error.is_timeout() {
+        return failure(
+            "unavailable",
+            format!("request timed out ({FETCH_SECONDS}s deadline)"),
+        );
+    }
+    let error = error.without_url();
+    let mut reasons = Vec::new();
+    let mut cause: Option<&(dyn std::error::Error + 'static)> = Some(&error);
+    for _ in 0..4 {
+        let Some(current) = cause else { break };
+        reasons.push(current.to_string());
+        cause = current.source();
+    }
+    failure("unavailable", reasons.join(": "))
+}
 
 #[derive(Deserialize)]
 struct Index {
@@ -53,7 +82,8 @@ fn decode(text: &str) -> Result<Index, String> {
     if text.len() > MAX_BYTES {
         return Err("Oversized ACP registry".into());
     }
-    let index: Index = serde_json::from_str(text).map_err(|_| "Invalid ACP registry")?;
+    let index: Index =
+        serde_json::from_str(text).map_err(|error| failure("response is invalid JSON", error))?;
     if index.version != "1.0.0" || index.agents.len() > 512 {
         return Err("Unsupported or oversized ACP registry".into());
     }
@@ -89,16 +119,16 @@ fn fetch() -> Result<Index, String> {
     crate::async_runtime::block_on(async {
         let client = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
-            .timeout(std::time::Duration::from_secs(20))
+            .timeout(std::time::Duration::from_secs(FETCH_SECONDS))
             .build()
-            .map_err(|_| "Registry client unavailable")?;
-        let mut response = client
-            .get(INDEX)
-            .send()
-            .await
-            .map_err(|_| "ACP registry unavailable")?
-            .error_for_status()
-            .map_err(|_| "ACP registry unavailable")?;
+            .map_err(transport_failure)?;
+        let mut response = client.get(INDEX).send().await.map_err(transport_failure)?;
+        if !response.status().is_success() {
+            return Err(failure(
+                "unavailable",
+                format!("HTTP {}", response.status()),
+            ));
+        }
         if response
             .content_length()
             .is_some_and(|len| len > MAX_BYTES as u64)
@@ -106,17 +136,14 @@ fn fetch() -> Result<Index, String> {
             return Err("Oversized ACP registry".into());
         }
         let mut bytes = Vec::new();
-        while let Some(chunk) = response
-            .chunk()
-            .await
-            .map_err(|_| "ACP registry unavailable")?
-        {
+        while let Some(chunk) = response.chunk().await.map_err(transport_failure)? {
             if chunk.len() > MAX_BYTES.saturating_sub(bytes.len()) {
                 return Err("Oversized ACP registry".into());
             }
             bytes.extend_from_slice(&chunk);
         }
-        let text = std::str::from_utf8(&bytes).map_err(|_| "Invalid ACP registry encoding")?;
+        let text =
+            std::str::from_utf8(&bytes).map_err(|error| failure("response is not UTF-8", error))?;
         decode(text)
     })
 }

@@ -24,6 +24,7 @@ mod initialize;
 mod launch_options;
 pub mod launch_profile;
 pub mod launch_profile_install;
+pub mod launch_profile_setup;
 #[cfg(unix)]
 pub(crate) mod lease;
 pub mod login;

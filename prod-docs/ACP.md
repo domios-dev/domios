@@ -75,6 +75,22 @@ The list reports installation readiness and whether referenced credentials are
 configured or missing. Credential presence does not prove an authenticated agent
 session; profiles without credential mappings report authentication as `unknown`.
 
+In list JSON, `iconUrl` refers specifically to a registry-hosted icon URL. It is
+`null` for bundled icons such as Gemini and DeepSeek. Bundled icon paths and their
+sanitized artwork are exposed as `icon` and `iconSvg` on the provider's launch
+profile descriptor; a profile with neither uses the generic provider icon.
+
+Spawn setup returns an accepted job immediately. The picker follows setup events
+and keeps the install status visible until installation succeeds or fails. Closing
+the picker does not cancel an accepted installation; reopening it reads the latest
+job and installation state. A cold package download can take longer than 30 seconds
+without becoming a request-timeout failure. See `domios docs API-SPAWN` for the
+accepted response and event contract.
+
+Registry search and install share the same 20-second index-fetch deadline. A
+refusal reports a bounded cause, such as HTTP status, request timeout, connection
+failure or malformed JSON; an unavailable index is not a package-install failure.
+
 Local commands must name an installed executable. Domios refuses `npx`, `npm`,
 `uvx`, `uv` and `env` launchers, and shell-command indirection is not supported.
 Use the installed agent executable, or an installed runtime with its installed
@@ -210,6 +226,10 @@ It can also cancel a turn waiting for a permission response.
   macOS; an executable available only in an interactive shell may not be visible
   to the app. Prefer the installed executable's absolute path for local setup.
   There is no PTY in which to answer installation or workspace-trust prompts.
+- With Volta-managed Node on macOS, plain `npm i -g` can place an agent CLI outside
+  the daemon's PATH. Use `volta install` or ensure the npm global bin directory is
+  on that PATH, then check `domios agent acp list` for `install=detected` on profiles
+  that detect installed CLIs.
 - The Gemini profile sets `GEMINI_CLI_TRUST_WORKSPACE=true` on every platform,
   including Windows and macOS. Selecting it launches Gemini with that trust
   setting. The local profile does not inherit the Gemini profile's environment.
@@ -224,4 +244,4 @@ It can also cancel a turn waiting for a permission response.
   the current index and refuses unsupported distributions; neither proves agent
   authentication or compatibility.
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->

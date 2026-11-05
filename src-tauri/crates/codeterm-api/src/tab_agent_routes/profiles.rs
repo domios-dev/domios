@@ -33,46 +33,35 @@ pub(super) async fn setup(
     State(state): State<AppState>,
     Path(provider): Path<String>,
     Json(request): Json<SetupRequest>,
-) -> Result<Json<profiles::InstallReceipt>, (StatusCode, String)> {
+) -> Result<
+    (
+        StatusCode,
+        Json<codeterm_service_core::service::agent_runtime::launch_profile_setup::SetupJob>,
+    ),
+    (StatusCode, String),
+> {
     if !request.confirmed {
         return Err((
             StatusCode::BAD_REQUEST,
             "Explicit owner confirmation required".into(),
         ));
     }
-    let profile = profiles::declaration(&state.svc, &provider, &request.profile_id)
-        .map_err(|error| (StatusCode::BAD_REQUEST, error))?;
-    let root =
-        profiles::profile_root(&provider).map_err(|error| (StatusCode::BAD_REQUEST, error))?;
-    let result = if let Some(command) = request.command {
-        tokio::task::spawn_blocking(move || {
-            profiles::confirm_local(&root, &request.profile_id, &profile, command, true)
-        })
-        .await
-        .map_err(|_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Local profile setup unavailable".into(),
-            )
-        })?
-    } else {
-        tokio::task::spawn_blocking(move || {
-            codeterm_service_core::async_runtime::block_on(profiles::install(
-                &root,
-                &request.profile_id,
-                &profile,
-                true,
-            ))
-        })
-        .await
-        .map_err(|_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Profile installer unavailable".into(),
-            )
-        })?
-    };
+    let result = tokio::task::spawn_blocking(move || {
+        codeterm_service_core::service::agent_runtime::launch_profile_setup::begin(
+            &state.svc,
+            provider,
+            request.profile_id,
+            request.command,
+        )
+    })
+    .await
+    .map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Profile setup unavailable".into(),
+        )
+    })?;
     result
-        .map(Json)
+        .map(|job| (StatusCode::ACCEPTED, Json(job)))
         .map_err(|error| (StatusCode::BAD_REQUEST, error))
 }

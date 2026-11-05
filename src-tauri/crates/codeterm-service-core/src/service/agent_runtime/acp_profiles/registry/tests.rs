@@ -1,5 +1,24 @@
 use super::*;
 
+#[test]
+fn registry_failures_keep_a_bounded_cause_without_control_characters() {
+    assert!(failure("unavailable", "HTTP 503 Service Unavailable").contains("HTTP 503"));
+    assert!(failure(
+        "unavailable",
+        format!("request timed out ({FETCH_SECONDS}s deadline)")
+    )
+    .contains("20s deadline"));
+    let message = failure(
+        "unavailable",
+        format!("connection refused\r\n{}", "x".repeat(1000)),
+    );
+    assert!(!message.chars().any(char::is_control));
+    assert!(message.len() < 300);
+    let parse = decode("{broken").err().unwrap();
+    assert!(parse.contains("invalid JSON"));
+    assert!(parse.contains("line 1"));
+}
+
 fn fixture() -> Index {
     decode(include_str!("fixture.json")).unwrap()
 }

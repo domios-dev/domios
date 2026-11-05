@@ -44,6 +44,8 @@ pub struct ProfileState {
     pub auth: &'static str,
     pub can_install: bool,
     pub owner_configured: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub setup: Option<super::launch_profile_setup::SetupJob>,
 }
 
 pub fn profile_root(provider: &str) -> Result<PathBuf, String> {
@@ -353,6 +355,7 @@ pub fn catalog(
             auth: "unknown",
             can_install: profile.install.is_some(),
             owner_configured: profile.owner_configured,
+            setup: super::launch_profile_setup::current(provider, id),
         })
         .collect())
 }

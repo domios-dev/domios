@@ -3,17 +3,13 @@ use crate::service::ServiceContext;
 use codeterm_plugin::agent_runtime::{owner_profiles, AgentRuntimeCommand, RuntimeLaunchProfile};
 use serde::Deserialize;
 use serde_json::{json, Value};
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    sync::LazyLock,
-};
+use std::collections::{BTreeMap, BTreeSet};
 
 mod registry;
 #[cfg(test)]
 mod tests;
 
 const PROVIDER: &str = "acp";
-static MUTATION: LazyLock<parking_lot::Mutex<()>> = LazyLock::new(Default::default);
 
 pub fn authorize(svc: &ServiceContext, credential: &str) -> Result<(), String> {
     let Some(caller) = svc.authenticate_local_credential(credential)? else {
@@ -140,16 +136,27 @@ fn validate(svc: &ServiceContext, id: &str, profile: &RuntimeLaunchProfile) -> R
         .launch_profiles
         .as_mut()
         .ok_or("ACP launch profiles unavailable")?;
-    if profiles
+    if let Some(existing) = profiles
         .keys()
-        .any(|existing| existing.eq_ignore_ascii_case(id))
+        .find(|existing| existing.eq_ignore_ascii_case(id))
     {
-        return Err("Profile already exists; remove the owner profile before replacing it".into());
+        return Err(name_conflict(
+            existing,
+            owner_profiles::load(PROVIDER)?.contains_key(existing),
+        ));
     }
     profiles.insert(id.into(), profile.clone());
     capability
         .validate_declaration()
         .map_err(|_| "Invalid ACP launch profile declaration".to_string())
+}
+
+fn name_conflict(id: &str, owner_added: bool) -> String {
+    if owner_added {
+        format!("{id} already exists; remove the owner profile before replacing it")
+    } else {
+        format!("{id} is a built-in profile; choose another name")
+    }
 }
 
 fn changed() -> Result<(), String> {
@@ -230,9 +237,7 @@ pub fn execute(svc: &ServiceContext, params: &Value) -> Result<Value, String> {
     match text("operation")? {
         "list" => catalog(svc),
         "add" => {
-            let _mutation = MUTATION
-                .try_lock()
-                .ok_or("ACP profile change already in progress")?;
+            let _mutation = super::launch_profile_setup::mutation()?;
             let request =
                 serde_json::from_value(params.clone()).map_err(|_| "Invalid ACP add parameters")?;
             let (id, profile) = parse_add(request)?;
@@ -251,11 +256,15 @@ pub fn execute(svc: &ServiceContext, params: &Value) -> Result<Value, String> {
             save(&id, profile)
         }
         "remove" => {
-            let _mutation = MUTATION
-                .try_lock()
-                .ok_or("ACP profile change already in progress")?;
+            let _mutation = super::launch_profile_setup::mutation()?;
             let id = text("name")?;
             owner_profiles::valid_name(id)?;
+            if super::launch_profile_setup::current(PROVIDER, id).is_some_and(|job| job.active()) {
+                return Err(
+                    "Profile setup is still in progress; wait for completion before removing it"
+                        .into(),
+                );
+            }
             owner_profiles::update(PROVIDER, |profiles| {
                 profiles
                     .remove(id)
@@ -267,9 +276,7 @@ pub fn execute(svc: &ServiceContext, params: &Value) -> Result<Value, String> {
         }
         "registry_search" => registry::search(text("query")?),
         "registry_install" => {
-            let _mutation = MUTATION
-                .try_lock()
-                .ok_or("ACP profile change already in progress")?;
+            let _mutation = super::launch_profile_setup::mutation()?;
             let id = text("id")?;
             let mut profile = registry::profile(id)?;
             validate(svc, id, &profile)?;
