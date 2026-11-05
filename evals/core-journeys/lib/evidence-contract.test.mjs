@@ -137,3 +137,36 @@ test("requested, resolved and actual model identities and restart proof must all
   assert.match(errorsOf(run((results) => { delete results.state.model_policy.restored_identities.tab1; })), /selected identity absent/);
   assert.match(errorsOf(run((results) => { results.state.model_policy.restored_identities.tab1.session = "foreign"; })), /restored policy session changed/);
 });
+
+
+function qualifyCachedVerify(results) {
+  const policy = results.state.model_policy, provider = "opencode";
+  const build = results.phases.find(phase => phase.name === "setup").build_sha;
+  policy.setup_live = { [provider]: { run: results.state.run, build_sha: build,
+    catalogue: structuredClone(policy.catalogues[provider]) } };
+  const entry = structuredClone(policy.catalogues[provider]);
+  entry.refresh.refreshed = false;
+  entry.refresh.reason = "the provider reported no live model list";
+  entry.qualification = { verified_live_in_setup: true, post_restart_refresh_in_flight: true,
+    model_present_in_cache: true, model_id: policy.selections[provider], run: results.state.run, build_sha: build };
+  policy.catalogues[provider] = entry;
+  policy.verify_catalogues = { [provider]: structuredClone(entry) };
+}
+
+test("validator accepts explicit verify cache qualification backed by same-run live setup", () => {
+  const dir = run(qualifyCachedVerify);
+  try { assert.deepEqual(validateRun(dir).errors, []); } finally { rmSync(dir, { recursive: true }); }
+});
+
+test("validator rejects cached verification without live proof or with a different actual phase build/model", () => {
+  for (const mutate of [
+    results => { delete results.state.model_policy.setup_live.opencode; },
+    results => { results.state.model_policy.setup_live.opencode.catalogue.refresh.refreshed = false; },
+    results => { results.phases.find(phase => phase.name === "verify").build_sha = "different-build"; },
+    results => { results.state.model_policy.verify_catalogues.opencode.model.id = "substituted"; },
+    results => { results.state.model_policy.catalogues.opencode.qualification.verified_live_in_setup = false; },
+  ]) {
+    const dir = run(results => { qualifyCachedVerify(results); mutate(results); });
+    try { assert.equal(validateRun(dir).pass, false); } finally { rmSync(dir, { recursive: true }); }
+  }
+});
