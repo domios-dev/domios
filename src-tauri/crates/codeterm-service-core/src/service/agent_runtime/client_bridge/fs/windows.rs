@@ -10,13 +10,19 @@ use std::{
     path::{Component, PathBuf},
 };
 use windows_sys::Win32::{
-    Foundation::{ERROR_INVALID_DRIVE, GENERIC_READ, GENERIC_WRITE, HANDLE},
+    Foundation::{ERROR_INVALID_DRIVE, HANDLE, OBJ_CASE_INSENSITIVE, OBJ_DONT_REPARSE},
     Storage::FileSystem::{
-        GetFileInformationByHandle, GetFinalPathNameByHandleW, BY_HANDLE_FILE_INFORMATION,
+        GetFileInformationByHandle, GetFinalPathNameByHandleW, BY_HANDLE_FILE_INFORMATION, DELETE,
         FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
-        FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
+        FILE_GENERIC_READ, FILE_GENERIC_WRITE, FILE_NAME_NORMALIZED, FILE_SHARE_DELETE,
+        FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_TRAVERSE,
     },
 };
+
+const NT_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+const NT_SYNCHRONOUS_IO_NONALERT: u32 = 0x20;
+const NT_DIRECTORY_FILE: u32 = 1;
+const NT_NON_DIRECTORY_FILE: u32 = 0x40;
 
 #[repr(C)]
 struct UnicodeString {
@@ -222,18 +228,18 @@ fn native_open(
 ) -> Result<Option<File>, String> {
     validate(parent, true)?;
     valid_component(name, agent)?;
-    let mut name: Vec<_> = name.encode_wide().collect();
-    let length = u16::try_from(name.len() * 2).map_err(|_| "Path component too long")?;
-    let mut name = UnicodeString {
+    let mut wide_name: Vec<_> = name.encode_wide().collect();
+    let length = u16::try_from(wide_name.len() * 2).map_err(|_| "Path component too long")?;
+    let mut unicode_name = UnicodeString {
         length,
         maximum_length: length,
-        buffer: name.as_mut_ptr(),
+        buffer: wide_name.as_mut_ptr(),
     };
     let mut attributes = ObjectAttributes {
         length: std::mem::size_of::<ObjectAttributes>() as u32,
         root: parent.as_raw_handle(),
-        name: &mut name,
-        attributes: 0x1040, // OBJ_DONT_REPARSE rejects reparse processing in the object manager too.
+        name: &mut unicode_name,
+        attributes: OBJ_CASE_INSENSITIVE | OBJ_DONT_REPARSE,
         security: std::ptr::null_mut(),
         quality: std::ptr::null_mut(),
     };
@@ -242,22 +248,31 @@ fn native_open(
         information: 0,
     };
     let mut handle = std::ptr::null_mut();
+    let access = FILE_GENERIC_READ
+        | if directory { FILE_TRAVERSE } else { 0 }
+        | if create {
+            FILE_GENERIC_WRITE | DELETE
+        } else {
+            0
+        };
+    let options = NT_OPEN_REPARSE_POINT
+        | NT_SYNCHRONOUS_IO_NONALERT
+        | if directory {
+            NT_DIRECTORY_FILE
+        } else {
+            NT_NON_DIRECTORY_FILE
+        };
     let result = unsafe {
         NtCreateFile(
             &mut handle,
-            GENERIC_READ
-                | if create {
-                    GENERIC_WRITE | 0x0001_0000
-                } else {
-                    0
-                },
+            access,
             &mut attributes,
             &mut status,
             std::ptr::null(),
             0,
             sharing,
             if create { 2 } else { 1 },
-            0x0020_0020 | if directory { 1 } else { 0x40 },
+            options,
             std::ptr::null(),
             0,
         )
@@ -266,10 +281,9 @@ fn native_open(
         return Ok(None);
     }
     if result < 0 {
-        return Err(std::io::Error::from_raw_os_error(
-            unsafe { RtlNtStatusToDosError(result) } as i32
-        )
-        .to_string());
+        let error =
+            std::io::Error::from_raw_os_error(unsafe { RtlNtStatusToDosError(result) } as i32);
+        return Err(format!("NtCreateFile component={name:?} directory={directory} access={access:#x} options={options:#x} status={:#010x}: {error}", result as u32));
     }
     let file = unsafe { File::from_raw_handle(handle) };
     validate(&file, directory)?;
@@ -277,7 +291,9 @@ fn native_open(
 }
 
 pub(in super::super) fn pinned(path: &Path) -> Result<Vec<File>, String> {
-    pinned_if_exists(path)?.ok_or("Host directory does not exist".into())
+    pinned_if_exists(path)
+        .and_then(|handles| handles.ok_or_else(|| "Host directory does not exist".into()))
+        .map_err(|error| format!("No-follow directory {}: {error}", path.display()))
 }
 
 pub(in super::super) fn pinned_if_exists(path: &Path) -> Result<Option<Vec<File>>, String> {
@@ -289,9 +305,10 @@ pub(in super::super) fn pinned_if_exists(path: &Path) -> Result<Option<Vec<File>
     let _ = parts.next();
     let root = match std::fs::OpenOptions::new()
         .read(true)
+        .access_mode(FILE_GENERIC_READ | FILE_TRAVERSE)
         .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
         .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS)
-        .open(drive)
+        .open(&drive)
     {
         Ok(root) => root,
         Err(error)
@@ -300,7 +317,7 @@ pub(in super::super) fn pinned_if_exists(path: &Path) -> Result<Option<Vec<File>
         {
             return Ok(None)
         }
-        Err(error) => return Err(error.to_string()),
+        Err(error) => return Err(format!("Open drive root {}: {error}", drive.display())),
     };
     validate(&root, true)?;
     let mut handles = vec![root];
@@ -354,7 +371,7 @@ pub(in super::super) fn final_path(file: &File) -> Result<PathBuf, String> {
             file.as_raw_handle(),
             buffer.as_mut_ptr(),
             buffer.len() as u32,
-            0,
+            FILE_NAME_NORMALIZED,
         )
     };
     if count == 0 || count as usize >= buffer.len() {

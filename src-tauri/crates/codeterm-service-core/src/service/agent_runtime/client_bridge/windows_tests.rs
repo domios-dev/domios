@@ -2,6 +2,22 @@ use super::*;
 use std::{io::Read, path::Path};
 
 #[test]
+fn windows_root_open_accepts_tempdir_and_repository_after_file_denial() {
+    let (_temp, root) = tests::root();
+    let file = root.join("regular");
+    std::fs::write(&file, "not a directory").unwrap();
+    assert!(fs::windows::open_root(&file).is_err());
+    let ordinary = fs::windows::host_disk_path(&root).unwrap();
+    let repository = std::env::current_dir().unwrap();
+    for path in [root, ordinary, repository] {
+        let handle = fs::windows::open_root(&path)
+            .unwrap_or_else(|error| panic!("open directory {}: {error}", path.display()));
+        assert!(handle.metadata().unwrap().is_dir());
+        fs::root_matches(&path, &handle).unwrap();
+    }
+}
+
+#[test]
 fn windows_denies_unc_drive_relative_ads_and_device_aliases() {
     let root = Path::new("C:/workspace");
     for path in [
@@ -146,7 +162,7 @@ fn windows_program_resolution_refuses_shells_relative_search_and_cwd_impostors()
     let tools = root.join("tools");
     std::fs::create_dir(&tools).unwrap();
     std::fs::write(root.join("where.exe"), "cwd-impostor").unwrap();
-    std::fs::write(tools.join("where.exe"), "host-path-executable").unwrap();
+    native_executable(&tools.join("where.exe"));
     std::fs::write(tools.join("batch.cmd"), "shell").unwrap();
     let env = BTreeMap::from([
         ("PATH".into(), format!(";.;relative;{}", tools.display())),
@@ -163,7 +179,7 @@ fn windows_program_resolution_refuses_shells_relative_search_and_cwd_impostors()
             .unwrap(),
         tools.join("where.exe").canonicalize().unwrap()
     );
-    std::fs::write(tools.join("utility.com"), "native-com").unwrap();
+    native_executable(&tools.join("utility.com"));
     assert_eq!(
         terminal::windows::program("utility", &env, false)
             .unwrap()
@@ -172,16 +188,14 @@ fn windows_program_resolution_refuses_shells_relative_search_and_cwd_impostors()
             .unwrap(),
         tools.join("utility.com").canonicalize().unwrap()
     );
-    let system = std::env::var_os("SystemRoot").unwrap();
-    let system = PathBuf::from(system).join("System32");
-    let env = BTreeMap::from([("PATH".into(), system.to_string_lossy().into_owned())]);
+    native_executable(&tools.join("cmd.exe"));
     assert_eq!(
         terminal::windows::program("cmd", &env, false)
             .unwrap()
             .path
             .canonicalize()
             .unwrap(),
-        system.join("cmd.exe").canonicalize().unwrap()
+        tools.join("cmd.exe").canonicalize().unwrap()
     );
 }
 
@@ -191,13 +205,14 @@ fn windows_denies_all_reparse_components_and_nonregular_files() {
     let (_outside, outside) = tests::root();
     std::fs::write(root.join("regular"), "inside").unwrap();
     std::fs::write(outside.join("regular"), "outside").unwrap();
-    std::os::windows::fs::symlink_file(root.join("regular"), root.join("internal-link")).unwrap();
-    std::os::windows::fs::symlink_dir(&outside, root.join("external-link")).unwrap();
-    std::os::windows::fs::symlink_dir(&root, root.join("self-link")).unwrap();
+    junction(&root.join("internal-link"), &root);
+    junction(&root.join("external-link"), &outside);
+    junction(&root.join("self-link"), &root);
     std::fs::create_dir(root.join("directory")).unwrap();
     let handle = fs::windows::open_root(&root).unwrap();
     for path in [
         "internal-link",
+        "internal-link/regular",
         "external-link/regular",
         "self-link/regular",
         "directory",
@@ -246,6 +261,8 @@ fn windows_temporary_file_cannot_be_replaced_or_mutated_before_commit() {
 #[test]
 fn windows_atomic_commit_pins_parent_and_rechecks_leaf() {
     let (_temp, root) = tests::root();
+    let (_outside, outside) = tests::root();
+    std::fs::write(outside.join("file"), "outside").unwrap();
     std::fs::create_dir(root.join("parent")).unwrap();
     std::fs::write(root.join("parent/file"), "old").unwrap();
     let handle = fs::windows::open_root(&root).unwrap();
@@ -264,14 +281,16 @@ fn windows_atomic_commit_pins_parent_and_rechecks_leaf() {
         fs::write(&root, &handle, Path::new("parent/file"), "new", |apply| {
             assert!(std::fs::rename(root.join("parent"), root.join("moved")).is_err());
             std::fs::remove_file(root.join("parent/file")).unwrap();
-            std::os::windows::fs::symlink_file(root.join("target"), root.join("parent/file"))
-                .unwrap();
+            junction(&root.join("parent/file"), &outside);
             apply()
         })
         .is_err()
     );
-    assert!(!root.join("target").exists());
-    std::fs::remove_file(root.join("parent/file")).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(outside.join("file")).unwrap(),
+        "outside"
+    );
+    std::fs::remove_dir(root.join("parent/file")).unwrap();
     std::fs::write(root.join("parent/file"), "old").unwrap();
     let mut old = std::fs::File::open(root.join("parent/file")).unwrap();
     fs::write(&root, &handle, Path::new("parent/file"), "new", |apply| {
@@ -488,7 +507,8 @@ fn windows_host_short_paths_do_not_relax_agent_name_denials() {
     std::fs::create_dir(&workspace).unwrap();
     let tools = workspace.join("program files");
     std::fs::create_dir(&tools).unwrap();
-    std::fs::write(tools.join("utility.exe"), "native fixture").unwrap();
+    native_executable(&tools.join("utility.exe"));
+    std::fs::write(tools.join("note.txt"), "native fixture").unwrap();
     assert!(fs::relative(&workspace, workspace.join("backup~2").to_str().unwrap()).is_err());
     let short_workspace = short_path(&workspace);
     let short_tools = short_path(&tools);
@@ -510,11 +530,11 @@ fn windows_host_short_paths_do_not_relax_agent_name_denials() {
     assert!(installed
         .file_relative(alias_tail.to_str().unwrap())
         .is_err());
-    let original_spelling = short_workspace.join("program files/utility.exe");
+    let original_spelling = short_workspace.join("program files/note.txt");
     let relative = installed
         .file_relative(original_spelling.to_str().unwrap())
         .unwrap();
-    assert_eq!(relative, Path::new("program files/utility.exe"));
+    assert_eq!(relative, Path::new("program files/note.txt"));
     assert_eq!(
         fs::read(
             &installed.root,
@@ -549,7 +569,7 @@ fn windows_program_holds_parent_and_leaf_pins_until_spawn_boundary() {
     let tools = root.join("tools");
     std::fs::create_dir(&tools).unwrap();
     let file = tools.join("utility.exe");
-    std::fs::write(&file, "native fixture").unwrap();
+    native_executable(&file);
     let env = BTreeMap::from([("PATH".into(), tools.to_string_lossy().into_owned())]);
     let program = terminal::windows::program("utility", &env, false).unwrap();
     assert!(std::fs::rename(&file, tools.join("replaced.exe")).is_err());
@@ -564,7 +584,7 @@ fn windows_agent_path_cannot_use_host_aliases_or_reparse_entries() {
     let (_temp, root) = tests::root();
     let tools = root.join("program files");
     std::fs::create_dir(&tools).unwrap();
-    std::fs::write(tools.join("utility.exe"), "native fixture").unwrap();
+    native_executable(&tools.join("utility.exe"));
     let short_tools = short_path(&tools);
     assert_ne!(
         short_tools.file_name(),
@@ -583,7 +603,7 @@ fn windows_agent_path_cannot_use_host_aliases_or_reparse_entries() {
     )
     .is_err());
     let linked = root.join("linked tools");
-    std::os::windows::fs::symlink_dir(&tools, &linked).unwrap();
+    junction(&linked, &tools);
     let changes = [terminal::Env {
         name: "PATH".into(),
         value: linked.to_string_lossy().into_owned(),
@@ -622,4 +642,81 @@ fn windows_agent_path_cannot_use_host_aliases_or_reparse_entries() {
         1
     );
     assert!(terminal::windows::program("utility", &agent_env, true).is_ok());
+}
+
+fn native_executable(destination: &Path) {
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetSystemDirectoryW(buffer: *mut u16, size: u32) -> u32;
+    }
+    use std::os::windows::ffi::OsStringExt;
+    let mut directory = vec![0u16; 32768];
+    let length = unsafe { GetSystemDirectoryW(directory.as_mut_ptr(), directory.len() as u32) };
+    assert!(
+        length > 0 && (length as usize) < directory.len(),
+        "GetSystemDirectoryW failed"
+    );
+    let system = PathBuf::from(std::ffi::OsString::from_wide(&directory[..length as usize]));
+    std::fs::copy(system.join("cmd.exe"), destination).unwrap();
+}
+
+fn junction(link: &Path, target: &Path) {
+    use std::os::windows::{ffi::OsStrExt, fs::OpenOptionsExt, io::AsRawHandle};
+    use windows_sys::Win32::{
+        Storage::FileSystem::{FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT},
+        System::IO::DeviceIoControl,
+    };
+    let target = fs::windows::host_disk_path(target).unwrap();
+    let substitute: Vec<_> = std::ffi::OsString::from(format!("\\??\\{}", target.display()))
+        .encode_wide()
+        .collect();
+    let print: Vec<_> = target.as_os_str().encode_wide().collect();
+    let names_length = (substitute.len() + print.len() + 2) * 2;
+    let mut data = Vec::with_capacity(16 + names_length);
+    data.extend_from_slice(&0xa000_0003u32.to_le_bytes());
+    data.extend_from_slice(&u16::try_from(8 + names_length).unwrap().to_le_bytes());
+    data.extend_from_slice(&0u16.to_le_bytes());
+    data.extend_from_slice(&0u16.to_le_bytes());
+    data.extend_from_slice(&u16::try_from(substitute.len() * 2).unwrap().to_le_bytes());
+    data.extend_from_slice(
+        &u16::try_from((substitute.len() + 1) * 2)
+            .unwrap()
+            .to_le_bytes(),
+    );
+    data.extend_from_slice(&u16::try_from(print.len() * 2).unwrap().to_le_bytes());
+    for unit in substitute
+        .into_iter()
+        .chain(Some(0))
+        .chain(print)
+        .chain(Some(0))
+    {
+        data.extend_from_slice(&unit.to_le_bytes());
+    }
+    std::fs::create_dir(link).unwrap();
+    let handle = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
+        .open(link)
+        .unwrap();
+    let mut returned = 0;
+    let result = unsafe {
+        DeviceIoControl(
+            handle.as_raw_handle(),
+            0x0009_00a4,
+            data.as_ptr().cast(),
+            data.len() as u32,
+            std::ptr::null_mut(),
+            0,
+            &mut returned,
+            std::ptr::null_mut(),
+        )
+    };
+    assert_ne!(
+        result,
+        0,
+        "Set junction {}: {}",
+        link.display(),
+        std::io::Error::last_os_error()
+    );
 }
