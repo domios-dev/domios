@@ -21,7 +21,7 @@ const record = () => ({ id: "owned", agent_type: provider, agent_requested_model
   agent_provider_resolved_model: model, agent_session_model: model, agent_session_id: "own-session" });
 
 function fixture() {
-  const calls = [], descriptors = [descriptor()];
+  const calls = [], descriptors = [descriptor()], profiles = [];
   const config = { general_agent: { first_run_complete: false }, agent: {}, agents: { [provider]: {} } };
   let tab = record(), refresh = refreshed();
   const ctx = {
@@ -33,6 +33,7 @@ function fixture() {
     api: async (path, options) => {
       calls.push({ path, options });
       if (path === "/api/agents/providers") return descriptors;
+      if (path === "/api/agents/providers/acp/profiles") return profiles;
       if (path === "/api/agents/providers/refresh") return refresh;
       if (path === "/api/config") {
         if (options) {
@@ -53,11 +54,89 @@ function fixture() {
     },
     command: async (args, options) => { calls.push({ args, options }); return { tab_id: "created" }; },
   };
-  return { ctx, calls, descriptors, config, setTab: (value) => { tab = value; }, setRefresh: (value) => { refresh = value; },
+  return { ctx, calls, descriptors, profiles, config, setTab: (value) => { tab = value; }, setRefresh: (value) => { refresh = value; },
     prepare: async (configure = true) => { ctx.policy = await preparePolicy(ctx, { configure, required: [], readRecord: async () => tab }); return ctx.policy; } };
 }
 
 const paidCalls = (calls) => calls.filter((call) => call.args || call.path?.endsWith("/chat-send") || ["/api/agents/general/complete-first-run", "/api/orchestration/new"].includes(call.path));
+
+function profileFixture(selection = "gemini-cli") {
+  const f = fixture();
+  f.descriptors.push({ id: "acp", availability: "available", agent_runtime: { launchProfiles: { "gemini-cli": {} } }, available_models: [] });
+  f.profiles.push({ id: "gemini-cli", install: "detected", auth: "unknown", configOptions: [] });
+  f.ctx.options.models.acp = selection;
+  f.setTab({ id: "owned", agent_type: "acp", agent_runtime_config: { launchProfile: "gemini-cli" }, agent_session_id: "acp-session" });
+  return f;
+}
+
+test("profile-backed providers remain in the full roster and name ready selections on refusal", async () => {
+  const f = profileFixture(); delete f.ctx.options.models.acp;
+  await assert.rejects(f.prepare(), /complete installed provider roster; expected --model acp=<profile> \(ready profiles: gemini-cli\)/);
+  assert.deepEqual(paidCalls(f.calls), []);
+  assert.equal(f.calls.some(call => call.options?.method === "PATCH"), false);
+});
+
+test("profile defaults spawn and dispatch with launch_profile, no invented model or flat refresh", async () => {
+  for (const selection of ["gemini-cli", "gemini-cli/default"]) {
+    const f = profileFixture(selection); await f.prepare();
+    assert.deepEqual(f.ctx.policy.roster.run.map(value => value.id), [provider, "acp"]);
+    assert.equal(f.config.agents.acp.default_model, null);
+    await spawnOne(f.ctx, { id: "acp", runtime: true });
+    await dispatchWorker(f.ctx, "acp", "p", "t", "o", f.ctx.state.workspace);
+    for (const { args } of paidCalls(f.calls)) {
+      assert.equal(args[args.indexOf("--launch-profile") + 1], "gemini-cli");
+      assert.equal(args.includes("--model"), false);
+    }
+    assert.equal(f.calls.some(call => call.path === "/api/agents/providers/refresh" && call.options.body.provider_id === "acp"), false);
+    const entry = f.ctx.state.model_policy.launches[0];
+    assert.equal(entry.selection, selection); assert.equal(entry.launch_profile, "gemini-cli"); assert.equal(entry.model, null);
+  }
+});
+
+test("explicit profile models are exact declared choices, including opaque slash IDs", async () => {
+  const f = profileFixture("gemini-cli/vendor/exact");
+  f.profiles[0].configOptions = [{ id: "model-id", category: "model", options: [{ value: "vendor/exact" }] }];
+  await f.prepare(); await spawnOne(f.ctx, { id: "acp", runtime: true });
+  const { args } = paidCalls(f.calls)[0];
+  assert.equal(args[args.indexOf("--launch-profile") + 1], "gemini-cli");
+  assert.equal(args[args.indexOf("--model") + 1], "vendor/exact");
+  f.setTab({ id: "owned", agent_type: "acp", agent_runtime_config: { launchProfile: "gemini-cli" },
+    agent_requested_model: "vendor/exact", agent_provider_resolved_model: "vendor/exact", agent_session_model: "vendor/exact", agent_session_id: "s" });
+  await f.ctx.policy.identity("owned");
+  f.profiles[0].configOptions[0].options = [];
+  await assert.rejects(spawnOne(f.ctx, { id: "acp" }), /unknown or ambiguous profile model/);
+  assert.equal(paidCalls(f.calls).length, 1);
+});
+
+test("unknown, duplicate, uninstalled, busy and auth-blocked profiles refuse before configuration or paid work", async () => {
+  for (const mutate of [
+    f => { f.ctx.options.models.acp = "missing"; }, f => { f.profiles.push({ ...f.profiles[0] }); },
+    f => { f.profiles[0].install = "not_installed"; }, f => { f.profiles[0].setup = { state: "installing" }; },
+    f => { f.profiles[0].auth = "needs_auth"; }, f => { f.ctx.options.models.acp = "gemini-cli/guessed-model"; },
+  ]) {
+    const f = profileFixture(); mutate(f);
+    await assert.rejects(f.prepare(), /model policy refused/);
+    assert.deepEqual(paidCalls(f.calls), []);
+    assert.equal(f.calls.some(call => call.options?.method === "PATCH"), false);
+  }
+  const f = profileFixture(); await f.prepare(); f.profiles[0].install = "not_installed";
+  await assert.rejects(spawnOne(f.ctx, { id: "acp" }), /not installed and ready/);
+  assert.deepEqual(paidCalls(f.calls), []);
+});
+
+test("profile default identity survives restart without claiming a model and rejects wrong profile or session", async () => {
+  const f = profileFixture(); await f.prepare();
+  const before = await f.ctx.policy.identity("owned");
+  assert.equal(before.actual, null); assert.equal(before.requested, null); assert.equal(before.launch_profile, "gemini-cli");
+  f.ctx.state = JSON.parse(JSON.stringify(f.ctx.state)); f.ctx.options.mode = "verify";
+  await f.prepare(false);
+  await f.ctx.policy.identity("owned", { restored: true });
+  for (const patch of [{ agent_runtime_config: { launchProfile: "other" } }, { agent_session_id: "foreign" }]) {
+    const g = profileFixture(); await g.prepare(); await g.ctx.policy.identity("owned");
+    g.setTab({ id: "owned", agent_type: "acp", agent_runtime_config: { launchProfile: "gemini-cli" }, agent_session_id: "acp-session", ...patch });
+    await assert.rejects(g.ctx.policy.identity("owned", { restored: true }), /profile.*(mismatched|changed)/);
+  }
+});
 
 test("the run's control fixture never narrows the complete real provider roster", async () => {
   const f = fixture();
@@ -162,6 +241,17 @@ test("fresh rejection at each launch boundary causes zero paid calls", async () 
     await assert.rejects(launch(f.ctx), /capability unavailable or unknown/);
     assert.deepEqual(paidCalls(f.calls), []);
   }
+});
+
+test("flat launch validation observes models after the refresh completes", async () => {
+  const f = fixture(); await f.prepare(); f.calls.length = 0;
+  const original = f.ctx.api;
+  f.ctx.api = async (path, options) => {
+    if (path === "/api/agents/providers/refresh") f.descriptors[0] = { ...descriptor(), available_models: [] };
+    return original(path, options);
+  };
+  await assert.rejects(spawnOne(f.ctx, { id: provider }), /catalogue absent/);
+  assert.deepEqual(paidCalls(f.calls), []);
 });
 
 test("only initial J1 input may precede actual model evidence; unknown then blocks every later send", async () => {

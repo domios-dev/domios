@@ -1,6 +1,7 @@
 import { Events } from "./env.mjs";
 import { installed, selectProviders } from "./oracle.mjs";
 import { fixtureProviderId } from "./fixture-control.mjs";
+import { profileBacked, profileReady, profileSelection, profileIdentity, selectionDefault } from "./profile-policy.mjs";
 
 const refuse = (reason) => { throw new Error(`model policy refused: ${reason}`); };
 const nonempty = (value) => typeof value === "string" && value.trim() === value && value.length > 0;
@@ -121,10 +122,16 @@ export async function refreshAfterStartup(ctx, provider) {
 }
 
 export async function freshCatalogue(api, provider, selected, expectedRoster, fixture = () => undefined, observedRefresh, context) {
+  const read = async () => {
+    const descriptors = (await api("/api/agents/providers")).filter(descriptor => descriptor.id !== fixture());
+    if (expectedRoster && !same(descriptors.filter(installed).map(descriptor => descriptor.id), expectedRoster)) refuse("installed provider roster changed");
+    return descriptors;
+  };
+  const descriptors = await read();
+  const descriptor = descriptors.find(descriptor => descriptor.id === provider);
+  if (profileBacked(descriptor)) return profileSelection(descriptor, selected, await api(`/api/agents/providers/${encodeURIComponent(provider)}/profiles`));
   const refresh = observedRefresh ?? await api("/api/agents/providers/refresh", { method: "POST", body: { provider_id: provider } });
-  const descriptors = (await api("/api/agents/providers")).filter(descriptor => descriptor.id !== fixture());
-  if (expectedRoster && !same(descriptors.filter(installed).map((descriptor) => descriptor.id), expectedRoster)) refuse("installed provider roster changed");
-  return catalogueSelection(descriptors.find((descriptor) => descriptor.id === provider), selected, refresh, context);
+  return catalogueSelection((observedRefresh ? descriptors : await read()).find(descriptor => descriptor.id === provider), selected, refresh, context);
 }
 
 export async function preparePolicy(ctx, { readRecord, configure = false, required } = {}) {
@@ -139,13 +146,24 @@ export async function preparePolicy(ctx, { readRecord, configure = false, requir
   if (roster.missing.length) refuse(`required providers missing: ${roster.missing.map((entry) => entry.id).join(",")}`);
   const ids = roster.run.map((provider) => provider.id);
   if (ctx.options.providers && !same(ctx.options.providers, ids)) refuse("provider roster narrowing is forbidden");
-  if (!same(Object.keys(selections), ids)) refuse("explicit selections must cover the complete installed provider roster");
+  if (!same(Object.keys(selections), ids)) {
+    const hints = [];
+    for (const descriptor of descriptors.filter(descriptor => profileBacked(descriptor) && !Object.hasOwn(selections, descriptor.id))) {
+      const profiles = await ctx.api(`/api/agents/providers/${encodeURIComponent(descriptor.id)}/profiles`);
+      hints.push(`--model ${descriptor.id}=<profile> (ready profiles: ${profiles.filter(profileReady).map(profile => profile.id).join(", ") || "none"})`);
+    }
+    refuse(`explicit selections must cover the complete installed provider roster${hints.length ? `; expected ${hints.join("; ")}` : ""}`);
+  }
   const previous = ctx.state.model_policy;
   if (previous?.refusal) refuse(`persisted refusal: ${previous.refusal}`);
   if (previous && (!same(previous.roster, ids) || !same(Object.entries(previous.selections).map((entry) => JSON.stringify(entry)), Object.entries(selections).map((entry) => JSON.stringify(entry))))) refuse("persisted restart policy differs from explicit selections or roster");
   if (!configure && !previous) refuse("persisted restart policy absent");
   const catalogues = {}, build = ctx.health?.build_sha ?? ctx.health?.build;
   for (const provider of ids) {
+    if (profileBacked(descriptors.find(descriptor => descriptor.id === provider))) {
+      catalogues[provider] = await freshCatalogue(ctx.api, provider, selectedModel(selections, provider), ids, fixture);
+      continue;
+    }
     const { startup_event_deadline, ...refresh } = await refreshAfterStartup(ctx, provider);
     const selected = selectedModel(selections, provider);
     const context = startup_event_deadline ? {
@@ -161,32 +179,33 @@ export async function preparePolicy(ctx, { readRecord, configure = false, requir
   policy.phase_builds ??= {};
   policy.phase_builds[ctx.options.mode] = build;
   if (ctx.options.mode === "setup") policy.setup_live = Object.fromEntries(Object.entries(catalogues)
-    .filter(([, entry]) => entry.refresh.refreshed === true && entry.refresh.discovery_required === true)
+    .filter(([, entry]) => entry.refresh?.refreshed === true && entry.refresh.discovery_required === true)
     .map(([provider, catalogue]) => [provider, { run: ctx.state.run, build_sha: build, catalogue }]));
   if (ctx.options.mode === "verify") policy.verify_catalogues = structuredClone(catalogues);
   const config = await ctx.api("/api/config");
   const generalProvider = policy.general_provider ?? (roster.run.find((provider) => !provider.runtime)?.id ?? ids[0]);
+  if (catalogues[generalProvider].kind === "profile") refuse("General requires a provider with a flat advertised model selection");
   generalSelection(config, generalProvider, selections[generalProvider]);
   if (configure) {
     // A fresh instance has no per-provider entry, and the config PATCH only creates the last path segment.
-    for (const provider of ids) await ctx.api("/api/config", { method: "PATCH", body: { key: `agents.${provider}`, value: { ...(config.agents?.[provider] ?? {}), default_model: selections[provider] } } });
+    for (const provider of ids) await ctx.api("/api/config", { method: "PATCH", body: { key: `agents.${provider}`, value: { ...(config.agents?.[provider] ?? {}), default_model: selectionDefault(catalogues[provider]) } } });
     await ctx.api("/api/config", { method: "PATCH", body: { key: "general_agent.model", value: selections[generalProvider] } });
   }
   const saved = await ctx.api("/api/config");
   generalSelection(saved, generalProvider, selections[generalProvider]);
   if (saved.general_agent?.model !== selections[generalProvider]) refuse("General model was not persisted");
-  for (const provider of ids) if (saved.agents?.[provider]?.default_model !== selections[provider]) refuse(`${provider} scoped default was not persisted`);
+  for (const provider of ids) if ((saved.agents?.[provider]?.default_model ?? null) !== selectionDefault(catalogues[provider])) refuse(`${provider} scoped default was not persisted`);
   policy.general_provider = generalProvider;
   policy.configurations ??= {};
   policy.configurations[ctx.options.mode] = { general_provider: generalProvider, general_model: saved.general_agent.model,
-    defaults: Object.fromEntries(ids.map((provider) => [provider, saved.agents[provider].default_model])) };
+    defaults: Object.fromEntries(ids.map((provider) => [provider, saved.agents[provider]?.default_model ?? null])) };
   ctx.state.model_policy = policy;
   ctx.save();
   const assertConfiguration = async (provider) => {
     const current = await ctx.api("/api/config");
     generalSelection(current, generalProvider, selections[generalProvider]);
     if (current.general_agent?.model !== selections[generalProvider]
-      || current.agents?.[provider]?.default_model !== selections[provider]) refuse("scoped model configuration changed");
+      || (current.agents?.[provider]?.default_model ?? null) !== selectionDefault(catalogues[provider])) refuse("scoped model configuration changed");
   };
   const guard = (body) => async (...args) => {
     if (policy.refusal) refuse(`persisted refusal: ${policy.refusal}`);
@@ -203,10 +222,13 @@ export async function preparePolicy(ctx, { readRecord, configure = false, requir
       const catalogue = await freshCatalogue(ctx.api, provider, model, ids, fixture);
       await assertConfiguration(provider);
       policy.catalogues[provider] = catalogue;
-      policy.launches.push({ provider, model, path, catalogue, checked_at: new Date().toISOString() });
+      const profile = catalogue.kind === "profile";
+      if (profile && ["J2-api-pair", "J2-ui-pair"].includes(path)) refuse("Team pair creation does not support launch profiles; choose a non-profile representative without narrowing J1");
+      policy.launches.push({ provider, model: profile ? catalogue.model : model,
+        ...(profile ? { selection: model, launch_profile: catalogue.launch_profile } : {}), path, catalogue, checked_at: new Date().toISOString() });
       ctx.save();
       if (policy.refusal) refuse(`persisted refusal: ${policy.refusal}`);
-      return call(model);
+      return call(profile ? catalogue.model : model, profile ? catalogue.launch_profile : undefined);
     },
     async identity(id, { first = false, restored = false } = {}) {
       let record = await readRecord(id);
@@ -218,7 +240,9 @@ export async function preparePolicy(ctx, { readRecord, configure = false, requir
       if (record?.id !== id) refuse(`tab ${id} own identity unavailable`);
       const previousIdentity = policy.identities[id];
       if (restored && !previousIdentity) refuse(`tab ${id} persisted identity absent`);
-      const evidence = modelIdentity(record, provider, selected, { first, previous: restored ? previousIdentity : null });
+      const options = { first, previous: restored ? previousIdentity : null };
+      const catalogue = policy.catalogues[provider];
+      const evidence = catalogue.kind === "profile" ? profileIdentity(record, provider, catalogue, options) : modelIdentity(record, provider, selected, options);
       policy.identities[id] = evidence;
       if (restored) { policy.restored_identities ??= {}; policy.restored_identities[id] = evidence; }
       ctx.save();

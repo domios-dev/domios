@@ -11,7 +11,7 @@ Usage: bash evals/core-journeys/run.sh MODE [--out DIR] [driver flags]
   setup     J1-J3 and the pre-restart snapshot; leaves fixtures for verify
   verify    J4 (+ J3 after restart) against the state in --out; run after an operator restart
   cleanup   remove the fixtures recorded in --out
-Driver flags: --model PROVIDER=ADVERTISED_ID (repeat for every installed provider)  --providers a,b  --history-kb N  --deadline-secs N  --all-tabs  --keep
+Driver flags: --model PROVIDER=ADVERTISED_ID (repeat for every installed provider; profile-backed: acp=PROFILE[/MODEL])  --providers a,b  --history-kb N  --deadline-secs N  --all-tabs  --keep
 --plan prints the journeys, steps and evidence paths without contacting an instance.
 Needs a named instance and its own API port; ports 7685 and 7686 are refused.
 Check a finished run: node evals/core-journeys/lib/evidence-contract.mjs OUT
