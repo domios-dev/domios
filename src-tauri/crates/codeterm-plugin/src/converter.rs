@@ -143,6 +143,7 @@ impl From<TranscribeError> for ConvertError {
     fn from(e: TranscribeError) -> Self {
         match e {
             TranscribeError::Empty | TranscribeError::EmptyPath => Self::NoOutput,
+            TranscribeError::TimedOut(_) => Self::DeadlineExceeded,
             other => Self::RequestFailed(other.to_string()),
         }
     }
