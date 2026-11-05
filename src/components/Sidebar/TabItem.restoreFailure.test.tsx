@@ -6,6 +6,7 @@ import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
 import { TabItem } from "./TabItem";
 import type { Tab } from "../../lib/types";
+import { __pluginTabMenuSyncForTest, __setPluginTabMenuForTest } from "../../lib/pluginTabMenu";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -28,6 +29,16 @@ globalThis.fetch = async (input) => {
   throw new Error(`Unexpected sidebar request: ${path}`);
 };
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+// The row's plugin menu talks to an in-memory host: the daemon transport would route the
+// load over the stream-mux carrier, which this fetch fixture never answers.
+const menu = { loads: 0, releases: 0 };
+const emptyMenu = { items: [], receiverTargets: {} };
+__setPluginTabMenuForTest(emptyMenu, {
+  available: () => true,
+  load: async () => { menu.loads += 1; return emptyMenu; },
+  run: async () => emptyMenu,
+  watch: async () => () => { menu.releases += 1; },
+});
 
 async function main() {
   const host = document.createElement("div");
@@ -78,6 +89,8 @@ async function main() {
 
   await act(async () => root.unmount());
   host.remove();
+  assert(menu.loads >= 1, "the failed row still loads its plugin menu");
+  assert(menu.releases === 1 && !__pluginTabMenuSyncForTest().listening, "unmounting releases the plugin menu listener");
   console.log("✓ TabItem restore failure wiring: sidebar badge role and accessible name");
 }
 
