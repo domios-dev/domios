@@ -55,7 +55,7 @@ domios plan section add <plan> --title "..." --body "..."   # HOW / phases
 domios plan task add <plan> --name "..." --why "..." \      # YOU cut tasks
     --body "..." --criterion "..." --test-plan "..." --correctness "..." \
     --sections <sec_id> --model <provider>:<model> \
-    --executor-role <role> --personality <name> --role-guidance "You are ..."   # persona is optional
+    --executor-role <role> --personality <name> --role-guidance "You are ..."   # persona is required
 domios plan doctor <plan> --kind quality          # self-review before handing back
 domios plan get <plan> --sections                 # structure only, cheap
 domios task show <task_id>                         # one task, cheap
@@ -166,4 +166,4 @@ tried; uncertainty routed early is planning working.
 
 Task creation reports required-field errors together. Supply name, executor role and role guidance. Supply an explicit one-word personality, for example `--personality Ada`; the sole plan section is the default when no area matches. A missing work tag is inferred with a warning. Correctness remains optional with a quality warning. A bare provider such as `--model codex` is resolved at dispatch.
 
-<!-- revision: 35 -->
+<!-- revision: 36 -->
