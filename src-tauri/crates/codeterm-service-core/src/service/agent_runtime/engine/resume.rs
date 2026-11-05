@@ -61,7 +61,7 @@ pub(super) async fn before_turn(
     Ok(())
 }
 
-pub(super) async fn load(
+pub(crate) async fn load(
     svc: &ServiceContext,
     provider: &str,
     session: &Arc<Session>,
@@ -78,7 +78,23 @@ pub(super) async fn load(
         return result;
     };
     if !matches!(result, Err(RuntimeFailure::ConversationMissing)) {
-        return result;
+        return result.map_err(|reason| match reason {
+            RuntimeFailure::Refused(cause) => {
+                let name = session
+                    .state
+                    .lock()
+                    .agent_name
+                    .clone()
+                    .filter(|name| !name.trim().is_empty())
+                    .or_else(|| {
+                        svc.agent_registry
+                            .with_provider(provider, |adapter| adapter.display_name().to_owned())
+                    })
+                    .unwrap_or_else(|| provider.into());
+                RuntimeFailure::Refused(format!("{name} could not resume the session: {cause}"))
+            }
+            reason => reason,
+        });
     }
     validate_binding(svc, session)?;
     let context = session.context.lock().clone();

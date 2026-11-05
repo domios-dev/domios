@@ -1,3 +1,6 @@
+pub(crate) use super::transcript::persisted as persisted_transcript;
+#[cfg(test)]
+pub(crate) use super::transcript::{persist as persist_transcript, restore as restore_transcript};
 use super::{
     model::{self, ItemCache, RuntimeFailure, RuntimePhase, RuntimeState},
     process::Process,
@@ -7,6 +10,8 @@ use crate::service::MuxEmitCause;
 use crate::service::ServiceContext;
 use codeterm_plugin::agent_runtime::*;
 use parking_lot::Mutex;
+#[cfg(test)]
+pub(crate) use resume::load as resume_for_test;
 use serde_json::Value;
 use std::{
     collections::HashMap,

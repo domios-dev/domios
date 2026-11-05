@@ -70,7 +70,22 @@ fn selected(session: &Session) -> bool {
         .is_some_and(|capability| enabled(&capability))
 }
 
-pub(super) async fn restore(session: &Arc<Session>) -> Result<(), RuntimeFailure> {
+pub(crate) fn persisted(
+    provider: &str,
+    thread: &str,
+    capability: &AgentRuntimeCapability,
+) -> std::io::Result<Option<Vec<ChatMsg>>> {
+    if !enabled(capability) {
+        return Ok(None);
+    }
+    match chatbackend_history::read_tail(&chatbackend_history::runtime_path(provider, thread)) {
+        Ok(window) => Ok(Some(window.keep_last(REREADABLE_CACHE_ROWS).messages)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Some(Vec::new())),
+        Err(error) => Err(error),
+    }
+}
+
+pub(crate) async fn restore(session: &Arc<Session>) -> Result<(), RuntimeFailure> {
     if !selected(session) {
         return Ok(());
     }
@@ -143,7 +158,7 @@ pub(super) fn apply_restored_rows(
     Ok(ordinal)
 }
 
-pub(super) async fn persist(session: &Arc<Session>) {
+pub(crate) async fn persist(session: &Arc<Session>) {
     if !selected(session) {
         return;
     }
