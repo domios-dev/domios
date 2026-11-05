@@ -20,7 +20,7 @@ jobs:
     name: validate and publish plugin
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && (startsWith(github.ref, 'refs/heads/release/') || startsWith(github.head_ref, 'release/')) && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
     environment: release
-    runs-on: [self-hosted, linux-build]
+    runs-on: ${{ fromJSON(vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
     steps:
       - name: Use the runner bundled Node
         if: runner.environment == 'self-hosted'
@@ -96,7 +96,7 @@ jobs:
     needs: publish
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && (startsWith(github.ref, 'refs/heads/release/') || startsWith(github.head_ref, 'release/')) && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
     environment: release
-    runs-on: [self-hosted, linux-build]
+    runs-on: ${{ fromJSON(vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
     concurrency:
       group: codeterm-core-channel-publication
       cancel-in-progress: false

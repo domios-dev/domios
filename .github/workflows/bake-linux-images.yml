@@ -1,16 +1,19 @@
-name: Bake Linux build images (self-hosted)
-
-# One-shot: bake the codeterm-build-linux-{arm64,x64} Docker images ON the
-# self-hosted build machine. The release pipeline needs them present; they are
-# not in the Actions cache and must live on the runner. Run via the Actions
-# "Run workflow" button or `gh workflow run`.
+name: Bake Linux build images
 on:
   workflow_dispatch:
 
 jobs:
   bake:
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' }}
-    runs-on: [self-hosted, codeterm-builder]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: ${{ vars.CI_LINUX_ARM64_RUNNER || '"ubuntu-24.04-arm"' }}
+          - arch: x64
+            runner: ${{ vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"' }}
+    runs-on: ${{ fromJSON(matrix.runner) }}
     timeout-minutes: 120
     steps:
       - name: Use the runner bundled Node
@@ -39,15 +42,10 @@ jobs:
         run: |
           docker info >/dev/null
 
-      - name: Bake codeterm-build-linux-arm64
+      - name: Bake and verify native image
         working-directory: .codeterm/build-machine/docker
-        run: docker build -t codeterm-build-linux-arm64 -f Dockerfile.linux-arm64 .
-
-      - name: Bake codeterm-build-linux-x64
-        working-directory: .codeterm/build-machine/docker
-        run: docker build -t codeterm-build-linux-x64 -f Dockerfile.linux-x64 .
-
-      - name: Verify
+        env:
+          ARCH: ${{ matrix.arch }}
         run: |
-          docker image inspect codeterm-build-linux-arm64 >/dev/null && echo "✅ arm64 image present"
-          docker image inspect codeterm-build-linux-x64   >/dev/null && echo "✅ x64 image present"
+          docker build -t "codeterm-build-linux-$ARCH" -f "Dockerfile.linux-$ARCH" .
+          docker image inspect "codeterm-build-linux-$ARCH" >/dev/null
