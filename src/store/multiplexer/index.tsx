@@ -891,7 +891,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     spawnInFlight.current.add(guardKey);
     try {
       const res = await guardedInvoke<AtomicSpawn>("mux_spawn_tab", {
-        params: { agentId, workspaceId, cwd, model, reasoningEffort, launchProfile, ...atomicSpawnPreset(getAgentDescriptor(agentId), preset, executionMode) },
+        params: { agentId, workspaceId, cwd, model, reasoningEffort, ...(launchProfile ? { launchProfile } : {}), ...atomicSpawnPreset(getAgentDescriptor(agentId), preset, executionMode) },
       });
       applyBackendState(res.snapshot);
       if (res.launch_command) {
