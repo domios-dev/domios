@@ -52,8 +52,8 @@ it("groups the selected remote peer's concierge without reading or managing the 
   await act(async () => root.render(<><SidebarNeighborsSection touchMode={false} client={localClient} runtimeClient={localRuntime} /><Probe /></>));
   await expandSection();
   expect(hasButton("Open Remote Friend's concierge")).toBe(true);
-  expect(seen.at(-1)?.has("tab-gateway")).toBe(true);
-  expect(seen.at(-1)?.has("tab-general")).toBe(false);
+  expect(seen[seen.length - 1]?.has("tab-gateway")).toBe(true);
+  expect(seen[seen.length - 1]?.has("tab-general")).toBe(false);
   expect(localClient.list).not.toHaveBeenCalled();
   expect(localRuntime.status).not.toHaveBeenCalled();
   expect(hasButton("Actions for Remote Friend's concierge")).toBe(false);
@@ -65,7 +65,7 @@ it("groups the selected remote peer's concierge without reading or managing the 
     window.dispatchEvent(new CustomEvent("codeterm-peer-switch-rebind"));
   });
   expect(hasButton("Open Remote Friend's concierge")).toBe(false);
-  expect(seen.at(-1)?.size).toBe(0);
+  expect(seen[seen.length - 1]?.size).toBe(0);
 });
 
 it("keeps the sidebar Neighbors section away until there is a Neighbor", async () => {
