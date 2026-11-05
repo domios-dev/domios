@@ -1,0 +1,194 @@
+# ACP agents
+
+Domios's `provider-acp` plugin (provider id `acp`) connects Agent Client Protocol
+v1 agents over stdio JSON-RPC. An ACP tab is a `chat_backend` runtime with no PTY
+or interactive shell. Send chat to it; do not send shell setup commands to it.
+The agent can request host filesystem and terminal tools during a turn.
+
+## Choose a launch profile
+
+Discover the installed provider with `domios agent providers`. ACP requires an
+explicit profile; a model id does not select an agent executable.
+
+| Profile | Requirements and setup |
+|---|---|
+| `gemini-cli` | Install Gemini CLI separately so Domios can resolve `gemini`. The profile launches `gemini --acp`. Authenticate using the agent's declared methods below. There is no built-in installer for this profile. |
+| `deepseek-harness` | In the Spawn picker, select ACP and this profile, choose **Install profile**, confirm the exact package, then **Confirm setup**. The pinned package is `@deepseek-ai/dsh@0.2.1-rc.5`, with `--profile acp`. Installation requires Node.js, npm and access to the npm registry. The installed runtime uses Node and the installed script, rather than fetching a package on every launch. |
+| `local` | An owner-confirmed installed ACP executable and argument array. Configure it through the Spawn picker as described below. The placeholder `local-acp-command` is not an installed agent. |
+
+DeepSeek requires the secret `domios:provider:acp:deepseek-api-key` before runtime
+launch. Store the owner's key through Settings → Secrets, or feed it on stdin to:
+
+```bash
+domios mem secret save --name domios:provider:acp:deepseek-api-key
+```
+
+Use `--overwrite` only when replacing an existing entry. The profile injects this
+secret as `DEEPSEEK_API_KEY` through `secretEnv`; a missing key refuses launch.
+This profile does not declare an `authEnv` key-taking login method. Never place a
+key in arguments, a task body or memory. See `domios docs SECRETS`.
+
+## Connect another ACP agent
+
+The `local` profile is the entry point for another installed ACP v1 agent:
+
+1. Install the agent on the machine running Domios, using its own installation
+   instructions. It must expose an ACP stdio endpoint.
+2. Open the Spawn picker, select ACP, then **Agent profile** → `local`.
+3. Choose **Configure local command**. Enter **Agent executable** and
+   **Arguments (JSON array)**, such as `["--stdio"]` only if that agent requires
+   that argument. Arguments are separate strings, not a shell command line.
+4. Check **I trust this executable and these arguments**, then **Confirm setup**.
+   Domios resolves the executable and saves an owner-confirmed launch receipt.
+5. Spawn with `--profile local` or use the picker after installation reports ready.
+
+### CLI setup availability
+
+There is currently no CLI command or plugin configuration key to configure the
+local executable/arguments. `domios plugin config` does not configure ACP launch
+profiles. The supported owner path is the Spawn UI above. Selection is stored as
+the tab runtime's `launchProfile`; it is not a binary override.
+
+The local form has no environment editor, and the saved command contains only
+`binary` and `args`. Profile `env`, `secretEnv` and `authEnv` are plugin declarations,
+not owner-editable local settings. The bundled local profile declares none.
+Agent-specific environment or credential setup therefore needs the agent's own
+supported setup outside this form; generic local secret-to-environment mappings
+cannot be configured here.
+
+Local commands must name an installed executable. Domios refuses `npx`, `npm`,
+`uvx`, `uv` and `env` launchers, and shell-command indirection is not supported.
+Use the installed agent executable, or an installed runtime with its installed
+agent script as an argument, rather than a package-fetching launcher.
+
+## Discover agents in the ACP registry
+
+The plugin declares these agent verbs, exposed through the CLI plugin passthrough:
+
+```bash
+domios plugin acp registry-refresh
+domios plugin acp registry-search gemini
+domios plugin acp registry-refresh deepseek
+```
+
+Both verbs accept an optional query. `registry-search` searches the local cache by
+id, name and description; before the first refresh, an absent cache returns an
+empty list. `registry-refresh` fetches the ACP v1 registry, validates and saves it,
+then searches it. A failed refresh retains the previous cache. These verbs require
+the plugin's `agent_commands` grant and refresh requires network access.
+
+Results describe `distribution.npx`, `distribution.uvx`, or platform-specific
+`distribution.binary` entries, including package/archive, arguments and environment.
+They are discovery metadata: there is no registry install command, automatic
+profile creation, or registry-to-Spawn import.
+
+- For `npx` distributions, install the named npm package using the agent's own
+  instructions; configure its installed executable or Node plus installed script.
+- For `uvx` distributions, install the Python tool using its own instructions and
+  configure its installed executable. Passing `uvx` as the local executable fails.
+- For binary distributions, choose the matching OS/architecture entry, download
+  and extract its archive using the publisher's instructions, verify its supplied
+  checksum when present, then configure the extracted command and arguments.
+
+Review the entry's required environment as well: registry `env` values are not
+imported into local configuration. An entry offering only a package runner is
+not directly launchable through the current local setup form.
+
+## Authenticate
+
+After creating a tab, inspect its declared authentication methods:
+
+```bash
+domios agent login --tab TAB_ID --show
+domios agent login --tab TAB_ID --method METHOD_ID
+```
+
+`--show` reads state without starting a flow. Use a method id returned by this
+agent; unavailable or undeclared methods refuse. ACP `agent` methods are callable;
+methods declared as `terminal` are unavailable through this non-PTY interface.
+
+For a key-taking method, feed the key on stdin to the following command; never
+include it in argv or send it over mesh:
+
+```bash
+domios agent login --tab TAB_ID --method METHOD_ID --api-key-stdin
+```
+
+Key-taking methods must be mapped by the selected profile's `authEnv`. Domios
+stores the key in its secret store, restarts the runtime with the mapped variable,
+then calls the declared authentication method. The Gemini profile maps method
+`gemini-api-key` to secret `domios:provider:acp:gemini-api-key` and environment
+variable `GEMINI_API_KEY`. Use it only if the running agent declares that method.
+The local profile has no such mapping, so `--api-key-stdin` cannot provision an
+arbitrary local agent's key.
+
+OAuth/browser or device authentication is owned by the agent's declared method:
+select that method with `--method ID` and complete the agent's supported flow.
+Do not assume every ACP agent supplies a Domios link/code card. The generic
+`agent login --device` flow requires a separate runtime login capability, which
+this ACP plugin does not declare; it is not an alias for an ACP method id.
+An agent requiring an interactive terminal login must be authenticated separately
+using its own CLI before use here. Auth state can remain `unknown` until evidence
+is available; an installed profile is not proof of authentication.
+
+## Spawn and select a model
+
+```bash
+domios agent spawn acp --profile gemini-cli --description "Work with Gemini"
+domios agent spawn acp --profile deepseek-harness --description "Work with DeepSeek"
+domios agent spawn acp --profile local --model MODEL_ID --description "Work with the local agent"
+```
+
+`--profile` selects the launch command; `--model` selects a model within that
+agent's session. Omit the model to use the agent's default. ACP reads the session's
+declared model configuration; a requested model is applied only when advertised.
+If no model option exists or selection fails, the tab shows a notice that the
+requested model was not applied. Check the reported session model before claiming
+that selection succeeded. Unknown, missing required, or uninstalled profiles
+refuse before tab creation. Local profile setup is required even if its executable
+already exists on PATH.
+
+## Permission questions and cancellation
+
+When the tab status is `question`, inspect the current prompt and numbered options:
+
+```bash
+domios tab status --tab TAB_ID
+domios tab inspect TAB_ID
+domios tab respond N --tab TAB_ID
+```
+
+Choose the displayed approve or reject option using its one-based number `N`;
+numbers depend on the agent's declared choices. Do not assume option 1 approves.
+Respond only within your authority. Domios binds the answer to the pending request;
+raw keys are not the interface. Filesystem and terminal requests use host permission
+gates too; granting a tool request does not bypass host access restrictions.
+
+```bash
+domios tab stop --tab TAB_ID
+```
+
+Stop interrupts the active turn via ACP `session/cancel`; it does not close the tab.
+It can also cancel a turn waiting for a permission response.
+
+## Platform notes and limits
+
+- The executable must be resolvable on the Domios host, including on Windows and
+  macOS; an executable available only in an interactive shell may not be visible
+  to the app. Prefer the installed executable's absolute path for local setup.
+  There is no PTY in which to answer installation or workspace-trust prompts.
+- The Gemini profile sets `GEMINI_CLI_TRUST_WORKSPACE=true` on every platform,
+  including Windows and macOS. Selecting it launches Gemini with that trust
+  setting. The local profile does not inherit the Gemini profile's environment.
+- Only ACP v1 over stdio JSON-RPC is supported by this plugin. An ordinary CLI,
+  HTTP-only agent or incompatible protocol version cannot use the local profile.
+- Resume/load, models, modes and configuration depend on what the agent advertises.
+  Domios refuses unadvertised controls; not every ACP agent supports restoration.
+- Host Domios MCP tools can be supplied during session creation/restoration. A
+  failed session handshake may retry once without them and show a tools-unavailable
+  notice. See `domios docs AGENT-CONTROL` for the tool and authority contract.
+- Registry discovery is bounded and cached; it does not establish that an agent is
+  installed, authenticated or compatible. Local CLI setup, environment editing and
+  registry installation remain gaps in the current product.
+
+<!-- revision: 1 -->

@@ -193,6 +193,37 @@ With `background_work_guard` enabled, restarts and restart-based model switches 
 `spawn.capabilityProbe: stream_json_initialize` supports `capability_probe_enabled` (default false). `POST /api/tabs/{id}/agent/capabilities/refresh` refreshes the project/binary cache: `status` is `pending`, `ready` with typed `data`, or `unavailable` with typed `reason`. Binary/login changes invalidate and rebuild. Render/switch/send never probe. Cached commands carry argument hints; the composer badge shows subscription/modes. No user turn or usage request is sent.
 
 
+### Declared runtime controls
+
+| Method | Path | Operation |
+|--------|------|-----------|
+| POST | `/api/tabs/{id}/agent/runtime/controls` | Select an advertised configuration value or mode on the exact bound runtime session. |
+
+Requires authenticated API access and the target runtime's current authority
+tuple. Request fields are camelCase; unknown fields are rejected:
+
+```json
+{"threadId":"session-id","bindingNonce":"current-binding","epoch":1,"id":"config-id","value":"advertised-value","mode":false}
+```
+
+`threadId`, `bindingNonce`, `epoch` (unsigned integer), `id` and `value` are required.
+`mode` defaults to `false`: `id` must identify a current configuration option whose
+advertised choices contain `value`. With `mode: true`, `value` must identify an
+advertised mode; `id` is still required but is not used for mode selection.
+Read the tuple and advertised `controls` from the current runtime snapshot; never
+reuse a tuple after rebinding or restarting. The handler validates the live tab
+binding and compares all three tuple fields before invoking the provider. It has
+no local-owner-only wrapper; general caller access restrictions still apply.
+
+Success returns `200` with `{"ok":true}` after the provider control completes.
+Read the resulting session controls to observe its current selection. Service
+refusals return `409` with a text reason: unavailable runtime/process, binding or
+tuple mismatch, a value not advertised by this session, a provider control failure,
+or the 30-second control-gate acquisition deadline. Any recorded execution sandbox
+refuses controls with `Session controls cannot override an immutable execution sandbox`.
+Malformed JSON/schema errors use the standard Axum JSON rejection. This operation
+changes a bound session setting; it does not configure launch-profile executables.
+
 ## Additional REST routes
 
 Runtime requests remain bound to the target tab's session and epoch. Provider CLI fields: API-CLI.
@@ -219,4 +250,4 @@ Runtime requests remain bound to the target tab's session and epoch. Provider CL
 | POST | `/api/tabs/{id}/agent/runtime/retry` | Retry initialization of the same runtime session. |
 | POST | `/api/tabs/{id}/agent/runtime/thread-history` | Read runtime-owned thread history. |
 
-<!-- revision: 77 -->
+<!-- revision: 78 -->

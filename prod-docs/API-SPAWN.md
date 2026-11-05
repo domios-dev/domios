@@ -1,4 +1,7 @@
 # Agent spawn API
+
+ACP profile setup, registry discovery and authentication: `domios docs ACP`.
+
 One-call agent creation, launch validation, placement, model routing, and response contracts.
 
 ### Agent Spawn (POST /api/agents/spawn)
@@ -31,4 +34,53 @@ An unknown id on an authoritative catalogue or a published free-form live list i
 
 `launch_state` is `ready` once the agent is ready, or `starting` with a `warning` when it waits on an owner prompt, holds a provisional boot stage, or is still launching at the bound; `starting` never claims readiness. A provider that exits before readiness fails the spawn: REST answers 500 with `error.code` `launch_failed`, socket `agent.spawn` returns the same fields as error `data`, and the CLI exits non-zero. Both carry `tab_id`, `reason`, `output_tail` (the provider's last printed lines), and `retry_hint`; the failed Tab stays in `spawn_failed` for inspection. `plan task dispatch` reports the same failure, output tail included, through its startup-failed event.
 
-<!-- revision: 8 -->
+### Launch profile catalogue and owner setup
+
+| Method | Path | Operation |
+|--------|------|-----------|
+| GET | `/api/agents/providers/{id}/profiles` | Read the provider's declared launch profiles and installation state. |
+| POST | `/api/agents/providers/{id}/profiles` | Confirm an installation or configure an owner-controlled local command. |
+
+Both routes require authenticated API access. POST additionally requires the local
+owner identity (desktop app or owner's web session); tab, relayed, peer and service
+credentials are refused with `403` before setup. A `confirmed: true` body does not
+grant owner authority.
+
+GET has no body and returns a JSON array of
+`{id, install, auth, canInstall, ownerConfigured}`. `install` is `not_installed`,
+`installed`, `detected` or `unknown`; `auth` currently reports `unknown`.
+`canInstall` means the declaration has a supported install specification.
+No runtime provider or no declared profiles returns `400` with a text reason;
+a catalogue worker failure returns `500` (`Profile catalog unavailable`).
+
+POST requires camelCase `profileId` and `confirmed`; optional `command` contains
+only `binary` and `args` (an array of strings). Unknown fields are rejected.
+For an installable profile, omit `command`:
+
+```json
+{"profileId":"deepseek-harness","confirmed":true}
+```
+
+For an `ownerConfigured` profile, supply an installed executable and its arguments:
+
+```json
+{"profileId":"local","confirmed":true,"command":{"binary":"/absolute/path/to/agent","args":[]}}
+```
+
+There is no environment field. A local command must resolve to an installed file;
+shell commands and package-fetching launchers (`npx`, `npm`, `uvx`, `uv`, `env`) are
+refused. Installation uses the profile's pinned npm package and registry, checks
+the downloaded archive and saves a receipt. Success is `200` with
+`{profileId, declarationSha256, package, version, command, timestampMs, sha256?}`;
+the local receipt's `version` is `local` and its `package` is the resolved binary
+path. Receipts bind setup to the current profile declaration; setup invalidates
+cached readiness.
+
+Setup failures return `400` with a text reason: missing confirmation, unknown
+profile, invalid command/provider id, missing binary, unsupported installer,
+download/checksum/package failure, or unavailable receipt storage. A setup worker
+failure returns `500` (`Local profile setup unavailable` or
+`Profile installer unavailable`). Malformed JSON/schema errors use the standard
+Axum JSON rejection. Neither route creates an agent tab.
+
+<!-- revision: 9 -->
