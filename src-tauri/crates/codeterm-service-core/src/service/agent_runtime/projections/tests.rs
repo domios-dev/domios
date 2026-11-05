@@ -163,7 +163,7 @@ fn declare_usage(svc: &ServiceContext, provider: &str, enabled: bool) {
     use codeterm_plugin::js_runtime::{JsProvider, PluginManifest, PluginVm};
     let manifest=PluginManifest::from_json_str(&serde_json::json!({
         "id":provider,"version":"1.0.0","displayName":"Fixture",
-        "capabilities":{"agentProvider":true,"agentRuntime":{"runtime":"stdio-jsonrpc","usage":enabled,
+        "capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},"agentRuntime":{"runtime":"stdio-jsonrpc","usage":enabled,
             "command":{"binary":"fixture-cli","args":[]},"requestMethods":{},"notificationMethods":[]}},
         "permissions":{"subprocess":{"allow":["fixture-cli"]}}
     }).to_string()).unwrap();
