@@ -13,7 +13,7 @@ import { usePlanCatalog } from "./planCatalogContext";
 import { useDesktopBilling } from "./useDesktopBilling";
 import { billingFailureToast } from "../Settings/accountFailureToast";
 import { usePurchaseIntent } from "./usePurchaseIntent";
-import { PURCHASES_ENABLED } from "./purchaseSwitch";
+import { usePurchasesEnabled } from "./purchaseSwitch";
 import { CommunityKeysNotice } from "../shared/CommunityLinks";
 
 function PlansModal({ limit, max, detail, onClose, onUpgrade, catalog }: {
@@ -119,10 +119,12 @@ function FreeKeyModal({ limit, max, detail, onClose }: { limit: FreeLimitKey; ma
 }
 
 /** Mounted once; any creation trigger opens it through `freeLimitGate`. */
-export function FreeLimitPlansModal({ upgrade = upgradePlan, purchases = PURCHASES_ENABLED }: {
+export function FreeLimitPlansModal({ upgrade = upgradePlan, purchases: explicitPurchases }: {
   upgrade?: (planKey: string) => Promise<void>;
   purchases?: boolean;
 }) {
+  const remotePurchases = usePurchasesEnabled();
+  const purchases = explicitPurchases ?? remotePurchases;
   const prompt = useFreeLimitPrompt();
   if (!prompt) return null;
   if (!purchases) {

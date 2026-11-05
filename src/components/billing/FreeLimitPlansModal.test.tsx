@@ -26,7 +26,7 @@ import type { PlanCatalog } from "./planCatalog";
 import { FreeLimitPlansModal } from "./FreeLimitPlansModal";
 import { checkoutTheme } from "./checkoutTheme";
 import { AlreadySubscribedError, freeLimitGate, upgradePlan } from "./freeLimitGate";
-import { PURCHASES_ENABLED } from "./purchaseSwitch";
+import { PURCHASES_DEFAULT } from "./purchaseSwitch";
 import { siteLinks } from "../../../shared/siteLinks";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -299,7 +299,7 @@ it("uses the injected catalog checkout key without inferring a tier price", asyn
 });
 
 describe("while in-app purchase is off", () => {
-  const renderShipped = (upgrade = vi.fn(async () => {})) => render(upgrade, undefined, PURCHASES_ENABLED).then(() => upgrade);
+  const renderShipped = (upgrade = vi.fn(async () => {})) => render(upgrade, undefined, PURCHASES_DEFAULT).then(() => upgrade);
 
   it("shows the limit with the free-key notice and no way to buy", async () => {
     const upgrade = await renderShipped();

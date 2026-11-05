@@ -114,6 +114,7 @@ async fn login_failure_deadline_returns_timeout() {
                 stage: SignInStage::Callback,
                 error: Error::Timeout
             }),
+            purchases_enabled: false,
         }
     );
     assert!(store.0.lock().await.is_none());

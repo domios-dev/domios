@@ -10,6 +10,7 @@ pub use sign_in_diagnostic::{SignInFailure, SignInStage};
 mod installation;
 mod loopback;
 pub mod protected_credentials;
+pub mod remote_config;
 pub use installation::{FileInstallationStore, InstallationId, InstallationStore};
 
 pub use account::{Account, Status};
