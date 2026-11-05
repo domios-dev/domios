@@ -16,13 +16,21 @@ pub use super::search_related::{RelatedGroup, RelatedUnit};
 mod changes;
 use changes::{unit_changes, UnitChanges};
 mod embedding;
-mod incremental;
+mod location;
 mod narrow;
+pub(super) use location::enqueue_plan_move;
+mod sections;
+pub(in crate::service_plan) use sections::{enqueue_section_index, SectionIndexDelta};
 mod recovery;
-pub(super) use incremental::PlanIndexScope;
+mod snapshot;
+mod unit_inputs;
 pub(super) use narrow::{
-    enqueue_milestone_index, enqueue_plan_time, enqueue_task_index, MilestoneIndexDelta,
-    TaskIndexDelta,
+    enqueue_milestone_index, enqueue_plan_metadata, enqueue_plan_time, enqueue_task_index,
+    enqueue_task_removal, MilestoneIndexDelta, TaskIndexDelta,
+};
+pub(in crate::service_plan) use snapshot::{
+    PlanSearchInput, PlanSearchSnapshot, SearchHeaderRead, SearchMilestoneRead, SearchSectionRead,
+    SearchTaskRead,
 };
 
 static SEARCH_PORT: OnceLock<Arc<dyn PlanSearchPort>> = OnceLock::new();
@@ -80,7 +88,7 @@ pub struct PlanReindexResult {
     pub units: usize,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 struct Unit {
     id: String,
     kind: &'static str,
@@ -97,15 +105,20 @@ struct Unit {
 }
 
 enum IndexJob {
+    PlanMetadata(PathBuf, super::store_db::PlanIndexRow),
+    MovePlan {
+        id: String,
+        old: PathBuf,
+        new: PathBuf,
+    },
     PlanTime(PathBuf, String, u64),
     DeleteUnit(PathBuf, String),
     Status(PathBuf, narrow::StatusDelta),
     Unit(PathBuf, Unit),
-    Plan(Plan, PlanIndexScope),
+    PlanSnapshot(PlanSearchSnapshot),
     Prune(PathBuf, HashSet<String>),
     Embed(PathBuf, Unit),
-    DeletePlan(Plan),
-    PurgePlan(Plan, Vec<Spec>),
+    PurgePlan(PlanIndexRemoval, Vec<(String, PathBuf)>),
     Spec(Spec),
     DeleteSpec(Spec),
 }
@@ -113,15 +126,17 @@ enum IndexJob {
 impl IndexJob {
     fn key(&self) -> String {
         match self {
+            Self::MovePlan { id, .. } => format!("{}:move:{id}", self.project_key()),
+            Self::PlanMetadata(_, row) => {
+                format!("{}:plan-metadata:{}", self.project_key(), row.id)
+            }
             Self::PlanTime(_, id, _) => format!("{}:plan-time:{}", self.project_key(), id),
             Self::Status(_, delta) => format!("{}:status:{}", self.project_key(), delta.key),
             Self::DeleteUnit(_, id) => format!("{}:unit:{}", self.project_key(), id),
             Self::Unit(_, unit) => format!("{}:unit:{}", self.project_key(), unit.id),
             Self::Embed(_, unit) => format!("{}:embed:{}", self.project_key(), unit.id),
             Self::Prune(_, _) => format!("{}:prune", self.project_key()),
-            Self::Plan(plan, _) | Self::DeletePlan(plan) => {
-                format!("{}:plan:{}", self.project_key(), plan.id)
-            }
+            Self::PlanSnapshot(snapshot) => format!("{}:plan:{}", self.project_key(), snapshot.id),
             Self::Spec(spec) | Self::DeleteSpec(spec) => {
                 format!("{}:spec:{}", self.project_key(), spec.id)
             }
@@ -131,33 +146,24 @@ impl IndexJob {
 
     fn project_key(&self) -> String {
         match self {
+            Self::PlanMetadata(root, _) => project_scope(root),
+            Self::MovePlan { new, .. } => project_scope(new),
             Self::PlanTime(root, _, _) => project_scope(root),
             Self::Status(root, _) | Self::Unit(root, _) | Self::DeleteUnit(root, _) => {
                 project_scope(root)
             }
             Self::Prune(root, _) | Self::Embed(root, _) => project_scope(root),
-            Self::Plan(plan, _) | Self::DeletePlan(plan) | Self::PurgePlan(plan, _) => {
-                project_scope(plan_project_root(plan))
-            }
+            Self::PurgePlan(plan, _) => project_scope(&plan.root),
             Self::Spec(spec) | Self::DeleteSpec(spec) => project_scope(spec_project_root(spec)),
+            Self::PlanSnapshot(snapshot) => project_scope(&snapshot.root),
         }
     }
 
-    /// A newer snapshot replaces a queued one but must still re-index the tasks the queued one changed.
-    fn absorb(self, queued: IndexJob) -> IndexJob {
-        match (self, queued) {
-            (Self::Plan(plan, scope), Self::Plan(_, queued_scope)) => {
-                Self::Plan(plan, scope.union(queued_scope))
-            }
-            (job, _) => job,
-        }
+    fn absorb(self, _queued: IndexJob) -> IndexJob {
+        self
     }
-
     fn full(self) -> IndexJob {
-        match self {
-            Self::Plan(plan, _) => Self::Plan(plan, PlanIndexScope::Full),
-            job => job,
-        }
+        self
     }
 }
 
@@ -288,6 +294,8 @@ fn index_queue() -> Arc<IndexQueue> {
 
 fn run_job(job: &IndexJob) -> Result<(), String> {
     match job {
+        IndexJob::MovePlan { id, old, new } => location::move_plan_units(id, old, new),
+        IndexJob::PlanMetadata(root, row) => narrow::mirror_plan_metadata(root, row),
         IndexJob::PlanTime(root, id, at) => narrow::mirror_plan_time(root, id, *at),
         IndexJob::DeleteUnit(root, id) => narrow::delete_unit(root, id),
         IndexJob::Status(root, delta) => narrow::mirror_status(root, delta),
@@ -296,11 +304,15 @@ fn run_job(job: &IndexJob) -> Result<(), String> {
         }
         IndexJob::Embed(root, unit) => embedding::embed_current(root, unit),
         IndexJob::Prune(root, ids) => recovery::prune_project(root, ids),
-        IndexJob::Plan(plan, scope) => embedding::queue_changed(
-            plan_project_root(plan),
-            incremental::mirror_plan_scope(plan, scope, false),
+        IndexJob::PlanSnapshot(snapshot) => embedding::queue_changed(
+            &snapshot.root,
+            replace_units_once(
+                &snapshot.root,
+                &format!("planunit_{}_%", snapshot.id),
+                &snapshot.units,
+                false,
+            ),
         ),
-        IndexJob::DeletePlan(plan) => delete_plan_units(plan),
         IndexJob::PurgePlan(plan, specs) => recovery::purge_plan_indexes(plan, specs),
         IndexJob::Spec(spec) => {
             embedding::queue_changed(spec_project_root(spec), mirror_spec(spec, false))
@@ -311,12 +323,24 @@ fn run_job(job: &IndexJob) -> Result<(), String> {
     }
 }
 
-pub(super) fn enqueue_plan_index(
-    _turn: &MutationWriterTurn<'_>,
-    plan: Plan,
-    scope: PlanIndexScope,
-) {
-    index_queue().enqueue(IndexJob::Plan(plan, scope));
+pub(super) fn enqueue_plan_import(_turn: &MutationWriterTurn<'_>, plan: &Plan) {
+    index_queue().enqueue(IndexJob::PlanSnapshot(PlanSearchSnapshot::from_plan(plan)));
+}
+
+#[derive(Clone)]
+pub(super) struct PlanIndexRemoval {
+    pub id: String,
+    pub root: PathBuf,
+}
+
+#[cfg(test)]
+impl From<Plan> for PlanIndexRemoval {
+    fn from(plan: Plan) -> Self {
+        Self {
+            root: plan_project_root(&plan).into(),
+            id: plan.id,
+        }
+    }
 }
 
 pub(super) fn enqueue_spec_index(_turn: &MutationWriterTurn<'_>, spec: Spec) {
@@ -325,15 +349,11 @@ pub(super) fn enqueue_spec_index(_turn: &MutationWriterTurn<'_>, spec: Spec) {
 
 pub(super) fn remove_plan_from_index(
     _turn: &MutationWriterTurn<'_>,
-    plan: Plan,
-    specs: &[Spec],
+    plan: PlanIndexRemoval,
+    specs: &[(String, PathBuf)],
 ) -> Result<(), String> {
     index_queue().enqueue(IndexJob::PurgePlan(plan, specs.to_vec()));
     Ok(())
-}
-
-pub(super) fn enqueue_plan_removal(_turn: &MutationWriterTurn<'_>, plan: Plan) {
-    index_queue().enqueue(IndexJob::DeletePlan(plan));
 }
 
 pub(super) fn remove_spec_from_index(_turn: &MutationWriterTurn<'_>, spec: Spec) {
@@ -354,13 +374,13 @@ pub(crate) fn flush_index_queue_for_test(_project_root: &Path) {
 impl super::PlanStore {
     pub fn mirror_plan_index(&self, plan: &Plan) -> Result<(), String> {
         let writer_turn = self.mutation_writer.enter();
-        let mut plans = self.project_plans(plan_project_root(plan));
+        let mut plans = self.project_search_snapshots(plan_project_root(plan))?;
         plans.retain(|stored| stored.id != plan.id);
-        plans.push(plan.clone());
+        plans.push(PlanSearchSnapshot::from_plan(plan));
         self.enqueue_project_index(
             &writer_turn,
             plan_project_root(plan),
-            &plans,
+            plans,
             &self.list_specs_full(),
         );
         Ok(())
@@ -446,6 +466,7 @@ pub fn project_scope(project_root: &Path) -> String {
     )
 }
 
+#[cfg(test)]
 fn mirror_plan(plan: &Plan, sync_embed: bool) -> Result<Vec<Unit>, String> {
     let root = plan_project_root(plan);
     let units = plan_units(plan, &project_scope(root));
@@ -458,8 +479,9 @@ fn mirror_spec(spec: &Spec, sync_embed: bool) -> Result<Vec<Unit>, String> {
     replace_units(root, &format!("planunit_{}_%", spec.id), units, sync_embed)
 }
 
-fn delete_plan_units(plan: &Plan) -> Result<(), String> {
-    delete_units(plan_project_root(plan), &format!("planunit_{}_%", plan.id))
+#[cfg(test)]
+fn delete_plan_units(plan: &PlanIndexRemoval) -> Result<(), String> {
+    delete_units(&plan.root, &format!("planunit_{}_%", plan.id))
 }
 
 // `journal_mode=WAL` in init_schema ignores busy_timeout and BUSY-fails under contention; run it once per path.
@@ -759,25 +781,14 @@ fn plan_units(plan: &Plan, scope: &str) -> Vec<Unit> {
 
 fn plan_header_units(plan: &Plan, scope: &str) -> Vec<Unit> {
     let plan_status = plan_status_text(&plan.status);
-    let mut units = vec![Unit {
-        id: stable_id(&plan.id, "plan", &plan.id),
-        kind: "plan",
-        title: plan.title.clone(),
-        body: format!(
-            "Plan \"{}\"\n{}",
-            plan.title,
-            section_titles(&plan.sections)
-        ),
-        scope: scope.to_string(),
-        plan_id: Some(plan.id.clone()),
-        spec_id: None,
-        unit_id: plan.id.clone(),
-        unit_title: plan.title.clone(),
-        parent_title: plan.title.clone(),
-        status: Some(plan_status.clone()),
-        updated_at: plan.updated_at,
-    }];
-    let total = count_sections(&plan.sections);
+    let parent = unit_inputs::UnitParent {
+        id: &plan.id,
+        title: &plan.title,
+        scope,
+        status: &plan_status,
+    };
+    let mut units = vec![parent.header(&section_titles(&plan.sections), plan.updated_at)];
+    let total = count_sections(&plan.sections, |section| &section.subsections);
     let mut ordinal = 0usize;
     collect_plan_sections(
         plan,
@@ -811,7 +822,7 @@ fn spec_units(spec: &Spec, scope: &str) -> Vec<Unit> {
         status: Some(spec_status.clone()),
         updated_at: spec.updated_at,
     }];
-    let total = count_sections(&spec.sections);
+    let total = count_sections(&spec.sections, |section| &section.subsections);
     let mut ordinal = 0usize;
     collect_spec_sections(
         spec,
@@ -836,23 +847,22 @@ fn collect_plan_sections(
 ) {
     for section in sections {
         *ordinal += 1;
-        units.push(Unit {
-            id: stable_id(&plan.id, "plan_section", &section.id),
-            kind: "plan_section",
-            title: format!("{} section {}", plan.title, section.title),
-            body: format!(
-                "Plan \"{}\" · section {}/{}: {}\n{}",
-                plan.title, *ordinal, total, section.title, section.body
+        units.push(
+            unit_inputs::UnitParent {
+                id: &plan.id,
+                title: &plan.title,
+                scope,
+                status,
+            }
+            .section(
+                &section.id,
+                &section.title,
+                &section.body,
+                *ordinal,
+                total,
+                plan.updated_at,
             ),
-            scope: scope.to_string(),
-            plan_id: Some(plan.id.clone()),
-            spec_id: None,
-            unit_id: section.id.clone(),
-            unit_title: section.title.clone(),
-            parent_title: plan.title.clone(),
-            status: Some(status.to_string()),
-            updated_at: plan.updated_at,
-        });
+        );
         collect_plan_sections(
             plan,
             &section.subsections,
@@ -951,12 +961,11 @@ fn stable_id(parent_id: &str, kind: &str, unit_id: &str) -> String {
     format!("planunit_{parent_id}_{kind}_{unit_id}")
 }
 
-fn count_sections(sections: &[Section]) -> usize {
+fn count_sections<T>(sections: &[T], children: fn(&T) -> &[T]) -> usize {
     sections
         .iter()
-        .map(|s| 1 + count_sections(&s.subsections))
-        .sum::<usize>()
-        .max(1)
+        .map(|section| 1 + count_sections(children(section), children))
+        .sum()
 }
 
 fn section_titles(sections: &[Section]) -> String {

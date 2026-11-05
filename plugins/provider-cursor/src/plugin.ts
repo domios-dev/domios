@@ -1,4 +1,5 @@
-// plugin.js by scripts/build-plugin.mjs. Frontend contract lives in src/index.ts.
+import { defineProviderIo, type IoExports } from "@codeterm/plugin-sdk";
+import { ioEncoded, type HostIoSteps } from "@codeterm/plugin-sdk";
 import type { LaunchParams, ModelInfo, ParsedPrompt, PluginModule } from "@codeterm/plugin-sdk";
 import { recordedTextDiff } from "@codeterm/plugin-sdk";
 import { cursorLaunchCommand, detectCursorLaunchSession } from "./launchSession";
@@ -18,7 +19,7 @@ const TUI_FRAGMENTS = [
   "run everything",
 ];
 
-const plugin: PluginModule = {
+const plugin = {
   sessionResume: () => ({ exact: false }),
   starterPromptText(prompt: "no_starter" | "assigned_task" | "idle_wakeup" | "team_bootstrap" | "startup_handshake"): string | undefined {
     if (prompt === "no_starter") return undefined;
@@ -93,8 +94,8 @@ const plugin: PluginModule = {
   },
 
   // Discover via `cursor-agent --list-models` (host-cached); falls back to the manifest seed when offline.
-  discoverModels(): ModelInfo[] {
-    return discoverCursorModels() || manifestModels();
+  *discoverModels(): HostIoSteps<ModelInfo[]> {
+    return (yield* discoverCursorModels()) || manifestModels();
   },
 
   // but only under skip-permissions — that's the user's intentional "trust everything" flow.
@@ -133,17 +134,17 @@ const plugin: PluginModule = {
 
   // ── Session discovery (sqlite metadata under ~/.cursor/chats/<md5(cwd)>) ──
 
-  sessionExists(cwd: string, sessionId: string): boolean {
+  *sessionExists(cwd: string, sessionId: string): HostIoSteps<boolean> {
     const dir = cursorSessionDir(cwd, sessionId);
     if (!dir) return false;
     const sep = pathSep();
-    return host.fs.fileExists(dir + sep + "meta.json") ||
-      host.fs.fileExists(dir + sep + "store.db");
+    return (yield* host.io.fs.fileExists(dir + sep + "meta.json")) ||
+      (yield* host.io.fs.fileExists(dir + sep + "store.db"));
   },
 
   // Session birth time (unix ms) from meta.json, for the host's launch-window birth-time guard.
-  sessionCreatedMs(cwd: string, sessionId: string): number | null {
-    const meta = readSessionMeta(cwd, sessionId);
+  *sessionCreatedMs(cwd: string, sessionId: string): HostIoSteps<number | null> {
+    const meta = (yield* readSessionMeta(cwd, sessionId));
     if (!meta) return null;
     const ms = meta.createdAtMs;
     return typeof ms === "number" ? ms : null;
@@ -153,11 +154,11 @@ const plugin: PluginModule = {
     return null;
   },
 
-  detectLaunchSession(evidence) {
-    return detectCursorLaunchSession(evidence, (cwd, sid) => {
+  *detectLaunchSession(evidence) {
+    return (yield* detectCursorLaunchSession(evidence, function*(cwd, sid) {
       const dir = cursorSessionDir(cwd, sid);
-      return !!dir && host.fs.fileExists(dir + pathSep() + "store.db");
-    });
+      return !!dir && (yield* host.io.fs.fileExists(dir + pathSep() + "store.db"));
+    }));
   },
 
   detectActiveSession(_cwd: string, _currentSid?: string): string | null {
@@ -165,16 +166,12 @@ const plugin: PluginModule = {
   },
 
   // Per-turn model is `"modelName"` in store.db JSON blobs (the 0x7B filter skips binary protobuf blobs).
-  detectSessionModel(cwd: string, sessionId: string): string | null {
+  *detectSessionModel(cwd: string, sessionId: string): HostIoSteps<string | null> {
     const dir = cursorSessionDir(cwd, sessionId);
     if (!dir) return null;
     const db = dir + pathSep() + "store.db";
-    if (!host.fs.fileExists(db)) return null;
-    const rows = host.fs.sqliteQuery<{ t?: string }>(
-      db,
-      "SELECT CAST(data AS TEXT) AS t FROM blobs WHERE substr(data,1,1) = x'7B'",
-      []
-    );
+    if (!(yield* host.io.fs.fileExists(db))) return null;
+    const rows = (yield* host.io.fs.sqliteQuery<{ t?: string }>(db, "SELECT CAST(data AS TEXT) AS t FROM blobs WHERE substr(data,1,1) = x'7B'", []));
     let model: string | null = null;
     for (let i = 0; i < rows.length; i++) {
       const t = rows[i] && rows[i].t;
@@ -185,10 +182,10 @@ const plugin: PluginModule = {
     return model;
   },
 
-  enumerateSessions(): unknown[] {
+  *enumerateSessions(): HostIoSteps<unknown[]> {
     const root = projectsRoot();
-    if (!root || !host.fs.fileExists(root)) return [];
-    const files = host.fs.walkDir(root, 5) || [];
+    if (!root || !(yield* host.io.fs.fileExists(root))) return [];
+    const files = (yield* host.io.fs.walkDir(root, 5)) || [];
     const out: unknown[] = [];
     for (let i = 0; i < files.length; i++) {
       const f = files[i];
@@ -196,28 +193,28 @@ const plugin: PluginModule = {
       if (f.path.indexOf("agent-transcripts") === -1) continue;
       const stem = f.name.substring(0, f.name.length - 6);
       if (!looksLikeUuid(stem)) continue;
-      out.push(cursorTranscriptRecord(root, stem, f));
+      out.push((yield* cursorTranscriptRecord(root, stem, f)));
     }
     return out;
   },
 
   // Probes the transcript layout `sessionFilePath` resolves, once per project dir; never walks history.
-  findSession(sessionId: string): unknown | null {
+  *findSession(sessionId: string): HostIoSteps<unknown | null> {
     if (!looksLikeUuid(sessionId) || !/^[A-Za-z0-9_-]+$/.test(sessionId)) return null;
     const root = projectsRoot();
-    if (!root || !host.fs.fileExists(root)) return null;
+    if (!root || !(yield* host.io.fs.fileExists(root))) return null;
     const sep = pathSep();
     const transcriptName = sessionId + ".jsonl";
-    const dirs = host.fs.readDir(root) || [];
+    const dirs = (yield* host.io.fs.readDir(root)) || [];
     for (let i = 0; i < dirs.length; i++) {
       const d = dirs[i];
       if (!d || !d.isDir) continue;
       const dir = d.path + sep + "agent-transcripts" + sep + sessionId;
-      if (!host.fs.fileExists(dir + sep + transcriptName)) continue;
-      const entries = host.fs.readDir(dir) || [];
+      if (!(yield* host.io.fs.fileExists(dir + sep + transcriptName))) continue;
+      const entries = (yield* host.io.fs.readDir(dir)) || [];
       for (let j = 0; j < entries.length; j++) {
         const f = entries[j];
-        if (f && f.isFile && f.name === transcriptName) return cursorTranscriptRecord(root, sessionId, f);
+        if (f && f.isFile && f.name === transcriptName) return (yield* cursorTranscriptRecord(root, sessionId, f));
       }
     }
     return null;
@@ -231,13 +228,13 @@ const plugin: PluginModule = {
   },
 
   // Live tailer path: the host canonicalizes the cwd first, so the slug matches cursor's own.
-  sessionJsonlPath(cwd: string, sessionId: string): string | null {
-    return cursorTranscriptPath(cwd, sessionId);
+  *sessionJsonlPath(cwd: string, sessionId: string): HostIoSteps<string | null> {
+    return (yield* cursorTranscriptPath(cwd, sessionId));
   },
 
   // Snapshot + content search pass a raw cwd, so the scan fallback inside resolves symlinks.
-  sessionFilePath(cwd: string, sessionId: string): string | null {
-    return cursorTranscriptPath(cwd, sessionId);
+  *sessionFilePath(cwd: string, sessionId: string): HostIoSteps<string | null> {
+    return (yield* cursorTranscriptPath(cwd, sessionId));
   },
 
   // Parse appended JSONL lines into RichMessages. Schema:
@@ -295,10 +292,10 @@ const plugin: PluginModule = {
   },
 
   // GetCurrentPeriodUsage carries everything: ready percentages + spend (cents) + billing cycle.
-  fetchUsage(nowMs: number): unknown {
-    const token = readCursorToken();
+  *fetchUsage(nowMs: number): HostIoSteps<unknown> {
+    const token = (yield* readCursorToken());
     if (!token) return null;
-    const current = cursorApi("GetCurrentPeriodUsage", {}, token);
+    const current = (yield* cursorApi("GetCurrentPeriodUsage", {}, token));
     if (!current) return null;
     const planUsage = typeof current.planUsage === "object" && current.planUsage
       ? current.planUsage as Record<string, unknown>
@@ -350,7 +347,7 @@ const plugin: PluginModule = {
       raw_text: String(rawText || ""),
     };
   },
-};
+} satisfies IoExports<PluginModule>;
 
 // ── types ──
 
@@ -370,12 +367,12 @@ interface CursorSessionMeta {
 // Annotations cursor appends that mean the account/plan cannot select the model.
 const CURSOR_UNAVAILABLE_RE = /\s*\((?:unavailable|locked|disabled|coming soon|not available|requires [^)]+|pro only|upgrade required)\)\s*/i;
 
-function discoverCursorModels(): ModelInfo[] | null {
-  const raw = host.exec(JSON.stringify({
+function* discoverCursorModels(): HostIoSteps<ModelInfo[] | null> {
+  const raw = (yield* ioEncoded(host.io.exec({
     bin: "cursor-agent",
     args: ["--list-models"],
     timeoutMs: 5000,
-  }));
+  })));
   const result = safeJson(raw) as { code?: number; stdout?: string } | null;
   if (!result || result.code !== 0 || typeof result.stdout !== "string") return null;
   const lines = result.stdout.split("\n");
@@ -471,7 +468,7 @@ function projectsRoot(): string | null {
   return r ? r + pathSep() + "projects" : null;
 }
 
-function projectPathFromTranscript(root: string, transcript: string): string | null {
+function* projectPathFromTranscript(root: string, transcript: string): HostIoSteps<string | null> {
   const sep = pathSep();
   const prefix = root + sep;
   if (transcript.indexOf(prefix) !== 0) return null;
@@ -482,18 +479,14 @@ function projectPathFromTranscript(root: string, transcript: string): string | n
   } else {
     candidate = "/" + slug.replace(/-/g, "/");
   }
-  return host.fs.fileExists(candidate) ? candidate : null;
+  return (yield* host.io.fs.fileExists(candidate)) ? candidate : null;
 }
 
-function cursorTranscriptRecord(
-  root: string,
-  sessionId: string,
-  transcript: { path: string; createdMs?: number | null; modifiedMs?: number | null },
-): unknown {
+function* cursorTranscriptRecord(root: string, sessionId: string, transcript: { path: string; createdMs?: number | null; modifiedMs?: number | null }): HostIoSteps<unknown> {
   return {
     sessionId,
     provider: "cursor",
-    projectPath: projectPathFromTranscript(root, transcript.path),
+    projectPath: (yield* projectPathFromTranscript(root, transcript.path)),
     title: null,
     summary: null,
     filePath: transcript.path,
@@ -527,7 +520,7 @@ function cursorSlug(cwd: string): string {
   return String(cwd || "").replace(/^[/\\]+/, "").replace(/[^a-zA-Z0-9]/g, "-");
 }
 
-function cursorTranscriptPath(cwd: string, sessionId: string): string | null {
+function* cursorTranscriptPath(cwd: string, sessionId: string): HostIoSteps<string | null> {
   if (!sessionId) return null;
   const root = projectsRoot();
   if (!root) return null;
@@ -536,27 +529,27 @@ function cursorTranscriptPath(cwd: string, sessionId: string): string | null {
   const tail = sep + "agent-transcripts" + sep + sessionId + sep + sessionId + ".jsonl";
   if (slug) {
     const direct = root + sep + slug + tail;
-    if (host.fs.fileExists(direct)) return direct;
+    if ((yield* host.io.fs.fileExists(direct))) return direct;
   }
-  const dirs = host.fs.readDir(root) || [];
+  const dirs = (yield* host.io.fs.readDir(root)) || [];
   for (let i = 0; i < dirs.length; i++) {
     const d = dirs[i];
     if (!d || !d.isDir) continue;
     const cand = d.path + tail;
-    if (host.fs.fileExists(cand)) return cand;
+    if ((yield* host.io.fs.fileExists(cand))) return cand;
   }
   return slug ? root + sep + slug + tail : null;
 }
 
-function readSessionMeta(cwd: string, sessionId: string): CursorSessionMeta | null {
+function* readSessionMeta(cwd: string, sessionId: string): HostIoSteps<CursorSessionMeta | null> {
   const dir = cursorSessionDir(cwd, sessionId);
   if (!dir) return null;
-  return readMetaJson(dir + pathSep() + "meta.json");
+  return (yield* readMetaJson(dir + pathSep() + "meta.json"));
 }
 
-function readMetaJson(path: string): CursorSessionMeta | null {
-  if (!host.fs.fileExists(path)) return null;
-  return host.fs.readJson<CursorSessionMeta>(path);
+function* readMetaJson(path: string): HostIoSteps<CursorSessionMeta | null> {
+  if (!(yield* host.io.fs.fileExists(path))) return null;
+  return (yield* host.io.fs.readJson<CursorSessionMeta>(path));
 }
 
 // ── content mapping ──
@@ -876,7 +869,7 @@ function firstField(s: string): string {
 
 const CURSOR_API_BASE = "https://api2.cursor.sh/aiserver.v1.DashboardService/";
 
-function readCursorToken(): string | null {
+function* readCursorToken(): HostIoSteps<string | null> {
   const platform = host.platform();
   let opts: { bin: string; args: string[]; timeoutMs: number } | null = null;
   if (platform === "macos") {
@@ -893,7 +886,7 @@ function readCursorToken(): string | null {
     };
   }
   if (!opts) return null;
-  const r = safeJson(host.exec(JSON.stringify(opts))) as
+  const r = safeJson((yield* ioEncoded(host.io.exec(opts)))) as
     | { code?: number; stdout?: string }
     | null;
   if (r && r.code === 0 && typeof r.stdout === "string") {
@@ -904,13 +897,8 @@ function readCursorToken(): string | null {
 }
 
 // object, or null on any transport/auth/parse failure.
-function cursorApi(
-  method: string,
-  body: unknown,
-  token: string,
-): Record<string, unknown> | null {
-  const raw = host.fetch(
-    JSON.stringify({
+function* cursorApi(method: string, body: unknown, token: string): HostIoSteps<Record<string, unknown> | null> {
+  const raw = (yield* ioEncoded(host.io.fetch({
       url: CURSOR_API_BASE + method,
       method: "POST",
       timeoutMs: 6000,
@@ -920,8 +908,7 @@ function cursorApi(
         "connect-protocol-version": "1",
       },
       body: JSON.stringify(body),
-    }),
-  );
+    })));
   const resp = safeJson(raw) as { status?: number; body?: string } | null;
   if (!resp || resp.status !== 200 || typeof resp.body !== "string") return null;
   const parsed = safeJson(resp.body);
@@ -952,4 +939,4 @@ function safeJson(s: string | undefined): unknown {
   try { return JSON.parse(String(s || "null")); } catch (_) { return null; }
 }
 
-export default plugin;
+export default defineProviderIo(plugin, () => host.io) satisfies PluginModule;

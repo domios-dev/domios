@@ -4,12 +4,14 @@ pub mod analytics_routes;
 mod attachment_upload;
 pub mod auth;
 pub mod automation_graph_routes;
+mod blocking_json;
 pub mod blueprint_portable_routes;
 pub mod blueprint_solution_routes;
 mod blueprint_webhook_routes;
 #[cfg(debug_assertions)]
 mod cors_diagnostics;
 pub mod events;
+mod request_activity;
 mod request_bound;
 #[cfg(debug_assertions)]
 mod request_census;

@@ -382,6 +382,9 @@ async fn ensure_with_fork(
     }
     let mut retired_cli = false;
     let session = {
+        let mux = svc.mux.read();
+        mux.ensure_tab_membership_mutable(tab)
+            .map_err(RuntimeFailure::Refused)?;
         let mut sessions = SESSIONS.lock();
         if sessions.get(tab).is_some_and(|session| {
             session.context.lock().binding_nonce != nonce || session.provider != provider
@@ -616,7 +619,8 @@ async fn ensure_locked(
                 .ok_or_else(|| RuntimeFailure::SpawnFailed {
                     reason: "Runtime cwd missing".into(),
                 })?;
-            let mut env = super::environment::compose(&owner, &target, &provider_id, &nonce);
+            let mut env = super::environment::compose(&owner, &target, &provider_id, &nonce)
+                .map_err(|reason| RuntimeFailure::SpawnFailed { reason })?;
             env.extend(
                 owner
                     .model_provider_launch_env(&provider_id)

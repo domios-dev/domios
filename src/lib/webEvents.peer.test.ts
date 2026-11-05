@@ -31,7 +31,9 @@ async function main() {
 
   const api = await import("./webApi");
   api.setTokenFor(api.apiHost(), "fixture-token");
-  const { webListen, resetWebEvents, __resetWebEventsForTest } = await import("./webEvents");
+  const { webListen, resetWebEvents, __resetWebEventsForTest, bindWebEventsTransport } = await import("./webEvents");
+  const { createTransportClient } = await import("./transportClient");
+  bindWebEventsTransport(createTransportClient({ origin: api.apiHost(), token: "fixture-token" }));
   const { TERMINAL_VIEWER_RECONNECTED_EVENT } = await import("./terminalViewerEvents");
   let reconnects = 0;
   const reconnected = () => { reconnects += 1; };

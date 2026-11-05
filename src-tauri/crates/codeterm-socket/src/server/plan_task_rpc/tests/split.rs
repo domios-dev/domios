@@ -1,6 +1,24 @@
 use super::*;
 
 #[test]
+fn split_refuses_stale_owner_before_any_child_is_written() {
+    let (fixture, plan_id, task_id, _, _, owner) = update_fixture();
+    let service = Arc::new(fixture.service.clone());
+    let before = service.plan_store.get(&plan_id).unwrap().tasks.len();
+    let mut params = serde_json::Value::Object(owner_params(&owner));
+    params["plan_id"] = json!(plan_id);
+    params["task_id"] = json!(task_id);
+    params["session_binding_nonce"] = json!("stale-owner-nonce");
+    params["children"] = json!([{"name":"Child","executor_role":"Worker"}]);
+    let error = dispatch("plan.task.split", &Some(params), &service, 10).unwrap_err();
+    assert_eq!(error.code, -32003);
+    assert_eq!(
+        service.plan_store.get(&plan_id).unwrap().tasks.len(),
+        before
+    );
+}
+
+#[test]
 fn split_creates_children_with_parent_and_inherited_routing() {
     let (fixture, plan_id, _, _, _, owner) = update_fixture();
     let parent_id = fixture
@@ -34,7 +52,7 @@ fn split_creates_children_with_parent_and_inherited_routing() {
     fixture
         .service
         .plan_store
-        .with_plan(&plan_id, 6, |plan| {
+        .edit_plan_fixture(&plan_id, 6, |plan| {
             let parent = plan
                 .tasks
                 .iter_mut()
@@ -154,7 +172,7 @@ fn split_rejects_terminal_and_child_parents() {
             fixture
                 .service
                 .plan_store
-                .with_plan(&plan_id, 6, |plan| {
+                .edit_plan_fixture(&plan_id, 6, |plan| {
                     plan.tasks
                         .iter_mut()
                         .find(|task| task.id == parent_id)
@@ -230,7 +248,7 @@ fn task_update_cancel_parent_with_open_child_returns_open_subtasks() {
         fixture
             .service
             .plan_store
-            .show_task(&parent_id)
+            .inspect_task_for_test(&parent_id)
             .unwrap()
             .task
             .status,
@@ -289,7 +307,7 @@ fn draft_split_children_remain_locked_until_plan_approval() {
         fixture
             .service
             .plan_store
-            .show_task(child_id)
+            .inspect_task_for_test(child_id)
             .unwrap()
             .task
             .status,

@@ -2,7 +2,8 @@ use serde::Serialize;
 
 use codeterm_service_core::multiplexer::state::MultiplexerState;
 use codeterm_service_core::multiplexer::types::AgentRole;
-use codeterm_service_core::plan::{Plan, PlanStatus, Task, TaskStatus};
+use codeterm_service_core::plan::{PlanStatus, TaskStatus};
+use codeterm_service_core::service::plan::TeamClosePlanRead;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct TeamCloseBusyTask {
@@ -64,25 +65,11 @@ impl TeamCloseBusy {
     }
 }
 
-fn open_executor(task: &Task, members: &[String]) -> Option<String> {
-    task.assigned_tab_id
-        .iter()
-        .chain(task.lane.tab_id.iter())
-        .chain(
-            task.execution_attempts
-                .iter()
-                .filter(|attempt| attempt.closed_at.is_none())
-                .map(|attempt| &attempt.executor_tab_id),
-        )
-        .find(|tab_id| members.contains(tab_id))
-        .cloned()
-}
-
 /// Work a Team close would destroy: in-progress Team tasks and Worker members
 /// that are working or executing one of them.
 pub(crate) fn team_close_busy(
     mux: &MultiplexerState,
-    plans: &[Plan],
+    plans: &[TeamClosePlanRead],
     team_id: &str,
     member_tab_ids: &[String],
 ) -> TeamCloseBusy {
@@ -97,7 +84,7 @@ pub(crate) fn team_close_busy(
             .iter()
             .filter(|task| task.status == TaskStatus::InProgress)
         {
-            let executor = open_executor(task, member_tab_ids);
+            let executor = task.member_executor.clone();
             if team_plan || executor.is_some() {
                 tasks.push(TeamCloseBusyTask {
                     plan_id: plan.id.clone(),

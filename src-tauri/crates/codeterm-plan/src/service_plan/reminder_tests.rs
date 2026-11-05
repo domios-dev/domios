@@ -62,9 +62,17 @@ fn owner_execution_plan_with_open_work_is_nudge_eligible_without_task_binding() 
         )
         .unwrap();
 
-    assert_eq!(store.task_binding_for_tab("orch-tab"), None);
     assert_eq!(
-        store.active_owned_plan_with_open_work_for_tab("orch-tab"),
+        store
+            .assigned_task_binding_projection("orch-tab")
+            .unwrap()
+            .map(|binding| (binding.plan_id, binding.task_id)),
+        None
+    );
+    assert_eq!(
+        store
+            .active_owned_plan_with_open_work_for_tab("orch-tab")
+            .unwrap(),
         Some(plan_id)
     );
 }
@@ -100,7 +108,9 @@ fn owner_planning_plan_with_open_work_is_not_nudge_eligible() {
         .unwrap();
 
     assert_eq!(
-        store.active_owned_plan_with_open_work_for_tab("orch-tab"),
+        store
+            .active_owned_plan_with_open_work_for_tab("orch-tab")
+            .unwrap(),
         None
     );
 }
@@ -118,7 +128,9 @@ fn paused_execution_plan_with_open_work_is_not_nudge_eligible() {
         .unwrap();
 
     assert_eq!(
-        store.active_owned_plan_with_open_work_for_tab("orch-tab"),
+        store
+            .active_owned_plan_with_open_work_for_tab("orch-tab")
+            .unwrap(),
         None
     );
 }
@@ -155,11 +167,17 @@ fn worker_planning_plan_binding_does_not_start_report_nudges() {
         .unwrap();
 
     assert_eq!(
-        store.task_binding_for_tab("worker-tab"),
+        store
+            .assigned_task_binding_projection("worker-tab")
+            .unwrap()
+            .map(|binding| (binding.plan_id, binding.task_id)),
         Some((plan.id.clone(), task_id))
     );
     assert_eq!(
-        store.report_pending_task_binding_for_tab("worker-tab"),
+        store
+            .report_pending_task_binding_projection("worker-tab")
+            .unwrap()
+            .map(|binding| (binding.plan_id, binding.task_id)),
         None
     );
 }
@@ -172,15 +190,23 @@ fn worker_pending_task_binding_is_nudge_eligible() {
         .unwrap();
 
     assert_eq!(
-        store.task_binding_for_tab("worker-tab"),
+        store
+            .assigned_task_binding_projection("worker-tab")
+            .unwrap()
+            .map(|binding| (binding.plan_id, binding.task_id)),
         Some((plan_id.clone(), task_id.clone()))
     );
     assert_eq!(
-        store.report_pending_task_binding_for_tab("worker-tab"),
+        store
+            .report_pending_task_binding_projection("worker-tab")
+            .unwrap()
+            .map(|binding| (binding.plan_id, binding.task_id)),
         Some((plan_id, task_id))
     );
     assert_eq!(
-        store.active_owned_plan_with_open_work_for_tab("worker-tab"),
+        store
+            .active_owned_plan_with_open_work_for_tab("worker-tab")
+            .unwrap(),
         None
     );
 }
@@ -216,15 +242,23 @@ fn worker_in_review_task_binding_is_not_nudge_eligible_after_report() {
         .unwrap();
 
     assert_eq!(
-        store.active_owned_plan_with_open_work_for_tab("orch-tab"),
+        store
+            .active_owned_plan_with_open_work_for_tab("orch-tab")
+            .unwrap(),
         Some(plan_id.clone())
     );
     assert_eq!(
-        store.task_binding_for_tab("worker-tab"),
+        store
+            .assigned_task_binding_projection("worker-tab")
+            .unwrap()
+            .map(|binding| (binding.plan_id, binding.task_id)),
         Some((plan_id, task_id))
     );
     assert_eq!(
-        store.report_pending_task_binding_for_tab("worker-tab"),
+        store
+            .report_pending_task_binding_projection("worker-tab")
+            .unwrap()
+            .map(|binding| (binding.plan_id, binding.task_id)),
         None
     );
 }
@@ -279,15 +313,22 @@ fn terminal_done_and_cancelled_work_is_not_nudge_eligible() {
         .unwrap();
 
     assert_eq!(
-        done_store.active_owned_plan_with_open_work_for_tab("done-orch"),
+        done_store
+            .active_owned_plan_with_open_work_for_tab("done-orch")
+            .unwrap(),
         None
     );
     assert_eq!(
-        cancelled_store.active_owned_plan_with_open_work_for_tab("cancelled-orch"),
+        cancelled_store
+            .active_owned_plan_with_open_work_for_tab("cancelled-orch")
+            .unwrap(),
         None
     );
     assert_eq!(
-        cancelled_store.report_pending_task_binding_for_tab("worker-tab"),
+        cancelled_store
+            .report_pending_task_binding_projection("worker-tab")
+            .unwrap()
+            .map(|binding| (binding.plan_id, binding.task_id)),
         None
     );
 }

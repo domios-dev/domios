@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { reduceToolEvents, type FileDiff, type NormalizedChatMessage, type TimelineItem, type ToolEvent } from "@codeterm/chat-core";
 import { DEFAULT_THEME, themeToCSS } from "../../../../src/lib/themeCss";
+import { installTestIo } from "../../../../plugins/provider-shared/tests/hostIo";
 import { ToolCallBubble } from "../ToolCallBubble";
 import { FileDiffCards } from "./FileDiffCards";
 import { ChatBlockHostProvider } from "../blocks/ChatBlockHost";
@@ -74,7 +75,7 @@ function timeline(provider: Provider): TimelineItem[] {
 }
 
 function toolEvents(items: TimelineItem[]): ToolEvent[] {
-  return items.flatMap((item) => item.kind === "tool" ? [item.event] : []);
+  return items.flatMap((item) => item.kind === "tool" ? item.event.editRun ?? [item.event] : []);
 }
 
 function diffsOf(provider: Provider): FileDiff[] {
@@ -126,7 +127,7 @@ async function expandAll(host: HTMLElement) {
 }
 
 beforeAll(async () => {
-  (globalThis as { host?: unknown }).host ??= { manifestJson: () => "null", log: () => undefined };
+  (globalThis as { host?: unknown }).host = installTestIo({ manifestJson: () => "null", log: () => undefined });
   const [claude, codex] = await Promise.all([
     import("../../../../plugins/provider-claude/src/plugin"),
     import("../../../../plugins/provider-codex/src/plugin"),
@@ -160,31 +161,47 @@ describe("file diff cards", () => {
     expect(sharedDiffs("codex")[0].hunks[0].lines).toEqual(codexLines);
   });
 
-  it("renders one collapsed card per changed file headed by path +N −M", async () => {
-    const codexHost = await mount(<Timeline items={timeline("codex")} />);
-    expect(all(codexHost, "file-diff-header").map((node) => node.textContent)).toEqual([
-      "src/shared.ts +1 −1",
-      "src/created.ts +2 −0",
-      "src/removed.ts +0 −1",
-      "src/legacy.ts → src/renamed.ts +1 −1",
+  it("folds back-to-back file edits into one collapsed edit tree with a row per file and exact counts", async () => {
+    const runs = (host: HTMLElement) => all(host, "chat-edit-run");
+    const rows = (run: HTMLElement) => all(run, "chat-edit-run-file").map((row) => [
+      row.querySelector("[title]")?.getAttribute("title"),
+      row.querySelector('[data-testid="edit-run-counts"]')?.textContent,
     ]);
-    expect(all(all(codexHost, "file-diff-cards")[0], "file-diff-card")).toHaveLength(2);
-    expect(all(codexHost, "file-diff-toggle").every((toggle) => toggle.getAttribute("aria-expanded") === "false")).toBe(true);
-    expect(all(codexHost, "file-diff-line")).toHaveLength(0);
+    const codexHost = await mount(<Timeline items={timeline("codex")} />);
+    expect(runs(codexHost)).toHaveLength(1);
+    const codexRun = runs(codexHost)[0];
+    expect(all(codexRun, "chat-edit-run-title").map((node) => node.textContent)).toEqual(["Edited 4 files"]);
+    expect(codexRun.getAttribute("aria-label")).toBe("Edited 4 files, +4 −3");
+    expect(rows(codexRun)).toEqual([
+      ["src/shared.ts", "+1 −1"],
+      ["src/created.ts", "+2 −0"],
+      ["src/removed.ts", "+0 −1"],
+      ["src/renamed.ts", "+1 −1"],
+    ]);
+    expect(all(codexRun, "chat-edit-run-file").map((row) => row.textContent)).toEqual([
+      "├src/shared.ts+1 −1",
+      "├src/created.tsnew+2 −0",
+      "├src/removed.tsdeleted+0 −1",
+      "└src/legacy.ts → src/renamed.ts+1 −1",
+    ]);
 
     const claudeHost = await mount(<Timeline items={timeline("claude")} />);
-    expect(all(claudeHost, "file-diff-header").map((node) => node.textContent)).toEqual(["src/shared.ts +1 −1", "src/created.ts +2 −0"]);
-    expect(all(claudeHost, "file-diff-cards")).toHaveLength(2);
+    expect(runs(claudeHost)).toHaveLength(1);
+    expect(runs(claudeHost)[0].getAttribute("aria-label")).toBe("Edited 2 files, +3 −1");
+    expect(rows(runs(claudeHost)[0])).toEqual([["src/shared.ts", "+1 −1"], ["src/created.ts", "+2 −0"]]);
     const legacyEdits = (provider: Provider) => toolEvents(timeline(provider)).filter((event) => event.kind === "edit" && !event.fileDiffs?.length).length;
     for (const [provider, host] of [["codex", codexHost], ["claude", claudeHost]] as const) {
-      expect(all(host, "file-diff-label").every((node) => node.textContent === "edit")).toBe(true);
-      for (const cards of all(host, "file-diff-cards")) {
-        expect(all(cards, "toolcard-edit-file")).toHaveLength(0);
-        expect(all(cards, "toolcard-edit-summary")).toHaveLength(0);
-        expect(all(cards, "file-diff-line")).toHaveLength(0);
+      // Folded files never also render as standalone per-file cards, and every row starts collapsed.
+      expect(all(host, "file-diff-card")).toHaveLength(0);
+      expect(all(host, "edit-run-diff")).toHaveLength(0);
+      expect(all(host, "chat-edit-run-file").every((row) => row.querySelector("button")?.getAttribute("aria-expanded") === "false")).toBe(true);
+      for (const run of runs(host)) {
+        expect(all(run, "toolcard-edit-file")).toHaveLength(0);
+        expect(all(run, "toolcard-edit-summary")).toHaveLength(0);
       }
-      // Only edits without a structured diff keep the old/new-string card.
+      // Only edits without a structured diff keep the old/new-string card, beside the tree in the timeline.
       expect(all(host, "toolcard-edit-summary")).toHaveLength(legacyEdits(provider));
+      expect(all(host, "timeline-message").map((node) => node.textContent)).toContain("Both files are updated.");
     }
   });
 
@@ -242,29 +259,31 @@ describe("file diff cards", () => {
     expect(plainHost.querySelector('[data-testid="file-diff-line"] .token')).toBeNull();
   });
 
-  it("discloses the exact supplied hunk detail from a keyboard-operable toggle", async () => {
+  it("discloses the exact supplied hunk detail from a keyboard-operable file row in the edit tree", async () => {
     const host = await mount(<Timeline items={timeline("claude")} />);
-    const toggle = all(host, "file-diff-toggle")[0] as HTMLButtonElement;
+    const row = all(host, "chat-edit-run-file")[0];
+    const toggle = row.querySelector("button") as HTMLButtonElement;
     expect(toggle.tagName).toBe("BUTTON");
     expect(toggle.getAttribute("type")).toBe("button");
     expect(toggle.hasAttribute("tabindex")).toBe(false);
-    const region = document.getElementById(toggle.getAttribute("aria-controls") ?? "");
-    expect(region?.getAttribute("role")).toBe("region");
-    expect(region?.hidden).toBe(true);
+    expect(toggle.getAttribute("aria-label")).toBe("Show diff for src/shared.ts");
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(all(row, "edit-run-diff")).toHaveLength(0);
 
     toggle.focus();
     expect(document.activeElement).toBe(toggle);
     await act(async () => toggle.click());
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
-    expect(region?.hidden).toBe(false);
-    expect(all(region as HTMLElement, "file-diff-hunk-header").map((node) => node.textContent)).toEqual(["Lines 1–3"]);
-    expect(all(region as HTMLElement, "file-diff-line").map((node) => node.textContent))
+    const detail = all(row, "edit-run-diff")[0];
+    expect(detail).toBeDefined();
+    expect(detail.textContent).toContain("Lines 1–3");
+    expect(all(detail, "file-diff-line").map((node) => node.textContent))
       .toEqual(fixtureRecords("claude")[1].toolUseResult.structuredPatch[0].lines);
-    expect(all(region as HTMLElement, "file-diff-line").map((node) => node.dataset.tone)).toEqual(["context", "del", "add", "context"]);
+    expect(all(detail, "file-diff-line").map((node) => node.dataset.tone)).toEqual(["context", "del", "add", "context"]);
 
     await act(async () => toggle.click());
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
-    expect(region?.hidden).toBe(true);
+    expect(all(row, "edit-run-diff")).toHaveLength(0);
   });
 
   it("renders equivalent Claude and Codex diffs identically", async () => {
@@ -285,14 +304,16 @@ describe("file diff cards", () => {
     const withoutDiffs = (provider: Provider) => toolEvents(timeline(provider)).filter((event) => !event.fileDiffs?.length).length;
     const claudeHost = await mount(<Timeline items={timeline("claude")} />);
     expect(all(claudeHost, "chat-tool-call")).toHaveLength(withoutDiffs("claude"));
-    expect(all(claudeHost, "file-diff-card")).toHaveLength(2);
+    expect(all(claudeHost, "chat-edit-run-file")).toHaveLength(2);
     expect(all(claudeHost, "timeline-message").map((node) => node.textContent)).toContain("Both files are updated.");
 
     const partial = eventFor("codex", "exec-file-change-bad");
     expect(partial.fileDiffs?.map((diff) => diff.path)).toEqual(["src/removed.ts"]);
     const codexHost = await mount(<Timeline items={timeline("codex")} />);
     expect(all(codexHost, "chat-tool-call")).toHaveLength(withoutDiffs("codex"));
-    expect(all(codexHost, "file-diff-header").some((node) => node.textContent?.includes("src/broken.ts"))).toBe(false);
+    const codexRows = all(codexHost, "chat-edit-run-file").map((node) => node.textContent ?? "");
+    expect(codexRows.some((text) => text.includes("src/broken.ts"))).toBe(false);
+    expect(codexRows.some((text) => text.includes("src/removed.ts"))).toBe(true);
     expect(all(codexHost, "timeline-message").map((node) => node.textContent)).toContain("Both files are updated.");
 
     const valid = sharedDiffs("codex")[0];

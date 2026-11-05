@@ -1,3 +1,4 @@
+import { type DaemonFake, muxMockFetch } from "./muxMockFetch.testdata";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -6,7 +7,7 @@ import { formatAttachmentMarker, type NormalizedChatMessage } from "@codeterm/ch
 import { ChangeFileView } from "../components/Terminal/tabPanel/ChangeFileView";
 import { DocumentDetail } from "../components/Terminal/tabPanel/DocumentDetail";
 import { configureLocalPreviews } from "./configureLocalPreviews";
-import { invoke, IS_WEB } from "./bridge";
+import { invoke, IS_WEB, __setListenForTest } from "./bridge";
 import { selfHost, setTokenFor } from "./webApi";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -16,6 +17,7 @@ let fetchMock: ReturnType<typeof vi.fn>;
 const requests: { path: string; body: unknown }[] = [];
 
 beforeEach(() => {
+  __setListenForTest(async () => () => {});
   expect(IS_WEB).toBe(true);
   requests.length = 0;
   localStorage.clear();
@@ -26,6 +28,7 @@ beforeEach(() => {
     expect(init?.method).toBe("POST");
     const body = JSON.parse(String(init?.body)) as { path?: string; kind?: string; paths?: string[] };
     const path = new URL(input).pathname;
+    if (path.endsWith("/preview/prepare")) return new Response(JSON.stringify({ state: "ready", index_id: "fixture" }), { headers: { "Content-Type": "application/json" } });
     requests.push({ path, body });
     if (body.path === "/work/forbidden.md") return new Response('{"error":"Preview unavailable"}', { status: 404 });
     const data = body.path === "/work/current.ts" ? { data: "const current = 42;", media_type: "text/plain" } : body.paths ? { paths: body.paths, home: "/home/fixture" }
@@ -34,13 +37,14 @@ beforeEach(() => {
       : { data: "# REST document", media_type: "text/markdown" };
     return new Response(JSON.stringify(data), { headers: { "Content-Type": "application/json" } });
   });
-  vi.stubGlobal("fetch", fetchMock);
+  vi.stubGlobal("fetch", muxMockFetch(fetchMock as DaemonFake));
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
 });
 
 afterEach(async () => {
+  __setListenForTest(null);
   await act(async () => root?.unmount());
   host.remove();
   vi.unstubAllGlobals();
@@ -71,7 +75,13 @@ it("sends the scoped batch check and refuses a missing tab before network access
   expect(await invoke("check_local_preview_files", { paths: ["/work/report.md"], tabId: "owned-tab" })).toEqual({ paths: ["/work/report.md"], home: "/home/fixture" });
   expect(requests).toEqual([{ path: "/api/tabs/owned-tab/preview/check", body: { paths: ["/work/report.md"] } }]);
   await expect(invoke("read_local_preview_file", { path: "/work/report.md", kind: "document" })).rejects.toThrow("tab identity");
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+});
+
+it("reads home metadata without starting reference preparation", async () => {
+  expect(await invoke("check_local_preview_files", { paths: [], tabId: "home-tab" })).toEqual({ paths: [], home: "/home/fixture" });
   expect(fetchMock).toHaveBeenCalledTimes(1);
+  expect(requests).toEqual([{ path: "/api/tabs/home-tab/preview/check", body: { paths: [] } }]);
 });
 
 it("shows REST refusals without rendering unavailable document contents", async () => {
@@ -94,7 +104,7 @@ it("reads a changed source file through the authenticated tab-scoped web bridge"
   await act(async () => root?.render(<ChangeFileView tabId="change-owner" target="/work/current.ts" deleted={false} onDiff={() => {}} />));
   expect(host.querySelector("code")?.textContent).toContain("const current = 42;");
   expect(requests).toEqual([{ path: "/api/tabs/change-owner/preview/read", body: { path: "/work/current.ts", kind: "document" } }]);
-  expect(fetchMock).toHaveBeenCalledExactlyOnceWith(expect.stringContaining("/api/tabs/change-owner/preview/read"), expect.objectContaining({ method: "POST", body: JSON.stringify({ path: "/work/current.ts", kind: "document" }) }));
+  expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("/api/tabs/change-owner/preview/read"), expect.objectContaining({ method: "POST", body: JSON.stringify({ path: "/work/current.ts", kind: "document" }) }));
 });
 
 it("loads a focused chip preview and opens its image via the authenticated attachment reader", async () => {

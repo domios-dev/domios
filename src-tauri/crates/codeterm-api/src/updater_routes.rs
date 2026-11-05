@@ -404,20 +404,23 @@ pub async fn availability(
     Json<codeterm_update::update_state::AvailabilitySnapshot>,
     (StatusCode, Json<serde_json::Value>),
 > {
-    if let Some(error) = container_refusal(installed) {
-        return Err((StatusCode::CONFLICT, Json(serde_json::json!(error))));
-    }
+    let cached = tokio::task::spawn_blocking(move || {
+        if let Some(error) = container_refusal(installed) {
+            return Err((StatusCode::CONFLICT, Json(serde_json::json!(error))));
+        }
+        Ok(codeterm_commands::update::discovery::cached_snapshot())
+    })
+    .await
+    .map_err(|error| availability_error(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))??;
     let Query(q) =
         query.map_err(|error| availability_error(StatusCode::BAD_REQUEST, error.to_string()))?;
-    availability_response(
-        codeterm_commands::update::discovery::check(
-            &state.svc.ui,
-            &state.update_state,
-            bundles.map(|b| b.0),
-            q.force.unwrap_or(false),
-        )
-        .await,
-    )
+    codeterm_commands::update::discovery::refresh_in_background(
+        state.svc.ui.clone(),
+        state.update_state.clone(),
+        bundles.map(|b| b.0),
+        q.force.unwrap_or(false),
+    );
+    availability_response(Ok(cached))
 }
 
 fn availability_response(

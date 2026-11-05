@@ -1,7 +1,9 @@
+import { ioTestExport, ioTestContext } from "./tests/hostIo";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import { describe, expect, it, vi } from "vitest";
-import { checkProviderUpdate, matchesRange, newestSupportedVersion } from "./updateCheck";
+import { checkProviderUpdate as ioSource_checkProviderUpdate, matchesRange, newestSupportedVersion } from "./updateCheck";
+const checkProviderUpdate = ioTestExport(ioSource_checkProviderUpdate);
 
 const compatibility = {
   supported: ["=1.18.35", ">=1.19.0, <1.20.0"],
@@ -135,7 +137,7 @@ for (const id of ["claude", "opencode", "codex"]) {
     const fake = makeHost(id, 0, latest);
     const host = { ...fake, manifestJson: () => JSON.stringify(manifest) };
     const context = { host, module: { exports: {} as { default?: RuntimePlugin } }, exports: {} };
-    new vm.Script(readFileSync(`${root}/plugin.js`, "utf8")).runInNewContext(context);
+    new vm.Script(readFileSync(`${root}/plugin.js`, "utf8")).runInNewContext(ioTestContext(context));
     const plugin = context.module.exports.default;
     expect(typeof plugin?.checkForUpdate).toBe("function");
     const answer = fake.drive(plugin?.checkForUpdate?.()) as { latestVersion: string } | null;

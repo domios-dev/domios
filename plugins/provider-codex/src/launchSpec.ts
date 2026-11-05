@@ -1,3 +1,4 @@
+import { ioJson, type HostIoSteps } from "@codeterm/plugin-sdk";
 import type { HostOwnedCapabilities, LaunchParams, ResumeParams } from "@codeterm/plugin-sdk";
 import { withLaunchMarker } from "./launchSession";
 import { extractSessionUuid } from "./sessions";
@@ -19,10 +20,10 @@ export function utf8Bytes(value: string): number {
   return bytes;
 }
 
-function supportsDirectResume(): boolean {
+function* supportsDirectResume(): HostIoSteps<boolean> {
   try {
     const minimum = "0.159.0";
-    const observed = JSON.parse(host.providerVersionJson());
+    const observed = JSON.parse((yield* ioJson({ op: "providerVersion" })));
     if (observed?.status !== "detected" || typeof minimum !== "string") return false;
     const parse = (value: string) => /^(\d+)\.(\d+)\.(\d+)$/.exec(value)?.slice(1).map(Number);
     const version = parse(String(observed.version));
@@ -37,7 +38,7 @@ function supportsDirectResume(): boolean {
   }
 }
 
-export function buildCodexLaunchSpec(input: LaunchParams | { resume: ResumeParams }, starter: (params: LaunchParams) => string | undefined) {
+export function* buildCodexLaunchSpec(input: LaunchParams | { resume: ResumeParams }, starter: (params: LaunchParams) => string | undefined) {
   const platform = host.platform();
   if (platform === "windows") return null;
   const hostOwned = "resume" in input
@@ -46,7 +47,7 @@ export function buildCodexLaunchSpec(input: LaunchParams | { resume: ResumeParam
   const args = [...CODEX_LAUNCH_CONFIG];
   if ("resume" in input) {
     const resume = input.resume as ResumeParams | undefined;
-    if (!resume || typeof resume.sessionId !== "string" || !supportsDirectResume()) return null;
+    if (!resume || typeof resume.sessionId !== "string" || !(yield* supportsDirectResume())) return null;
     args.push("resume");
     if (resume.skipPermissions) args.push("--dangerously-bypass-approvals-and-sandbox", "--dangerously-bypass-hook-trust");
     args.push(extractSessionUuid(resume.sessionId) || resume.sessionId, "--no-daemon", ...(resume.args || []));
@@ -77,7 +78,9 @@ export function buildCodexLaunchSpec(input: LaunchParams | { resume: ResumeParam
   return { program: "codex", args, envSet: {}, envUnset: [...exclusions] };
 }
 
-export function codexCommandFromSpec(spec: NonNullable<ReturnType<typeof buildCodexLaunchSpec>>): string {
+type CodexLaunchSpec = NonNullable<ReturnType<typeof buildCodexLaunchSpec> extends HostIoSteps<infer T> ? T : never>;
+
+export function codexCommandFromSpec(spec: CodexLaunchSpec): string {
   const quote = (value: string) => host.shell.quoteFor(value, host.platform());
   const unset = spec.envUnset.length ? "unset " + spec.envUnset.map(quote).join(" ") + " && " : "";
   return unset + [spec.program, ...spec.args].map(value => /^[A-Za-z0-9_\-.,:=@/+%]+$/.test(value) ? value : quote(value)).join(" ");

@@ -123,7 +123,7 @@ pub(super) fn replay_losses<S: DeliverySeam>(
     seam: &S,
     pending: &Mutex<PendingWorkerLosses>,
     owner: &str,
-    refresh: impl Fn(WorkerLoss) -> WorkerLoss,
+    refresh: impl Fn(&WorkerLoss) -> Result<WorkerLoss, String>,
 ) -> Vec<(WorkerLoss, LossRoute)> {
     let has_pending = pending.lock().has_pending(owner);
     if !has_pending || !seam.accepts_system_notice(owner) {
@@ -132,7 +132,17 @@ pub(super) fn replay_losses<S: DeliverySeam>(
     let held = pending.lock().take(owner);
     let mut routed = Vec::with_capacity(held.len());
     for loss in held {
-        let loss = refresh(loss);
+        let loss = match refresh(&loss) {
+            Ok(refreshed) => refreshed,
+            Err(error) => {
+                pending.lock().withhold(owner, loss.clone());
+                routed.push((
+                    loss,
+                    LossRoute::Failed(format!("recovery read failed before delivery: {error}")),
+                ));
+                continue;
+            }
+        };
         if !claim_report(&loss) {
             continue;
         }
@@ -154,7 +164,10 @@ impl ServiceContext {
             self,
             pending_worker_losses(),
             tab_id,
-            |loss| self.refresh_worker_loss_recovery(loss),
+            |loss| {
+                self.refresh_worker_loss_recovery(loss)
+                    .map_err(|error| error.to_string())
+            },
         );
         let mut alert = false;
         for (loss, route) in &routed {

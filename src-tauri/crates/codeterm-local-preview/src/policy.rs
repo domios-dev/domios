@@ -5,14 +5,16 @@ use super::references::path_key;
 use crate::html_preview::checked_path;
 
 pub struct PreviewPolicy {
-    references: HashSet<String>,
+    references: std::sync::Arc<HashSet<String>>,
     denied: Vec<String>,
     uploads: Vec<PathBuf>,
     upload_denied: Vec<String>,
     referenced_uploads: Vec<PathBuf>,
     referenced_upload_denied: Vec<String>,
-    own_pad: Option<String>,
+    own_pad: Option<PathBuf>,
     pad_denied: Vec<String>,
+    workspace: Option<PathBuf>,
+    workspace_denied: Vec<String>,
 }
 
 pub struct PreviewRoots {
@@ -20,11 +22,14 @@ pub struct PreviewRoots {
     pub private: Vec<PathBuf>,
     pub uploads: Vec<PathBuf>,
     pub own_pad: Option<PathBuf>,
+    /// The tab's working directory; it may sit under a private root, such as a provisioned workspace.
+    pub workspace: Option<PathBuf>,
     pub ssh: Option<PathBuf>,
 }
 
 impl PreviewPolicy {
     pub fn for_context(references: HashSet<String>, roots: PreviewRoots) -> Result<Self, String> {
+        let private = roots.private.clone();
         let mut denied = roots.configured.clone();
         denied.extend(roots.private);
         denied.extend(roots.ssh.clone());
@@ -36,6 +41,9 @@ impl PreviewPolicy {
         }
         if let Some(pad) = roots.own_pad {
             policy = policy.with_own_pad(&pad, &evidence_denied)?;
+        }
+        if let Some(workspace) = roots.workspace {
+            policy = policy.with_workspace(&workspace, &private, &evidence_denied)?;
         }
         Ok(policy)
     }
@@ -50,7 +58,7 @@ impl PreviewPolicy {
             }
         }
         Ok(Self {
-            references,
+            references: references.into(),
             denied: roots,
             uploads: Vec::new(),
             upload_denied: Vec::new(),
@@ -58,7 +66,14 @@ impl PreviewPolicy {
             referenced_upload_denied: Vec::new(),
             own_pad: None,
             pad_denied: Vec::new(),
+            workspace: None,
+            workspace_denied: Vec::new(),
         })
+    }
+
+    pub fn with_reference_inventory(mut self, references: std::sync::Arc<HashSet<String>>) -> Self {
+        self.references = references;
+        self
     }
 
     pub fn with_uploads(mut self, uploads: &Path, denied: &[PathBuf]) -> Result<Self, String> {
@@ -83,33 +98,74 @@ impl PreviewPolicy {
         Ok(self)
     }
 
-    pub fn with_own_pad(
-        mut self,
-        canonical_root: &Path,
-        denied: &[PathBuf],
-    ) -> Result<Self, String> {
-        self.own_pad = Some(denial_key(canonical_root));
+    pub fn with_own_pad(mut self, root: &Path, denied: &[PathBuf]) -> Result<Self, String> {
+        let canonical = root
+            .canonicalize()
+            .map_err(|_| "Unable to resolve preview pad")?;
+        self.own_pad = Some(canonical);
         self.pad_denied = Self::new(HashSet::new(), denied)?.denied;
         Ok(self)
     }
 
+    /// Admit referenced files under the tab's workspace even when it lives under a private root.
+    /// A workspace that contains a private root gets no grant, and private roots that are not its
+    /// ancestors stay refused inside it.
+    pub fn with_workspace(
+        mut self,
+        root: &Path,
+        private: &[PathBuf],
+        denied: &[PathBuf],
+    ) -> Result<Self, String> {
+        let Ok(canonical) = root.canonicalize() else {
+            return Ok(self);
+        };
+        let key = denial_key(&canonical);
+        let private = Self::new(HashSet::new(), private)?.denied;
+        if private.iter().any(|root| within(root, &key)) {
+            return Ok(self);
+        }
+        let mut workspace_denied = Self::new(HashSet::new(), denied)?.denied;
+        workspace_denied.extend(private.into_iter().filter(|root| !within(&key, root)));
+        self.workspace = Some(canonical);
+        self.workspace_denied = workspace_denied;
+        Ok(self)
+    }
+
+    fn inside(
+        &self,
+        root: &Path,
+        denied: &[String],
+        requested: &Path,
+        canonical: Option<&Path>,
+    ) -> bool {
+        let resolved = canonical
+            .map(Path::to_path_buf)
+            .or_else(|| requested.canonicalize().ok());
+        resolved.as_deref().is_some_and(|path| {
+            let Ok(relative) = path.strip_prefix(root) else {
+                return false;
+            };
+            !relative.as_os_str().is_empty()
+                && !relative
+                    .components()
+                    .any(|part| secret_component(&part.as_os_str().to_string_lossy()))
+                && !denied
+                    .iter()
+                    .any(|denied| within(&denial_key(path), denied))
+        })
+    }
+
     pub fn authorize(&self, requested: &Path, canonical: Option<&Path>) -> Result<(), String> {
         if self.references.contains(&path_key(requested)) {
-            if let Some(root) = &self.own_pad {
-                let safe = std::iter::once(requested).chain(canonical).all(|path| {
-                    let key = denial_key(path);
-                    let Some(relative) = key
-                        .strip_prefix(root)
-                        .and_then(|rest| rest.strip_prefix('/'))
-                    else {
-                        return false;
-                    };
-                    !relative
-                        .split('/')
-                        .any(|part| part == "." || part == ".." || secret_component(part))
-                        && !self.pad_denied.iter().any(|denied| within(&key, denied))
-                });
-                if safe {
+            let scoped = [
+                (&self.own_pad, &self.pad_denied),
+                (&self.workspace, &self.workspace_denied),
+            ];
+            for (root, denied) in scoped {
+                if root
+                    .as_deref()
+                    .is_some_and(|root| self.inside(root, denied, requested, canonical))
+                {
                     return Ok(());
                 }
             }

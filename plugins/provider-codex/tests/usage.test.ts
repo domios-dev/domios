@@ -1,3 +1,4 @@
+import { ioTestExport } from "../../provider-shared/tests/hostIo";
 /**
  * Codex usage-panel parser tests (parseCodexUsage / fetchCodexUsage).
  * Run: npx tsx plugins/provider-codex/tests/usage.test.ts
@@ -18,7 +19,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseCodexUsage, fetchCodexUsage } from "../src/usage";
+import { parseCodexUsage, fetchCodexUsage as ioSource_fetchCodexUsage } from "../src/usage";
+const fetchCodexUsage = ioTestExport(ioSource_fetchCodexUsage);
 
 let passed = 0;
 let failed = 0;

@@ -5,7 +5,7 @@ pub use codeterm_lanes::checkpoint_io::{
 use codeterm_lanes::checkpoint_io::{run_git, run_git_status, safe_ref_component};
 mod checkpoint;
 
-use crate::plan::{LaneCheckpointRefusal, LaneTurnChangeStats, Plan, TaskExecutionAttempt};
+use crate::plan::{LaneCheckpointRefusal, LaneTurnChangeStats};
 use crate::service::{
     plan::{PlanError, PlanStore},
     ServiceContext,
@@ -17,14 +17,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 const TURN_CAPTURE_DEADLINE: Duration = Duration::from_secs(12);
 const CHECKPOINTS_PER_ATTEMPT: usize = 20;
 
-pub struct LaneAttemptTarget {
-    plan_id: String,
-    task_id: String,
-    attempt_id: String,
-    worktree_path: String,
-    canonical_path: String,
-    turn: u32,
-}
+pub use crate::service::plan::LaneAttemptRead as LaneAttemptTarget;
 
 #[derive(Debug)]
 pub enum CheckpointResult {
@@ -33,43 +26,29 @@ pub enum CheckpointResult {
 }
 
 impl ServiceContext {
-    pub fn restore_lane_watches(&self) {
-        let candidates = crate::service::plan::PlanMatch::Task(crate::service::plan::TaskMatch {
-            statuses: Some(crate::service::plan::plan_match::NON_TERMINAL_TASK_STATUSES.to_vec()),
-            set: vec!["$.lane.worktree_path"],
-            unset: vec!["$.lane.cleanup_status"],
-            ..Default::default()
-        });
-        for plan in self.plan_store.plans_matching(&candidates) {
-            let canonical_path = if plan.canonical_project_path.trim().is_empty() {
-                &plan.project_path
-            } else {
-                &plan.canonical_project_path
-            };
-            for task in &plan.tasks {
-                let lane = &task.lane;
-                let Some(worktree_path) = lane.worktree_path.as_deref() else {
-                    continue;
-                };
-                if task.status.is_terminal() || lane.cleanup_status.is_some() {
-                    continue;
-                }
-                if let Err(error) = self
-                    .ext::<crate::repowatch::RepoWatchRegistryHandle>()
-                    .retain_lane_watch(worktree_path, Path::new(canonical_path))
-                {
-                    log::debug!("[lane-watch] repository watch unavailable: {error}");
-                }
+    pub fn restore_lane_watches(&self) -> Result<(), PlanError> {
+        for lane in self.plan_store.lane_watch_projection()? {
+            if let Err(error) = self
+                .ext::<crate::repowatch::RepoWatchRegistryHandle>()
+                .retain_lane_watch(&lane.worktree_path, Path::new(&lane.canonical_path))
+            {
+                log::debug!("[lane-watch] repository watch unavailable: {error}");
             }
         }
+        Ok(())
     }
 
     pub(crate) fn record_lane_turn_boundary(&self, tab_id: &str) {
         let service = self.clone();
         let tab_id = tab_id.to_string();
         crate::async_runtime::spawn_blocking(move || {
-            let Some(target) = find_lane_attempt(&service.plan_store, &tab_id) else {
-                return;
+            let target = match find_lane_attempt(&service.plan_store, &tab_id) {
+                Ok(Some(target)) => target,
+                Ok(None) => return,
+                Err(error) => {
+                    log::error!("[lane-turn-stats] cannot read lane attempt for {tab_id}: {error}");
+                    return;
+                }
             };
             let repository = target.canonical_path.clone();
             let worker = service.clone();
@@ -97,8 +76,13 @@ fn record_lane_turn(
     ui: &dyn crate::ports::host::UiEvents,
     tab_id: &str,
 ) {
-    let Some(target) = find_lane_attempt(store, tab_id) else {
-        return;
+    let target = match find_lane_attempt(store, tab_id) {
+        Ok(Some(target)) => target,
+        Ok(None) => return,
+        Err(error) => {
+            log::error!("[lane-turn-stats] cannot read lane attempt for {tab_id}: {error}");
+            return;
+        }
     };
     let captured_at = unix_time_millis();
     let transcript_turn_key = settled_transcript_turn_key(service, tab_id);
@@ -152,9 +136,8 @@ fn record_lane_turn(
             }
         }
     }
-    if mutate_attempt(store, &target, |attempt| {
-        if let Some(record) = attempt
-            .lane_turn_stats
+    if mutate_attempt(store, &target, |turn_stats| {
+        if let Some(record) = turn_stats
             .iter_mut()
             .find(|record| record.turn == target.turn)
         {
@@ -165,44 +148,11 @@ fn record_lane_turn(
     }
 }
 
-pub(crate) fn find_lane_attempt(store: &PlanStore, tab_id: &str) -> Option<LaneAttemptTarget> {
-    let candidates = crate::service::plan::AttemptMatch::executor(
-        tab_id,
-        crate::service::plan::AttemptState::Unclosed,
-    )
-    .into_match();
-    store
-        .plans_matching(&candidates)
-        .into_iter()
-        .find_map(|plan| {
-            plan.tasks.iter().find_map(|task| {
-                let attempt = task.execution_attempts.iter().rev().find(|attempt| {
-                    attempt.executor_tab_id == tab_id
-                        && attempt.closed_at.is_none()
-                        && attempt.placement.is_isolated_lane()
-                        && attempt.worktree_path.is_some()
-                })?;
-                let worktree_path = attempt.worktree_path.clone()?;
-                let canonical_path = if plan.canonical_project_path.trim().is_empty() {
-                    plan.project_path.clone()
-                } else {
-                    plan.canonical_project_path.clone()
-                };
-                Some(LaneAttemptTarget {
-                    plan_id: plan.id.clone(),
-                    task_id: task.id.clone(),
-                    attempt_id: attempt.id.clone(),
-                    worktree_path,
-                    canonical_path,
-                    turn: attempt
-                        .lane_turn_stats
-                        .iter()
-                        .map(|stats| stats.turn)
-                        .max()
-                        .unwrap_or_default(),
-                })
-            })
-        })
+pub(crate) fn find_lane_attempt(
+    store: &PlanStore,
+    tab_id: &str,
+) -> Result<Option<LaneAttemptTarget>, PlanError> {
+    store.lane_attempt_projection(tab_id)
 }
 
 fn reserve_turn(
@@ -212,27 +162,30 @@ fn reserve_turn(
     transcript_turn_key: Option<&str>,
 ) -> Option<u32> {
     store
-        .with_plan(&target.plan_id, captured_at, |plan| {
-            let attempt = find_attempt_mut(plan, &target.task_id, &target.attempt_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            if is_duplicate_transcript_turn(&attempt.lane_turn_stats, transcript_turn_key) {
-                return Ok(None);
-            }
-            let turn = attempt
-                .lane_turn_stats
-                .iter()
-                .map(|stats| stats.turn)
-                .max()
-                .unwrap_or_default()
-                .saturating_add(1);
-            attempt.lane_turn_stats.push(LaneTurnChangeStats {
-                turn,
-                captured_at,
-                transcript_turn_key: transcript_turn_key.map(str::to_string),
-                ..Default::default()
-            });
-            Ok(Some(turn))
-        })
+        .edit_lane_turn_stats(
+            &target.plan_id,
+            &target.task_id,
+            &target.attempt_id,
+            captured_at,
+            |stats| {
+                if is_duplicate_transcript_turn(stats, transcript_turn_key) {
+                    return Ok(None);
+                }
+                let turn = stats
+                    .iter()
+                    .map(|stats| stats.turn)
+                    .max()
+                    .unwrap_or_default()
+                    .saturating_add(1);
+                stats.push(LaneTurnChangeStats {
+                    turn,
+                    captured_at,
+                    transcript_turn_key: transcript_turn_key.map(str::to_string),
+                    ..Default::default()
+                });
+                Ok(Some(turn))
+            },
+        )
         .ok()
         .flatten()
 }
@@ -279,29 +232,20 @@ fn is_duplicate_transcript_turn(
 fn mutate_attempt(
     store: &PlanStore,
     target: &LaneAttemptTarget,
-    update: impl FnOnce(&mut TaskExecutionAttempt),
+    update: impl FnOnce(&mut Vec<LaneTurnChangeStats>),
 ) -> bool {
     store
-        .with_plan(&target.plan_id, unix_time_millis(), |plan| {
-            let attempt = find_attempt_mut(plan, &target.task_id, &target.attempt_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            update(attempt);
-            Ok(())
-        })
+        .edit_lane_turn_stats(
+            &target.plan_id,
+            &target.task_id,
+            &target.attempt_id,
+            unix_time_millis(),
+            |stats| {
+                update(stats);
+                Ok(Some(()))
+            },
+        )
         .is_ok()
-}
-
-fn find_attempt_mut<'a>(
-    plan: &'a mut Plan,
-    task_id: &str,
-    attempt_id: &str,
-) -> Option<&'a mut TaskExecutionAttempt> {
-    plan.tasks
-        .iter_mut()
-        .find(|task| task.id == task_id)?
-        .execution_attempts
-        .iter_mut()
-        .find(|attempt| attempt.id == attempt_id)
 }
 
 fn capture_change_stats(

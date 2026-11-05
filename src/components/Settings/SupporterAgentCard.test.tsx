@@ -1,3 +1,5 @@
+import { type DaemonFake, muxMockFetch } from "../../lib/muxMockFetch.testdata";
+import { configureDaemonTransport } from "../../lib/daemonBootstrap";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -7,6 +9,11 @@ import type { SupporterAdapter, SupporterConnection, SupporterStatus } from "./s
 import { statusFixture } from "../Supporter/testSupport";
 import { __setListenForTest } from "../../lib/bridge";
 import type { SupporterActivity } from "../Supporter/activity";
+
+function daemonFake<T extends DaemonFake>(domain: T): T {
+  vi.stubGlobal("fetch", muxMockFetch(domain));
+  return domain;
+}
 
 vi.mock("../../lib/webApi", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../lib/webApi")>()),
@@ -62,6 +69,7 @@ let host: HTMLDivElement;
 let root: Root;
 let state: SupporterStatus;
 let calls: Call[];
+let daemon: ReturnType<typeof vi.fn>;
 let stale: boolean;
 let failNextStatus: boolean;
 let failDeleteReadback: boolean;
@@ -82,6 +90,7 @@ function stop() {
 const listeners = new Set<(event: { payload: unknown }) => void>();
 
 beforeEach(() => {
+  configureDaemonTransport({ origin: window.location.origin, token: "fixture-auth" });
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
@@ -105,9 +114,7 @@ beforeEach(() => {
       listeners.delete(listener);
     };
   });
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async (url: string, init?: RequestInit) => {
+  daemon = daemonFake(vi.fn(async (url: string, init?: RequestInit) => {
       const path = new URL(url).pathname;
       const method = init?.method ?? "GET";
       const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : null;
@@ -840,9 +847,7 @@ describe("Supporter saved connections", () => {
     });
     expect(success).toBe(true);
     expect(
-      vi
-        .mocked(fetch)
-        .mock.calls.some(
+      daemon.mock.calls.some(
           ([url, init]) => String(url).endsWith("/api/supporter/token?adapter=optional") && init?.method === "DELETE",
         ),
     ).toBe(true);

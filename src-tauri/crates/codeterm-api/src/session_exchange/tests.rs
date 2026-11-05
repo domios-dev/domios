@@ -237,8 +237,5 @@ fn exported_plans_streams_every_plan_without_filling_the_cache() {
     let mut expected = vec![first, second];
     expected.sort();
     assert_eq!(ids, expected);
-    assert!(
-        store.cached_plan_ids_for_test().is_empty(),
-        "the export never fills the plan cache"
-    );
+    assert!(store.plan_loads_for_test().is_empty());
 }

@@ -24,6 +24,60 @@ __export(plugin_exports, {
 });
 module.exports = __toCommonJS(plugin_exports);
 
+// packages/plugin-sdk/src/ioPrograms.ts
+function defineProviderIo(source, io) {
+  const exports = { ...source };
+  for (const key of Object.keys(source)) {
+    const value = source[key];
+    if (typeof value !== "function") continue;
+    exports[key] = function(...args) {
+      const result = value.apply(source, args);
+      return result && typeof result.next === "function" ? io().run(result) : result;
+    };
+  }
+  return exports;
+}
+function* ioResolve(value) {
+  if (value && typeof value.next === "function") return yield* value;
+  return value;
+}
+function* ioSqlite(fs, db, sql, params, then) {
+  return yield* ioResolve(then(yield* fs.sqliteQuery(db, sql, params)));
+}
+function* ioFileTransaction(fs, paths, work) {
+  const locks = [];
+  try {
+    for (const path of [...new Set(paths)].sort()) {
+      const parent = path.slice(0, Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\")));
+      if (parent && !(yield* fs.makeDirs(parent))) return { ok: false, error: "integration directory is unavailable" };
+      const lock = yield* fs.lockFile(path);
+      if (!lock) return { ok: false, error: "integration files are busy" };
+      locks.push(lock);
+    }
+    return yield* work();
+  } finally {
+    for (const lock of locks.reverse()) yield* fs.unlockFile(lock);
+  }
+}
+function* ioThen(steps, then) {
+  return yield* ioResolve(then(yield* steps));
+}
+
+// plugins/provider-shared/updatePrompt.ts
+function updatePromptSafeChoice(prompt) {
+  if (prompt.options.length < 2 || !prompt.options.some(([label2]) => /\bupdate\b/i.test(label2))) {
+    return null;
+  }
+  const safe = prompt.options.filter(([label2]) => /\b(skip|later|postpone)\b/i.test(label2));
+  const bare = safe.filter(([label2]) => /^\s*(skip|later|postpone)\s*$/i.test(label2));
+  const chosen = safe.length === 1 ? safe : bare;
+  if (chosen.length !== 1) return null;
+  const [label, value] = chosen[0];
+  if (!value || /\bupdate\b/i.test(label)) return null;
+  if (prompt.options.filter(([, candidate]) => candidate === value).length !== 1) return null;
+  return value;
+}
+
 // plugins/provider-shared/runPromptStep.ts
 function bytes(text) {
   let count = 0;
@@ -207,29 +261,31 @@ function availableUpdate(currentVersion, result, compatibility) {
   }
   return latestVersion && compare(latestVersion, currentVersion) === 1 ? { currentVersion, latestVersion } : { currentVersion, latestVersion: currentVersion };
 }
-function startedJob(raw) {
-  const job = record(raw)?.jobId;
-  return typeof job === "string" && job !== "" ? job : null;
-}
-function checkProviderUpdate(host2, binary, metadataUrl, compatibility, parseInstalled = installedVersion) {
-  const probe = startedJob(host2.execStart(JSON.stringify({ bin: binary, args: ["--version"], timeoutMs: 5e3 })));
-  if (!probe) return null;
-  return host2.awaitJob(probe, (installed) => {
-    const currentVersion = parseInstalled(installed);
-    if (!currentVersion) return null;
-    const metadata = startedJob(host2.fetchStart(JSON.stringify({
+function* checkProviderUpdate(host2, binary, metadataUrl, compatibility, parseInstalled = installedVersion) {
+  let installed;
+  try {
+    installed = yield* host2.io.exec({ bin: binary, args: ["--version"], timeoutMs: 5e3 });
+  } catch {
+    return null;
+  }
+  const currentVersion = parseInstalled(installed);
+  if (!currentVersion) return null;
+  let metadata;
+  try {
+    metadata = yield* host2.io.fetch({
       url: metadataUrl,
       method: "GET",
       timeoutMs: 6e3,
       headers: { Accept: compatibility ? "application/vnd.npm.install-v1+json" : "application/json" }
-    })));
-    if (!metadata) return null;
-    return host2.awaitJob(metadata, (response) => availableUpdate(currentVersion, response, compatibility));
-  });
+    });
+  } catch {
+    return null;
+  }
+  return availableUpdate(currentVersion, metadata, compatibility);
 }
 
 // plugins/provider-opencode/src/update.ts
-function checkOpencodeUpdate() {
+function* checkOpencodeUpdate() {
   let manifest;
   try {
     manifest = JSON.parse(host.manifestJson() ?? "null");
@@ -237,7 +293,7 @@ function checkOpencodeUpdate() {
     return null;
   }
   if (!manifest?.cliCompatibility?.supported?.length) return null;
-  return checkProviderUpdate(host, "opencode", "https://registry.npmjs.org/opencode-ai", manifest.cliCompatibility);
+  return yield* checkProviderUpdate(host, "opencode", "https://registry.npmjs.org/opencode-ai", manifest.cliCompatibility);
 }
 
 // plugins/provider-opencode/src/opencodeConfig.ts
@@ -718,67 +774,68 @@ function isQuestionMenuFooter(line) {
   return lc.indexOf("select") !== -1 && lc.indexOf("submit") !== -1 && lc.indexOf("dismiss") !== -1;
 }
 var MODEL_CATALOGUE_TTL_MS = 10 * 60 * 1e3;
+var MODEL_ATTEMPT_PENDING_MS = 30 * 1e3;
 var modelCatalogue = null;
 var lastGoodCatalogue = null;
 function cachedOpencodeModels() {
   return lastGoodCatalogue;
 }
-function discoverOpencodeModels(inputFingerprint) {
-  return withOpencodeModels(inputFingerprint, (models2) => models2);
+function* discoverOpencodeModels(inputFingerprint) {
+  return yield* withOpencodeModels(inputFingerprint, (models2) => models2);
 }
-function withOpencodeModels(inputFingerprint, then) {
+function* withOpencodeModels(inputFingerprint, then) {
   const now = host.unixNowMs();
-  if (inputFingerprint === void 0 && modelCatalogue?.pending) return then(null);
+  if (inputFingerprint === void 0 && modelCatalogue?.pending) return yield* ioResolve(then(null));
   const stamp = inputFingerprint ?? "unresolved";
-  if (modelCatalogue && modelCatalogue.stamp === stamp && now >= modelCatalogue.since && now - modelCatalogue.since < MODEL_CATALOGUE_TTL_MS) {
-    return then(modelCatalogue.pending ? null : modelCatalogue.models);
+  const reuseMs = modelCatalogue?.pending ? MODEL_ATTEMPT_PENDING_MS : MODEL_CATALOGUE_TTL_MS;
+  if (modelCatalogue && modelCatalogue.stamp === stamp && now >= modelCatalogue.since && now - modelCatalogue.since < reuseMs) {
+    return yield* ioResolve(then(modelCatalogue.pending ? null : modelCatalogue.models));
   }
   const attempt = { stamp, since: now, pending: true, models: null };
   modelCatalogue = attempt;
-  const finish = (models2) => {
-    if (modelCatalogue !== attempt) return then(null);
+  let rejected = null;
+  const settle = function* (models2) {
+    if (rejected === null) rejected = yield* rejectedModelSet();
+    if (modelCatalogue !== attempt) return false;
     attempt.pending = false;
-    attempt.models = models2;
+    attempt.models = models2.filter((model) => !rejected.has(model.id));
     attempt.since = host.unixNowMs();
-    if (models2 !== null) lastGoodCatalogue = models2;
-    return then(models2);
+    lastGoodCatalogue = attempt.models;
+    return true;
   };
-  return probeModels(false, (result) => {
-    if (modelCatalogue !== attempt) return then(null);
-    if (!completeModelOutput(result)) return finish(null);
-    const identities = parseOpencodeModels(result.stdout);
-    if (identities === null) return finish(null);
-    return probeModels(true, (metadataResult) => {
-      if (modelCatalogue !== attempt) return then(null);
-      const verbose = metadataResult?.code === 0 && !metadataResult.error && typeof metadataResult.stdout === "string" ? metadataResult.stdout : "";
-      const metadata = modelMetadata(verbose);
-      const enriched = new Map((parseOpencodeModels(verbose) ?? []).map((model) => [model.id, model]));
-      const models2 = identities.filter((model) => !modelUnavailable(metadata.get(model.id))).map((model) => enriched.get(model.id) ?? model);
-      return finish(filterRejectedModels(models2));
-    });
-  });
+  const plain = yield* probeModels(false);
+  if (modelCatalogue !== attempt) return yield* ioResolve(then(null));
+  const identities = completeModelOutput(plain) ? parseOpencodeModels(plain.stdout) : null;
+  if (identities !== null && !(yield* settle(identities))) return yield* ioResolve(then(null));
+  const verbose = yield* probeModels(true);
+  if (modelCatalogue !== attempt) return yield* ioResolve(then(null));
+  const enriched = completeModelOutput(verbose) ? parseOpencodeModels(verbose.stdout) : null;
+  if (enriched !== null && !(yield* settle(enriched))) return yield* ioResolve(then(null));
+  if (attempt.pending) {
+    modelCatalogue = null;
+    return yield* ioResolve(then(null));
+  }
+  return yield* ioResolve(then(attempt.models));
 }
 function completeModelOutput(result) {
   return result?.code === 0 && !result.error && !result.truncated && typeof result.stdout === "string";
 }
-function probeModels(verbose, then) {
-  const started = safeJson(host.execStart(JSON.stringify({
-    bin: "opencode",
-    args: verbose ? ["models", "--verbose"] : ["models"],
-    timeoutMs: 3e3
-  })));
-  return started?.jobId ? host.awaitJob(started.jobId, then) : then(null);
+function* probeModels(verbose) {
+  try {
+    return yield* host.io.exec({ bin: "opencode", args: verbose ? ["models", "--verbose"] : ["models"], timeoutMs: 1e4 });
+  } catch {
+    return null;
+  }
 }
 var MODEL_REJECTION_QUERY = modelRejections_default.query;
-function filterRejectedModels(models2) {
+function* rejectedModelSet() {
   const db = opencodeDbPath();
-  if (!db || !host.fs.fileExists(db)) return models2;
-  const rows = host.fs.sqliteQuery(db, MODEL_REJECTION_QUERY, [ASSISTANT_MESSAGE_MAX_BYTES]);
-  const rejected = rejectedModelIds(rows.map((row) => {
+  if (!db || !(yield* host.io.fs.fileExists(db))) return /* @__PURE__ */ new Set();
+  const rows = yield* host.io.fs.sqliteQuery(db, MODEL_REJECTION_QUERY, [ASSISTANT_MESSAGE_MAX_BYTES]);
+  return rejectedModelIds(rows.map((row) => {
     const message = safeJson(row.data);
     return { model: sessionModelIdentity(message), message };
   }));
-  return models2.filter((model) => !rejected.has(model.id));
 }
 function parseOpencodeModels(stdout) {
   if (stdout.length > 1048576) return null;
@@ -821,28 +878,33 @@ function isNonChatModel(id) {
 var GROUP_USAGE_SQL = "SELECT json_extract(data,'$.providerID') AS g, COUNT(*) AS messages, SUM(COALESCE(json_extract(data,'$.tokens.input'),0)) AS input, SUM(COALESCE(json_extract(data,'$.tokens.output'),0)) AS output, SUM(COALESCE(json_extract(data,'$.tokens.cache.read'),0)) AS cache_read, SUM(COALESCE(json_extract(data,'$.tokens.cache.write'),0)) AS cache_write, SUM(COALESCE(json_extract(data,'$.cost'),0)) AS cost FROM message WHERE octet_length(data) <= " + ASSISTANT_MESSAGE_MAX_BYTES + " AND json_extract(data,'$.role')='assistant' AND json_extract(data,'$.providerID') IS NOT NULL GROUP BY g";
 var GROUP_USAGE_TTL_MS = 6e4;
 var groupUsageCache = null;
-function opencodeDbStamp(db) {
+function* opencodeDbStamp(db) {
   const slash = Math.max(db.lastIndexOf("/"), db.lastIndexOf("\\"));
   if (slash < 0) return null;
   const name = db.slice(slash + 1);
-  const entries = host.fs.readDir(db.slice(0, slash));
+  const entries = yield* host.io.fs.readDir(db.slice(0, slash));
   const stamps = [name, name + "-wal"].map((file) => {
     const entry = entries.find((e) => e.name === file);
     return entry ? entry.size + "@" + entry.modifiedMs : "-";
   });
   return stamps[0] === "-" ? null : db + "|" + stamps.join("|");
 }
-function withOpencodeGroupUsage(then) {
+function* withOpencodeGroupUsage(then) {
   const db = opencodeDbPath();
-  if (!db || !host.fs.fileExists(db)) return then([]);
-  const stamp = opencodeDbStamp(db);
+  if (!db || !(yield* host.io.fs.fileExists(db))) return yield* ioResolve(then([]));
+  const stamp = yield* opencodeDbStamp(db);
   const cached = groupUsageCache;
   if (stamp && cached && cached.stamp === stamp && host.unixNowMs() - cached.atMs < GROUP_USAGE_TTL_MS) {
-    return withGroupBalances(cached.rows, () => then(groupUsageFromRows(cached.rows)));
+    return yield* withGroupBalances(cached.rows, function* () {
+      return yield* ioResolve(then(groupUsageFromRows(cached.rows)));
+    });
   }
-  return host.fs.sqliteQueryAsync(db, GROUP_USAGE_SQL, [], (rows) => {
-    groupUsageCache = stamp ? { stamp, atMs: host.unixNowMs(), rows } : null;
-    return withGroupBalances(rows, () => then(groupUsageFromRows(rows)));
+  return yield* ioSqlite(host.io.fs, db, GROUP_USAGE_SQL, [], function* (rows) {
+    const currentStamp = yield* opencodeDbStamp(db);
+    groupUsageCache = stamp && currentStamp === stamp ? { stamp, atMs: host.unixNowMs(), rows } : null;
+    return yield* withGroupBalances(rows, function* () {
+      return yield* ioResolve(then(groupUsageFromRows(rows)));
+    });
   });
 }
 function groupUsageFromRows(rows) {
@@ -880,19 +942,19 @@ function balanceFresh(group, now) {
 function cachedBalanceCents(group) {
   return BALANCE_BY_GROUP[group] && balanceCache && balanceCache.group === group ? balanceCache.cents : null;
 }
-function withGroupBalances(rows, then) {
+var balanceRequestGeneration = 0;
+function* withGroupBalances(rows, then) {
   const now = host.unixNowMs();
-  let stale = null;
-  for (let i = 0; i < rows.length && !stale; i++) {
-    const group2 = rows[i].g;
-    if (typeof group2 === "string" && BALANCE_BY_GROUP[group2] && !balanceFresh(group2, now)) stale = group2;
+  const group = rows.map((row) => row.g).find((group2) => typeof group2 === "string" && BALANCE_BY_GROUP[group2] && !balanceFresh(group2, now));
+  if (typeof group !== "string") return yield* ioResolve(then());
+  const generation = ++balanceRequestGeneration;
+  let response = null;
+  try {
+    response = yield* host.io.fetch(balanceRequest(group));
+  } catch {
   }
-  if (!stale || typeof host.fetch !== "function" || typeof host.fetch.async !== "function") return then();
-  const group = stale;
-  return host.fetch.async(balanceRequest(group), (response) => {
-    balanceCache = { group, atMs: host.unixNowMs(), cents: balanceCentsFrom(response) };
-    return then();
-  });
+  if (generation === balanceRequestGeneration) balanceCache = { group, atMs: host.unixNowMs(), cents: balanceCentsFrom(response) };
+  return yield* ioResolve(then());
 }
 function balanceRequest(group) {
   const spec = BALANCE_BY_GROUP[group];
@@ -1314,8 +1376,8 @@ function opencodeBindingPluginSource() {
     ""
   ].join("\n");
 }
-function scanMessagesForModel(db, sql, params) {
-  const rows = host.fs.sqliteQuery(db, sql, params);
+function* scanMessagesForModel(db, sql, params) {
+  const rows = yield* host.io.fs.sqliteQuery(db, sql, params);
   for (let i = 0; i < rows.length; i++) {
     const raw = rows[i].data;
     if (!raw) continue;
@@ -1327,13 +1389,9 @@ function scanMessagesForModel(db, sql, params) {
   }
   return null;
 }
-function scanMessagesForQualifiedModel(db, sessionId) {
+function* scanMessagesForQualifiedModel(db, sessionId) {
   try {
-    const rows = host.fs.sqliteQuery(
-      db,
-      "SELECT data FROM message WHERE session_id = ?1 AND octet_length(data) <= ?2 ORDER BY time_created DESC LIMIT 20",
-      [sessionId, ASSISTANT_MESSAGE_MAX_BYTES]
-    );
+    const rows = yield* host.io.fs.sqliteQuery(db, "SELECT data FROM message WHERE session_id = ?1 AND octet_length(data) <= ?2 ORDER BY time_created DESC LIMIT 20", [sessionId, ASSISTANT_MESSAGE_MAX_BYTES]);
     for (let i = 0; i < rows.length; i++) {
       const raw = rows[i].data;
       if (!raw) continue;
@@ -1347,25 +1405,17 @@ function scanMessagesForQualifiedModel(db, sessionId) {
   }
   return null;
 }
-function scanSessionDirectory(db, sessionId) {
+function* scanSessionDirectory(db, sessionId) {
   try {
-    const rows = host.fs.sqliteQuery(
-      db,
-      "SELECT id, directory FROM session WHERE id = ?1 LIMIT 1",
-      [sessionId]
-    );
+    const rows = yield* host.io.fs.sqliteQuery(db, "SELECT id, directory FROM session WHERE id = ?1 LIMIT 1", [sessionId]);
     const session = rows.find((row) => row.id === sessionId);
     return typeof session?.directory === "string" && session.directory.trim() ? session.directory : null;
   } catch (_) {
     return null;
   }
 }
-function scanSessionModel(db, sessionId) {
-  const rows = host.fs.sqliteQuery(
-    db,
-    "SELECT id, model FROM session WHERE id = ?1 AND octet_length(model) <= ?2 LIMIT 1",
-    [sessionId, MESSAGE_ROLE_MAX_BYTES]
-  );
+function* scanSessionModel(db, sessionId) {
+  const rows = yield* host.io.fs.sqliteQuery(db, "SELECT id, model FROM session WHERE id = ?1 AND octet_length(model) <= ?2 LIMIT 1", [sessionId, MESSAGE_ROLE_MAX_BYTES]);
   const session = rows.find((row) => row.id === sessionId);
   const model = session?.model ? safeJson(session.model) : null;
   return sessionModelIdentity({ role: "assistant", providerID: model?.providerID, modelID: model?.id });
@@ -1480,26 +1530,18 @@ var modelProviderExports = {
 
 // plugins/provider-opencode/src/modelSwitch.ts
 var modelSwitch = {
-  sessionModelTranscriptBoundary(_cwd, sessionId) {
+  *sessionModelTranscriptBoundary(_cwd, sessionId) {
     const db = opencodeDbPath();
-    if (!db || !host.fs.fileExists(db)) return null;
-    const rows = host.fs.sqliteQuery(
-      db,
-      "SELECT id, time_created FROM message WHERE session_id = ?1 ORDER BY time_created DESC, id DESC LIMIT 1",
-      [sessionId]
-    );
+    if (!db || !(yield* host.io.fs.fileExists(db))) return null;
+    const rows = yield* host.io.fs.sqliteQuery(db, "SELECT id, time_created FROM message WHERE session_id = ?1 ORDER BY time_created DESC, id DESC LIMIT 1", [sessionId]);
     const last = rows[0];
     return { lastEntryUuid: last?.id ?? null, lastEntryTimestamp: String(last?.time_created ?? 0), lastEntryType: null, boundaryFound: true };
   },
-  detectSessionModelAfterBoundary(_cwd, sessionId, boundary) {
+  *detectSessionModelAfterBoundary(_cwd, sessionId, boundary) {
     const db = opencodeDbPath();
     const timestamp = Number(boundary.lastEntryTimestamp);
-    if (!boundary.boundaryFound || !Number.isFinite(timestamp) || !db || !host.fs.fileExists(db)) return null;
-    const rows = host.fs.sqliteQuery(
-      db,
-      "SELECT data FROM message WHERE session_id = ?1 AND (time_created > ?2 OR (time_created = ?2 AND id > ?3)) AND octet_length(data) <= ?4 ORDER BY time_created ASC, id ASC LIMIT 128",
-      [sessionId, timestamp, boundary.lastEntryUuid ?? "", ASSISTANT_MESSAGE_MAX_BYTES]
-    );
+    if (!boundary.boundaryFound || !Number.isFinite(timestamp) || !db || !(yield* host.io.fs.fileExists(db))) return null;
+    const rows = yield* host.io.fs.sqliteQuery(db, "SELECT data FROM message WHERE session_id = ?1 AND (time_created > ?2 OR (time_created = ?2 AND id > ?3)) AND octet_length(data) <= ?4 ORDER BY time_created ASC, id ASC LIMIT 128", [sessionId, timestamp, boundary.lastEntryUuid ?? "", ASSISTANT_MESSAGE_MAX_BYTES]);
     for (const row of rows) {
       const message = safeJson(row.data);
       if (message?.role === "assistant" && message.providerID && message.modelID && message.parentID) {
@@ -1587,10 +1629,10 @@ function parseDecisionEvents(stdout, question) {
     return { error: "invalid_response" };
   }
 }
-function modelsFromCatalogue(models2) {
+function* modelsFromCatalogue(models2) {
   const catalogue = new Map((models2 ?? []).map((model) => [model.id, { id: model.id, display_name: model.displayName }]));
   const path = opencodeConfigPath();
-  const raw = path ? host.fs.readFile(path) : null;
+  const raw = path ? yield* host.io.fs.readFile(path) : null;
   if (raw) {
     try {
       for (const provider of readModelProviders(JSON.parse(raw))) {
@@ -1605,15 +1647,15 @@ function modelsFromCatalogue(models2) {
   }
   return Array.from(catalogue.values());
 }
-function models(binaryFingerprint) {
+function* models(binaryFingerprint) {
   const cached = cachedOpencodeModels();
-  return cached !== null ? modelsFromCatalogue(cached) : withOpencodeModels(binaryFingerprint, modelsFromCatalogue);
+  return cached !== null ? yield* modelsFromCatalogue(cached) : yield* withOpencodeModels(binaryFingerprint, modelsFromCatalogue);
 }
 var decisionModel = {
   models,
   modelId: () => selectedModel,
-  selectModel(id) {
-    if (!id || !models().some((model) => model.id === id)) return false;
+  *selectModel(id) {
+    if (!id || !(yield* models()).some((model) => model.id === id)) return false;
     selectedModel = id;
     return true;
   },
@@ -1621,10 +1663,10 @@ var decisionModel = {
   primitives: () => ({ choice: true, noul: true, score: true }),
   supportsCalibratedChoiceConfidence: () => false,
   supportsQuestionBatch: () => false,
-  decide(request, remainingMs) {
+  *decide(request, remainingMs) {
     if (!selectedModel) return { error: "unavailable" };
     if (remainingMs !== void 0 && remainingMs <= 0) return { error: "timeout" };
-    return host.exec.async(decisionRunOptions(selectedModel, request, remainingMs), (result) => {
+    return yield* ioThen(host.io.exec(decisionRunOptions(selectedModel, request, remainingMs)), (result) => {
       if (result.error) return { error: /timed out/i.test(result.error) ? "timeout" : "unavailable" };
       if (result.code !== 0) return { error: "transport" };
       return parseDecisionEvents(result.stdout ?? "", request.question);
@@ -1632,38 +1674,20 @@ var decisionModel = {
   }
 };
 
-// plugins/provider-shared/updatePrompt.ts
-function updatePromptSafeChoice(prompt) {
-  if (prompt.options.length < 2 || !prompt.options.some(([label2]) => /\bupdate\b/i.test(label2))) {
-    return null;
-  }
-  const safe = prompt.options.filter(([label2]) => /\b(skip|later|postpone)\b/i.test(label2));
-  const bare = safe.filter(([label2]) => /^\s*(skip|later|postpone)\s*$/i.test(label2));
-  const chosen = safe.length === 1 ? safe : bare;
-  if (chosen.length !== 1) return null;
-  const [label, value] = chosen[0];
-  if (!value || /\bupdate\b/i.test(label)) return null;
-  if (prompt.options.filter(([, candidate]) => candidate === value).length !== 1) return null;
-  return value;
-}
-
 // plugins/provider-opencode/src/sessionContent.ts
 var CONTENT_SQL_HEAD = "WITH budget AS (SELECT id, SUM(octet_length(data)) OVER (ORDER BY time_created DESC, id DESC) AS running FROM part WHERE session_id = ?1) SELECT p.time_created AS ts, p.data AS part, m.data AS msg FROM budget b JOIN part p ON p.id = b.id JOIN message m ON m.id = p.message_id WHERE b.running <= ?2";
 var CONTENT_SQL_TAIL = " ORDER BY p.time_created ASC, p.id ASC";
 var TOTAL_SQL = "SELECT SUM(octet_length(data)) AS total FROM part WHERE session_id = ?1";
-function queryRows(db, sql, params) {
-  const raw = host.sqliteQueryAllJson(db, sql, JSON.stringify(params));
-  if (raw === null || raw === void 0) return null;
-  const rows = safeJson(raw);
-  return Array.isArray(rows) ? rows : null;
+function* queryRows(db, sql, params) {
+  return yield* host.io.fs.sqliteQueryNullable(db, sql, params);
 }
 function likePattern(term) {
   return "%" + term.replace(/[\\%_]/g, "\\$&") + "%";
 }
-function readOpencodeSessionContent(db, sessionId, query) {
+function* readOpencodeSessionContent(db, sessionId, query) {
   const maxBytes = Math.max(0, Math.floor(Number(query && query.maxBytes) || 0));
   const hints = query && Array.isArray(query.hintTerms) ? query.hintTerms.filter((term) => typeof term === "string" && term.length > 0) : [];
-  const totals = queryRows(db, TOTAL_SQL, [sessionId]);
+  const totals = yield* queryRows(db, TOTAL_SQL, [sessionId]);
   if (!totals) return null;
   const total = Number(totals.length > 0 ? totals[0].total : 0) || 0;
   const params = [sessionId, maxBytes];
@@ -1672,7 +1696,7 @@ function readOpencodeSessionContent(db, sessionId, query) {
     params.push(likePattern(hints[i]));
     hintSql += " AND p.data LIKE ?" + String(params.length) + " ESCAPE '\\'";
   }
-  const rows = queryRows(db, CONTENT_SQL_HEAD + hintSql + CONTENT_SQL_TAIL, params);
+  const rows = yield* queryRows(db, CONTENT_SQL_HEAD + hintSql + CONTENT_SQL_TAIL, params);
   if (!rows) return null;
   const messages = [];
   for (let i = 0; i < rows.length; i++) {
@@ -1705,9 +1729,9 @@ var OUTPUT_SIGNALS = [
 var TUI_FRAGMENTS = ["tab agents", "ctrl+p commands"];
 var ASSIGNED_TASK_START_PROMPT = "Execute the assigned task. Follow the configured instructions.";
 var IDLE_WAKEUP_START_PROMPT = "You are a newly started agent. Wait for instructions from the user or your orchestration parent.";
-function existingBindingPluginIsUnowned(pluginPath) {
-  if (!host.fs.fileExists(pluginPath)) return false;
-  return !ownsOpencodeBindingPluginSource(String(host.fs.readFile(pluginPath) || ""));
+function* existingBindingPluginIsUnowned(pluginPath) {
+  if (!(yield* host.io.fs.fileExists(pluginPath))) return false;
+  return !ownsOpencodeBindingPluginSource(String((yield* host.io.fs.readFile(pluginPath)) || ""));
 }
 function starterPrompt(params) {
   if (params.starterPromptText) return params.starterPromptText;
@@ -1809,13 +1833,13 @@ var plugin = {
     }
     return events;
   },
-  discoverModels(binaryFingerprint) {
-    return discoverOpencodeModels(binaryFingerprint);
+  *discoverModels(binaryFingerprint) {
+    return yield* discoverOpencodeModels(binaryFingerprint);
   },
   // Cumulative usage per upstream company comes from OpenCode's session store.
   // Model-id prefixes match picker groups, keeping vendor knowledge out of core.
-  modelGroupUsage() {
-    return withOpencodeGroupUsage((usage) => usage);
+  *modelGroupUsage() {
+    return yield* withOpencodeGroupUsage((usage) => usage);
   },
   // because response bytes depend on horizontal vs vertical navigation.
   updatePromptSafeChoice,
@@ -1844,13 +1868,13 @@ var plugin = {
     steps.push(ENTER);
     return steps;
   },
-  buildLaunchCommand(params) {
+  *buildLaunchCommand(params) {
     const p = params || {};
     const launch = variantLaunch(p.args ?? []);
     const parts = [];
     let taskPath = null;
     if (p.task) {
-      taskPath = host.fs.writeTempFile(p.task, ".ct-task.md");
+      taskPath = yield* host.io.fs.writeTempFile(p.task, ".ct-task.md");
       if (!taskPath) throw new Error("failed to write OpenCode task instructions");
     }
     parts.push("opencode");
@@ -1873,17 +1897,17 @@ var plugin = {
     }
     return withPadPermissionConfig(parts.join(" "), taskPath ? [taskPath] : void 0, void 0, launch.config, p.sessionId, p.hostOwned);
   },
-  buildResumeCommand(sessionId, skipPermissions) {
-    return withPadPermissionConfig(resumeLaunch(sessionId, skipPermissions).parts.join(" "), void 0, void 0, {}, sessionId);
+  *buildResumeCommand(sessionId, skipPermissions) {
+    return withPadPermissionConfig((yield* resumeLaunch(sessionId, skipPermissions)).parts.join(" "), void 0, void 0, {}, sessionId);
   },
   // A resumed session re-reads `instructions`, so the composed prompt is
   // re-applied through the same session-config channel buildLaunchCommand uses.
-  buildResumeCommandWithContext(params) {
+  *buildResumeCommandWithContext(params) {
     const p = params || {};
     const platform = host.platform();
-    const launch = resumeLaunch(p.sessionId, p.skipPermissions);
+    const launch = yield* resumeLaunch(p.sessionId, p.skipPermissions);
     const parts = launch.parts;
-    const variant = variantLaunch(p.args ? resumeLaunchArgs(p.args, p.sessionId) : []);
+    const variant = variantLaunch(p.args ? yield* resumeLaunchArgs(p.args, p.sessionId) : []);
     const args = variant.args;
     for (let i = 0; i < args.length; i++) {
       const arg = String(args[i]);
@@ -1896,7 +1920,7 @@ var plugin = {
     }
     const systemPrompt = p.systemPrompt;
     if (!systemPrompt || !systemPrompt.trim()) return withPadPermissionConfig(parts.join(" "), void 0, void 0, variant.config, p.sessionId, p.hostOwned);
-    const taskPath = host.fs.writeTempFile(systemPrompt, ".ct-task.md");
+    const taskPath = yield* host.io.fs.writeTempFile(systemPrompt, ".ct-task.md");
     if (!taskPath) return withPadPermissionConfig(parts.join(" "), void 0, void 0, variant.config, p.sessionId, p.hostOwned);
     const project = launch.directory ? host.shell.quoteFor(launch.directory, platform) : null;
     const prologue = project ? platform === "windows" ? `Set-Location -LiteralPath ${project} -ErrorAction Stop;` : `cd -- ${project} &&` : "";
@@ -1904,9 +1928,9 @@ var plugin = {
   },
   // absent from opencode's env, or event field structure changed in a new release).
   // agent_session_id.is_some() short-circuits the Rust call-site before this runs.
-  detectSessionId(cwd, exclude, maxAgeMs) {
+  *detectSessionId(cwd, exclude, maxAgeMs) {
     const db = opencodeDbPath();
-    if (!db || !host.fs.fileExists(db)) return null;
+    if (!db || !(yield* host.io.fs.fileExists(db))) return null;
     const targetDirectory = normalizeSessionDirectory(cwd);
     if (!targetDirectory) return null;
     const windowMs = maxAgeMs != null && maxAgeMs > 0 ? maxAgeMs : 3e5;
@@ -1914,11 +1938,7 @@ var plugin = {
     const directoryAliases = targetDirectory.endsWith("/") ? [targetDirectory, targetDirectory] : [targetDirectory, targetDirectory + "/"];
     const directoryExpression = host.platform() === "windows" ? "lower(replace(directory, char(92), '/'))" : "directory";
     const excludeSql = excludeList.length ? " AND id NOT IN (" + excludeList.map((_, index) => "?" + String(index + 4)).join(", ") + ")" : "";
-    const rows = host.fs.sqliteQuery(
-      db,
-      "SELECT id, directory FROM session WHERE time_created > (strftime('%s','now') * 1000 - ?1) AND " + directoryExpression + " IN (?2, ?3)" + excludeSql + " ORDER BY time_created DESC LIMIT 20",
-      [windowMs, ...directoryAliases, ...excludeList]
-    );
+    const rows = yield* host.io.fs.sqliteQuery(db, "SELECT id, directory FROM session WHERE time_created > (strftime('%s','now') * 1000 - ?1) AND " + directoryExpression + " IN (?2, ?3)" + excludeSql + " ORDER BY time_created DESC LIMIT 20", [windowMs, ...directoryAliases, ...excludeList]);
     for (let i = 0; i < rows.length; i++) {
       const id = rows[i].id;
       if (typeof id !== "string" || !id.startsWith("ses_")) continue;
@@ -1928,33 +1948,33 @@ var plugin = {
     }
     return null;
   },
-  enumerateSessions() {
+  *enumerateSessions() {
     const db = opencodeDbPath();
-    if (!db || !host.fs.fileExists(db)) return [];
-    const rows = host.fs.sqliteQuery(db, "SELECT id, directory, title, time_created, time_updated FROM session ORDER BY time_updated DESC", []);
+    if (!db || !(yield* host.io.fs.fileExists(db))) return [];
+    const rows = yield* host.io.fs.sqliteQuery(db, "SELECT id, directory, title, time_created, time_updated FROM session ORDER BY time_updated DESC", []);
     return rows.filter((row) => typeof row.id === "string" && row.id.startsWith("ses_")).map((row) => opencodeSessionRecord(row, db));
   },
-  findSession(sessionId) {
+  *findSession(sessionId) {
     if (typeof sessionId !== "string" || !sessionId.startsWith("ses_")) return null;
     const db = opencodeDbPath();
-    if (!db || !host.fs.fileExists(db)) return null;
-    const rows = host.fs.sqliteQuery(db, "SELECT id, directory, title, time_created, time_updated FROM session WHERE id = ?1 LIMIT 1", [sessionId]);
+    if (!db || !(yield* host.io.fs.fileExists(db))) return null;
+    const rows = yield* host.io.fs.sqliteQuery(db, "SELECT id, directory, title, time_created, time_updated FROM session WHERE id = ?1 LIMIT 1", [sessionId]);
     return rows.length > 0 && rows[0].id === sessionId ? opencodeSessionRecord(rows[0], db) : null;
   },
-  readSessionContent(sessionId, query) {
+  *readSessionContent(sessionId, query) {
     if (typeof sessionId !== "string" || !sessionId.startsWith("ses_")) return null;
     const db = opencodeDbPath();
-    if (!db || !host.fs.fileExists(db)) return null;
-    return readOpencodeSessionContent(db, sessionId, query);
+    if (!db || !(yield* host.io.fs.fileExists(db))) return null;
+    return yield* readOpencodeSessionContent(db, sessionId, query);
   },
-  checkIntegration() {
+  *checkIntegration() {
     const cfg = opencodeConfigPath();
     const pluginPath = opencodeBindingPluginPath();
-    const pluginExists = !!pluginPath && host.fs.fileExists(pluginPath);
-    const pluginBody = pluginExists ? String(host.fs.readFile(pluginPath) || "") : "";
+    const pluginExists = !!pluginPath && (yield* host.io.fs.fileExists(pluginPath));
+    const pluginBody = pluginExists ? String((yield* host.io.fs.readFile(pluginPath)) || "") : "";
     const pluginOwned = pluginExists && ownsOpencodeBindingPluginSource(pluginBody);
     const pluginCurrent = pluginExists && isCurrentOpencodeBindingPluginSource(pluginBody);
-    if (!cfg || !host.fs.fileExists(cfg)) {
+    if (!cfg || !(yield* host.io.fs.fileExists(cfg))) {
       return {
         config_file_exists: false,
         plugin_file_exists: pluginExists,
@@ -1963,7 +1983,7 @@ var plugin = {
         plugin_installed: false
       };
     }
-    const json = host.fs.readJson(cfg);
+    const json = yield* host.io.fs.readJson(cfg);
     if (!json) {
       return {
         config_file_exists: true,
@@ -1987,7 +2007,7 @@ var plugin = {
       plugin_installed: installed
     };
   },
-  installIntegration(_apiPort, options) {
+  *installIntegration(_apiPort, options) {
     if (!options || options.consent !== true) {
       return { ok: false, error: "provider integration installation requires explicit local-user consent" };
     }
@@ -1995,74 +2015,73 @@ var plugin = {
     const pluginPath = opencodeBindingPluginPath();
     const target = opencodePluginEntry();
     if (!cfg || !pluginPath || !target) return { ok: false, error: "could not resolve opencode config path" };
-    if (existingBindingPluginIsUnowned(pluginPath)) {
-      return { ok: false, error: "refusing to overwrite an unmarked OpenCode plugin file" };
-    }
-    const json = host.fs.fileExists(cfg) ? host.fs.readJson(cfg) || { "$schema": "https://opencode.ai/config.json" } : { "$schema": "https://opencode.ai/config.json" };
-    if (!json || typeof json !== "object" || Array.isArray(json)) {
-      return { ok: false, error: "opencode.json root must be an object" };
-    }
-    if (!Array.isArray(json.plugin)) json.plugin = [];
-    json.plugin = json.plugin.filter((entry) => !opencodePluginEntryMatches(entry, target));
-    json.plugin.push(target);
-    if (!host.fs.writeFile(pluginPath, opencodeBindingPluginSource())) {
-      return { ok: false, error: "writeFile failed for " + pluginPath };
-    }
-    if (!host.fs.writeJson(cfg, json)) {
-      return { ok: false, error: "writeJson failed for " + cfg };
-    }
-    host.log("info", "[opencode-plugin] session binding plugin installed at " + pluginPath);
-    return { ok: true };
+    return yield* ioFileTransaction(host.io.fs, [cfg + ".codeterm-integration.lock"], function* () {
+      if (yield* existingBindingPluginIsUnowned(pluginPath)) {
+        return { ok: false, error: "refusing to overwrite an unmarked OpenCode plugin file" };
+      }
+      const json = (yield* host.io.fs.fileExists(cfg)) ? (yield* host.io.fs.readJson(cfg)) || { "$schema": "https://opencode.ai/config.json" } : { "$schema": "https://opencode.ai/config.json" };
+      if (!json || typeof json !== "object" || Array.isArray(json)) {
+        return { ok: false, error: "opencode.json root must be an object" };
+      }
+      if (!Array.isArray(json.plugin)) json.plugin = [];
+      json.plugin = json.plugin.filter((entry) => !opencodePluginEntryMatches(entry, target));
+      json.plugin.push(target);
+      if (!(yield* host.io.fs.writeFile(pluginPath, opencodeBindingPluginSource()))) {
+        return { ok: false, error: "writeFile failed for " + pluginPath };
+      }
+      if (!(yield* host.io.fs.writeJson(cfg, json))) {
+        return { ok: false, error: "writeJson failed for " + cfg };
+      }
+      host.log("info", "[opencode-plugin] session binding plugin installed at " + pluginPath);
+      return { ok: true };
+    });
   },
-  uninstallIntegration() {
+  *uninstallIntegration() {
     const cfg = opencodeConfigPath();
     const pluginPath = opencodeBindingPluginPath();
     const target = opencodePluginEntry();
-    if (pluginPath && existingBindingPluginIsUnowned(pluginPath)) {
-      return { ok: false, error: "refusing to remove an unmarked OpenCode plugin file" };
-    }
-    if (cfg && host.fs.fileExists(cfg)) {
-      const json = host.fs.readJson(cfg);
-      if (json && typeof json === "object" && Array.isArray(json.plugin)) {
-        json.plugin = json.plugin.filter((entry) => !opencodePluginEntryMatches(entry, target));
-        if (!host.fs.writeJson(cfg, json)) {
-          return { ok: false, error: "writeJson failed for " + cfg };
+    if (!cfg) return { ok: true };
+    return yield* ioFileTransaction(host.io.fs, [cfg + ".codeterm-integration.lock"], function* () {
+      if (pluginPath && (yield* existingBindingPluginIsUnowned(pluginPath))) {
+        return { ok: false, error: "refusing to remove an unmarked OpenCode plugin file" };
+      }
+      if (cfg && (yield* host.io.fs.fileExists(cfg))) {
+        const json = yield* host.io.fs.readJson(cfg);
+        if (json && typeof json === "object" && Array.isArray(json.plugin)) {
+          json.plugin = json.plugin.filter((entry) => !opencodePluginEntryMatches(entry, target));
+          if (!(yield* host.io.fs.writeJson(cfg, json))) {
+            return { ok: false, error: "writeJson failed for " + cfg };
+          }
         }
       }
-    }
-    if (pluginPath && host.fs.fileExists(pluginPath) && !host.fs.removeFile(pluginPath)) {
-      return { ok: false, error: "removeFile failed for " + pluginPath };
-    }
-    return { ok: true };
+      if (pluginPath && (yield* host.io.fs.fileExists(pluginPath)) && !(yield* host.io.fs.removeFile(pluginPath))) {
+        return { ok: false, error: "removeFile failed for " + pluginPath };
+      }
+      return { ok: true };
+    });
   },
-  ensureIntegrationOnStartup(_apiPort) {
-    return this.checkIntegration();
+  *ensureIntegrationOnStartup(_apiPort) {
+    return yield* ioResolve(this.checkIntegration());
   },
-  sessionExists(_cwd, sessionId) {
+  *sessionExists(_cwd, sessionId) {
     const db = opencodeDbPath();
     if (!db) return null;
-    const raw = host.sqliteQueryAllJson(db, "SELECT id FROM session WHERE id = ?1 LIMIT 1", JSON.stringify([sessionId]));
-    if (raw === null) return null;
-    const rows = safeJson(raw);
+    const rows = yield* host.io.fs.sqliteQueryNullable(db, "SELECT id FROM session WHERE id = ?1 LIMIT 1", [sessionId]);
     if (!Array.isArray(rows)) return null;
     return rows.some((row) => row?.id === sessionId);
   },
   // opencode keeps every session in one sqlite log, so the source carries the
   // session id: the reader must not charge a sibling's tokens to this tab.
-  usageSources(_cwd, sessionId) {
+  *usageSources(_cwd, sessionId) {
     const db = opencodeDbPath();
-    if (!db || !sessionId || !host.fs.fileExists(db)) return [];
+    if (!db || !sessionId || !(yield* host.io.fs.fileExists(db))) return [];
     return [{ path: db, sessionId }];
   },
   // birth-time guard to sqlite-backed sessions, which have no per-session file.
-  sessionCreatedMs(_cwd, sessionId) {
+  *sessionCreatedMs(_cwd, sessionId) {
     const db = opencodeDbPath();
-    if (!db || !host.fs.fileExists(db)) return null;
-    const rows = host.fs.sqliteQuery(
-      db,
-      "SELECT time_created FROM session WHERE id = ?1 LIMIT 1",
-      [sessionId]
-    );
+    if (!db || !(yield* host.io.fs.fileExists(db))) return null;
+    const rows = yield* host.io.fs.sqliteQuery(db, "SELECT time_created FROM session WHERE id = ?1 LIMIT 1", [sessionId]);
     if (!rows.length) return null;
     const tc = rows[0].time_created;
     return typeof tc === "number" ? tc : null;
@@ -2072,15 +2091,11 @@ var plugin = {
   },
   // the model recorded against this session_id. No "latest model in cwd"
   // fallback — that would hand the tab a SIBLING agent's model. Unknown → null.
-  detectSessionModel(_cwd, sessionId) {
+  *detectSessionModel(_cwd, sessionId) {
     const db = opencodeDbPath();
-    if (!db || !host.fs.fileExists(db)) return null;
+    if (!db || !(yield* host.io.fs.fileExists(db))) return null;
     if (!sessionId) return null;
-    return scanMessagesForModel(
-      db,
-      "SELECT data FROM message WHERE session_id = ?1 AND octet_length(data) <= ?2 ORDER BY time_created DESC LIMIT 20",
-      [sessionId, ASSISTANT_MESSAGE_MAX_BYTES]
-    ) ?? scanSessionModel(db, sessionId);
+    return (yield* scanMessagesForModel(db, "SELECT data FROM message WHERE session_id = ?1 AND octet_length(data) <= ?2 ORDER BY time_created DESC LIMIT 20", [sessionId, ASSISTANT_MESSAGE_MAX_BYTES])) ?? (yield* scanSessionModel(db, sessionId));
   },
   structuredToolFileDiffs(part) {
     if (!part || typeof part !== "object" || part.state?.status !== "completed") return null;
@@ -2090,18 +2105,13 @@ var plugin = {
   usesStructuredChat() {
     return true;
   },
-  readStructuredChat(_cwd, sessionId, cursor) {
+  *readStructuredChat(_cwd, sessionId, cursor) {
     const db = opencodeDbPath();
-    if (!db || !host.fs.fileExists(db)) return { messages: [], cursor: cursor || null };
+    if (!db || !(yield* host.io.fs.fileExists(db))) return { messages: [], cursor: cursor || null };
     const parsedCursor = parseStructuredCursor(cursor);
     if (!parsedCursor) return { messages: [], cursor: cursor ?? null };
     const [sinceMs, seenAtSinceMs] = parsedCursor;
-    return host.fs.sqliteQueryAsync(
-      db,
-      "SELECT p.id AS id, p.time_created AS ts_created, p.time_updated AS ts_updated, p.data AS part, CASE WHEN octet_length(m.data) <= ?3 AND json_valid(m.data) THEN json_extract(m.data,'$.role') END AS role  , NULL AS message FROM part p JOIN message m ON m.id = p.message_id WHERE p.session_id = ?1 AND m.session_id = ?1 AND p.time_updated >= ?2 UNION ALL SELECT 'error:' || id, time_created, time_updated, NULL, 'assistant', data FROM message WHERE session_id = ?1 AND time_updated >= ?2 AND octet_length(data) <= ?3 AND json_valid(data) AND json_extract(data, '$.role') = 'assistant' AND (json_extract(data, '$.error.name') = 'APIError' OR json_extract(data, '$.time.completed') IS NOT NULL) ORDER BY ts_updated ASC, id ASC",
-      [sessionId, sinceMs, MESSAGE_ROLE_MAX_BYTES],
-      (rows) => structuredChatFromRows(rows, sessionId, sinceMs, seenAtSinceMs)
-    );
+    return yield* ioSqlite(host.io.fs, db, "SELECT p.id AS id, p.time_created AS ts_created, p.time_updated AS ts_updated, p.data AS part, CASE WHEN octet_length(m.data) <= ?3 AND json_valid(m.data) THEN json_extract(m.data,'$.role') END AS role  , NULL AS message FROM part p JOIN message m ON m.id = p.message_id WHERE p.session_id = ?1 AND m.session_id = ?1 AND p.time_updated >= ?2 UNION ALL SELECT 'error:' || id, time_created, time_updated, NULL, 'assistant', data FROM message WHERE session_id = ?1 AND time_updated >= ?2 AND octet_length(data) <= ?3 AND json_valid(data) AND json_extract(data, '$.role') = 'assistant' AND (json_extract(data, '$.error.name') = 'APIError' OR json_extract(data, '$.time.completed') IS NOT NULL) ORDER BY ts_updated ASC, id ASC", [sessionId, sinceMs, MESSAGE_ROLE_MAX_BYTES], (rows) => structuredChatFromRows(rows, sessionId, sinceMs, seenAtSinceMs));
   }
 };
 function structuredChatFromRows(rows, sessionId, sinceMs, seenAtSinceMs) {
@@ -2136,9 +2146,9 @@ function structuredChatFromRows(rows, sessionId, sinceMs, seenAtSinceMs) {
   seenAtLastTs.sort();
   return { messages, observations, cursor: JSON.stringify([lastTs, seenAtLastTs]) };
 }
-function resumeLaunchArgs(args, sessionId) {
+function* resumeLaunchArgs(args, sessionId) {
   const db = opencodeDbPath();
-  const model = db && host.fs.fileExists(db) ? scanMessagesForQualifiedModel(db, sessionId) : null;
+  const model = db && (yield* host.io.fs.fileExists(db)) ? yield* scanMessagesForQualifiedModel(db, sessionId) : null;
   if (!model) return args.map(String);
   const modelIndex = args.findIndex((arg) => arg === "-m" || arg === "--model");
   const requested = modelIndex >= 0 ? args[modelIndex + 1] : args.find((arg) => arg.startsWith("-m=") || arg.startsWith("--model="))?.split("=").slice(1).join("=");
@@ -2156,14 +2166,14 @@ function resumeLaunchArgs(args, sessionId) {
   retained.push("-m", model);
   return retained;
 }
-function resumeLaunch(sessionId, skipPermissions) {
+function* resumeLaunch(sessionId, skipPermissions) {
   const platform = host.platform();
   const db = opencodeDbPath();
-  const directory = db && host.fs.fileExists(db) ? scanSessionDirectory(db, sessionId) : null;
+  const directory = db && (yield* host.io.fs.fileExists(db)) ? yield* scanSessionDirectory(db, sessionId) : null;
   const parts = ["opencode"];
   if (directory) parts.push(host.shell.quoteFor(directory, platform));
   parts.push("--session", host.shell.quoteFor(sessionId, platform));
   if (skipPermissions) parts.push("--auto");
   return { parts, directory };
 }
-var plugin_default = plugin;
+var plugin_default = defineProviderIo(plugin, () => host.io);

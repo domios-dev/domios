@@ -512,7 +512,7 @@ fn worker_transfer_generic_task_bound_worker_transfer_refuses_before_revoking_as
         .unwrap();
     fixture
         .store
-        .with_plan(&fixture.plan_id, 5, |plan| {
+        .edit_plan_fixture(&fixture.plan_id, 5, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()
@@ -1009,4 +1009,86 @@ fn roleless_tab_placed_as_worker_keeps_its_reserved_task_binding() {
         task.assigned_tab_id.as_deref(),
         Some(fixture.target.as_str())
     );
+}
+
+fn race_fixture() -> (crate::service::test_fixture::ServiceFixture, String, String) {
+    let (mut mux, owner) = MultiplexerState::new();
+    let workspace_id = mux.find_workspace_for_tab(&owner).unwrap();
+    arm_session(mux.get_tab_mut(&owner).unwrap(), "owner-race");
+    mux.set_orchestrator_role(&owner).unwrap();
+    mux.resolve_or_mint_team_for_parent(&owner).unwrap();
+    let target = mux.create_tab(&workspace_id).unwrap();
+    (
+        crate::service::test_fixture::ServiceFixture::new(mux),
+        owner,
+        target,
+    )
+}
+
+fn racing_worker_placement(
+    fixture: &crate::service::test_fixture::ServiceFixture,
+    owner: &str,
+    target: &str,
+    racing_preparations: usize,
+) -> (Result<(Vec<String>, Vec<String>), String>, usize) {
+    let mut preparations = 0;
+    let result = fixture.service.transition_agent_prepared_at(
+        1,
+        |_, _| {
+            preparations += 1;
+            if preparations <= racing_preparations {
+                fixture
+                    .service
+                    .mux
+                    .write()
+                    .get_tab_mut(owner)
+                    .unwrap()
+                    .agent_session_id = Some(format!("concurrent-launch-{preparations}"));
+            }
+            Ok(AgentTransitionRequest {
+                tab_id: target.into(),
+                destination: AgentPlacement::Worker {
+                    parent_tab_id: owner.into(),
+                    role_profile: None,
+                },
+                plan_binding: None,
+                require_verified_session: false,
+                planner_replacement: None,
+                plan_rebind: None,
+            })
+        },
+        TransitionFailurePoint::None,
+    );
+    (result, preparations)
+}
+
+#[test]
+fn prepared_transition_reprepares_after_a_concurrent_live_binding() {
+    let (fixture, owner, target) = race_fixture();
+    let (result, preparations) = racing_worker_placement(&fixture, &owner, &target, 1);
+    result.unwrap();
+    assert_eq!(preparations, 2);
+    let mux = fixture.service.mux.read();
+    assert_eq!(
+        mux.get_tab(&target).unwrap().parent_tab_id.as_deref(),
+        Some(owner.as_str())
+    );
+    assert_eq!(
+        mux.get_tab(&owner).unwrap().agent_session_id.as_deref(),
+        Some("concurrent-launch-1")
+    );
+}
+
+#[test]
+fn prepared_transition_refuses_after_bounded_concurrent_conflicts() {
+    let (fixture, owner, target) = race_fixture();
+    let (result, preparations) = racing_worker_placement(&fixture, &owner, &target, usize::MAX);
+    assert_eq!(
+        result.unwrap_err(),
+        crate::multiplexer::state::LIFECYCLE_CONTEXT_CONFLICT
+    );
+    assert_eq!(preparations, super::prepared::PREPARE_ATTEMPTS);
+    let mux = fixture.service.mux.read();
+    assert_eq!(mux.get_tab(&target).unwrap().role, None);
+    assert_eq!(mux.get_tab(&target).unwrap().parent_tab_id, None);
 }

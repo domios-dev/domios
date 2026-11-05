@@ -86,7 +86,7 @@ fn close_unstarted_task_refused_or_cancelled() {
             to: TaskStatus::Done
         }
     ));
-    let task = store.show_task(&task_id).unwrap().task;
+    let task = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(task.status, TaskStatus::Pending);
 }
 
@@ -95,7 +95,7 @@ fn add_task_rejects_terminal_and_child_parents() {
     let (store, plan_id, parent_id) = store_with_task();
     for status in [TaskStatus::Done, TaskStatus::Cancelled] {
         store
-            .with_plan(&plan_id, 11, |plan| {
+            .edit_plan_fixture(&plan_id, 11, |plan| {
                 plan.tasks
                     .iter_mut()
                     .find(|task| task.id == parent_id)
@@ -123,7 +123,7 @@ fn add_task_rejects_terminal_and_child_parents() {
         ));
     }
     store
-        .with_plan(&plan_id, 13, |plan| {
+        .edit_plan_fixture(&plan_id, 13, |plan| {
             plan.tasks
                 .iter_mut()
                 .find(|task| task.id == parent_id)
@@ -245,7 +245,7 @@ fn update_task_status_cancelled_with_open_subtask_errors() {
 
     assert!(matches!(err, PlanError::OpenSubtasks { .. }));
     assert_eq!(
-        store.show_task(&parent_id).unwrap().task.status,
+        store.inspect_task_for_test(&parent_id).unwrap().task.status,
         TaskStatus::Pending
     );
 }

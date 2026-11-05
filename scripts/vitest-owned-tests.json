@@ -1,4 +1,5 @@
 [
+  "src/lib/daemonRequestCallers.test.tsx",
   "src/lib/clientJournal.test.ts",
   "src/components/Sidebar/TeamUnit.board.test.tsx",
   "src/components/Extensions/PluginDetailPanel.test.tsx",
@@ -379,5 +380,8 @@
   "src/components/Neighbors/SidebarNeighborsSection.test.tsx",
   "src/hooks/terminal/useXterm.composition.test.tsx",
   "plugins/provider-shared/tests/runPromptStep.test.ts",
-  "packages/chat-ui/src/ExpandableReader.test.tsx"
+  "packages/chat-ui/src/ExpandableReader.test.tsx",
+  "src/lib/streamMuxRequestModel.test.ts",
+  "src/lib/streamMuxRequests.wiring.test.ts",
+  "src/lib/streamMux.startup.test.ts"
 ]

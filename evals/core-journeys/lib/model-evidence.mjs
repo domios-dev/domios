@@ -2,7 +2,7 @@ import { catalogueSelection, modelIdentity, selectedModel } from "./model-policy
 import { REQUIRED_PROVIDERS } from "./oracle.mjs";
 import { fixtureProviderId } from "./fixture-control.mjs";
 
-export function modelEvidenceErrors(state, { verify = true } = {}) {
+export function modelEvidenceErrors(state, { verify = true, builds = {} } = {}) {
   const errors = [];
   const require = (condition, reason) => { if (!condition) throw new Error(reason); };
   const check = (body) => { try { body(); } catch (error) { errors.push(`model policy: ${error.message}`); } };
@@ -45,11 +45,14 @@ export function modelEvidenceErrors(state, { verify = true } = {}) {
   const catalogue = (entry, provider, selected) => {
     require(entry?.provider === provider && entry.selected === selected, `${provider} catalogue selection absent or changed`);
     catalogueSelection({ id: provider, availability: "available", model_catalogue: entry.capability,
-      available_models: [entry.model], catalogue_version: entry.catalogue_version }, selected, entry.refresh);
+      available_models: [entry.model], catalogue_version: entry.catalogue_version }, selected, entry.refresh,
+      entry.qualification ? { qualification: entry.qualification, phase: verify ? "verify" : "setup", run: state.run,
+        build_sha: builds.verify, setup_build_sha: builds.setup, setup_live: policy.setup_live?.[provider] } : undefined);
   };
   for (const provider of policy.roster ?? []) check(() => {
     const selected = selectedModel(policy.selections, provider);
     catalogue(policy.catalogues?.[provider], provider, selected);
+    if (policy.verify_catalogues?.[provider]) catalogue(policy.verify_catalogues[provider], provider, selected);
     for (const phase of verify ? ["setup", "verify"] : ["setup"]) {
       const configuration = policy.configurations?.[phase];
       require(configuration?.defaults?.[provider] === selected, `${phase} ${provider} scoped default absent or substituted`);

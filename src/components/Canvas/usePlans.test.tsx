@@ -1,3 +1,4 @@
+import { muxMockFetch } from "../../lib/muxMockFetch.testdata";
 // Run: npx tsx src/components/Canvas/usePlans.test.tsx
 
 import { act, useEffect } from "react";
@@ -53,7 +54,7 @@ function setupDom() {
 
 async function installBridgeMocks() {
   const { __setListenForTest } = await import("../../lib/bridge");
-  globalThis.fetch = async (input, init) => {
+  globalThis.fetch = muxMockFetch(async (input, init) => {
     planReadCalls++;
     if (failPlanReads) throw new TypeError("Load failed");
     const url = new URL(String(input));
@@ -123,7 +124,7 @@ async function installBridgeMocks() {
     if (url.pathname === "/api/plans") return Response.json({ plans: [] });
     if (url.pathname.startsWith("/api/plans/")) return Response.json({ ...FIXTURE_PLAN, tasks: [], sections: [], strides: [], revision: String(wireRevision) });
     throw new Error(`unexpected request: ${url}`);
-  };
+  });
   __setListenForTest(async (event, handler) => {
     if (!listenHandlers.has(event)) listenHandlers.set(event, new Set());
     listenHandlers.get(event)!.add(handler as ListenHandler);
@@ -450,13 +451,13 @@ async function main() {
       plan_id: "live-board", revision: String(wireRevision), counts: { pending: 1 },
       columns: { pending: { status: "pending", items: [{ id: name, name }], next_cursor: { created_at: 1, position: 1, task_id: name } } },
     });
-    globalThis.fetch = async (input) => {
+    globalThis.fetch = muxMockFetch(async (input) => {
       const url = new URL(String(input));
       requests.push(url);
       if (requests.length === 1) return initial.promise;
       if (url.searchParams.has("status")) return cursor.promise;
       return deleted ? new Response("", { status: 404 }) : page("current");
-    };
+    });
     const probe = await renderScopedProbe<UsePlanTaskBoardResult>(() => usePlanTaskBoard(API, "live-board"),
       (state) => state.data?.columns?.pending?.items.map((task) => task.name).join(",") ?? state.error ?? "Loading");
     try {
@@ -488,11 +489,11 @@ async function main() {
     let forbidden = false;
     const detail = (name: string) => Response.json({ plan_id: "live-detail", revision: String(wireRevision), task_id: "canonical",
       task: { id: "canonical", key: "COD-42", handle: "inspect", name }, context: { plan_id: "live-detail", sections: [] } });
-    globalThis.fetch = async (input) => {
+    globalThis.fetch = muxMockFetch(async (input) => {
       requests.push(new URL(String(input)));
       if (forbidden) return new Response("", { status: 403 });
       return requests.length === 2 ? pending.promise : detail("Current task");
-    };
+    });
     const probe = await renderScopedProbe<UsePlanTaskDetailResult>(() => usePlanTaskDetail(API, "live-detail", "cod-42"),
       (state) => state.detail?.task.name ?? state.error ?? "Loading");
     try {
@@ -521,13 +522,13 @@ async function main() {
     let revision = "1";
     let deleted = false;
     const summary = () => ({ ...FIXTURE_PLAN, title: `Summary ${revision}`, tasks: [], sections: [], strides: [], revision });
-    globalThis.fetch = async (input) => {
+    globalThis.fetch = muxMockFetch(async (input) => {
       const url = new URL(String(input));
       requests.push(url);
       if (requests.length === 2) return pending.promise;
       if (url.pathname.endsWith("/projection")) return deleted ? new Response("", { status: 404 }) : Response.json(summary());
       return Response.json({ plans: deleted ? [] : [summary()] });
-    };
+    });
     const emit = (value: string, previous: string, removed = false) => {
       for (const handler of listenHandlers.get("plan-changed") ?? []) handler({ payload: {
         plan_id: FIXTURE_PLAN.id, revision: value, previous_revision: previous, task_ids: ["changed"], reset: false, deleted: removed,
@@ -558,8 +559,8 @@ async function main() {
     const previousFetch = globalThis.fetch;
     let reads = 0;
     let revision = "10";
-    globalThis.fetch = async () => { reads++; return Response.json({ plan_id: "scoped", revision, task_id: "chosen",
-      task: { id: "chosen", name: `Task ${revision}` }, context: { plan_id: "scoped", sections: [] } }); };
+    globalThis.fetch = muxMockFetch(async () => { reads++; return Response.json({ plan_id: "scoped", revision, task_id: "chosen",
+      task: { id: "chosen", name: `Task ${revision}` }, context: { plan_id: "scoped", sections: [] } }); });
     const emit = (value: string, previous: string, ids: string[]) => {
       for (const handler of listenHandlers.get("plan-changed") ?? []) handler({ payload: {
         plan_id: "scoped", revision: value, previous_revision: previous, task_ids: ids, reset: false, deleted: false,
@@ -587,7 +588,7 @@ async function main() {
     let revision = "1";
     let historyReads = 0;
     const { TaskHistoryControls } = await import("./planView/TaskHistoryControls");
-    globalThis.fetch = async (input) => {
+    globalThis.fetch = muxMockFetch(async (input) => {
       const url = new URL(String(input)); requests.push(url);
       if (url.pathname.endsWith("/history")) {
         historyReads++;
@@ -598,7 +599,7 @@ async function main() {
       return Response.json({ plan_id: "history-plan", task_id: "chosen", revision,
         task: { id: "chosen", name: `Task ${revision}`, milestones: [{ id: "latest", text: `Latest ${revision}` }], execution_attempts: [] },
         context: { plan_id: "history-plan", sections: [] }, history: { milestones: 50, attempts: null } });
-    };
+    });
     function HistoryProbe() {
       const state = usePlanTaskDetail(API, "history-plan", "chosen");
       return <>{state.detail && <><output>{state.detail.task.name}: {state.detail.task.milestones.map((item) => item.text).join(",")}</output>

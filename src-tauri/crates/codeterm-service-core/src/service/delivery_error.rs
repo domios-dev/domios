@@ -238,6 +238,7 @@ impl DeliveryError {
         match err {
             // Verification gates that run BEFORE the paste — nothing was written.
             InjectionError::PromptNeverReady { .. }
+            | InjectionError::WriteQueueFull { .. }
             | InjectionError::AgentTuiPresent { .. }
             | InjectionError::AgentInputUnavailable { .. } => Self::TabBusyRefused { tab, detail },
             InjectionError::PtyClosed { .. } => Self::PtyUnavailable { tab, detail },

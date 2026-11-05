@@ -1,3 +1,4 @@
+import { muxMockFetch } from "../lib/muxMockFetch.testdata";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
@@ -114,7 +115,7 @@ test.each(["install", "transcribe"])("%s activity stays on its own surface witho
 });
 
 test("secret backend updates its selected state without a duplicate confirmation toast", async () => {
-  vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ backend: "mock", status: { status: "locked" } }) })));
+  vi.stubGlobal("fetch", muxMockFetch(vi.fn(async () => Response.json({ backend: "mock", status: { status: "locked" } }))));
   const update = vi.fn();
   await render(<SecretsTab config={{ integrations: { secrets: { backend: "local" } } } as AppConfig} onUpdate={update} />);
   const select = host.querySelector<HTMLSelectElement>('[data-testid="settings-secrets-backend-select"]')!;

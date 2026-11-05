@@ -113,7 +113,11 @@ pub struct ServeStatus {
 
 /// Probe current Tailscale Serve state for `api_port`. Pure read — no mutation.
 pub fn probe_serve_status(api_port: u16) -> ServeStatus {
-    let snapshot = reconcile_web_serve(api_port, None, None);
+    probe_serve_status_for_build(api_port, None)
+}
+
+pub fn probe_serve_status_for_build(api_port: u16, expected_build: Option<String>) -> ServeStatus {
+    let snapshot = reconcile_web_serve(api_port, None, expected_build);
     let installed = snapshot.binary.installed;
     let https_url = snapshot.url.clone();
     let self_dns = super::discovery::tailscale_self_dns_name()
@@ -126,6 +130,14 @@ pub fn probe_serve_status(api_port: u16) -> ServeStatus {
         platform: std::env::consts::OS.to_string(),
         snapshot,
     }
+}
+
+pub(crate) fn configured_https_url(api_port: u16) -> Option<String> {
+    let routes = collect_routes(&serve_status_json()?, api_port);
+    let owned = routes
+        .iter()
+        .find(|route| route.ownership == ServeRouteOwnership::Owned)?;
+    Some(format_serve_url(owned.host.as_ref()?, owned.https_port))
 }
 
 pub fn reconcile_web_serve(
@@ -356,33 +368,14 @@ fn run_tailscale_capture(bin: &str, args: &[&str], timeout: Duration) -> Option<
     let mut c = std::process::Command::new(bin);
     c.args(args);
     codeterm_util::process_util::no_window_std(&mut c);
-    run_with_timeout_combined(&mut c, timeout)
+    run_with_timeout_combined(c, timeout)
 }
 
 fn run_with_timeout_combined(
-    cmd: &mut std::process::Command,
+    cmd: std::process::Command,
     timeout: Duration,
 ) -> Option<(bool, String)> {
-    use std::process::Stdio;
-    let mut child = cmd
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .stdin(Stdio::null())
-        .spawn()
-        .ok()?;
-    let start = std::time::Instant::now();
-    loop {
-        match child.try_wait().ok()? {
-            Some(_) => break,
-            None if start.elapsed() >= timeout => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return None;
-            }
-            None => std::thread::sleep(Duration::from_millis(50)),
-        }
-    }
-    let output = child.wait_with_output().ok()?;
+    let output = codeterm_util::process_util::bounded_output(cmd, timeout).ok()?;
     let mut raw = String::from_utf8_lossy(&output.stdout).to_string();
     raw.push_str(&String::from_utf8_lossy(&output.stderr));
     Some((output.status.success(), raw))
@@ -707,7 +700,7 @@ fn run_serve_cmd(bin: &str, args: &[&str]) -> bool {
     let mut c = std::process::Command::new(bin);
     c.args(args);
     codeterm_util::process_util::no_window_std(&mut c);
-    matches!(run_with_timeout(&mut c, SERVE_TIMEOUT), Some((true, _)))
+    matches!(run_with_timeout(c, SERVE_TIMEOUT), Some((true, _)))
 }
 
 #[cfg(test)]

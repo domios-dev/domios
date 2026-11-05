@@ -7,6 +7,7 @@ RUN_ID="${1:?usage: release-publish.sh <dry-run run id> <vX.Y.Z> rehearsal|publi
 TAG="${2:?release tag vX.Y.Z required}"
 MODE="${3:?rehearsal or publish required}"
 SOURCE_REPO="$(node scripts/source-repository.mjs)"
+# 1.19 transition mirror: every MIRROR_REPO line also serves 1.18.x fallback clients; delete after 1.19 ships.
 MIRROR_REPO=rollacode/codeterm-releases
 : "${GH_TOKEN:?GH_TOKEN must write $SOURCE_REPO}" "${MIRROR_TOKEN:?MIRROR_TOKEN must write $MIRROR_REPO}"
 [[ "$TAG" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]] || { echo "::error::tag must be vX.Y.Z (got '$TAG')"; exit 1; }
@@ -28,8 +29,8 @@ work="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/release-publish.XXXXXX")"
 trap 'rm -rf "$work"' EXIT
 
 if [ "$MODE" = rehearsal ]; then
-  step "rehearsal: token reach and retained evidence of $RUN_ID"
-  gh api "repos/$SOURCE_REPO" --jq .permissions.push | grep -qx true || { echo "::error::GH_TOKEN cannot write $SOURCE_REPO"; exit 1; }
+  # GITHUB_TOKEN reports no .permissions; its contents:write comes from the job permissions.
+  step "rehearsal: mirror token reach and retained evidence of $RUN_ID"
   GH_TOKEN="$MIRROR_TOKEN" gh api "repos/$MIRROR_REPO" --jq .permissions.push | grep -qx true \
     || { echo "::error::MIRROR_TOKEN cannot write $MIRROR_REPO"; exit 1; }
   node scripts/release-dry-run-manifest.mjs aggregate "$TAG" "$SHA" "$RUN_ID" "$work/input" "$work/output"
@@ -60,11 +61,11 @@ node scripts/legacy-updater-refusal.mjs "$work/man"
 gh release upload "$TAG" "$work/man/"*.json --repo "$SOURCE_REPO" --clobber
 GH_TOKEN="$MIRROR_TOKEN" gh release upload "$TAG" "$work/man/"*.json --repo "$MIRROR_REPO" --clobber
 
-step "draft signatures against the mirror bytes"
+step "draft signatures against the source bytes"
 for manifest in domios-latest.json domios-latest-deb.json; do
   node -e 'for (const p of Object.values(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).platforms)) console.log(p.url.split("/").pop())' \
     "$work/man/$manifest" | tr -d '\r' | while IFS= read -r asset; do
-      GH_TOKEN="$MIRROR_TOKEN" gh release download "$TAG" --repo "$MIRROR_REPO" --pattern "$asset" --dir "$work/draft" --clobber
+      gh release download "$TAG" --repo "$SOURCE_REPO" --pattern "$asset" --dir "$work/draft" --clobber
     done
   node scripts/verify-updater-manifest.mjs --manifest "$work/man/$manifest" --local "$work/draft" --require-version "$VER"
 done
@@ -79,15 +80,17 @@ else
 fi
 
 step "publish"
-GH_TOKEN="$MIRROR_TOKEN" node scripts/sync-release-notes.mjs --tag "$TAG"
-gh release edit "$TAG" --repo "$SOURCE_REPO" --draft=false
+node scripts/sync-release-notes.mjs --tag "$TAG" --mirror-repo "$MIRROR_REPO"
+gh release edit "$TAG" --repo "$SOURCE_REPO" --draft=false --latest
 GH_TOKEN="$MIRROR_TOKEN" gh release edit "$TAG" --repo "$MIRROR_REPO" --draft=false --latest
 
 step "published manifests"
-node scripts/legacy-updater-refusal.mjs verify "https://github.com/$MIRROR_REPO/releases/download/$TAG/latest.json?cb=$(date +%s)" "$VER"
-node scripts/verify-updater-manifest.mjs --manifest "https://github.com/$MIRROR_REPO/releases/download/$TAG/domios-latest.json?cb=$(date +%s)" \
-  --require-version "$VER" --require-platform darwin-aarch64 --require-platform darwin-x86_64 --require-platform windows-x86_64 \
-  --require-platform windows-aarch64 --require-platform linux-x86_64 --require-platform linux-aarch64
-node scripts/verify-updater-manifest.mjs --manifest "https://github.com/$MIRROR_REPO/releases/download/$TAG/domios-latest-deb.json?cb=$(date +%s)" \
-  --require-version "$VER" --require-platform linux-x86_64
+for repo in "$SOURCE_REPO" "$MIRROR_REPO"; do
+  node scripts/legacy-updater-refusal.mjs verify "https://github.com/$repo/releases/download/$TAG/latest.json?cb=$(date +%s)" "$VER"
+  node scripts/verify-updater-manifest.mjs --manifest "https://github.com/$repo/releases/download/$TAG/domios-latest.json?cb=$(date +%s)" \
+    --require-version "$VER" --require-platform darwin-aarch64 --require-platform darwin-x86_64 --require-platform windows-x86_64 \
+    --require-platform windows-aarch64 --require-platform linux-x86_64 --require-platform linux-aarch64
+  node scripts/verify-updater-manifest.mjs --manifest "https://github.com/$repo/releases/download/$TAG/domios-latest-deb.json?cb=$(date +%s)" \
+    --require-version "$VER" --require-platform linux-x86_64
+done
 echo "published $TAG from run $RUN_ID ($SHA)"

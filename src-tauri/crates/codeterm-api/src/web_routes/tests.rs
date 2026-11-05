@@ -42,9 +42,78 @@ async fn process_split_contract_internal_cron_is_excluded_from_sse_replay_and_li
             let payload: serde_json::Value =
                 serde_json::from_str(frame.trim().strip_prefix("data: ").unwrap()).unwrap();
             assert_eq!(payload["seq"], expected_seq);
+            assert_eq!(payload["prev_seq"], if expected_seq == 2 { 0 } else { 2 });
+            assert!(!frame.contains("cron-fired"));
             assert_eq!(payload["event_type"], "fixture-visible");
         }
     }
+}
+
+#[tokio::test]
+async fn public_predecessor_and_resume_skip_private_ids_without_replaying_public_events() {
+    use axum::response::IntoResponse;
+    use futures_util::StreamExt;
+    let events = std::sync::Arc::new(crate::events::EventBroadcaster::new());
+    events.publish_generic("visible", serde_json::json!("first"));
+    events.publish_internal("secret-kind", serde_json::json!({"secret": "hidden"}));
+    events.publish_generic("visible", serde_json::json!("second"));
+    let census = crate::stream_census::StreamCensus::default();
+    for (cursor, seq, previous) in [(0, 1, 0), (1, 3, 1), (2, 3, 2)] {
+        let sse = super::events_sse(
+            events.clone(),
+            super::EventsStreamQuery {
+                since: Some(format!("{}:{cursor}", events.boot_id())),
+                tab_id: None,
+            },
+            &census,
+        );
+        let mut body = sse.into_response().into_body().into_data_stream();
+        let frame = body.next().await.unwrap().unwrap();
+        let wire = std::str::from_utf8(&frame).unwrap();
+        let value: serde_json::Value =
+            serde_json::from_str(wire.trim().strip_prefix("data: ").unwrap()).unwrap();
+        assert_eq!(value["seq"], seq);
+        assert_eq!(value["prev_seq"], previous);
+        assert_eq!(value["event_type"], "visible");
+        assert!(!wire.contains("secret"));
+    }
+}
+
+#[tokio::test]
+async fn eviction_with_a_private_tail_keeps_the_overflow_cursor_as_predecessor() {
+    use axum::response::IntoResponse;
+    use futures_util::StreamExt;
+    let events = std::sync::Arc::new(crate::events::EventBroadcaster::new());
+    for _ in 0..2048 {
+        events.publish_generic("visible", serde_json::Value::Null);
+    }
+    events.publish_internal("private", serde_json::Value::Null);
+    let census = crate::stream_census::StreamCensus::default();
+    let sse = super::events_sse(
+        events.clone(),
+        super::EventsStreamQuery {
+            since: Some(format!("{}:0", events.boot_id())),
+            tab_id: None,
+        },
+        &census,
+    );
+    let mut body = sse.into_response().into_body().into_data_stream();
+    let overflow = body.next().await.unwrap().unwrap();
+    assert!(std::str::from_utf8(&overflow)
+        .unwrap()
+        .contains("ring-evicted"));
+    for _ in 0..codeterm_events::REPLAY_MAX_EVENTS - 1 {
+        let retained = body.next().await.unwrap().unwrap();
+        assert!(!std::str::from_utf8(&retained).unwrap().contains("overflow"));
+    }
+    events.publish_generic("live", serde_json::Value::Null);
+    let frame = body.next().await.unwrap().unwrap();
+    let wire = std::str::from_utf8(&frame).unwrap();
+    let value: serde_json::Value =
+        serde_json::from_str(wire.trim().strip_prefix("data: ").unwrap()).unwrap();
+    assert_eq!(value["seq"], 2050);
+    assert_eq!(value["prev_seq"], 2049);
+    assert_eq!(value["event_type"], "live");
 }
 
 #[tokio::test]
@@ -73,7 +142,12 @@ async fn encoded_replay_pins_existing_sse_wire_bytes() {
     let expected = serde_json::json!({
         "seq": 1, "boot": events.boot_id(), "event_type": "tab-title-pinned", "data": data,
     });
-    assert_eq!(actual.as_ref(), format!("data: {expected}\n\n").as_bytes());
+    let actual = std::str::from_utf8(&actual).unwrap();
+    let actual: serde_json::Value =
+        serde_json::from_str(actual.trim().strip_prefix("data: ").unwrap()).unwrap();
+    let mut expected = expected;
+    expected["prev_seq"] = serde_json::json!(0);
+    assert_eq!(actual, expected);
     assert_eq!(events.replay_stats().encoded_events, 1);
 }
 
@@ -158,7 +232,7 @@ fn frontend_wire_digest_is_pinned_to_api_version() {
             codeterm_service_core::frontend_bundle_api_version::API_VERSION,
             format!("{:016x}", fnv1a64(wire.as_bytes()))
         ),
-        (3, "58b59c0ab964faec".to_string()),
+        (4, "58b59c0ab964faec".to_string()),
         "frontend wire changed; bump API_VERSION and the release contract range, then repin:\n{wire}"
     );
 }

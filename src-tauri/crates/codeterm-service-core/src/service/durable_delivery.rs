@@ -81,6 +81,11 @@ pub(super) enum SettlementOutcome {
 }
 
 impl ServiceContext {
+    pub(super) fn agent_delivery_readiness_expired(&self, record: &AgentDeliveryRecord) -> bool {
+        record.durable_delivery.is_none()
+            && self.durable_runtime().clock.now_ms() >= record.ready_deadline_ms.unwrap_or(0)
+    }
+
     fn durable_runtime(&self) -> &DurableDeliveryRuntime {
         self.extensions.get_or_init(DurableDeliveryRuntime::default)
     }
@@ -205,7 +210,7 @@ impl ServiceContext {
         let Some(saved) = &delivery.saved_target else {
             return Ok(PreparedDelivery::Ready);
         };
-        let _claim = self.pty_ownership.acquire(target);
+        let _claim = self.pty_ownership.acquire(target)?;
         self.resolve_pending_binding_failure(target)?;
         if self.binding_failure(target, record).is_some() {
             return Ok(PreparedDelivery::Failed("launch_authority_unavailable"));
@@ -310,20 +315,42 @@ impl ServiceContext {
         id: &str,
         payload: &AgentDeliveryPayload,
     ) {
-        let Some(delivery) = &payload.durable_delivery else {
-            return;
-        };
-        self.schedule_durable_metadata_expiry(target, id, delivery);
+        if let Some(delivery) = &payload.durable_delivery {
+            self.schedule_durable_metadata_expiry(target, id, delivery);
+        } else {
+            let owner = &self.pending_delivery_payloads.agent_deliveries;
+            match owner.records(target) {
+                Ok(records) => {
+                    if let Some(record) = records.iter().find(|record| record.id == id) {
+                        self.schedule_agent_delivery_deadline(
+                            target,
+                            id,
+                            record.ready_deadline_ms.unwrap_or(0),
+                        );
+                    }
+                }
+                Err(error) => log::error!(
+                    "[agent-delivery] readiness deadline unavailable tab={target}: {error}"
+                ),
+            }
+        }
     }
 
     fn schedule_durable_metadata_expiry(&self, target: &str, id: &str, delivery: &DurableDelivery) {
+        self.schedule_agent_delivery_deadline(
+            target,
+            id,
+            delivery.created_at_ms.saturating_add(DELIVERY_TTL_MS),
+        );
+    }
+
+    fn schedule_agent_delivery_deadline(&self, target: &str, id: &str, deadline: u64) {
         let runtime = self.durable_runtime();
         let mut timers = runtime.timers.lock();
         let key = (target.to_string(), id.to_string());
         if timers.contains_key(&key) {
             return;
         }
-        let deadline = delivery.created_at_ms.saturating_add(DELIVERY_TTL_MS);
         let service = self.weak_self();
         let callback_key = key.clone();
         let timer = if runtime.native_deadlines {
@@ -373,6 +400,14 @@ impl ServiceContext {
         for record in owner.records(target)? {
             if let Some(delivery) = &record.durable_delivery {
                 self.schedule_durable_metadata_expiry(target, &record.id, delivery);
+            } else if record.state
+                == super::pending_delivery_payloads::agent_deliveries::AgentDeliveryState::Pending
+            {
+                self.schedule_agent_delivery_deadline(
+                    target,
+                    &record.id,
+                    record.ready_deadline_ms.unwrap_or(0),
+                );
             }
         }
         Ok(())
@@ -390,6 +425,19 @@ impl ServiceContext {
                 continue;
             }
             let Some(delivery) = &record.durable_delivery else {
+                if record.terminal_failure.is_some()
+                    || self.durable_runtime().clock.now_ms()
+                        >= record.ready_deadline_ms.unwrap_or(0)
+                {
+                    if record.terminal_failure.is_none() {
+                        owner.refuse_held(
+                            target,
+                            &record.id,
+                            "initial_readiness_deadline_elapsed",
+                        )?;
+                    }
+                    self.settle_held_agent_delivery(target, &record.id)?;
+                }
                 continue;
             };
             if record.terminal_failure.is_some()

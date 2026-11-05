@@ -4,8 +4,6 @@ use super::state::{AccountMeshRefusal, RegistryObservation};
 use super::wire::{MeshOperation, MeshResult};
 use tokio::sync::watch;
 
-const MAX_LIST_PAGES: usize = 8;
-
 type Outcome = Result<RegistryObservation, AccountMeshRefusal>;
 
 pub(super) struct RegistryFlight {
@@ -35,106 +33,45 @@ impl Drop for Owner<'_> {
 impl AccountMesh {
     /// One bounded online read of the account registry; a stale observation for display only.
     pub(super) async fn read_registry(&self, signed: &Signed) -> Outcome {
-        let mut rows = Vec::new();
-        let mut cursor = None;
-        let mut registry_revision = 0;
-        for _ in 0..MAX_LIST_PAGES {
-            let page = match self
-                .admission(signed, MeshOperation::List { cursor })
-                .await?
-            {
-                MeshResult::Page(page) => page,
-                _ => return Err(AccountMeshRefusal::Invalid),
-            };
-            registry_revision = page.registry_revision;
-            rows.extend(page.rows);
-            cursor = page.cursor;
-            if cursor.is_none() {
-                break;
-            }
-        }
-        if let Some(snapshot) = self.state().signed_registry.as_ref() {
-            if let Some(own) = snapshot
-                .rows
-                .iter()
-                .find(|row| row.installation_id == self.installation())
-            {
-                self.remember_metadata(
-                    signed.epoch,
-                    own.metadata_revision,
-                    own.display_name.clone(),
-                );
-            }
-            return Ok(RegistryObservation {
-                observed_at: self.now(),
-                registry_revision: snapshot.revision,
-                rows: snapshot.rows.clone(),
-                cursor: None,
-            });
-        }
-        let installation = self.installation();
-        if let Some(own) = rows.iter().find(|row| row.installation_id == installation) {
+        let MeshResult::Page(page) = self
+            .admission(signed, MeshOperation::List { cursor: None })
+            .await?
+        else {
+            return Err(AccountMeshRefusal::Invalid);
+        };
+        let snapshot = if signed.epoch == 0 {
+            let grant = page.signed_registry.ok_or(AccountMeshRefusal::Invalid)?;
+            let trust = signed.trust.clone();
+            let account = signed.account.clone();
+            let now = self.now();
+            tokio::task::spawn_blocking(move || {
+                super::registry_snapshot::verify_registry(&grant, &trust, &account, now)
+            })
+            .await
+            .map_err(|_| AccountMeshRefusal::Invalid)??
+        } else {
+            self.state()
+                .signed_registry
+                .clone()
+                .ok_or(AccountMeshRefusal::Invalid)?
+        };
+        if let Some(own) = snapshot
+            .rows
+            .iter()
+            .find(|row| row.installation_id == self.installation())
+        {
             self.remember_metadata(
                 signed.epoch,
                 own.metadata_revision,
                 own.display_name.clone(),
             );
         }
-        let observation = RegistryObservation {
+        Ok(RegistryObservation {
             observed_at: self.now(),
-            registry_revision,
-            rows,
-            cursor,
-        };
-        let keys_changed = self.with(|inner| {
-            if inner.is_current(signed.epoch) || signed.epoch == 0 {
-                let recovered_presence =
-                    inner.record.peer_presence_refresh && observation.cursor.is_none();
-                if recovered_presence {
-                    inner.record.peer_presence_refresh = false;
-                }
-                let changed = recovered_presence
-                    | inner.observe_registry_keys(&observation.rows, &installation);
-                let revoked = inner.record.revoked_installations.clone();
-                let own_invalid = inner.state.membership.as_ref().is_some_and(|membership| {
-                    let own = &membership.verified;
-                    revoked.contains(&own.installation_id)
-                        || inner
-                            .record
-                            .peer_keys
-                            .get(&own.installation_id)
-                            .is_some_and(|known| {
-                                known.generation > own.key_generation
-                                    || (known.generation == own.key_generation
-                                        && known.key_id != own.key_id)
-                            })
-                });
-                let slots_changed = inner
-                    .state
-                    .registry
-                    .as_ref()
-                    .is_some_and(|known| observation.has_freed_slot_since(known));
-                let rearmed = slots_changed && inner.state.plan_limit_locked();
-                if rearmed {
-                    inner.resume_terminal();
-                }
-                inner.update(&self.watch, |state| {
-                    state.revoked_installations = revoked;
-                    if own_invalid {
-                        state.membership = None;
-                    }
-                    state.registry = Some(observation.clone());
-                    state.registry_failure = None;
-                });
-                return changed || rearmed;
-            }
-            false
-        });
-        self.push().await;
-        if keys_changed {
-            self.persist().await;
-        }
-        Ok(observation)
+            registry_revision: snapshot.revision,
+            rows: snapshot.rows,
+            cursor: None,
+        })
     }
 
     pub async fn list(&self) -> Outcome {
@@ -146,20 +83,31 @@ impl AccountMesh {
     }
 
     async fn registry_list(&self, allow_cached: bool) -> Outcome {
-        let signed = self.signed(None).await?;
-        if let Some(cached) = self.with(|inner| {
-            (allow_cached
-                && inner.is_current(signed.epoch)
-                && inner.state.enrollment == super::state::Enrollment::Refused
-                && matches!(
-                    inner.state.last_refusal,
-                    Some(AccountMeshRefusal::EnrollmentBudget { .. })
-                ))
-            .then(|| inner.state.registry.clone())
-            .flatten()
-        }) {
-            return Ok(cached);
+        let state = self.state();
+        if matches!(state.presence, super::state::Presence::SignedOut) {
+            return Err(AccountMeshRefusal::SignedOut);
         }
+        if state.last_refusal == Some(AccountMeshRefusal::ReauthRequired) {
+            return Err(AccountMeshRefusal::ReauthRequired);
+        }
+        if self.with(|inner| inner.auth_parked.is_some()) {
+            return Err(AccountMeshRefusal::Unauthenticated);
+        }
+        if allow_cached {
+            if let Some(registry) = state.signed_registry.as_ref() {
+                return Ok(RegistryObservation {
+                    observed_at: state
+                        .registry
+                        .as_ref()
+                        .map_or(registry.issued_at, |known| known.observed_at),
+                    registry_revision: registry.revision,
+                    rows: registry.rows.clone(),
+                    cursor: None,
+                });
+            }
+            return Err(AccountMeshRefusal::Unavailable);
+        }
+        let signed = self.signed(None).await?;
         let (sender, mut outcome) = self.with(|inner| {
             if let Some(flight) = inner
                 .registry_flight

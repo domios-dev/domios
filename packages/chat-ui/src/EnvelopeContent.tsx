@@ -3,6 +3,16 @@ import type { ReactNode } from "react";
 import { InlineAttachmentText } from "./AttachmentCapsule";
 import { VoiceCard } from "./MarkdownBody";
 import { ReplyQuote } from "./ReplyQuote";
+import { referenceMarkers } from "./codeterm/referenceMarkers";
+
+function segmentText(segment: Exclude<MessageSegment, { type: "frame" | "attachment" }>): string {
+  if (segment.type === "text") return segment.text;
+  if (segment.type === "unknown_frame" && !segment.body) {
+    const [marker] = referenceMarkers(segment.raw);
+    if (marker?.start === 0 && marker.end === segment.raw.length) return segment.raw;
+  }
+  return segment.body;
+}
 
 export function EnvelopeContent({ segments, attachments = [], renderText, renderInlineText, onJumpToMessage }: {
   segments: readonly MessageSegment[];
@@ -15,7 +25,7 @@ export function EnvelopeContent({ segments, attachments = [], renderText, render
   if (segments.every((segment) => segment.type !== "frame" && (segment.type !== "attachment" || (segment.kind !== "voice" && !segment.reference)))) {
     const placed: PlacedAttachmentSegment[] = segments.flatMap((segment): PlacedAttachmentSegment[] => {
       if (segment.type === "frame") return [];
-      if (segment.type !== "attachment") return [{ text: segment.type === "text" ? segment.text : segment.body }];
+      if (segment.type !== "attachment") return [{ text: segmentText(segment) }];
       const kind: AttachmentKind = (ATTACHMENT_KINDS as readonly string[]).includes(segment.kind) ? segment.kind as AttachmentKind : "file";
       return [{ attachment: { kind, path: segment.path, label: segment.label ?? undefined }, image: attachments.find((image) => image.path === segment.path) }];
     });
@@ -30,7 +40,7 @@ export function EnvelopeContent({ segments, attachments = [], renderText, render
   return <>
     {segments.map((segment, index) => {
       if (segment.type === "frame") return null;
-      if (segment.type !== "attachment") return <span key={index}>{renderText(segment.type === "text" ? segment.text : segment.body)}</span>;
+      if (segment.type !== "attachment") return <span key={index}>{renderText(segmentText(segment))}</span>;
       const reference = segment.reference;
       if (reference) return <ReplyQuote key={index} label={segment.label ?? "Quote"} excerpt={segment.excerpt ?? ""}
         onOpen={onJumpToMessage ? () => onJumpToMessage(reference) : undefined} />;

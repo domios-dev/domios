@@ -13,22 +13,16 @@ fn authority() -> StartupAuthority {
 }
 
 #[test]
-fn retained_launch_guards_all_authority_transitions_through_mutation_callback() {
+fn retained_launch_snapshot_releases_registry_guards_and_detects_same_authority_rearm() {
     let registry = WorkerAckRegistry::default();
     let expected = authority();
     let _receiver = registry.arm_startup(expected.clone());
-    registry
-        .with_current_task_launch_authority("child", |current| {
-            assert_eq!(current, &expected);
-            assert!(registry.startup_waiters.try_lock().is_none());
-            assert!(registry.startup_acknowledged.try_lock().is_none());
-            assert!(registry.finalized_startups.try_lock().is_none());
-            Ok(())
-        })
-        .unwrap();
-    assert!(registry.startup_waiters.try_lock().is_some());
-    assert!(registry.startup_acknowledged.try_lock().is_some());
-    assert!(registry.finalized_startups.try_lock().is_some());
+    let captured = registry.current_task_launch_authority("child").unwrap();
+    assert_eq!(captured.authority, expected);
+    assert!(registry.launch_registry_available_for_test());
+    registry.arm_startup(expected);
+    let current = registry.current_task_launch_authority("child").unwrap();
+    assert_ne!(current, captured);
 }
 
 #[test]
@@ -49,9 +43,7 @@ fn retained_launch_finalized_authority_never_enters_mutation_callback() {
             }),
         )
         .unwrap();
-    let result: Result<(), String> = registry.with_current_task_launch_authority("child", |_| {
-        panic!("finalized authority must not grant a mutation")
-    });
+    let result = registry.current_task_launch_authority("child");
     assert!(result.is_err());
     assert_eq!(
         registry.finalized_startups.lock().get("child"),

@@ -33,9 +33,17 @@ fn confirmed_runtime_close_waits_for_the_pinned_process_exit() {
     let (fixture, id, _live) = runtime_fixture();
     let session = engine::for_tab(&id).unwrap();
     let process = session.process.lock().clone().unwrap();
+    fixture
+        .service
+        .runtime_turn_starts(&id, "nonce", 1)
+        .observe("turn");
     let receipt = fixture.service.chatbackend_close_confirmed(&id).unwrap();
+    let guards = fixture.service.ext::<Arc<TabReopenGuards>>();
+    assert!(!guards.turn_starts.lock().contains_key(&id));
+    assert!(!guards.locks.lock().contains_key(&id));
     assert_eq!(receipt.tab_id, id);
     assert_eq!(receipt.session_id, "thread");
+    assert_eq!(receipt.evidence, ChatBackendCloseEvidence::Witnessed);
     assert!(matches!(
         *process.ended.borrow(),
         Some(RuntimeFailure::ProcessExited { .. })
@@ -48,13 +56,12 @@ fn changed_runtime_nonce_refuses_without_stopping_another_session() {
     let (fixture, id, _live) = runtime_fixture();
     let session = engine::for_tab(&id).unwrap();
     let process = session.process.lock().clone().unwrap();
-    fixture
-        .service
-        .mux
-        .write()
-        .get_tab_mut(&id)
-        .unwrap()
-        .session_binding_nonce = Some("foreign".into());
+    {
+        let mut mux = fixture.service.mux.write();
+        let tab = mux.get_tab_mut(&id).unwrap();
+        tab.restored_from_snapshot = true;
+        tab.session_binding_nonce = Some("foreign".into());
+    }
     assert!(fixture.service.chatbackend_close_confirmed(&id).is_err());
     assert!(process.ended.borrow().is_none());
     assert!(engine::for_tab(&id).is_some());
@@ -64,7 +71,34 @@ fn changed_runtime_nonce_refuses_without_stopping_another_session() {
 fn missing_runtime_and_adapter_cannot_mint_a_receipt() {
     let (fixture, id, live) = runtime_fixture();
     drop(live);
-    assert!(fixture.service.chatbackend_close_confirmed(&id).is_err());
+    let error = fixture
+        .service
+        .chatbackend_close_confirmed(&id)
+        .err()
+        .unwrap();
+    assert!(error.contains("absence is unproven"));
+    assert!(error.contains(&format!("domios agent restart --tab {id}")));
+}
+
+#[test]
+fn restored_runtime_absence_has_distinct_exact_binding_evidence() {
+    let (fixture, id, live) = runtime_fixture();
+    drop(live);
+    fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(&id)
+        .unwrap()
+        .restored_from_snapshot = true;
+    let receipt = fixture.service.chatbackend_close_confirmed(&id).unwrap();
+    assert_eq!(receipt.tab_id, id);
+    assert_eq!(receipt.session_id, "thread");
+    assert_eq!(receipt.binding_nonce.as_deref(), Some("nonce"));
+    assert_eq!(
+        receipt.evidence,
+        ChatBackendCloseEvidence::RestoredRuntimeAbsent
+    );
 }
 
 #[test]
@@ -107,6 +141,7 @@ fn plugin_close_receipt_is_required_before_removing_the_bound_adapter() {
         let workspace = mux.list_workspaces()[0].id.clone();
         let id = mux.create_tab(&workspace).unwrap();
         let tab = mux.get_tab_mut(&id).unwrap();
+        tab.restored_from_snapshot = true;
         tab.backing = TabBacking::ChatBackend { plugin_id: "plugin-fixture".into(), session_id: "thread".into() };
         tab.agent_session_id = Some("thread".into());
         tab.session_binding_nonce = Some("nonce".into());

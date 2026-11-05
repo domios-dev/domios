@@ -105,7 +105,7 @@ impl ServiceContext {
     ) -> Result<(), String> {
         let round = self
             .plan_store
-            .with_plan(plan_id, now, |plan| {
+            .edit_curator_round(plan_id, now, |plan| {
                 let state = &mut plan.control_loop;
                 state.consecutive_failures += 1;
                 state.fallback_reason = Some(reason);
@@ -126,7 +126,7 @@ impl ServiceContext {
                     next_delay_secs: curator_delay(None),
                     ..Default::default()
                 };
-                curator::append_round(plan, round.clone());
+                plan.append_round(round.clone());
                 Ok(round)
             })
             .map_err(|e| e.to_string())?;
@@ -137,18 +137,28 @@ impl ServiceContext {
     pub(super) fn reconcile_curator_plan(
         &self,
         cron: &crate::CronState,
-        plan: &Plan,
+        read: &crate::service::plan::CuratorScheduleRead,
         now: u64,
     ) -> Result<(), String> {
-        let suspended = self.curator_suspended_reason(plan);
-        let eligible = curator::eligible(
-            plan,
+        let plan = read.metadata();
+        let suspended = self.curator_suspended_reason_for_fields(
+            &plan.mode,
+            &plan.status,
+            &plan.team_id,
+            read.complete(),
+        );
+        let eligible = read.eligible(
             self.configuration().orchestration.plan_reminders,
             suspended.is_some(),
         );
         let mut loop_state = plan.control_loop.clone();
         if eligible && loop_state.running.is_some() {
-            loop_state.agent_states = super::movement_sources::observed_agents(self, plan, now);
+            loop_state.agent_states = super::movement_sources::observed_agents(
+                self,
+                &plan.team_id,
+                &plan.control_loop.agent_states,
+                now,
+            );
         }
         if loop_state.cron_id.is_none() {
             loop_state.cron_id = cron
@@ -216,12 +226,11 @@ impl ServiceContext {
                 loop_state.next_at = Some(now + curator_delay(None) * 1000);
                 let applied = self
                     .plan_store
-                    .with_plan(&plan.id, now, |p| {
-                        if p.control_loop != plan.control_loop {
+                    .edit_curator_round(&plan.id, now, |p| {
+                        if !read.apply_control_loop(&mut p.control_loop, loop_state.clone())? {
                             return Ok(false);
                         }
-                        p.control_loop = loop_state.clone();
-                        curator::append_round(p, round.clone());
+                        p.append_round(round.clone());
                         Ok(true)
                     })
                     .map_err(|e| e.to_string())?;
@@ -263,8 +272,10 @@ impl ServiceContext {
                 .and_then(|mirror| self.available_mirror(mirror));
             if let Err(reason) = mirror {
                 loop_state.fallback_reason = Some(reason);
+            } else if loop_state.fallback_reason == Some(CuratorFailure::OrchestratorUnbound) {
+                loop_state.fallback_reason = None;
             }
-            let close = curator::synthesis::group_close(plan);
+            let close = read.group_close();
             if close.is_some_and(|at| {
                 loop_state
                     .last_synthesis_group_close_at
@@ -362,14 +373,13 @@ impl ServiceContext {
                 });
             let applied = self
                 .plan_store
-                .with_plan(&plan.id, now, |p| {
-                    if p.control_loop != plan.control_loop {
+                .edit_curator_round(&plan.id, now, |p| {
+                    let next = loop_state.next_at;
+                    if !read.apply_control_loop(&mut p.control_loop, loop_state)? {
                         return Ok(false);
                     }
-                    let next = loop_state.next_at;
-                    p.control_loop = loop_state;
                     if let Some(round) = &fallback {
-                        curator::append_round(p, round.clone());
+                        p.append_round(round.clone());
                         p.control_loop.next_at = next;
                     }
                     Ok(true)
@@ -400,12 +410,17 @@ impl ServiceContext {
             .plan_store
             .curator_digest_projection(&job.task, now)
             .map_err(CuratorFireError::from)?;
-        let plan = read.plan();
-        if !curator::eligible(
-            &plan,
+        let plan = read.scope().clone();
+        if !read.eligible(
             self.configuration().orchestration.plan_reminders,
-            self.curator_suspended_reason(&plan).is_some(),
-        ) || plan.control_loop.running.is_some()
+            self.curator_suspended_reason_for_fields(
+                &plan.mode,
+                &plan.status,
+                &plan.team_id,
+                read.complete(),
+            )
+            .is_some(),
+        ) || plan.running
         {
             return Ok(None);
         }
@@ -416,7 +431,7 @@ impl ServiceContext {
         });
         if occupied {
             self.plan_store
-                .with_plan(&plan.id, now, |plan| {
+                .edit_curator_state(&plan.id, now, |plan| {
                     plan.control_loop.next_at =
                         Some(now.saturating_add(curator_delay(None) * 1000));
                     Ok(())
@@ -438,9 +453,10 @@ impl ServiceContext {
         let mirror = resolve_mirror(&tab)?;
         let mirror = self.available_mirror(mirror)?;
         let since = read.since();
-        let mut rows = digest::metadata_rows(plan, since);
-        super::movement_sources::append(self, &plan, since, now, &mut rows)?;
-        let candidates = self.curator_save_candidates(plan, now)?;
+        let mut rows: std::collections::BTreeMap<String, Vec<digest::Row>> =
+            std::collections::BTreeMap::new();
+        let notices = super::movement_sources::capture_notices(self, &plan.team_id);
+        let candidates = self.curator_save_candidates(&plan.id, &plan.team_id, now)?;
         for (id, episodes) in candidates
             .into_iter()
             .filter(|(_, episodes)| episodes.len() >= 2)
@@ -454,13 +470,13 @@ impl ServiceContext {
                     summary: episodes.into_iter().collect::<Vec<_>>().join(" "),
                 });
         }
-        super::digest_sources::memory(self, &plan, since, &mut rows);
+        super::digest_sources::memory(self, &plan.id, since, &mut rows);
         let mut observation = crate::service::hierarchy::heartbeat_gate::Observation::default();
         observation.workers.insert(
             owner.into(),
             crate::service::hierarchy::heartbeat_gate::Worker {
-                session_key: plan.control_loop.owner_session_key.clone(),
-                turn_cursor: plan.control_loop.owner_turn_cursor.clone(),
+                session_key: plan.owner_session_key.clone(),
+                turn_cursor: plan.owner_turn_cursor.clone(),
                 ..Default::default()
             },
         );
@@ -479,45 +495,25 @@ impl ServiceContext {
                     summary: messages.len().to_string(),
                 });
         }
-        if let Some(cursor) = cursor {
-            self.plan_store
-                .with_plan(&plan.id, now, |p| {
-                    p.control_loop.owner_turn_cursor = cursor.turn_cursor;
-                    p.control_loop.owner_session_key = cursor.session_key;
-                    Ok(())
-                })
-                .map_err(|e| e.to_string())?;
-        }
-        let flagged = super::digest_sources::blueprints(self, &plan, since, now, &mut rows);
+        let flagged = super::digest_sources::blueprints(self, &plan.team_id, since, now, &mut rows);
         let number = plan
-            .control_loop
             .last_round
             .as_ref()
-            .map(|r| r.number + 1)
-            .unwrap_or(1);
-        let counts = codeterm_plan::service_plan::state::task_counts(&plan);
-        let lanes = plan
-            .tasks
-            .iter()
-            .filter(|t| {
-                t.lane.worktree_path.is_some() && t.lane.cleanup_status.as_deref() != Some("done")
-            })
-            .count();
+            .map_or(Some(1), |round| round.number.checked_add(1))
+            .ok_or("Curator round number is exhausted")?;
+        let counts = read.counts();
+        let lanes = read.lanes();
         let handoff_age = read.latest_handoff_at().map(|at| now.saturating_sub(at));
         let mut header=format!("plan {} | {:?} | control loop curator | orchestrator {} activity {:?} | open {} in_progress {} review {} blocked {} | lanes {} pressure {} | handoff_age_ms {:?} | round {}",plan.id,plan.mode,owner,self.resolved_tab_status(&tab),counts.pending,counts.in_progress,counts.in_review,counts.blocked,lanes,if lanes>CURATOR_HIGH_LANES {"high"}else if lanes>CURATOR_ELEVATED_LANES {"elevated"}else{"normal"},handoff_age,number);
         header.push_str(&format!("\nask: {}", super::ask::command(owner)));
         let rubric = codeterm_prompts::prompts::CURATOR_RUBRIC;
         let real_rounds = read.real_rounds_started();
-        let group_close = curator::synthesis::group_close(&plan).filter(|at| {
-            plan.control_loop
-                .last_synthesis_group_close_at
+        let group_close = read.group_close().filter(|at| {
+            plan.last_synthesis_group_close_at
                 .is_none_or(|prior| *at > prior)
         });
-        let synthesis = curator::synthesis::due(
-            real_rounds,
-            group_close,
-            plan.control_loop.last_synthesis_group_close_at,
-        );
+        let synthesis =
+            curator::synthesis::due(real_rounds, group_close, plan.last_synthesis_group_close_at);
         header.push_str(if synthesis {
             "\nsynthesis: yes"
         } else {
@@ -525,24 +521,43 @@ impl ServiceContext {
         });
         let header = format!("{header}\n\n{rubric}");
         let header = if synthesis {
-            curator::synthesis::context_header(&plan, &header)
+            read.synthesis_context_header(&header)
+                .map_err(CuratorFireError::from)?
         } else {
             header
         };
         let digest = read
-            .build_digest(&header, &rows, digest::MAX_DIGEST_BYTES)
+            .build_digest_with_runtime(&header, &rows, digest::MAX_DIGEST_BYTES, Some(&notices))
             .map_err(CuratorFireError::from)?;
         let action = curator::due_action(
-            digest.activity || group_close.is_some() || plan.control_loop.manual_run_requested,
-            !codeterm_plan::service_plan::state::orchestrator_actionable_task_ids(&plan).is_empty(),
-            plan.control_loop
-                .last_real_round_at
-                .or(Some(plan.created_at)),
+            digest.activity || group_close.is_some() || plan.manual_run_requested,
+            read.has_actionable().map_err(CuratorFireError::from)?,
+            plan.last_real_round_at.or(Some(plan.created_at)),
             now,
         );
+        let nudge = if action == DueAction::Nudge {
+            Some(read.heartbeat_body().map_err(CuratorFireError::from)?)
+        } else {
+            None
+        };
+        drop(read);
+        let answers = notices
+            .iter()
+            .filter(|notice| notice.answered)
+            .map(|notice| notice.id.clone())
+            .collect();
+        self.plan_store
+            .edit_curator_state(&plan.id, now, |state| {
+                state.control_loop.observed_owner_answers = answers;
+                if let Some(cursor) = cursor {
+                    state.control_loop.owner_turn_cursor = cursor.turn_cursor;
+                    state.control_loop.owner_session_key = cursor.session_key;
+                }
+                Ok(())
+            })
+            .map_err(|error| error.to_string())?;
         if action != DueAction::Spawn {
-            if action == DueAction::Nudge {
-                let body = self.curator_heartbeat_body(&plan);
+            if let Some(body) = nudge {
                 self.deliver_cron_report(owner, super::curator_envelope(), &body)?;
             }
             let round = CuratorRound {
@@ -568,7 +583,7 @@ impl ServiceContext {
         }
         let hash = crate::service::supporter::criteria_hash(digest.body.as_bytes());
         self.plan_store
-            .with_plan(&plan.id, now, |p| {
+            .edit_curator_state(&plan.id, now, |p| {
                 p.control_loop.running = Some(CuratorRun {
                     synthesis,
                     synthesis_group_close_at: group_close,
@@ -602,12 +617,14 @@ impl ServiceContext {
             .insert(tab_id.into(), plan_id.into());
         let prior_rounds = self
             .plan_store
-            .get(plan_id)
-            .map(|plan| curator::synthesis::real_rounds_started(&plan))
-            .ok_or("plan absent")?;
+            .curator_real_rounds_projection(plan_id)
+            .map_err(|error| match error {
+                crate::service::plan::PlanError::NotFound => "plan absent".to_string(),
+                error => error.to_string(),
+            })?;
         let number = self
             .plan_store
-            .with_plan(plan_id, now, |p| {
+            .edit_curator_state(plan_id, now, |p| {
                 let run = p.control_loop.running.as_mut().ok_or_else(|| {
                     crate::service::plan::PlanError::Validation("round absent".into())
                 })?;
@@ -622,7 +639,13 @@ impl ServiceContext {
                 Ok(number)
             })
             .map_err(|e| e.to_string())?;
-        let plan = self.plan_store.get(plan_id).ok_or("plan absent")?;
+        let plan =
+            self.plan_store
+                .plan_identity_projection(plan_id)
+                .map_err(|error| match error {
+                    crate::service::plan::PlanError::NotFound => "plan absent".to_string(),
+                    error => error.to_string(),
+                })?;
         self.mux
             .write()
             .set_tab_description(tab_id, Some(format!("Round {number}")))?;

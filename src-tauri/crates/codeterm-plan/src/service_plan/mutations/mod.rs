@@ -1,56 +1,25 @@
 use super::lane_metadata::{apply_lane_update, normalize_lane_metadata};
-use super::plan_match::NON_TERMINAL_TASK_STATUSES;
-use super::readback::pending_after_verified;
 use super::{
-    qa, section_links, tag_model, task_attempts, AttemptMatch, AttemptState, MutationWriterTurn,
-    NewTask, OpenSubtask, PlanError, PlanMatch, PlanStore, SplitParentReason, TaskLaneUpdate,
-    TaskMatch,
+    qa, tag_model, task_attempts, MutationWriterTurn, NewTask, PlanError, PlanMatch, PlanStore,
+    TaskLaneUpdate, TaskMatch,
 };
 use crate::plan::{
     AgentRef, Goal, Milestone, MilestoneKind, OrchestratorRef, Plan, PlanMode, PlanStatus,
-    PlannerRef, PlanningAuthor, PlanningState, PlanningTransition, ReviewEvidence, ReviewVerdict,
-    Section, TagFacet, Task, TaskGroup, TaskStatus, TransferRecord,
+    PlannerRef, PlanningAuthor, PlanningState, ReviewEvidence, ReviewVerdict, Section, TagFacet,
+    Task, TaskGroup, TaskStatus, TransferRecord,
 };
 
 mod plan_writer;
 mod subtasks;
+mod task_add;
 mod task_files;
 
 pub(super) fn gen_id(prefix: &str) -> String {
     crate::plan::ids::short_id(prefix)
 }
 
-pub(super) fn plan_contains_id(plan: &Plan, id: &str) -> bool {
-    plan.tasks.iter().any(|t| t.id == id)
-        || plan
-            .tasks
-            .iter()
-            .any(|t| t.milestones.iter().any(|m| m.id == id))
-        || plan.strides.iter().any(|m| m.id == id)
-        || section_ids_contains(&plan.sections, id)
-}
-
-pub(super) fn ensure_group_declared(plan: &mut Plan, key: Option<&str>) {
-    let Some(key) = key.filter(|key| !key.trim().is_empty()) else {
-        return;
-    };
-    if !plan.task_groups.iter().any(|group| group.key == key) {
-        plan.task_groups.push(TaskGroup {
-            key: key.to_string(),
-            label: key.to_string(),
-            color: None,
-        });
-    }
-}
-
 fn section_matches(section: &Section, selector: &str) -> bool {
     section.id == selector || section.handle.as_deref() == Some(selector)
-}
-
-fn section_ids_contains(sections: &[Section], id: &str) -> bool {
-    sections
-        .iter()
-        .any(|s| section_matches(s, id) || section_ids_contains(&s.subsections, id))
 }
 
 pub(super) fn push_subsection(
@@ -133,26 +102,6 @@ pub(super) fn rm_section_tree(sections: &mut Vec<Section>, id: &str) -> bool {
         .any(|s| rm_section_tree(&mut s.subsections, id))
 }
 
-fn collect_section_tree_ids(sections: &[Section], id: &str, out: &mut Vec<String>) -> bool {
-    for section in sections {
-        if section.id == id || section.handle.as_deref() == Some(id) {
-            collect_all_section_ids(section, out);
-            return true;
-        }
-        if collect_section_tree_ids(&section.subsections, id, out) {
-            return true;
-        }
-    }
-    false
-}
-
-fn collect_all_section_ids(section: &Section, out: &mut Vec<String>) {
-    out.push(section.id.clone());
-    for subsection in &section.subsections {
-        collect_all_section_ids(subsection, out);
-    }
-}
-
 pub(super) fn has_section(sections: &[Section], id: &str) -> bool {
     sections.iter().any(|section| {
         section.id == id
@@ -174,20 +123,6 @@ pub(super) fn clear_task_assignment(task: &mut Task) {
     task.lane.tab_id = None;
 }
 
-fn open_subtasks(plan: &Plan, parent_task_id: &str) -> Vec<OpenSubtask> {
-    plan.tasks
-        .iter()
-        .filter(|task| task.parent_task_id.as_deref() == Some(parent_task_id))
-        .filter(|task| !is_terminal_task_status(&task.status))
-        .map(|task| OpenSubtask {
-            id: task.id.clone(),
-            name: task.name.clone(),
-            status: task.status.clone(),
-            handle: task.handle.clone(),
-        })
-        .collect()
-}
-
 pub(super) fn normalized_dependency_ids(ids: &[String]) -> Vec<String> {
     let mut normalized = Vec::new();
     let mut seen = std::collections::HashSet::new();
@@ -201,112 +136,6 @@ pub(super) fn normalized_dependency_ids(ids: &[String]) -> Vec<String> {
         }
     }
     normalized
-}
-
-fn dependency_cycle_reaches(
-    plan: &Plan,
-    current: &str,
-    target: &str,
-    override_task_id: &str,
-    override_dependencies: &[String],
-    seen: &mut std::collections::HashSet<String>,
-) -> bool {
-    if current == target {
-        return true;
-    }
-    if !seen.insert(current.to_string()) {
-        return false;
-    }
-    let Some(task) = plan.tasks.iter().find(|task| task.id == current) else {
-        return false;
-    };
-    let next = if current == override_task_id {
-        override_dependencies
-    } else {
-        &task.depends_on
-    };
-    next.iter().any(|dep| {
-        dependency_cycle_reaches(
-            plan,
-            dep,
-            target,
-            override_task_id,
-            override_dependencies,
-            seen,
-        )
-    })
-}
-
-/// A dependency ref may name a task by full id, handle, or key.
-fn resolve_dependency_ref(plan: &Plan, reference: &str) -> Result<String, PlanError> {
-    crate::plan::task_key::find_task(&plan.tasks, reference)
-        .map(|task| task.id.clone())
-        .ok_or_else(|| PlanError::DependencyTaskNotFound {
-            task_id: reference.to_string(),
-        })
-}
-
-pub(super) fn validate_task_dependencies(
-    plan: &Plan,
-    task_id: &str,
-    depends_on: &[String],
-) -> Result<Vec<String>, PlanError> {
-    let normalized = normalized_dependency_ids(depends_on);
-    let mut resolved = Vec::new();
-    let mut seen_ids = std::collections::HashSet::new();
-    for dependency_ref in &normalized {
-        let dependency_id = resolve_dependency_ref(plan, dependency_ref)?;
-        if dependency_id == task_id {
-            return Err(PlanError::DependencySelfReference);
-        }
-        if seen_ids.insert(dependency_id.clone()) {
-            resolved.push(dependency_id);
-        }
-    }
-    for dependency_id in &resolved {
-        let mut seen = std::collections::HashSet::new();
-        if dependency_cycle_reaches(plan, dependency_id, task_id, task_id, &resolved, &mut seen) {
-            return Err(PlanError::DependencyCycle);
-        }
-    }
-    Ok(resolved)
-}
-
-pub(super) fn reject_terminal_with_open_subtasks(
-    plan: &Plan,
-    task_id: &str,
-) -> Result<(), PlanError> {
-    let subtasks = open_subtasks(plan, task_id);
-    if subtasks.is_empty() {
-        Ok(())
-    } else {
-        Err(PlanError::OpenSubtasks { subtasks })
-    }
-}
-
-/// Shared close-transition core (in_review/any -> done) used by both
-/// `close_task` and review ACCEPT so the two paths can never drift. Rejects
-/// while subtasks are still open; clears assignment and normalizes review state.
-pub(crate) fn finalize_task_done(
-    plan: &mut Plan,
-    task_index: usize,
-    now_ms: u64,
-) -> Result<(), PlanError> {
-    let task_id = plan.tasks[task_index].id.clone();
-    reject_terminal_with_open_subtasks(plan, &task_id)?;
-    let task = &mut plan.tasks[task_index];
-    if task.status != TaskStatus::Done {
-        task.status_changed_at = now_ms;
-    }
-    task.status = TaskStatus::Done;
-    crate::service_plan::qa::normalize_task_review_fields(task);
-    crate::service_plan::task_attempts::close_all_live_attempts(
-        &mut task.execution_attempts,
-        now_ms,
-    );
-    clear_task_assignment(task);
-    task.updated_at = now_ms;
-    Ok(())
 }
 
 /// The current competition group is the one the newest open competitive attempt
@@ -335,98 +164,6 @@ pub(super) fn live_competitive_executor(task: &Task, attempt_id: &str) -> bool {
                     .as_deref()
                     .is_some_and(|session| !session.trim().is_empty()))
     })
-}
-
-/// Who is executing the task at the moment it enters `in_progress`.
-pub(super) enum InProgressExecutor<'a> {
-    /// A lane tab assignment written in the same transaction.
-    LaneAssignment(&'a super::TaskLaneUpdate),
-    /// One exact competitive attempt already persisted on the task.
-    CompetitiveAttempt(&'a str),
-}
-
-pub(super) fn validate_task_status_transition(
-    plan: &Plan,
-    task_id: &str,
-    current: &TaskStatus,
-    next: &TaskStatus,
-    incoming_label: Option<Option<&str>>,
-) -> Result<(), PlanError> {
-    validate_task_status_transition_for(plan, task_id, current, next, incoming_label, None)
-}
-
-pub(super) fn validate_task_status_transition_with_lane(
-    plan: &Plan,
-    task_id: &str,
-    current: &TaskStatus,
-    next: &TaskStatus,
-    incoming_label: Option<Option<&str>>,
-    lane: Option<&super::TaskLaneUpdate>,
-) -> Result<(), PlanError> {
-    validate_task_status_transition_for(
-        plan,
-        task_id,
-        current,
-        next,
-        incoming_label,
-        lane.map(InProgressExecutor::LaneAssignment),
-    )
-}
-
-/// Entry for competitive startup, where progression is authorized by the exact
-/// live attempt itself rather than by a task-level tab assignment.
-pub(super) fn validate_competitive_attempt_status_transition(
-    plan: &Plan,
-    task_id: &str,
-    current: &TaskStatus,
-    next: &TaskStatus,
-    attempt_id: &str,
-) -> Result<(), PlanError> {
-    validate_task_status_transition_for(
-        plan,
-        task_id,
-        current,
-        next,
-        None,
-        Some(InProgressExecutor::CompetitiveAttempt(attempt_id)),
-    )
-}
-
-fn validate_task_status_transition_for(
-    plan: &Plan,
-    task_id: &str,
-    current: &TaskStatus,
-    next: &TaskStatus,
-    incoming_label: Option<Option<&str>>,
-    executor: Option<InProgressExecutor<'_>>,
-) -> Result<(), PlanError> {
-    let task = plan.tasks.iter().find(|task| task.id == task_id);
-    let task_level_tab = task
-        .and_then(|task| {
-            task.assigned_tab_id
-                .as_deref()
-                .or(task.lane.tab_id.as_deref())
-        })
-        .is_some_and(|tab| !tab.trim().is_empty());
-    let has_tab = match executor {
-        Some(InProgressExecutor::LaneAssignment(update)) => match update.tab_id.as_ref() {
-            Some(tab) => tab.as_deref().is_some_and(|tab| !tab.trim().is_empty()),
-            None => task_level_tab,
-        },
-        Some(InProgressExecutor::CompetitiveAttempt(attempt_id)) => {
-            task.is_some_and(|task| live_competitive_executor(task, attempt_id))
-        }
-        None => task_level_tab,
-    };
-    status_transition::validate(
-        task,
-        current,
-        next,
-        incoming_label,
-        has_tab,
-        |task| super::review_gate::validate_dispatch_review_capacity(plan, task),
-        || reject_terminal_with_open_subtasks(plan, task_id),
-    )
 }
 
 pub(in crate::service_plan) mod status_transition;

@@ -56,11 +56,10 @@ async fn check_and_apply_plugin(
     )
     .await?;
     let endpoint_str = opts.manifest_url.clone().unwrap_or_else(|| {
-        codeterm_update::channel::default_endpoints_for_install_method(
+        codeterm_update::channel::default_endpoint_for_install_method(
             opts.channel,
             &opts.install_method,
-        )[0]
-        .clone()
+        )
     });
 
     let endpoint = Url::parse(&endpoint_str)

@@ -56,8 +56,9 @@ fn spec_coverage_report_never_loads_unmatched_plans() {
     );
     start(&store);
 
-    assert!(store.spec_coverage_report(&spec.id).is_some());
+    assert!(store.spec_coverage_report(&spec.id).unwrap().is_some());
     assert_never_loaded(&store, &[&other]);
+    assert!(store.plan_loads_for_test().is_empty());
 }
 
 #[test]
@@ -72,10 +73,11 @@ fn list_spec_links_never_loads_unmatched_plans() {
     );
     start(&store);
 
-    let links = store.list_spec_links("sp_audit");
+    let links = store.list_spec_links("sp_audit").unwrap();
     assert_eq!(links.len(), 1);
     assert_eq!(links[0].0, linked);
     assert_never_loaded(&store, &[&other]);
+    assert!(store.plan_loads_for_test().is_empty());
 }
 
 #[test]
@@ -122,12 +124,15 @@ fn list_tasks_never_loads_unmatched_plans() {
     );
     start(&store);
 
-    let tasks = store.list_tasks(TaskListFilter {
-        project_path: Some(project.clone()),
-        ..Default::default()
-    });
+    let tasks = store
+        .list_tasks(TaskListFilter {
+            project_path: Some(project.clone()),
+            ..Default::default()
+        })
+        .unwrap();
     assert_eq!(tasks.len(), 1);
     assert_eq!(tasks[0].plan_id, here);
+    assert!(store.plan_loads_for_test().is_empty());
     assert_never_loaded(&store, &[&elsewhere]);
 }
 
@@ -154,8 +159,11 @@ fn show_task_never_loads_unmatched_plans() {
     );
     start(&store);
 
-    assert_eq!(store.show_task("task_shown").unwrap().plan_id, holder);
-    assert_never_loaded(&store, &[&other]);
+    assert_eq!(
+        store.show_task_window("task_shown").unwrap().plan_id,
+        holder
+    );
+    assert_never_loaded(&store, &[&holder, &other]);
 }
 
 #[test]
@@ -207,7 +215,7 @@ fn task_key_high_water_never_loads_unmatched_plans() {
     );
     start(&store);
 
-    assert_eq!(store.task_key_high_water().get("AUD"), Some(&7));
+    assert_eq!(store.task_key_high_water().unwrap().get("AUD"), Some(&7));
     assert!(
         store.plan_loads_for_test().is_empty(),
         "keys come from the task rows"
@@ -228,8 +236,12 @@ fn orphan_attachment_dirs_never_loads_unmatched_plans() {
     );
     start(&store);
 
-    assert!(store.orphan_attachment_dirs(project.as_ref()).is_empty());
-    assert_eq!(store.plan_loads_for_test(), vec![here]);
+    assert!(store
+        .orphan_attachment_dirs(project.as_ref())
+        .unwrap()
+        .is_empty());
+    assert_never_loaded(&store, &[&here]);
+    assert!(store.plan_loads_for_test().is_empty());
     assert_never_loaded(&store, &[&elsewhere]);
 }
 
@@ -267,8 +279,9 @@ fn reindex_project_index_never_loads_unmatched_plans() {
     start(&store);
 
     store.reindex_project_index(project.as_ref()).unwrap();
-    assert_eq!(store.plan_loads_for_test(), vec![here]);
-    assert_never_loaded(&store, &[&elsewhere]);
+    // Reindex reads search snapshots from SQL; no plan is loaded whole.
+    assert!(store.plan_loads_for_test().is_empty());
+    assert_never_loaded(&store, &[&here, &elsewhere]);
 }
 
 #[test]
@@ -290,10 +303,6 @@ fn seed_missing_search_indexes_never_loads_unmatched_plans() {
 
     store.seed_missing_search_indexes();
     assert!(store.plan_loads_for_test().iter().all(|id| *id == missing));
-    assert!(
-        store.cached_plan_ids_for_test().is_empty(),
-        "seeding never fills the cache"
-    );
     assert_never_loaded(&store, &[&indexed]);
 }
 
@@ -369,6 +378,7 @@ fn loop_status_never_loads_unmatched_plans() {
 
     assert_eq!(store.loop_status("loop_status").unwrap().id, "loop_status");
     assert_never_loaded(&store, &[&other]);
+    assert!(store.plan_loads_for_test().is_empty());
 }
 
 #[test]
@@ -479,7 +489,7 @@ fn handoff(tab_id: &str) -> CanvasElement {
         "kind": "handoff",
         "content": {
             "reseed_state": "new_sent",
-            "reseed_pending": { "tab_id": tab_id, "source_session_id": "old-session" }
+            "reseed_pending": { "tab_id": tab_id, "source_session_id": "old-session", "state": "new_sent", "resume_prompt": "opaque-resume-payload" }
         }
     }))
     .expect("handoff fixture")
@@ -496,10 +506,30 @@ fn observe_handoff_session_start_never_loads_unmatched_plans() {
     let other = seed(&store, other);
     start(&store);
 
-    store
+    let resume = store
         .observe_handoff_session_start("tab-reseed", "new-session", 5)
-        .unwrap();
-    assert!(store.plan_loads_for_test().contains(&pending));
+        .unwrap()
+        .expect("the selected pending handoff observes its new session");
+    assert_eq!(resume.plan_id, pending);
+    assert_eq!(resume.handoff_id, "el_tab-reseed");
+    assert_eq!(resume.tab_id, "tab-reseed");
+    assert!(resume.text.contains("opaque-resume-payload"));
+    let selected = store.show_handoff(&pending, Some("el_tab-reseed")).unwrap();
+    assert_eq!(selected.content["reseed_pending"]["state"], "session_seen");
+    assert_eq!(
+        selected.content["reseed_pending"]["target_session_id"],
+        "new-session"
+    );
+    let unmatched = store.show_handoff(&other, Some("el_tab-else")).unwrap();
+    assert_eq!(unmatched.content["reseed_pending"]["state"], "new_sent");
+    assert!(unmatched.content["reseed_pending"]
+        .get("target_session_id")
+        .is_none());
+    assert!(store
+        .observe_handoff_session_start("tab-reseed", "new-session", 6)
+        .unwrap()
+        .is_none());
+    assert!(store.plan_loads_for_test().is_empty());
     assert_never_loaded(&store, &[&other]);
 }
 
@@ -535,18 +565,24 @@ fn reminder_candidate_plans_never_loads_unmatched_plans() {
     start(&store);
 
     let ids: Vec<_> = store
-        .reminder_candidate_plans()
+        .reminder_read_snapshot(str::to_string)
+        .unwrap()
+        .candidate_targets(None)
+        .unwrap()
         .into_iter()
         .map(|plan| plan.id)
         .collect();
     assert_eq!(ids, vec![working.clone()]);
     let for_tab: Vec<_> = store
-        .reminder_candidate_plans_for_tab("w1")
+        .reminder_read_snapshot(str::to_string)
+        .unwrap()
+        .candidate_targets(Some("w1"))
+        .unwrap()
         .into_iter()
         .map(|plan| plan.id)
         .collect();
-    assert_eq!(for_tab, vec![working]);
-    assert_never_loaded(&store, &[&archived, &finished]);
+    assert_eq!(for_tab, vec![working.clone()]);
+    assert_never_loaded(&store, &[&working, &archived, &finished]);
 }
 
 #[test]
@@ -662,6 +698,7 @@ fn with_verified_worker_transfer_binding_never_loads_unmatched_plans() {
         refused.is_err() && !committed,
         "a lane-less binding is not unique"
     );
+    assert!(store.plan_loads_for_test().is_empty());
     assert_never_loaded(&store, &[&other]);
 }
 
@@ -685,7 +722,7 @@ fn plan_id_for_team_never_loads_unmatched_plans() {
 }
 
 #[test]
-fn for_each_plan_uncached_streams_every_plan_without_filling_the_cache() {
+fn export_all_plan_documents_never_loads_whole_plans_or_cache() {
     let (_dir, store, project) = fixture();
     let first = seed(
         &store,
@@ -697,17 +734,21 @@ fn for_each_plan_uncached_streams_every_plan_without_filling_the_cache() {
     );
     start(&store);
 
-    let mut seen = Vec::new();
-    store.for_each_plan_uncached(|plan| seen.push(plan.id));
+    let mut seen: Vec<String> = store
+        .export_all_plan_documents()
+        .unwrap()
+        .into_iter()
+        .map(|plan| plan["id"].as_str().unwrap().to_string())
+        .collect();
     seen.sort();
     let mut expected = vec![first, second];
     expected.sort();
     assert_eq!(seen, expected);
-    assert!(store.cached_plan_ids_for_test().is_empty());
+    assert!(store.plan_loads_for_test().is_empty());
 }
 
 #[test]
-fn plans_owned_or_planned_by_never_loads_unmatched_plans() {
+fn restored_plan_bindings_never_loads_unmatched_plans() {
     let (_dir, store, project) = fixture();
     let owned = seed(
         &store,
@@ -723,15 +764,17 @@ fn plans_owned_or_planned_by_never_loads_unmatched_plans() {
     start(&store);
 
     let mut ids: Vec<_> = store
-        .plans_owned_or_planned_by("tab-a")
+        .restored_plan_bindings_projection("tab-a")
+        .unwrap()
         .into_iter()
-        .map(|plan| plan.id)
+        .map(|plan| plan.plan_id)
         .collect();
     ids.sort();
     let mut expected = vec![owned, planned];
     expected.sort();
     assert_eq!(ids, expected);
     assert_never_loaded(&store, &[&other]);
+    assert!(store.plan_loads_for_test().is_empty());
 }
 
 #[test]
@@ -764,13 +807,14 @@ fn team_close_plans_never_loads_unmatched_plans() {
     start(&store);
 
     let mut ids: Vec<_> = store
-        .team_close_plans("team-closing", &["member-tab".into()])
+        .team_close_projection("team-closing", &["member-tab".into()])
+        .unwrap()
         .into_iter()
         .map(|plan| plan.id)
         .collect();
     ids.sort();
-    let mut expected = vec![laned, assigned];
+    let mut expected = vec![laned.clone(), assigned.clone()];
     expected.sort();
     assert_eq!(ids, expected);
-    assert_never_loaded(&store, &[&other]);
+    assert_never_loaded(&store, &[&laned, &assigned, &other]);
 }

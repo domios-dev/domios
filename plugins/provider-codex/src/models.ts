@@ -1,15 +1,8 @@
+import { type HostIoSteps } from "@codeterm/plugin-sdk";
 import type { ModelInfo } from "@codeterm/plugin-sdk";
 import { effectiveReadPath } from "../../provider-shared/readHome";
 
-declare const host: {
-  envGet(name: string): string | null;
-  homeDir(): string | null;
-  platform(): string;
-  fs: {
-    fileExists(path: string): boolean;
-    readJson<T>(path: string): T | null;
-  };
-};
+declare const host: import("@codeterm/plugin-sdk").Host;
 
 interface CodexModelCache {
   models?: CodexCachedModel[];
@@ -31,8 +24,8 @@ interface CodexReasoningLevel {
 }
 
 // `null` tells the host no genuine discovery ran; the seed is the host's to apply.
-export function discoverCodexModels(): ModelInfo[] | null {
-  return discoverCodexModelsFromCache();
+export function* discoverCodexModels(): HostIoSteps<ModelInfo[] | null> {
+  return (yield* discoverCodexModelsFromCache());
 }
 
 function codexModelsCachePath(): string | null {
@@ -41,10 +34,10 @@ function codexModelsCachePath(): string | null {
   return effectiveReadPath(host.envGet("CODEX_HOME"), home ? home + sep + ".codex" + sep + "models_cache.json" : null, "models_cache.json", sep);
 }
 
-function discoverCodexModelsFromCache(): ModelInfo[] | null {
+function* discoverCodexModelsFromCache(): HostIoSteps<ModelInfo[] | null> {
   const path = codexModelsCachePath();
-  if (!path || !host.fs.fileExists(path)) return null;
-  const cache = host.fs.readJson<CodexModelCache>(path);
+  if (!path || !(yield* host.io.fs.fileExists(path))) return null;
+  const cache = (yield* host.io.fs.readJson<CodexModelCache>(path));
   const raw = cache && cache.models;
   if (!Array.isArray(raw)) return null;
   const kept: CodexCachedModel[] = [];

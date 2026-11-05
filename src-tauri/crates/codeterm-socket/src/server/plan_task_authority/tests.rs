@@ -20,6 +20,31 @@ const GONE_OWNER_SESSION: &str = "gone-worker-session";
 const OWNER_EPOCH: u64 = 5;
 
 #[test]
+fn planning_storage_failure_keeps_internal_rpc_code_and_diagnostic() {
+    use codeterm_service_core::service::PlanAuthorityError;
+    let error = super::planning_authority_error(PlanAuthorityError::StoreReadFailed);
+    assert_eq!(error.code, -32603);
+    assert_eq!(
+        error.data.unwrap()["type"],
+        "plan_authority_store_read_failed"
+    );
+    assert_eq!(
+        super::planning_authority_error(PlanAuthorityError::RoleUnauthorized).code,
+        -32003
+    );
+    let mutation = super::plan_operation_error(
+        codeterm_service_core::service::PlanOperationError::Authority(
+            PlanAuthorityError::StoreReadFailed,
+        ),
+    );
+    assert_eq!(mutation.code, -32603);
+    assert_eq!(
+        mutation.data.unwrap()["type"],
+        "plan_authority_store_read_failed"
+    );
+}
+
+#[test]
 fn startup_recovery_guard_only_applies_to_lane_metadata_updates() {
     for lane in [
         json!({"destination": "release/1"}),
@@ -375,7 +400,8 @@ fn recovery_authority_recovers_a_tab_gone_task_for_dispatch() {
                 &harness.plan_id,
                 Some(GONE_OWNER_TAB),
                 Some(GONE_OWNER_SESSION),
-            ),
+            )
+            .unwrap(),
             "{method} must reach the tab-gone escape hatch"
         );
         verify_owner_epoch_for_task_mutation(method, &params, &service)
@@ -421,7 +447,8 @@ fn recovery_authority_still_refuses_a_foreign_caller_for_the_same_verbs() {
                 &harness.plan_id,
                 Some(GONE_OWNER_TAB),
                 Some(GONE_OWNER_SESSION),
-            ),
+            )
+            .unwrap(),
             "{method} handed recovery to a foreign caller"
         );
         let error = verify_owner_epoch_for_task_mutation(method, &params, &service)
@@ -897,7 +924,8 @@ fn recovery_authority_does_not_launder_a_stale_binding_report() {
             &harness.plan_id,
             Some(owner_tab.as_str()),
             Some(owner_session.as_str()),
-        ));
+        )
+        .unwrap());
         let error = verify_owner_epoch_for_task_mutation("agent.report", &params, &service)
             .expect_err("a caller not bound to the task must not report against it");
         assert_eq!(refusal_type(&error), expected.discriminant());

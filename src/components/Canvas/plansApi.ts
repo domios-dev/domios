@@ -2,7 +2,7 @@ import { daemonFetch, webRequestContext, assertWebRequestContext } from "../../l
 import type { ControlLoopUpdate, PlanControlLoop } from "./planControlLoop";
 import { authHeaders, jsonHeaders } from "../MemoryPanel/memoryApi";
 import type { ApiConfig } from "../../lib/types";
-import { planRevision, type PlanProjection, type PlanProjectionView, type PlanListProjection, type PlanListCursor } from "./planProjection";
+import { planRevision, type PlanView, type PlanProjection, type PlanProjectionView, type PlanListProjection, type PlanListCursor } from "./planProjection";
 import type {
   DriftItem,
   OrchestratorRef,
@@ -119,7 +119,7 @@ export async function fetchRequestedPlanTaskMetadata(api: ApiConfig, planId: str
   const context = webRequestContext();
   let cursor: PlanListCursor | undefined;
   let result: PlanListProjection | undefined;
-  const tasks = new Map<string, Plan["tasks"][number]>();
+  const tasks = new Map<string, PlanProjection["tasks"][number]>();
   do {
     assertWebRequestContext(context);
     const page = await fetchPlanListWindow(api, planId, status, "", signal, cursor, taskRef, undefined, true);
@@ -290,7 +290,7 @@ export interface CreatePlanParams {
   spec?: string;
 }
 
-export async function createPlan(api: ApiConfig, params: CreatePlanParams): Promise<Plan> {
+export async function createPlan(api: ApiConfig, params: CreatePlanParams): Promise<PlanView> {
   const res = await daemonFetch(api, `/api/plans`, {
     method: "POST",
     headers: jsonHeaders(api),

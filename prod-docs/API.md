@@ -71,6 +71,7 @@ Neighbor outgoing history: optional UNIX-ms `delivered_at`, `read_at` (implies d
 #### Local previews
 | Method | Path | Body | Description |
 |--------|------|------|-------------|
+| POST | `/api/tabs/{id}/preview/prepare` | — | Index the tab's own session transcript for file references; returns `{state: "ready"\|"indexing", index_id}`. Indexing completion arrives as event `preview-index-state-{id}` (`ready` or `failed`); tabs without a transcript are `ready` at once. Rate-limited |
 | POST | `/api/tabs/{id}/preview/read` | `{path, kind}` | Tab-scoped read; see `API-STATE` |
 | POST | `/api/tabs/{id}/preview/check` | `{paths}` | Tab-scoped existence check |
 
@@ -207,4 +208,4 @@ Live authenticated Plan owners can recover `update`/`assign`/`respawn`/`close` a
 
 Related: `API-PLAN`, `API-TABS`, `API-CHAT`, `API-MEMORY`, `API-TRANSPORT`, `API-CLI`, `TELEGRAM-SETUP`. Analytics (`/api/analytics/{status,consent,event}`), account and plan routes: `ACCOUNT`.
 
-<!-- revision: 243 -->
+<!-- revision: 244 -->

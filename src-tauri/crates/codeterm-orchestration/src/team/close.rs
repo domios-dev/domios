@@ -8,8 +8,8 @@ use serde::Serialize;
 use super::TeamMutationCaller;
 use codeterm_service_core::multiplexer::state::MultiplexerState;
 use codeterm_service_core::multiplexer::types::TabBacking;
-use codeterm_service_core::plan::Plan;
 use codeterm_service_core::process_util;
+use codeterm_service_core::service::plan::TeamClosePlanRead;
 use codeterm_service_core::service::plan::{PlanStore, TaskLaneUpdate};
 
 const LANE_BRANCH_PREFIX: &str = "lane/";
@@ -135,7 +135,9 @@ where
 {
     let initial = stage_team_close(mux, team_id, caller, &mut close_member)?;
     let lanes = team_close_lanes(
-        &plan_store.team_close_plans(team_id, &initial.member_tab_ids),
+        &plan_store
+            .team_close_projection(team_id, &initial.member_tab_ids)
+            .map_err(|error| error.to_string())?,
         team_id,
         &initial.member_tab_ids,
     );
@@ -196,47 +198,24 @@ pub(super) fn commit_prepared_team_close(
 }
 
 pub(super) fn team_close_lanes(
-    plans: &[Plan],
+    plans: &[TeamClosePlanRead],
     team_id: &str,
     member_tab_ids: &[String],
 ) -> Vec<TeamCloseLane> {
-    collect_lanes(plans, Some((team_id, member_tab_ids)))
-}
-
-pub fn plan_cleanup_lanes(plan: &Plan) -> Vec<TeamCloseLane> {
-    collect_lanes(std::slice::from_ref(plan), None)
-}
-
-fn collect_lanes(plans: &[Plan], scope: Option<(&str, &[String])>) -> Vec<TeamCloseLane> {
-    let tabs: HashSet<_> = scope
-        .into_iter()
-        .flat_map(|(_, tabs)| tabs.iter().map(String::as_str))
-        .collect();
+    let tabs: HashSet<_> = member_tab_ids.iter().map(String::as_str).collect();
     let mut lanes = Vec::new();
     for plan in plans {
-        let team_owned_plan =
-            scope.is_none_or(|(team_id, _)| plan.team_id.as_deref() == Some(team_id));
+        let team_owned_plan = plan.team_id.as_deref() == Some(team_id);
         let project_path = if plan.canonical_project_path.trim().is_empty() {
             plan.project_path.clone()
         } else {
             plan.canonical_project_path.clone()
         };
         for task in &plan.tasks {
-            if scope.is_some()
-                && task
-                    .execution_attempts
-                    .iter()
-                    .any(|attempt| attempt.remote_worktree_path.is_some())
-            {
+            if task.has_remote_attempt {
                 continue;
             }
-            let matching_attempts: Vec<_> = task
-                .execution_attempts
-                .iter()
-                .filter(|attempt| {
-                    team_owned_plan || tabs.contains(attempt.executor_tab_id.as_str())
-                })
-                .collect();
+            let matching_attempts = &task.attempt_lanes;
             let assigned_to_closed_tab = task
                 .assigned_tab_id
                 .as_deref()
@@ -483,7 +462,7 @@ fn commit_staged_team_close(
     ))
 }
 
-fn push_lane(
+pub(crate) fn push_lane(
     lanes: &mut Vec<TeamCloseLane>,
     plan_id: &str,
     task_id: &str,
@@ -871,11 +850,13 @@ mod consumer_load_tests {
 
         let members = vec!["member-tab".to_string()];
         let lanes = team_close_lanes(
-            &store.team_close_plans("team-closing", &members),
+            &store
+                .team_close_projection("team-closing", &members)
+                .unwrap(),
             "team-closing",
             &members,
         );
         assert!(lanes.iter().all(|lane| lane.plan_id == member));
-        assert_never_loaded(&store, &[&unrelated]);
+        assert_never_loaded(&store, &[&member, &unrelated]);
     }
 }

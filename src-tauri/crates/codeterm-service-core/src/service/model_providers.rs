@@ -622,9 +622,14 @@ impl ServiceContext {
         if changes {
             crate::agent::model_catalog::invalidate_inputs(owner.id());
             crate::agent::model_binary_watch::install(owner.clone());
-            let _ = crate::async_runtime::block_on(crate::agent::model_catalog::refresh_models(
-                owner, true,
+            // Endpoint models answer this change now; the live probe can take seconds
+            // on a slow provider CLI, so it publishes in the background.
+            crate::async_runtime::block_on(crate::agent::model_catalog::refresh_endpoints(
+                owner.clone(),
             ));
+            crate::async_runtime::spawn(async move {
+                let _ = crate::agent::model_catalog::refresh_models(owner, true).await;
+            });
         }
         Ok(result)
     }

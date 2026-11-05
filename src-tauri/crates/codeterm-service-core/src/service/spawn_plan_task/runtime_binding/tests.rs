@@ -74,7 +74,7 @@ fn prepared_task_attempt_is_committed_once_before_runtime_and_finalized_on_exact
     bind(Some("own-session"), Some("own-nonce")).unwrap();
     bind(Some("own-session"), Some("own-nonce")).unwrap();
     assert!(bind(Some("foreign-session"), Some("own-nonce")).is_err());
-    let task = store.show_task(&task).unwrap().task;
+    let task = store.inspect_task_for_test(&task).unwrap().task;
     assert_eq!(task.execution_attempts.len(), 1);
     assert_eq!(task.execution_attempts[0].id, "attempt-prepared");
     assert_eq!(
@@ -142,7 +142,11 @@ fn runtime_routed_plan_dispatch_binds_intent_authority_manifest_and_accepts_work
         .service
         .finalize_runtime_worker_session(&tab_id, "own-thread", "own-nonce")
         .unwrap();
-    let detail = fixture.service.plan_store.show_task(&task).unwrap();
+    let detail = fixture
+        .service
+        .plan_store
+        .inspect_task_for_test(&task)
+        .unwrap();
     assert_eq!(
         detail.task.status_label.as_deref(),
         Some("awaiting_worker_ack")
@@ -188,7 +192,7 @@ fn runtime_routed_plan_dispatch_binds_intent_authority_manifest_and_accepts_work
         fixture
             .service
             .plan_store
-            .show_task(&task)
+            .inspect_task_for_test(&task)
             .unwrap()
             .task
             .status,
@@ -269,7 +273,7 @@ fn assert_restored_worker_preserves_status(status: crate::plan::TaskStatus) {
             fixture
                 .service
                 .plan_store
-                .show_task(&task)
+                .inspect_task_for_test(&task)
                 .unwrap()
                 .task
                 .lane,
@@ -298,7 +302,7 @@ fn assert_restored_worker_preserves_status(status: crate::plan::TaskStatus) {
     fixture
         .service
         .plan_store
-        .with_plan(&plan, 12, |plan| {
+        .edit_plan_fixture(&plan, 12, |plan| {
             let entry = plan
                 .tasks
                 .iter_mut()
@@ -311,7 +315,12 @@ fn assert_restored_worker_preserves_status(status: crate::plan::TaskStatus) {
             Ok(())
         })
         .unwrap();
-    let before = fixture.service.plan_store.show_task(&task).unwrap().task;
+    let before = fixture
+        .service
+        .plan_store
+        .inspect_task_for_test(&task)
+        .unwrap()
+        .task;
     fixture
         .service
         .mux
@@ -346,7 +355,11 @@ fn assert_restored_worker_preserves_status(status: crate::plan::TaskStatus) {
         .clone()
         .unwrap();
     assert_eq!(binding.attempt_id.as_deref(), Some(attempt_id.as_str()));
-    let detail = fixture.service.plan_store.show_task(&task).unwrap();
+    let detail = fixture
+        .service
+        .plan_store
+        .inspect_task_for_test(&task)
+        .unwrap();
     assert_eq!(detail.task.execution_attempts.len(), 1);
     let attempt = &detail.task.execution_attempts[0];
     assert_eq!(attempt.id, attempt_id);

@@ -6,6 +6,120 @@ use crate::service_plan::task_attempts::{BoundWorkerReport, TaskCompeteDraft};
 use crate::service_plan::{NewTask, TaskLaneUpdate};
 use codeterm_types::agent::ReportStatus;
 
+#[test]
+fn closed_review_sql_matches_the_original_continuation_rule() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut base = Plan::new(
+        "Review projection".into(),
+        directory.path().display().to_string(),
+        OrchestratorRef::default(),
+    );
+    let mut task =
+        crate::service_plan::load_audit::task("task_review", TaskStatus::InReview, Some("worker"));
+    task.peer = Some("task-peer".into());
+    task.review_round = 2;
+    let mut attempt = crate::service_plan::load_audit::attempt("reported", "worker");
+    attempt.session_id = Some("session".into());
+    attempt.acknowledged_at = Some(1);
+    attempt.reported_at = Some(2);
+    attempt.closed_at = Some(3);
+    attempt.continuation.epoch = 4;
+    task.execution_attempts = vec![attempt];
+    base.tasks = vec![task];
+    let mut variants = vec![base.clone()];
+    for field in [
+        "pending",
+        "replay_awaiting",
+        "replay_failed",
+        "replay_bounced",
+        "wrong_replay",
+        "unassigned",
+        "retired_unassigned",
+        "retired_wrong_label",
+        "unacknowledged",
+        "unreported",
+        "session_none",
+        "session_blank",
+        "session_unicode_blank",
+        "competition_winner",
+        "competition_loser",
+        "open_matching",
+        "open_foreign",
+        "two_closed",
+        "mesh_override",
+        "empty_state",
+    ] {
+        let mut plan = base.clone();
+        let task = &mut plan.tasks[0];
+        match field {
+            "pending" => task.status = TaskStatus::Pending,
+            "replay_awaiting" | "replay_failed" | "replay_bounced" | "wrong_replay" => {
+                task.status = TaskStatus::InProgress;
+                task.status_label = Some(
+                    match field {
+                        "replay_awaiting" => "awaiting_continuation",
+                        "replay_failed" => "bounce_continuation_failed",
+                        "replay_bounced" => "review bounced",
+                        _ => "foreign",
+                    }
+                    .into(),
+                );
+            }
+            "unassigned" => task.assigned_tab_id = None,
+            "retired_unassigned" | "retired_wrong_label" => {
+                task.assigned_tab_id = None;
+                task.execution_attempts[0].retired_at = Some(3);
+                task.status_label = Some(
+                    if field == "retired_unassigned" {
+                        crate::plan::reconcile::TAB_GONE_LABEL
+                    } else {
+                        "foreign"
+                    }
+                    .into(),
+                );
+            }
+            "unacknowledged" => task.execution_attempts[0].acknowledged_at = None,
+            "unreported" => task.execution_attempts[0].reported_at = None,
+            "session_none" => task.execution_attempts[0].session_id = None,
+            "session_blank" => task.execution_attempts[0].session_id = Some(" \t".into()),
+            "session_unicode_blank" => {
+                task.execution_attempts[0].session_id = Some("\u{2003}\u{85}".into())
+            }
+            "competition_winner" | "competition_loser" => {
+                task.assigned_tab_id = None;
+                task.execution_attempts[0].competition_group_id = Some("group".into());
+                task.execution_attempts[0].winner = field == "competition_winner";
+            }
+            "open_matching" | "open_foreign" | "two_closed" => {
+                let mut other = task.execution_attempts[0].clone();
+                other.id = "other".into();
+                if field != "two_closed" {
+                    other.closed_at = None;
+                }
+                if field == "open_foreign" {
+                    other.executor_tab_id = "foreign".into();
+                }
+                task.execution_attempts.push(other);
+            }
+            "mesh_override" => task.execution_attempts[0].mesh_peer = Some("attempt-peer".into()),
+            "empty_state" => task.execution_attempts[0].continuation.state = Some(String::new()),
+            _ => unreachable!(),
+        }
+        variants.push(plan);
+    }
+    let database =
+        crate::service_plan::store_db::PlanDatabase::open(directory.path().join("plans.db"))
+            .unwrap();
+    for (index, plan) in variants.iter().enumerate() {
+        database.persist_plan_rows(plan, None).unwrap();
+        let expected = closed_review_continuation_reference(&plan.tasks[0]);
+        let actual = database
+            .closed_review_continuation_projection(&plan.id, "task_review")
+            .unwrap();
+        assert_eq!(actual, expected, "variant {index}");
+    }
+}
+
 fn setup() -> (tempfile::TempDir, PlanStore, String, String) {
     let dir = tempfile::tempdir().unwrap();
     let store = PlanStore::new_for_test(dir.path());
@@ -80,7 +194,7 @@ fn add_reported_generation(
             assigned_at,
         )
         .unwrap();
-    let assigned = store.show_task(task_id).unwrap().task;
+    let assigned = store.inspect_task_for_test(task_id).unwrap().task;
     let attempt_id = assigned.execution_attempts.last().unwrap().id.clone();
     store
         .acknowledge_task_attempt(plan_id, task_id, tab_id, &attempt_id, assigned_at + 1)
@@ -119,7 +233,10 @@ fn retire_and_clean(
     store
         .retire_stale_task_owner(plan_id, task_id, Some(outcome), |_| false, now_ms)
         .unwrap();
-    let plan = store.get(plan_id).unwrap();
+    let plan = store
+        .closed_task_lane_cleanup_projection(plan_id, task_id)
+        .unwrap()
+        .unwrap();
     assert!(matches!(
         crate::service_plan::lane_cleanup::try_cleanup_task_lane(
             store,
@@ -130,7 +247,7 @@ fn retire_and_clean(
         ),
         crate::service_plan::lane_cleanup::LaneCleanupOutcome::Cleaned
     ));
-    let task = store.show_task(task_id).unwrap().task;
+    let task = store.inspect_task_for_test(task_id).unwrap().task;
     assert_eq!(task.lane.cleanup_status.as_deref(), Some("done"));
     assert_eq!(task.lane.worktree_path, None);
     assert_eq!(task.lane.branch, None);
@@ -346,7 +463,7 @@ fn add_unreported_generation(
             .unwrap();
     }
     store
-        .show_task(task_id)
+        .inspect_task_for_test(task_id)
         .unwrap()
         .task
         .execution_attempts
@@ -360,7 +477,7 @@ fn add_unreported_generation(
 fn review_bounce_cleaned_two_generations_returns_pending() {
     let (_dir, store, plan_id, task_id, attempt_ids) = two_reported_cleaned_generations();
     let before_plan = store.get(&plan_id).unwrap();
-    let before = store.show_task(&task_id).unwrap().task;
+    let before = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(before.status, TaskStatus::InReview);
     assert_eq!(before.execution_attempts.len(), 2);
     assert_eq!(
@@ -382,7 +499,7 @@ fn review_bounce_cleaned_two_generations_returns_pending() {
 
     assert_eq!(bounced.continuation, None);
     assert_eq!(bounced.review_round, before.review_round + 1);
-    let after = store.show_task(&task_id).unwrap().task;
+    let after = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(after.status, TaskStatus::Pending);
     assert_eq!(after.status_label.as_deref(), Some("review bounced"));
     assert_eq!(
@@ -406,7 +523,7 @@ fn review_bounce_cleaned_two_generations_returns_pending() {
 fn review_bounce_cleaned_single_terminal_generation_returns_pending() {
     let (_dir, store, plan_id, task_id, attempt_id) = one_reported_cleaned_generation();
     let before_plan = store.get(&plan_id).unwrap();
-    let before = store.show_task(&task_id).unwrap().task;
+    let before = store.inspect_task_for_test(&task_id).unwrap().task;
     let bounced = store
         .bounce_review(
             &plan_id,
@@ -421,7 +538,7 @@ fn review_bounce_cleaned_single_terminal_generation_returns_pending() {
 
     assert_eq!(bounced.continuation, None);
     assert_eq!(bounced.review_round, before.review_round + 1);
-    let after = store.show_task(&task_id).unwrap().task;
+    let after = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(after.status, TaskStatus::Pending);
     assert_eq!(after.execution_attempts[0].id, attempt_id);
     assert_attempt_history_preserved(&before, &after, 0, &bounced);
@@ -451,7 +568,7 @@ fn review_bounce_cleaned_ordinary_assigned_live_continues() {
     assert_eq!(continuation.attempt_id, attempt_id);
     assert_eq!(continuation.session_id, "worker-session-1");
     assert_eq!(continuation.state, "awaiting_continuation");
-    let task = store.show_task(&task_id).unwrap().task;
+    let task = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(task.status, TaskStatus::InReview);
     assert_eq!(task.status_label.as_deref(), Some("awaiting_continuation"));
 }
@@ -466,7 +583,7 @@ fn review_bounce_cleaned_original_ambiguity_refuses() {
         crate::plan::reconcile::TAB_GONE_LABEL,
         28,
     );
-    let task = store.show_task(&task_id).unwrap().task;
+    let task = store.inspect_task_for_test(&task_id).unwrap().task;
     assert!(matches!(
         exact_closed_review_attempt(&task),
         ClosedReviewAttempt::Ambiguous
@@ -480,7 +597,7 @@ fn review_bounce_cleaned_refuses_open_attempt() {
     store
         .assign_task_with_role(&plan_id, &task_id, "open-worker", None, Some("Worker"), 3)
         .unwrap();
-    let task = store.show_task(&task_id).unwrap().task;
+    let task = store.inspect_task_for_test(&task_id).unwrap().task;
     let attempt_id = task.execution_attempts[0].id.clone();
     store
         .acknowledge_task_attempt(&plan_id, &task_id, "open-worker", &attempt_id, 4)
@@ -552,7 +669,7 @@ fn review_bounce_cleaned_refuses_competitive_history() {
         .unwrap();
     set_status_label(&store, &plan_id, &task_id, "review", 30);
     assert!(store
-        .show_task(&task_id)
+        .inspect_task_for_test(&task_id)
         .unwrap()
         .task
         .execution_attempts
@@ -573,14 +690,19 @@ fn review_bounce_cleaned_refuses_later_failed_generation() {
     set_status(&store, &plan_id, &task_id, "in_review", 22);
     retire_and_clean(&store, &plan_id, &task_id, TaskStatus::InReview, 25);
     set_status_label(&store, &plan_id, &task_id, "review", 27);
-    let task = store.show_task(&task_id).unwrap().task;
+    let task = store.inspect_task_for_test(&task_id).unwrap().task;
     assert!(task.execution_attempts[0].report.is_some());
     assert_eq!(task.execution_attempts[1].id, failed);
     assert_eq!(task.execution_attempts[1].report, None);
     assert_ne!(task.execution_attempts[0].id, task.execution_attempts[1].id);
     assert_review_bounce_refused_unchanged(&store, &plan_id, &task_id, 28);
     assert_eq!(
-        store.show_task(&task_id).unwrap().task.execution_attempts[0].id,
+        store
+            .inspect_task_for_test(&task_id)
+            .unwrap()
+            .task
+            .execution_attempts[0]
+            .id,
         earlier_report
     );
 }
@@ -616,7 +738,7 @@ fn review_bounce_cleaned_refuses_replay_conflict() {
 
     let (_dir, store, plan_id, task_id, _) = one_reported_cleaned_generation();
     store
-        .with_plan(&plan_id, 16, |plan| {
+        .edit_plan_fixture(&plan_id, 16, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()

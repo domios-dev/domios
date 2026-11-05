@@ -169,3 +169,20 @@ fn reseed_session_error_includes_agent_recovery_command() {
     assert!(msg.contains("domios tab list --agents"));
     assert!(msg.contains("--tab <tab-id>"));
 }
+
+#[test]
+fn compact_status_counts_the_whole_plan_when_detail_lists_are_windowed() {
+    let value = json!({
+        "plan_id":"windowed", "live_lanes":{"open":[{"task_id":"shown"}],"blocked":[],"agents":[]},
+        "next_actions":[{"kind":"dispatch","task_id":"shown"}],
+        "details":{"totals":{"open_lanes":1162,"live_agents":80,"next_actions":1200},"live_open_lanes":70,"live_blocked_lanes":10},
+        "drift":{"total":90,"by_kind":{"report_target_write_missing":60},"items":[]}
+    });
+    let compact = compact_status(&value);
+    assert_eq!(compact["open_tasks"], 1162);
+    assert_eq!(compact["live_lanes"]["open"], 70);
+    assert_eq!(compact["live_lanes"]["blocked"], 10);
+    assert_eq!(compact["live_lanes"]["agents"], 80);
+    assert_eq!(compact["next_actions_total"], 1200);
+    assert_eq!(compact["report_delivery_drift_total"], 60);
+}

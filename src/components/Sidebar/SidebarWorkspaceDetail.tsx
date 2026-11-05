@@ -1,7 +1,7 @@
+import type { PlanView as Plan } from "../Canvas/planProjection";
 import { useCallback, useMemo } from "react";
 import type { ProviderDescriptor, Tab, TabStatus, Team, Workspace } from "../../lib/types";
 import type { PlanIndexEntry } from "../Canvas/plansApi";
-import type { Plan } from "../Canvas/types";
 import type { JobsTarget } from "../Jobs/JobsView";
 import type { TeamMemberRole } from "../../lib/teamActions";
 import { WorkspaceItem } from "./WorkspaceItem";

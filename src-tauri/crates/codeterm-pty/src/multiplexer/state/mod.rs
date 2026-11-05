@@ -11,7 +11,9 @@ use codeterm_types::team::Team;
 mod alias;
 mod closed;
 mod creation_order;
+mod lifecycle;
 mod locks;
+pub use lifecycle::{LifecyclePatch, LIFECYCLE_CONTEXT_CONFLICT};
 pub mod names;
 mod reorder;
 mod role;
@@ -168,6 +170,13 @@ pub struct MultiplexerSnapshot {
 
 impl MultiplexerState {
     pub fn begin_team_close_transaction(&self) -> TeamCloseTransaction {
+        self.begin_team_close_transaction_with_store(ClosedTabsStore::in_memory())
+    }
+
+    pub fn begin_team_close_transaction_with_store(
+        &self,
+        closed_store: ClosedTabsStore,
+    ) -> TeamCloseTransaction {
         TeamCloseTransaction {
             staged: Self {
                 workspaces: self.workspaces.clone(),
@@ -179,7 +188,7 @@ impl MultiplexerState {
                 teams: self.teams.clone(),
                 team_order: self.team_order.clone(),
                 generation: AtomicU64::new(self.generation.load(Ordering::Relaxed)),
-                closed_store: ClosedTabsStore::in_memory(),
+                closed_store,
                 defer_closed_history: false,
                 pending_closed_history: Vec::new(),
                 workspace_close_reservations: self.workspace_close_reservations.clone(),

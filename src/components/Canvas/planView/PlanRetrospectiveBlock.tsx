@@ -1,5 +1,5 @@
+import type { PlanView as Plan } from "../planProjection";
 import { RichMarkdown } from "@codeterm/chat-ui/MarkdownBody";
-import type { Plan } from "../types";
 import { latestRetrospective, showRetrospectiveBlock } from "./planRetrospective";
 
 export interface PlanRetrospectiveBlockProps {

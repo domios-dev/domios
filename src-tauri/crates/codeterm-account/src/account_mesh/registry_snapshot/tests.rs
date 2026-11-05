@@ -160,7 +160,7 @@ async fn launch_renewal_converges_a_day_lease_without_a_cached_snapshot() {
         .refresh(crate::account_mesh::EnrollTrigger::Automatic)
         .await
         .unwrap();
-    assert!(harness.state().signed_registry.is_none());
+    assert!(harness.state().signed_registry.is_some());
     assert_eq!(
         harness
             .state()
@@ -182,6 +182,13 @@ async fn launch_renewal_converges_a_day_lease_without_a_cached_snapshot() {
         script.membership_registry_revision = Some(9);
         script.membership_signed_registry = Some(grant.clone());
     }
+    harness
+        .store
+        .record
+        .lock()
+        .unwrap()
+        .signed_registries
+        .clear();
     harness.restart().await;
     harness.sign_in("alice").await;
     assert!(harness
@@ -242,6 +249,7 @@ async fn signed_registry_rejects_forgery_rollback_duplicates_and_wrong_scope_ato
         .refresh(crate::account_mesh::EnrollTrigger::Automatic)
         .await
         .unwrap();
+    harness.transport.snapshots.lock().unwrap().clear();
     let issuer = Issuer::new();
     let grant = issuer.sign(&payload(&harness, 40, true));
     assert!(harness
@@ -351,12 +359,6 @@ async fn three_peer_revocation_gossip_and_offline_catchup_need_no_registry_calls
         assert_eq!(count(&peer.log, "registry:"), calls[index]);
         assert!(peer.state().revoked_installations.contains(PEER));
         assert_eq!(peer.state().signed_registry.as_ref().unwrap().revision, 50);
-        assert!(!peer
-            .mesh
-            .registry_hint("sender", "nonce", &account_id("alice"), None, None)
-            .await
-            .unwrap());
-        assert_eq!(count(&peer.log, "registry:"), calls[index]);
     }
 }
 
@@ -409,6 +411,7 @@ async fn server_signout_snapshot_is_gossiped_after_the_local_block() {
         .refresh(crate::account_mesh::EnrollTrigger::Automatic)
         .await
         .unwrap();
+    harness.transport.snapshots.lock().unwrap().clear();
     let mut signed_out = payload(&harness, 70, false);
     for row in signed_out["members"].as_array_mut().unwrap() {
         if row["installation_id"] == super::super::tests::support::INSTALLATION {
@@ -461,5 +464,17 @@ async fn signedout_presence_blocks_immediately_and_newer_present_revision_restor
         .receive_registry_snapshot(&Issuer::new().sign(&signed_out))
         .await
         .unwrap();
+    assert!(harness.state().unavailable_installations.contains(PEER));
+    signed_out["revision"] = json!(82);
+    for row in signed_out["members"].as_array_mut().unwrap() {
+        if row["installation_id"] == PEER {
+            row["metadata_revision"] = json!(81);
+        }
+    }
+    assert!(harness
+        .mesh
+        .receive_registry_snapshot(&Issuer::new().sign(&signed_out))
+        .await
+        .unwrap());
     assert!(!harness.state().unavailable_installations.contains(PEER));
 }

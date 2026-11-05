@@ -1599,7 +1599,7 @@
               "value_name": "PROVIDER_RESERVE_PCT",
               "possible_values": [],
               "default": "0",
-              "help": null,
+              "help": "Advisory provider allowance reserve for a mutating Worker: below it, or when exhausted, the receipt warns; it never blocks the spawn",
               "aliases": []
             },
             {
@@ -10191,6 +10191,16 @@
           "aliases": [],
           "args": [
             {
+              "name": "all",
+              "positional": false,
+              "required": false,
+              "value_name": "ALL",
+              "possible_values": [],
+              "default": null,
+              "help": "Return every detail row instead of one bounded page",
+              "aliases": []
+            },
+            {
               "name": "clean",
               "positional": false,
               "required": false,
@@ -10218,6 +10228,16 @@
               "possible_values": [],
               "default": null,
               "help": "Fetch remote refs before assessing lanes (otherwise dry run is offline)",
+              "aliases": []
+            },
+            {
+              "name": "page",
+              "positional": false,
+              "required": false,
+              "value_name": "PAGE",
+              "possible_values": [],
+              "default": "1",
+              "help": "Detail page (50 rows per list); counts and decisions cover the entire plan",
               "aliases": []
             },
             {
@@ -10407,7 +10427,7 @@
         },
         {
           "name": "locate",
-          "about": "File + line range of a body block, for in-place edits with file tools",
+          "about": "Read-only body snapshot file + line range; write via typed mutation commands",
           "aliases": [],
           "args": [
             {
@@ -10924,9 +10944,29 @@
         },
         {
           "name": "next",
-          "about": "Prioritized, advisory next-action guidance computed from plan state",
+          "about": "Prioritized next-action page computed from the entire plan",
           "aliases": [],
           "args": [
+            {
+              "name": "all",
+              "positional": false,
+              "required": false,
+              "value_name": "ALL",
+              "possible_values": [],
+              "default": null,
+              "help": "Return every detail row instead of one bounded page",
+              "aliases": []
+            },
+            {
+              "name": "page",
+              "positional": false,
+              "required": false,
+              "value_name": "PAGE",
+              "possible_values": [],
+              "default": "1",
+              "help": "Detail page (50 rows per list); counts and decisions cover the entire plan",
+              "aliases": []
+            },
             {
               "name": "plan_id",
               "positional": true,
@@ -12747,9 +12787,29 @@
         },
         {
           "name": "state",
-          "about": "One read-only state snapshot (counts, coverage, drift, loops, lanes, strides)",
+          "about": "Read-only summary with bounded detail lists; use --page or --all for more",
           "aliases": [],
           "args": [
+            {
+              "name": "all",
+              "positional": false,
+              "required": false,
+              "value_name": "ALL",
+              "possible_values": [],
+              "default": null,
+              "help": "Return every detail row instead of one bounded page",
+              "aliases": []
+            },
+            {
+              "name": "page",
+              "positional": false,
+              "required": false,
+              "value_name": "PAGE",
+              "possible_values": [],
+              "default": "1",
+              "help": "Detail page (50 rows per list); counts and decisions cover the entire plan",
+              "aliases": []
+            },
             {
               "name": "plan_id",
               "positional": true,
@@ -13528,7 +13588,7 @@
                     "mutating"
                   ],
                   "default": null,
-                  "help": "Explicit task intent used by provider reserve policy",
+                  "help": "Explicit task intent; mutating work reports the advisory provider allowance",
                   "aliases": []
                 },
                 {
@@ -13591,7 +13651,7 @@
                   "value_name": "PROVIDER_RESERVE_PCT",
                   "possible_values": [],
                   "default": "0",
-                  "help": "Optional minimum remaining provider allowance for mutating work (0 = no reserve)",
+                  "help": "Advisory provider allowance reserve for mutating work: below it, or when exhausted, the receipt carries a provider_allowance_low warning; never blocks (0 = warn only when exhausted)",
                   "aliases": []
                 },
                 {
@@ -18068,6 +18128,24 @@
               "possible_values": [],
               "default": null,
               "help": "Substring or short pattern to match",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "send-cancel",
+          "about": "Cancel a held agent send before its payload is claimed for writing",
+          "aliases": [],
+          "args": [
+            {
+              "name": "send_id",
+              "positional": true,
+              "required": true,
+              "value_name": "SEND_ID",
+              "possible_values": [],
+              "default": null,
+              "help": null,
               "aliases": []
             }
           ],

@@ -7,13 +7,9 @@ export function promoteFixtureOrchestrator(id, command = dcJson) {
 }
 
 export async function chooseAgentAccess(api) {
-  let config = await api("/api/config");
-  if (typeof config.agent?.full_access !== "boolean") {
-    await api("/api/config", { method: "PATCH", body: { key: "agent.full_access", value: true } });
-    config = await api("/api/config");
-  }
-  if (typeof config.agent?.full_access !== "boolean") throw new Error("Agent access choice was not persisted");
-  return { full_access: config.agent.full_access };
+  const config = await api("/api/config");
+  if (Object.hasOwn(config.agent ?? {}, "full_access")) throw new Error("Obsolete agent.full_access setting is still exposed");
+  return { full_access: true, source: "non_concierge_default", obsolete_key_absent: true };
 }
 
 export async function completeFirstRun(api, providerId, policy) {
@@ -21,7 +17,7 @@ export async function completeFirstRun(api, providerId, policy) {
   if (config.general_agent?.first_run_complete !== true) {
     if (!providerId) throw new Error("First run requires an installed provider");
     await policy.launch(providerId, "general-first-run", () => api("/api/agents/general/complete-first-run", { method: "POST",
-      body: { provider_id: providerId, full_access: config.agent.full_access } }));
+      body: { provider_id: providerId } }));
     config = await api("/api/config");
   }
   if (config.general_agent?.first_run_complete !== true) throw new Error("General Agent first run was not persisted");

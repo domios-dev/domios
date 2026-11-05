@@ -4,7 +4,6 @@ use serde::Serialize;
 use crate::multiplexer::types::{Tab, TabBacking};
 use crate::pty::screen_state::{screen_has_agent_tui, screen_has_bare_shell_prompt};
 use crate::service::boot_stage::apply_boot_stage;
-use crate::service::hierarchy::report_plan_ctx::tab_holds;
 use crate::service::tab_repair::{RepairField, RepairFieldStatus};
 use crate::session::lifecycle::AgentTypeWriteOrigin;
 use codeterm_types::agent::role_kind;
@@ -21,6 +20,7 @@ pub const TAB_ADOPT_PROVIDER_REQUIRED: &str = "tab_adopt_provider_required";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TabAdoptErrorKind {
+    Storage,
     NotFound,
     NotAuthorized,
     LivePtyRequired,
@@ -45,6 +45,7 @@ impl TabAdoptError {
 
     pub fn code(&self) -> &'static str {
         match self.kind {
+            TabAdoptErrorKind::Storage => "tab_adopt_storage_error",
             TabAdoptErrorKind::NotFound => "tab_adopt_target_not_found",
             TabAdoptErrorKind::NotAuthorized => TAB_ADOPT_NOT_AUTHORIZED,
             TabAdoptErrorKind::LivePtyRequired => TAB_ADOPT_LIVE_PTY_REQUIRED,
@@ -106,13 +107,19 @@ fn caller_proves_own_tab(tab: &Tab, caller: &AuthenticatedPlanCaller) -> bool {
         && caller.binding_nonce == tab.reported_session_binding_nonce
 }
 
-fn live_task_plan(svc: &ServiceContext, tab: &Tab) -> Option<String> {
-    let binding = tab.task_binding.as_ref()?;
-    let plan_id = binding.plan_id.as_deref()?;
-    let task_id = binding.task_id.as_deref()?;
-    let plan = svc.plan_store.get(plan_id)?;
-    let task = crate::plan::task_key::find_task(&plan.tasks, task_id)?;
-    tab_holds(task, &tab.id).then(|| plan_id.to_string())
+fn live_task_plan(svc: &ServiceContext, tab: &Tab) -> Result<Option<String>, TabAdoptError> {
+    let Some((plan_id, task_id)) = tab
+        .task_binding
+        .as_ref()
+        .and_then(|binding| Some((binding.plan_id.as_deref()?, binding.task_id.as_deref()?)))
+    else {
+        return Ok(None);
+    };
+    let held = svc
+        .plan_store
+        .report_tab_holds_task_projection(plan_id, task_id, &tab.id)
+        .map_err(|error| TabAdoptError::new(TabAdoptErrorKind::Storage, error.to_string()))?;
+    Ok(held.then(|| plan_id.to_string()))
 }
 
 fn identity_states(
@@ -165,11 +172,17 @@ impl ServiceContext {
         if role_kind::anchors_team(caller_tab.role, caller_tab.role_profile.as_deref()) {
             return Ok(pty_id);
         }
-        let Some(plan_id) = live_task_plan(self, &target) else {
+        let Some(plan_id) = live_task_plan(self, &target)? else {
             return Err(not_authorized(tab_id));
         };
         self.authorize_plan_orchestrator(&plan_id, caller)
-            .map_err(|_| not_authorized(tab_id))?;
+            .map_err(|error| {
+                if error == super::PlanAuthorityError::StoreReadFailed {
+                    TabAdoptError::new(TabAdoptErrorKind::Storage, error.to_string())
+                } else {
+                    not_authorized(tab_id)
+                }
+            })?;
         Ok(pty_id)
     }
 

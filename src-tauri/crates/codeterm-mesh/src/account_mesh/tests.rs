@@ -1,4 +1,5 @@
 mod connection_phases;
+mod endpoint_gossip;
 mod health;
 mod refusals;
 mod registry_gossip;
@@ -86,7 +87,7 @@ fn account_mesh_known_local_revoke_blocks_immediately() {
 }
 
 #[tokio::test]
-async fn account_mesh_new_link_needs_both_fresh_permits_and_records_both_sides() {
+async fn account_mesh_local_link_and_retry_record_both_sides_without_server_calls() {
     let clock = clock();
     let (a, b) = (machine(1, &clock), machine(2, &clock));
     enroll_all(&[&a, &b]);
@@ -94,13 +95,15 @@ async fn account_mesh_new_link_needs_both_fresh_permits_and_records_both_sides()
     b.sign_in(1, ACCOUNT, START + MEMBERSHIP_TTL);
     let transport = Loopback::new(&[&a, &b]);
 
+    a.authority.online.store(false, Ordering::SeqCst);
+    b.authority.online.store(false, Ordering::SeqCst);
     let pair = link_installation_with(&a.mesh, &transport, &b.installation_id)
         .await
         .expect("same-account online link succeeds without per-edge approval");
     assert_eq!(pair.instance_id, b.id());
     assert_eq!(pair.admission, "account");
-    assert_eq!(a.authority.authorize_calls.load(Ordering::SeqCst), 1);
-    assert_eq!(b.authority.authorize_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(a.authority.authorize_calls.load(Ordering::SeqCst), 0);
+    assert_eq!(b.authority.authorize_calls.load(Ordering::SeqCst), 0);
     assert!(decision(&a, &b).is_open());
     assert!(decision(&b, &a).is_open());
     assert_eq!(
@@ -120,7 +123,7 @@ async fn account_mesh_new_link_needs_both_fresh_permits_and_records_both_sides()
 }
 
 #[tokio::test]
-async fn account_mesh_offline_or_foreign_participant_cannot_link() {
+async fn account_mesh_foreign_or_signedout_participant_cannot_link() {
     let clock = clock();
     let (a, b) = (machine(1, &clock), machine(2, &clock));
     enroll_all(&[&a, &b]);
@@ -128,19 +131,6 @@ async fn account_mesh_offline_or_foreign_participant_cannot_link() {
     b.sign_in(1, ACCOUNT, START + MEMBERSHIP_TTL);
     let transport = Loopback::new(&[&a, &b]);
 
-    b.authority.online.store(false, Ordering::SeqCst);
-    let refused = link_installation_with(&a.mesh, &transport, &b.installation_id).await;
-    assert_eq!(refused.unwrap_err(), AdmissionRefusal::Offline);
-    assert!(
-        a.mesh.lock().paired_peers.is_empty(),
-        "initiator stored nothing"
-    );
-    assert!(
-        b.mesh.lock().paired_peers.is_empty(),
-        "responder stored nothing"
-    );
-
-    b.authority.online.store(true, Ordering::SeqCst);
     b.sign_in(2, OTHER_ACCOUNT, START + MEMBERSHIP_TTL);
     let foreign = link_installation_with(&a.mesh, &transport, &b.installation_id).await;
     assert!(matches!(
@@ -169,7 +159,6 @@ async fn account_mesh_replayed_confirm_and_unregistered_address_cannot_link() {
         link_id: "never-offered".into(),
         installation_signature: "p|inst-1|00".into(),
         mesh_signature: "AAAA".into(),
-        permit: "permit|inst-1|inst-2|account-a|00".into(),
     };
     assert!(b.mesh.lock().begin_link_confirm(&forged).is_err());
     assert!(b.mesh.lock().paired_peers.is_empty());
@@ -315,7 +304,7 @@ async fn account_mesh_six_installations_connect_without_saved_pairs() {
             .iter()
             .map(|machine| machine.authority.authorize_calls.load(Ordering::SeqCst))
             .sum::<usize>(),
-        30
+        0
     );
     for machine in &machines {
         let manager = machine.mesh.lock();
@@ -329,6 +318,6 @@ async fn account_mesh_six_installations_connect_without_saved_pairs() {
         assert!(connections.iter().all(|peer| peer.admission == "account"
             && peer.online
             && manager.traffic_open(&peer.instance_id)));
-        assert_eq!(machine.authority.authorize_calls.load(Ordering::SeqCst), 5);
+        assert_eq!(machine.authority.authorize_calls.load(Ordering::SeqCst), 0);
     }
 }

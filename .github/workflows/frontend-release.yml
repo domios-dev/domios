@@ -147,6 +147,10 @@ jobs:
     runs-on: [self-hosted, Linux, light, host-ubunta]
     timeout-minutes: 30
     environment: release
+    # GITHUB_TOKEN publishes the frontend release to this repository.
+    permissions:
+      contents: write
+      actions: read
     env:
       FRONTEND_TAG: ${{ inputs.tag || github.ref_name }}
     steps:
@@ -196,5 +200,5 @@ jobs:
           echo "$dir/gh_2.102.0_linux_amd64/bin" >> "$GITHUB_PATH"
       - name: Verify, upload immutable assets, then update frontend discovery
         env:
-          GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: node scripts/frontend-release/release.mjs publish "$FRONTEND_TAG"

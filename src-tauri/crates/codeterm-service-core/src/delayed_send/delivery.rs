@@ -37,7 +37,8 @@ pub(super) async fn deliver(svc: &ServiceState, msg: &DelayedMessage) -> Result<
         .map_err(|error| error.to_string())?;
     let body = svc
         .plan_store
-        .prepend_worker_charter_for_tab(&tab_id, &body);
+        .prepend_worker_charter_for_tab(&tab_id, &body)
+        .map_err(|error| error.to_string())?;
     let deliver_tab_id = tab_id.clone();
     let message_id = msg.id.clone();
     tokio::task::spawn_blocking(move || {

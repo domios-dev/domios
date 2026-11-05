@@ -1,4 +1,19 @@
 use super::*;
+use codeterm_types::plan::Plan;
+
+fn project_fixture_state(
+    team: Team,
+    plans: Vec<Plan>,
+    limit: usize,
+    cursor: Option<&str>,
+) -> Result<TeamMissionControlState, String> {
+    project_team_state(
+        team,
+        plans.iter().map(TeamPlanRead::from).collect(),
+        limit,
+        cursor,
+    )
+}
 
 fn team(id: &str) -> Team {
     Team {
@@ -101,7 +116,7 @@ fn team_board_state_active_and_lifecycle_projection() {
         vec![lifecycle("archived", 40, "archive")],
         None,
     );
-    let state = project_team_state(team("team-a"), vec![active, archived], 20, None).unwrap();
+    let state = project_fixture_state(team("team-a"), vec![active, archived], 20, None).unwrap();
     assert_eq!(state.team_id, "team-a");
     assert_eq!(
         state.active_plan.as_ref().map(|plan| plan.id.as_str()),
@@ -124,7 +139,7 @@ fn team_board_state_no_active_plan_keeps_archived_plans() {
         vec![lifecycle("archived", 10, "archive")],
         None,
     );
-    let state = project_team_state(team("team-a"), vec![archived], 20, None).unwrap();
+    let state = project_fixture_state(team("team-a"), vec![archived], 20, None).unwrap();
     assert!(state.active_plan.is_none());
     assert_eq!(state.archived_plans[0].id, "archived");
 }
@@ -141,7 +156,7 @@ fn team_board_state_excludes_foreign_plans() {
         Some("foreign"),
     );
     let foreign_id = foreign.id.clone();
-    let state = project_team_state(team("team-a"), vec![local, foreign], 20, None).unwrap();
+    let state = project_fixture_state(team("team-a"), vec![local, foreign], 20, None).unwrap();
     assert_eq!(
         state.active_plan.as_ref().map(|plan| plan.id.as_str()),
         Some("local")
@@ -169,7 +184,7 @@ fn team_board_state_pages_newest_first_and_bounded() {
             Some("stored-b"),
         ),
     ];
-    let state = project_team_state(team("team-a"), plans, 2, None).unwrap();
+    let state = project_fixture_state(team("team-a"), plans, 2, None).unwrap();
     assert_eq!(state.events.len(), 2);
     assert_eq!(state.events[0].ts, 20);
     assert_eq!(state.events[1].ts, 19);
@@ -200,8 +215,8 @@ fn team_board_state_cursor_continues_without_duplicates() {
             Some("stored-b"),
         ),
     ];
-    let first = project_team_state(team("team-a"), plans.clone(), 1, None).unwrap();
-    let second = project_team_state(
+    let first = project_fixture_state(team("team-a"), plans.clone(), 1, None).unwrap();
+    let second = project_fixture_state(
         team("team-a"),
         plans.clone(),
         1,
@@ -227,12 +242,12 @@ fn team_board_state_cursor_is_deterministic() {
         vec![lifecycle("opened", 2, "open")],
         Some("stored"),
     )];
-    let first = project_team_state(team("team-a"), plans.clone(), 1, None).unwrap();
-    let second = project_team_state(team("team-a"), plans.clone(), 1, None).unwrap();
+    let first = project_fixture_state(team("team-a"), plans.clone(), 1, None).unwrap();
+    let second = project_fixture_state(team("team-a"), plans.clone(), 1, None).unwrap();
     assert_eq!(first, second);
     let cursor = first.next_cursor.as_deref().unwrap();
-    let page_a = project_team_state(team("team-a"), plans.clone(), 1, Some(cursor));
-    let page_b = project_team_state(team("team-a"), plans, 1, Some(cursor));
+    let page_a = project_fixture_state(team("team-a"), plans.clone(), 1, Some(cursor));
+    let page_b = project_fixture_state(team("team-a"), plans, 1, Some(cursor));
     assert_eq!(page_a, page_b);
 }
 
@@ -259,7 +274,7 @@ fn team_board_summary_size_does_not_grow_with_task_records() {
         .find(|task| task.id == task_id)
         .unwrap()
         .clone();
-    let small = serde_json::to_vec(&TeamPlanSummary::from(&record)).unwrap();
+    let small = serde_json::to_vec(&TeamPlanSummary::from(&TeamPlanRead::from(&record))).unwrap();
     record.tasks = (0..596)
         .map(|index| {
             let mut task = task.clone();
@@ -268,7 +283,7 @@ fn team_board_summary_size_does_not_grow_with_task_records() {
             task
         })
         .collect();
-    let summary = TeamPlanSummary::from(&record);
+    let summary = TeamPlanSummary::from(&TeamPlanRead::from(&record));
     assert_eq!(summary.task_counts.total, 596);
     assert_eq!(summary.task_counts.pending, 596);
     let large = serde_json::to_vec(&summary).unwrap();
@@ -290,7 +305,7 @@ fn team_board_summary_carries_only_the_displayed_goal() {
         constraints: vec!["constraint".repeat(1000)],
         postulates: vec!["postulate".repeat(1000)],
     });
-    let json = serde_json::to_value(TeamPlanSummary::from(&record)).unwrap();
+    let json = serde_json::to_value(TeamPlanSummary::from(&TeamPlanRead::from(&record))).unwrap();
     assert_eq!(
         json["goal"],
         serde_json::json!({ "vector": "Visible goal" })
@@ -319,7 +334,7 @@ fn team_board_preserves_folded_checklist_tasks_in_paged_projection() {
         });
         plan.tasks.push(task);
     }
-    let page = project_team_state(team("team-a"), vec![plan], 50, None).unwrap();
+    let page = project_fixture_state(team("team-a"), vec![plan], 50, None).unwrap();
     let linked: Vec<_> = page
         .events
         .iter()

@@ -2,7 +2,8 @@ use crate::frontend_bundle_api_version::{API_VERSION, FRONTEND_PUBLIC_KEY};
 use codeterm_frontend_bundle::FrontendBundles;
 use std::sync::Arc;
 
-const DISCOVERY_URL: &str = "https://github.com/rollacode/codeterm-releases/releases/download/frontend-latest/frontend-manifest.json";
+const DISCOVERY_URL: &str =
+    "https://github.com/domios-dev/domios/releases/download/frontend-latest/frontend-manifest.json";
 pub(crate) const BUNDLED_INDEX: &str = "/bundled/index.html";
 
 pub fn open(events: &codeterm_events::EventBroadcasterState) -> Option<Arc<FrontendBundles>> {

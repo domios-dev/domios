@@ -1,7 +1,6 @@
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
-use super::mutations::plan_contains_id;
 use super::{PlanError, PlanStore};
 use crate::plan::{
     AgentRef, Milestone, Plan, PlanEvidenceClass, PlanEvidenceReporterGrant, ReviewCapacityClass,
@@ -115,10 +114,14 @@ pub(in crate::service_plan) fn review_gate_status_for(
 }
 
 pub fn clears_review_capacity(plan: &Plan, task: &Task) -> bool {
-    plan.review_policy
+    clears_review_capacity_for(&plan.review_policy, &task.id)
+}
+
+pub(super) fn clears_review_capacity_for(policy: &ReviewPolicy, task_id: &str) -> bool {
+    policy
         .capacity_grants
         .iter()
-        .any(|grant| grant.task_id == task.id)
+        .any(|grant| grant.task_id == task_id)
 }
 
 pub fn validate_dispatch_review_capacity(plan: &Plan, task: &Task) -> Result<(), PlanError> {
@@ -413,29 +416,66 @@ pub struct QaWave {
 /// Groups batch-compatible (same task `group`) queued/running QA-stage tasks
 /// into one named wave, mirroring the group-key dedup already used for
 /// regression gates. Read-only: callers decide whether to claim/dispatch.
-pub fn qa_waves(plan: &Plan) -> Vec<QaWave> {
-    let mut by_group: std::collections::BTreeMap<String, Vec<String>> =
-        std::collections::BTreeMap::new();
-    for task in &plan.tasks {
-        if task.status != TaskStatus::InReview || task.review_stage != ReviewStage::Qa {
-            continue;
+#[derive(serde::Deserialize)]
+pub(super) struct QaWaveInput {
+    pub task_groups: Vec<QaWaveGroup>,
+    pub tasks: Vec<QaWaveTask>,
+}
+
+#[derive(serde::Deserialize)]
+pub(super) struct QaWaveGroup {
+    pub key: String,
+    pub label: String,
+}
+
+#[derive(serde::Deserialize)]
+pub(super) struct QaWaveTask {
+    pub id: String,
+    pub group: String,
+}
+
+impl From<&Plan> for QaWaveInput {
+    fn from(plan: &Plan) -> Self {
+        Self {
+            task_groups: plan
+                .task_groups
+                .iter()
+                .map(|group| QaWaveGroup {
+                    key: group.key.clone(),
+                    label: group.label.clone(),
+                })
+                .collect(),
+            tasks: plan
+                .tasks
+                .iter()
+                .filter(|task| {
+                    task.status == TaskStatus::InReview && task.review_stage == ReviewStage::Qa
+                })
+                .filter_map(|task| {
+                    task.group.as_ref().map(|group| QaWaveTask {
+                        id: task.id.clone(),
+                        group: group.clone(),
+                    })
+                })
+                .collect(),
         }
-        let Some(key) = task.group.as_deref() else {
-            continue;
-        };
-        by_group
-            .entry(key.to_string())
-            .or_default()
-            .push(task.id.clone());
+    }
+}
+
+pub(super) fn qa_waves(input: impl Into<QaWaveInput>) -> Vec<QaWave> {
+    let input = input.into();
+    let mut by_group = std::collections::BTreeMap::<String, Vec<String>>::new();
+    for task in input.tasks {
+        by_group.entry(task.group).or_default().push(task.id);
     }
     by_group
         .into_iter()
         .map(|(key, task_ids)| {
-            let label = plan
+            let label = input
                 .task_groups
                 .iter()
-                .find(|g| g.key == key)
-                .map(|g| g.label.clone())
+                .find(|group| group.key == key)
+                .map(|group| group.label.clone())
                 .unwrap_or_else(|| key.clone());
             QaWave {
                 wave_id: format!("wave:{key}"),
@@ -458,13 +498,12 @@ fn require_in_review(task: &Task) -> Result<(), PlanError> {
 impl PlanStore {
     /// Read-only review-backpressure status for heartbeat/status surfaces.
     pub fn review_gate_status(&self, plan_id: &str) -> Result<ReviewGateStatus, PlanError> {
-        let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
-        Ok(review_gate_status(&plan))
+        self.database.review_gate_projection(plan_id)
     }
 
     pub fn qa_waves(&self, plan_id: &str) -> Result<Vec<QaWave>, PlanError> {
-        let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
-        Ok(qa_waves(&plan))
+        let plan = self.database.qa_wave_projection(plan_id)?;
+        Ok(qa_waves(plan))
     }
 
     /// Authorizes the next over-round-limit re-entry into review. Consumed
@@ -521,9 +560,10 @@ impl PlanStore {
             return Err(PlanError::QaNoteRequired);
         }
         let mut result = None;
-        self.with_plan(plan_id, now_ms, |plan| {
-            let active_reviews = in_review_count(plan);
-            let previous_credit = plan.review_policy.credit;
+        let stride_id = self.mint_id("ms")?;
+        self.with_review_header(plan_id, None, None, now_ms, |plan| {
+            let active_reviews = plan.active_reviews;
+            let previous_credit = plan.credit;
             let reconciled_credit = previous_credit.max(-(active_reviews as i64));
             if reconciled_credit == previous_credit {
                 result = Some(ReviewCreditReconcileResult {
@@ -535,10 +575,7 @@ impl PlanStore {
                 });
                 return Ok(());
             }
-            let stride_id = crate::plan::ids::mint_id("ms", |candidate| {
-                plan_contains_id(plan, candidate)
-            });
-            plan.review_policy.credit = reconciled_credit;
+            plan.credit = reconciled_credit;
             plan.strides.push(Milestone {
                 id: stride_id.clone(),
                 from,
@@ -578,61 +615,66 @@ impl PlanStore {
     ) -> Result<PlanEvidenceReporterGrantResult, PlanError> {
         let mut result = None;
         let session_binding_digest = plan_evidence_binding_digest(session_binding_nonce);
-        self.with_plan(plan_id, now_ms, |plan| {
-            if let Some(existing) = plan
-                .evidence_reporters
-                .iter()
-                .find(|grant| {
-                    grant.tab_id == tab_id
-                        && grant.session_id == session_id
-                        && grant.session_binding_digest == session_binding_digest
-                })
-                .cloned()
-            {
-                if existing.class != class {
-                    return Err(PlanError::Io(
-                        "plan evidence class is immutable for an authorized identity".into(),
-                    ));
+        let stride_id = self.mint_id("ms")?;
+        self.with_review_header(
+            plan_id,
+            None,
+            Some((tab_id, session_id, &session_binding_digest)),
+            now_ms,
+            |plan| {
+                if let Some(existing) = plan
+                    .evidence_reporters
+                    .iter()
+                    .find(|grant| {
+                        grant.tab_id == tab_id
+                            && grant.session_id == session_id
+                            && grant.session_binding_digest == session_binding_digest
+                    })
+                    .cloned()
+                {
+                    if existing.class != class {
+                        return Err(PlanError::Io(
+                            "plan evidence class is immutable for an authorized identity".into(),
+                        ));
+                    }
+                    result = Some(PlanEvidenceReporterGrantResult {
+                        plan_id: plan.id.clone(),
+                        grant: existing,
+                        created: false,
+                        stride_id: None,
+                    });
+                    return Ok(());
                 }
+                let grant = PlanEvidenceReporterGrant {
+                    tab_id: tab_id.to_string(),
+                    session_id: session_id.to_string(),
+                    session_binding_digest: session_binding_digest.clone(),
+                    class,
+                    granted_by: from.clone(),
+                    granted_at: now_ms,
+                };
+                plan.evidence_reporters.push(grant.clone());
+                plan.strides.push(Milestone {
+                    id: stride_id.clone(),
+                    from,
+                    kind: EVIDENCE_REPORTER_GRANT_MILESTONE_KIND.into(),
+                    text: format!("authorized {:?} plan evidence reporter {}", class, tab_id),
+                    ts: now_ms,
+                    links: vec![],
+                    loop_id: None,
+                    iteration: None,
+                    canvas: Default::default(),
+                    attachments: vec![],
+                });
                 result = Some(PlanEvidenceReporterGrantResult {
                     plan_id: plan.id.clone(),
-                    grant: existing,
-                    created: false,
-                    stride_id: None,
+                    grant,
+                    created: true,
+                    stride_id: Some(stride_id),
                 });
-                return Ok(());
-            }
-            let stride_id =
-                crate::plan::ids::mint_id("ms", |candidate| plan_contains_id(plan, candidate));
-            let grant = PlanEvidenceReporterGrant {
-                tab_id: tab_id.to_string(),
-                session_id: session_id.to_string(),
-                session_binding_digest,
-                class,
-                granted_by: from.clone(),
-                granted_at: now_ms,
-            };
-            plan.evidence_reporters.push(grant.clone());
-            plan.strides.push(Milestone {
-                id: stride_id.clone(),
-                from,
-                kind: EVIDENCE_REPORTER_GRANT_MILESTONE_KIND.into(),
-                text: format!("authorized {:?} plan evidence reporter {}", class, tab_id),
-                ts: now_ms,
-                links: vec![],
-                loop_id: None,
-                iteration: None,
-                canvas: Default::default(),
-                attachments: vec![],
-            });
-            result = Some(PlanEvidenceReporterGrantResult {
-                plan_id: plan.id.clone(),
-                grant,
-                created: true,
-                stride_id: Some(stride_id),
-            });
-            Ok(())
-        })?;
+                Ok(())
+            },
+        )?;
         result.ok_or(PlanError::NotFound)
     }
 
@@ -661,12 +703,10 @@ impl PlanStore {
         now_ms: u64,
     ) -> Result<ReviewCapacityGrantResult, PlanError> {
         let mut result = None;
-        self.with_plan(plan_id, now_ms, |plan| {
-            let canonical_task_id = crate::plan::task_key::find_task(&plan.tasks, task_id)
-                .map(|task| task.id.clone())
-                .ok_or(PlanError::TaskNotFound)?;
+        let stride_id = self.mint_id("ms")?;
+        self.with_review_header(plan_id, Some(task_id), None, now_ms, |plan| {
+            let canonical_task_id = plan.task_id.clone().ok_or(PlanError::TaskNotFound)?;
             if let Some(existing) = plan
-                .review_policy
                 .capacity_grants
                 .iter()
                 .find(|grant| grant.task_id == canonical_task_id)
@@ -685,15 +725,13 @@ impl PlanStore {
                 });
                 return Ok(());
             }
-            let stride_id =
-                crate::plan::ids::mint_id("ms", |candidate| plan_contains_id(plan, candidate));
             let grant = ReviewCapacityGrant {
                 task_id: canonical_task_id,
                 class,
                 granted_by: from.clone(),
                 granted_at: now_ms,
             };
-            plan.review_policy.capacity_grants.push(grant.clone());
+            plan.capacity_grants.push(grant.clone());
             plan.strides.push(Milestone {
                 id: stride_id.clone(),
                 from,
@@ -728,43 +766,47 @@ impl PlanStore {
         epoch: u32,
         now_ms: u64,
     ) -> Result<(), PlanError> {
-        self.with_plan(plan_id, now_ms, |plan| {
-            let task_index = crate::plan::task_key::find_task_index(&plan.tasks, task_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            let task = &mut plan.tasks[task_index];
-            if !matches!(task.status, TaskStatus::InReview | TaskStatus::InProgress)
-                || !matches!(
-                    task.status_label.as_deref(),
-                    Some("awaiting_continuation" | "bounce_continuation_failed")
-                )
-            {
-                return Err(PlanError::ReviewContinuationAttemptNotFound {
-                    task_id: task.id.clone(),
-                });
-            }
-            let review_round = task.review_round;
-            let attempt = task
-                .execution_attempts
-                .iter_mut()
-                .find(|attempt| attempt.id == attempt_id)
-                .filter(|attempt| {
-                    attempt.continuation.epoch == epoch
-                        && attempt.continuation.review_round == Some(review_round)
-                })
-                .ok_or_else(|| PlanError::ReviewContinuationAttemptNotFound {
-                    task_id: task.id.clone(),
-                })?;
-            attempt.closed_at.get_or_insert(now_ms);
-            attempt
-                .closure_reason
-                .get_or_insert_with(|| "review_bounce_executor_gone".into());
-            attempt.continuation.state = Some("executor_gone".into());
-            task.status = TaskStatus::Pending;
-            task.status_label = Some("review bounced".into());
-            task.status_changed_at = now_ms;
-            task.updated_at = now_ms;
-            Ok(())
-        })
+        self.with_task_rows(
+            plan_id,
+            task_id,
+            super::store_db::hot_write::TaskHistory::Attempt(attempt_id.into()),
+            now_ms,
+            |edit| {
+                let task = &mut edit.task;
+                if !matches!(task.status, TaskStatus::InReview | TaskStatus::InProgress)
+                    || !matches!(
+                        task.status_label.as_deref(),
+                        Some("awaiting_continuation" | "bounce_continuation_failed")
+                    )
+                {
+                    return Err(PlanError::ReviewContinuationAttemptNotFound {
+                        task_id: task.id.clone(),
+                    });
+                }
+                let review_round = task.review_round;
+                let attempt = task
+                    .execution_attempts
+                    .iter_mut()
+                    .find(|attempt| attempt.id == attempt_id)
+                    .filter(|attempt| {
+                        attempt.continuation.epoch == epoch
+                            && attempt.continuation.review_round == Some(review_round)
+                    })
+                    .ok_or_else(|| PlanError::ReviewContinuationAttemptNotFound {
+                        task_id: task.id.clone(),
+                    })?;
+                attempt.closed_at.get_or_insert(now_ms);
+                attempt
+                    .closure_reason
+                    .get_or_insert_with(|| "review_bounce_executor_gone".into());
+                attempt.continuation.state = Some("executor_gone".into());
+                task.status = TaskStatus::Pending;
+                task.status_label = Some("review bounced".into());
+                task.status_changed_at = now_ms;
+                task.updated_at = now_ms;
+                Ok(())
+            },
+        )
     }
 
     pub fn hold_review(
@@ -780,7 +822,7 @@ impl PlanStore {
             return Err(PlanError::QaNoteRequired);
         }
         let mut result = None;
-        let milestone_id = self.mint_id("ms");
+        let milestone_id = self.mint_id("ms")?;
         self.with_task_rows(
             plan_id,
             task_id,
@@ -945,11 +987,11 @@ impl PlanStore {
                 .read_task_core(plan_id, task_id)
                 .is_ok_and(|task| task.review_round >= max_review_rounds());
         let follow_up_key = self
-            .issue_task_keys(plan_id, usize::from(needs_follow_up))
+            .issue_task_keys(plan_id, usize::from(needs_follow_up))?
             .into_iter()
             .next();
-        let follow_up_id = risk.map(|_| self.mint_id("task"));
-        let milestone_id = self.mint_id("ms");
+        let follow_up_id = risk.map(|_| self.mint_id("task")).transpose()?;
+        let milestone_id = self.mint_id("ms")?;
         self.with_task_rows(
             plan_id,
             task_id,
@@ -1033,10 +1075,9 @@ impl PlanStore {
         now_ms: u64,
     ) -> Result<bool, PlanError> {
         let mut escalated = false;
-        self.with_plan(plan_id, now_ms, |p| {
-            let idx = crate::plan::task_key::find_task_index(&p.tasks, task_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            let task = &p.tasks[idx];
+        let mid = self.mint_id("ms")?;
+        self.with_task_rows(plan_id, task_id, super::store_db::hot_write::TaskHistory::Escalation, now_ms, |edit| {
+            let task = &edit.task;
             require_in_review(task)?;
             let age_ms = now_ms.saturating_sub(task.status_changed_at);
             if age_ms <= stale_after_ms {
@@ -1048,8 +1089,7 @@ impl PlanStore {
             if already {
                 return Ok(());
             }
-            let mid = crate::plan::ids::mint_id("ms", |c| plan_contains_id(p, c));
-            p.tasks[idx].milestones.push(Milestone {
+            edit.task.milestones.push(Milestone {
                 id: mid,
                 from,
                 kind: REVIEW_ESCALATION_MILESTONE_KIND.into(),

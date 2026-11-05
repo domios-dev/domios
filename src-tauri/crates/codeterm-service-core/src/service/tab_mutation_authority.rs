@@ -75,6 +75,16 @@ impl ServiceContext {
         let TabMutationCaller::Tab(caller) = caller else {
             return Ok(());
         };
+        let plan = match scope.plan_id {
+            None => None,
+            Some(id) => match self.plan_store.plan_identity_projection(id) {
+                Ok(plan) => Some(plan),
+                Err(super::plan::PlanError::NotFound) => None,
+                Err(error) => {
+                    return Err(format!("Tab mutation Plan authority read failed: {error}"))
+                }
+            },
+        };
         let mux = self.mux.read();
         let caller_tab = mux.get_tab(&caller.tab_id);
         if scope.self_promotion
@@ -90,11 +100,10 @@ impl ServiceContext {
             mux.get_tab(id)
                 .is_some_and(|tab| tab.team_id.as_deref() == caller_team)
         });
-        let plan_allowed = scope.plan_id.is_none_or(|id| {
-            self.plan_store
-                .get(id)
-                .is_some_and(|plan| plan.team_id.as_deref() == caller_team)
-        });
+        let plan_allowed = scope.plan_id.is_none()
+            || plan
+                .as_ref()
+                .is_some_and(|plan| plan.team_id.as_deref() == caller_team);
         let allowed = tab_mutation_allowed(AuthorityFacts {
             caller_id: &caller.tab_id,
             target_id,

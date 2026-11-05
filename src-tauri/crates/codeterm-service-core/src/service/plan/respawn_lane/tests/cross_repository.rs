@@ -69,7 +69,7 @@ fn respawn_cross_repository_lane_resolves_own_base_and_persists_replacement() {
         ExecutionIntent::Mutating,
     );
     store
-        .with_plan(&plan_id, 6, |plan| {
+        .edit_plan_fixture(&plan_id, 6, |plan| {
             let task = &mut plan.tasks[0];
             task.lane.worktree_path = Some(lane_path.into());
             task.lane.branch = Some(branch.into());
@@ -92,11 +92,12 @@ fn respawn_cross_repository_lane_resolves_own_base_and_persists_replacement() {
             },
         )
         .unwrap();
-    let task = store.show_task(&task.id).unwrap().task;
+    let task = store.inspect_task_for_test(&task.id).unwrap().task;
     let before = store.get(&plan_id).unwrap();
-    let provenance = verify_respawn_lane(repo_a.to_str().unwrap(), &task, &draft)
-        .unwrap()
-        .unwrap();
+    let provenance =
+        verify_respawn_lane(repo_a.to_str().unwrap(), &lane_facts(&task, &draft), &draft)
+            .unwrap()
+            .unwrap();
     assert_eq!(provenance.base, base);
     assert_eq!(provenance.branch, branch);
     assert_eq!(provenance.destination.as_deref(), Some("develop"));
@@ -108,7 +109,12 @@ fn respawn_cross_repository_lane_resolves_own_base_and_persists_replacement() {
 
     let mut missing_base = task.clone();
     missing_base.lane.base = Some("refs/heads/missing-base".into());
-    let error = verify_respawn_lane(repo_a.to_str().unwrap(), &missing_base, &draft).unwrap_err();
+    let error = verify_respawn_lane(
+        repo_a.to_str().unwrap(),
+        &lane_facts(&missing_base, &draft),
+        &draft,
+    )
+    .unwrap_err();
     assert!(error.contains("missing-base"));
     assert!(error.contains("owning repository"));
     let unrelated = git(
@@ -117,39 +123,49 @@ fn respawn_cross_repository_lane_resolves_own_base_and_persists_replacement() {
     );
     let mut nonancestor = task.clone();
     nonancestor.lane.base = Some(unrelated);
-    assert!(
-        verify_respawn_lane(repo_a.to_str().unwrap(), &nonancestor, &draft)
-            .unwrap_err()
-            .contains("not an ancestor")
-    );
+    assert!(verify_respawn_lane(
+        repo_a.to_str().unwrap(),
+        &lane_facts(&nonancestor, &draft),
+        &draft
+    )
+    .unwrap_err()
+    .contains("not an ancestor"));
     let mut foreign_base = task.clone();
     foreign_base.lane.base = Some(git(&repo_a, &["rev-parse", "HEAD"]));
-    assert!(
-        verify_respawn_lane(repo_a.to_str().unwrap(), &foreign_base, &draft)
-            .unwrap_err()
-            .contains("does not resolve in owning repository")
-    );
+    assert!(verify_respawn_lane(
+        repo_a.to_str().unwrap(),
+        &lane_facts(&foreign_base, &draft),
+        &draft
+    )
+    .unwrap_err()
+    .contains("does not resolve in owning repository"));
     git(&lane, &["checkout", "-q", "--detach"]);
-    assert!(verify_respawn_lane(repo_a.to_str().unwrap(), &task, &draft)
-        .unwrap_err()
-        .contains("detached HEAD"));
+    assert!(
+        verify_respawn_lane(repo_a.to_str().unwrap(), &lane_facts(&task, &draft), &draft)
+            .unwrap_err()
+            .contains("detached HEAD")
+    );
     git(&lane, &["checkout", "-q", branch]);
     let mut wrong_branch = task.clone();
     wrong_branch.lane.branch = Some("lane/foreign".into());
-    assert!(
-        verify_respawn_lane(repo_a.to_str().unwrap(), &wrong_branch, &draft)
-            .unwrap_err()
-            .contains("branch mismatch")
-    );
+    assert!(verify_respawn_lane(
+        repo_a.to_str().unwrap(),
+        &lane_facts(&wrong_branch, &draft),
+        &draft
+    )
+    .unwrap_err()
+    .contains("branch mismatch"));
     let mut primary_task = task.clone();
     primary_task.lane.branch = Some("develop".into());
     let mut primary_draft = draft.clone();
     primary_draft.cwd = repo_b.display().to_string();
-    assert!(
-        verify_respawn_lane(repo_a.to_str().unwrap(), &primary_task, &primary_draft)
-            .unwrap_err()
-            .contains("primary checkout")
-    );
+    assert!(verify_respawn_lane(
+        repo_a.to_str().unwrap(),
+        &lane_facts(&primary_task, &primary_draft),
+        &primary_draft
+    )
+    .unwrap_err()
+    .contains("primary checkout"));
 
     let created = store
         .record_task_respawn_attempt(&plan_id, &task.id, "replacement", &draft, Some("worker"), 7)
@@ -169,7 +185,7 @@ fn respawn_cross_repository_lane_resolves_own_base_and_persists_replacement() {
     store
         .acknowledge_live_task_attempt_for_tab("replacement", None, None, 9)
         .unwrap();
-    let restored = store.show_task(&task.id).unwrap().task;
+    let restored = store.inspect_task_for_test(&task.id).unwrap().task;
     assert_eq!(restored.status, TaskStatus::InProgress);
     assert_eq!(restored.lane.worktree_path, task.lane.worktree_path);
     assert_eq!(restored.lane.base, Some(base));

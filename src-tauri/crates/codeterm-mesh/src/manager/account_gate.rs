@@ -41,8 +41,8 @@ impl MeshManager {
             self.remote_access_epoch = self.remote_access_epoch.wrapping_add(1);
         }
         if state.signed_in_account() != self.account.signed_in_account() {
-            self.registry_revision = None;
             self.signed_registry = None;
+            self.endpoint_records.records.clear();
         }
         self.account = state;
         self.account_ready = true;
@@ -133,6 +133,11 @@ impl MeshManager {
         self.gate_generation.subscribe()
     }
 
+    /// Changes only when an observer records a different network transport status.
+    pub fn transport_watch(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.transport_generation.subscribe()
+    }
+
     pub fn notify_connection_change(&self) {
         self.bump_gate();
     }
@@ -154,23 +159,24 @@ impl MeshManager {
 
     pub fn set_network_transport(
         &mut self,
-        status: crate::network_transport::TransportStatus,
+        mut status: crate::network_transport::TransportStatus,
     ) -> bool {
+        crate::network_transport::normalize_addresses(&mut status);
         if self.network_transport.as_ref() != Some(&status) {
-            self.tailscale_ip =
-                crate::network_transport::listener_addresses(&status, true, self.api_port)
-                    .iter()
-                    .map(|address| address.ip())
-                    .find(|ip| ip.is_ipv4())
-                    .map(|ip| ip.to_string());
+            self.tailscale_ip = crate::network_transport::preferred_ip(&status, self.api_port)
+                .map(|ip| ip.to_string());
             self.network_transport = Some(status);
             self.bump_gate();
+            self.transport_generation
+                .send_modify(|generation| *generation = generation.wrapping_add(1));
             return true;
         }
         false
     }
 
-    pub fn set_ready_listeners(&mut self, ready: Vec<std::net::SocketAddr>) -> bool {
+    pub fn set_ready_listeners(&mut self, mut ready: Vec<std::net::SocketAddr>) -> bool {
+        ready.sort_unstable();
+        ready.dedup();
         let changed = self.ready_listeners != ready;
         self.ready_listeners = ready;
         if changed {

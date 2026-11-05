@@ -11,6 +11,49 @@ use codeterm_service_core::service::test_fixture::ServiceFixture;
 use serde_json::json;
 use std::sync::Arc;
 
+#[tokio::test]
+async fn task_mutation_authority_storage_failure_is_internal_before_any_write() {
+    let (fixture, plan_id, task_id, _, _, owner) = update_fixture();
+    let headers = crate::auth::ActorHeaders::for_owner_test(owner_headers(&owner));
+    let before = full_task_record(&fixture, &plan_id, &task_id);
+    let service = Arc::new(fixture.service.clone());
+    let connection =
+        rusqlite::Connection::open(fixture.temp.path().join(".domios/plans.db")).unwrap();
+    connection
+        .execute(
+            "UPDATE plans SET header_json=json_set(header_json,'$.owner',42) WHERE id=?1",
+            [&plan_id],
+        )
+        .unwrap();
+    for kind in [
+        TaskMutationKind::Ordinary,
+        TaskMutationKind::Recovery,
+        TaskMutationKind::BlockDecision,
+    ] {
+        let (status, Json(body)) =
+            verify_task_mutation_owner(&service, &headers, &plan_id, &task_id, kind, None)
+                .await
+                .unwrap_err();
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(body["type"], "plan_authority_store_read_failed");
+    }
+    connection
+        .execute(
+            "UPDATE plans SET header_json=json_set(header_json,'$.owner',json(?1)) WHERE id=?2",
+            rusqlite::params![
+                serde_json::to_string(&OrchestratorRef {
+                    tab_id: Some(owner),
+                    session_id: Some("owner-session".into()),
+                    title: None
+                })
+                .unwrap(),
+                plan_id
+            ],
+        )
+        .unwrap();
+    assert_eq!(full_task_record(&fixture, &plan_id, &task_id), before);
+}
+
 #[test]
 fn task_board_page_rejects_incomplete_or_unsupported_selection() {
     let incomplete = TaskBoardPageQuery {
@@ -69,7 +112,7 @@ fn committed_task_event_matches_scoped_snapshot_and_stale_team_binding_denies_re
     let (fixture, plan_id, task_id, parent_id, _, owner) = update_fixture();
     let svc = &fixture.service;
     svc.plan_store
-        .with_plan(&plan_id, 5, |plan| {
+        .edit_plan_fixture(&plan_id, 5, |plan| {
             plan.tasks
                 .iter_mut()
                 .find(|task| task.id == parent_id)
@@ -116,7 +159,7 @@ fn committed_task_event_matches_scoped_snapshot_and_stale_team_binding_denies_re
         .unwrap()
         .contains("unrelated body sentinel"));
     svc.plan_store
-        .with_plan(&plan_id, 6, |plan| {
+        .edit_plan_fixture(&plan_id, 6, |plan| {
             plan.team_id = Some("missing-team".into());
             Ok(())
         })
@@ -139,7 +182,7 @@ fn task_detail_resolves_scoped_id_handle_and_key_with_exact_id_precedence() {
     let (fixture, plan_id, task_id, parent_id, dependency_id, _) = update_fixture();
     let svc = &fixture.service;
     svc.plan_store
-        .with_plan(&plan_id, 5, |plan| {
+        .edit_plan_fixture(&plan_id, 5, |plan| {
             let selected = plan
                 .tasks
                 .iter_mut()
@@ -188,7 +231,7 @@ fn task_detail_resolves_scoped_id_handle_and_key_with_exact_id_precedence() {
     }
     assert!(svc.plan_store.plan_loads_for_test().is_empty());
     svc.plan_store
-        .with_plan(&plan_id, 7, |plan| {
+        .edit_plan_fixture(&plan_id, 7, |plan| {
             plan.tasks
                 .iter_mut()
                 .find(|task| task.id == dependency_id)
@@ -518,12 +561,12 @@ fn lifecycle_reassignment_rest_respawn_defers_unverified_identity() {
         4,
     )
     .unwrap();
-    let task = store.show_task(&task_id).unwrap();
+    let task = store.inspect_task_for_test(&task_id).unwrap();
     let attempt = task
         .task
         .execution_attempts
         .iter()
-        .find(|attempt| attempt.id == persisted.attempt.id)
+        .find(|attempt| attempt.id == persisted.0.attempt.id)
         .unwrap();
     assert_eq!(attempt.executor_title.as_deref(), Some("Exact User Title"));
     assert_eq!(attempt.provider.as_deref(), Some("codex"));

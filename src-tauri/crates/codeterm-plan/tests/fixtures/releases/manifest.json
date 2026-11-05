@@ -1,0 +1,107 @@
+{
+  "format": 1,
+  "records_sha256": "f760aa6239382d212009e53f44f354444d47ce61d6c972d61c0782e54abf8d6c",
+  "fixtures": [
+    {
+      "file": "v1.18.6.sql",
+      "tag": "v1.18.6",
+      "source_sha": "776331d702e29bc3279664b481950677cc68a4c1",
+      "user_version": 1,
+      "ddl_sources": [
+        {
+          "path": "src-tauri/crates/codeterm-plan/src/service_plan/store_db.rs",
+          "constant": "PLAN_SCHEMA"
+        },
+        {
+          "path": "src-tauri/crates/codeterm-plan/src/service_plan/store_sync.rs",
+          "constant": "TASK_SCHEMA"
+        },
+        {
+          "path": "src-tauri/crates/codeterm-plan/src/service_plan/store_sync.rs",
+          "constant": "PLAN_LEVEL_SCHEMA"
+        }
+      ],
+      "sha256": "e7d7512d8d6d13bb4e4d0e7aa7dc482e49fd8714c07643d78da7d8bdcf865efe",
+      "schema_fingerprint": "41d045e67755383de9abef927067caa25182f9858266ee3be4a35f01db844379"
+    },
+    {
+      "file": "v1.18.7.sql",
+      "tag": "v1.18.7",
+      "source_sha": "15357631ce3808f906f14052738aec4b3aca0823",
+      "user_version": 1,
+      "ddl_sources": [
+        {
+          "path": "src-tauri/crates/codeterm-plan/src/service_plan/store_db.rs",
+          "constant": "PLAN_SCHEMA"
+        },
+        {
+          "path": "src-tauri/crates/codeterm-plan/src/service_plan/store_sync.rs",
+          "constant": "TASK_SCHEMA"
+        },
+        {
+          "path": "src-tauri/crates/codeterm-plan/src/service_plan/store_sync.rs",
+          "constant": "PLAN_LEVEL_SCHEMA"
+        }
+      ],
+      "sha256": "4579bff3c0ff2ba971c0328b6acaa66709b24f53e1932fece6065846f074c817",
+      "schema_fingerprint": "a1c7165d4605c8ed7c635287c817ae7144b26b5f1243439e740ca25f95cafd82"
+    },
+    {
+      "file": "supported-v0.sql",
+      "tag": "v1.18.6",
+      "source_sha": "776331d702e29bc3279664b481950677cc68a4c1",
+      "user_version": 0,
+      "ddl_sources": [
+        {
+          "path": "src-tauri/crates/codeterm-plan/src/service_plan/store_convert_118/schema.rs",
+          "constant": "LEGACY_SCHEMA"
+        }
+      ],
+      "sha256": "b7e911fbad6efb3f76dad7201fb798dbda26477f3f6d41e29fd8bfd40f93202a",
+      "schema_fingerprint": "349cd30fed3e43153f8a6399e5d3c9bed048bc9c2d847b9f61c9338e25c5810a"
+    },
+    {
+      "file": "forward-v2.sql",
+      "tag": "1.19-forward-contract",
+      "source_sha": "prospective",
+      "user_version": 2,
+      "sha256": "49dc9a7bcc8aa780a59e5ce0f91da077199ddfa9ae80e453cf9256f23480658c",
+      "schema_fingerprint": "a1c7165d4605c8ed7c635287c817ae7144b26b5f1243439e740ca25f95cafd82",
+      "application_id": 1146113102
+    },
+    {
+      "file": "forward-v3.sql",
+      "tag": "1.19-forward-contract",
+      "source_sha": "prospective",
+      "user_version": 3,
+      "sha256": "e43e16302e834127a840f8f37e4b644550e21ab342228ceaf28add037de7ad65",
+      "schema_fingerprint": "9a79811cc043fb352bea513f98cb1793a2178eb54a137957df89f2a793e64a17",
+      "application_id": 1146113102
+    },
+    {
+      "file": "forward-v4.sql",
+      "tag": "1.19-forward-contract",
+      "source_sha": "prospective",
+      "user_version": 4,
+      "sha256": "aef1c06ebde40faff3bc8195dbcfa7e4f9b2cc9441e94623041aee45971d1b38",
+      "schema_fingerprint": "5ce5f5193eb8684ff33e97ad98ea27d0b36c222bb723a3f7908db31edd943ece",
+      "application_id": 1146113102
+    },
+    {
+      "file": "forward-v5.sql",
+      "tag": "1.19-forward-contract",
+      "source_sha": "prospective",
+      "user_version": 5,
+      "sha256": "3ef2058144758245e38a0599034f1b05bf72f951434b268d4c53566db3b1308a",
+      "schema_fingerprint": "edb27757e0fda9ffe4b8e5cf49271a30248767b44aa4b023a521db333cfd17fb",
+      "application_id": 1146113102
+    }
+  ],
+  "equivalent_releases": [
+    {
+      "tag": "v1.18.5",
+      "source_sha": "652c54f416dcdb3d331c0dcdd5c807ac769f197e",
+      "fixture": "v1.18.6.sql"
+    }
+  ]
+}

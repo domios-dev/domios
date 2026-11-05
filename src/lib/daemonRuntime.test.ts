@@ -1,3 +1,4 @@
+import { muxMockFetch } from "./muxMockFetch.testdata";
 import { afterEach, describe, expect, it, vi } from "vitest";
 const bindings = vi.hoisted(() => ({ output: vi.fn(), events: vi.fn(), remote: vi.fn(), native: vi.fn(), orchestration: vi.fn() }));
 vi.mock("./outputStream", () => ({ bindOutputStreamTransport: bindings.output }));
@@ -22,28 +23,33 @@ describe("shared daemon runtime", () => {
     vi.stubGlobal("localStorage", { getItem: () => null });
     let finish!: (response: Response) => void;
     let signal!: AbortSignal;
-    vi.stubGlobal("fetch", vi.fn((_input: unknown, options: RequestInit) => {
+    vi.stubGlobal("fetch", muxMockFetch(vi.fn((_input: unknown, options: RequestInit) => {
       signal = options.signal as AbortSignal;
       return new Promise<Response>(resolve => { finish = resolve; });
-    }));
+    })));
     const { ensureDaemonRuntime } = await import("./daemonRuntime");
     const { configureDaemonTransport } = await import("./daemonBootstrap");
     const { webJson } = await import("./webApi");
     configureDaemonTransport({ origin: "http://127.0.0.1:7697", token: "first" });
     const read = webJson("GET", "/api/config");
     ensureDaemonRuntime();
+    // The carrier dispatches after its ack, so the daemon sees the request asynchronously.
+    await vi.waitFor(() => expect(signal).toBeDefined());
     expect(signal.aborted).toBe(false);
     finish(Response.json({ value: "current" }));
     await expect(read).resolves.toEqual({ value: "current" });
-    const staleRead = webJson("GET", "/api/config");
+    const firstSignal = signal;
+    // The replacement aborts this read while the test still waits, so its refusal is observed up front.
+    const staleRead = expect(webJson("GET", "/api/config")).rejects.toMatchObject({ name: "AbortError" });
+    await vi.waitFor(() => expect(signal).not.toBe(firstSignal));
     configureDaemonTransport({ origin: "http://127.0.0.1:7698", token: "second" });
-    expect(signal.aborted).toBe(true);
+    await vi.waitFor(() => expect(signal.aborted).toBe(true));
     finish(Response.json({ value: "stale" }));
-    await expect(staleRead).rejects.toMatchObject({ name: "AbortError" });
+    await staleRead;
   });
   it("uses the base for explicit peer streams and selected relay for domain requests", async () => {
     const fetch = vi.fn().mockResolvedValue(Response.json({ ok: true, status: 200, data: { result: "peer" } }));
-    vi.stubGlobal("fetch", fetch);
+    vi.stubGlobal("fetch", muxMockFetch(fetch));
     vi.stubGlobal("window", { location: { origin: "http://127.0.0.1:7697" }, dispatchEvent: vi.fn(), CustomEvent: class {} });
     vi.stubGlobal("localStorage", { getItem: (key: string) => key.includes("relay-peer:") ? "peer" : null });
     const { selectedDaemonTransport, ensureDaemonRuntime } = await import("./daemonRuntime");

@@ -1,8 +1,6 @@
-export interface UpdateHost {
-  execStart: (opts: string) => string;
-  fetchStart: (opts: string) => string;
-  awaitJob: <T>(jobId: string, then: (result: unknown) => T) => T;
-}
+
+import { type HostIoSteps } from "@codeterm/plugin-sdk";
+export type UpdateHost = Pick<import("@codeterm/plugin-sdk").Host, "io">;
 
 export interface CliCompatibility {
   supported: string[];
@@ -89,28 +87,22 @@ export function availableUpdate(
     ? { currentVersion, latestVersion } : { currentVersion, latestVersion: currentVersion };
 }
 
-function startedJob(raw: string): string | null {
-  const job = record(raw)?.jobId;
-  return typeof job === "string" && job !== "" ? job : null;
-}
-
-// Each probe yields the plugin VM through awaitJob, so the VM is held only to start a job and read its answer.
-export function checkProviderUpdate(
+export function* checkProviderUpdate(
   host: UpdateHost,
   binary: string,
   metadataUrl: string,
   compatibility?: CliCompatibility,
   parseInstalled: (result: unknown) => string | null = installedVersion,
-): UpdateAvailability | null {
-  const probe = startedJob(host.execStart(JSON.stringify({ bin: binary, args: ["--version"], timeoutMs: 5000 })));
-  if (!probe) return null;
-  return host.awaitJob(probe, installed => {
-    const currentVersion = parseInstalled(installed);
-    if (!currentVersion) return null;
-    const metadata = startedJob(host.fetchStart(JSON.stringify({ url: metadataUrl, method: "GET", timeoutMs: 6000,
-      headers: { Accept: compatibility ? "application/vnd.npm.install-v1+json" : "application/json" },
-    })));
-    if (!metadata) return null;
-    return host.awaitJob(metadata, response => availableUpdate(currentVersion, response, compatibility));
-  });
+): HostIoSteps<UpdateAvailability | null> {
+  let installed: unknown;
+  try { installed = yield* host.io.exec({bin: binary, args: ["--version"], timeoutMs: 5000}); }
+  catch { return null; }
+  const currentVersion = parseInstalled(installed);
+  if (!currentVersion) return null;
+  let metadata: unknown;
+  try {
+    metadata = yield* host.io.fetch({url: metadataUrl, method: "GET", timeoutMs: 6000,
+      headers: {Accept: compatibility ? "application/vnd.npm.install-v1+json" : "application/json"}});
+  } catch { return null; }
+  return availableUpdate(currentVersion, metadata, compatibility);
 }

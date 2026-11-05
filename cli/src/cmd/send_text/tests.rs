@@ -26,6 +26,23 @@ fn ease_retained_send_refusal_prints_the_exact_inspection_command() {
 }
 
 #[test]
+fn held_agent_send_exposes_cancellation_and_clap_accepts_its_opaque_id() {
+    use clap::Parser;
+    let id = "agent-pty:b3du:00000000-0000-4000-8000-000000000001";
+    let parsed = crate::Cli::try_parse_from(["domios", "tab", "send-cancel", id]).unwrap();
+    assert!(matches!(parsed.command, crate::Commands::Tab {
+        action: crate::TabAction::SendCancel { send_id }
+    } if send_id == id));
+    let outcome = analyze_send_text_response(&serde_json::json!({
+        "ok": true, "bytes_written": false, "send_id": id,
+    }));
+    let SendTextOutcome::Error { msg, .. } = outcome else {
+        panic!("held send must not report written");
+    };
+    assert!(msg.contains(&format!("domios tab send-cancel {id}")));
+}
+
+#[test]
 fn send_result_exposes_supplied_pad_file_path() {
     let token = "runtime/agent-pads/tab/inbox/123-token.md";
     let response = serde_json::json!({"ok": true, "delivery": "sent", "pad_file": token});
@@ -501,5 +518,23 @@ fn unconfirmed_pending_json_keeps_receipt_and_resolved_body_without_failure() {
             "ok": true, "delivery": "pending", "bytes_written": true, "send_id": "send-1",
             "sent_message": { "text": "opaque staged body", "truncated": false }
         })
+    );
+}
+
+#[test]
+fn retained_send_failure_warns_that_the_original_can_still_write() {
+    let receipt = serde_json::json!({
+        "ok": true, "delivery": "pending", "bytes_written": false,
+        "send_id": "agent-pty:own-tab:own-delivery"
+    });
+    let SendTextOutcome::Error { msg, exit_code } = analyze_send_text_response(&receipt) else {
+        panic!("held original is not written success");
+    };
+    assert_eq!(exit_code, 1);
+    assert!(msg.contains("may still be written"), "{msg}");
+    assert!(msg.contains("do not resend"), "{msg}");
+    assert!(
+        msg.contains("domios tab send-status agent-pty:own-tab:own-delivery"),
+        "{msg}"
     );
 }

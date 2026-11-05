@@ -25,6 +25,8 @@ Agents are users of the CLI, not clients of their own. Bridges, webhook senders,
 
 The tab side panel offers Documents and Changes. Changes shows recorded edits from the tab's own loaded transcript, cumulatively or per turn, and follows file renames. Counts sum recorded additions and deletions; the diff history does not claim to be a net working-tree diff. Changed-file details switch between recorded Diff and the full current File, with that choice kept per tab; either view opens fullscreen. Current-file previews use the tab-scoped reader with bounded text, document, page and image rendering; deleted, moved, binary, oversized and unreadable files keep the recorded diff available. Files can be opened or revealed and their source turns reached in chat. Missing text diffs, binary files, truncation and recorded deletion are explained. Shell-made changes are outside this view's recorded coverage. Both views share one panel with a list-to-detail navigation kept per tab, where Escape or Backspace returns to the list. A document, selected document text, a changed file or a single hunk can be added to the tab's composer as attachment chips or quoted references; adding never sends.
 
+Tab-scoped file previews on desktop and web admit referenced files inside the tab's own canonically resolved agent pad. Other tabs' pads and other instance data remain private; traversal, symlink escapes and credential files remain refused.
+
 ## Layers: one window, one server
 
 Domios runs as two processes: a headless server that owns every core part, and a native window that attaches to it as a thin client. The code follows the same split in three layers:
@@ -98,6 +100,19 @@ An exact restored session is never silently replaced. When the provider confirms
 
 Provider switching keeps the tab identity, Team, role, lane, pad and task attempt while retiring the old provider session. The target receives recent conversation turns and host-owned context as its first handoff turn and builds its own working summary; the full history remains readable separately. PTY and structured runtime providers use the same continuity contract. Busy turns require waiting or an explicit stop; unavailable providers and unsupported lifecycle capabilities refuse.
 
+Provider registry ownership ends before any provider callback or VM execution.
+Capabilities needed under tab or tracker ownership are captured beforehand.
+Ordinary plugin calls share one absolute operation deadline and cancellation,
+with bounded admission to each VM. The shipped providers use the job-only
+execution contract: a blocking host operation runs outside the VM and resumes
+its original continuation once. Authorization belongs to the job owner using
+captured authority; file locks belong to the invocation until its final native
+owner exits. Cancellation never replays an effect, and late completions cannot
+resume a cancelled invocation. Legacy synchronous callbacks retained for external
+plugins in 1.19 are not cancellable: a stuck callback stalls that plugin's own VM,
+while the registry and other plugin VMs remain independent. The
+[SDK host I/O contract](../packages/plugin-sdk/README.md#host-io-jobs) owns the API.
+
 #### Structured thread control
 
 The `agentRuntime` capability selects a Chat-only stdio runtime. Each tab owns its process, exact thread and binding; core owns process lifetime, framing, delivery and presentation, while the provider plugin owns protocol methods, parameters and event interpretation. The transcript has one producer with stable item IDs and paginated history; live items and backfill reconcile without duplicates. Provider-authenticated subagents open as read-only transcripts inside the parent tab under its exact root thread, nonce and runtime epoch. Inspection never creates a tab, rebinds a thread or grants child send authority; foreign and stale child identities are refused. Approval and question answers target only a pending request from the exact current binding and runtime epoch. Unsupported terminal keys and resize are explicit refusals.
@@ -155,12 +170,12 @@ One flat, trusted fabric of the owner's machines, and the relay that carries com
 
 Mesh cards and the overall indicator show connection progress from published handshake phases. Failed or refused authorization remains visible and backs off; a reachable public ping never proves an authenticated connection is ready.
 
-Account slots carry explicit signed-in presence separately from endpoint availability. A confirmed sign-out appears as Signed out on other machines with actions disabled; an offline sign-out leaves their last confirmed observation until the registry accepts a transition. Peers relay server-signed registry snapshots on membership changes and every new link handshake. Only verified newer revisions change membership and presence; revoked peers lose traffic and streams immediately, without a registry call by each recipient. The local sign-out traffic block is authoritative.
+Account slots carry explicit signed-in presence separately from endpoint availability. A confirmed sign-out appears as Signed out on other machines with actions disabled; an offline sign-out leaves their last confirmed observation until the registry accepts a transition. Peers relay server-signed registry snapshots on membership changes and every new link handshake. Only verified newer revisions change membership and presence; revoked peers lose traffic and streams immediately, without a registry call by each recipient. Local sign-out and owner-initiated revocation block traffic immediately, including while offline. Other machines accept revocation only from a verified server-signed registry revision. Membership renewal carries the endpoint and uses the signed expiry; server policy alone sets the lifetime.
 
-The local web UI/API binds assigned Tailscale addresses while Tailscale is connected and both the API and Mesh are enabled, independently of account sign-in. Native address changes update these health-proven listeners; account sign-out and revocation close peer traffic while preserving web API access with the instance token. Signed-in machines publish their endpoint to the account. The Mesh UI card offers QR and token-bearing Open/Copy links only for a proven listener. These listeners never bind wildcard or LAN addresses.
+The local web UI/API binds assigned Tailscale addresses while Tailscale is connected and both the API and Mesh are enabled, independently of account sign-in. Native address changes update these health-proven listeners; account sign-out and revocation close peer traffic while preserving web API access with the instance token. Signed-in machines gossip installation-signed endpoint records bound to current signed membership and registry keys. Higher durable sequences win, including signed withdrawals. Standalone server publication is reserved for cold start when no peer is reachable; daily enrollment and renewal carry the current endpoint in the same request. The Mesh UI card offers QR and token-bearing Open/Copy links only for a proven listener. These listeners never bind wildcard or LAN addresses.
 
 - Part of: core:service-layer.
-- Invariants: active installations signed in to the same account connect automatically by installation identity; both sides verify signed membership, key possession and fresh online permits; the account registry is the sole peer list, with one card per installation; the backend never carries Mesh traffic; expiry, sign-out and session revocation block requests and open streams immediately; removing an account installation revokes its slot; stale installations stay visible and explicitly removable; each machine decides locally what a peer may do; a machine belongs to one mesh; secrets never cross the mesh.
+- Invariants: active installations signed in to the same account connect automatically by installation identity; both sides authorize links locally from current signed membership, key possession and the newest verified server-signed registry revision; the account registry is the sole peer list, with one card per installation; the backend never carries Mesh traffic; expiry, sign-out and session revocation block requests and open streams immediately; removing an account installation revokes its slot; stale installations stay visible and explicitly removable; each machine decides locally what a peer may do; a machine belongs to one mesh; secrets never cross the mesh.
 
 
 ### Plugin host {#core:plugin-host}

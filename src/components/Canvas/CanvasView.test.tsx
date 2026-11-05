@@ -1,3 +1,4 @@
+import { muxMockFetch } from "../../lib/muxMockFetch.testdata";
 import { throws } from "node:assert/strict";
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -203,7 +204,7 @@ test("canvas spec node reflects spec sections loaded from the API", async () => 
   let specRequested = false;
   Object.defineProperty(globalThis, "fetch", {
     configurable: true,
-    value: async (input: RequestInfo | URL) => {
+    value: muxMockFetch(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("/api/specs/spec-entity-1")) {
         specRequested = true;
@@ -217,7 +218,7 @@ test("canvas spec node reflects spec sections loaded from the API", async () => 
       }
       assert(url.includes("/reconcile"), `unexpected API request: ${url}`);
       return new Response(JSON.stringify({ drift: [] }), { status: 200 });
-    },
+    }),
   });
   const api = { enabled: true, host: "127.0.0.1", port: 7686, token: "t", cors: true };
   const { root } = await render(<CanvasViewInner {...CANVAS_PROPS} plans={plans} api={api} />);

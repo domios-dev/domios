@@ -47,6 +47,7 @@ fn transport_orchestration_header_claim_preserves_nonce_authority() {
     let tab_token = state
         .svc
         .frontend_pty_env(Some(&tab_id))
+        .unwrap()
         .remove("CODETERM_API_TOKEN")
         .unwrap();
     for token in ["owner-secret", tab_token.as_str()] {
@@ -312,56 +313,40 @@ async fn transport_orchestration_contract_delivered_bridge_binding_and_denial_wi
 
 #[test]
 fn transport_orchestration_contract_plan_envelopes_and_project_scope() {
-    use crate::plan_routes::plans::{filter_plan_project, plan_list_response, ListPlansQuery};
-    use codeterm_service_core::plan::{OrchestratorRef, Plan, PlanStatus};
-    use codeterm_service_core::service::plan::IndexEntry;
-    let query: ListPlansQuery = axum::extract::Query::try_from_uri(
+    use crate::plan_routes::plans::{plan_list_response, ListPlansQuery};
+    use codeterm_service_core::plan::{OrchestratorRef, Plan};
+    use codeterm_service_core::service::plan::PlanStore;
+    let mut query: ListPlansQuery = axum::extract::Query::try_from_uri(
         &"/api/plans?full=1&project=%2Frepo%2Fa".parse().unwrap(),
     )
     .unwrap()
     .0;
     assert_eq!(query.full, Some(true));
     assert_eq!(query.project.as_deref(), Some("/repo/a"));
+    let directory = tempfile::tempdir().unwrap();
+    let store = PlanStore::open(directory.path().join("plans.sqlite3")).unwrap();
     let mut first = Plan::new("First".into(), "/repo/a".into(), OrchestratorRef::default());
     first.id = "first".into();
     let mut second = first.clone();
     second.id = "second".into();
     second.project_path = "/repo/b".into();
-    let entry = |id: &str| IndexEntry {
-        plan_id: id.into(),
-        file_path: std::path::PathBuf::from("fixture.json"),
-        canonical_project_path: "/repo".into(),
-        owner: OrchestratorRef::default(),
-        team_id: None,
-        title: id.into(),
-        status: PlanStatus::Active,
-        updated_at: 1,
-        assigned_tab_ids: vec![],
-        task_count: 0,
-        open_task_count: 0,
-        section_count: 0,
-        element_count: 0,
-        loop_count: 0,
-        has_goal: false,
-        orphaned: None,
-    };
-    let mut entries = vec![entry("first"), entry("second"), entry("missing")];
-    let get = |id: &str| match id {
-        "first" => Some(first.clone()),
-        "second" => Some(second.clone()),
-        _ => None,
-    };
-    filter_plan_project(&mut entries, query.project.as_deref(), get);
-    assert_eq!(entries.len(), 1);
-    let index = plan_list_response(&entries, false, get);
-    let full = plan_list_response(&entries, true, get);
+    store
+        .import_fixture_plans(&[first, second], || Ok(()), |_| Ok(()))
+        .unwrap();
+    let full = plan_list_response(&store, query.project.as_deref(), &query).unwrap();
+    query.full = Some(false);
+    let index = plan_list_response(&store, query.project.as_deref(), &query).unwrap();
+    assert_eq!(index["plans"].as_array().unwrap().len(), 1);
     assert_eq!(index["plans"][0]["plan_id"], "first");
+    assert_eq!(full["plans"].as_array().unwrap().len(), 1);
     assert_eq!(full["plans"][0]["id"], "first");
     assert_eq!(full["plans"][0]["project_path"], "/repo/a");
+    query.status = Some("unrecognized".into());
     assert_eq!(
-        plan_list_response(&entries, true, |_| None)["plans"],
-        json!([])
+        plan_list_response(&store, query.project.as_deref(), &query).unwrap(),
+        index
     );
+    assert!(store.export_plan_documents(&["missing".into()]).is_err());
 }
 
 #[test]

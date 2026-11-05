@@ -99,8 +99,7 @@ async fn account_mesh_outage_beyond_retry_window_renews_before_expiry() {
             .refresh_after(),
     );
     harness.registry.script.lock().unwrap().membership = Some(RegistryRefusal::Unavailable);
-    let mut delays = Vec::new();
-    for _ in 0..12 {
+    for attempt in 0..12 {
         let now = harness.mesh.now();
         assert_eq!(
             harness.mesh.refresh(EnrollTrigger::Lease).await,
@@ -111,14 +110,20 @@ async fn account_mesh_outage_beyond_retry_window_renews_before_expiry() {
             .lease_due(&Err(AccountMeshRefusal::Unavailable))
             .unwrap();
         assert_eq!(Some(due), harness.state().retry_at);
-        delays.push(due - now);
+        let base = (30u64 << attempt.min(4)).min(300);
+        let remaining = harness
+            .state()
+            .membership
+            .as_ref()
+            .unwrap()
+            .verified
+            .expires_at
+            - now;
+        let cap = base.min(remaining / 2).max(1);
+        assert!((cap * 3 / 4..=cap).contains(&(due - now)));
         assert!(harness.state().current_membership(due).is_some());
         harness.clock.set(due);
     }
-    assert_eq!(
-        delays,
-        [30, 60, 120, 240, 300, 300, 300, 300, 300, 300, 300, 300]
-    );
     harness.registry.script.lock().unwrap().membership = None;
     harness.mesh.refresh(EnrollTrigger::Lease).await.unwrap();
     assert!(harness.mesh.now() < START + 86400);
@@ -262,7 +267,7 @@ async fn account_mesh_forbidden_own_registry_read_rejoins_revoked_slot() {
     harness.clock.set(START + 64800);
     harness.mesh.enrollment_signed_in();
     harness.mesh.refresh(EnrollTrigger::Lease).await.unwrap();
-    assert_eq!(harness.calls("list"), 2);
+    assert_eq!(harness.calls("list"), 1);
     assert_eq!(harness.calls("recover_key"), 1);
     assert_eq!(harness.calls("recover"), 1);
     assert_eq!(harness.calls("enroll"), 1);
@@ -352,7 +357,10 @@ async fn account_mesh_retired_renew_waiting_for_key_cannot_repopulate_new_epoch_
         installation_id: INSTALLATION.into(),
         request_id: "e".repeat(64),
         signed_registry: None,
-        requested_membership_seconds: Some(86400),
+        endpoint: None,
+        own_row: Some(true),
+        default_display_name: None,
+
         operation: MeshOperation::Renew {
             expected_slot_revision: 77,
         },

@@ -1,4 +1,4 @@
-import type { Task } from "../types";
+import type { PlanTaskView as Task } from "../planProjection";
 import type { CanvasLayoutSettings } from "../settings";
 import { lineCount, measureFor } from "../canvasRender/textMetrics";
 import { nearContentHeight } from "../canvasRender/cardContent";
@@ -23,13 +23,13 @@ const TITLE_INNER_PAD = 30; // card horizontal padding + border
 const SCHEMATIC_TITLE_LINES = 2;
 
 export function taskFootprint(task: Task, children: Task[], s: CanvasLayoutSettings): TaskFootprint {
-  const bodyChars = task.body.trim().length;
+  const bodyChars = task.body?.trim().length ?? 0;
   const intentChars = task.intent?.trim().length ?? 0;
   const rationaleChars = task.model_rationale?.trim().length ?? 0;
-  const strideCount = task.milestones.length;
+  const strideCount = task.milestone_count ?? task.milestones?.length ?? 0;
   const subtaskCount = children.length;
-  const childBodyChars = children.reduce((acc, c) => acc + c.body.trim().length, 0);
-  const linkCount = task.milestones.reduce((acc, m) => acc + m.links.length, 0);
+  const childBodyChars = children.reduce((acc, c) => acc + (c.body?.trim().length ?? 0), 0);
+  const linkCount = (task.milestones ?? []).reduce((acc, m) => acc + m.links.length, 0);
   const titleChars = task.name.trim().length;
 
   const textUnits = Math.sqrt(clamp(bodyChars + intentChars + 0.6 * rationaleChars, 0, 3600) / 180);

@@ -84,7 +84,7 @@ fn close_case(cancelled: bool, unmerged: bool, dirty: bool) {
         )
         .unwrap();
     store
-        .with_plan(&plan.id, 4, |plan| {
+        .edit_plan_fixture(&plan.id, 4, |plan| {
             plan.tasks
                 .iter_mut()
                 .find(|item| item.id == task)
@@ -102,7 +102,7 @@ fn close_case(cancelled: bool, unmerged: bool, dirty: bool) {
     assert!(lane.exists(), "live Worker keeps the accepted lane");
     assert_eq!(
         store
-            .show_task(&task)
+            .inspect_task_for_test(&task)
             .unwrap()
             .task
             .lane
@@ -111,7 +111,7 @@ fn close_case(cancelled: bool, unmerged: bool, dirty: bool) {
         Some(CLEANUP_HELD)
     );
     fixture.service.close_tab(&worker).unwrap();
-    let task = store.show_task(&task).unwrap().task;
+    let task = store.inspect_task_for_test(&task).unwrap().task;
     let removed = !dirty && (cancelled || !unmerged);
     assert_eq!(!lane.exists(), removed);
     if removed {

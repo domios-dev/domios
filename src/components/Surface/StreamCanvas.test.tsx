@@ -73,6 +73,20 @@ suite.test("the stage size is reported once per distinct viewport", async () => 
   await unmount();
 });
 
+suite.test("cropped frames map the page edge after resizing and reject the black letterbox", async () => {
+  const { host, feed, recorded, unmount } = await renderCanvas({ interactive: true });
+  feed.publish({ data: "", metadata: { deviceWidth: 800, deviceHeight: 600, offsetTop: 100 } });
+  await flushAsync();
+  await resizeStages(800, 800);
+  const canvas = getByRole(host, "application", liveViewLabel("Jev's Browser", "Login"));
+  await act(async () => {
+    canvas.dispatchEvent(new MouseEvent("click", { bubbles: true, clientX: 0, clientY: 150 }));
+    canvas.dispatchEvent(new MouseEvent("click", { bubbles: true, clientX: 400, clientY: 149 }));
+  });
+  assert.deepEqual(recorded.inputs, [clickInput({ x: 0, y: 0 }, 0)]);
+  await unmount();
+});
+
 for (const dpr of [1.25, 1.5]) {
   suite.test(`first layout at DPR ${dpr} reports the real size before an observer callback`, async () => {
     const previousRect = HTMLElement.prototype.getBoundingClientRect;
@@ -134,12 +148,12 @@ suite.test("low-density decoded frames are drawn and replaced by the next frame"
       decode: async () => ({ width, height: width * 0.75, image, close: () => { closed += 1; } }),
     });
     const canvas = getByRole(host, "img") as HTMLCanvasElement;
-    assert.deepEqual(drawn, [[image, 0, 0, 200, 150]], "the first lower-density bitmap is painted");
+    assert.deepEqual(drawn, [[image, 0, 0, 200, 150, 0, 0, 200, 150]], "the first lower-density bitmap is painted");
     assert.equal(canvas.width, 200);
     width = 600;
     feed.publish({ data: "", metadata: META });
     await flushAsync();
-    assert.deepEqual(drawn.slice(-1)[0], [image, 0, 0, 600, 450]);
+    assert.deepEqual(drawn.slice(-1)[0], [image, 0, 0, 600, 450, 0, 0, 600, 450]);
     assert.equal(canvas.width, 600);
     assert.equal(closed, 1, "only replacement releases the lower-density frame");
     assert.equal(recorded.viewports.length, 1, "frames never trigger resize requests");

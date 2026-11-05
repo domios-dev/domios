@@ -3,59 +3,33 @@ use crate::account_mesh::wire::RegistryRefusal;
 use crate::account_mesh::{AccountMeshRefusal, EnrollTrigger};
 
 #[tokio::test]
-async fn account_mesh_rename_notice_refreshes_peer_name_once() {
-    let sender = Harness::new().await;
-    let receiver = Harness::new().await;
-    for harness in [&sender, &receiver] {
-        harness.sign_in("owner").await;
-        harness
-            .mesh
-            .refresh(EnrollTrigger::Automatic)
-            .await
-            .unwrap();
-        harness.log.lock().unwrap().clear();
-    }
-    let updated = sender
+async fn account_mesh_signed_registry_gossip_refreshes_peer_name_once() {
+    let harness = Harness::new().await;
+    harness.sign_in("owner").await;
+    harness
         .mesh
-        .rename_self(0, "Travel desk".into())
+        .refresh(EnrollTrigger::Automatic)
         .await
         .unwrap();
-    let notices: Vec<_> = sender
-        .log
-        .lock()
-        .unwrap()
-        .iter()
-        .filter_map(|entry| {
-            entry
-                .strip_prefix("transport:presence:")?
-                .parse::<u64>()
-                .ok()
-        })
-        .collect();
-    assert_eq!(notices, vec![updated.metadata_revision]);
-    assert_eq!(sender.calls("update"), 1);
-    assert_eq!(sender.calls("list"), 0);
-    {
-        let mut registry = receiver.registry.script.lock().unwrap();
-        registry.peer_name = Some(updated.display_name);
-        registry.peer_metadata_revision = updated.metadata_revision;
-    }
-    assert_eq!(
-        receiver
-            .mesh
-            .presence_notice("sender", "rename-notice", notices[0])
-            .await,
-        Ok(true)
-    );
-    assert_eq!(
-        receiver
-            .mesh
-            .presence_notice("sender", "rename-notice", notices[0])
-            .await,
-        Ok(false)
-    );
-    assert_eq!(receiver.calls("list"), 1);
-    let state = receiver.state();
+    let grant = registry_successor(&harness, |rows| {
+        let peer = rows
+            .iter_mut()
+            .find(|row| row.installation_id == PEER)
+            .unwrap();
+        peer.display_name = Some("Travel desk".into());
+        peer.metadata_revision += 1;
+    });
+    assert!(harness
+        .mesh
+        .receive_registry_snapshot(&grant)
+        .await
+        .unwrap());
+    assert!(!harness
+        .mesh
+        .receive_registry_snapshot(&grant)
+        .await
+        .unwrap());
+    let state = harness.state();
     let peer = state
         .registry
         .as_ref()
@@ -65,7 +39,9 @@ async fn account_mesh_rename_notice_refreshes_peer_name_once() {
         .find(|row| row.installation_id == PEER)
         .unwrap();
     assert_eq!(peer.display_name.as_deref(), Some("Travel desk"));
-    assert_eq!(peer.metadata_revision, updated.metadata_revision);
+    assert_eq!(peer.metadata_revision, 1);
+    assert_eq!(harness.calls("list"), 0);
+    assert_eq!(harness.calls("sync"), 0);
 }
 
 #[tokio::test]

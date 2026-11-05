@@ -1,0 +1,145 @@
+{
+  "format": 1,
+  "ddl_sources": [
+    {
+      "file": "store_db.rs",
+      "constant": "PLAN_SCHEMA"
+    },
+    {
+      "file": "store_sync.rs",
+      "constant": "TASK_SCHEMA"
+    },
+    {
+      "file": "store_sync.rs",
+      "constant": "PLAN_LEVEL_SCHEMA"
+    },
+    {
+      "file": "store_db.rs",
+      "constant": "TAB_INDEX_SCHEMA"
+    }
+  ],
+  "target": {
+    "user_version": 5,
+    "schema_fingerprint": "edb27757e0fda9ffe4b8e5cf49271a30248767b44aa4b023a521db333cfd17fb",
+    "fixture": "forward-v5.sql"
+  },
+  "migrations": [
+    {
+      "user_version": 1,
+      "schema_fingerprint": "a1c7165d4605c8ed7c635287c817ae7144b26b5f1243439e740ca25f95cafd82",
+      "fixture": "v1.18.7.sql",
+      "id": "1.18.8-admit-published-v1",
+      "strategy": "Real PlanDatabase::open: retain v0 converter; admit missing nonunique indexes in v1; transactionally create indexes and retire FTS",
+      "from_fixtures": [
+        "v1.18.6.sql",
+        "v1.18.7.sql",
+        "supported-v0.sql"
+      ],
+      "creation_fingerprint": "abe93e7bfcc27eab5a3f0378dc8fd3a8695eed1824c3b261c4c746f9789a034b"
+    },
+    {
+      "user_version": 2,
+      "schema_fingerprint": "a1c7165d4605c8ed7c635287c817ae7144b26b5f1243439e740ca25f95cafd82",
+      "fixture": "forward-v2.sql",
+      "id": "002-v1-bridge",
+      "step": "002-v1-bridge.sql",
+      "strategy": "Atomic registered forward step",
+      "from_fixtures": [
+        "v1.18.6.sql",
+        "v1.18.7.sql",
+        "supported-v0.sql"
+      ],
+      "creation_fingerprint": "140a8cde7f72a4cdfe6193b14143f5aed22df80a54b6cfcfe20e224511fb0777"
+    },
+    {
+      "user_version": 3,
+      "schema_fingerprint": "9a79811cc043fb352bea513f98cb1793a2178eb54a137957df89f2a793e64a17",
+      "fixture": "forward-v3.sql",
+      "id": "003-planner-tab-index",
+      "step": "003-planner-tab-index.sql",
+      "strategy": "Atomic registered forward step",
+      "from_fixtures": [
+        "v1.18.6.sql",
+        "v1.18.7.sql",
+        "supported-v0.sql",
+        "forward-v2.sql"
+      ],
+      "creation_fingerprint": "140a8cde7f72a4cdfe6193b14143f5aed22df80a54b6cfcfe20e224511fb0777"
+    },
+    {
+      "user_version": 4,
+      "schema_fingerprint": "5ce5f5193eb8684ff33e97ad98ea27d0b36c222bb723a3f7908db31edd943ece",
+      "fixture": "forward-v4.sql",
+      "id": "004-lane-tab-index",
+      "step": "004-lane-tab-index.sql",
+      "strategy": "Atomic registered forward step",
+      "from_fixtures": [
+        "v1.18.6.sql",
+        "v1.18.7.sql",
+        "supported-v0.sql",
+        "forward-v2.sql",
+        "forward-v3.sql"
+      ],
+      "creation_fingerprint": "140a8cde7f72a4cdfe6193b14143f5aed22df80a54b6cfcfe20e224511fb0777"
+    },
+    {
+      "user_version": 5,
+      "schema_fingerprint": "edb27757e0fda9ffe4b8e5cf49271a30248767b44aa4b023a521db333cfd17fb",
+      "fixture": "forward-v5.sql",
+      "id": "005-board-event-indexes",
+      "step": "005-board-event-indexes.sql",
+      "strategy": "Atomic registered forward step",
+      "from_fixtures": [
+        "v1.18.6.sql",
+        "v1.18.7.sql",
+        "supported-v0.sql",
+        "forward-v2.sql",
+        "forward-v3.sql",
+        "forward-v4.sql"
+      ],
+      "creation_fingerprint": "140a8cde7f72a4cdfe6193b14143f5aed22df80a54b6cfcfe20e224511fb0777"
+    }
+  ],
+  "registered_steps": [
+    {
+      "version": 1,
+      "step": "001-row-schema.sql",
+      "sha256": "ec6540a134d1720ec7dcb2fa82e7b54e401aa696954f5053785521667cb60e5a",
+      "schema": "001.sql",
+      "schema_sha256": "ec6540a134d1720ec7dcb2fa82e7b54e401aa696954f5053785521667cb60e5a",
+      "registration_sha256": "7efd8c011484c7042c48bd46493174d093831f8f9fce7d1a83133bae66a3c804"
+    },
+    {
+      "version": 2,
+      "step": "002-v1-bridge.sql",
+      "sha256": "c76440eedff77ea7fa22ea8674f7bee5b64d97a81ec55996fc35c8c97915d009",
+      "schema": "002.sql",
+      "schema_sha256": "a2f4350558bfa5f5c9c88bf4a7adf5264c5d311832e0c3f4a01500cdc3e16f11",
+      "registration_sha256": "8dc5e8d8bef9f2bd979274038ad3784bcfdfc357d332c8024b8268b3447b4ce9"
+    },
+    {
+      "version": 3,
+      "step": "003-planner-tab-index.sql",
+      "sha256": "181ce1f1a2d701ad03a736e4fd5077003a6f530e805f52214c526bb4527ea32c",
+      "schema": "003.sql",
+      "schema_sha256": "123c571f187d26df0b93d4df84a4a9ac7c3e0f73f6c5f4880e1775748fcac0fe",
+      "registration_sha256": "5ab7416793ea4263270e61cf66827d46d44a3843da1177a5674153bd560358b7"
+    },
+    {
+      "version": 4,
+      "step": "004-lane-tab-index.sql",
+      "sha256": "58485a1b17203df3343cd50e316e509096aec87c9afd98e94e582202e52b14bd",
+      "schema": "004.sql",
+      "schema_sha256": "0571e3d3d4c319f61b61f10b7eed7e205949188b5015f188e12ab49e3fe3a33d",
+      "registration_sha256": "22a5b77e7bc00ca74d5a0b5d91c99a49f80b01a88c5382d1d5091612521a54b7"
+    },
+    {
+      "version": 5,
+      "step": "005-board-event-indexes.sql",
+      "sha256": "b11c8955d3a18c10c0c64ea598b8357d5ad3bb2573a1e916ee10f3695bbd71d9",
+      "schema": "005.sql",
+      "schema_sha256": "05657fe7d493a5bff934e67887ab059021f63aade366178380a789fabc0fe19f",
+      "registration_sha256": "de23862b17079615f6f862d468c40ae6b98a6afd68b9d3d2b3f854f3cc01db01"
+    }
+  ]
+}

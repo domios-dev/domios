@@ -1,3 +1,4 @@
+import { ioTestContext } from "../../provider-shared/tests/hostIo";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
@@ -33,7 +34,7 @@ const context = {
   module: { exports: {} as { default?: any } },
   exports: {},
 };
-new vm.Script(fs.readFileSync(pluginPath, "utf8"), { filename: pluginPath }).runInNewContext(context);
+new vm.Script(fs.readFileSync(pluginPath, "utf8"), { filename: pluginPath }).runInNewContext(ioTestContext(context));
 
 const uuid = "11111111-1111-1111-1111-111111111111";
 const instructions = "opaque-restored-instructions-d83a";

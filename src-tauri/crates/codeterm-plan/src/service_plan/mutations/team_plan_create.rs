@@ -11,7 +11,7 @@ impl PlanStore {
         kinds: Vec<MilestoneKind>,
         now_ms: u64,
     ) -> Result<Plan, PlanError> {
-        let team_id = self.mint_id("team_test");
+        let team_id = self.mint_id("team_test")?;
         self.create_plan_for_team(title, project_path, owner, team_id, kinds, now_ms)
     }
 
@@ -25,18 +25,6 @@ impl PlanStore {
         now_ms: u64,
     ) -> Result<Plan, PlanError> {
         self.create_plan_for_team_in_mode(title, project_path, owner, team_id, kinds, now_ms, true)
-    }
-
-    pub(in crate::service_plan) fn create_plan_for_team_unobserved(
-        &self,
-        title: String,
-        project_path: String,
-        owner: OrchestratorRef,
-        team_id: String,
-        kinds: Vec<MilestoneKind>,
-        now_ms: u64,
-    ) -> Result<Plan, PlanError> {
-        self.create_plan_for_team_in_mode(title, project_path, owner, team_id, kinds, now_ms, false)
     }
 
     fn create_plan_for_team_in_mode(
@@ -87,12 +75,12 @@ pass an absolute path with --project, or omit --project to use the current worki
         }
         let project_path = project_path.display().to_string();
         let mut plan = Plan::new(title, project_path, owner);
-        if self.id_taken(&plan.id) {
-            plan.id = self.mint_id("pl");
+        if self.id_taken(&plan.id)? {
+            plan.id = self.mint_id("pl")?;
         }
         plan.team_id = Some(team_id);
         plan.milestone_kinds = kinds;
-        if let Err(error) = self.save_in_writer(&writer_turn, &mut plan, now_ms) {
+        if let Err(error) = self.import_payload_in_writer(&writer_turn, &mut plan, now_ms) {
             self.forget_plan(&plan.id);
             return Err(PlanError::Io(error.to_string()));
         }
@@ -120,41 +108,26 @@ pass an absolute path with --project, or omit --project to use the current worki
         team_id: &str,
         now_ms: u64,
     ) -> Result<Plan, PlanError> {
-        let team_id = team_id.trim();
-        if team_id.is_empty() {
-            return Err(PlanError::ActivePlanRequiresTeam {
-                plan_id: plan_id.into(),
-            });
-        }
-        let writer_turn = self.mutation_writer.enter();
-        if let Some((existing_plan_id, existing_title)) = self.active_plan_for_team(team_id) {
-            if existing_plan_id != plan_id {
-                return Err(PlanError::TeamAlreadyHasActivePlan {
-                    team_id: team_id.to_string(),
-                    existing_plan_id,
-                    existing_title,
-                });
-            }
-        }
-        self.with_plan_in_writer(&writer_turn, plan_id, now_ms, |plan| {
-            if let Some(bound_team_id) = plan.team_id.as_deref() {
-                if bound_team_id != team_id {
-                    return Err(PlanError::PlanAlreadyBoundToTeam {
-                        plan_id: plan.id.clone(),
-                        team_id: bound_team_id.to_string(),
-                    });
-                }
-            }
-            plan.team_id = Some(team_id.to_string());
-            Ok(plan.clone())
-        })
+        self.bind_team_rows_for_test(plan_id, team_id, None, now_ms)
     }
 
+    #[cfg(test)]
     pub fn adopt_plan_for_team(
         &self,
         plan_id: &str,
         team_id: &str,
         owner: OrchestratorRef,
+        now_ms: u64,
+    ) -> Result<Plan, PlanError> {
+        self.bind_team_rows_for_test(plan_id, team_id, Some(owner), now_ms)
+    }
+
+    #[cfg(test)]
+    fn bind_team_rows_for_test(
+        &self,
+        plan_id: &str,
+        team_id: &str,
+        owner: Option<OrchestratorRef>,
         now_ms: u64,
     ) -> Result<Plan, PlanError> {
         let team_id = team_id.trim();
@@ -163,25 +136,31 @@ pass an absolute path with --project, or omit --project to use the current worki
                 plan_id: plan_id.into(),
             });
         }
-        let writer_turn = self.mutation_writer.enter();
+        let turn = self.mutation_writer.enter();
         if let Some((existing_plan_id, existing_title)) = self.active_plan_for_team(team_id) {
             if existing_plan_id != plan_id {
                 return Err(PlanError::TeamAlreadyHasActivePlan {
-                    team_id: team_id.to_string(),
+                    team_id: team_id.into(),
                     existing_plan_id,
                     existing_title,
                 });
             }
         }
-        self.with_plan_in_writer(&writer_turn, plan_id, now_ms, |plan| {
-            if let Some(bound_team_id) = plan.team_id.as_deref() {
-                if bound_team_id != team_id {
-                    return Err(PlanError::PlanAlreadyBoundToTeam {
-                        plan_id: plan.id.clone(),
-                        team_id: bound_team_id.to_string(),
-                    });
-                }
+        let selector = PlanMatch::Ids(vec![plan_id.into()]);
+        let plans = self
+            .database
+            .observe_team_rows(&selector, None, &[], false)?;
+        let mut staged = plans.clone();
+        let plan = staged.first_mut().ok_or(PlanError::NotFound)?;
+        if let Some(bound) = plan.team_id.as_deref() {
+            if bound != team_id {
+                return Err(PlanError::PlanAlreadyBoundToTeam {
+                    plan_id: plan.id.clone(),
+                    team_id: bound.into(),
+                });
             }
+        }
+        if let Some(owner) = owner {
             if plan.owner != owner {
                 plan.owner_history.push(TransferRecord {
                     from: plan.owner.clone(),
@@ -192,108 +171,17 @@ pass an absolute path with --project, or omit --project to use the current worki
             }
             plan.owner = owner;
             plan.planner = None;
-            plan.team_id = Some(team_id.to_string());
             plan.status = PlanStatus::Active;
             plan.orphaned = None;
-            Ok(plan.clone())
-        })
-    }
-
-    pub fn transfer_plan_to_team(
-        &self,
-        plan_id: &str,
-        team_id: &str,
-        to: OrchestratorRef,
-        reason: &str,
-        now_ms: u64,
-    ) -> Result<Plan, PlanError> {
-        let team_id = team_id.trim();
-        if team_id.is_empty() {
-            return Err(PlanError::ActivePlanRequiresTeam {
-                plan_id: plan_id.into(),
-            });
         }
-        let writer_turn = self.mutation_writer.enter();
-        if let Some((existing_plan_id, existing_title)) = self.active_plan_for_team(team_id) {
-            if existing_plan_id != plan_id {
-                return Err(PlanError::TeamAlreadyHasActivePlan {
-                    team_id: team_id.to_string(),
-                    existing_plan_id,
-                    existing_title,
-                });
-            }
-        }
-        self.with_plan_in_writer(&writer_turn, plan_id, now_ms, |plan| {
-            plan.owner_history.push(TransferRecord {
-                from: plan.owner.clone(),
-                to: to.clone(),
-                ts: now_ms,
-                reason: reason.into(),
-            });
-            plan.owner = to;
-            plan.planner = None;
-            plan.team_id = Some(team_id.to_string());
-            Ok(plan.clone())
-        })
+        plan.team_id = Some(team_id.into());
+        self.commit_team_row_patches(&turn, selector, plans, staged, now_ms)?;
+        self.try_get(plan_id)
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// codeterm#384: a bare/relative `--project` name must never be resolved
-    /// against the daemon's own process cwd — canonicalizing a relative path
-    /// resolves it against whatever directory the daemon process happens to
-    /// be running from (e.g. the CodeTerm data dir), not the caller's actual
-    /// checkout. The refusal below is filesystem-independent by construction
-    /// (checked before any path is touched), so it holds even for the exact
-    /// failing case: a bare name that ALSO exists as a directory under the
-    /// CodeTerm data dir — proven here by a bare name that indeed exists as a
-    /// directory relative to the current process cwd, which must still not
-    /// be enough to accept it.
-    #[test]
-    fn bare_project_name_is_refused_even_when_it_exists_under_the_process_cwd() {
-        let cwd = std::env::current_dir().unwrap();
-        let bare_name = "src"; // a real directory relative to this crate's own test cwd
-        assert!(
-            cwd.join(bare_name).is_dir(),
-            "fixture precondition: {bare_name} must exist as a directory relative to cwd"
-        );
-        let store_dir = tempfile::tempdir().unwrap();
-        let store = PlanStore::new_for_test(store_dir.path());
-        let result = store.create_plan(
-            "Mis-rooted".into(),
-            bare_name.into(),
-            OrchestratorRef::from_tab("orch"),
-            vec![],
-            1,
-        );
-        assert!(
-            matches!(result, Err(PlanError::Io(_))),
-            "a bare project name must be refused at creation, not recorded: {result:?}"
-        );
-    }
-
-    #[test]
-    fn absolute_project_path_records_the_resolved_checkout() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = PlanStore::new_for_test(dir.path());
-        let plan = store
-            .create_plan(
-                "Rooted".into(),
-                dir.path().display().to_string(),
-                OrchestratorRef::from_tab("orch"),
-                vec![],
-                1,
-            )
-            .expect("an absolute, existing checkout path must be accepted");
-        assert_eq!(
-            plan.project_path,
-            paths::project_root(dir.path()).display().to_string()
-        );
-    }
-}
+mod tests;
 
 impl PlanStore {
     pub fn bind_product_observer(&self, observer: std::sync::Arc<dyn Fn() + Send + Sync>) {

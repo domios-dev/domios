@@ -3,15 +3,14 @@ use axum::{
     http::{HeaderMap, StatusCode},
     Json,
 };
+use codeterm_plan::service_plan::state::window::StateWindowRequest;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::path::{Path as FsPath, PathBuf};
 
 use crate::routes::AppState;
 use codeterm_service_core::plan::{
     OrchestratorRef, PlanMode, PlanStatus, PlannerRef, PlanningAuthor, PlanningState,
 };
-use codeterm_service_core::service::plan::IndexEntry;
 use codeterm_service_core::service::plan::PlanError;
 use codeterm_service_core::service::TeamPlanCreationError;
 use codeterm_service_core::service::TeamPlanError;
@@ -232,31 +231,9 @@ pub async fn list(
             }
             return Ok(Json(serde_json::json!({"plans":plans})));
         }
-        let mut entries = state.svc.plan_store.list_index();
-        filter_plan_project(&mut entries, want.as_deref(), |id| {
-            state.svc.plan_store.get(id)
-        });
-        if let Some(status) = &q.status {
-            entries.retain(|e| match status.as_str() {
-                "active" => e.status == PlanStatus::Active,
-                "archived" => e.status == PlanStatus::Archived,
-                _ => true,
-            });
-        }
-        if q.unowned == Some(true) {
-            entries.retain(|e| e.owner.tab_id.is_none() && e.owner.session_id.is_none());
-        }
-        if let Some(orch) = &q.orchestrator {
-            entries.retain(|e| {
-                e.owner.tab_id.as_deref() == Some(orch.as_str())
-                    || e.owner.session_id.as_deref() == Some(orch.as_str())
-            });
-        }
-        Ok(Json(plan_list_response(
-            &entries,
-            q.full == Some(true),
-            |id| state.svc.plan_store.get(id),
-        )))
+        Ok(Json(
+            plan_list_response(&state.svc.plan_store, want.as_deref(), &q).map_err(plan_err)?,
+        ))
     })
     .await
     .map_err(|_| {
@@ -267,30 +244,24 @@ pub async fn list(
     })?
 }
 
-pub(crate) fn filter_plan_project(
-    entries: &mut Vec<IndexEntry>,
-    project: Option<&str>,
-    get: impl Fn(&str) -> Option<codeterm_service_core::plan::Plan>,
-) {
-    if let Some(project) = project {
-        entries
-            .retain(|entry| get(&entry.plan_id).is_some_and(|plan| plan.project_path == project));
-    }
-}
-
 pub(crate) fn plan_list_response(
-    entries: &[IndexEntry],
-    full: bool,
-    get: impl Fn(&str) -> Option<codeterm_service_core::plan::Plan>,
-) -> Value {
-    if full {
-        let plans: Vec<_> = entries
-            .iter()
-            .filter_map(|entry| get(&entry.plan_id))
-            .collect();
-        serde_json::json!({ "plans": plans })
+    store: &codeterm_service_core::service::plan::PlanStore,
+    project: Option<&str>,
+    query: &ListPlansQuery,
+) -> Result<Value, PlanError> {
+    let status = match query.status.as_deref() {
+        Some("active") => Some(PlanStatus::Active),
+        Some("archived") => Some(PlanStatus::Archived),
+        _ => None,
+    };
+    let unowned = query.unowned == Some(true);
+    let owner = query.orchestrator.as_deref();
+    if query.full == Some(true) {
+        let plans = store.export_plan_list(project, status, unowned, owner)?;
+        Ok(serde_json::json!({"plans":plans}))
     } else {
-        serde_json::json!({ "plans": entries })
+        let plans = store.plan_list_index(project, status, unowned, owner)?;
+        Ok(serde_json::json!({"plans":plans}))
     }
 }
 
@@ -344,11 +315,31 @@ pub async fn resolve_refs(
     Json(body): Json<ResolveRefsBody>,
 ) -> PlanRouteResult {
     crate::plan_routes::run_blocking(move || {
-        let index = state.svc.plan_store.list_index();
+        let mut grouped = std::collections::BTreeMap::<String, (Vec<String>, Vec<String>)>::new();
+        for item in &body.refs {
+            let (tasks, sections) = grouped.entry(item.plan_id.clone()).or_default();
+            if let Some(id) = &item.target_id {
+                match item.target_kind {
+                    ResolveTargetKind::Task => tasks.push(id.clone()),
+                    ResolveTargetKind::Section => sections.push(id.clone()),
+                    ResolveTargetKind::Plan => {}
+                }
+            }
+        }
+        let projections = grouped
+            .into_iter()
+            .map(|(id, (tasks, sections))| {
+                let projection = state
+                    .svc
+                    .plan_store
+                    .reference_projection(&id, &tasks, &sections);
+                (id, projection)
+            })
+            .collect::<std::collections::BTreeMap<_, _>>();
         let refs = body
             .refs
             .into_iter()
-            .map(|item| resolve_ref(&state, &index, item))
+            .map(|item| resolve_ref(projections.get(&item.plan_id), item))
             .collect::<Vec<_>>();
         Ok(Json(
             serde_json::to_value(ResolveRefsResponse { refs }).unwrap_or_default(),
@@ -357,61 +348,30 @@ pub async fn resolve_refs(
     .await
 }
 
-fn resolve_ref(state: &AppState, index: &[IndexEntry], item: ResolveRefRequest) -> ResolvedRef {
-    let index_entry = index.iter().find(|entry| entry.plan_id == item.plan_id);
-    let (plan, missing_state) = load_plan_for_ref(
-        &item.plan_id,
-        index_entry,
-        || {
-            state
-                .svc
-                .plan_store
-                .reference_projection(
-                    &item.plan_id,
-                    if matches!(item.target_kind, ResolveTargetKind::Task) {
-                        item.target_id.as_deref()
-                    } else {
-                        None
-                    },
-                    if matches!(item.target_kind, ResolveTargetKind::Section) {
-                        item.target_id.as_deref()
-                    } else {
-                        None
-                    },
-                )
-                .ok()
-        },
-        |project_root| {
-            state
-                .svc
-                .ensure_plan_project_loaded(project_root)
-                .map(|_| ())
-                .map_err(classify_load_error)
-        },
-    );
-    let file_path = index_entry
-        .as_ref()
-        .map(|entry| entry.file_path.display().to_string());
-    let canonical_project_path = index_entry
-        .as_ref()
-        .map(|entry| entry.canonical_project_path.clone());
-    let status = index_entry.as_ref().map(|entry| entry.status.clone());
-    let owner_tab_id = index_entry
-        .as_ref()
-        .and_then(|entry| entry.owner.tab_id.clone());
-    let owner_session_id = index_entry
-        .as_ref()
-        .and_then(|entry| entry.owner.session_id.clone());
+fn resolve_ref(
+    projection: Option<
+        &Result<
+            codeterm_service_core::service::plan::ui_projections::ReferenceProjection,
+            PlanError,
+        >,
+    >,
+    item: ResolveRefRequest,
+) -> ResolvedRef {
+    let plan = projection.and_then(|value| value.as_ref().ok());
+    let missing_state = match projection {
+        Some(Err(PlanError::NotFound)) | None => "missing",
+        Some(Err(error)) => classify_load_error(error),
+        Some(Ok(_)) => "missing",
+    };
+    let file_path = None;
+    let canonical_project_path = plan.map(|p| p.canonical_project_path.clone());
+    let status = plan.map(|p| p.status.clone());
+    let owner_tab_id = plan.and_then(|p| p.owner.tab_id.clone());
+    let owner_session_id = plan.and_then(|p| p.owner.session_id.clone());
     let plan_title = plan
         .as_ref()
         .map(|entry| entry.title.trim())
         .filter(|title| !title.is_empty())
-        .or_else(|| {
-            index_entry
-                .as_ref()
-                .map(|entry| entry.title.trim())
-                .filter(|title| !title.is_empty())
-        })
         .unwrap_or(&item.plan_id)
         .to_string();
 
@@ -420,7 +380,7 @@ fn resolve_ref(state: &AppState, index: &[IndexEntry], item: ResolveRefRequest) 
             plan_id: item.plan_id,
             target_id: item.target_id,
             target_kind: item.target_kind,
-            state: missing_state.unwrap_or("missing"),
+            state: missing_state,
             title: plan_title.clone(),
             plan_title,
             task_title: None,
@@ -459,9 +419,10 @@ fn resolve_ref(state: &AppState, index: &[IndexEntry], item: ResolveRefRequest) 
             owner_session_id,
         },
         ResolveTargetKind::Task => {
-            let task = item.target_id.as_deref().and_then(|task_id| {
-                codeterm_service_core::plan::task_key::find_task(&plan.tasks, task_id)
-            });
+            let task = item
+                .target_id
+                .as_deref()
+                .and_then(|task_id| plan.task(task_id));
             let task_title = task
                 .map(|task| task.name.trim())
                 .filter(|title| !title.is_empty())
@@ -526,7 +487,7 @@ fn resolve_ref(state: &AppState, index: &[IndexEntry], item: ResolveRefRequest) 
     }
 }
 
-fn classify_load_error(error: PlanError) -> &'static str {
+fn classify_load_error(error: &PlanError) -> &'static str {
     let PlanError::Io(message) = error else {
         return "unreachable";
     };
@@ -538,75 +499,13 @@ fn classify_load_error(error: PlanError) -> &'static str {
     }
 }
 
-fn derive_project_root_from_index_path(file_path: &FsPath, plan_id: &str) -> Option<PathBuf> {
-    let file_name = file_path.file_name()?.to_str()?;
-    if file_name != "plan.json" && file_name != "plan.yaml" {
-        return None;
-    }
-    let plan_dir = file_path.parent()?;
-    if plan_dir.file_name()?.to_str()? != plan_id {
-        return None;
-    }
-    let bucket_dir = plan_dir.parent()?;
-    let bucket = bucket_dir.file_name()?.to_str()?;
-    if bucket != "active" && bucket != "archive" {
-        return None;
-    }
-    let plans_dir = bucket_dir.parent()?;
-    if plans_dir.file_name()?.to_str()? != "plans" {
-        return None;
-    }
-    let codeterm_dir = plans_dir.parent()?;
-    if codeterm_dir.file_name()?.to_str()? != ".domios" {
-        return None;
-    }
-    codeterm_dir.parent().map(FsPath::to_path_buf)
-}
-
-fn load_plan_for_ref<GetPlan, EnsureLoaded>(
-    plan_id: &str,
-    index_entry: Option<&IndexEntry>,
-    mut get_plan: GetPlan,
-    mut ensure_loaded: EnsureLoaded,
-) -> (
-    Option<codeterm_service_core::plan::Plan>,
-    Option<&'static str>,
-)
-where
-    GetPlan: FnMut() -> Option<codeterm_service_core::plan::Plan>,
-    EnsureLoaded: FnMut(&FsPath) -> Result<(), &'static str>,
-{
-    if let Some(plan) = get_plan() {
-        return (Some(plan), None);
-    }
-    let Some(entry) = index_entry else {
-        return (None, Some("missing"));
-    };
-    let Some(project_root) = derive_project_root_from_index_path(&entry.file_path, plan_id) else {
-        return (None, Some("permission"));
-    };
-    if let Err(state) = ensure_loaded(&project_root) {
-        return (None, Some(state));
-    }
-    match get_plan() {
-        Some(plan) => (Some(plan), None),
-        None => (None, Some("missing")),
-    }
-}
-
 fn find_section<'a>(
-    sections: &'a [codeterm_service_core::plan::Section],
+    sections: &'a [codeterm_service_core::service::plan::ui_projections::ReferenceSectionRead],
     section_id: &str,
-) -> Option<&'a codeterm_service_core::plan::Section> {
-    for section in sections {
-        if section.id == section_id || section.handle.as_deref() == Some(section_id) {
-            return Some(section);
-        }
-        if let Some(found) = find_section(&section.subsections, section_id) {
-            return Some(found);
-        }
-    }
-    None
+) -> Option<&'a codeterm_service_core::service::plan::ui_projections::ReferenceSectionRead> {
+    sections
+        .iter()
+        .find(|section| section.id == section_id || section.handle.as_deref() == Some(section_id))
 }
 
 #[cfg(test)]
@@ -623,9 +522,9 @@ pub async fn get(
         let plan = state
             .svc
             .plan_store
-            .get(&id)
-            .ok_or_else(|| plan_err(PlanError::NotFound))?;
-        Ok(Json(serde_json::to_value(plan).unwrap_or_default()))
+            .export_plan_document(&id)
+            .map_err(plan_err)?;
+        Ok(Json(plan))
     })
     .await
     .map_err(|_| {
@@ -640,11 +539,12 @@ pub async fn state(
     AxumState(state): AxumState<AppState>,
     _headers: HeaderMap,
     Path(id): Path<String>,
+    Query(window): Query<StateWindowRequest>,
 ) -> PlanRouteResult {
     crate::plan_routes::run_blocking(move || {
         let snapshot = state
             .svc
-            .build_plan_state(&id, epoch_ms())
+            .build_plan_state_with_window(&id, epoch_ms(), window)
             .map_err(plan_err)?;
         Ok(Json(serde_json::to_value(snapshot).unwrap_or_default()))
     })
@@ -655,16 +555,16 @@ pub async fn next(
     AxumState(state): AxumState<AppState>,
     _headers: HeaderMap,
     Path(id): Path<String>,
+    Query(window): Query<StateWindowRequest>,
 ) -> PlanRouteResult {
     crate::plan_routes::run_blocking(move || {
         let snapshot = state
             .svc
-            .build_plan_state(&id, epoch_ms())
+            .build_plan_state_with_window(&id, epoch_ms(), window)
             .map_err(plan_err)?;
-        Ok(Json(serde_json::json!({
-            "plan_id": id,
-            "next_actions": snapshot.next_actions,
-        })))
+        Ok(Json(
+            serde_json::to_value(snapshot.into_next_actions()).unwrap_or_default(),
+        ))
     })
     .await
 }

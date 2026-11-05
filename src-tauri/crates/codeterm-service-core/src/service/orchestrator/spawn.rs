@@ -85,12 +85,7 @@ impl ServiceContext {
                 .plan_id
                 .as_deref()
                 .ok_or("Planner requires --plan <id>")?;
-            params.parent_tab_id = Some(crate::service::agent_transition::resolve_planner_parent(
-                &self.plan_store,
-                &self.mux.read(),
-                plan_id,
-                None,
-            )?);
+            params.parent_tab_id = Some(self.resolve_planner_parent_for_spawn(plan_id)?);
         }
         crate::service::spawn_plan_task::validate_worker_plan_task_spawn(&params)?;
         crate::service::spawn_params::reject_team_with_binding(&params)?;
@@ -1001,8 +996,16 @@ impl ServiceContext {
         };
         // The atomic Planner placement already bound this tab; re-writing the
         // ref here would replace a committed binding outside its transaction.
+        let planner = match self.plan_store.hierarchy_planner_projection(plan_id) {
+            Ok(planner) => planner,
+            Err(crate::service::plan::PlanError::NotFound) => None,
+            Err(error) => {
+                log::warn!("[spawn] planner binding lookup failed for plan {plan_id}: {error}");
+                return;
+            }
+        };
         let already_bound = matches!(
-            self.plan_store.get(plan_id).and_then(|plan| plan.planner),
+            planner,
             Some(crate::plan::PlannerRef::Tab { tab_id: bound, .. }) if bound == tab_id
         );
         if already_bound {
@@ -1028,7 +1031,9 @@ impl ServiceContext {
 
     /// Origin frame for a spawned agent's first task, derived from its recorded spawner.
     pub(crate) fn spawn_task_message(&self, target_tab: &str, body: &str) -> Option<String> {
-        if let Some(id) = crate::flow_trace::tab_flow(self, target_tab) {
+        if let Some(id) =
+            crate::flow_trace::diagnostic_flow(crate::flow_trace::tab_flow(self, target_tab))
+        {
             crate::flow_trace::record(&id, "spawn.task", target_tab, "", "prepared", None);
         }
         let friend = self.neighbor_spawn_friend_name(target_tab);
@@ -1087,7 +1092,7 @@ impl ServiceContext {
             return Ok(());
         }
         if crate::service::agent_runtime::engine::requested(self, agent) {
-            runtime_prompt::prepare_runtime_identity(self, params);
+            runtime_prompt::prepare_runtime_identity(self, params)?;
             params.system_prompt = compose_runtime_system_prompt(params);
             return Ok(());
         }
@@ -1097,7 +1102,7 @@ impl ServiceContext {
                 .get(agent)
                 .is_some_and(|backend| backend.spawnable())
         {
-            runtime_prompt::prepare_runtime_identity(self, params);
+            runtime_prompt::prepare_runtime_identity(self, params)?;
         }
         move_chatbackend_task_to_system_prompt(self.chatbackend_registry.as_ref(), agent, params);
         Ok(())

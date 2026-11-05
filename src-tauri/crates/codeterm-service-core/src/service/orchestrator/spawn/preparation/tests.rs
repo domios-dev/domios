@@ -55,7 +55,7 @@ fn bound_planner_chat_bootstrap_preserves_task_overlay_and_peer() {
         system_prompt: Some(PEER.into()),
         ..Default::default()
     };
-    runtime_prompt::prepare_runtime_identity(&fixture.service, &mut params);
+    runtime_prompt::prepare_runtime_identity(&fixture.service, &mut params).unwrap();
     let prompt = compose_chatbackend_system_prompt(&mut params).unwrap();
     assert_eq!(prompt.matches(TASK).count(), 1);
     assert_eq!(prompt.matches(PEER).count(), 1);

@@ -233,7 +233,7 @@ fn plan_file_manifest_lists_index_and_body_paths() {
 }
 
 #[test]
-fn external_section_body_edit_reloads_into_full_plan() {
+fn external_section_body_edit_requires_explicit_import() {
     let dir = tempfile::tempdir().unwrap();
     let store = PlanStore::new_for_test(dir.path());
     let mut plan = Plan::new(
@@ -245,13 +245,16 @@ fn external_section_body_edit_reloads_into_full_plan() {
     let _section_id = store
         .add_section(&plan.id, "Spec", "before", None, &[], None, None, 2)
         .unwrap();
+    store.export_sidecars_for_test(&plan.id);
     let plan_dir = store_v2::plan_state_dir(&store.get(&plan.id).unwrap()).unwrap();
     let plan_path = store_v2::plan_yaml_path(&plan_dir);
     let mut disk: Plan =
         serde_yaml::from_str(&std::fs::read_to_string(&plan_path).unwrap()).unwrap();
     disk.sections[0].body = "after direct edit".into();
     std::fs::write(&plan_path, serde_yaml::to_string(&disk).unwrap()).unwrap();
-    store.reload_from_disk(&plan.id).unwrap();
+    assert_eq!(store.get(&plan.id).unwrap().sections[0].body, "before");
+    let mut imported = store_v2::load_plan(&plan_dir).unwrap();
+    store.import_plan(&mut imported, 3).unwrap();
 
     let list_plan = store
         .all_plans_for_test()
@@ -304,7 +307,7 @@ fn show_task_includes_parent_label_for_subtasks() {
             20,
         )
         .unwrap();
-    let detail = store.show_task(&child_id).expect("child task");
+    let detail = store.inspect_task_for_test(&child_id).expect("child task");
     let parent = detail.parent.expect("parent label");
     assert_eq!(parent.id, parent_id);
     assert_eq!(parent.name, "n");
@@ -490,7 +493,7 @@ fn close_task_closes_every_live_attempt_not_only_scalar_assignment() {
     let (store, id, tid) = store_with_task(&["status_update"]);
     store.assign_task(&id, &tid, "tab-live", None, 20).unwrap();
     store
-        .with_plan(&id, 25, |plan| {
+        .edit_plan_fixture(&id, 25, |plan| {
             let task = plan.tasks.iter_mut().find(|task| task.id == tid).unwrap();
             task.execution_attempts
                 .push(crate::plan::TaskExecutionAttempt {
@@ -531,7 +534,7 @@ fn close_task_accepts_every_started_lifecycle_state() {
         let (store, id, tid) = store_with_task(&["status_update"]);
         store.assign_task(&id, &tid, "tab-live", None, 20).unwrap();
         store
-            .with_plan(&id, 25, |plan| {
+            .edit_plan_fixture(&id, 25, |plan| {
                 let task = plan.tasks.iter_mut().find(|task| task.id == tid).unwrap();
                 task.status = status.clone();
                 Ok(())
@@ -542,7 +545,7 @@ fn close_task_accepts_every_started_lifecycle_state() {
             .close_task(&id, &tid, None, AgentRef::from_tab("orchestrator"), 30)
             .unwrap();
 
-        let task = store.show_task(&tid).unwrap().task;
+        let task = store.inspect_task_for_test(&tid).unwrap().task;
         assert_eq!(task.status, TaskStatus::Done, "starting status: {status:?}");
         assert!(
             task.assigned_tab_id.is_none(),
@@ -568,12 +571,17 @@ fn closed_task_assignment_is_not_indexed_or_bound() {
 
     let entry = store
         .list_index()
+        .unwrap()
         .into_iter()
         .find(|entry| entry.plan_id == id)
         .unwrap();
     assert!(entry.assigned_tab_ids.is_empty());
-    assert!(store.task_binding_for_tab("tab-live").is_none());
-    assert!(store.task_bindings_for_tab("tab-live").is_empty());
+    assert!(store
+        .assigned_task_binding_projection("tab-live")
+        .unwrap()
+        .map(|binding| (binding.plan_id, binding.task_id))
+        .is_none());
+    assert!(store.task_bindings_for_tab("tab-live").unwrap().is_empty());
 }
 
 #[test]
@@ -862,7 +870,7 @@ fn coverage_report_reports_gaps() {
     let sid = store
         .add_section(&id, "Backend", "", None, &[], None, None, 80)
         .unwrap();
-    let report = store.coverage_report(&id).unwrap();
+    let report = store.coverage_report(&id).unwrap().unwrap();
     assert!(report.gaps.contains(&"Backend".to_string()));
     assert!(report.sections.iter().any(|s| s.section_id == sid));
 }
@@ -918,11 +926,13 @@ fn list_tasks_is_strictly_project_scoped() {
         )
         .unwrap();
 
-    let tasks = store.list_tasks(TaskListFilter {
-        project_path: Some(project_b.display().to_string()),
-        active_only: true,
-        ..Default::default()
-    });
+    let tasks = store
+        .list_tasks(TaskListFilter {
+            project_path: Some(project_b.display().to_string()),
+            active_only: true,
+            ..Default::default()
+        })
+        .unwrap();
 
     assert_eq!(tasks.len(), 1);
     assert_eq!(tasks[0].plan_id, plan_b.id);

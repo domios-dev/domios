@@ -91,6 +91,12 @@ pub async fn mkdir(
     _headers: HeaderMap,
     Json(body): Json<MkdirBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    tokio::task::spawn_blocking(move || mkdir_blocking(body))
+        .await
+        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+}
+
+fn mkdir_blocking(body: MkdirBody) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let name = body.name.trim();
     if name.is_empty()
         || name == "."
@@ -126,6 +132,12 @@ pub async fn list_dir(
     _headers: HeaderMap,
     Query(query): Query<ListDirQuery>,
 ) -> Result<Json<ListDirResponse>, (StatusCode, String)> {
+    tokio::task::spawn_blocking(move || list_dir_blocking(query))
+        .await
+        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+}
+
+fn list_dir_blocking(query: ListDirQuery) -> Result<Json<ListDirResponse>, (StatusCode, String)> {
     let requested = expand_path(query.path);
     let current = requested
         .canonicalize()
@@ -137,13 +149,8 @@ pub async fn list_dir(
         ));
     }
 
-    let listing_path = current.clone();
-    let entries = tokio::task::spawn_blocking(move || {
-        directory_entries(&listing_path, query.show_hidden, query.files_only)
-    })
-    .await
-    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
-    .map_err(|error| (StatusCode::FORBIDDEN, error))?;
+    let entries = directory_entries(&current, query.show_hidden, query.files_only)
+        .map_err(|error| (StatusCode::FORBIDDEN, error))?;
 
     Ok(Json(ListDirResponse {
         path: display_path(&current),

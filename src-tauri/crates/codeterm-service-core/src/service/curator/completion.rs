@@ -30,14 +30,15 @@ impl ServiceContext {
         let Some(plan_id) = plan_id else {
             return Ok(());
         };
-        let plan = self.plan_store.get(&plan_id).ok_or("Curator plan absent")?;
-        let round = if let Some(run) = plan
-            .control_loop
-            .running
-            .filter(|run| run.tab_id.as_deref() == Some(tab))
-        {
-            let run_id = run
-                .run_id
+        let (running, run_id, last_round) = self
+            .plan_store
+            .curator_closed_tab_projection(&plan_id, tab)
+            .map_err(|error| match error {
+                crate::service::plan::PlanError::NotFound => "Curator plan absent".to_string(),
+                error => error.to_string(),
+            })?;
+        let round = if running {
+            let run_id = run_id
                 .as_deref()
                 .ok_or("Curator closed without a run identity")?;
             self.settle_curator_run_end(
@@ -47,11 +48,7 @@ impl ServiceContext {
                 self.curator_now()?,
                 RunEnd::TabClosed,
             )?
-        } else if let Some(round) = plan
-            .control_loop
-            .last_round
-            .filter(|round| round.tab_id.as_deref() == Some(tab))
-        {
+        } else if let Some(round) = last_round {
             round
         } else {
             index.0.write().remove(tab);
@@ -104,7 +101,7 @@ impl ServiceContext {
     ) -> Result<CuratorRound, String> {
         let (round, recorded) = self
             .plan_store
-            .with_plan(plan_id, now, |plan| {
+            .edit_curator_round(plan_id, now, |plan| {
                 if let Some(round) = plan
                     .control_loop
                     .last_round
@@ -170,7 +167,7 @@ impl ServiceContext {
                     plan.control_loop.consecutive_failures += 1;
                     plan.control_loop.fallback_reason = Some(CuratorFailure::ConsecutiveFailures);
                 }
-                curator::append_round(plan, round.clone());
+                plan.append_round(round.clone());
                 Ok((round, true))
             })
             .map_err(|error| error.to_string())?;

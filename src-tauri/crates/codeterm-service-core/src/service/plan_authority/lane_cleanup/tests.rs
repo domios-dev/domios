@@ -3,7 +3,7 @@ use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::{AgentRole, CloseRestoreTabState};
 use crate::plan::OrchestratorRef;
 
-fn inputs() -> (Plan, AuthenticatedPlanCaller, Tab, Tab) {
+fn inputs() -> (PlanIdentityRead, AuthenticatedPlanCaller, Tab, Tab) {
     let (mut mux, _) = MultiplexerState::new();
     let workspace = mux.list_workspaces()[0].id.clone();
     let owner_id = mux.create_tab(&workspace).unwrap();
@@ -30,18 +30,13 @@ fn inputs() -> (Plan, AuthenticatedPlanCaller, Tab, Tab) {
     });
     utility.session_binding_nonce = Some("utility-nonce".into());
     utility.pty_id = Some("utility-pty".into());
-    let plan = Plan::new(
-        "plan".into(),
-        "project".into(),
-        OrchestratorRef {
+    let plan = PlanIdentityRead {
+        owner: OrchestratorRef {
             tab_id: Some(owner_id),
             session_id: Some("owner-session".into()),
             title: None,
         },
-    );
-    let plan = Plan {
         team_id: Some(team),
-        ..plan
     };
     let caller = AuthenticatedPlanCaller {
         tab_id: Some(utility_id),
@@ -71,7 +66,7 @@ fn owned_utility_selects_live_bound_plan_owner_without_a_shell_agent_session() {
 
 #[test]
 fn utility_selection_refuses_foreign_scope_and_unproven_callers() {
-    type Change = fn(&mut Plan, &mut AuthenticatedPlanCaller, &mut Tab, &mut Tab);
+    type Change = fn(&mut PlanIdentityRead, &mut AuthenticatedPlanCaller, &mut Tab, &mut Tab);
     let cases: &[(&str, Change)] = &[
         ("missing nonce", |_, c, _, _| c.binding_nonce = None),
         ("foreign nonce", |_, c, _, _| {

@@ -221,6 +221,7 @@ fn mixed_partial_sql_failure_rolls_back_rows_and_discards_receipt() {
             .execute_batch("DROP TRIGGER fail_stride; DROP TABLE write_audit;")
             .unwrap();
     }
+    crate::service_plan::store_db::hot_write::tests::fixtures::remove_observers(&database);
     drop(database);
     let reopened = PlanDatabase::open(directory.path().join("plans.db")).unwrap();
     assert_eq!(reopened.load_plan(&plan.id).unwrap().unwrap(), plan);
@@ -275,6 +276,7 @@ fn public_attempt_stale_binding_is_noop_and_committed_cache_reloads() {
             .as_deref(),
         Some("model")
     );
+    crate::service_plan::store_db::hot_write::tests::fixtures::remove_observers(&store.database);
     drop(store);
     let reopened = PlanStore::open(directory.path().join("plans.db")).unwrap();
     assert_eq!(
@@ -473,6 +475,7 @@ fn stale_owner_and_denied_review_status_leave_every_row_unchanged() {
             to: TaskStatus::Done
         }
     ));
+    crate::service_plan::store_db::hot_write::tests::fixtures::remove_observers(&store.database);
     drop(store);
     let reopened = PlanStore::open(root.path().join("plans.db")).unwrap();
     assert_eq!(reopened.get(&plan.id).unwrap(), plan);
@@ -703,9 +706,16 @@ fn retired_plan_fts_is_dropped_only_after_exact_schema_admission() {
     let root = tempfile::tempdir().unwrap();
     let mut plan = fixture(root.path(), 0, 0);
     plan.tasks.truncate(2);
-    let database = database(root.path(), &plan);
-    database.connection.lock().execute_batch("CREATE VIRTUAL TABLE plan_fts USING fts5(plan_id UNINDEXED,title,body); INSERT INTO plan_fts VALUES ('retired','unused','unused');").unwrap();
-    drop(database);
+    let mut connection = rusqlite::Connection::open(root.path().join("plans.db")).unwrap();
+    connection
+        .execute_batch(include_str!("../migrations/schemas/001.sql"))
+        .unwrap();
+    connection.execute_batch("PRAGMA user_version=1;").unwrap();
+    let rows = store_rows::split_plan(serde_json::to_value(&plan).unwrap()).unwrap();
+    let tx = connection.transaction().unwrap();
+    super::super::upsert_plan(&tx, &plan, &rows, None).unwrap();
+    tx.commit().unwrap();
+    drop(connection);
     let reopened = PlanDatabase::open(root.path().join("plans.db")).unwrap();
     assert_eq!(reopened.load_plan(&plan.id).unwrap().unwrap(), plan);
     let count: usize = reopened
@@ -733,3 +743,23 @@ fn successful_hot_commit_preserves_canonical_path_normalization() {
     let stored = database.load_plan(&plan.id).unwrap().unwrap();
     assert_eq!(stored.canonical_project_path, plan.project_path);
 }
+
+mod task_metadata;
+
+mod remote_attempts;
+
+mod task_structure;
+
+mod qa_reconcile;
+
+mod binding_rows;
+
+mod task_authority;
+
+mod local_dispatch;
+
+mod adoption_attachments;
+
+mod lifecycle_transactions;
+
+mod remaining_task_writers;

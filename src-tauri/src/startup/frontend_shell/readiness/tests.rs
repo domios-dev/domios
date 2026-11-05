@@ -9,6 +9,19 @@ fn desktop_readiness_does_not_wait_for_background_restore() {
     assert!(events.push(b"event: startup-state\ndata: {\"state\":\"starting\",\"desktop_ready\":true,\"routes_ready\":false}\n\n").unwrap());
 }
 
+#[test]
+fn deterministic_store_failure_reaches_the_starting_window_verbatim() {
+    let error = "plans.db admission refused: opaque cause";
+    let event = format!(
+        "event: startup-state\ndata: {}\n\n",
+        serde_json::json!({"state":"failed","error":error})
+    );
+    assert_eq!(
+        StartupEvents::default().push(event.as_bytes()),
+        Err(error.into())
+    );
+}
+
 struct FixtureBody(tokio::sync::mpsc::Receiver<Vec<u8>>);
 
 impl StartupBody for FixtureBody {

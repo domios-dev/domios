@@ -217,44 +217,47 @@ fn cleaned_terminal_review_attempt(task: &Task) -> Option<usize> {
     Some(index)
 }
 
+#[cfg(test)]
+fn closed_review_continuation_reference(task: &Task) -> Option<ReviewContinuation> {
+    let continuation_replay = task.status == TaskStatus::InProgress
+        && matches!(
+            task.status_label.as_deref(),
+            Some("awaiting_continuation" | "bounce_continuation_failed" | "review bounced")
+        );
+    if (task.status != TaskStatus::InReview && !continuation_replay)
+        || task.execution_attempts.iter().any(|attempt| {
+            attempt.closed_at.is_none() && review_attempt_matches_task(task, attempt)
+        })
+    {
+        return None;
+    }
+    let ClosedReviewAttempt::Unique(attempt_index) = exact_closed_review_attempt(task) else {
+        return None;
+    };
+    let attempt = &task.execution_attempts[attempt_index];
+    Some(ReviewContinuation {
+        attempt_id: attempt.id.clone(),
+        executor_tab_id: attempt.executor_tab_id.clone(),
+        session_id: attempt.session_id.clone()?,
+        mesh_peer: attempt.mesh_peer.clone().or_else(|| task.peer.clone()),
+        epoch: attempt.continuation.epoch,
+        review_round: task.review_round,
+        state: attempt
+            .continuation
+            .state
+            .clone()
+            .unwrap_or_else(|| "executor_gone".into()),
+    })
+}
+
 impl PlanStore {
     pub fn closed_review_continuation(
         &self,
         plan_id: &str,
         task_id: &str,
-    ) -> Option<ReviewContinuation> {
-        let plan = self.get(plan_id)?;
-        let task_index = crate::plan::task_key::find_task_index(&plan.tasks, task_id)?;
-        let task = &plan.tasks[task_index];
-        let continuation_replay = task.status == TaskStatus::InProgress
-            && matches!(
-                task.status_label.as_deref(),
-                Some("awaiting_continuation" | "bounce_continuation_failed" | "review bounced")
-            );
-        if (task.status != TaskStatus::InReview && !continuation_replay)
-            || task.execution_attempts.iter().any(|attempt| {
-                attempt.closed_at.is_none() && review_attempt_matches_task(task, attempt)
-            })
-        {
-            return None;
-        }
-        let ClosedReviewAttempt::Unique(attempt_index) = exact_closed_review_attempt(task) else {
-            return None;
-        };
-        let attempt = &task.execution_attempts[attempt_index];
-        Some(ReviewContinuation {
-            attempt_id: attempt.id.clone(),
-            executor_tab_id: attempt.executor_tab_id.clone(),
-            session_id: attempt.session_id.clone()?,
-            mesh_peer: attempt.mesh_peer.clone().or_else(|| task.peer.clone()),
-            epoch: attempt.continuation.epoch,
-            review_round: task.review_round,
-            state: attempt
-                .continuation
-                .state
-                .clone()
-                .unwrap_or_else(|| "executor_gone".into()),
-        })
+    ) -> Result<Option<ReviewContinuation>, PlanError> {
+        self.database
+            .closed_review_continuation_projection(plan_id, task_id)
     }
 }
 
@@ -297,7 +300,7 @@ impl PlanStore {
         }
         let mut result = None;
         let mut recorded = false;
-        let milestone_id = self.mint_id("ms");
+        let milestone_id = self.mint_id("ms")?;
         self.with_task_rows(
             plan_id,
             task_id,

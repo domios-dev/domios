@@ -263,7 +263,7 @@ fn acceptance_removes_only_the_assigned_workers_completion_watches() {
     let svc = std::sync::Arc::new(fixture.service.clone());
     super::dispatch("plan.review.accept", &params, &svc).unwrap();
     assert_eq!(
-        store.show_task(&task_id).unwrap().task.status,
+        store.inspect_task_for_test(&task_id).unwrap().task.status,
         codeterm_service_core::plan::TaskStatus::Done
     );
     assert!(handle.store.lock().get(&completion.id).is_none());
@@ -393,7 +393,7 @@ fn qa_can_accept_only_a_handed_task_with_an_evidence_note() {
         fixture
             .service
             .plan_store
-            .show_task(&other)
+            .inspect_task_for_test(&other)
             .unwrap()
             .task
             .status,
@@ -424,7 +424,7 @@ fn qa_can_accept_only_a_handed_task_with_an_evidence_note() {
     let accepted = fixture
         .service
         .plan_store
-        .show_task(&delegated)
+        .inspect_task_for_test(&delegated)
         .unwrap()
         .task;
     assert_eq!(
@@ -483,7 +483,7 @@ fn qa_cannot_hold_a_handed_review_or_accept_without_its_live_binding() {
         fixture
             .service
             .plan_store
-            .show_task(&task_id)
+            .inspect_task_for_test(&task_id)
             .unwrap()
             .task
             .status,
@@ -536,7 +536,7 @@ fn qa_bounce_accepts_nonce_only_cli_identity_and_refuses_an_unhanded_tab() {
         fixture
             .service
             .plan_store
-            .show_task(&task_id)
+            .inspect_task_for_test(&task_id)
             .unwrap()
             .task
             .status,

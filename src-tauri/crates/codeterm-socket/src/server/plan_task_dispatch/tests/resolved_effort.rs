@@ -53,14 +53,15 @@ fn attempt_records_resolved_reasoning_effort() {
             true,
             3,
         )
-        .unwrap();
+        .unwrap()
+        .attempt_id;
     fixture
         .service
         .persist_dispatched_attempt_reasoning_effort(&plan.id, &task_id, &tab_id, &attempt_id, 4)
         .unwrap();
 
     let attempt = store
-        .show_task(&task_id)
+        .inspect_task_for_test(&task_id)
         .unwrap()
         .task
         .execution_attempts

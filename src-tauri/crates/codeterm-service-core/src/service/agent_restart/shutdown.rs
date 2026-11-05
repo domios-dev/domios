@@ -116,10 +116,12 @@ impl ServiceContext {
             reaper.wait_for_termination_bounded(Duration::from_secs(5))?;
         }
         crate::service::agent_restart::timing::stage(&snap.tab_id, &snap.pty_id, "process-exit");
-        self.signal_worker_interruption(
+        if let Err(error) = self.signal_worker_interruption(
             &snap.tab_id,
             crate::service::worker_interruption::WorkerInterruptionEvent::ForcedContextReset,
-        );
+        ) {
+            log::error!("[worker-interruption] signal failed: {error}");
+        }
         self.screen_state.remove(&snap.pty_id);
         self.clear_tab_agent_identity_after_confirmed_exit(
             &snap.tab_id,

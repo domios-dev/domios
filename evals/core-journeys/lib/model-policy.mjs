@@ -1,3 +1,4 @@
+import { Events } from "./env.mjs";
 import { installed, selectProviders } from "./oracle.mjs";
 import { fixtureProviderId } from "./fixture-control.mjs";
 
@@ -23,15 +24,32 @@ export function selectedModel(selections, provider) {
   return selections[provider];
 }
 
-export function catalogueSelection(descriptor, selection, refresh) {
+function verifyCacheQualification(descriptor, selection, refresh, context) {
+  if (!context?.qualification) return false;
+  const q = context.qualification, setup = context.setup_live;
+  if (context.phase !== "verify" || !nonempty(context.run) || !nonempty(context.build_sha)
+    || context.setup_build_sha !== context.build_sha || setup?.run !== context.run || setup.build_sha !== context.build_sha
+    || q.run !== context.run || q.build_sha !== context.build_sha || q.model_id !== selection
+    || q.verified_live_in_setup !== true || q.post_restart_refresh_in_flight !== true || q.model_present_in_cache !== true
+    || setup.catalogue?.provider !== descriptor.id || setup.catalogue.selected !== selection
+    || setup.catalogue.refresh?.refreshed !== true || setup.catalogue.refresh.discovery_required !== true
+    || refresh?.refreshed !== false) refuse(`${descriptor.id} verify cache lacks same-run live setup evidence on the same build and model`);
+  const entry = setup.catalogue;
+  catalogueSelection({ id: entry.provider, availability: "available", model_catalogue: entry.capability,
+    available_models: [entry.model], catalogue_version: entry.catalogue_version }, selection, entry.refresh);
+  return true;
+}
+
+export function catalogueSelection(descriptor, selection, refresh, context) {
   if (!installed(descriptor)) refuse(`${descriptor?.id ?? "unknown"} unavailable`);
   const capability = descriptor.model_catalogue;
   if (!capability || !["authoritative", "free_form"].includes(capability.authority)
     || typeof capability.liveDiscoveryRequired !== "boolean") refuse(`${descriptor.id} catalogue capability unknown`);
+  const verifiedCache = verifyCacheQualification(descriptor, selection, refresh, context);
   if (refresh?.provider_id !== descriptor.id || typeof refresh.refreshed !== "boolean"
     || typeof refresh.discovery_required !== "boolean" || refresh.discovery_required !== capability.liveDiscoveryRequired
-    || (refresh.reason && !(capability.liveDiscoveryRequired === false && refresh.refreshed === false
-      && refresh.reason === "the provider reported no live model list")) || (capability.liveDiscoveryRequired && !refresh.refreshed)) refuse(`${descriptor.id} catalogue refresh unavailable`);
+    || (refresh.reason && !((verifiedCache || capability.liveDiscoveryRequired === false) && refresh.refreshed === false
+      && refresh.reason === "the provider reported no live model list")) || (capability.liveDiscoveryRequired && !refresh.refreshed && !verifiedCache)) refuse(`${descriptor.id} catalogue refresh unavailable`);
   if (!Number.isSafeInteger(descriptor.catalogue_version) || !Number.isSafeInteger(refresh.version)) refuse(`${descriptor.id} catalogue version unknown`);
   if (!Array.isArray(descriptor.available_models) || !descriptor.available_models.length) refuse(`${descriptor.id} catalogue absent`);
   const matches = descriptor.available_models.filter((model) => model.id === selection);
@@ -39,7 +57,7 @@ export function catalogueSelection(descriptor, selection, refresh) {
   const model = matches[0];
   if (model.available === false || (model.availability != null && model.availability !== "available")) refuse(`${descriptor.id}/${selection} capability unavailable or unknown`);
   return { provider: descriptor.id, selected: selection, catalogue_version: descriptor.catalogue_version,
-    capability, model, refresh };
+    capability, model, refresh, ...(verifiedCache ? { qualification: context.qualification } : {}) };
 }
 
 export function modelIdentity(record, provider, selected, { first = false, previous = null } = {}) {
@@ -62,11 +80,36 @@ export function generalSelection(config, provider, selected) {
   if (general?.first_run_complete && general.agent_provider !== provider) refuse("conflicting General provider");
 }
 
-export async function freshCatalogue(api, provider, selected, expectedRoster, fixture = () => undefined) {
-  const refresh = await api("/api/agents/providers/refresh", { method: "POST", body: { provider_id: provider } });
+export async function refreshAfterStartup(ctx, provider, { signal = AbortSignal.timeout(15_000) } = {}) {
+  const open = ctx.catalogueEvents ?? ((signal) => new Events(ctx.dev, signal).open());
+  let events, initial;
+  const refresh = () => ctx.api("/api/agents/providers/refresh", { method: "POST", body: { provider_id: provider }, signal });
+  try {
+    events = await open(signal);
+    initial = await refresh();
+    if (initial?.discovery_required !== true || initial.refreshed !== false) return initial;
+    for (;;) {
+      const event = await events.next();
+      if (event?.event_type === "model-catalogue-changed" && event.data?.provider === provider
+        && Number.isSafeInteger(event.data.version) && event.data.version > initial.version) break;
+    }
+    return await refresh();
+  } catch (error) {
+    if (signal.aborted || error?.message === "deadline") {
+      if (ctx.options?.mode === "verify" && initial?.discovery_required === true && initial.refreshed === false) {
+        return { ...initial, startup_event_deadline: true };
+      }
+      refuse(`${provider} startup catalogue completion event did not arrive before the 15 s deadline`);
+    }
+    throw error;
+  } finally { events?.close(); }
+}
+
+export async function freshCatalogue(api, provider, selected, expectedRoster, fixture = () => undefined, observedRefresh, context) {
+  const refresh = observedRefresh ?? await api("/api/agents/providers/refresh", { method: "POST", body: { provider_id: provider } });
   const descriptors = (await api("/api/agents/providers")).filter(descriptor => descriptor.id !== fixture());
   if (expectedRoster && !same(descriptors.filter(installed).map((descriptor) => descriptor.id), expectedRoster)) refuse("installed provider roster changed");
-  return catalogueSelection(descriptors.find((descriptor) => descriptor.id === provider), selected, refresh);
+  return catalogueSelection(descriptors.find((descriptor) => descriptor.id === provider), selected, refresh, context);
 }
 
 export async function preparePolicy(ctx, { readRecord, configure = false, required } = {}) {
@@ -86,10 +129,26 @@ export async function preparePolicy(ctx, { readRecord, configure = false, requir
   if (previous?.refusal) refuse(`persisted refusal: ${previous.refusal}`);
   if (previous && (!same(previous.roster, ids) || !same(Object.entries(previous.selections).map((entry) => JSON.stringify(entry)), Object.entries(selections).map((entry) => JSON.stringify(entry))))) refuse("persisted restart policy differs from explicit selections or roster");
   if (!configure && !previous) refuse("persisted restart policy absent");
-  const catalogues = {};
-  for (const provider of ids) catalogues[provider] = await freshCatalogue(ctx.api, provider, selectedModel(selections, provider), ids, fixture);
+  const catalogues = {}, build = ctx.health?.build_sha ?? ctx.health?.build;
+  for (const provider of ids) {
+    const { startup_event_deadline, ...refresh } = await refreshAfterStartup(ctx, provider);
+    const selected = selectedModel(selections, provider);
+    const context = startup_event_deadline ? {
+      phase: ctx.options.mode, run: ctx.state.run, build_sha: build,
+      setup_build_sha: previous?.phase_builds?.setup, setup_live: previous?.setup_live?.[provider],
+      qualification: { verified_live_in_setup: true, post_restart_refresh_in_flight: true,
+        model_present_in_cache: true, model_id: selected, run: ctx.state.run, build_sha: build },
+    } : undefined;
+    catalogues[provider] = await freshCatalogue(ctx.api, provider, selected, ids, fixture, refresh, context);
+  }
   const policy = previous ?? { selections: { ...selections }, roster: ids, catalogues: {}, launches: [], identities: {}, first_sends: {} };
   Object.assign(policy.catalogues, catalogues);
+  policy.phase_builds ??= {};
+  policy.phase_builds[ctx.options.mode] = build;
+  if (ctx.options.mode === "setup") policy.setup_live = Object.fromEntries(Object.entries(catalogues)
+    .filter(([, entry]) => entry.refresh.refreshed === true && entry.refresh.discovery_required === true)
+    .map(([provider, catalogue]) => [provider, { run: ctx.state.run, build_sha: build, catalogue }]));
+  if (ctx.options.mode === "verify") policy.verify_catalogues = structuredClone(catalogues);
   const config = await ctx.api("/api/config");
   const generalProvider = policy.general_provider ?? (roster.run.find((provider) => !provider.runtime)?.id ?? ids[0]);
   generalSelection(config, generalProvider, selections[generalProvider]);

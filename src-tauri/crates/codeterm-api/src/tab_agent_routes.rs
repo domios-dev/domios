@@ -1,3 +1,4 @@
+use crate::blocking_json::handler as blocking_json;
 use axum::{
     routing::{get, post},
     Router,
@@ -15,7 +16,10 @@ pub(crate) fn mount(router: Router<AppState>) -> Router<AppState> {
             post(super::capability_probe_routes::refresh),
         )
         .route("/api/tabs/{id}/send", post(tab_routes::send_text))
-        .route("/api/tabs/{id}/chat", get(tab_chat_routes::snapshot))
+        .route(
+            "/api/tabs/{id}/chat",
+            get(blocking_json(tab_chat_routes::snapshot)),
+        )
         .route(
             "/api/tabs/{id}/chat-send",
             post(tab_routes::chat_send_text).get(tab_routes::chat_send_status),
@@ -53,7 +57,9 @@ pub(crate) fn mount(router: Router<AppState>) -> Router<AppState> {
         )
         .route(
             "/api/tabs/{id}/agent/provider-history",
-            get(super::agent_provider_switch_routes::provider_history),
+            get(blocking_json(
+                super::agent_provider_switch_routes::provider_history,
+            )),
         )
         .route("/api/tabs/{id}/timeout", post(tab_routes::set_timeout))
         .route("/api/tabs/{id}/focus", post(tab_routes::focus_tab))
@@ -68,21 +74,30 @@ pub(crate) fn mount(router: Router<AppState>) -> Router<AppState> {
         )
         .route("/api/tabs/{id}/rename", post(tab_routes::rename_tab))
         .route("/api/tabs/{id}/describe", post(tab_routes::describe_tab))
-        .route("/api/tabs/{id}/output", get(tab_routes::get_tab_output))
+        .route(
+            "/api/tabs/{id}/output",
+            get(blocking_json(tab_routes::get_tab_output)),
+        )
         .route(
             "/api/tabs/{id}/output/stream",
             get(output_stream::stream_tab_output),
         )
         .route(
             "/api/agent-runs/{tab_id}/log",
-            get(tab_routes::agent_run_log),
+            get(blocking_json(tab_routes::agent_run_log)),
         )
-        .route("/api/tabs/{id}/text", get(tab_routes::get_tab_text))
+        .route(
+            "/api/tabs/{id}/text",
+            get(blocking_json(tab_routes::get_tab_text)),
+        )
         .route(
             "/api/tabs/{id}/shell-commands",
-            get(tab_routes::shell_command_snapshot),
+            get(blocking_json(tab_routes::shell_command_snapshot)),
         )
-        .route("/api/tabs/{id}/usage", get(tab_routes::get_tab_usage))
+        .route(
+            "/api/tabs/{id}/usage",
+            get(blocking_json(tab_routes::get_tab_usage)),
+        )
         .route("/api/tabs/{id}/exec", post(tab_routes::exec_in_tab))
         .route(
             "/api/tabs/{id}/capture/start",

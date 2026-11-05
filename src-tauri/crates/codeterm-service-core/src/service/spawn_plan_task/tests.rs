@@ -422,7 +422,7 @@ fn dispatch_refuses_statuses_that_cannot_reach_startup() {
         TaskStatus::InReview,
     ] {
         store
-            .with_plan(&plan_id, 4, |plan| {
+            .edit_plan_fixture(&plan_id, 4, |plan| {
                 let task = plan
                     .tasks
                     .iter_mut()
@@ -433,7 +433,7 @@ fn dispatch_refuses_statuses_that_cannot_reach_startup() {
             })
             .unwrap();
         assert!(preflight_worker_plan_task_wip_gate(&store, Some(&plan_id), "spawn-bind").is_err());
-        let task = store.show_task(&task_id).unwrap().task;
+        let task = store.inspect_task_for_test(&task_id).unwrap().task;
         assert_eq!(task.status, status);
         assert!(task.execution_attempts.is_empty());
     }
@@ -557,7 +557,7 @@ fn respawn_of_blocked_task_yields_an_acknowledgeable_attempt() {
         .unwrap();
     let block_reason = "waiting for a dependency";
     store
-        .with_plan(&plan_id, 5, |plan| {
+        .edit_plan_fixture(&plan_id, 5, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()
@@ -589,7 +589,7 @@ fn respawn_of_blocked_task_yields_an_acknowledgeable_attempt() {
         6,
     )
     .unwrap();
-    let pending = store.show_task(&task_id).unwrap().task;
+    let pending = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(pending.status, TaskStatus::Pending);
     assert!(store.get(&plan_id).unwrap().strides.iter().any(|stride| {
         stride.text.contains("unblocked by dispatch") && stride.text.contains(block_reason)
@@ -597,7 +597,7 @@ fn respawn_of_blocked_task_yields_an_acknowledgeable_attempt() {
     store
         .acknowledge_task_attempt(&plan_id, &task_id, "worker-respawn", &binding.attempt_id, 7)
         .unwrap();
-    let task = store.show_task(&task_id).unwrap().task;
+    let task = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(task.status, TaskStatus::InProgress);
     assert_eq!(
         task.execution_attempts.last().unwrap().acknowledged_at,

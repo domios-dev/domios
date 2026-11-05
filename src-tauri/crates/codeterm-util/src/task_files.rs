@@ -1,15 +1,36 @@
 use std::cell::RefCell;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+use parking_lot::Mutex;
 
 struct Capture {
     owner: String,
     root: Option<PathBuf>,
-    paths: Vec<PathBuf>,
+    paths: Mutex<Vec<PathBuf>>,
 }
 
+#[derive(Clone)]
+pub struct CaptureContext(Arc<Capture>);
+
 thread_local! {
-    static CAPTURE: RefCell<Option<Capture>> = const { RefCell::new(None) };
+    static CAPTURE: RefCell<Option<CaptureContext>> = const { RefCell::new(None) };
+}
+
+pub fn current_capture() -> Option<CaptureContext> {
+    CAPTURE.with(|capture| capture.borrow().clone())
+}
+
+pub fn with_capture<T>(context: Option<CaptureContext>, operation: impl FnOnce() -> T) -> T {
+    struct Restore(Option<CaptureContext>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            CAPTURE.with(|capture| capture.replace(self.0.take()));
+        }
+    }
+    let _restore = Restore(CAPTURE.with(|capture| capture.replace(context)));
+    operation()
 }
 
 pub fn capture<T>(owner: &str, operation: impl FnOnce() -> T) -> (T, Vec<PathBuf>) {
@@ -26,16 +47,13 @@ fn scoped<T>(
     root: Option<PathBuf>,
     operation: impl FnOnce() -> T,
 ) -> (T, Vec<PathBuf>) {
-    let previous = CAPTURE.with(|capture| {
-        capture.replace(Some(Capture {
-            owner: owner.to_string(),
-            root,
-            paths: Vec::new(),
-        }))
-    });
-    let value = operation();
-    let current = CAPTURE.with(|capture| capture.replace(previous));
-    let paths = current.map(|capture| capture.paths).unwrap_or_default();
+    let context = CaptureContext(Arc::new(Capture {
+        owner: owner.to_string(),
+        root,
+        paths: Mutex::new(Vec::new()),
+    }));
+    let value = with_capture(Some(context.clone()), operation);
+    let paths = context.0.paths.lock().clone();
     (value, paths)
 }
 
@@ -44,7 +62,7 @@ pub fn write(contents: &str, suffix: Option<&str>) -> Option<String> {
         capture
             .borrow()
             .as_ref()
-            .map(|capture| (capture.owner.clone(), capture.root.clone()))
+            .map(|capture| (capture.0.owner.clone(), capture.0.root.clone()))
             .unwrap_or_else(|| ("unscoped".to_string(), None))
     });
     let root = root.unwrap_or_else(task_dir);
@@ -68,8 +86,8 @@ pub fn write_at(
     let path = dir.join(name);
     std::fs::write(&path, contents).ok()?;
     CAPTURE.with(|capture| {
-        if let Some(capture) = capture.borrow_mut().as_mut() {
-            capture.paths.push(path.clone());
+        if let Some(capture) = capture.borrow().as_ref() {
+            capture.0.paths.lock().push(path.clone());
         }
     });
     Some(path)
@@ -196,91 +214,4 @@ fn encode(bytes: &[u8]) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::fs;
-
-    #[test]
-    fn settings_files_release_only_superseded_owned_paths_then_close() {
-        let temp = tempfile::tempdir().unwrap();
-        let root = temp.path().join("runtime/task-files");
-        let marker = instance_marker_for(temp.path());
-        let old = write_at(&root, &marker, "tab", "old", Some(".ct-settings.json")).unwrap();
-        let current = write_at(&root, &marker, "tab", "new", Some(".ct-settings.json")).unwrap();
-        let sibling =
-            write_at(&root, &marker, "other", "other", Some(".ct-settings.json")).unwrap();
-        let foreign = temp.path().join("foreign.ct-settings.json");
-        fs::write(&foreign, "user").unwrap();
-        let owned = owned_paths(&root, "tab");
-        assert!(owned.contains(&old) && owned.contains(&current));
-        assert_eq!(
-            release_paths(
-                &root,
-                "tab",
-                &[old.clone(), sibling.clone(), foreign.clone()]
-            ),
-            vec![old.clone()]
-        );
-        assert!(!old.exists());
-        assert!(current.exists() && sibling.exists() && foreign.exists());
-        assert_eq!(release_tab(&root, "tab", &[]), vec![current.clone()]);
-        assert!(!current.exists());
-        assert!(sibling.exists() && foreign.exists());
-    }
-
-    #[test]
-    fn captured_files_land_in_the_instance_task_directory_and_are_owned_by_tab() {
-        let temp = tempfile::tempdir().unwrap();
-        let root = temp.path().join("runtime").join("task-files");
-        let marker = instance_marker_for(temp.path());
-        let (path, paths) = capture("tab-A", || {
-            write_at(&root, &marker, "tab-A", "payload", Some(".ct-task.md")).unwrap()
-        });
-        assert_eq!(path.parent(), Some(root.as_path()));
-        assert_eq!(paths, vec![path.clone()]);
-        assert!(path
-            .file_name()
-            .unwrap()
-            .to_string_lossy()
-            .contains(&encode(b"tab-A")));
-        assert_eq!(fs::read_to_string(path).unwrap(), "payload");
-    }
-
-    #[test]
-    fn task_file_sweep_is_instance_scoped() {
-        let temp = tempfile::tempdir().unwrap();
-        let root = temp.path().join("runtime").join("task-files");
-        fs::create_dir_all(&root).unwrap();
-        let marker = instance_marker_for(temp.path());
-        let live = root.join(format!(
-            "{}live-abc.ct-task",
-            file_prefix(&marker, "tab-live")
-        ));
-        let closed = root.join(format!(
-            "{}closed-def.ct-task",
-            file_prefix(&marker, "tab-closed")
-        ));
-        let foreign = root.join("codeterm-plugin-another-instance-66-foreign.ct-task");
-        fs::write(&live, "live").unwrap();
-        fs::write(&closed, "closed").unwrap();
-        fs::write(&foreign, "foreign").unwrap();
-
-        assert_eq!(
-            release_tab(&root, "tab-closed", &[closed.clone()]),
-            vec![closed.clone()]
-        );
-        assert!(sweep(&root, &HashSet::from(["tab-live".to_string()])).is_empty());
-        assert!(live.exists());
-        assert!(foreign.exists());
-        let orphan = root.join(format!(
-            "{}orphan-ghi.ct-task",
-            file_prefix(&marker, "tab-orphan")
-        ));
-        fs::write(&orphan, "orphan").unwrap();
-        assert_eq!(
-            sweep(&root, &HashSet::from(["tab-live".to_string()])),
-            vec![orphan.clone()]
-        );
-        assert!(foreign.exists());
-    }
-}
+mod tests;

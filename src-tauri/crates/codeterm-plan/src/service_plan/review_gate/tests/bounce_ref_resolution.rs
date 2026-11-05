@@ -56,7 +56,7 @@ fn bounce_review_names_the_exact_attempt_gap_not_a_missing_task() {
         dispatch(&store, &plan_id, &task_id, "tab_impl", 3).unwrap();
         set_status(&store, &plan_id, &task_id, "in_review", 4).unwrap();
         store
-            .with_plan(&plan_id, 5, |plan| {
+            .edit_plan_fixture(&plan_id, 5, |plan| {
                 let task = plan.tasks.iter_mut().find(|t| t.id == task_id).unwrap();
                 task.execution_attempts.last_mut().unwrap().closed_at = Some(5);
                 Ok(())
@@ -102,7 +102,7 @@ fn bounce_review_names_the_exact_attempt_gap_not_a_missing_task() {
         dispatch(&store, &plan_id, &task_id, "tab_impl", 3).unwrap();
         set_status(&store, &plan_id, &task_id, "in_review", 4).unwrap();
         store
-            .with_plan(&plan_id, 5, |plan| {
+            .edit_plan_fixture(&plan_id, 5, |plan| {
                 let task = plan.tasks.iter_mut().find(|t| t.id == task_id).unwrap();
                 task.execution_attempts.last_mut().unwrap().acknowledged_at = None;
                 Ok(())
@@ -118,7 +118,7 @@ fn bounce_review_names_the_exact_attempt_gap_not_a_missing_task() {
         dispatch(&store, &plan_id, &task_id, "tab_impl", 3).unwrap();
         set_status(&store, &plan_id, &task_id, "in_review", 4).unwrap();
         store
-            .with_plan(&plan_id, 5, |plan| {
+            .edit_plan_fixture(&plan_id, 5, |plan| {
                 let task = plan.tasks.iter_mut().find(|t| t.id == task_id).unwrap();
                 task.execution_attempts.last_mut().unwrap().reported_at = None;
                 Ok(())
@@ -134,7 +134,7 @@ fn bounce_review_names_the_exact_attempt_gap_not_a_missing_task() {
         dispatch(&store, &plan_id, &task_id, "tab_impl", 3).unwrap();
         set_status(&store, &plan_id, &task_id, "in_review", 4).unwrap();
         store
-            .with_plan(&plan_id, 5, |plan| {
+            .edit_plan_fixture(&plan_id, 5, |plan| {
                 let task = plan.tasks.iter_mut().find(|t| t.id == task_id).unwrap();
                 task.execution_attempts.last_mut().unwrap().session_id = None;
                 Ok(())
@@ -150,7 +150,7 @@ fn bounce_review_names_the_exact_attempt_gap_not_a_missing_task() {
         dispatch(&store, &plan_id, &task_id, "tab_impl", 3).unwrap();
         set_status(&store, &plan_id, &task_id, "in_review", 4).unwrap();
         store
-            .with_plan(&plan_id, 5, |plan| {
+            .edit_plan_fixture(&plan_id, 5, |plan| {
                 let task = plan.tasks.iter_mut().find(|t| t.id == task_id).unwrap();
                 task.assigned_tab_id = Some("someone_else".into());
                 Ok(())
@@ -166,7 +166,7 @@ fn bounce_review_names_the_exact_attempt_gap_not_a_missing_task() {
         dispatch(&store, &plan_id, &task_id, "tab_impl", 3).unwrap();
         set_status(&store, &plan_id, &task_id, "in_review", 4).unwrap();
         store
-            .with_plan(&plan_id, 5, |plan| {
+            .edit_plan_fixture(&plan_id, 5, |plan| {
                 let task = plan.tasks.iter_mut().find(|t| t.id == task_id).unwrap();
                 let attempt = task.execution_attempts.last_mut().unwrap();
                 attempt.competition_group_id = Some("group_1".into());
@@ -200,7 +200,7 @@ fn bounce_reopens_in_review_task_whose_executor_is_gone() {
         ..Default::default()
     };
     store
-        .with_plan(&plan_id, 5, |plan| {
+        .edit_plan_fixture(&plan_id, 5, |plan| {
             let task = plan.tasks.iter_mut().find(|t| t.id == task_id).unwrap();
             task.lane = lane.clone();
             Ok(())
@@ -276,7 +276,7 @@ fn bounce_reopens_a_closed_continuation_without_replacing_its_note() {
         .unwrap();
     assert!(first.continuation.is_some());
     store
-        .with_plan(&plan_id, 6, |plan| {
+        .edit_plan_fixture(&plan_id, 6, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()
@@ -300,7 +300,7 @@ fn bounce_reopens_a_closed_continuation_without_replacing_its_note() {
         .unwrap();
 
     assert!(reopened.continuation.is_none());
-    let task = store.show_task(&task_id).unwrap().task;
+    let task = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(task.status, crate::plan::TaskStatus::Pending);
     assert_eq!(task.review_evidence.len(), 1);
     assert_eq!(task.review_evidence[0].note, "preserve this review note");
@@ -314,7 +314,7 @@ fn bounce_still_refuses_multiple_live_review_attempts() {
     dispatch(&store, &plan_id, &task_id, "tab_impl", 3).unwrap();
     set_status(&store, &plan_id, &task_id, "in_review", 4).unwrap();
     store
-        .with_plan(&plan_id, 5, |plan| {
+        .edit_plan_fixture(&plan_id, 5, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()

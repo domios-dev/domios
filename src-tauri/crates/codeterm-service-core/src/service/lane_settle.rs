@@ -3,7 +3,7 @@
 
 use crate::plan::{Plan, Task};
 use crate::service::lane_removal::{lane_release_command, LaneRemovalRequest};
-use crate::service::plan::TaskLaneUpdate;
+use crate::service::plan::{LaneSettlementRead, TaskLaneUpdate};
 use crate::service::ServiceContext;
 use codeterm_lanes::checkpoint_io::{run_git_status, CaptureFailure};
 use std::path::Path;
@@ -88,6 +88,25 @@ impl LaneRecord {
             branch: non_empty(task.lane.branch.as_deref()),
             destination: non_empty(task.lane.destination.as_deref()),
             cleanup_status: non_empty(task.lane.cleanup_status.as_deref()),
+        }
+    }
+
+    fn from_read(read: &LaneSettlementRead) -> Self {
+        Self {
+            task_id: read.task_id.clone(),
+            terminal: read.status.is_terminal(),
+            cancelled: read.status == crate::plan::TaskStatus::Cancelled,
+            bound_tabs: read
+                .bound_tabs
+                .iter()
+                .filter_map(|tab| non_empty(Some(tab)))
+                .collect(),
+            peer: non_empty(read.peer.as_deref())
+                .or_else(|| non_empty(read.last_attempt_peer.as_deref())),
+            worktree: non_empty(read.worktree.as_deref()),
+            branch: non_empty(read.branch.as_deref()),
+            destination: non_empty(read.destination.as_deref()),
+            cleanup_status: non_empty(read.cleanup_status.as_deref()),
         }
     }
 
@@ -297,25 +316,6 @@ pub fn lane_update(settlement: &Settlement) -> Option<TaskLaneUpdate> {
     })
 }
 
-fn apply_to_task(task: &mut Task, update: TaskLaneUpdate) {
-    let lane = &mut task.lane;
-    for (field, value) in [
-        (&mut lane.tab_id, update.tab_id),
-        (&mut lane.workspace_id, update.workspace_id),
-        (&mut lane.workspace_name, update.workspace_name),
-        (&mut lane.worktree_path, update.worktree_path),
-        (&mut lane.branch, update.branch),
-        (&mut lane.cleanup_status, update.cleanup_status),
-    ] {
-        if let Some(value) = value {
-            *field = value;
-        }
-    }
-    if let Some(hints) = update.cleanup_hints {
-        lane.cleanup_hints = hints;
-    }
-}
-
 fn offered(hints: Vec<String>) -> Settlement {
     Settlement::Record {
         status: CLEANUP_OFFERED,
@@ -435,56 +435,85 @@ impl ServiceContext {
 
     /// Settle the lane of a task whose fate was just decided; queued, never inline.
     pub fn settle_lane(&self, plan_id: &str, task_id: &str) {
-        let Some(plan) = self.plan_store.get(plan_id) else {
-            return;
+        let reads = match self
+            .plan_store
+            .lane_settlement_projection(Some(plan_id), Some(task_id))
+        {
+            Ok(reads) => reads,
+            Err(error) => {
+                log::error!("[lane-settle] {plan_id}/{task_id} cannot read lane: {error}");
+                return;
+            }
         };
-        if plan.tasks.iter().any(|task| {
-            task.id == task_id && LaneRecord::from_task(task).wants(SettleTrigger::Decided)
-        }) {
-            self.enqueue_settlement(&plan, task_id, SettleTrigger::Decided);
+        if let Some(read) = reads
+            .first()
+            .filter(|read| LaneRecord::from_read(read).wants(SettleTrigger::Decided))
+        {
+            self.enqueue_settlement(
+                &read.plan_id,
+                read.canonical_path(),
+                task_id,
+                SettleTrigger::Decided,
+            );
         }
     }
 
-    /// A closed tab may have been the only thing keeping a finished lane in place.
     pub fn settle_lanes_held_by_closed_tab(&self, tab_id: &str) {
-        let candidates = crate::service::plan::TaskMatch::held_by(
-            tab_id,
-            &[
-                crate::plan::TaskStatus::Done,
-                crate::plan::TaskStatus::Cancelled,
-            ],
-        );
-        for plan in self.plan_store.plans_matching(&candidates) {
-            for task_id in held_by_tab(&plan, tab_id) {
-                self.enqueue_settlement(&plan, &task_id, SettleTrigger::HolderClosed);
+        let reads = match self.plan_store.held_lane_settlement_projection(tab_id) {
+            Ok(reads) => reads,
+            Err(error) => {
+                log::error!("[lane-settle] cannot read lanes held by {tab_id}: {error}");
+                return;
+            }
+        };
+        for read in reads {
+            let record = LaneRecord::from_read(&read);
+            if record.bound_to(tab_id) && record.wants(SettleTrigger::HolderClosed) {
+                self.enqueue_settlement(
+                    &read.plan_id,
+                    read.canonical_path(),
+                    &read.task_id,
+                    SettleTrigger::HolderClosed,
+                );
             }
         }
     }
 
-    fn enqueue_settlement(&self, plan: &Plan, task_id: &str, trigger: SettleTrigger) {
+    fn enqueue_settlement(
+        &self,
+        plan_id: &str,
+        canonical: &str,
+        task_id: &str,
+        trigger: SettleTrigger,
+    ) {
         let service = self.clone();
-        let (plan_id, task_id) = (plan.id.clone(), task_id.to_string());
+        let (plan_id, task_id) = (plan_id.to_string(), task_id.to_string());
         self.enqueue_lane_git(
-            canonical_path(plan),
+            canonical,
             format!("settle:{plan_id}:{task_id}"),
             Box::new(move || service.run_settlement(&plan_id, &task_id, trigger)),
         );
     }
 
     fn run_settlement(&self, plan_id: &str, task_id: &str, trigger: SettleTrigger) {
-        let Some(plan) = self.plan_store.get(plan_id) else {
+        let reads = match self
+            .plan_store
+            .lane_settlement_projection(Some(plan_id), Some(task_id))
+        {
+            Ok(reads) => reads,
+            Err(error) => {
+                log::error!("[lane-settle] {plan_id}/{task_id} cannot read lane: {error}");
+                return;
+            }
+        };
+        let Some(read) = reads.first() else {
             return;
         };
-        let Some(record) = plan
-            .tasks
-            .iter()
-            .find(|task| task.id == task_id)
-            .map(LaneRecord::from_task)
-            .filter(|record| record.wants(trigger))
-        else {
+        let record = LaneRecord::from_read(read);
+        if !record.wants(trigger) {
             return;
-        };
-        let canonical = canonical_path(&plan);
+        }
+        let canonical = read.canonical_path();
         let exists = record.worktree.as_deref().is_some_and(worktree_exists);
         let mut git = ServiceLaneGit {
             service: self,
@@ -533,24 +562,45 @@ impl ServiceContext {
     /// Marks every unsettled lane of a finished task terminal so history is never re-checked.
     pub fn settle_finished_lane_history(&self) {
         let now = unix_time_millis();
-        for plan_id in self.plan_store.plan_ids_with_unsettled_lanes() {
-            if !self
+        let plans = match self.plan_store.plan_ids_with_unsettled_lanes() {
+            Ok(plans) => plans,
+            Err(error) => {
+                log::error!("[lane-settle] cannot read finished lane candidates: {error}");
+                return;
+            }
+        };
+        for plan_id in plans {
+            let reads = match self
                 .plan_store
-                .plan_matches(&plan_id, |plan| !finished_records(plan).is_empty())
+                .lane_settlement_projection(Some(&plan_id), None)
+            {
+                Ok(reads) => reads,
+                Err(error) => {
+                    log::error!("[lane-settle] {plan_id} cannot read history: {error}");
+                    continue;
+                }
+            };
+            if !reads
+                .iter()
+                .any(|read| LaneRecord::from_read(read).needs_settlement())
             {
                 continue;
             }
-            let result = self.plan_store.with_plan(&plan_id, now, |plan| {
-                let canonical = canonical_path(plan).to_string();
-                let settlements =
-                    settle_history(&finished_records(plan), &canonical, &worktree_exists);
-                for (task_id, settlement) in &settlements {
-                    let task = plan.tasks.iter_mut().find(|task| task.id == *task_id);
-                    if let (Some(task), Some(update)) = (task, lane_update(settlement)) {
-                        apply_to_task(task, update);
+            let result = self.plan_store.settle_lane_history(&plan_id, now, |reads| {
+                let mut updates = Vec::new();
+                for read in reads {
+                    let settlements = settle_history(
+                        &[LaneRecord::from_read(read)],
+                        read.canonical_path(),
+                        &worktree_exists,
+                    );
+                    for (id, settlement) in settlements {
+                        if let Some(update) = lane_update(&settlement) {
+                            updates.push((id, update));
+                        }
                     }
                 }
-                Ok(settlements.len())
+                updates
             });
             match result {
                 Ok(count) => {
@@ -572,6 +622,7 @@ pub fn held_by_tab(plan: &Plan, tab_id: &str) -> Vec<String> {
         .collect()
 }
 
+#[cfg(test)]
 fn finished_records(plan: &Plan) -> Vec<LaneRecord> {
     plan.tasks
         .iter()

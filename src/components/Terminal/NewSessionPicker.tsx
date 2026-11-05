@@ -7,7 +7,6 @@ import { useModelPresets } from "../../hooks/useModelPresets";
 import { invoke } from "../../lib/bridge";
 import { DEV_BUILD } from "../../lib/devBuild";
 import { useMultiplexer, useMuxState } from "../../store/multiplexer/hooks";
-import { setAgentSettings } from "../../lib/clientSettings";
 import {
   allowedNewSessionModes,
   choiceForSessionSection,
@@ -39,7 +38,6 @@ export function NewSessionPicker({
   workspaceId,
   workspaceCwd,
   agentsConfig,
-  agentConfig,
   initialProviderId,
   section = "workspace",
   onClose,
@@ -47,7 +45,6 @@ export function NewSessionPicker({
   workspaceId: string;
   workspaceCwd?: string | null;
   agentsConfig?: AppConfig["agents"];
-  agentConfig?: AppConfig["agent"];
   initialProviderId?: string;
   section?: NewSessionSection;
   onClose: () => void;
@@ -71,7 +68,6 @@ export function NewSessionPicker({
   const environmentId = execution.providerId === localId ? execution.environmentId : "";
   const [busy, setBusy] = useState(false);
   const [dismissing, setDismissing] = useState(false);
-  const [firstAccessFull, setFirstAccessFull] = useState(true);
   const dialogRef = useRef<HTMLDivElement>(null);
   const { frameRef: modeFrameRef, contentRef: modeContentRef } = useAnimatedHeight();
   const disabledProviderIds = useMemo(
@@ -274,38 +270,8 @@ export function NewSessionPicker({
         await runSingleSpawn();
       }
     };
-    if (location === "cloud" || agentConfig?.full_access !== undefined) {
-      void start();
-      return;
-    }
-    setBusy(true);
-    void setAgentSettings({ full_access: firstAccessFull })
-      .then(() => {
-        setBusy(false);
-        return start();
-      })
-      .catch((error) => {
-        setBusy(false);
-        createNoticePublisher({ upsertToast })({ kind: "toast", tabId: null,
-          workspaceId: workspaceId,
-          title: "Agent access was not saved",
-          detail: error instanceof Error ? error.message : String(error),
-          severity: "Error" });
-      });
-  }, [
-    upsertToast,
-    busy,
-    dismissing,
-    onClose,
-    selectedWorkspace?.cwd_missing,
-    agentConfig?.full_access,
-    choice.mode,
-    firstAccessFull,
-    location,
-    runPairSpawn,
-    runSingleSpawn,
-    workspaceId,
-  ]);
+    void start();
+  }, [busy, dismissing, onClose, selectedWorkspace?.cwd_missing, choice.mode, runPairSpawn, runSingleSpawn]);
 
   const handleModeSelect = useCallback((mode: NewSessionMode) => {
     if (!allowedNewSessionModes(section).includes(mode)) return;
@@ -469,22 +435,6 @@ export function NewSessionPicker({
           </div>
         </div>
 
-        {location !== "cloud" && agentConfig?.full_access === undefined && (
-          <label className="relative mt-4 flex cursor-pointer items-start gap-2.5 rounded-md border border-[var(--ct-border)] bg-[var(--ct-bg)] px-3 py-2.5">
-            <input
-              type="checkbox"
-              checked={firstAccessFull}
-              onChange={(event) => setFirstAccessFull(event.target.checked)}
-              className="mt-0.5 h-3.5 w-3.5 accent-[var(--ct-accent)]"
-            />
-            <span>
-              <span className="block text-[12px] text-[var(--ct-fg)]">Full access for agents</span>
-              <span className="mt-0.5 block text-[11px] text-[var(--ct-muted-fg)]">
-                Agents can edit files and run commands without asking. You can change this later in Settings.
-              </span>
-            </span>
-          </label>
-        )}
 
         <div className="relative mt-4 flex justify-end">
           <Button

@@ -11,8 +11,7 @@ use crate::account_mesh::protocol::{
 };
 use crate::account_mesh::{
     AccountMeshAuthority, AccountMeshState, AccountPresence, AdmissionRefusal, BoxFuture,
-    LinkAuthorizationRequest, LinkPermitExpectation, LinkTarget, SignedMembership,
-    VerifiedMembership,
+    LinkTarget, SignedMembership, VerifiedMembership,
 };
 use crate::types::{AccessLevel, MeshIdentity, PairedPeer, PeerAddress, RELAY_PROTOCOL_VERSION};
 use crate::{MeshManager, MeshState};
@@ -45,8 +44,7 @@ pub fn membership(account: &str, installation: &str, expires_at: u64) -> SignedM
     }
 }
 
-/// Deterministic account authority: possession is bound to the installation id, permits to
-/// the transcript and both installations; `online` models backend reachability.
+/// Deterministic possession proofs with a locally cached registry.
 pub struct FakeAuthority {
     pub snapshots: Mutex<Vec<codeterm_entitlements::DetachedGrant>>,
     pub installation_id: String,
@@ -65,13 +63,18 @@ impl FakeAuthority {
             registry: Mutex::new(HashMap::new()),
         })
     }
-
-    pub(super) fn permit(holder: &str, peer: &str, account: &str, transcript: &[u8; 32]) -> String {
-        format!("permit|{holder}|{peer}|{account}|{}", hex(transcript))
-    }
 }
 
 impl AccountMeshAuthority for FakeAuthority {
+    fn accept_endpoint_sequence<'a>(
+        &'a self,
+        _membership: &'a VerifiedMembership,
+        _sequence: u64,
+        _digest: [u8; 32],
+    ) -> BoxFuture<'a, Result<bool, AdmissionRefusal>> {
+        Box::pin(async { Ok(true) })
+    }
+
     fn receive_registry_snapshot<'a>(
         &'a self,
         snapshot: &'a codeterm_entitlements::DetachedGrant,
@@ -111,54 +114,12 @@ impl AccountMeshAuthority for FakeAuthority {
         signature == format!("p|{}|{}", membership.installation_id, hex(transcript))
     }
 
-    fn authorize_link(
-        &self,
-        request: LinkAuthorizationRequest,
-    ) -> BoxFuture<'_, Result<String, AdmissionRefusal>> {
-        Box::pin(async move {
-            if !self.online.load(Ordering::SeqCst) {
-                return Err(AdmissionRefusal::Offline);
-            }
-            self.authorize_calls.fetch_add(1, Ordering::SeqCst);
-            Ok(Self::permit(
-                &request.local_installation_id,
-                &request.peer_installation_id,
-                &request.account_id,
-                &request.transcript,
-            ))
-        })
-    }
-
-    fn verify_link_permit(
-        &self,
-        permit: &str,
-        expected: &LinkPermitExpectation,
-        _now: u64,
-    ) -> Result<(), AdmissionRefusal> {
-        let wanted = Self::permit(
-            &expected.holder_installation_id,
-            &expected.peer_installation_id,
-            &expected.account_id,
-            &expected.transcript,
-        );
-        if permit == wanted {
-            Ok(())
-        } else {
-            Err(AdmissionRefusal::handshake("permit mismatch"))
-        }
-    }
-
     fn resolve_link_target(
         &self,
         installation_id: &str,
     ) -> BoxFuture<'_, Result<LinkTarget, AdmissionRefusal>> {
         let found = self.registry.lock().get(installation_id).cloned();
-        Box::pin(async move {
-            if !self.online.load(Ordering::SeqCst) {
-                return Err(AdmissionRefusal::Offline);
-            }
-            found.ok_or(AdmissionRefusal::PeerUnreachable)
-        })
+        Box::pin(async move { found.ok_or(AdmissionRefusal::PeerUnreachable) })
     }
 }
 
@@ -207,7 +168,15 @@ impl Machine {
 
     pub fn sign_in(&self, epoch: u64, account: &str, expires_at: u64) {
         self.mesh.lock().apply_account_state(AccountMeshState {
-            registry_members: None,
+            registry_members: Some(
+                self.authority
+                    .registry
+                    .lock()
+                    .keys()
+                    .chain(std::iter::once(&self.installation_id))
+                    .map(|id| (id.clone(), (format!("key-{id}"), 1, 1)))
+                    .collect(),
+            ),
             account_epoch: epoch,
             presence: AccountPresence::SignedIn {
                 account_id: account.into(),
@@ -335,26 +304,26 @@ impl LinkTransport for Loopback {
             let reply = match path {
                 LINK_HELLO_PATH => {
                     let hello: LinkHello = decode(body)?;
+                    if let Some(snapshot) = hello.signed_registry.as_ref() {
+                        let authority = mesh.lock().account_authority().unwrap();
+                        authority.receive_registry_snapshot(snapshot).await?;
+                    }
                     let reply = mesh.lock().accept_link_hello(hello)?;
                     encode(reply)
                 }
                 LINK_CONFIRM_PATH => {
                     let confirm: LinkConfirm = decode(body)?;
                     let confirmation = mesh.lock().begin_link_confirm(&confirm)?;
-                    let permit = confirmation
-                        .authority
-                        .authorize_link(confirmation.request.clone())
-                        .await?;
                     mesh.lock().finish_link_confirm(confirmation)?;
-                    encode(LinkConfirmReply { permit })
+                    encode(LinkConfirmReply { confirmed: true })
                 }
                 LINK_COMMIT_PATH => {
                     let commit: LinkCommit = decode(body)?;
-                    mesh.lock().commit_link(&commit)?;
                     if let Some(snapshot) = commit.signed_registry.as_ref() {
                         let authority = mesh.lock().account_authority().unwrap();
                         authority.receive_registry_snapshot(snapshot).await?;
                     }
+                    mesh.lock().commit_link(&commit)?;
                     let signed_registry = mesh.lock().signed_registry.clone();
                     encode(LinkCommitReply {
                         committed: true,

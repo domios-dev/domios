@@ -97,7 +97,7 @@ fn dispatch_runs_vanished_lane_placement_before_launch_failure() {
     fixture
         .service
         .plan_store
-        .with_plan(&plan.id, 5, |plan| {
+        .edit_plan_fixture(&plan.id, 5, |plan| {
             plan.tasks
                 .iter_mut()
                 .find(|task| task.id == task_id)
@@ -147,7 +147,12 @@ fn dispatch_runs_vanished_lane_placement_before_launch_failure() {
         .expect_err("mock launch refusal occurs after lane placement and provisioning");
 
     assert_eq!(error.data.as_ref().unwrap()["stage"], "agent_spawn");
-    let task = fixture.service.plan_store.show_task(&task_id).unwrap().task;
+    let task = fixture
+        .service
+        .plan_store
+        .inspect_task_for_test(&task_id)
+        .unwrap()
+        .task;
     assert_eq!(
         task.status,
         codeterm_service_core::plan::TaskStatus::Pending

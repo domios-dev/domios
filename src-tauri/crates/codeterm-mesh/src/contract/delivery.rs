@@ -25,6 +25,7 @@ pub const PEER_LOCAL_API_UNREACHABLE: &str = "peer_local_api_unreachable";
 pub const PEER_RELAY_NOT_AUTHORIZED: &str = "peer_relay_not_authorized";
 /// Relay protocol versions differ between the peers. Nothing was written.
 pub const PEER_RELAY_PROTOCOL_MISMATCH: &str = "peer_relay_protocol_mismatch";
+pub const PEER_UNREACHABLE: &str = "peer_unreachable";
 
 // Sender-leg codes distinguish a request that never left from one accepted with unknown delivery, so retry decisions stay safe.
 

@@ -2,12 +2,11 @@ use std::collections::HashSet;
 
 use codeterm_types::agent::role_kind::builtins::{ORCHESTRATOR, PLANNER};
 use codeterm_types::plan::{
-    AgentRef, Plan, PlanMode, PlanPauseAgent, PlanPauseRole, PlanPauseSchedule,
-    PlanPauseStepOutcome, PlannerRef,
+    AgentRef, PlanMode, PlanPauseAgent, PlanPauseRole, PlanPauseSchedule, PlanPauseStepOutcome,
+    PlannerRef,
 };
 
-use super::plan::pause_operation::open_pause_operation;
-use super::plan::PlanError;
+use super::plan::PlanLifecycleRead;
 use super::team_core::TeamPlanError;
 use super::ServiceContext;
 use crate::cron::store::CronJob;
@@ -23,14 +22,14 @@ fn non_empty(value: Option<&str>) -> Option<&str> {
     value.map(str::trim).filter(|value| !value.is_empty())
 }
 
-fn planner_tab_id(plan: &Plan) -> Option<&str> {
+fn planner_tab_id(plan: &PlanLifecycleRead) -> Option<&str> {
     match plan.planner.as_ref()? {
         PlannerRef::Tab { tab_id, .. } => non_empty(Some(tab_id)),
         PlannerRef::Waived { .. } => None,
     }
 }
 
-fn pause_role(plan: &Plan, tab: &Tab) -> Option<PlanPauseRole> {
+fn pause_role(plan: &PlanLifecycleRead, tab: &Tab) -> Option<PlanPauseRole> {
     let is_tab = |id: Option<&str>| id == Some(tab.id.as_str());
     if is_tab(non_empty(plan.owner.tab_id.as_deref())) || tab.role_kind_id() == Some(ORCHESTRATOR) {
         return Some(PlanPauseRole::Orchestrator);
@@ -59,7 +58,10 @@ fn display_name(tab: &Tab) -> String {
 }
 
 /// Live Orchestrator, Planner and Worker agents bound to the plan or its Team.
-pub(crate) fn live_plan_agents(mux: &MultiplexerState, plan: &Plan) -> Vec<PlanPauseAgent> {
+pub(crate) fn live_plan_agents(
+    mux: &MultiplexerState,
+    plan: &PlanLifecycleRead,
+) -> Vec<PlanPauseAgent> {
     let team_id = non_empty(plan.team_id.as_deref());
     let owner = non_empty(plan.owner.tab_id.as_deref());
     let planner = planner_tab_id(plan);
@@ -169,13 +171,13 @@ impl PlanPausePorts for ServicePlanPausePorts<'_> {
 }
 
 impl ServiceContext {
-    fn lifecycle_plan(&self, plan_id: &str) -> Result<Plan, TeamPlanError> {
+    fn lifecycle_plan(&self, plan_id: &str) -> Result<PlanLifecycleRead, TeamPlanError> {
         self.plan_store
-            .get(plan_id)
-            .ok_or(TeamPlanError::Plan(PlanError::NotFound))
+            .plan_lifecycle_projection(plan_id)
+            .map_err(TeamPlanError::Plan)
     }
 
-    fn enabled_plan_schedules(&self, plan: &Plan) -> Vec<PlanPauseSchedule> {
+    fn enabled_plan_schedules(&self, plan: &PlanLifecycleRead) -> Vec<PlanPauseSchedule> {
         let Some(team_id) = non_empty(plan.team_id.as_deref()) else {
             return vec![];
         };
@@ -187,8 +189,8 @@ impl ServiceContext {
         schedules
     }
 
-    fn live_recorded_agents(&self, plan: &Plan) -> HashSet<String> {
-        let Some(operation) = open_pause_operation(plan) else {
+    fn live_recorded_agents(&self, plan: &PlanLifecycleRead) -> HashSet<String> {
+        let Some(operation) = plan.operation.as_ref() else {
             return HashSet::new();
         };
         let mux = self.mux.read();
@@ -257,10 +259,7 @@ impl ServiceContext {
         plan_id: &str,
         now_ms: u64,
     ) -> Result<PlanLifecycleOutcome, TeamPlanError> {
-        {
-            let mux = self.mux.read();
-            super::team_core::valid_live_plan_team(self, &mux, plan_id)?;
-        }
+        super::team_core::valid_live_plan_team(self, plan_id)?;
         let plan = self.lifecycle_plan(plan_id)?;
         let live = self.live_recorded_agents(&plan);
         let outcome = execute_plan_resume(

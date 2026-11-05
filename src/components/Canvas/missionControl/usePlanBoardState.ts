@@ -140,3 +140,20 @@ export function usePlanBoardState(
   return { state: snapshot, loading: query.loading, error: query.error, events };
 
 }
+
+export function useDeferredPlanBoardState(
+  api: ApiConfig | undefined,
+  planId: string | null,
+  revision: number,
+  includeEvents: boolean,
+): PlanBoardStateResult {
+  const summary = usePlanBoardState(api, planId, revision, false);
+  const eventRead = usePlanBoardState(api, includeEvents && summary.state ? planId : null, revision);
+  const currentEvents = eventRead.state && summary.state
+    && planRevision(eventRead.state) === planRevision(summary.state) ? eventRead.events : undefined;
+  const pager = currentEvents ?? summary.events;
+  return {
+    ...summary,
+    events: pager && { ...pager, error: eventRead.error ?? pager.error },
+  };
+}

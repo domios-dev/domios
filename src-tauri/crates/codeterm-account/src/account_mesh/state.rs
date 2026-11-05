@@ -220,22 +220,6 @@ pub struct RegistrySecurity {
 }
 
 impl RegistryObservation {
-    pub(super) fn has_freed_slot_since(&self, known: &Self) -> bool {
-        let active: BTreeSet<_> = self
-            .rows
-            .iter()
-            .filter(|row| row.active)
-            .map(|row| row.installation_id.as_str())
-            .collect();
-        self.cursor.is_none()
-            && known.cursor.is_none()
-            && self.registry_revision >= known.registry_revision
-            && known
-                .rows
-                .iter()
-                .any(|old| old.active && !active.contains(old.installation_id.as_str()))
-    }
-
     pub fn security_view(&self) -> Option<RegistrySecurity> {
         if self.cursor.is_some() {
             return None;
@@ -328,7 +312,7 @@ impl LifecycleState {
             .as_ref()
             .filter(|m| m.verified.account_id == account && m.verified.is_current(now))
             .filter(|m| {
-                self.signed_registry.as_ref().is_none_or(|registry| {
+                self.signed_registry.as_ref().is_some_and(|registry| {
                     registry.rows.iter().any(|row| {
                         row.installation_id == m.verified.installation_id
                             && row.active
@@ -396,10 +380,24 @@ pub struct RegistryPresenceBinding {
     pub presence: super::wire::RegistryPresence,
 }
 
+/// One account's rollback fences and revocations while another account's are active.
+#[derive(Clone, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct AccountFences {
+    pub peer_keys: BTreeMap<String, KeyBinding>,
+    pub peer_presence: BTreeMap<String, RegistryPresenceBinding>,
+    pub revoked_installations: BTreeSet<String>,
+    pub revoked_generations: BTreeMap<String, u64>,
+}
+
 /// Durable lifecycle facts and server-signed registry observations keyed by opaque account id.
 #[derive(Clone, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct AccountMeshRecord {
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub endpoint_sequences: BTreeMap<String, BTreeMap<String, EndpointSequence>>,
+    #[serde(skip_serializing_if = "is_zero")]
+    pub endpoint_sequence: u64,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub signed_registries: BTreeMap<String, codeterm_entitlements::DetachedGrant>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
@@ -418,11 +416,29 @@ pub struct AccountMeshRecord {
     pub slots: BTreeMap<String, u64>,
     pub revoked_installations: BTreeSet<String>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub local_revocations: BTreeMap<String, BTreeSet<String>>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub revoked_generations: BTreeMap<String, u64>,
+    /// Account owning the active fences and revocations; other accounts' are in `account_fences`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fence_account: Option<String>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub account_fences: BTreeMap<String, AccountFences>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub peer_keys: BTreeMap<String, KeyBinding>,
     #[serde(default, skip_serializing)]
     pub peer_presence: BTreeMap<String, RegistryPresenceBinding>,
     #[serde(skip)]
     pub peer_presence_refresh: bool,
+}
+
+fn is_zero(value: &u64) -> bool {
+    *value == 0
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EndpointSequence {
+    pub sequence: u64,
+    pub digest: [u8; 32],
 }

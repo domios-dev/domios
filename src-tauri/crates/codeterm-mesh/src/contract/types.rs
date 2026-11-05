@@ -136,21 +136,11 @@ pub struct WebUiAnnouncement {
     pub endpoints: Vec<WebUiEndpoint>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct RegistryRevision {
-    pub account_id: String,
-    pub revision: u64,
-    pub security_digest: String,
-}
-
 /// Sent by a peer to tell us its current addresses changed (network swap,
 /// new Tailscale lease, etc.). Receiver replaces the cached list for the
 /// sender's instance_id wholesale — stale entries must die.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PeerAnnounce {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub registry: Option<RegistryRevision>,
     pub instance_id: String,
     pub instance_name: String,
     pub addresses: Vec<PeerAddress>,
@@ -237,6 +227,8 @@ pub struct GossipPeerInfo {
 /// Mesh sync payload — exchanged between paired peers.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MeshSyncPayload {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub endpoints: Vec<crate::endpoint_gossip::SignedEndpointRecord>,
     /// Known peers in the mesh (addresses only, no tokens).
     pub peers: Vec<GossipPeerInfo>,
     /// Monotonic generation of the sender's authoritative peer-claim snapshot.

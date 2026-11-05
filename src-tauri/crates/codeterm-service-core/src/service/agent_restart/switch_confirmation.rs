@@ -90,24 +90,55 @@ impl PreparedSwitchConfirmation {
         confirmed
     }
 
+    fn response(&self, screen: &str) -> Option<Vec<u8>> {
+        self.service
+            .agent_registry
+            .with_provider(&self.provider, |provider| {
+                let prompt = provider.parse_switch_confirmation_prompt(screen, &self.selection)?;
+                let parsed = provider.parse_prompt(screen)?;
+                if prompt.options != parsed.options || prompt.options.len() != 2 {
+                    return None;
+                }
+                let frame_start = screen.rfind(&prompt.question)?;
+                provider
+                    .live_prompt_response(0, &screen[frame_start..])
+                    .filter(|steps| steps.len() == 1)
+                    .map(|steps| steps.concat())
+                    .filter(|keys| !keys.is_empty() && keys.len() <= 64)
+            })
+            .flatten()
+    }
+
     fn run(&self) {
         let deadline = Instant::now() + Duration::from_secs(20);
         let mut attempt = Attempt::default();
         while Instant::now() < deadline {
             let generation = self.signal.generation();
             let evidence = self.evidence();
-            let mux = self.service.mux.read();
-            let Some(tab) = mux.get_tab(&self.tab).filter(|tab| self.current(tab)) else {
+            let Some((prepared_screen, response)) = with_confirmation_screen(
+                &self.service,
+                &self.tab,
+                &self.pty,
+                |tab| self.current(tab),
+                |screen| self.response(screen),
+            ) else {
                 break;
             };
-            let _ = tab;
+            let mux = self.service.mux.read();
+            if !mux.get_tab(&self.tab).is_some_and(|tab| self.current(tab)) {
+                break;
+            }
             let Some(screens) = self.service.screen_state.existing(&self.pty) else {
                 break;
             };
             let screens = screens.lock();
-            let Some(screen) = screens.get_screen_text() else {
+            if screens.get_screen_text().as_deref() != Some(prepared_screen.as_str()) {
+                log::debug!(
+                    "[switch-confirmation] refused changed frame tab={}",
+                    self.tab
+                );
                 break;
-            };
+            }
             let mut tracker = self
                 .service
                 .ext::<crate::service::agent_restart::RestartTracker>()
@@ -119,24 +150,6 @@ impl PreparedSwitchConfirmation {
             {
                 break;
             }
-            let response = self
-                .service
-                .agent_registry
-                .with_provider(&self.provider, |provider| {
-                    let prompt =
-                        provider.parse_switch_confirmation_prompt(&screen, &self.selection)?;
-                    let parsed = provider.parse_prompt(&screen)?;
-                    if prompt.options != parsed.options || prompt.options.len() != 2 {
-                        return None;
-                    }
-                    let frame_start = screen.rfind(&prompt.question)?;
-                    provider
-                        .live_prompt_response(0, &screen[frame_start..])
-                        .filter(|steps| steps.len() == 1)
-                        .map(|steps| steps.concat())
-                        .filter(|keys| !keys.is_empty() && keys.len() <= 64)
-                })
-                .flatten();
             if attempt.observe(evidence, response.is_some()) {
                 let pty = self.service.pty.lock();
                 let result = pty
@@ -188,6 +201,28 @@ impl PreparedSwitchConfirmation {
             }
         }
     }
+}
+
+fn with_confirmation_screen<T>(
+    service: &ServiceContext,
+    tab_id: &str,
+    pty: &str,
+    current: impl FnOnce(&crate::multiplexer::types::Tab) -> bool,
+    parse: impl FnOnce(&str) -> T,
+) -> Option<(String, T)> {
+    let screen = {
+        let mux = service.mux.read();
+        let tab = mux.get_tab(tab_id)?;
+        if !current(tab) {
+            return None;
+        }
+        let screens = service.screen_state.existing(pty)?;
+        let text = screens.lock().get_screen_text()?;
+        drop(screens);
+        text
+    };
+    let response = parse(&screen);
+    Some((screen, response))
 }
 
 impl Drop for PreparedSwitchConfirmation {

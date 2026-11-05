@@ -3,6 +3,15 @@ macro_rules! agent_provider_session_usage {
         /// Build the path to the session file for this agent.
         fn session_file_path(&self, cwd: &str, session_id: &str) -> Option<PathBuf>;
 
+        /// Keep dispatch failures distinct from an absent session path in transcript reads.
+        fn session_file_path_checked(
+            &self,
+            cwd: &str,
+            session_id: &str,
+        ) -> Result<Option<PathBuf>, String> {
+            Ok(self.session_file_path(cwd, session_id))
+        }
+
         fn session_model_identity_path(&self, _cwd: &str, _session_id: &str) -> Option<PathBuf> {
             None
         }

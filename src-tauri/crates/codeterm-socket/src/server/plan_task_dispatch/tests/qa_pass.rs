@@ -42,19 +42,22 @@ fn reported_task() -> (tempfile::TempDir, PlanStore, String, String, String) {
     store
         .assign_task(&plan.id, &task_id, "executor", None, 3)
         .unwrap();
-    assert!(store
-        .ingest_bound_worker_report(
-            &plan.id,
-            &task_id,
-            &AgentRef::from_tab("executor"),
-            BoundWorkerReport {
-                message: "implementation ready".into(),
-                status: Some(ReportStatus::InReview),
-                ..Default::default()
-            },
-            4,
-        )
-        .unwrap());
+    assert!(
+        store
+            .ingest_bound_worker_report(
+                &plan.id,
+                &task_id,
+                &AgentRef::from_tab("executor"),
+                BoundWorkerReport {
+                    message: "implementation ready".into(),
+                    status: Some(ReportStatus::InReview),
+                    ..Default::default()
+                },
+                4,
+            )
+            .unwrap()
+            .committed_review
+    );
     (root, store, plan.id, task_id, checkout)
 }
 
@@ -135,8 +138,14 @@ fn qa_pass_atomically_closes_attempt_checkout_binding_and_task() {
     assert_eq!(accepted_task.assigned_tab_id, None);
     assert_eq!(accepted_task.lane.tab_id, None);
     assert_eq!(accepted_task.status, TaskStatus::Done);
-    assert_eq!(store.task_binding_for_tab("qa"), None);
-    assert!(store.task_bindings_for_tab("executor").is_empty());
+    assert_eq!(
+        store
+            .assigned_task_binding_projection("qa")
+            .unwrap()
+            .map(|binding| (binding.plan_id, binding.task_id)),
+        None
+    );
+    assert!(store.task_bindings_for_tab("executor").unwrap().is_empty());
 }
 
 #[test]

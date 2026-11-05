@@ -38,7 +38,7 @@ fn checksum(bytes: &[u8]) -> Vec<u8> {
 #[test]
 fn archive_urls_are_remote_tarballs_only() {
     assert!(is_archive_url(
-        "https://github.com/rollacode/codeterm-releases/releases/download/codeterm-core-latest/codeterm-core.tar.gz"
+        "https://github.com/domios-dev/domios/releases/download/codeterm-core-latest/codeterm-core.tar.gz"
     ));
     assert!(!is_archive_url(
         "https://github.com/rollacode/codeterm.git#master:plugins"

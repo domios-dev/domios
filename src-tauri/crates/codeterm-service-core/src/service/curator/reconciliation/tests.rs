@@ -11,6 +11,74 @@ use std::time::Duration;
 const NOW: u64 = 1_700_000_000_000;
 const DEADLINE: Duration = Duration::from_secs(3);
 
+#[test]
+fn restored_orchestrator_recovers_unbound_fallback_only_while_runtime_is_live() {
+    use crate::multiplexer::types::TabBacking;
+    use crate::service::agent_runtime::engine;
+
+    let (fixture, id, _) = fixture(false);
+    let service = &fixture.service;
+    let owner = service.plan_store.get(&id).unwrap().owner.tab_id.unwrap();
+    let prepared = {
+        let mut mux = service.mux.write();
+        let tab = mux.get_tab_mut(&owner).unwrap();
+        tab.backing = TabBacking::ChatBackend {
+            plugin_id: "provider-neutral".into(),
+            session_id: "owner-session".into(),
+        };
+        tab.pty_id = None;
+        tab.restored_from_snapshot = true;
+        tab.agent_runtime_state = Some(serde_json::json!({"state":"loaded"}));
+        tab.clone()
+    };
+    assert!(engine::for_tab(&owner).is_none());
+    assert!(super::super::scheduling::resolve_mirror(&prepared).is_err());
+    let absent = service.control_loop_show(&id).unwrap();
+    assert_eq!(
+        absent.fallback_reason,
+        Some(CuratorFailure::OrchestratorUnbound)
+    );
+    assert!(absent.owner_heartbeat());
+
+    let live = engine::test_support::live_runtime(&prepared);
+    assert!(super::super::scheduling::resolve_mirror(&prepared).is_ok());
+    let recovered = service.control_loop_show(&id).unwrap();
+    assert_eq!(recovered.fallback_reason, None);
+    assert!(!recovered.owner_heartbeat());
+    assert_eq!(recovered.cron_id, absent.cron_id);
+    assert_eq!(recovered.next_at, absent.next_at);
+
+    for reason in [
+        CuratorFailure::ProviderUnavailable,
+        CuratorFailure::MirrorUnavailable,
+        CuratorFailure::OrchestratorAbsent,
+        CuratorFailure::LaunchFailed,
+        CuratorFailure::ConsecutiveFailures,
+    ] {
+        service
+            .plan_store
+            .edit_plan_fixture(&id, NOW, |plan| {
+                plan.control_loop.fallback_reason = Some(reason);
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(
+            service.control_loop_show(&id).unwrap().fallback_reason,
+            Some(reason)
+        );
+    }
+
+    drop(live);
+    assert!(super::super::scheduling::resolve_mirror(&prepared).is_err());
+    let lost = service.control_loop_show(&id).unwrap();
+    assert_eq!(
+        lost.fallback_reason,
+        Some(CuratorFailure::OrchestratorUnbound)
+    );
+    assert!(lost.owner_heartbeat());
+    assert_eq!(service.plan_store.get(&id).unwrap().control_loop, lost);
+}
+
 fn fixture(running_cron: bool) -> (ServiceFixture, String, crate::CronState) {
     let (fixture, id, _, owner) = crate::service::plan_authority::test_fixture::fixture();
     let service = &fixture.service;
@@ -32,7 +100,7 @@ fn fixture(running_cron: bool) -> (ServiceFixture, String, crate::CronState) {
         .agent_session_model = Some("fixture-model".into());
     service
         .plan_store
-        .with_plan(&id, NOW, |plan| {
+        .edit_plan_fixture(&id, NOW, |plan| {
             plan.mode = PlanMode::Execution;
             Ok(())
         })
@@ -61,7 +129,7 @@ fn fixture(running_cron: bool) -> (ServiceFixture, String, crate::CronState) {
     }
     service
         .plan_store
-        .with_plan(&id, NOW, |plan| {
+        .edit_plan_fixture(&id, NOW, |plan| {
             plan.control_loop.cron_id = None;
             plan.control_loop.next_at = None;
             Ok(())

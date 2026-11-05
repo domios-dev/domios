@@ -4,9 +4,17 @@ use crate::service::agent_runtime::{engine, model::RuntimeFailure};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum ChatBackendCloseEvidence {
+    Witnessed,
+    RestoredRuntimeAbsent,
+}
+
 pub(crate) struct ChatBackendCloseReceipt {
     pub(crate) tab_id: String,
     pub(crate) session_id: String,
+    pub(crate) binding_nonce: Option<String>,
+    pub(crate) evidence: ChatBackendCloseEvidence,
 }
 
 impl ServiceContext {
@@ -48,9 +56,25 @@ impl ServiceContext {
                 {
                     return Err("chat backend runtime identity changed before close".into());
                 }
-            } else if bound.is_none() {
-                return Err("chat backend has no owned runtime or adapter close witness".into());
             }
+            let evidence = if runtime.is_none() && bound.is_none() {
+                let mux = self.mux.read();
+                let tab = mux.get_tab(tab_id).ok_or("chat backend tab is absent")?;
+                if !tab.restored_from_snapshot
+                    || tab.session_binding_nonce != nonce
+                    || !matches!(&tab.backing, TabBacking::ChatBackend {
+                        plugin_id: current_plugin, session_id: current_session,
+                    } if current_plugin == &plugin_id && current_session == &session_id)
+                    || guards.sessions.lock().values().any(|session| session.tab_id == tab_id)
+                {
+                    return Err(format!(
+                        "chat backend absence is unproven; inspect with `domios tab inspect --tab {tab_id} --lifecycle` and recover with `domios agent restart --tab {tab_id}`"
+                    ));
+                }
+                ChatBackendCloseEvidence::RestoredRuntimeAbsent
+            } else {
+                ChatBackendCloseEvidence::Witnessed
+            };
             if let Some(bound) = &bound {
                 if bound.tab_id != tab_id {
                     return Err("chat backend adapter belongs to another tab".into());
@@ -82,6 +106,12 @@ impl ServiceContext {
                 }
                 sessions.remove(&key);
             }
+            {
+                let mut starts = guards.turn_starts.lock();
+                if starts.get(tab_id).is_some_and(|entry| Some(entry.nonce.as_str()) == nonce.as_deref()) {
+                    starts.remove(tab_id);
+                }
+            }
             crate::service::tab_chat::chatbackend_history::ChatBackendHistory::release(
                 &plugin_id,
                 &session_id,
@@ -89,6 +119,8 @@ impl ServiceContext {
             Ok(ChatBackendCloseReceipt {
                 tab_id: tab_id.into(),
                 session_id,
+                binding_nonce: nonce,
+                evidence,
             })
         })
     }

@@ -9,7 +9,7 @@ import { spawnOne } from "../journeys/spawn.mjs";
 import { launchApiPair, uiPairChoice } from "../journeys/team.mjs";
 import { completeFirstRun } from "./setup.mjs";
 import { sendText } from "./tabs.mjs";
-import { catalogueSelection, modelIdentity, modelSelections, preparePolicy } from "./model-policy.mjs";
+import { catalogueSelection, modelIdentity, modelSelections, preparePolicy, refreshAfterStartup } from "./model-policy.mjs";
 import { fixtureProviderId } from "./fixture-control.mjs";
 
 const provider = "arbitrary-harness", model = "vendor/exact-identity";
@@ -21,12 +21,14 @@ const record = () => ({ id: "owned", agent_type: provider, agent_requested_model
 
 function fixture() {
   const calls = [], descriptors = [descriptor()];
-  const config = { general_agent: { first_run_complete: false }, agent: { full_access: false }, agents: { [provider]: {} } };
+  const config = { general_agent: { first_run_complete: false }, agent: {}, agents: { [provider]: {} } };
   let tab = record(), refresh = refreshed();
   const ctx = {
     options: { mode: "setup", models: modelSelections([`${provider}=${model}`]) },
     state: { run: "fixture", workspace: { id: "workspace", cwd: "/owned" }, tabs: [{ id: "owned", provider, journey: "J1" }] },
+    health: { build_sha: "same-build" },
     deadlines: { ready: 100 }, save() {},
+    catalogueEvents: async () => ({ next: async () => { throw new Error("deadline"); }, close() {} }),
     api: async (path, options) => {
       calls.push({ path, options });
       if (path === "/api/agents/providers") return descriptors;
@@ -40,7 +42,10 @@ function fixture() {
         }
         return structuredClone(config);
       }
-      if (path.endsWith("complete-first-run")) { Object.assign(config.general_agent, { first_run_complete: true, agent_provider: provider }); return { ok: true }; }
+      if (path.endsWith("complete-first-run")) {
+        assert.deepEqual(options.body, { provider_id: provider });
+        Object.assign(config.general_agent, { first_run_complete: true, agent_provider: provider }); return { ok: true };
+      }
       if (path === "/api/orchestration/new") return { opaque: "pair" };
       if (path === "/api/tabs/owned/chat-send") return { send_id: "own-send", state: "held" };
       throw new Error(`unexpected API ${path}`);
@@ -211,5 +216,101 @@ test("identity checks exact requested, catalogue-resolved and runtime identities
   for (const field of ["agent_requested_model", "agent_provider_resolved_model", "agent_session_model"]) {
     const value = record(); delete value[field];
     assert.throws(() => modelIdentity(value, provider, model), /unknown/);
+  }
+});
+
+
+test("startup catalogue waits only on a newer event for its own provider before one final refresh", async () => {
+  const calls = [], changes = [
+    { event_type: "mux-state-changed" },
+    { event_type: "model-catalogue-changed", data: { provider: "other", version: 99 } },
+    { event_type: "model-catalogue-changed", data: { provider, version: 12 } },
+    { event_type: "model-catalogue-changed", data: { provider, version: 13 } },
+  ];
+  let closed = false;
+  const ctx = {
+    catalogueEvents: async () => {
+      calls.push("subscribe");
+      return { next: async () => { calls.push("event"); return changes.shift(); }, close: () => { closed = true; } };
+    },
+    api: async (_path, options) => {
+      assert.deepEqual(options.body, { provider_id: provider });
+      calls.push("refresh");
+      return calls.filter(value => value === "refresh").length === 1
+        ? { ...refreshed(), refreshed: false } : { ...refreshed(), version: 13 };
+    },
+  };
+  assert.equal((await refreshAfterStartup(ctx, provider)).refreshed, true);
+  assert.deepEqual(calls, ["subscribe", "refresh", "event", "event", "event", "event", "refresh"]);
+  assert.equal(closed, true);
+});
+
+test("completed refresh needs no future change event and closes its observation", async () => {
+  let closed = false, calls = 0;
+  const ctx = {
+    catalogueEvents: async () => ({ next: async () => { assert.fail("completed refresh must not wait"); }, close: () => { closed = true; } }),
+    api: async () => { calls++; return refreshed(); },
+  };
+  assert.deepEqual(await refreshAfterStartup(ctx, provider), refreshed());
+  assert.equal(calls, 1);
+  assert.equal(closed, true);
+});
+
+test("missing startup catalogue event fails explicitly without another refresh or paid launch", async () => {
+  const f = fixture();
+  f.setRefresh({ ...refreshed(), refreshed: false });
+  await assert.rejects(f.prepare(), /startup catalogue completion event did not arrive before the 15 s deadline/);
+  assert.equal(f.calls.filter(call => call.path === "/api/agents/providers/refresh").length, 1);
+  assert.deepEqual(paidCalls(f.calls), []);
+});
+
+
+test("startup completion followed by a refused refresh never loops or weakens model policy", async () => {
+  const f = fixture();
+  f.setRefresh({ ...refreshed(), refreshed: false });
+  f.ctx.catalogueEvents = async () => ({
+    next: async () => ({ event_type: "model-catalogue-changed", data: { provider, version: 13 } }), close() {},
+  });
+  await assert.rejects(f.prepare(), /catalogue refresh unavailable/);
+  assert.equal(f.calls.filter(call => call.path === "/api/agents/providers/refresh").length, 2);
+  assert.deepEqual(paidCalls(f.calls), []);
+});
+
+test("startup catalogue subscription deadline reports the provider before any refresh", async () => {
+  const f = fixture();
+  f.ctx.catalogueEvents = async () => { throw new Error("deadline"); };
+  await assert.rejects(f.prepare(), new RegExp(`${provider} startup catalogue completion event did not arrive`));
+  assert.equal(f.calls.some(call => call.path === "/api/agents/providers/refresh"), false);
+});
+
+
+test("verify can qualify an unchanged cached model using this run's live setup on the same build", async () => {
+  const f = fixture(); await f.prepare();
+  f.ctx.state = JSON.parse(JSON.stringify(f.ctx.state));
+  f.ctx.options.mode = "verify";
+  f.setRefresh({ ...refreshed(), refreshed: false, reason: "the provider reported no live model list" });
+  await f.prepare(false);
+  const entry = f.ctx.state.model_policy.verify_catalogues[provider];
+  assert.equal(entry.refresh.refreshed, false);
+  assert.equal(entry.model.id, model);
+  assert.deepEqual(entry.qualification, { verified_live_in_setup: true, post_restart_refresh_in_flight: true,
+    model_present_in_cache: true, model_id: model, run: "fixture", build_sha: "same-build" });
+});
+
+test("verify cache qualification refuses missing live setup, a different build/run/model and an absent cached model", async () => {
+  for (const mutate of [
+    f => { delete f.ctx.state.model_policy.setup_live[provider]; },
+    f => { f.ctx.state.model_policy.setup_live[provider].catalogue.refresh.refreshed = false; },
+    f => { f.ctx.health.build_sha = "different-build"; },
+    f => { f.ctx.state.model_policy.setup_live[provider].run = "other-run"; },
+    f => { f.ctx.state.model_policy.setup_live[provider].catalogue.selected = "other-model"; },
+    f => { f.descriptors[0].available_models = []; },
+    f => { f.setRefresh({ ...refreshed(), refreshed: false, reason: "discovery timed out after 30s" }); },
+  ]) {
+    const f = fixture(); await f.prepare(); f.ctx.options.mode = "verify";
+    f.setRefresh({ ...refreshed(), refreshed: false }); mutate(f); f.calls.length = 0;
+    await assert.rejects(f.prepare(false), /model policy refused/);
+    assert.deepEqual(paidCalls(f.calls), []);
+    assert.equal(f.calls.filter(call => call.path === "/api/agents/providers/refresh").length, 1);
   }
 });

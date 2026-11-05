@@ -97,7 +97,9 @@ pub fn token_store() -> TokenStore {
 pub fn default_registry() -> Arc<SupporterRegistry> {
     let cfg = codeterm_config::load_config().supporter;
     let registry = SupporterRegistry::with_registration_hook(|id, adapter| {
-        codeterm_supporter::restore_model(&codeterm_config::load_config().supporter, id, adapter);
+        codeterm_supporter::restore_model_in_background(id, adapter, || {
+            codeterm_config::load_config().supporter
+        });
     });
     registry.register(
         TypeSafeAdapter::ID,

@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::process::Command;
 
-use codeterm_plan::service_plan::{PlanMatch, PlanStore, TaskLaneUpdate};
+use codeterm_plan::service_plan::{PlanStore, TaskLaneUpdate};
 use codeterm_util::process_util;
 
 /// One live tab as the removal preflight sees it: the shell cwd decides
@@ -471,79 +471,60 @@ pub fn clear_removed_task_lane_references(
     store: &PlanStore,
     outcome: &LaneRemovalOutcome,
 ) -> Result<(), String> {
-    for plan in store.plans_matching(&recorded_lane_plans(store, &outcome.worktree_path)) {
-        for task in &plan.tasks {
-            let Some(path) = task.lane.worktree_path.as_deref() else {
-                continue;
-            };
-            if comparable_path(path) != comparable_path(&outcome.worktree_path) {
-                continue;
-            }
-            let branch_removed = task
-                .lane
-                .branch
-                .as_deref()
-                .map(|task_branch| branch_exists(&outcome.canonical_cwd, task_branch))
-                .transpose()?
-                .is_none_or(|exists| !exists);
-            let update = TaskLaneUpdate {
-                tab_id: Some(None),
-                workspace_id: Some(None),
-                workspace_name: Some(None),
-                worktree_path: Some(None),
-                branch: branch_removed.then_some(None),
-                cleanup_status: branch_removed.then(|| Some("done".into())),
-                ..Default::default()
-            };
-            store
-                .update_task_lane(&plan.id, &task.id, update, unix_time_millis())
-                .map_err(|error| {
-                    format!(
-                        "lane was removed but task '{}' in plan '{}' still has lane references: {error}",
-                        task.id, plan.id
-                    )
-                })?;
+    let target = comparable_path(&outcome.worktree_path);
+    for task in store
+        .recorded_task_lanes_projection()
+        .map_err(|error| error.to_string())?
+    {
+        if !task
+            .worktree_path
+            .as_deref()
+            .is_some_and(|path| comparable_path(path) == target)
+        {
+            continue;
         }
+        let branch_removed = task
+            .branch
+            .as_deref()
+            .map(|task_branch| branch_exists(&outcome.canonical_cwd, task_branch))
+            .transpose()?
+            .is_none_or(|exists| !exists);
+        let update = TaskLaneUpdate {
+            tab_id: Some(None),
+            workspace_id: Some(None),
+            workspace_name: Some(None),
+            worktree_path: Some(None),
+            branch: branch_removed.then_some(None),
+            cleanup_status: branch_removed.then(|| Some("done".into())),
+            ..Default::default()
+        };
+        store
+            .update_task_lane(&task.plan_id, &task.task_id, update, unix_time_millis())
+            .map_err(|error| {
+                format!(
+                "lane was removed but task '{}' in plan '{}' still has lane references: {error}",
+                task.task_id, task.plan_id
+            )
+            })?;
     }
     Ok(())
 }
 
-/// Plans whose task rows record this lane path; the path compares normalized, so
-/// SQL supplies the recorded paths and only the plans holding a match are loaded.
-fn recorded_lane_plans(store: &PlanStore, worktree_path: &str) -> PlanMatch {
+pub fn project_for_recorded_lane(
+    store: &PlanStore,
+    worktree_path: &str,
+) -> Result<Option<String>, String> {
     let target = comparable_path(worktree_path);
-    PlanMatch::Ids(
-        store
-            .task_field_values("$.lane.worktree_path")
-            .into_iter()
-            .filter(|row| comparable_path(&row.value) == target)
-            .map(|row| row.plan_id)
-            .collect(),
-    )
-}
-
-pub fn project_for_recorded_lane(store: &PlanStore, worktree_path: &str) -> Option<String> {
-    let candidates = recorded_lane_plans(store, worktree_path);
-    store
-        .plans_matching(&candidates)
+    Ok(store
+        .recorded_task_lanes_projection()
+        .map_err(|error| error.to_string())?
         .into_iter()
-        .find_map(|plan| {
-            plan.tasks
-                .iter()
-                .any(|task| {
-                    task.lane
-                        .worktree_path
-                        .as_deref()
-                        .is_some_and(|path| comparable_path(path) == comparable_path(worktree_path))
-                })
-                .then(|| {
-                    if plan.canonical_project_path.trim().is_empty() {
-                        plan.project_path
-                    } else {
-                        plan.canonical_project_path
-                    }
-                })
+        .find(|task| {
+            task.worktree_path
+                .as_deref()
+                .is_some_and(|path| comparable_path(path) == target)
         })
+        .map(|task| task.canonical_path))
 }
 
 pub fn remove_lane_and_clear_task_references(
@@ -554,7 +535,7 @@ pub fn remove_lane_and_clear_task_references(
 ) -> Result<LaneRemovalOutcome, String> {
     let mut request = request.clone();
     if request.canonical_cwd.as_deref().is_none_or(str::is_empty) {
-        request.canonical_cwd = project_for_recorded_lane(store, &request.worktree_path);
+        request.canonical_cwd = project_for_recorded_lane(store, &request.worktree_path)?;
     }
     let outcome = remove_lane(&request, live_tabs)?;
     finalize_lane_removal(store, repo_watch, &outcome)?;
@@ -568,9 +549,10 @@ pub fn finalize_lane_removal(
 ) -> Result<(), String> {
     let target = comparable_path(&outcome.worktree_path);
     let attempt_ids: Vec<String> = store
-        .attempt_field_values("$.worktree_path")
+        .attempt_lane_paths()
+        .map_err(|error| error.to_string())?
         .into_iter()
-        .filter(|row| comparable_path(&row.value) == target)
+        .filter(|row| comparable_path(&row.worktree_path) == target)
         .map(|row| row.attempt_id)
         .collect();
     repo_watch.release_lane_watch(&outcome.worktree_path);
@@ -598,22 +580,18 @@ pub fn clear_vanished_lane_on_cleanup_done(
     if !is_done {
         return Ok(Some(update));
     }
-    let Some(plan) = store.get(plan_id) else {
+    let Some(task) = store
+        .task_lane_reference_projection(plan_id, task_id)
+        .map_err(|error| CleanupStatusDoneError::Verification(error.to_string()))?
+    else {
         return Ok(Some(update));
     };
-    let Some(task) = plan.tasks.iter().find(|task| task.id == task_id) else {
-        return Ok(Some(update));
-    };
-    let worktree_path = task.lane.worktree_path.as_deref();
-    let branch = task.lane.branch.as_deref();
+    let worktree_path = task.worktree_path.as_deref();
+    let branch = task.branch.as_deref();
     if worktree_path.is_none() && branch.is_none() {
         return Ok(Some(update));
     }
-    let canonical_cwd = if plan.canonical_project_path.trim().is_empty() {
-        &plan.project_path
-    } else {
-        &plan.canonical_project_path
-    };
+    let canonical_cwd = task.canonical_path.as_str();
     let remnant = recorded_lane_remnant(worktree_path, branch, canonical_cwd)
         .map_err(CleanupStatusDoneError::Verification)?;
     if let Some(remnant) = remnant {

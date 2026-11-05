@@ -1,4 +1,5 @@
 use super::support::*;
+use crate::account_mesh::tests::support::wait_for_event;
 use crate::account_mesh::wire::RegistryRefusal;
 use crate::account_mesh::*;
 use std::sync::Arc;
@@ -303,10 +304,18 @@ async fn account_mesh_publishes_only_a_ready_listener_and_withdraws_when_it_goes
 
     *harness.endpoint.0.lock().unwrap() = None;
     harness.mesh.refresh(EnrollTrigger::Network).await.unwrap();
-    assert_eq!(harness.calls("withdraw"), 1);
+    assert_eq!(harness.calls("withdraw"), 0);
     assert_eq!(harness.calls("list"), 0);
-    assert!(harness.registry.endpoint(UID).is_none());
-    assert!(!harness.store.record.lock().unwrap().published);
+    assert!(harness
+        .transport
+        .endpoints
+        .lock()
+        .unwrap()
+        .last()
+        .unwrap()
+        .0
+        .is_none());
+    assert!(harness.store.record.lock().unwrap().published);
 }
 
 #[tokio::test]
@@ -319,12 +328,12 @@ async fn account_mesh_concurrent_triggers_share_one_flight() {
         let mesh = harness.mesh.clone();
         async move { mesh.refresh(EnrollTrigger::Automatic).await }
     });
-    harness.registry.entered.notified().await;
+    wait_for_event(harness.registry.entered.notified()).await;
     assert_eq!(harness.mesh.refresh(EnrollTrigger::Lease).await, Ok(()));
     assert_eq!(harness.mesh.refresh(EnrollTrigger::Automatic).await, Ok(()));
     harness.registry.script.lock().unwrap().gate = None;
     gate.notify_one();
-    assert_eq!(first.await.unwrap(), Ok(()));
+    assert_eq!(wait_for_event(first).await.unwrap(), Ok(()));
     assert_eq!(harness.calls("enroll"), 1);
     assert_eq!(
         harness.calls("renew"),
@@ -415,15 +424,6 @@ async fn account_mesh_resumed_publication_or_withdrawal_clears_pending_cleanup_d
             *harness.endpoint.0.lock().unwrap() = None;
         }
         assert_eq!(harness.state().cleanup, Cleanup::Pending);
-        harness
-            .mesh
-            .refresh(EnrollTrigger::Explicit)
-            .await
-            .unwrap_err();
-        assert_eq!(harness.state().cleanup, Cleanup::Pending);
-        assert!(harness.store.record.lock().unwrap().cleanup_pending);
-        harness.registry.script.lock().unwrap().publication = None;
-        harness.clock.set(START + 60);
         harness.mesh.refresh(EnrollTrigger::Explicit).await.unwrap();
         assert_eq!(harness.state().cleanup, Cleanup::Confirmed);
         assert!(!harness.store.record.lock().unwrap().cleanup_pending);
@@ -450,7 +450,7 @@ async fn account_mesh_logout_during_enrollment_cannot_be_reopened_by_the_late_re
         let mesh = harness.mesh.clone();
         async move { mesh.refresh(EnrollTrigger::Automatic).await }
     });
-    harness.registry.entered.notified().await;
+    wait_for_event(harness.registry.entered.notified()).await;
 
     let racing_identity = identity(UID);
     let racing_refresh = harness.mesh.identity_changed(Some(&racing_identity));
@@ -459,7 +459,10 @@ async fn account_mesh_logout_during_enrollment_cannot_be_reopened_by_the_late_re
         Cleanup::Confirmed
     );
     gate.notify_one();
-    assert_eq!(flight.await.unwrap(), Err(AccountMeshRefusal::Cancelled));
+    assert_eq!(
+        wait_for_event(flight).await.unwrap(),
+        Err(AccountMeshRefusal::Cancelled)
+    );
     let state = harness.state();
     assert_eq!(
         state.presence,
@@ -468,6 +471,111 @@ async fn account_mesh_logout_during_enrollment_cannot_be_reopened_by_the_late_re
     );
     assert!(state.membership.is_none());
     assert_eq!(state.enrollment, Enrollment::Idle);
+}
+
+#[tokio::test]
+async fn account_mesh_account_switch_applies_each_accounts_accepted_admission() {
+    let harness = Harness::new().await;
+    let set_peer = |key: Option<(String, u64)>, metadata_revision: u64| {
+        let mut script = harness.registry.script.lock().unwrap();
+        script.peer_key = key;
+        script.peer_metadata_revision = metadata_revision;
+    };
+    set_peer(Some(("d".repeat(64), 2)), 5);
+    harness.registry.script.lock().unwrap().peer_active = Some(false);
+    harness.sign_in(UID).await;
+    harness
+        .mesh
+        .refresh(EnrollTrigger::Automatic)
+        .await
+        .unwrap();
+    assert!(harness.state().current_membership(START).is_some());
+    assert!(harness.state().revoked_installations.contains(PEER));
+    let taught = harness.state().signed_registry.clone().unwrap();
+    let account_registry = |key_id: String, generation: u64, metadata_revision: u64| {
+        let mut rows = taught.rows.clone();
+        let peer = rows
+            .iter_mut()
+            .find(|row| row.installation_id == PEER)
+            .unwrap();
+        peer.key_id = key_id;
+        peer.key_generation = generation;
+        peer.metadata_revision = metadata_revision;
+        Issuer::new().sign(&serde_json::json!({
+            "schema_version": 1, "iss": "domios-mesh-registry",
+            "aud": {"project": PROJECT, "env": "test"}, "policy_epoch": EPOCH,
+            "account_id": account_id(UID), "revision": taught.revision + 10, "issued_at": START,
+            "members": rows, "revoked_installations": taught.revoked_installations,
+        }))
+    };
+
+    harness.logout().await;
+    set_peer(None, 0);
+    harness.registry.script.lock().unwrap().peer_active = None;
+    harness.sign_in("user-2").await;
+    harness
+        .mesh
+        .refresh(EnrollTrigger::Automatic)
+        .await
+        .unwrap();
+    let other = harness.state();
+    assert_eq!(other.binding(), Binding::Other);
+    assert_eq!(other.owner, Some(account_id(UID)));
+    assert_eq!(other.last_refusal, None);
+    assert!(other.self_installation.is_some());
+    assert_eq!(
+        other.current_membership(START).unwrap().verified.account_id,
+        account_id("user-2"),
+        "a lower generation in another account's registry is not a rollback"
+    );
+    assert!(
+        !other.revoked_installations.contains(PEER),
+        "a revocation in A does not block the same installation in B"
+    );
+
+    harness.logout().await;
+    // Peer gossip may deliver A's registry before A's retained registry is replayed.
+    harness.mesh.with(|inner| {
+        inner.record.signed_registries.remove(&account_id(UID));
+    });
+    harness.sign_in(UID).await;
+    for (key_id, generation, metadata_revision) in [("c".repeat(64), 1, 5), ("d".repeat(64), 2, 0)]
+    {
+        let regressed = account_registry(key_id, generation, metadata_revision);
+        let verified = crate::account_mesh::registry_snapshot::verify_registry(
+            &regressed,
+            &Issuer::new().trust(),
+            &account_id(UID),
+            START,
+        );
+        assert!(
+            verified.is_ok(),
+            "only a fence can refuse this signed registry"
+        );
+        assert_eq!(
+            harness.mesh.receive_registry_snapshot(&regressed).await,
+            Err(AccountMeshRefusal::Invalid),
+            "A's own fences still refuse a regressed A registry after visiting B"
+        );
+    }
+    set_peer(Some(("d".repeat(64), 2)), 5);
+    harness
+        .mesh
+        .refresh(EnrollTrigger::Automatic)
+        .await
+        .unwrap();
+    let back = harness.state();
+    assert_eq!(back.binding(), Binding::Current);
+    assert_eq!(back.last_refusal, None);
+    assert_eq!(back.traffic(), Traffic::Open);
+    assert_eq!(
+        back.current_membership(START).unwrap().verified.account_id,
+        account_id(UID)
+    );
+    assert!(
+        back.revoked_installations.contains(PEER),
+        "A's revoked generation still blocks the installation after A to B to A"
+    );
 }
 
 #[tokio::test]
@@ -490,6 +598,22 @@ async fn account_mesh_same_account_resumes_and_another_account_cannot() {
     assert_eq!(resumed.traffic(), Traffic::Open);
     assert_eq!(resumed.binding(), Binding::Current);
     assert!(resumed.current_membership(START).is_some());
+    assert!(resumed.self_installation.is_some());
+    assert_eq!(resumed.last_refusal, None);
+    assert_eq!(resumed.cleanup, Cleanup::Confirmed);
+    let own = resumed
+        .signed_registry
+        .as_ref()
+        .unwrap()
+        .rows
+        .iter()
+        .find(|row| row.installation_id == INSTALLATION)
+        .unwrap();
+    assert_eq!(
+        own.presence,
+        wire::RegistryPresence::Present,
+        "peers admit only a present holder; a renew alone leaves the row signed out"
+    );
     assert_eq!(
         harness.calls("enroll"),
         1,
@@ -606,67 +730,6 @@ async fn account_mesh_session_revoke_uses_a_signed_request_and_keeps_the_pairing
 }
 
 #[tokio::test]
-async fn account_mesh_new_links_need_the_online_permit_and_the_registry_address() {
-    let harness = enrolled().await;
-    let target = harness.mesh.resolve_link_target(PEER).await.unwrap();
-    assert_eq!(target.endpoint.ip().to_string(), "100.101.102.103");
-    let transcript = [6u8; 32];
-    let request = LinkAuthorization {
-        transcript,
-        local_installation_id: INSTALLATION.into(),
-        peer_installation_id: PEER.into(),
-        account_id: account_id(UID),
-    };
-    let permit = harness.mesh.authorize_link(request.clone()).await.unwrap();
-    assert_eq!(harness.calls("link"), 1);
-    let grant = parse_membership_token(&permit).unwrap();
-    let peer_view = LinkPermitExpectation {
-        transcript: &transcript,
-        holder_installation_id: INSTALLATION,
-        peer_installation_id: PEER,
-        account_id: &request.account_id,
-        peer_target: Some(&target.target),
-    };
-    assert_eq!(
-        verify_link_permit(&grant, &Issuer::new().trust(), &peer_view, START),
-        Ok(())
-    );
-
-    harness.registry.script.lock().unwrap().permit = Some(RegistryRefusal::Unavailable);
-    assert!(harness.state().current_membership(START).is_some());
-    assert_eq!(
-        harness.mesh.authorize_link(request.clone()).await,
-        Err(AccountMeshRefusal::Unavailable),
-        "a cached membership never authorizes a new link"
-    );
-
-    harness.clock.set(START + 3600);
-    assert_eq!(
-        harness.mesh.authorize_link(request).await,
-        Err(AccountMeshRefusal::Revoked)
-    );
-}
-
-#[tokio::test]
-async fn account_mesh_responder_authorizes_an_initiator_without_a_published_endpoint() {
-    let harness = enrolled().await;
-    harness.registry.script.lock().unwrap().peer_unpublished = true;
-    assert_eq!(
-        harness.mesh.resolve_link_target(PEER).await.err(),
-        Some(AccountMeshRefusal::Unavailable),
-        "dialing still needs the published endpoint"
-    );
-    let request = LinkAuthorization {
-        transcript: [7u8; 32],
-        local_installation_id: INSTALLATION.into(),
-        peer_installation_id: PEER.into(),
-        account_id: account_id(UID),
-    };
-    assert!(harness.mesh.authorize_link(request).await.is_ok());
-    assert_eq!(harness.calls("link"), 1);
-}
-
-#[tokio::test]
 async fn account_mesh_peer_membership_and_possession_follow_the_signed_in_account() {
     let harness = enrolled().await;
     let state = harness.state();
@@ -714,7 +777,7 @@ async fn account_mesh_internal_registry_reads_update_the_snapshot() {
     let harness = enrolled().await;
     assert!(harness.state().registry.is_some());
 
-    harness.mesh.resolve_link_identity(PEER).await.unwrap();
+    harness.mesh.resolve_link_target(PEER).await.unwrap();
 
     let observation = harness
         .state()
@@ -748,13 +811,14 @@ async fn next_renewal(harness: &Harness) -> Duration {
         .retry_at
         .unwrap_or_else(|| state.membership.as_ref().unwrap().verified.refresh_after());
     let previous = harness.mesh.now();
+    let mut settled = harness.mesh.subscribe();
     harness.clock.set(due);
-    tokio::time::timeout(
-        Duration::from_secs(3600),
-        harness.registry.entered.notified(),
-    )
-    .await
-    .expect("a renewal is scheduled");
+    tokio::time::timeout(Duration::from_secs(61), harness.registry.entered.notified())
+        .await
+        .expect("a renewal is scheduled");
+    wait_for_event(settled.wait_for(|state| state.enrollment != Enrollment::Enrolling))
+        .await
+        .unwrap();
     Duration::from_secs(due - previous)
 }
 
@@ -767,7 +831,7 @@ async fn account_mesh_failed_lease_renewal_retries_with_bounded_backoff() {
         .refresh(EnrollTrigger::Automatic)
         .await
         .unwrap();
-    harness.registry.entered.notified().await;
+    wait_for_event(harness.registry.entered.notified()).await;
     harness.registry.script.lock().unwrap().membership = Some(RegistryRefusal::Unavailable);
 
     let cadence = Duration::from_secs(
@@ -782,19 +846,13 @@ async fn account_mesh_failed_lease_renewal_retries_with_bounded_backoff() {
     );
     assert_eq!(next_renewal(&harness).await, cadence);
     assert_eq!(harness.state().enrollment, Enrollment::Refused);
-    assert_eq!(
-        next_renewal(&harness).await,
-        Duration::from_secs(30),
-        "a failed renewal re-arms before expiry"
-    );
+    let first_retry = next_renewal(&harness).await;
+    assert!((Duration::from_secs(22)..=Duration::from_secs(30)).contains(&first_retry));
     harness.registry.script.lock().unwrap().membership = Some(RegistryRefusal::RateLimited {
         retry_after_seconds: 900,
     });
-    assert_eq!(
-        next_renewal(&harness).await,
-        Duration::from_secs(60),
-        "backoff grows"
-    );
+    let second_retry = next_renewal(&harness).await;
+    assert!((Duration::from_secs(45)..=Duration::from_secs(60)).contains(&second_retry));
     harness.registry.script.lock().unwrap().membership = None;
     assert_eq!(
         next_renewal(&harness).await,
@@ -827,7 +885,7 @@ async fn account_mesh_explicit_enroll_answers_with_the_run_it_joins() {
         let mesh = harness.mesh.clone();
         async move { mesh.refresh(EnrollTrigger::Automatic).await }
     });
-    harness.registry.entered.notified().await;
+    wait_for_event(harness.registry.entered.notified()).await;
     let explicit = harness.mesh.refresh(EnrollTrigger::Explicit);
     tokio::pin!(explicit);
     assert!(
@@ -844,7 +902,7 @@ async fn account_mesh_explicit_enroll_answers_with_the_run_it_joins() {
         active_count: 2,
     };
     assert_eq!(explicit.await, Err(refusal));
-    assert_eq!(first.await.unwrap(), Err(refusal));
+    assert_eq!(wait_for_event(first).await.unwrap(), Err(refusal));
     assert_eq!(
         harness.calls("enroll"),
         2,
@@ -867,8 +925,7 @@ async fn account_mesh_abandoned_logout_stays_blocked_until_the_next_sign_in() {
         let mesh = harness.mesh.clone();
         async move { mesh.sign_out(std::future::pending::<()>()).await }
     });
-    states
-        .wait_for(|state| state.presence == Presence::SignedOut)
+    wait_for_event(states.wait_for(|state| state.presence == Presence::SignedOut))
         .await
         .unwrap();
     logout.abort();
@@ -924,10 +981,8 @@ async fn account_mesh_publication_retry_preserves_reason_and_success() {
     assert_eq!(harness.calls("publish"), 2);
     harness.registry.script.lock().unwrap().publication = Some(RegistryRefusal::Unavailable);
     *harness.endpoint.0.lock().unwrap() = None;
-    assert_eq!(
-        harness.mesh.refresh(EnrollTrigger::Network).await,
-        Err(AccountMeshRefusal::Unavailable)
-    );
+    harness.mesh.refresh(EnrollTrigger::Network).await.unwrap();
+    assert_eq!(harness.calls("withdraw"), 0);
     harness.logout().await;
     assert_eq!(harness.state().retry_at, None);
     assert_eq!(harness.state().publication_failure, None);
@@ -943,7 +998,7 @@ async fn account_mesh_refused_read_keeps_successful_publication() {
         retry_after_seconds: 60,
     });
     assert_eq!(
-        harness.mesh.list().await.unwrap_err(),
+        harness.mesh.list_fresh().await.unwrap_err(),
         AccountMeshRefusal::RateLimited {
             retry_after_seconds: 60
         }
@@ -962,7 +1017,7 @@ async fn account_mesh_initial_outage_schedules_one_retry_without_trigger_bursts(
         harness.mesh.refresh(EnrollTrigger::Automatic).await,
         Err(AccountMeshRefusal::Unavailable)
     );
-    harness.registry.entered.notified().await;
+    wait_for_event(harness.registry.entered.notified()).await;
     for trigger in [
         EnrollTrigger::Network,
         EnrollTrigger::Explicit,

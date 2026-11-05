@@ -1,3 +1,4 @@
+import { ioTestContext } from "../../provider-shared/tests/hostIo";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
@@ -12,16 +13,23 @@ assert.equal(isImageDisplayMetadata({ ...geometry, type: "assistant" }), false);
 assert.equal(isImageDisplayMetadata({ ...geometry, message: { content: "opaque harness context" } }), false);
 
 interface Parser { parseSessionDelta(chunk: string): { messages: Array<{ blocks: Array<{ kind: string; data: Record<string, unknown> }> }> } }
-const context = { module: { exports: {} as { default: Parser } }, exports: {} };
+const context = ioTestContext({ module: { exports: {} as { default: Parser } }, exports: {}, host: {} });
 new vm.Script(fs.readFileSync(new URL("../plugin.js", import.meta.url), "utf8")).runInNewContext(context);
 const result = { type: "user", sourceToolAssistantUUID: "opaque-assistant", message: { role: "user", content: [{
   type: "tool_result", tool_use_id: "opaque-read", content: [{ type: "image", source: { type: "base64", media_type: "image/jpeg", data: "opaque-image-data" } }],
 }] } };
+const scope = globalThis as {host?: object};
+const previousHost = scope.host;
+scope.host = context.host;
+try {
 for (const parser of [plugin as unknown as Parser, context.module.exports.default]) {
   const rows = parser.parseSessionDelta([result, geometry].map((row) => JSON.stringify(row)).join("\n")).messages;
   assert.equal(rows.length, 1);
   assert.equal(rows[0].blocks[0].kind, "tool_result");
   assert.deepEqual(JSON.parse(JSON.stringify(rows[0].blocks[0].data.content)), result.message.content[0].content);
   assert.equal(parser.parseSessionDelta(JSON.stringify({ ...geometry, isMeta: false })).messages.length, 1);
+}
+} finally {
+  scope.host = previousHost;
 }
 console.log("claude image metadata: 12 provenance and preservation assertions passed");

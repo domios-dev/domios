@@ -74,7 +74,17 @@ pub fn analyze_send_text_response(value: &serde_json::Value) -> SendTextOutcome 
                     .or_else(|| error.get("message").and_then(serde_json::Value::as_str))
                     .or_else(|| error.get("code").and_then(serde_json::Value::as_str))
             })
-            .unwrap_or("send has not been written; inspect its retained status before resending");
+            .unwrap_or_else(|| {
+                if value
+                    .get("send_id")
+                    .and_then(serde_json::Value::as_str)
+                    .is_some()
+                {
+                    "send is retained and may still be written; do not resend; inspect its status"
+                } else {
+                    "send has not been written"
+                }
+            });
         let detail = value.get("detail").and_then(serde_json::Value::as_str);
         let message = detail.map_or_else(
             || reason.to_string(),
@@ -85,7 +95,15 @@ pub fn analyze_send_text_response(value: &serde_json::Value) -> SendTextOutcome 
             .and_then(serde_json::Value::as_str)
             .map_or_else(
                 || message.clone(),
-                |id| format!("send_id={id}: {message}\ninspect: domios tab send-status {id}"),
+                |id| {
+                    let inspection =
+                        format!("send_id={id}: {message}\ninspect: domios tab send-status {id}");
+                    if id.starts_with("agent-pty:") {
+                        format!("{inspection}\ncancel held input: domios tab send-cancel {id}")
+                    } else {
+                        inspection
+                    }
+                },
             );
         return SendTextOutcome::Error {
             msg: message,

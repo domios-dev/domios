@@ -14,7 +14,9 @@ fn concurrent_startup_reservations_refuse_before_worker_spawn() {
             let observed = observed.clone();
             let reserved = reserved.clone();
             std::thread::spawn(move || {
-                let owner = store.dispatch_startup_owner_candidate(&plan_id, &task_id);
+                let owner = store
+                    .dispatch_startup_owner_candidate(&plan_id, &task_id)
+                    .unwrap();
                 assert!(owner.is_none());
                 observed.wait();
                 let result = store.reserve_task_dispatch_startup(
@@ -76,7 +78,7 @@ fn repeated_runtime_binding_keeps_one_plan_attempt() {
         )
         .unwrap();
     let attempts_before = store
-        .show_task(&task_id)
+        .inspect_task_for_test(&task_id)
         .unwrap()
         .task
         .execution_attempts
@@ -90,7 +92,7 @@ fn repeated_runtime_binding_keeps_one_plan_attempt() {
         assert_eq!(ready.attempt.id, attempt_id);
     }
 
-    let task = store.show_task(&task_id).unwrap().task;
+    let task = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(task.execution_attempts.len(), attempts_before);
     let bound: Vec<_> = task
         .execution_attempts
@@ -127,11 +129,11 @@ fn a_closed_attempt_without_a_newer_live_dispatch_is_not_reported_as_superseded(
 }
 
 #[test]
-fn acknowledgement_reads_current_task_after_dispatch_despite_retained_snapshot() {
+fn acknowledgement_reads_current_task_after_dispatch_despite_prior_read() {
     let (_dir, store, plan_id, task_id) = bound_report_store();
     let mut before_dispatch = store.get(&plan_id).unwrap();
     before_dispatch.tasks.clear();
-    store.record_committed_snapshot(&before_dispatch);
+    assert!(before_dispatch.tasks.is_empty());
 
     let acknowledged = store
         .acknowledge_live_task_attempt_for_tab("worker", Some(&plan_id), Some(&task_id), 4)
@@ -139,7 +141,7 @@ fn acknowledgement_reads_current_task_after_dispatch_despite_retained_snapshot()
     assert_eq!(acknowledged.task_id, task_id);
     assert_eq!(acknowledged.attempt.acknowledged_at, Some(4));
     assert_eq!(
-        store.show_task(&task_id).unwrap().task.status,
+        store.inspect_task_for_test(&task_id).unwrap().task.status,
         TaskStatus::InProgress
     );
 }

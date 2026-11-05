@@ -1,3 +1,4 @@
+import { muxMockFetch } from "./muxMockFetch.testdata";
 import assert from "node:assert/strict";
 import { Window } from "happy-dom";
 
@@ -11,10 +12,10 @@ async function main() {
   setTokenFor(selfHost(), "fixture-token");
   const originalFetch = globalThis.fetch;
   const requests: Array<{ url: string; init?: RequestInit }> = [];
-  globalThis.fetch = async (input, init) => {
+  globalThis.fetch = muxMockFetch(async (input, init) => {
     requests.push({ url: String(input), init });
     return Response.json({ marker: "fixture-response" });
-  };
+  });
   try {
     const scope = { workspaceId: "workspace /?", teamId: "team &?" };
     assert.deepEqual(await invoke("automation_graph_snapshot", scope), { marker: "fixture-response" });
@@ -64,10 +65,10 @@ async function main() {
     console.log("✓ Blueprint delete maps to the persisted host API");
 
     setRelayTarget("peer-fixture", "Peer fixture");
-    globalThis.fetch = async (input, init) => {
+    globalThis.fetch = muxMockFetch(async (input, init) => {
       requests.push({ url: String(input), init });
       return Response.json({ ok: false, status: 403, data: { error: "peer-refused" } });
-    };
+    });
     await assert.rejects(invoke("automation_graph_stop_blueprint", { ...scope, id: "sentinel-a" }));
     assert.equal(requests.length, 1);
     assert.equal(new URL(requests[0].url).pathname, "/api/mesh/relay-to");

@@ -36,10 +36,15 @@ pub(super) fn dispatch(
             match mode {
                 PlanMode::Approved => svc
                     .approve_and_activate_plan(&id, &caller(params), note.as_deref(), epoch_ms())
-                    .map_err(authority_error)?,
+                    .map_err(super::plan_task_authority::plan_operation_error)?,
                 PlanMode::Planning => {
                     svc.authorize_plan_orchestrator(&id, &caller(params))
-                        .map_err(authority_error)?;
+                        .map_err(|error| {
+                            super::plan_task_authority::execution_authority_error(
+                                error,
+                                Some("plan_approval_authorization_required"),
+                            )
+                        })?;
                     svc.plan_store
                         .set_planning_state(
                             &id,
@@ -52,7 +57,7 @@ pub(super) fn dispatch(
                 }
                 PlanMode::Execution => svc
                     .enter_execution_mode(&id, &caller(params), epoch_ms())
-                    .map_err(authority_error)?,
+                    .map_err(super::plan_task_authority::plan_operation_error)?,
                 PlanMode::Paused | PlanMode::Complete => svc
                     .plan_store
                     .set_mode(&id, mode, epoch_ms())
@@ -120,8 +125,13 @@ pub(super) fn dispatch(
                 });
             }
             let by = svc
-                .authorize_draft_structure_mutation(&id, &caller(params))
-                .map_err(authority_error)?;
+                .authorize_draft_structure_mutation_typed(&id, &caller(params))
+                .map_err(|error| {
+                    super::plan_task_authority::execution_authority_error(
+                        error,
+                        Some("plan_approval_authorization_required"),
+                    )
+                })?;
             let note = optional_string(params, "note");
             svc.plan_store
                 .set_planning_state(&id, state, by, note.as_deref(), epoch_ms())
@@ -178,14 +188,6 @@ fn has_human_confirmation(caller_tab_id: Option<&str>, params: &Option<Value>) -
             .and_then(|value| value.get("human_confirmation"))
             .and_then(Value::as_bool)
             == Some(true)
-}
-
-fn authority_error(message: String) -> JsonRpcError {
-    JsonRpcError {
-        code: super::error_codes::PLAN_ORCHESTRATOR_REQUIRED,
-        message,
-        data: Some(json!({ "type": "plan_approval_authorization_required" })),
-    }
 }
 
 fn rebind_error(message: String) -> JsonRpcError {

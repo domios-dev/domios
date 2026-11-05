@@ -1,3 +1,4 @@
+import { muxMockFetch } from "../../../lib/muxMockFetch.testdata";
 import { beforeEach as beforeDaemonCase } from "vitest";
 import { configureDaemonFixture } from "../../../test/daemonTransport.testdata";
 beforeDaemonCase(() => configureDaemonFixture());
@@ -95,7 +96,8 @@ function emitCommit() {
 
 async function flush() {
   await act(async () => {
-    for (let i = 0; i < 20; i++) await Promise.resolve();
+    // Daemon responses ride the mux stream, which settles across event-loop turns.
+    for (let i = 0; i < 20; i++) await new Promise((resolve) => setTimeout(resolve, 0));
   });
 }
 
@@ -132,7 +134,7 @@ beforeEach(() => {
   nextFrame = 0;
   clock = 0;
   installHarness();
-  vi.stubGlobal("fetch", vi.fn());
+  vi.stubGlobal("fetch", muxMockFetch(vi.fn()));
 });
 
 afterEach(async () => {

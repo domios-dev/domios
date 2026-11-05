@@ -1,3 +1,4 @@
+import { muxMockFetch } from "../../../lib/muxMockFetch.testdata";
 import { configureDaemonFixture } from "../../../test/daemonTransport.testdata";
 // Run: npx tsx src/components/Canvas/planView/PlanSkillsSection.test.tsx
 
@@ -61,8 +62,8 @@ async function render(ui: ReactElement): Promise<{ host: HTMLDivElement; root: R
 const originalFetch = globalThis.fetch;
 
 test("renders skill rows from API", async () => {
-  globalThis.fetch = async () =>
-    new Response(JSON.stringify({ skills: SKILLS }), { status: 200 });
+  globalThis.fetch = muxMockFetch(async () =>
+    new Response(JSON.stringify({ skills: SKILLS }), { status: 200 }));
   const { host } = await render(
     <PlanSkillsSection planId={FIXTURE_PLAN.id} plan={FIXTURE_PLAN} api={API} />,
   );
@@ -72,7 +73,7 @@ test("renders skill rows from API", async () => {
 });
 
 test("opens skill detail on click", async () => {
-  globalThis.fetch = async (input) => {
+  globalThis.fetch = muxMockFetch(async (input) => {
     const url = String(input);
     if (url.includes("/skills/deploy")) {
       return new Response(
@@ -81,7 +82,7 @@ test("opens skill detail on click", async () => {
       );
     }
     return new Response(JSON.stringify({ skills: SKILLS }), { status: 200 });
-  };
+  });
   const { host } = await render(
     <PlanSkillsSection planId={FIXTURE_PLAN.id} plan={FIXTURE_PLAN} api={API} />,
   );
@@ -96,9 +97,9 @@ test("opens skill detail on click", async () => {
 
 test("fetch error routes through quiet ErrorState, NEVER prints raw exception", async () => {
   const RAW = "The string did not match the expected pattern.";
-  globalThis.fetch = async () => {
+  globalThis.fetch = muxMockFetch(async () => {
     throw new Error(RAW);
-  };
+  });
   const { host } = await render(
     <PlanSkillsSection planId={FIXTURE_PLAN.id} plan={FIXTURE_PLAN} api={API} />,
   );

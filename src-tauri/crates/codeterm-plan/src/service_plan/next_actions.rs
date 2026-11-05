@@ -2,9 +2,12 @@ use serde::Serialize;
 
 use crate::plan::{LoopStatus, QaState, ReviewStage, TaskStatus};
 
-use super::state::{LoopSnapshot, PlanStateSnapshot};
+use super::state::PlanStateSnapshot;
 
-#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+mod input;
+pub(super) use input::{ActionLane, ActionLoop, NextActionInput};
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "snake_case")]
 pub enum NextActionKind {
     ApprovePlan,
@@ -32,7 +35,7 @@ pub struct NextAction {
 }
 
 // name and surface any approval blockers. Shared wording lives in prompts.
-fn planning_next_action_message(s: &PlanStateSnapshot) -> String {
+fn planning_next_action_message(s: &NextActionInput) -> String {
     let peer = crate::service_plan::peer_mandate::planner_peer_label(&s.planner_resolution);
     let mut msg = super::prompts_plan::orch_defer_structure_line(&peer);
     if s.planning_approval_blockers.is_empty() {
@@ -65,7 +68,7 @@ fn dependency_wait_names(waits: &[super::state::DependencyWait]) -> String {
 }
 
 // Running loop with no headroom left: at or one short of budget, or past 80%.
-fn loop_near_limit(l: &LoopSnapshot) -> bool {
+pub(super) fn loop_near_limit(l: &ActionLoop) -> bool {
     if l.status != LoopStatus::Running || l.budget == 0 {
         return false;
     }
@@ -86,6 +89,10 @@ pub fn adopt_orphaned_plan_action(plan_id: &str, reason: &str) -> NextAction {
 /// Deterministic, advisory next-action ranking over a plan state snapshot.
 /// Priority ascending (1 = act first). Never mutates anything.
 pub fn compute_next_actions(s: &PlanStateSnapshot) -> Vec<NextAction> {
+    compute_next_actions_from(&NextActionInput::from(s))
+}
+
+pub(super) fn compute_next_actions_from(s: &NextActionInput) -> Vec<NextAction> {
     let mut actions = Vec::new();
 
     if !s.execution_tasks_unlocked {
@@ -117,7 +124,7 @@ pub fn compute_next_actions(s: &PlanStateSnapshot) -> Vec<NextAction> {
                 actions.push(NextAction {
                     priority: 1,
                     kind,
-                    task_id: Some(lane.task_id.clone()),
+                    task_id: Some(lane.task_id.to_string()),
                     loop_id: None,
                     message,
                 });
@@ -126,7 +133,7 @@ pub fn compute_next_actions(s: &PlanStateSnapshot) -> Vec<NextAction> {
             actions.push(NextAction {
                 priority: 1,
                 kind: NextActionKind::Gate,
-                task_id: Some(lane.task_id.clone()),
+                task_id: Some(lane.task_id.to_string()),
                 loop_id: None,
                 message: format!("gate {} ({})", lane.task_id, lane.name),
             });
@@ -152,7 +159,7 @@ pub fn compute_next_actions(s: &PlanStateSnapshot) -> Vec<NextAction> {
         actions.push(NextAction {
             priority: 2,
             kind: NextActionKind::Advance,
-            task_id: Some(lane.task_id.clone()),
+            task_id: Some(lane.task_id.to_string()),
             loop_id: None,
             message: format!("advance/unblock {} ({})", lane.task_id, lane.name),
         });
@@ -166,7 +173,7 @@ pub fn compute_next_actions(s: &PlanStateSnapshot) -> Vec<NextAction> {
         actions.push(NextAction {
             priority: 2,
             kind: NextActionKind::WaitingOnDependency,
-            task_id: Some(lane.task_id.clone()),
+            task_id: Some(lane.task_id.to_string()),
             loop_id: None,
             message: format!(
                 "{} ({}) waiting on: {}",
@@ -177,13 +184,13 @@ pub fn compute_next_actions(s: &PlanStateSnapshot) -> Vec<NextAction> {
         });
     }
 
-    if s.drift.total > 0 {
+    if s.drift_total > 0 {
         actions.push(NextAction {
             priority: 3,
             kind: NextActionKind::Reconcile,
             task_id: None,
             loop_id: None,
-            message: format!("reconcile ({} drift item(s))", s.drift.total),
+            message: format!("reconcile ({} drift item(s))", s.drift_total),
         });
     }
 
@@ -195,7 +202,7 @@ pub fn compute_next_actions(s: &PlanStateSnapshot) -> Vec<NextAction> {
         && s.open_lanes.iter().all(|lane| {
             lane.status == TaskStatus::InReview && lane.review_stage == ReviewStage::Qa
         });
-    if s.execution_tasks_unlocked && has_unblocked_work && s.live_agents.is_empty() && !qa_only {
+    if s.execution_tasks_unlocked && has_unblocked_work && !s.has_live_agents && !qa_only {
         actions.push(NextAction {
             priority: 1,
             kind: NextActionKind::Continue,
@@ -214,7 +221,7 @@ pub fn compute_next_actions(s: &PlanStateSnapshot) -> Vec<NextAction> {
                 priority: 4,
                 kind: NextActionKind::ConsiderStop,
                 task_id: None,
-                loop_id: Some(l.id.clone()),
+                loop_id: Some(l.id.to_string()),
                 message: format!(
                     "consider stop: loop {} nearly exhausted ({}/{})",
                     l.id, l.count, l.budget
@@ -246,7 +253,7 @@ pub fn compute_next_actions(s: &PlanStateSnapshot) -> Vec<NextAction> {
         let mut gates = s
             .pending_regression_gates
             .iter()
-            .chain(&s.pending_group_retrospectives)
+            .chain(s.pending_group_retrospectives)
             .map(|gate| gate.key.as_str())
             .collect::<Vec<_>>();
         gates.sort_unstable();
@@ -262,7 +269,7 @@ pub fn compute_next_actions(s: &PlanStateSnapshot) -> Vec<NextAction> {
         actions.push(NextAction {
             priority: 5,
             kind: NextActionKind::Dispatch,
-            task_id: Some(lane.task_id.clone()),
+            task_id: Some(lane.task_id.to_string()),
             loop_id: None,
             message,
         });
@@ -273,381 +280,4 @@ pub fn compute_next_actions(s: &PlanStateSnapshot) -> Vec<NextAction> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::service_plan::state::{DriftSummary, LiveAgent, OpenLane, TaskPresentation};
-
-    fn lane(id: &str, status: TaskStatus) -> OpenLane {
-        OpenLane {
-            task_id: id.into(),
-            name: format!("name-{id}"),
-            parent_task_id: None,
-            subtasks: vec![],
-            status: status.clone(),
-            executor_role: None,
-            competition: None,
-            live_competition_attempts: 0,
-            review_stage: ReviewStage::Review,
-            qa_state: None,
-            status_label: None,
-            presentation: if status == TaskStatus::Pending {
-                TaskPresentation::ActionablePending
-            } else {
-                TaskPresentation::InReview
-            },
-            clears_review_capacity: false,
-            waiting_on_dependencies: false,
-            dependency_waits: vec![],
-        }
-    }
-
-    fn loop_snap(id: &str, count: u32, budget: u32, status: LoopStatus) -> LoopSnapshot {
-        LoopSnapshot {
-            id: id.into(),
-            target: "t".into(),
-            budget,
-            count,
-            stop_when: None,
-            status,
-            stagnation: 0,
-            deviation: None,
-            last_iteration_at: None,
-        }
-    }
-
-    fn empty() -> PlanStateSnapshot {
-        PlanStateSnapshot {
-            revision: "0".into(),
-            control_loop: Default::default(),
-            plan_id: "pl".into(),
-            title: "T".into(),
-            status: crate::plan::PlanStatus::Active,
-            mode: crate::plan::PlanMode::Execution,
-            planning_state: crate::plan::PlanningState::Approved,
-            execution_tasks_unlocked: true,
-            planning_approval_blockers: vec![],
-            canonical_project_path: "/repo".into(),
-            planning_readiness: Default::default(),
-            owner: Default::default(),
-            planner: None,
-            planner_resolution: crate::plan::peer::PeerResolution::Unbound,
-            planner_dead: false,
-            undelivered_request_count: 0,
-            planner_recovery_action: None,
-            goal: None,
-            task_counts: Default::default(),
-            percent_done: 0.0,
-            coverage: crate::plan::coverage::CoverageReport {
-                plan_covered_fraction: 0.0,
-                sections: vec![],
-                gaps: vec![],
-                unlinked_count: 0,
-                unlinked_tasks: vec![],
-            },
-            drift: DriftSummary::default(),
-            cleanup_debt: vec![],
-            loops: vec![],
-            heartbeat: Default::default(),
-            open_lanes: vec![],
-            lanes: vec![],
-            lane_history_count: 0,
-            blocked_or_gated_count: 0,
-            blocked_lanes: vec![],
-            live_agents: vec![],
-            recent_strides: vec![],
-            pending_regression_gates: vec![],
-            blocking_regression_gates: vec![],
-            pending_group_retrospectives: vec![],
-            regression_overrides: vec![],
-            review_gate: Default::default(),
-            mission_control: Default::default(),
-            next_actions: vec![],
-        }
-    }
-
-    #[test]
-    fn gate_rule_fires_and_is_silent() {
-        let mut s = empty();
-        s.open_lanes = vec![lane("t1", TaskStatus::InReview)];
-        let a = compute_next_actions(&s);
-        assert_eq!(a.len(), 1);
-        assert_eq!(a[0].kind, NextActionKind::Gate);
-        assert_eq!(a[0].task_id.as_deref(), Some("t1"));
-
-        s.open_lanes = vec![lane("t1", TaskStatus::Pending)];
-        assert!(compute_next_actions(&s)
-            .iter()
-            .all(|x| x.kind != NextActionKind::Gate));
-    }
-
-    #[test]
-    fn advance_rule_fires_and_is_silent() {
-        let mut s = empty();
-        s.blocked_lanes = vec![lane("tb", TaskStatus::Blocked)];
-        let a = compute_next_actions(&s);
-        assert_eq!(a.len(), 1);
-        assert_eq!(a[0].kind, NextActionKind::Advance);
-        assert_eq!(a[0].task_id.as_deref(), Some("tb"));
-
-        s.blocked_lanes = vec![];
-        assert!(compute_next_actions(&s).is_empty());
-    }
-
-    #[test]
-    fn reconcile_rule_fires_only_on_drift() {
-        let mut s = empty();
-        assert!(compute_next_actions(&s).is_empty());
-        s.drift.total = 3;
-        let a = compute_next_actions(&s);
-        assert_eq!(a.len(), 1);
-        assert_eq!(a[0].kind, NextActionKind::Reconcile);
-        assert!(a[0].message.contains("3 drift"));
-    }
-
-    #[test]
-    fn consider_stop_only_for_running_near_limit() {
-        let mut s = empty();
-        s.loops = vec![loop_snap("lp", 4, 5, LoopStatus::Running)];
-        let a = compute_next_actions(&s);
-        assert_eq!(a.len(), 1);
-        assert_eq!(a[0].kind, NextActionKind::ConsiderStop);
-        assert_eq!(a[0].loop_id.as_deref(), Some("lp"));
-
-        s.loops = vec![loop_snap("lp", 1, 5, LoopStatus::Running)];
-        assert!(compute_next_actions(&s).is_empty());
-
-        s.loops = vec![loop_snap("lp", 5, 5, LoopStatus::Stopped)];
-        assert!(compute_next_actions(&s).is_empty());
-    }
-
-    #[test]
-    fn dispatch_rule_fires_for_pending() {
-        let mut s = empty();
-        s.open_lanes = vec![lane("tp", TaskStatus::Pending)];
-        let a = compute_next_actions(&s);
-        // A lone pending lane with no live worker also emits a Continue nudge.
-        assert!(a
-            .iter()
-            .any(|x| x.kind == NextActionKind::Dispatch && x.task_id.as_deref() == Some("tp")));
-    }
-
-    #[test]
-    fn review_backlog_does_not_suppress_dispatch() {
-        let mut s = empty();
-        s.open_lanes = vec![lane("tp", TaskStatus::Pending)];
-        s.live_agents = vec![LiveAgent {
-            task_id: "other".into(),
-            name: "other".into(),
-            tab_id: "tab_other".into(),
-        }];
-        s.review_gate = super::super::review_gate::ReviewGateStatus {
-            wip_count: 5,
-            wip_limit: 5,
-            credit: 0,
-            blocked: true,
-            reason: Some("review_wip_exceeded: 5/5 tasks in_review".into()),
-        };
-        let a = compute_next_actions(&s);
-        assert_eq!(a.len(), 1);
-        assert_eq!(a[0].kind, NextActionKind::Dispatch);
-    }
-
-    #[test]
-    fn review_gate_not_blocked_leaves_dispatch_untouched() {
-        let mut s = empty();
-        s.open_lanes = vec![lane("tp", TaskStatus::Pending)];
-        s.live_agents = vec![LiveAgent {
-            task_id: "other".into(),
-            name: "other".into(),
-            tab_id: "tab_other".into(),
-        }];
-        s.review_gate = super::super::review_gate::ReviewGateStatus {
-            wip_count: 1,
-            wip_limit: 5,
-            credit: 0,
-            blocked: false,
-            reason: None,
-        };
-        let a = compute_next_actions(&s);
-        assert_eq!(a.len(), 1);
-        assert_eq!(a[0].kind, NextActionKind::Dispatch);
-    }
-
-    #[test]
-    fn stranded_debt_and_saturation_allow_ordinary_dispatch() {
-        let mut s = empty();
-        let mut review = lane("review", TaskStatus::Pending);
-        review.clears_review_capacity = true;
-        s.open_lanes = vec![review, lane("implementation", TaskStatus::Pending)];
-        s.live_agents = vec![LiveAgent {
-            task_id: "other".into(),
-            name: "other".into(),
-            tab_id: "tab_other".into(),
-        }];
-        s.review_gate = super::super::review_gate::ReviewGateStatus {
-            wip_count: 1,
-            wip_limit: 5,
-            credit: -5,
-            blocked: true,
-            reason: Some("review_credit_exceeded".into()),
-        };
-
-        let actions = compute_next_actions(&s);
-        assert!(actions.iter().any(|action| {
-            action.kind == NextActionKind::Dispatch && action.task_id.as_deref() == Some("review")
-        }));
-        assert!(actions.iter().any(|action| {
-            action.kind == NextActionKind::Dispatch
-                && action.task_id.as_deref() == Some("implementation")
-        }));
-
-        s.review_gate.wip_count = 5;
-        let saturated = compute_next_actions(&s);
-        assert!(saturated
-            .iter()
-            .any(|action| action.kind == NextActionKind::Dispatch));
-    }
-
-    #[test]
-    fn dispatch_rule_skips_pending_lane_waiting_on_dependency() {
-        let mut s = empty();
-        let mut waiting = lane("tp", TaskStatus::Pending);
-        waiting.waiting_on_dependencies = true;
-        waiting.dependency_waits = vec![super::super::state::DependencyWait {
-            task_id: "ta".into(),
-            name: "name-ta".into(),
-            status: Some(TaskStatus::InProgress),
-            missing: false,
-        }];
-        s.open_lanes = vec![waiting];
-        assert!(compute_next_actions(&s)
-            .iter()
-            .all(|action| action.kind != NextActionKind::Dispatch));
-    }
-
-    #[test]
-    fn zero_worker_open_work_emits_continuation_but_qa_only_does_not() {
-        let mut s = empty();
-        s.open_lanes = vec![lane("pending", TaskStatus::Pending)];
-        assert!(compute_next_actions(&s)
-            .iter()
-            .any(|action| action.kind == NextActionKind::Continue));
-        s.open_lanes = vec![OpenLane {
-            review_stage: ReviewStage::Qa,
-            qa_state: Some(QaState::Queued),
-            ..lane("qa", TaskStatus::InReview)
-        }];
-        assert!(compute_next_actions(&s)
-            .iter()
-            .all(|action| action.kind != NextActionKind::Continue));
-    }
-
-    #[test]
-    fn priority_ordering_gate_before_dispatch() {
-        let mut s = empty();
-        s.open_lanes = vec![
-            lane("p1", TaskStatus::Pending),
-            lane("r1", TaskStatus::InReview),
-        ];
-        s.blocked_lanes = vec![lane("b1", TaskStatus::Blocked)];
-        s.drift.total = 1;
-        s.loops = vec![loop_snap("lp", 5, 5, LoopStatus::Running)];
-
-        let a = compute_next_actions(&s);
-        let kinds: Vec<NextActionKind> = a.iter().map(|x| x.kind).collect();
-        assert_eq!(
-            kinds,
-            vec![
-                NextActionKind::Gate,
-                NextActionKind::Continue,
-                NextActionKind::Advance,
-                NextActionKind::Reconcile,
-                NextActionKind::ConsiderStop,
-                NextActionKind::Dispatch,
-            ]
-        );
-        assert!(a.windows(2).all(|w| w[0].priority <= w[1].priority));
-    }
-
-    #[test]
-    fn pending_regression_record_is_an_advisory() {
-        let mut s = empty();
-        s.open_lanes = vec![lane("t_next", TaskStatus::Pending)];
-        s.pending_regression_gates = vec![super::super::milestone_gates::RegressionGate {
-            key: "phase-1".into(),
-            label: "Phase 1".into(),
-        }];
-        let a = compute_next_actions(&s);
-        let dispatch = a
-            .iter()
-            .find(|action| action.kind == NextActionKind::Dispatch)
-            .expect("pending task remains dispatchable");
-        assert!(dispatch.message.contains("phase-1"));
-    }
-
-    #[test]
-    fn pending_group_retrospective_is_visible_without_blocking_dispatch() {
-        let mut s = empty();
-        s.open_lanes = vec![lane("t_next", TaskStatus::Pending)];
-        s.pending_group_retrospectives = vec![super::super::milestone_gates::RegressionGate {
-            key: "phase-1".into(),
-            label: "Phase 1".into(),
-        }];
-        let actions = compute_next_actions(&s);
-        let dispatch = actions
-            .iter()
-            .find(|a| a.kind == NextActionKind::Dispatch)
-            .expect("pending task remains dispatchable");
-        assert!(dispatch.message.contains("phase-1"));
-    }
-
-    #[test]
-    fn later_group_tasks_are_summarized_once() {
-        let mut s = empty();
-        let mut parked = lane("t_later", TaskStatus::Pending);
-        parked.presentation = super::super::state::TaskPresentation::ParkedForLaterGroup;
-        parked.waiting_on_dependencies = true;
-        parked.dependency_waits = vec![super::super::state::DependencyWait {
-            task_id: "t_release".into(),
-            name: "release task".into(),
-            status: Some(TaskStatus::InProgress),
-            missing: false,
-        }];
-        s.open_lanes = vec![parked];
-
-        let actions = compute_next_actions(&s);
-        assert_eq!(
-            actions
-                .iter()
-                .filter(|action| action.kind == NextActionKind::ParkedForLaterGroups)
-                .count(),
-            1
-        );
-        assert!(actions.iter().all(|action| !matches!(
-            action.kind,
-            NextActionKind::Dispatch | NextActionKind::WaitingOnDependency
-        )));
-    }
-
-    #[test]
-    fn planning_state_points_to_approval_gate_and_defers_to_planner() {
-        let mut s = empty();
-        s.execution_tasks_unlocked = false;
-        s.planning_state = crate::plan::PlanningState::Drafting;
-        s.planner_resolution = crate::plan::peer::PeerResolution::Planner {
-            tab_id: "tab_planner".into(),
-        };
-        s.planning_approval_blockers = vec!["no GOAL vector set".into()];
-        let a = compute_next_actions(&s);
-        assert_eq!(a[0].kind, NextActionKind::ApprovePlan);
-        assert!(a[0].message.contains("tab_planner"));
-        assert!(a[0].message.contains("no GOAL vector set"));
-    }
-
-    #[test]
-    fn approved_plan_has_no_approval_action() {
-        let s = empty(); // execution_tasks_unlocked = true
-        let a = compute_next_actions(&s);
-        assert!(a.iter().all(|x| x.kind != NextActionKind::ApprovePlan));
-    }
-}
+mod tests;

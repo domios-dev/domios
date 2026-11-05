@@ -81,3 +81,30 @@ fn normalization_rejects_untrusted_origins() {
     };
     assert!(normalize(announcement).is_none());
 }
+#[test]
+fn normalization_canonicalizes_endpoint_order_within_each_transport() {
+    let endpoints = vec![
+        WebUiEndpoint::TailscaleHttp {
+            ip: concat!("100.", "64.0.9").parse().unwrap(),
+            port: 7685,
+        },
+        WebUiEndpoint::TailscaleHttp {
+            ip: concat!("100.", "64.0.7").parse().unwrap(),
+            port: 7685,
+        },
+        WebUiEndpoint::TailscaleHttp {
+            ip: concat!("100.", "64.0.9").parse().unwrap(),
+            port: 7685,
+        },
+    ];
+    let first = normalize(WebUiAnnouncement {
+        protocol_version: types::RELAY_PROTOCOL_VERSION,
+        endpoints: endpoints.clone(),
+    });
+    let second = normalize(WebUiAnnouncement {
+        protocol_version: types::RELAY_PROTOCOL_VERSION,
+        endpoints: endpoints.into_iter().rev().collect(),
+    });
+    assert_eq!(first, second);
+    assert_eq!(first.unwrap().endpoints.len(), 2);
+}

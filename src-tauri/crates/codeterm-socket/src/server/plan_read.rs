@@ -6,7 +6,6 @@ use codeterm_service_core::service::plan::search_index::PlanSearchStatus;
 use codeterm_service_core::service::plan::PlanError;
 use codeterm_service_core::service::ServiceState;
 
-use super::plan_linking::plan_with_linking;
 use super::{get_string_param, JsonRpcError};
 
 const PLAN_SEARCH_KINDS: [&str; 6] = [
@@ -59,16 +58,12 @@ pub(super) fn dispatch(
             {
                 return store.section_outline(&id).map_err(plan_rpc_err);
             }
-            let plan = store
-                .get(&id)
-                .ok_or_else(|| plan_rpc_err(PlanError::NotFound))?;
-            Ok(plan_with_linking(&plan))
+            let plan = store.export_plan_document(&id).map_err(plan_rpc_err)?;
+            exported_plan_with_linking(plan).map_err(plan_rpc_err)
         }
         "plan.spec" => {
             let id = super::plan_refs::resolve_plan(store, params)?;
-            let spec = store
-                .spec_markdown(&id)
-                .ok_or_else(|| plan_rpc_err(PlanError::NotFound))?;
+            let spec = store.spec_markdown(&id).map_err(plan_rpc_err)?;
             Ok(json!({ "plan_id": id, "spec": spec }))
         }
         "plan.locate" => {
@@ -105,16 +100,14 @@ pub(super) fn dispatch(
         }
         "plan.tags" => {
             let id = super::plan_refs::resolve_plan(store, params)?;
-            let plan = store
-                .get(&id)
-                .ok_or_else(|| plan_rpc_err(PlanError::NotFound))?;
-            Ok(
-                serde_json::to_value(codeterm_service_core::service::plan::tag_model::tag_report(
-                    &plan,
-                ))
-                .unwrap_or_default(),
-            )
+            let report = store.tag_report(&id).map_err(plan_rpc_err)?;
+            serde_json::to_value(report).map_err(|error| JsonRpcError {
+                code: -32603,
+                message: error.to_string(),
+                data: None,
+            })
         }
+
         "plan.related" => {
             let id = get_string_param(params, "id")?;
             let depth = params
@@ -221,3 +214,34 @@ pub(super) fn dispatch(
         }),
     }
 }
+
+fn exported_plan_with_linking(mut plan: Value) -> Result<Value, PlanError> {
+    let tasks = plan
+        .get("tasks")
+        .and_then(Value::as_array)
+        .ok_or_else(|| PlanError::Io("exported plan tasks are not an array".into()))?;
+    let mut unlinked_tasks = Vec::new();
+    for task in tasks {
+        let unlinked = match task.get("section_ids") {
+            None => true,
+            Some(sections) => sections
+                .as_array()
+                .ok_or_else(|| PlanError::Io("exported task section IDs are not an array".into()))?
+                .is_empty(),
+        };
+        if unlinked {
+            unlinked_tasks.push(
+                task.get("name")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| PlanError::Io("exported task name is not a string".into()))?
+                    .to_owned(),
+            );
+        }
+    }
+    plan["_linking"] =
+        json!({"unlinked_count":unlinked_tasks.len(),"unlinked_tasks":unlinked_tasks});
+    Ok(plan)
+}
+
+#[cfg(test)]
+mod tests;

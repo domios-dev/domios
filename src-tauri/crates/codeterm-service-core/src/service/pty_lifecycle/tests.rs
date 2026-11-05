@@ -496,3 +496,34 @@ async fn backend_reader_publishes_output_while_reply_writer_is_held() {
         None,
     );
 }
+
+#[tokio::test]
+async fn backend_reader_from_current_thread_preserves_js_session_path_dispatch() {
+    use codeterm_plugin::js_runtime::{JsProvider, PluginManifest, PluginVm};
+    use codeterm_plugin::provider::AgentProvider;
+    let manifest = PluginManifest::from_json_str(
+        r#"{
+        "id":"reader-runtime-fixture", "version":"1.0.0", "displayName":"Reader runtime fixture",
+        "capabilities":{"agentProvider":true}
+    }"#,
+    )
+    .unwrap();
+    let vm = Arc::new(PluginVm::from_source("reader-runtime-fixture", r#"
+        module.exports = {sessionFilePath: (_, session) => session === 'reader-owned-session' ? 'reader-owned.jsonl' : null};
+    "#.into()).unwrap());
+    let provider = JsProvider::new(manifest, vm);
+    let (send, result) = tokio::sync::oneshot::channel();
+    let reader = super::spawn_reader_task(async move {
+        let path = tokio::task::spawn_blocking(move || {
+            provider.session_file_path_checked("", "reader-owned-session")
+        })
+        .await
+        .unwrap();
+        send.send(path).unwrap();
+    });
+    reader.await.unwrap();
+    assert_eq!(
+        result.await.unwrap().unwrap(),
+        Some(std::path::PathBuf::from("reader-owned.jsonl"))
+    );
+}

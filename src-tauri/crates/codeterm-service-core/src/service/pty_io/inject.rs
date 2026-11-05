@@ -185,11 +185,9 @@ impl ServiceContext {
 
         let hash_before = snapshot_screen_hash(&self.screen_state, pty_id).unwrap_or_default();
 
-        let bytes_written =
-            self.write_spawn_dispatch(pty_id, cmd)
-                .map_err(|_| InjectionError::PtyClosed {
-                    pty_id: pty_id.to_string(),
-                })?;
+        let bytes_written = self
+            .write_spawn_dispatch(pty_id, cmd)
+            .map_err(|error| super::submit_transaction::injection_write_error(pty_id, error))?;
 
         let submit_observed = if opts.verify_submit {
             let res: Result<(), HelperErr> = match submit_strategy {

@@ -8,6 +8,8 @@ use codeterm_service_core::service::{SpawnAgentParams, TeamMutationCaller};
 use serde_json::{json, Value};
 
 struct UnplannedFixture {
+    // Declared first so dispatch startup joins before the fixture directories drop.
+    startups: super::startup_tasks::StartupTasksGuard,
     fixture: ServiceFixture,
     plan_id: String,
     team_id: String,
@@ -63,6 +65,7 @@ fn fixture() -> UnplannedFixture {
         owner.reported_session_binding_nonce = Some("unplanned-owner-nonce".into());
     }
     let fixture = ServiceFixture::new(mux);
+    let startups = super::startup_tasks::StartupTasks::install(&fixture.service);
     let storage = fixture.install_seeded_storage_desk();
     install_team_close_ports(&fixture, &storage);
     let project = tempfile::tempdir().unwrap();
@@ -105,6 +108,7 @@ fn fixture() -> UnplannedFixture {
         .require_agent_provider_ready("unplanned-dispatch-provider")
         .unwrap();
     UnplannedFixture {
+        startups,
         fixture,
         plan_id: plan.id,
         team_id,
@@ -165,7 +169,7 @@ fn unplanned_worker_spawn_creates_and_dispatches_an_unplanned_task() {
         .fixture
         .service
         .plan_store
-        .show_task(task_id)
+        .inspect_task_for_test(task_id)
         .unwrap()
         .task;
     assert_eq!(task.kind, "unplanned");
@@ -217,7 +221,7 @@ fn unplanned_worker_spawn_creates_and_dispatches_an_unplanned_task() {
             .fixture
             .service
             .plan_store
-            .show_task(task_id)
+            .inspect_task_for_test(task_id)
             .unwrap()
             .task
             .status,
@@ -273,7 +277,7 @@ fn ease_unplanned_worker_keeps_explicit_work_tags_and_infers_missing_tags() {
             .fixture
             .service
             .plan_store
-            .with_plan(&harness.plan_id, 3, |plan| {
+            .edit_plan_fixture(&harness.plan_id, 3, |plan| {
                 plan.tag_facets.push(codeterm_service_core::plan::TagFacet {
                     key: "work".into(),
                     label: None,
@@ -288,11 +292,13 @@ fn ease_unplanned_worker_keeps_explicit_work_tags_and_infers_missing_tags() {
             request["tags"] = json!(["work:qa"]);
         }
         let response = dispatch(&harness, &Some(request)).unwrap();
+        // Startup verifies the lane with Git after dispatch has returned.
+        harness.startups.finish();
         let task = harness
             .fixture
             .service
             .plan_store
-            .show_task(response["task_id"].as_str().unwrap())
+            .inspect_task_for_test(response["task_id"].as_str().unwrap())
             .unwrap()
             .task;
         assert!(task
@@ -417,6 +423,9 @@ fn unplanned_worker_requires_reason_and_orchestrator_authority() {
 fn team_close_cleans_up_unplanned_worker() {
     let harness = fixture();
     let response = dispatch(&harness, &params(&harness, "urgent probe")).unwrap();
+    // Close after startup observed the bound session; an earlier close
+    // would make startup wait out the cold-start deadline.
+    harness.startups.finish();
     let task_id = response["task_id"].as_str().unwrap().to_string();
     let tab_id = response["tab_id"].as_str().unwrap().to_string();
     {
@@ -446,7 +455,12 @@ fn team_close_cleans_up_unplanned_worker() {
         .get_tab(&tab_id)
         .is_none());
     // A forced close keeps unfinished work visible: back to pending, its attempt closed.
-    if let Some(shown) = harness.fixture.service.plan_store.show_task(&task_id) {
+    if let Some(shown) = harness
+        .fixture
+        .service
+        .plan_store
+        .inspect_task_for_test(&task_id)
+    {
         assert_eq!(shown.task.status, TaskStatus::Pending);
         assert!(shown.task.execution_attempts[0].closed_at.is_some());
     }
@@ -495,4 +509,44 @@ fn unplanned_worker_refuses_unbound_team() {
     )
     .unwrap_err();
     assert!(error.message.contains("set the Team goal first"));
+}
+#[test]
+fn unplanned_foreign_repository_worktree_never_provisions_a_project_lane() {
+    let harness = fixture();
+    let (foreign_root, foreign_project) = super::git_project();
+    let foreign_worktree = foreign_root.path().join("worker");
+    super::git(
+        &foreign_project,
+        &[
+            "worktree",
+            "add",
+            "-b",
+            "foreign-work",
+            foreign_worktree.to_str().unwrap(),
+        ],
+    );
+    let mut request = params(&harness, "foreign repository probe").unwrap();
+    request["cwd"] = json!(foreign_worktree);
+    let response = dispatch(&harness, &Some(request)).unwrap();
+    // Startup verifies the foreign checkout with Git after dispatch has returned.
+    harness.startups.finish();
+    let task = harness
+        .fixture
+        .service
+        .plan_store
+        .inspect_task_for_test(response["task_id"].as_str().unwrap())
+        .unwrap()
+        .task;
+    let lane = task.lane.worktree_path.as_deref().unwrap();
+    assert!(codeterm_service_core::service::same_path(
+        lane,
+        foreign_worktree.to_str().unwrap()
+    ));
+    assert_eq!(task.lane.branch.as_deref(), Some("foreign-work"));
+    assert_eq!(super::git_worktree_count(harness.project.path()), 1);
+    assert_eq!(super::git_worktree_count(&foreign_project), 2);
+    assert_eq!(
+        task.execution_attempts[0].worktree_path.as_deref(),
+        Some(lane)
+    );
 }

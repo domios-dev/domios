@@ -47,6 +47,27 @@ function recordedTextDiff(path, oldText, newText) {
   }];
 }
 
+// packages/plugin-sdk/src/ioPrograms.ts
+function defineProviderIo(source, io) {
+  const exports = { ...source };
+  for (const key of Object.keys(source)) {
+    const value = source[key];
+    if (typeof value !== "function") continue;
+    exports[key] = function(...args) {
+      const result = value.apply(source, args);
+      return result && typeof result.next === "function" ? io().run(result) : result;
+    };
+  }
+  return exports;
+}
+function* ioEncoded(steps) {
+  return JSON.stringify(yield* steps);
+}
+function* ioResolve(value) {
+  if (value && typeof value.next === "function") return yield* value;
+  return value;
+}
+
 // plugins/provider-cursor/src/launchSession.ts
 var MARKER = /^ct-launch-[a-f0-9]{32}$/;
 var SESSION = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
@@ -67,13 +88,13 @@ function cursorLaunchCommand(command, marker) {
   }
   return '(ct_cursor_session=$(cursor-agent create-chat) && case "$ct_cursor_session" in *[!0-9a-fA-F-]*|"") exit 1;; esac && case "$ct_cursor_session" in ????????-????-????-????-????????????) ;; *) exit 1;; esac && mkdir -p ' + quote(record.substring(0, record.lastIndexOf("/"))) + ` && printf '%s\\n' "{\\"launchMarker\\":\\"` + marker + '\\",\\"sessionId\\":\\"$ct_cursor_session\\"}" > ' + quote(record) + " && " + resumed + ")";
 }
-function detectCursorLaunchSession(evidence, sessionExists) {
+function* detectCursorLaunchSession(evidence, sessionExists) {
   const marker = evidence?.launchMarker;
   if (typeof marker !== "string") return null;
   const path = launchRecordPath(marker);
   if (!path) return null;
-  const record = host.fs.readJson(path);
-  if (!record || record.launchMarker !== marker || typeof record.sessionId !== "string" || !SESSION.test(record.sessionId) || !sessionExists(evidence.cwd, record.sessionId)) return null;
+  const record = yield* host.io.fs.readJson(path);
+  if (!record || record.launchMarker !== marker || typeof record.sessionId !== "string" || !SESSION.test(record.sessionId) || !(yield* ioResolve(sessionExists(evidence.cwd, record.sessionId)))) return null;
   return { sessionId: record.sessionId, source: "launch_marker" };
 }
 
@@ -153,8 +174,8 @@ var plugin = {
     return steps;
   },
   // Discover via `cursor-agent --list-models` (host-cached); falls back to the manifest seed when offline.
-  discoverModels() {
-    return discoverCursorModels() || manifestModels();
+  *discoverModels() {
+    return (yield* discoverCursorModels()) || manifestModels();
   },
   // but only under skip-permissions — that's the user's intentional "trust everything" flow.
   buildLaunchCommand(params) {
@@ -186,15 +207,15 @@ var plugin = {
     return disableClaudeHookImportPrefix() + (skipPermissions ? trustPrefix() : "") + parts.join(" ");
   },
   // ── Session discovery (sqlite metadata under ~/.cursor/chats/<md5(cwd)>) ──
-  sessionExists(cwd, sessionId) {
+  *sessionExists(cwd, sessionId) {
     const dir = cursorSessionDir(cwd, sessionId);
     if (!dir) return false;
     const sep = pathSep();
-    return host.fs.fileExists(dir + sep + "meta.json") || host.fs.fileExists(dir + sep + "store.db");
+    return (yield* host.io.fs.fileExists(dir + sep + "meta.json")) || (yield* host.io.fs.fileExists(dir + sep + "store.db"));
   },
   // Session birth time (unix ms) from meta.json, for the host's launch-window birth-time guard.
-  sessionCreatedMs(cwd, sessionId) {
-    const meta = readSessionMeta(cwd, sessionId);
+  *sessionCreatedMs(cwd, sessionId) {
+    const meta = yield* readSessionMeta(cwd, sessionId);
     if (!meta) return null;
     const ms = meta.createdAtMs;
     return typeof ms === "number" ? ms : null;
@@ -202,26 +223,22 @@ var plugin = {
   detectSessionId() {
     return null;
   },
-  detectLaunchSession(evidence) {
-    return detectCursorLaunchSession(evidence, (cwd, sid) => {
+  *detectLaunchSession(evidence) {
+    return yield* detectCursorLaunchSession(evidence, function* (cwd, sid) {
       const dir = cursorSessionDir(cwd, sid);
-      return !!dir && host.fs.fileExists(dir + pathSep() + "store.db");
+      return !!dir && (yield* host.io.fs.fileExists(dir + pathSep() + "store.db"));
     });
   },
   detectActiveSession(_cwd, _currentSid) {
     return null;
   },
   // Per-turn model is `"modelName"` in store.db JSON blobs (the 0x7B filter skips binary protobuf blobs).
-  detectSessionModel(cwd, sessionId) {
+  *detectSessionModel(cwd, sessionId) {
     const dir = cursorSessionDir(cwd, sessionId);
     if (!dir) return null;
     const db = dir + pathSep() + "store.db";
-    if (!host.fs.fileExists(db)) return null;
-    const rows = host.fs.sqliteQuery(
-      db,
-      "SELECT CAST(data AS TEXT) AS t FROM blobs WHERE substr(data,1,1) = x'7B'",
-      []
-    );
+    if (!(yield* host.io.fs.fileExists(db))) return null;
+    const rows = yield* host.io.fs.sqliteQuery(db, "SELECT CAST(data AS TEXT) AS t FROM blobs WHERE substr(data,1,1) = x'7B'", []);
     let model = null;
     for (let i = 0; i < rows.length; i++) {
       const t = rows[i] && rows[i].t;
@@ -231,10 +248,10 @@ var plugin = {
     }
     return model;
   },
-  enumerateSessions() {
+  *enumerateSessions() {
     const root = projectsRoot();
-    if (!root || !host.fs.fileExists(root)) return [];
-    const files = host.fs.walkDir(root, 5) || [];
+    if (!root || !(yield* host.io.fs.fileExists(root))) return [];
+    const files = (yield* host.io.fs.walkDir(root, 5)) || [];
     const out = [];
     for (let i = 0; i < files.length; i++) {
       const f = files[i];
@@ -242,27 +259,27 @@ var plugin = {
       if (f.path.indexOf("agent-transcripts") === -1) continue;
       const stem = f.name.substring(0, f.name.length - 6);
       if (!looksLikeUuid(stem)) continue;
-      out.push(cursorTranscriptRecord(root, stem, f));
+      out.push(yield* cursorTranscriptRecord(root, stem, f));
     }
     return out;
   },
   // Probes the transcript layout `sessionFilePath` resolves, once per project dir; never walks history.
-  findSession(sessionId) {
+  *findSession(sessionId) {
     if (!looksLikeUuid(sessionId) || !/^[A-Za-z0-9_-]+$/.test(sessionId)) return null;
     const root = projectsRoot();
-    if (!root || !host.fs.fileExists(root)) return null;
+    if (!root || !(yield* host.io.fs.fileExists(root))) return null;
     const sep = pathSep();
     const transcriptName = sessionId + ".jsonl";
-    const dirs = host.fs.readDir(root) || [];
+    const dirs = (yield* host.io.fs.readDir(root)) || [];
     for (let i = 0; i < dirs.length; i++) {
       const d = dirs[i];
       if (!d || !d.isDir) continue;
       const dir = d.path + sep + "agent-transcripts" + sep + sessionId;
-      if (!host.fs.fileExists(dir + sep + transcriptName)) continue;
-      const entries = host.fs.readDir(dir) || [];
+      if (!(yield* host.io.fs.fileExists(dir + sep + transcriptName))) continue;
+      const entries = (yield* host.io.fs.readDir(dir)) || [];
       for (let j = 0; j < entries.length; j++) {
         const f = entries[j];
-        if (f && f.isFile && f.name === transcriptName) return cursorTranscriptRecord(root, sessionId, f);
+        if (f && f.isFile && f.name === transcriptName) return yield* cursorTranscriptRecord(root, sessionId, f);
       }
     }
     return null;
@@ -273,12 +290,12 @@ var plugin = {
     return false;
   },
   // Live tailer path: the host canonicalizes the cwd first, so the slug matches cursor's own.
-  sessionJsonlPath(cwd, sessionId) {
-    return cursorTranscriptPath(cwd, sessionId);
+  *sessionJsonlPath(cwd, sessionId) {
+    return yield* cursorTranscriptPath(cwd, sessionId);
   },
   // Snapshot + content search pass a raw cwd, so the scan fallback inside resolves symlinks.
-  sessionFilePath(cwd, sessionId) {
-    return cursorTranscriptPath(cwd, sessionId);
+  *sessionFilePath(cwd, sessionId) {
+    return yield* cursorTranscriptPath(cwd, sessionId);
   },
   // Parse appended JSONL lines into RichMessages. Schema:
   //   {"role":"user"|"assistant","message":{"content":[{type,text|name,input}]}}  ("turn_ended" skipped)
@@ -339,10 +356,10 @@ var plugin = {
     return out;
   },
   // GetCurrentPeriodUsage carries everything: ready percentages + spend (cents) + billing cycle.
-  fetchUsage(nowMs) {
-    const token = readCursorToken();
+  *fetchUsage(nowMs) {
+    const token = yield* readCursorToken();
     if (!token) return null;
-    const current = cursorApi("GetCurrentPeriodUsage", {}, token);
+    const current = yield* cursorApi("GetCurrentPeriodUsage", {}, token);
     if (!current) return null;
     const planUsage = typeof current.planUsage === "object" && current.planUsage ? current.planUsage : null;
     if (!planUsage) return null;
@@ -385,8 +402,8 @@ var plugin = {
   }
 };
 var CURSOR_UNAVAILABLE_RE = /\s*\((?:unavailable|locked|disabled|coming soon|not available|requires [^)]+|pro only|upgrade required)\)\s*/i;
-function discoverCursorModels() {
-  const raw = host.exec(JSON.stringify({
+function* discoverCursorModels() {
+  const raw = yield* ioEncoded(host.io.exec({
     bin: "cursor-agent",
     args: ["--list-models"],
     timeoutMs: 5e3
@@ -457,7 +474,7 @@ function projectsRoot() {
   const r = cursorRoot();
   return r ? r + pathSep() + "projects" : null;
 }
-function projectPathFromTranscript(root, transcript) {
+function* projectPathFromTranscript(root, transcript) {
   const sep = pathSep();
   const prefix = root + sep;
   if (transcript.indexOf(prefix) !== 0) return null;
@@ -468,13 +485,13 @@ function projectPathFromTranscript(root, transcript) {
   } else {
     candidate = "/" + slug.replace(/-/g, "/");
   }
-  return host.fs.fileExists(candidate) ? candidate : null;
+  return (yield* host.io.fs.fileExists(candidate)) ? candidate : null;
 }
-function cursorTranscriptRecord(root, sessionId, transcript) {
+function* cursorTranscriptRecord(root, sessionId, transcript) {
   return {
     sessionId,
     provider: "cursor",
-    projectPath: projectPathFromTranscript(root, transcript.path),
+    projectPath: yield* projectPathFromTranscript(root, transcript.path),
     title: null,
     summary: null,
     filePath: transcript.path,
@@ -501,7 +518,7 @@ function cursorSessionDir(cwd, sessionId) {
 function cursorSlug(cwd) {
   return String(cwd || "").replace(/^[/\\]+/, "").replace(/[^a-zA-Z0-9]/g, "-");
 }
-function cursorTranscriptPath(cwd, sessionId) {
+function* cursorTranscriptPath(cwd, sessionId) {
   if (!sessionId) return null;
   const root = projectsRoot();
   if (!root) return null;
@@ -510,25 +527,25 @@ function cursorTranscriptPath(cwd, sessionId) {
   const tail = sep + "agent-transcripts" + sep + sessionId + sep + sessionId + ".jsonl";
   if (slug) {
     const direct = root + sep + slug + tail;
-    if (host.fs.fileExists(direct)) return direct;
+    if (yield* host.io.fs.fileExists(direct)) return direct;
   }
-  const dirs = host.fs.readDir(root) || [];
+  const dirs = (yield* host.io.fs.readDir(root)) || [];
   for (let i = 0; i < dirs.length; i++) {
     const d = dirs[i];
     if (!d || !d.isDir) continue;
     const cand = d.path + tail;
-    if (host.fs.fileExists(cand)) return cand;
+    if (yield* host.io.fs.fileExists(cand)) return cand;
   }
   return slug ? root + sep + slug + tail : null;
 }
-function readSessionMeta(cwd, sessionId) {
+function* readSessionMeta(cwd, sessionId) {
   const dir = cursorSessionDir(cwd, sessionId);
   if (!dir) return null;
-  return readMetaJson(dir + pathSep() + "meta.json");
+  return yield* readMetaJson(dir + pathSep() + "meta.json");
 }
-function readMetaJson(path) {
-  if (!host.fs.fileExists(path)) return null;
-  return host.fs.readJson(path);
+function* readMetaJson(path) {
+  if (!(yield* host.io.fs.fileExists(path))) return null;
+  return yield* host.io.fs.readJson(path);
 }
 function blocksFromContent(content, role) {
   const blocks = [];
@@ -783,7 +800,7 @@ function firstField(s) {
   return label.replace(/\s*\(tab to [^)]*\)\s*$/i, "").trim();
 }
 var CURSOR_API_BASE = "https://api2.cursor.sh/aiserver.v1.DashboardService/";
-function readCursorToken() {
+function* readCursorToken() {
   const platform = host.platform();
   let opts = null;
   if (platform === "macos") {
@@ -800,27 +817,25 @@ function readCursorToken() {
     };
   }
   if (!opts) return null;
-  const r = safeJson(host.exec(JSON.stringify(opts)));
+  const r = safeJson(yield* ioEncoded(host.io.exec(opts)));
   if (r && r.code === 0 && typeof r.stdout === "string") {
     const tok = r.stdout.trim();
     if (tok) return tok;
   }
   return null;
 }
-function cursorApi(method, body, token) {
-  const raw = host.fetch(
-    JSON.stringify({
-      url: CURSOR_API_BASE + method,
-      method: "POST",
-      timeoutMs: 6e3,
-      headers: {
-        Authorization: "Bearer " + token,
-        "Content-Type": "application/json",
-        "connect-protocol-version": "1"
-      },
-      body: JSON.stringify(body)
-    })
-  );
+function* cursorApi(method, body, token) {
+  const raw = yield* ioEncoded(host.io.fetch({
+    url: CURSOR_API_BASE + method,
+    method: "POST",
+    timeoutMs: 6e3,
+    headers: {
+      Authorization: "Bearer " + token,
+      "Content-Type": "application/json",
+      "connect-protocol-version": "1"
+    },
+    body: JSON.stringify(body)
+  }));
   const resp = safeJson(raw);
   if (!resp || resp.status !== 200 || typeof resp.body !== "string") return null;
   const parsed = safeJson(resp.body);
@@ -847,4 +862,4 @@ function safeJson(s) {
     return null;
   }
 }
-var plugin_default = plugin;
+var plugin_default = defineProviderIo(plugin, () => host.io);

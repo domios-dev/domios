@@ -27,9 +27,18 @@ pub async fn list_notifications(
     _headers: HeaderMap,
     Query(query): Query<ListNotifQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    let store = state.svc.notif.lock();
-    let notifs = store.list(query.unread.unwrap_or(false));
-    Ok(Json(serde_json::to_value(notifs).unwrap()))
+    tokio::task::spawn_blocking(move || {
+        let store = state.svc.notif.lock();
+        let notifs = store.list(query.unread.unwrap_or(false));
+        Ok(Json(serde_json::to_value(notifs).unwrap()))
+    })
+    .await
+    .map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Notification operation failed",
+        )
+    })?
 }
 
 pub async fn create_notification(
@@ -115,9 +124,18 @@ pub async fn push_channel_roster(
     AxumState(state): AxumState<AppState>,
     _headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    Ok(Json(serde_json::json!({
-        "channels": render_channel_standings(&state.svc),
-    })))
+    tokio::task::spawn_blocking(move || {
+        Ok(Json(serde_json::json!({
+            "channels": render_channel_standings(&state.svc),
+        })))
+    })
+    .await
+    .map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Notification operation failed",
+        )
+    })?
 }
 
 pub async fn clear_notifications(
@@ -140,10 +158,19 @@ pub async fn mark_notification_read(
     _headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    if !state.svc.notif.lock().mark_read(&id) {
-        return Err((StatusCode::NOT_FOUND, "Notification not found"));
-    }
-    Ok(Json(serde_json::json!({"ok": true})))
+    tokio::task::spawn_blocking(move || {
+        if !state.svc.notif.lock().mark_read(&id) {
+            return Err((StatusCode::NOT_FOUND, "Notification not found"));
+        }
+        Ok(Json(serde_json::json!({"ok": true})))
+    })
+    .await
+    .map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Notification operation failed",
+        )
+    })?
 }
 
 pub async fn delete_notification(
@@ -254,6 +281,19 @@ pub async fn serve_file(
     AxumState(_state): AxumState<AppState>,
     _headers: HeaderMap,
     Query(query): Query<ServeFileQuery>,
+) -> Result<axum::response::Response, (StatusCode, &'static str)> {
+    tokio::task::spawn_blocking(move || serve_file_blocking(query))
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "File read worker stopped",
+            )
+        })?
+}
+
+fn serve_file_blocking(
+    query: ServeFileQuery,
 ) -> Result<axum::response::Response, (StatusCode, &'static str)> {
     // path, so comparing against the plain data_dir() always failed the prefix check (every request 403'd).
     let requested = std::path::Path::new(&query.path)

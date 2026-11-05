@@ -8,17 +8,6 @@ use crate::service::plan::interruption::checkpoint_digest;
 const CHECKPOINT_ARTIFACT_MAX_BYTES: usize = 4 * 1024 * 1024;
 const CHECKPOINT_UNTRACKED_FILE_READ_LIMIT: u64 = CHECKPOINT_ARTIFACT_MAX_BYTES as u64;
 
-fn attempt_is_active_for_interruption(
-    task_status: &crate::plan::TaskStatus,
-    attempt: &crate::plan::TaskExecutionAttempt,
-) -> bool {
-    attempt.reported_at.is_none()
-        || (*task_status == crate::plan::TaskStatus::InProgress
-            && attempt.continuation.epoch > 0
-            && attempt.continuation.state.as_deref() == Some("continued")
-            && attempt.continuation.delivered_at.is_some())
-}
-
 #[cfg(test)]
 mod tests;
 
@@ -98,97 +87,51 @@ impl super::ServiceContext {
             .map_err(|error| error.to_string())
     }
 
-    pub fn signal_provider_exhaustion(&self, provider: &str) -> usize {
-        let candidates = crate::service::plan::AttemptMatch {
-            state: crate::service::plan::AttemptState::Unclosed,
-            fields: vec![("$.provider", provider.to_string())],
-            ..Default::default()
-        }
-        .into_match();
+    pub fn signal_provider_exhaustion(
+        &self,
+        provider: &str,
+    ) -> Result<usize, crate::service::plan::PlanError> {
         let tabs = self
             .plan_store
-            .plans_matching(&candidates)
-            .into_iter()
-            .flat_map(|plan| plan.tasks)
-            .flat_map(|task| {
-                let status = task.status;
-                task.execution_attempts
-                    .into_iter()
-                    .filter_map(move |attempt| {
-                        (attempt.closed_at.is_none()
-                            && attempt.provider.as_deref() == Some(provider)
-                            && attempt_is_active_for_interruption(&status, &attempt))
-                        .then_some(attempt.executor_tab_id)
-                    })
-            })
-            .collect::<std::collections::HashSet<_>>();
-        tabs.iter()
-            .filter(|tab_id| {
-                self.signal_worker_interruption(tab_id, WorkerInterruptionEvent::ProviderExhausted)
-            })
-            .count()
+            .provider_exhaustion_tabs_projection(provider)?;
+        let mut interrupted = 0;
+        for tab in tabs {
+            if self.signal_worker_interruption(&tab, WorkerInterruptionEvent::ProviderExhausted)? {
+                interrupted += 1;
+            }
+        }
+        Ok(interrupted)
     }
 
-    /// Resume workers this provider paused once its quota returns. Same owner,
-    /// same epoch — no adoption, no epoch churn. Symmetric to exhaustion.
-    pub fn signal_provider_recovery(&self, provider: &str) -> usize {
+    pub fn signal_provider_recovery(
+        &self,
+        provider: &str,
+    ) -> Result<usize, crate::service::plan::PlanError> {
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_millis() as u64;
-        let candidates = crate::service::plan::PlanMatch::Task(crate::service::plan::TaskMatch {
-            fields: vec![(
-                "$.status_label",
-                crate::service::plan::interruption::PROVIDER_EXHAUSTED_LABEL.to_string(),
-            )],
-            ..Default::default()
-        });
-        let targets = self
-            .plan_store
-            .plans_matching(&candidates)
-            .into_iter()
-            .flat_map(|plan| {
-                let plan_id = plan.id.clone();
-                plan.tasks.into_iter().filter_map(move |task| {
-                    if task.status_label.as_deref()
-                        != Some(crate::service::plan::interruption::PROVIDER_EXHAUSTED_LABEL)
-                    {
-                        return None;
-                    }
-                    let owner = &task.interruption;
-                    let paused_provider = task
-                        .execution_attempts
-                        .iter()
-                        .find(|attempt| {
-                            attempt.closed_at.is_none()
-                                && Some(attempt.executor_tab_id.as_str())
-                                    == owner.owner_tab_id.as_deref()
-                        })
-                        .and_then(|attempt| attempt.provider.clone());
-                    if paused_provider.as_deref() != Some(provider) {
-                        return None;
-                    }
-                    Some((
-                        plan_id.clone(),
-                        task.id.clone(),
-                        owner.owner_tab_id.clone()?,
-                        owner.owner_session_id.clone()?,
-                        owner.owner_epoch,
-                    ))
-                })
-            })
-            .collect::<Vec<_>>();
-        targets
-            .into_iter()
-            .filter(|(plan_id, task_id, tab, session, epoch)| {
-                self.plan_store
-                    .resume_from_provider_exhaustion(plan_id, task_id, tab, session, *epoch, now_ms)
-                    .is_ok()
-            })
-            .count()
+        let targets = self.plan_store.provider_recovery_projection(provider)?;
+        let mut resumed = 0;
+        for target in targets {
+            self.plan_store.resume_from_provider_exhaustion(
+                &target.plan_id,
+                &target.task_id,
+                &target.owner_tab_id,
+                &target.owner_session_id,
+                target.owner_epoch,
+                now_ms,
+            )?;
+            resumed += 1;
+        }
+        Ok(resumed)
     }
 
-    fn pause_exhausted_worker(&self, request: WorkerInterruptionRequest, tab_id: &str) -> bool {
+    fn pause_exhausted_worker(
+        &self,
+        request: WorkerInterruptionRequest,
+        tab_id: &str,
+    ) -> Result<bool, crate::service::plan::PlanError> {
         // Park the live worker: no close_tab, owner preserved, task re-dispatchable.
         if let Err(error) = self.plan_store.begin_provider_exhaustion_pause(
             &request.plan_id,
@@ -204,7 +147,7 @@ impl super::ServiceContext {
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
                 .remove(tab_id);
             log::error!("[worker-interruption] exhaustion pause failed: {error}");
-            return false;
+            return Err(error);
         }
         let svc = self.clone();
         let pending_tab_id = tab_id.to_string();
@@ -225,7 +168,7 @@ impl super::ServiceContext {
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
                 .remove(&pending_tab_id);
         });
-        true
+        Ok(true)
     }
 
     pub async fn quiesce_worker_attempt(
@@ -262,90 +205,53 @@ impl super::ServiceContext {
             .map_err(|error| error.to_string())
     }
 
-    pub fn signal_worker_interruption(&self, tab_id: &str, event: WorkerInterruptionEvent) -> bool {
+    pub fn signal_worker_interruption(
+        &self,
+        tab_id: &str,
+        event: WorkerInterruptionEvent,
+    ) -> Result<bool, crate::service::plan::PlanError> {
         if event != WorkerInterruptionEvent::ProviderExhausted
             && self.restart_carries_worker_interruption(tab_id)
         {
-            return false;
+            return Ok(false);
         }
         if pending_interruptions()
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .contains(tab_id)
         {
-            return true;
+            return Ok(true);
         }
-        let candidates = crate::service::plan::PlanMatch::Task(crate::service::plan::TaskMatch {
-            fields: vec![
-                ("$.interruption.owner_tab_id", tab_id.to_string()),
-                ("$.interruption.execution_intent", "mutating".into()),
-            ],
-            ..Default::default()
-        })
-        .and(
-            crate::service::plan::AttemptMatch::executor(
-                tab_id,
-                crate::service::plan::AttemptState::Unclosed,
-            )
-            .into_match(),
-        );
-        let owned = self
-            .plan_store
-            .plans_matching(&candidates)
-            .into_iter()
-            .find_map(|plan| {
-                let plan_id = plan.id.clone();
-                let repo_path = if plan.canonical_project_path.trim().is_empty() {
-                    plan.project_path.clone()
-                } else {
-                    plan.canonical_project_path.clone()
-                };
-                plan.tasks.into_iter().find_map(|task| {
-                    let owner = &task.interruption;
-                    if owner.execution_intent != crate::plan::ExecutionIntent::Mutating
-                        || owner.owner_tab_id.as_deref() != Some(tab_id)
-                        || owner.handoff_required
-                    {
-                        return None;
-                    }
-                    let attempt = task.execution_attempts.iter().find(|attempt| {
-                        attempt.executor_tab_id == tab_id
-                            && attempt.closed_at.is_none()
-                            && attempt_is_active_for_interruption(&task.status, attempt)
-                            && attempt.interruption.owner_epoch == owner.owner_epoch
-                    })?;
-                    Some(WorkerInterruptionRequest {
-                        plan_id: plan_id.clone(),
-                        task_id: task.id.clone(),
-                        attempt_id: attempt.id.clone(),
-                        tab_id: tab_id.to_string(),
-                        session_id: owner.owner_session_id.clone()?,
-                        owner_epoch: owner.owner_epoch,
-                        repo_path: PathBuf::from(&repo_path),
-                        worktree_path: PathBuf::from(task.lane.worktree_path.as_deref()?),
-                        base_head: task.lane.base.clone().unwrap_or_else(|| "HEAD".into()),
-                        completed_tests: vec![],
-                        unresolved_work: "Worker interrupted before an accepted report".into(),
-                        next_acceptance_gate: task.test_plan.clone().unwrap_or_else(|| {
-                            "Review the sealed checkpoint before continuing".into()
-                        }),
-                        event,
-                        occurred_at: std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_millis() as u64,
-                    })
-                })
-            });
-        let Some(request) = owned else {
-            return false;
+        let Some(owned) = self.plan_store.task_interruption_projection(tab_id)? else {
+            return Ok(false);
+        };
+        let request = WorkerInterruptionRequest {
+            plan_id: owned.plan_id,
+            task_id: owned.task_id,
+            attempt_id: owned.attempt_id,
+            tab_id: tab_id.to_string(),
+            session_id: owned.owner_session_id,
+            owner_epoch: owned.owner_epoch,
+            repo_path: PathBuf::from(owned.repo_path),
+            worktree_path: PathBuf::from(owned.worktree_path),
+            base_head: owned.base_head.unwrap_or_else(|| "HEAD".into()),
+            completed_tests: vec![],
+            unresolved_work: "Worker interrupted before an accepted report".into(),
+            next_acceptance_gate: owned
+                .test_plan
+                .unwrap_or_else(|| "Review the sealed checkpoint before continuing".into()),
+            event,
+            occurred_at: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64,
         };
         let claimed = pending_interruptions()
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .insert(tab_id.to_string());
         if !claimed {
-            return true;
+            return Ok(true);
         }
         // Provider exhaustion PRESERVES the live worker: pause/quiesce it in a re-dispatchable state and NEVER close its tab.
         if request.event == WorkerInterruptionEvent::ProviderExhausted {
@@ -366,17 +272,27 @@ impl super::ServiceContext {
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
                 .remove(tab_id);
             log::error!("[worker-interruption] fence failed: {error}");
-            return false;
+            return Err(error);
         }
-        if request.event == WorkerInterruptionEvent::ProcessExited {
-            let loss = self.worker_loss_for_task(
+        let loss_read_error = if request.event == WorkerInterruptionEvent::ProcessExited {
+            match self.worker_loss_for_task(
                 &request.plan_id,
                 &request.task_id,
                 tab_id,
                 crate::service::worker_loss::WorkerLossCause::ProcessExited,
-            );
-            self.report_worker_losses(loss.into_iter().collect());
-        }
+            ) {
+                Ok(loss) => {
+                    self.report_worker_losses(loss.into_iter().collect());
+                    None
+                }
+                Err(error) => {
+                    log::error!("[worker-lost] fenced interruption recovery read failed: {error}");
+                    Some(error)
+                }
+            }
+        } else {
+            None
+        };
         let svc = self.clone();
         let pending_tab_id = tab_id.to_string();
         crate::async_runtime::spawn(async move {
@@ -396,7 +312,10 @@ impl super::ServiceContext {
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
                 .remove(&pending_tab_id);
         });
-        true
+        match loss_read_error {
+            Some(error) => Err(error),
+            None => Ok(true),
+        }
     }
 
     pub async fn interrupt_worker_attempt(
@@ -458,29 +377,15 @@ impl super::ServiceContext {
         new_session_id: &str,
         now_ms: u64,
     ) -> Result<(u64, String), String> {
-        self.authenticated_adoption_checkpoint(task_id, new_tab_id, new_session_id)?;
-        let detail = self
-            .plan_store
-            .show_task(task_id)
-            .ok_or_else(|| "task not found".to_string())?;
-        let checkpoint = detail
-            .task
-            .interruption
-            .checkpoint
-            .clone()
-            .ok_or_else(|| "task has no interruption checkpoint".to_string())?;
-        let verified = checkpoint.clone();
-        tokio::task::spawn_blocking(move || verify_git_checkpoint(&verified))
-            .await
-            .map_err(|error| format!("checkpoint verifier failed: {error}"))??;
-        self.persist_checkpoint_adoption(
-            &detail.plan_id,
-            task_id,
-            new_tab_id,
-            new_session_id,
-            checkpoint,
-            now_ms,
-        )
+        let service = self.clone();
+        let task_id = task_id.to_string();
+        let new_tab_id = new_tab_id.to_string();
+        let new_session_id = new_session_id.to_string();
+        tokio::task::spawn_blocking(move || {
+            service.adopt_worker_checkpoint_sync(&task_id, &new_tab_id, &new_session_id, now_ms)
+        })
+        .await
+        .map_err(|error| format!("checkpoint adoption worker failed: {error}"))?
     }
 
     pub fn adopt_worker_checkpoint_sync(
@@ -490,16 +395,13 @@ impl super::ServiceContext {
         new_session_id: &str,
         now_ms: u64,
     ) -> Result<(u64, String), String> {
-        self.authenticated_adoption_checkpoint(task_id, new_tab_id, new_session_id)?;
+        self.authenticate_checkpoint_adopter(new_tab_id, new_session_id)?;
         let detail = self
             .plan_store
-            .show_task(task_id)
-            .ok_or_else(|| "task not found".to_string())?;
+            .task_checkpoint_adoption_projection(task_id)
+            .map_err(|error| error.to_string())?;
         let checkpoint = detail
-            .task
-            .interruption
             .checkpoint
-            .clone()
             .ok_or_else(|| "task has no interruption checkpoint".to_string())?;
         verify_git_checkpoint(&checkpoint)?;
         self.persist_checkpoint_adoption(
@@ -512,9 +414,8 @@ impl super::ServiceContext {
         )
     }
 
-    fn authenticated_adoption_checkpoint(
+    fn authenticate_checkpoint_adopter(
         &self,
-        task_id: &str,
         new_tab_id: &str,
         new_session_id: &str,
     ) -> Result<(), String> {
@@ -527,9 +428,6 @@ impl super::ServiceContext {
         if !authenticated {
             return Err("adoption requires authenticated fresh-owner session binding".into());
         }
-        self.plan_store
-            .show_task(task_id)
-            .ok_or_else(|| "task not found".to_string())?;
         Ok(())
     }
 
@@ -542,26 +440,27 @@ impl super::ServiceContext {
         checkpoint: InterruptionCheckpoint,
         now_ms: u64,
     ) -> Result<(u64, String), String> {
-        let mut mux = self.mux.write();
-        let tab = mux
-            .get_tab_mut(new_tab_id)
-            .ok_or("adoption tab disappeared")?;
-        let binding = crate::service::task_assignment::authenticated_tab_binding(tab)
-            .filter(|binding| binding.session_id == new_session_id)
-            .ok_or("adoption session binding changed")?;
-        let prior = tab.task_binding.clone().unwrap_or_default();
-        if prior.plan_id.as_deref().is_some_and(|id| id != plan_id)
-            || prior.task_id.as_deref().is_some_and(|id| id != task_id)
-            || prior
-                .attempt_id
-                .as_deref()
-                .is_some_and(|id| id != checkpoint.attempt_id)
-        {
-            return Err("adoption tab already owns a different task attempt".into());
-        }
-        let adopted = self
+        let (captured, binding, prior) = {
+            let mux = self.mux.read();
+            let tab = mux.get_tab(new_tab_id).ok_or("adoption tab disappeared")?;
+            let binding = crate::service::task_assignment::authenticated_tab_binding(tab)
+                .filter(|binding| binding.session_id == new_session_id)
+                .ok_or("adoption session binding changed")?;
+            let prior = tab.task_binding.clone().unwrap_or_default();
+            if prior.plan_id.as_deref().is_some_and(|id| id != plan_id)
+                || prior.task_id.as_deref().is_some_and(|id| id != task_id)
+                || prior
+                    .attempt_id
+                    .as_deref()
+                    .is_some_and(|id| id != checkpoint.attempt_id)
+            {
+                return Err("adoption tab already owns a different task attempt".into());
+            }
+            (tab.clone(), binding, prior)
+        };
+        let receipt = self
             .plan_store
-            .adopt_interrupted_task(
+            .adopt_interrupted_task_with_undo(
                 plan_id,
                 task_id,
                 &checkpoint.diff_sha256,
@@ -571,14 +470,43 @@ impl super::ServiceContext {
                 now_ms,
             )
             .map_err(|error| error.to_string())?;
-        tab.task_binding = Some(crate::multiplexer::types::TaskBinding {
-            plan_id: Some(plan_id.into()),
-            task_id: Some(task_id.into()),
-            attempt_id: Some(adopted.1.clone()),
-            spawn_handle: prior.spawn_handle,
-            bound_at: now_ms,
-        });
-        drop(mux);
+        let adopted = receipt.outcome();
+        let committed = {
+            let mut mux = self.mux.write();
+            mux.get_tab_mut(new_tab_id)
+                .filter(|tab| {
+                    tab.agent_type == captured.agent_type
+                        && tab.agent_session_id == captured.agent_session_id
+                        && tab.session_binding_nonce == captured.session_binding_nonce
+                        && tab.reported_session_binding_nonce
+                            == captured.reported_session_binding_nonce
+                        && tab.task_binding == captured.task_binding
+                        && tab.role == captured.role
+                        && tab.role_profile == captured.role_profile
+                        && tab.team_id == captured.team_id
+                        && tab.parent_tab_id == captured.parent_tab_id
+                        && tab.lifecycle_epoch == captured.lifecycle_epoch
+                })
+                .map(|tab| {
+                    tab.task_binding = Some(crate::multiplexer::types::TaskBinding {
+                        plan_id: Some(plan_id.into()),
+                        task_id: Some(task_id.into()),
+                        attempt_id: Some(adopted.1.clone()),
+                        spawn_handle: prior.spawn_handle,
+                        bound_at: now_ms,
+                    });
+                })
+                .is_some()
+        };
+        if !committed {
+            self.plan_store
+                .undo_checkpoint_adoption(receipt, now_ms)
+                .map_err(|error| format!("checkpoint adoption authority conflict; {error}"))?;
+            return Err(
+                "checkpoint adoption conflict: live launch or assignment changed; retry by intent"
+                    .into(),
+            );
+        }
         self.persist_current_attempt_session_model(new_tab_id);
         Ok(adopted)
     }
@@ -734,4 +662,19 @@ pub fn verify_git_checkpoint(checkpoint: &InterruptionCheckpoint) -> Result<(), 
         return Err("checkpoint working tree changed".into());
     }
     Ok(())
+}
+
+#[cfg(any(test, feature = "test-support"))]
+impl super::ServiceContext {
+    pub fn persist_checkpoint_adoption_for_test(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        tab_id: &str,
+        session: &str,
+        checkpoint: InterruptionCheckpoint,
+        now_ms: u64,
+    ) -> Result<(u64, String), String> {
+        self.persist_checkpoint_adoption(plan_id, task_id, tab_id, session, checkpoint, now_ms)
+    }
 }

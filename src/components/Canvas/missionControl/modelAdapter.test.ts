@@ -1,3 +1,8 @@
+import type { PlanView } from "../planProjection";
+import { layoutPlanIntra } from "../layout/intraPlan";
+import { layoutInputRevision } from "../layout/layoutInputRevision";
+import { buildTaskPresenceFingerprint } from "../canvasView/presenceFingerprint";
+import { DEFAULT_CANVAS_SETTINGS } from "../settings";
 // Run: npx tsx src/components/Canvas/missionControl/modelAdapter.test.ts
 
 import type { Tab } from "../../../lib/types";
@@ -32,6 +37,29 @@ function mkTask(over: Partial<Task>): Task {
 function mkPlan(tasks: Task[]): Plan {
   return { ...FIXTURE_PLAN, tasks, loops: [] };
 }
+
+test("metadata-only projection reaches canvas layout and mission control without document fields", () => {
+  const plan: PlanView = {
+    id: "pl_metadata", title: "Metadata", status: "active",
+    owner: { tab_id: "owner", session_id: null, title: "Owner" }, project_path: "/repo", created_at: 1, updated_at: 2,
+    canvas: { viewport: null }, sections: [{ id: "sec_metadata", title: "Metadata", subsections: [] }],
+    tasks: [{
+      id: "t_metadata", name: "Projected task", type: "task", status: TaskStatus.Pending,
+      model: null, status_label: null, parent_task_id: null, assigned_tab_id: null,
+      peer: null, section_ids: ["sec_metadata"], canvas: { x: null, y: null, collapsed: false }, milestone_count: 4,
+    }],
+  };
+  const layout = layoutPlanIntra(plan, DEFAULT_CANVAS_SETTINGS);
+  assert(layout.nodes.some((node) => node.id === "t_metadata"), "projected task laid out");
+  assert(layout.nodes.every((node) => Number.isFinite(node.box.height)), "finite node geometry");
+  assert(layoutInputRevision([plan]).includes("t_metadata"), "layout revision includes projected task");
+  assert(buildTaskPresenceFingerprint([plan], {}).includes("t_metadata"), "presence fingerprint includes assignment");
+  const model = buildMissionControl(plan, {}, NOW);
+  const snapshot = modelToSnapshot({ plan, model });
+  assert(snapshot.dispatchQueue[0]?.id === "t_metadata", "metadata task remains dispatchable");
+  assert(snapshot.events.length === 0, "absent history supplies no events");
+  assert(plan.tasks[0].milestones === undefined && plan.elements === undefined, "projection remains unfilled");
+});
 
 test("modelToSnapshot maps dispatch queue from pending tasks", () => {
   const plan = mkPlan([mkTask({ id: "t1", status: TaskStatus.Pending })]);

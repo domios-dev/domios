@@ -104,6 +104,25 @@ pub fn configured_model(
     Some(adapter)
 }
 
+/// Registration never waits on model discovery: a provider probe (a CLI run or
+/// fingerprint of an absent binary) can take seconds, so the restore runs on its own thread.
+pub fn restore_model_in_background(
+    id: &str,
+    adapter: &Arc<dyn DecisionModel>,
+    config: impl FnOnce() -> SupporterConfig + Send + 'static,
+) {
+    let restored_id = id.to_string();
+    let adapter = adapter.clone();
+    let spawned = std::thread::Builder::new()
+        .name("supporter-model-restore".into())
+        .spawn(move || {
+            restore_model(&config(), &restored_id, &adapter);
+        });
+    if let Err(error) = spawned {
+        log::warn!("[supporter] model restore for {id} did not start: {error}");
+    }
+}
+
 pub fn restore_model(cfg: &SupporterConfig, id: &str, adapter: &Arc<dyn DecisionModel>) -> bool {
     let model = cfg
         .connection(id)
@@ -328,6 +347,8 @@ impl DecisionModel for BudgetedModel {
 
 #[cfg(test)]
 mod requests_tests;
+#[cfg(test)]
+mod restore_tests;
 #[cfg(test)]
 mod tests;
 

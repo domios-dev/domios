@@ -3,13 +3,13 @@ use crate::multiplexer::types::{AgentRole, Tab, TabCloseReason};
 use crate::service::ServiceContext;
 use std::time::Duration;
 
-use super::task_attempts::TaskRespawnDraft;
+use super::task_attempts::{ExecutorSourceFields, TaskRespawnDraft};
 
 #[derive(Clone, Copy)]
 struct ExecutorSource<'a> {
     plan_id: &'a str,
     task_id: &'a str,
-    source_attempt: &'a crate::plan::TaskExecutionAttempt,
+    source_attempt: ExecutorSourceFields<'a>,
     allow_incomplete_binding: bool,
 }
 
@@ -18,7 +18,7 @@ impl<'a> From<&'a TaskRespawnDraft> for ExecutorSource<'a> {
         Self {
             plan_id: &draft.plan_id,
             task_id: &draft.task_id,
-            source_attempt: &draft.source_attempt,
+            source_attempt: (&draft.source_attempt).into(),
             allow_incomplete_binding: false,
         }
     }
@@ -47,18 +47,40 @@ impl ServiceContext {
             return Ok(false);
         };
         let binding = tab.task_binding.clone().unwrap_or_default();
+        let projected = match (binding.plan_id.as_deref(), binding.task_id.as_deref()) {
+            (Some(plan), Some(task)) => match self.plan_store.executor_source_projection(
+                plan,
+                task,
+                binding.attempt_id.as_deref().unwrap_or_default(),
+            ) {
+                Err(crate::service::plan::PlanError::NotFound) => {
+                    return self.close_orphan_worker_executor(&tab, reason, "plan_gone")
+                }
+                Err(crate::service::plan::PlanError::TaskNotFound) => {
+                    return self.close_orphan_worker_executor(&tab, reason, "task_gone")
+                }
+                result => result.map_err(|error| error.to_string())?,
+            },
+            _ => None,
+        };
         if binding.attempt_id.is_none() {
-            let candidates = self.plan_store.live_task_attempts_for_tab(&tab.id);
+            let candidates = self
+                .plan_store
+                .executor_sources_for_tab_projection(&tab.id)
+                .map_err(|error| error.to_string())?;
             let candidate = match candidates.as_slice() {
+                [] if binding.plan_id.is_some() && binding.task_id.is_some() => {
+                    return self.close_terminal_worker_executor(&tab, reason);
+                }
                 [] if binding.plan_id.is_none() && binding.task_id.is_none() => return Ok(false),
                 [candidate] => candidate,
                 _ => return Err("executor current attempt is unavailable or ambiguous".into()),
             };
             self.retire_executor_with(
                 ExecutorSource {
-                    plan_id: &candidate.plan_id,
-                    task_id: &candidate.task_id,
-                    source_attempt: &candidate.attempt,
+                    plan_id: &candidate.0,
+                    task_id: &candidate.1,
+                    source_attempt: (&candidate.2).into(),
                     allow_incomplete_binding: true,
                 },
                 reason,
@@ -66,31 +88,117 @@ impl ServiceContext {
             )?;
             return Ok(true);
         }
-        let (Some(plan_id), Some(task_id), Some(attempt_id)) =
-            (binding.plan_id, binding.task_id, binding.attempt_id)
-        else {
+        let (Some(plan_id), Some(task_id)) = (binding.plan_id, binding.task_id) else {
             return Err("executor task binding is incomplete".into());
         };
-        let plan = self
-            .plan_store
-            .get(&plan_id)
-            .ok_or("executor plan is unavailable")?;
-        let task = crate::plan::task_key::find_task(&plan.tasks, &task_id)
-            .ok_or("executor task is unavailable")?;
-        let attempt = task
-            .execution_attempts
-            .iter()
-            .find(|attempt| attempt.id == attempt_id)
-            .ok_or("executor attempt is unavailable")?;
+        let attempt = projected.ok_or("executor attempt is unavailable")?;
         self.retire_executor_with(
             ExecutorSource {
                 plan_id: &plan_id,
                 task_id: &task_id,
-                source_attempt: attempt,
+                source_attempt: (&attempt).into(),
                 allow_incomplete_binding: false,
             },
             reason,
             |tabs| self.terminate_executor_tabs(tabs),
+        )?;
+        Ok(true)
+    }
+
+    fn close_terminal_worker_executor(
+        &self,
+        tab: &Tab,
+        reason: TabCloseReason,
+    ) -> Result<bool, String> {
+        let binding = tab
+            .task_binding
+            .as_ref()
+            .ok_or("executor task binding is missing")?;
+        let plan_id = binding
+            .plan_id
+            .as_deref()
+            .ok_or("executor plan binding is missing")?;
+        let task_id = binding
+            .task_id
+            .as_deref()
+            .ok_or("executor task binding is missing")?;
+        let attempts = match self.plan_store.list_task_attempts(plan_id, task_id) {
+            Err(crate::service::plan::PlanError::NotFound) => {
+                return self.close_orphan_worker_executor(tab, reason, "plan_gone")
+            }
+            Err(crate::service::plan::PlanError::TaskNotFound) => {
+                return self.close_orphan_worker_executor(tab, reason, "task_gone")
+            }
+            result => result.map_err(|error| error.to_string())?,
+        };
+        let candidates = attempts
+            .iter()
+            .filter(|view| {
+                view.attempt.executor_tab_id == tab.id && view.attempt.closed_at.is_some()
+            })
+            .collect::<Vec<_>>();
+        let [candidate] = candidates.as_slice() else {
+            return Err("executor terminal attempt is unavailable or ambiguous".into());
+        };
+        self.retire_executor_with(
+            ExecutorSource {
+                plan_id,
+                task_id,
+                source_attempt: (&candidate.attempt).into(),
+                allow_incomplete_binding: true,
+            },
+            reason,
+            |tabs| self.terminate_executor_tabs(tabs),
+        )?;
+        Ok(true)
+    }
+
+    fn close_orphan_worker_executor(
+        &self,
+        tab: &Tab,
+        reason: TabCloseReason,
+        cause: &str,
+    ) -> Result<bool, String> {
+        if !self
+            .plan_store
+            .executor_sources_for_tab_projection(&tab.id)
+            .map_err(|error| error.to_string())?
+            .is_empty()
+        {
+            return Err("executor orphan binding conflicts with a live plan/task attempt".into());
+        }
+        let tabs = closing_tabs(&self.mux.read(), &tab.id);
+        let validate = |mux: &MultiplexerState, id: &str| {
+            let current = mux.get_tab(id).ok_or("orphan executor disappeared")?;
+            if current.role != tab.role
+                || current.task_binding != tab.task_binding
+                || current.lifecycle_epoch != tab.lifecycle_epoch
+                || current.lifecycle_operation_id != tab.lifecycle_operation_id
+                || current.agent_type != tab.agent_type
+                || current.agent_session_id != tab.agent_session_id
+                || current.session_binding_nonce != tab.session_binding_nonce
+                || current.reported_session_binding_nonce != tab.reported_session_binding_nonce
+                || current.pty_id != tab.pty_id
+                || current.backing != tab.backing
+                || current.protected != tab.protected
+            {
+                return Err(
+                    "orphan executor identity or assignment changed during close".to_string(),
+                );
+            }
+            validate_closing_tabs(mux, id, &tabs)
+        };
+        self.close_tab_with_teardown(
+            &tab.id,
+            reason,
+            validate,
+            || self.terminate_executor_tabs(&tabs),
+            |mux, id| {
+                validate(mux, id)?;
+                let current = mux.get_tab_mut(id).ok_or("orphan executor disappeared")?;
+                release_orphan_binding(current, cause);
+                Ok(())
+            },
         )?;
         Ok(true)
     }
@@ -101,9 +209,16 @@ impl ServiceContext {
                 let receipt = self.chatbackend_close_confirmed(&tab.id)?;
                 if receipt.tab_id != tab.id
                     || tab.agent_session_id.as_deref() != Some(receipt.session_id.as_str())
+                    || tab.session_binding_nonce != receipt.binding_nonce
                 {
                     return Err("chat backend retirement receipt identity changed".into());
                 }
+                log::debug!(
+                    "[executor-retirement] tab={} session={} evidence={:?}",
+                    receipt.tab_id,
+                    receipt.session_id,
+                    receipt.evidence
+                );
             }
             if let Some(pty_id) = tab.pty_id.as_deref() {
                 self.pty_ownership.release_pty(pty_id);
@@ -132,7 +247,7 @@ impl ServiceContext {
         if draft.source_attempt.mesh_peer.is_some() {
             return Err("remote respawn requires peer-owned executor retirement".into());
         }
-        let tab_id = &draft.source_attempt.executor_tab_id;
+        let tab_id = draft.source_attempt.executor_tab_id;
         let tabs = {
             let mux = self.mux.read();
             mux.get_tab(tab_id)
@@ -157,43 +272,74 @@ impl ServiceContext {
                 Err("respawn source tab is absent without confirmed executor termination".into())
             };
         };
+        let missing_owner = std::cell::Cell::new(None);
         self.close_tab_with_teardown(
             tab_id,
             reason,
             |mux, id| validate_snapshot(mux, id, draft, &tabs),
-            || terminate(&tabs),
+            || {
+                terminate(&tabs)?;
+                validate_snapshot(&self.mux.read(), tab_id, draft, &tabs)?;
+                missing_owner.set(self.record_executor_termination(draft)?);
+                Ok(())
+            },
             |mux, id| {
                 validate_snapshot(mux, id, draft, &tabs)?;
-                self.record_executor_termination(draft)
+                if let Some(cause) = missing_owner.get() {
+                    let tab = mux
+                        .get_tab_mut(id)
+                        .ok_or("executor disappeared during close")?;
+                    release_orphan_binding(tab, cause);
+                }
+                Ok(())
             },
         )
         .map_err(|error| format!("respawn executor retirement failed: {error}"))?;
         Ok(())
     }
 
-    fn record_executor_termination(&self, draft: ExecutorSource<'_>) -> Result<(), String> {
+    fn record_executor_termination(
+        &self,
+        draft: ExecutorSource<'_>,
+    ) -> Result<Option<&'static str>, String> {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_err(|error| error.to_string())?
             .as_millis() as u64;
-        self.plan_store
-            .record_task_executor_termination(
-                draft.plan_id,
-                draft.task_id,
-                draft.source_attempt,
-                now,
-            )
-            .map_err(|error| {
-                format!(
-                    "executor terminated but termination evidence could not be persisted: {error}"
-                )
-            })?;
-        Ok(())
+        match self.plan_store.record_task_executor_termination(
+            draft.plan_id,
+            draft.task_id,
+            draft.source_attempt,
+            now,
+        ) {
+            Ok(()) => Ok(None),
+            Err(crate::service::plan::PlanError::NotFound) => Ok(Some("plan_gone")),
+            Err(crate::service::plan::PlanError::TaskNotFound) => Ok(Some("task_gone")),
+            Err(error) => Err(format!(
+                "executor terminated but termination evidence could not be persisted: {error}"
+            )),
+        }
     }
 }
 
+fn release_orphan_binding(tab: &mut Tab, cause: &str) {
+    log::debug!(
+        "[executor-retirement] tab={} binding_released=true cause={cause} plan={:?} task={:?}",
+        tab.id,
+        tab.task_binding
+            .as_ref()
+            .and_then(|binding| binding.plan_id.as_deref()),
+        tab.task_binding
+            .as_ref()
+            .and_then(|binding| binding.task_id.as_deref())
+    );
+    tab.task_binding = None;
+    tab.worker_id = None;
+    tab.restorable_launch.worker_restart = None;
+}
+
 fn validate_source(tab: &Tab, draft: ExecutorSource<'_>) -> Result<(), String> {
-    let source = &draft.source_attempt;
+    let source = draft.source_attempt;
     let binding = tab.task_binding.as_ref();
     if tab.id != source.executor_tab_id
         || tab.protected
@@ -210,13 +356,12 @@ fn validate_source(tab: &Tab, draft: ExecutorSource<'_>) -> Result<(), String> {
         )
         || !binding_field_matches(
             binding.and_then(|binding| binding.attempt_id.as_deref()),
-            &source.id,
+            source.id,
             draft.allow_incomplete_binding,
         )
         || source
             .session_id
-            .as_ref()
-            .is_some_and(|session| tab.agent_session_id.as_ref() != Some(session))
+            .is_some_and(|session| tab.agent_session_id.as_deref() != Some(session))
         || !source_nonce_matches(tab, source)
     {
         return Err("respawn source executor identity changed".into());
@@ -228,8 +373,9 @@ fn binding_field_matches(actual: Option<&str>, expected: &str, allow_missing: bo
     actual.map_or(allow_missing, |actual| actual == expected)
 }
 
-fn source_nonce_matches(tab: &Tab, source: &crate::plan::TaskExecutionAttempt) -> bool {
-    let Some(old_nonce) = source.session_binding_nonce.as_deref() else {
+fn source_nonce_matches<'a>(tab: &Tab, source: impl Into<ExecutorSourceFields<'a>>) -> bool {
+    let source = source.into();
+    let Some(old_nonce) = source.session_binding_nonce else {
         return true;
     };
     let Some(current_nonce) = tab.session_binding_nonce.as_deref() else {
@@ -241,11 +387,11 @@ fn source_nonce_matches(tab: &Tab, source: &crate::plan::TaskExecutionAttempt) -
     if current_nonce == old_nonce {
         return true;
     }
-    let Some(session) = source.session_id.as_deref() else {
+    let Some(session) = source.session_id else {
         return false;
     };
     source.provider.is_some()
-        && source.provider == tab.agent_type
+        && source.provider == tab.agent_type.as_deref()
         && tab.agent_session_id.as_deref() == Some(session)
         && crate::service::worker_identity::restore_binding::prove_same_session_restoration(
             &tab.prior_session_binding_nonces,
@@ -287,6 +433,14 @@ fn validate_snapshot(
         .get_tab(tab_id)
         .ok_or("respawn source executor disappeared")?;
     validate_source(tab, draft)?;
+    validate_closing_tabs(mux, tab_id, expected)
+}
+
+fn validate_closing_tabs(
+    mux: &MultiplexerState,
+    tab_id: &str,
+    expected: &[Tab],
+) -> Result<(), String> {
     let current = closing_tabs(mux, tab_id);
     if current.len() != expected.len()
         || current.iter().zip(expected).any(|(current, expected)| {

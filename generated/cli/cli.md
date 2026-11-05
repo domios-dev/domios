@@ -380,7 +380,7 @@ Spawn a new agent; roleless unless --role is provided.
 - `--plan` — Plan id to bind — required for `--role Planner` to auto-bind Plan.planner and deliver the peer prompt naming the Orchestrator
 - `--plan-task` — Plan task to bind when spawning `--role Worker` (handle, id, or prefix)
 - `--preset` — Select a provider-owned preset supported by the target provider
-- `--provider-reserve-pct`
+- `--provider-reserve-pct` — Advisory provider allowance reserve for a mutating Worker: below it, or when exhausted, the receipt warns; it never blocks the spawn
 - `--reason` — Why this Worker needs an unplanned task
 - `--reasoning-effort` — Reasoning-effort level supported by the selected model. The provider's list is used when that model publishes no per-model levels; unsupported values are rejected, never silently downgraded
 - `--report-to` — Where this worker's `agent report` should land. A tab id or `main`/`general` alias. With `--mesh PEER` it resolves on that peer, so a remote worker reports back to the spawning orchestrator. Defaults to the caller's own tab
@@ -2379,9 +2379,11 @@ Remove one lane worktree and its branch, refusing while a live tab's shell sits 
 
 Lane hygiene table: one row per open lane (task/status/tab/branch/worktree/cleanup)
 
+- `--all` — Return every detail row instead of one bounded page
 - `--clean` — Preview cleanup of merged, clean, unoccupied terminal/review lanes
 - `--confirm` — Execute cleanup instead of previewing it
 - `--fetch` — Fetch remote refs before assessing lanes (otherwise dry run is offline)
+- `--page` — Detail page (50 rows per list); counts and decisions cover the entire plan
 - `<plan_id>`
 - `--stale` — Only show stale lanes (dead tab / report-overdue / uncleaned)
 
@@ -2419,7 +2421,7 @@ List plans
 
 #### `domios plan locate`
 
-File + line range of a body block, for in-place edits with file tools
+Read-only body snapshot file + line range; write via typed mutation commands
 
 - `<plan_id>`
 - `--section` — Plan section id or handle
@@ -2523,8 +2525,10 @@ Move a plan sidecar from another project or data dir into this project
 
 #### `domios plan next`
 
-Prioritized, advisory next-action guidance computed from plan state
+Prioritized next-action page computed from the entire plan
 
+- `--all` — Return every detail row instead of one bounded page
+- `--page` — Detail page (50 rows per list); counts and decisions cover the entire plan
 - `<plan_id>`
 
 #### `domios plan note`
@@ -2894,8 +2898,10 @@ Print only the plan's hydrated section prose (no goal, tasks, or metadata)
 
 #### `domios plan state`
 
-One read-only state snapshot (counts, coverage, drift, loops, lanes, strides)
+Read-only summary with bounded detail lists; use --page or --all for more
 
+- `--all` — Return every detail row instead of one bounded page
+- `--page` — Detail page (50 rows per list); counts and decisions cover the entire plan
 - `<plan_id>`
 
 #### `domios plan tags`
@@ -3014,13 +3020,13 @@ Spawn a worker, assign the task, and deliver its brief in one atomic call
 - `--canonical-writer` — Opt this mutating Worker into the canonical checkout as its one exclusive writer; never inferred
 - `--cwd`
 - `--description` — Worker tab description (defaults to a short summary of the task name)
-- `--execution-intent` — Explicit task intent used by provider reserve policy
+- `--execution-intent` — Explicit task intent; mutating work reports the advisory provider allowance
 - `--kind` — Select a built-in Worker prompt kind without changing the task's executor_role
 - `--model`
 - `--parent-tab` — Parent tab override (defaults to the caller tab)
 - `--placement`
 - `<plan_id>`
-- `--provider-reserve-pct` — Optional minimum remaining provider allowance for mutating work (0 = no reserve)
+- `--provider-reserve-pct` — Advisory provider allowance reserve for mutating work: below it, or when exhausted, the receipt carries a provider_allowance_low warning; never blocks (0 = warn only when exhausted)
 - `--reasoning-effort` — Selected-model reasoning effort; provider fallback applies without per-model levels (rejected if unsupported)
 - `--sandbox` — Explicit OS confinement for this launch; Workers default to full access
 - `--speed` — Provider-declared service tier for this launch
@@ -3941,6 +3947,12 @@ Replace a plain shell's process in the same tab, preserving tab identity and met
 Fuzzy search tabs by id-prefix, tab title, friendly session name, agent type, or current model. Cross-script — "Далтон" matches "Dalton". Add `--mesh PEER` to search a paired peer (#99). `find` kept as alias
 
 - `<pattern>` — Substring or short pattern to match
+
+#### `domios tab send-cancel`
+
+Cancel a held agent send before its payload is claimed for writing
+
+- `<send_id>`
 
 #### `domios tab send-status`
 

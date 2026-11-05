@@ -110,8 +110,8 @@ cache. Identical wrapper source and toolchain share one immutable launcher
 across checkouts; its key does not include the script's checkout path.
 Otherwise Serde's generated `private.rs` path changes its `.rmeta` bytes and
 invalidates every dependent cache entry.
-The policy resolves the configured build directory through Cargo metadata;
-it neither changes that directory nor exports a new Cargo driver value.
+The wrapper resolves the selected build directory through Cargo metadata.
+Repository cache policy exports `CARGO_BUILD_BUILD_DIR` before Cargo starts.
 The policy version and prefix enter the cache key; `OUT_DIR` itself remains
 tracked and its runtime string value is preserved. Dep-info still names the
 real generated files. The proxy is named `sccache` and forwards C/C++ compilers
@@ -746,6 +746,28 @@ Troubleshooting:
 
 ## Cache retention and troubleshooting
 
+Cargo intermediates live under `$(ct_cache_home)/build/<2 hex>/<14 hex>`.
+`build.sh` and `scripts/cache-policy.sh` derive that identity from the physical
+checkout and normalized physical final target, overriding the machine Cargo
+build-dir for that process only. Canonical check and nextest using the same
+target share intermediates; `src-tauri/target/named-dev` has one separate stable
+directory for all named DEV instances. Lane-check retains its serialized shared
+intermediate policy. Never select per-instance targets or change machine Cargo
+configuration. The first build in each newly selected directory is cold.
+
+Windows stable mappings carry a lease in the gateway's `stable-mapping-X/lease`
+(or the selected drive's equivalent), recording job, PID, process start identity
+and physical checkout. Under a metadata mutex, acquisition inspects the actual
+mapping and refuses foreign live or unknown leases, mismatched mappings and
+unleased mappings. Release verifies the full caller identity and mapping before
+unmapping. Do not manually remap a refused drive; preserve the refusal for the
+build owner to investigate. Proven-dead matching leases may be reclaimed.
+
+New intermediate directories carry `.domios-intermediates.json`. GC includes
+these in its live mappings while their physical checkout exists, independently
+of the caller's selected Cargo environment. Existing Cargo locks still protect
+orphan removal and incremental trimming; no live checkout's directory is deleted.
+
 Gateway acquisition triggers retention at most once per hour; there are no timers or background sweep jobs. `cache-retention.json` in the machine gateway records the last completed run. Exceptional targets carry `.codeterm-cache.json` with their physical checkout path, last-use timestamp, measured byte count, and live build-owner PIDs. Preparation refreshes the marker while its gateway job owns the build slot.
 
 Missing-checkout targets and targets unused for `CODETERM_CACHE_MAX_AGE_DAYS` (default **3**) are removed first. Unmarked targets older than **2 days** are eligible. Remaining idle targets are evicted in least-recently-used order until they fit `CODETERM_EXCEPTIONAL_CACHE_GB` (default **40 GiB**). The current checkout and targets with live build owners are protected, including during manual GC; protection can temporarily exceed the cap and is reported. PID reuse conservatively protects a cache rather than risking removal of an active build.
@@ -1265,7 +1287,7 @@ binary, so when only the PDB survives read `--scan` rather than the frame order.
 | Symptom | Cause | Recovery |
 |---|---|---|
 | `worktree-check` refuses with a busy-slot blocker | It enters the build gateway (it maps the stable `X:` build path, a machine-global drive, so it must be serialized); the slot is held by another job. | Report the blocker and continue source-only work; use `--wait-build` only when blocking is intended. Success shows `[cache-policy] stable build path X: -> <checkout>`. |
-| A gateway cargo run is `Finished` in seconds with an empty `targets/exceptional/<id>/debug` | `~/.cargo/config.toml` sets `build.build-dir` to `RustCaches/build/{workspace-path-hash}`; the stable `X:` path gives every gateway worktree the same hash, so intermediates are shared (gateway-serialized) and only final artifacts go to the target dir. | Expected. For a cold measurement remove that one hash directory and the target dir; never point two checkouts at one `CARGO_TARGET_DIR`, and only `lane-check` shares `$CODETERM_RUST_CACHE_ROOT/lanes` (fallback `${CARGO_HOME:-$HOME/.cargo}/codeterm-lanes`). Canonical gateway operations keep the user-level per-workspace build directory. Only the gateway may map the stable path, which `scripts/check-build-check-queue.sh` guards. |
+| A gateway Cargo run is `Finished` in seconds with an empty `targets/exceptional/<id>/debug` | Cargo intermediates are separate from final artifacts. The gateway logs `CARGO_BUILD_BUILD_DIR`, derived from physical checkout and final target. | Inspect that logged directory and Cargo freshness. DEV and canonical tests must show distinct intermediate paths. Use the existing fresh-target measurement operation; never delete a live cache or manually select an alternate target. Only lane-check shares the serialized lane intermediate tree. |
 | `agent_restart` fails the surviving-shell stale-metadata fixture while retaining `agent_type` | The fixture declares a session nonce without its provider-reported match, so lifecycle cleanup correctly refuses the unauthenticated identity. | Seed matching reported nonce for this verified-exit scenario; retain the production authentication gate and rerun `test-one app agent_restart --wait-build`. |
 | A touched test file exceeds the 1200-line source limit | One harness accumulated several independent test groups | Move a group into a module with injected shared harness functions, retain the runner entrypoint, and rerun its focused suite plus the size check. |
 | `tsc --noEmit` reports TS6133 after a provider delegates parsing to a shared helper | The old parser import remains after its last call was removed | Remove the unused import, regenerate the provider bundle, and rerun TypeScript plus the focused plugin suite. |
@@ -1487,7 +1509,7 @@ entitlement refresh when integrating either external service.
 Run `./build.sh fmt` in a fresh lane before direct pnpm checks; it prepares the checkout-local dependencies automatically. Direct pnpm commands bypass that wrapper. A failed dependency lookup selected no executable tests.
 For intentional gateway queueing, pass `--queue` (alias behavior of `--wait-build`). Lane checks honor the same mode by blocking on the shared intermediate file lock; the default refuses a busy lock. CLI and app workspace crates require separate lane-check invocations. The default stays fail-fast. Queueing uses the existing gateway event and normal completion report. Tab-origin build reports retain tab provenance; they never claim system provenance.
 
-<!-- revision: 62 -->
+<!-- revision: 63 -->
 
 ### Lane and batch scopes
 
@@ -1526,11 +1548,10 @@ availability alone cannot finish launch. An unsupported startup-event endpoint
 is an explicit failure. Preserve that receipt and rebuild the intended source,
 without extending the deadline.
 
-DEV Cargo runs at the gateway's Windows `X:` cwd: default target directories are
-`X:/src-tauri/target` and `X:/cli/target` (the physical checkout targets). Named
-`--wait` instances retain their explicit instance target. `check-queue` instead
-uses its own check-worktree `target/app` and `target/cli`, so it does not share
-DEV target directories. `dev-prebuilt` never invokes Cargo or `dev-prep --no-server`;
+DEV Cargo runs at the gateway's Windows `X:` cwd. Named instances share the
+physical checkout's `src-tauri/target/named-dev` target and intermediate identity.
+`check-queue` uses its own check-worktree `target/app`, with an intermediate
+identity separate from DEV. `dev-prebuilt` never invokes Cargo or `dev-prep --no-server`;
 its staging is complete before provenance is written under the gateway.
 
 ## Product and test feature sets

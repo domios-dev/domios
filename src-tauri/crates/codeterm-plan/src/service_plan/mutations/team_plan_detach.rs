@@ -1,13 +1,15 @@
 use super::*;
 use crate::plan::{AgentRef, Milestone, PlanOrphan, TaskStatus};
+use crate::service_plan::store_db::hot_write::lifecycle_rows::{
+    self, LifecyclePlanRows, LifecycleUndo,
+};
 use std::collections::HashSet;
 
 #[derive(Debug)]
 pub struct TeamPlanArchive {
-    original_plans: Vec<Plan>,
+    undo: LifecycleUndo,
     changed_plan_ids: Vec<String>,
 }
-
 impl TeamPlanArchive {
     pub fn changed_plan_ids(&self) -> &[String] {
         &self.changed_plan_ids
@@ -15,48 +17,60 @@ impl TeamPlanArchive {
 }
 
 impl PlanStore {
+    pub fn restore_close_plan_metadata(
+        &self,
+        saved: &crate::service_plan::PlanCloseRestoreRead,
+        now_ms: u64,
+    ) -> Result<(), PlanError> {
+        let turn = self.mutation_writer.enter();
+        let selector = PlanMatch::Ids(vec![saved.id.clone()]);
+        let before = self
+            .database
+            .observe_team_rows(&selector, None, &[], false)?;
+        let mut after = before.clone();
+        let current = after.first_mut().ok_or(PlanError::NotFound)?;
+        if current.team_id.is_some() && current.team_id != saved.team_id {
+            return Err(PlanError::Io(format!(
+                "Plan {} belongs to another Team",
+                saved.id
+            )));
+        }
+        if current.owner.tab_id.is_some() && current.owner.tab_id != saved.owner.tab_id {
+            return Err(PlanError::Io(format!(
+                "Plan {} has another Orchestrator",
+                saved.id
+            )));
+        }
+        current.team_id = saved.team_id.clone();
+        current.owner = saved.owner.clone();
+        current.planner = saved.planner.clone();
+        current.status = saved.status.clone();
+        current.orphaned = None;
+        self.commit_team_row_patches(&turn, selector, before, after, now_ms)?;
+        Ok(())
+    }
+
     pub fn close_team_task_attempts_transaction(
         &self,
         team_id: &str,
         member_tab_ids: &[String],
         now_ms: u64,
     ) -> Result<TeamPlanArchive, PlanError> {
-        let writer_turn = self.mutation_writer.enter();
+        let turn = self.mutation_writer.enter();
+        let selector = super::super::store_queries::team_close_candidates(team_id, member_tab_ids);
+        let plans =
+            self.database
+                .observe_team_rows(&selector, Some(team_id), member_tab_ids, true)?;
         let tabs: HashSet<_> = member_tab_ids.iter().map(String::as_str).collect();
-        let mut ids: Vec<_> = self
-            .team_close_plans(team_id, member_tab_ids)
-            .into_iter()
-            .filter(|plan| has_team_close_work(plan, team_id, &tabs))
-            .map(|plan| plan.id)
-            .collect();
-        ids.sort();
-        let originals: Vec<_> = ids.iter().filter_map(|id| self.get(id)).collect();
-        for id in &ids {
-            if let Err(error) = self.with_plan_in_writer(&writer_turn, id, now_ms, |plan| {
-                let team_bound = plan.team_id.as_deref() == Some(team_id);
-                close_team_tasks(plan, team_id, &tabs, team_bound, now_ms);
-                if team_bound {
-                    detach_closed_team_plan(plan, team_id, now_ms);
-                }
-                Ok(())
-            }) {
-                for original in &originals {
-                    if let Err(rollback_error) =
-                        self.restore_team_plan_in_writer(&writer_turn, original)
-                    {
-                        log::error!(
-                            "[plan.team-close] rollback failed for plan {} after {error}: {rollback_error}",
-                            original.id
-                        );
-                    }
-                }
-                return Err(error);
+        let mut staged = plans.clone();
+        for plan in &mut staged {
+            let bound = plan.team_id.as_deref() == Some(team_id);
+            close_team_tasks(plan, team_id, &tabs, bound, now_ms)?;
+            if bound {
+                detach_closed_team_plan(plan, team_id, now_ms);
             }
         }
-        Ok(TeamPlanArchive {
-            original_plans: originals,
-            changed_plan_ids: ids,
-        })
+        self.commit_team_row_patches(&turn, selector, plans, staged, now_ms)
     }
 
     pub fn archive_and_detach_team_plans(
@@ -74,22 +88,27 @@ impl PlanStore {
         team_id: &str,
         now_ms: u64,
     ) -> Result<TeamPlanArchive, PlanError> {
-        let writer_turn = self.mutation_writer.enter();
-        let target_team_id = team_id.trim().to_string();
-        self.archive_matching_team_plans_in_writer(
-            &writer_turn,
-            |bound| bound == target_team_id,
-            now_ms,
-        )
+        let turn = self.mutation_writer.enter();
+        let team_id = team_id.trim();
+        let selector = PlanMatch::team(team_id);
+        let plans = self
+            .database
+            .observe_team_rows(&selector, Some(team_id), &[], false)?;
+        let mut staged = plans.clone();
+        for plan in &mut staged {
+            detach_closed_team_plan(plan, team_id, now_ms);
+        }
+        self.commit_team_row_patches(&turn, selector, plans, staged, now_ms)
     }
 
     pub fn rollback_team_plan_archive(
         &self,
         transaction: TeamPlanArchive,
     ) -> Result<(), PlanError> {
-        let writer_turn = self.mutation_writer.enter();
-        for plan in transaction.original_plans {
-            self.restore_team_plan_in_writer(&writer_turn, &plan)?;
+        let turn = self.mutation_writer.enter();
+        let receipts = self.database.rollback_lifecycle_rows(transaction.undo)?;
+        for receipt in receipts {
+            self.publish_hot_receipt(&turn, receipt);
         }
         Ok(())
     }
@@ -99,166 +118,94 @@ impl PlanStore {
         live: &std::collections::BTreeSet<String>,
         now_ms: u64,
     ) -> Result<Vec<String>, PlanError> {
-        let writer_turn = self.mutation_writer.enter();
-        // SQL names the active rows; only those that may be archived are opened.
-        // A live Team's single active plan stays untouched, and the unique
-        // one_active_plan_per_team index makes a second one exceptional.
-        let mut live_team_rows = std::collections::BTreeMap::<String, Vec<String>>::new();
-        let mut unbound = Vec::new();
-        for row in self.database.active_plan_rows()? {
-            match row.team_id {
-                Some(team_id) if live.contains(&team_id) => {
-                    live_team_rows.entry(team_id).or_default().push(row.id)
-                }
-                _ => unbound.push(row.id),
+        let turn = self.mutation_writer.enter();
+        let selector = PlanMatch::Status(PlanStatus::Active);
+        let plans = self
+            .database
+            .observe_team_rows(&selector, None, &[], false)?;
+        let mut active_by_team =
+            std::collections::BTreeMap::<String, Vec<&LifecyclePlanRows>>::new();
+        let mut archive_ids = std::collections::BTreeSet::new();
+        for plan in &plans {
+            if plan.team_id.is_none() && plan.orphaned.is_some() {
+                continue;
             }
-        }
-        let candidates = unbound.into_iter().chain(
-            live_team_rows
-                .into_values()
-                .filter(|ids| ids.len() > 1)
-                .flatten(),
-        );
-        let active: Vec<(String, Option<String>, u64)> = candidates
-            .filter_map(|id| {
-                let plan = self.plan_arc(&id).ok()?;
-                let plan = plan.lock();
-                (plan.status == PlanStatus::Active && !plan.is_orphaned_active())
-                    .then(|| (plan.id.clone(), plan.team_id.clone(), plan.updated_at))
-            })
-            .collect();
-        let mut active_by_team = std::collections::BTreeMap::<String, Vec<(&str, u64)>>::new();
-        let mut archive_ids = Vec::new();
-        for (id, team_id, updated_at) in &active {
-            match team_id.as_deref() {
-                Some(team_id) if live.contains(team_id) => {
-                    active_by_team
-                        .entry(team_id.into())
-                        .or_default()
-                        .push((id.as_str(), *updated_at));
+            match plan.team_id.as_deref() {
+                Some(team) if live.contains(team) => {
+                    active_by_team.entry(team.into()).or_default().push(plan)
                 }
-                _ => archive_ids.push(id.clone()),
+                _ => {
+                    archive_ids.insert(plan.id.clone());
+                }
             }
         }
         for plans in active_by_team.values_mut() {
-            plans.sort_by(|left, right| right.1.cmp(&left.1).then_with(|| left.0.cmp(right.0)));
-            archive_ids.extend(plans.iter().skip(1).map(|(id, _)| (*id).to_string()));
+            plans.sort_by(|left, right| {
+                right
+                    .updated_at
+                    .cmp(&left.updated_at)
+                    .then_with(|| left.id.cmp(&right.id))
+            });
+            archive_ids.extend(plans.iter().skip(1).map(|plan| plan.id.clone()));
         }
-        archive_ids.sort();
-        let originals: Vec<_> = archive_ids.iter().filter_map(|id| self.get(id)).collect();
-        for id in &archive_ids {
-            if let Err(error) = self.with_plan_in_writer(&writer_turn, id, now_ms, |plan| {
-                if plan
-                    .team_id
-                    .as_ref()
-                    .is_none_or(|team_id| !live.contains(team_id))
-                {
-                    plan.team_id = None;
-                }
-                plan.status = PlanStatus::Archived;
-                Ok(())
-            }) {
-                for original in &originals {
-                    let _ = self.restore_team_plan_in_writer(&writer_turn, original);
-                }
-                return Err(error);
+        let mut staged = plans.clone();
+        for plan in &mut staged {
+            if !archive_ids.contains(&plan.id) {
+                continue;
             }
+            if plan
+                .team_id
+                .as_ref()
+                .is_none_or(|team| !live.contains(team))
+            {
+                plan.team_id = None;
+            }
+            plan.status = PlanStatus::Archived;
         }
-        Ok(archive_ids)
+        self.commit_team_row_patches(&turn, selector, plans, staged, now_ms)?;
+        Ok(archive_ids.into_iter().collect())
     }
 
-    fn archive_matching_team_plans_in_writer<F>(
+    pub(in crate::service_plan) fn commit_team_row_patches(
         &self,
         turn: &MutationWriterTurn<'_>,
-        matches: F,
+        selector: PlanMatch,
+        plans: Vec<LifecyclePlanRows>,
+        staged: Vec<LifecyclePlanRows>,
         now_ms: u64,
-    ) -> Result<TeamPlanArchive, PlanError>
-    where
-        F: Fn(&str) -> bool,
-    {
-        let mut ids: Vec<_> = self
-            .index
-            .read()
-            .values()
-            .filter_map(|row| {
-                let bound_team = row.team_id.as_deref();
-                bound_team
-                    .filter(|team| matches(team))
-                    .map(|_| row.id.clone())
-            })
+    ) -> Result<TeamPlanArchive, PlanError> {
+        turn.assert_store(self);
+        let expected = lifecycle_rows::expected(&plans);
+        let patches = plans
+            .into_iter()
+            .zip(staged)
+            .filter_map(|(before, after)| lifecycle_rows::patch(before, after, now_ms))
             .collect();
-        ids.sort();
-        let original_plans: Vec<_> = ids.iter().filter_map(|id| self.get(id)).collect();
-        for id in &ids {
-            if let Err(error) = self.with_plan_in_writer(turn, id, now_ms, |plan| {
-                let team_id = plan.team_id.clone().unwrap_or_default();
-                detach_closed_team_plan(plan, &team_id, now_ms);
-                Ok(())
-            }) {
-                for original in &original_plans {
-                    let _ = self.restore_team_plan_in_writer(turn, original);
-                }
-                return Err(error);
-            }
+        let (undo, receipts) =
+            self.database
+                .commit_lifecycle_rows(&selector, &expected, &Vec::new(), patches)?;
+        let changed_plan_ids = undo
+            .patches
+            .iter()
+            .map(|patch| patch.before.id.clone())
+            .collect();
+        for receipt in receipts {
+            self.publish_hot_receipt(turn, receipt);
         }
         Ok(TeamPlanArchive {
-            original_plans,
-            changed_plan_ids: ids,
+            undo,
+            changed_plan_ids,
         })
     }
-
-    fn restore_team_plan_in_writer(
-        &self,
-        turn: &MutationWriterTurn<'_>,
-        original: &Plan,
-    ) -> Result<(), PlanError> {
-        turn.assert_store(self);
-        let arc = self.plan_arc(&original.id)?;
-        let staged = original.clone();
-        self.persist_plan_and_spec_in_writer(turn, &staged)
-            .map_err(|error| {
-                self.plan_cache.evict(&staged.id);
-                PlanError::Io(error.to_string())
-            })?;
-        {
-            let mut plan = arc.lock();
-            *plan = staged.clone();
-        }
-        self.plan_cache.commit(&staged.id, &arc);
-        self.note_index(&staged);
-        Ok(())
-    }
-}
-
-fn has_team_close_work(plan: &Plan, team_id: &str, tabs: &HashSet<&str>) -> bool {
-    plan.team_id.as_deref() == Some(team_id)
-        || plan.tasks.iter().any(|task| {
-            task.assigned_tab_id
-                .as_deref()
-                .is_some_and(|tab_id| tabs.contains(tab_id))
-                || task
-                    .lane
-                    .tab_id
-                    .as_deref()
-                    .is_some_and(|tab_id| tabs.contains(tab_id))
-                || task
-                    .execution_attempts
-                    .iter()
-                    .any(|attempt| tabs.contains(attempt.executor_tab_id.as_str()))
-                || (plan.team_id.as_deref() == Some(team_id)
-                    && task.status == TaskStatus::InProgress
-                    && task.assigned_tab_id.is_none()
-                    && task.lane.tab_id.is_none())
-        })
 }
 
 fn close_team_tasks(
-    plan: &mut Plan,
+    plan: &mut LifecyclePlanRows,
     team_id: &str,
     tabs: &HashSet<&str>,
     include_orphans: bool,
     now_ms: u64,
-) {
+) -> Result<(), PlanError> {
     let mut affected_tasks = 0;
     let mut reset_tasks = 0;
     let mut closed_attempts = 0;
@@ -310,7 +257,8 @@ fn close_team_tasks(
             task.assigned_tab_id = None;
             task.lane.tab_id = None;
             task.taken_by_role = None;
-            task.interruption.owner_epoch = task.interruption.owner_epoch.saturating_add(1);
+            task.interruption.owner_epoch =
+                super::super::interruption::next_owner_epoch(task.interruption.owner_epoch)?;
             task.interruption.owner_tab_id = None;
             task.interruption.owner_session_id = None;
             task.interruption.handoff_required = false;
@@ -354,9 +302,10 @@ fn close_team_tasks(
             attachments: vec![],
         });
     }
+    Ok(())
 }
 
-pub(super) fn detach_closed_team_plan(plan: &mut Plan, team_id: &str, now_ms: u64) {
+pub(super) fn detach_closed_team_plan(plan: &mut LifecyclePlanRows, team_id: &str, now_ms: u64) {
     let retired_owner = OrchestratorRef::default();
     if plan.owner != retired_owner {
         plan.owner_history.push(TransferRecord {
@@ -369,12 +318,7 @@ pub(super) fn detach_closed_team_plan(plan: &mut Plan, team_id: &str, now_ms: u6
     plan.owner = retired_owner;
     plan.planner = None;
     plan.team_id = None;
-    let unfinished_task_ids: Vec<String> = plan
-        .tasks
-        .iter()
-        .filter(|task| !task.status.is_terminal())
-        .map(|task| task.id.clone())
-        .collect();
+    let unfinished_task_ids = plan.unfinished_task_ids.clone();
     if unfinished_task_ids.is_empty() {
         plan.status = PlanStatus::Archived;
         return;
@@ -391,3 +335,6 @@ pub(super) fn detach_closed_team_plan(plan: &mut Plan, team_id: &str, now_ms: u6
         at: now_ms,
     });
 }
+
+#[cfg(test)]
+mod close_restore_tests;

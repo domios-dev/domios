@@ -432,6 +432,7 @@ export interface HostProgressOpts {
 }
 
 export interface Host {
+  io: import("./io").HostIo;
   commandTranscriptStdout(recordJson: string, declarationJson: string): string | null;
   platform(): string;
   homeDir(): string | null;

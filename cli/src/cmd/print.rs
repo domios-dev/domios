@@ -234,13 +234,22 @@ pub fn exit_if_cli_refusal(json: bool, value: &serde_json::Value) {
     if !is_cli_refusal(value) {
         return;
     }
+    let message = refusal_message(value).unwrap_or("command was refused");
+    eprintln!("Error: {message}");
     if json {
-        println!("{}", crate::cmd::output::encode(value).unwrap());
-    } else {
-        let message = refusal_message(value).unwrap_or("command was refused");
-        eprintln!("Error: {message}");
+        let _ = writeln!(
+            std::io::stdout(),
+            "{}",
+            crate::cmd::output::encode(value).unwrap()
+        );
     }
     std::process::exit(CLI_ERROR_EXIT_CODE);
+}
+
+pub(crate) fn exit_if_daemon_failure(value: &serde_json::Value) {
+    if value.get("ok").and_then(serde_json::Value::as_bool) == Some(false) {
+        exit_if_cli_refusal(json_mode(), value);
+    }
 }
 
 fn is_cli_refusal(value: &serde_json::Value) -> bool {

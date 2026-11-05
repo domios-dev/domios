@@ -95,12 +95,23 @@ impl ServiceContext {
     }
 
     pub(crate) fn clear_dead_planner_binding(&self, tab_id: &str) {
-        clear_planner_bindings_for_lifecycle_exit(&self.plan_store, tab_id, epoch_ms());
+        if let Err(error) =
+            clear_planner_bindings_for_lifecycle_exit(&self.plan_store, tab_id, epoch_ms())
+        {
+            log::warn!("[hierarchy] planner lifecycle binding lookup failed for {tab_id}: {error}");
+        }
     }
 
     pub fn replay_planner_requests_if_routable(&self, tab_id: &str) {
         let now_ms = epoch_ms();
-        for plan in self.plan_store.planner_replay_candidates(tab_id) {
+        let candidates = match self.plan_store.planner_replay_candidates(tab_id) {
+            Ok(candidates) => candidates,
+            Err(error) => {
+                log::warn!("[hierarchy] planner replay lookup failed for {tab_id}: {error}");
+                return;
+            }
+        };
+        for plan in candidates {
             let session_id = &plan.session_id;
             let resolution =
                 crate::plan::peer::resolve_planner_ref(&plan.planner, &plan.owner, |id| {
@@ -161,8 +172,15 @@ impl ServiceContext {
                     continue;
                 }
             };
-            let Some(rebound_plan) = self.plan_store.get(&plan.plan_id) else {
-                continue;
+            let rebound_plan = match self.plan_store.planner_rehydrate_projection(&plan.plan_id) {
+                Ok(plan) => plan,
+                Err(error) => {
+                    log::warn!(
+                        "[hierarchy] planner rehydrate lookup failed for {}: {error}",
+                        plan.plan_id
+                    );
+                    continue;
+                }
             };
             let rehydrate = planner_rehydrate_payload(&rebound_plan);
             let rehydrate_id = format!("planner-rehydrate-{}-{}", plan.plan_id, binding.session_id);
@@ -266,13 +284,19 @@ impl ServiceContext {
         body: &str,
         message_id: String,
     ) -> Result<(), String> {
-        let plan = self.plan_store.get(plan_id).ok_or("plan not found")?;
-        let intended_target = match &plan.planner {
+        let planner = self
+            .plan_store
+            .hierarchy_planner_projection(plan_id)
+            .map_err(|error| match error {
+                crate::service::plan::PlanError::NotFound => "plan not found".to_string(),
+                error => error.to_string(),
+            })?;
+        let intended_target = match &planner {
             Some(crate::plan::PlannerRef::Tab { tab_id, .. }) => tab_id.as_str(),
             _ => return Err("agent_unavailable: plan has no bound planner".into()),
         };
         let matches_binding = matches!(
-            &plan.planner,
+            &planner,
             Some(crate::plan::PlannerRef::Tab { tab_id: bound, session_id: Some(session), .. })
                 if bound == tab_id && session == expected_session_id
         );
@@ -316,13 +340,12 @@ impl ServiceContext {
         request_id: &str,
         tab_id: &str,
     ) -> Result<crate::plan::PlannerRequest, String> {
-        let plan = self.plan_store.get(plan_id).ok_or("plan not found")?;
-        let request = plan
-            .planner_requests
-            .iter()
-            .find(|request| request.request_id == request_id)
-            .cloned()
-            .ok_or("planner request not found")?;
+        let context = self
+            .plan_store
+            .planner_gate_context(plan_id, Some(request_id))
+            .map_err(|error| error.to_string())?
+            .ok_or("plan not found")?;
+        let request = context.request.ok_or("planner request not found")?;
         if request.state == crate::plan::PlannerRequestState::Completed {
             return Ok(request);
         }
@@ -352,15 +375,7 @@ impl ServiceContext {
         }
         self.plan_store
             .complete_planner_request(plan_id, request_id, epoch_ms())
-            .map_err(|error| error.to_string())?;
-        self.plan_store
-            .get(plan_id)
-            .and_then(|plan| {
-                plan.planner_requests
-                    .into_iter()
-                    .find(|request| request.request_id == request_id)
-            })
-            .ok_or_else(|| "planner request not found".into())
+            .map_err(|error| error.to_string())
     }
     pub fn set_can_spawn(&self, tab_id: &str, can_spawn: bool) -> Result<(), String> {
         self.mux.write().set_can_spawn(tab_id, can_spawn)?;
@@ -800,10 +815,9 @@ impl ServiceContext {
                 report_outcome,
             );
         self.report_store.lock().claim(&report.id);
-        let trace_flow = report
-            .attempt_id
-            .clone()
-            .or_else(|| crate::flow_trace::tab_flow(self, tab_id));
+        let trace_flow = report.attempt_id.clone().or_else(|| {
+            crate::flow_trace::diagnostic_flow(crate::flow_trace::tab_flow(self, tab_id))
+        });
         crate::flow_trace::record_flow(
             &report.id,
             "report.emitted",
@@ -928,21 +942,26 @@ impl ServiceContext {
         by_tab: Option<&str>,
         intent: Option<&str>,
     ) {
-        let Some(plan) = self.plan_store.get(plan_id) else {
-            return;
+        let plan = match self
+            .plan_store
+            .task_review_notice_projection(plan_id, task_id)
+        {
+            Ok(plan) => plan,
+            Err(crate::service::plan::PlanError::NotFound) => return,
+            Err(error) => {
+                log::warn!(
+                    "[hierarchy] task review notice lookup failed for {plan_id}/{task_id}: {error}"
+                );
+                return;
+            }
         };
-        let Some(owner) = plan.owner.tab_id.as_deref() else {
+        let Some(owner) = plan.owner.as_deref() else {
             return;
         };
         if Some(owner) == by_tab {
-            return; // no self-notify
+            return;
         }
-        let task_name = plan
-            .tasks
-            .iter()
-            .find(|t| t.id == task_id)
-            .map(|t| t.name.clone())
-            .unwrap_or_else(|| task_id.to_string());
+        let task_name = plan.task_name;
         let who = by_tab.unwrap_or("a worker");
         let intent_part = intent
             .map(str::trim)
@@ -965,16 +984,23 @@ impl ServiceContext {
         answer_text: &str,
         answered_by_tab: Option<&str>,
     ) {
-        let Some(plan) = self.plan_store.get(plan_id) else {
-            return;
+        let plan = match self
+            .plan_store
+            .gate_answer_notice_projection(plan_id, gate_id)
+        {
+            Ok(plan) => plan,
+            Err(crate::service::plan::PlanError::NotFound) => return,
+            Err(error) => {
+                log::warn!(
+                    "[hierarchy] gate answer notice lookup failed for {plan_id}/{gate_id}: {error}"
+                );
+                return;
+            }
         };
-        if crate::service::plan::pause_operation::plan_notices_suppressed(&plan) {
+        if plan.mode == crate::plan::PlanMode::Paused {
             return;
         }
-        let gate = plan.gates.iter().find(|g| g.id == gate_id);
-        let asker_tab = gate
-            .and_then(|g| g.asked_by_tab_id.as_deref())
-            .or(plan.owner.tab_id.as_deref());
+        let asker_tab = plan.asker.as_deref();
         let Some(asker) = asker_tab else {
             return;
         };

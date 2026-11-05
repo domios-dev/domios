@@ -3,7 +3,6 @@ use serde::Serialize;
 
 use crate::agent::provider_identity::{provider_for_claimed_session, ProviderIdentityEvidence};
 use crate::multiplexer::types::{Tab, TabBacking};
-use crate::service::hierarchy::report_plan_ctx::tab_holds;
 use crate::session::lifecycle::{
     checkpoint_history, AgentTypeWriteOrigin, JournalLoad, JournalRecord, LifecycleCheckpoint,
     LifecycleTransition, TailStatus,
@@ -22,6 +21,7 @@ pub const TAB_REPAIR_SESSION_BINDING_PENDING: &str = "session_binding_pending";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TabRepairErrorKind {
+    Storage,
     NotFound,
     NotAuthorized,
     VerifiedSessionRequired,
@@ -48,6 +48,7 @@ impl TabRepairError {
 
     pub fn code(&self) -> &'static str {
         match self.kind {
+            TabRepairErrorKind::Storage => "tab_repair_storage_error",
             TabRepairErrorKind::NotFound => "tab_repair_target_not_found",
             TabRepairErrorKind::NotAuthorized => TAB_REPAIR_NOT_AUTHORIZED,
             TabRepairErrorKind::VerifiedSessionRequired => TAB_REPAIR_VERIFIED_SESSION_REQUIRED,
@@ -232,13 +233,19 @@ fn runtime_provider_for_repair(tab: &Tab) -> Option<String> {
         .then(|| session.provider.clone())
 }
 
-fn live_task_plan(svc: &ServiceContext, tab: &Tab) -> Option<String> {
-    let binding = tab.task_binding.as_ref()?;
-    let plan_id = binding.plan_id.as_deref()?;
-    let task_id = binding.task_id.as_deref()?;
-    let plan = svc.plan_store.get(plan_id)?;
-    let task = crate::plan::task_key::find_task(&plan.tasks, task_id)?;
-    tab_holds(task, &tab.id).then(|| plan_id.to_string())
+fn live_task_plan(svc: &ServiceContext, tab: &Tab) -> Result<Option<String>, TabRepairError> {
+    let Some((plan_id, task_id)) = tab
+        .task_binding
+        .as_ref()
+        .and_then(|binding| Some((binding.plan_id.as_deref()?, binding.task_id.as_deref()?)))
+    else {
+        return Ok(None);
+    };
+    let held = svc
+        .plan_store
+        .report_tab_holds_task_projection(plan_id, task_id, &tab.id)
+        .map_err(|error| TabRepairError::new(TabRepairErrorKind::Storage, error.to_string()))?;
+    Ok(held.then(|| plan_id.to_string()))
 }
 
 impl ServiceContext {
@@ -268,11 +275,17 @@ impl ServiceContext {
                 tab_id: tab.id,
             });
         }
-        let Some(plan_id) = live_task_plan(self, &tab) else {
+        let Some(plan_id) = live_task_plan(self, &tab)? else {
             return Err(not_authorized(tab_id));
         };
         self.authorize_plan_orchestrator(&plan_id, caller)
-            .map_err(|_| not_authorized(tab_id))?;
+            .map_err(|error| {
+                if error == super::PlanAuthorityError::StoreReadFailed {
+                    TabRepairError::new(TabRepairErrorKind::Storage, error.to_string())
+                } else {
+                    not_authorized(tab_id)
+                }
+            })?;
         Ok(AuthorizedRepairTarget {
             identity: ProviderIdentityEvidence::capture(&tab),
             tab_id: tab.id,
@@ -304,7 +317,7 @@ impl ServiceContext {
                 tab_id: tab.id,
             });
         }
-        let Some(plan_id) = live_task_plan(self, &tab) else {
+        let Some(plan_id) = live_task_plan(self, &tab)? else {
             return Err(not_authorized(tab_id));
         };
         self.authorize_plan_orchestrator_async(&plan_id, caller)
