@@ -500,9 +500,14 @@ pub fn register_reasoning_efforts(
 /// is reused; older (or absent) triggers a background refresh.
 pub const DEFAULT_TTL: Duration = Duration::from_secs(6 * 3600);
 
+/// Call deadline for a plugin `discoverModels`: a background catalogue refresh may
+/// wait on slow provider CLIs far beyond the standard plugin call bound.
+pub const MODEL_DISCOVERY_DEADLINE: Duration = Duration::from_secs(30);
+
 /// Hard cap on a single `discover_models` probe — it may shell out / hit the
-/// network, so it must never hang the refresh task.
-pub const DISCOVER_TIMEOUT: Duration = Duration::from_secs(8);
+/// network, so it must never hang the refresh task. It outlasts the plugin call
+/// deadline so that deadline, not this cap, ends a slow discovery.
+pub const DISCOVER_TIMEOUT: Duration = Duration::from_secs(MODEL_DISCOVERY_DEADLINE.as_secs() + 5);
 
 /// Publish a live discovery snapshot for `provider_id` and persist it to the
 /// on-disk cache so it survives a restart.
