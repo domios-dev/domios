@@ -26,7 +26,18 @@
         "binary": "gemini",
         "args": [
           "--acp"
-        ]
+        ],
+        "env": {
+          "GEMINI_CLI_TRUST_WORKSPACE": "true"
+        },
+        "authEnv": {
+          "GEMINI_API_KEY": {
+            "secret": "domios:provider:acp:gemini-api-key",
+            "methods": [
+              "gemini-api-key"
+            ]
+          }
+        }
       },
       "local": {
         "binary": "local-acp-command",

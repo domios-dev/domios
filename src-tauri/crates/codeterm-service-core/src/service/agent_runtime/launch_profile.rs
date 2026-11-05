@@ -154,6 +154,11 @@ pub(super) fn resolve(
                 &authority.binding().provider_id,
                 profile,
             )?);
+        selected.env.extend(super::auth_env::auth_environment(
+            svc,
+            &authority.binding().provider_id,
+            profile,
+        )?);
     }
     Ok(ResolvedLaunch {
         binary,

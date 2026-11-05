@@ -226,11 +226,15 @@ impl AgentRuntimeCapability {
                 {
                     return Err(RuntimeManifestError::InvalidProfile);
                 }
+                if !valid_auth_env(&profile.auth_env) {
+                    return Err(RuntimeManifestError::InvalidProfile);
+                }
                 if profile.owner_configured
                     && (profile.install.is_some()
                         || !profile.args.is_empty()
                         || !profile.env.is_empty()
-                        || !profile.secret_env.is_empty())
+                        || !profile.secret_env.is_empty()
+                        || !profile.auth_env.is_empty())
                 {
                     return Err(RuntimeManifestError::InvalidProfile);
                 }
@@ -352,6 +356,29 @@ fn valid_methods(methods: &[String]) -> bool {
                 && !method
                     .bytes()
                     .any(|b| b.is_ascii_control() || b.is_ascii_whitespace())
+        })
+}
+
+fn valid_auth_env(
+    auth_env: &std::collections::BTreeMap<String, crate::agent_runtime::RuntimeProfileAuthEnv>,
+) -> bool {
+    let mut methods = std::collections::HashSet::new();
+    auth_env.len() <= 32
+        && auth_env.iter().all(|(key, entry)| {
+            !key.is_empty()
+                && key.len() <= 128
+                && key.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+                && !key.to_ascii_uppercase().starts_with("CODETERM")
+                && !entry.secret.is_empty()
+                && entry.secret.len() <= 128
+                && entry
+                    .secret
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b"_:-".contains(&b))
+                && !entry.methods.is_empty()
+                && entry.methods.len() <= 8
+                && valid_methods(&entry.methods)
+                && entry.methods.iter().all(|method| methods.insert(method))
         })
 }
 

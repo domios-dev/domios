@@ -231,6 +231,36 @@ fn launch_profiles_require_pinned_packages_and_protect_secret_references() {
 }
 
 #[test]
+fn optional_auth_env_binds_bounded_variables_to_distinct_declared_methods() {
+    let with_auth_env = |auth_env: serde_json::Value| {
+        let mut raw = manifest();
+        raw["permissions"]["subprocess"]["allow"] = json!(["runtime-engine", "npx"]);
+        raw["capabilities"]["agentRuntime"]["launchProfiles"] = json!({"selected":{
+            "binary":"npx","args":["--acp"],"authEnv":auth_env
+        }});
+        PluginManifest::from_json_str(&raw.to_string())
+            .is_ok_and(|manifest| manifest.validate_agent_runtime().is_ok())
+    };
+    assert!(with_auth_env(json!({
+        "AGENT_API_KEY":{"secret":"domios:provider:runtime-fixture:key","methods":["opaque-key"]}
+    })));
+    for invalid in [
+        json!({"CODETERM_API_TOKEN":{"secret":"domios:provider:runtime-fixture:key","methods":["opaque-key"]}}),
+        json!({"AGENT-KEY":{"secret":"domios:provider:runtime-fixture:key","methods":["opaque-key"]}}),
+        json!({"AGENT_API_KEY":{"secret":"opaque secret","methods":["opaque-key"]}}),
+        json!({"AGENT_API_KEY":{"secret":"domios:provider:runtime-fixture:key","methods":[]}}),
+        json!({"AGENT_API_KEY":{"secret":"domios:provider:runtime-fixture:key","methods":["opaque key"]}}),
+        json!({
+            "AGENT_API_KEY":{"secret":"domios:provider:runtime-fixture:key","methods":["opaque-key"]},
+            "AGENT_ALT_KEY":{"secret":"domios:provider:runtime-fixture:alt","methods":["opaque-key"]}
+        }),
+        json!({"AGENT_API_KEY":{"secret":"domios:provider:runtime-fixture:key"}}),
+    ] {
+        assert!(!with_auth_env(invalid.clone()), "{invalid}");
+    }
+}
+
+#[test]
 fn runtime_envelope_is_explicit_and_unknown_envelopes_are_rejected() {
     let mut raw = manifest();
     let default = PluginManifest::from_json_str(&raw.to_string()).unwrap();

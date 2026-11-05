@@ -127,6 +127,7 @@ pub fn spawn(
 ) -> Result<Process, RuntimeFailure> {
     #[cfg(test)]
     if let Some(factory) = test_ports::factory(_tab) {
+        test_ports::record_env(_tab, &env);
         return Ok(factory());
     }
     if cap.runtime != codeterm_plugin::agent_runtime::AgentRuntimeProtocol::StdioJsonrpc {

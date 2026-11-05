@@ -143,12 +143,16 @@ pub enum AgentAction {
     /// Sign in to the tab's runtime provider without a terminal
     Login {
         /// Read the pending sign-in without starting another flow
-        #[arg(long, conflicts_with_all = ["device", "api_key_stdin", "cancel"])]
+        #[arg(long, conflicts_with_all = ["device", "api_key_stdin", "cancel", "method"])]
         show: bool,
         #[arg(long, value_name = "TAB")]
         tab: String,
-        #[arg(long, conflicts_with_all = ["api_key_stdin", "cancel"])]
+        #[arg(long, conflicts_with_all = ["api_key_stdin", "cancel", "method"])]
         device: bool,
+        /// Authenticate with a method the agent declared (listed by --show); add
+        /// --api-key-stdin when that method takes an API key
+        #[arg(long, value_name = "ID", conflicts_with = "cancel")]
+        method: Option<String>,
         /// Read the API key from stdin; never supply credentials in argv
         #[arg(long, conflicts_with = "cancel")]
         api_key_stdin: bool,

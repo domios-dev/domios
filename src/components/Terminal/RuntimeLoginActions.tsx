@@ -14,6 +14,7 @@ export function RuntimeLoginActions({ tabId, state, iconSvg, onCheck, providerId
   providerId?: string; tabId: string; state: AgentRuntimeState; iconSvg?: string | null; onCheck?: () => void;
 }) {
   const [keyEntry, setKeyEntry] = useState(false);
+  const [keyMethod, setKeyMethod] = useState<string | undefined>();
   const [code, setCode] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [copied, setCopied] = useState(false);
@@ -57,12 +58,13 @@ export function RuntimeLoginActions({ tabId, state, iconSvg, onCheck, providerId
         </div>}
 
         {keyEntry && !pending && <form aria-label="API key sign-in" className="mt-3 flex flex-wrap items-center gap-2"
-          onSubmit={event => { event.preventDefault(); const key = apiKey; setApiKey(""); setKeyEntry(false); void operate({ method: "apiKey", apiKey: key }); }}>
+          onSubmit={event => { event.preventDefault(); const key = apiKey; const methodId = keyMethod; setApiKey(""); setKeyEntry(false); setKeyMethod(undefined);
+            void operate(methodId ? { methodId, apiKey: key } : { method: "apiKey", apiKey: key }); }}>
           <input type="password" aria-label="API key" autoComplete="off" spellCheck={false} placeholder="Paste your API key" autoFocus
             value={apiKey} onChange={event => setApiKey(event.target.value)}
             className="min-w-0 flex-1 rounded-md border border-[var(--ct-border)] bg-[var(--ct-bg)] px-2.5 py-1.5 text-sm text-[var(--ct-fg)] placeholder:text-[var(--ct-muted-fg)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ct-border-focus)]" />
           <button className={primary} type="submit" disabled={busy || !apiKey.trim()}>Sign in</button>
-          <button className={quiet} type="button" onClick={() => { setApiKey(""); setKeyEntry(false); }}>Cancel</button>
+          <button className={quiet} type="button" onClick={() => { setApiKey(""); setKeyEntry(false); setKeyMethod(undefined); }}>Cancel</button>
         </form>}
 
         {!keyEntry && <div className="mt-3 flex flex-wrap items-center gap-1">
@@ -75,8 +77,11 @@ export function RuntimeLoginActions({ tabId, state, iconSvg, onCheck, providerId
             <button className={quiet} type="button" disabled={busy || !login.loginId} onClick={() => { void operate({ action: "cancel" }); }}>Cancel</button>
           </> : <>
             {login?.loginId && login.error && <button className={quiet} type="button" disabled={busy} onClick={() => { void operate({action:"cancel"}); }}>Cancel expired sign-in</button>}
-            {state.authentication?.methods.map(method => <button key={method.id} className={primary} type="button" disabled={busy || !method.available}
-              onClick={() => { void operate({ methodId: method.id }); }}>{method.name}</button>)}
+            {state.authentication?.methods.map(method => {
+              const takesKey = !remote && Boolean(state.apiKeyMethods?.includes(method.id));
+              return <button key={method.id} className={primary} type="button" disabled={busy || !method.available}
+                onClick={() => { if (takesKey) { setKeyMethod(method.id); setKeyEntry(true); } else void operate({ methodId: method.id }); }}>{method.name}</button>;
+            })}
             {state.loginChoices?.map(choice => <button key={choice.id} className={primary} type="button" disabled={busy}
               onClick={() => { void operate({ method: "browser", account: choice.id }); }}>{choice.label}</button>)}
             {!state.loginChoices?.length && methods.includes("browser") && <button className={primary} type="button" disabled={busy}

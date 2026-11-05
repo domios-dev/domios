@@ -33,10 +33,21 @@ pub struct RuntimeLaunchProfile {
     pub install: Option<RuntimeProfileInstall>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub secret_env: BTreeMap<String, String>,
+    /// Optional credentials: each variable is injected only when its secret is stored,
+    /// and the listed declared sign-in methods accept an API key into that secret.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub auth_env: BTreeMap<String, RuntimeProfileAuthEnv>,
     #[serde(default, skip_serializing_if = "is_false")]
     pub owner_configured: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detection: Option<RuntimeProfileDetection>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RuntimeProfileAuthEnv {
+    pub secret: String,
+    pub methods: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

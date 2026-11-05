@@ -154,6 +154,8 @@ export interface RuntimeLaunchProfile {
   install?:{package:string; registry?:string};
   detection?:{args:readonly string[]};
   secretEnv?:Readonly<Record<string,string>>;
+  /** Optional credentials: injected only when stored; the listed declared sign-in methods take an API key. */
+  authEnv?:Readonly<Record<string,{secret:string; methods:readonly string[]}>>;
   ownerConfigured?:boolean;
 }
 export interface StdioAgentRuntimeCapability {

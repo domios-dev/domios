@@ -87,6 +87,12 @@ fn publish_state(svc: &ServiceContext, tab: &str, session: &Session, lifecycle: 
                     Value::Bool(login.terminal_command.is_some()),
                 );
             }
+            if let Some(methods) = super::super::auth_env::selected_profile(svc, tab, session)
+                .map(|profile| super::super::auth_env::api_key_methods(&profile))
+                .filter(|methods| !methods.is_empty())
+            {
+                snapshot.insert("apiKeyMethods".into(), serde_json::json!(methods));
+            }
         }
     }
     {

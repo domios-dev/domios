@@ -94,6 +94,29 @@ it("renders declared authentication methods and submits only an available method
   } finally {await act(async()=>root.unmount());}
 });
 
+it("asks for a key before a key-taking declared method and sends both together", async () => {
+  bridge.invoke.mockReset();bridge.invoke.mockResolvedValue({});
+  const host=document.createElement("div");const root=createRoot(host);
+  const state:AgentRuntimeState={state:"loginPending",epoch:2,apiKeyMethods:["opaque-key"],authentication:{state:"needs_auth",methods:[
+    {id:"opaque-key",name:"Key sign-in",available:true},
+  ]}};
+  try {
+    await act(async()=>root.render(<RuntimeLoginActions tabId="owned" state={state}/>));
+    const method=Array.from(host.querySelectorAll("button")).find(button=>button.textContent === "Key sign-in")!;
+    await act(async()=>method.click());
+    expect(bridge.invoke).not.toHaveBeenCalled();
+    const input=host.querySelector<HTMLInputElement>('input[aria-label="API key"]')!;
+    expect(input.type).toBe("password");
+    await act(async()=>{
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value")!.set!.call(input,"opaque-secret");
+      input.dispatchEvent(new Event("input",{bubbles:true}));
+    });
+    await act(async()=>host.querySelector('form[aria-label="API key sign-in"]')!.dispatchEvent(new Event("submit",{bubbles:true,cancelable:true})));
+    expect(bridge.invoke).toHaveBeenCalledExactlyOnceWith("agent_runtime_login",{tabId:"owned",request:{methodId:"opaque-key",apiKey:"opaque-secret"}});
+    expect(host.querySelector('input[aria-label="API key"]')).toBeNull();
+  } finally {await act(async()=>root.unmount());}
+});
+
 it("renders a session config picker, sends its pinned selection, and dismisses transient notices", async () => {
   bridge.invoke.mockReset();bridge.invoke.mockResolvedValue({ok:true});
   const host=document.createElement("div");const root=createRoot(host);

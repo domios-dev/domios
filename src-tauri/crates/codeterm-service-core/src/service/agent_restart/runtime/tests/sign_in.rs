@@ -136,6 +136,131 @@ fn missing_profile_secret_projects_login_pending_and_normal_restart_binds_after_
     );
 }
 
+const KEYED_AUTH_SOURCE: &str = r#"
+let signedIn = false;
+const declared = state => ({kind:'authentication',authentication:{state,
+  methods:[{id:'opaque-key-method',name:'Opaque key',available:true}]}});
+module.exports = {
+  runtimePlan(ctx, op) {
+    return {action:{kind:'request',call:{method:op.kind,params:op}},state:null};
+  },
+  runtimeResponse(ctx, op, state, reply) {
+    const auth = {kind:'auth',state:signedIn ? 'signedIn' : 'signedOut'};
+    if (op.kind === 'initialize')
+      return {kind:'complete',result:{kind:'initialized'},events:[declared(signedIn ? 'authenticated' : 'needs_auth'),auth]};
+    if (op.kind === 'control' && op.action === 'login') {
+      if (op.value.methodId !== 'opaque-key-method' || reply.value.authKey !== 'opaque-test-key')
+        return {kind:'refused',reason:{code:'authentication_required',message:'fixture key missing'},beforeAcceptance:true};
+      signedIn = true;
+      return {kind:'complete',result:{kind:'done'},events:[declared('authenticated'),{kind:'auth',state:'signedIn'}]};
+    }
+    if (op.kind === 'control') return {kind:'complete',result:{kind:'done'},events:[auth]};
+    if (!signedIn && (op.kind === 'openThread' || op.kind === 'resumeThread'))
+      return {kind:'refused',reason:{code:'authentication_required',message:'fixture sign-in required'},beforeAcceptance:true};
+    let result = {kind:'done'};
+    if (op.kind === 'openThread' || op.kind === 'resumeThread')
+      result = {kind:'threadLoaded',threadId:op.threadId || ctx.bindingNonce,settings:op.settings};
+    return {kind:'complete',result};
+  },
+  runtimeReduce() { return {state:null,events:[]}; }
+};
+"#;
+
+#[test]
+fn declared_key_sign_in_stores_the_key_injects_it_and_authenticates_before_loading() {
+    const SECRET: &str = "domios:provider:restart-fixture:auth";
+    let fixture = RuntimeFixture::prepared_with_launch_profiles(
+        KEYED_AUTH_SOURCE,
+        true,
+        Some(json!({"keyed":{"binary":"node","args":[],
+            "authEnv":{"OPAQUE_AUTH_KEY":{"secret":SECRET,"methods":["opaque-key-method"]}}}})),
+    );
+    crate::async_runtime::block_on(async {
+        *fixture.service.secrets.write().await = Arc::new(crate::secrets::mock::MockStore::new());
+    });
+    {
+        let mut mux = fixture.service.mux.write();
+        let tab = mux.get_tab_mut(&fixture.tab).unwrap();
+        tab.agent_session_id = None;
+        tab.reported_session_binding_nonce = None;
+        if let TabBacking::ChatBackend { session_id, .. } = &mut tab.backing {
+            session_id.clear();
+        }
+    }
+    agent_runtime::transport::launch(
+        &fixture.service,
+        PROVIDER,
+        &fixture.tab,
+        json!({"launchProfile":"keyed","systemPrompt":PROMPT,"model":"supplied-model"}),
+    )
+    .unwrap();
+    let state = || {
+        fixture
+            .service
+            .mux
+            .read()
+            .get_tab(&fixture.tab)
+            .unwrap()
+            .agent_runtime_state
+            .clone()
+            .unwrap()
+    };
+    assert_eq!(state()["state"], "loginPending");
+    assert_eq!(state()["apiKeyMethods"], json!(["opaque-key-method"]));
+    let injected = || {
+        agent_runtime::process::test_ports::spawned_env(&fixture.tab)
+            .get("OPAQUE_AUTH_KEY")
+            .cloned()
+    };
+    assert_eq!(
+        injected(),
+        None,
+        "an absent optional key never refuses launch"
+    );
+
+    let refused = crate::async_runtime::block_on(agent_runtime::login::operate(
+        &fixture.service,
+        &fixture.tab,
+        serde_json::from_value(json!({"methodId":"opaque-key-method"})).unwrap(),
+    ));
+    assert!(
+        refused.is_err(),
+        "authentication without the key is refused"
+    );
+    assert_eq!(state()["state"], "loginPending");
+
+    let signed_in = crate::async_runtime::block_on(agent_runtime::login::operate(
+        &fixture.service,
+        &fixture.tab,
+        serde_json::from_value(
+            json!({"methodId":"opaque-key-method","apiKey":" opaque-test-key\n"}),
+        )
+        .unwrap(),
+    ));
+    assert!(signed_in.is_ok(), "{signed_in:?}");
+    let stored = crate::async_runtime::block_on(async {
+        let store = fixture.service.secrets.read().await.clone();
+        store.get(SECRET).await.unwrap().value.into_inner()
+    });
+    assert_eq!(stored, "opaque-test-key");
+    assert_eq!(injected().as_deref(), Some("opaque-test-key"));
+    assert_eq!(state()["state"], "loaded");
+    let requests = fixture.requests();
+    let login = requests
+        .iter()
+        .rposition(|request| {
+            request["params"]["action"] == "login"
+                && request["params"]["value"]["methodId"] == "opaque-key-method"
+        })
+        .expect("the declared method was authenticated");
+    assert!(requests[login..]
+        .iter()
+        .any(|request| request["method"] == "openThread"));
+    assert!(!requests
+        .iter()
+        .any(|request| request.to_string().contains("opaque-test-key")));
+}
+
 #[test]
 fn bound_runtime_with_missing_tab_identity_keeps_normal_restart_refusal_without_consuming_cooldown()
 {

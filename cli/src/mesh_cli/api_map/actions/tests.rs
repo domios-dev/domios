@@ -13,6 +13,11 @@ const ACTIONS: &[(&str, &[&str], Option<(&str, &str, bool)>)] = &[
         &["login", "--tab", "peer-tab", "--device"],
         Some(("POST", "/api/tabs/peer-tab/agent/runtime/login", true)),
     ),
+    (
+        "login declared method",
+        &["login", "--tab", "peer-tab", "--method", "opaque-method"],
+        Some(("POST", "/api/tabs/peer-tab/agent/runtime/login", true)),
+    ),
     ("cli status", &["cli", "status", "fixture"], None),
     ("cli install", &["cli", "install", "fixture"], None),
     ("cli update", &["cli", "update", "fixture"], None),
