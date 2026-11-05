@@ -195,7 +195,7 @@ fn main_impl() {
         action: args::mcp::McpAction::Serve { tab, binding_nonce },
     } = &cli.command
     {
-        cmd::mcp::serve(tab, binding_nonce);
+        cmd::mcp::serve(tab, binding_nonce, cli.mesh.as_deref());
         return;
     }
     let scoped = std::env::var_os("CODETERM_CLI_SCOPE").is_some();

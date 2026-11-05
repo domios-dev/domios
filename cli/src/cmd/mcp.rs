@@ -7,6 +7,11 @@ use tools::{tool_args, tools};
 const MAX_FRAME: u64 = 1024 * 1024;
 const STARTUP_REFUSED: &str =
     "mcp_serve_authority_required: tab credential and matching binding required";
+const MESH_REFUSED: &str = "mcp_serve_local_only: MCP stdio serves only the launching tab";
+
+pub(super) fn refuse_mesh_target(mesh: Option<&str>) -> Result<(), &'static str> {
+    mesh.map_or(Ok(()), |_| Err(MESH_REFUSED))
+}
 
 fn negotiated_version(offered: Option<&str>) -> &str {
     match offered {
@@ -38,8 +43,10 @@ pub(super) fn validate_launch(
     Ok(())
 }
 
-pub fn serve(tab: &str, nonce: &str) {
-    if let Err(reason) = validate_launch(tab, nonce, |key| std::env::var(key).ok()) {
+pub fn serve(tab: &str, nonce: &str, mesh: Option<&str>) {
+    if let Err(reason) = refuse_mesh_target(mesh)
+        .and_then(|()| validate_launch(tab, nonce, |key| std::env::var(key).ok()))
+    {
         eprintln!("{reason}");
         std::process::exit(7);
     }

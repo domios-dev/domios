@@ -43,7 +43,6 @@ fn mcp_serve_refuses_url_mesh_instance_and_identity_overrides() {
         "--port",
         "--token",
         "--instance",
-        "--mesh",
         "--caller-tab",
     ] {
         assert!(crate::Cli::try_parse_from([
@@ -59,6 +58,20 @@ fn mcp_serve_refuses_url_mesh_instance_and_identity_overrides() {
         ])
         .is_err());
     }
+    let parsed = crate::Cli::try_parse_from([
+        "domios",
+        "mcp",
+        "serve",
+        "--tab",
+        "own",
+        "--binding-nonce",
+        "nonce",
+        "--mesh",
+        "foreign",
+    ])
+    .unwrap();
+    assert!(refuse_mesh_target(parsed.mesh.as_deref()).is_err());
+    assert!(refuse_mesh_target(None).is_ok());
     for key in ["url", "mesh", "instance", "tab", "caller_tab_id", "token"] {
         assert!(tool_args("mem_search", &json!({"query":"opaque",key:"foreign"})).is_err());
     }

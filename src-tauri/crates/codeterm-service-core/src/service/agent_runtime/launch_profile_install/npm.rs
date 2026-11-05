@@ -195,6 +195,7 @@ async fn package_manager(target: &Path, archive: &Path) -> Result<PathBuf, Strin
     }
     let node = super::resolve_binary("node")?.ok_or("Node.js is not installed")?;
     let mut command = tokio::process::Command::new(&node);
+    crate::process_util::no_window_tokio(&mut command);
     command.arg(cli);
     command.env_clear();
     for name in [
