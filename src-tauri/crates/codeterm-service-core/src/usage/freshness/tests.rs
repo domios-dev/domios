@@ -89,21 +89,13 @@ fn failure_backoff_is_bounded_during_active_work() {
 }
 
 #[test]
-fn persistent_failure_slows_down_instead_of_stopping() {
+fn persistent_failure_parks_even_when_active_and_overdue() {
     for active in [false, true] {
         for failures in [4, 16, u32::MAX] {
             assert!(!refresh_due(
                 active,
                 None,
-                Some(Duration::from_secs(1799)),
-                false,
-                failures,
-                Duration::from_secs(3000)
-            ));
-            assert!(refresh_due(
-                active,
-                None,
-                Some(Duration::from_secs(1800)),
+                Some(Duration::from_secs(86_400)),
                 false,
                 failures,
                 Duration::from_secs(3000)
