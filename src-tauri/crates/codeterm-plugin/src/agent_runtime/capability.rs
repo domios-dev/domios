@@ -10,6 +10,12 @@ pub enum AgentRuntimeProtocol {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AgentRuntimeEnvelope {
+    Jsonrpc2,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AgentRuntimeCommand {
     pub binary: String,
@@ -18,7 +24,48 @@ pub struct AgentRuntimeCommand {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RuntimeLaunchProfile {
+    pub binary: String,
+    pub args: Vec<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub env: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub install: Option<RuntimeProfileInstall>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub secret_env: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub owner_configured: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detection: Option<RuntimeProfileDetection>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RuntimeProfileInstall {
+    pub package: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub registry: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RuntimeProfileDetection {
+    pub args: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AgentRuntimeCapability {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_mcp: Option<super::RuntimeHostMcpDeclaration>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub envelope: Option<AgentRuntimeEnvelope>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub interrupt: Option<RuntimeInterruptCapability>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_bridges: Option<RuntimeClientBridges>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub launch_profiles: Option<BTreeMap<String, RuntimeLaunchProfile>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub restricted_cli: Option<RestrictedCliCapability>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -43,6 +90,8 @@ pub struct AgentRuntimeCapability {
     pub inherited_environment_exclusions: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub login: Option<RuntimeLoginCapability>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub turn_scoped_requests: Vec<String>,
     pub request_methods: BTreeMap<String, Vec<String>>,
     pub notification_methods: Vec<String>,
 }
@@ -138,4 +187,22 @@ pub enum RuntimeThreadHistoryAction {
 pub struct RuntimeModeDescriptor {
     pub id: String,
     pub display_name: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RuntimeClientBridges {
+    pub fs_read: bool,
+    pub fs_write: bool,
+    pub terminal: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RuntimeInterruptCapability {
+    pub before_first_turn: bool,
+}
+
+fn is_false(value: &bool) -> bool {
+    !value
 }

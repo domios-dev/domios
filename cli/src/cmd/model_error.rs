@@ -36,12 +36,26 @@ pub(crate) fn render_model_catalogue_error(data: &serde_json::Value) -> Option<S
     Some(format!("✗ {message}\nfix: {refresh}"))
 }
 
+pub(crate) fn render_launch_profile_error(data: &serde_json::Value) -> Option<String> {
+    let code = data.get("code")?.as_str()?;
+    if !matches!(
+        code,
+        "unknown_launch_profile" | "launch_profile_required" | "launch_profile_not_installed"
+    ) {
+        return None;
+    }
+    let message = data.get("message")?.as_str()?;
+    Some(format!("✗ {message}"))
+}
+
 pub(crate) fn render_socket_error(error: &SocketCallError) -> String {
     if let SocketCallError::Rpc(RpcError {
         data: Some(data), ..
     }) = error
     {
-        if let Some(rendered) = render_model_catalogue_error(data) {
+        if let Some(rendered) =
+            render_launch_profile_error(data).or_else(|| render_model_catalogue_error(data))
+        {
             return rendered;
         }
     }

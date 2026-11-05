@@ -12,7 +12,9 @@ export function useProviderCliStatus(providerId: string) {
   const refreshStatus = useCallback(async (userInitiated: boolean) => {
     const request = ++sequence.current;
     try {
-      const next = await invoke<ProviderCliStatus>("provider_cli_status", { providerId });
+      const next = await invoke<ProviderCliStatus>("provider_cli_status", {
+        providerId, ...(userInitiated ? { refresh: true } : {}),
+      });
       if (sequence.current === request) {
         setStatus(next);
         setProbeFailed(false);

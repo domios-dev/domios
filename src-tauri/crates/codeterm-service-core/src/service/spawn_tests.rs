@@ -690,6 +690,7 @@ fn agent_spec_roundtrips_json() {
 fn from_agent_params_carries_model_into_spec() {
     let params = SpawnAgentParams {
         execution_mode: None,
+        launch_profile: None,
         context_files: None,
         neighbor_authority: None,
         neighbor_machine_access: None,
@@ -781,6 +782,7 @@ fn to_agent_params_carries_model_as_dedicated_field() {
 fn planned_effort_survives_host_owned_params_spec_pipeline() {
     let params = SpawnAgentParams {
         execution_mode: None,
+        launch_profile: None,
         context_files: None,
         neighbor_authority: None,
         context_skills: None,
@@ -858,6 +860,7 @@ fn from_agent_params_preserves_can_spawn_option() {
     // --can-spawn=b explicitly". The spec must NOT collapse None → Some(false) (the pre-fix-#42 behavior that clobbered Orchestrator default to false on every spawn).
     let mut p = SpawnAgentParams {
         execution_mode: None,
+        launch_profile: None,
         context_files: None,
         neighbor_authority: None,
         neighbor_machine_access: None,
@@ -938,6 +941,7 @@ fn from_agent_params_preserves_can_spawn_option() {
 fn from_agent_params_carries_activate_into_spec() {
     let mut p = SpawnAgentParams {
         execution_mode: None,
+        launch_profile: None,
         context_files: None,
         neighbor_authority: None,
         neighbor_machine_access: None,

@@ -24,8 +24,7 @@ mod directory_trust;
 mod model_launch;
 mod session_detection;
 mod session_wire;
-
-use session_wire::WireUsageSource;
+mod usage_sources;
 
 #[async_trait::async_trait]
 impl AgentProvider for JsProvider {
@@ -78,8 +77,9 @@ impl AgentProvider for JsProvider {
     fn authorize_agent_runtime(
         &self,
         authority: &crate::agent_runtime::LaunchAuthority,
+        profile: Option<&str>,
     ) -> Result<PathBuf, super::super::manifest::RuntimeManifestError> {
-        self.manifest.authorize_agent_runtime(authority)
+        self.manifest.authorize_agent_runtime(authority, profile)
     }
 
     async fn runtime_plan(
@@ -561,21 +561,7 @@ impl AgentProvider for JsProvider {
     }
 
     fn usage_sources(&self, cwd: &str, session_id: &str) -> Vec<UsageSourceSpec> {
-        if self.has_js("usageSources") {
-            // An exported `usageSources` is authoritative: a null or failed reply
-            // declares no source and must not fall back to a fabricated file.
-            return self
-                .try_call::<Vec<WireUsageSource>>("usageSources", &[json!(cwd), json!(session_id)])
-                .unwrap_or_default()
-                .into_iter()
-                .filter(|source| !source.path.is_empty())
-                .map(|source| UsageSourceSpec {
-                    path: PathBuf::from(source.path),
-                    session_id: source.session_id.filter(|id| !id.is_empty()),
-                })
-                .collect();
-        }
-        provider::usage_sources_from_session_file(self, cwd, session_id)
+        self.js_usage_sources(cwd, session_id)
     }
 
     fn session_exists(&self, cwd: &str, session_id: &str) -> Option<bool> {

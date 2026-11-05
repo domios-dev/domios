@@ -201,7 +201,7 @@ Runtime requests remain bound to the target tab's session and epoch. Provider CL
 |--------|------|-----------|
 | DELETE | `/api/remote-workers` | Forget a remote Worker record. |
 | GET | `/api/agents/done` | List completed agent runs. |
-| GET | `/api/agents/providers/{id}/cli` | Read provider CLI status. |
+| GET | `/api/agents/providers/{id}/cli` | Read provider CLI status; `?refresh=true` re-observes its launch profiles. |
 | GET | `/api/agents/providers/{id}/model-usage` | Read provider model-group usage. |
 | GET | `/api/tabs/{id}/agent/runtime/background-processes` | Read attributed runtime background processes. |
 | POST | `/api/agents/general/complete-first-run` | Complete General first-run setup. |
@@ -219,4 +219,4 @@ Runtime requests remain bound to the target tab's session and epoch. Provider CL
 | POST | `/api/tabs/{id}/agent/runtime/retry` | Retry initialization of the same runtime session. |
 | POST | `/api/tabs/{id}/agent/runtime/thread-history` | Read runtime-owned thread history. |
 
-<!-- revision: 76 -->
+<!-- revision: 77 -->

@@ -1,0 +1,1100 @@
+{
+  "schemaVersion": 1,
+  "operations": [
+    {
+      "operation": {
+        "kind": "initialize"
+      },
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/project",
+        "hostVersion": "1.18.7",
+        "tabId": "mcp-advertised",
+        "bindingNonce": "nonce-fixture",
+        "settings": {},
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "hostMcp": {
+          "name": "domios",
+          "command": "/opt/domios/bin/domios",
+          "args": [
+            "mcp",
+            "serve",
+            "--tab",
+            "mcp-advertised",
+            "--binding-nonce",
+            "nonce-fixture"
+          ],
+          "env": {
+            "CODETERM_API_TOKEN": "<credential-placeholder>",
+            "CODETERM_API_URL": "http://127.0.0.1:43210",
+            "CODETERM_SESSION_BINDING_NONCE": "nonce-fixture",
+            "CODETERM_TAB_ID": "mcp-advertised"
+          }
+        }
+      }
+    },
+    {
+      "operation": {
+        "kind": "openThread",
+        "instructions": "",
+        "settings": {}
+      },
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/project",
+        "hostVersion": "1.18.7",
+        "tabId": "mcp-advertised",
+        "bindingNonce": "nonce-fixture",
+        "settings": {},
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "hostMcp": {
+          "name": "domios",
+          "command": "/opt/domios/bin/domios",
+          "args": [
+            "mcp",
+            "serve",
+            "--tab",
+            "mcp-advertised",
+            "--binding-nonce",
+            "nonce-fixture"
+          ],
+          "env": {
+            "CODETERM_API_TOKEN": "<credential-placeholder>",
+            "CODETERM_API_URL": "http://127.0.0.1:43210",
+            "CODETERM_SESSION_BINDING_NONCE": "nonce-fixture",
+            "CODETERM_TAB_ID": "mcp-advertised"
+          }
+        }
+      }
+    },
+    {
+      "operation": {
+        "kind": "initialize"
+      },
+      "context": {
+        "epoch": 3,
+        "cwd": "/work/project",
+        "hostVersion": "1.18.7",
+        "tabId": "mcp-advertised",
+        "bindingNonce": "nonce-fixture",
+        "settings": {},
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "hostMcp": {
+          "name": "domios",
+          "command": "/opt/domios/bin/domios",
+          "args": [
+            "mcp",
+            "serve",
+            "--tab",
+            "mcp-advertised",
+            "--binding-nonce",
+            "nonce-fixture"
+          ],
+          "env": {
+            "CODETERM_API_TOKEN": "<credential-placeholder>",
+            "CODETERM_API_URL": "http://127.0.0.1:43210",
+            "CODETERM_SESSION_BINDING_NONCE": "nonce-fixture",
+            "CODETERM_TAB_ID": "mcp-advertised"
+          }
+        }
+      }
+    },
+    {
+      "operation": {
+        "kind": "resumeThread",
+        "threadId": "session-fixture",
+        "instructions": "",
+        "settings": {}
+      },
+      "context": {
+        "epoch": 3,
+        "cwd": "/work/project",
+        "hostVersion": "1.18.7",
+        "tabId": "mcp-advertised",
+        "bindingNonce": "nonce-fixture",
+        "settings": {},
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "hostMcp": {
+          "name": "domios",
+          "command": "/opt/domios/bin/domios",
+          "args": [
+            "mcp",
+            "serve",
+            "--tab",
+            "mcp-advertised",
+            "--binding-nonce",
+            "nonce-fixture"
+          ],
+          "env": {
+            "CODETERM_API_TOKEN": "<credential-placeholder>",
+            "CODETERM_API_URL": "http://127.0.0.1:43210",
+            "CODETERM_SESSION_BINDING_NONCE": "nonce-fixture",
+            "CODETERM_TAB_ID": "mcp-advertised"
+          }
+        },
+        "threadId": "session-fixture"
+      }
+    },
+    {
+      "operation": {
+        "kind": "initialize"
+      },
+      "context": {
+        "epoch": 5,
+        "cwd": "/work/project",
+        "hostVersion": "1.18.7",
+        "tabId": "mcp-advertised",
+        "bindingNonce": "nonce-fixture",
+        "settings": {},
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "hostMcp": {
+          "name": "domios",
+          "command": "/opt/domios/bin/domios",
+          "args": [
+            "mcp",
+            "serve",
+            "--tab",
+            "mcp-advertised",
+            "--binding-nonce",
+            "nonce-fixture"
+          ],
+          "env": {
+            "CODETERM_API_TOKEN": "<credential-placeholder>",
+            "CODETERM_API_URL": "http://127.0.0.1:43210",
+            "CODETERM_SESSION_BINDING_NONCE": "nonce-fixture",
+            "CODETERM_TAB_ID": "mcp-advertised"
+          }
+        }
+      }
+    },
+    {
+      "operation": {
+        "kind": "resumeThread",
+        "threadId": "session-fixture",
+        "instructions": "",
+        "settings": {}
+      },
+      "context": {
+        "epoch": 5,
+        "cwd": "/work/project",
+        "hostVersion": "1.18.7",
+        "tabId": "mcp-advertised",
+        "bindingNonce": "nonce-fixture",
+        "settings": {},
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "hostMcp": {
+          "name": "domios",
+          "command": "/opt/domios/bin/domios",
+          "args": [
+            "mcp",
+            "serve",
+            "--tab",
+            "mcp-advertised",
+            "--binding-nonce",
+            "nonce-fixture"
+          ],
+          "env": {
+            "CODETERM_API_TOKEN": "<credential-placeholder>",
+            "CODETERM_API_URL": "http://127.0.0.1:43210",
+            "CODETERM_SESSION_BINDING_NONCE": "nonce-fixture",
+            "CODETERM_TAB_ID": "mcp-advertised"
+          }
+        },
+        "threadId": "session-fixture"
+      }
+    },
+    {
+      "operation": {
+        "kind": "initialize"
+      },
+      "context": {
+        "epoch": 7,
+        "cwd": "/work/project",
+        "hostVersion": "1.18.7",
+        "tabId": "mcp-advertised",
+        "bindingNonce": "nonce-fixture",
+        "settings": {},
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": []
+      }
+    },
+    {
+      "operation": {
+        "kind": "openThread",
+        "instructions": "",
+        "settings": {}
+      },
+      "context": {
+        "epoch": 7,
+        "cwd": "/work/project",
+        "hostVersion": "1.18.7",
+        "tabId": "mcp-advertised",
+        "bindingNonce": "nonce-fixture",
+        "settings": {},
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": []
+      }
+    },
+    {
+      "operation": {
+        "kind": "initialize"
+      },
+      "context": {
+        "epoch": 9,
+        "cwd": "/work/project",
+        "hostVersion": "1.18.7",
+        "tabId": "mcp-advertised",
+        "bindingNonce": "nonce-fixture",
+        "settings": {},
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": []
+      }
+    },
+    {
+      "operation": {
+        "kind": "resumeThread",
+        "threadId": "session-fixture",
+        "instructions": "",
+        "settings": {}
+      },
+      "context": {
+        "epoch": 9,
+        "cwd": "/work/project",
+        "hostVersion": "1.18.7",
+        "tabId": "mcp-advertised",
+        "bindingNonce": "nonce-fixture",
+        "settings": {},
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "session-fixture"
+      }
+    },
+    {
+      "operation": {
+        "kind": "initialize"
+      },
+      "context": {
+        "epoch": 11,
+        "cwd": "/work/project",
+        "hostVersion": "1.18.7",
+        "tabId": "mcp-advertised",
+        "bindingNonce": "nonce-fixture",
+        "settings": {},
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": []
+      }
+    },
+    {
+      "operation": {
+        "kind": "resumeThread",
+        "threadId": "session-fixture",
+        "instructions": "",
+        "settings": {}
+      },
+      "context": {
+        "epoch": 11,
+        "cwd": "/work/project",
+        "hostVersion": "1.18.7",
+        "tabId": "mcp-advertised",
+        "bindingNonce": "nonce-fixture",
+        "settings": {},
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "session-fixture"
+      }
+    }
+  ],
+  "rpc": [
+    {
+      "direction": "outbound",
+      "operation": 0,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "initialize",
+          "params": {
+            "protocolVersion": 1,
+            "clientCapabilities": {
+              "fs": {
+                "readTextFile": false,
+                "writeTextFile": false
+              },
+              "terminal": false
+            },
+            "clientInfo": {
+              "name": "domios",
+              "title": "Domios",
+              "version": "1.18.7"
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 0,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "protocolVersion": 1,
+          "agentCapabilities": {
+            "promptCapabilities": {
+              "image": false,
+              "audio": false,
+              "embeddedContext": false
+            }
+          },
+          "authMethods": []
+        }
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 1,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "session/new",
+          "params": {
+            "cwd": "/work/project",
+            "mcpServers": [
+              {
+                "name": "domios",
+                "command": "/opt/domios/bin/domios",
+                "args": [
+                  "mcp",
+                  "serve",
+                  "--tab",
+                  "mcp-advertised",
+                  "--binding-nonce",
+                  "nonce-fixture"
+                ],
+                "env": [
+                  {
+                    "name": "CODETERM_API_TOKEN",
+                    "value": "<credential-placeholder>"
+                  },
+                  {
+                    "name": "CODETERM_API_URL",
+                    "value": "http://127.0.0.1:43210"
+                  },
+                  {
+                    "name": "CODETERM_SESSION_BINDING_NONCE",
+                    "value": "nonce-fixture"
+                  },
+                  {
+                    "name": "CODETERM_TAB_ID",
+                    "value": "mcp-advertised"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 1,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "sessionId": "session-fixture"
+        }
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 2,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "initialize",
+          "params": {
+            "protocolVersion": 1,
+            "clientCapabilities": {
+              "fs": {
+                "readTextFile": false,
+                "writeTextFile": false
+              },
+              "terminal": false
+            },
+            "clientInfo": {
+              "name": "domios",
+              "title": "Domios",
+              "version": "1.18.7"
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 2,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "protocolVersion": 1,
+          "agentCapabilities": {
+            "loadSession": true,
+            "mcpCapabilities": {
+              "http": true
+            }
+          },
+          "authMethods": []
+        }
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 3,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "session/load",
+          "params": {
+            "sessionId": "session-fixture",
+            "cwd": "/work/project",
+            "mcpServers": [
+              {
+                "name": "domios",
+                "command": "/opt/domios/bin/domios",
+                "args": [
+                  "mcp",
+                  "serve",
+                  "--tab",
+                  "mcp-advertised",
+                  "--binding-nonce",
+                  "nonce-fixture"
+                ],
+                "env": [
+                  {
+                    "name": "CODETERM_API_TOKEN",
+                    "value": "<credential-placeholder>"
+                  },
+                  {
+                    "name": "CODETERM_API_URL",
+                    "value": "http://127.0.0.1:43210"
+                  },
+                  {
+                    "name": "CODETERM_SESSION_BINDING_NONCE",
+                    "value": "nonce-fixture"
+                  },
+                  {
+                    "name": "CODETERM_TAB_ID",
+                    "value": "mcp-advertised"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 3,
+      "reply": {
+        "kind": "success",
+        "value": {}
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 4,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "initialize",
+          "params": {
+            "protocolVersion": 1,
+            "clientCapabilities": {
+              "fs": {
+                "readTextFile": false,
+                "writeTextFile": false
+              },
+              "terminal": false
+            },
+            "clientInfo": {
+              "name": "domios",
+              "title": "Domios",
+              "version": "1.18.7"
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 4,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "protocolVersion": 1,
+          "agentCapabilities": {
+            "sessionCapabilities": {
+              "resume": {}
+            }
+          },
+          "authMethods": []
+        }
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 5,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "session/resume",
+          "params": {
+            "sessionId": "session-fixture",
+            "cwd": "/work/project",
+            "mcpServers": [
+              {
+                "name": "domios",
+                "command": "/opt/domios/bin/domios",
+                "args": [
+                  "mcp",
+                  "serve",
+                  "--tab",
+                  "mcp-advertised",
+                  "--binding-nonce",
+                  "nonce-fixture"
+                ],
+                "env": [
+                  {
+                    "name": "CODETERM_API_TOKEN",
+                    "value": "<credential-placeholder>"
+                  },
+                  {
+                    "name": "CODETERM_API_URL",
+                    "value": "http://127.0.0.1:43210"
+                  },
+                  {
+                    "name": "CODETERM_SESSION_BINDING_NONCE",
+                    "value": "nonce-fixture"
+                  },
+                  {
+                    "name": "CODETERM_TAB_ID",
+                    "value": "mcp-advertised"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 5,
+      "reply": {
+        "kind": "success",
+        "value": {}
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 6,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "initialize",
+          "params": {
+            "protocolVersion": 1,
+            "clientCapabilities": {
+              "fs": {
+                "readTextFile": false,
+                "writeTextFile": false
+              },
+              "terminal": false
+            },
+            "clientInfo": {
+              "name": "domios",
+              "title": "Domios",
+              "version": "1.18.7"
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 6,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "protocolVersion": 1,
+          "agentCapabilities": {
+            "promptCapabilities": {
+              "image": false,
+              "audio": false,
+              "embeddedContext": false
+            },
+            "mcpCapabilities": {}
+          },
+          "authMethods": []
+        }
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 7,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "session/new",
+          "params": {
+            "cwd": "/work/project",
+            "mcpServers": []
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 7,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "sessionId": "session-fixture"
+        }
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 8,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "initialize",
+          "params": {
+            "protocolVersion": 1,
+            "clientCapabilities": {
+              "fs": {
+                "readTextFile": false,
+                "writeTextFile": false
+              },
+              "terminal": false
+            },
+            "clientInfo": {
+              "name": "domios",
+              "title": "Domios",
+              "version": "1.18.7"
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 8,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "protocolVersion": 1,
+          "agentCapabilities": {
+            "loadSession": true,
+            "mcpCapabilities": {}
+          },
+          "authMethods": []
+        }
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 9,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "session/load",
+          "params": {
+            "sessionId": "session-fixture",
+            "cwd": "/work/project",
+            "mcpServers": []
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 9,
+      "reply": {
+        "kind": "success",
+        "value": {}
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 10,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "initialize",
+          "params": {
+            "protocolVersion": 1,
+            "clientCapabilities": {
+              "fs": {
+                "readTextFile": false,
+                "writeTextFile": false
+              },
+              "terminal": false
+            },
+            "clientInfo": {
+              "name": "domios",
+              "title": "Domios",
+              "version": "1.18.7"
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 10,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "protocolVersion": 1,
+          "agentCapabilities": {
+            "sessionCapabilities": {
+              "resume": {}
+            },
+            "mcpCapabilities": {}
+          },
+          "authMethods": []
+        }
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 11,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "session/resume",
+          "params": {
+            "sessionId": "session-fixture",
+            "cwd": "/work/project",
+            "mcpServers": []
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 11,
+      "reply": {
+        "kind": "success",
+        "value": {}
+      }
+    }
+  ],
+  "expected": {
+    "results": [
+      {
+        "operation": 0,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "initialized"
+          },
+          "events": [
+            {
+              "kind": "authentication",
+              "authentication": {
+                "state": "unknown",
+                "methods": []
+              }
+            }
+          ]
+        }
+      },
+      {
+        "operation": 1,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "threadLoaded",
+            "threadId": "session-fixture",
+            "settings": {
+              "commands": [],
+              "configOptions": [],
+              "modes": []
+            }
+          }
+        }
+      },
+      {
+        "operation": 2,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "initialized"
+          },
+          "events": [
+            {
+              "kind": "authentication",
+              "authentication": {
+                "state": "unknown",
+                "methods": []
+              }
+            }
+          ]
+        }
+      },
+      {
+        "operation": 3,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "threadLoaded",
+            "threadId": "session-fixture",
+            "settings": {
+              "commands": [],
+              "configOptions": [],
+              "modes": []
+            }
+          }
+        }
+      },
+      {
+        "operation": 4,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "initialized"
+          },
+          "events": [
+            {
+              "kind": "authentication",
+              "authentication": {
+                "state": "unknown",
+                "methods": []
+              }
+            }
+          ]
+        }
+      },
+      {
+        "operation": 5,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "threadLoaded",
+            "threadId": "session-fixture",
+            "settings": {
+              "commands": [],
+              "configOptions": [],
+              "modes": []
+            }
+          }
+        }
+      },
+      {
+        "operation": 6,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "initialized"
+          },
+          "events": [
+            {
+              "kind": "authentication",
+              "authentication": {
+                "state": "unknown",
+                "methods": []
+              }
+            }
+          ]
+        }
+      },
+      {
+        "operation": 7,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "threadLoaded",
+            "threadId": "session-fixture",
+            "settings": {
+              "commands": [],
+              "configOptions": [],
+              "modes": []
+            }
+          }
+        }
+      },
+      {
+        "operation": 8,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "initialized"
+          },
+          "events": [
+            {
+              "kind": "authentication",
+              "authentication": {
+                "state": "unknown",
+                "methods": []
+              }
+            }
+          ]
+        }
+      },
+      {
+        "operation": 9,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "threadLoaded",
+            "threadId": "session-fixture",
+            "settings": {
+              "commands": [],
+              "configOptions": [],
+              "modes": []
+            }
+          }
+        }
+      },
+      {
+        "operation": 10,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "initialized"
+          },
+          "events": [
+            {
+              "kind": "authentication",
+              "authentication": {
+                "state": "unknown",
+                "methods": []
+              }
+            }
+          ]
+        }
+      },
+      {
+        "operation": 11,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "threadLoaded",
+            "threadId": "session-fixture",
+            "settings": {
+              "commands": [],
+              "configOptions": [],
+              "modes": []
+            }
+          }
+        }
+      }
+    ],
+    "events": [
+      {
+        "kind": "authentication",
+        "authentication": {
+          "state": "unknown",
+          "methods": []
+        }
+      },
+      {
+        "kind": "authentication",
+        "authentication": {
+          "state": "unknown",
+          "methods": []
+        }
+      },
+      {
+        "kind": "authentication",
+        "authentication": {
+          "state": "unknown",
+          "methods": []
+        }
+      },
+      {
+        "kind": "authentication",
+        "authentication": {
+          "state": "unknown",
+          "methods": []
+        }
+      },
+      {
+        "kind": "authentication",
+        "authentication": {
+          "state": "unknown",
+          "methods": []
+        }
+      },
+      {
+        "kind": "authentication",
+        "authentication": {
+          "state": "unknown",
+          "methods": []
+        }
+      }
+    ]
+  },
+  "context": {
+    "epoch": 1,
+    "cwd": "/work/project",
+    "hostVersion": "1.18.7",
+    "tabId": "mcp-advertised",
+    "bindingNonce": "nonce-fixture",
+    "settings": {},
+    "providerSettings": {},
+    "claimedSends": [],
+    "activeTurns": [],
+    "threadParents": [],
+    "hostMcp": {
+      "name": "domios",
+      "command": "/opt/domios/bin/domios",
+      "args": [
+        "mcp",
+        "serve",
+        "--tab",
+        "mcp-advertised",
+        "--binding-nonce",
+        "nonce-fixture"
+      ],
+      "env": {
+        "CODETERM_API_TOKEN": "<credential-placeholder>",
+        "CODETERM_API_URL": "http://127.0.0.1:43210",
+        "CODETERM_SESSION_BINDING_NONCE": "nonce-fixture",
+        "CODETERM_TAB_ID": "mcp-advertised"
+      }
+    }
+  }
+}

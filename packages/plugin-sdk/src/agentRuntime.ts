@@ -13,7 +13,10 @@ export type RuntimeFrame =
 
 export interface RuntimeServiceTier { id:string; name:string; description:string; unavailableReason?:string }
 export interface RuntimeServiceTierSelection { id:string|null }
-export interface RuntimeSettings { serviceTier?:RuntimeServiceTierSelection; serviceTierAvailability?:Record<string,readonly RuntimeServiceTier[]>; model?:string; effort?:string; mode?:string; additionalDirectories?:readonly string[]; networkAccess?:boolean }
+export interface RuntimeCommand { name:string; description:string; argumentHint?:string }
+export interface RuntimeConfigOption { id:string; name:string; category?:string; currentValue:string; options:readonly {value:string; name:string}[] }
+export interface RuntimeAuthentication { state:"authenticated"|"needs_auth"|"unavailable"|"unknown"; methods:readonly {id:string; name:string; available:boolean}[] }
+export interface RuntimeSettings { commands?:readonly RuntimeCommand[]; configOptions?:readonly RuntimeConfigOption[]; modes?:readonly {id:string; name:string}[]; serviceTier?:RuntimeServiceTierSelection; serviceTierAvailability?:Record<string,readonly RuntimeServiceTier[]>; model?:string; effort?:string; mode?:string; additionalDirectories?:readonly string[]; networkAccess?:boolean }
 export interface TurnInput { text:string; attachments:readonly ChatAttachment[] }
 export type PromptAnswer =
   | {kind:"choice"; values:readonly string[]}
@@ -40,9 +43,19 @@ export interface OpenItem { turnId:string; item:ChatMsg }
 export type RuntimeFailureCode =
   | "unsupported" | "invalid_schema" | "size_limit" | "hook_failed"
   | "method_not_allowed" | "binding_mismatch" | "deadline"
-  | "process_unavailable" | "protocol_error" | "provider_refused" | "thread_not_found";
+  | "authentication_required" | "process_unavailable" | "protocol_error" | "provider_refused" | "thread_not_found";
 export interface RuntimeFailure { code:RuntimeFailureCode; message:string }
+export interface RuntimeClientBridges {fsRead:boolean; fsWrite:boolean; terminal:boolean}
+export interface RuntimeHostMcp {name:string; command:string; args:readonly string[]; env?:Readonly<Record<string,string>>}
+export interface RuntimeStreamWindow {
+  frameSequences?:readonly number[];
+  turnRequests?:readonly {sendId:string;turnId:string;afterSequence?:number;written?:boolean}[];
+}
 export interface RuntimeContext {
+  restoredRowOrdinal?:number;
+  streamWindow?:RuntimeStreamWindow;
+  hostMcp?:RuntimeHostMcp;
+  clientBridges?:RuntimeClientBridges;
   restrictedCli?:RestrictedCliPolicy;
   epoch:number;
   cwd:string;
@@ -83,6 +96,8 @@ export type Operation =
   | {kind:"control"; threadId?:string; action:string; value:JsonValue};
 export interface RpcCall { method:string; params:JsonValue; target?:{threadId:string;turnId?:string} }
 export type RuntimeAction =
+  | {kind:"local"}
+  | {kind:"refused"; reason:string}
   | {kind:"request"; call:RpcCall}
   | {kind:"notification"; notification:RpcCall}
   | {kind:"reply"; requestId:RpcId; result:RpcReply}
@@ -93,7 +108,7 @@ export type OperationResult =
   | {kind:"goal"; threadId:string; intent:import("./gen/ChatSessionIntent").ChatSessionIntent|null}
   | {kind:"backgroundProcesses"; threadId:string; processes:readonly RuntimeBackgroundProcess[]; nextCursor:string|null}
   | {kind:"backgroundProcessTermination"; threadId:string; processId:string; acknowledged:boolean}
-  | {kind:"initialized"; binaryVersion?:string}
+  | {kind:"initialized"; binaryVersion?:string; agentName?:string}
   | {kind:"threadLoaded"; threadId:string; settings:RuntimeSettings}
   | {kind:"threadForked"; sourceThreadId:string; threadId:string; turnId:string}
   | {kind:"historyPage"; threadId:string; items:readonly ChatMsg[];
@@ -108,8 +123,12 @@ export type RuntimeStep =
   | {kind:"complete"; result:OperationResult; notification?:RpcCall; events?:readonly AgentEvent[]}
   | {kind:"refused"; reason:RuntimeFailure; beforeAcceptance:boolean};
 export type AgentEvent =
+  | {kind:"authentication"; authentication:RuntimeAuthentication}
+  | {kind:"notice"; threadId:string; message:string}
   | {kind:"backgroundProcesses"; threadId:string; processes:readonly RuntimeBackgroundProcess[]}
   | {kind:"chatItem"; threadId:string; item:ChatMsg}
+  | {kind:"chatItemPatch"; threadId:string; item:ChatMsg}
+  | {kind:"chatItemAppend"; threadId:string; itemId:string; content:string; offset:number}
   | {kind:"turnState"; threadId:string; turnId?:string; state:"working"|"idle"|"needs_input"; detail?:RuntimeTurnDetail; statusLine?:string; startedAt?:number; completedAt?:number; parentThreadId?:string}
   | {kind:"sendEvidence"; threadId:string; sendId:string; turnId:string; itemId?:string}
   | {kind:"usage"; threadId:string; usage:TokenUsage}
@@ -128,7 +147,21 @@ export type RuntimeAccountCredits = {kind:"balance"; balance:string} | {kind:"un
 export type ResetCreditOutcome = "reset"|"nothingToReset"|"noCredit"|"alreadyRedeemed";
 export interface RuntimeReduction { state:JsonValue; events:readonly AgentEvent[] }
 export type AgentRuntimeTransport = "stdio-jsonrpc" | "http-sse";
+export interface RuntimeLaunchProfile {
+  binary:string;
+  args:readonly string[];
+  env?:Readonly<Record<string,string>>;
+  install?:{package:string; registry?:string};
+  detection?:{args:readonly string[]};
+  secretEnv?:Readonly<Record<string,string>>;
+  ownerConfigured?:boolean;
+}
 export interface StdioAgentRuntimeCapability {
+  hostMcp?:{param:string; methods:readonly string[]};
+  envelope?:"jsonrpc2";
+  interrupt?:{beforeFirstTurn:boolean};
+  clientBridges?:RuntimeClientBridges;
+  launchProfiles?:Readonly<Record<string,RuntimeLaunchProfile>>;
   restrictedCli?:{kind:"execpolicy-service-operations";metadataDirectory:string};
   runtimeModes?:readonly {id:string; displayName:string}[];
   serviceTiers?:readonly RuntimeServiceTier[];
@@ -142,6 +175,7 @@ export interface StdioAgentRuntimeCapability {
   command:{binary:string; args:readonly string[]};
   login?: {methods:readonly RuntimeLoginMethod[]; terminalCommand?:string};
   inheritedEnvironmentExclusions?:readonly string[];
+  turnScopedRequests?:readonly "submitTurn"[];
   requestMethods:Partial<Record<Operation["kind"], readonly string[]>>;
   notificationMethods:readonly string[];
 }

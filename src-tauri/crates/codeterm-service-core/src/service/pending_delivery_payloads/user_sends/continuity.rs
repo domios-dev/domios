@@ -8,6 +8,7 @@ pub(crate) enum ReceiptState {
     Degraded,
     Uncertain,
     Delivered,
+    RpcRefused,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -40,7 +41,9 @@ pub(crate) fn known_session_changed(previous: Option<&str>, current: Option<&str
 
 pub(super) fn retain_receipt(index: &mut UserIndex, record: &UserSendRecord, state: ReceiptState) {
     if index.receipts.iter().any(|receipt| {
-        receipt.send_id == record.send_id && receipt.state == ReceiptState::Delivered
+        receipt.send_id == record.send_id
+            && (receipt.state == ReceiptState::Delivered
+                || receipt.state == ReceiptState::RpcRefused && state != ReceiptState::Delivered)
     }) {
         return;
     }
@@ -251,7 +254,11 @@ impl UserSendStore {
         let mut next = loaded.index.clone();
         let mut changed = false;
         for receipt in &mut next.receipts {
-            if receipt.state == ReceiptState::Uncertain && send_ids.contains(&receipt.send_id) {
+            if matches!(
+                receipt.state,
+                ReceiptState::Uncertain | ReceiptState::RpcRefused
+            ) && send_ids.contains(&receipt.send_id)
+            {
                 receipt.state = ReceiptState::Delivered;
                 changed = true;
             }

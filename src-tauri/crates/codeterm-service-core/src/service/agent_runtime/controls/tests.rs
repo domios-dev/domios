@@ -58,7 +58,7 @@ const SOURCE: &str = r#"
 module.exports = {
   runtimePlan(ctx, op) {
     if (op.kind === 'control' && op.value.serviceTier !== undefined) return {action:{kind:'request',call:{method:'fixture/settings',params:op}},state:null};
-    const target = op.kind === 'interrupt' ? {threadId:op.threadId,turnId:op.activeTurnId} : undefined;
+    const target = op.kind === 'interrupt' ? {threadId:op.threadId,...(op.activeTurnId ? {turnId:op.activeTurnId} : {})} : undefined;
     return {action:{kind:'request',call:{method:op.kind,params:op,...(target ? {target} : {})}},state:null};
   },
   runtimeResponse(ctx, op, state, reply) {
@@ -71,7 +71,10 @@ module.exports = {
       result = {kind:'turnAccepted',threadId:op.threadId,sendId:op.sendId,turnId:'restored-turn'};
       events = [{kind:'controlsConfirmed',threadId:op.threadId,settings:reply.value.params.settings}];
     }
-    if (op.kind === 'interrupt') events = [{kind:'turnState',threadId:op.threadId,turnId:op.activeTurnId,state:'idle'}];
+    if (op.kind === 'interrupt') {
+      events = op.activeTurnId ? [{kind:'turnState',threadId:op.threadId,turnId:op.activeTurnId,state:'idle'}] : [];
+      if (ctx.providerSettings && ctx.providerSettings.interruptProbe) events.push({kind:'controlsConfirmed',threadId:op.threadId,settings:{effort:'high'}});
+    }
     if (op.kind === 'control') {
       if (op.value.model === 'refuse') return {kind:'refused',reason:{code:'provider_refused',message:'settings refused'}};
       if (op.value.serviceTier === undefined) events = [{kind:'controlsConfirmed',threadId:op.threadId,settings:op.value}];
@@ -105,6 +108,10 @@ impl Drop for RuntimeFixture {
 }
 
 pub(super) fn runtime_fixture() -> (RuntimeFixture, String) {
+    runtime_fixture_with_interrupt(false)
+}
+
+pub(super) fn runtime_fixture_with_interrupt(before_first: bool) -> (RuntimeFixture, String) {
     let (mut mux, id) = MultiplexerState::new();
     let tab = mux.get_tab_mut(&id).unwrap();
     tab.agent_type = Some(PROVIDER.into());
@@ -149,7 +156,7 @@ pub(super) fn runtime_fixture() -> (RuntimeFixture, String) {
         "id":PROVIDER,"version":"1.0.0","displayName":"Fixture",
         "reasoningEfforts":[{"id":"low","displayName":"Low"},{"id":"high","displayName":"High"}],
         "capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},
-            "agentRuntime":{"runtimeModes":[{"id":"approval-required","displayName":"Approval required"},{"id":"auto-accept-edits","displayName":"Auto accept edits"},{"id":"auto","displayName":"Auto"},{"id":"full-access","displayName":"Full access"}],"serviceTiers":[{"id":"priority","name":"Fast","description":""}],"runtime":"stdio-jsonrpc","command":{"binary":"node","args":[format!("{}/../../../tests/fixtures/agent-runtime/fake-peer.mjs",crate::test_support::fixture_manifest_dir().display())]},"requestMethods":methods,"notificationMethods":["fixture/settings/updated"]}},
+            "agentRuntime":{"interrupt":if before_first {json!({"beforeFirstTurn":true})} else {serde_json::Value::Null},"runtimeModes":[{"id":"approval-required","displayName":"Approval required"},{"id":"auto-accept-edits","displayName":"Auto accept edits"},{"id":"auto","displayName":"Auto"},{"id":"full-access","displayName":"Full access"}],"serviceTiers":[{"id":"priority","name":"Fast","description":""}],"runtime":"stdio-jsonrpc","command":{"binary":"node","args":[format!("{}/../../../tests/fixtures/agent-runtime/fake-peer.mjs",crate::test_support::fixture_manifest_dir().display())]},"requestMethods":methods,"notificationMethods":["fixture/settings/updated"]}},
         "permissions":{"subprocess":{"allow":["node"]}}
     }).to_string()).unwrap();
     fixture
@@ -639,4 +646,61 @@ fn unchanged_settings_confirm_without_a_new_provider_event() {
         assert!(unchanged_settings(&changed, &current).is_none());
     }
     assert!(unchanged_settings(&RuntimeSettings::default(), &RuntimeSettings::default()).is_none());
+}
+
+#[test]
+fn model_switch_preserves_the_current_mode_and_clears_the_previous_notice() {
+    let (fixture, id) = runtime_fixture();
+    let session = crate::async_runtime::block_on(engine::ensure(&fixture.service, &id)).unwrap();
+    session.context.lock().settings.mode = Some("auto".into());
+    session.state.lock().notice = Some("Requested model was not applied".into());
+    let outcome = fixture
+        .service
+        .agent_switch_model_with_options(&id, "target", None, false)
+        .unwrap();
+    assert!(
+        matches!(outcome.confirmation, ModelSwitchConfirmation::Observed { model, .. } if model == "target")
+    );
+    assert_eq!(
+        session.context.lock().settings.mode.as_deref(),
+        Some("auto")
+    );
+    assert!(session.state.lock().notice.is_none());
+    let mux = fixture.service.mux.read();
+    let tab = mux.get_tab(&id).unwrap();
+    assert_eq!(tab.agent_session_model.as_deref(), Some("target"));
+    assert_eq!(tab.restorable_launch.model.as_deref(), Some("target"));
+    assert_eq!(
+        tab.restorable_launch.structured_runtime_mode.as_deref(),
+        Some("auto")
+    );
+    assert_eq!(
+        tab.agent_runtime_state.as_ref().unwrap()["notice"],
+        serde_json::Value::Null
+    );
+}
+
+#[test]
+fn confirmed_model_change_clears_a_stale_load_notice() {
+    let (fixture, id) = runtime_fixture();
+    let session = crate::async_runtime::block_on(engine::ensure(&fixture.service, &id)).unwrap();
+    session.state.lock().notice = Some("Old requested model was not applied".into());
+    super::super::projections::controls(
+        &fixture.service,
+        &session,
+        RuntimeSettings {
+            model: Some("reported-change".into()),
+            ..Default::default()
+        },
+    );
+    assert!(session.state.lock().notice.is_none());
+    let mux = fixture.service.mux.read();
+    assert_eq!(
+        mux.get_tab(&id)
+            .unwrap()
+            .agent_runtime_state
+            .as_ref()
+            .unwrap()["notice"],
+        serde_json::Value::Null
+    );
 }

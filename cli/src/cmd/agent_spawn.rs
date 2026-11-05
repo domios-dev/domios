@@ -227,6 +227,7 @@ pub(super) fn handle(
         args,
         workspace,
         model,
+        launch_profile,
         reasoning_effort,
         speed,
         system_prompt,
@@ -264,6 +265,7 @@ pub(super) fn handle(
             || model.is_some()
             || reasoning_effort.is_some()
             || speed.is_some()
+            || launch_profile.is_some()
             || system_prompt.is_some()
         {
             crate::cmd::print::fail(
@@ -351,6 +353,7 @@ pub(super) fn handle(
             ("--workspace", workspace.is_some()),
             ("--reasoning-effort", reasoning_effort.is_some()),
             ("--speed", speed.is_some()),
+            ("--profile", launch_profile.is_some()),
             ("--system", system_prompt.is_some()),
             ("--preset", preset.is_some()),
             ("--charter", charter.is_some() || charter_file.is_some()),
@@ -413,6 +416,7 @@ pub(super) fn handle(
             cwd.as_deref(),
             caller_cwd.as_deref(),
         );
+        params["launch_profile"] = serde_json::json!(launch_profile);
         if let Some(sandbox) = sandbox {
             params["sandbox"] = serde_json::json!(sandbox);
         }
@@ -550,6 +554,9 @@ pub(super) fn handle(
     }
     if let Some(m) = model {
         body["model"] = serde_json::json!(m);
+    }
+    if let Some(profile) = launch_profile {
+        body["launch_profile"] = serde_json::json!(profile);
     }
     if let Some(speed) = speed {
         body["speed"] = serde_json::json!(speed);

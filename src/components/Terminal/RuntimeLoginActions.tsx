@@ -31,8 +31,9 @@ export function RuntimeLoginActions({ tabId, state, iconSvg, onCheck, providerId
     event.preventDefault();
     void nativeBridge.openUrl(url);
   };
-  const title = pending ? login.userCode ? "Enter this code to sign in" : "Finish signing in in your browser" : `Sign in to ${provider}`;
-  const hint = pending ? login.userCode ? "Open the sign-in page and enter the code. This tab continues on its own."
+  const declared = state.authentication?.state;
+  const title = declared === "unknown" ? "Authentication status unknown" : declared === "unavailable" ? "Authentication unavailable" : pending ? login.userCode ? "Enter this code to sign in" : "Finish signing in in your browser" : `Sign in to ${provider}`;
+  const hint = declared === "unknown" ? "The agent has not reported whether sign-in is required." : declared === "unavailable" ? "The agent declared no sign-in method supported here." : pending ? login.userCode ? "Open the sign-in page and enter the code. This tab continues on its own."
     : "This tab continues on its own once you are signed in." : "This tab needs your account before it can start.";
 
   return <section role="group" aria-label={`Sign in to ${provider}`}
@@ -45,6 +46,8 @@ export function RuntimeLoginActions({ tabId, state, iconSvg, onCheck, providerId
         <h3 className="text-sm font-semibold text-[var(--ct-fg)]">{title}</h3>
         <p className="mt-0.5 text-sm text-[var(--ct-muted-fg)]">{hint}</p>
 
+        {state.requiredSecrets?.length ? <p role="status" aria-label="Required credentials">Add {state.requiredSecrets.join(", ")} in Settings Secrets, then retry.</p> : null}
+        {state.authentication && <output aria-label="Authentication state">{state.authentication.state}</output>}
         {pending && login.userCode && <div className="mt-3 flex items-center gap-2">
           <output aria-label="Device code" className="select-all rounded-md border border-[var(--ct-border)] bg-[var(--ct-bg)] px-3 py-1.5 font-mono text-xl font-semibold tracking-[0.18em] text-[var(--ct-fg)]">{login.userCode}</output>
           <button type="button" className={quiet} aria-label="Copy device code"
@@ -72,6 +75,8 @@ export function RuntimeLoginActions({ tabId, state, iconSvg, onCheck, providerId
             <button className={quiet} type="button" disabled={busy || !login.loginId} onClick={() => { void operate({ action: "cancel" }); }}>Cancel</button>
           </> : <>
             {login?.loginId && login.error && <button className={quiet} type="button" disabled={busy} onClick={() => { void operate({action:"cancel"}); }}>Cancel expired sign-in</button>}
+            {state.authentication?.methods.map(method => <button key={method.id} className={primary} type="button" disabled={busy || !method.available}
+              onClick={() => { void operate({ methodId: method.id }); }}>{method.name}</button>)}
             {state.loginChoices?.map(choice => <button key={choice.id} className={primary} type="button" disabled={busy}
               onClick={() => { void operate({ method: "browser", account: choice.id }); }}>{choice.label}</button>)}
             {!state.loginChoices?.length && methods.includes("browser") && <button className={primary} type="button" disabled={busy}

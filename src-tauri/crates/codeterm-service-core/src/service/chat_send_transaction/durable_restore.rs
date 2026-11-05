@@ -146,7 +146,9 @@ impl ChatSendLedger {
                 state.written_deadlines.remove(&receipt.send_id);
                 state.owned.remove(&receipt.send_id);
                 state.held_before_readiness_by_id.remove(&receipt.send_id);
-            } else if receipt_ends_held_status(&current.state, active, receipt.state) {
+            } else if receipt_ends_held_status(&current.state, active, receipt.state)
+                || receipt.state == ReceiptState::RpcRefused && current.state != ChatSendState::Sent
+            {
                 let Some(status) = state.by_id.get_mut(&receipt.send_id) else {
                     return;
                 };
@@ -155,7 +157,9 @@ impl ChatSendLedger {
                 status.pending_reason = None;
                 state.owned.remove(&receipt.send_id);
                 state.held_before_readiness_by_id.remove(&receipt.send_id);
-                state.terminal_failures.insert(receipt.send_id.clone());
+                if receipt.state != ReceiptState::RpcRefused {
+                    state.terminal_failures.insert(receipt.send_id.clone());
+                }
                 state
                     .latest_failure_by_tab
                     .insert(receipt.tab_id.clone(), receipt.send_id.clone());
@@ -163,7 +167,7 @@ impl ChatSendLedger {
             return;
         }
         let (send_state, error) = match receipt.state {
-            ReceiptState::Failed | ReceiptState::Degraded => (
+            ReceiptState::Failed | ReceiptState::Degraded | ReceiptState::RpcRefused => (
                 ChatSendState::Failed,
                 Some(receipt_failure_reason(receipt.state).into()),
             ),
@@ -203,7 +207,9 @@ impl ChatSendLedger {
                 .insert(receipt.send_id.clone(), token.clone());
         }
         if send_state == ChatSendState::Failed {
-            state.terminal_failures.insert(receipt.send_id.clone());
+            if receipt.state != ReceiptState::RpcRefused {
+                state.terminal_failures.insert(receipt.send_id.clone());
+            }
             state
                 .latest_failure_by_tab
                 .insert(receipt.tab_id.clone(), receipt.send_id.clone());
@@ -215,6 +221,7 @@ impl ChatSendLedger {
 
 fn receipt_failure_reason(receipt: ReceiptState) -> &'static str {
     match receipt {
+        ReceiptState::RpcRefused => "runtime_prompt_busy",
         ReceiptState::Degraded => "launch_degraded_before_write",
         _ => "launch_ended_before_write",
     }

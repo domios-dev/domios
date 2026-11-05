@@ -40,6 +40,7 @@ use dispatch_failure::{
     cleanup_succeeded, dispatch_startup_failed_event, dispatch_wait_failed,
     DispatchFailureDisposition, DispatchWaitFailure,
 };
+use dispatch_helpers::finish_unreserved_dispatch;
 pub(super) use dispatch_helpers::{
     dispatch_reasoning_effort, owned_str, respawn_worker_params, set_local_task_name_description,
     task_tab_description,
@@ -700,6 +701,7 @@ where
         provider_reserve_pct: Some(reserve_pct),
         workspace_id: owned_str(p, "workspace_id"),
         model: selected_model.clone(),
+        launch_profile: owned_str(p, "launch_profile"),
         planned_model: task.model.clone(),
         speed: owned_str(p, "speed").or_else(|| preparation.speed.clone()),
         planned_reasoning_effort,
@@ -710,6 +712,9 @@ where
         task: None,
         ..Default::default()
     };
+    svc.validate_spawn_options(&resolved_provider, &spawn_params)
+        .map_err(super::model_errors::spawn_target_rpc_error)?;
+    let launch_profile = spawn_params.launch_profile.clone();
     let spawn_params_speed = spawn_params.speed.clone();
     set_dispatch_task_brief(&mut spawn_params, brief, &manifest);
 
@@ -721,11 +726,19 @@ where
         .clone()
         .or_else(|| svc.mux.read().find_workspace_for_tab(&parent_tab_id))
         .ok_or_else(|| invalid_dispatch("dispatch could not resolve a workspace for its Worker"))?;
-    let reserved_tab_id = svc
-        .mux
-        .write()
-        .create_tab(&reservation_workspace)
-        .map_err(|error| dispatch_failed("tab_reservation", error))?;
+    let reserved_tab_id = {
+        let mut mux = svc.mux.write();
+        let tab_id = mux
+            .create_tab(&reservation_workspace)
+            .map_err(|error| dispatch_failed("tab_reservation", error))?;
+        if let Some(title) = spawn_params.title.as_deref() {
+            if let Err(error) = mux.rename_tab(&tab_id, title) {
+                mux.rollback_spawn_tab(&reservation_workspace, &tab_id);
+                return Err(dispatch_failed("tab_reservation", error));
+            }
+        }
+        tab_id
+    };
     let mut reservation_tab = DispatchReservationTab::new(svc, reserved_tab_id.clone());
     codeterm_service_core::startup::boot_timing::bind_request(&reserved_tab_id);
     let observed_owner = store
@@ -909,6 +922,7 @@ where
                     selected_model.clone(),
                     dispatched_provider_resolved_model,
                     dispatched_reasoning_effort,
+                    launch_profile,
                     begin_owner,
                     begin_owner_is_live,
                     true,
@@ -1137,45 +1151,6 @@ where
             .map_err(plan_rpc_err)?;
     }
     Ok(result)
-}
-
-fn finish_unreserved_dispatch<C>(
-    attempt_start: Result<codeterm_service_core::service::plan::DispatchStart, PlanError>,
-    provisioned_lane: Option<ProvisionedWorkerLane>,
-    close_tab: C,
-) -> Result<
-    (
-        codeterm_service_core::service::plan::DispatchStart,
-        Option<ProvisionedWorkerLane>,
-    ),
-    JsonRpcError,
->
-where
-    C: FnOnce() -> Result<(), String>,
-{
-    let attempt_id = match attempt_start {
-        Ok(attempt_id) => return Ok((attempt_id, provisioned_lane)),
-        Err(error) => error,
-    };
-    let refused = matches!(&attempt_id, PlanError::DispatchInFlight { .. });
-    let cleanup = rollback_failed_dispatch(provisioned_lane, || Ok(()), close_tab);
-    if refused {
-        let mut refusal = plan_rpc_err(attempt_id);
-        if let Err(cleanup) = cleanup {
-            refusal.message = format!(
-                "{}; losing Worker cleanup failed: {cleanup}",
-                refusal.message
-            );
-        }
-        return Err(refusal);
-    }
-    Err(dispatch_failed(
-        "task_start",
-        match cleanup {
-            Ok(()) => attempt_id.to_string(),
-            Err(cleanup) => format!("{attempt_id}; {cleanup}"),
-        },
-    ))
 }
 
 #[cfg(test)]

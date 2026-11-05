@@ -139,6 +139,7 @@ fn dispatched_attempt_records_routed_model_and_effort() {
             routing.model,
             Some("xhigh".into()),
             None,
+            None,
             false,
             true,
             3,

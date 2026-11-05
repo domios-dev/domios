@@ -5,6 +5,7 @@ struct Identity {
     title: Option<String>,
     session: Option<String>,
     nonce: Option<String>,
+    launch_profile: Option<String>,
 }
 impl Identity {
     fn read(attempt: &TaskExecutionAttempt) -> Self {
@@ -12,12 +13,14 @@ impl Identity {
             title: attempt.executor_title.clone(),
             session: attempt.session_id.clone(),
             nonce: attempt.session_binding_nonce.clone(),
+            launch_profile: attempt.launch_profile.clone(),
         }
     }
     fn apply(self, attempt: &mut TaskExecutionAttempt) {
         attempt.executor_title = self.title;
         attempt.session_id = self.session;
         attempt.session_binding_nonce = self.nonce;
+        attempt.launch_profile = self.launch_profile;
     }
 }
 
@@ -40,10 +43,18 @@ impl PlanStore {
         title: Option<&str>,
         session_id: Option<&str>,
         nonce: Option<&str>,
+        launch_profile: Option<&str>,
         now_ms: u64,
     ) -> Result<(), PlanError> {
         self.update_attempt_executor_identity_with_undo(
-            plan_id, task_id, tab_id, title, session_id, nonce, now_ms,
+            plan_id,
+            task_id,
+            tab_id,
+            title,
+            session_id,
+            nonce,
+            launch_profile,
+            now_ms,
         )
         .map(|_| ())
     }
@@ -57,6 +68,7 @@ impl PlanStore {
         title: Option<&str>,
         session_id: Option<&str>,
         nonce: Option<&str>,
+        launch_profile: Option<&str>,
         now_ms: u64,
     ) -> Result<AttemptExecutorIdentityChange, PlanError> {
         let normalize = |value: Option<&str>| {
@@ -69,6 +81,7 @@ impl PlanStore {
             title: normalize(title),
             session: normalize(session_id),
             nonce: normalize(nonce),
+            launch_profile: launch_profile.map(str::to_owned),
         };
         self.change_attempt(
             plan_id,
@@ -80,12 +93,20 @@ impl PlanStore {
             now_ms,
             |attempt| {
                 let attempt = attempt.ok_or(PlanError::TaskNotFound)?;
+                let before = Identity::read(attempt);
+                let after = Identity {
+                    launch_profile: after
+                        .launch_profile
+                        .clone()
+                        .or_else(|| before.launch_profile.clone()),
+                    ..after.clone()
+                };
                 let receipt = AttemptExecutorIdentityChange {
                     plan_id: plan_id.into(),
                     task_id: task_id.into(),
                     attempt_id: attempt.id.clone(),
                     tab_id: tab_id.into(),
-                    before: Identity::read(attempt),
+                    before,
                     after: after.clone(),
                 };
                 after.apply(attempt);

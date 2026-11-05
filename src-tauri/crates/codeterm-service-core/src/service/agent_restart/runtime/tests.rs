@@ -84,6 +84,9 @@ impl RuntimeFixture {
         fixture
     }
     fn prepared(source: &str, storage: bool) -> Self {
+        Self::prepared_with_profile(source, storage, false)
+    }
+    fn prepared_with_profile(source: &str, storage: bool, secret_profile: bool) -> Self {
         let (mut mux, tab) = MultiplexerState::new();
         let target = mux.get_tab_mut(&tab).unwrap();
         target.agent_type = Some(PROVIDER.into());
@@ -154,7 +157,7 @@ impl RuntimeFixture {
         .into_iter()
         .map(|kind| (kind.to_string(), json!([kind])))
         .collect::<serde_json::Map<String, Value>>();
-        let manifest = PluginManifest::from_json_str(&json!({
+        let mut raw_manifest = json!({
             "id":PROVIDER,"version":"1.0.0","displayName":"Fixture","binaryName":"node",
             "capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},
                 "agentRuntime":{"runtimeModes":[{"id":"auto-accept-edits","displayName":"Auto accept edits"}],"runtime":"stdio-jsonrpc","command":{"binary":"node","args":[]},"requestMethods":methods,"notificationMethods":[],"login":{"methods":["browser"]}}},
@@ -162,7 +165,11 @@ impl RuntimeFixture {
                 "taskDelivery":"inline_flag","systemPromptDelivery":{"kind":"cli_flag","flag":"--opaque-system"},
                 "verifySubmit":{"kind":"none"}},
             "permissions":{"subprocess":{"allow":["node"]}}
-        }).to_string()).unwrap();
+        });
+        if secret_profile {
+            raw_manifest["capabilities"]["agentRuntime"]["launchProfiles"] = json!({"credential":{"binary":"node","args":[],"secretEnv":{"OPAQUE_KEY":"domios:provider:restart-fixture:key"}}});
+        }
+        let manifest = PluginManifest::from_json_str(&raw_manifest.to_string()).unwrap();
         fixture
             .service
             .agent_registry

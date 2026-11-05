@@ -395,6 +395,9 @@ pub enum AgentAction {
         /// see what's available.
         #[arg(long)]
         model: Option<String>,
+        /// ACP launch profile declared by the provider.
+        #[arg(long = "profile", value_name = "ID")]
+        launch_profile: Option<String>,
         #[arg(
             long,
             value_name = "TIER",

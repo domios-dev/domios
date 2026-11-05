@@ -182,7 +182,7 @@ export function createCapabilitiesTransport(client: CapabilitiesClient) {
     plugin_remote_task_call: (a) => client.localJson("POST", "/api/plugins/remote-task-call", a),
     plugin_recording_suggestion: (a) => client.localJson("POST", "/api/plugins/recording-suggestion", a),
     plugin_view_call: (a) => webJson("POST", "/api/plugins/view-call", a),
-    provider_cli_status: (a) => webJson("GET", `/api/agents/providers/${enc(s(a, "providerId"))}/cli`),
+    provider_cli_status: (a) => webJson("GET", `/api/agents/providers/${enc(s(a, "providerId"))}/cli` + (a.refresh === true ? "?refresh=true" : "")),
     push_channel_roster: () => webJson("GET", "/api/notifications/channels"),
     read_html_preview_file: async (a) => {
       const file = await webJson<{ data: string }>("POST", `/api/tabs/${previewTab(a)}/preview/read`, { path: a.path, kind: "page" });

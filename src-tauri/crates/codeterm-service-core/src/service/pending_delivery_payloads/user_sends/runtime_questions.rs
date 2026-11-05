@@ -83,7 +83,10 @@ impl UserSendStore {
         if status.state == crate::service::chat_send_transaction::ChatSendState::Sent {
             for receipt in &mut next.receipts {
                 if receipt.send_id == status.send_id
-                    && receipt.state == continuity::ReceiptState::Uncertain
+                    && matches!(
+                        receipt.state,
+                        continuity::ReceiptState::Uncertain | continuity::ReceiptState::RpcRefused
+                    )
                 {
                     receipt.state = continuity::ReceiptState::Delivered;
                     changed = true;

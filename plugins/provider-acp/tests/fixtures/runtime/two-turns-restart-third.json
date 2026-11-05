@@ -1,0 +1,784 @@
+{
+  "schemaVersion": 1,
+  "context": {
+    "epoch": 1,
+    "cwd": "/work/project",
+    "hostVersion": "1.18.7",
+    "tabId": "two-turns-restart-third",
+    "bindingNonce": "nonce-fixture",
+    "settings": {},
+    "providerSettings": {},
+    "claimedSends": [],
+    "activeTurns": [],
+    "threadParents": []
+  },
+  "operations": [
+    {
+      "operation": {
+        "kind": "initialize"
+      }
+    },
+    {
+      "operation": {
+        "kind": "openThread",
+        "instructions": "",
+        "settings": {}
+      }
+    },
+    {
+      "operation": {
+        "kind": "submitTurn",
+        "threadId": "session-fixture",
+        "sendId": "first",
+        "input": {
+          "text": "first",
+          "attachments": []
+        },
+        "settings": {}
+      },
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/project",
+        "hostVersion": "1.18.7",
+        "tabId": "two-turns-restart-third",
+        "bindingNonce": "nonce-fixture",
+        "settings": {},
+        "providerSettings": {},
+        "claimedSends": [
+          {
+            "sendId": "first",
+            "threadId": "session-fixture",
+            "input": {
+              "text": "first",
+              "attachments": []
+            }
+          }
+        ],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "session-fixture"
+      }
+    },
+    {
+      "operation": {
+        "kind": "submitTurn",
+        "threadId": "session-fixture",
+        "sendId": "second",
+        "input": {
+          "text": "second",
+          "attachments": []
+        },
+        "settings": {}
+      },
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/project",
+        "hostVersion": "1.18.7",
+        "tabId": "two-turns-restart-third",
+        "bindingNonce": "nonce-fixture",
+        "settings": {},
+        "providerSettings": {},
+        "claimedSends": [
+          {
+            "sendId": "second",
+            "threadId": "session-fixture",
+            "input": {
+              "text": "second",
+              "attachments": []
+            }
+          }
+        ],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "session-fixture"
+      }
+    },
+    {
+      "operation": {
+        "kind": "initialize"
+      },
+      "context": {
+        "epoch": 2,
+        "cwd": "/work/project",
+        "hostVersion": "1.18.7",
+        "tabId": "two-turns-restart-third",
+        "bindingNonce": "nonce-fixture",
+        "settings": {},
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "session-fixture",
+        "restoredRowOrdinal": 4
+      }
+    },
+    {
+      "operation": {
+        "kind": "resumeThread",
+        "threadId": "session-fixture",
+        "instructions": "",
+        "settings": {}
+      },
+      "context": {
+        "epoch": 2,
+        "cwd": "/work/project",
+        "hostVersion": "1.18.7",
+        "tabId": "two-turns-restart-third",
+        "bindingNonce": "nonce-fixture",
+        "settings": {},
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "session-fixture",
+        "restoredRowOrdinal": 4
+      }
+    },
+    {
+      "operation": {
+        "kind": "submitTurn",
+        "threadId": "session-fixture",
+        "sendId": "third",
+        "input": {
+          "text": "third",
+          "attachments": []
+        },
+        "settings": {}
+      },
+      "context": {
+        "epoch": 2,
+        "cwd": "/work/project",
+        "hostVersion": "1.18.7",
+        "tabId": "two-turns-restart-third",
+        "bindingNonce": "nonce-fixture",
+        "settings": {},
+        "providerSettings": {},
+        "claimedSends": [
+          {
+            "sendId": "third",
+            "threadId": "session-fixture",
+            "input": {
+              "text": "third",
+              "attachments": []
+            }
+          }
+        ],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "session-fixture",
+        "restoredRowOrdinal": 4
+      }
+    }
+  ],
+  "rpc": [
+    {
+      "direction": "outbound",
+      "operation": 0,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "initialize",
+          "params": {
+            "protocolVersion": 1,
+            "clientCapabilities": {
+              "fs": {
+                "readTextFile": false,
+                "writeTextFile": false
+              },
+              "terminal": false
+            },
+            "clientInfo": {
+              "name": "domios",
+              "title": "Domios",
+              "version": "1.18.7"
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 0,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "protocolVersion": 1,
+          "agentCapabilities": {
+            "sessionCapabilities": {
+              "resume": {}
+            }
+          },
+          "authMethods": []
+        }
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 1,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "session/new",
+          "params": {
+            "cwd": "/work/project",
+            "mcpServers": []
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 1,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "sessionId": "session-fixture"
+        }
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 2,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "session/prompt",
+          "params": {
+            "sessionId": "session-fixture",
+            "prompt": [
+              {
+                "type": "text",
+                "text": "first"
+              }
+            ]
+          },
+          "target": {
+            "threadId": "session-fixture",
+            "turnId": "session-fixture:turn:1"
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/project",
+        "hostVersion": "1.18.7",
+        "tabId": "two-turns-restart-third",
+        "bindingNonce": "nonce-fixture",
+        "settings": {},
+        "providerSettings": {},
+        "claimedSends": [
+          {
+            "sendId": "first",
+            "threadId": "session-fixture",
+            "input": {
+              "text": "first",
+              "attachments": []
+            }
+          }
+        ],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "session-fixture"
+      },
+      "frame": {
+        "kind": "notification",
+        "method": "session/update",
+        "params": {
+          "sessionId": "session-fixture",
+          "update": {
+            "sessionUpdate": "agent_message_chunk",
+            "content": {
+              "type": "text",
+              "text": "one"
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 2,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "stopReason": "end_turn"
+        }
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 3,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "session/prompt",
+          "params": {
+            "sessionId": "session-fixture",
+            "prompt": [
+              {
+                "type": "text",
+                "text": "second"
+              }
+            ]
+          },
+          "target": {
+            "threadId": "session-fixture",
+            "turnId": "session-fixture:turn:2"
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/project",
+        "hostVersion": "1.18.7",
+        "tabId": "two-turns-restart-third",
+        "bindingNonce": "nonce-fixture",
+        "settings": {},
+        "providerSettings": {},
+        "claimedSends": [
+          {
+            "sendId": "second",
+            "threadId": "session-fixture",
+            "input": {
+              "text": "second",
+              "attachments": []
+            }
+          }
+        ],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "session-fixture"
+      },
+      "frame": {
+        "kind": "notification",
+        "method": "session/update",
+        "params": {
+          "sessionId": "session-fixture",
+          "update": {
+            "sessionUpdate": "agent_message_chunk",
+            "content": {
+              "type": "text",
+              "text": "two"
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 3,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "stopReason": "end_turn"
+        }
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 4,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "initialize",
+          "params": {
+            "protocolVersion": 1,
+            "clientCapabilities": {
+              "fs": {
+                "readTextFile": false,
+                "writeTextFile": false
+              },
+              "terminal": false
+            },
+            "clientInfo": {
+              "name": "domios",
+              "title": "Domios",
+              "version": "1.18.7"
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 4,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "protocolVersion": 1,
+          "agentCapabilities": {
+            "sessionCapabilities": {
+              "resume": {}
+            }
+          },
+          "authMethods": []
+        }
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 5,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "session/resume",
+          "params": {
+            "sessionId": "session-fixture",
+            "cwd": "/work/project",
+            "mcpServers": []
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 5,
+      "reply": {
+        "kind": "success",
+        "value": {}
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 6,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "session/prompt",
+          "params": {
+            "sessionId": "session-fixture",
+            "prompt": [
+              {
+                "type": "text",
+                "text": "third"
+              }
+            ]
+          },
+          "target": {
+            "threadId": "session-fixture",
+            "turnId": "session-fixture:turn:5"
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "context": {
+        "epoch": 2,
+        "cwd": "/work/project",
+        "hostVersion": "1.18.7",
+        "tabId": "two-turns-restart-third",
+        "bindingNonce": "nonce-fixture",
+        "settings": {},
+        "providerSettings": {},
+        "claimedSends": [
+          {
+            "sendId": "third",
+            "threadId": "session-fixture",
+            "input": {
+              "text": "third",
+              "attachments": []
+            }
+          }
+        ],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "session-fixture",
+        "restoredRowOrdinal": 4
+      },
+      "frame": {
+        "kind": "notification",
+        "method": "session/update",
+        "params": {
+          "sessionId": "session-fixture",
+          "update": {
+            "sessionUpdate": "agent_message_chunk",
+            "content": {
+              "type": "text",
+              "text": "three"
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 6,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "stopReason": "end_turn"
+        }
+      }
+    }
+  ],
+  "expected": {
+    "results": [
+      {
+        "operation": 0,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "initialized"
+          },
+          "events": [
+            {
+              "kind": "authentication",
+              "authentication": {
+                "state": "unknown",
+                "methods": []
+              }
+            }
+          ]
+        }
+      },
+      {
+        "operation": 1,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "threadLoaded",
+            "threadId": "session-fixture",
+            "settings": {
+              "commands": [],
+              "configOptions": [],
+              "modes": []
+            }
+          }
+        }
+      },
+      {
+        "operation": 2,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "turnAccepted",
+            "threadId": "session-fixture",
+            "sendId": "first",
+            "turnId": "session-fixture:turn:1"
+          },
+          "events": [
+            {
+              "kind": "turnState",
+              "threadId": "session-fixture",
+              "turnId": "session-fixture:turn:1",
+              "state": "idle"
+            }
+          ]
+        }
+      },
+      {
+        "operation": 3,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "turnAccepted",
+            "threadId": "session-fixture",
+            "sendId": "second",
+            "turnId": "session-fixture:turn:2"
+          },
+          "events": [
+            {
+              "kind": "turnState",
+              "threadId": "session-fixture",
+              "turnId": "session-fixture:turn:2",
+              "state": "idle"
+            }
+          ]
+        }
+      },
+      {
+        "operation": 4,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "initialized"
+          },
+          "events": [
+            {
+              "kind": "authentication",
+              "authentication": {
+                "state": "unknown",
+                "methods": []
+              }
+            }
+          ]
+        }
+      },
+      {
+        "operation": 5,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "threadLoaded",
+            "threadId": "session-fixture",
+            "settings": {
+              "commands": [],
+              "configOptions": [],
+              "modes": []
+            }
+          }
+        }
+      },
+      {
+        "operation": 6,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "turnAccepted",
+            "threadId": "session-fixture",
+            "sendId": "third",
+            "turnId": "session-fixture:turn:5"
+          },
+          "events": [
+            {
+              "kind": "turnState",
+              "threadId": "session-fixture",
+              "turnId": "session-fixture:turn:5",
+              "state": "idle"
+            }
+          ]
+        }
+      }
+    ],
+    "events": [
+      {
+        "kind": "authentication",
+        "authentication": {
+          "state": "unknown",
+          "methods": []
+        }
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "session-fixture",
+        "item": {
+          "id": "session-fixture:turn:1:item:1",
+          "seq": 1,
+          "type": "user",
+          "content": "first"
+        }
+      },
+      {
+        "kind": "turnState",
+        "threadId": "session-fixture",
+        "turnId": "session-fixture:turn:1",
+        "state": "working"
+      },
+      {
+        "kind": "sendEvidence",
+        "threadId": "session-fixture",
+        "sendId": "first",
+        "turnId": "session-fixture:turn:1",
+        "itemId": "session-fixture:turn:1:item:1"
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "session-fixture",
+        "item": {
+          "id": "session-fixture:turn:1:item:2",
+          "seq": 2,
+          "type": "assistant",
+          "content": "one"
+        }
+      },
+      {
+        "kind": "turnState",
+        "threadId": "session-fixture",
+        "turnId": "session-fixture:turn:1",
+        "state": "idle"
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "session-fixture",
+        "item": {
+          "id": "session-fixture:turn:2:item:1",
+          "seq": 3,
+          "type": "user",
+          "content": "second"
+        }
+      },
+      {
+        "kind": "turnState",
+        "threadId": "session-fixture",
+        "turnId": "session-fixture:turn:2",
+        "state": "working"
+      },
+      {
+        "kind": "sendEvidence",
+        "threadId": "session-fixture",
+        "sendId": "second",
+        "turnId": "session-fixture:turn:2",
+        "itemId": "session-fixture:turn:2:item:1"
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "session-fixture",
+        "item": {
+          "id": "session-fixture:turn:2:item:2",
+          "seq": 4,
+          "type": "assistant",
+          "content": "two"
+        }
+      },
+      {
+        "kind": "turnState",
+        "threadId": "session-fixture",
+        "turnId": "session-fixture:turn:2",
+        "state": "idle"
+      },
+      {
+        "kind": "authentication",
+        "authentication": {
+          "state": "unknown",
+          "methods": []
+        }
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "session-fixture",
+        "item": {
+          "id": "session-fixture:turn:5:item:1",
+          "seq": 1,
+          "type": "user",
+          "content": "third"
+        }
+      },
+      {
+        "kind": "turnState",
+        "threadId": "session-fixture",
+        "turnId": "session-fixture:turn:5",
+        "state": "working"
+      },
+      {
+        "kind": "sendEvidence",
+        "threadId": "session-fixture",
+        "sendId": "third",
+        "turnId": "session-fixture:turn:5",
+        "itemId": "session-fixture:turn:5:item:1"
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "session-fixture",
+        "item": {
+          "id": "session-fixture:turn:5:item:2",
+          "seq": 2,
+          "type": "assistant",
+          "content": "three"
+        }
+      },
+      {
+        "kind": "turnState",
+        "threadId": "session-fixture",
+        "turnId": "session-fixture:turn:5",
+        "state": "idle"
+      }
+    ]
+  }
+}

@@ -82,6 +82,20 @@ pub(super) fn print(value: &serde_json::Value) {
 }
 
 pub(crate) fn status_lines(id: &str, status: &serde_json::Value) -> Vec<String> {
+    if let Some(profiles) = status.get("launch_profiles").and_then(|v| v.as_array()) {
+        let ready = profiles
+            .iter()
+            .filter(|profile| profile["installed"] == true)
+            .count();
+        let summary = if ready > 0 {
+            format!("{ready} of {} launch profiles ready", profiles.len())
+        } else if status["installed"].is_null() {
+            "launch profile readiness unknown".into()
+        } else {
+            "no launch profiles ready; configure a launch profile in Settings > Agents".into()
+        };
+        return vec![format!("{id}: {summary}")];
+    }
     if status.get("required").and_then(|v| v.as_bool()) == Some(false) {
         return vec![format!("{id}: no CLI required")];
     }
@@ -199,5 +213,26 @@ mod tests {
             .len(),
             1
         );
+    }
+    #[test]
+    fn launch_profiles_report_readiness_without_a_cli_warning() {
+        for (installed, summary) in [
+            (serde_json::json!(true), "1 of 2 launch profiles ready"),
+            (
+                serde_json::json!(false),
+                "no launch profiles ready; configure a launch profile in Settings > Agents",
+            ),
+            (serde_json::Value::Null, "launch profile readiness unknown"),
+        ] {
+            let profiles = serde_json::json!([
+                {"id":"profile-a", "installed":installed},
+                {"id":"profile-b", "installed":false}
+            ]);
+            let status = serde_json::json!({"required":false, "installed":installed, "launch_profiles":profiles});
+            assert_eq!(
+                status_lines("fixture", &status),
+                vec![format!("fixture: {summary}")]
+            );
+        }
     }
 }

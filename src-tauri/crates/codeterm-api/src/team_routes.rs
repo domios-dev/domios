@@ -6,7 +6,9 @@ use axum::{
 use codeterm_orchestration::TeamExt;
 use serde::Deserialize;
 
+use crate::agent_routes::SpawnRejection;
 use crate::routes::AppState;
+use codeterm_service_core::service::spawn_params::SpawnTargetRefusal;
 
 #[derive(Deserialize)]
 pub struct RenameTeamBody {
@@ -186,13 +188,23 @@ async fn add_team_member_adapter<T>(
     headers: &crate::auth::ActorHeaders,
     team_id: String,
     body: AddTeamMemberBody,
-    add_member: impl AsyncFnOnce(String, Option<String>, AddTeamMemberBody) -> Result<T, String>,
-) -> Result<T, (StatusCode, String)> {
+    add_member: impl AsyncFnOnce(
+        String,
+        Option<String>,
+        AddTeamMemberBody,
+    ) -> Result<T, SpawnTargetRefusal>,
+) -> Result<T, SpawnRejection> {
     let caller_tab_id =
         crate::tab_routes::caller_tab_header(headers).filter(|tab_id| !tab_id.trim().is_empty());
     add_member(team_id, caller_tab_id, body)
         .await
-        .map_err(map_rename_error)
+        .map_err(|error| {
+            if error.data().is_some() {
+                return SpawnRejection::from(error);
+            }
+            let (status, message) = map_rename_error(error.to_string());
+            SpawnRejection::new(status, "team_member_spawn_failed", message)
+        })
 }
 
 pub async fn add_team_member(
@@ -200,21 +212,23 @@ pub async fn add_team_member(
     headers: crate::auth::ActorHeaders,
     Path(team_id): Path<String>,
     Json(body): Json<AddTeamMemberBody>,
-) -> Result<Json<codeterm_orchestration::AddTeamMemberResult>, (StatusCode, String)> {
+) -> Result<Json<codeterm_orchestration::AddTeamMemberResult>, SpawnRejection> {
     let result = add_team_member_adapter(
         &headers,
         team_id,
         body,
-        |team_id, caller_tab_id, body: AddTeamMemberBody| async {
-            codeterm_commands::commands::mux_commands::mux_add_team_member_service_core(
+        |team_id: String, caller_tab_id: Option<String>, body: AddTeamMemberBody| async move {
+            codeterm_orchestration::team::add_team_member_checked(
                 &state.svc,
-                team_id,
-                body.provider,
-                body.role,
-                caller_tab_id,
-                body.title,
-                body.task,
-                body.model,
+                &team_id,
+                caller_tab_id.as_deref(),
+                codeterm_orchestration::AddTeamMemberParams {
+                    provider: body.provider,
+                    role: body.role,
+                    title: body.title,
+                    task: body.task,
+                    model: body.model,
+                },
             )
             .await
         },

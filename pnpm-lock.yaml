@@ -270,6 +270,12 @@ importers:
         specifier: workspace:*
         version: link:../../packages/plugin-sdk
 
+  plugins/provider-acp:
+    devDependencies:
+      '@codeterm/plugin-sdk':
+        specifier: workspace:*
+        version: link:../../packages/plugin-sdk
+
   plugins/provider-claude:
     dependencies:
       '@codeterm/chat-ui':

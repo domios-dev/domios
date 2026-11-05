@@ -32,6 +32,8 @@ import { createPortal } from "react-dom";
 import { isFreeLimitRefusal } from "../billing/freeLimitModel";
 import {remoteProvider, remoteSpawnSelection, type ExecutionLocation} from "../../lib/remoteExecution";
 import {ExecutionLocationPicker} from "./ExecutionLocationPicker";
+import {LaunchProfilePicker} from "./LaunchProfilePicker";
+import {useLaunchProfiles} from "./useLaunchProfiles";
 import {cloudExecution} from "./cloudExecution";
 
 export function NewSessionPicker({
@@ -54,7 +56,10 @@ export function NewSessionPicker({
   const state = useMuxState();
   const { presets, loading: presetsLoading, error: presetsError } = useModelPresets();
   const menuProviders = useMemo(
-    () => providers.filter((provider) => agentsConfig?.[provider.id]?.visible_in_menu !== false),
+    () => {
+      const visible = providers.filter((provider) => agentsConfig?.[provider.id]?.visible_in_menu !== false);
+      return [...visible.filter(provider => !provider.agent_runtime?.launchProfiles), ...visible.filter(provider => provider.agent_runtime?.launchProfiles)];
+    },
     [providers, agentsConfig],
   );
   const visibleProviders = useMemo(() => menuProviders, [menuProviders]);
@@ -63,6 +68,11 @@ export function NewSessionPicker({
   const [installMap, setInstallMap] = useState<Record<string, boolean>>({});
   const [choice, setChoice] = useState<NewSessionChoice>(() => choiceForSessionSection(defaultNewSessionChoice(visibleProviders), section));
   const localId = choice.mode === "single" ? choice.providerId : "";
+  const selectedProvider = visibleProviders.find(provider => provider.id === localId);
+  const profileCatalog = useLaunchProfiles(selectedProvider);
+  const [profileSelection, setProfileSelection] = useState({providerId: "", id: ""});
+  const launchProfile = profileSelection.providerId === localId ? profileSelection.id : "";
+  const profileReady = !selectedProvider?.agent_runtime?.launchProfiles || profileCatalog.profiles.some(profile => profile.id === launchProfile && ["installed", "detected"].includes(profile.install));
   const remote = cloudExecution.enabled && section === "workspace" ? remoteProvider(menuProviders, localId) : undefined;
   const location = remote && execution.providerId === localId ? execution.location : "local";
   const environmentId = execution.providerId === localId ? execution.environmentId : "";
@@ -207,11 +217,16 @@ export function NewSessionPicker({
     effortId?: string,
     preset?: string,
     executionMode?: string,
+    profile?: string,
   ) => {
     if (!executionMode && disabledProviderIds.has(providerId)) return;
     const targetCwd = section === "general" ? workspaceCwd ?? selectedWorkspace?.cwd : selectedWorkspace?.cwd ?? workspaceCwd;
     if (executionMode) {
       await finishSpawn(() => spawnAgentTab(workspaceId, providerId, targetCwd ?? undefined, undefined, undefined, preset, undefined, executionMode));
+      return;
+    }
+    if (profile) {
+      await finishSpawn(() => spawnAgentTab(workspaceId, providerId, targetCwd ?? undefined, modelId, effortId, preset, undefined, undefined, profile));
       return;
     }
     await finishSpawn(() =>
@@ -234,8 +249,9 @@ export function NewSessionPicker({
       await runProviderSpawn(target.providerId, undefined, undefined, target.preset, target.executionMode);
       return;
     }
-    await runProviderSpawn(choice.providerId, choice.modelId, choice.effortId, choice.preset);
-  }, [choice, runProviderSpawn, location, environmentId, menuProviders]);
+    if (!profileReady) return;
+    await runProviderSpawn(choice.providerId, choice.modelId, choice.effortId, choice.preset, undefined, launchProfile || undefined);
+  }, [choice, runProviderSpawn, location, environmentId, menuProviders, profileReady, launchProfile]);
 
   const runPairSpawn = useCallback(async () => {
     if (choice.mode !== "pair" || !allowedNewSessionModes(section).includes("pair")) return;
@@ -285,6 +301,9 @@ export function NewSessionPicker({
           effortId: prev.mode === "pair" ? prev.orchestratorEffortId : prev.effortId,
         };
       }
+      if (prev.mode === "single" && visibleProviders.find(provider => provider.id === prev.providerId)?.agent_runtime?.launchProfiles) {
+        return defaultNewSessionChoice(visibleProviders.filter(provider => !provider.agent_runtime?.launchProfiles));
+      }
       return {
         mode: "pair",
         orchestratorProviderId: prev.mode === "single" ? prev.providerId : prev.orchestratorProviderId,
@@ -295,12 +314,12 @@ export function NewSessionPicker({
         plannerEffortId: prev.mode === "pair" ? prev.plannerEffortId : prev.effortId,
       };
     });
-  }, [section]);
+  }, [section, visibleProviders]);
 
   const remoteCanStart = location === "cloud" && remote?.remote_task?.availability.status === "available"
     && remote.remote_task.environments.some(environment => environment.id === environmentId);
   const canStart = choice.mode === "single"
-    ? location === "cloud" ? remoteCanStart : choice.providerId.length > 0 && !disabledProviderIds.has(choice.providerId)
+    ? location === "cloud" ? remoteCanStart : choice.providerId.length > 0 && !disabledProviderIds.has(choice.providerId) && profileReady
     : choice.orchestratorProviderId.length > 0
       && choice.plannerProviderId.length > 0
       && !disabledProviderIds.has(choice.orchestratorProviderId)
@@ -366,9 +385,9 @@ export function NewSessionPicker({
                 onEnvironment={id => setExecution({providerId: localId, location, environmentId: id})}
                 onRefresh={() => { void refreshRemoteProviders(); }} />}
               {choice.mode === "single" ? (
-                <OrchestrationRoleRow
+                <><OrchestrationRoleRow
                   label="Agent"
-                  modelControls={location === "local"}
+                  modelControls={location === "local" && !selectedProvider?.agent_runtime?.launchProfiles}
                   providers={visibleProviders}
                   providerId={choice.providerId}
                   modelId={choice.modelId ?? ""}
@@ -392,13 +411,17 @@ export function NewSessionPicker({
                   effortTestId="picker-effort-single"
                   onInstallProvider={handleInstallProvider}
                 />
+                {selectedProvider?.agent_runtime?.launchProfiles && <LaunchProfilePicker key={selectedProvider.id}
+                  provider={selectedProvider} profiles={profileCatalog.profiles} selected={launchProfile}
+                  onSelect={id => setProfileSelection({providerId: selectedProvider.id, id})}
+                  onRefresh={profileCatalog.refresh} error={profileCatalog.error} />}</>
               ) : (
                 <>
                   <p data-testid="picker-team-hint" className="mb-2.5 text-[12px] leading-snug text-[var(--ct-muted-fg)]">
                     Tell the Orchestrator what you need. It plans and brings in the agents.
                   </p>
                   <OrchestrationPairForm
-                    providers={visibleProviders}
+                    providers={visibleProviders.filter(provider => !provider.agent_runtime?.launchProfiles)}
                     values={{
                       orchestratorProviderId: choice.orchestratorProviderId,
                       orchestratorModelId: choice.orchestratorModelId ?? "",

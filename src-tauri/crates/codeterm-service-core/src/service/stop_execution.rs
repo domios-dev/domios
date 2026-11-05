@@ -72,10 +72,10 @@ pub async fn stop_agent_turn(
     if let Some(runtime_tab) = super::agent_runtime::controls::routed_tab(&svc, &tab_id) {
         return tokio::task::spawn_blocking(move || match svc.stop_decision(&runtime_tab) {
             StopDecision::NoAgent => Ok(serde_json::json!({"ok": true, "stopped": false})),
-            StopDecision::NotWorking(status) => Ok(serde_json::json!({
+            StopDecision::NotWorking(status) if !super::agent_runtime::controls::before_first_turn_pending(&svc,&runtime_tab) => Ok(serde_json::json!({
                 "ok": true, "stopped": false, "reason": "not_working", "status": status.label(),
             })),
-            StopDecision::Interrupt { .. } => {
+            StopDecision::Interrupt { .. } | StopDecision::NotWorking(_) => {
                 let stopped = super::agent_runtime::controls::interrupt(&svc, &runtime_tab)?;
                 if stopped {
                     Ok(serde_json::json!({"ok": true, "stopped": true, "reason": "stopped", "route": "runtime"}))
