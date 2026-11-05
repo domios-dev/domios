@@ -2956,7 +2956,7 @@ Add a task to a plan (carries model/why routing + quality fields)
 - `--model` — Provider:model, model id, or bare provider resolved at dispatch
 - `--name`
 - `--parent`
-- `--personality` — Executor's one-word persona; defaults to the first word of the task name
+- `--personality` — Required executor persona, for example --personality Ada; one word made only of letters
 - `<plan_id>`
 - `--primary`
 - `--priority`

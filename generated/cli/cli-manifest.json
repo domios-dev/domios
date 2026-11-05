@@ -13161,11 +13161,11 @@
                 {
                   "name": "personality",
                   "positional": false,
-                  "required": false,
+                  "required": true,
                   "value_name": "ONE_WORD_PERSONA",
                   "possible_values": [],
-                  "default": "",
-                  "help": "Executor's one-word persona; defaults to the first word of the task name",
+                  "default": null,
+                  "help": "Required executor persona, for example --personality Ada; one word made only of letters",
                   "aliases": []
                 },
                 {
