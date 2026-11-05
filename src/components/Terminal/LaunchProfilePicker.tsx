@@ -2,6 +2,7 @@ import {useState} from "react";
 import {Check, Loader2} from "lucide-react";
 import {invoke} from "../../lib/bridge";
 import {startAcpSetup} from "../../lib/acpSetup";
+import {pickerControls} from "../../lib/runtimeDeclaredControls";
 import {useAiHelperLaunch} from "../../lib/useAiHelperLaunch";
 import type {ProviderDescriptor} from "../../lib/types";
 import type {LaunchProfileState, ProfileSetupJob} from "./useLaunchProfiles";
@@ -45,6 +46,30 @@ export function LaunchProfileSelect({provider, profiles, selected, onSelect, tes
   return <DropdownSelect aria-label="Agent profile" data-testid={testId} options={options} value={selected} onChange={onSelect}
     placeholder={ids.length ? "Choose a profile" : "No profiles"} disabled={!ids.length || working(profiles.find(entry => entry.id === selected)?.setup)}
     leading={selected ? <AgentIcon providerId={provider.id} profileId={selected} className="shrink-0 text-[12px]" /> : undefined} />;
+}
+
+/**
+ * Model and effort for a ready ACP profile, in the same pills as a native harness. The choices are the ones the agent
+ * last declared (category model and thought_level, see `pickerControls`); none is preselected, so "Default" keeps the
+ * agent's own default. Before the profile has run once there is nothing to offer, and the model bubble chooses later.
+ */
+export function LaunchProfileModelRow({profile, model, effort, onModel, onEffort}: {
+  profile: LaunchProfileState; model: string; effort: string; onModel: (id: string) => void; onEffort: (id: string) => void;
+}) {
+  const declared = pickerControls({configOptions: profile.configOptions});
+  // Nothing declared yet (or ever): no pills; the agent runs on its own default.
+  if (!declared.model && !declared.effort) return null;
+  const options = (option: typeof declared.model): DropdownSelectOption[] =>
+    [{value: "", label: "Default"}, ...(option?.options ?? []).map(entry => ({value: entry.value, label: entry.name}))];
+  return <div className="mt-2 flex items-center gap-2" data-testid="launch-profile-model-row">
+    {declared.model && <div className="min-w-0 flex-1">
+      <DropdownSelect aria-label="Agent model" data-testid="picker-profile-model" options={options(declared.model)} value={model} onChange={onModel} />
+    </div>}
+    {declared.effort && <div className="min-w-0 flex-1">
+      <DropdownSelect aria-label="Agent effort" data-testid="picker-profile-effort" options={options(declared.effort)} value={effort}
+        onChange={onEffort} prefix="Effort" />
+    </div>}
+  </div>;
 }
 
 /**

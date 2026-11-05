@@ -3,6 +3,7 @@ import {invoke, listen} from "../../lib/bridge";
 import {EVENT_STREAM_READY} from "../../lib/eventStreamReady";
 import {onResync} from "../../lib/resync";
 import type {ProviderDescriptor} from "../../lib/types";
+import type {RuntimeConfigOption} from "@codeterm/plugin-sdk";
 export interface LaunchProfileState {
   id: string;
   install: "not_installed" | "installed" | "detected" | "unknown";
@@ -10,6 +11,8 @@ export interface LaunchProfileState {
   canInstall: boolean;
   ownerConfigured: boolean;
   setup?: ProfileSetupJob;
+  /** The model and thought-level choices the agent last declared for this profile; empty until it has run once. */
+  configOptions?: readonly RuntimeConfigOption[];
 }
 export interface ProfileSetupJob {
   jobId: string; providerId: string; profileId: string;

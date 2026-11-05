@@ -32,7 +32,7 @@ import { createPortal } from "react-dom";
 import { isFreeLimitRefusal } from "../billing/freeLimitModel";
 import {remoteProvider, remoteSpawnSelection, type ExecutionLocation} from "../../lib/remoteExecution";
 import {ExecutionLocationPicker} from "./ExecutionLocationPicker";
-import {LaunchProfilePicker, LaunchProfileSelect} from "./LaunchProfilePicker";
+import {LaunchProfileModelRow, LaunchProfilePicker, LaunchProfileSelect} from "./LaunchProfilePicker";
 import {useLaunchProfiles} from "./useLaunchProfiles";
 import {cloudExecution} from "./cloudExecution";
 
@@ -73,6 +73,10 @@ export function NewSessionPicker({
   const [profileSelection, setProfileSelection] = useState({providerId: "", id: ""});
   const launchProfile = profileSelection.providerId === localId ? profileSelection.id : "";
   const profileReady = !selectedProvider?.agent_runtime?.launchProfiles || profileCatalog.profiles.some(profile => profile.id === launchProfile && ["installed", "detected"].includes(profile.install));
+  const readyProfile = selectedProvider?.agent_runtime?.launchProfiles && profileReady ? profileCatalog.profiles.find(profile => profile.id === launchProfile) : undefined;
+  // A profile's model and effort start at the agent's own default; they belong to that one profile.
+  const [profileChoice, setProfileChoice] = useState({profile: "", model: "", effort: ""});
+  const profileModel = profileChoice.profile === `${localId}:${launchProfile}` ? profileChoice : {model: "", effort: ""};
   const remote = cloudExecution.enabled && section === "workspace" ? remoteProvider(menuProviders, localId) : undefined;
   const location = remote && execution.providerId === localId ? execution.location : "local";
   const environmentId = execution.providerId === localId ? execution.environmentId : "";
@@ -250,8 +254,12 @@ export function NewSessionPicker({
       return;
     }
     if (!profileReady) return;
-    await runProviderSpawn(choice.providerId, choice.modelId, choice.effortId, choice.preset, undefined, launchProfile || undefined);
-  }, [choice, runProviderSpawn, location, environmentId, menuProviders, profileReady, launchProfile]);
+    if (launchProfile) {
+      await runProviderSpawn(choice.providerId, profileModel.model || undefined, profileModel.effort || undefined, choice.preset, undefined, launchProfile);
+      return;
+    }
+    await runProviderSpawn(choice.providerId, choice.modelId, choice.effortId, choice.preset);
+  }, [choice, runProviderSpawn, location, environmentId, menuProviders, profileReady, launchProfile, profileModel.model, profileModel.effort]);
 
   const runPairSpawn = useCallback(async () => {
     if (choice.mode !== "pair" || !allowedNewSessionModes(section).includes("pair")) return;
@@ -414,6 +422,9 @@ export function NewSessionPicker({
                     profiles={profileCatalog.profiles} selected={launchProfile} testId="picker-profile-single"
                     onSelect={id => setProfileSelection({providerId: selectedProvider.id, id})} />}
                 />
+                {readyProfile && <LaunchProfileModelRow profile={readyProfile} model={profileModel.model} effort={profileModel.effort}
+                  onModel={model => setProfileChoice({...profileModel, profile: `${localId}:${launchProfile}`, model})}
+                  onEffort={effort => setProfileChoice({...profileModel, profile: `${localId}:${launchProfile}`, effort})} />}
                 {selectedProvider?.agent_runtime?.launchProfiles && <LaunchProfilePicker key={`${selectedProvider.id}:${launchProfile}`} list={false}
                   provider={selectedProvider} profiles={profileCatalog.profiles} selected={launchProfile}
                   onSelect={id => setProfileSelection({providerId: selectedProvider.id, id})}
