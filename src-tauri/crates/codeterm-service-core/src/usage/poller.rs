@@ -542,7 +542,7 @@ fn on_failure(inner: &Arc<UsagePollerInner>, key: &AccountKey, reason: &str) {
             failures,
             reason,
             if failures >= super::freshness::MAX_AUTOMATIC_FAILURES {
-                " · automatic probes parked until explicit refresh"
+                " · automatic probes slowed to every 30 min"
             } else {
                 ""
             }

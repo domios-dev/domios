@@ -1,6 +1,9 @@
 use std::time::Duration;
 
 pub(super) const MAX_AUTOMATIC_FAILURES: u32 = 4;
+/// After repeated failures the probe slows down instead of stopping, so a
+/// provider that recovers is picked up again without a manual refresh.
+const PERSISTENT_FAILURE_RETRY: Duration = Duration::from_secs(1800);
 
 pub(super) fn refresh_due(
     active: bool,
@@ -10,8 +13,11 @@ pub(super) fn refresh_due(
     failures: u32,
     idle_interval: Duration,
 ) -> bool {
-    if in_flight || failures >= MAX_AUTOMATIC_FAILURES {
+    if in_flight {
         return false;
+    }
+    if failures >= MAX_AUTOMATIC_FAILURES {
+        return attempt_age.is_none_or(|age| age >= PERSISTENT_FAILURE_RETRY);
     }
     let freshness = if active {
         Duration::from_secs(300).min(idle_interval)
