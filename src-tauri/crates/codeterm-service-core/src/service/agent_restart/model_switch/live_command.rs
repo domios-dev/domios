@@ -667,7 +667,18 @@ impl ServiceContext {
             .prompt
             .as_ref()
             .filter(|_| !structural_confirmation)
-            .map(|declaration| CommandPrompt::new(declaration, target, effort))
+            .map(|declaration| {
+                CommandPrompt::new(declaration, target, effort).map(|prompt| {
+                    if template.confirmation_prompt_kind.is_some() {
+                        prompt.with_structural_confirmation(
+                            target.readiness.clone(),
+                            effort.unwrap_or(model),
+                        )
+                    } else {
+                        prompt
+                    }
+                })
+            })
             .transpose()
             .map_err(ModelSwitchError::LiveCommandFailed)?;
         let mut picker = template

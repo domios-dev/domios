@@ -18,6 +18,10 @@ function pattern(template: string, model: string, effort = "", displayName?: str
 
 const modelScreen = fixture("model-picker.txt");
 const modelPicker = commands.model.picker;
+const capturedPicker = fixture("live-2.1.318-picker.txt");
+assert.ok(pattern(modelPicker.screenRegex, "sonnet").test(capturedPicker));
+assert.equal(pattern(modelPicker.selectedRegex, "sonnet").exec(capturedPicker)?.groups?.position, "5");
+assert.equal(pattern(modelPicker.targetRegex, "sonnet").exec(capturedPicker)?.groups?.position, "4");
 assert.equal(commands.model.command, "/model");
 assert.equal(modelPicker.responseKey, "s");
 assert.ok(pattern(modelPicker.screenRegex, "opus").test(modelScreen));

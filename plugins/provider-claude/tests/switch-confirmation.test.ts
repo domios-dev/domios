@@ -14,6 +14,7 @@ for (const [name, selection] of [
   ["sonnet-confirmation.txt", "sonnet"],
   ["cached-sonnet-confirmation.txt", "sonnet"],
   ["opus-confirmation.txt", "opus"],
+  ["live-2.1.318-confirmation.txt", "sonnet"],
 ]) {
   const screen = fs.readFileSync(path.join(root, "tests/fixtures/model-switch", name), "utf8").replaceAll("\r\n", "\n");
   for (const frame of [screen, screen.replaceAll("\n", "\r\n")]) {

@@ -1,7 +1,10 @@
+use super::readiness::CommandReadiness;
 use super::*;
 
 pub(super) struct CommandPrompt {
     pattern: Regex,
+    partial_picker: Option<(Regex, Regex)>,
+    structural_confirmation: Option<(std::sync::Arc<CommandReadiness>, String)>,
     keys: Vec<u8>,
     cancel_keys: Vec<u8>,
     cancelled: bool,
@@ -35,6 +38,8 @@ impl CommandPrompt {
         }
         Ok(Self {
             pattern,
+            partial_picker: None,
+            structural_confirmation: None,
             keys,
             cancel_keys,
             cancelled: false,
@@ -45,6 +50,32 @@ impl CommandPrompt {
 
     pub(super) fn present(&self, screen: &str) -> bool {
         self.pattern.is_match(screen)
+            || self
+                .partial_picker
+                .as_ref()
+                .is_some_and(|(selected, target)| {
+                    selected.is_match(screen) && target.is_match(screen)
+                })
+            || self
+                .structural_confirmation
+                .as_ref()
+                .is_some_and(|(readiness, selection)| {
+                    readiness.has_switch_confirmation(screen, selection)
+                })
+    }
+
+    pub(super) fn with_structural_confirmation(
+        mut self,
+        readiness: Option<std::sync::Arc<CommandReadiness>>,
+        selection: &str,
+    ) -> Self {
+        self.structural_confirmation = readiness.map(|readiness| (readiness, selection.to_owned()));
+        self
+    }
+
+    pub(super) fn with_partial_picker(mut self, selected: Regex, target: Regex) -> Self {
+        self.partial_picker = Some((selected, target));
+        self
     }
 
     pub(super) fn injected(&mut self) {
