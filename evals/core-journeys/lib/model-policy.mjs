@@ -80,29 +80,44 @@ export function generalSelection(config, provider, selected) {
   if (general?.first_run_complete && general.agent_provider !== provider) refuse("conflicting General provider");
 }
 
-export async function refreshAfterStartup(ctx, provider, { signal = AbortSignal.timeout(15_000) } = {}) {
+export async function refreshAfterStartup(ctx, provider) {
+  const deadline = ctx.catalogueDeadline ?? (ms => AbortSignal.timeout(ms));
+  const initialSignal = deadline(45_000), observation = new AbortController();
+  const openingAbort = () => observation.abort();
+  initialSignal.addEventListener("abort", openingAbort, { once: true });
+  if (initialSignal.aborted) observation.abort();
   const open = ctx.catalogueEvents ?? ((signal) => new Events(ctx.dev, signal).open());
-  let events, initial;
-  const refresh = () => ctx.api("/api/agents/providers/refresh", { method: "POST", body: { provider_id: provider }, signal });
+  const refresh = signal => ctx.api("/api/agents/providers/refresh", { method: "POST", body: { provider_id: provider }, signal });
+  let events, initial, eventSignal, requestSignal = initialSignal, stage = "refresh";
   try {
-    events = await open(signal);
-    initial = await refresh();
+    events = await open(observation.signal);
+    initial = await refresh(requestSignal);
+    initialSignal.removeEventListener("abort", openingAbort);
     if (initial?.discovery_required !== true || initial.refreshed !== false) return initial;
+    stage = "event";
+    eventSignal = deadline(15_000);
     for (;;) {
-      const event = await events.next();
+      const event = await events.next(eventSignal);
       if (event?.event_type === "model-catalogue-changed" && event.data?.provider === provider
         && Number.isSafeInteger(event.data.version) && event.data.version > initial.version) break;
     }
-    return await refresh();
+    stage = "refresh";
+    requestSignal = deadline(45_000);
+    return await refresh(requestSignal);
   } catch (error) {
-    if (signal.aborted || error?.message === "deadline") {
-      if (ctx.options?.mode === "verify" && initial?.discovery_required === true && initial.refreshed === false) {
+    if ((stage === "event" ? eventSignal.aborted : requestSignal.aborted) || error?.message === "deadline") {
+      if (stage === "event" && ctx.options?.mode === "verify" && initial?.discovery_required === true && initial.refreshed === false) {
         return { ...initial, startup_event_deadline: true };
       }
-      refuse(`${provider} startup catalogue completion event did not arrive before the 15 s deadline`);
+      refuse(stage === "event" ? `${provider} startup catalogue completion event did not arrive before the 15 s deadline`
+        : `${provider} catalogue refresh response did not arrive before the 45 s deadline`);
     }
     throw error;
-  } finally { events?.close(); }
+  } finally {
+    initialSignal.removeEventListener("abort", openingAbort);
+    observation.abort();
+    events?.close();
+  }
 }
 
 export async function freshCatalogue(api, provider, selected, expectedRoster, fixture = () => undefined, observedRefresh, context) {
