@@ -417,7 +417,7 @@ fn windows_terminal_process_fixture() {
     }
     let mut command = std::process::Command::new(std::env::current_exe().unwrap());
     crate::process_util::no_window_std(&mut command);
-    let child = command
+    let mut child = command
         .args(["--exact", "service::agent_runtime::client_bridge::windows_tests::windows_terminal_process_fixture", "--ignored", "--nocapture", "--test-threads=1"])
         .env("DOMIOS_BRIDGE_CHILD_FIXTURE", "1")
         .stdin(std::process::Stdio::null())
@@ -429,6 +429,8 @@ fn windows_terminal_process_fixture() {
         .write_all(&vec![b'x'; fs::MAX_BYTES + 8192])
         .unwrap();
     std::io::stdout().flush().unwrap();
+    // The descendant parks until the host's tree kill, so this reaps it without ending the fixture early.
+    let _ = child.wait();
     loop {
         std::thread::park();
     }
