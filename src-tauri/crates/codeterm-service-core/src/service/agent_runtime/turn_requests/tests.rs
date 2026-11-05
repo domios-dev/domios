@@ -386,7 +386,18 @@ fn silent_written_submit_releases_transport_gate_and_interrupts() {
     );
     assert!(super::super::controls::interrupt(&fixture.service, &tab).unwrap());
     assert!(session.context.lock().active_turn_id.is_none());
+    assert!(session.context.lock().active_turns.is_empty());
     assert!(session.completions.lock().contains("own-thread", "turn"));
+    assert!(session.gate.try_acquire().is_ok());
+    assert_eq!(
+        fixture
+            .service
+            .chat_send_ledger
+            .status(&pending.send_id)
+            .unwrap()
+            .state,
+        crate::service::chat_send_transaction::ChatSendState::Unknown
+    );
     assert_eq!(
         session.context.lock().thread_id.as_deref(),
         Some("own-thread")

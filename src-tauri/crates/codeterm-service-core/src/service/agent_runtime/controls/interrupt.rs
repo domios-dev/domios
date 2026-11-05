@@ -92,11 +92,14 @@ impl InterruptTarget {
         ) {
             return CompletionState::Unloaded;
         }
-        if self
-            .turns
-            .iter()
-            .all(|turn| completed(&turn.thread_id, &turn.turn_id))
-        {
+        if self.turns.iter().all(|turn| {
+            completed(&turn.thread_id, &turn.turn_id)
+                && !(turn.thread_id == self.thread
+                    && context.active_turn_id.as_ref() == Some(&turn.turn_id))
+                && !context.active_turns.iter().any(|active| {
+                    active.thread_id == turn.thread_id && active.turn_id == turn.turn_id
+                })
+        }) {
             CompletionState::Complete
         } else {
             CompletionState::Waiting

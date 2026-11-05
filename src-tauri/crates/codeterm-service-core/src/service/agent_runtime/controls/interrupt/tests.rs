@@ -38,6 +38,27 @@ fn captured_root_and_descendants_require_every_exact_completion() {
     );
     assert_eq!(
         target.state(&context, &RuntimePhase::Ready, |_, _| true),
+        CompletionState::Waiting
+    );
+    let mut retired = context.clone();
+    retired.active_turn_id = None;
+    assert_eq!(
+        target.state(&retired, &RuntimePhase::Ready, |_, _| true),
+        CompletionState::Waiting
+    );
+    retired.active_turns.clear();
+    assert_eq!(
+        target.state(&retired, &RuntimePhase::Ready, |_, _| true),
+        CompletionState::Complete
+    );
+    retired.active_turn_id = Some("next-root-turn".into());
+    retired.active_turns.push(RuntimeActiveTurn {
+        thread_id: "child".into(),
+        turn_id: "next-child-turn".into(),
+        parent_thread_id: Some("root".into()),
+    });
+    assert_eq!(
+        target.state(&retired, &RuntimePhase::Ready, |_, _| true),
         CompletionState::Complete
     );
 }
@@ -175,6 +196,20 @@ fn mock_runtime_interrupt_waits_for_events_and_deadline_degrades_without_idle() 
         })
         .await;
         engine::record_completed_turn(&session, "child", Some("child-turn"));
+        std::future::poll_fn(|cx| {
+            assert!(waiting.as_mut().poll(cx).is_pending());
+            std::task::Poll::Ready(())
+        })
+        .await;
+        session.context.lock().active_turn_id = None;
+        session.control_changes.send_replace(());
+        std::future::poll_fn(|cx| {
+            assert!(waiting.as_mut().poll(cx).is_pending());
+            std::task::Poll::Ready(())
+        })
+        .await;
+        session.context.lock().active_turns.clear();
+        session.control_changes.send_replace(());
         waiting.await.unwrap();
     });
     {
