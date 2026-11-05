@@ -1,4 +1,7 @@
-const refuse = reason => { throw new Error(`model policy refused: ${reason}`); };
+export class ModelPolicyRefusal extends Error {
+  constructor(reason) { super(`model policy refused: ${reason}`); }
+}
+const refuse = reason => { throw new ModelPolicyRefusal(reason); };
 const nonempty = value => typeof value === "string" && value.length > 0 && value.trim() === value;
 
 export const profileBacked = descriptor => descriptor?.agent_runtime?.launchProfiles != null;
@@ -42,7 +45,7 @@ export function profileIdentity(record, provider, catalogue, { first = false, pr
 }
 
 export function launchFlags(model, profile) {
-  return [...(profile ? ["--launch-profile", profile] : []), ...(model != null ? ["--model", model] : [])];
+  return [...(profile ? ["--profile", profile] : []), ...(model != null ? ["--model", model] : [])];
 }
 
 export function selectionDefault(entry) {

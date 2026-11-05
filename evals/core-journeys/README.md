@@ -82,7 +82,7 @@ it never drops ACP from the roster.
 `--model acp=<profile>` keeps the agent's default and passes no model override;
 `<profile>/default` also denotes that default when no model options are declared.
 The bench clears any instance-scoped model override for a profile-default launch.
-Every profile spawn and task dispatch passes `--launch-profile`; an explicit model
+Every profile spawn and task dispatch passes `--profile`; an explicit model
 also passes `--model`. No vault key is read or copied by the bench: `gemini-cli`
 uses its existing `authEnv` injection. Uppercase IDs above are live
 preflight prerequisites, never literal IDs. The owner selects Claude Haiku only,
@@ -113,7 +113,9 @@ cannot attest third-party execution. Before later sends or review bounces, exact
 requested, catalogue-resolved and actual own-session model identities must be
 known and equal. Only J1's initial input may precede runtime identity evidence;
 unknown or mismatched identity then refuses every later paid operation. A
-policy refusal is persisted and `all` exits 8 without restarting. Verify requires
+policy refusal is persisted and `all` exits 8 without restarting. An ordinary
+launch or send failure stays with that journey and does not become a global
+model-policy refusal; other correctly configured journeys continue. Verify requires
 the same explicit mapping, complete roster and persisted same-session identities;
 it refreshes catalogues again before restored sends. Profile-default sessions
 validate their exact launch profile and own session; actual model identity is

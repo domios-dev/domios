@@ -1,9 +1,9 @@
 import { Events } from "./env.mjs";
 import { installed, selectProviders } from "./oracle.mjs";
 import { fixtureProviderId } from "./fixture-control.mjs";
-import { profileBacked, profileReady, profileSelection, profileIdentity, selectionDefault } from "./profile-policy.mjs";
+import { ModelPolicyRefusal, profileBacked, profileReady, profileSelection, profileIdentity, selectionDefault } from "./profile-policy.mjs";
 
-const refuse = (reason) => { throw new Error(`model policy refused: ${reason}`); };
+const refuse = (reason) => { throw new ModelPolicyRefusal(reason); };
 const nonempty = (value) => typeof value === "string" && value.trim() === value && value.length > 0;
 const same = (left, right) => JSON.stringify([...left].sort()) === JSON.stringify([...right].sort());
 
@@ -210,8 +210,10 @@ export async function preparePolicy(ctx, { readRecord, configure = false, requir
   const guard = (body) => async (...args) => {
     if (policy.refusal) refuse(`persisted refusal: ${policy.refusal}`);
     try { return await body(...args); } catch (error) {
-      policy.refusal = error.message;
-      ctx.save();
+      if (error instanceof ModelPolicyRefusal && !policy.refusal) {
+        policy.refusal = error.message;
+        ctx.save();
+      }
       throw error;
     }
   };

@@ -4,6 +4,7 @@ import { Events } from "./env.mjs";
 // ORACLE: Injected API/command spies see explicit IDs or zero paid calls on refusal.
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
 import { setup, parseArgs } from "../driver.mjs";
 import { dispatchWorker, review } from "../journeys/dispatch.mjs";
 import { spawnOne } from "../journeys/spawn.mjs";
@@ -69,6 +70,63 @@ function profileFixture(selection = "gemini-cli") {
   return f;
 }
 
+test("emitted profile spawn and dispatch flags exist in the generated CLI contract", async () => {
+  const manifest = JSON.parse(readFileSync(new URL("../../../generated/cli/cli-manifest.json", import.meta.url), "utf8"));
+  const f = profileFixture("gemini-cli/exact-model");
+  f.profiles[0].configOptions = [{ category: "model", options: [{ value: "exact-model" }] }];
+  await f.prepare();
+  await spawnOne(f.ctx, { id: "acp", runtime: true });
+  await dispatchWorker(f.ctx, "acp", "p", "t", "o", f.ctx.state.workspace);
+  for (const { args } of paidCalls(f.calls)) {
+    let command = manifest;
+    let depth = 0;
+    const allowed = new Set();
+    for (;;) {
+      for (const option of command.args) if (!option.positional) {
+        allowed.add(`--${option.name}`);
+        for (const alias of option.aliases) allowed.add(`--${alias}`);
+      }
+      const next = command.subcommands.find(child => child.name === args[depth]);
+      if (!next) break;
+      depth++;
+      command = next;
+    }
+    for (const flag of args.filter(arg => arg.startsWith("--"))) assert.ok(allowed.has(flag), `${args.slice(0, depth).join(" ")} does not declare ${flag}`);
+    assert.equal(args[args.indexOf("--profile") + 1], "gemini-cli");
+    assert.equal(args[args.indexOf("--model") + 1], "exact-model");
+  }
+});
+
+test("a failed ACP launch or send does not poison another provider's sends", async () => {
+  for (const action of ["launch", "send"]) {
+    const f = profileFixture(); await f.prepare();
+    const failure = new Error(`ACP ${action} failed`);
+    const originalCommand = f.ctx.command;
+    f.ctx.command = async (args, options) => {
+      if (args[2] === "acp") throw failure;
+      return originalCommand(args, options);
+    };
+    const failed = action === "launch" ? spawnOne(f.ctx, { id: "acp", runtime: true })
+      : f.ctx.policy.send("owned", () => { throw failure; });
+    await assert.rejects(failed, error => error === failure);
+    assert.equal(f.ctx.state.model_policy.refusal, undefined);
+    f.setTab(record());
+    await sendText(f.ctx, "owned", "other provider still runs");
+    assert.equal(f.calls.filter(call => call.path?.endsWith("/chat-send")).length, 1);
+  }
+});
+
+test("nested policy failures preserve one original root cause", async () => {
+  const f = fixture(); await f.prepare();
+  f.setTab({ ...record(), agent_requested_model: "wrong" });
+  await assert.rejects(sendText(f.ctx, "owned", "refused"), /requested\/resolved identity/);
+  const root = f.ctx.state.model_policy.refusal;
+  assert.equal(root.includes("persisted refusal"), false);
+  await assert.rejects(sendText(f.ctx, "owned", "still refused"), /persisted refusal/);
+  assert.equal(f.ctx.state.model_policy.refusal, root);
+  assert.deepEqual(paidCalls(f.calls), []);
+});
+
 test("profile-backed providers remain in the full roster and name ready selections on refusal", async () => {
   const f = profileFixture(); delete f.ctx.options.models.acp;
   await assert.rejects(f.prepare(), /complete installed provider roster; expected --model acp=<profile> \(ready profiles: gemini-cli\)/);
@@ -84,7 +142,7 @@ test("profile defaults spawn and dispatch with launch_profile, no invented model
     await spawnOne(f.ctx, { id: "acp", runtime: true });
     await dispatchWorker(f.ctx, "acp", "p", "t", "o", f.ctx.state.workspace);
     for (const { args } of paidCalls(f.calls)) {
-      assert.equal(args[args.indexOf("--launch-profile") + 1], "gemini-cli");
+      assert.equal(args[args.indexOf("--profile") + 1], "gemini-cli");
       assert.equal(args.includes("--model"), false);
     }
     assert.equal(f.calls.some(call => call.path === "/api/agents/providers/refresh" && call.options.body.provider_id === "acp"), false);
@@ -98,7 +156,7 @@ test("explicit profile models are exact declared choices, including opaque slash
   f.profiles[0].configOptions = [{ id: "model-id", category: "model", options: [{ value: "vendor/exact" }] }];
   await f.prepare(); await spawnOne(f.ctx, { id: "acp", runtime: true });
   const { args } = paidCalls(f.calls)[0];
-  assert.equal(args[args.indexOf("--launch-profile") + 1], "gemini-cli");
+  assert.equal(args[args.indexOf("--profile") + 1], "gemini-cli");
   assert.equal(args[args.indexOf("--model") + 1], "vendor/exact");
   f.setTab({ id: "owned", agent_type: "acp", agent_runtime_config: { launchProfile: "gemini-cli" },
     agent_requested_model: "vendor/exact", agent_provider_resolved_model: "vendor/exact", agent_session_model: "vendor/exact", agent_session_id: "s" });
