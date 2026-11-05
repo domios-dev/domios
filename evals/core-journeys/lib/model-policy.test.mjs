@@ -1,3 +1,4 @@
+import { Events } from "./env.mjs";
 // WHAT: Exact advertised selections guard every paid bench boundary.
 // WHY: Implicit launch defaults and restore sends can violate the owner's model policy.
 // ORACLE: Injected API/command spies see explicit IDs or zero paid calls on refusal.
@@ -279,7 +280,7 @@ test("startup completion followed by a refused refresh never loops or weakens mo
 test("startup catalogue subscription deadline reports the provider before any refresh", async () => {
   const f = fixture();
   f.ctx.catalogueEvents = async () => { throw new Error("deadline"); };
-  await assert.rejects(f.prepare(), new RegExp(`${provider} startup catalogue completion event did not arrive`));
+  await assert.rejects(f.prepare(), new RegExp(`${provider} catalogue refresh response did not arrive before the 45 s deadline`));
   assert.equal(f.calls.some(call => call.path === "/api/agents/providers/refresh"), false);
 });
 
@@ -313,4 +314,58 @@ test("verify cache qualification refuses missing live setup, a different build/r
     assert.deepEqual(paidCalls(f.calls), []);
     assert.equal(f.calls.filter(call => call.path === "/api/agents/providers/refresh").length, 1);
   }
+});
+
+
+test("a cached refresh response arriving after 15 s starts its own later event window and qualifies verify", async () => {
+  const f = fixture(); await f.prepare(); f.ctx.options.mode = "verify";
+  const bounds = [], eventDeadline = new AbortController();
+  let elapsed = 0;
+  f.ctx.catalogueDeadline = ms => {
+    bounds.push({ ms, at: elapsed });
+    return ms === 15_000 ? eventDeadline.signal : new AbortController().signal;
+  };
+  const original = f.ctx.api;
+  f.ctx.api = async (path, options) => {
+    if (path === "/api/agents/providers/refresh") {
+      assert.deepEqual(bounds, [{ ms: 45_000, at: 0 }]);
+      elapsed = 20_000;
+      assert.equal(options.signal.aborted, false);
+      return { ...refreshed(), refreshed: false };
+    }
+    return original(path, options);
+  };
+  f.ctx.catalogueEvents = async () => ({
+    next: async signal => {
+      assert.equal(signal, eventDeadline.signal);
+      assert.deepEqual(bounds, [{ ms: 45_000, at: 0 }, { ms: 15_000, at: 20_000 }]);
+      eventDeadline.abort(); throw new Error("deadline");
+    }, close() {},
+  });
+  await f.prepare(false);
+  assert.equal(f.ctx.state.model_policy.verify_catalogues[provider].qualification.verified_live_in_setup, true);
+});
+
+test("a missing refresh response refuses at its own bound and never qualifies a cached verify", async () => {
+  const f = fixture(); await f.prepare(); f.ctx.options.mode = "verify";
+  const request = new AbortController(), bounds = [];
+  f.ctx.catalogueDeadline = ms => { bounds.push(ms); return request.signal; };
+  const original = f.ctx.api;
+  f.ctx.api = async (path, options) => {
+    if (path === "/api/agents/providers/refresh") { request.abort(); throw new Error("deadline"); }
+    return original(path, options);
+  };
+  await assert.rejects(f.prepare(false), /catalogue refresh response did not arrive before the 45 s deadline/);
+  assert.deepEqual(bounds, [45_000]);
+  assert.equal(f.ctx.state.model_policy.verify_catalogues, undefined);
+});
+
+test("an event subscription can use a separate per-wait abort signal without timing out its lifetime", async () => {
+  const lifetime = new AbortController(), event = new AbortController();
+  const events = new Events({}, lifetime.signal);
+  const pending = events.next(event.signal);
+  event.abort();
+  await assert.rejects(pending, /deadline/);
+  assert.equal(lifetime.signal.aborted, false);
+  assert.equal(events.waiter, null);
 });

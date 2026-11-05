@@ -135,14 +135,14 @@ export class Events {
     }
   }
   drain() { return this.queue.splice(0); }
-  next() {
+  next(signal = this.signal) {
     if (this.failure) return Promise.reject(this.failure);
     if (this.queue.length) return Promise.resolve(this.queue.shift());
-    if (this.signal.aborted) return Promise.reject(new Error("deadline"));
+    if (signal.aborted) return Promise.reject(new Error("deadline"));
     return new Promise((accept, reject) => {
       const onAbort = () => { this.waiter = null; reject(new Error("deadline")); };
-      this.signal.addEventListener("abort", onAbort, { once: true });
-      const settle = (fn, value) => { this.signal.removeEventListener("abort", onAbort); fn(value); };
+      signal.addEventListener("abort", onAbort, { once: true });
+      const settle = (fn, value) => { signal.removeEventListener("abort", onAbort); fn(value); };
       this.waiter = { resolve: (event) => settle(accept, event), reject: (error) => settle(reject, error) };
     });
   }
