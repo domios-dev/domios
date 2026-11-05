@@ -1,5 +1,5 @@
 use std::sync::{mpsc, Arc};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use codeterm_decision::{DecisionModel, TokenMode};
 use serde_json::json;
@@ -31,6 +31,16 @@ module.exports.default = {{
 }};
 "#
     )
+}
+
+struct ReleaseOnDrop(Vec<String>);
+
+impl Drop for ReleaseOnDrop {
+    fn drop(&mut self) {
+        for gate in &self.0 {
+            call_gate::open(gate);
+        }
+    }
 }
 
 fn manifest() -> PluginManifest {
@@ -76,19 +86,30 @@ fn slow_discovery_outlives_the_standard_bound_without_blocking_the_plugin() {
         .enable_all()
         .build()
         .unwrap();
+    // Declared after the runtime so a failed assertion releases the held jobs before the
+    // runtime's drop waits for its blocking discovery.
+    let _release = ReleaseOnDrop(vec![
+        format!("{discovery}.release"),
+        format!("{ordinary}.release"),
+    ]);
     let refresh = runtime.spawn(model_catalog::refresh_live(
         provider,
         model_catalog::DISCOVER_TIMEOUT,
     ));
-    let entered = call_gate::wait_opened(&format!("{discovery}.entered"), WEDGED);
-    if !entered {
-        call_gate::open(&format!("{discovery}.release"));
-    }
-    assert!(entered, "discovery never reached its host I/O");
+    assert!(
+        call_gate::wait_opened(&format!("{discovery}.entered"), WEDGED),
+        "discovery never reached its host I/O"
+    );
 
+    let started = Instant::now();
     let timed_out = call_json::<bool>(&vm, "ordinary", &[]);
+    let elapsed = started.elapsed();
     call_gate::open(&format!("{ordinary}.release"));
-    assert!(matches!(timed_out, Err(VmError::AsyncJobTimedOut)));
+    // Closing a job at its deadline runs the job's cancel hook, which revokes the call.
+    assert!(
+        matches!(timed_out, Err(VmError::CallCancelled)) && elapsed < WEDGED,
+        "an ordinary call must end at the standard bound: {timed_out:?} after {elapsed:?}"
+    );
     assert!(
         call_json::<bool>(&vm, "ping", &[]).expect("a call between discovery frames"),
         "the plugin VM must stay free while discovery waits on host I/O"
