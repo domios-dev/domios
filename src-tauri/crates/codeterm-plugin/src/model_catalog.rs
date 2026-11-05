@@ -680,6 +680,15 @@ pub fn is_stale(provider_id: &str, ttl: Duration, now: SystemTime) -> bool {
     now.duration_since(fetched_at).is_ok_and(|age| age >= ttl)
 }
 
+/// Re-reads the provider's configured endpoint models without a live probe.
+pub async fn refresh_endpoints(provider: Arc<dyn AgentProvider>) {
+    let _ = tokio::task::spawn_blocking(move || {
+        let stamp = discovery_stamp(provider.as_ref());
+        endpoints::refresh(provider.as_ref(), &stamp);
+    })
+    .await;
+}
+
 /// TTL-gated refresh: skip when a fresh snapshot exists unless `force`. Returns the
 /// new list on success, `None` when skipped or failed (the prior snapshot/seed stays active).
 pub async fn refresh_models(
@@ -689,11 +698,7 @@ pub async fn refresh_models(
     let provider_id = provider.id().to_string();
     register_catalogue_capability(&provider_id, &provider.model_catalogue_capability());
     if !force && !is_stale(&provider_id, DEFAULT_TTL, SystemTime::now()) {
-        let _ = tokio::task::spawn_blocking(move || {
-            let stamp = discovery_stamp(provider.as_ref());
-            endpoints::refresh(provider.as_ref(), &stamp);
-        })
-        .await;
+        refresh_endpoints(provider).await;
         log::debug!("[model_catalog] {provider_id} live cache fresh — skipping refresh");
         return None;
     }
