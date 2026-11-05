@@ -13,8 +13,10 @@ fn written_turn_end_before_output_keeps_one_user_row_and_next_turn_order() {
     );
         let (fixture, tab, peer, _cleanup) = runtime_fixture_turn_scoped(&source);
         let session = engine::for_tab(&tab).unwrap();
-        let frame = Messenger::from(MessageEnvelope::from_codeterm())
-            .framed_delivery("opaque cancelled prompt");
+        let frame =
+            Messenger::from(MessageEnvelope::default()).framed_delivery("opaque cancelled prompt");
+        assert!(frame.to_message().starts_with("<domios from=\"cli\""));
+        assert_eq!(frame.body(), "opaque cancelled prompt");
         let first = fixture
             .service
             .chat_send_ledger
@@ -95,6 +97,8 @@ fn written_turn_end_before_output_keeps_one_user_row_and_next_turn_order() {
         let rows = session.cache.lock().snapshot();
         let users: Vec<_> = rows.iter().filter(|row| row.kind == "user").collect();
         assert_eq!(users.len(), 1);
+        assert_eq!(users[0].content, "opaque cancelled prompt");
+        assert_eq!(users[0].inbound_kind.as_deref(), Some("cli"));
         assert_eq!(users[0].content, expected.content);
         assert_eq!(users[0].segments, expected.segments);
         let next = fixture
@@ -116,6 +120,8 @@ fn written_turn_end_before_output_keeps_one_user_row_and_next_turn_order() {
         let rows = session.cache.lock().snapshot();
         let users: Vec<_> = rows.iter().filter(|row| row.kind == "user").collect();
         assert_eq!(users.len(), 2);
+        assert_eq!(users[0].content, "opaque cancelled prompt");
+        assert_eq!(users[0].inbound_kind.as_deref(), Some("cli"));
         assert_eq!(users[0].content, expected.content);
         assert_eq!(users[1].content, "opaque next prompt");
         assert!(users[0].seq < users[1].seq);
