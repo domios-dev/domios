@@ -662,17 +662,15 @@ test("catalogue-free runtime lists only the bound agent model declaration", asyn
     {id:"other",name:"Other",currentValue:"unrelated",options:[{value:"unrelated",name:"Unrelated"}]},
   ]});
   try {
-    assert.match(view.trigger()!.textContent!, /Wire Agent.*0.0.1.*First declared/);
+    assert.equal(view.trigger()!.textContent, "First declared");
     await act(async () => view.trigger()!.click());
     assert.deepEqual(Array.from(document.body.querySelectorAll('[role="option"]')).map(row => row.textContent?.includes("declared")), [true,true]);
     assert.equal(document.body.querySelector('[aria-label="Refresh models"]'), null);
     assert.equal(view.option("Deep"), undefined);
     assert.equal(view.option("Unrelated"), undefined);
-    await act(async () => view.option("Second declared").click());
-    await act(async () => button("Apply").click());
-    assert.deepEqual(calls, [["tab","wire-two",undefined]]);
-    assert.match(view.trigger()!.textContent!, /First declared/);
-    assert.doesNotMatch(view.trigger()!.textContent!, /Second declared/);
+    // Applying a declared model goes through the runtime controls API, never the catalogue switch
+    // (runtimeModelControls.test.tsx covers that path).
+    assert.deepEqual(calls, []);
   } finally { await view.unmount(); __setTabModelApiForTest(null); }
 });
 
@@ -697,7 +695,7 @@ test("catalogue-free runtime stays neutral while model controls are unavailable"
     const view = await mount(provider, undefined, undefined, undefined, controls);
     try {
       assert.equal(view.trigger(), null);
-      assert.equal(view.host.textContent, controls ? "Wire Agent · 0.0.1" : "Vendor");
+      assert.equal(view.host.textContent, "Vendor");
       assert.doesNotMatch(view.host.textContent!, /declared no model|deep|high|launch-only/);
       assert.equal(view.picker(), null);
     } finally { await view.unmount(); }

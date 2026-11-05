@@ -1,4 +1,5 @@
 import { tabMetaParts } from "../../lib/tabMetaLabel";
+import { pickerControlOf } from "../../lib/runtimeDeclaredControls";
 import type { AgentRuntimeState } from "../../lib/agentRuntimeState";
 import type { RuntimeServiceTierSelection as ServiceTierSelection } from "../../../packages/plugin-sdk/src/agentRuntime";
 import { modelSwitchModeSupported } from "../../lib/modelSwitch";
@@ -57,10 +58,19 @@ export function pickerHasPrimaryModels(descriptor: ProviderDescriptor): boolean 
   return descriptor.available_models.some((model) => model.primary === true);
 }
 
-export function runtimeStatusLineIdentity(state: Pick<AgentRuntimeState, "agentName" | "binaryVersion" | "controls"> | null | undefined, tierLabel?: string, effort?: string, status?: string): string {
-  const model = state?.controls?.configOptions?.find(option => option.category === "model");
+/**
+ * A runtime agent's status-line label reads like every other provider's: model · effort, with the agent's
+ * logo beside it. The agent's own name and version are not part of the label (see `runtimeAgentTooltip`).
+ */
+export function runtimeStatusLineIdentity(state: Pick<AgentRuntimeState, "controls"> | null | undefined, tierLabel?: string, effort?: string, status?: string): string {
+  const model = state?.controls?.configOptions?.find(option => pickerControlOf(option) === "model");
   const name = model?.options.find(option => option.value === model.currentValue)?.name ?? model?.currentValue;
-  return tabMetaParts(name, tierLabel, effort, status, state).join(" · ");
+  return tabMetaParts(name, tierLabel, effort, status).join(" · ");
+}
+
+/** The agent's reported name and version, for the label's tooltip. */
+export function runtimeAgentTooltip(identity: { agentName?: string; binaryVersion?: string } | null | undefined): string | undefined {
+  return [identity?.agentName, identity?.binaryVersion].filter(Boolean).join(" · ") || undefined;
 }
 
 export function statusLineModelName(

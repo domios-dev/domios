@@ -18,6 +18,7 @@ import { UI_BUTTON } from "../shared/design";
 import { AgentIcon } from "../AgentIcon";
 import { ProviderGlyph } from "../ProviderGlyph";
 import { runtimeAgentLabel } from "../../lib/tabProvider";
+import { pickerControls, selectRuntimeControl } from "../../lib/runtimeDeclaredControls";
 import {
   currentModelId,
   effortAfterModelChange,
@@ -30,6 +31,7 @@ import {
   pickerSelection,
   statusLineSwitchGate,
   statusLineModelName,
+  runtimeAgentTooltip,
   runtimeStatusLineIdentity,
   type PickerSelection,
   type StatusLineTabFacts,
@@ -100,10 +102,16 @@ export function StatusLineModelPicker({
   serviceTierAvailability?: Record<string,readonly import("../../../packages/plugin-sdk/src/agentRuntime").RuntimeServiceTier[]>;
   pendingSelection?: { model: string; effort: string | null; confirmation_pending?: boolean };
 }) {
+  // A runtime agent that declares its model (and its reasoning effort) has them here, set through the runtime
+  // controls API; the runtime controls row leaves them out (see `pickerControls`).
   const declaredModels = Boolean(descriptor?.agent_runtime && !descriptor.available_models.length);
-  const modelOption = declaredModels ? runtimeControls?.configOptions?.find(option => option.category === "model") : undefined;
+  const declared = declaredModels ? pickerControls(runtimeControls) : {};
+  const modelOption = declared.model;
+  const effortOption = declared.effort;
+  const declaredEfforts = effortOption?.options.map(option => ({ id: option.value, display_name: option.name })) ?? [];
   if (declaredModels && descriptor) descriptor = { ...descriptor, model_switch: "live",
-    available_models: modelOption?.options.map(option => ({id:option.value,display_name:option.name,reasoning_efforts:[]})) ?? [] };
+    available_models: modelOption?.options.map(option => ({id:option.value,display_name:option.name,reasoning_efforts:declaredEfforts})) ?? [] };
+  if (declaredModels) currentEffort = effortOption?.currentValue;
   const gate = statusLineSwitchGate(descriptor, facts);
   const currentModel = declaredModels ? modelOption?.currentValue : currentModelId(descriptor, modelCandidates);
   const [open, setOpen] = useState(false);
@@ -132,7 +140,11 @@ export function StatusLineModelPicker({
     close();
     try {
       const api = getTabModelApi();
-      if (restart) {
+      if (declaredModels) {
+        const target = { threadId: tab?.agent_session_id, bindingNonce: tab?.session_binding_nonce, epoch: tab?.agent_runtime_state?.epoch };
+        if (modelOption && selection.model !== modelOption.currentValue) await selectRuntimeControl(tabId, target, modelOption.id, selection.model);
+        if (effortOption && selection.effort && selection.effort !== effortOption.currentValue) await selectRuntimeControl(tabId, target, effortOption.id, selection.effort);
+      } else if (restart) {
         if (!api.restartAndSwitchModel) throw new Error("Restart fallback is unavailable");
         const result = await api.restartAndSwitchModel(tabId, selection.model, selection.effort, selection.runtimeMode);
         if (result?.staged) setApplied(null);
@@ -156,7 +168,7 @@ export function StatusLineModelPicker({
     } finally {
       setApplying(false);
     }
-  }, [actions, close, descriptor?.transport, tabId]);
+  }, [actions, close, descriptor?.transport, tabId, tab, declaredModels, modelOption, effortOption]);
   commitRef.current = commit;
 
   const selection = pendingSelection ? { model: pendingSelection.model, effort: pendingSelection.effort ?? undefined }
@@ -169,18 +181,20 @@ export function StatusLineModelPicker({
   const selectionStatus = pendingSelection?.confirmation_pending ? "Switch sent; confirms when this turn ends" : afterTurn ? "after this turn" : undefined;
   const displayedLabel = declaredModels
     ? runtimeStatusLineIdentity({ ...runtimeIdentity, controls: runtimeControls }, tierLabel, selection.effort, selectionStatus)
-    : tabMetaParts(confirmedModelName, tierLabel, selection.effort, selectionStatus, runtimeIdentity).join(" · ");
-  const harnessName = (tab ? runtimeAgentLabel(tab) : null) ?? descriptor?.display_name ?? label.split(" · ")[0];
+    : tabMetaParts(confirmedModelName, tierLabel, selection.effort, selectionStatus).join(" · ");
+  // The logo names the agent; the agent's reported name and version live only in the tooltip, never in the label.
+  const providerName = descriptor?.display_name ?? label.split(" · ")[0];
+  const harnessTitle = (tab ? runtimeAgentLabel(tab) : null) ?? runtimeAgentTooltip(runtimeIdentity) ?? providerName;
   const glyph = descriptor ? (
-    <span aria-hidden="true" className="ct-status-identity__glyph" data-testid="status-harness-glyph" title={harnessName}>
-      {tab ? <AgentIcon providerId={descriptor.id} tab={tab} title={harnessName} />
+    <span aria-hidden="true" className="ct-status-identity__glyph" data-testid="status-harness-glyph" title={harnessTitle}>
+      {tab ? <AgentIcon providerId={descriptor.id} tab={tab} title={harnessTitle} />
         : <ProviderGlyph iconSvg={descriptor.icon_svg} iconColor={descriptor.icon_color} iconHint={descriptor.icon_hint} />}
     </span>
   ) : null;
 
   if (declaredModels && !runtimeControls?.configOptions) return (
-    <span className="ct-status-identity ct-status-identity--static" title="Model controls are unavailable">
-      {glyph}{runtimeStatusLineIdentity(runtimeIdentity) || descriptor?.display_name || "Agent"}
+    <span className="ct-status-identity ct-status-identity--static" title={harnessTitle || "Model controls are unavailable"}>
+      {glyph}{providerName || "Agent"}
     </span>
   );
 
@@ -193,7 +207,7 @@ export function StatusLineModelPicker({
   if (!gate.interactive || !descriptor) {
     return (
       <span className="ct-status-identity-wrap">
-        <span className="ct-status-identity ct-status-identity--static" title={gate.interactive ? harnessName : gate.reason}>
+        <span className="ct-status-identity ct-status-identity--static" title={gate.interactive ? harnessTitle : gate.reason}>
           {glyph}
           <span className="ct-status-identity__text">{displayedLabel}</span>
         </span>

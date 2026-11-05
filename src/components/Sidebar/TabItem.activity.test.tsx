@@ -74,7 +74,7 @@ it("projects runtime launch failure and recovery into sidebar and status-line ac
   }
 });
 
-it.each([false,true,undefined])("uses the visible runtime identity and declared model in the status-line name (model: %s)", async hasModel => {
+it.each([false,true,undefined])("names a runtime agent by its declared model, never its own name and version (model: %s)", async hasModel => {
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);
@@ -83,7 +83,8 @@ it.each([false,true,undefined])("uses the visible runtime identity and declared 
   const tab: Tab = {id:"runtime",title:"Runtime",tab_type:"Terminal",pty_id:null,cwd:null,
     backing:{kind:"chat_backend",plugin_id:"fixture-runtime",session_id:""},agent_runtime_state:runtime};
   const descriptor = {id:"fixture-runtime",display_name:"Harness",agent_runtime:{},available_models:[],model_switch:"live"} as unknown as ProviderDescriptor;
-  const identity = hasModel === undefined ? "Harness" : `Wire Agent · 0.0.1${hasModel ? " · First declared" : ""}`;
+  // The agent's own name and version stay out of the label; the declared model reads like any provider's.
+  const identity = hasModel ? "First declared" : "Harness";
   try {
     await act(async () => root.render(<AgentStateIndicator tab={tab} activity={tabActivity(tab,"Idle")}
       runtimeState={runtime} providerName="Harness" model="Unknown model"

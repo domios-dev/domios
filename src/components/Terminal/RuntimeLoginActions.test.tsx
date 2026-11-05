@@ -148,7 +148,7 @@ it("keeps a live notice across same-epoch snapshots and clears it for a new runt
   expect(runtimeStateFromSnapshot(state,{state:"loaded",epoch:5})?.notice).toBeUndefined();
 });
 
-it("keeps declared model, reasoning and session mode controls separately named and focusable", async () => {
+it("leaves the declared model to the model picker and keeps other declared controls and the session mode named and focusable", async () => {
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);
@@ -163,7 +163,8 @@ it("keeps declared model, reasoning and session mode controls separately named a
     await act(async () => root.render(<RuntimeDeclaredControls tabId="owned" state={state} />));
     const group = host.querySelector('[role="group"][aria-label="Agent controls"]');
     expect(group).not.toBeNull();
-    for (const name of ["Model", "Reasoning effort", "Session mode"]) {
+    expect(group!.querySelector('[aria-label="Model"]')).toBeNull();
+    for (const name of ["Reasoning effort", "Session mode"]) {
       const control = group!.querySelector<HTMLSelectElement>(`[role="combobox"][aria-label="${name}"]`)!;
       expect(control).not.toBeNull();
       expect(control.disabled).toBe(false);

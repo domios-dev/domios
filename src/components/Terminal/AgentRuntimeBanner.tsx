@@ -1,4 +1,4 @@
-import { RuntimeDeclaredControls } from "./RuntimeDeclaredControls";
+import { hasRowControls, RuntimeDeclaredControls } from "./RuntimeDeclaredControls";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useId } from "react";
 import { CircleAlert } from "lucide-react";
@@ -11,7 +11,7 @@ import { describeRuntimeConnectionError, isMissingRuntimeConversation } from "..
 import { useStartNewSession } from "./useStartNewSession";
 
 export function AgentRuntimeBanner({ state, onRetry, tabId, iconSvg, startupOwned = false }: { tabId?: string; state: AgentRuntimeState | null; onRetry: () => void; iconSvg?: string | null; startupOwned?: boolean }) {
-  const hasControls = Boolean(state?.notice || state?.controls?.configOptions?.length || state?.controls?.modes?.length);
+  const hasControls = hasRowControls(state);
   if (tabId && state && (state.state === "loginPending" || (state.authentication && state.authentication.state !== "authenticated" && (state.authentication.state !== "unknown" || state.authentication.methods.length > 0 || Boolean(state.requiredSecrets?.length))) || (state.auth === "signedOut" && state.loginMethods?.length))) {
     return <>
       {tabId && state && hasControls && <RuntimeDeclaredControls tabId={tabId} state={state} />}
