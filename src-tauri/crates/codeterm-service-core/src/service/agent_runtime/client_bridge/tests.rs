@@ -785,3 +785,63 @@ async fn owner_approval_async_preserves_scope_without_entering_a_nested_runtime(
         .await
         .unwrap();
 }
+
+#[test]
+fn client_refusal_rpc_data_carries_provider_neutral_reason_without_changing_message() {
+    for (message, reason) in [
+        ("file_in_use: File is in use", "file_in_use"),
+        (
+            "file_locked: File has an incompatible open handle",
+            "file_locked",
+        ),
+        (
+            "atomic_replace_unsupported: Native replacement unavailable",
+            "atomic_replace_unsupported",
+        ),
+        ("Reparse attribute traversal denied", "reparse_point"),
+        ("Client bridge capacity exceeded", "client_bridge_refused"),
+    ] {
+        assert_eq!(
+            serde_json::to_value(failure(message.into())).unwrap(),
+            json!({"code":-32602,"message":message,"data":{"reason":reason}})
+        );
+    }
+}
+
+#[test]
+fn write_commit_releases_context_and_reports_committed_supersession_honestly() {
+    let (_temp, root) = root();
+    let expected = context(&root);
+    let current = Mutex::new(expected.clone());
+    let path = root.join("committed");
+    current.lock().active_turn_id = Some("foreign".into());
+    assert!(commit_scoped_write(&current, &expected, &mut || {
+        panic!("expired grant cannot commit")
+    })
+    .is_err());
+    assert!(!path.exists());
+    *current.lock() = expected.clone();
+    let message = commit_scoped_write(&current, &expected, &mut || {
+        let mut guard = current
+            .try_lock()
+            .expect("context must be unlocked during filesystem commit");
+        std::fs::write(&path, "written").unwrap();
+        guard.active_turn_id = Some("superseded".into());
+        Ok(())
+    })
+    .unwrap_err();
+    assert_eq!(std::fs::read_to_string(path).unwrap(), "written");
+    let error = failure(message.clone());
+    assert_eq!(error.message, message);
+    assert!(error.message.contains("was written"));
+    assert_eq!(
+        error.data,
+        Some(json!({"reason":"write_committed_superseded","committed":true}))
+    );
+    *current.lock() = expected.clone();
+    commit_scoped_write(&current, &expected, &mut || {
+        assert!(current.try_lock().is_some());
+        Ok(())
+    })
+    .unwrap();
+}

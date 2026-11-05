@@ -861,3 +861,29 @@ fn guid_reparse_control(file: &std::fs::File, control: u32, payload: &[u8]) -> s
         Ok(())
     }
 }
+
+#[test]
+fn windows_exclusive_reader_reports_neutral_file_locked_refusal() {
+    use std::os::windows::fs::OpenOptionsExt;
+    let (_temp, root) = tests::root();
+    let path = root.join("locked");
+    std::fs::write(&path, "original").unwrap();
+    let handle = fs::windows::open_root(&root).unwrap();
+    let held = std::fs::OpenOptions::new()
+        .read(true)
+        .share_mode(0)
+        .open(&path)
+        .unwrap();
+    let message = fs::read(&root, &handle, Path::new("locked"), None, None).unwrap_err();
+    assert!(message.starts_with("file_locked:"), "{message}");
+    assert!(
+        !message.contains("delete access"),
+        "read locking must not claim a delete-sharing cause"
+    );
+    assert_eq!(failure(message).data, Some(json!({"reason":"file_locked"})));
+    drop(held);
+    assert_eq!(
+        fs::read(&root, &handle, Path::new("locked"), None, None).unwrap(),
+        "original"
+    );
+}
