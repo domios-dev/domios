@@ -20,6 +20,8 @@ export interface OrchestrationPairValues {
 
 interface RoleRowProps {
   modelControls?: boolean;
+  /** Takes the model's place beside the provider pill, e.g. an ACP profile pill. */
+  modelSlot?: ReactNode;
   label: string;
   providers: ProviderDescriptor[];
   providerId: string;
@@ -43,6 +45,7 @@ interface RoleRowProps {
 
 export function OrchestrationRoleRow({
   modelControls = true,
+  modelSlot,
   label,
   providers,
   providerId,
@@ -97,7 +100,8 @@ export function OrchestrationRoleRow({
             leading={<AgentIcon providerId={providerId} className="text-[12px] shrink-0" />}
           />
         </div>
-        {modelControls && <div className="flex-1 min-w-0">
+        {modelSlot && <div className="flex-1 min-w-0">{modelSlot}</div>}
+        {!modelSlot && modelControls && <div className="flex-1 min-w-0">
           <DropdownSelect
             data-testid={modelTestId}
             options={modelOptions}

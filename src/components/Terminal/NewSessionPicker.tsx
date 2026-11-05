@@ -32,7 +32,7 @@ import { createPortal } from "react-dom";
 import { isFreeLimitRefusal } from "../billing/freeLimitModel";
 import {remoteProvider, remoteSpawnSelection, type ExecutionLocation} from "../../lib/remoteExecution";
 import {ExecutionLocationPicker} from "./ExecutionLocationPicker";
-import {LaunchProfilePicker} from "./LaunchProfilePicker";
+import {LaunchProfilePicker, LaunchProfileSelect} from "./LaunchProfilePicker";
 import {useLaunchProfiles} from "./useLaunchProfiles";
 import {cloudExecution} from "./cloudExecution";
 
@@ -410,8 +410,11 @@ export function NewSessionPicker({
                   onEffortChange={(effortId) => setChoice({ ...choice, effortId })}
                   effortTestId="picker-effort-single"
                   onInstallProvider={handleInstallProvider}
+                  modelSlot={selectedProvider?.agent_runtime?.launchProfiles && <LaunchProfileSelect provider={selectedProvider}
+                    profiles={profileCatalog.profiles} selected={launchProfile} testId="picker-profile-single"
+                    onSelect={id => setProfileSelection({providerId: selectedProvider.id, id})} />}
                 />
-                {selectedProvider?.agent_runtime?.launchProfiles && <LaunchProfilePicker key={selectedProvider.id}
+                {selectedProvider?.agent_runtime?.launchProfiles && <LaunchProfilePicker key={`${selectedProvider.id}:${launchProfile}`} list={false}
                   provider={selectedProvider} profiles={profileCatalog.profiles} selected={launchProfile}
                   onSelect={id => setProfileSelection({providerId: selectedProvider.id, id})}
                   onRefresh={profileCatalog.refresh} error={profileCatalog.error} />}</>

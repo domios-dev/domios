@@ -57,6 +57,7 @@
     "assignments": [],
     "cwd": "/cwd",
     "provider_id": "provider",
+    "query": "query",
     "fresh": true,
     "itemId": "question",
     "answers": []
@@ -1294,6 +1295,15 @@
     ],
     "provider_setup_profile": [
       ["POST", "/api/agents/providers/provider/profiles"]
+    ],
+    "provider_registry_search": [
+      ["GET", "/api/agents/providers/provider/registry?q=query"]
+    ],
+    "provider_registry_install": [
+      ["POST", "/api/agents/providers/provider/registry/install"]
+    ],
+    "provider_remove_profile": [
+      ["DELETE", "/api/agents/providers/provider/profiles/name"]
     ],
     "agent_runtime_controls": [
       ["POST", "/api/tabs/tab/agent/runtime/controls"]

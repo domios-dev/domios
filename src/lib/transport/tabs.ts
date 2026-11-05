@@ -30,6 +30,9 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
     return {
         provider_launch_profiles: (a: Args) => clientFor(a).json("GET", `/api/agents/providers/${enc(s(a, "providerId"))}/profiles`),
         provider_setup_profile: (a: Args) => clientFor(a).json("POST", `/api/agents/providers/${enc(s(a, "providerId"))}/profiles`, a.request, {timeoutMs: null}),
+        provider_registry_search: (a: Args) => clientFor(a).json("GET", `/api/agents/providers/${enc(s(a, "providerId"))}/registry?q=${enc(s(a, "query"))}`),
+        provider_registry_install: (a: Args) => clientFor(a).json("POST", `/api/agents/providers/${enc(s(a, "providerId"))}/registry/install`, {id: s(a, "id")}, {timeoutMs: null}),
+        provider_remove_profile: (a: Args) => clientFor(a).json("DELETE", `/api/agents/providers/${enc(s(a, "providerId"))}/profiles/${enc(s(a, "name"))}`),
         wake_tab: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId"))}/wake`),
         mux_get_state: (a: Args = {}) => clientFor(a).json<MultiplexerState>("GET", "/api/mux/state"),
         agent_runtime_child_authority: async (a: Args) => {

@@ -411,13 +411,16 @@ describe("NewSessionPicker launch profiles", () => {
     ] : undefined);
     await renderPicker();
     await choose("Agent provider","ACP");
-    const group = dialog().querySelector('[role="radiogroup"][aria-label="Agent profile"]');
-    expect(group).not.toBeNull();
-    const rows = [...group!.querySelectorAll<HTMLButtonElement>('[role="radio"]')];
-    expect(rows.map(row => row.textContent)).toEqual(["deepseek-harnessInstalled", "gemini-cliInstalled"]);
+    // The profile is a pill in the model's place in the Agent row, listing each profile with its state word.
+    const pill = dialog().querySelector<HTMLButtonElement>('[data-testid="picker-profile-single"]');
+    expect(pill?.getAttribute("aria-label")).toBe("Agent profile: Choose a profile");
+    expect(dialog().querySelector('[role="radiogroup"]')).toBeNull();
+    await act(async () => { pill!.dispatchEvent(new window.Event("pointerdown", { bubbles: true, cancelable: true })); });
+    const options = [...document.body.querySelectorAll<HTMLElement>('[data-testid^="picker-profile-single-option-"]')];
+    expect(options.map(option => option.textContent?.trim())).toEqual(["deepseek-harnessInstalled", "gemini-cliInstalled"]);
     expect(fixture.actions.spawnAgentTab).not.toHaveBeenCalled();
-    await act(async () => rows[1].click());
-    expect(group!.querySelector('[role="radio"][aria-checked="true"]')?.textContent).toContain("gemini-cli");
+    await act(async () => options[1].click());
+    expect(dialog().querySelector('[data-testid="picker-profile-single"]')?.getAttribute("aria-label")).toBe("Agent profile: gemini-cli");
     const start = dialog().querySelector<HTMLButtonElement>('[data-testid="picker-confirm"]');
     expect(start).not.toBeNull();
     await act(async () => start!.click());

@@ -9,6 +9,7 @@ import {AgentIcon} from "../AgentIcon";
 import {Button} from "../shared/Button";
 import {BusySpinner} from "../shared/BusyState";
 import {UI_INPUT} from "../shared/design";
+import {DropdownSelect, type DropdownSelectOption} from "../shared/DropdownMenu";
 
 /** A profile's state in a word or two; the row stays quiet and the detail lives in its tooltip. */
 export function profileStateLabel(profile: LaunchProfileState | undefined, job: ProfileSetupJob | undefined): string {
@@ -23,11 +24,42 @@ export function profileStateLabel(profile: LaunchProfileState | undefined, job: 
 }
 
 const ready = (profile: LaunchProfileState) => profile.install === "installed" || profile.install === "detected";
+const working = (job: ProfileSetupJob | undefined) => job?.state === "accepted" || job?.state === "installing";
 
-export function LaunchProfilePicker({provider, profiles, selected, onSelect, onRefresh, error}: {
-  provider: ProviderDescriptor; profiles: LaunchProfileState[]; selected: string;
-  onSelect: (id: string) => void; onRefresh: () => void; error: string | null;
+/**
+ * The profile choice as a pill, in the model's place in Start a session's Agent row: each profile with its
+ * coloured icon and its quiet state word.
+ */
+export function LaunchProfileSelect({provider, profiles, selected, onSelect, testId}: {
+  provider: ProviderDescriptor; profiles: LaunchProfileState[]; selected: string; onSelect: (id: string) => void; testId?: string;
 }) {
+  const ids = Object.keys(provider.agent_runtime?.launchProfiles ?? {});
+  const options: DropdownSelectOption[] = ids.map(id => {
+    const state = profiles.find(entry => entry.id === id);
+    const word = profileStateLabel(state, state?.setup);
+    return {value: id, label: id, content: <span className="inline-flex items-center gap-2">
+      <AgentIcon providerId={provider.id} profileId={id} title={id} className="shrink-0 text-[13px]" />
+      <span>{id}</span>{word && <span className="text-[var(--ct-muted-fg)]">{word}</span>}
+    </span>};
+  });
+  return <DropdownSelect aria-label="Agent profile" data-testid={testId} options={options} value={selected} onChange={onSelect}
+    placeholder={ids.length ? "Choose a profile" : "No profiles"} disabled={!ids.length || working(profiles.find(entry => entry.id === selected)?.setup)}
+    leading={selected ? <AgentIcon providerId={provider.id} profileId={selected} className="shrink-0 text-[12px]" /> : undefined} />;
+}
+
+/**
+ * The selected profile's install, progress and General agent hand-off. With `list`, it also lists every profile as
+ * rows (Settings); without, the choice is the pill above it (Start a session).
+ */
+export function LaunchProfilePicker({provider, profiles, selected, onSelect, onRefresh, error, list = true, onRemove, localCommandForm = true}: {
+  provider: ProviderDescriptor; profiles: LaunchProfileState[]; selected: string;
+  onSelect: (id: string) => void; onRefresh: () => void; error: string | null; list?: boolean;
+  /** Offered for an owner-added profile; Start a session leaves it out. */
+  onRemove?: (id: string) => Promise<void>;
+  /** The manual executable form for an owner command; Settings leaves it to the CLI and the General agent. */
+  localCommandForm?: boolean;
+}) {
+  const [removing, setRemoving] = useState<"ask" | "busy" | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
   const [binary, setBinary] = useState("");
@@ -49,7 +81,7 @@ export function LaunchProfilePicker({provider, profiles, selected, onSelect, onR
   const noneReady = profiles.length > 0 ? !profiles.some(ready) : ids.length === 0;
   const choose = (id: string) => {
     if (busy) return;
-    setConfirming(false); setConfirmed(false); setFailure(null); setAccepted(null); onSelect(id);
+    setConfirming(false); setConfirmed(false); setFailure(null); setAccepted(null); setRemoving(null); onSelect(id);
   };
   const setup = async () => {
     if (!profile || !confirmed || busy) return;
@@ -66,9 +98,9 @@ export function LaunchProfilePicker({provider, profiles, selected, onSelect, onR
     } catch (error) {setFailure(error instanceof Error ? error.message : "Profile setup failed");}
     finally {setSubmitting(false);}
   };
-  return <div className="mt-3 flex flex-col gap-1.5" data-testid="launch-profile-picker">
-    <div id="launch-profile-label" className="text-[11px] font-medium text-[var(--ct-muted-fg)]">Agent profile</div>
-    {ids.length > 0 && <div role="radiogroup" aria-labelledby="launch-profile-label" aria-label="Agent profile" aria-disabled={busy || undefined}
+  return <div className={`${list ? "mt-3" : "mt-2"} flex flex-col gap-1.5`} data-testid="launch-profile-picker">
+    {list && <div id="launch-profile-label" className="text-[11px] font-medium text-[var(--ct-muted-fg)]">Agent profile</div>}
+    {list && ids.length > 0 && <div role="radiogroup" aria-labelledby="launch-profile-label" aria-label="Agent profile" aria-disabled={busy || undefined}
       className="flex flex-col overflow-hidden rounded-lg border border-[var(--ct-border)]">
       {ids.map(id => {
         const state = profiles.find(entry => entry.id === id);
@@ -104,9 +136,20 @@ export function LaunchProfilePicker({provider, profiles, selected, onSelect, onR
     </div>}
     {noneReady && <p className="m-0 text-[12px] text-[var(--ct-muted-fg)]">No ACP agents set up yet. ACP connects almost any coding agent.</p>}
     <div className="flex min-h-7 flex-wrap items-center justify-between gap-2 text-[12px]">
-      {profile && !busy && (profile.canInstall || profile.ownerConfigured) && !confirming
-        ? <Button size="compact" variant={ready(profile) ? "ghost" : "outline"} onClick={() => setConfirming(true)}>{localCommand ? "Configure local command" : "Install profile"}</Button>
-        : <span />}
+      <span className="flex items-center gap-1.5">
+        {profile && !busy && (profile.canInstall || profile.ownerConfigured) && !confirming && (!ready(profile) || localCommand) && (!localCommand || localCommandForm) &&
+          <Button size="compact" variant={ready(profile) ? "ghost" : "outline"} onClick={() => setConfirming(true)}>{localCommand ? "Configure local command" : "Install profile"}</Button>}
+        {onRemove && profile?.ownerConfigured && !busy && !confirming && (removing === null
+          ? <Button size="compact" variant="ghost" onClick={() => setRemoving("ask")}>Remove</Button>
+          : <>
+            <span className="text-[var(--ct-muted-fg)]">Remove {profile.id}?</span>
+            <Button size="compact" variant="danger" loading={removing === "busy"} onClick={() => {
+              setRemoving("busy"); setFailure(null);
+              onRemove(profile.id).then(() => setRemoving(null), (error: unknown) => {setRemoving(null); setFailure(error instanceof Error ? error.message : String(error));});
+            }}>Remove</Button>
+            <Button size="compact" variant="ghost" onClick={() => setRemoving(null)}>Keep</Button>
+          </>)}
+      </span>
       <button type="button" className="text-[var(--ct-accent)] hover:underline disabled:opacity-60" disabled={helper.launching}
         onClick={() => helper.launch(() => startAcpSetup(noneReady ? undefined : selected || undefined))}>
         {helper.launching ? "Opening…" : noneReady ? "Ask the General agent" : "Set up with the General agent"}
