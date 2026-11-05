@@ -5,9 +5,9 @@ fn profile_session_choices_are_opaque_and_never_replaced_with_provider_defaults(
     let mut provider = ModelProvider::new("profile-fixture", &["static-default"]);
     provider.runtime = Some(
         serde_json::from_value(serde_json::json!({
-            "runtime":"stdio-jsonrpc", "command":{"binary":"fixture-agent"},
+            "runtime":"stdio-jsonrpc", "command":{"binary":"fixture-agent","args":[]},
             "requestMethods":{"initialize":["initialize"]}, "notificationMethods":[],
-            "launchProfiles":{"local":{"binary":"fixture-agent"}}
+            "launchProfiles":{"local":{"binary":"fixture-agent","args":[]}}
         }))
         .unwrap(),
     );

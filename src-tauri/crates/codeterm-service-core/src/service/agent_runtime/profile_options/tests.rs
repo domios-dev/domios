@@ -5,7 +5,7 @@ use serde_json::json;
 fn last_declared_options_round_trip_and_bind_to_profile() {
     let root = tempfile::tempdir().unwrap();
     let profile: RuntimeLaunchProfile =
-        serde_json::from_value(json!({"binary":"fixture-agent"})).unwrap();
+        serde_json::from_value(json!({"binary":"fixture-agent","args":[]})).unwrap();
     let settings: RuntimeSettings = serde_json::from_value(json!({"configOptions":[
         {"id":"model-choice","name":"Model","category":"model","currentValue":"M","options":[{"value":"M","name":"Model M"}]},
         {"id":"effort-choice","name":"Effort","category":"thought_level","currentValue":"E","options":[{"value":"E","name":"Effort E"}]},
