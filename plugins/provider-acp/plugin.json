@@ -12,6 +12,7 @@
     "agentRuntime": {
       "runtime": "stdio-jsonrpc",
       "envelope": "jsonrpc2",
+      "usage": true,
       "command": {
         "binary": "acp-agent",
         "args": []

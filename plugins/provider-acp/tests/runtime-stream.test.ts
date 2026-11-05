@@ -263,11 +263,11 @@ for (const priorTurn of [false,true]) {
     updateFrame({sessionUpdate:"available_commands_update",availableCommands:[{name:"inspect",description:"Inspect"}]}),
     updateFrame({sessionUpdate:"current_mode_update",currentModeId:"safe"}),
     updateFrame({sessionUpdate:"config_option_update",configOptions:[{id:"model",name:"Model",category:"model",type:"select",currentValue:"opaque",options:[{value:"opaque",name:"Opaque"}]}]}),
-    updateFrame({sessionUpdate:"usage_update",inputTokens:2,outputTokens:1}),
+    updateFrame({sessionUpdate:"usage_update",used:3,size:1000}),
   ];
   const control=runtimeReduce({...scoped,streamWindow:{...scoped.streamWindow,frameSequences:[7,8,9,10]}},projected,controls);
   assert.equal(control.events.filter(event=>event.kind === "controlsConfirmed").length,3,"prewrite commands, mode and config declarations are retained");
-  assert.equal(control.events.filter(event=>event.kind === "usage").length,1,"prewrite usage is retained");
+  assert.equal(control.events.filter(event=>event.kind === "context").length,1,"prewrite context usage is retained");
   assert.equal(control.events.some(event=>event.kind === "sendEvidence"),false,"a prewrite control cannot confirm the pending prompt");
   let before=control.state;
   if (!priorTurn) {

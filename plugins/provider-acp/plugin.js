@@ -145,15 +145,29 @@ function planRow(sessionId, update, previous, seq) {
     collapsed: true
   };
 }
+var count = (value) => typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+function costMicros(value) {
+  const cost = object(value);
+  if (cost.currency !== "USD" || typeof cost.amount !== "number" || !Number.isFinite(cost.amount) || cost.amount < 0) return void 0;
+  const micros = Math.round(cost.amount * 1e6);
+  return count(micros) ? micros : void 0;
+}
+function contextUsage(threadId, value) {
+  const raw = object(value);
+  if (!count(raw.used) || !count(raw.size)) return void 0;
+  const cost = costMicros(raw.cost);
+  return { kind: "context", threadId, used_tokens: raw.used, window_tokens: raw.size, ...cost !== void 0 ? { cost_micros: cost } : {} };
+}
 function usage(value) {
   const raw = object(value);
-  const count = (value2) => typeof value2 === "number" && Number.isSafeInteger(value2) && value2 >= 0;
   if (!count(raw.inputTokens) || !count(raw.outputTokens)) return void 0;
   const mapped = { input_tokens: raw.inputTokens, output_tokens: raw.outputTokens };
   if (count(raw.cachedReadTokens)) mapped.cache_read_tokens = raw.cachedReadTokens;
   if (count(raw.cachedWriteTokens)) mapped.cache_write_tokens = raw.cachedWriteTokens;
   if (count(raw.used)) mapped.used_tokens = raw.used;
   if (count(raw.size)) mapped.window_tokens = raw.size;
+  const cost = costMicros(raw.cost);
+  if (cost !== void 0) mapped.cost_micros = cost;
   return mapped;
 }
 
@@ -393,9 +407,9 @@ function rememberControl(state, kind, update) {
 function warn(state, events, rawKind) {
   const kind = rawKind.slice(0, 128);
   if (!Object.prototype.hasOwnProperty.call(state.warnings, kind) && Object.keys(state.warnings).length >= 32) return;
-  const count = state.warnings[kind] ?? 0;
-  putEntry(state, "warnings", kind, Math.min(count + 1, Number.MAX_SAFE_INTEGER));
-  if (!count) events.push({ kind: "notice", threadId: state.sessionId, message: `Ignored unknown ACP session update: ${kind}` });
+  const count2 = state.warnings[kind] ?? 0;
+  putEntry(state, "warnings", kind, Math.min(count2 + 1, Number.MAX_SAFE_INTEGER));
+  if (!count2) events.push({ kind: "notice", threadId: state.sessionId, message: `Ignored unknown ACP session update: ${kind}` });
 }
 function closeChunk(ctx, state, events) {
   const chunk = state.chunk;
@@ -560,8 +574,8 @@ function reduceStream(ctx, raw, frames, cursor, submitted, retainSubmitted = fal
           events.push({ kind: "contextCompacted", threadId: ctx.threadId, itemId: id });
         }
       } else if (kind === "usage_update") {
-        const mapped = usage(update);
-        if (mapped) events.push({ kind: "usage", threadId: ctx.threadId, usage: mapped });
+        const mapped = contextUsage(ctx.threadId, update);
+        if (mapped) events.push(mapped);
       } else if (kind === "compaction_update" || kind === "compaction_summary_chunk") {
         const id = text(update.id) ?? `${ctx.threadId}:compaction:${state.turn}`;
         if (!state.compacted.includes(id)) {
@@ -594,9 +608,9 @@ function boundState(state) {
   }
   for (const key of ["evidenced", "compacted", "seenItems"]) {
     while (bytes > 47e3 && state[key].length) {
-      const count = state[key].length;
+      const count2 = state[key].length;
       const removed = state[key].shift();
-      bytes -= utf8Length(JSON.stringify(removed)) + (count > 1 ? 1 : 0);
+      bytes -= utf8Length(JSON.stringify(removed)) + (count2 > 1 ? 1 : 0);
     }
   }
 }
@@ -753,9 +767,9 @@ function readable(value, limit = 384) {
 }
 function lineCount(value) {
   if (typeof value !== "string" || !value.length) return 0;
-  let count = value.endsWith("\n") ? 0 : 1;
-  for (let i = 0; i < value.length; i++) if (value[i] === "\n") count++;
-  return count;
+  let count2 = value.endsWith("\n") ? 0 : 1;
+  for (let i = 0; i < value.length; i++) if (value[i] === "\n") count2++;
+  return count2;
 }
 function preview(value, prefix2 = "") {
   const text2 = readable(value);

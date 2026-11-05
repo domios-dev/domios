@@ -132,6 +132,7 @@ export type AgentEvent =
   | {kind:"turnState"; threadId:string; turnId?:string; state:"working"|"idle"|"needs_input"; detail?:RuntimeTurnDetail; statusLine?:string; startedAt?:number; completedAt?:number; parentThreadId?:string}
   | {kind:"sendEvidence"; threadId:string; sendId:string; turnId:string; itemId?:string}
   | {kind:"usage"; threadId:string; usage:TokenUsage}
+  | {kind:"context"; threadId:string; used_tokens:number; window_tokens:number; cost_micros?:number}
   | {kind:"prompt"; threadId:string; requestId:RpcId; prompt:PendingPrompt}
   | {kind:"promptResolved"; threadId:string; requestId:RpcId}
   | {kind:"controlsConfirmed"; threadId:string; settings:RuntimeSettings}

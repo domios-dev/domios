@@ -2,6 +2,48 @@ use super::*;
 use serde_json::json;
 
 #[test]
+fn context_event_wire_shape_and_owned_thread_validation() {
+    let context = RuntimeContext {
+        thread_id: Some("own".into()),
+        ..Default::default()
+    };
+    let raw = json!({"kind":"context","threadId":"own","used_tokens":53000,"window_tokens":200000,"cost_micros":45000});
+    let event: AgentRuntimeEvent = serde_json::from_value(raw.clone()).unwrap();
+    assert_eq!(serde_json::to_value(&event).unwrap(), raw);
+    let reduction = RuntimeReduction {
+        state: json!(null),
+        events: vec![event],
+    };
+    assert!(validate_runtime_reduction(&context, &reduction).is_ok());
+    for raw in [
+        json!({"kind":"context","threadId":"foreign","used_tokens":1,"window_tokens":2}),
+        json!({"kind":"context","threadId":"own","used_tokens":9007199254740992_u64,"window_tokens":2}),
+        json!({"kind":"context","threadId":"own","used_tokens":1,"window_tokens":9007199254740992_u64}),
+        json!({"kind":"context","threadId":"own","used_tokens":1,"window_tokens":2,"cost_micros":9007199254740992_u64}),
+    ] {
+        let event: AgentRuntimeEvent = serde_json::from_value(raw).unwrap();
+        assert!(validate_runtime_reduction(
+            &context,
+            &RuntimeReduction {
+                state: json!(null),
+                events: vec![event]
+            }
+        )
+        .is_err());
+    }
+    let zero = json!({"kind":"context","threadId":"own","used_tokens":0,"window_tokens":0});
+    assert_eq!(
+        serde_json::to_value(serde_json::from_value::<AgentRuntimeEvent>(zero.clone()).unwrap())
+            .unwrap(),
+        zero
+    );
+    assert!(serde_json::from_value::<AgentRuntimeEvent>(
+        json!({"kind":"context","threadId":"own","used_tokens":-1,"window_tokens":2})
+    )
+    .is_err());
+}
+
+#[test]
 fn turn_scoped_request_requires_exact_owned_target_and_valid_turn_id() {
     let mut capability: AgentRuntimeCapability = serde_json::from_str(include_str!(
         "../../js_runtime/parity_test/fixtures/runtime/turn-scoped-requests.json"

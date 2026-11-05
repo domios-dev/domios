@@ -522,14 +522,10 @@
         }
       },
       {
-        "kind": "usage",
+        "kind": "context",
         "threadId": "session-fixture",
-        "usage": {
-          "input_tokens": 12,
-          "output_tokens": 4,
-          "used_tokens": 16,
-          "window_tokens": 1000
-        }
+        "used_tokens": 16,
+        "window_tokens": 1000
       },
       {
         "kind": "contextCompacted",

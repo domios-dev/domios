@@ -619,6 +619,19 @@ pub enum AgentRuntimeEvent {
         thread_id: String,
         usage: TokenUsage,
     },
+    Context {
+        thread_id: String,
+        #[serde(rename = "used_tokens")]
+        used_tokens: u64,
+        #[serde(rename = "window_tokens")]
+        window_tokens: u64,
+        #[serde(
+            rename = "cost_micros",
+            default,
+            skip_serializing_if = "Option::is_none"
+        )]
+        cost_micros: Option<u64>,
+    },
     Prompt {
         thread_id: String,
         request_id: RpcId,

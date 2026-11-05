@@ -2,6 +2,8 @@ use super::*;
 use serde::Serialize;
 use serde_json::Value;
 
+mod context;
+
 pub fn validate_runtime_size(value: &impl Serialize, limit: usize) -> Result<(), RuntimeFailure> {
     struct Counter {
         used: usize,
@@ -810,6 +812,7 @@ pub fn validate_runtime_reduction(
         .map(|turn| turn.thread_id.clone())
         .collect();
     for event in &reduction.events {
+        context::validate(event)?;
         if let AgentRuntimeEvent::BackgroundProcesses {
             thread_id,
             processes,
@@ -969,6 +972,7 @@ pub fn validate_runtime_reduction(
             AgentRuntimeEvent::TurnState { thread_id, .. }
             | AgentRuntimeEvent::Notice { thread_id, .. }
             | AgentRuntimeEvent::Usage { thread_id, .. }
+            | AgentRuntimeEvent::Context { thread_id, .. }
             | AgentRuntimeEvent::Prompt { thread_id, .. }
             | AgentRuntimeEvent::PromptResolved { thread_id, .. }
             | AgentRuntimeEvent::ControlsConfirmed { thread_id, .. }

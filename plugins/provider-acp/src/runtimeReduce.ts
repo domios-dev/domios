@@ -1,6 +1,6 @@
 import type { AgentEvent, ChatMsg, JsonValue, RuntimeContext, RuntimeFrame, RuntimeReduction, TurnInput } from "@codeterm/plugin-sdk";
 import { object, text, reduceTool } from "./runtimeReduceTools";
-import { planRow, usage } from "./runtimeReducePlan";
+import { planRow, contextUsage } from "./runtimeReducePlan";
 import { commands, sessionSettings } from "./runtimeControls";
 import { copyAccounting, clearEntries, putEntry, removeEntry, mapBytes, mapKeys, utf8Length } from "./runtimeReduceAccounting";
 
@@ -216,8 +216,8 @@ export function reduceStream(ctx:RuntimeContext, raw:JsonValue, frames:readonly 
         const id=text(compaction.id) ?? `${ctx.threadId}:compaction:${state.turn}`;
         if (!state.compacted.includes(id)) {state.compacted.push(id);events.push({kind:"contextCompacted",threadId:ctx.threadId,itemId:id});}
       } else if (kind === "usage_update") {
-        const mapped=usage(update);
-        if (mapped) events.push({kind:"usage",threadId:ctx.threadId,usage:mapped});
+        const mapped=contextUsage(ctx.threadId,update);
+        if (mapped) events.push(mapped);
       } else if (kind === "compaction_update" || kind === "compaction_summary_chunk") {
         const id=text(update.id) ?? `${ctx.threadId}:compaction:${state.turn}`;
         if (!state.compacted.includes(id)) { state.compacted.push(id);events.push({kind:"contextCompacted",threadId:ctx.threadId,itemId:id}); }

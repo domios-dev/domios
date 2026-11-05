@@ -833,6 +833,12 @@
         }
       },
       {
+        "kind": "context",
+        "threadId": "session-fixture",
+        "used_tokens": 6230,
+        "window_tokens": 1000000
+      },
+      {
         "kind": "turnState",
         "threadId": "session-fixture",
         "turnId": "session-fixture:turn:1",
@@ -860,6 +866,12 @@
         "sendId": "C",
         "turnId": "session-fixture:turn:3",
         "itemId": "session-fixture:turn:3:item:1"
+      },
+      {
+        "kind": "context",
+        "threadId": "session-fixture",
+        "used_tokens": 6321,
+        "window_tokens": 1000000
       },
       {
         "kind": "chatItem",
@@ -907,6 +919,12 @@
           "type": "assistant",
           "content": "NEXT_TOOL_DONE"
         }
+      },
+      {
+        "kind": "context",
+        "threadId": "session-fixture",
+        "used_tokens": 6380,
+        "window_tokens": 1000000
       },
       {
         "kind": "turnState",

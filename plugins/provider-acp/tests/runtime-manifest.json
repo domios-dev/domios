@@ -2,6 +2,7 @@
   "agentRuntime": {
     "runtime": "stdio-jsonrpc",
     "envelope": "jsonrpc2",
+    "usage": true,
     "command": {
       "binary": "acp-agent",
       "args": []
@@ -172,6 +173,7 @@
     "cancel-before-first-update.json",
     "profile-selection-valid.json",
     "profile-selection-invalid.json",
-    "session-authenticated.json"
+    "session-authenticated.json",
+    "context-only-usage.json"
   ]
 }
