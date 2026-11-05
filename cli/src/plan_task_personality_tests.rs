@@ -36,7 +36,8 @@ fn personality_required_add_refuses_omission() {
         "--role-guidance",
         "focused worker",
     ])
-    .unwrap_err();
+    .err()
+    .expect("task add without --personality must be refused");
     assert_eq!(
         parsed.kind(),
         clap::error::ErrorKind::MissingRequiredArgument
