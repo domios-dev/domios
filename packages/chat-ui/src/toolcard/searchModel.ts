@@ -29,7 +29,7 @@ function quantity(count: number, noun: string): string {
   return `${count} ${noun}${count === 1 ? "" : noun === "match" ? "es" : "s"}`;
 }
 
-export function searchModel(event: ToolEvent): { title: string; subject: string; matches: number; files?: number; counts: string } {
+export function searchModel(event: ToolEvent): { title: string; subject: string; matches: number; files?: number; counts: string; fact: string } {
   const input = searchInput(event);
   const shell = shellSubject(event);
   const filesOnly = /(?:^|[._])glob$/i.test(event.message.toolName ?? "") || shell.filesOnly;
@@ -43,6 +43,7 @@ export function searchModel(event: ToolEvent): { title: string; subject: string;
   const paths = new Set(lines.map(line => line.match(/^(.+?):\d+(?::\d+)?:/)?.[1]).filter(Boolean));
   const fileCount = explicitFiles === undefined ? (fileResults ? new Set(lines).size : paths.size) : Number(explicitFiles);
   const files = fileCount > 0 ? fileCount : undefined;
-  const counts = event.status === "pending" ? "" : fileResults ? (files ? quantity(files, "file") : "No files") : [quantity(matches, "match"), files && quantity(files, "file")].filter(Boolean).join(" · ");
-  return { title: filesOnly ? "Find files" : "Search", subject, matches, files, counts };
+  const fact = event.status === "pending" ? "" : fileResults ? (files ? quantity(files, "file") : "No files") : quantity(matches, "match");
+  const counts = fileResults || !fact ? fact : [fact, files && quantity(files, "file")].filter(Boolean).join(" · ");
+  return { title: filesOnly ? "Find files" : "Search", subject, matches, files, counts, fact };
 }

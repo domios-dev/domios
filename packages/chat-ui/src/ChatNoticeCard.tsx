@@ -1,6 +1,6 @@
 import { ExpandableReader } from "./ExpandableReader";
 import type { CSSProperties, ReactNode } from "react";
-import { ChevronRight } from "lucide-react";
+import { CardChevron } from "./CompactCard";
 
 interface Props {
   testId: string;
@@ -32,9 +32,7 @@ export function ChatNoticeCard({ testId, icon, title, subtitle, tone, expanded, 
           </span>
         </button>
         {opener}
-        <button type="button" aria-label={expanded ? "Collapse notice" : "Expand notice"} aria-expanded={expanded} onClick={onToggle} className="ct-reader-opener ct-notice-chevron">
-          <ChevronRight aria-hidden size={14} className={expanded ? "rotate-90" : ""} />
-        </button>
+        <CardChevron expanded={expanded} label={expanded ? "Collapse notice" : "Expand notice"} onToggle={onToggle} className="ct-reader-opener ct-notice-chevron" style={{}} />
         </div>
         {(expanded || fullscreen) && <div className={`ct-card__body ct-card__body--reveal ${bodyClassName}`}>{children}</div>}
       </div>

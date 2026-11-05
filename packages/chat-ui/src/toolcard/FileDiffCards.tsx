@@ -1,6 +1,7 @@
 import { ExpandableReader } from "../ExpandableReader";
 import { type FileDiff, type FileDiffHunk, type ToolEvent } from "@codeterm/chat-core";
-import { ChevronRight, Copy, FileDiff as FileDiffIcon, FileText, SquareTerminal } from "lucide-react";
+import { Copy, FileDiff as FileDiffIcon, FileText, SquareTerminal } from "lucide-react";
+import { CardChevron } from "../CompactCard";
 import { useId, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { SyntaxHighlighter, createElement } from "../syntaxHighlighter";
 import { BoundedMessageContent } from "../BoundedMessageContent";
@@ -136,7 +137,7 @@ function FileEditCard({ event, diff, showResult, initiallyExpanded, renderHunkAc
   if (rawCommand) menu.push({ label: "Details", icon: <SquareTerminal size={14} aria-hidden />, checked: technicalOpen,
     onSelect: () => { setTechnicalOpen((open) => !open); setExpanded(true); } });
   return (
-    <ExpandableReader label={heading} openerPlacement="header">{(fullscreen, opener) => (
+    <ExpandableReader label={heading} openerPlacement="header" ownsMenu>{(fullscreen, opener, _openReader, readerItems) => (
     <section
       data-testid="file-diff-card"
       data-tool-status={event.status}
@@ -167,10 +168,8 @@ function FileEditCard({ event, diff, showResult, initiallyExpanded, renderHunkAc
         </span>
       </button>
       {opener}
-      <span className="ct-tool-status-slot"><ChatCardMenu label={`Actions for ${name}`} items={menu} /></span>
-      <button type="button" aria-label={`${expanded ? "Collapse" : "Expand"} diff for ${name}`} onClick={() => setExpanded(!expanded)} className="flex shrink-0 items-center justify-center" style={{ color: "var(--ct-muted-fg)" }}>
-        <ChevronRight aria-hidden size={14} className={expanded ? "rotate-90" : ""} />
-      </button>
+      <span className="ct-tool-status-slot"><ChatCardMenu label={`Actions for ${name}`} items={[...readerItems, ...menu]} /></span>
+      <CardChevron expanded={expanded} label={`${expanded ? "Collapse" : "Expand"} diff for ${name}`} onToggle={() => setExpanded(!expanded)} />
       </div>
       <div id={regionId} role="region" aria-label={`Diff for ${name}`} hidden={!expanded && !fullscreen} className="overflow-x-auto pb-1.5">
         {(expanded || fullscreen) && diff.hunks.length === 0 && (

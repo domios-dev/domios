@@ -387,6 +387,7 @@
   "src/hooks/terminal/useXterm.composition.test.tsx",
   "plugins/provider-shared/tests/runPromptStep.test.ts",
   "packages/chat-ui/src/ExpandableReader.test.tsx",
+  "packages/chat-ui/src/compactCards.test.tsx",
   "src/lib/streamMuxRequestModel.test.ts",
   "src/lib/streamMuxRequests.wiring.test.ts",
   "src/components/Terminal/LaunchProfilePicker.test.tsx",
