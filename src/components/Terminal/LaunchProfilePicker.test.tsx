@@ -9,6 +9,8 @@ import {createTabsTransport} from "../../lib/transport/tabs";
 import type {ProviderDescriptor} from "../../lib/types";
 const bridge=vi.hoisted(()=>({invoke:vi.fn(),listen:vi.fn()}));
 vi.mock("../../lib/bridge",()=>bridge);
+const helper=vi.hoisted(()=>({spawnAiHelper:vi.fn()}));
+vi.mock("../../lib/aiHelperSpawn",async original=>({...(await original<typeof import("../../lib/aiHelperSpawn")>()),spawnAiHelper:helper.spawnAiHelper}));
 (globalThis as {IS_REACT_ACT_ENVIRONMENT?:boolean}).IS_REACT_ACT_ENVIRONMENT=true;
 
 it("keeps an accepted install visibly in progress until its catalog job completes",async()=>{
@@ -33,7 +35,7 @@ it("keeps an accepted install visibly in progress until its catalog job complete
     expect(host.querySelector('[role="status"][aria-label="Profile installation"]')).not.toBeNull();
     await act(async()=>root.render(<LaunchProfilePicker provider={provider} profiles={[{id:"selected",install:"installed",auth:"unknown",canInstall:true,ownerConfigured:false,setup:{...job,state:"installed"}}]} selected="selected" onSelect={()=>{}} onRefresh={refresh} error={null}/>));
     expect(host.querySelector('[role="status"][aria-label="Profile installation"]')).toBeNull();
-    expect(host.textContent).toContain("Installation: installed");
+    expect(host.querySelector('[role="radio"][aria-checked="true"]')?.textContent).toContain("Installed");
     expect(host.querySelector('[role="alert"]')).toBeNull();
     await act(async()=>root.render(<LaunchProfilePicker provider={provider} profiles={[{id:"selected",install:"installed",auth:"unknown",canInstall:true,ownerConfigured:false}]} selected="selected" onSelect={()=>{}} onRefresh={refresh} error={null}/>));
     expect(host.querySelector('[role="status"][aria-label="Profile installation"]')).toBeNull();
@@ -67,7 +69,7 @@ it("reconciles a lost acceptance response with the installed job",async()=>{
     await act(async()=>button("Confirm setup").click());
     await act(async()=>root.render(<LaunchProfilePicker provider={provider} profiles={[{...profile,install:"installed",setup:{jobId:"delivered",providerId:"fixture",profileId:"selected",state:"installed"}}]} selected="selected" onSelect={()=>{}} onRefresh={()=>{}} error={null}/>));
     expect(host.querySelector('[role="alert"]')).toBeNull();
-    expect(host.textContent).toContain("Installation: installed");
+    expect(host.querySelector('[role="radio"][aria-checked="true"]')?.textContent).toContain("Installed");
   } finally {await act(async()=>root.unmount());host.remove();}
 });
 
@@ -156,4 +158,40 @@ it("subscribes before reading and ignores a stale catalog after setup completion
     expect(host.textContent).toContain('"state":"installed"');
   } finally {await act(async()=>root.unmount());host.remove();}
   expect(stop).toHaveBeenCalledTimes(1);
+});
+
+it("with no ACP agent set up, says so in one line and offers the General agent once",async()=>{
+  const host=document.createElement("div");document.body.append(host);const root=createRoot(host);
+  helper.spawnAiHelper.mockReset().mockResolvedValue({tabId:"general",workspaceId:"w",deliveryState:"confirmed"});
+  const provider={id:"acp",agent_runtime:{launchProfiles:{"gemini-cli":{binary:"gemini",args:["--acp"]},"deepseek-harness":{binary:"npx",args:[]}}}} as unknown as ProviderDescriptor;
+  const profiles:LaunchProfileState[]=[
+    {id:"gemini-cli",install:"not_installed",auth:"unknown",canInstall:true,ownerConfigured:false},
+    {id:"deepseek-harness",install:"not_installed",auth:"unknown",canInstall:true,ownerConfigured:false},
+  ];
+  const buttons=()=>Array.from(host.querySelectorAll("button")).map(button=>button.textContent);
+  try {
+    await act(async()=>root.render(<LaunchProfilePicker provider={provider} profiles={profiles} selected="" onSelect={()=>{}} onRefresh={()=>{}} error={null}/>));
+    expect(host.textContent).toContain("No ACP agents set up yet.");
+    expect(buttons().filter(name=>name?.includes("General agent"))).toEqual(["Ask the General agent"]);
+    await act(async()=>Array.from(host.querySelectorAll("button")).find(button=>button.textContent==="Ask the General agent")!.click());
+    expect(helper.spawnAiHelper).toHaveBeenCalledTimes(1);
+    expect(helper.spawnAiHelper.mock.calls[0][0].task).toContain("Explain in one or two plain sentences what ACP is");
+
+    await act(async()=>root.render(<LaunchProfilePicker provider={provider} profiles={[{...profiles[0],install:"installed",auth:"authenticated"},profiles[1]]} selected="gemini-cli" onSelect={()=>{}} onRefresh={()=>{}} error={null}/>));
+    expect(host.textContent).not.toContain("No ACP agents set up yet.");
+    expect(host.querySelector('[role="radio"][aria-checked="true"]')?.textContent).toContain("Ready");
+    await act(async()=>Array.from(host.querySelectorAll("button")).find(button=>button.textContent==="Set up with the General agent")!.click());
+    expect(helper.spawnAiHelper.mock.calls[1][0].task).toContain("Connect an ACP agent: gemini-cli.");
+  } finally {await act(async()=>root.unmount());host.remove();}
+});
+
+it("shows install and sign-in state as one quiet word per profile",async()=>{
+  const {profileStateLabel}=await import("./LaunchProfilePicker");
+  const base:LaunchProfileState={id:"p",install:"installed",auth:"unknown",canInstall:true,ownerConfigured:false};
+  expect(profileStateLabel({...base,auth:"authenticated"},undefined)).toBe("Ready");
+  expect(profileStateLabel({...base,auth:"needs_auth"},undefined)).toBe("Sign in needed");
+  expect(profileStateLabel({...base,install:"not_installed"},undefined)).toBe("Not installed");
+  expect(profileStateLabel({...base,install:"not_installed",canInstall:false,ownerConfigured:true},undefined)).toBe("Not set up");
+  expect(profileStateLabel(base,{jobId:"j",providerId:"acp",profileId:"p",state:"installing"})).toBe("Installing…");
+  expect(profileStateLabel(base,{jobId:"j",providerId:"acp",profileId:"p",state:"failed"})).toBe("Setup failed");
 });
