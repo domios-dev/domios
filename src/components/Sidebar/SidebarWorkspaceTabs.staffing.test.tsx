@@ -1,4 +1,4 @@
-
+import { readFileSync } from "node:fs";
 import type { ProviderDescriptor } from "../../lib/types";
 import type { TeamMemberRole } from "../../lib/teamActions";
 import { canvasFocusStore } from "../Canvas/canvasFocusStore";
@@ -203,7 +203,7 @@ test("staffing picker uses descriptor icons and requires a descriptor model choi
     id: "provider-a",
     display_name: "Provider A",
     transport: "pty",
-    icon_svg: '<svg id="provider-a-icon"/>',
+    icon_svg: '<svg id="provider-a-icon" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5"/></svg>',
     icon_color: "#d97757",
     available_models: [{ id: "model-one", display_name: "Model one" }, { id: "model-two", display_name: "Model two" }],
     default_model: "model-one",
@@ -231,7 +231,7 @@ test("staffing picker uses descriptor icons and requires a descriptor model choi
   await act(async () => worker.click());
   const providerA = Array.from(document.querySelectorAll('[data-testid="team-menu"] button'))
     .find((button) => button.textContent?.includes("Provider A")) as HTMLButtonElement;
-  assert(providerA.querySelector("svg#provider-a-icon"), "provider SVG comes from its descriptor");
+  assert(providerA.querySelector('[role="img"] > svg[viewBox="0 0 16 16"] > circle[cx="8"][cy="8"][r="5"]'), "provider SVG comes from its descriptor");
   const providerB = Array.from(document.querySelectorAll('[data-testid="team-menu"] button'))
     .find((button) => button.textContent?.includes("Provider B")) as HTMLButtonElement;
   assert(providerB.querySelector('[aria-hidden="true"] [role="img"]'), "provider row without a logo still draws the default agent icon");
@@ -270,6 +270,33 @@ test("staffing picker uses descriptor icons and requires a descriptor model choi
   await act(async () => menu.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
   assert(!document.querySelector('[data-testid="team-menu"]'), "Escape closes the picker without another request");
   await act(async () => root.unmount());
+});
+
+test("staffing picker renders the shipped native harness logos", async () => {
+  const providers = ["claude", "codex", "opencode"].map((id) => ({
+    id,
+    display_name: id,
+    transport: "pty",
+    icon_svg: readFileSync(new URL(`../../../plugins/provider-${id}/icon.svg`, import.meta.url), "utf8"),
+  })) as ProviderDescriptor[];
+  const { host } = await renderSidebar({
+    tabs: { manager: tab({ id: "manager", role: "Manager", role_profile: "orchestrator", team_id: TEAM.id }) },
+    providers,
+    onAddTeamMember: () => {},
+  });
+  await act(async () => (host.querySelector('[data-testid="team-menu-trigger"]') as HTMLButtonElement).click());
+  const worker = Array.from(document.querySelectorAll('[data-testid="team-menu"] button'))
+    .find((button) => button.textContent?.includes("Add worker")) as HTMLButtonElement;
+  await act(async () => worker.click());
+  for (const provider of providers) {
+    const row = Array.from(document.querySelectorAll('[data-testid="team-menu"] [role="menuitem"]'))
+      .find((button) => button.textContent?.trim() === provider.display_name);
+    const logo = row?.querySelector(`[role="img"][aria-label="${provider.display_name}"] > svg`);
+    const descriptor = document.createElement("div");
+    descriptor.innerHTML = provider.icon_svg!;
+    assert(logo, `${provider.display_name} renders its logo without a placeholder`);
+    assert(logo.innerHTML === descriptor.querySelector("svg")?.innerHTML, `${provider.display_name} retains its shipped logo shapes`);
+  }
 });
 
 test("staffing failure stays visible without local mutation or refetch", async () => {
