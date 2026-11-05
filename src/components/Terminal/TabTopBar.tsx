@@ -326,6 +326,7 @@ export function TabTopBar({
             trackingEnabled={!!usageVisible}
             modelId={usageModelId}
             modelGroups={usageModelGroups}
+            context={shellTab && "context" in shellTab ? shellTab.context : undefined}
           />
         )}
         <ComposerContextMeter tabId={tabId} />

@@ -391,6 +391,7 @@
   "src/components/Terminal/messageMenuMerge.test.tsx",
   "src/components/Terminal/runtimeModelControls.test.tsx",
   "src/components/Settings/AcpProfilesCard.test.tsx",
+  "src/components/Usage/contextUsage.test.tsx",
   "src/lib/streamMuxRequestModel.test.ts",
   "src/lib/streamMuxRequests.wiring.test.ts",
   "src/components/Terminal/LaunchProfilePicker.test.tsx",
