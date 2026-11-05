@@ -52,6 +52,9 @@ pub enum PlanTaskAction {
         from_file: Option<String>,
     },
     /// Add a task to a plan (carries model/why routing + quality fields)
+    #[command(
+        after_help = "Example: domios plan task add <plan> --name <task> --personality Ada --executor-role Engineer --role-guidance <guidance>"
+    )]
     Add {
         plan_id: String,
         #[arg(long, allow_hyphen_values = true, default_value = "")]
@@ -134,8 +137,9 @@ pub enum PlanTaskAction {
             long,
             allow_hyphen_values = true,
             value_name = "ONE_WORD_PERSONA",
-            default_value = "",
-            help = "Executor's one-word persona; defaults to the first word of the task name"
+            required = true,
+            value_parser = codeterm_types::plan::validate_executor_name,
+            help = "Required executor persona, for example --personality Ada; one word made only of letters"
         )]
         personality: String,
         #[arg(long, allow_hyphen_values = true)]

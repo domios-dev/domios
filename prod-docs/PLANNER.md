@@ -164,6 +164,6 @@ Never require a lane in a task; checkout placement is the Orchestrator's call.
 When blocked or unclear on intent, ask the Orchestrator with what you already
 tried; uncertainty routed early is planning working.
 
-Task creation reports required-field errors together. Supply name, executor role and role guidance. Omit personality to derive it from the task name; the sole plan section is the default when no area matches. A missing work tag is inferred with a warning. Correctness remains optional with a quality warning. A bare provider such as `--model codex` is resolved at dispatch.
+Task creation reports required-field errors together. Supply name, executor role and role guidance. Supply an explicit one-word personality, for example `--personality Ada`; the sole plan section is the default when no area matches. A missing work tag is inferred with a warning. Correctness remains optional with a quality warning. A bare provider such as `--model codex` is resolved at dispatch.
 
-<!-- revision: 34 -->
+<!-- revision: 35 -->

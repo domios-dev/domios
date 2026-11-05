@@ -78,6 +78,9 @@ pub(super) fn upsert(
         }
         id
     } else {
+        let personality = codeterm_types::plan::require_executor_name(personality.as_deref())
+            .map_err(PlanError::InvalidExecutorName)?;
+        let personality = Some(personality);
         let id = crate::plan::ids::short_id("task");
         let status = status
             .map(|status| {

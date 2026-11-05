@@ -12,7 +12,7 @@ use codeterm_service_core::plan::{
     IdentityProvenance, OrchestratorRef, TaskCompetitionMetadata, TaskLaneMetadata,
 };
 use codeterm_service_core::service::plan::task_attempts::TaskRespawnRequest;
-use codeterm_service_core::service::plan::{NewTask, TaskLaneUpdate};
+use codeterm_service_core::service::plan::{NewTask, PlanError, TaskLaneUpdate};
 use codeterm_service_core::service::{
     persist_attempt_executor_identity_for_mux, respawn_title_provenance, TeamPlanError,
 };
@@ -397,6 +397,8 @@ pub async fn task_add(
             &execution_fields,
         )
         .map_err(|message| text_err(axum::http::StatusCode::FORBIDDEN, message))?;
+        let personality = codeterm_types::plan::require_executor_name(body.personality.as_deref())
+            .map_err(|message| plan_err(PlanError::InvalidExecutorName(message)))?;
         let requested_sections = body
             .sections
             .as_deref()
@@ -455,7 +457,7 @@ pub async fn task_add(
                     body: body.body.unwrap_or_default(),
                     role_guidance: body.role_guidance,
                     executor_role: body.executor_role,
-                    personality: body.personality,
+                    personality: Some(personality),
                     personality_provenance: body.personality_provenance,
                     competition: body.competition,
                     intent: body.intent,
@@ -760,7 +762,6 @@ fn task_update_core_with_lane_cleanup_check(
             .transpose()
             .map_err(|message| text_err(axum::http::StatusCode::BAD_REQUEST, message))?;
         service
-            .plan_store
             .update_task_personality(
                 id,
                 tid,

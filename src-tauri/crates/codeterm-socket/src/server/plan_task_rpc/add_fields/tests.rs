@@ -3,7 +3,7 @@ use codeterm_service_core::plan::{OrchestratorRef, Plan, TagFacet};
 use codeterm_service_core::service::plan::PlanStore;
 
 #[test]
-fn ease_task_add_aggregates_errors_and_derives_optional_fields() {
+fn task_add_requires_personality_and_aggregates_errors() {
     let dir = tempfile::tempdir().unwrap();
     let store = PlanStore::new_for_test(dir.path());
     let mut plan = Plan::new(
@@ -35,7 +35,10 @@ fn ease_task_add_aggregates_errors_and_derives_optional_fields() {
         assert!(error.message.contains(field), "{}", error.message);
     }
     assert!(store.get(&plan.id).unwrap().tasks.is_empty());
-    let draft = normalize(&Some(json!({"name":"CLI defaults", "executor_role":"Engineer", "role_guidance":"Own the CLI", "model":"provider-fixture"})), &store, &plan.id).unwrap();
+    let missing = normalize(&Some(json!({"name":"CLI defaults", "executor_role":"Engineer", "role_guidance":"Own the CLI"})), &store, &plan.id).unwrap_err();
+    assert!(missing.message.contains("personality is required"));
+    assert!(store.get(&plan.id).unwrap().tasks.is_empty());
+    let draft = normalize(&Some(json!({"personality":"CLI", "name":"CLI defaults", "executor_role":"Engineer", "role_guidance":"Own the CLI", "model":"provider-fixture"})), &store, &plan.id).unwrap();
     assert_eq!(draft["personality"], "CLI");
     assert_eq!(draft["model"], "provider-fixture");
     assert_eq!(draft["tags"], json!(["work:backend"]));

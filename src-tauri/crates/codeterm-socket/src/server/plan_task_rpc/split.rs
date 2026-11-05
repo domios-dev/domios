@@ -113,7 +113,7 @@ pub(super) fn dispatch_split(
             Value::String(value) => value,
             _ => String::new(),
         };
-        let child_params = json!({
+        let mut child_params = json!({
             "plan_id": plan_id,
             "name": name,
             "parent": parent_id,
@@ -125,7 +125,7 @@ pub(super) fn dispatch_split(
             "correctness": string("correctness", parent.correctness.as_deref()),
             "sections": sections,
             "executor_role": string("executor_role", parent.executor_role.as_deref()),
-            "personality": string("personality", parent.personality.as_deref()).unwrap_or_else(|| "Worker".into()),
+            "personality": string("personality", parent.personality.as_deref()),
             "role_guidance": string("role_guidance", parent.role_guidance.as_deref()),
             "model": string("model", parent.model.as_deref()),
             "why": string("model_rationale", parent.model_rationale.as_deref()),
@@ -142,6 +142,10 @@ pub(super) fn dispatch_split(
                 data: Some(json!({"type":"invalid_task_split"})),
             });
         }
+        let personality =
+            codeterm_types::plan::require_executor_name(child_params["personality"].as_str())
+                .map_err(|message| plan_rpc_err(PlanError::InvalidExecutorName(message)))?;
+        child_params["personality"] = json!(personality);
         additions.push(child_params);
     }
     let mut new_children = Vec::with_capacity(additions.len());

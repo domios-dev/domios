@@ -4,7 +4,7 @@ use crate::args::plan::{PlanAction, PlanTaskAction};
 use clap::Parser;
 
 #[test]
-fn task_add_omits_personality_when_the_task_name_supplies_it() {
+fn task_add_accepts_explicit_personality() {
     let cli = Cli::try_parse_from([
         "domios",
         "plan",
@@ -13,6 +13,8 @@ fn task_add_omits_personality_when_the_task_name_supplies_it() {
         "pl_fixture",
         "--name",
         "Prism runtime task",
+        "--personality",
+        "Prism",
         "--executor-role",
         "Engineer",
         "--role-guidance",
@@ -32,5 +34,5 @@ fn task_add_omits_personality_when_the_task_name_supplies_it() {
         panic!("expected plan task add");
     };
     assert_eq!(name, "Prism runtime task");
-    assert!(personality.is_empty());
+    assert_eq!(personality, "Prism");
 }

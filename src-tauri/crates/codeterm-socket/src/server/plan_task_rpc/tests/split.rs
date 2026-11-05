@@ -131,8 +131,7 @@ fn split_invalid_second_child_is_atomic() {
     let mut params = serde_json::Value::Object(owner_params(&owner));
     params["plan_id"] = json!(plan_id.clone());
     params["task_id"] = json!(parent_id);
-    params["children"] =
-        json!([{"name":"Valid"}, {"name":"Invalid", "sections":"missing-section"}]);
+    params["children"] = json!([{"name":"Valid", "personality":"Ada"}, {"name":"Invalid", "personality":"Grace", "sections":"missing-section"}]);
     assert!(dispatch("plan.task.split", &Some(params), &service, 10).is_err());
     assert_eq!(
         fixture
@@ -276,7 +275,7 @@ fn draft_split_children_remain_locked_until_plan_approval() {
     let mut params = serde_json::Value::Object(owner_params(&owner));
     params["plan_id"] = json!(plan_id.clone());
     params["task_id"] = json!(parent_id);
-    params["children"] = json!([{"name":"Child"}]);
+    params["children"] = json!([{"name":"Child", "personality":"Nova"}]);
     let response = dispatch("plan.task.split", &Some(params), &service, 10).unwrap();
     let child_id = response["children"][0]["task_id"].as_str().unwrap();
     let caller = codeterm_service_core::service::AuthenticatedPlanCaller {
@@ -312,5 +311,29 @@ fn draft_split_children_remain_locked_until_plan_approval() {
             .task
             .status,
         TaskStatus::Pending
+    );
+}
+
+#[test]
+fn split_refuses_children_without_parent_or_child_personality_atomically() {
+    let (fixture, plan_id, task_id, _, _, owner) = update_fixture();
+    let service = Arc::new(fixture.service.clone());
+    let before = service.plan_store.get(&plan_id).unwrap().tasks.len();
+    let mut params = serde_json::Value::Object(owner_params(&owner));
+    params["plan_id"] = json!(plan_id);
+    params["task_id"] = json!(task_id);
+    params["children"] = json!([
+        {"name":"Named child", "personality":"Ada", "executor_role":"Engineer", "role_guidance":"Own child"},
+        {"name":"Nameless child", "executor_role":"Engineer", "role_guidance":"Own child"}
+    ]);
+    let error = dispatch("plan.task.split", &Some(params), &service, 10).unwrap_err();
+    assert!(
+        error.message.contains("personality is required"),
+        "{}",
+        error.message
+    );
+    assert_eq!(
+        service.plan_store.get(&plan_id).unwrap().tasks.len(),
+        before
     );
 }
