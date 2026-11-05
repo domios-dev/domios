@@ -109,7 +109,7 @@ export function describeError(input: unknown, context: ErrorContext = {}): Error
       return result("The harness authentication check timed out", "The target CLI did not finish its authentication check in time. Retry the switch.", ["retry"]);
     }
     if (kind === "provider_switch_auth_required" || /\bprovider_switch_auth_required\b/.test(raw)) {
-      return result("Sign in to the target provider", "Sign in to the target harness, then retry the switch.", ["sign-in", "retry"]);
+      return result("Sign in to the target harness", "Sign in to the target harness, then retry the switch.", ["sign-in", "retry"]);
     }
     if (kind === "provider_switch_auth_unknown" || /\bprovider_switch_auth_unknown\b/.test(raw)) {
       return result("The target authentication could not be verified", "Check the target harness's sign-in status, then retry the switch.", ["retry"]);

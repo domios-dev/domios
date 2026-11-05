@@ -145,7 +145,7 @@ export function ProviderIntegrationHealthCard({
             data-provider-integration-action-required={health?.repair_requires_consent === true ? "explicit-consent" : undefined}
             className="text-xs text-[var(--ct-fg)]"
           >
-            <InlineErrorNotice description={{ title: "The provider integration needs attention", cause: phase === "absent"
+            <InlineErrorNotice description={{ title: "The harness integration needs attention", cause: phase === "absent"
               ? "The integration is absent. Install it before starting a new agent session."
               : phase === "stale-version"
                 ? "The integration is from an older release. Refresh it before starting a new agent session."

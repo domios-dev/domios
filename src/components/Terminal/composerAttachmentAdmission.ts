@@ -23,7 +23,7 @@ export function composerAttachmentError(
   for (const kind of kinds) {
     if (kind === "image" ? capabilities.imagePaths : capabilities.filePaths) continue;
     const suggestion = capabilities.inlineText ? " Paste text directly into the message instead." : "";
-    return `This provider cannot read ${kind === "image" ? "image" : "file"} attachments. Remove the attachment before sending.${suggestion}`;
+    return `This harness cannot read ${kind === "image" ? "image" : "file"} attachments. Remove the attachment before sending.${suggestion}`;
   }
   return null;
 }

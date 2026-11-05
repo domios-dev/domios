@@ -19,7 +19,7 @@ export function ExecutionLocationPicker({provider, location, environmentId, onLo
         {capability.environments.map(environment => <option key={environment.id} value={environment.id}>{environment.label}</option>)}
       </select></label> : <p role="status">No remote environments are available. Connect the account that owns your Cloud environments, then refresh harnesses.</p>}
       <Button variant="ghost" onClick={onRefresh}>Refresh harnesses</Button>
-      <p>Remote tasks use your provider’s Cloud allowance. One task runs per tab.</p>
+      <p>Remote tasks use your harness’s Cloud allowance. One task runs per tab.</p>
     </div>}
   </fieldset>;
 }
