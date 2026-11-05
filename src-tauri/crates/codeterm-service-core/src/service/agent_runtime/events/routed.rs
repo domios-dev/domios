@@ -4,6 +4,15 @@ use codeterm_plugin::agent_runtime::MAX_RUNTIME_BATCH;
 use codeterm_types::agent::chat_types::ChatMsg;
 
 impl RuntimeMaps {
+    pub(in crate::service::agent_runtime) fn routed_input(
+        &self,
+        send: &str,
+        thread: &str,
+    ) -> Option<ChatMsg> {
+        let (owner, row) = self.routed_inputs.get(send)?;
+        (owner == thread).then(|| row.clone())
+    }
+
     pub(in crate::service::agent_runtime) fn remember_routed_input(
         &mut self,
         send: &str,

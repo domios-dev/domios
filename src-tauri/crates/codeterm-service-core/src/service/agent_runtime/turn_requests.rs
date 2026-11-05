@@ -421,7 +421,54 @@ async fn await_reply(
         ));
     };
     let current = session.context.lock().clone();
-    if matches!(&reply, RpcReply::Success { .. })
+    let mut events: Vec<_> = events
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|event| super::model::accepts_response_event(&pending.context, &current, event))
+        .collect();
+    let response_evidence = super::model::validated_evidence(&current.claimed_sends, &events);
+    let confirms_delivery = events.iter().any(|event| {
+        matches!(event,
+            AgentRuntimeEvent::SendEvidence { thread_id, send_id, turn_id, item_id }
+                if Some(thread_id) == pending.context.thread_id.as_ref()
+                    && send_id == &pending.send_id && turn_id == &pending.turn
+                    && response_evidence.contains(&(send_id.clone(), item_id.clone()))
+        )
+    });
+    if confirms_delivery && !pending.settled.load(Ordering::Acquire) {
+        let item_ids: std::collections::HashSet<_> = events
+            .iter()
+            .filter_map(|event| match event {
+                AgentRuntimeEvent::SendEvidence {
+                    thread_id,
+                    send_id,
+                    turn_id,
+                    item_id,
+                } if Some(thread_id) == pending.context.thread_id.as_ref()
+                    && send_id == &pending.send_id
+                    && turn_id == &pending.turn
+                    && response_evidence.contains(&(send_id.clone(), item_id.clone())) =>
+                {
+                    item_id.clone()
+                }
+                _ => None,
+            })
+            .collect();
+        let (delivery, remaining): (Vec<_>, Vec<_>) =
+            events.into_iter().partition(|event| match event {
+                AgentRuntimeEvent::SendEvidence { send_id, .. } => send_id == &pending.send_id,
+                AgentRuntimeEvent::ChatItem { thread_id, item } => {
+                    Some(thread_id) == pending.context.thread_id.as_ref()
+                        && item.kind == "user"
+                        && item_ids.contains(&item.id)
+                }
+                _ => false,
+            });
+        subscriber::publish_events(svc, session, pending.context.epoch, delivery, now()).await?;
+        events = remaining;
+    }
+    if !confirms_delivery
+        && matches!(&reply, RpcReply::Success { .. })
         && matches!(&result, RuntimeResult::TurnAccepted { thread_id, send_id, turn_id: Some(turn_id) }
             if Some(thread_id) == pending.context.thread_id.as_ref()
                 && send_id == &pending.send_id && turn_id == &pending.turn)
@@ -450,11 +497,6 @@ async fn await_reply(
     if pending.settled.swap(true, Ordering::AcqRel) {
         return Ok(result);
     }
-    let events = events
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|event| super::model::accepts_response_event(&pending.context, &current, event))
-        .collect();
     subscriber::publish_events(svc, session, pending.context.epoch, events, now()).await?;
     Ok(result)
 }
@@ -526,34 +568,56 @@ async fn settle_failure(
         .clone()
         .ok_or(RuntimeFailure::Superseded)?;
     let turn_id = Some(pending.turn.clone());
-    subscriber::publish_events(
-        svc,
-        session,
-        pending.context.epoch,
-        vec![
-            AgentRuntimeEvent::ChatItem {
-                thread_id: thread_id.clone(),
-                item: codeterm_types::agent::chat_types::ChatMsg {
-                    id: format!("{thread_id}:turn-request-failure:{}", pending.send_id),
-                    kind: "status".into(),
-                    content: message,
+    let mut events = Vec::new();
+    if pending.witness.written() && !pending.observed.load(Ordering::Acquire) {
+        let claim = session
+            .context
+            .lock()
+            .claimed_sends
+            .iter()
+            .find(|claim| claim.send_id == pending.send_id && claim.thread_id == thread_id)
+            .cloned();
+        if let Some(claim) = claim {
+            let mut item = session
+                .maps
+                .lock()
+                .routed_input(&pending.send_id, &thread_id)
+                .unwrap_or_else(|| codeterm_types::agent::chat_types::ChatMsg {
+                    kind: "user".into(),
+                    content: claim.input.text,
+                    attachments: (!claim.input.attachments.is_empty())
+                        .then_some(claim.input.attachments),
                     ..Default::default()
-                },
+                });
+            item.id = format!("{thread_id}:send:{}", pending.send_id);
+            events.push(AgentRuntimeEvent::ChatItem {
+                thread_id: thread_id.clone(),
+                item,
+            });
+        }
+    }
+    events.extend([
+        AgentRuntimeEvent::ChatItem {
+            thread_id: thread_id.clone(),
+            item: codeterm_types::agent::chat_types::ChatMsg {
+                id: format!("{thread_id}:turn-request-failure:{}", pending.send_id),
+                kind: "status".into(),
+                content: message,
+                ..Default::default()
             },
-            AgentRuntimeEvent::TurnState {
-                thread_id,
-                turn_id,
-                parent_thread_id: None,
-                state: RuntimeTurnState::Idle,
-                detail: Some(detail),
-                status_line: None,
-                started_at: None,
-                completed_at: Some(now()),
-            },
-        ],
-        now(),
-    )
-    .await
+        },
+        AgentRuntimeEvent::TurnState {
+            thread_id,
+            turn_id,
+            parent_thread_id: None,
+            state: RuntimeTurnState::Idle,
+            detail: Some(detail),
+            status_line: None,
+            started_at: None,
+            completed_at: Some(now()),
+        },
+    ]);
+    subscriber::publish_events(svc, session, pending.context.epoch, events, now()).await
 }
 
 pub(super) fn waiting(session: &Session, epoch: u64) -> bool {

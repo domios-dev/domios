@@ -291,18 +291,10 @@ pub(crate) async fn submit_loaded(
     let before_start = starts.sequence();
     let (result, handed_off) = engine::run_submit(svc, session, process, operation).await;
     let result = match result {
-        Err(
-            reason @ (RuntimeFailure::PipeEof
-            | RuntimeFailure::PipeFailure { .. }
-            | RuntimeFailure::ProcessExited {
-                requested: false, ..
-            }),
-        ) if !handed_off => Err(RuntimeFailure::PrewriteRefused(format!(
-            "{REJECTED_BEFORE_WRITE}: {reason}"
-        ))),
-        Err(RuntimeFailure::HookFailed(reason)) if !handed_off => Err(
-            RuntimeFailure::PrewriteRefused(format!("{REJECTED_BEFORE_WRITE}: {reason}")),
-        ),
+        Err(reason) if !handed_off => Err(RuntimeFailure::PrewriteRefused(match reason {
+            RuntimeFailure::PrewriteRefused(reason) => reason,
+            reason => format!("{REJECTED_BEFORE_WRITE}: {reason}"),
+        })),
         other => other,
     };
     if let Err(failure) = &result {

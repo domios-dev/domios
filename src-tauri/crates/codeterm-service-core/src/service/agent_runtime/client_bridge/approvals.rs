@@ -113,6 +113,16 @@ fn approved_write<'a>(
     }
     let path = diff["path"].as_str()?;
     let content = diff["newText"].as_str()?;
+    if let Some(input) = tool.get("rawInput") {
+        for hint in ["path", "file_path", "filePath"] {
+            if input
+                .get(hint)
+                .is_some_and(|value| value.as_str() != Some(path))
+            {
+                return None;
+            }
+        }
+    }
     if content.len() > fs::MAX_BYTES {
         return None;
     }

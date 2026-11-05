@@ -955,3 +955,65 @@ async fn silent_reply_settlement_follows_the_retirement_marker() {
     .await
     .expect("settlement waits must follow request retirement without sleeps");
 }
+
+#[path = "tests/cancelled_delivery.rs"]
+mod cancelled_delivery;
+
+#[tokio::test]
+async fn provider_refusal_before_handoff_is_a_prewrite_failure() {
+    use crate::service::{
+        delivery_error::{DeliveryError, SendOrigin},
+        messenger::{AgentInput, HumanInput},
+    };
+    const REFUSAL: &str = r#"module.exports = {
+        runtimePlan() { return {action:{kind:'refused',reason:'Command was not advertised by this session'},state:null}; },
+        runtimeResponse() { throw new Error('no request was written'); },
+        runtimeReduce() { return {state:null,events:[]}; }
+    };"#;
+    let (fixture, tab, mut peer, _cleanup) = runtime_fixture_turn_scoped(REFUSAL);
+    let session = engine::for_tab(&tab).unwrap();
+    let process = session.process.lock().clone().unwrap();
+    let pending = fixture
+        .service
+        .chat_send_ledger
+        .try_start(&tab, "/unadvertised opaque", None)
+        .unwrap();
+    let result = super::super::transport::submit_loaded(
+        &fixture.service,
+        &session,
+        &process,
+        &pending.send_id,
+        AgentInput::Human(HumanInput::composer("/unadvertised opaque")),
+    )
+    .await;
+    let error = result.unwrap_err();
+    assert!(
+        matches!(&error, DeliveryError::TabBusyRefused { detail,.. } if detail.starts_with("runtime_rejected_before_write:"))
+    );
+    assert!(!error.bytes_written());
+    assert!(error.surfaces_as_failure(SendOrigin::Programmatic));
+    assert!(!fixture
+        .service
+        .chat_send_ledger
+        .has_rpc_handoff(&pending.send_id));
+    assert!(!session
+        .context
+        .lock()
+        .claimed_sends
+        .iter()
+        .any(|claim| claim.send_id == pending.send_id));
+    assert!(session.context.lock().active_turn_id.is_none());
+    use std::{
+        pin::Pin,
+        task::{Context, Poll, Waker},
+    };
+    use tokio::io::{AsyncRead, ReadBuf};
+    let mut buffer = [0; 1];
+    assert!(matches!(
+        Pin::new(&mut peer).poll_read(
+            &mut Context::from_waker(Waker::noop()),
+            &mut ReadBuf::new(&mut buffer)
+        ),
+        Poll::Pending
+    ));
+}

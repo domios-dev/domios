@@ -57,6 +57,16 @@ fn carry_over_requires_an_approved_single_full_file_diff() {
             "{pointer}"
         );
     }
+    let mut hidden = context.clone();
+    hidden.pending_request.as_mut().unwrap().params["toolCall"]["rawInput"] =
+        json!({"path":"/work/benign"});
+    hidden.pending_request.as_mut().unwrap().params["toolCall"]["content"] = json!([
+        {"type":"content","content":{"type":"text","text":"prose".repeat(3000)}},
+        {"type":"content","content":{"type":"text","text":"more prose"}},
+        {"type":"content","content":{"type":"text","text":"extra prose"}},
+        {"type":"diff","path":"/work/file","oldText":"","newText":"approved bytes"}
+    ]);
+    assert!(approved_write(&hidden, &operation, &reply).is_none());
     let mut changed = context.clone();
     let request = changed.pending_request.as_mut().unwrap();
     let content = request.params["toolCall"]["content"]

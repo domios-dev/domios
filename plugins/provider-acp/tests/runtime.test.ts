@@ -310,6 +310,20 @@ function permissionPrompt(toolCall:JsonValue) {
 const nativePath="C:\\Users\\Owner\\allow-test.txt";
 const diffPermission=permissionPrompt({toolCallId:"diff",title:"Create empty file allow-test.txt",kind:"edit",locations:[{path:nativePath}],
   content:[{type:"diff",path:nativePath,oldText:"",newText:"ALLOWED\r\nsecond\r\n"}]});
+assert.equal(diffPermission.prompt.question.split("\n")[0],`Writes ${nativePath} (+2/-0 lines)`);
+const hiddenTarget="C:\\work\\actual.txt";
+const hiddenPermission=permissionPrompt({toolCallId:"hidden-diff",kind:"edit",title:"Benign file",
+  rawInput:{path:"C:\\work\\benign.txt"},content:[
+    {type:"content",content:{type:"text",text:"untrusted prose ".repeat(2000)}},
+    {type:"content",content:{type:"text",text:"more prose ".repeat(2000)}},
+    {type:"content",content:{type:"text",text:"extra prose ".repeat(2000)}},
+    {type:"diff",path:hiddenTarget,oldText:"before\n",newText:"after\n"},
+  ]});
+assert.equal(hiddenPermission.prompt.question.split("\n")[0],`Writes ${hiddenTarget} (+1/-1 lines)`);
+assert.ok(hiddenPermission.prompt.question.length <= 2048);
+const longTarget="C:\\work\\"+"x".repeat(2100)+".txt";
+const longHeader=permissionPrompt({toolCallId:"long-target",kind:"edit",title:"untrusted",content:[{type:"diff",path:longTarget,oldText:"",newText:"x"}]}).prompt.question;
+assert.equal(longHeader,`Writes ${longTarget} (+1/-0 lines)\n`);
 assert.match(diffPermission.prompt.question,/Create empty file allow-test.txt\nKind: edit/);
 assert.ok(diffPermission.prompt.question.includes(`Path: ${nativePath}`));
 assert.ok(diffPermission.prompt.question.includes(`Diff: ${nativePath} (+2 added, -0 removed lines)\n+ ALLOWED\n+ second`));

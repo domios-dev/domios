@@ -366,11 +366,11 @@ export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue,
     }
     state.inFlight=false;
     state.instructions = undefined;
-    const projected=reduceStream(ctx,state.projection ?? null,[],state.cursor).state;
-    const settled=settleStream(ctx,projected,value.stopReason);
+    const projected=reduceStream(ctx,state.projection ?? null,[],state.cursor,{sendId:op.sendId,input:op.input},true);
+    const settled=settleStream(ctx,projected.state,value.stopReason);
     state.projection=settled.state;
     const mapped=usage(value.usage);
-    const events:import("@codeterm/plugin-sdk").AgentEvent[]=[...(mapped ? [{kind:"usage" as const,threadId:sessionId,usage:mapped}] : []),...settled.events];
+    const events:import("@codeterm/plugin-sdk").AgentEvent[]=[...(mapped ? [{kind:"usage" as const,threadId:sessionId,usage:mapped}] : []),...projected.events,...settled.events];
     events.push(...promoteQueued(ctx,state));
     return {kind:"complete", result:{kind:"turnAccepted", threadId:sessionId, sendId:op.sendId,turnId:`${sessionId}:turn:${turn}`},events};
 

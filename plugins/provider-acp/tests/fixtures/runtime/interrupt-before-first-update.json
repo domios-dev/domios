@@ -271,6 +271,23 @@
           },
           "events": [
             {
+              "kind": "chatItem",
+              "threadId": "session-fixture",
+              "item": {
+                "id": "session-fixture:turn:1:item:1",
+                "seq": 1,
+                "type": "user",
+                "content": "Hello"
+              }
+            },
+            {
+              "kind": "sendEvidence",
+              "threadId": "session-fixture",
+              "sendId": "send-fixture",
+              "turnId": "session-fixture:turn:1",
+              "itemId": "session-fixture:turn:1:item:1"
+            },
+            {
               "kind": "turnState",
               "threadId": "session-fixture",
               "state": "idle",
@@ -288,6 +305,23 @@
           "state": "unknown",
           "methods": []
         }
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "session-fixture",
+        "item": {
+          "id": "session-fixture:turn:1:item:1",
+          "seq": 1,
+          "type": "user",
+          "content": "Hello"
+        }
+      },
+      {
+        "kind": "sendEvidence",
+        "threadId": "session-fixture",
+        "sendId": "send-fixture",
+        "turnId": "session-fixture:turn:1",
+        "itemId": "session-fixture:turn:1:item:1"
       },
       {
         "kind": "turnState",

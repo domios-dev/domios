@@ -25,6 +25,17 @@ function preview(value:JsonValue|undefined, prefix=""):string[] {
   if (lines[lines.length-1] === "") lines.pop();
   return lines.slice(0,3).map(line=>`${prefix}${line}`).concat(lines.length > 3 ? ["…"] : []);
 }
+function displayPath(path:string):string {
+  if (path.startsWith("\\\\?\\UNC\\")) return "\\\\"+path.slice(8);
+  return path.replace(/^(?:\\\\\?\\|\/\/\?\/)(?=[a-z]:[\\/])/i,"").replace(/[\x00-\x1f\x7f]/g,"�");
+}
+function writeHeader(tool:Record<string,JsonValue>):string {
+  if (tool.kind !== "edit" || !Array.isArray(tool.content)) return "";
+  const diffs=tool.content.map(object).filter(entry=>entry.type === "diff");
+  const path=diffs[0]?.path;
+  if (diffs.length !== 1 || typeof path !== "string" || !path.length || path.length > 4096) return "";
+  return `Writes ${displayPath(path)} (+${lineCount(diffs[0].newText)}/-${lineCount(diffs[0].oldText)} lines)\n`;
+}
 function permissionQuestion(tool:Record<string,JsonValue>):string {
   const title=readable(tool.title,256).trim() || "Tool permission requested";
   const kind=readable(tool.kind,64).trim() || "other";
@@ -51,7 +62,9 @@ function permissionQuestion(tool:Record<string,JsonValue>):string {
     }
   }
   lines.push("Allow this tool call?");
-  return readable(lines.join("\n"),2048);
+  const header=writeHeader(tool);
+  const budget=Math.max(0,2048-header.length);
+  return header+(budget ? readable(lines.join("\n"),budget) : "");
 }
 export function runtimePrompt(ctx:RuntimeContext, method:string, params:JsonValue):PendingPrompt|undefined {
   const data=object(params);

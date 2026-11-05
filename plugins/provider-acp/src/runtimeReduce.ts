@@ -112,33 +112,38 @@ function startTurn(ctx:RuntimeContext, state:StreamState, events:AgentEvent[]):v
     events.push({kind:"turnState",threadId:state.sessionId,turnId:`${state.sessionId}:turn:${state.turn}`,state:"working"});
   }
 }
-export function reduceStream(ctx:RuntimeContext, raw:JsonValue, frames:readonly RuntimeFrame[], cursor:StreamCursor, submitted?:{sendId:string;input:TurnInput}):RuntimeReduction {
+function submittedRow(state:StreamState, events:AgentEvent[], submitted:{sendId:string;input:TurnInput}, evidenced:boolean):void {
+  const id=`${state.sessionId}:turn:${state.turn}:item:1`;
+  if (!state.items[id]) {
+    state.ordinal=Math.max(state.ordinal,1);
+    emit(state,events,{id,seq:0,type:"user",content:submitted.input.text});
+  }
+  if (evidenced && !state.evidenced.includes(submitted.sendId)) {
+    if (!events.some(event=>event.kind === "chatItem" && event.item.id === id))
+      events.push({kind:"chatItem",threadId:state.sessionId,item:{...state.items[id],content:submitted.input.text}});
+    state.evidenced.push(submitted.sendId);
+    events.push({kind:"sendEvidence",threadId:state.sessionId,sendId:submitted.sendId,turnId:`${state.sessionId}:turn:${state.turn}`,itemId:id});
+  }
+}
+export function reduceStream(ctx:RuntimeContext, raw:JsonValue, frames:readonly RuntimeFrame[], cursor:StreamCursor, submitted?:{sendId:string;input:TurnInput}, confirmed=false):RuntimeReduction {
   if (!ctx.threadId) return {state:raw,events:[]};
   const state=initial(ctx,raw,cursor);
   const events:AgentEvent[]=[];
   const ownSubmitted=submitted && ctx.claimedSends.some(claim=>claim.sendId === submitted.sendId && claim.threadId === state.sessionId) ? submitted : undefined;
+  if (confirmed && ownSubmitted && !state.loading && !state.settled) submittedRow(state,events,ownSubmitted,true);
   let bounded=false;
   for (const frame of frames) {
     const params=object(frame.params);
     if (params.sessionId !== ctx.threadId) continue;
     try {
-      const submittedId=`${state.sessionId}:turn:${state.turn}:item:1`;
-      if (ownSubmitted && !state.loading && !state.settled && !state.items[submittedId]) {
-        state.ordinal=1;
-        emit(state,events,{id:submittedId,seq:0,type:"user",content:ownSubmitted.input.text});
-      }
+      if (ownSubmitted && !state.loading && !state.settled) submittedRow(state,events,ownSubmitted,false);
       if (frame.kind === "request" && clientRequest(frame.method)) { startTurn(ctx,state,events);continue; }
       if (frame.kind !== "notification" || frame.method !== "session/update") continue;
       const update=object(params.update);
       const kind=text(update.sessionUpdate);
       if (!kind) continue;
       startTurn(ctx,state,events);
-      if (ownSubmitted && !state.loading && !state.settled && !state.evidenced.includes(ownSubmitted.sendId)) {
-        if (!events.some(event=>event.kind === "chatItem" && event.item.id === submittedId))
-          events.push({kind:"chatItem",threadId:state.sessionId,item:{...state.items[submittedId],content:ownSubmitted.input.text}});
-        state.evidenced.push(ownSubmitted.sendId);
-        events.push({kind:"sendEvidence",threadId:state.sessionId,sendId:ownSubmitted.sendId,turnId:`${state.sessionId}:turn:${state.turn}`,itemId:submittedId});
-      }
+      if (ownSubmitted && !state.loading && !state.settled) submittedRow(state,events,ownSubmitted,true);
       if (kind === "user_message_chunk" || kind === "agent_message_chunk" || kind === "agent_thought_chunk") {
         const content=object(update.content);
         if (content.type !== "text" || typeof content.text !== "string" || state.settled && !state.loading) continue;

@@ -78,6 +78,17 @@ enum Request {
     },
 }
 impl Request {
+    fn method(&self) -> &'static str {
+        match self {
+            Self::Read { .. } => "fs/read_text_file",
+            Self::Write { .. } => "fs/write_text_file",
+            Self::Create { .. } => "terminal/create",
+            Self::Output { .. } => "terminal/output",
+            Self::Wait { .. } => "terminal/wait_for_exit",
+            Self::Kill { .. } => "terminal/kill",
+            Self::Release { .. } => "terminal/release",
+        }
+    }
     fn session(&self) -> &str {
         match self {
             Self::Read { session_id, .. }
@@ -492,6 +503,22 @@ fn terminal_cwd(bridge: &Bridge, command: &terminal::Command) -> Result<PathBuf,
     Ok(path)
 }
 
+async fn reply(
+    process: &Process,
+    id: &RpcId,
+    method: &str,
+    result: Result<Value, RpcFailure>,
+) -> Result<(), RuntimeFailure> {
+    let outcome = if result.is_ok() { "ok" } else { "error" };
+    let code = result.as_ref().err().map(|error| error.code);
+    let sent = process.client.reply(id, result).await;
+    log::debug!(
+        "[client-bridge] method={method} outcome={outcome} code={code:?} reply={}",
+        if sent.is_ok() { "sent" } else { "failed" }
+    );
+    sent
+}
+
 pub(super) async fn handle(
     svc: &ServiceContext,
     session: &Arc<Session>,
@@ -507,17 +534,20 @@ pub(super) async fn handle(
     let bridge = match bridge(&context) {
         Ok(bridge) => bridge,
         Err(error) => {
-            process.client.reply(id, Err(failure(error))).await?;
+            reply(process, id, method, Err(failure(error))).await?;
             return Ok(true);
         }
     };
     let permit = match bridge.inflight.clone().try_acquire_owned() {
         Ok(permit) => permit,
         Err(_) => {
-            process
-                .client
-                .reply(id, Err(failure("Client bridge capacity exceeded".into())))
-                .await?;
+            reply(
+                process,
+                id,
+                method,
+                Err(failure("Client bridge capacity exceeded".into())),
+            )
+            .await?;
             return Ok(true);
         }
     };
@@ -526,7 +556,7 @@ pub(super) async fn handle(
     let request = match request {
         Ok(request) => request,
         Err(error) => {
-            process.client.reply(id, Err(failure(error))).await?;
+            reply(process, id, method, Err(failure(error))).await?;
             return Ok(true);
         }
     };
@@ -542,10 +572,13 @@ pub(super) async fn handle(
         }
     };
     let Some(generation) = generation else {
-        process
-            .client
-            .reply(id, Err(failure("Client request scope expired".into())))
-            .await?;
+        reply(
+            process,
+            id,
+            method,
+            Err(failure("Client request scope expired".into())),
+        )
+        .await?;
         return Ok(true);
     };
     let prepared = {
@@ -561,16 +594,19 @@ pub(super) async fn handle(
     let (prompt, env) = match prepared {
         Ok(prepared) => prepared,
         Err(error) => {
-            process.client.reply(id, Err(bridge_failure(error))).await?;
+            reply(process, id, method, Err(bridge_failure(error))).await?;
             return Ok(true);
         }
     };
     if let Some(prompt) = prompt {
         let Some(turn) = context.active_turn_id.clone() else {
-            process
-                .client
-                .reply(id, Err(failure("Approval requires an active turn".into())))
-                .await?;
+            reply(
+                process,
+                id,
+                method,
+                Err(failure("Approval requires an active turn".into())),
+            )
+            .await?;
             return Ok(true);
         };
         let refused = {
@@ -608,10 +644,13 @@ pub(super) async fn handle(
             }
         };
         if refused {
-            process
-                .client
-                .reply(id, Err(failure("Bridge request unavailable".into())))
-                .await?;
+            reply(
+                process,
+                id,
+                method,
+                Err(failure("Bridge request unavailable".into())),
+            )
+            .await?;
         } else {
             super::prompt_answers::publish(svc, session, id.clone(), prompt);
         }
@@ -620,6 +659,7 @@ pub(super) async fn handle(
         let session = session.clone();
         let process = process.clone();
         let id = id.clone();
+        let method = method.to_owned();
         crate::async_runtime::spawn(async move {
             let _permit = permit;
             let result = execute(
@@ -627,7 +667,7 @@ pub(super) async fn handle(
             )
             .await
             .map_err(bridge_failure);
-            let _ = process.client.reply(&id, result).await;
+            let _ = reply(&process, &id, &method, result).await;
         });
     }
     Ok(true)
@@ -648,6 +688,7 @@ pub(super) async fn answer(
     let Some(pending) = pending else {
         return Ok(false);
     };
+    let method = pending.request.method();
     let original = session.prompts.lock().get(id).and_then(|entry| {
         serde_json::from_value::<Request>(
             json!({"method":entry.request.method,"params":entry.request.params}),
@@ -686,10 +727,7 @@ pub(super) async fn answer(
         )
         .await
     };
-    process
-        .client
-        .reply(id, result.map_err(bridge_failure))
-        .await?;
+    reply(process, id, method, result.map_err(bridge_failure)).await?;
     Ok(true)
 }
 
@@ -839,11 +877,14 @@ pub(super) async fn cancel(
         )
     };
     let mut errors = Vec::new();
-    for (id, _) in pending {
-        if let Err(error) = process
-            .client
-            .reply(&id, Err(failure("Client operation cancelled".into())))
-            .await
+    for (id, pending) in pending {
+        if let Err(error) = reply(
+            process,
+            &id,
+            pending.request.method(),
+            Err(failure("Client operation cancelled".into())),
+        )
+        .await
         {
             errors.push(error.to_string());
         }

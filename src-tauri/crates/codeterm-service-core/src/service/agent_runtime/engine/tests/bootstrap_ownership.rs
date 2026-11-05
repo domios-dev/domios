@@ -155,7 +155,11 @@ fn fresh_runtime_bootstrap_survives_identical_sibling_completion_before_launch()
 #[test]
 fn bootstrap_written_before_receipt_loads_and_accepts_late_own_evidence() {
     use super::sync_send::{runtime_fixture_turn_scoped, RUNTIME_FIXTURE_SOURCE};
-    let (fixture, tab, peer, _cleanup) = runtime_fixture_turn_scoped(RUNTIME_FIXTURE_SOURCE);
+    let source = RUNTIME_FIXTURE_SOURCE.replace(
+        "call:{method,params:op}",
+        "call:{method,params:op,...(op.kind === 'submitTurn' ? {target:{threadId:op.threadId,turnId:'late-turn'}} : {})}",
+    );
+    let (fixture, tab, peer, _cleanup) = runtime_fixture_turn_scoped(&source);
     let storage = fixture.install_seeded_storage_desk();
     let workspace = fixture
         .service

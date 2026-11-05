@@ -168,6 +168,7 @@
     "batch-row-determinism.json",
     "concurrent-rpc-refusal.json",
     "active-error-queued-prompt.json",
-    "initialize-client-capability-mask.json"
+    "initialize-client-capability-mask.json",
+    "cancel-before-first-update.json"
   ]
 }
