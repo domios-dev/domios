@@ -69,7 +69,7 @@ fn respawn_cross_repository_lane_resolves_own_base_and_persists_replacement() {
         ExecutionIntent::Mutating,
     );
     store
-        .with_plan(&plan_id, 6, |plan| {
+        .edit_plan_fixture(&plan_id, 6, |plan| {
             let task = &mut plan.tasks[0];
             task.lane.worktree_path = Some(lane_path.into());
             task.lane.branch = Some(branch.into());
@@ -92,7 +92,7 @@ fn respawn_cross_repository_lane_resolves_own_base_and_persists_replacement() {
             },
         )
         .unwrap();
-    let task = store.show_task(&task.id).unwrap().task;
+    let task = store.inspect_task_for_test(&task.id).unwrap().task;
     let before = store.get(&plan_id).unwrap();
     let provenance =
         verify_respawn_lane(repo_a.to_str().unwrap(), &lane_facts(&task, &draft), &draft)
@@ -185,7 +185,7 @@ fn respawn_cross_repository_lane_resolves_own_base_and_persists_replacement() {
     store
         .acknowledge_live_task_attempt_for_tab("replacement", None, None, 9)
         .unwrap();
-    let restored = store.show_task(&task.id).unwrap().task;
+    let restored = store.inspect_task_for_test(&task.id).unwrap().task;
     assert_eq!(restored.status, TaskStatus::InProgress);
     assert_eq!(restored.lane.worktree_path, task.lane.worktree_path);
     assert_eq!(restored.lane.base, Some(base));

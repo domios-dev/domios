@@ -130,6 +130,10 @@
                 "text": "Hello"
               }
             ]
+          },
+          "target": {
+            "threadId": "session-fixture",
+            "turnId": "session-fixture:turn:1"
           }
         }
       }
@@ -309,13 +313,15 @@
           "result": {
             "kind": "turnAccepted",
             "threadId": "session-fixture",
-            "sendId": "send-fixture"
+            "sendId": "send-fixture",
+            "turnId": "session-fixture:turn:1"
           },
           "events": [
             {
               "kind": "turnState",
               "threadId": "session-fixture",
-              "state": "idle"
+              "state": "idle",
+              "turnId": "session-fixture:turn:1"
             }
           ]
         }
@@ -351,7 +357,7 @@
         }
       },
       {
-        "kind": "chatItem",
+        "kind": "chatItemPatch",
         "threadId": "session-fixture",
         "item": {
           "id": "call-1",
@@ -360,13 +366,6 @@
           "content": "",
           "toolId": "call-1",
           "collapsed": true,
-          "toolTitle": "Edit file",
-          "toolName": "Edit file",
-          "toolKind": "edit",
-          "toolInput": {
-            "path": "a.txt"
-          },
-          "toolArgs": "{\"path\":\"a.txt\"}",
           "toolStatus": "completed",
           "toolError": false,
           "toolResult": "Edited",
@@ -395,7 +394,8 @@
       {
         "kind": "turnState",
         "threadId": "session-fixture",
-        "state": "idle"
+        "state": "idle",
+        "turnId": "session-fixture:turn:1"
       }
     ]
   }

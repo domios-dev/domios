@@ -31,6 +31,7 @@ fn fixture() -> (
         .token = Some(OWNER.into());
     let token = svc
         .frontend_pty_env(Some(&tab))
+        .unwrap()
         .remove("CODETERM_API_TOKEN")
         .unwrap();
     (fixture, svc, token, calls)

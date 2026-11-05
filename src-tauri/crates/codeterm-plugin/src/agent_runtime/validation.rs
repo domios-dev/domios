@@ -97,6 +97,9 @@ pub fn validate_runtime_context(ctx: &RuntimeContext) -> Result<(), RuntimeFailu
     validate_runtime_size(ctx, MAX_RUNTIME_VALUE_BYTES)?;
     if ctx.epoch == 0
         || ctx.epoch > 9_007_199_254_740_991
+        || ctx
+            .restored_row_ordinal
+            .is_some_and(|ordinal| ordinal > 9_007_199_254_740_991)
         || !identifier(&ctx.tab_id)
         || !identifier(&ctx.binding_nonce)
         || !identifier(&ctx.cwd)
@@ -110,6 +113,7 @@ pub fn validate_runtime_context(ctx: &RuntimeContext) -> Result<(), RuntimeFailu
     {
         return Err(invalid("invalid runtime authority"));
     }
+    super::stream_window::validate(ctx.stream_window.as_ref(), identifier)?;
     validate_runtime_settings(&ctx.settings)?;
     if let Some(policy) = &ctx.restricted_cli {
         let hash = |value: &str| {
@@ -418,6 +422,20 @@ pub fn validate_runtime_call(
             .is_none_or(|target| &target.thread_id != thread_id || target.turn_id.is_some())
         {
             return Err(mismatch("background request lacks exact owned target"));
+        }
+    } else if cap
+        .turn_scoped_requests
+        .iter()
+        .any(|kind| kind == op.kind())
+    {
+        let target = call
+            .target
+            .as_ref()
+            .ok_or_else(|| mismatch("turn-scoped request lacks target"))?;
+        if ctx.thread_id.as_ref() != Some(&target.thread_id)
+            || target.turn_id.as_ref().is_none_or(|turn| !identifier(turn))
+        {
+            return Err(mismatch("turn-scoped request lacks an exact owned turn"));
         }
     } else if matches!(op, RuntimeOperation::Interrupt { .. }) {
         let target = call
@@ -922,7 +940,16 @@ pub fn validate_runtime_reduction(
             | AgentRuntimeEvent::Auth { .. }
             | AgentRuntimeEvent::AuthLogin { .. }
             | AgentRuntimeEvent::Authentication { .. } => continue,
-            AgentRuntimeEvent::ChatItem { thread_id, item } => {
+            AgentRuntimeEvent::ChatItemAppend {
+                thread_id, item_id, ..
+            } => {
+                if !identifier(item_id) {
+                    return Err(invalid("invalid chat item id"));
+                }
+                thread_id
+            }
+            AgentRuntimeEvent::ChatItem { thread_id, item }
+            | AgentRuntimeEvent::ChatItemPatch { thread_id, item } => {
                 if !identifier(&item.id) {
                     return Err(invalid("invalid chat item id"));
                 }
@@ -1159,3 +1186,6 @@ pub fn validate_active_turns(ctx: &RuntimeContext) -> Result<(), RuntimeFailure>
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;

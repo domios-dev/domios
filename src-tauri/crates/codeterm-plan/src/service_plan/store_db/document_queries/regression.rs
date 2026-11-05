@@ -63,34 +63,39 @@ pub(in crate::service_plan::store_db) fn regression_gate_input(
     let override_at = unsigned_timestamp("o.value", "ts", false);
     let links = string_array("s.row_json", "links", true);
     let gates = string_array("o.value", "gates", false);
+    let completed_groups = completed_group_facts();
     let sql = format!(
         r#"
-            WITH members AS (
-                SELECT position,status,row_json,CASE WHEN json_type(row_json,'$.group')='text'
-                    THEN json_extract(row_json,'$.group') ELSE json('invalid group key') END AS group_key
-                FROM plan_tasks WHERE plan_id=?1 AND json_type(row_json,'$.group') IS NOT NULL
-                    AND json_type(row_json,'$.group')<>'null'
-            ), completed AS (
-                SELECT group_key,min(position) AS position FROM members GROUP BY group_key
-                HAVING sum(CASE WHEN status IN ('done','cancelled') THEN 0
-                    WHEN status IN ('pending','in_progress','blocked','in_review','paused') THEN 1
-                    ELSE json('invalid task status') END)=0 AND sum(status='done')>0
-            )
-            SELECT json_object('key',g.group_key,'label',
-                CASE WHEN EXISTS(SELECT 1 FROM plans p,json_each(p.header_json,'$.task_groups') d
-                    WHERE p.id=?1 AND json_extract(d.value,'$.key')=g.group_key)
-                THEN (SELECT json_extract(d.value,'$.label') FROM plans p,json_each(p.header_json,'$.task_groups') d
-                    WHERE p.id=?1 AND json_extract(d.value,'$.key')=g.group_key ORDER BY d.key LIMIT 1)
+            {completed_groups}, declared AS MATERIALIZED (
+                SELECT CAST(d.key AS INTEGER) AS position,json_extract(d.value,'$.key') AS group_key,
+                    json_extract(d.value,'$.label') AS label
+                FROM plans p,json_each(p.header_json,'$.task_groups') d WHERE p.id=?1
+            ), stride_rows AS MATERIALIZED (
+                SELECT json_extract(s.row_json,'$.kind') AS kind,{links} AS links,
+                    json_object('ts',json(s.row_json->'$.ts')) AS row_json
+                FROM plan_strides s WHERE s.plan_id=?1
+                    AND json_extract(s.row_json,'$.kind') IN ('regression','group_close')
+                    AND EXISTS(SELECT 1 FROM completed)
+            ), evidence AS MATERIALIZED (
+                SELECT g.group_key,s.kind,max(printf('%20s',{stride_at})) AS at
+                FROM stride_rows s,json_each(s.links) l JOIN completed g
+                    ON l.type='text' AND l.value='group:'||g.group_key GROUP BY g.group_key,s.kind
+            ), override_rows AS MATERIALIZED (
+                SELECT {gates} AS gates,json_object('ts',json(o.value->'$.ts')) AS value
+                FROM plans p,json_each(p.header_json,'$.regression_gate_overrides') o
+                WHERE p.id=?1 AND EXISTS(SELECT 1 FROM completed)
+            ), waivers AS MATERIALIZED (
+                SELECT g.group_key,max(printf('%20s',{override_at})) AS at
+                FROM override_rows o,json_each(o.gates) k JOIN completed g
+                    ON k.type='text' AND k.value=g.group_key GROUP BY g.group_key
+            ) SELECT json_object('key',g.group_key,'label',
+                CASE WHEN EXISTS(SELECT 1 FROM declared d WHERE d.group_key=g.group_key)
+                THEN (SELECT d.label FROM declared d WHERE d.group_key=g.group_key ORDER BY d.position LIMIT 1)
                 ELSE g.group_key END,
                 'completed_at',json(trim((SELECT max(printf('%20s',{completed})) FROM members t WHERE t.group_key=g.group_key))),
-                'regression_at',json(trim((SELECT max(printf('%20s',{stride_at})) FROM plan_strides s
-                    WHERE s.plan_id=?1 AND json_extract(s.row_json,'$.kind')='regression'
-                    AND EXISTS(SELECT 1 FROM json_each({links}) l WHERE l.type='text' AND l.value='group:'||g.group_key)))),
-                'retrospective_at',json(trim((SELECT max(printf('%20s',{stride_at})) FROM plan_strides s
-                    WHERE s.plan_id=?1 AND json_extract(s.row_json,'$.kind')='group_close'
-                    AND EXISTS(SELECT 1 FROM json_each({links}) l WHERE l.type='text' AND l.value='group:'||g.group_key)))),
-                'override_at',json(trim((SELECT max(printf('%20s',{override_at})) FROM plans p,json_each(p.header_json,'$.regression_gate_overrides') o
-                    WHERE p.id=?1 AND EXISTS(SELECT 1 FROM json_each({gates}) k WHERE k.type='text' AND k.value=g.group_key)))))
+                'regression_at',json(trim((SELECT at FROM evidence WHERE group_key=g.group_key AND kind='regression'))),
+                'retrospective_at',json(trim((SELECT at FROM evidence WHERE group_key=g.group_key AND kind='group_close'))),
+                'override_at',json(trim((SELECT at FROM waivers WHERE group_key=g.group_key))))
             FROM completed g ORDER BY g.position
         "#
     );
@@ -138,4 +143,20 @@ fn string_array(document: &str, field: &str, default_empty: bool) -> String {
         WHEN json_type({document},'$.{field}')='array' THEN {document}->'$.{field}'
         ELSE json('invalid string array') END"
     )
+}
+
+pub(in crate::service_plan::store_db) fn completed_group_facts() -> &'static str {
+    "WITH members AS MATERIALIZED (
+                SELECT position,status,json_object('status_changed_at',json(CASE
+                    WHEN json_type(row_json,'$.status_changed_at') IS NULL THEN '0'
+                    ELSE row_json->'$.status_changed_at' END)) AS row_json,CASE WHEN json_type(row_json,'$.group')='text'
+                    THEN json_extract(row_json,'$.group') ELSE json('invalid group key') END AS group_key
+                FROM plan_tasks WHERE plan_id=?1 AND json_type(row_json,'$.group') IS NOT NULL
+                    AND json_type(row_json,'$.group')<>'null'
+            ), completed AS MATERIALIZED (
+                SELECT group_key,min(position) AS position FROM members GROUP BY group_key
+                HAVING sum(CASE WHEN status IN ('done','cancelled') THEN 0
+                    WHEN status IN ('pending','in_progress','blocked','in_review','paused') THEN 1
+                    ELSE json('invalid task status') END)=0 AND sum(status='done')>0
+            )"
 }

@@ -1,3 +1,4 @@
+import { ioTestContext } from "../../provider-shared/tests/hostIo";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
@@ -19,7 +20,7 @@ check(() => assert.equal(parseSessionObservations({permissionMode:"auto"})?.perm
 check(() => assert.equal(parseSessionObservations({permissionMode:"opaque"}), null));
 check(() => assert.equal(parseSessionObservations({type:"assistant",message:{}})?.clears_api_error, true));
 const sandbox = {module:{exports:{} as {default?: typeof import("../src/plugin").default}},exports:{},host:{}};
-vm.runInNewContext(fs.readFileSync(new URL("../plugin.js",import.meta.url),"utf8"),sandbox);
+vm.runInNewContext(fs.readFileSync(new URL("../plugin.js",import.meta.url),"utf8"),ioTestContext(sandbox));
 const plugin = sandbox.module.exports.default!;
 check(() => assert.deepEqual(JSON.parse(JSON.stringify(plugin.parseAuthStatus!(status))), status));
 const row = {type:"assistant",uuid:"own",permissionMode:"plan",isApiErrorMessage:true,error:"rate_limit",message:{content:[{type:"text",text:"opaque"}]}};

@@ -67,7 +67,6 @@ fn plan_err(e: PlanError) -> (StatusCode, Json<Value>) {
         | PlanError::GoalVectorRequired
         | PlanError::WorkFacetViolation(_) => StatusCode::BAD_REQUEST,
         PlanError::OverrideNotAuthorized => StatusCode::FORBIDDEN,
-        PlanError::WritePending { .. } => StatusCode::SERVICE_UNAVAILABLE,
         PlanError::ReadbackMismatch { .. }
         | PlanError::RespawnAttemptNotCurrent { .. }
         | PlanError::TeamAlreadyHasActivePlan { .. }

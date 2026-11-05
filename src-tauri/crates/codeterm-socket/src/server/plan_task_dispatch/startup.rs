@@ -14,6 +14,20 @@ use super::{
 };
 pub(crate) use codeterm_service_core::ports::socket::DispatchStartup;
 
+pub(super) fn spawn_startup(
+    service: &codeterm_service_core::service::ServiceContext,
+    startup: DispatchStartup,
+    ready: tokio::sync::oneshot::Receiver<Result<(), String>>,
+) {
+    #[cfg(test)]
+    if let Some(tasks) = service.host_extension::<super::tests::startup_tasks::StartupTasks>() {
+        tasks.spawn(move || run_startup(startup, ready));
+        return;
+    }
+    let _ = service;
+    std::thread::spawn(move || run_startup(startup, ready));
+}
+
 pub(crate) fn run_startup(
     this: DispatchStartup,
     ready_rx: tokio::sync::oneshot::Receiver<Result<(), String>>,

@@ -916,7 +916,11 @@ pub(crate) fn session_chat_window(
     }
     let path = svc
         .agent_registry
-        .with_provider(provider_id, |p| p.session_file_path(cwd, session_id))
+        .with_provider(provider_id, |p| {
+            p.session_file_path_checked(cwd, session_id)
+        })
+        .transpose()
+        .map_err(|error| runtime_stored::StoredHistoryFailure::Unavailable.error(error))?
         .flatten()
         .ok_or("provider has no JSONL and no structured chat")?;
     svc.chat_registry.tail_cache.jsonl_tail(

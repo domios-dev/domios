@@ -513,7 +513,7 @@ fn restored_bounced_worker_force_close_records_termination_before_retirement_and
     fixture
         .service
         .plan_store
-        .with_plan("plan", 2, |plan| {
+        .edit_plan_fixture("plan", 2, |plan| {
             plan.tasks[0].status = crate::plan::TaskStatus::InReview;
             plan.tasks[0].execution_attempts[0].provider = Some("source-provider".into());
             Ok(())
@@ -657,7 +657,7 @@ fn forced_close_resolves_missing_binding_but_refuses_conflicting_or_ambiguous_at
         }
         if field == "ambiguous" {
             svc.plan_store
-                .with_plan("plan", 2, |plan| {
+                .edit_plan_fixture("plan", 2, |plan| {
                     let mut second = plan.tasks[0].clone();
                     second.id = "other-task".into();
                     second.execution_attempts[0].id = "other-attempt".into();
@@ -690,7 +690,7 @@ fn termination_receipt_persistence_failure_retains_tab_and_unretired_attempt() {
     let svc = &fixture.service;
     let result = svc.retire_respawn_executor_with(&draft, |_| {
         svc.plan_store
-            .with_plan("plan", 2, |plan| {
+            .edit_plan_fixture("plan", 2, |plan| {
                 plan.tasks[0].execution_attempts[0].session_binding_nonce = Some("changed".into());
                 Ok(())
             })
@@ -717,7 +717,7 @@ fn assert_close_persists_termination(status: crate::plan::TaskStatus, guarded: b
     fixture
         .service
         .plan_store
-        .with_plan("plan", 2, |plan| {
+        .edit_plan_fixture("plan", 2, |plan| {
             plan.tasks[0].status = status.clone();
             Ok(())
         })
@@ -778,4 +778,183 @@ fn assert_close_persists_termination(status: crate::plan::TaskStatus, guarded: b
         .unwrap();
     assert_eq!(replacement.attempt.executor_tab_id, "replacement-tab");
     assert_eq!(replacement.attempt.executor_termination, None);
+}
+#[test]
+fn terminal_worker_close_resolves_missing_attempt_after_accept_or_close() {
+    for accepted in [false, true] {
+        let (fixture, draft) = fixture();
+        let svc = &fixture.service;
+        let tab_id = &draft.source_attempt.executor_tab_id;
+        svc.mux
+            .write()
+            .get_tab_mut(tab_id)
+            .unwrap()
+            .task_binding
+            .as_mut()
+            .unwrap()
+            .attempt_id = None;
+        if accepted {
+            svc.plan_store
+                .edit_plan_fixture("plan", 2, |plan| {
+                    plan.tasks[0].status = crate::plan::TaskStatus::InReview;
+                    Ok(())
+                })
+                .unwrap();
+            svc.plan_store
+                .record_task_attempt_report(
+                    "plan",
+                    "task",
+                    &crate::plan::AgentRef::from_tab(tab_id),
+                    "opaque-completed-work",
+                    Some(codeterm_types::agent::ReportStatus::InReview),
+                    3,
+                )
+                .unwrap();
+            svc.plan_store
+                .accept_review(
+                    "plan",
+                    "task",
+                    "opaque-acceptance",
+                    true,
+                    true,
+                    None,
+                    crate::plan::AgentRef::from_tab("owner"),
+                    4,
+                )
+                .unwrap();
+        } else {
+            svc.plan_store
+                .close_task(
+                    "plan",
+                    "task",
+                    Some("opaque-owner-close"),
+                    crate::plan::AgentRef::from_tab("owner"),
+                    4,
+                )
+                .unwrap();
+        }
+        assert!(
+            svc.plan_store.get("plan").unwrap().tasks[0].execution_attempts[0]
+                .closed_at
+                .is_some()
+        );
+        svc.close_tab_guarded(Some("owner"), tab_id, false).unwrap();
+        assert!(svc.mux.read().get_tab(tab_id).is_none());
+        assert!(svc
+            .plan_store
+            .task_executor_termination_confirmed("plan", "task", &draft.source_attempt)
+            .unwrap());
+    }
+}
+
+#[test]
+fn terminal_worker_close_refuses_ambiguous_or_foreign_executor_identity() {
+    for defect in ["ambiguous", "session", "nonce"] {
+        let (fixture, draft) = fixture();
+        let svc = &fixture.service;
+        let tab_id = &draft.source_attempt.executor_tab_id;
+        {
+            let mut mux = svc.mux.write();
+            let tab = mux.get_tab_mut(tab_id).unwrap();
+            tab.task_binding.as_mut().unwrap().attempt_id = None;
+            if defect == "session" {
+                tab.agent_session_id = Some("foreign".into());
+            }
+            if defect == "nonce" {
+                tab.session_binding_nonce = Some("foreign".into());
+            }
+        }
+        svc.plan_store
+            .edit_plan_fixture("plan", 2, |plan| {
+                plan.tasks[0].status = crate::plan::TaskStatus::Done;
+                plan.tasks[0].execution_attempts[0].closed_at = Some(2);
+                if defect == "ambiguous" {
+                    let mut other = plan.tasks[0].execution_attempts[0].clone();
+                    other.id = "other-attempt".into();
+                    plan.tasks[0].execution_attempts.push(other);
+                }
+                Ok(())
+            })
+            .unwrap();
+        assert!(
+            svc.close_tab_guarded(Some("owner"), tab_id, true).is_err(),
+            "{defect}"
+        );
+        assert!(svc.mux.read().get_tab(tab_id).is_some());
+        assert!(!svc
+            .plan_store
+            .task_executor_termination_confirmed("plan", "task", &draft.source_attempt)
+            .unwrap());
+    }
+}
+
+#[test]
+fn normal_and_force_close_release_orphan_binding_after_plan_or_task_deletion() {
+    for deleted_plan in [false, true] {
+        for force in [false, true] {
+            for incomplete_attempt in [false, true] {
+                let (fixture, draft) = fixture();
+                let svc = &fixture.service;
+                let tab_id = &draft.source_attempt.executor_tab_id;
+                let workspace = svc.mux.read().find_workspace_for_tab(tab_id).unwrap();
+                {
+                    let mut mux = svc.mux.write();
+                    let tab = mux.get_tab_mut(tab_id).unwrap();
+                    tab.worker_id = Some("orphan-worker".into());
+                    if incomplete_attempt {
+                        tab.task_binding.as_mut().unwrap().attempt_id = None;
+                    }
+                }
+                if deleted_plan {
+                    svc.plan_store.delete("plan").unwrap();
+                } else {
+                    svc.plan_store
+                        .edit_plan_fixture("plan", 2, |plan| {
+                            plan.tasks.clear();
+                            Ok(())
+                        })
+                        .unwrap();
+                }
+                let warnings = svc.close_tab_guarded(Some("owner"), tab_id, force).unwrap();
+                assert!(warnings.is_empty());
+                let mux = svc.mux.read();
+                assert!(mux.get_tab(tab_id).is_none());
+                assert!(!mux.all_tabs().any(|tab| tab
+                    .task_binding
+                    .as_ref()
+                    .is_some_and(|binding| binding.plan_id.as_deref() == Some("plan"))));
+                let closed = mux.list_recently_closed(&workspace);
+                let record = closed
+                    .iter()
+                    .find(|record| record.tab_id == *tab_id)
+                    .unwrap();
+                assert!(record.worker_id.is_none());
+                assert!(record.restorable_launch.worker_restart.is_none());
+                drop(mux);
+                if deleted_plan {
+                    assert!(svc.plan_store.get("plan").is_none());
+                } else {
+                    assert!(svc.plan_store.get("plan").unwrap().tasks.is_empty());
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn executor_close_releases_binding_when_plan_disappears_during_termination() {
+    let (fixture, draft) = fixture();
+    fixture
+        .service
+        .retire_respawn_executor_with(&draft, |_| {
+            fixture.service.plan_store.delete("plan").unwrap();
+            Ok(())
+        })
+        .unwrap();
+    let mux = fixture.service.mux.read();
+    assert!(mux.get_tab(&draft.source_attempt.executor_tab_id).is_none());
+    assert!(!mux.all_tabs().any(|tab| tab
+        .task_binding
+        .as_ref()
+        .is_some_and(|binding| binding.plan_id.as_deref() == Some("plan"))));
 }

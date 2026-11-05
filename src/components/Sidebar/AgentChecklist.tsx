@@ -1,9 +1,9 @@
+import type { PlanView as Plan } from "../Canvas/planProjection";
 import { useCallback, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { Circle, CircleAlert, CircleCheck, CircleDot, CircleMinus, ListChecks } from "lucide-react";
 import { AnchoredPopover } from "../shared/AnchoredPopover";
 import { BusyState } from "../shared/BusyState";
 import { ChecklistItemDetail } from "./ChecklistItemDetail";
-import type { Plan } from "../Canvas/types";
 import { useAgentChecklist } from "./useAgentChecklists";
 import {
   checklistStateLabel,

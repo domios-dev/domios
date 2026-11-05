@@ -42,10 +42,15 @@ impl super::PlanDatabase {
     ) -> Result<Option<PlannerRef>, PlanError> {
         let connection = self.connection.lock();
         record_query();
-        let encoded: String = connection.query_row(
-            "SELECT json_quote(json_extract(header_json,'$.planner')) FROM plans WHERE id=?1",
-            [id], |row| column(row,0),
-        ).optional().map_err(super::super::db_error)?.ok_or(PlanError::NotFound)?;
+        let encoded: String = connection
+            .query_row(
+                "SELECT json_quote(json_extract(header_json,'$.planner')) FROM plans WHERE id=?1",
+                [id],
+                |row| column(row, 0),
+            )
+            .optional()
+            .map_err(super::super::db_error)?
+            .ok_or(PlanError::NotFound)?;
         decode(id, &encoded)
     }
 

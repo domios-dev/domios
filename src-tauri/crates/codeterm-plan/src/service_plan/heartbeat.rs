@@ -1,10 +1,9 @@
+use super::store_db::hot_write::runtime::HeartbeatRows;
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::{PlanError, PlanStore};
-use crate::plan::{
-    HeartbeatLearning, LoopSpec, OrchestratorHeartbeat, Plan, PlanMode, PlannerRef, TaskStatus,
-};
+use crate::plan::{HeartbeatLearning, LoopSpec, OrchestratorHeartbeat, Plan, PlanMode, TaskStatus};
 
 pub(super) mod view;
 
@@ -160,12 +159,12 @@ pub(in crate::service_plan) fn gate_line(
     )
 }
 
-fn role_identity_line(plan: &Plan, tab_id: Option<&str>) -> String {
-    let owner = plan.owner.tab_id.as_deref();
-    let planner = match &plan.planner {
-        Some(PlannerRef::Tab { tab_id, .. }) => Some(tab_id.as_str()),
-        _ => None,
-    };
+fn role_identity_line(
+    plan_id: &str,
+    owner: Option<&str>,
+    planner: Option<&str>,
+    tab_id: Option<&str>,
+) -> String {
     let role = match tab_id {
         Some(tab) if owner == Some(tab) => "Orchestrator",
         Some(tab) if planner == Some(tab) => "Planner",
@@ -183,7 +182,7 @@ fn role_identity_line(plan: &Plan, tab_id: Option<&str>) -> String {
     codeterm_types::agent::role_identity::render(
         codeterm_types::agent::role_identity::RoleIdentity::Heartbeat {
             role,
-            plan_id: &plan.id,
+            plan_id,
             peer_text: &peer_text,
         },
     )
@@ -199,14 +198,17 @@ fn is_owner_rule(learning: &HeartbeatLearning) -> bool {
 }
 
 pub(in crate::service_plan) fn render_learning(learning: &HeartbeatLearning, out: &mut String) {
+    render_learning_text(&learning.text, out);
+}
+
+pub(in crate::service_plan) fn render_learning_text(text: &str, out: &mut String) {
     out.push_str("- ");
-    out.push_str(
-        &learning
-            .text
-            .split_whitespace()
-            .collect::<Vec<_>>()
-            .join(" "),
-    );
+    for (index, word) in text.split_whitespace().enumerate() {
+        if index > 0 {
+            out.push(' ');
+        }
+        out.push_str(word);
+    }
     out.push('\n');
 }
 
@@ -216,22 +218,35 @@ pub(in crate::service_plan) fn render_situational_learning(
     learning: &HeartbeatLearning,
     out: &mut String,
 ) {
-    let text = learning
-        .text
+    render_situational_learning_fields(&learning.id, &learning.text, out);
+}
+
+pub(in crate::service_plan) fn render_situational_learning_fields(
+    id: &str,
+    text: &str,
+    out: &mut String,
+) {
+    let normalized = text
         .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ");
-    let excerpt = if text.chars().count() > SITUATIONAL_LEARNING_CHARS {
-        let prefix = text
+        .enumerate()
+        .flat_map(|(index, word)| {
+            std::iter::once(' ')
+                .filter(move |_| index > 0)
+                .chain(word.chars())
+        })
+        .take(SITUATIONAL_LEARNING_CHARS + 1)
+        .collect::<String>();
+    let excerpt = if normalized.chars().count() > SITUATIONAL_LEARNING_CHARS {
+        let prefix = normalized
             .chars()
             .take(SITUATIONAL_LEARNING_CHARS)
             .collect::<String>();
         let boundary = prefix.rfind(' ').unwrap_or(prefix.len());
         format!("{}…", &prefix[..boundary])
     } else {
-        text
+        normalized
     };
-    out.push_str(&format!("- {}: {excerpt}\n", learning.id));
+    out.push_str(&format!("- {id}: {excerpt}\n"));
 }
 
 fn reminder_snapshot(plan: &Plan) -> super::state::PlanStateSnapshot {
@@ -325,15 +340,6 @@ fn render_actionable_skills(plan: &Plan, actions: &[String], out: &mut String) {
     }
 }
 
-fn render_heartbeat(
-    plan: &Plan,
-    heartbeat: &OrchestratorHeartbeat,
-    _loops: &[LoopSpec],
-    extra_digest_lines: &[String],
-) -> String {
-    view::HeartbeatView::from_plan(plan).render_block(heartbeat, extra_digest_lines)
-}
-
 pub(super) fn reconciliation_prompt(plan_id: &str, tab_id: Option<&str>) -> String {
     let status = tab_id.map_or_else(
         || format!("domios orchestrator status --plan {plan_id}"),
@@ -365,14 +371,9 @@ fn prepend_heartbeat(
     text: &str,
     tab_id: Option<&str>,
 ) -> String {
-    let plan = Plan {
-        id: plan_id.to_string(),
-        heartbeat: heartbeat.clone(),
-        loops: loops.to_vec(),
-        ..Plan::new(String::new(), String::new(), Default::default())
-    };
-    let block = render_heartbeat(&plan, heartbeat, loops, &[]);
-    let identity = role_identity_line(&plan, tab_id);
+    let parts = view::HeartbeatParts::from_snapshot(plan_id, loops);
+    let block = parts.render_block(&view::learning_lines(heartbeat), &[]);
+    let identity = role_identity_line(plan_id, None, None, tab_id);
     let prompt = reconciliation_prompt(plan_id, tab_id);
     let reconciliation = format!(
         "<codeterm-state-reconciliation plan=\"{plan_id}\">\n{prompt}\n</codeterm-state-reconciliation>"
@@ -465,7 +466,7 @@ impl PlanStore {
         let plan_id = self.resolve_active_plan_for_orchestrator(plan_id, tab_id, session_id)?;
         let normalized = normalized_learning(text);
         let mut out = None;
-        self.with_plan(&plan_id, now_ms, |plan| {
+        self.with_runtime_rows::<HeartbeatRows, _>(&plan_id, now_ms, |plan| {
             if let Some(existing) = plan
                 .heartbeat
                 .learnings
@@ -474,7 +475,7 @@ impl PlanStore {
                 .cloned()
             {
                 out = Some(HeartbeatLearnResult {
-                    plan_id: plan.id.clone(),
+                    plan_id: plan_id.clone(),
                     learning: existing,
                     deduped: true,
                 });
@@ -491,7 +492,7 @@ impl PlanStore {
             };
             plan.heartbeat.learnings.push(learning.clone());
             out = Some(HeartbeatLearnResult {
-                plan_id: plan.id.clone(),
+                plan_id: plan_id.clone(),
                 learning,
                 deduped: false,
             });
@@ -507,18 +508,7 @@ impl PlanStore {
         session_id: Option<&str>,
     ) -> Result<HeartbeatShowResult, PlanError> {
         let plan_id = self.resolve_active_plan_for_orchestrator(plan_id, tab_id, session_id)?;
-        let read = self.status_projection(&plan_id, now_ms())?;
-        let plan = read.plan();
-        let mut heartbeat = plan.heartbeat.clone();
-        heartbeat.current_focus = None;
-        heartbeat.active_lanes.clear();
-        heartbeat.rules.clear();
-        Ok(HeartbeatShowResult {
-            plan_id: plan.id.clone(),
-            reinjection: render_heartbeat(&plan, &heartbeat, &plan.loops, &[]),
-            blocked_or_gated_count: super::state::outstanding_blocked_count(&plan),
-            heartbeat,
-        })
+        self.database.heartbeat_show_projection(&plan_id, now_ms())
     }
 
     pub fn prepend_heartbeat_with_selected_learnings(
@@ -528,21 +518,15 @@ impl PlanStore {
         digests: &[String],
         learning_ids: Option<&[String]>,
     ) -> Result<String, PlanError> {
-        let read = match self.database.status_projection(
-            plan_id,
-            now_ms(),
-            learning_ids.unwrap_or_default(),
-        ) {
+        let read = match self
+            .database
+            .heartbeat_projection(plan_id, now_ms(), learning_ids)
+        {
             Ok(read) => read,
-            Err(PlanError::NotFound) => return Ok(text.to_string()),
+            Err(PlanError::NotFound) => return Ok(text.into()),
             Err(error) => return Err(error),
         };
-        Ok(prepend_plan_heartbeat_with_selection(
-            read.plan(),
-            text,
-            digests,
-            learning_ids,
-        ))
+        Ok(read.prepend(text, digests))
     }
 
     pub fn prepend_heartbeat_for_plan(

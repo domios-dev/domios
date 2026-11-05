@@ -115,7 +115,7 @@ fn store_concurrent_dispatch_cleanup_releases_losing_lane_and_tab() {
         .trim()
         .is_empty());
 
-    let task = store.show_task(&task_id).unwrap().task;
+    let task = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(task.assigned_tab_id.as_deref(), Some(winner_tab.as_str()));
     assert_eq!(task.execution_attempts.len(), 1);
     assert_eq!(task.execution_attempts[0].id, winner_attempt);

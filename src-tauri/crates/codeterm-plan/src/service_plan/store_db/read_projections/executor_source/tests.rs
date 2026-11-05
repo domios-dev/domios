@@ -1,4 +1,5 @@
 use super::*;
+use crate::plan::TaskExecutionAttempt;
 use crate::service_plan::store_db::hot_write::tests::fixtures;
 use crate::service_plan::store_db::read_projections::take_metrics;
 

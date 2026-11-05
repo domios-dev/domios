@@ -158,6 +158,11 @@ async fn account_mesh_presence_sign_in_restores_the_retained_slot() {
     assert_eq!(harness.state().traffic(), Traffic::Open);
     assert_eq!(harness.calls("enroll"), 1);
     assert_eq!(harness.calls("renew"), 1);
+    assert_eq!(
+        harness.calls("presence"),
+        2,
+        "sign-out announces signed_out; the renew is followed by one presence restore"
+    );
 }
 
 #[tokio::test]

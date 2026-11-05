@@ -48,12 +48,33 @@ pub fn drain_ready<T>(first: Poll<T>, mut poll: impl FnMut() -> Poll<T>, cap: us
     }
 }
 
+pub(super) async fn handle_stamped(
+    svc: &ServiceContext,
+    session: &Arc<Session>,
+    process: &Arc<Process>,
+    epoch: u64,
+    frames: Vec<super::super::rpc::Ingress>,
+    lagged: bool,
+) -> Step {
+    let through = frames.last().map_or(0, |frame| frame.sequence);
+    let sequences = frames.iter().map(|frame| frame.sequence).collect();
+    let frames = frames.into_iter().map(|frame| frame.frame).collect();
+    let result = handle(svc, session, process, epoch, frames, sequences, lagged).await;
+    let context = session.context.lock();
+    if context.epoch == epoch {
+        let previous = *session.stream_progress.borrow();
+        session.stream_progress.send_replace(previous.max(through));
+    }
+    result
+}
+
 pub(super) async fn handle(
     svc: &ServiceContext,
     session: &Arc<Session>,
     process: &Arc<Process>,
     epoch: u64,
     frames: Vec<RuntimeFrame>,
+    sequences: Vec<u64>,
     lagged: bool,
 ) -> Step {
     if session.context.lock().epoch != epoch || engine::validate_binding(svc, session).is_err() {
@@ -61,6 +82,7 @@ pub(super) async fn handle(
     }
     process.client.trace_binding(&session.context.lock());
     let mut reducible = Vec::new();
+    let mut reducible_sequences = Vec::new();
     let mut accepted = Vec::new();
     let mut native = Vec::new();
     let bridges_declared = session
@@ -69,11 +91,12 @@ pub(super) async fn handle(
         .as_ref()
         .and_then(|adapter| adapter.agent_runtime())
         .is_some_and(|cap| cap.client_bridges.is_some());
-    for frame in frames {
+    for (frame, sequence) in frames.into_iter().zip(sequences) {
         match frame {
             RuntimeFrame::Notification { method, params } => {
                 if notification_allowed(session, &method) {
                     reducible.push(RuntimeFrame::Notification { method, params });
+                    reducible_sequences.push(sequence);
                 }
             }
             RuntimeFrame::Request {
@@ -114,6 +137,7 @@ pub(super) async fn handle(
                 if bridges_declared && super::super::client_bridge::method_supported(&method) {
                     native.push((request_id.clone(), method.clone(), params.clone()));
                 }
+                reducible_sequences.push(sequence);
                 reducible.push(RuntimeFrame::Request {
                     request_id,
                     method,
@@ -139,7 +163,14 @@ pub(super) async fn handle(
         }
         return Step::Break;
     };
-    let context = session.context.lock().clone();
+    let mut context = session.context.lock().clone();
+    if adapter
+        .agent_runtime()
+        .is_some_and(|cap| !cap.turn_scoped_requests.is_empty())
+    {
+        context.stream_window =
+            Some(super::super::turn_requests::stream_window(session, reducible_sequences).await);
+    }
     let trace = super::super::model::responsiveness::context(&context);
     if let Some(trace) = trace {
         trace.mark("reducer_prepare_begin", None, serde_json::json!({}));

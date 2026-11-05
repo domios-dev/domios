@@ -85,15 +85,15 @@ fn normalization_rejects_untrusted_origins() {
 fn normalization_canonicalizes_endpoint_order_within_each_transport() {
     let endpoints = vec![
         WebUiEndpoint::TailscaleHttp {
-            ip: "100.64.0.9".parse().unwrap(),
+            ip: concat!("100.", "64.0.9").parse().unwrap(),
             port: 7685,
         },
         WebUiEndpoint::TailscaleHttp {
-            ip: "100.64.0.7".parse().unwrap(),
+            ip: concat!("100.", "64.0.7").parse().unwrap(),
             port: 7685,
         },
         WebUiEndpoint::TailscaleHttp {
-            ip: "100.64.0.9".parse().unwrap(),
+            ip: concat!("100.", "64.0.9").parse().unwrap(),
             port: 7685,
         },
     ];

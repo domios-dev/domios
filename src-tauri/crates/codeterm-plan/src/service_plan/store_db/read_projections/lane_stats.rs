@@ -64,15 +64,18 @@ impl PlanDatabase {
         let connection = self.connection.lock();
         record_query();
         connection.query_row(
-            "SELECT p.id,t.task_id,a.attempt_id,json_extract(a.row_json,'$.worktree_path'),
+            "WITH chosen AS MATERIALIZED (
+                SELECT p.id AS plan_id,t.task_id,a.position FROM plans p JOIN plan_tasks t ON t.plan_id=p.id
+                    JOIN plan_task_attempts a ON a.plan_id=t.plan_id AND a.task_id=t.task_id
+                WHERE a.executor_tab_id=?1 AND json_extract(a.row_json,'$.closed_at') IS NULL
+                    AND coalesce(json_extract(a.row_json,'$.placement'),'isolated_lane')='isolated_lane'
+                    AND json_extract(a.row_json,'$.worktree_path') IS NOT NULL
+                ORDER BY p.updated_at DESC,p.id,t.position,a.position DESC LIMIT 1
+             ) SELECT p.id,c.task_id,a.attempt_id,json_extract(a.row_json,'$.worktree_path'),
                 p.project_path,coalesce(json_extract(p.header_json,'$.canonical_project_path'),''),
                 coalesce((SELECT max(json_extract(s.value,'$.turn')) FROM json_each(a.row_json,'$.lane_turn_stats') s),0)
-             FROM plans p JOIN plan_tasks t ON t.plan_id=p.id
-                JOIN plan_task_attempts a ON a.plan_id=t.plan_id AND a.task_id=t.task_id
-             WHERE a.executor_tab_id=?1 AND json_extract(a.row_json,'$.closed_at') IS NULL
-                AND coalesce(json_extract(a.row_json,'$.placement'),'isolated_lane')='isolated_lane'
-                AND json_extract(a.row_json,'$.worktree_path') IS NOT NULL
-             ORDER BY p.updated_at DESC,p.id,t.position,a.position DESC LIMIT 1", [tab],
+             FROM chosen c JOIN plans p ON p.id=c.plan_id JOIN plan_task_attempts a
+                ON a.plan_id=c.plan_id AND a.task_id=c.task_id AND a.position=c.position", [tab],
             |row| Ok(LaneAttemptRead {
                 plan_id: column(row, 0)?,task_id: column(row, 1)?,attempt_id: column(row, 2)?,
                 worktree_path: column(row, 3)?,canonical_path: canonical_path(row, 4)?,turn: column(row, 6)?,

@@ -182,14 +182,7 @@
           "result": {
             "kind": "done"
           },
-          "events": [
-            {
-              "kind": "turnState",
-              "threadId": "session-fixture",
-              "state": "idle",
-              "detail": "interrupted"
-            }
-          ]
+          "events": []
         }
       }
     ],
@@ -200,12 +193,6 @@
           "state": "unknown",
           "methods": []
         }
-      },
-      {
-        "kind": "turnState",
-        "threadId": "session-fixture",
-        "state": "idle",
-        "detail": "interrupted"
       }
     ]
   }

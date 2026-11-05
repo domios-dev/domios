@@ -190,8 +190,11 @@ fn worker_owned_utility_shell_has_no_task_authority_and_reports_to_worker() {
     assert_eq!(tab.role, None);
 
     for env in [
-        fixture.service.tab_env(&shell.tab_id),
-        fixture.service.frontend_pty_env(Some(&shell.tab_id)),
+        fixture.service.tab_env(&shell.tab_id).unwrap(),
+        fixture
+            .service
+            .frontend_pty_env(Some(&shell.tab_id))
+            .unwrap(),
     ] {
         assert_eq!(
             env.get("CODETERM_PARENT_TAB_ID").map(String::as_str),

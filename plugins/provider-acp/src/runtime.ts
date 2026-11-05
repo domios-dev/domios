@@ -1,11 +1,12 @@
 import type {
   JsonValue, Operation, RpcReply, RuntimeContext, RuntimeFailure,
-  RuntimeFrame, RuntimePlan, RuntimeReduction, RuntimeStep,
+  RuntimeFrame, RuntimePlan, RuntimeReduction, RuntimeStep, TokenUsage,
 } from "@codeterm/plugin-sdk";
 import {decodeAuthMethods, agentAuthMethod, type AuthMethod} from "./auth";
 import { methods, protocolVersion } from "./runtimeProtocol";
 import { clientRequest, reduceStream, settleStream, type StreamCursor } from "./runtimeReduce";
 import { usage } from "./runtimeReducePlan";
+import { fitTextReduction } from "./runtimeReduceBudget";
 import { runtimePrompt, runtimeAnswer } from "./runtimePrompts";
 import { authentication, sessionSettings, modelOption, label } from "./runtimeControls";
 
@@ -22,8 +23,11 @@ interface Negotiation {
   instructions?:string;
   cursor:StreamCursor;
   inFlight:boolean;
+  promptOrdinal?:number;
+  queued?:{prompt:number;sendId:string;completed?:{cancelled:boolean;usage?:TokenUsage}}[];
+  mcpUnavailable?:string;
   projection?:JsonValue;
-  settledProjection?:JsonValue;
+  promptSend?:{sendId:string};
 }
 const epochs = new Map<string, Negotiation>();
 const object = (value:unknown):Record<string,JsonValue> =>
@@ -81,24 +85,39 @@ function unappliedModelNotice(requested:string | undefined, settings:Negotiation
   return {events:[{kind:"notice" as const,threadId,message:`Requested model was not applied: ${reason}`}]};
 }
 
+function threadNotices(state:Negotiation, threadId:string, events:import("@codeterm/plugin-sdk").AgentEvent[]) {
+  if (state.mcpUnavailable) {
+    events.push({kind:"notice",threadId,message:state.mcpUnavailable});
+    delete state.mcpUnavailable;
+  }
+  return events.length ? {events} : {};
+}
+
 function loadedThread(op:Extract<Operation,{kind:"openThread"|"resumeThread"}>, state:Negotiation, sessionId:string, selectModel:boolean, refusal?:string):RuntimeStep {
   const option=modelOption(state.settings);
   const requested=op.settings.model;
   if (selectModel && requested && requested !== option?.currentValue && option?.options.some(value=>value.value === requested))
     return {kind:"continue",plan:request("session/set_config_option",{sessionId,configId:option.id,value:requested})};
   return {kind:"complete",result:{kind:"threadLoaded",threadId:sessionId,settings:state.settings ?? {}},
-    ...(refusal === undefined ? unappliedModelNotice(requested,state.settings,sessionId)
-      : {events:[{kind:"notice" as const,threadId:sessionId,message:`Requested model was not applied: ${Array.from(refusal).slice(0,1000).join("")}`}]})};
+    ...threadNotices(state,sessionId,refusal === undefined ? unappliedModelNotice(requested,state.settings,sessionId).events ?? []
+      : [{kind:"notice" as const,threadId:sessionId,message:`Requested model was not applied: ${Array.from(refusal).slice(0,1000).join("")}`}])};
 }
 
 function clientCapabilities(ctx:RuntimeContext):JsonValue {
   return {fs:{readTextFile:ctx.clientBridges?.fsRead === true,writeTextFile:ctx.clientBridges?.fsWrite === true},terminal:ctx.clientBridges?.terminal === true};
 }
 
+function sessionRequest(ctx:RuntimeContext, method:string, sessionId?:string):RuntimePlan {
+  const mcpServers=hostMcpServers(ctx);
+  const plan=request(method, {...(sessionId ? {sessionId} : {}),cwd:ctx.cwd,mcpServers});
+  plan.state={method,mcpOffered:mcpServers.length > 0};
+  return plan;
+}
+
 function hostMcpServers(ctx:RuntimeContext):JsonValue[] {
   const descriptor=ctx.hostMcp;
   return descriptor
-    ? [{name:descriptor.name,command:descriptor.command,args:[...descriptor.args],env:[]}] : [];
+    ? [{name:descriptor.name,command:descriptor.command,args:[...descriptor.args],env:Object.entries(descriptor.env ?? {}).sort(([a],[b])=>a < b ? -1 : a > b ? 1 : 0).map(([name,value])=>({name,value}))}] : [];
 }
 
 export function runtimePlan(ctx:RuntimeContext, op:Operation):RuntimePlan {
@@ -125,8 +144,8 @@ export function runtimePlan(ctx:RuntimeContext, op:Operation):RuntimePlan {
     const sessionId=ownSession(ctx,state);
     const value=object(op.value);
     const option=modelOption(state.settings);
-    if (value.model === undefined || value.model === option?.currentValue)
-      return {action:{kind:"local"},state:{method:"unchangedSettings"}};
+    if (value.model === undefined) return refusePlan("Settings control requires a model change");
+    if (value.model === option?.currentValue) return refusePlan("Settings already match the reported session model");
     if (!option) return refusePlan("This agent declared no model option");
     if (!option.options.some(entry=>entry.value === value.model)) return refusePlan("Model was not declared by this agent");
     return request("session/set_config_option",{sessionId,configId:option.id,value:value.model});
@@ -152,7 +171,7 @@ export function runtimePlan(ctx:RuntimeContext, op:Operation):RuntimePlan {
     }
     case "openThread":
       if (ctx.threadId || state.sessionId) return refusePlan("ACP session is already bound");
-      return request(methods.newSession, {cwd:ctx.cwd, mcpServers:hostMcpServers(ctx)});
+      return sessionRequest(ctx,methods.newSession);
     case "resumeThread": {
       if (state.sessionId && state.sessionId !== op.threadId) return refusePlan("ACP session does not belong to this runtime");
       if (state.sessionActive && state.sessionId === op.threadId)
@@ -164,7 +183,7 @@ export function runtimePlan(ctx:RuntimeContext, op:Operation):RuntimePlan {
       state.sessionActive=false;
       state.sessionId=op.threadId;
       state.cursor={replay:state.cursor.replay+1,prompt:0,loading:true};
-      return request(method, {sessionId:op.threadId, cwd:ctx.cwd, mcpServers:hostMcpServers(ctx)});
+      return sessionRequest(ctx,method,op.threadId);
     }
     case "submitTurn": {
       const sessionId = ownSession(ctx, state);
@@ -175,10 +194,21 @@ export function runtimePlan(ctx:RuntimeContext, op:Operation):RuntimePlan {
       const prompt:JsonValue[] = [];
       if (state.instructions) prompt.push({type:"text", text:state.instructions});
       prompt.push({type:"text", text:op.input.text});
-      state.cursor.prompt=Math.max(state.cursor.prompt,Number(object(state.projection).turn) || 0)+1;
-      state.cursor.loading=false;
-      state.inFlight=true;
-      return request(methods.prompt, {sessionId, prompt});
+      const ordinal=Math.max(state.promptOrdinal ?? 0,state.cursor.prompt,Number(object(state.projection).turn) || 0,ctx.restoredRowOrdinal ?? 0,...(state.queued ?? []).map(value=>value.prompt))+1;
+      state.promptOrdinal=ordinal;
+      if (state.inFlight) {
+        (state.queued ??= []).push({prompt:ordinal,sendId:op.sendId});
+      } else {
+        state.cursor.prompt=ordinal;
+        state.cursor.loading=false;
+        state.inFlight=true;
+        state.promptSend={sendId:op.sendId};
+      }
+      const plan=request(methods.prompt, {sessionId, prompt});
+      if (plan.action.kind === "request")
+        plan.action.call.target={threadId:sessionId,turnId:`${sessionId}:turn:${ordinal}`};
+      plan.state={method:methods.prompt,prompt:ordinal};
+      return plan;
     }
     case "interrupt": {
       const sessionId = ownSession(ctx, state);
@@ -191,10 +221,52 @@ export function runtimePlan(ctx:RuntimeContext, op:Operation):RuntimePlan {
   }
 }
 
+
+function promoteQueued(ctx:RuntimeContext, state:Negotiation):import("@codeterm/plugin-sdk").AgentEvent[] {
+  const sessionId=ownSession(ctx,state);
+  const events:import("@codeterm/plugin-sdk").AgentEvent[]=[];
+  for (let queued=state.queued?.shift(); queued; queued=state.queued?.shift()) {
+    state.cursor.prompt=queued.prompt;
+    state.promptSend={sendId:queued.sendId};
+    state.inFlight=true;
+    const next=reduceStream(ctx,state.projection ?? null,[],state.cursor);
+    state.projection={...object(next.state),started:true};
+    events.push({kind:"turnState",threadId:sessionId,turnId:`${sessionId}:turn:${queued.prompt}`,state:"working"});
+    if (!queued.completed) break;
+    const settledQueued=settleStream(ctx,state.projection,queued.completed.cancelled ? "cancelled" : "end_turn");
+    state.projection=settledQueued.state;
+    state.inFlight=false;
+    if (queued.completed.usage) events.push({kind:"usage",threadId:sessionId,usage:queued.completed.usage});
+    events.push(...settledQueued.events);
+  }
+  return events;
+}
+
 export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue, reply:RpcReply):RuntimeStep {
   binding(ctx, op);
   const method = object(raw).method;
   if (reply.kind === "error") {
+    const sessionOperation=op.kind === "openThread" && method === methods.newSession
+      || op.kind === "resumeThread" && (method === methods.load || method === methods.resume);
+    const state=negotiated(ctx);
+    if (state && op.kind === "submitTurn" && method === methods.prompt) {
+      const turn=object(raw).prompt;
+      state.queued=state.queued?.filter(queued=>queued.prompt !== turn || queued.sendId !== op.sendId);
+      if (state.cursor.prompt === turn && state.promptSend?.sendId === op.sendId) {
+        state.inFlight=false;
+        delete state.promptSend;
+        const projected=reduceStream(ctx,state.projection ?? null,[],state.cursor).state;
+        state.projection=settleStream(ctx,projected,"error").state;
+        // The host settles refusals and starts deferred activity; keep the successor projection ready.
+        promoteQueued(ctx,state);
+      }
+    }
+    if (sessionOperation && ![-32000,-32002,-32601].includes(reply.error.code) && state && !state.sessionActive && object(raw).mcpOffered === true && ctx.hostMcp) {
+      state.mcpUnavailable=`Domios tools are unavailable for this agent: ${Array.from(reply.error.message).slice(0,1000).join("")}`;
+      const plan=request(method as string,{...(op.kind === "resumeThread" ? {sessionId:op.threadId} : {}),cwd:ctx.cwd,mcpServers:[]});
+      plan.state={method,mcpOffered:false};
+      return {kind:"continue",plan};
+    }
     if ((op.kind === "openThread" || op.kind === "resumeThread") && method === "session/set_config_option") {
       const state=negotiated(ctx);
       if (!state?.sessionActive || !state.sessionId || op.kind === "resumeThread" && state.sessionId !== op.threadId)
@@ -230,7 +302,7 @@ export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue,
       capabilities:object(value.agentCapabilities), authMethods, authenticated, required:authenticated ? false : prior?.required,
       sessionId:prior?.sessionId, sessionActive:prior?.sessionActive, instructions:prior?.instructions,
       cursor:prior?.cursor ?? {replay:0,prompt:0,loading:false},inFlight:prior?.inFlight ?? false,
-      projection:prior?.projection, settledProjection:prior?.settledProjection, settings:prior?.settings});
+      promptOrdinal:prior?.promptOrdinal, projection:prior?.projection, promptSend:prior?.promptSend, queued:prior?.queued, settings:prior?.settings});
     return {kind:"complete",result:op.kind === "initialize" ? {kind:"initialized",...agentIdentity(value.agentInfo)} : {kind:"done"},
       events:[{kind:"authentication",authentication:authentication(authMethods,authenticated,authenticated ? false : prior?.required)}]};
   }
@@ -265,8 +337,6 @@ export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue,
     state.settings={commands:[],configOptions:[],modes:[],...sessionSettings(value)};
     return loadedThread(op,state,sessionId,true);
   }
-  if (op.kind === "control" && op.action === "settings" && method === "unchangedSettings")
-    return {kind:"complete",result:{kind:"done"},events:[{kind:"controlsConfirmed",threadId:ownSession(ctx,state),settings:state.settings ?? {}}]};
   if (op.kind === "control" && ["config","mode","settings"].includes(op.action)) {
     const sessionId=ownSession(ctx,state);
     const settings:import("@codeterm/plugin-sdk").RuntimeSettings | null=["config","settings"].includes(op.action) && method === "session/set_config_option" && Array.isArray(value.configOptions)
@@ -283,21 +353,27 @@ export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue,
   if (op.kind === "answer" && method === "session/request_permission")
     return {kind:"complete",result:{kind:"done"},events:[{kind:"promptResolved",threadId:ownSession(ctx,state),requestId:op.requestId}]};
   if (op.kind === "interrupt" && method === methods.cancel) {
-    state.inFlight=false;
-    const settled=settleStream(ctx,state.projection ?? null,"cancelled");
-    state.projection=settled.state;state.settledProjection=settled.state;
-    return {kind:"complete",result:{kind:"done"},events:settled.events};
+    return {kind:"complete",result:{kind:"done"},events:[]};
   }
   if (op.kind === "submitTurn" && method === methods.prompt) {
-    state.inFlight=false;
     const sessionId = ownSession(ctx, state);
     if (typeof value.stopReason !== "string") return refused("protocol_error", "ACP prompt response is missing stopReason");
+    const turn=typeof object(raw).prompt === "number" ? object(raw).prompt : object(state.projection).turn;
+    if (turn !== state.cursor.prompt || !state.inFlight) {
+      const queued=state.queued?.find(queued=>queued.prompt === turn);
+      if (queued && !queued.completed) queued.completed={cancelled:value.stopReason === "cancelled",usage:usage(value.usage)};
+      return {kind:"complete",result:{kind:"turnAccepted",threadId:sessionId,sendId:op.sendId,turnId:`${sessionId}:turn:${turn}`},events:[]};
+    }
+    state.inFlight=false;
     state.instructions = undefined;
-    const settled=settleStream(ctx,state.projection ?? null,value.stopReason);
-    state.projection=settled.state;state.settledProjection=settled.state;
+    const projected=reduceStream(ctx,state.projection ?? null,[],state.cursor).state;
+    const settled=settleStream(ctx,projected,value.stopReason);
+    state.projection=settled.state;
     const mapped=usage(value.usage);
-    return {kind:"complete", result:{kind:"turnAccepted", threadId:sessionId, sendId:op.sendId},
-      events:[...(mapped ? [{kind:"usage" as const,threadId:sessionId,usage:mapped}] : []),...settled.events]};
+    const events:import("@codeterm/plugin-sdk").AgentEvent[]=[...(mapped ? [{kind:"usage" as const,threadId:sessionId,usage:mapped}] : []),...settled.events];
+    events.push(...promoteQueued(ctx,state));
+    return {kind:"complete", result:{kind:"turnAccepted", threadId:sessionId, sendId:op.sendId,turnId:`${sessionId}:turn:${turn}`},events};
+
   }
   return refused("unsupported", "ACP response is unavailable");
 }
@@ -306,17 +382,34 @@ export function runtimeReduce(ctx:RuntimeContext, raw:JsonValue, frames:readonly
   binding(ctx);
   const state=negotiated(ctx);
   if (!ctx.threadId || !state || state.sessionId !== ctx.threadId) return {state:raw,events:[]};
-  const own=frames.filter(frame=>object(frame.params).sessionId === ctx.threadId &&
-    (frame.kind === "notification" && frame.method === methods.update || frame.kind === "request" && clientRequest(frame.method)));
+  const own=frames.flatMap((frame,index)=>object(frame.params).sessionId === ctx.threadId &&
+    (frame.kind === "notification" && frame.method === methods.update || frame.kind === "request" && clientRequest(frame.method))
+      ? [{frame,index}] : []);
   const prompts=frames.flatMap(frame=>{
     if (frame.kind !== "request") return [];
     const prompt=runtimePrompt(ctx,frame.method,frame.params);
     return prompt ? [{kind:"prompt" as const,threadId:ctx.threadId!,requestId:frame.requestId,prompt}] : [];
   });
   if (!own.length) return {state:raw,events:prompts};
-  const reduction=reduceStream(ctx,state.settledProjection ?? raw,own,state.cursor);
-  delete state.settledProjection;
-  state.projection=reduction.state;
+  let projection=state.projection ?? raw;
+  const events:import("@codeterm/plugin-sdk").AgentEvent[]=[];
+  for (const {frame,index} of own) {
+    const window=ctx.streamWindow;
+    const witness=window?.turnRequests?.find(request=>request.sendId === state.promptSend?.sendId);
+    const sequence=window?.frameSequences?.[index];
+    const attributable=!window || witness?.written === true && witness.afterSequence !== undefined
+      && sequence !== undefined && sequence > witness.afterSequence;
+    const cursor=attributable ? state.cursor : {...state.cursor,prompt:Number(object(projection).prompt) || 0};
+    if (!attributable && projection === null)
+      projection={...object(reduceStream(ctx,null,[],cursor).state),turn:0};
+    const frameContext=!window ? ctx : {...ctx,claimedSends:ctx.claimedSends.filter(claim=>
+      window.turnRequests?.some(request=>request.sendId === claim.sendId && request.written === true
+        && request.afterSequence !== undefined && sequence !== undefined && sequence > request.afterSequence))};
+    const claim=frameContext.claimedSends.find(claim=>claim.threadId === ctx.threadId && claim.sendId === state.promptSend?.sendId);
+    const reduced=reduceStream(frameContext,projection,[frame],cursor,state.inFlight && attributable && claim ? {sendId:claim.sendId,input:claim.input} : undefined);
+    projection=reduced.state;events.push(...reduced.events);
+  }
+  const reduction={state:projection,events};
   for (const event of reduction.events) if (event.kind === "controlsConfirmed") {
     state.settings={...state.settings,...event.settings};
     if (event.settings.configOptions) {
@@ -325,5 +418,7 @@ export function runtimeReduce(ctx:RuntimeContext, raw:JsonValue, frames:readonly
       if (model) state.settings.model=model;
     }
   }
-  return {...reduction,events:[...reduction.events,...prompts]};
+  const bounded=fitTextReduction(projection,[...reduction.events,...prompts]);
+  state.projection=bounded.state;
+  return bounded;
 }

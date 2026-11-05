@@ -137,6 +137,7 @@ async fn fixture() -> (ServiceFixture, AppState, String, String) {
     let token = state
         .svc
         .frontend_pty_env(Some(&concierge))
+        .unwrap()
         .remove("CODETERM_API_TOKEN")
         .unwrap();
     (fixture, state, concierge, token)

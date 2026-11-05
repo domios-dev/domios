@@ -1,5 +1,6 @@
 use super::lane_liveness::{derive_lane_liveness, LaneInputs, LaneLiveness, LaneThresholds};
-use super::{Plan, Task, TaskStatus};
+use super::{Task, TaskStatus};
+use crate::service_plan::state::input::{StateSource, StateTaskSource};
 use crate::service_plan::state::{task_projection, DependencyWait, TaskPresentation};
 use crate::service_plan::{LaneWatchdogRead, LaneWatchdogTaskRead};
 use serde::{Deserialize, Serialize};
@@ -36,27 +37,48 @@ pub fn stale_threshold_ms(status: &TaskStatus) -> Option<u64> {
 }
 
 pub fn active_review_hold_note(task: &Task) -> Option<&str> {
-    if task.status != TaskStatus::InReview {
+    active_review_hold_note_for(
+        &task.status,
+        task.status_changed_at,
+        task.review_evidence.last(),
+    )
+}
+
+fn active_review_hold_note_for<'a>(
+    status: &TaskStatus,
+    status_changed_at: u64,
+    latest: Option<&'a crate::plan::ReviewEvidence>,
+) -> Option<&'a str> {
+    if *status != TaskStatus::InReview {
         return None;
     }
-    let latest = task.review_evidence.last()?;
+    let latest = latest?;
     (latest.verdict == crate::plan::ReviewVerdict::Hold
-        && latest.at >= task.status_changed_at
+        && latest.at >= status_changed_at
         && !latest.note.trim().is_empty())
     .then_some(latest.note.as_str())
 }
 
-pub fn aged_open_tasks(plan: &Plan, now_ms: u64) -> Vec<AgedOpenTask> {
+pub fn has_active_review_hold(task: &impl StateTaskSource) -> bool {
+    let task = task.state_task_input();
+    active_review_hold_note_for(
+        &task.status,
+        task.status_changed_at,
+        task.review_evidence.last(),
+    )
+    .is_some()
+}
+
+pub fn aged_open_tasks(plan: &impl StateSource, now_ms: u64) -> Vec<AgedOpenTask> {
+    let input = plan.state_input();
+    let plan = input.as_ref();
     let mut aged: Vec<AgedOpenTask> = plan
         .tasks
         .iter()
-        .filter(|task| task.status.counts_as_open_work() && active_review_hold_note(task).is_none())
+        .filter(|task| task.status.counts_as_open_work() && !has_active_review_hold(task))
         .filter_map(|task| {
             let projection = task_projection(plan, task);
-            if matches!(
-                projection.presentation,
-                TaskPresentation::WaitingOnDependencies | TaskPresentation::ParkedForLaterGroup
-            ) {
+            if !projection.can_age() {
                 return None;
             }
             let threshold = stale_threshold_ms(&task.status)?;
@@ -150,10 +172,16 @@ pub struct DriftItem {
     pub not_mine: bool,
 }
 
-pub fn detect_plan_drift<F>(plan: &Plan, config: &ReconcileConfig, tab_probe: F) -> Vec<DriftItem>
+pub fn detect_plan_drift<F>(
+    plan: &impl StateSource,
+    config: &ReconcileConfig,
+    tab_probe: F,
+) -> Vec<DriftItem>
 where
     F: Fn(&str) -> TabProbe,
 {
+    let input = plan.state_input();
+    let plan = input.as_ref();
     let mut items = Vec::new();
     for task in &plan.tasks {
         let projection = task_projection(plan, task);
@@ -202,7 +230,7 @@ where
         }
 
         if task.status == TaskStatus::InReview
-            && active_review_hold_note(task).is_none()
+            && !has_active_review_hold(task)
             && task.status_changed_at > 0
             && config.now_ms.saturating_sub(task.status_changed_at) > config.stale_review_ms
         {
@@ -222,11 +250,7 @@ where
         if task.status == TaskStatus::InReview {
             for attempt in task.execution_attempts.iter().filter(|attempt| {
                 attempt.closed_at.is_none()
-                    && attempt
-                        .report
-                        .as_ref()
-                        .and_then(|report| report.status.as_deref())
-                        == Some("in_review")
+                    && attempt.report_status.as_deref() == Some("in_review")
                     && attempt.report_target_written_at.is_none()
                     && attempt.reported_at.is_some_and(|reported_at| {
                         config.now_ms.saturating_sub(reported_at) > REPORT_TARGET_WRITE_GRACE_MS
@@ -306,7 +330,9 @@ where
     items
 }
 
-pub fn detect_tab_gone(plan: &Plan, tab_id: &str) -> Vec<DriftItem> {
+pub fn detect_tab_gone(plan: &impl StateSource, tab_id: &str) -> Vec<DriftItem> {
+    let input = plan.state_input();
+    let plan = input.as_ref();
     let tab_id = tab_id.trim();
     if tab_id.is_empty() {
         return Vec::new();
@@ -429,18 +455,20 @@ fn is_terminal_task_status(status: &TaskStatus) -> bool {
     matches!(status, TaskStatus::Done | TaskStatus::Cancelled)
 }
 
-fn has_unambiguous_acceptance_signal(_task: &Task) -> bool {
+fn has_unambiguous_acceptance_signal(_task: &impl StateTaskSource) -> bool {
     false
 }
 
 fn item(
-    plan: &Plan,
-    task: &Task,
+    plan: &impl StateSource,
+    task: &impl StateTaskSource,
     kind: DriftKind,
     detail: impl Into<String>,
     suggested_fix: &str,
     not_mine: bool,
 ) -> DriftItem {
+    let plan = plan.state_input();
+    let task = task.state_task_input();
     DriftItem {
         task_id: task.id.clone(),
         plan_id: plan.id.clone(),

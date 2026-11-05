@@ -4,7 +4,7 @@ use super::*;
 fn qa_waves_group_compatible_tasks_by_shared_group() {
     let (_dir, store, plan_id) = setup();
     store
-        .with_plan(&plan_id, 1, |p| {
+        .edit_plan_fixture(&plan_id, 1, |p| {
             p.task_groups = vec![crate::plan::TaskGroup {
                 key: "phase-1".into(),
                 label: "Phase 1".into(),

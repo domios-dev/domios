@@ -2,6 +2,7 @@
 
 mod arguments;
 mod async_call;
+pub use async_call::spawn_blocking;
 pub(super) use async_call::{call_json_async, with_blocking_operation};
 mod call_mutex;
 mod connection;
@@ -592,7 +593,7 @@ pub(super) fn call_in_operation<R: serde::de::DeserializeOwned>(
     context.check()?;
     let args = Arguments::prepare(method, args)
         .map_err(|error| VmError::ArgSerialize(method.into(), error))?;
-    call_prepared(vm, method, &args, false, context)
+    call_prepared_blocking(vm, method, &args, false, context)
 }
 
 pub(super) fn call_records<R: serde::de::DeserializeOwned>(
@@ -609,21 +610,15 @@ pub(super) fn call_records<R: serde::de::DeserializeOwned>(
 }
 
 fn blocking_dispatch<T>(work: impl FnOnce() -> Result<T, VmError>) -> Result<T, VmError> {
-    if tokio::runtime::Handle::try_current().is_err() {
+    if async_call::on_blocking_worker() {
         return work();
     }
-    // Blocking pool threads inherit handles; Tokio owns the blocking-entry check.
-    let entered = std::cell::Cell::new(false);
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        tokio::task::block_in_place(|| {
-            entered.set(true);
-            work()
-        })
-    }));
-    match result {
-        Ok(result) => result,
-        Err(_) if !entered.get() => Err(VmError::OffRuntimeRequired),
-        Err(panic) => std::panic::resume_unwind(panic),
+    match tokio::runtime::Handle::try_current() {
+        Err(_) => work(),
+        Ok(runtime) if runtime.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread => {
+            tokio::task::block_in_place(work)
+        }
+        Ok(_) => Err(VmError::OffRuntimeRequired),
     }
 }
 
@@ -890,7 +885,6 @@ struct VmEntry<'a> {
     started: std::time::Instant,
     waited: std::time::Duration,
     operation: std::sync::Arc<operation::Context>,
-    deadline: std::time::Instant,
 }
 
 impl<'a> VmEntry<'a> {
@@ -907,11 +901,12 @@ impl<'a> VmEntry<'a> {
         let started = std::time::Instant::now();
         let previous = vm.holder.lock().clone();
         let inner = vm.inner.enter(operation)?;
-        let deadline = operation.frame_deadline();
+        // A frame shares its call's absolute deadline; a separate wall-clock frame
+        // cap killed bounded projections and completed native calls under load.
         let interrupt = operation.clone();
-        inner._rt.set_interrupt_handler(Some(Box::new(move || {
-            interrupt.check().is_err() || std::time::Instant::now() >= deadline
-        })));
+        inner
+            ._rt
+            .set_interrupt_handler(Some(Box::new(move || interrupt.check().is_err())));
         let waited = started.elapsed();
         let started = std::time::Instant::now();
         *vm.holder.lock() = Some((method.to_owned(), started));
@@ -932,17 +927,11 @@ impl<'a> VmEntry<'a> {
             started,
             waited,
             operation: operation.clone(),
-            deadline,
         })
     }
 
     fn check(&self) -> Result<(), VmError> {
-        self.operation.check()?;
-        if std::time::Instant::now() >= self.deadline {
-            Err(self.operation.deadline_error())
-        } else {
-            Ok(())
-        }
+        self.operation.check()
     }
 }
 

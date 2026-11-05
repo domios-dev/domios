@@ -1,4 +1,4 @@
-use super::{Plan, PlanStore};
+use super::PlanStore;
 
 pub const PLAN_RETENTION_MS: u64 = 365 * DAY_MS;
 const DAY_MS: u64 = 24 * 60 * 60 * 1000;
@@ -67,16 +67,9 @@ impl PlanStore {
         &self,
         id: &str,
         cutoff: u64,
-    ) -> std::io::Result<Option<Plan>> {
+    ) -> std::io::Result<Option<super::store_db::hot_write::DeletedPlanRows>> {
         let writer_turn = self.mutation_writer.enter();
-        let Some(plan) = self
-            .get(id)
-            .filter(|plan| is_stale(plan.updated_at, cutoff))
-        else {
-            return Ok(None);
-        };
-        self.delete_in_writer(&writer_turn, id, Some(plan.clone()))?;
-        Ok(Some(plan))
+        self.delete_in_writer(&writer_turn, id, Some(cutoff))
     }
 }
 

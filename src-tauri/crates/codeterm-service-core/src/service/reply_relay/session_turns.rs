@@ -143,7 +143,7 @@ impl ServiceContext {
             .read()
             .resolve_tab_id(target)
             .ok_or("target tab not found")?;
-        let task = self.reply_relay_task_binding(&target);
+        let task = self.reply_relay_task_binding(&target)?;
         let owner = task
             .as_ref()
             .and_then(|task| self.plan_store.owner_of(&task.plan_id))

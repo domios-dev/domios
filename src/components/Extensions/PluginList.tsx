@@ -90,7 +90,8 @@ export function PluginList({
           marginBottom: 10,
         }}
       />
-      <div style={{ display: "flex", gap: 4, marginBottom: 12, flexWrap: "nowrap", overflowX: "auto" }}>
+      {/* The tabs wrap rather than scroll: a narrow list pane hides an overlay scrollbar and clipped the last tab. */}
+      <div role="group" aria-label="Plugin filters" style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 12 }}>
         {FILTERS.map((f) => {
           const active = filter === f.key;
           const badge = f.key === "updates" && updateCount > 0 ? ` ${updateCount}` : "";
@@ -107,7 +108,8 @@ export function PluginList({
                 cursor: "pointer",
                 border: "1px solid transparent",
                 background: active ? "var(--ct-accent, #6366f1)" : "transparent",
-                color: active ? "#fff" : "var(--ct-muted)",
+                color: active ? "#fff" : "var(--ct-muted-fg)",
+                whiteSpace: "nowrap",
               }}
             >
               {f.label}
@@ -353,7 +355,8 @@ function PluginRow({
   const state = running ? "active" : loadFailure || channelFailed ? "failed" : updateAvailable ? "available" : entry.installed ? "installed" : "marketplace";
   const label = running ? activity.label : loadFailure ? `${entry.displayName} failed to load; select for details` : channelFailed ? `${entry.displayName} update check failed` : updateAvailable ? "Update available" : entry.installed ? `${entry.displayName} installed` : `${entry.displayName} available to install`;
   const description = entry.pitch || entry.description || catalogKindLabel(entry);
-  const versionLabel = entry.version && entry.remoteVersion && entry.version !== entry.remoteVersion
+  // The arrow means the channel has a newer build; a build newer than its channel shows only what is installed.
+  const versionLabel = (entry.updateAvailable || updateAvailable) && entry.version && entry.remoteVersion && entry.version !== entry.remoteVersion
     ? `${entry.version} → ${entry.remoteVersion}` : entry.version ?? entry.remoteVersion ?? "";
   return (
     <div>

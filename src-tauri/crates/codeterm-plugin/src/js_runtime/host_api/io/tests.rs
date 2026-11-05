@@ -11,12 +11,21 @@ const WEDGED: Duration = Duration::from_secs(1);
 const SOURCE: &str = r#"
 let lockId = null;
 let rememberedJob = null;
+let callbackEntries = 0;
 module.exports = {
   health() { return "healthy"; },
   remembered(request) { rememberedJob = JSON.parse(host.ioStart(JSON.stringify(request))).jobId; return host.awaitJob(rememberedJob, function() { return "owned"; }); },
   steal() { return host.awaitJob(rememberedJob, function() { return "stolen"; }); },
   range(path) { return host.io.run((function*() { try { yield* host.io.fs.readFileHead(path, 2097152); } catch(error) { return error instanceof RangeError; } return false; })()); },
+  tail(path, bytes) { return host.io.run((function*() { try { return yield* host.io.fs.readFileTail(path, bytes); } catch(error) { return {range:error instanceof RangeError}; } })()); },
   query(db, sql) { return host.io({op:"sqliteQuery",db:db,sql:sql,params:[]}, function(rows) { return rows; }); },
+  nullableQuery(db, sql) { return host.io({op:"sqliteQuery",db:db,sql:sql,params:[],nullable:true}, function(rows) { return rows; }); },
+  generatorCallback(path) { return host.io({op:"readFile",path:path}, function*(text) {
+    callbackEntries++;
+    yield* host.io.fs.writeFile(path + ".result", text + String(callbackEntries));
+    return callbackEntries;
+  }); },
+  nestedGenerator(path) { return host.io.run((function*() { return (function*() { return yield* host.io.fs.readFile(path); })(); })()); },
   legacy(path) { return host.readFile(path); },
   pause(request) { return host.io(request, function() { return "resumed"; }); },
   read(path) { return host.io.run((function*() { return yield* host.io.fs.readFile(path); })()); },
@@ -257,6 +266,57 @@ fn current_thread_runtime_refuses_synchronous_dispatch_before_starting_native_wo
     assert_eq!(call_json::<String>(&vm, "health", &[]).unwrap(), "healthy");
 }
 
+#[tokio::test]
+async fn current_thread_runtime_allows_owned_blocking_dispatch() {
+    let vm = vm("io-owned-worker", None);
+    let worker_vm = vm.clone();
+    let value = crate::js_runtime::vm::spawn_blocking(move || {
+        call_json::<String>(&worker_vm, "health", &[])
+    })
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(value, "healthy");
+    assert!(matches!(
+        call_json::<String>(&vm, "health", &[]),
+        Err(VmError::OffRuntimeRequired)
+    ));
+}
+
+#[test]
+fn bounded_tail_reads_keep_their_own_limit() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("transcript.jsonl");
+    let contents = "x".repeat(4 * 1024 * 1024);
+    std::fs::write(&path, &contents).unwrap();
+    let vm = vm("io-tail-bound", Some(root.path()));
+    assert_eq!(
+        call_json::<String>(&vm, "tail", &[json!(path), json!(contents.len())]).unwrap(),
+        contents
+    );
+    assert_eq!(
+        call_json::<Value>(&vm, "tail", &[json!(path), json!(contents.len() + 1)]).unwrap(),
+        json!({"range":true})
+    );
+    assert_eq!(
+        call_json::<Value>(&vm, "range", &[json!(path)]).unwrap(),
+        json!(true)
+    );
+    assert!(call_json::<Value>(&vm, "read", &[json!(path)]).is_err());
+}
+
+#[test]
+fn asynchronous_dispatch_without_a_runtime_refuses_before_admission() {
+    let vm = vm("io-no-runtime", None);
+    let result = futures_executor::block_on(crate::js_runtime::vm::call_json_async::<String>(
+        vm.clone(),
+        "health",
+        Vec::new(),
+    ));
+    assert!(matches!(result, Err(VmError::RuntimeInit(_))));
+    assert_eq!(call_json::<String>(&vm, "health", &[]).unwrap(), "healthy");
+}
+
 #[test]
 fn one_worker_runtime_keeps_scheduling_while_a_native_dependency_is_held() {
     let vm = vm("io-one-worker", None);
@@ -334,8 +394,13 @@ fn cancellation_does_not_release_native_capacity_until_started_jobs_exit() {
             Err(VmError::CallCancelled)
         ));
     }
+    let queued_vm = vm.clone();
+    let queued_path = path.clone();
+    let queued =
+        std::thread::spawn(move || call_json::<Value>(&queued_vm, "read", &[json!(queued_path)]));
     assert!(
-        matches!(call_json::<Value>(&vm, "read", &[json!(path)]), Err(VmError::Script(message)) if message.contains("admission is busy"))
+        admission::wait_queued("io-capacity", 1, WEDGED),
+        "a read beyond retained capacity must queue, not run or fail"
     );
     let other = self::vm("io-capacity-independent", None);
     assert_eq!(
@@ -345,6 +410,107 @@ fn cancellation_does_not_release_native_capacity_until_started_jobs_exit() {
     for (gates, _, _, caller) in running {
         gates.finish();
         caller.join().unwrap();
+    }
+    assert_eq!(queued.join().unwrap().unwrap(), "healthy");
+}
+
+#[test]
+fn saturated_capacity_queues_concurrent_status_reads_and_completes_every_one() {
+    let plugin = "io-saturation";
+    let vm = vm(plugin, None);
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("status.txt");
+    std::fs::write(&path, "healthy").unwrap();
+    let slow = (0..4)
+        .map(|index| {
+            let gates = Gates::new(&format!("io-saturation-slow-{index}"));
+            let request = gates.request();
+            let caller_vm = vm.clone();
+            let caller =
+                std::thread::spawn(move || call_json::<String>(&caller_vm, "pause", &[request]));
+            gates.entered();
+            (gates, caller)
+        })
+        .collect::<Vec<_>>();
+    let readers = (0..8)
+        .map(|_| {
+            let reader_vm = vm.clone();
+            let reader_path = path.clone();
+            std::thread::spawn(move || {
+                call_json::<Value>(&reader_vm, "read", &[json!(reader_path)])
+            })
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        admission::wait_queued(plugin, 8, WEDGED),
+        "every status read must wait for capacity instead of failing"
+    );
+    assert_eq!(call_json::<String>(&vm, "health", &[]).unwrap(), "healthy");
+    for (gates, caller) in slow {
+        gates.finish();
+        assert_eq!(caller.join().unwrap().unwrap(), "resumed");
+    }
+    for reader in readers {
+        assert_eq!(reader.join().unwrap().unwrap(), "healthy");
+    }
+}
+
+#[test]
+fn cancelled_queued_reads_free_queue_and_job_slots_while_workers_stay_held() {
+    let plugin = "io-queue-cancel";
+    let vm = vm(plugin, None);
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("status.txt");
+    std::fs::write(&path, "healthy").unwrap();
+    let held = (0..4)
+        .map(|index| {
+            let gates = Gates::new(&format!("io-queue-cancel-held-{index}"));
+            let request = gates.request();
+            let caller_vm = vm.clone();
+            let caller = std::thread::spawn(move || {
+                call_json_interruptible::<String>(
+                    &caller_vm,
+                    "pause",
+                    &[request],
+                    ConversionCancellation::default(),
+                    Instant::now() + Duration::from_secs(60),
+                )
+            });
+            gates.entered();
+            (gates, caller)
+        })
+        .collect::<Vec<_>>();
+    let held_jobs = crate::js_runtime::host_exec::plugin_job_count(plugin);
+    // More cycles than the queue bound: a retained entry or job record would surface.
+    for _ in 0..40 {
+        let cancellation = ConversionCancellation::default();
+        let caller_cancel = cancellation.clone();
+        let caller_vm = vm.clone();
+        let caller_path = path.clone();
+        let caller = std::thread::spawn(move || {
+            call_json_interruptible::<Value>(
+                &caller_vm,
+                "read",
+                &[json!(caller_path)],
+                caller_cancel,
+                Instant::now() + Duration::from_secs(60),
+            )
+        });
+        assert!(admission::wait_queued(plugin, 1, WEDGED));
+        cancellation.cancel();
+        assert!(matches!(
+            caller.join().unwrap(),
+            Err(VmError::CallCancelled)
+        ));
+        assert_eq!(admission::queued(plugin), 0);
+        assert_eq!(
+            crate::js_runtime::host_exec::plugin_job_count(plugin),
+            held_jobs
+        );
+    }
+    for (gates, caller) in held {
+        gates.finish();
+        assert_eq!(caller.join().unwrap().unwrap(), "resumed");
     }
     assert_eq!(
         call_json::<Value>(&vm, "read", &[json!(path)]).unwrap(),
@@ -402,6 +568,62 @@ fn owner_enforces_file_bounds_and_preserves_read_only_sqlite() {
     assert_eq!(
         call_json::<Value>(&vm, "query", &[json!(db), json!("DELETE FROM entries")]).unwrap(),
         json!([])
+    );
+    assert_eq!(
+        connection
+            .query_row("SELECT value FROM entries", [], |row| row
+                .get::<_, String>(0))
+            .unwrap(),
+        "retained"
+    );
+}
+
+#[test]
+fn generator_callbacks_resume_once_and_nested_programs_finish() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("callback.txt");
+    std::fs::write(&path, "once-").unwrap();
+    let vm = vm("io-generator-callback", Some(root.path()));
+    assert_eq!(
+        call_json::<Value>(&vm, "generatorCallback", &[json!(path)]).unwrap(),
+        json!(1)
+    );
+    assert_eq!(
+        std::fs::read_to_string(path.with_extension("txt.result")).unwrap(),
+        "once-1"
+    );
+    assert_eq!(
+        call_json::<Value>(&vm, "nestedGenerator", &[json!(path)]).unwrap(),
+        json!("once-")
+    );
+}
+
+#[test]
+fn nullable_sqlite_preserves_unknown_without_authorizing_writes() {
+    let root = tempfile::tempdir().unwrap();
+    let db = root.path().join("nullable.sqlite");
+    let connection = rusqlite::Connection::open(&db).unwrap();
+    connection
+        .execute_batch("CREATE TABLE entries(value TEXT); INSERT INTO entries VALUES('retained');")
+        .unwrap();
+    let vm = vm("io-nullable-sqlite", Some(root.path()));
+    assert_eq!(
+        call_json::<Value>(
+            &vm,
+            "nullableQuery",
+            &[json!(db), json!("SELECT value FROM entries WHERE 0")]
+        )
+        .unwrap(),
+        json!([])
+    );
+    assert_eq!(
+        call_json::<Value>(
+            &vm,
+            "nullableQuery",
+            &[json!(db), json!("DELETE FROM entries")]
+        )
+        .unwrap(),
+        Value::Null
     );
     assert_eq!(
         connection

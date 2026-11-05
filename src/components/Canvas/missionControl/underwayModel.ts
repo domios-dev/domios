@@ -1,6 +1,6 @@
+import type { PlanView as Plan } from "../planProjection";
 import type { Tab } from "../../../lib/types";
 import { roleKind } from "../../../lib/roleKind";
-import type { Plan } from "../types";
 import { showsChecklist, type AgentChecklistItem } from "../../Sidebar/agentChecklistModel";
 
 function rank(tab: Tab): number {

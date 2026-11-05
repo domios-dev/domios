@@ -409,6 +409,9 @@ pub struct AccountMeshRecord {
     pub local_revocations: BTreeMap<String, BTreeSet<String>>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub revoked_generations: BTreeMap<String, u64>,
+    /// Account whose registries taught `peer_keys` and `peer_presence`; both are per account.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fence_account: Option<String>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub peer_keys: BTreeMap<String, KeyBinding>,
     #[serde(default, skip_serializing)]

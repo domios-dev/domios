@@ -1,7 +1,8 @@
 use super::read_projections::{column, decode, record_query};
 use super::{db_error, PlanDatabase};
-use crate::plan::{Milestone, Task, TaskExecutionAttempt};
+use crate::plan::{Milestone, TaskExecutionAttempt};
 use crate::service_plan::planner_replay::PlannerReplayCandidate;
+use crate::service_plan::task_attempts::read::TaskAttemptRead;
 use crate::service_plan::PlanError;
 use rusqlite::params;
 
@@ -46,13 +47,16 @@ impl PlanDatabase {
         let connection = self.connection.lock();
         record_query();
         let mut statement=connection.prepare_cached(
-            "WITH titles AS (SELECT CASE WHEN json_type(a.row_json,'$.executor_title') IS NULL OR json_type(a.row_json,'$.executor_title')='null' THEN NULL
+            "WITH selected_tasks AS MATERIALIZED (
+                SELECT t.plan_id,t.task_id FROM plans p JOIN plan_tasks t ON t.plan_id=p.id
+                WHERE p.status='active' AND json_extract(t.row_json,'$.lane.workspace_id')=?1
+             ), titles AS (SELECT CASE WHEN json_type(a.row_json,'$.executor_title') IS NULL OR json_type(a.row_json,'$.executor_title')='null' THEN NULL
                 WHEN json_type(a.row_json,'$.executor_title')<>'text' THEN json('invalid executor title')
                 ELSE trim(json_extract(a.row_json,'$.executor_title'),?4) END AS title,
                 domios_u64_order(CASE WHEN json_type(a.row_json,'$.assigned_at') IS NULL OR json_type(a.row_json,'$.assigned_at')='null'
                     THEN a.row_json->'$.reported_at' ELSE a.row_json->'$.assigned_at' END) AS at
-                FROM plans p JOIN plan_tasks t ON t.plan_id=p.id JOIN plan_task_attempts a ON a.plan_id=t.plan_id AND a.task_id=t.task_id
-                WHERE p.status='active' AND json_extract(t.row_json,'$.lane.workspace_id')=?1 AND json_extract(a.row_json,'$.role')='worker'
+                FROM selected_tasks t JOIN plan_task_attempts a ON a.plan_id=t.plan_id AND a.task_id=t.task_id
+                WHERE json_extract(a.row_json,'$.role')='worker'
                     AND (?2 IS NULL OR a.session_id=?2))
              SELECT title FROM titles WHERE title IS NOT NULL AND title<>'' ORDER BY at DESC,title COLLATE BINARY LIMIT ?3"
         ).map_err(db_error)?;
@@ -75,7 +79,7 @@ impl PlanDatabase {
         id: &str,
         reference: &str,
         attempt_id: Option<&str>,
-    ) -> Result<Task, PlanError> {
+    ) -> Result<TaskAttemptRead, PlanError> {
         let mut connection = self.connection.lock();
         let tx = connection.transaction().map_err(db_error)?;
         record_query();
@@ -103,22 +107,22 @@ impl PlanDatabase {
         }
         record_query();
         let sql = if attempt_id.is_some() {
-            "SELECT json_object('id',json_extract(row_json,'$.id'),'name',json_extract(row_json,'$.name'),'type','','status','pending',
+            "SELECT json_object('id',json_extract(row_json,'$.id'),'prompt',json_object('id',json_extract(row_json,'$.id'),'name',json_extract(row_json,'$.name'),
                 'model',json_extract(row_json,'$.model'),'personality',json_extract(row_json,'$.personality'),'role_guidance',json_extract(row_json,'$.role_guidance'),
                 'executor_role',json_extract(row_json,'$.executor_role'),'body',CASE WHEN json_type(row_json,'$.body') IS NULL THEN '' ELSE json_extract(row_json,'$.body') END,
                 'intent',json_extract(row_json,'$.intent'),'correctness',json_extract(row_json,'$.correctness'),'test_plan',json_extract(row_json,'$.test_plan'),
                 'acceptance_criteria',json(CASE WHEN json_type(row_json,'$.acceptance_criteria') IS NULL THEN '[]' ELSE row_json->'$.acceptance_criteria' END),
                 'lane',json_object('worktree_path',json_extract(row_json,'$.lane.worktree_path'),'branch',json_extract(row_json,'$.lane.branch'),
                     'base',json_extract(row_json,'$.lane.base'),'destination',json_extract(row_json,'$.lane.destination'),
-                    'workspace_id',json_extract(row_json,'$.lane.workspace_id'),'workspace_name',json_extract(row_json,'$.lane.workspace_name')))
+                    'workspace_id',json_extract(row_json,'$.lane.workspace_id'),'workspace_name',json_extract(row_json,'$.lane.workspace_name'))))
              FROM plan_tasks WHERE plan_id=?1 AND task_id=?2"
         } else {
-            "SELECT json_object('id',json_extract(row_json,'$.id'),'name','','type','','status','pending') FROM plan_tasks WHERE plan_id=?1 AND task_id=?2"
+            "SELECT json_object('id',json_extract(row_json,'$.id')) FROM plan_tasks WHERE plan_id=?1 AND task_id=?2"
         };
         let document: String = tx
             .query_row(sql, params![id, task_id], |row| column(row, 0))
             .map_err(db_error)?;
-        let mut task: Task = decode(id, &document)?;
+        let mut task: TaskAttemptRead = decode(id, &document)?;
         record_query();
         let mut statement=tx.prepare_cached(
             "SELECT row_json FROM plan_task_attempts WHERE plan_id=?1 AND task_id=?2 AND (?3 IS NULL OR json_extract(row_json,'$.id')=?3)

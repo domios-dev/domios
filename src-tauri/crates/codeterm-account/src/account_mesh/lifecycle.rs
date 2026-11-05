@@ -133,6 +133,8 @@ pub(super) struct Inner {
     notice_epoch: Option<u64>,
     pub(super) lease: u64,
     pub(super) launch_renewal_pending: bool,
+    /// The first ready publication after launch is a cold start even for an unchanged endpoint.
+    pub(super) launch_publication_pending: bool,
     pub(super) retry: super::retry::Retry,
     pub(super) store_unreadable: bool,
 }
@@ -291,6 +293,7 @@ impl AccountMesh {
                 notice_epoch: None,
                 lease: 0,
                 launch_renewal_pending: true,
+                launch_publication_pending: true,
                 retry: Default::default(),
                 store_unreadable: false,
             }),

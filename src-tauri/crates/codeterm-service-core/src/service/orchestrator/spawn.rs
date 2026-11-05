@@ -85,12 +85,7 @@ impl ServiceContext {
                 .plan_id
                 .as_deref()
                 .ok_or("Planner requires --plan <id>")?;
-            params.parent_tab_id = Some(crate::service::agent_transition::resolve_planner_parent(
-                &self.plan_store,
-                &self.mux.read(),
-                plan_id,
-                None,
-            )?);
+            params.parent_tab_id = Some(self.resolve_planner_parent_for_spawn(plan_id)?);
         }
         crate::service::spawn_plan_task::validate_worker_plan_task_spawn(&params)?;
         crate::service::spawn_params::reject_team_with_binding(&params)?;
@@ -1036,7 +1031,9 @@ impl ServiceContext {
 
     /// Origin frame for a spawned agent's first task, derived from its recorded spawner.
     pub(crate) fn spawn_task_message(&self, target_tab: &str, body: &str) -> Option<String> {
-        if let Some(id) = crate::flow_trace::tab_flow(self, target_tab) {
+        if let Some(id) =
+            crate::flow_trace::diagnostic_flow(crate::flow_trace::tab_flow(self, target_tab))
+        {
             crate::flow_trace::record(&id, "spawn.task", target_tab, "", "prepared", None);
         }
         let friend = self.neighbor_spawn_friend_name(target_tab);

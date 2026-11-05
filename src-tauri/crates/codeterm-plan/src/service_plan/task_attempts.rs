@@ -1,9 +1,12 @@
 use crate::service_plan::store_db::hot_write::AttemptTarget;
 mod prompt_read;
 mod prompt_render;
+pub(super) mod read;
 mod respawn_record;
 use super::store_db::read_projections::task_drafts::TaskDraftPromptRead;
-pub(super) use prompt_render::{build_compete_prompt, build_prompt, build_prompt_read};
+#[cfg(test)]
+pub(super) use prompt_render::build_prompt;
+pub(super) use prompt_render::{build_compete_prompt, build_prompt_read};
 use serde::{Deserialize, Serialize};
 
 use crate::plan::{Task, TaskExecutionAttempt, TaskLaneMetadata, TaskStatus};
@@ -11,20 +14,25 @@ use codeterm_types::agent::ReportStatus;
 
 use super::{PlanError, PlanStore};
 
+mod executor_identity;
 mod executor_termination;
+pub use executor_identity::AttemptExecutorIdentityChange;
+pub use executor_termination::{ExecutorSourceFields, ExecutorSourceRead};
 mod launch_binding;
 mod plan_skill_evidence;
 pub mod remote_dispatch;
 mod remote_retirement;
 mod report_ingest;
+pub use report_ingest::BoundWorkerReportReceipt;
 mod respawn_guard;
 mod restore_binding;
+mod runtime_interruption;
 mod runtime_restart;
 mod runtime_restore;
 pub use runtime_restart::{RuntimeRestartBinding, RuntimeRestartMode};
 pub use runtime_restore::RestoredRuntimeSessionBinding;
 
-pub use launch_binding::CompleteAcknowledgedDispatchBinding;
+pub use launch_binding::{CompleteAcknowledgedDispatchBinding, CompletedDispatchBinding};
 pub(super) use respawn_guard::ensure_respawn_source_current;
 pub use restore_binding::{RestoreCurrentAttemptBinding, RestoreCurrentAttemptBindingResult};
 
@@ -199,13 +207,6 @@ fn attempt_report_status(attempt: &TaskExecutionAttempt) -> Option<String> {
         .and_then(|report| report.status.clone())
 }
 
-fn last_report_for_attempt(
-    task: &Task,
-    attempt: &TaskExecutionAttempt,
-) -> (Option<String>, Option<String>, Option<u64>) {
-    last_report_for_milestones(&task.milestones, attempt)
-}
-
 fn last_report_for_milestones(
     milestones: &[crate::plan::Milestone],
     attempt: &TaskExecutionAttempt,
@@ -371,15 +372,17 @@ pub(super) fn live_attempt_count(task: &Task) -> usize {
 
 pub(super) fn attempt_view(
     plan_id: &str,
-    task: &Task,
+    task_id: &str,
+    milestones: &[crate::plan::Milestone],
     attempt: TaskExecutionAttempt,
     prompt: Option<String>,
 ) -> TaskAttemptView {
-    let (last_report, last_report_status, last_report_at) = last_report_for_attempt(task, &attempt);
+    let (last_report, last_report_status, last_report_at) =
+        last_report_for_milestones(milestones, &attempt);
     TaskAttemptView {
         attempt_id: attempt.id.clone(),
         status: attempt_status(&attempt),
-        report_command: task_report_command(plan_id, &task.id),
+        report_command: task_report_command(plan_id, task_id),
         attempt,
         prompt,
         last_report,
@@ -397,44 +400,6 @@ impl PlanStore {
     ) -> Result<Vec<String>, PlanError> {
         self.database
             .recent_worker_titles(workspace_id, session_id, limit)
-    }
-
-    pub fn update_attempt_executor_identity(
-        &self,
-        plan_id: &str,
-        task_id: &str,
-        tab_id: &str,
-        title: Option<&str>,
-        session_id: Option<&str>,
-        session_binding_nonce: Option<&str>,
-        launch_profile: Option<&str>,
-        now_ms: u64,
-    ) -> Result<(), PlanError> {
-        let title = title.map(str::trim).filter(|value| !value.is_empty());
-        let session_id = session_id.map(str::trim).filter(|value| !value.is_empty());
-        let session_binding_nonce = session_binding_nonce
-            .map(str::trim)
-            .filter(|value| !value.is_empty());
-        self.change_attempt(
-            plan_id,
-            task_id,
-            AttemptTarget {
-                tab: tab_id,
-                ..Default::default()
-            },
-            now_ms,
-            |attempt| {
-                let attempt = attempt.ok_or(PlanError::TaskNotFound)?;
-                if let Some(profile) = launch_profile {
-                    attempt.launch_profile = Some(profile.to_owned());
-                }
-                attempt.executor_title = title.map(str::to_string);
-                attempt.session_id = session_id.map(str::to_string);
-                attempt.session_binding_nonce = session_binding_nonce.map(str::to_string);
-                Ok(Some(()))
-            },
-        )?;
-        Ok(())
     }
 
     pub fn update_attempt_session_model_if_unknown(
@@ -711,7 +676,7 @@ impl PlanStore {
             .execution_attempts
             .iter()
             .cloned()
-            .map(|attempt| attempt_view(plan_id, &task, attempt, None))
+            .map(|attempt| attempt_view(plan_id, &task.id, &task.milestones, attempt, None))
             .collect())
     }
 
@@ -725,7 +690,11 @@ impl PlanStore {
             .database
             .task_attempt_projection(plan_id, task_id, Some(attempt_id))?;
         let source = task.execution_attempts[0].clone();
-        let (task_provider, task_model) = split_provider_model(task.model.as_deref());
+        let prompt_input = task
+            .prompt
+            .as_ref()
+            .ok_or_else(|| PlanError::Io("selected attempt has no prompt facts".into()))?;
+        let (task_provider, task_model) = split_provider_model(prompt_input.model.as_deref());
         let provider = source
             .provider
             .clone()
@@ -733,9 +702,9 @@ impl PlanStore {
             .unwrap_or_else(|| "claude".into());
         let model = source.model.clone().or(task_model);
         let report_command = task_report_command(plan_id, &task.id);
-        let prompt = build_prompt(
+        let prompt = build_prompt_read(
             plan_id,
-            &task,
+            (prompt_input, task.milestones.as_slice()),
             &source,
             &provider,
             model.as_deref(),
@@ -743,7 +712,13 @@ impl PlanStore {
             &source.plan_skill_manifest,
             source.authorized_gates.as_deref().unwrap_or(&[]),
         );
-        Ok(attempt_view(plan_id, &task, source, Some(prompt)))
+        Ok(attempt_view(
+            plan_id,
+            &task.id,
+            &task.milestones,
+            source,
+            Some(prompt),
+        ))
     }
 
     pub fn build_task_respawn_draft(
@@ -830,39 +805,38 @@ impl PlanStore {
         now_ms: u64,
     ) -> Result<TaskAttemptCreated, PlanError> {
         let mut created = None;
-        self.with_plan(plan_id, now_ms, |plan| {
-            let task_index = crate::plan::task_key::find_task_index(&plan.tasks, task_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            if plan.tasks[task_index].status == TaskStatus::Pending {
-                super::review_gate::validate_dispatch_review_capacity(
-                    plan,
-                    &plan.tasks[task_index],
-                )?;
-            }
-            let task = &mut plan.tasks[task_index];
-            task.status_label = Some("competitive".into());
-            task.updated_at = now_ms;
-            let mut attempt = new_assignment_attempt(task, tab_id, None, role, now_ms);
-            attempt.provider = Some(draft.provider.clone());
-            attempt.agent_type = Some(draft.provider.clone());
-            attempt.model = draft.model.clone();
-            attempt.provider_resolved_model = draft.model.clone();
-            attempt.reasoning_effort = draft.reasoning_effort.clone();
-            attempt.executor_title = draft.title.clone();
-            attempt.parent_tab_id = draft.parent_tab_id.clone();
-            attempt.competition_group_id = Some(draft.competition_group_id.clone());
-            attempt.competition_lane = Some(draft.lane);
-            attempt.plan_skill_manifest = draft.plan_skill_manifest.clone();
-            if draft.branch.is_some() {
-                attempt.worktree_path = Some(draft.cwd.clone());
-                attempt.branch = draft.branch.clone();
-                attempt.base = draft.base.clone();
-                attempt.destination = draft.destination.clone();
-            }
-            task.execution_attempts.push(attempt.clone());
-            created = Some(attempt);
-            Ok(())
-        })?;
+        self.with_task_rows(
+            plan_id,
+            task_id,
+            super::store_db::hot_write::TaskHistory::LiveAndReported,
+            now_ms,
+            |edit| {
+                edit.warn_dispatch = edit.task.status == TaskStatus::Pending;
+                let task = &mut edit.task;
+                task.status_label = Some("competitive".into());
+                task.updated_at = now_ms;
+                let mut attempt = new_assignment_attempt(task, tab_id, None, role, now_ms);
+                attempt.provider = Some(draft.provider.clone());
+                attempt.agent_type = Some(draft.provider.clone());
+                attempt.model = draft.model.clone();
+                attempt.provider_resolved_model = draft.model.clone();
+                attempt.reasoning_effort = draft.reasoning_effort.clone();
+                attempt.executor_title = draft.title.clone();
+                attempt.parent_tab_id = draft.parent_tab_id.clone();
+                attempt.competition_group_id = Some(draft.competition_group_id.clone());
+                attempt.competition_lane = Some(draft.lane);
+                attempt.plan_skill_manifest = draft.plan_skill_manifest.clone();
+                if draft.branch.is_some() {
+                    attempt.worktree_path = Some(draft.cwd.clone());
+                    attempt.branch = draft.branch.clone();
+                    attempt.base = draft.base.clone();
+                    attempt.destination = draft.destination.clone();
+                }
+                task.execution_attempts.push(attempt.clone());
+                created = Some(attempt);
+                Ok(())
+            },
+        )?;
         Ok(TaskAttemptCreated {
             plan_id: plan_id.into(),
             task_id: task_id.into(),
@@ -881,26 +855,31 @@ impl PlanStore {
         now_ms: u64,
     ) -> Result<TaskAttemptCreated, PlanError> {
         let mut judged = None;
-        self.with_plan(plan_id, now_ms, |plan| {
-            let task = crate::plan::task_key::find_task_mut(&mut plan.tasks, task_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            let attempt = task
-                .execution_attempts
-                .iter_mut()
-                .find(|attempt| attempt.id == attempt_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            crate::service_plan::competition::set_attempt_judgement(
-                attempt, verdict, reason, winner, now_ms,
-            );
-            judged = Some(attempt.clone());
-            if winner {
-                task.status = TaskStatus::InReview;
-                task.status_label = Some("judging".into());
-                task.status_changed_at = now_ms;
-            }
-            task.updated_at = now_ms;
-            Ok(())
-        })?;
+        self.with_task_rows(
+            plan_id,
+            task_id,
+            super::store_db::hot_write::TaskHistory::Attempt(attempt_id.into()),
+            now_ms,
+            |edit| {
+                let task = &mut edit.task;
+                let attempt = task
+                    .execution_attempts
+                    .iter_mut()
+                    .find(|attempt| attempt.id == attempt_id)
+                    .ok_or(PlanError::TaskNotFound)?;
+                crate::service_plan::competition::set_attempt_judgement(
+                    attempt, verdict, reason, winner, now_ms,
+                );
+                judged = Some(attempt.clone());
+                if winner {
+                    task.status = TaskStatus::InReview;
+                    task.status_label = Some("judging".into());
+                    task.status_changed_at = now_ms;
+                }
+                task.updated_at = now_ms;
+                Ok(())
+            },
+        )?;
         Ok(TaskAttemptCreated {
             plan_id: plan_id.into(),
             task_id: task_id.into(),

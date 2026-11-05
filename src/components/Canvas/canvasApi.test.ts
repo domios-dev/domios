@@ -1,3 +1,4 @@
+import { muxMockFetch } from "../../lib/muxMockFetch.testdata";
 import { configureDaemonTransport } from "../../lib/daemonBootstrap";
 import type { ApiConfig, ProviderDescriptor } from "../../lib/types";
 import { resolveCanvasSpawnProvider, spawnOrchestrator } from "./canvasApi";
@@ -25,10 +26,10 @@ async function run() {
   configureDaemonTransport({ origin: "http://fixture.test", token: "fixture-token" });
   const originalFetch = globalThis.fetch;
   const payloads: unknown[] = [];
-  globalThis.fetch = (async (_input, init) => {
+  globalThis.fetch = muxMockFetch((async (_input, init) => {
     payloads.push(JSON.parse(String(init?.body)));
     return new Response(JSON.stringify({ tab_id: "orchestrator-1" }), { status: 200 });
-  }) as typeof fetch;
+  }) as typeof fetch);
   try {
     const selected = resolveCanvasSpawnProvider("ui-selected", [provider("ui-selected", "pty")]);
     assert(selected === "ui-selected", "uses the selected provider from the registry");

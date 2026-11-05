@@ -25,13 +25,17 @@ fn index_queue_keeps_only_the_latest_snapshot_per_document() {
     let mut latest = first.clone();
     latest.title = "Latest title".into();
 
-    queue.enqueue(IndexJob::Plan(first, PlanIndexScope::Full));
-    queue.enqueue(IndexJob::Plan(latest, PlanIndexScope::Full));
+    queue.enqueue(IndexJob::PlanSnapshot(PlanSearchSnapshot::from_plan(
+        &first,
+    )));
+    queue.enqueue(IndexJob::PlanSnapshot(PlanSearchSnapshot::from_plan(
+        &latest,
+    )));
 
     let state = queue.state.lock();
     assert_eq!(state.order.len(), 1);
     assert_eq!(state.latest.len(), 1);
-    let IndexJob::Plan(snapshot, _) = state
+    let IndexJob::PlanSnapshot(snapshot) = state
         .latest
         .get(&format!(
             "{}:plan:pl_queue",
@@ -41,7 +45,7 @@ fn index_queue_keeps_only_the_latest_snapshot_per_document() {
     else {
         panic!("expected a plan snapshot");
     };
-    assert_eq!(snapshot.title, "Latest title");
+    assert_eq!(snapshot.units[0].title, "Latest title");
 }
 
 #[test]

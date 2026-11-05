@@ -779,7 +779,7 @@ fn parse_session_messages_keeps_only_text_messages() {
     let tmp = tempfile::NamedTempFile::new().unwrap();
     std::fs::write(tmp.path(), jsonl).unwrap();
 
-    let msgs = j.parse_session_messages(tmp.path());
+    let msgs = j.parse_session_messages(tmp.path()).unwrap();
     // function_call + meta + malformed dropped; two text messages survive.
     assert_eq!(msgs.len(), 2, "{msgs:#?}");
     assert_eq!(msgs[0].role, "user");

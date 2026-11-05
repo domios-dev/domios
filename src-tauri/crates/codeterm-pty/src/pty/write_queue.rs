@@ -1,4 +1,7 @@
+use parking_lot::{Condvar, Mutex as QueueMutex};
+use std::collections::VecDeque;
 use std::io::Write;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -19,122 +22,233 @@ pub fn is_write_ack_timeout(error: &str) -> bool {
 
 #[derive(Debug)]
 struct GuardedInputState {
-    epoch: u64,
-    accepting: bool,
+    epoch: AtomicU64,
+    retired: AtomicBool,
+    writer: Mutex<()>,
 }
 
 #[derive(Clone, Debug)]
 pub struct GuardedInputPermit {
     epoch: u64,
-    gate: Arc<Mutex<GuardedInputState>>,
+    gate: Arc<GuardedInputState>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct GuardedInputGate {
-    state: Arc<Mutex<GuardedInputState>>,
+    state: Arc<GuardedInputState>,
 }
 
 impl Default for GuardedInputGate {
     fn default() -> Self {
         Self {
-            state: Arc::new(Mutex::new(GuardedInputState {
-                epoch: 0,
-                accepting: false,
-            })),
+            state: Arc::new(GuardedInputState {
+                epoch: AtomicU64::new(0),
+                retired: AtomicBool::new(false),
+                writer: Mutex::new(()),
+            }),
         }
     }
 }
 
 impl GuardedInputGate {
     pub fn issue(&self) -> Option<GuardedInputPermit> {
-        let state = self.state.lock().ok()?;
-        state.accepting.then(|| GuardedInputPermit {
-            epoch: state.epoch,
-            gate: self.state.clone(),
+        let epoch = self.state.epoch.load(Ordering::Acquire);
+        (epoch & 1 != 0 && !self.state.retired.load(Ordering::Acquire)).then(|| {
+            GuardedInputPermit {
+                epoch,
+                gate: self.state.clone(),
+            }
         })
     }
 
     pub fn rearm(&self) {
-        if let Ok(mut state) = self.state.lock() {
-            if !state.accepting {
-                state.epoch = state.epoch.wrapping_add(1);
-                state.accepting = true;
-            }
+        if self.state.retired.load(Ordering::Acquire) {
+            return;
         }
+        let _ = self
+            .state
+            .epoch
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |epoch| {
+                (epoch & 1 == 0).then(|| epoch.wrapping_add(1))
+            });
+    }
+
+    pub(crate) fn retire(&self) {
+        self.state.retired.store(true, Ordering::Release);
     }
 
     pub fn invalidate(&self) {
-        if let Ok(mut state) = self.state.lock() {
-            state.epoch = state.epoch.wrapping_add(1);
-            state.accepting = false;
+        if let Ok(_writer) = self.state.writer.lock() {
+            let _ = self
+                .state
+                .epoch
+                .try_update(Ordering::AcqRel, Ordering::Acquire, |epoch| {
+                    Some(epoch.wrapping_add(if epoch & 1 == 0 { 2 } else { 1 }))
+                });
         }
     }
 }
 
-pub struct WriteRequest {
+const WRITE_QUEUE_FULL: &str = "tab_busy_refused: PTY write queue capacity refused before enqueue";
+const WRITE_CANCELLED: &str = "PTY write cancelled after enqueue";
+const WRITE_QUEUE_CLOSED: &str = "PTY write channel closed";
+const MAX_REQUESTS: usize = 64;
+const MAX_BYTES: usize = 32 * 1024 * 1024;
+const MAX_FRAMES: usize = 64;
+
+pub fn is_write_queue_full(error: &str) -> bool {
+    error == WRITE_QUEUE_FULL
+}
+
+struct WriteRequest {
     frames: Vec<Vec<u8>>,
+    bytes: usize,
     permit: Option<GuardedInputPermit>,
     completed: Option<mpsc::SyncSender<Result<(), String>>>,
 }
 
+#[derive(Default)]
+struct QueueState {
+    pending: VecDeque<WriteRequest>,
+    closed: bool,
+    requests: usize,
+    bytes: usize,
+}
+
+#[derive(Default)]
+struct Shared {
+    state: QueueMutex<QueueState>,
+    changed: Condvar,
+}
+
+impl Shared {
+    fn close(&self) {
+        let pending = {
+            let mut state = self.state.lock();
+            state.closed = true;
+            let pending = std::mem::take(&mut state.pending);
+            for request in &pending {
+                state.requests -= 1;
+                state.bytes -= request.bytes;
+            }
+            self.changed.notify_all();
+            pending
+        };
+        for request in pending {
+            if let Some(completed) = request.completed {
+                let _ = completed.send(Err(WRITE_CANCELLED.into()));
+            }
+        }
+    }
+}
+
 pub struct WriteQueue {
-    sender: Mutex<Option<mpsc::Sender<WriteRequest>>>,
+    shared: Arc<Shared>,
+    cancel: Arc<dyn Fn() + Send + Sync>,
 }
 
 impl WriteQueue {
-    pub fn new(mut writer: Box<dyn Write + Send>) -> Self {
-        let (sender, receiver) = mpsc::channel::<WriteRequest>();
+    pub fn new(writer: Box<dyn Write + Send>) -> Self {
+        Self::new_cancellable(portable_pty::CancellableWriter {
+            writer,
+            cancel: Arc::new(|| {}),
+        })
+    }
 
-        codeterm_util::named_thread::spawn("pty-write", move || {
-            while let Ok(req) = receiver.recv() {
-                let result = match req.permit {
-                    Some(permit) => match permit.gate.lock() {
-                        Ok(state) if state.accepting && state.epoch == permit.epoch => req
-                            .frames
-                            .iter()
-                            .try_for_each(|frame| {
-                                writer.write_all(frame).and_then(|()| writer.flush())
-                            })
-                            .map_err(|error| error.to_string()),
-                        Ok(_) => Err(STALE_AGENT_INPUT.to_string()),
-                        Err(error) => Err(error.to_string()),
-                    },
-                    None => req
-                        .frames
-                        .iter()
-                        .try_for_each(|frame| writer.write_all(frame).and_then(|()| writer.flush()))
-                        .map_err(|error| error.to_string()),
-                };
-                if let Some(completed) = req.completed {
-                    let _ = completed.send(result.clone());
+    pub fn new_cancellable(writer: portable_pty::CancellableWriter) -> Self {
+        let shared = Arc::new(Shared::default());
+        let worker = shared.clone();
+        let portable_pty::CancellableWriter { mut writer, cancel } = writer;
+        codeterm_util::named_thread::spawn("pty-write", move || loop {
+            let request = {
+                let mut state = worker.state.lock();
+                while state.pending.is_empty() && !state.closed {
+                    worker.changed.wait(&mut state);
                 }
-                if let Err(error) = result {
-                    if error == STALE_AGENT_INPUT {
-                        log::debug!("Dropped PTY write after agent input permit was revoked");
-                        continue;
-                    }
-                    log::warn!("PTY write failed: {error}");
+                let Some(request) = state.pending.pop_front() else {
                     break;
+                };
+                request
+            };
+            let write = |writer: &mut Box<dyn Write + Send>| {
+                request
+                    .frames
+                    .iter()
+                    .try_for_each(|frame| writer.write_all(frame).and_then(|()| writer.flush()))
+                    .map_err(|error| error.to_string())
+            };
+            let result = match request.permit.as_ref() {
+                Some(permit) => match permit.gate.writer.lock() {
+                    Ok(_guard) if permit.gate.epoch.load(Ordering::Acquire) == permit.epoch => {
+                        write(&mut writer)
+                    }
+                    Ok(_) => Err(STALE_AGENT_INPUT.into()),
+                    Err(error) => Err(error.to_string()),
+                },
+                None => write(&mut writer),
+            };
+            {
+                let mut state = worker.state.lock();
+                state.requests -= 1;
+                state.bytes -= request.bytes;
+            }
+            if let Some(completed) = request.completed {
+                let _ = completed.send(result.clone());
+            }
+            if let Err(error) = result {
+                if is_stale_agent_input(&error) {
+                    continue;
                 }
+                log::debug!("PTY writer stopped: {error}");
+                worker.close();
+                break;
             }
         });
+        Self { shared, cancel }
+    }
 
-        Self {
-            sender: Mutex::new(Some(sender)),
+    fn enqueue(
+        &self,
+        frames: Vec<Vec<u8>>,
+        permit: Option<GuardedInputPermit>,
+        completed: Option<mpsc::SyncSender<Result<(), String>>>,
+        on_enqueued: impl FnOnce(),
+    ) -> Result<(), String> {
+        let mut state = self.shared.state.lock();
+        if state.closed {
+            return Err(WRITE_QUEUE_CLOSED.into());
         }
+        let frame_storage = frames
+            .capacity()
+            .checked_mul(std::mem::size_of::<Vec<u8>>())
+            .ok_or(WRITE_QUEUE_FULL)?;
+        let bytes = frames
+            .iter()
+            .try_fold(frame_storage, |sum, frame| {
+                sum.checked_add(frame.capacity())
+            })
+            .ok_or(WRITE_QUEUE_FULL)?;
+        if frames.len() > MAX_FRAMES
+            || state.requests >= MAX_REQUESTS
+            || bytes > MAX_BYTES.saturating_sub(state.bytes)
+        {
+            return Err(WRITE_QUEUE_FULL.into());
+        }
+        state.requests += 1;
+        state.bytes += bytes;
+        state.pending.push_back(WriteRequest {
+            frames,
+            bytes,
+            permit,
+            completed,
+        });
+        on_enqueued();
+        self.shared.changed.notify_one();
+        Ok(())
     }
 
     pub fn send(&self, data: Vec<u8>) -> Result<(), String> {
-        let sender = self.sender.lock().map_err(|e| e.to_string())?;
-        sender
-            .as_ref()
-            .ok_or_else(|| "PTY write channel closed".to_string())?
-            .send(WriteRequest {
-                frames: vec![data],
-                permit: None,
-                completed: None,
-            })
-            .map_err(|_| "PTY write channel closed".to_string())
+        self.enqueue(vec![data], None, None, || {})
     }
 
     pub fn send_and_wait(&self, data: Vec<u8>, timeout: Duration) -> Result<(), String> {
@@ -164,23 +278,7 @@ impl WriteQueue {
         timeout: Duration,
         on_enqueued: impl FnOnce(),
     ) -> Result<(), String> {
-        let (completed, receiver) = mpsc::sync_channel(0);
-        {
-            let sender = self.sender.lock().map_err(|error| error.to_string())?;
-            sender
-                .as_ref()
-                .ok_or_else(|| "PTY write channel closed".to_string())?
-                .send(WriteRequest {
-                    frames,
-                    permit: None,
-                    completed: Some(completed),
-                })
-                .map_err(|_| "PTY write channel closed".to_string())?;
-            on_enqueued();
-        }
-        receiver
-            .recv_timeout(timeout)
-            .map_err(|_| WRITE_ACK_TIMEOUT.to_string())?
+        self.enqueue_and_wait(frames, None, timeout, on_enqueued)
     }
 
     pub fn send_and_wait_guarded(
@@ -218,363 +316,34 @@ impl WriteQueue {
         timeout: Duration,
         on_enqueued: impl FnOnce(),
     ) -> Result<(), String> {
-        let (completed, receiver) = mpsc::sync_channel(0);
-        {
-            let sender = self.sender.lock().map_err(|error| error.to_string())?;
-            sender
-                .as_ref()
-                .ok_or_else(|| "PTY write channel closed".to_string())?
-                .send(WriteRequest {
-                    frames,
-                    permit: Some(permit),
-                    completed: Some(completed),
-                })
-                .map_err(|_| "PTY write channel closed".to_string())?;
-            on_enqueued();
-        }
+        self.enqueue_and_wait(frames, Some(permit), timeout, on_enqueued)
+    }
+
+    fn enqueue_and_wait(
+        &self,
+        frames: Vec<Vec<u8>>,
+        permit: Option<GuardedInputPermit>,
+        timeout: Duration,
+        on_enqueued: impl FnOnce(),
+    ) -> Result<(), String> {
+        let (completed, receiver) = mpsc::sync_channel(1);
+        self.enqueue(frames, permit, Some(completed), on_enqueued)?;
         receiver
             .recv_timeout(timeout)
             .map_err(|_| WRITE_ACK_TIMEOUT.to_string())?
     }
 
     pub fn close(&self) {
-        if let Ok(mut sender) = self.sender.lock() {
-            let _ = sender.take();
-        }
+        self.shared.close();
+        (self.cancel)();
+    }
+}
+
+impl Drop for WriteQueue {
+    fn drop(&mut self) {
+        self.close();
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::sync::{Arc, Mutex};
-
-    struct MockWriter {
-        data: Arc<Mutex<Vec<u8>>>,
-    }
-
-    impl Write for MockWriter {
-        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-            self.data.lock().unwrap().extend_from_slice(buf);
-            Ok(buf.len())
-        }
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
-
-    struct FirstWriteBarrier {
-        data: Arc<Mutex<Vec<u8>>>,
-        first_entered: mpsc::SyncSender<()>,
-        release_first: mpsc::Receiver<()>,
-        first: bool,
-    }
-
-    impl Write for FirstWriteBarrier {
-        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-            if self.first {
-                self.first = false;
-                self.first_entered.send(()).unwrap();
-                self.release_first.recv().unwrap();
-            }
-            self.data.lock().unwrap().extend_from_slice(buf);
-            Ok(buf.len())
-        }
-
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
-
-    #[test]
-    fn enqueue_callbacks_keep_payload_order_under_contention() {
-        let writes = Arc::new(Mutex::new(Vec::new()));
-        let queue = Arc::new(WriteQueue::new(Box::new(MockWriter {
-            data: writes.clone(),
-        })));
-        let callbacks = Arc::new(Mutex::new(Vec::new()));
-        let (entered_tx, entered_rx) = mpsc::sync_channel(1);
-        let (release_tx, release_rx) = mpsc::sync_channel(1);
-        let first_queue = queue.clone();
-        let first_callbacks = callbacks.clone();
-        let first = std::thread::spawn(move || {
-            first_queue
-                .send_and_wait_with_enqueued(b"first".to_vec(), Duration::from_secs(2), || {
-                    entered_tx.send(()).unwrap();
-                    release_rx.recv_timeout(Duration::from_secs(2)).unwrap();
-                    first_callbacks.lock().unwrap().push(1);
-                })
-                .unwrap();
-        });
-        entered_rx.recv_timeout(Duration::from_secs(2)).unwrap();
-        let second_queue = queue.clone();
-        let second_callbacks = callbacks.clone();
-        let second = std::thread::spawn(move || {
-            second_queue
-                .send_and_wait_with_enqueued(b"second".to_vec(), Duration::from_secs(2), || {
-                    second_callbacks.lock().unwrap().push(2);
-                })
-                .unwrap();
-        });
-        release_tx.send(()).unwrap();
-        first.join().unwrap();
-        second.join().unwrap();
-        assert_eq!(*callbacks.lock().unwrap(), [1, 2]);
-        assert_eq!(*writes.lock().unwrap(), b"firstsecond");
-    }
-
-    #[derive(Debug, PartialEq, Eq)]
-    enum RawWriteEvent {
-        Write(Vec<u8>),
-        Flush,
-    }
-
-    struct RawBoundaryWriter {
-        events: Arc<Mutex<Vec<RawWriteEvent>>>,
-        flushed: mpsc::SyncSender<usize>,
-        flushes: usize,
-    }
-
-    impl Write for RawBoundaryWriter {
-        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-            self.events
-                .lock()
-                .unwrap()
-                .push(RawWriteEvent::Write(bytes.to_vec()));
-            Ok(bytes.len())
-        }
-
-        fn flush(&mut self) -> std::io::Result<()> {
-            self.events.lock().unwrap().push(RawWriteEvent::Flush);
-            self.flushes += 1;
-            self.flushed.send(self.flushes).unwrap();
-            Ok(())
-        }
-    }
-
-    #[test]
-    fn sequential_raw_sends_preserve_write_and_flush_boundaries_in_order() {
-        let events = Arc::new(Mutex::new(Vec::new()));
-        let (flushed, observed) = mpsc::sync_channel(2);
-        let queue = WriteQueue::new(Box::new(RawBoundaryWriter {
-            events: events.clone(),
-            flushed,
-            flushes: 0,
-        }));
-
-        queue.send(b"/model".to_vec()).unwrap();
-        queue.send(b"\r".to_vec()).unwrap();
-
-        assert_eq!(observed.recv_timeout(Duration::from_secs(1)).unwrap(), 1);
-        assert_eq!(observed.recv_timeout(Duration::from_secs(1)).unwrap(), 2);
-        assert_eq!(
-            *events.lock().unwrap(),
-            [
-                RawWriteEvent::Write(b"/model".to_vec()),
-                RawWriteEvent::Flush,
-                RawWriteEvent::Write(b"\r".to_vec()),
-                RawWriteEvent::Flush,
-            ]
-        );
-    }
-
-    #[test]
-    fn send_and_receive() {
-        let collected = Arc::new(Mutex::new(Vec::new()));
-        let writer = MockWriter {
-            data: collected.clone(),
-        };
-        let queue = WriteQueue::new(Box::new(writer));
-
-        queue.send(b"hello".to_vec()).unwrap();
-        queue.send(b" world".to_vec()).unwrap();
-
-        drop(queue);
-        std::thread::sleep(std::time::Duration::from_millis(50));
-
-        assert_eq!(&*collected.lock().unwrap(), b"hello world");
-    }
-
-    #[test]
-    fn fifo_ordering() {
-        let collected = Arc::new(Mutex::new(Vec::new()));
-        let writer = MockWriter {
-            data: collected.clone(),
-        };
-        let queue = WriteQueue::new(Box::new(writer));
-
-        for i in 0..10u8 {
-            queue.send(vec![i]).unwrap();
-        }
-        drop(queue);
-        std::thread::sleep(std::time::Duration::from_millis(50));
-
-        let data = collected.lock().unwrap();
-        let expected: Vec<u8> = (0..10).collect();
-        assert_eq!(&*data, &expected);
-    }
-
-    #[test]
-    fn send_after_close_returns_error() {
-        let collected = Arc::new(Mutex::new(Vec::new()));
-        let _writer = MockWriter {
-            data: collected.clone(),
-        };
-        let (sender, _receiver) = mpsc::channel::<WriteRequest>();
-        let queue = WriteQueue {
-            sender: Mutex::new(Some(sender)),
-        };
-        drop(_receiver);
-
-        std::thread::sleep(std::time::Duration::from_millis(10));
-
-        let result = queue.send(b"test".to_vec());
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn expired_ack_wait_is_typed_and_distinct_from_a_closed_queue() {
-        let data = Arc::new(Mutex::new(Vec::new()));
-        let (entered_tx, entered_rx) = mpsc::sync_channel(1);
-        let (release_tx, release_rx) = mpsc::sync_channel(1);
-        let queue = WriteQueue::new(Box::new(FirstWriteBarrier {
-            data: data.clone(),
-            first_entered: entered_tx,
-            release_first: release_rx,
-            first: true,
-        }));
-        queue.send(b"blocker".to_vec()).unwrap();
-        entered_rx
-            .recv_timeout(Duration::from_secs(1))
-            .expect("first queue request must block at the writer");
-
-        let error = queue
-            .send_and_wait(b"queued".to_vec(), Duration::ZERO)
-            .unwrap_err();
-        assert!(is_write_ack_timeout(&error), "got: {error}");
-        assert!(!is_stale_agent_input(&error));
-
-        // The request was enqueued: once the writer unblocks, the bytes land.
-        release_tx.send(()).unwrap();
-        queue
-            .send_and_wait(b"-after".to_vec(), Duration::from_secs(1))
-            .unwrap();
-        assert_eq!(&*data.lock().unwrap(), b"blockerqueued-after");
-    }
-
-    #[test]
-    fn enqueue_notification_precedes_the_writer_acknowledgement() {
-        let data = Arc::new(Mutex::new(Vec::new()));
-        let (entered_tx, entered_rx) = mpsc::sync_channel(1);
-        let (release_tx, release_rx) = mpsc::sync_channel(1);
-        let queue = Arc::new(WriteQueue::new(Box::new(FirstWriteBarrier {
-            data,
-            first_entered: entered_tx,
-            release_first: release_rx,
-            first: true,
-        })));
-        queue.send(b"blocker".to_vec()).unwrap();
-        entered_rx.recv_timeout(Duration::from_secs(1)).unwrap();
-
-        let writer_queue = queue.clone();
-        let (queued_tx, queued_rx) = mpsc::sync_channel(1);
-        let (finished_tx, finished_rx) = mpsc::sync_channel(1);
-        let writer = std::thread::spawn(move || {
-            let result = writer_queue.send_and_wait_with_enqueued(
-                b"payload".to_vec(),
-                Duration::from_secs(2),
-                || queued_tx.send(()).unwrap(),
-            );
-            finished_tx.send(result).unwrap();
-        });
-
-        queued_rx.recv_timeout(Duration::from_secs(1)).unwrap();
-        assert!(matches!(
-            finished_rx.try_recv(),
-            Err(mpsc::TryRecvError::Empty)
-        ));
-        release_tx.send(()).unwrap();
-        finished_rx
-            .recv_timeout(Duration::from_secs(1))
-            .unwrap()
-            .unwrap();
-        writer.join().unwrap();
-    }
-
-    #[test]
-    fn frame_batch_prevents_another_request_from_splitting_paste_and_submit() {
-        let data = Arc::new(Mutex::new(Vec::new()));
-        let (entered_tx, entered_rx) = mpsc::sync_channel(1);
-        let (release_tx, release_rx) = mpsc::sync_channel(1);
-        let queue = Arc::new(WriteQueue::new(Box::new(FirstWriteBarrier {
-            data: data.clone(),
-            first_entered: entered_tx,
-            release_first: release_rx,
-            first: true,
-        })));
-        let initial_queue = queue.clone();
-        let initial = std::thread::spawn(move || {
-            initial_queue.send_frames_and_wait(
-                vec![b"paste".to_vec(), b"\r".to_vec()],
-                Duration::from_secs(5),
-            )
-        });
-        entered_rx
-            .recv_timeout(Duration::from_secs(1))
-            .expect("paste frame must reach the writer");
-
-        queue.send(b"next".to_vec()).unwrap();
-        release_tx.send(()).unwrap();
-        initial.join().unwrap().unwrap();
-        queue
-            .send_and_wait(b"tail".to_vec(), Duration::from_secs(1))
-            .unwrap();
-
-        assert_eq!(&*data.lock().unwrap(), b"paste\rnexttail");
-    }
-
-    #[test]
-    fn revoked_permit_writes_no_bytes_and_keeps_queue_live() {
-        let data = Arc::new(Mutex::new(Vec::new()));
-        let (entered_tx, entered_rx) = mpsc::sync_channel(1);
-        let (release_tx, release_rx) = mpsc::sync_channel(1);
-        let queue = WriteQueue::new(Box::new(FirstWriteBarrier {
-            data: data.clone(),
-            first_entered: entered_tx,
-            release_first: release_rx,
-            first: true,
-        }));
-        queue.send(b"first".to_vec()).unwrap();
-        entered_rx
-            .recv_timeout(Duration::from_secs(1))
-            .expect("first queue request must block at the writer");
-
-        let gate = GuardedInputGate::default();
-        gate.rearm();
-        let permit = gate.issue().unwrap();
-        let (done_tx, done_rx) = mpsc::sync_channel(1);
-        queue
-            .sender
-            .lock()
-            .unwrap()
-            .as_ref()
-            .unwrap()
-            .send(WriteRequest {
-                frames: vec![b"envelope".to_vec()],
-                permit: Some(permit),
-                completed: Some(done_tx),
-            })
-            .unwrap();
-        gate.invalidate();
-        release_tx.send(()).unwrap();
-
-        assert_eq!(
-            done_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
-            Err(STALE_AGENT_INPUT.into())
-        );
-        queue
-            .send_and_wait(b"after".to_vec(), Duration::from_secs(1))
-            .expect("stale guarded request must not close the write queue");
-        assert_eq!(&*data.lock().unwrap(), b"firstafter");
-    }
-}
+mod tests;

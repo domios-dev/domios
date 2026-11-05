@@ -169,7 +169,7 @@ fn executor_termination_requires_exact_attempt_and_receipt_identity() {
     let source = plan.tasks[0].execution_attempts[0].clone();
     let database = fixtures::database(directory.path(), &plan);
     assert!(database
-        .executor_termination_confirmed(&plan.id, "named", &source)
+        .executor_termination_confirmed(&plan.id, "named", (&source).into())
         .unwrap());
     for field in ["id", "tab", "session", "nonce", "peer"] {
         let mut changed = source.clone();
@@ -181,7 +181,7 @@ fn executor_termination_requires_exact_attempt_and_receipt_identity() {
             _ => changed.mesh_peer = Some("remote".into()),
         }
         assert!(!database
-            .executor_termination_confirmed(&plan.id, "task_exact", &changed)
+            .executor_termination_confirmed(&plan.id, "task_exact", (&changed).into())
             .unwrap());
     }
     plan.tasks[0].execution_attempts[0]
@@ -191,14 +191,14 @@ fn executor_termination_requires_exact_attempt_and_receipt_identity() {
         .session_binding_nonce = Some("stale".into());
     database.persist_plan_rows(&plan, None).unwrap();
     assert!(!database
-        .executor_termination_confirmed(&plan.id, "task_exact", &source)
+        .executor_termination_confirmed(&plan.id, "task_exact", (&source).into())
         .unwrap());
     assert!(matches!(
-        database.executor_termination_confirmed("missing", "task_exact", &source),
+        database.executor_termination_confirmed("missing", "task_exact", (&source).into()),
         Err(PlanError::NotFound)
     ));
     assert!(matches!(
-        database.executor_termination_confirmed(&plan.id, "missing", &source),
+        database.executor_termination_confirmed(&plan.id, "missing", (&source).into()),
         Err(PlanError::TaskNotFound)
     ));
 }
@@ -240,7 +240,7 @@ fn authority_reads_ignore_unrequested_prose_and_selected_and_unrelated_history_g
             .current_skill_attempt("worker", "session", "nonce")
             .unwrap();
         let terminated = database
-            .executor_termination_confirmed(&plan.id, "task_0000", &source)
+            .executor_termination_confirmed(&plan.id, "task_0000", (&source).into())
             .unwrap();
         assert_eq!(owner.owner_epoch, 7);
         assert_eq!(
@@ -310,7 +310,7 @@ fn authority_identity_and_termination_reads_observe_committed_snapshots() {
             );
         }
         database
-            .executor_termination_confirmed(&plan.id, "task_exact", &source)
+            .executor_termination_confirmed(&plan.id, "task_exact", (&source).into())
             .unwrap();
         barrier.wait();
     }
@@ -324,7 +324,7 @@ fn authority_identity_and_termination_reads_observe_committed_snapshots() {
         .current_skill_attempt("worker", "session", "nonce")
         .is_err());
     assert!(database
-        .executor_termination_confirmed(&plan.id, "task_exact", &source)
+        .executor_termination_confirmed(&plan.id, "task_exact", (&source).into())
         .is_err());
 }
 
@@ -884,3 +884,12 @@ mod lifecycle;
 mod launch;
 
 mod deadline;
+
+mod live_bindings;
+
+mod worker_preparation;
+
+mod closed_cleanup;
+
+mod dispatch_preflight;
+mod task_display;

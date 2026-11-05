@@ -252,6 +252,8 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
   const installFailureRef = useRef(false);
   const installErrorRevisionRef = useRef(0);
   const nativeErrorRevisionRef = useRef<string | null>(null);
+  const mountedRef = useRef(false);
+  const checkRevisionRef = useRef(0);
   const captureFailureBoundary = useCallback((): UpdateFailureBoundary => ({
     frontendRevision: installErrorRevisionRef.current,
     nativeRevision: nativeErrorRevisionRef.current,
@@ -261,7 +263,13 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
     installingRef.current = installing;
   }, [installing]);
 
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; checkRevisionRef.current++; };
+  }, []);
+
   const handleInfo = useCallback((next: UpdateInfo) => {
+    checkRevisionRef.current++;
     setInfo(next);
     if (installingRef.current || installFailureRef.current) return;
     setStatus(next.update_available ? "available" : "up-to-date");
@@ -270,6 +278,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
   const refresh = useCallback(
     async (force = false, opts?: { silent?: boolean; retirementBoundary?: UpdateFailureBoundary }): Promise<void> => {
       if (installingRef.current) return;
+      const checkRevision = ++checkRevisionRef.current;
       const silent = opts?.silent ?? false;
       if (!installFailureRef.current) {
         if (!silent) setStatus("checking");
@@ -278,6 +287,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
       const boundary = opts?.retirementBoundary ?? captureFailureBoundary();
       try {
         const data: unknown = await checkForUpdate(force, channelRef.current ?? undefined, boundary.nativeRevision);
+        if (!mountedRef.current || checkRevision !== checkRevisionRef.current) return;
         if (!isUpdateInfo(data)) throw new Error("Malformed update info");
         if (force && !data.update_available && installFailureRef.current
           && boundary.frontendRevision === installErrorRevisionRef.current && !installingRef.current) {
@@ -288,6 +298,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
         }
         handleInfo(data);
       } catch (e) {
+        if (!mountedRef.current || checkRevision !== checkRevisionRef.current) return;
         if (installFailureRef.current) return;
         if (!classifyUpdateFailure(silent ? "background" : "check", e)) {
           if (DEV_BUILD) console.debug("Background update check failed", e);
@@ -435,6 +446,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
 
   const applyUpdate = useCallback(async (opts?: { failureSurface: "inline" | "toast" }): Promise<InstallResponse | null> => {
     if (installingRef.current) return { status: "already_in_flight" };
+    checkRevisionRef.current++;
     installingRef.current = true;
     setNativeStatusObserved(false);
     userInstallRef.current = opts?.failureSurface !== "inline";

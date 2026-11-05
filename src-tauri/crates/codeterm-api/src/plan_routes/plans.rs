@@ -3,6 +3,7 @@ use axum::{
     http::{HeaderMap, StatusCode},
     Json,
 };
+use codeterm_plan::service_plan::state::window::StateWindowRequest;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -418,9 +419,10 @@ fn resolve_ref(
             owner_session_id,
         },
         ResolveTargetKind::Task => {
-            let task = item.target_id.as_deref().and_then(|task_id| {
-                codeterm_service_core::plan::task_key::find_task(&plan.tasks, task_id)
-            });
+            let task = item
+                .target_id
+                .as_deref()
+                .and_then(|task_id| plan.task(task_id));
             let task_title = task
                 .map(|task| task.name.trim())
                 .filter(|title| !title.is_empty())
@@ -498,18 +500,12 @@ fn classify_load_error(error: &PlanError) -> &'static str {
 }
 
 fn find_section<'a>(
-    sections: &'a [codeterm_service_core::plan::Section],
+    sections: &'a [codeterm_service_core::service::plan::ui_projections::ReferenceSectionRead],
     section_id: &str,
-) -> Option<&'a codeterm_service_core::plan::Section> {
-    for section in sections {
-        if section.id == section_id || section.handle.as_deref() == Some(section_id) {
-            return Some(section);
-        }
-        if let Some(found) = find_section(&section.subsections, section_id) {
-            return Some(found);
-        }
-    }
-    None
+) -> Option<&'a codeterm_service_core::service::plan::ui_projections::ReferenceSectionRead> {
+    sections
+        .iter()
+        .find(|section| section.id == section_id || section.handle.as_deref() == Some(section_id))
 }
 
 #[cfg(test)]
@@ -543,11 +539,12 @@ pub async fn state(
     AxumState(state): AxumState<AppState>,
     _headers: HeaderMap,
     Path(id): Path<String>,
+    Query(window): Query<StateWindowRequest>,
 ) -> PlanRouteResult {
     crate::plan_routes::run_blocking(move || {
         let snapshot = state
             .svc
-            .build_plan_state(&id, epoch_ms())
+            .build_plan_state_with_window(&id, epoch_ms(), window)
             .map_err(plan_err)?;
         Ok(Json(serde_json::to_value(snapshot).unwrap_or_default()))
     })
@@ -558,16 +555,16 @@ pub async fn next(
     AxumState(state): AxumState<AppState>,
     _headers: HeaderMap,
     Path(id): Path<String>,
+    Query(window): Query<StateWindowRequest>,
 ) -> PlanRouteResult {
     crate::plan_routes::run_blocking(move || {
         let snapshot = state
             .svc
-            .build_plan_state(&id, epoch_ms())
+            .build_plan_state_with_window(&id, epoch_ms(), window)
             .map_err(plan_err)?;
-        Ok(Json(serde_json::json!({
-            "plan_id": id,
-            "next_actions": snapshot.next_actions,
-        })))
+        Ok(Json(
+            serde_json::to_value(snapshot.into_next_actions()).unwrap_or_default(),
+        ))
     })
     .await
 }

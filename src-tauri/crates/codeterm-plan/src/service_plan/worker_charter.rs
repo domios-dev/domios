@@ -1,6 +1,23 @@
 use super::prompts_plan;
 use super::PlanStore;
-use crate::plan::LoopSpec;
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct LoopCharterRead {
+    pub id: String,
+    pub budget: u32,
+    pub count: u32,
+    pub stop_when: Option<String>,
+}
+
+impl From<&crate::plan::LoopSpec> for LoopCharterRead {
+    fn from(loop_spec: &crate::plan::LoopSpec) -> Self {
+        Self {
+            id: loop_spec.id.clone(),
+            budget: loop_spec.budget,
+            count: loop_spec.count,
+            stop_when: loop_spec.stop_when.clone(),
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 struct WorkerAssignmentContext {
@@ -9,12 +26,12 @@ struct WorkerAssignmentContext {
     personality: Option<String>,
     role_guidance: Option<String>,
     strides: Option<String>,
-    loop_spec: Option<LoopSpec>,
+    loop_spec: Option<LoopCharterRead>,
     live_attempt_count: usize,
     skill_count: usize,
 }
 
-fn loop_stop_when_text(loop_spec: &LoopSpec) -> &str {
+fn loop_stop_when_text(loop_spec: &LoopCharterRead) -> &str {
     loop_spec
         .stop_when
         .as_deref()
@@ -23,15 +40,15 @@ fn loop_stop_when_text(loop_spec: &LoopSpec) -> &str {
         .unwrap_or("(none recorded)")
 }
 
-pub(super) fn loop_id_line(loop_spec: &LoopSpec) -> String {
+pub(super) fn loop_id_line(loop_spec: &LoopCharterRead) -> String {
     format!("- loop_id: {}", loop_spec.id)
 }
 
-pub(super) fn loop_iteration_line(loop_spec: &LoopSpec) -> String {
+pub(super) fn loop_iteration_line(loop_spec: &LoopCharterRead) -> String {
     format!("- iteration: {}/{}", loop_spec.count, loop_spec.budget)
 }
 
-pub(super) fn loop_stop_when_line(loop_spec: &LoopSpec) -> String {
+pub(super) fn loop_stop_when_line(loop_spec: &LoopCharterRead) -> String {
     format!("- stop_when: {}", loop_stop_when_text(loop_spec))
 }
 
@@ -39,7 +56,7 @@ pub(super) fn competitive_attempt_count_line(live_attempt_count: usize) -> Strin
     format!("- this task currently has {live_attempt_count} live attempts.")
 }
 
-fn render_loop_context(loop_spec: &LoopSpec) -> String {
+fn render_loop_context(loop_spec: &LoopCharterRead) -> String {
     format!(
         "{}\n{}\n{}\n{}\n- {}\n",
         prompts_plan::WORKER_LOOP_CONTEXT_TITLE,
@@ -69,7 +86,7 @@ fn render_competitive_context(live_attempt_count: usize) -> String {
 pub fn render_worker_charter(
     task_id: &str,
     identity: Option<&str>,
-    loop_spec: Option<&LoopSpec>,
+    loop_spec: Option<&LoopCharterRead>,
     live_attempt_count: usize,
     skill_count: usize,
 ) -> String {
@@ -104,8 +121,12 @@ pub fn render_worker_charter(
 pub(super) struct WorkerAssignmentRead {
     pub(super) plan_id: String,
     pub(super) state_dir: std::path::PathBuf,
-    pub(super) task: crate::plan::Task,
-    pub(super) loop_spec: Option<LoopSpec>,
+    pub(super) task_id: String,
+    pub(super) task_name: String,
+    pub(super) personality: Option<String>,
+    pub(super) role_guidance: Option<String>,
+    pub(super) milestones: Vec<crate::plan::Milestone>,
+    pub(super) loop_spec: Option<LoopCharterRead>,
     pub(super) live_attempt_count: usize,
 }
 
@@ -118,44 +139,51 @@ impl PlanStore {
         tab_id: &str,
         text: &str,
     ) -> Result<String, super::PlanError> {
-        let Some(read) = self.database.worker_assignment_projection(tab_id)? else {
-            return Ok(text.to_string());
-        };
-        let context = WorkerAssignmentContext {
-            task_id: read.task.id.clone(),
-            task_name: read.task.name.clone(),
-            personality: read.task.personality.clone(),
-            role_guidance: read.task.role_guidance.clone(),
-            strides: super::stride_context::render_worker_strides(&read.task.milestones),
-            loop_spec: read.loop_spec,
-            live_attempt_count: read.live_attempt_count,
-            skill_count: if read.plan_id.trim().is_empty() {
-                0
-            } else {
-                super::skill_registry::count_plan_skills(&read.state_dir)
-            },
-        };
-        let identity = super::worker_identity::compose_worker_identity(
-            context.personality.as_deref(),
-            context.role_guidance.as_deref(),
-            Some(context.task_name.as_str()),
-        );
-        let mut charter = render_worker_charter(
-            &context.task_id,
-            identity.as_deref(),
-            context.loop_spec.as_ref(),
-            context.live_attempt_count,
-            context.skill_count,
-        );
-        if let Some(strides) = context.strides.as_deref() {
-            charter = format!("{charter}\n\n{strides}");
-        }
-        Ok(if text.trim().is_empty() {
-            charter
-        } else {
-            format!("{charter}\n\n{text}")
-        })
+        prepend_assignment(self.database.worker_assignment_projection(tab_id)?, text)
     }
+}
+
+pub(super) fn prepend_assignment(
+    read: Option<WorkerAssignmentRead>,
+    text: &str,
+) -> Result<String, super::PlanError> {
+    let Some(read) = read else {
+        return Ok(text.to_string());
+    };
+    let context = WorkerAssignmentContext {
+        task_id: read.task_id.clone(),
+        task_name: read.task_name.clone(),
+        personality: read.personality.clone(),
+        role_guidance: read.role_guidance.clone(),
+        strides: super::stride_context::render_worker_strides(&read.milestones),
+        loop_spec: read.loop_spec,
+        live_attempt_count: read.live_attempt_count,
+        skill_count: if read.plan_id.trim().is_empty() {
+            0
+        } else {
+            super::skill_registry::count_plan_skills(&read.state_dir)
+        },
+    };
+    let identity = super::worker_identity::compose_worker_identity(
+        context.personality.as_deref(),
+        context.role_guidance.as_deref(),
+        Some(context.task_name.as_str()),
+    );
+    let mut charter = render_worker_charter(
+        &context.task_id,
+        identity.as_deref(),
+        context.loop_spec.as_ref(),
+        context.live_attempt_count,
+        context.skill_count,
+    );
+    if let Some(strides) = context.strides.as_deref() {
+        charter = format!("{charter}\n\n{strides}");
+    }
+    Ok(if text.trim().is_empty() {
+        charter
+    } else {
+        format!("{charter}\n\n{text}")
+    })
 }
 
 #[cfg(test)]

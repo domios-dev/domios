@@ -19,9 +19,9 @@
     }
   ],
   "target": {
-    "user_version": 4,
-    "schema_fingerprint": "5ce5f5193eb8684ff33e97ad98ea27d0b36c222bb723a3f7908db31edd943ece",
-    "fixture": "forward-v4.sql"
+    "user_version": 5,
+    "schema_fingerprint": "edb27757e0fda9ffe4b8e5cf49271a30248767b44aa4b023a521db333cfd17fb",
+    "fixture": "forward-v5.sql"
   },
   "migrations": [
     {
@@ -81,6 +81,23 @@
         "forward-v3.sql"
       ],
       "creation_fingerprint": "140a8cde7f72a4cdfe6193b14143f5aed22df80a54b6cfcfe20e224511fb0777"
+    },
+    {
+      "user_version": 5,
+      "schema_fingerprint": "edb27757e0fda9ffe4b8e5cf49271a30248767b44aa4b023a521db333cfd17fb",
+      "fixture": "forward-v5.sql",
+      "id": "005-board-event-indexes",
+      "step": "005-board-event-indexes.sql",
+      "strategy": "Atomic registered forward step",
+      "from_fixtures": [
+        "v1.18.6.sql",
+        "v1.18.7.sql",
+        "supported-v0.sql",
+        "forward-v2.sql",
+        "forward-v3.sql",
+        "forward-v4.sql"
+      ],
+      "creation_fingerprint": "140a8cde7f72a4cdfe6193b14143f5aed22df80a54b6cfcfe20e224511fb0777"
     }
   ],
   "registered_steps": [
@@ -115,6 +132,14 @@
       "schema": "004.sql",
       "schema_sha256": "0571e3d3d4c319f61b61f10b7eed7e205949188b5015f188e12ab49e3fe3a33d",
       "registration_sha256": "22a5b77e7bc00ca74d5a0b5d91c99a49f80b01a88c5382d1d5091612521a54b7"
+    },
+    {
+      "version": 5,
+      "step": "005-board-event-indexes.sql",
+      "sha256": "b11c8955d3a18c10c0c64ea598b8357d5ad3bb2573a1e916ee10f3695bbd71d9",
+      "schema": "005.sql",
+      "schema_sha256": "05657fe7d493a5bff934e67887ab059021f63aade366178380a789fabc0fe19f",
+      "registration_sha256": "de23862b17079615f6f862d468c40ae6b98a6afd68b9d3d2b3f854f3cc01db01"
     }
   ]
 }

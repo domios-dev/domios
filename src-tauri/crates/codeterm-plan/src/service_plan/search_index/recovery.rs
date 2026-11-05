@@ -152,13 +152,12 @@ pub(super) fn prune_project(root: &Path, live: &HashSet<String>) -> Result<(), S
     apply_unit_changes(root, conn, existing, &[], false).map(drop)
 }
 
-pub(super) fn purge_plan_indexes(plan: &Plan, specs: &[Spec]) -> Result<(), String> {
-    let mut indexes = HashSet::from([project_index_path(plan_project_root(plan))]);
-    indexes.extend(
-        specs
-            .iter()
-            .map(|spec| project_index_path(spec_project_root(spec))),
-    );
+pub(super) fn purge_plan_indexes(
+    plan: &PlanIndexRemoval,
+    specs: &[(String, PathBuf)],
+) -> Result<(), String> {
+    let mut indexes = HashSet::from([project_index_path(&plan.root)]);
+    indexes.extend(specs.iter().map(|(_, root)| project_index_path(root)));
     let directory = port().data_dir().join("plan-indexes");
     match std::fs::read_dir(&directory) {
         Ok(entries) => {
@@ -174,7 +173,7 @@ pub(super) fn purge_plan_indexes(plan: &Plan, specs: &[Spec]) -> Result<(), Stri
         Err(error) => return Err(format!("read plan indexes: {error}")),
     }
     let entities = std::iter::once(plan.id.as_str())
-        .chain(specs.iter().map(|spec| spec.id.as_str()))
+        .chain(specs.iter().map(|(id, _)| id.as_str()))
         .collect::<HashSet<_>>();
     purge_indexes(
         &plan.id,

@@ -36,9 +36,12 @@ pub struct Session {
     pub(super) login: Mutex<super::login::LoginState>,
     pub thread_loaded: std::sync::atomic::AtomicBool,
     pub hook_state: Mutex<Value>,
+    pub(super) stream_progress: tokio::sync::watch::Sender<u64>,
+    pub(super) turn_requests: Mutex<HashMap<String, Arc<super::turn_requests::PendingTurn>>>,
     pub maps: Mutex<super::events::RuntimeMaps>,
     pub(super) provider_operation_failures: std::sync::atomic::AtomicU32,
     pub(super) bookkeeping_warning_emitted: std::sync::atomic::AtomicBool,
+    pub(super) transcript_io: super::transcript::TranscriptIo,
     pub prompts: Mutex<HashMap<RpcId, OutstandingRequest>>,
     pub(super) prompts_cancelled: std::sync::atomic::AtomicBool,
     pub process: ProcessSlot<Arc<Process>>,
@@ -260,6 +263,12 @@ async fn stop_session(
         return Err(RuntimeFailure::Superseded.to_string());
     }
     cancel_stop_retry(svc, tab);
+    super::turn_requests::end_for_lifecycle(
+        svc,
+        &session,
+        "Runtime stopped before the turn completion reply",
+    )
+    .await;
     let permit = session.gate.try_acquire().ok();
     session.gate.close();
     let process = session.process.lock().clone();
@@ -303,9 +312,13 @@ async fn stop_session(
         .map_err(|error| error.to_string())
         .and_then(|result| result);
     super::login::forget(&session);
-    session.state.lock().phase = RuntimePhase::Unloaded {
-        reason: Some("Runtime stopped".into()),
-    };
+    {
+        let mut state = session.state.lock();
+        state.failure_code = None;
+        state.phase = RuntimePhase::Unloaded {
+            reason: Some("Runtime stopped".into()),
+        };
+    }
     session.control_changes.send_replace(());
     session.process.close();
     cli_cleanup
@@ -416,6 +429,8 @@ async fn ensure_with_fork(
                     reverted_thread: Mutex::new(None),
                     completions: Mutex::new(Default::default()),
                     context: Mutex::new(RuntimeContext {
+                        restored_row_ordinal: None,
+                        stream_window: None,
                         host_mcp: None,
                         client_bridges: None,
                         restricted_cli: None,
@@ -439,10 +454,13 @@ async fn ensure_with_fork(
                     auth: Mutex::new(RuntimeAuthState::Unknown),
                     login: Mutex::new(Default::default()),
                     thread_loaded: std::sync::atomic::AtomicBool::new(false),
+                    stream_progress: tokio::sync::watch::channel(0).0,
+                    turn_requests: Mutex::new(HashMap::new()),
                     hook_state: Mutex::new(Value::Null),
                     maps: Mutex::new(super::events::RuntimeMaps::default()),
                     provider_operation_failures: std::sync::atomic::AtomicU32::new(0),
                     bookkeeping_warning_emitted: std::sync::atomic::AtomicBool::new(false),
+                    transcript_io: Default::default(),
                     prompts: Mutex::new(HashMap::new()),
                     prompts_cancelled: std::sync::atomic::AtomicBool::new(false),
                     process: ProcessSlot::new(None),
@@ -559,6 +577,12 @@ async fn ensure_locked(
             old.finish().await?;
             cancelled?;
         }
+        super::turn_requests::end_for_lifecycle(
+            svc,
+            session,
+            "Runtime epoch replaced before the turn completion reply",
+        )
+        .await;
         let epoch = {
             let mut state = session.state.lock();
             state.binary_version = None;
@@ -582,6 +606,7 @@ async fn ensure_locked(
             context.active_turns.clear();
             context.thread_parents.clear();
         }
+        session.stream_progress.send_replace(0);
         super::declared_controls::reset(session, epoch);
         session
             .thread_loaded
@@ -642,7 +667,8 @@ async fn ensure_locked(
                 .ok_or_else(|| RuntimeFailure::SpawnFailed {
                     reason: "Runtime cwd missing".into(),
                 })?;
-            let mut env = super::environment::compose(&owner, &target, &provider_id, &nonce);
+            let mut env = super::environment::compose(&owner, &target, &provider_id, &nonce)
+                .map_err(|reason| RuntimeFailure::SpawnFailed { reason })?;
             env.extend(
                 owner
                     .model_provider_launch_env(&provider_id)
@@ -680,6 +706,7 @@ async fn ensure_locked(
                 &target,
                 &nonce,
                 crate::service::instance_env::instance_cli_binary_path(),
+                &env,
             );
             super::process::spawn(&launch.binary, &launch.capability, &cwd, env, &target)
                 .map(|process| (Arc::new(process), host_mcp))
@@ -725,6 +752,7 @@ async fn ensure_locked(
     session
         .initialization
         .ensure(|| async {
+            super::transcript::restore(session).await?;
             let result = run(
                 svc,
                 provider,

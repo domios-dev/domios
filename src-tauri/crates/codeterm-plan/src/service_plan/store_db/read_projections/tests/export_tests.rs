@@ -94,7 +94,6 @@ fn full_export_preserves_record_shape_history_order_and_requested_plan_order() {
     ));
     assert!(store.export_plan_documents(&[]).unwrap().is_empty());
     assert!(store.plan_loads_for_test().is_empty());
-    assert!(store.cached_plan_ids_for_test().is_empty());
     assert!(fixtures::audit_counts(&database).is_empty());
 }
 

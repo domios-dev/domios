@@ -30,6 +30,13 @@ fn search_snapshot_matches_index_output_without_attempt_or_plan_stride_materiali
         super::super::super::super::store_rows::take_serialized_row_bytes();
         let snapshot = database.search_snapshot(&plan.id).unwrap();
         let response_bytes = snapshot.assert_matches(&full);
+        snapshot.assert_section_ordinals_for_test(&[
+            ("sec_a", "Root", 1),
+            ("sec_b", "Nested", 2),
+            ("sec_c", "Leaf", 3),
+            ("sec_d", "Sibling", 4),
+            ("sec_e", "Other", 5),
+        ]);
         let metrics = take_metrics();
         let decoded = super::super::super::super::store_sync::take_decoded_row_bytes();
         let serialized = super::super::super::super::store_rows::take_serialized_row_bytes();

@@ -14,14 +14,14 @@ use tokio::{io::AsyncReadExt, sync::watch};
 pub struct Process {
     pub client: Client,
     pub ended: watch::Receiver<Option<RuntimeFailure>>,
-    stop: watch::Sender<bool>,
+    stop: watch::Sender<Option<bool>>,
     turn_members: parking_lot::Mutex<Vec<super::process_boundary::Member>>,
     boundary: Option<Arc<super::process_boundary::Boundary>>,
 }
 impl Process {
     #[cfg(test)]
     pub(super) fn for_test(client: Client) -> Self {
-        let (stop, mut stopping) = watch::channel(false);
+        let (stop, mut stopping) = watch::channel(None::<bool>);
         let (ended, exit) = watch::channel(None);
         let dying = client.clone();
         crate::async_runtime::spawn(async move {
@@ -30,7 +30,7 @@ impl Process {
                 code: Some(0),
                 signal: None,
                 stderr: String::new(),
-                requested: true,
+                requested: stopping.borrow().unwrap_or(false),
             };
             dying.close(reason.clone());
             ended.send_replace(Some(reason));
@@ -83,10 +83,19 @@ impl Process {
     }
 
     pub fn stop(&self) {
-        self.stop.send_replace(true);
+        self.signal_stop(true);
+    }
+    fn signal_stop(&self, requested: bool) {
+        signal_stop(&self.stop, requested);
     }
     pub async fn finish(&self) -> Result<(), RuntimeFailure> {
-        self.stop();
+        self.finish_with_intent(true).await
+    }
+    pub(super) async fn finish_after_failure(&self) -> Result<(), RuntimeFailure> {
+        self.finish_with_intent(false).await
+    }
+    async fn finish_with_intent(&self, requested: bool) -> Result<(), RuntimeFailure> {
+        self.signal_stop(requested);
         let mut ended = self.ended.clone();
         tokio::time::timeout(Duration::from_secs(10), async {
             while ended.borrow_and_update().is_none() {
@@ -158,6 +167,10 @@ pub fn spawn(
         }
     }
     let effective = effective_env(command.as_std());
+    let credential = effective
+        .get("CODETERM_API_TOKEN")
+        .cloned()
+        .unwrap_or_default();
     let exclusions = cap
         .inherited_environment_exclusions
         .iter()
@@ -213,18 +226,25 @@ pub fn spawn(
     let mut stderr = child.stderr.take().ok_or(RuntimeFailure::PipeEof)?;
     let output = Arc::new(Mutex::new(Vec::new()));
     let captured = output.clone();
+    let stderr_credential = credential.clone();
     let stderr_reader = crate::async_runtime::spawn(async move {
         let mut bytes = [0u8; 4096];
+        let mut pending = Vec::new();
         while let Ok(count) = stderr.read(&mut bytes).await {
             if count == 0 {
                 break;
             }
-            append_stderr(&mut captured.lock(), &bytes[..count]);
+            append_stderr(
+                &mut captured.lock(),
+                &bytes[..count],
+                stderr_credential.as_bytes(),
+                &mut pending,
+            );
         }
     });
-    let client = Client::attach_with_envelope(reader, writer, cap.envelope.clone());
+    let client = Client::attach_redacted(reader, writer, cap.envelope.clone(), credential.clone());
     let dying = client.clone();
-    let (stop, mut stopping) = watch::channel(false);
+    let (stop, mut stopping) = watch::channel(None::<bool>);
     let (ended, exit) = watch::channel(None);
     #[cfg(debug_assertions)]
     let process_tab = _tab.to_string();
@@ -246,14 +266,19 @@ pub fn spawn(
     let retiring = boundary.clone();
     crate::async_runtime::spawn(async move {
         #[cfg(unix)]
-        let retirement = {
-            tokio::select! {_=stopping.changed()=>{},_=&mut witnessed=>{}}
-            let owned = retiring.clone();
-            tokio::task::spawn_blocking(move || owned.retire()).await
+        let requested = tokio::select! {
+            biased;
+            _ = &mut witnessed => false,
+            _ = stopping.changed() => stopping.borrow().unwrap_or(false),
         };
         #[cfg(windows)]
+        let requested = tokio::select! {
+            biased;
+            _ = child.wait() => false,
+            _ = stopping.changed() => stopping.borrow().unwrap_or(false),
+        };
+        // Cleanup may request termination after pipe EOF; it cannot rewrite the observed cause.
         let retirement = {
-            tokio::select! {_=stopping.changed()=>{},_=child.wait()=>{}}
             let owned = retiring.clone();
             tokio::task::spawn_blocking(move || owned.retire()).await
         };
@@ -280,8 +305,15 @@ pub fn spawn(
                     RuntimeFailure::ProcessExited {
                         code: status.code(),
                         signal,
-                        stderr: String::from_utf8_lossy(&output.lock()).into_owned(),
-                        requested: *stopping.borrow(),
+                        stderr: {
+                            let text = String::from_utf8_lossy(&output.lock()).into_owned();
+                            if credential.is_empty() {
+                                text
+                            } else {
+                                text.replace(&credential, "[redacted]")
+                            }
+                        },
+                        requested,
                     }
                 }
                 Err(error) => RuntimeFailure::PipeFailure {
@@ -329,7 +361,32 @@ fn effective_env(command: &std::process::Command) -> HashMap<String, String> {
     }
     env
 }
-fn append_stderr(output: &mut Vec<u8>, bytes: &[u8]) {
+fn append_stderr(output: &mut Vec<u8>, bytes: &[u8], credential: &[u8], pending: &mut Vec<u8>) {
+    if credential.is_empty() {
+        append_stderr_tail(output, bytes);
+        return;
+    }
+    pending.extend_from_slice(bytes);
+    let mut start = 0;
+    while let Some(offset) = pending[start..]
+        .windows(credential.len())
+        .position(|window| window == credential)
+    {
+        let end = start + offset;
+        append_stderr_tail(output, &pending[start..end]);
+        append_stderr_tail(output, b"[redacted]");
+        start = end + credential.len();
+    }
+    let overlap = (1..credential.len().min(pending.len() - start + 1))
+        .rev()
+        .find(|&length| pending[start..].ends_with(&credential[..length]))
+        .unwrap_or(0);
+    let end = pending.len() - overlap;
+    append_stderr_tail(output, &pending[start..end]);
+    pending.drain(..end);
+}
+
+fn append_stderr_tail(output: &mut Vec<u8>, bytes: &[u8]) {
     let bytes = &bytes[bytes.len().saturating_sub(8192)..];
     let retained = 8192 - bytes.len();
     output.drain(..output.len().saturating_sub(retained));
@@ -341,3 +398,13 @@ mod tests;
 
 #[cfg(test)]
 pub(crate) mod test_ports;
+
+fn signal_stop(stop: &watch::Sender<Option<bool>>, requested: bool) {
+    stop.send_if_modified(|intent| {
+        if intent.is_some() {
+            return false;
+        }
+        *intent = Some(requested);
+        true
+    });
+}

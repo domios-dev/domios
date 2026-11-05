@@ -211,16 +211,72 @@ function modelOption(settings) {
 }
 function sessionSettings(value) {
   const response = object2(value), modes = object2(response.modes);
+  const seen = /* @__PURE__ */ new Set();
   const declared = Array.isArray(response.configOptions) ? configOptions(response.configOptions) : void 0;
   const model = modelOption({ configOptions: declared })?.currentValue;
   return {
     ...declared ? { configOptions: declared, ...model ? { model } : {} } : {},
-    ...Array.isArray(modes.availableModes) ? { modes: list(modes.availableModes, 64).flatMap((mode) => label(mode.id) && label(mode.name) ? [{ id: mode.id, name: mode.name }] : []) } : {},
-    ...label(modes.currentModeId) ? { mode: modes.currentModeId } : {}
+    ...Array.isArray(modes.availableModes) ? { modes: list(modes.availableModes, 64).flatMap((mode) => {
+      if (!label(mode.id) || !label(mode.name) || seen.has(mode.id)) return [];
+      seen.add(mode.id);
+      return [{ id: mode.id, name: mode.name }];
+    }) } : {},
+    ...label(modes.currentModeId) && seen.has(modes.currentModeId) ? { mode: modes.currentModeId } : {}
   };
 }
 function authentication(methods2, authenticated, required) {
   return { state: authenticationState(methods2, { authenticated, required }), methods: methods2.map((method) => ({ id: method.id, name: method.name, available: method.type === "agent" })) };
+}
+
+// plugins/provider-acp/src/runtimeReduceAccounting.ts
+var mapKeys = ["items", "controls", "warnings", "offsetById"];
+var totalsByState = /* @__PURE__ */ new WeakMap();
+function utf8Length(value) {
+  let bytes = 0;
+  for (let index = 0; index < value.length; ) {
+    const code = value.codePointAt(index);
+    bytes += code <= 127 ? 1 : code <= 2047 ? 2 : code <= 65535 ? 3 : 4;
+    index += code > 65535 ? 2 : 1;
+  }
+  return bytes;
+}
+function contribution(id, value) {
+  if (value === void 0 || typeof value === "function" || typeof value === "symbol") return 0;
+  return utf8Length(JSON.stringify({ [id]: value })) - 1;
+}
+function totals(state) {
+  let cached = totalsByState.get(state);
+  if (!cached) {
+    cached = { items: 0, controls: 0, warnings: 0, offsetById: 0 };
+    for (const key of mapKeys) for (const [id, value] of Object.entries(state[key])) cached[key] += contribution(id, value);
+    totalsByState.set(state, cached);
+  }
+  return cached;
+}
+function copyAccounting(source, target) {
+  totalsByState.set(target, { ...totals(source) });
+}
+function forgetAccounting(state) {
+  if (state !== null && typeof state === "object") totalsByState.delete(state);
+}
+function mapBytes(state, key) {
+  const total = totals(state)[key];
+  return total ? total + 1 : 2;
+}
+function putEntry(state, key, id, value) {
+  const cached = totals(state);
+  cached[key] += contribution(id, value) - contribution(id, state[key][id]);
+  state[key][id] = value;
+}
+function removeEntry(state, key, id) {
+  const before = mapBytes(state, key), cached = totals(state);
+  cached[key] -= contribution(id, state[key][id]);
+  delete state[key][id];
+  return mapBytes(state, key) - before;
+}
+function clearEntries(state, key) {
+  totals(state)[key] = 0;
+  state[key] = /* @__PURE__ */ Object.create(null);
 }
 
 // plugins/provider-acp/src/runtimeReduce.ts
@@ -238,7 +294,7 @@ function initial(ctx, raw, cursor) {
       ordinal: 0,
       seq: 0,
       items: /* @__PURE__ */ Object.create(null),
-      textById: /* @__PURE__ */ Object.create(null),
+      offsetById: /* @__PURE__ */ Object.create(null),
       warnings: /* @__PURE__ */ Object.create(null),
       controls: /* @__PURE__ */ Object.create(null),
       evidenced: [],
@@ -252,7 +308,7 @@ function initial(ctx, raw, cursor) {
   const copy = {
     ...state,
     items: Object.assign(/* @__PURE__ */ Object.create(null), state.items),
-    textById: Object.assign(/* @__PURE__ */ Object.create(null), state.textById),
+    offsetById: Object.assign(/* @__PURE__ */ Object.create(null), state.offsetById),
     warnings: Object.assign(/* @__PURE__ */ Object.create(null), state.warnings),
     controls: { ...state.controls },
     evidenced: [...state.evidenced],
@@ -260,12 +316,13 @@ function initial(ctx, raw, cursor) {
     seenItems: [...state.seenItems],
     ...state.chunk ? { chunk: { ...state.chunk } } : {}
   };
+  copyAccounting(state, copy);
   if (copy.replay !== cursor.replay) {
     copy.replay = cursor.replay;
     copy.turn = 1;
     copy.ordinal = 0;
     copy.seenItems = [];
-    copy.textById = /* @__PURE__ */ Object.create(null);
+    clearEntries(copy, "offsetById");
     delete copy.chunk;
     copy.settled = false;
     copy.started = false;
@@ -273,7 +330,7 @@ function initial(ctx, raw, cursor) {
     copy.turn = Math.max(copy.turn + 1, cursor.prompt);
     copy.ordinal = 0;
     copy.seenItems = [];
-    copy.textById = /* @__PURE__ */ Object.create(null);
+    clearEntries(copy, "offsetById");
     delete copy.chunk;
     copy.settled = false;
     copy.started = false;
@@ -282,30 +339,66 @@ function initial(ctx, raw, cursor) {
   copy.loading = cursor.loading;
   return copy;
 }
-function emit(state, events, row) {
+function emit(state, events, row, patch = false) {
   const previous = state.items[row.id];
   row.seq = previous?.seq ?? ++state.seq;
-  state.items[row.id] = row;
-  if (JSON.stringify(previous) !== JSON.stringify(row)) events.push({ kind: "chatItem", threadId: state.sessionId, item: row });
+  if (utf8Length(JSON.stringify(row)) > 32768) {
+    row = {
+      id: row.id,
+      seq: row.seq,
+      type: row.type,
+      content: "[ACP row truncated: update exceeded the display budget]",
+      ...row.toolStatus ? { toolStatus: row.toolStatus } : {},
+      ...row.toolId ? { toolId: row.toolId } : {}
+    };
+  }
+  const retained = {
+    ...previous,
+    id: row.id,
+    seq: row.seq,
+    type: row.type,
+    content: "",
+    ...row.toolId ? { toolId: row.toolId } : {},
+    ...row.toolTitle ? { toolTitle: Array.from(row.toolTitle).slice(0, 256).join("") } : {},
+    ...row.toolName ? { toolName: Array.from(row.toolName).slice(0, 256).join("") } : {},
+    ...row.toolKind ? { toolKind: row.toolKind } : {},
+    ...row.toolStatus ? { toolStatus: row.toolStatus } : {}
+  };
+  if (row.toolStatus === "running" && !previous && !admitToolIdentity(state, retained)) {
+    events.push({ kind: "chatItem", threadId: state.sessionId, item: { ...row, toolStatus: "interrupted", toolInterrupted: true, content: "[ACP tool tracking capacity exhausted]" } });
+    return;
+  }
+  putEntry(state, "items", row.id, retained);
+  if (!patch || JSON.stringify(previous) !== JSON.stringify(retained) || row.toolInput !== void 0 || row.toolResult !== void 0 || row.fileDiffs !== void 0 || row.toolInterrupted) events.push({ kind: patch ? "chatItemPatch" : "chatItem", threadId: state.sessionId, item: row });
+}
+function admitToolIdentity(state, retained) {
+  let bytes = mapBytes(state, "items") + utf8Length(JSON.stringify({ [retained.id]: retained })) - 1;
+  const submittedId = `${state.sessionId}:turn:${state.turn}:item:1`;
+  for (const [id, row] of Object.entries(state.items)) {
+    if (bytes <= 16384) break;
+    if (row.toolStatus === "running" || id === state.chunk?.id || id === submittedId) continue;
+    bytes += removeEntry(state, "items", id);
+  }
+  return bytes <= 16384;
 }
 function rememberControl(state, kind, update) {
   const encoded = JSON.stringify(update);
-  if (encoded.length <= 16384) state.controls[kind] = JSON.parse(encoded);
+  if (encoded.length <= 16384) putEntry(state, "controls", kind, JSON.parse(encoded));
 }
 function warn(state, events, rawKind) {
   const kind = rawKind.slice(0, 128);
   if (!Object.prototype.hasOwnProperty.call(state.warnings, kind) && Object.keys(state.warnings).length >= 32) return;
   const count = state.warnings[kind] ?? 0;
-  state.warnings[kind] = Math.min(count + 1, Number.MAX_SAFE_INTEGER);
+  putEntry(state, "warnings", kind, Math.min(count + 1, Number.MAX_SAFE_INTEGER));
   if (!count) events.push({ kind: "notice", threadId: state.sessionId, message: `Ignored unknown ACP session update: ${kind}` });
 }
 function closeChunk(ctx, state, events) {
   const chunk = state.chunk;
   if (chunk?.kind === "user_message_chunk" && !state.loading) {
-    const claim = ctx.claimedSends.find((claim2) => claim2.threadId === ctx.threadId && !state.evidenced.includes(claim2.sendId) && claim2.input.attachments.length === 0 && claim2.input.text === chunk.content);
+    const claim = ctx.claimedSends.find((claim2) => claim2.sendId === chunk.echo && claim2.threadId === ctx.threadId && !state.evidenced.includes(claim2.sendId) && claim2.input.attachments.length === 0 && claim2.input.text.length === chunk.chars);
     if (claim) {
       if (!events.some((event) => event.kind === "chatItem" && event.item.id === chunk.id))
-        events.push({ kind: "chatItem", threadId: state.sessionId, item: state.items[chunk.id] });
+        events.push({ kind: "chatItem", threadId: state.sessionId, item: { ...state.items[chunk.id], content: claim.input.text } });
       state.evidenced.push(claim.sendId);
       events.push({ kind: "sendEvidence", threadId: state.sessionId, sendId: claim.sendId, turnId: ctx.activeTurnId ?? `${state.sessionId}:turn:${state.turn}`, itemId: chunk.id });
     }
@@ -318,12 +411,15 @@ function settleStream(ctx, raw, reason) {
   if (source.sessionId !== ctx.threadId || source.epoch !== ctx.epoch || source.nonce !== ctx.bindingNonce)
     return { state: raw, events: [{ kind: "turnState", threadId: ctx.threadId, state: "idle", ...reason === "cancelled" ? { detail: "interrupted" } : {} }] };
   const state = source;
-  const next = { ...state, items: Object.assign(/* @__PURE__ */ Object.create(null), state.items), evidenced: [...state.evidenced], settled: true };
+  if (state.settled) return { state: raw, events: [] };
+  const next = { ...state, items: Object.assign(/* @__PURE__ */ Object.create(null), state.items), offsetById: Object.assign(/* @__PURE__ */ Object.create(null), state.offsetById), controls: { ...state.controls }, warnings: Object.assign(/* @__PURE__ */ Object.create(null), state.warnings), evidenced: [...state.evidenced], settled: true };
+  copyAccounting(state, next);
   const events = [];
   closeChunk(ctx, next, events);
   for (const row of Object.values(next.items)) if (row.toolStatus === "running")
-    emit(next, events, { ...row, toolStatus: "interrupted", toolInterrupted: true });
-  events.push({ kind: "turnState", threadId: ctx.threadId, state: "idle", ...reason === "cancelled" ? { detail: "interrupted" } : {} });
+    emit(next, events, { id: row.id, seq: row.seq, type: row.type, content: "", ...row.toolId ? { toolId: row.toolId } : {}, toolStatus: "interrupted", toolInterrupted: true }, true);
+  events.push({ kind: "turnState", threadId: ctx.threadId, turnId: `${state.sessionId}:turn:${state.turn}`, state: "idle", ...reason === "cancelled" ? { detail: "interrupted" } : {} });
+  boundState(next);
   return { state: json(next), events };
 }
 function clientRequest(method) {
@@ -335,93 +431,299 @@ function startTurn(ctx, state, events) {
     events.push({ kind: "turnState", threadId: state.sessionId, turnId: `${state.sessionId}:turn:${state.turn}`, state: "working" });
   }
 }
-function reduceStream(ctx, raw, frames, cursor) {
+function reduceStream(ctx, raw, frames, cursor, submitted) {
   if (!ctx.threadId) return { state: raw, events: [] };
   const state = initial(ctx, raw, cursor);
   const events = [];
+  const ownSubmitted = submitted && ctx.claimedSends.some((claim) => claim.sendId === submitted.sendId && claim.threadId === state.sessionId) ? submitted : void 0;
+  let bounded = false;
   for (const frame of frames) {
     const params = object(frame.params);
     if (params.sessionId !== ctx.threadId) continue;
-    if (frame.kind === "request" && clientRequest(frame.method)) {
+    try {
+      const submittedId = `${state.sessionId}:turn:${state.turn}:item:1`;
+      if (ownSubmitted && !state.loading && !state.settled && !state.items[submittedId]) {
+        state.ordinal = 1;
+        emit(state, events, { id: submittedId, seq: 0, type: "user", content: ownSubmitted.input.text });
+      }
+      if (frame.kind === "request" && clientRequest(frame.method)) {
+        startTurn(ctx, state, events);
+        continue;
+      }
+      if (frame.kind !== "notification" || frame.method !== "session/update") continue;
+      const update = object(params.update);
+      const kind = text(update.sessionUpdate);
+      if (!kind) continue;
       startTurn(ctx, state, events);
-      continue;
-    }
-    if (frame.kind !== "notification" || frame.method !== "session/update") continue;
-    const update = object(params.update);
-    const kind = text(update.sessionUpdate);
-    if (!kind) continue;
-    startTurn(ctx, state, events);
-    if (kind === "user_message_chunk" || kind === "agent_message_chunk" || kind === "agent_thought_chunk") {
-      const content = object(update.content);
-      if (content.type !== "text" || typeof content.text !== "string" || state.settled && !state.loading) continue;
-      const explicit = text(update.messageId);
-      if (!state.chunk || state.chunk.kind !== kind || explicit && state.chunk.id !== explicit) {
-        closeChunk(ctx, state, events);
-        if (kind === "user_message_chunk" && state.loading && state.ordinal > 0) {
-          state.turn++;
-          state.ordinal = 0;
-          state.seenItems = [];
+      if (ownSubmitted && !state.loading && !state.settled && !state.evidenced.includes(ownSubmitted.sendId)) {
+        if (!events.some((event) => event.kind === "chatItem" && event.item.id === submittedId))
+          events.push({ kind: "chatItem", threadId: state.sessionId, item: { ...state.items[submittedId], content: ownSubmitted.input.text } });
+        state.evidenced.push(ownSubmitted.sendId);
+        events.push({ kind: "sendEvidence", threadId: state.sessionId, sendId: ownSubmitted.sendId, turnId: `${state.sessionId}:turn:${state.turn}`, itemId: submittedId });
+      }
+      if (kind === "user_message_chunk" || kind === "agent_message_chunk" || kind === "agent_thought_chunk") {
+        const content = object(update.content);
+        if (content.type !== "text" || typeof content.text !== "string" || state.settled && !state.loading) continue;
+        if (kind === "user_message_chunk" && submitted && state.evidenced.includes(submitted.sendId)) continue;
+        const messageId = text(update.messageId);
+        const explicit = messageId ? `${kind}:${messageId}` : void 0;
+        if (!state.chunk || state.chunk.kind !== kind || explicit && state.chunk.id !== `${state.sessionId}:turn:${state.turn}:message:${explicit}`) {
+          closeChunk(ctx, state, events);
+          if (kind === "user_message_chunk" && state.loading && state.ordinal > 0) {
+            state.turn++;
+            state.ordinal = 0;
+            state.seenItems = [];
+          }
+          state.ordinal++;
+          const id = explicit ? `${state.sessionId}:turn:${state.turn}:message:${explicit}` : `${ctx.threadId}:turn:${state.turn}:item:${state.ordinal}`;
+          state.chunk = { kind, id, offset: 0, chars: 0, ...explicit ? state.offsetById[id] : {} };
+          if (explicit && state.offsetById[id] === void 0 && mapBytes(state, "offsetById") + utf8Length(id) + 32 > 16384) {
+            state.chunk.dropped = true;
+            emit(state, events, {
+              id,
+              seq: 0,
+              type: kind === "agent_thought_chunk" ? "thinking" : kind === "user_message_chunk" ? "user" : "assistant",
+              content: "[ACP row truncated: message identity budget exhausted]"
+            });
+          }
         }
-        state.ordinal++;
-        const id = explicit ?? `${ctx.threadId}:turn:${state.turn}:item:${state.ordinal}`;
-        state.chunk = { kind, id, content: explicit ? state.textById[id] ?? "" : "" };
+        const chunk = state.chunk;
+        if (chunk.dropped) continue;
+        if (kind === "user_message_chunk" && !state.loading) {
+          const claim = ctx.claimedSends.find((claim2) => claim2.threadId === ctx.threadId && !state.evidenced.includes(claim2.sendId) && claim2.input.attachments.length === 0 && (chunk.chars === 0 || claim2.sendId === chunk.echo) && claim2.input.text.slice(chunk.chars, chunk.chars + content.text.length) === content.text);
+          if (claim) chunk.echo = claim.sendId;
+          else delete chunk.echo;
+        }
+        chunk.chars += content.text.length;
+        const type = kind === "user_message_chunk" ? "user" : kind === "agent_thought_chunk" ? "thinking" : "assistant";
+        const previous = state.items[chunk.id];
+        const row = { id: chunk.id, seq: previous?.seq ?? ++state.seq, type, content: "", ...type === "thinking" ? { collapsed: true } : {} };
+        events.push(chunk.offset ? { kind: "chatItemAppend", threadId: state.sessionId, itemId: row.id, content: content.text, offset: chunk.offset } : { kind: "chatItem", threadId: state.sessionId, item: { ...row, content: content.text } });
+        chunk.offset += utf8Length(content.text);
+        putEntry(state, "items", row.id, row);
+        if (explicit) putEntry(state, "offsetById", chunk.id, { offset: chunk.offset, chars: chunk.chars, ...chunk.echo ? { echo: chunk.echo } : {} });
+        if (!state.loading && !state.started && kind === "agent_message_chunk") events.push({ kind: "turnState", threadId: ctx.threadId, turnId: ctx.activeTurnId ?? `${ctx.threadId}:turn:${state.turn}`, state: "working" });
+        continue;
       }
-      state.chunk.content += content.text;
-      if (explicit) state.textById[state.chunk.id] = state.chunk.content;
-      const type = kind === "user_message_chunk" ? "user" : kind === "agent_thought_chunk" ? "thinking" : "assistant";
-      emit(state, events, { id: state.chunk.id, seq: 0, type, content: state.chunk.content, ...type === "thinking" ? { collapsed: true } : {} });
-      if (!state.loading && !state.started && kind === "agent_message_chunk") events.push({ kind: "turnState", threadId: ctx.threadId, turnId: ctx.activeTurnId ?? `${ctx.threadId}:turn:${state.turn}`, state: "working" });
-      continue;
+      if (kind === "tool_call" || kind === "tool_call_update") {
+        if (state.settled && !state.loading) continue;
+        closeChunk(ctx, state, events);
+        const id = text(update.toolCallId);
+        const previous = id ? state.items[id] : void 0;
+        if (id && !state.seenItems.includes(id)) {
+          state.ordinal++;
+          state.seenItems.push(id);
+        }
+        const row = reduceTool(update, previous, state.seq + 1);
+        if (row && (previous || kind === "tool_call")) {
+          if (kind === "tool_call_update") {
+            if (update.title === void 0) {
+              delete row.toolTitle;
+              delete row.toolName;
+            }
+            if (update.kind === void 0) delete row.toolKind;
+          }
+          emit(state, events, row, kind === "tool_call_update");
+        }
+      } else if (kind === "plan") {
+        closeChunk(ctx, state, events);
+        const id = `${ctx.threadId}:plan`;
+        if (!state.seenItems.includes(id)) {
+          state.ordinal++;
+          state.seenItems.push(id);
+        }
+        emit(state, events, planRow(ctx.threadId, update, state.items[id], state.seq + 1));
+      } else if (["available_commands_update", "config_option_update", "session_info_update", "current_mode_update"].includes(kind)) {
+        rememberControl(state, kind, update);
+        if (kind === "available_commands_update" && Array.isArray(update.availableCommands))
+          events.push({ kind: "controlsConfirmed", threadId: ctx.threadId, settings: { commands: commands(update.availableCommands) } });
+        if (kind === "config_option_update" && Array.isArray(update.configOptions))
+          events.push({ kind: "controlsConfirmed", threadId: ctx.threadId, settings: sessionSettings(update) });
+        if (kind === "current_mode_update" && typeof update.currentModeId === "string")
+          events.push({ kind: "controlsConfirmed", threadId: ctx.threadId, settings: { mode: update.currentModeId } });
+        const compaction = object(object(update._meta).compaction);
+        if (kind !== "session_info_update" || !Object.keys(compaction).length) continue;
+        const id = text(compaction.id) ?? `${ctx.threadId}:compaction:${state.turn}`;
+        if (!state.compacted.includes(id)) {
+          state.compacted.push(id);
+          events.push({ kind: "contextCompacted", threadId: ctx.threadId, itemId: id });
+        }
+      } else if (kind === "usage_update") {
+        const mapped = usage(update);
+        if (mapped) events.push({ kind: "usage", threadId: ctx.threadId, usage: mapped });
+      } else if (kind === "compaction_update" || kind === "compaction_summary_chunk") {
+        const id = text(update.id) ?? `${ctx.threadId}:compaction:${state.turn}`;
+        if (!state.compacted.includes(id)) {
+          state.compacted.push(id);
+          events.push({ kind: "contextCompacted", threadId: ctx.threadId, itemId: id });
+        }
+      } else if (kind === "agent_notice") {
+        if (typeof update.message === "string" && update.message.length)
+          events.push({ kind: "notice", threadId: ctx.threadId, message: update.message.slice(0, 4096) });
+      } else warn(state, events, kind);
+    } finally {
+      boundState(state);
+      bounded = true;
     }
-    if (kind === "tool_call" || kind === "tool_call_update") {
-      if (state.settled && !state.loading) continue;
-      closeChunk(ctx, state, events);
-      const id = text(update.toolCallId);
-      const previous = id ? state.items[id] : void 0;
-      if (id && !state.seenItems.includes(id)) {
-        state.ordinal++;
-        state.seenItems.push(id);
-      }
-      const row = reduceTool(update, previous, state.seq + 1);
-      if (row) emit(state, events, row);
-    } else if (kind === "plan") {
-      closeChunk(ctx, state, events);
-      const id = `${ctx.threadId}:plan`;
-      if (!state.seenItems.includes(id)) {
-        state.ordinal++;
-        state.seenItems.push(id);
-      }
-      emit(state, events, planRow(ctx.threadId, update, state.items[id], state.seq + 1));
-    } else if (["available_commands_update", "config_option_update", "session_info_update", "current_mode_update"].includes(kind)) {
-      rememberControl(state, kind, update);
-      if (kind === "available_commands_update" && Array.isArray(update.availableCommands))
-        events.push({ kind: "controlsConfirmed", threadId: ctx.threadId, settings: { commands: commands(update.availableCommands) } });
-      if (kind === "config_option_update" && Array.isArray(update.configOptions))
-        events.push({ kind: "controlsConfirmed", threadId: ctx.threadId, settings: sessionSettings(update) });
-      if (kind === "current_mode_update" && typeof update.currentModeId === "string")
-        events.push({ kind: "controlsConfirmed", threadId: ctx.threadId, settings: { mode: update.currentModeId } });
-      const compaction = object(object(update._meta).compaction);
-      if (kind !== "session_info_update" || !Object.keys(compaction).length) continue;
-      const id = text(compaction.id) ?? `${ctx.threadId}:compaction:${state.turn}`;
-      if (!state.compacted.includes(id)) {
-        state.compacted.push(id);
-        events.push({ kind: "contextCompacted", threadId: ctx.threadId, itemId: id });
-      }
-    } else if (kind === "usage_update") {
-      const mapped = usage(update);
-      if (mapped) events.push({ kind: "usage", threadId: ctx.threadId, usage: mapped });
-    } else if (kind === "compaction_update" || kind === "compaction_summary_chunk") {
-      const id = text(update.id) ?? `${ctx.threadId}:compaction:${state.turn}`;
-      if (!state.compacted.includes(id)) {
-        state.compacted.push(id);
-        events.push({ kind: "contextCompacted", threadId: ctx.threadId, itemId: id });
-      }
-    } else if (kind === "agent_notice") {
-      if (typeof update.message === "string" && update.message.length)
-        events.push({ kind: "notice", threadId: ctx.threadId, message: update.message.slice(0, 4096) });
-    } else warn(state, events, kind);
   }
+  if (!bounded) boundState(state);
   return { state: json(state), events };
+}
+function boundState(state) {
+  for (const key of ["evidenced", "compacted", "seenItems"]) state[key] = state[key].slice(-32);
+  let bytes = utf8Length(JSON.stringify({ ...state, items: {}, controls: {}, warnings: {}, offsetById: {} }));
+  for (const key of mapKeys) bytes += mapBytes(state, key) - 2;
+  for (const key of ["items", "controls", "warnings"]) {
+    for (const id of Object.keys(state[key])) {
+      if (bytes <= 47e3) break;
+      const value = state[key][id];
+      if (id === state.chunk?.id || key === "items" && object(value).toolStatus === "running") continue;
+      bytes += removeEntry(state, key, id);
+    }
+  }
+  for (const key of ["evidenced", "compacted", "seenItems"]) {
+    while (bytes > 47e3 && state[key].length) {
+      const count = state[key].length;
+      const removed = state[key].shift();
+      bytes -= utf8Length(JSON.stringify(removed)) + (count > 1 ? 1 : 0);
+    }
+  }
+}
+
+// plugins/provider-acp/src/runtimeReduceBudget.ts
+var omitted = (value) => value === void 0 || typeof value === "function" || typeof value === "symbol";
+var MAX_BYTES = 4 * 1024 * 1024 - 1024;
+var MAX_EVENTS = 1024;
+var MAX_STATE_BYTES = 256 * 1024;
+var marker = "\n[ACP row truncated: runtime reduction byte limit]";
+var utf8 = (code) => code <= 127 ? 1 : code <= 2047 ? 2 : code <= 65535 ? 3 : 4;
+var escaped = (code) => code < 32 ? code === 8 || code === 9 || code === 10 || code === 12 || code === 13 ? 2 : 6 : code === 34 || code === 92 ? 2 : code >= 55296 && code <= 57343 ? 6 : utf8(code);
+function stringBytes(value) {
+  let json2 = 2, raw = 0;
+  for (let index = 0; index < value.length; ) {
+    const code = value.codePointAt(index);
+    json2 += escaped(code);
+    raw += utf8(code);
+    index += code > 65535 ? 2 : 1;
+  }
+  return { json: json2, raw };
+}
+function size(value) {
+  if (omitted(value)) return 0;
+  if (typeof value === "string") return stringBytes(value).json;
+  if (typeof value === "number") return Number.isFinite(value) ? String(value).length : 4;
+  if (value === null) return 4;
+  if (typeof value === "boolean") return value ? 4 : 5;
+  if (typeof value !== "object") return MAX_BYTES + 1;
+  if (Array.isArray(value)) return 2 + Math.max(0, value.length - 1) + value.reduce((sum, entry) => sum + (omitted(entry) ? 4 : size(entry)), 0);
+  const entries = Object.entries(value).filter(([, entry]) => !omitted(entry));
+  return 2 + Math.max(0, entries.length - 1) + entries.reduce((sum, [key, entry]) => sum + stringBytes(key).json + 1 + size(entry), 0);
+}
+function upperBound(value) {
+  if (omitted(value)) return 0;
+  if (typeof value === "string") return value.length * 6 + 2;
+  if (typeof value === "number") return 32;
+  if (value === null || typeof value === "boolean") return 5;
+  if (typeof value !== "object") return MAX_BYTES + 1;
+  let total = 2;
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      total += (omitted(entry) ? 4 : upperBound(entry)) + 1;
+      if (total > MAX_BYTES) break;
+    }
+  } else {
+    for (const [key, entry] of Object.entries(value)) {
+      if (omitted(entry)) continue;
+      total += key.length * 6 + 4 + upperBound(entry);
+      if (total > MAX_BYTES) break;
+    }
+  }
+  return total;
+}
+function body(event) {
+  if (event.kind === "chatItemAppend") return { id: event.itemId, content: event.content };
+  if (event.kind === "chatItem" && ["user", "assistant", "thinking"].includes(event.item.type)) return event.item;
+}
+function replace(event, content) {
+  return event.kind === "chatItem" ? { ...event, item: { ...event.item, content } } : { ...event, content };
+}
+function prefix(value, budget) {
+  let length = 0, cost = 0, raw = 0;
+  while (length < value.length) {
+    const code = value.codePointAt(length), next = escaped(code);
+    if (next > budget) break;
+    budget -= next;
+    cost += next;
+    raw += utf8(code);
+    length += code > 65535 ? 2 : 1;
+  }
+  return { value: value.slice(0, length), cost, raw };
+}
+function shift(state, events, index, id, removed) {
+  forgetAccounting(state);
+  let delta = 0;
+  for (let next = index + 1; next < events.length; next++) {
+    const event = events[next];
+    if (event.kind === "chatItemAppend" && event.itemId === id) {
+      delta += String(event.offset - removed).length - String(event.offset).length;
+      events[next] = { ...event, offset: event.offset - removed };
+    }
+  }
+  const cursor = state;
+  if (cursor.chunk?.id === id) {
+    const before = size(cursor.chunk);
+    cursor.chunk = { ...cursor.chunk, offset: cursor.chunk.offset - removed };
+    delete cursor.chunk.echo;
+    delta += size(cursor.chunk) - before;
+  }
+  const previous = cursor.offsetById?.[id];
+  if (previous) {
+    cursor.offsetById[id] = { ...previous, offset: previous.offset - removed };
+    delete cursor.offsetById[id].echo;
+    delta += size(cursor.offsetById[id]) - size(previous);
+  }
+  return delta;
+}
+function fitTextReduction(state, source) {
+  if (source.length <= MAX_EVENTS && upperBound(source) + MAX_STATE_BYTES + 32 <= MAX_BYTES) return { state, events: source };
+  const events = [...source];
+  const bounded = { state, events };
+  if (events.length > MAX_EVENTS) {
+    let thread;
+    for (let index = events.length - 1; index >= 0 && events.length >= MAX_EVENTS; index--) {
+      const text2 = body(events[index]);
+      if (!text2) continue;
+      const event = events[index];
+      if ("threadId" in event) thread = event.threadId;
+      shift(state, events, index, text2.id, stringBytes(text2.content).raw);
+      events.splice(index, 1);
+    }
+    if (thread) events.push({ kind: "notice", threadId: thread, message: "ACP text omitted: runtime reduction event limit" });
+  }
+  let measured = size({ state, events: [] }) + Math.max(0, events.length - 1);
+  const candidates = events.flatMap((event, index) => {
+    const text2 = body(event);
+    if (!text2) {
+      measured += size(event);
+      return [];
+    }
+    const { json: cost, raw } = stringBytes(text2.content);
+    measured += size(replace(event, "")) - 2 + cost;
+    return [{ index, text: text2, cost, raw }];
+  });
+  let excess = measured - MAX_BYTES;
+  if (excess <= 0) return bounded;
+  const markerBytes = stringBytes(marker);
+  candidates.sort((a, b) => b.cost - a.cost || a.index - b.index);
+  for (const { index, text: text2, cost, raw } of candidates) {
+    if (excess <= 0) break;
+    if (cost <= markerBytes.json) continue;
+    const kept = prefix(text2.content, Math.max(0, cost - 2 - excess - (markerBytes.json - 2) - 64));
+    events[index] = replace(events[index], kept.value + marker);
+    excess -= cost - (kept.cost + markerBytes.json);
+    excess += shift(state, events, index, text2.id, raw - kept.raw - markerBytes.raw);
+  }
+  return bounded;
 }
 
 // plugins/provider-acp/src/runtimePrompts.ts
@@ -509,6 +811,13 @@ function unappliedModelNotice(requested, settings, threadId) {
   const reason = !option ? "This agent declared no model option" : option.options.some((value) => value.value === requested) ? "Model was not applied by this agent" : "Model was not declared by this agent";
   return { events: [{ kind: "notice", threadId, message: `Requested model was not applied: ${reason}` }] };
 }
+function threadNotices(state, threadId, events) {
+  if (state.mcpUnavailable) {
+    events.push({ kind: "notice", threadId, message: state.mcpUnavailable });
+    delete state.mcpUnavailable;
+  }
+  return events.length ? { events } : {};
+}
 function loadedThread(op, state, sessionId, selectModel, refusal) {
   const option = modelOption(state.settings);
   const requested = op.settings.model;
@@ -517,15 +826,21 @@ function loadedThread(op, state, sessionId, selectModel, refusal) {
   return {
     kind: "complete",
     result: { kind: "threadLoaded", threadId: sessionId, settings: state.settings ?? {} },
-    ...refusal === void 0 ? unappliedModelNotice(requested, state.settings, sessionId) : { events: [{ kind: "notice", threadId: sessionId, message: `Requested model was not applied: ${Array.from(refusal).slice(0, 1e3).join("")}` }] }
+    ...threadNotices(state, sessionId, refusal === void 0 ? unappliedModelNotice(requested, state.settings, sessionId).events ?? [] : [{ kind: "notice", threadId: sessionId, message: `Requested model was not applied: ${Array.from(refusal).slice(0, 1e3).join("")}` }])
   };
 }
 function clientCapabilities(ctx) {
   return { fs: { readTextFile: ctx.clientBridges?.fsRead === true, writeTextFile: ctx.clientBridges?.fsWrite === true }, terminal: ctx.clientBridges?.terminal === true };
 }
+function sessionRequest(ctx, method, sessionId) {
+  const mcpServers = hostMcpServers(ctx);
+  const plan = request(method, { ...sessionId ? { sessionId } : {}, cwd: ctx.cwd, mcpServers });
+  plan.state = { method, mcpOffered: mcpServers.length > 0 };
+  return plan;
+}
 function hostMcpServers(ctx) {
   const descriptor = ctx.hostMcp;
-  return descriptor ? [{ name: descriptor.name, command: descriptor.command, args: [...descriptor.args], env: [] }] : [];
+  return descriptor ? [{ name: descriptor.name, command: descriptor.command, args: [...descriptor.args], env: Object.entries(descriptor.env ?? {}).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([name, value]) => ({ name, value })) }] : [];
 }
 function runtimePlan(ctx, op) {
   binding(ctx, op);
@@ -554,8 +869,8 @@ function runtimePlan(ctx, op) {
     const sessionId = ownSession(ctx, state);
     const value = object4(op.value);
     const option = modelOption(state.settings);
-    if (value.model === void 0 || value.model === option?.currentValue)
-      return { action: { kind: "local" }, state: { method: "unchangedSettings" } };
+    if (value.model === void 0) return refusePlan("Settings control requires a model change");
+    if (value.model === option?.currentValue) return refusePlan("Settings already match the reported session model");
     if (!option) return refusePlan("This agent declared no model option");
     if (!option.options.some((entry) => entry.value === value.model)) return refusePlan("Model was not declared by this agent");
     return request("session/set_config_option", { sessionId, configId: option.id, value: value.model });
@@ -581,7 +896,7 @@ function runtimePlan(ctx, op) {
     }
     case "openThread":
       if (ctx.threadId || state.sessionId) return refusePlan("ACP session is already bound");
-      return request(methods.newSession, { cwd: ctx.cwd, mcpServers: hostMcpServers(ctx) });
+      return sessionRequest(ctx, methods.newSession);
     case "resumeThread": {
       if (state.sessionId && state.sessionId !== op.threadId) return refusePlan("ACP session does not belong to this runtime");
       if (state.sessionActive && state.sessionId === op.threadId)
@@ -593,7 +908,7 @@ function runtimePlan(ctx, op) {
       state.sessionActive = false;
       state.sessionId = op.threadId;
       state.cursor = { replay: state.cursor.replay + 1, prompt: 0, loading: true };
-      return request(method, { sessionId: op.threadId, cwd: ctx.cwd, mcpServers: hostMcpServers(ctx) });
+      return sessionRequest(ctx, method, op.threadId);
     }
     case "submitTurn": {
       const sessionId = ownSession(ctx, state);
@@ -604,10 +919,21 @@ function runtimePlan(ctx, op) {
       const prompt = [];
       if (state.instructions) prompt.push({ type: "text", text: state.instructions });
       prompt.push({ type: "text", text: op.input.text });
-      state.cursor.prompt = Math.max(state.cursor.prompt, Number(object4(state.projection).turn) || 0) + 1;
-      state.cursor.loading = false;
-      state.inFlight = true;
-      return request(methods.prompt, { sessionId, prompt });
+      const ordinal = Math.max(state.promptOrdinal ?? 0, state.cursor.prompt, Number(object4(state.projection).turn) || 0, ctx.restoredRowOrdinal ?? 0, ...(state.queued ?? []).map((value) => value.prompt)) + 1;
+      state.promptOrdinal = ordinal;
+      if (state.inFlight) {
+        (state.queued ?? (state.queued = [])).push({ prompt: ordinal, sendId: op.sendId });
+      } else {
+        state.cursor.prompt = ordinal;
+        state.cursor.loading = false;
+        state.inFlight = true;
+        state.promptSend = { sendId: op.sendId };
+      }
+      const plan = request(methods.prompt, { sessionId, prompt });
+      if (plan.action.kind === "request")
+        plan.action.call.target = { threadId: sessionId, turnId: `${sessionId}:turn:${ordinal}` };
+      plan.state = { method: methods.prompt, prompt: ordinal };
+      return plan;
     }
     case "interrupt": {
       const sessionId = ownSession(ctx, state);
@@ -620,21 +946,59 @@ function runtimePlan(ctx, op) {
       return refusePlan(`ACP operation is unavailable: ${op.kind}`);
   }
 }
+function promoteQueued(ctx, state) {
+  const sessionId = ownSession(ctx, state);
+  const events = [];
+  for (let queued = state.queued?.shift(); queued; queued = state.queued?.shift()) {
+    state.cursor.prompt = queued.prompt;
+    state.promptSend = { sendId: queued.sendId };
+    state.inFlight = true;
+    const next = reduceStream(ctx, state.projection ?? null, [], state.cursor);
+    state.projection = { ...object4(next.state), started: true };
+    events.push({ kind: "turnState", threadId: sessionId, turnId: `${sessionId}:turn:${queued.prompt}`, state: "working" });
+    if (!queued.completed) break;
+    const settledQueued = settleStream(ctx, state.projection, queued.completed.cancelled ? "cancelled" : "end_turn");
+    state.projection = settledQueued.state;
+    state.inFlight = false;
+    if (queued.completed.usage) events.push({ kind: "usage", threadId: sessionId, usage: queued.completed.usage });
+    events.push(...settledQueued.events);
+  }
+  return events;
+}
 function runtimeResponse(ctx, op, raw, reply) {
   binding(ctx, op);
   const method = object4(raw).method;
   if (reply.kind === "error") {
+    const sessionOperation = op.kind === "openThread" && method === methods.newSession || op.kind === "resumeThread" && (method === methods.load || method === methods.resume);
+    const state2 = negotiated(ctx);
+    if (state2 && op.kind === "submitTurn" && method === methods.prompt) {
+      const turn = object4(raw).prompt;
+      state2.queued = state2.queued?.filter((queued) => queued.prompt !== turn || queued.sendId !== op.sendId);
+      if (state2.cursor.prompt === turn && state2.promptSend?.sendId === op.sendId) {
+        state2.inFlight = false;
+        delete state2.promptSend;
+        const projected = reduceStream(ctx, state2.projection ?? null, [], state2.cursor).state;
+        state2.projection = settleStream(ctx, projected, "error").state;
+        promoteQueued(ctx, state2);
+      }
+    }
+    if (sessionOperation && ![-32e3, -32002, -32601].includes(reply.error.code) && state2 && !state2.sessionActive && object4(raw).mcpOffered === true && ctx.hostMcp) {
+      state2.mcpUnavailable = `Domios tools are unavailable for this agent: ${Array.from(reply.error.message).slice(0, 1e3).join("")}`;
+      const plan = request(method, { ...op.kind === "resumeThread" ? { sessionId: op.threadId } : {}, cwd: ctx.cwd, mcpServers: [] });
+      plan.state = { method, mcpOffered: false };
+      return { kind: "continue", plan };
+    }
     if ((op.kind === "openThread" || op.kind === "resumeThread") && method === "session/set_config_option") {
-      const state2 = negotiated(ctx);
-      if (!state2?.sessionActive || !state2.sessionId || op.kind === "resumeThread" && state2.sessionId !== op.threadId)
+      const state3 = negotiated(ctx);
+      if (!state3?.sessionActive || !state3.sessionId || op.kind === "resumeThread" && state3.sessionId !== op.threadId)
         return refused("binding_mismatch", "ACP session is not active in this runtime");
-      return loadedThread(op, state2, state2.sessionId, false, reply.error.message);
+      return loadedThread(op, state3, state3.sessionId, false, reply.error.message);
     }
     if (reply.error.code === -32e3) {
-      const state2 = negotiated(ctx);
-      if (state2) {
-        state2.authenticated = false;
-        state2.required = true;
+      const state3 = negotiated(ctx);
+      if (state3) {
+        state3.authenticated = false;
+        state3.required = true;
       }
       return refused("authentication_required", reply.error.message);
     }
@@ -673,8 +1037,10 @@ function runtimeResponse(ctx, op, raw, reply) {
       instructions: prior?.instructions,
       cursor: prior?.cursor ?? { replay: 0, prompt: 0, loading: false },
       inFlight: prior?.inFlight ?? false,
+      promptOrdinal: prior?.promptOrdinal,
       projection: prior?.projection,
-      settledProjection: prior?.settledProjection,
+      promptSend: prior?.promptSend,
+      queued: prior?.queued,
       settings: prior?.settings
     });
     return {
@@ -712,8 +1078,6 @@ function runtimeResponse(ctx, op, raw, reply) {
     state.settings = { commands: [], configOptions: [], modes: [], ...sessionSettings(value) };
     return loadedThread(op, state, sessionId, true);
   }
-  if (op.kind === "control" && op.action === "settings" && method === "unchangedSettings")
-    return { kind: "complete", result: { kind: "done" }, events: [{ kind: "controlsConfirmed", threadId: ownSession(ctx, state), settings: state.settings ?? {} }] };
   if (op.kind === "control" && ["config", "mode", "settings"].includes(op.action)) {
     const sessionId = ownSession(ctx, state);
     const settings = ["config", "settings"].includes(op.action) && method === "session/set_config_option" && Array.isArray(value.configOptions) ? sessionSettings(value) : op.action === "mode" && method === "session/set_mode" && typeof op.value === "string" ? { mode: op.value } : null;
@@ -729,26 +1093,26 @@ function runtimeResponse(ctx, op, raw, reply) {
   if (op.kind === "answer" && method === "session/request_permission")
     return { kind: "complete", result: { kind: "done" }, events: [{ kind: "promptResolved", threadId: ownSession(ctx, state), requestId: op.requestId }] };
   if (op.kind === "interrupt" && method === methods.cancel) {
-    state.inFlight = false;
-    const settled = settleStream(ctx, state.projection ?? null, "cancelled");
-    state.projection = settled.state;
-    state.settledProjection = settled.state;
-    return { kind: "complete", result: { kind: "done" }, events: settled.events };
+    return { kind: "complete", result: { kind: "done" }, events: [] };
   }
   if (op.kind === "submitTurn" && method === methods.prompt) {
-    state.inFlight = false;
     const sessionId = ownSession(ctx, state);
     if (typeof value.stopReason !== "string") return refused("protocol_error", "ACP prompt response is missing stopReason");
+    const turn = typeof object4(raw).prompt === "number" ? object4(raw).prompt : object4(state.projection).turn;
+    if (turn !== state.cursor.prompt || !state.inFlight) {
+      const queued = state.queued?.find((queued2) => queued2.prompt === turn);
+      if (queued && !queued.completed) queued.completed = { cancelled: value.stopReason === "cancelled", usage: usage(value.usage) };
+      return { kind: "complete", result: { kind: "turnAccepted", threadId: sessionId, sendId: op.sendId, turnId: `${sessionId}:turn:${turn}` }, events: [] };
+    }
+    state.inFlight = false;
     state.instructions = void 0;
-    const settled = settleStream(ctx, state.projection ?? null, value.stopReason);
+    const projected = reduceStream(ctx, state.projection ?? null, [], state.cursor).state;
+    const settled = settleStream(ctx, projected, value.stopReason);
     state.projection = settled.state;
-    state.settledProjection = settled.state;
     const mapped = usage(value.usage);
-    return {
-      kind: "complete",
-      result: { kind: "turnAccepted", threadId: sessionId, sendId: op.sendId },
-      events: [...mapped ? [{ kind: "usage", threadId: sessionId, usage: mapped }] : [], ...settled.events]
-    };
+    const events = [...mapped ? [{ kind: "usage", threadId: sessionId, usage: mapped }] : [], ...settled.events];
+    events.push(...promoteQueued(ctx, state));
+    return { kind: "complete", result: { kind: "turnAccepted", threadId: sessionId, sendId: op.sendId, turnId: `${sessionId}:turn:${turn}` }, events };
   }
   return refused("unsupported", "ACP response is unavailable");
 }
@@ -756,16 +1120,30 @@ function runtimeReduce(ctx, raw, frames) {
   binding(ctx);
   const state = negotiated(ctx);
   if (!ctx.threadId || !state || state.sessionId !== ctx.threadId) return { state: raw, events: [] };
-  const own = frames.filter((frame) => object4(frame.params).sessionId === ctx.threadId && (frame.kind === "notification" && frame.method === methods.update || frame.kind === "request" && clientRequest(frame.method)));
+  const own = frames.flatMap((frame, index) => object4(frame.params).sessionId === ctx.threadId && (frame.kind === "notification" && frame.method === methods.update || frame.kind === "request" && clientRequest(frame.method)) ? [{ frame, index }] : []);
   const prompts = frames.flatMap((frame) => {
     if (frame.kind !== "request") return [];
     const prompt = runtimePrompt(ctx, frame.method, frame.params);
     return prompt ? [{ kind: "prompt", threadId: ctx.threadId, requestId: frame.requestId, prompt }] : [];
   });
   if (!own.length) return { state: raw, events: prompts };
-  const reduction = reduceStream(ctx, state.settledProjection ?? raw, own, state.cursor);
-  delete state.settledProjection;
-  state.projection = reduction.state;
+  let projection = state.projection ?? raw;
+  const events = [];
+  for (const { frame, index } of own) {
+    const window = ctx.streamWindow;
+    const witness = window?.turnRequests?.find((request2) => request2.sendId === state.promptSend?.sendId);
+    const sequence = window?.frameSequences?.[index];
+    const attributable = !window || witness?.written === true && witness.afterSequence !== void 0 && sequence !== void 0 && sequence > witness.afterSequence;
+    const cursor = attributable ? state.cursor : { ...state.cursor, prompt: Number(object4(projection).prompt) || 0 };
+    if (!attributable && projection === null)
+      projection = { ...object4(reduceStream(ctx, null, [], cursor).state), turn: 0 };
+    const frameContext = !window ? ctx : { ...ctx, claimedSends: ctx.claimedSends.filter((claim2) => window.turnRequests?.some((request2) => request2.sendId === claim2.sendId && request2.written === true && request2.afterSequence !== void 0 && sequence !== void 0 && sequence > request2.afterSequence)) };
+    const claim = frameContext.claimedSends.find((claim2) => claim2.threadId === ctx.threadId && claim2.sendId === state.promptSend?.sendId);
+    const reduced = reduceStream(frameContext, projection, [frame], cursor, state.inFlight && attributable && claim ? { sendId: claim.sendId, input: claim.input } : void 0);
+    projection = reduced.state;
+    events.push(...reduced.events);
+  }
+  const reduction = { state: projection, events };
   for (const event of reduction.events) if (event.kind === "controlsConfirmed") {
     state.settings = { ...state.settings, ...event.settings };
     if (event.settings.configOptions) {
@@ -774,7 +1152,9 @@ function runtimeReduce(ctx, raw, frames) {
       if (model) state.settings.model = model;
     }
   }
-  return { ...reduction, events: [...reduction.events, ...prompts] };
+  const bounded = fitTextReduction(projection, [...reduction.events, ...prompts]);
+  state.projection = bounded.state;
+  return bounded;
 }
 
 // plugins/provider-acp/src/registry.ts
@@ -840,13 +1220,13 @@ function distribution(value) {
   return result;
 }
 function utf8Bytes(value) {
-  let size = 0;
+  let size2 = 0;
   for (const character of value) {
     const point = character.codePointAt(0);
-    size += point < 128 ? 1 : point < 2048 ? 2 : point < 65536 ? 3 : 4;
-    if (size > registryBounds.bytes) invalid();
+    size2 += point < 128 ? 1 : point < 2048 ? 2 : point < 65536 ? 3 : 4;
+    if (size2 > registryBounds.bytes) invalid();
   }
-  return size;
+  return size2;
 }
 function decodeRegistry(text2) {
   if (text2.length > registryBounds.bytes || utf8Bytes(text2) > registryBounds.bytes) invalid();

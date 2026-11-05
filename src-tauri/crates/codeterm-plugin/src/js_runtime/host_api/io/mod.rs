@@ -154,7 +154,6 @@ fn start(
     operation.check().map_err(|error| error.to_string())?;
     let resources =
         current_file_lock_resources().ok_or("host I/O invocation resources unavailable")?;
-    let permit = admission::Permit::enter(sandbox.plugin_id())?;
     let job_owner = operation.job();
     #[cfg(test)]
     let completion = match &request {
@@ -165,6 +164,7 @@ fn start(
     let observation = observation.clone();
     let observer = codeterm_decision::physical::current();
     let host_env = host_exec::current_host_env();
+    let artifacts = codeterm_util::task_files::current_capture();
     let plugin = sandbox.plugin_id().to_string();
     let root = crate::surface_invocation::root_identity();
     let surface = crate::surface_invocation::current(&plugin);
@@ -172,13 +172,16 @@ fn start(
     let cancel_operation = operation.clone();
     let owner_operation = operation.clone();
     let owner_root = root.clone();
-    let job = host_exec::start_scoped_json_job(
+    let admitted = plugin.clone();
+    let ticket = admission::ticket();
+    let job = host_exec::start_admitted_scoped_json_job(
         &plugin,
         &root,
         operation.deadline,
         Arc::new(move || cancel_operation.revoke()),
         json!({"error":"io_unconfirmed", "requestMayHaveStarted":!read_only && effects_allowed}),
-        move || {
+        move |launch| admission::submit(&admitted, ticket, launch),
+        move |permit: admission::Permit| {
             let encoded = {
                 let _permit = permit;
                 let _job_owner = job_owner;
@@ -187,14 +190,16 @@ fn start(
                 let _files = FileLockCallScope::attach(resources);
                 let _operation = operation::Scope::enter(operation.clone());
                 let work = || {
-                    operation
-                        .check()
-                        .map_err(|error| Failure::from(error.to_string()))
-                        .and_then(|_| {
-                            with_surface(surface, || {
-                                execute(request, &sandbox, &observation, &operation)
+                    codeterm_util::task_files::with_capture(artifacts, || {
+                        operation
+                            .check()
+                            .map_err(|error| Failure::from(error.to_string()))
+                            .and_then(|_| {
+                                with_surface(surface, || {
+                                    execute(request, &sandbox, &observation, &operation)
+                                })
                             })
-                        })
+                    })
                 };
                 let result = match view {
                     Some(context) => crate::view_host::with_view_call_context(
@@ -218,6 +223,9 @@ fn start(
             encoded
         },
     )?;
+    // Cancellation, close, deadline close or call exit revokes the call; a still-queued
+    // job then drops its captures at once instead of waiting for capacity.
+    owner_operation.on_revoke(Box::new(move || admission::withdraw(ticket)));
     host_exec::allow_observation(&plugin, &job);
     host_exec::bind_invocation(&plugin, &job, owner_root);
     owner_operation.register_job(job.clone());
@@ -289,12 +297,18 @@ fn execute(
         )
         .and_then(|raw| serde_json::from_str(&raw).ok())
         .unwrap_or(Value::Null)),
-        SqliteQuery { db, sql, params } => super::sqlite::query_value(
+        SqliteQuery {
+            db,
+            sql,
+            params,
+            nullable,
+        } => super::sqlite::query_value(
             sandbox,
             observation,
             &db,
             &sql,
             params.as_ref().map(Value::to_string).as_deref(),
+            nullable,
         )
         .map_err(Failure::range),
         #[cfg(test)]

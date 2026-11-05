@@ -518,7 +518,12 @@ fn enabled_kpi_hooks_produce_plan_token_and_turn_aggregate() {
         fixture.service.plan_store.save(&mut active, 3).unwrap();
     }
     assert_eq!(
-        fixture.service.plan_store.task_binding_for_tab(&tab_id),
+        fixture
+            .service
+            .plan_store
+            .assigned_task_binding_projection(&tab_id)
+            .unwrap()
+            .map(|binding| (binding.plan_id, binding.task_id)),
         Some((plan.id.clone(), task_id.clone())),
         "the hooks resolve attribution through this binding; without it the test proves nothing"
     );
@@ -655,4 +660,70 @@ fn mission_control_not_recording_state_explains_enable_path() {
     );
     assert_eq!(kpi.enable_setting, None);
     assert!(kpi.spend.is_none());
+}
+
+#[test]
+fn state_and_reconcile_reads_do_not_write_or_load_a_plan_with_a_stale_curator() {
+    let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    let service = &fixture.service;
+    let mut plan = Plan::new(
+        "Read only state".into(),
+        fixture.temp.path().display().to_string(),
+        OrchestratorRef::from_tab("owner"),
+    );
+    plan.mode = crate::plan::PlanMode::Execution;
+    plan.tasks
+        .push(codeterm_plan::service_plan::load_audit::task(
+            "pending",
+            TaskStatus::Pending,
+            None,
+        ));
+    plan.control_loop.running = Some(crate::plan::CuratorRun {
+        number: 1,
+        started_at: 1,
+        ..Default::default()
+    });
+    service.plan_store.save(&mut plan, 1).unwrap();
+    let cron: crate::CronState = std::sync::Arc::new(parking_lot::Mutex::new(
+        crate::cron::store::CronStore::new_with_path_and_clock(
+            fixture.temp.path().join("read-only-crons.json"),
+            crate::cron::clock::MockClock::starting_at(NOW),
+        ),
+    ));
+    assert!(service.set_ext(cron).is_ok());
+    let connection =
+        rusqlite::Connection::open(service.plan_store.database_path_for_test()).unwrap();
+    let tables = connection
+        .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'plan%'")
+        .unwrap()
+        .query_map([], |row| row.get::<_, String>(0))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    for table in tables {
+        for operation in ["INSERT", "UPDATE", "DELETE"] {
+            connection.execute_batch(&format!("CREATE TRIGGER read_only_{table}_{operation} BEFORE {operation} ON {table} BEGIN SELECT RAISE(ABORT,'state read wrote plan data'); END;")).unwrap();
+        }
+    }
+    codeterm_plan::service_plan::load_audit::start(&service.plan_store);
+    let now = crate::plan::CURATOR_TIMEOUT_MS + NOW;
+    let snapshot = service.build_plan_state(&plan.id, now).unwrap();
+    assert_eq!(snapshot.control_loop.running, plan.control_loop.running);
+    assert_eq!(snapshot.task_counts.pending, 1);
+    let reconcile = service.reconcile_plan(&plan.id, false, None, now).unwrap();
+    assert!(reconcile.fixed.is_empty());
+    assert!(service.plan_store.plan_loads_for_test().is_empty());
+    let stored: String = connection
+        .query_row(
+            "SELECT header_json FROM plans WHERE id=?1",
+            [&plan.id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let stored: serde_json::Value = serde_json::from_str(&stored).unwrap();
+    assert_eq!(
+        stored["control_loop"]["running"],
+        serde_json::to_value(&plan.control_loop.running).unwrap()
+    );
 }

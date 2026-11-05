@@ -120,7 +120,7 @@ fn checkout_peer_plans_never_loads_unmatched_plans() {
     ];
     start(&store);
 
-    let peers = store.checkout_peer_plans(&super::plan(&checkout)).unwrap();
+    let peers = store.checkout_peer_facts(&checkout).unwrap();
 
     let expected = BTreeSet::from([shared, exclusive, aliased, overridden]);
     assert_eq!(

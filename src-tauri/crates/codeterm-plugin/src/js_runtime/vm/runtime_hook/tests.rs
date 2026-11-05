@@ -302,3 +302,63 @@ fn runtime_setup_failure_reports_the_js_exception_and_resets_the_context() {
     assert!(error.message.contains("read-only"), "{}", error.message);
     assert!(vm.runtime_inner.lock().is_none());
 }
+
+#[test]
+fn host_mcp_credential_cannot_escape_through_hook_errors_or_state() {
+    let context = json!({"hostMcp":{"env":{"CODETERM_API_TOKEN":"<credential-placeholder>"}}});
+    for body in [
+        "throw new Error(ctx.hostMcp.env.CODETERM_API_TOKEN)",
+        "return {state:{copied:ctx.hostMcp.env.CODETERM_API_TOKEN}}",
+        "return {action:{kind:'refused',reason:ctx.hostMcp.env.CODETERM_API_TOKEN}}",
+        "return {events:[{message:ctx.hostMcp.env.CODETERM_API_TOKEN}]}",
+        "return {kind:'continue',plan:{state:{copied:ctx.hostMcp.env.CODETERM_API_TOKEN}}}",
+    ] {
+        let vm = PluginVm::from_source(
+            "credential-boundary",
+            format!("module.exports={{runtimePlan(ctx){{{body}}}}}"),
+        )
+        .unwrap();
+        let error = call_runtime_hook::<Value>(
+            &vm,
+            "runtimePlan",
+            &[context.clone()],
+            Instant::now() + Duration::from_secs(5),
+        )
+        .unwrap_err();
+        assert!(!error.message.contains("<credential-placeholder>"));
+    }
+}
+
+#[test]
+fn host_mcp_credential_is_allowed_only_in_exact_outbound_descriptor() {
+    let descriptor = crate::agent_runtime::RuntimeHostMcp {
+        name: "domios".into(),
+        command: "/trusted/domios".into(),
+        args: vec!["mcp".into(), "serve".into()],
+        env: std::collections::BTreeMap::from([(
+            "CODETERM_API_TOKEN".into(),
+            "<credential-placeholder>".into(),
+        )]),
+    };
+    let context = json!({"hostMcp":descriptor});
+    let vm = PluginVm::from_source("descriptor-boundary", "module.exports={runtimePlan(ctx,op){return {action:{kind:'request',call:{method:'session/new',params:{mcpServers:op.servers}}},state:{method:'session/new'}}}}".into()).unwrap();
+    let servers = json!([descriptor.descriptor()]);
+    let value = call_runtime_hook::<Value>(
+        &vm,
+        "runtimePlan",
+        &[context.clone(), json!({"servers":servers})],
+        Instant::now() + Duration::from_secs(5),
+    )
+    .unwrap();
+    assert_eq!(value["action"]["call"]["params"]["mcpServers"], servers);
+    let mut changed = servers;
+    changed[0]["command"] = json!("/foreign");
+    let error = call_runtime_hook::<Value>(
+        &vm,
+        "runtimePlan",
+        &[context, json!({"servers":changed})],
+        Instant::now() + Duration::from_secs(5),
+    )
+    .unwrap_err();
+    assert_eq!(error.code, RuntimeFailureCode::InvalidSchema);
+}

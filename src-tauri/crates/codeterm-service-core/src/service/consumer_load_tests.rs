@@ -23,15 +23,14 @@ fn project(fx: &ServiceFixture) -> std::path::PathBuf {
 fn system_entry_views_for_tab_never_loads_unmatched_plans() {
     let (fx, orchestrator) = fixture();
     let store = &fx.service.plan_store;
-    let owned = seed(
-        store,
-        execution_plan(
-            &project(&fx),
-            "owned",
-            &orchestrator,
-            vec![task("task_o", TaskStatus::InProgress, None)],
-        ),
+    let mut owned_plan = execution_plan(
+        &project(&fx),
+        "owned",
+        &orchestrator,
+        vec![task("task_o", TaskStatus::InProgress, None)],
     );
+    owned_plan.control_loop.mode = crate::plan::ControlLoopMode::Heartbeat;
+    let owned = seed(store, owned_plan);
     let other = seed(
         store,
         execution_plan(
@@ -44,8 +43,18 @@ fn system_entry_views_for_tab_never_loads_unmatched_plans() {
     start(store);
 
     let views = crate::delayed_send::system_heartbeat_views(&fx.service, &orchestrator).unwrap();
-    assert!(views.len() <= 1);
-    assert_eq!(store.plan_loads_for_test(), vec![owned]);
+    assert_eq!(views.len(), 1);
+    assert_eq!(
+        views[0].message.id,
+        format!("system:heartbeat:{owned}:{orchestrator}")
+    );
+    assert_eq!(views[0].message.tab_id, orchestrator);
+    assert_eq!(
+        views[0].message.origin,
+        crate::delayed_send::MessageOrigin::System
+    );
+    assert!(!views[0].message.text.is_empty());
+    assert!(store.plan_loads_for_test().is_empty());
     assert_never_loaded(store, &[&other]);
 }
 
@@ -298,7 +307,15 @@ fn bind_planner_session_never_loads_unmatched_plans() {
     start(store);
 
     fx.service.bind_planner_session(&planner_tab).unwrap();
-    assert!(store.plan_loads_for_test().contains(&planned));
+    let selected = store.planner_gate_context(&planned, None).unwrap().unwrap();
+    assert!(matches!(selected.planner,
+        Some(crate::plan::PlannerRef::Tab { tab_id, session_id: Some(session), .. })
+            if tab_id == planner_tab && session == "planner-session"));
+    let unmatched = store.planner_gate_context(&other, None).unwrap().unwrap();
+    assert!(matches!(unmatched.planner,
+        Some(crate::plan::PlannerRef::Tab { tab_id, session_id: Some(session), .. })
+            if tab_id == "other-planner" && session == "other-planner-session"));
+    assert!(store.plan_loads_for_test().is_empty());
     assert_never_loaded(store, &[&other]);
 }
 
@@ -440,11 +457,24 @@ fn clear_planner_bindings_for_lifecycle_exit_never_loads_unmatched_plans() {
 #[test]
 fn lazy_restore_initialize_never_loads_unmatched_plans() {
     let (fx, _) = fixture();
+    let (worker_tab, idle_tab) = {
+        let mut mux = fx.service.mux.write();
+        let workspace = mux.list_workspaces()[0].id.clone();
+        let worker = mux.create_tab(&workspace).unwrap();
+        let idle = mux.create_tab(&workspace).unwrap();
+        for id in [&worker, &idle] {
+            let tab = mux.get_tab_mut(id).unwrap();
+            tab.agent_type = Some("opaque".into());
+            tab.restored_from_snapshot = true;
+            tab.last_active_at_ms = Some(0);
+        }
+        (worker, idle)
+    };
     let store = &fx.service.plan_store;
-    let mut continuing = task("task_c", TaskStatus::InProgress, Some("worker-a"));
+    let mut continuing = task("task_c", TaskStatus::InProgress, Some(&worker_tab));
     continuing
         .execution_attempts
-        .push(attempt("att_c", "worker-a"));
+        .push(attempt("att_c", &worker_tab));
     let continuing = seed(
         store,
         execution_plan(&project(&fx), "continuing", "owner", vec![continuing]),
@@ -461,7 +491,18 @@ fn lazy_restore_initialize_never_loads_unmatched_plans() {
     start(store);
 
     crate::service::lazy_restore::initialize(&fx.service, 24);
-    assert_eq!(store.plan_loads_for_test(), vec![continuing]);
+    assert!(store
+        .continuing_restore_tab_projection(&worker_tab)
+        .unwrap());
+    assert!(!store.continuing_restore_tab_projection(&idle_tab).unwrap());
+    let mux = fx.service.mux.read();
+    assert!(
+        !mux.get_tab(&worker_tab).unwrap().frozen,
+        "{continuing} keeps its worker continuing"
+    );
+    assert!(mux.get_tab(&idle_tab).unwrap().frozen);
+    drop(mux);
+    assert!(store.plan_loads_for_test().is_empty());
     assert_never_loaded(store, &[&idle]);
 }
 
@@ -523,7 +564,7 @@ fn curator_bootstrap_ids_never_loads_unmatched_plans() {
     let quiet = seed(store, quiet);
     start(store);
 
-    let ids = crate::service::curator::curator_bootstrap_ids(store);
+    let ids = crate::service::curator::curator_bootstrap_ids(store).unwrap();
     assert_eq!(ids, [active, scheduled].into_iter().collect());
     assert!(!ids.contains(&quiet));
     assert!(
@@ -619,10 +660,10 @@ fn close_inventory_plans_never_loads_unmatched_plans() {
     start(store);
 
     let teams: HashSet<&str> = ["team-closing"].into_iter().collect();
-    let plans = crate::service::close_history::close_inventory_plans(store, &teams);
+    let plans = crate::service::close_history::close_inventory_plans(store, &teams).unwrap();
     assert_eq!(
         plans.into_iter().map(|plan| plan.id).collect::<Vec<_>>(),
-        vec![closing]
+        vec![closing.clone()]
     );
-    assert_never_loaded(store, &[&staying]);
+    assert_never_loaded(store, &[&closing, &staying]);
 }

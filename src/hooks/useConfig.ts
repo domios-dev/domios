@@ -46,7 +46,6 @@ export function defaultConfig(): AppConfig {
       poll_interval_ms: 500,
       idle_timeout_s: 30,
       resume_sessions: true,
-      full_access: undefined,
     },
     api: {
       enabled: true,

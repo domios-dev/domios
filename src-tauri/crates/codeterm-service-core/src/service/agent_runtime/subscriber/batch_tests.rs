@@ -45,7 +45,8 @@ async fn run(
     let epoch = scene.session.context.lock().epoch;
     let svc = scene.fixture.service.clone();
     let session = scene.session.clone();
-    let work = handle(&svc, &session, &process, epoch, frames, lagged);
+    let sequences = (1..=frames.len() as u64).collect();
+    let work = handle(&svc, &session, &process, epoch, frames, sequences, lagged);
     if resync {
         tokio::join!(work, answer_resync(&mut scene.peer))
     } else {

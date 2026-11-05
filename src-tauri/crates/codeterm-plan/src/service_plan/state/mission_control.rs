@@ -7,12 +7,13 @@
 //! stay in their explicit not-recording states for the service layer to fill from
 //! the KPI ledger and the usage store.
 
+use super::input::{StateInput, StateTaskInput};
 use std::collections::BTreeMap;
 
 use serde::Serialize;
 
 use crate::plan::{
-    AgentRef, DecisionGate, GateStatus, Plan, PlannerRef, PlanningAuthor, Task, TaskStatus,
+    AgentRef, DecisionGate, GateStatus, Plan, PlannerRef, PlanningAuthor, TaskStatus,
 };
 
 /// The stored facet whose value groups a task into an area.
@@ -330,10 +331,22 @@ pub struct ModelSpend {
 }
 
 pub fn build_mission_control(plan: &Plan, now_ms: u64) -> MissionControl {
+    let input = StateInput::from(plan);
     MissionControl {
-        held: held_for_decision(plan, now_ms),
+        held: held_for_decision(&input, now_ms),
         bounces: bounce_summary(plan),
         event_log: event_log(plan),
+        areas: area_grouping(&input),
+        kpi: MissionControlKpi::default(),
+        spend: MissionControlSpend::default(),
+    }
+}
+
+pub(super) fn build_mission_control_facts(plan: &StateInput, now_ms: u64) -> MissionControl {
+    MissionControl {
+        held: held_for_decision(plan, now_ms),
+        bounces: BounceSummary::default(),
+        event_log: EventLog::default(),
         areas: area_grouping(plan),
         kpi: MissionControlKpi::default(),
         spend: MissionControlSpend::default(),
@@ -344,7 +357,7 @@ pub fn build_plan_event_log(plan: &Plan) -> EventLog {
     event_log(plan)
 }
 
-fn review_verdicts(task: &Task) -> (usize, Option<u64>) {
+fn review_verdicts(task: &StateTaskInput) -> (usize, Option<u64>) {
     let stamps: Vec<u64> = task
         .milestones
         .iter()
@@ -354,7 +367,7 @@ fn review_verdicts(task: &Task) -> (usize, Option<u64>) {
     (stamps.len(), stamps.iter().copied().max())
 }
 
-fn held_for_decision(plan: &Plan, now_ms: u64) -> HeldForDecision {
+fn held_for_decision(plan: &StateInput, now_ms: u64) -> HeldForDecision {
     let held_reviews: Vec<HeldReview> = plan
         .tasks
         .iter()
@@ -438,7 +451,7 @@ fn author_titles(plan: &Plan) -> BTreeMap<String, String> {
     titles
 }
 
-fn first_line(text: &str) -> String {
+pub(in crate::service_plan) fn first_line(text: &str) -> String {
     text.trim().lines().next().unwrap_or("").trim().to_string()
 }
 
@@ -624,7 +637,7 @@ fn facet_value<'a>(tags: &'a [String], key: &str) -> Option<&'a str> {
     })
 }
 
-fn area_grouping(plan: &Plan) -> AreaGrouping {
+fn area_grouping(plan: &StateInput) -> AreaGrouping {
     let Some(facet) = plan
         .tag_facets
         .iter()
@@ -664,7 +677,7 @@ fn area_grouping(plan: &Plan) -> AreaGrouping {
     }
 }
 
-fn role_fallback_grouping(plan: &Plan) -> AreaGrouping {
+fn role_fallback_grouping(plan: &StateInput) -> AreaGrouping {
     let mut by_role: BTreeMap<Option<String>, RoleGroup> = BTreeMap::new();
     for task in &plan.tasks {
         let entry = by_role

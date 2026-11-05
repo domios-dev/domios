@@ -1,3 +1,4 @@
+import { ioTestContext } from "../../provider-shared/tests/hostIo";
 /**
  * Codex hook-trust grant mechanism tests (integration.trust_grant, DN-1).
  * Run: npx tsx plugins/provider-codex/tests/trust-grant.test.ts
@@ -30,7 +31,7 @@ function loadCodexWithHost(host: unknown) {
   const pluginPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "plugin.js");
   const source = fs.readFileSync(pluginPath, "utf8");
   const context = { host, console, module: { exports: {} as { default?: any } }, exports: {} };
-  new vm.Script(source, { filename: pluginPath }).runInNewContext(context);
+  new vm.Script(source, { filename: pluginPath }).runInNewContext(ioTestContext(context));
   return context.module.exports.default;
 }
 

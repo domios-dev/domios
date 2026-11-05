@@ -1,7 +1,4 @@
-use super::{
-    live_competitive_executor, validate_competitive_attempt_status_transition,
-    validate_task_status_transition,
-};
+use super::{live_competitive_executor, status_transition};
 use crate::plan::{OrchestratorRef, Plan, TaskExecutionAttempt, TaskStatus};
 use crate::service_plan::{NewTask, PlanError, PlanStore};
 
@@ -47,12 +44,15 @@ fn competitive_task(attempts: Vec<TaskExecutionAttempt>) -> (tempfile::TempDir, 
 }
 
 fn progresses(plan: &Plan, task_id: &str, attempt_id: &str) -> Result<(), PlanError> {
-    validate_competitive_attempt_status_transition(
-        plan,
-        task_id,
+    let task = plan.tasks.iter().find(|task| task.id == task_id).unwrap();
+    status_transition::validate(
+        Some(task),
         &TaskStatus::Pending,
         &TaskStatus::InProgress,
-        attempt_id,
+        None,
+        live_competitive_executor(task, attempt_id),
+        |task| crate::service_plan::review_gate::validate_dispatch_review_capacity(plan, task),
+        || Ok(()),
     )
 }
 
@@ -69,12 +69,14 @@ fn exact_live_competitive_attempt_is_the_progression_authority_without_a_task_ta
     assert!(progresses(&plan, &task_id, "a").is_ok());
     assert!(progresses(&plan, &task_id, "b").is_ok());
     assert!(matches!(
-        validate_task_status_transition(
-            &plan,
-            &task_id,
+        status_transition::validate(
+            Some(task),
             &TaskStatus::Pending,
             &TaskStatus::InProgress,
             None,
+            false,
+            |task| crate::service_plan::review_gate::validate_dispatch_review_capacity(&plan, task),
+            || Ok(())
         ),
         Err(PlanError::InProgressRequiresTab)
     ));

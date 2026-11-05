@@ -27,7 +27,7 @@ fn owner_completes_each_open_status_with_a_persisted_result_and_retires_assignme
                 )
                 .unwrap();
             svc.plan_store
-                .with_plan(&plan_id, 3, |plan| {
+                .edit_plan_fixture(&plan_id, 3, |plan| {
                     let task = &mut plan.tasks[0];
                     task.status = status.clone();
                     task.assigned_tab_id = Some("opaque-worker".into());
@@ -66,7 +66,7 @@ fn owner_completes_each_open_status_with_a_persisted_result_and_retires_assignme
                     )
                     .unwrap();
             }
-            let task = svc.plan_store.show_task(&task_id).unwrap().task;
+            let task = svc.plan_store.inspect_task_for_test(&task_id).unwrap().task;
             assert_eq!(task.status, TaskStatus::Done);
             assert!(task.assigned_tab_id.is_none());
             assert!(task.lane.tab_id.is_none());
@@ -116,7 +116,11 @@ fn completion_requires_live_owner_and_a_note_for_the_same_task() {
         assert!(svc.authorize_batch_completions(&plan_id, &body).is_err());
     }
     assert_eq!(
-        svc.plan_store.show_task(&task_id).unwrap().task.status,
+        svc.plan_store
+            .inspect_task_for_test(&task_id)
+            .unwrap()
+            .task
+            .status,
         TaskStatus::Pending
     );
 }
@@ -153,7 +157,11 @@ fn worker_record_cannot_bypass_review_with_status_or_upsert_done() {
         assert!(svc.authorize_batch_completions(&plan_id, &body).is_err());
     }
     assert_eq!(
-        svc.plan_store.show_task(&task_id).unwrap().task.status,
+        svc.plan_store
+            .inspect_task_for_test(&task_id)
+            .unwrap()
+            .task
+            .status,
         TaskStatus::Pending
     );
 }

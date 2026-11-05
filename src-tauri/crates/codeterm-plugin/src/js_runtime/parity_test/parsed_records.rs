@@ -111,8 +111,8 @@ fn native_text_and_kernel_columns_keep_rows_and_byte_identity() {
     let file = tempfile::NamedTempFile::new().unwrap();
     std::fs::write(file.path(), lines.concat()).unwrap();
     assert_eq!(
-        serde_json::to_value(text.parse_session_messages(file.path())).unwrap(),
-        serde_json::to_value(kernel.parse_session_messages(file.path())).unwrap()
+        serde_json::to_value(text.parse_session_messages(file.path()).unwrap()).unwrap(),
+        serde_json::to_value(kernel.parse_session_messages(file.path()).unwrap()).unwrap()
     );
     for from in [0, lines[0].len() as u64, 3] {
         for budget in [1, 80, 1024] {

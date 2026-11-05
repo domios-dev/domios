@@ -116,15 +116,6 @@ pub(super) fn respawn(
             data: None,
         })?;
     draft.parent_tab_id = Some(parent_tab_id.clone());
-    let _respawn_reservation = store
-        .reserve_task_respawn_startup(&id, &tid, &draft.source_attempt.id, &draft.attempt_id)
-        .map_err(plan_rpc_err)?;
-    svc.retire_respawn_executor(&draft)
-        .map_err(|error| JsonRpcError {
-            code: -32603,
-            message: error,
-            data: None,
-        })?;
     let mut spawn_params = super::super::plan_task_dispatch::respawn_worker_params(
         &draft,
         &task.name,
@@ -136,6 +127,17 @@ pub(super) fn respawn(
         .and_then(Value::as_str)
         .map(str::to_owned)
         .or(spawn_params.speed);
+    svc.validate_spawn_options(&draft.provider, &spawn_params)
+        .map_err(super::super::model_errors::spawn_target_rpc_error)?;
+    let _respawn_reservation = store
+        .reserve_task_respawn_startup(&id, &tid, &draft.source_attempt.id, &draft.attempt_id)
+        .map_err(plan_rpc_err)?;
+    svc.retire_respawn_executor(&draft)
+        .map_err(|error| JsonRpcError {
+            code: -32603,
+            message: error,
+            data: None,
+        })?;
     let speed = spawn_params.speed.clone();
     let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
     let spawn = svc

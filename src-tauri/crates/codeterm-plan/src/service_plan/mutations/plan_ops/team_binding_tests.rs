@@ -32,7 +32,7 @@ fn teamless_creator_is_rejected_without_a_fallback_plan() {
     let (dir, s) = store();
     let error = create(&s, &dir, "A", "", 1).unwrap_err();
     assert!(matches!(error, PlanError::ActivePlanRequiresTeam { .. }));
-    assert!(s.list_index().is_empty());
+    assert!(s.list_index().unwrap().is_empty());
 }
 
 #[test]
@@ -47,6 +47,7 @@ fn team_bound_creation_persists_team_id() {
     // Exposed in the plan index.
     let entry = s
         .list_index()
+        .unwrap()
         .into_iter()
         .find(|e| e.plan_id == plan.id)
         .unwrap();
@@ -119,7 +120,7 @@ fn dangling_team_reconciliation_archives_every_active_orphan() {
 fn second_active_plan_hard_refused() {
     let (dir, s) = store();
     let first = create(&s, &dir, "First", "team_alpha", 1).unwrap();
-    let before = s.list_index().len();
+    let before = s.list_index().unwrap().len();
     let err = create(&s, &dir, "Second", "team_alpha", 2).unwrap_err();
     match &err {
         PlanError::TeamAlreadyHasActivePlan {
@@ -134,7 +135,7 @@ fn second_active_plan_hard_refused() {
         other => panic!("expected hard refuse, got {other:?}"),
     }
     // Hard refuse leaves the store unchanged — no teamless fallback plan.
-    assert_eq!(s.list_index().len(), before);
+    assert_eq!(s.list_index().unwrap().len(), before);
 }
 
 #[test]
@@ -171,7 +172,7 @@ fn concurrent_team_plan_creation_allows_exactly_one() {
             .count(),
         1
     );
-    assert_eq!(store.list_index().len(), 1);
+    assert_eq!(store.list_index().unwrap().len(), 1);
 }
 
 #[test]

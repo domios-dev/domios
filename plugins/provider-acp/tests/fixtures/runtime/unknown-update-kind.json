@@ -130,6 +130,10 @@
                 "text": "Hello"
               }
             ]
+          },
+          "target": {
+            "threadId": "session-fixture",
+            "turnId": "session-fixture:turn:1"
           }
         }
       }
@@ -322,13 +326,15 @@
           "result": {
             "kind": "turnAccepted",
             "threadId": "session-fixture",
-            "sendId": "send-fixture"
+            "sendId": "send-fixture",
+            "turnId": "session-fixture:turn:1"
           },
           "events": [
             {
               "kind": "turnState",
               "threadId": "session-fixture",
-              "state": "idle"
+              "state": "idle",
+              "turnId": "session-fixture:turn:1"
             }
           ]
         }
@@ -366,7 +372,8 @@
       {
         "kind": "turnState",
         "threadId": "session-fixture",
-        "state": "idle"
+        "state": "idle",
+        "turnId": "session-fixture:turn:1"
       }
     ]
   }

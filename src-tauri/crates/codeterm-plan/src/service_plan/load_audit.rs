@@ -54,9 +54,8 @@ pub fn seed(store: &PlanStore, mut plan: Plan) -> String {
     plan.id
 }
 
-/// Starts from an empty cache, so every plan the consumer reads is a recorded SQL load.
+/// Records every aggregate fixture read made by the consumer.
 pub fn start(store: &PlanStore) {
-    store.clear_plan_cache_for_test();
     store.reset_plan_loads_for_test();
 }
 

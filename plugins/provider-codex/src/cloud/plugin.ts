@@ -1,11 +1,13 @@
-import type {Host, PluginModule} from "@codeterm/plugin-sdk";
-import {RemoteTaskFileStorage, type RemoteTaskCapability, type RemoteTaskDiscovery} from "@codeterm/plugin-sdk";
-import {cloudTaskBackend} from "./backend";
-import {remoteChatBackend} from "./chatBackend";
-import {createCodexCloudTransport} from "./transport";
+import type { IoExports } from "@codeterm/plugin-sdk";
+import { ioResolve, type HostIoSteps } from "@codeterm/plugin-sdk";
+import type { Host, PluginModule } from "@codeterm/plugin-sdk";
+import { RemoteTaskFileStorage, type RemoteTaskCapability, type RemoteTaskDiscovery } from "@codeterm/plugin-sdk";
+import { cloudTaskBackend } from "./backend";
+import { remoteChatBackend } from "./chatBackend";
+import { createCodexCloudTransport } from "./transport";
 
 // The host global is injected after module evaluation in test harnesses, so it is resolved on first use.
-export function cloudExports(hostRef: () => Host): Pick<PluginModule, "discoverRemoteTask" | "openSession" | "sendMessage" | "poll" | "closeSession" | "viewCall"> {
+export function cloudExports(hostRef: () => Host) {
   let backend: ReturnType<typeof remoteChatBackend> | undefined;
   let capability: RemoteTaskCapability | undefined;
   let transport: ReturnType<typeof createCodexCloudTransport> | undefined;
@@ -18,25 +20,25 @@ export function cloudExports(hostRef: () => Host): Pick<PluginModule, "discoverR
     const root = `${dataRoot.replace(/[\\/]$/, "")}/codex/tasks`;
     capability = manifest.capabilities.remoteTask;
     transport = createCodexCloudTransport(host);
-    backend = remoteChatBackend(new RemoteTaskFileStorage(host.fs, root), cloudTaskBackend(capability, transport), manifest.id);
+    backend = remoteChatBackend(new RemoteTaskFileStorage(host.io.fs, root), cloudTaskBackend(capability, transport), manifest.id);
     return backend;
   };
-  const discoverRemoteTask = (): RemoteTaskDiscovery => {
+  const discoverRemoteTask = function*(): HostIoSteps<RemoteTaskDiscovery> {
     get();
-    const discovery = transport!.discoverRemoteTask();
+    const discovery = (yield* ioResolve(transport!.discoverRemoteTask()));
     Object.assign(capability!, discovery);
     return discovery;
   };
   return {
     discoverRemoteTask,
-    openSession: ctx => {
-      const discovery = discoverRemoteTask();
+    openSession: function*(ctx) {
+      const discovery = (yield* discoverRemoteTask());
       if (discovery.availability.status === "unavailable") throw new Error(discovery.availability.reason);
-      return get().openSession(ctx);
+      return (yield* get().openSession(ctx));
     },
-    sendMessage: (session, text) => get().sendMessage(session, text),
-    poll: (session, cursor) => get().poll(session, cursor),
+    sendMessage: function*(session, text) { return (yield* get().sendMessage(session, text)); },
+    poll: function*(session, cursor) { return (yield* get().poll(session, cursor)); },
     closeSession: session => get().closeSession(session),
-    viewCall: (method, args, context) => get().viewCall(method, args, context),
-  };
+    viewCall: function*(method, args, context) { return (yield* get().viewCall(method, args, context)); },
+  } satisfies IoExports<Pick<PluginModule, "discoverRemoteTask" | "openSession" | "sendMessage" | "poll" | "closeSession" | "viewCall">>;
 }

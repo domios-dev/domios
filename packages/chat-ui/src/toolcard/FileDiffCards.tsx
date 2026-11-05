@@ -33,7 +33,7 @@ function lineTone(line: string): LineTone {
   return marker === "+" ? "add" : marker === "-" ? "del" : "context";
 }
 
-function changedLines(hunk: FileDiffHunk): string {
+export function changedLines(hunk: FileDiffHunk): string {
   const start = hunk.newLines > 0 ? hunk.newStart : hunk.oldStart;
   const count = hunk.newLines > 0 ? hunk.newLines : hunk.oldLines;
   return count > 1 ? `Lines ${start}–${start + count - 1}` : `Line ${start}`;

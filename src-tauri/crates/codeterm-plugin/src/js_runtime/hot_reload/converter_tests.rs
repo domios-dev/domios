@@ -99,6 +99,11 @@ fn converter_registry_registers_graph_node_converters_and_deregisters() {
 
 #[test]
 fn transcriber_capability_registers_the_audio_text_converter() {
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(1)
+        .enable_all()
+        .build()
+        .unwrap();
     let caps = test_caps();
     let manifest: PluginManifest =
         serde_json::from_str(&manifest_with("voice-fixture", r#""transcriber":true"#))
@@ -114,7 +119,11 @@ fn transcriber_capability_registers_the_audio_text_converter() {
         .expect("vm"),
     );
 
-    caps.register_plugin(&manifest, &vm);
+    {
+        let _runtime = runtime.enter();
+        caps.register_plugin(&manifest, &vm);
+    }
+    assert!(tokio::runtime::Handle::try_current().is_err());
     let plan = caps
         .converter
         .plan(MediaKind::Audio, MediaKind::Text)

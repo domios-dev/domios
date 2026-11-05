@@ -436,7 +436,7 @@ pub enum PlanTaskAction {
         #[arg(
             long = "execution-intent",
             value_parser = ["read_only", "mutating"],
-            help = "Explicit task intent used by provider reserve policy"
+            help = "Explicit task intent; mutating work reports the advisory provider allowance"
         )]
         execution_intent: String,
         /// Explicit OS confinement for this launch; Workers default to full access.
@@ -445,7 +445,7 @@ pub enum PlanTaskAction {
         #[arg(
             long = "provider-reserve-pct",
             default_value_t = 0.0,
-            help = "Optional minimum remaining provider allowance for mutating work (0 = no reserve)"
+            help = "Advisory provider allowance reserve for mutating work: below it, or when exhausted, the receipt carries a provider_allowance_low warning; never blocks (0 = warn only when exhausted)"
         )]
         provider_reserve_pct: f32,
     },

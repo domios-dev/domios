@@ -30,7 +30,10 @@ pub async fn list_workspaces(
             )
         }
     })?;
-    Ok(Json(result.into_json()))
+    let value = tokio::task::spawn_blocking(move || result.into_json())
+        .await
+        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    Ok(Json(value))
 }
 
 #[derive(Deserialize)]

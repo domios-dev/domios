@@ -251,3 +251,27 @@ fn runtime_envelope_is_explicit_and_unknown_envelopes_are_rejected() {
         assert!(PluginManifest::from_json_str(&raw.to_string()).is_err());
     }
 }
+
+#[test]
+fn turn_scoped_requests_require_a_declared_submit_operation() {
+    for operations in [
+        json!(["submitTurn", "submitTurn"]),
+        json!(["initialize"]),
+        json!(["unknown"]),
+    ] {
+        let mut raw = manifest();
+        raw["capabilities"]["agentRuntime"]["turnScopedRequests"] = operations;
+        assert!(PluginManifest::from_json_str(&raw.to_string()).is_err());
+    }
+    let mut raw = manifest();
+    raw["capabilities"]["agentRuntime"]["turnScopedRequests"] = json!(["submitTurn"]);
+    let parsed = PluginManifest::from_json_str(&raw.to_string()).unwrap();
+    assert_eq!(
+        parsed
+            .capabilities
+            .agent_runtime
+            .unwrap()
+            .turn_scoped_requests,
+        vec!["submitTurn"]
+    );
+}

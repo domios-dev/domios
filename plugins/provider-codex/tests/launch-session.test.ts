@@ -1,3 +1,4 @@
+import { ioTestExport } from "../../provider-shared/tests/hostIo";
 /**
  * Hook-independent Codex binding: a thread binds a tab only when its rollout's
  * early launch text carries that launch's marker.
@@ -6,8 +7,10 @@
  */
 
 import { readFileSync } from "node:fs";
-import { detectCodexLaunchSession, withLaunchMarker } from "../src/launchSession";
-import plugin from "../src/plugin";
+import { detectCodexLaunchSession as ioSource_detectCodexLaunchSession, withLaunchMarker } from "../src/launchSession";
+import ioSource_plugin from "../src/plugin";
+const detectCodexLaunchSession = ioTestExport(ioSource_detectCodexLaunchSession);
+const plugin = ioTestExport(ioSource_plugin);
 
 let passed = 0;
 let failed = 0;

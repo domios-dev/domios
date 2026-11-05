@@ -9,7 +9,13 @@ fn milestone(id: &str, kind: &str, text: &str, ts: u64) -> Milestone {
     .unwrap()
 }
 
-fn snapshot(plan: &Plan, now: u64) -> PlanStateSnapshot {
+fn snapshot(
+    plan: &impl crate::service_plan::state::input::StateSource,
+    now: u64,
+) -> PlanStateSnapshot {
+    let source = plan;
+    let input = crate::service_plan::state::input::StateSource::state_input(plan);
+    let plan = input.as_ref();
     let mut config = crate::plan::reconcile::ReconcileConfig::new(now);
     config.current_orchestrator_tab_id = plan.owner.tab_id.clone();
     let drift = crate::plan::reconcile::detect_plan_drift(plan, &config, |_| Default::default());
@@ -17,7 +23,7 @@ fn snapshot(plan: &Plan, now: u64) -> PlanStateSnapshot {
     let lanes =
         crate::service_plan::state::lane_rows::build_lane_rows(plan, |_| Default::default(), now);
     build_plan_state_snapshot(
-        plan,
+        source,
         crate::plan::coverage::compute_coverage_report(plan),
         drift,
         cleanup,
@@ -93,7 +99,7 @@ fn sql_status_matches_complete_state_actions_reconcile_counts_and_event_folding(
     plan.strides.push(regression);
     let database = fixtures::database(directory.path(), &plan);
     let read = database.status_projection(&plan.id, 100_000, &[]).unwrap();
-    let mut projected = snapshot(read.plan(), 100_000);
+    let mut projected = snapshot(read.input(), 100_000);
     read.apply_history_facts(&mut projected, 100_000);
     let mut expected = snapshot(&plan, 100_000);
     expected.revision = "1".into();
@@ -126,11 +132,21 @@ fn sql_status_matches_complete_state_actions_reconcile_counts_and_event_folding(
 #[test]
 fn sql_status_work_and_materialization_ignore_unrelated_bodies_and_old_history() {
     let mut prior = None;
-    for (strides, attempts, extra_body) in [(0, 1, 0), (2048, 1, 0), (0, 2048, 0), (0, 1, 32768)] {
+    for (strides, attempts, extra_body, extra_header) in [
+        (0, 1, 0, 0),
+        (2048, 1, 0, 0),
+        (0, 2048, 0, 0),
+        (0, 1, 32768, 0),
+        (0, 1, 0, 32768),
+    ] {
         let directory = tempfile::tempdir().unwrap();
         let mut plan = fixtures::fixture(directory.path(), strides, attempts);
         plan.mode = PlanMode::Execution;
         plan.tasks[1].body.push_str(&"x".repeat(extra_body));
+        plan.elements = serde_json::from_value(
+            json!([{"id":"irrelevant","kind":"note","content":{"text":"x".repeat(extra_header)}}]),
+        )
+        .unwrap();
         plan.strides.extend((0..256).map(|index| {
             milestone(
                 &format!("anchor-{index:04}"),
@@ -145,12 +161,20 @@ fn sql_status_work_and_materialization_ignore_unrelated_bodies_and_old_history()
         super::super::super::super::store_sync::take_decoded_row_bytes();
         super::super::super::super::store_rows::take_serialized_row_bytes();
         let read = database.status_projection(&plan.id, 10_000, &[]).unwrap();
-        let mut projected = snapshot(read.plan(), 10_000);
+        let mut projected = snapshot(read.input(), 10_000);
         read.apply_history_facts(&mut projected, 10_000);
         let metrics = take_metrics();
         let decoded = super::super::super::super::store_sync::take_decoded_row_bytes();
         let serialized = super::super::super::super::store_rows::take_serialized_row_bytes();
-        let response_bytes = serde_json::to_vec(&projected).unwrap().len();
+        let mut response = projected.clone();
+        response.window_details(crate::service_plan::state::window::StateWindowRequest::default());
+        let response_bytes = serde_json::to_vec(&response).unwrap().len();
+        assert_eq!(response.open_lanes.len(), 50);
+        assert_eq!(
+            response.details.as_ref().unwrap().totals["open_lanes"],
+            fixtures::TASKS
+        );
+        assert!(response_bytes < 100 * 1024);
         assert_eq!(projected.mission_control.event_log.entries.len(), 200);
         assert_eq!(projected.recent_strides.len(), 10);
         assert_eq!(
@@ -166,7 +190,7 @@ fn sql_status_work_and_materialization_ignore_unrelated_bodies_and_old_history()
             serde_json::to_value(&projected).unwrap(),
             serde_json::to_value(expected).unwrap()
         );
-        println!("fixture={} consumer=state tasks={} base_bytes={} old_strides={strides} unrelated_attempts={attempts} extra_body={extra_body} anchor_strides=256 queries={} materialized_text_bytes={} decoded_json_bytes={decoded} serialized_row_bytes={serialized} response_bytes={response_bytes} changed_rows=0",fixtures::SEED,fixtures::TASKS,fixtures::CONTENT_BYTES,metrics.queries,metrics.materialized_bytes);
+        println!("fixture={} consumer=state tasks={} base_bytes={} old_strides={strides} unrelated_attempts={attempts} extra_body={extra_body} extra_header={extra_header} anchor_strides=256 queries={} materialized_text_bytes={} decoded_json_bytes={decoded} serialized_row_bytes={serialized} response_bytes={response_bytes} changed_rows=0",fixtures::SEED,fixtures::TASKS,fixtures::CONTENT_BYTES,metrics.queries,metrics.materialized_bytes);
         let measured = (metrics, decoded);
         if let Some(prior) = &prior {
             assert_eq!(&measured, prior);
@@ -220,7 +244,7 @@ fn sql_status_projection_is_coherent_and_reports_decode_errors() {
     for _ in 0..16 {
         barrier.wait();
         let read = database.status_projection(&plan.id, 10_000, &[]).unwrap();
-        assert_eq!(read.plan().title, read.plan().tasks[0].name);
+        assert_eq!(read.input().title, read.input().tasks[0].name);
         barrier.wait();
     }
     writer.join().unwrap();

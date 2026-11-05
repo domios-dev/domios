@@ -1,5 +1,5 @@
 pub(in crate::service::agent_runtime) use super::tests::sync_send::{
-    runtime_fixture, runtime_fixture_with,
+    runtime_fixture, runtime_fixture_turn_scoped, runtime_fixture_with,
 };
 use super::*;
 use crate::multiplexer::types::Tab;
@@ -61,10 +61,13 @@ pub(crate) fn loaded_runtime(
         auth: Mutex::new(RuntimeAuthState::SignedIn),
         login: Mutex::new(Default::default()),
         thread_loaded: std::sync::atomic::AtomicBool::new(true),
+        stream_progress: tokio::sync::watch::channel(0).0,
+        turn_requests: Mutex::new(HashMap::new()),
         hook_state: Mutex::new(Value::Null),
         maps: Mutex::new(super::super::events::RuntimeMaps::default()),
         provider_operation_failures: std::sync::atomic::AtomicU32::new(0),
         bookkeeping_warning_emitted: std::sync::atomic::AtomicBool::new(false),
+        transcript_io: Default::default(),
         prompts: Mutex::new(HashMap::new()),
         prompts_cancelled: std::sync::atomic::AtomicBool::new(false),
         process: crate::service::agent_runtime::process_slot::ProcessSlot::new(Some(process)),

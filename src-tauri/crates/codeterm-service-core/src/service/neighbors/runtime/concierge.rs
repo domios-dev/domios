@@ -331,16 +331,34 @@ impl ServiceContext {
     }
 
     fn neighbor_initial_context_resume(&self, id: &str) -> Option<String> {
-        let mux = self.mux.read();
-        let tab = mux.get_tab(id)?;
-        let provider = tab.agent_type.as_deref()?;
-        self.agent_registry
-            .with_provider(provider, |p| p.supports_initial_prompt_update_on_resume())
-            .unwrap_or(false)
-            .then(|| {
-                crate::service::restored_launch::restored_session_target(tab).map(str::to_owned)
+        let (provider, target, nonce) = {
+            let mux = self.mux.read();
+            let tab = mux.get_tab(id)?;
+            (
+                tab.agent_type.clone()?,
+                crate::service::restored_launch::restored_session_target(tab)?.to_owned(),
+                tab.session_binding_nonce.clone(),
+            )
+        };
+        let supported = self
+            .agent_registry
+            .with_provider(&provider, |provider| {
+                provider.supports_initial_prompt_update_on_resume()
             })
-            .flatten()
+            .unwrap_or(false);
+        if !supported {
+            return None;
+        }
+        self.mux
+            .read()
+            .get_tab(id)
+            .filter(|tab| {
+                tab.agent_type.as_deref() == Some(provider.as_str())
+                    && tab.session_binding_nonce == nonce
+                    && crate::service::restored_launch::restored_session_target(tab)
+                        == Some(target.as_str())
+            })
+            .map(|_| target)
     }
 
     pub(super) async fn create_neighbor_concierge(

@@ -31,12 +31,12 @@ impl PlanDatabase {
             &format!("{SELECTED_TASK_IN_PLAN} SELECT EXISTS(SELECT 1 FROM plans WHERE id=?1),
                 (SELECT json_object('task_id',t.task_id,'status',json_extract(t.row_json,'$.status'),
                     'owner_epoch',coalesce(json_extract(t.row_json,'$.interruption.owner_epoch'),0),
-                    'attempts',json((SELECT json_group_array(json(facts)) FROM (
+                    'attempts',json(CASE WHEN json_extract(t.row_json,'$.status')='in_review' THEN (SELECT json_group_array(json(facts)) FROM (
                         SELECT json_object('id',json_extract(a.row_json,'$.id'),'executor_tab_id',a.executor_tab_id,
                             'session_binding_nonce',a.session_binding_nonce) AS facts
                         FROM plan_task_attempts a WHERE a.plan_id=t.plan_id AND a.task_id=t.task_id
-                            AND a.open=1 AND json_extract(t.row_json,'$.status')='in_review'
-                        ORDER BY a.position LIMIT 2)))) FROM selected_task t)"),
+                            AND a.open=1
+                        ORDER BY a.position LIMIT 2)) ELSE '[]' END)) FROM selected_task t)"),
             params![plan_id,task_ref],|row| Ok((column(row,0)?,column(row,1)?)),
         ).map_err(db_error)?;
         if !exists {

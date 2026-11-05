@@ -96,7 +96,10 @@ pub(in crate::service::agent_runtime) async fn plan(
     .await
     .map_err(|_| RuntimeFailure::Deadline)?
     .map_err(|reason| {
-        if reason.code == codeterm_plugin::agent_runtime::RuntimeFailureCode::ProviderRefused {
+        if reason.code == codeterm_plugin::agent_runtime::RuntimeFailureCode::Deadline {
+            RuntimeFailure::Deadline
+        } else if reason.code == codeterm_plugin::agent_runtime::RuntimeFailureCode::ProviderRefused
+        {
             RuntimeFailure::Refused(reason.message)
         } else {
             RuntimeFailure::HookFailed(reason.to_string())
@@ -277,6 +280,22 @@ async fn run_inner(
                     );
                 }
                 handed_off.store(true, Ordering::Release);
+                if capability
+                    .turn_scoped_requests
+                    .iter()
+                    .any(|kind| kind == operation.kind())
+                {
+                    return super::super::turn_requests::run(
+                        svc,
+                        session,
+                        process,
+                        context.clone(),
+                        operation.clone(),
+                        next.clone(),
+                        Some(guard),
+                    )
+                    .await;
+                }
                 process.client.request_guarded(call, Some(guard)).await?
             }
             RuntimeAction::Notification { notification } => {
@@ -332,7 +351,13 @@ async fn run_inner(
         )
         .await
         .map_err(|_| RuntimeFailure::Deadline)?
-        .map_err(|reason| RuntimeFailure::HookFailed(reason.to_string()))?;
+        .map_err(|reason| {
+            if reason.code == RuntimeFailureCode::Deadline {
+                RuntimeFailure::Deadline
+            } else {
+                RuntimeFailure::HookFailed(reason.to_string())
+            }
+        })?;
         validate_runtime_step(&capability, &context, &operation, &reply, &step)
             .map_err(|reason| RuntimeFailure::Refused(reason.to_string()))?;
         validate_binding(svc, session)?;
@@ -400,7 +425,8 @@ async fn run_inner(
                             ) = (&operation, &result, event)
                             {
                                 if thread_id == notice_thread {
-                                    session.state.lock().pending_load_notice = Some(message.clone());
+                                    session.state.lock().pending_load_notice =
+                                        Some(message.clone());
                                     return false;
                                 }
                             }

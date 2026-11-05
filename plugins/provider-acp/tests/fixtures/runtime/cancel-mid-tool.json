@@ -130,6 +130,10 @@
                 "text": "Hello"
               }
             ]
+          },
+          "target": {
+            "threadId": "session-fixture",
+            "turnId": "session-fixture:turn:1"
           }
         }
       }
@@ -223,11 +227,12 @@
           "result": {
             "kind": "turnAccepted",
             "threadId": "session-fixture",
-            "sendId": "send-fixture"
+            "sendId": "send-fixture",
+            "turnId": "session-fixture:turn:1"
           },
           "events": [
             {
-              "kind": "chatItem",
+              "kind": "chatItemPatch",
               "threadId": "session-fixture",
               "item": {
                 "id": "call-cancel",
@@ -235,12 +240,7 @@
                 "type": "tool_call",
                 "content": "",
                 "toolId": "call-cancel",
-                "collapsed": true,
-                "toolTitle": "Command",
-                "toolName": "Command",
-                "toolKind": "command",
                 "toolStatus": "interrupted",
-                "toolError": false,
                 "toolInterrupted": true
               }
             },
@@ -248,7 +248,8 @@
               "kind": "turnState",
               "threadId": "session-fixture",
               "state": "idle",
-              "detail": "interrupted"
+              "detail": "interrupted",
+              "turnId": "session-fixture:turn:1"
             }
           ]
         }
@@ -280,7 +281,7 @@
         }
       },
       {
-        "kind": "chatItem",
+        "kind": "chatItemPatch",
         "threadId": "session-fixture",
         "item": {
           "id": "call-cancel",
@@ -288,12 +289,7 @@
           "type": "tool_call",
           "content": "",
           "toolId": "call-cancel",
-          "collapsed": true,
-          "toolTitle": "Command",
-          "toolName": "Command",
-          "toolKind": "command",
           "toolStatus": "interrupted",
-          "toolError": false,
           "toolInterrupted": true
         }
       },
@@ -301,7 +297,8 @@
         "kind": "turnState",
         "threadId": "session-fixture",
         "state": "idle",
-        "detail": "interrupted"
+        "detail": "interrupted",
+        "turnId": "session-fixture:turn:1"
       }
     ]
   }

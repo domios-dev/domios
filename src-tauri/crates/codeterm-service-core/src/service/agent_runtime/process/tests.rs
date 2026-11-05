@@ -57,6 +57,7 @@ fn capability() -> AgentRuntimeCapability {
         },
         inherited_environment_exclusions: Vec::new(),
         login: None,
+        turn_scoped_requests: Vec::new(),
         request_methods: std::collections::BTreeMap::from([(
             "control".into(),
             vec![
@@ -72,7 +73,7 @@ fn capability() -> AgentRuntimeCapability {
 #[test]
 fn stderr_tail_stays_bounded() {
     let mut output = vec![b'a'; 8192];
-    append_stderr(&mut output, b"last");
+    append_stderr(&mut output, b"last", b"", &mut Vec::new());
     assert_eq!(output.len(), 8192);
     assert!(output.ends_with(b"last"));
 }
@@ -388,6 +389,7 @@ async fn child_exit_reports_status_and_stderr() {
             None,
         )
         .await;
+    process.finish_after_failure().await.unwrap();
     let mut ended = process.ended.clone();
     tokio::time::timeout(Duration::from_secs(5), async {
         while ended.borrow_and_update().is_none() {
@@ -397,7 +399,7 @@ async fn child_exit_reports_status_and_stderr() {
     .await
     .unwrap();
     assert!(
-        matches!(&*ended.borrow(),Some(RuntimeFailure::ProcessExited{code:Some(23),stderr,..}) if stderr=="opaque fixture stderr")
+        matches!(&*ended.borrow(),Some(RuntimeFailure::ProcessExited{code:Some(23),stderr,requested:false,..}) if stderr=="opaque fixture stderr")
     );
 }
 
@@ -432,4 +434,39 @@ async fn pipe_drop_from_a_live_peer_is_not_success() {
         Err(RuntimeFailure::PipeEof)
     );
     process.finish().await.unwrap();
+}
+
+#[test]
+fn stderr_redacts_credentials_across_reads_and_tail_cuts_before_utf8_conversion() {
+    for token in ["<credential-placeholder>", "<雪🔑credential-placeholder>漂"] {
+        let credential = token.as_bytes();
+        for split in 1..credential.len() {
+            let mut output = Vec::new();
+            let mut pending = Vec::new();
+            append_stderr(&mut output, &vec![b'x'; 8192], credential, &mut pending);
+            append_stderr(&mut output, &credential[..split], credential, &mut pending);
+            let mut tail = credential[split..].to_vec();
+            tail.extend_from_slice(&vec![b'y'; 8192 - credential.len() + 1]);
+            append_stderr(&mut output, &tail, credential, &mut pending);
+            assert!(output.len() <= 8192);
+            assert!(pending.len() < credential.len());
+            assert!(!String::from_utf8_lossy(&output).contains(token));
+            for suffix in 1..credential.len() {
+                assert!(!output.starts_with(&credential[suffix..]));
+            }
+            assert!(pending.is_empty());
+        }
+    }
+}
+
+#[test]
+fn failure_cleanup_and_later_stop_cannot_reclassify_the_first_exit_intent() {
+    let (stop, observed) = watch::channel(None);
+    signal_stop(&stop, false);
+    signal_stop(&stop, true);
+    assert_eq!(*observed.borrow(), Some(false));
+    let (stop, observed) = watch::channel(None);
+    signal_stop(&stop, true);
+    signal_stop(&stop, false);
+    assert_eq!(*observed.borrow(), Some(true));
 }

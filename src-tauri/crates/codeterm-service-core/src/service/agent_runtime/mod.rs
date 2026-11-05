@@ -36,6 +36,7 @@ mod process_slot;
 pub(crate) mod projections;
 pub mod reset_credits;
 pub mod thread_history;
+mod transcript;
 pub(crate) mod update;
 pub use projections::for_tab as usage_for_tab;
 pub use projections::latest as projections_latest;
@@ -49,6 +50,7 @@ mod restore_attempt;
 mod rpc;
 mod subscriber;
 pub mod transport;
+mod turn_requests;
 pub(crate) mod user_delivery;
 
 pub fn requested_for_tab(svc: &crate::service::ServiceContext, tab: &str) -> bool {

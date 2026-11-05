@@ -176,7 +176,13 @@ impl ServiceContext {
             return Err(not_authorized(tab_id));
         };
         self.authorize_plan_orchestrator(&plan_id, caller)
-            .map_err(|_| not_authorized(tab_id))?;
+            .map_err(|error| {
+                if error == super::PlanAuthorityError::StoreReadFailed {
+                    TabAdoptError::new(TabAdoptErrorKind::Storage, error.to_string())
+                } else {
+                    not_authorized(tab_id)
+                }
+            })?;
         Ok(pty_id)
     }
 

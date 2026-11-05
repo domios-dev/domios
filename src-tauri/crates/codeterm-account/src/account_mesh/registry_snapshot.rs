@@ -153,30 +153,44 @@ impl AccountMesh {
                     return Ok(false);
                 }
             }
-            if verified.rows.iter().any(|row| {
-                inner
-                    .record
-                    .peer_keys
-                    .get(&row.installation_id)
-                    .is_some_and(|known| {
-                        row.key_generation < known.generation
-                            || (row.key_generation == known.generation
-                                && row.key_id != known.key_id)
-                    })
-            }) {
+            // Key generations and metadata revisions are per account; another account's
+            // registry starts fresh fences instead of reading them as a rollback.
+            let same_fences = inner.record.fence_account.as_deref() == Some(account);
+            if same_fences
+                && verified.rows.iter().any(|row| {
+                    inner
+                        .record
+                        .peer_keys
+                        .get(&row.installation_id)
+                        .is_some_and(|known| {
+                            row.key_generation < known.generation
+                                || (row.key_generation == known.generation
+                                    && row.key_id != known.key_id)
+                        })
+                })
+            {
+                log::debug!("[account-mesh] registry refused: installation key rollback");
                 return Err(AccountMeshRefusal::Invalid);
             }
-            if verified.rows.iter().any(|row| {
-                inner
-                    .record
-                    .peer_presence
-                    .get(&row.installation_id)
-                    .is_some_and(|known| {
-                        row.key_generation == known.generation
-                            && row.metadata_revision < known.metadata_revision
-                    })
-            }) {
+            if same_fences
+                && verified.rows.iter().any(|row| {
+                    inner
+                        .record
+                        .peer_presence
+                        .get(&row.installation_id)
+                        .is_some_and(|known| {
+                            row.key_generation == known.generation
+                                && row.metadata_revision < known.metadata_revision
+                        })
+                })
+            {
+                log::debug!("[account-mesh] registry refused: presence metadata rollback");
                 return Err(AccountMeshRefusal::Invalid);
+            }
+            if !same_fences {
+                inner.record.peer_keys.clear();
+                inner.record.peer_presence.clear();
+                inner.record.fence_account = Some(account.to_owned());
             }
             let freed_slot = inner.state.registry.as_ref().is_some_and(|previous| {
                 previous.rows.iter().filter(|row| row.active).any(|old| {

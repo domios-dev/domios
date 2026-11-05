@@ -90,6 +90,7 @@ fn event_source_plugin_without_graph_events_grant_cannot_emit() {
 pub(crate) struct AnalyticsHost {
     pub(crate) recordings: crate::local_recording::LocalRecordingRegistry,
     pub(crate) process_env: std::collections::HashMap<String, String>,
+    pub(crate) process_env_error: Option<String>,
     contributions: parking_lot::Mutex<Vec<String>>,
 }
 
@@ -166,15 +167,18 @@ impl PluginHostCtx for AnalyticsHost {
         &self,
         tab_id: &str,
         binding_nonce: &str,
-    ) -> std::collections::HashMap<String, String> {
+    ) -> Result<std::collections::HashMap<String, String>, String> {
+        if let Some(error) = &self.process_env_error {
+            return Err(error.clone());
+        }
         if self.process_env.get("CODETERM_TAB_ID").map(String::as_str) == Some(tab_id) {
             assert_eq!(
                 self.process_env["CODETERM_SESSION_BINDING_NONCE"],
                 binding_nonce
             );
-            self.process_env.clone()
+            Ok(self.process_env.clone())
         } else {
-            Default::default()
+            Ok(Default::default())
         }
     }
     fn secret_get(&self, _: &str, _: &str) -> Option<String> {

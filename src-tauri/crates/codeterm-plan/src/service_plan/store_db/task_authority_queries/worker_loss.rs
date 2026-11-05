@@ -48,13 +48,16 @@ impl PlanDatabase {
                     json_extract(t.row_json,'$.assigned_tab_id')=?3 OR json_extract(t.row_json,'$.lane.tab_id')=?3 OR EXISTS(
                         SELECT 1 FROM plan_task_attempts a WHERE a.plan_id=t.plan_id AND a.task_id=t.task_id
                             AND json_extract(a.row_json,'$.executor_tab_id')=?3 AND json_extract(a.row_json,'$.closed_at') IS NULL))))),
-            source AS (SELECT r.plan_id,r.task_id,(SELECT a.position FROM plan_task_attempts a
+            source AS MATERIALIZED (SELECT r.plan_id,r.task_id,(SELECT a.position FROM plan_task_attempts a
                 WHERE a.plan_id=r.plan_id AND a.task_id=r.task_id AND json_extract(a.row_json,'$.executor_tab_id')=?3
                 ORDER BY a.position DESC LIMIT 1) AS position FROM requested r),
-            boundary AS (SELECT s.plan_id,s.task_id,(SELECT a.position FROM plan_task_attempts a
-                WHERE a.plan_id=s.plan_id AND a.task_id=s.task_id AND json_extract(a.row_json,'$.id')=json_extract(own.row_json,'$.id')
+            owned_ids AS MATERIALIZED (
+                SELECT s.plan_id,s.task_id,json_extract(own.row_json,'$.id') AS attempt_id
+                FROM source s LEFT JOIN plan_task_attempts own ON own.plan_id=s.plan_id AND own.task_id=s.task_id AND own.position=s.position
+            ), boundary AS (SELECT s.plan_id,s.task_id,(SELECT a.position FROM plan_task_attempts a
+                WHERE a.plan_id=s.plan_id AND a.task_id=s.task_id AND json_extract(a.row_json,'$.id')=s.attempt_id
                 ORDER BY a.position DESC LIMIT 1) AS position
-                FROM source s LEFT JOIN plan_task_attempts own ON own.plan_id=s.plan_id AND own.task_id=s.task_id AND own.position=s.position)
+                FROM owned_ids s)
             SELECT p.id,json_object({metadata}
                 'latest_attempt_id',(SELECT json_extract(a.row_json,'$.id') FROM plan_task_attempts a
                     WHERE a.plan_id=t.plan_id AND a.task_id=t.task_id ORDER BY a.position DESC LIMIT 1),

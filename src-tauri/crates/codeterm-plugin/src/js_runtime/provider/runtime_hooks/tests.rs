@@ -627,18 +627,20 @@ async fn local_runtime_action_only_resumes_the_exact_bound_thread() {
     assert!(js.runtime_plan(&ctx, &resume).await.is_err());
 }
 
-
 #[test]
 fn open_thread_notice_must_name_the_exact_loaded_thread() {
     let ctx = context();
     let cap = provider("module.exports={}").agent_runtime().unwrap();
-    let op: RuntimeOperation = serde_json::from_value(json!({"kind":"openThread","instructions":"","settings":{}})).unwrap();
+    let op: RuntimeOperation =
+        serde_json::from_value(json!({"kind":"openThread","instructions":"","settings":{}}))
+            .unwrap();
     let reply: RpcReply = serde_json::from_value(json!({"kind":"success","value":null})).unwrap();
     let step = |thread: &str| -> RuntimeStep {
         serde_json::from_value(json!({"kind":"complete","result":{"kind":"threadLoaded","threadId":"loaded-thread","settings":{}},"events":[{"kind":"notice","threadId":thread,"message":"Requested model was not applied"}]})).unwrap()
     };
     assert!(validate_runtime_step(&cap, &ctx, &op, &reply, &step("loaded-thread")).is_ok());
-    let failure = validate_runtime_step(&cap, &ctx, &op, &reply, &step("foreign-thread")).unwrap_err();
+    let failure =
+        validate_runtime_step(&cap, &ctx, &op, &reply, &step("foreign-thread")).unwrap_err();
     assert_eq!(failure.code, RuntimeFailureCode::BindingMismatch);
 }
 
@@ -646,6 +648,7 @@ fn open_thread_notice_must_name_the_exact_loaded_thread() {
 async fn host_mcp_context_absent_for_undeclared_plugin_across_all_hooks() {
     let mut ctx = context();
     ctx.host_mcp = Some(RuntimeHostMcp {
+        env: std::collections::BTreeMap::from([("CODETERM_TAB_ID".into(), "own".into())]),
         name: "domios".into(),
         command: "/trusted/domios".into(),
         args: vec!["mcp".into(), "serve".into()],
@@ -694,5 +697,47 @@ async fn host_mcp_context_absent_for_undeclared_plugin_across_all_hooks() {
         assert_eq!(call.params["descriptor"], expected);
         let reduction = js.runtime_reduce(&ctx, &Value::Null, &[]).await.unwrap();
         assert_eq!(reduction.state["descriptor"], expected);
+    }
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn stream_window_native_value_survives_quickjs_only_for_declared_turn_requests() {
+    let source =
+        "module.exports={runtimeReduce(ctx){return {state:ctx.streamWindow ?? null,events:[]}}}";
+    let mut ctx = context();
+    ctx.thread_id = Some("own-thread".into());
+    ctx.stream_window=Some(serde_json::from_value(json!({"frameSequences":[11],"turnRequests":[{"sendId":"send","turnId":"turn","afterSequence":10,"written":true}]})).unwrap());
+    let native = serde_json::to_value(&ctx.stream_window).unwrap();
+    let frames: Vec<RuntimeFrame> =
+        serde_json::from_value(json!([{"kind":"notification","method":"changed","params":{}}]))
+            .unwrap();
+    for declared in [false, true] {
+        let mut raw = json!({"id":"stream-window-fixture","version":"1.0.0","displayName":"Fixture",
+            "capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},
+            "agentRuntime":{"runtime":"stdio-jsonrpc","command":{"binary":"fixture-engine","args":[]},"requestMethods":{"initialize":["handshake"],"submitTurn":["submit"]},"notificationMethods":["changed"]}},
+            "permissions":{"subprocess":{"allow":["fixture-engine"]}}});
+        if declared {
+            raw["capabilities"]["agentRuntime"]["turnScopedRequests"] = json!(["submitTurn"]);
+        }
+        let manifest = PluginManifest::from_json_str(&raw.to_string()).unwrap();
+        let js = JsProvider::new(
+            manifest,
+            Arc::new(PluginVm::from_source("stream-window-fixture", source.into()).unwrap()),
+        );
+        let reduced = js
+            .runtime_reduce(&ctx, &Value::Null, &frames)
+            .await
+            .unwrap();
+        assert_eq!(
+            reduced.state,
+            if declared {
+                native.clone()
+            } else {
+                Value::Null
+            }
+        );
+        if declared {
+            assert!(js.runtime_reduce(&ctx, &Value::Null, &[]).await.is_err());
+        }
     }
 }

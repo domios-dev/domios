@@ -25,6 +25,8 @@ Agents are users of the CLI, not clients of their own. Bridges, webhook senders,
 
 The tab side panel offers Documents and Changes. Changes shows recorded edits from the tab's own loaded transcript, cumulatively or per turn, and follows file renames. Counts sum recorded additions and deletions; the diff history does not claim to be a net working-tree diff. Changed-file details switch between recorded Diff and the full current File, with that choice kept per tab; either view opens fullscreen. Current-file previews use the tab-scoped reader with bounded text, document, page and image rendering; deleted, moved, binary, oversized and unreadable files keep the recorded diff available. Files can be opened or revealed and their source turns reached in chat. Missing text diffs, binary files, truncation and recorded deletion are explained. Shell-made changes are outside this view's recorded coverage. Both views share one panel with a list-to-detail navigation kept per tab, where Escape or Backspace returns to the list. A document, selected document text, a changed file or a single hunk can be added to the tab's composer as attachment chips or quoted references; adding never sends.
 
+Tab-scoped file previews on desktop and web admit referenced files inside the tab's own canonically resolved agent pad. Other tabs' pads and other instance data remain private; traversal, symlink escapes and credential files remain refused.
+
 ## Layers: one window, one server
 
 Domios runs as two processes: a headless server that owns every core part, and a native window that attaches to it as a thin client. The code follows the same split in three layers:
@@ -97,6 +99,19 @@ What makes a tab an agent: provider capabilities, launch and resume, detection, 
 An exact restored session is never silently replaced. When the provider confirms it is missing, the owner can choose Start new session on the failure card or explicitly request `agent restart --fresh`. That action keeps the tab identity, cwd, Team, plan binding, model and effort; an existing exact session refuses replacement, and a live agent requires force.
 
 Provider switching keeps the tab identity, Team, role, lane, pad and task attempt while retiring the old provider session. The target receives recent conversation turns and host-owned context as its first handoff turn and builds its own working summary; the full history remains readable separately. PTY and structured runtime providers use the same continuity contract. Busy turns require waiting or an explicit stop; unavailable providers and unsupported lifecycle capabilities refuse.
+
+Provider registry ownership ends before any provider callback or VM execution.
+Capabilities needed under tab or tracker ownership are captured beforehand.
+Ordinary plugin calls share one absolute operation deadline and cancellation,
+with bounded admission to each VM. The shipped providers use the job-only
+execution contract: a blocking host operation runs outside the VM and resumes
+its original continuation once. Authorization belongs to the job owner using
+captured authority; file locks belong to the invocation until its final native
+owner exits. Cancellation never replays an effect, and late completions cannot
+resume a cancelled invocation. Legacy synchronous callbacks retained for external
+plugins in 1.19 are not cancellable: a stuck callback stalls that plugin's own VM,
+while the registry and other plugin VMs remain independent. The
+[SDK host I/O contract](../packages/plugin-sdk/README.md#host-io-jobs) owns the API.
 
 #### Structured thread control
 

@@ -258,7 +258,13 @@ async fn wait(
                 session.completions.lock().contains(thread, turn)
             });
             match state {
-                CompletionState::Complete => return Ok(()),
+                CompletionState::Complete
+                    if !target.turns.is_empty()
+                        || !super::super::turn_requests::waiting(session, target.epoch) =>
+                {
+                    return Ok(())
+                }
+                CompletionState::Complete => {}
                 CompletionState::Superseded => return Err(RuntimeFailure::Superseded),
                 CompletionState::Unloaded => {
                     return Err(RuntimeFailure::Refused(
@@ -280,6 +286,9 @@ async fn wait(
     match result {
         Ok(result) => result,
         Err(_) => {
+            if super::super::turn_requests::cancel_timed_out(svc, session, target.epoch).await? {
+                return Ok(());
+            }
             let reason = RuntimeFailure::Refused(
                 "Interrupt completion deadline exceeded; runtime recovery required".into(),
             );
@@ -321,18 +330,19 @@ fn before_first_turn(
         .is_some_and(|interrupt| interrupt.before_first_turn);
     declared
         && context.active_turn_id.is_none()
-        && context.claimed_sends.iter().any(|claim| {
-            Some(&claim.thread_id) == context.thread_id.as_ref()
-                && svc.chat_send_ledger.has_rpc_handoff(&claim.send_id)
-                && svc
-                    .chat_send_ledger
-                    .status(&claim.send_id)
-                    .is_some_and(|status| {
-                        status.tab_id == context.tab_id
-                            && status.state
-                                == crate::service::chat_send_transaction::ChatSendState::Pending
-                    })
-        })
+        && (super::super::turn_requests::written_pending(session, context)
+            || context.claimed_sends.iter().any(|claim| {
+                Some(&claim.thread_id) == context.thread_id.as_ref()
+                    && svc.chat_send_ledger.has_rpc_handoff(&claim.send_id)
+                    && svc
+                        .chat_send_ledger
+                        .status(&claim.send_id)
+                        .is_some_and(|status| {
+                            status.tab_id == context.tab_id
+                                && status.state
+                                    == crate::service::chat_send_transaction::ChatSendState::Pending
+                        })
+            }))
 }
 
 pub(crate) fn before_first_turn_pending(svc: &ServiceContext, tab: &str) -> bool {

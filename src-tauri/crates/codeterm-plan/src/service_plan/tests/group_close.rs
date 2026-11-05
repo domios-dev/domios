@@ -32,7 +32,7 @@ fn a_task_assigned_group_is_declared_and_closable() {
         .iter()
         .any(|group| { group.key == "release-1.11.10" && group.label == "release-1.11.10" }));
     store
-        .with_plan(&id, 4, |plan| {
+        .edit_plan_fixture(&id, 4, |plan| {
             plan.tasks[0].status = TaskStatus::Done;
             plan.tasks[0].status_changed_at = 4;
             Ok(())

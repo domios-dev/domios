@@ -33,17 +33,26 @@ pub async fn list_logs(
     _headers: HeaderMap,
     Query(q): Query<LogsQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    let store = match codeterm_service_core::logs::store::global() {
-        Some(s) => s,
-        None => return Ok(Json(serde_json::json!([]))),
-    };
-    let limit = q.limit.clamp(1, 5000);
-    let rows = store
-        .query(q.level.as_deref(), q.source.as_deref(), q.since, limit)
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "logs query failed"))?;
-    Ok(Json(
-        serde_json::to_value(rows).unwrap_or(serde_json::json!([])),
-    ))
+    tokio::task::spawn_blocking(move || {
+        let store = match codeterm_service_core::logs::store::global() {
+            Some(s) => s,
+            None => return Ok(Json(serde_json::json!([]))),
+        };
+        let limit = q.limit.clamp(1, 5000);
+        let rows = store
+            .query(q.level.as_deref(), q.source.as_deref(), q.since, limit)
+            .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "logs query failed"))?;
+        Ok(Json(
+            serde_json::to_value(rows).unwrap_or(serde_json::json!([])),
+        ))
+    })
+    .await
+    .map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "logs query worker failed",
+        )
+    })?
 }
 
 pub async fn delete_logs(

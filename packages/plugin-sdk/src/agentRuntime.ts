@@ -46,8 +46,14 @@ export type RuntimeFailureCode =
   | "authentication_required" | "process_unavailable" | "protocol_error" | "provider_refused" | "thread_not_found";
 export interface RuntimeFailure { code:RuntimeFailureCode; message:string }
 export interface RuntimeClientBridges {fsRead:boolean; fsWrite:boolean; terminal:boolean}
-export interface RuntimeHostMcp {name:string; command:string; args:readonly string[]}
+export interface RuntimeHostMcp {name:string; command:string; args:readonly string[]; env?:Readonly<Record<string,string>>}
+export interface RuntimeStreamWindow {
+  frameSequences?:readonly number[];
+  turnRequests?:readonly {sendId:string;turnId:string;afterSequence?:number;written?:boolean}[];
+}
 export interface RuntimeContext {
+  restoredRowOrdinal?:number;
+  streamWindow?:RuntimeStreamWindow;
   hostMcp?:RuntimeHostMcp;
   clientBridges?:RuntimeClientBridges;
   restrictedCli?:RestrictedCliPolicy;
@@ -121,6 +127,8 @@ export type AgentEvent =
   | {kind:"notice"; threadId:string; message:string}
   | {kind:"backgroundProcesses"; threadId:string; processes:readonly RuntimeBackgroundProcess[]}
   | {kind:"chatItem"; threadId:string; item:ChatMsg}
+  | {kind:"chatItemPatch"; threadId:string; item:ChatMsg}
+  | {kind:"chatItemAppend"; threadId:string; itemId:string; content:string; offset:number}
   | {kind:"turnState"; threadId:string; turnId?:string; state:"working"|"idle"|"needs_input"; detail?:RuntimeTurnDetail; statusLine?:string; startedAt?:number; completedAt?:number; parentThreadId?:string}
   | {kind:"sendEvidence"; threadId:string; sendId:string; turnId:string; itemId?:string}
   | {kind:"usage"; threadId:string; usage:TokenUsage}
@@ -167,6 +175,7 @@ export interface StdioAgentRuntimeCapability {
   command:{binary:string; args:readonly string[]};
   login?: {methods:readonly RuntimeLoginMethod[]; terminalCommand?:string};
   inheritedEnvironmentExclusions?:readonly string[];
+  turnScopedRequests?:readonly "submitTurn"[];
   requestMethods:Partial<Record<Operation["kind"], readonly string[]>>;
   notificationMethods:readonly string[];
 }

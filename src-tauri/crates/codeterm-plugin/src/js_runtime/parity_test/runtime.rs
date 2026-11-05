@@ -798,3 +798,23 @@ fn runtime_client_bridges_native_quickjs_declaration_parity() {
         Some(serde_json::from_value::<RuntimeInterruptCapability>(interrupt).unwrap())
     );
 }
+
+#[test]
+fn turn_scoped_requests_native_quickjs_declaration_parity() {
+    let fixture: Value =
+        serde_json::from_str(include_str!("fixtures/runtime/turn-scoped-requests.json")).unwrap();
+    let native = native::NativeRuntime(serde_json::from_value(fixture.clone()).unwrap());
+    let raw = json!({"id":"turn-fixture","version":"1.0.0","displayName":"Turn fixture",
+        "capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},"agentRuntime":fixture},
+        "permissions":{"subprocess":{"allow":["fixture-engine"]}}});
+    let manifest = PluginManifest::from_json_str(&raw.to_string()).unwrap();
+    let js = JsProvider::new(
+        manifest,
+        Arc::new(PluginVm::from_source("turn-fixture", "module.exports={}".into()).unwrap()),
+    );
+    assert_eq!(native.agent_runtime(), js.agent_runtime());
+    assert_eq!(
+        js.agent_runtime().unwrap().turn_scoped_requests,
+        vec!["submitTurn"]
+    );
+}

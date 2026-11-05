@@ -1,7 +1,7 @@
+import type { PlanView as Plan } from "../planProjection";
 import { Fragment } from "react";
 import { taskReferenceLabel } from "../taskDisplayKey";
 import type { TeamPlanSummary } from "./missionControlState";
-import type { Plan } from "../types";
 import { splitRefs } from "./missionControlBoardModel";
 
 export interface BoardRef {

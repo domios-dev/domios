@@ -26,7 +26,13 @@
             "mcp-advertised",
             "--binding-nonce",
             "nonce-fixture"
-          ]
+          ],
+          "env": {
+            "CODETERM_API_TOKEN": "<credential-placeholder>",
+            "CODETERM_API_URL": "http://127.0.0.1:43210",
+            "CODETERM_SESSION_BINDING_NONCE": "nonce-fixture",
+            "CODETERM_TAB_ID": "mcp-advertised"
+          }
         }
       }
     },
@@ -57,7 +63,13 @@
             "mcp-advertised",
             "--binding-nonce",
             "nonce-fixture"
-          ]
+          ],
+          "env": {
+            "CODETERM_API_TOKEN": "<credential-placeholder>",
+            "CODETERM_API_URL": "http://127.0.0.1:43210",
+            "CODETERM_SESSION_BINDING_NONCE": "nonce-fixture",
+            "CODETERM_TAB_ID": "mcp-advertised"
+          }
         }
       }
     },
@@ -86,7 +98,13 @@
             "mcp-advertised",
             "--binding-nonce",
             "nonce-fixture"
-          ]
+          ],
+          "env": {
+            "CODETERM_API_TOKEN": "<credential-placeholder>",
+            "CODETERM_API_URL": "http://127.0.0.1:43210",
+            "CODETERM_SESSION_BINDING_NONCE": "nonce-fixture",
+            "CODETERM_TAB_ID": "mcp-advertised"
+          }
         }
       }
     },
@@ -118,7 +136,13 @@
             "mcp-advertised",
             "--binding-nonce",
             "nonce-fixture"
-          ]
+          ],
+          "env": {
+            "CODETERM_API_TOKEN": "<credential-placeholder>",
+            "CODETERM_API_URL": "http://127.0.0.1:43210",
+            "CODETERM_SESSION_BINDING_NONCE": "nonce-fixture",
+            "CODETERM_TAB_ID": "mcp-advertised"
+          }
         },
         "threadId": "session-fixture"
       }
@@ -148,7 +172,13 @@
             "mcp-advertised",
             "--binding-nonce",
             "nonce-fixture"
-          ]
+          ],
+          "env": {
+            "CODETERM_API_TOKEN": "<credential-placeholder>",
+            "CODETERM_API_URL": "http://127.0.0.1:43210",
+            "CODETERM_SESSION_BINDING_NONCE": "nonce-fixture",
+            "CODETERM_TAB_ID": "mcp-advertised"
+          }
         }
       }
     },
@@ -180,7 +210,13 @@
             "mcp-advertised",
             "--binding-nonce",
             "nonce-fixture"
-          ]
+          ],
+          "env": {
+            "CODETERM_API_TOKEN": "<credential-placeholder>",
+            "CODETERM_API_URL": "http://127.0.0.1:43210",
+            "CODETERM_SESSION_BINDING_NONCE": "nonce-fixture",
+            "CODETERM_TAB_ID": "mcp-advertised"
+          }
         },
         "threadId": "session-fixture"
       }
@@ -363,7 +399,24 @@
                   "--binding-nonce",
                   "nonce-fixture"
                 ],
-                "env": []
+                "env": [
+                  {
+                    "name": "CODETERM_API_TOKEN",
+                    "value": "<credential-placeholder>"
+                  },
+                  {
+                    "name": "CODETERM_API_URL",
+                    "value": "http://127.0.0.1:43210"
+                  },
+                  {
+                    "name": "CODETERM_SESSION_BINDING_NONCE",
+                    "value": "nonce-fixture"
+                  },
+                  {
+                    "name": "CODETERM_TAB_ID",
+                    "value": "mcp-advertised"
+                  }
+                ]
               }
             ]
           }
@@ -444,7 +497,24 @@
                   "--binding-nonce",
                   "nonce-fixture"
                 ],
-                "env": []
+                "env": [
+                  {
+                    "name": "CODETERM_API_TOKEN",
+                    "value": "<credential-placeholder>"
+                  },
+                  {
+                    "name": "CODETERM_API_URL",
+                    "value": "http://127.0.0.1:43210"
+                  },
+                  {
+                    "name": "CODETERM_SESSION_BINDING_NONCE",
+                    "value": "nonce-fixture"
+                  },
+                  {
+                    "name": "CODETERM_TAB_ID",
+                    "value": "mcp-advertised"
+                  }
+                ]
               }
             ]
           }
@@ -522,7 +592,24 @@
                   "--binding-nonce",
                   "nonce-fixture"
                 ],
-                "env": []
+                "env": [
+                  {
+                    "name": "CODETERM_API_TOKEN",
+                    "value": "<credential-placeholder>"
+                  },
+                  {
+                    "name": "CODETERM_API_URL",
+                    "value": "http://127.0.0.1:43210"
+                  },
+                  {
+                    "name": "CODETERM_SESSION_BINDING_NONCE",
+                    "value": "nonce-fixture"
+                  },
+                  {
+                    "name": "CODETERM_TAB_ID",
+                    "value": "mcp-advertised"
+                  }
+                ]
               }
             ]
           }
@@ -1001,7 +1088,13 @@
         "mcp-advertised",
         "--binding-nonce",
         "nonce-fixture"
-      ]
+      ],
+      "env": {
+        "CODETERM_API_TOKEN": "<credential-placeholder>",
+        "CODETERM_API_URL": "http://127.0.0.1:43210",
+        "CODETERM_SESSION_BINDING_NONCE": "nonce-fixture",
+        "CODETERM_TAB_ID": "mcp-advertised"
+      }
     }
   }
 }

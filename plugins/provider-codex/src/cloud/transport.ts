@@ -1,6 +1,7 @@
-import type {Host} from "@codeterm/plugin-sdk";
-import {CLOUD_SIGN_IN_REASON, CODEX_CLOUD_ACCOUNT_REF, cloudEnvironmentConfigList, cloudEnvironmentList, type CloudTaskTransport} from "./backend";
-import type {RemoteTaskDiscovery} from "../../../../packages/plugin-sdk/src/remoteTasks";
+import { ioJson, ioEncoded, type HostIoSteps } from "@codeterm/plugin-sdk";
+import type { Host } from "@codeterm/plugin-sdk";
+import { CLOUD_SIGN_IN_REASON, CODEX_CLOUD_ACCOUNT_REF, cloudEnvironmentConfigList, cloudEnvironmentList, type CloudTaskTransport } from "./backend";
+import type { RemoteTaskDiscovery } from "../../../../packages/plugin-sdk/src/remoteTasks";
 
 const CODEX_AUTH_CREDENTIAL = "codexAuth";
 const CODEX_ACCOUNT_HEADER = "ChatGPT-Account-Id";
@@ -23,10 +24,10 @@ function record(value: unknown): Row | null {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Row : null;
 }
 
-function publicAccountId(host: Host): string {
+function* publicAccountId(): HostIoSteps<string> {
   let credential: Row | null = null;
   try {
-    const raw = host.credentialPublic(CODEX_AUTH_CREDENTIAL);
+    const raw = (yield* ioJson({ op: "credentialPublic", id: CODEX_AUTH_CREDENTIAL }, true));
     credential = raw ? record(JSON.parse(raw)) : null;
   } catch {
     credential = null;
@@ -53,15 +54,15 @@ function isCodexTaskPath(method: "GET" | "POST", path: string): boolean {
 }
 
 export function createCodexCloudTransport(host: Host): CloudTaskTransport {
-  const request = (method: "GET" | "POST", path: string, accountRef: string, body?: unknown): unknown => {
+  const request = function*(method: "GET" | "POST", path: string, accountRef: string, body?: unknown): HostIoSteps<unknown> {
     const settingsRequest = method === "GET" && path === SETTINGS_ENVIRONMENTS_PATH;
     const legacyRequest = path.startsWith("/wham/");
     const codexTaskRequest = isCodexTaskPath(method, path);
     if (accountRef !== CODEX_CLOUD_ACCOUNT_REF || (!settingsRequest && !legacyRequest && !codexTaskRequest)) throw new CloudTransportError();
-    const accountId = publicAccountId(host);
+    const accountId = (yield* publicAccountId());
     let result: unknown;
     try {
-      result = JSON.parse(host.fetch(JSON.stringify({
+      result = JSON.parse((yield* ioEncoded(host.io.fetch({
         url: `${settingsRequest || codexTaskRequest ? SETTINGS_BASE_URL : CLOUD_BASE_URL}${path}`,
         method,
         timeoutMs: 6000,
@@ -75,7 +76,7 @@ export function createCodexCloudTransport(host: Host): CloudTaskTransport {
           id: CODEX_AUTH_CREDENTIAL,
           headers: {Authorization: "Bearer {accessToken}"},
         },
-      }))) as unknown;
+      })))) as unknown;
     } catch {
       throw new CloudTransportError();
     }
@@ -86,10 +87,10 @@ export function createCodexCloudTransport(host: Host): CloudTaskTransport {
     return readBody(response);
   };
 
-  const discoverRemoteTask = (): RemoteTaskDiscovery => {
+  const discoverRemoteTask = function*(): HostIoSteps<RemoteTaskDiscovery> {
     try {
       try {
-        const settingsEnvironments = cloudEnvironmentConfigList(request("GET", SETTINGS_ENVIRONMENTS_PATH, CODEX_CLOUD_ACCOUNT_REF));
+        const settingsEnvironments = cloudEnvironmentConfigList((yield* request("GET", SETTINGS_ENVIRONMENTS_PATH, CODEX_CLOUD_ACCOUNT_REF)));
         if (settingsEnvironments.length > 0) return {availability: {status: "available"}, environments: settingsEnvironments};
       } catch (error) {
         if (error instanceof CloudTransportError && (error.status === 401 || error.status === 403)) throw error;
@@ -97,13 +98,13 @@ export function createCodexCloudTransport(host: Host): CloudTaskTransport {
 
       let repoEnvironments: ReturnType<typeof cloudEnvironmentList> | null = null;
       try {
-        repoEnvironments = cloudEnvironmentList(request("GET", REPOSITORY_ENVIRONMENTS_PATH, CODEX_CLOUD_ACCOUNT_REF));
+        repoEnvironments = cloudEnvironmentList((yield* request("GET", REPOSITORY_ENVIRONMENTS_PATH, CODEX_CLOUD_ACCOUNT_REF)));
       } catch (error) {
         if (error instanceof CloudTransportError && (error.status === 401 || error.status === 403)) throw error;
       }
       let allEnvironments: ReturnType<typeof cloudEnvironmentList> | null = null;
       try {
-        allEnvironments = cloudEnvironmentList(request("GET", ENVIRONMENTS_PATH, CODEX_CLOUD_ACCOUNT_REF));
+        allEnvironments = cloudEnvironmentList((yield* request("GET", ENVIRONMENTS_PATH, CODEX_CLOUD_ACCOUNT_REF)));
       } catch (error) {
         if (error instanceof CloudTransportError && (error.status === 401 || error.status === 403)) throw error;
         if (repoEnvironments === null) throw error;

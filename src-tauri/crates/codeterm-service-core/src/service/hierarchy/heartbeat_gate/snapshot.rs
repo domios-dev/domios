@@ -1,21 +1,14 @@
 use super::*;
 use crate::agent::chat_types::ChatMsg;
 use crate::multiplexer::types::{Tab, TabBacking};
-use crate::plan::{Plan, Task, TaskExecutionAttempt, TaskStatus};
+use crate::plan::TaskExecutionAttempt;
 use crate::service::ServiceContext;
-use codeterm_plan::service_plan::state::task_projection;
+use codeterm_plan::service_plan::{
+    ReminderAdmissionRead as Plan, ReminderAdmissionTaskRead as Task, ReminderAttemptRead,
+};
 
 pub(super) fn situational_learning_catalog(plan: &Plan) -> BTreeMap<String, String> {
-    plan.heartbeat
-        .learnings
-        .iter()
-        .rev()
-        .filter(|learning| {
-            learning.tag.as_deref() != Some("owner") && !learning.text.trim().is_empty()
-        })
-        .take(12)
-        .map(|learning| (learning.id.clone(), scrubbed(&learning.text)))
-        .collect()
+    plan.learning_catalog.clone()
 }
 
 fn encoded(value: &impl Serialize) -> String {
@@ -23,57 +16,16 @@ fn encoded(value: &impl Serialize) -> String {
 }
 
 pub(super) fn plan_projection(plan: &Plan) -> BTreeMap<String, String> {
-    let mut out = BTreeMap::from([("mode".into(), format!("{:?}:{:?}", plan.mode, plan.status))]);
-    for task in &plan.tasks {
-        project_task(plan, task, &mut out);
-    }
-    for stride in &plan.strides {
-        out.insert(format!("stride:{}", stride.id), encoded(stride));
-    }
-    for gate in &plan.gates {
-        out.insert(format!("gate:{}", gate.id), encoded(gate));
-    }
-    out
+    plan.projection.clone()
 }
 
-pub(super) fn task_wake(task_id: &str, status: &TaskStatus) -> HardWake {
-    match status {
-        TaskStatus::Done | TaskStatus::Cancelled => HardWake::TaskClosed(task_id.into()),
-        TaskStatus::Blocked => HardWake::FailedGate(format!("task_blocked:{task_id}")),
-        _ => HardWake::TaskState(task_id.into()),
-    }
-}
-
-fn project_task(plan: &Plan, task: &Task, out: &mut BTreeMap<String, String>) {
-    out.insert(
-        format!("task:{}", task.id),
-        encoded(&(
-            &task.status,
-            &task.status_label,
-            &task.pause_reason,
-            &task.interruption,
-            &task.review_stage,
-            &task.qa_state,
-            &task.assigned_tab_id,
-            &task_projection(plan, task).dependency_waits,
-        )),
+fn project_task(plan: &Plan, _: &Task, out: &mut BTreeMap<String, String>) {
+    out.extend(
+        plan.projection
+            .iter()
+            .filter(|(key, _)| key.as_str() != "mode")
+            .map(|(key, value)| (key.clone(), value.clone())),
     );
-    out.insert(
-        format!("review:{}", task.id),
-        encoded(&task.review_evidence),
-    );
-    for attempt in &task.execution_attempts {
-        out.insert(
-            format!("attempt:{}", attempt.id),
-            encoded(&attempt.interruption),
-        );
-        if let Some(report) = &attempt.report {
-            out.insert(format!("report:{}", report.id), encoded(report));
-        }
-    }
-    for milestone in &task.milestones {
-        out.insert(format!("stride:{}", milestone.id), encoded(milestone));
-    }
 }
 
 fn projection_delta(
@@ -97,7 +49,7 @@ pub(crate) fn collect_worker_scope(
     plan: &Plan,
     scope: &Scope,
     previous: &Observation,
-) -> (Snapshot, Observation) {
+) -> Result<(Snapshot, Observation), String> {
     let task = plan
         .tasks
         .iter()
@@ -107,12 +59,12 @@ pub(crate) fn collect_worker_scope(
     if let Some(task) = task {
         project_task(plan, task, &mut projection);
         let attempt = task
-            .execution_attempts
+            .attempts
             .iter()
             .find(|attempt| scope.attempt_id.as_deref() == Some(attempt.id.as_str()));
-        let mut row = task_context(plan, task);
-        row["acknowledged"] = json!(attempt.is_some_and(|a| a.acknowledged_at.is_some()));
-        row["reported"] = json!(attempt.is_some_and(|a| a.report.is_some()));
+        let mut row = task_context(plan, task)?;
+        row["acknowledged"] = json!(attempt.is_some_and(|a| a.acknowledged));
+        row["reported"] = json!(attempt.is_some_and(|a| a.report_id.is_some()));
         context.insert(format!("task:{}", task.id), row);
     }
     let delta = projection_delta(
@@ -130,7 +82,7 @@ pub(crate) fn collect_worker_scope(
         projection: Some(projection),
         ..previous.clone()
     };
-    (snapshot, observed)
+    Ok((snapshot, observed))
 }
 
 /// A cursor only counts for the session it was taken from. The first look at a
@@ -203,7 +155,7 @@ pub(crate) fn collect(
     tab_id: &str,
     previous: &Observation,
     now: u64,
-) -> (Snapshot, Observation) {
+) -> Result<(Snapshot, Observation), String> {
     let projection = plan_projection(plan);
     let delta = projection_delta(
         &projection,
@@ -216,7 +168,9 @@ pub(crate) fn collect(
         learnings: situational_learning_catalog(plan),
         ..Default::default()
     };
-    (snapshot.context, snapshot.truncated) = delta_context(plan, &snapshot.delta);
+    (snapshot.context, snapshot.truncated) = plan
+        .delta_context(&snapshot.delta, MAX_OBSERVATION_ROWS)
+        .map_err(|error| error.to_string())?;
     snapshot.hard = actionable_pending(&previous.pending_hard);
     if snapshot.delta.contains_key("mode") {
         snapshot.hard.push(HardWake::ModeChange);
@@ -232,7 +186,7 @@ pub(crate) fn collect(
         if gate.status == crate::plan::GateStatus::Escalated {
             snapshot.hard.push(HardWake::FailedGate(gate.id.clone()));
         }
-        if snapshot.delta.contains_key(&format!("gate:{}", gate.id)) && gate.answer.is_some() {
+        if snapshot.delta.contains_key(&format!("gate:{}", gate.id)) && gate.answered {
             snapshot.hard.push(HardWake::ChoiceAnswer(gate.id.clone()));
         }
     }
@@ -258,111 +212,70 @@ pub(crate) fn collect(
         snapshot.hard.push(HardWake::ChoiceAnswer(id.clone()));
     }
     observed.answered_choices = choices;
-    for task in &plan.tasks {
-        if snapshot.delta.contains_key(&format!("task:{}", task.id)) {
-            snapshot.hard.push(task_wake(&task.id, &task.status));
-        }
-        if snapshot.delta.contains_key(&format!("review:{}", task.id)) {
-            if let Some(review) = task
-                .review_evidence
-                .last()
-                .filter(|e| e.verdict == crate::plan::ReviewVerdict::Bounce)
-            {
-                snapshot.hard.push(HardWake::FailedGate(review.id.clone()));
+    for row in plan
+        .owner_rows(&snapshot.delta)
+        .map_err(|error| error.to_string())?
+    {
+        match row {
+            codeterm_plan::service_plan::ReminderOwnerRowRead::Wake { event, id } => {
+                snapshot.hard.push(match event.as_str() {
+                    "task_closed" => HardWake::TaskClosed(id),
+                    "task_blocked" => HardWake::FailedGate(format!("task_blocked:{id}")),
+                    "task_state" => HardWake::TaskState(id),
+                    "failed_gate" => HardWake::FailedGate(id),
+                    "new_report" => HardWake::NewReport(id),
+                    "incident" => HardWake::Incident(id),
+                    _ => return Err("invalid reminder hard fact".into()),
+                })
             }
-        }
-        for attempt in &task.execution_attempts {
-            if attempt.interruption.reason.is_some()
-                && (attempt.closed_at.is_none()
-                    || snapshot
-                        .delta
-                        .contains_key(&format!("attempt:{}", attempt.id)))
-            {
-                snapshot.hard.push(HardWake::Incident(format!(
-                    "dispatch_or_worker_failure:{}",
-                    attempt.id
-                )));
-            }
-            if let Some(report) = &attempt.report {
-                if snapshot
-                    .delta
-                    .contains_key(&format!("report:{}", report.id))
-                {
-                    snapshot.hard.push(HardWake::NewReport(report.id.clone()));
+            codeterm_plan::service_plan::ReminderOwnerRowRead::Worker { task } => {
+                for attempt in &task.attempts {
+                    if attempt.closed {
+                        continue;
+                    }
+                    let worker = collect_worker(svc, &task, attempt, previous, now);
+                    if !worker.ack_received {
+                        snapshot
+                            .hard
+                            .push(HardWake::Incident(format!("worker_ack:{}", attempt.id)));
+                    }
+                    if worker.session_key.is_none() || worker.process != "present" {
+                        snapshot.hard.push(HardWake::Incident(format!(
+                            "worker_health:{}",
+                            worker.tab_id
+                        )));
+                    }
+                    let old = previous.workers.get(&worker.tab_id);
+                    let changed = old.is_some_and(|old| {
+                        old.session_key != worker.session_key
+                            || old.last_turn != worker.last_turn
+                            || old.lane_commits != worker.lane_commits
+                    });
+                    let last = if changed || worker.activity == "working" {
+                        now
+                    } else {
+                        previous
+                            .last_activity
+                            .get(&worker.tab_id)
+                            .copied()
+                            .unwrap_or_else(|| {
+                                if task.status_changed_at > 0 {
+                                    (task.status_changed_at / 1000).min(now)
+                                } else {
+                                    now
+                                }
+                            })
+                    };
+                    observed.last_activity.insert(worker.tab_id.clone(), last);
+                    let mut worker = worker;
+                    worker.idle_overdue =
+                        !worker.reported && now.saturating_sub(last) >= IDLE_NO_REPORT_SECS;
+                    observed
+                        .workers
+                        .insert(worker.tab_id.clone(), worker.clone());
+                    snapshot.workers.push(worker);
                 }
             }
-        }
-        if !task.status.counts_as_open_work() {
-            continue;
-        }
-        if task.status == TaskStatus::Pending
-            && task.assigned_tab_id.is_none()
-            && crate::service::plan::state::task_projection(plan, task).needs_orchestrator_action()
-        {
-            snapshot
-                .hard
-                .push(HardWake::Incident(format!("dispatch_required:{}", task.id)));
-        }
-        for attempt in &task.execution_attempts {
-            if attempt.closed_at.is_some() {
-                continue;
-            }
-            let worker = collect_worker(svc, task, attempt, previous, now);
-            if !worker.ack_received {
-                snapshot
-                    .hard
-                    .push(HardWake::Incident(format!("worker_ack:{}", attempt.id)));
-            }
-            if worker.session_key.is_none() || worker.process != "present" {
-                snapshot.hard.push(HardWake::Incident(format!(
-                    "worker_health:{}",
-                    worker.tab_id
-                )));
-            }
-            let old = previous.workers.get(&worker.tab_id);
-            let changed = old.is_some_and(|old| {
-                old.session_key != worker.session_key
-                    || old.last_turn != worker.last_turn
-                    || old.lane_commits != worker.lane_commits
-            });
-            let last = if changed || worker.activity == "working" {
-                now
-            } else {
-                previous
-                    .last_activity
-                    .get(&worker.tab_id)
-                    .copied()
-                    .unwrap_or_else(|| {
-                        if task.status_changed_at > 0 {
-                            (task.status_changed_at / 1000).min(now)
-                        } else {
-                            now
-                        }
-                    })
-            };
-            observed.last_activity.insert(worker.tab_id.clone(), last);
-            let mut worker = worker;
-            worker.idle_overdue =
-                !worker.reported && now.saturating_sub(last) >= IDLE_NO_REPORT_SECS;
-            observed
-                .workers
-                .insert(worker.tab_id.clone(), worker.clone());
-            snapshot.workers.push(worker);
-        }
-        if task.status == TaskStatus::InProgress
-            && task
-                .execution_attempts
-                .iter()
-                .all(|a| a.closed_at.is_some())
-        {
-            snapshot
-                .hard
-                .push(HardWake::Incident(format!("dispatch_missing:{}", task.id)));
-        }
-        if task.interruption.handoff_required {
-            snapshot
-                .hard
-                .push(HardWake::Incident(format!("task_interruption:{}", task.id)));
         }
     }
     let (_, owner_observation) = collect_owner_messages(svc, tab_id, previous);
@@ -380,7 +293,7 @@ pub(crate) fn collect(
     snapshot
         .workers
         .sort_by(|a, b| (&a.task_id, &a.tab_id).cmp(&(&b.task_id, &b.tab_id)));
-    (snapshot, observed)
+    Ok((snapshot, observed))
 }
 
 pub(super) fn session_key(tab: &Tab) -> Option<String> {
@@ -406,22 +319,33 @@ pub(super) fn bound_attempt_session_key(
     tab: &Tab,
     attempt: &TaskExecutionAttempt,
 ) -> Option<String> {
+    bound_session_key(
+        tab,
+        attempt.session_id.as_deref(),
+        attempt.session_binding_nonce.as_deref(),
+    )
+}
+
+fn bound_session_key(tab: &Tab, session_id: Option<&str>, nonce: Option<&str>) -> Option<String> {
     session_key(tab).filter(|_| {
-        attempt
-            .session_id
-            .as_deref()
-            .is_none_or(|sid| tab.agent_session_id.as_deref() == Some(sid))
-            && attempt
-                .session_binding_nonce
-                .as_deref()
-                .is_none_or(|nonce| tab.session_binding_nonce.as_deref() == Some(nonce))
+        session_id.is_none_or(|sid| tab.agent_session_id.as_deref() == Some(sid))
+            && nonce.is_none_or(|nonce| tab.session_binding_nonce.as_deref() == Some(nonce))
     })
+}
+
+pub(crate) fn binding_digest_fields(
+    tab: &Tab,
+    session_id: Option<&str>,
+    nonce: Option<&str>,
+) -> Option<String> {
+    bound_session_key(tab, session_id, nonce)
+        .map(|key| crate::service::supporter::criteria_hash(key.as_bytes()))
 }
 
 fn collect_worker(
     svc: &ServiceContext,
     task: &Task,
-    attempt: &TaskExecutionAttempt,
+    attempt: &ReminderAttemptRead,
     previous: &Observation,
     now: u64,
 ) -> Worker {
@@ -430,9 +354,9 @@ fn collect_worker(
     let mut worker = Worker {
         task_id: task.id.clone(),
         tab_id: tab_id.clone(),
-        ack_received: attempt.acknowledged_at.is_some(),
-        reported: attempt.report.is_some(),
-        held: crate::plan::reconcile::active_review_hold_note(task).is_some(),
+        ack_received: attempt.acknowledged,
+        reported: attempt.report_id.is_some(),
+        held: task.held,
         elapsed_bucket: now.saturating_sub(task.status_changed_at / 1000) / IDLE_NO_REPORT_SECS,
         process: "absent".into(),
         ..Default::default()
@@ -440,7 +364,11 @@ fn collect_worker(
     let Some(tab) = tab else {
         return worker;
     };
-    worker.session_key = bound_attempt_session_key(&tab, attempt);
+    worker.session_key = bound_session_key(
+        &tab,
+        attempt.session_id.as_deref(),
+        attempt.session_binding_nonce.as_deref(),
+    );
     worker.activity = match svc.resolved_tab_status(&tab) {
         Some(codeterm_types::pty::TabStatus::Working) => "working",
         Some(codeterm_types::pty::TabStatus::Idle) => "idle",
@@ -681,13 +609,10 @@ pub(super) fn appended_messages(
     )
 }
 
-fn lane_commits(task: &Task, attempt: &TaskExecutionAttempt) -> Result<Vec<String>, String> {
+fn lane_commits(task: &Task, attempt: &ReminderAttemptRead) -> Result<Vec<String>, String> {
     let (Some(path), Some(branch)) = (
-        attempt
-            .worktree_path
-            .as_ref()
-            .or(task.lane.worktree_path.as_ref()),
-        attempt.branch.as_ref().or(task.lane.branch.as_ref()),
+        attempt.worktree_path.as_ref().or(task.lane_path.as_ref()),
+        attempt.branch.as_ref().or(task.lane_branch.as_ref()),
     ) else {
         return Ok(Vec::new());
     };
@@ -749,72 +674,17 @@ pub(super) fn is_owner_turn(message: &ChatMsg) -> bool {
         )
 }
 
-fn delta_context(plan: &Plan, delta: &BTreeMap<String, String>) -> (BTreeMap<String, Value>, bool) {
-    let mut context = BTreeMap::new();
-    if delta.contains_key("mode") {
-        context.insert(
-            "mode".into(),
-            json!({"mode": plan.mode, "status": plan.status}),
-        );
-    }
-    for task in &plan.tasks {
-        let key = format!("task:{}", task.id);
-        if delta.contains_key(&key) {
-            context.insert(key, task_context(plan, task));
-        }
-        for attempt in &task.execution_attempts {
-            if let Some(report) = &attempt.report {
-                let key = format!("report:{}", report.id);
-                if delta.contains_key(&key) {
-                    context.insert(
-                        key,
-                        json!({"task": task.id, "status": report.status, "sha": report.sha,
-                        "test_result": report.test_result.as_deref().map(scrubbed)}),
-                    );
-                }
-            }
-        }
-    }
-    for stride in plan
-        .strides
-        .iter()
-        .chain(plan.tasks.iter().flat_map(|t| &t.milestones))
-    {
-        let key = format!("stride:{}", stride.id);
-        if delta.contains_key(&key) {
-            context.insert(
-                key,
-                json!({"kind": stride.kind, "text": scrubbed(&stride.text)}),
-            );
-        }
-    }
-    for gate in &plan.gates {
-        let key = format!("gate:{}", gate.id);
-        if delta.contains_key(&key) {
-            context.insert(key, json!({"status": gate.status, "answer": gate.answer.as_ref().map(|a| scrubbed(&a.text))}));
-        }
-    }
-    let truncated = context.len() > MAX_OBSERVATION_ROWS;
-    (
-        context.into_iter().take(MAX_OBSERVATION_ROWS).collect(),
-        truncated,
-    )
+fn task_context(plan: &Plan, task: &Task) -> Result<Value, String> {
+    let keys = BTreeMap::from([(format!("task:{}", task.id), String::new())]);
+    let (mut context, _) = plan
+        .delta_context(&keys, 1)
+        .map_err(|error| error.to_string())?;
+    context
+        .remove(&format!("task:{}", task.id))
+        .ok_or_else(|| "reminder task context is missing".into())
 }
 
-fn task_context(plan: &Plan, task: &Task) -> Value {
-    let projection = task_projection(plan, task);
-    json!({"task": task.id, "status": task.status,
-        "status_label": task.status_label.as_deref().map(scrubbed),
-        "pause_reason": task.pause_reason.as_deref().map(scrubbed),
-        "assigned_tab_id": task.assigned_tab_id,
-        "presentation": projection.presentation,
-        "dependency_waits": projection.dependency_waits.iter().map(|wait| json!({
-            "task_id": wait.task_id, "status": wait.status, "missing": wait.missing
-        })).collect::<Vec<_>>(),
-        "held": crate::plan::reconcile::active_review_hold_note(task).is_some()})
-}
-
-fn scrubbed(text: &str) -> String {
+pub(crate) fn scrubbed(text: &str) -> String {
     crate::service::launch_diagnostics::redact_secrets(text)
         .chars()
         .take(512)

@@ -159,8 +159,11 @@ fn show_task_never_loads_unmatched_plans() {
     );
     start(&store);
 
-    assert_eq!(store.show_task("task_shown").unwrap().plan_id, holder);
-    assert_never_loaded(&store, &[&other]);
+    assert_eq!(
+        store.show_task_window("task_shown").unwrap().plan_id,
+        holder
+    );
+    assert_never_loaded(&store, &[&holder, &other]);
 }
 
 #[test]
@@ -212,7 +215,7 @@ fn task_key_high_water_never_loads_unmatched_plans() {
     );
     start(&store);
 
-    assert_eq!(store.task_key_high_water().get("AUD"), Some(&7));
+    assert_eq!(store.task_key_high_water().unwrap().get("AUD"), Some(&7));
     assert!(
         store.plan_loads_for_test().is_empty(),
         "keys come from the task rows"
@@ -300,10 +303,6 @@ fn seed_missing_search_indexes_never_loads_unmatched_plans() {
 
     store.seed_missing_search_indexes();
     assert!(store.plan_loads_for_test().iter().all(|id| *id == missing));
-    assert!(
-        store.cached_plan_ids_for_test().is_empty(),
-        "seeding never fills the cache"
-    );
     assert_never_loaded(&store, &[&indexed]);
 }
 
@@ -490,7 +489,7 @@ fn handoff(tab_id: &str) -> CanvasElement {
         "kind": "handoff",
         "content": {
             "reseed_state": "new_sent",
-            "reseed_pending": { "tab_id": tab_id, "source_session_id": "old-session" }
+            "reseed_pending": { "tab_id": tab_id, "source_session_id": "old-session", "state": "new_sent", "resume_prompt": "opaque-resume-payload" }
         }
     }))
     .expect("handoff fixture")
@@ -507,10 +506,30 @@ fn observe_handoff_session_start_never_loads_unmatched_plans() {
     let other = seed(&store, other);
     start(&store);
 
-    store
+    let resume = store
         .observe_handoff_session_start("tab-reseed", "new-session", 5)
-        .unwrap();
-    assert!(store.plan_loads_for_test().contains(&pending));
+        .unwrap()
+        .expect("the selected pending handoff observes its new session");
+    assert_eq!(resume.plan_id, pending);
+    assert_eq!(resume.handoff_id, "el_tab-reseed");
+    assert_eq!(resume.tab_id, "tab-reseed");
+    assert!(resume.text.contains("opaque-resume-payload"));
+    let selected = store.show_handoff(&pending, Some("el_tab-reseed")).unwrap();
+    assert_eq!(selected.content["reseed_pending"]["state"], "session_seen");
+    assert_eq!(
+        selected.content["reseed_pending"]["target_session_id"],
+        "new-session"
+    );
+    let unmatched = store.show_handoff(&other, Some("el_tab-else")).unwrap();
+    assert_eq!(unmatched.content["reseed_pending"]["state"], "new_sent");
+    assert!(unmatched.content["reseed_pending"]
+        .get("target_session_id")
+        .is_none());
+    assert!(store
+        .observe_handoff_session_start("tab-reseed", "new-session", 6)
+        .unwrap()
+        .is_none());
+    assert!(store.plan_loads_for_test().is_empty());
     assert_never_loaded(&store, &[&other]);
 }
 
@@ -546,18 +565,24 @@ fn reminder_candidate_plans_never_loads_unmatched_plans() {
     start(&store);
 
     let ids: Vec<_> = store
-        .reminder_candidate_plans()
+        .reminder_read_snapshot(str::to_string)
+        .unwrap()
+        .candidate_targets(None)
+        .unwrap()
         .into_iter()
         .map(|plan| plan.id)
         .collect();
     assert_eq!(ids, vec![working.clone()]);
     let for_tab: Vec<_> = store
-        .reminder_candidate_plans_for_tab("w1")
+        .reminder_read_snapshot(str::to_string)
+        .unwrap()
+        .candidate_targets(Some("w1"))
+        .unwrap()
         .into_iter()
         .map(|plan| plan.id)
         .collect();
-    assert_eq!(for_tab, vec![working]);
-    assert_never_loaded(&store, &[&archived, &finished]);
+    assert_eq!(for_tab, vec![working.clone()]);
+    assert_never_loaded(&store, &[&working, &archived, &finished]);
 }
 
 #[test]
@@ -719,7 +744,6 @@ fn export_all_plan_documents_never_loads_whole_plans_or_cache() {
     let mut expected = vec![first, second];
     expected.sort();
     assert_eq!(seen, expected);
-    assert!(store.cached_plan_ids_for_test().is_empty());
     assert!(store.plan_loads_for_test().is_empty());
 }
 
@@ -783,13 +807,14 @@ fn team_close_plans_never_loads_unmatched_plans() {
     start(&store);
 
     let mut ids: Vec<_> = store
-        .team_close_plans("team-closing", &["member-tab".into()])
+        .team_close_projection("team-closing", &["member-tab".into()])
+        .unwrap()
         .into_iter()
         .map(|plan| plan.id)
         .collect();
     ids.sort();
-    let mut expected = vec![laned, assigned];
+    let mut expected = vec![laned.clone(), assigned.clone()];
     expected.sort();
     assert_eq!(ids, expected);
-    assert_never_loaded(&store, &[&other]);
+    assert_never_loaded(&store, &[&laned, &assigned, &other]);
 }

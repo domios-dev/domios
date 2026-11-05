@@ -32,6 +32,16 @@ fn planning_storage_failure_keeps_internal_rpc_code_and_diagnostic() {
         super::planning_authority_error(PlanAuthorityError::RoleUnauthorized).code,
         -32003
     );
+    let mutation = super::plan_operation_error(
+        codeterm_service_core::service::PlanOperationError::Authority(
+            PlanAuthorityError::StoreReadFailed,
+        ),
+    );
+    assert_eq!(mutation.code, -32603);
+    assert_eq!(
+        mutation.data.unwrap()["type"],
+        "plan_authority_store_read_failed"
+    );
 }
 
 #[test]

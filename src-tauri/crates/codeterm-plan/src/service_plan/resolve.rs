@@ -4,7 +4,7 @@
 //! one resolver. Ambiguity and unknown refs fail loudly with candidate lists; a ref is never
 //! guessed. Old long uuid ids resolve exactly like freshly minted short ids.
 
-use super::PlanStore;
+use super::{PlanError, PlanStore};
 use crate::plan::{task_key, Section, Spec};
 use serde::Serialize;
 
@@ -49,6 +49,7 @@ pub struct RefCandidate {
 
 #[derive(Debug)]
 pub enum ResolveError {
+    Read(PlanError),
     NotFound {
         kind: RefKind,
         reference: String,
@@ -60,9 +61,16 @@ pub enum ResolveError {
     },
 }
 
+impl From<PlanError> for ResolveError {
+    fn from(error: PlanError) -> Self {
+        Self::Read(error)
+    }
+}
+
 impl ResolveError {
     pub fn to_json(&self) -> serde_json::Value {
         match self {
+            ResolveError::Read(error) => error.to_json(),
             ResolveError::NotFound { kind, reference } => serde_json::json!({
                 "type": "ref_not_found",
                 "kind": kind.label(),
@@ -85,6 +93,7 @@ impl ResolveError {
 impl std::fmt::Display for ResolveError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            ResolveError::Read(error) => write!(f, "reference lookup failed: {error}"),
             ResolveError::NotFound { kind, reference } => {
                 write!(f, "no {} matches '{reference}'", kind.label())
             }
@@ -134,43 +143,53 @@ impl MatchItem {
 
 /// Deterministic precedence: exact id > exact handle or task key (one tier, must be
 /// unique) > unique prefix (on id or handle).
+pub(super) fn match_rank(
+    id: &str,
+    handle: Option<&str>,
+    key: Option<&str>,
+    reference: &str,
+) -> Option<u8> {
+    if id == reference {
+        return Some(0);
+    }
+    let named = match key {
+        Some(key) => task_key::name_matches(handle, key, reference),
+        None => handle == Some(reference),
+    };
+    if named {
+        return Some(1);
+    }
+    if !reference.is_empty()
+        && (id.starts_with(reference) || handle.is_some_and(|handle| handle.starts_with(reference)))
+    {
+        return Some(2);
+    }
+    None
+}
+
 fn pick(items: Vec<MatchItem>, reference: &str, kind: RefKind) -> Result<MatchItem, ResolveError> {
-    if let Some(hit) = items.iter().find(|i| i.id == reference) {
-        return Ok(hit.clone());
-    }
-    let handle_hits: Vec<&MatchItem> = items
-        .iter()
-        .filter(|i| match i.key.as_deref() {
-            Some(key) => task_key::name_matches(i.handle.as_deref(), key, reference),
-            None => i.handle.as_deref() == Some(reference),
-        })
-        .collect();
-    match handle_hits.len() {
-        1 => return Ok(handle_hits[0].clone()),
-        n if n > 1 => {
-            return Err(ambiguous(handle_hits, reference, kind));
-        }
-        _ => {}
-    }
-    if !reference.is_empty() {
-        let prefix_hits: Vec<&MatchItem> = items
+    for rank in 0..=2 {
+        let hits: Vec<_> = items
             .iter()
-            .filter(|i| {
-                i.id.starts_with(reference)
-                    || i.handle
-                        .as_deref()
-                        .is_some_and(|h| h.starts_with(reference))
+            .filter(|item| {
+                match_rank(
+                    &item.id,
+                    item.handle.as_deref(),
+                    item.key.as_deref(),
+                    reference,
+                ) == Some(rank)
             })
             .collect();
-        match prefix_hits.len() {
-            1 => return Ok(prefix_hits[0].clone()),
-            n if n > 1 => return Err(ambiguous(prefix_hits, reference, kind)),
-            _ => {}
+        match hits.len() {
+            0 => {}
+            1 => return Ok(hits[0].clone()),
+            _ if rank == 0 => return Ok(hits[0].clone()),
+            _ => return Err(ambiguous(hits, reference, kind)),
         }
     }
     Err(ResolveError::NotFound {
         kind,
-        reference: reference.to_string(),
+        reference: reference.into(),
     })
 }
 
@@ -226,21 +245,24 @@ pub struct ResolvedMilestone {
     pub milestone_id: String,
 }
 
+pub(super) struct TaskReferenceRead {
+    pub plan_id: String,
+    pub task_id: String,
+    pub candidate: Option<RefCandidate>,
+}
+
 impl PlanStore {
     /// Any id currently in the store (plan / spec / task / section / milestone). Mint-time check.
-    pub(super) fn id_taken(&self, id: &str) -> bool {
+    pub(super) fn id_taken(&self, id: &str) -> Result<bool, PlanError> {
         if self.specs.read().contains_key(id) || self.index.read().contains_key(id) {
-            return true;
+            return Ok(true);
         }
-        self.database.id_in_use(id).unwrap_or_else(|error| {
-            log::warn!("[plan.store] id collision query failed: {error}");
-            false
-        })
+        self.database.id_in_use(id)
     }
 
     /// Collision-checked short id. Must NOT be called while holding a plan mutex.
-    pub(super) fn mint_id(&self, prefix: &str) -> String {
-        crate::plan::ids::mint_id(prefix, |c| self.id_taken(c))
+    pub(super) fn mint_id(&self, prefix: &str) -> Result<String, PlanError> {
+        crate::plan::ids::try_mint_id(prefix, |candidate| self.id_taken(candidate))
     }
 
     fn plan_match_items(&self) -> Vec<MatchItem> {
@@ -292,16 +314,37 @@ impl PlanStore {
         plan_ref: Option<&str>,
         task_ref: &str,
     ) -> Result<ResolvedTask, ResolveError> {
-        let items = match plan_ref {
-            Some(pr) => {
-                let plan_id = self.resolve_plan_id(pr)?;
-                self.task_items_for_plan(&plan_id)
-            }
-            None => self.task_items_all(),
-        };
-        pick(items, task_ref, RefKind::Task).map(|m| ResolvedTask {
-            plan_id: m.plan_id.unwrap_or_default(),
-            task_id: m.id,
+        let plan_id = plan_ref
+            .map(|reference| self.resolve_plan_id(reference))
+            .transpose()?;
+        let mut matches = self
+            .database
+            .resolve_task_reference(plan_id.as_deref(), task_ref)?;
+        if matches.len() == 1 {
+            let found = matches.remove(0);
+            return Ok(ResolvedTask {
+                plan_id: found.plan_id,
+                task_id: found.task_id,
+            });
+        }
+        if matches.is_empty() {
+            return Err(ResolveError::NotFound {
+                kind: RefKind::Task,
+                reference: task_ref.into(),
+            });
+        }
+        let candidates = matches
+            .into_iter()
+            .map(|matched| {
+                matched.candidate.ok_or_else(|| {
+                    PlanError::Io("ambiguous task reference lacks diagnostic metadata".into())
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        Err(ResolveError::Ambiguous {
+            kind: RefKind::Task,
+            reference: task_ref.into(),
+            candidates,
         })
     }
 
@@ -313,13 +356,17 @@ impl PlanStore {
         let items = match plan_ref {
             Some(pr) => {
                 let plan_id = self.resolve_plan_id(pr)?;
-                self.section_items_for_plan(&plan_id)
+                self.section_items_for_plan(&plan_id)?
             }
-            None => self.section_items_all(),
+            None => self.section_items_all()?,
         };
-        pick(items, section_ref, RefKind::Section).map(|m| ResolvedSection {
-            plan_id: m.plan_id.unwrap_or_default(),
-            section_id: m.id,
+        let matched = pick(items, section_ref, RefKind::Section)?;
+        let plan_id = matched
+            .plan_id
+            .ok_or_else(|| PlanError::Io("section reference lacks an owning plan".into()))?;
+        Ok(ResolvedSection {
+            plan_id,
+            section_id: matched.id,
         })
     }
 
@@ -340,7 +387,7 @@ impl PlanStore {
 
     pub fn resolve_loop_id(&self, reference: &str) -> Result<String, ResolveError> {
         let items = self
-            .loop_rows()
+            .loop_rows()?
             .into_iter()
             .map(|(plan_id, id, target)| MatchItem {
                 id,
@@ -361,8 +408,7 @@ impl PlanStore {
         let plan_id = self.resolve_plan_id(plan_ref)?;
         let items = self
             .database
-            .element_references(&plan_id)
-            .unwrap_or_default()
+            .element_references(&plan_id)?
             .into_iter()
             .map(|(id, label)| MatchItem {
                 id,
@@ -372,7 +418,7 @@ impl PlanStore {
                 plan_id: Some(plan_id.clone()),
             })
             .collect();
-        pick(items, element_ref, RefKind::Element).map(|m| (m.plan_id.unwrap_or(plan_id), m.id))
+        pick(items, element_ref, RefKind::Element).map(|m| (plan_id, m.id))
     }
 
     pub fn resolve_milestone_ref(
@@ -386,8 +432,7 @@ impl PlanStore {
         let task_id = resolved_task.task_id;
         let items = self
             .database
-            .milestone_references(&plan_id, &task_id)
-            .unwrap_or_default()
+            .milestone_references(&plan_id, &task_id)?
             .into_iter()
             .map(|(id, label)| MatchItem {
                 id,
@@ -404,45 +449,10 @@ impl PlanStore {
         })
     }
 
-    fn task_items_for_plan(&self, plan_id: &str) -> Vec<MatchItem> {
-        self.database
-            .scoped_task_references(plan_id)
-            .unwrap_or_default()
-            .into_iter()
-            .map(|row| MatchItem {
-                key: Some(
-                    row.key
-                        .unwrap_or_else(|| task_key::fallback_key(&row.task_id)),
-                ),
-                id: row.task_id,
-                handle: row.handle,
-                label: row.name,
-                plan_id: Some(row.plan_id),
-            })
-            .collect()
-    }
-
-    /// Read from the task rows; no plan is loaded.
-    fn task_items_all(&self) -> Vec<MatchItem> {
-        self.task_ref_rows()
-            .into_iter()
-            .map(|row| MatchItem {
-                key: Some(
-                    row.key
-                        .unwrap_or_else(|| crate::plan::task_key::fallback_key(&row.task_id)),
-                ),
-                id: row.task_id,
-                handle: row.handle,
-                label: row.name,
-                plan_id: Some(row.plan_id),
-            })
-            .collect()
-    }
-
-    fn section_items_for_plan(&self, plan_id: &str) -> Vec<MatchItem> {
-        self.database
-            .scoped_section_references(plan_id)
-            .unwrap_or_default()
+    fn section_items_for_plan(&self, plan_id: &str) -> Result<Vec<MatchItem>, PlanError> {
+        Ok(self
+            .database
+            .scoped_section_references(plan_id)?
             .into_iter()
             .map(|row| MatchItem {
                 id: row.section_id,
@@ -451,12 +461,13 @@ impl PlanStore {
                 label: row.title,
                 plan_id: Some(row.plan_id),
             })
-            .collect()
+            .collect())
     }
 
     /// Read from the section rows, nested subsections included; no plan is loaded.
-    fn section_items_all(&self) -> Vec<MatchItem> {
-        self.section_ref_rows()
+    fn section_items_all(&self) -> Result<Vec<MatchItem>, PlanError> {
+        Ok(self
+            .section_ref_rows()?
             .into_iter()
             .map(|row| MatchItem {
                 id: row.section_id,
@@ -465,7 +476,7 @@ impl PlanStore {
                 label: row.title,
                 plan_id: Some(row.plan_id),
             })
-            .collect()
+            .collect())
     }
 }
 

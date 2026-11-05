@@ -250,10 +250,23 @@ impl ServiceContext {
                     ));
                 }
                 None => {
+                    let teamless = self
+                        .mux
+                        .read()
+                        .get_tab(&canon_target)
+                        .is_some_and(|tab| tab.team_id.is_none());
+                    let route = if teamless {
+                        format!(
+                            "it has no Team, so release its role with `domios agent unlink --tab \
+                             {canon_target}` and close it again"
+                        )
+                    } else {
+                        "close it through its Team".to_string()
+                    };
                     return Err(format!(
                         "{UNATTRIBUTED_CLOSE_REFUSAL_PREFIX}: caller attribution is required to \
-                         close coordinator Tab ({canon_target}); close it through its Team or \
-                         provide an attributed caller Tab."
+                         close coordinator Tab ({canon_target}); {route} or provide an \
+                         attributed caller Tab."
                     ));
                 }
                 Some(_) => {}
@@ -334,7 +347,7 @@ impl ServiceContext {
         validate: impl FnOnce(&crate::multiplexer::state::MultiplexerState, &str) -> Result<(), String>,
         teardown: impl FnOnce() -> Result<(), String>,
         validate_commit: impl FnOnce(
-            &crate::multiplexer::state::MultiplexerState,
+            &mut crate::multiplexer::state::MultiplexerState,
             &str,
         ) -> Result<(), String>,
     ) -> Result<(), String> {
@@ -378,7 +391,7 @@ impl ServiceContext {
         }
         let (close_result, history_batch) = {
             let mut mux = self.mux.write();
-            if let Err(error) = validate_commit(&mux, &canonical_tab_id) {
+            if let Err(error) = validate_commit(&mut mux, &canonical_tab_id) {
                 mux.abort_tab_close(&reservation);
                 return Err(error);
             }
@@ -547,10 +560,11 @@ impl ServiceContext {
         Ok(())
     }
 
-    pub fn link_pty(&self, tab_id: &str, pty_id: String) -> String {
-        let claim = self.pty_ownership.acquire(tab_id);
-        self.link_pty_with_claim(&claim, tab_id, pty_id, false)
-            .pty_id
+    pub fn link_pty(&self, tab_id: &str, pty_id: String) -> Result<String, String> {
+        let claim = self.pty_ownership.acquire(tab_id)?;
+        Ok(self
+            .link_pty_with_claim(&claim, tab_id, pty_id, false)
+            .pty_id)
     }
 
     pub fn link_pty_with_claim(
@@ -631,7 +645,10 @@ impl ServiceContext {
             .get_tab(tab_id)
             .and_then(|tab| tab.pty_id.clone());
         if let Some(pty_id) = pty_id {
-            self.pty.lock().invalidate_guarded_input(&pty_id);
+            let gate = self.pty.lock().guarded_input_gate(&pty_id);
+            if let Some(gate) = gate {
+                gate.invalidate();
+            }
         }
     }
 

@@ -549,9 +549,10 @@ pub fn finalize_lane_removal(
 ) -> Result<(), String> {
     let target = comparable_path(&outcome.worktree_path);
     let attempt_ids: Vec<String> = store
-        .attempt_field_values("$.worktree_path")
+        .attempt_lane_paths()
+        .map_err(|error| error.to_string())?
         .into_iter()
-        .filter(|row| comparable_path(&row.value) == target)
+        .filter(|row| comparable_path(&row.worktree_path) == target)
         .map(|row| row.attempt_id)
         .collect();
     repo_watch.release_lane_watch(&outcome.worktree_path);

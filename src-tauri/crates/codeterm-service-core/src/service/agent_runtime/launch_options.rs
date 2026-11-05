@@ -101,7 +101,7 @@ impl ServiceContext {
         };
         let pad = self.ensure_agent_pad(tab_id)?;
         let project =
-            launch_session_detection::canonical_project_for_launch(self, tab_id, params, &cwd);
+            launch_session_detection::canonical_project_for_launch(self, tab_id, params, &cwd)?;
         let roots = if let Some(policy) = &policy {
             policy.writable_roots.iter().map(PathBuf::from).collect()
         } else if self
@@ -125,7 +125,23 @@ impl ServiceContext {
         let options = RestorableRuntimeLaunchOptions {
             provider_id: provider.clone(),
             binding_nonce: nonce.clone(),
-            mode: mode.into(),
+            mode: if policy.is_some()
+                || self
+                    .agent_registry
+                    .with_provider(&provider, |provider| {
+                        provider.agent_runtime().is_some_and(|runtime| {
+                            runtime
+                                .runtime_modes
+                                .iter()
+                                .any(|declared| declared.id == mode)
+                        })
+                    })
+                    .unwrap_or(false)
+            {
+                mode.into()
+            } else {
+                String::new()
+            },
             additional_directories: validate_host_directories(roots)?,
             network_access: if policy.is_some() {
                 Some(false)
@@ -154,7 +170,11 @@ impl ServiceContext {
             let config = config
                 .as_object_mut()
                 .ok_or("Runtime configuration must be an object")?;
-            config.insert("mode".into(), serde_json::json!(options.mode));
+            if options.mode.is_empty() {
+                config.remove("mode");
+            } else {
+                config.insert("mode".into(), serde_json::json!(options.mode));
+            }
             config.insert(
                 "additionalDirectories".into(),
                 serde_json::json!(options.additional_directories),
@@ -203,7 +223,7 @@ fn publish_failure(svc: &ServiceContext, tab_id: &str, scope: &(String, String),
 
 fn runtime_settings(options: &RestorableRuntimeLaunchOptions) -> RuntimeSettings {
     RuntimeSettings {
-        mode: Some(options.mode.clone()),
+        mode: (!options.mode.is_empty()).then(|| options.mode.clone()),
         additional_directories: options.additional_directories.clone(),
         network_access: options.network_access,
         ..Default::default()
@@ -231,12 +251,6 @@ pub(super) fn restore(svc: &ServiceContext, tab_id: &str) -> Result<RuntimeSetti
         )
     };
     svc.require_neighbor_restore_grant(tab_id, requested)?;
-    let independently_authorized = svc.mux.read().get_tab(tab_id).is_some_and(|tab| {
-        tab.role == Some(crate::multiplexer::types::AgentRole::Worker)
-            || tab.neighbor_authority.is_some()
-    });
-    let requested = requested
-        && (independently_authorized || permission_policy::configured_full_access_for(&svc)?);
     let sandbox = svc.mux.read().get_tab(tab_id).and_then(|tab| {
         tab.restorable_launch
             .execution_sandbox

@@ -572,3 +572,33 @@ fn restored_read_only_policy_never_acquires_host_grants() {
     resolved.runtime_mode = Some("full-access".into());
     assert!(restore_recorded(&saved, &resolved, |_| true).is_err());
 }
+
+#[test]
+fn unconfinable_provider_sandbox_refusal_has_a_stable_code_and_original_message() {
+    let registry = AgentRegistry::new();
+    registry.register_provider(Box::new(crate::agent::test_provider::MockProvider::new(
+        "opaque-runtime",
+    )));
+    for runtime in [false, true] {
+        let error = preflight(
+            &registry,
+            "opaque-runtime",
+            &SpawnAgentParams {
+                sandbox: Some("read-only".into()),
+                ..Default::default()
+            },
+            runtime,
+        )
+        .unwrap_err();
+        assert!(
+            matches!(&error, SpawnTargetRefusal::ExecutionSandbox { provider, .. } if provider == "opaque-runtime")
+        );
+        assert_eq!(
+            error.data().unwrap()["code"],
+            "execution_sandbox_unsupported"
+        );
+        assert!(error
+            .to_string()
+            .starts_with("Provider opaque-runtime: Cannot enforce ReadOnly execution sandbox"));
+    }
+}

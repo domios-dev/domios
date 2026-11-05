@@ -72,6 +72,9 @@
     "interrupt": {
       "beforeFirstTurn": true
     },
+    "turnScopedRequests": [
+      "submitTurn"
+    ],
     "hostMcp": {
       "param": "mcpServers",
       "methods": [
@@ -119,6 +122,33 @@
     "agent-info-identity.json",
     "model-option-load-refused.json",
     "mcp-not-declared.json",
-    "mcp-advertised.json"
+    "mcp-advertised.json",
+    "mcp-fallback-load-failure.json",
+    "mcp-fallback-load-success.json",
+    "mcp-fallback-new-failure.json",
+    "mcp-fallback-new-success.json",
+    "mcp-fallback-resume-failure.json",
+    "mcp-fallback-resume-success.json",
+    "mcp-fallback-generic-error.json",
+    "mcp-no-fallback-auth.json",
+    "mcp-no-fallback-session-missing.json",
+    "mcp-no-fallback-method-not-found.json",
+    "long-stream-complete.json",
+    "long-stream-cancel.json",
+    "oversize-single-frame.json",
+    "two-turns-restart-third.json",
+    "self-send-overlapping-prompts.json",
+    "tool-output-retention.json",
+    "oversize-astral-cut.json",
+    "many-turns-tool-admission.json",
+    "dsh-shared-message-id.json",
+    "large-single-update.json",
+    "large-multi-update.json",
+    "batch-text-1024.json",
+    "batch-byte-limit.json",
+    "batch-event-limit.json",
+    "batch-row-determinism.json",
+    "concurrent-rpc-refusal.json",
+    "active-error-queued-prompt.json"
   ]
 }
