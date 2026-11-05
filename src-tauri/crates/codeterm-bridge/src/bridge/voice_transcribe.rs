@@ -133,7 +133,9 @@ mod tests {
         let line = format_attachment_line("/note.webm", "voice", None, &reg, "slow").await;
         let parsed = codeterm_wire::message_markers::parse(&line).unwrap();
         assert_eq!(parsed.attr("status"), Some("untranscribed"));
-        assert_eq!(parsed.attr("path"), Some("/note.webm"));
+        // The parser exposes the wire `path` attribute as `file`.
+        assert_eq!(parsed.attr("file"), Some("/note.webm"));
+        assert!(line.contains("path=\"/note.webm\""), "got {line}");
         assert!(parsed.payload.contains("did not finish within 300 s"));
         assert!(parsed.payload.contains("send it again to retry"));
     }
