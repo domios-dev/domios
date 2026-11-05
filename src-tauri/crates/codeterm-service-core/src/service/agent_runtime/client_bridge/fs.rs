@@ -101,7 +101,7 @@ pub(super) fn check(root: &Path, relative: &Path, missing_leaf: bool) -> Result<
         match std::fs::symlink_metadata(&path) {
             Ok(metadata) => {
                 if metadata.file_type().is_symlink() {
-                    return Err("Symlink traversal denied".into());
+                    return Err("reparse_point: Symlink traversal denied".into());
                 }
                 #[cfg(windows)]
                 {
@@ -138,11 +138,25 @@ pub(super) fn read(
     check(root, relative, false)?;
     root_matches(root, root_handle)?;
     #[cfg(unix)]
-    let file = codeterm_blueprint_types::code_source::open_file_at(
-        root_handle,
-        relative.to_str().ok_or("Invalid UTF-8 path")?,
-    )
-    .map_err(str::to_string)?;
+    let file = {
+        let parent = directory(root_handle, relative.parent().ok_or("Missing parent")?)?;
+        let name = std::ffi::CString::new(
+            relative
+                .file_name()
+                .ok_or("Missing filename")?
+                .as_encoded_bytes(),
+        )
+        .map_err(|error| error.to_string())?;
+        let file = open_at_no_follow(&parent, &name, libc::O_RDONLY | libc::O_NONBLOCK)?;
+        if !file
+            .metadata()
+            .map_err(|error| error.to_string())?
+            .is_file()
+        {
+            return Err("Non-regular file denied".into());
+        }
+        file
+    };
     #[cfg(not(any(unix, windows)))]
     let file = codeterm_blueprint_types::code_source::open_file(
         root,
@@ -187,33 +201,27 @@ pub(super) fn write(
     content: &str,
     commit: impl FnOnce(&mut dyn FnMut() -> Result<(), String>) -> Result<(), String>,
 ) -> Result<(), String> {
-    use std::{
-        ffi::CString,
-        io::Write,
-        os::fd::{AsRawFd, FromRawFd},
-    };
+    write_with_sync(root, root_handle, relative, content, commit, |parent| {
+        parent.sync_all().map_err(|error| error.to_string())
+    })
+}
+
+#[cfg(unix)]
+pub(super) fn write_with_sync(
+    root: &Path,
+    root_handle: &File,
+    relative: &Path,
+    content: &str,
+    commit: impl FnOnce(&mut dyn FnMut() -> Result<(), String>) -> Result<(), String>,
+    mut sync_parent: impl FnMut(&File) -> Result<(), String>,
+) -> Result<(), String> {
+    use std::{ffi::CString, io::Write, os::fd::AsRawFd};
     if content.len() > MAX_BYTES {
         return Err("Write exceeds 1 MiB".into());
     }
     check(root, relative, true)?;
     root_matches(root, root_handle)?;
-    let mut parent_handle = root_handle.try_clone().map_err(|error| error.to_string())?;
-    let parts = relative.components().collect::<Vec<_>>();
-    for part in &parts[..parts.len().saturating_sub(1)] {
-        let name =
-            CString::new(part.as_os_str().as_encoded_bytes()).map_err(|error| error.to_string())?;
-        let fd = unsafe {
-            libc::openat(
-                parent_handle.as_raw_fd(),
-                name.as_ptr(),
-                libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
-            )
-        };
-        if fd < 0 {
-            return Err(std::io::Error::last_os_error().to_string());
-        }
-        parent_handle = unsafe { File::from_raw_fd(fd) };
-    }
+    let parent_handle = directory(root_handle, relative.parent().ok_or("Missing parent")?)?;
     let name = CString::new(
         relative
             .file_name()
@@ -223,19 +231,13 @@ pub(super) fn write(
     .map_err(|error| error.to_string())?;
     let temporary = CString::new(format!(".domios-bridge-{}", uuid::Uuid::new_v4()))
         .map_err(|error| error.to_string())?;
-    let fd = unsafe {
-        libc::openat(
-            parent_handle.as_raw_fd(),
-            temporary.as_ptr(),
-            libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL | libc::O_NOFOLLOW | libc::O_CLOEXEC,
-            0o600,
-        )
-    };
-    if fd < 0 {
-        return Err(std::io::Error::last_os_error().to_string());
-    }
+    let mut file = open_at_no_follow(
+        &parent_handle,
+        &temporary,
+        libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL,
+    )?;
+    let mut renamed = false;
     let result = (|| {
-        let mut file = unsafe { File::from_raw_fd(fd) };
         file.write_all(content.as_bytes())
             .map_err(|error| error.to_string())?;
         file.sync_all().map_err(|error| error.to_string())?;
@@ -265,12 +267,16 @@ pub(super) fn write(
             {
                 return Err(std::io::Error::last_os_error().to_string());
             }
-            Ok(())
+            renamed = true;
+            sync_parent(&parent_handle).map_err(|error| {
+                format!(
+                    "write_committed_unsynced: File was written; directory sync failed: {error}"
+                )
+            })
         };
-        commit(&mut apply)?;
-        parent_handle.sync_all().map_err(|error| error.to_string())
+        commit(&mut apply)
     })();
-    if result.is_err() {
+    if !renamed {
         unsafe {
             libc::unlinkat(parent_handle.as_raw_fd(), temporary.as_ptr(), 0);
         }
@@ -291,11 +297,19 @@ pub(super) fn write(
 
 #[cfg(unix)]
 pub(super) fn root_matches(root: &Path, held: &File) -> Result<(), String> {
-    use std::os::unix::fs::MetadataExt;
-    let current = codeterm_blueprint_types::code_source::open_directory_no_follow(root)
-        .map_err(str::to_string)?
-        .metadata()
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+    let filesystem_root = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open("/")
         .map_err(|error| error.to_string())?;
+    let current = directory(
+        &filesystem_root,
+        root.strip_prefix("/")
+            .map_err(|_| "Invalid workspace root")?,
+    )?
+    .metadata()
+    .map_err(|error| error.to_string())?;
     let held = held.metadata().map_err(|error| error.to_string())?;
     if current.dev() != held.dev() || current.ino() != held.ino() {
         return Err("Workspace root replaced".into());
@@ -309,30 +323,56 @@ pub(super) fn root_matches(_root: &Path, _held: &File) -> Result<(), String> {
 
 #[cfg(unix)]
 pub(super) fn directory(root: &File, relative: &Path) -> Result<File, String> {
-    use std::{
-        ffi::CString,
-        os::fd::{AsRawFd, FromRawFd},
-    };
+    use std::ffi::CString;
     let mut parent = root.try_clone().map_err(|error| error.to_string())?;
     for part in relative.components() {
         let Component::Normal(part) = part else {
             return Err("Invalid directory component".into());
         };
         let name = CString::new(part.as_encoded_bytes()).map_err(|error| error.to_string())?;
-        let fd = unsafe {
-            libc::openat(
-                parent.as_raw_fd(),
-                name.as_ptr(),
-                libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
-            )
-        };
-        if fd < 0 {
-            return Err(std::io::Error::last_os_error().to_string());
-        }
-        parent = unsafe { File::from_raw_fd(fd) };
+        parent = open_at_no_follow(&parent, &name, libc::O_RDONLY | libc::O_DIRECTORY)?;
     }
     Ok(parent)
 }
+#[cfg(unix)]
+pub(super) fn open_at_no_follow(
+    parent: &File,
+    name: &std::ffi::CStr,
+    flags: i32,
+) -> Result<File, String> {
+    use std::os::fd::{AsRawFd, FromRawFd};
+    let fd = unsafe {
+        libc::openat(
+            parent.as_raw_fd(),
+            name.as_ptr(),
+            flags | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+            0o600,
+        )
+    };
+    if fd < 0 {
+        let error = std::io::Error::last_os_error();
+        let mut metadata = std::mem::MaybeUninit::<libc::stat>::uninit();
+        // Some kernels return ENOTDIR for O_DIRECTORY | O_NOFOLLOW on a symlink.
+        let symlink = error.raw_os_error() == Some(libc::ELOOP)
+            || (error.raw_os_error() == Some(libc::ENOTDIR)
+                && unsafe {
+                    libc::fstatat(
+                        parent.as_raw_fd(),
+                        name.as_ptr(),
+                        metadata.as_mut_ptr(),
+                        libc::AT_SYMLINK_NOFOLLOW,
+                    )
+                } == 0
+                && unsafe { metadata.assume_init() }.st_mode & libc::S_IFMT == libc::S_IFLNK);
+        return Err(if symlink {
+            "reparse_point: Symlink traversal denied".into()
+        } else {
+            error.to_string()
+        });
+    }
+    Ok(unsafe { File::from_raw_fd(fd) })
+}
+
 #[cfg(not(any(unix, windows)))]
 pub(super) fn directory(_root: &File, _relative: &Path) -> Result<File, String> {
     Err("Client bridge unavailable".into())

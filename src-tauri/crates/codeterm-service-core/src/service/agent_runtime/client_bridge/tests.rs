@@ -845,3 +845,124 @@ fn write_commit_releases_context_and_reports_committed_supersession_honestly() {
     })
     .unwrap();
 }
+
+#[cfg(unix)]
+#[test]
+fn superseded_unix_write_syncs_parent_before_reporting_committed() {
+    let (_temp, root) = root();
+    let handle = open_root(&root);
+    let expected = context(&root);
+    let current = Mutex::new(expected.clone());
+    let syncs = std::cell::Cell::new(0);
+    let relative = Path::new("durable");
+    let message = fs::write_with_sync(
+        &root,
+        &handle,
+        relative,
+        "written",
+        |apply| {
+            commit_scoped_write(&current, &expected, &mut || {
+                apply()?;
+                assert_eq!(syncs.get(), 1, "parent fsync must precede supersession");
+                current.lock().active_turn_id = Some("superseded".into());
+                Ok(())
+            })
+        },
+        |parent| {
+            parent.sync_all().map_err(|error| error.to_string())?;
+            syncs.set(syncs.get() + 1);
+            Ok(())
+        },
+    )
+    .unwrap_err();
+    assert_eq!(syncs.get(), 1);
+    assert_eq!(
+        std::fs::read_to_string(root.join(relative)).unwrap(),
+        "written"
+    );
+    assert_eq!(
+        std::fs::read_dir(&root).unwrap().count(),
+        1,
+        "completed rename must leave no temporary entry"
+    );
+    assert_eq!(
+        failure(message).data,
+        Some(json!({"reason":"write_committed_superseded","committed":true}))
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn unix_symlink_leaf_and_native_nofollow_errors_report_reparse_point() {
+    let (_temp, root) = root();
+    std::fs::write(root.join("regular"), "inside").unwrap();
+    std::os::unix::fs::symlink(root.join("regular"), root.join("leaf")).unwrap();
+    std::os::unix::fs::symlink(&root, root.join("directory-link")).unwrap();
+    let handle = open_root(&root);
+    for message in [
+        fs::read(&root, &handle, Path::new("leaf"), None, None).unwrap_err(),
+        fs::write(&root, &handle, Path::new("leaf"), "blocked", |apply| {
+            apply()
+        })
+        .unwrap_err(),
+        fs::open_at_no_follow(
+            &handle,
+            &std::ffi::CString::new("leaf").unwrap(),
+            libc::O_RDONLY | libc::O_NONBLOCK,
+        )
+        .unwrap_err(),
+        fs::directory(&handle, Path::new("directory-link")).unwrap_err(),
+    ] {
+        assert_eq!(
+            failure(message).data,
+            Some(json!({"reason":"reparse_point"}))
+        );
+    }
+    assert_eq!(
+        std::fs::read_to_string(root.join("regular")).unwrap(),
+        "inside"
+    );
+    assert_eq!(
+        fs::read(&root, &handle, Path::new("regular"), None, None).unwrap(),
+        "inside"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn unix_committed_sync_failure_reports_written_even_when_superseded() {
+    for superseded in [true, false] {
+        let (_temp, root) = root();
+        let handle = open_root(&root);
+        let expected = context(&root);
+        let current = Mutex::new(expected.clone());
+        let message = fs::write_with_sync(
+            &root,
+            &handle,
+            Path::new("unsynced"),
+            "written",
+            |apply| commit_scoped_write(&current, &expected, apply),
+            |_| {
+                if superseded {
+                    current.lock().active_turn_id = Some("superseded".into());
+                }
+                Err("injected directory sync failure".into())
+            },
+        )
+        .unwrap_err();
+        assert_eq!(
+            std::fs::read_to_string(root.join("unsynced")).unwrap(),
+            "written"
+        );
+        assert_eq!(std::fs::read_dir(&root).unwrap().count(), 1);
+        assert!(message
+            .contains("File was written; directory sync failed: injected directory sync failure"));
+        assert_eq!(message.contains("turn was superseded"), superseded);
+        assert_eq!(
+            failure(message).data,
+            Some(
+                json!({"reason":"write_committed_unsynced","committed":true,"superseded":superseded,"synced":false})
+            )
+        );
+    }
+}
