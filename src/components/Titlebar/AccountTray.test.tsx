@@ -39,6 +39,7 @@ import { SelfSessionSignOut } from "./SelfSessionSignOut";
 import { AccountMeshClientProvider } from "../MeshPanel/accountMeshClient";
 import { FakeAccountMeshClient, snapshot } from "../MeshPanel/accountMachines.testdata";
 import { accountInitials } from "../Settings/accountModel";
+import { plansAction } from "../billing/purchaseSwitch";
 (globalThis as {IS_REACT_ACT_ENVIRONMENT?:boolean}).IS_REACT_ACT_ENVIRONMENT = true;
 afterEach(() => {vi.clearAllMocks();});
 
@@ -484,7 +485,7 @@ it("keeps local sign-out final and explains an unconfirmed machine revocation", 
   } finally { await act(async () => root.unmount()); host.remove(); }
 });
 
-it("offers Upgrade for granted access without a paid subscription", async () => {
+it("offers the plans action (a free key while purchase is off) for granted access without a paid subscription", async () => {
   state.signedIn = true;
   state.paidSubscription = false;
   const host = document.createElement("div"); document.body.append(host);
@@ -494,7 +495,7 @@ it("offers Upgrade for granted access without a paid subscription", async () => 
     await act(async () => host.querySelector("button")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
     const items = Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'));
     expect(items.find(item => item.textContent?.includes("Manage subscription"))).toBeUndefined();
-    const upgrade = items.find(item => item.textContent?.includes("Upgrade"));
+    const upgrade = items.find(item => item.textContent?.includes(plansAction("Upgrade")));
     expect(upgrade).toBeDefined();
     await act(async () => upgrade!.click());
     expect(openPlans).toHaveBeenCalledOnce();

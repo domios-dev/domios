@@ -18,6 +18,7 @@ import { SelfSessionSignOut } from "./SelfSessionSignOut";
 import { SESSION_REVOKED_MESSAGE } from "../Settings/accountModel";
 import { AccountAvatar } from "./AccountAvatar";
 import { FIRST_RUN_DISABLED_REASON } from "../../lib/firstRunGate";
+import { plansAction } from "../billing/purchaseSwitch";
 import { useMultiplexer } from "../../store/multiplexer/context";
 
 /** Who is signed in and on which plan: information, not actions, so it sits above the menu items and never takes focus. */
@@ -69,7 +70,7 @@ export function AccountTray({ onOpenPlans, locked = false }: { onOpenPlans: () =
   const signInEntry = (option: SignInOption): DropdownMenuEntry =>
     ({ label: option.label, icon: option.icon, disabled: pending, onClick: () => void startSignIn(option.hint) });
   const items: DropdownMenuEntry[] = model.kind === "signed_in" ? [
-    { label: hasPaidSubscription ? billing.pending ? "Opening subscription…" : "Manage subscription" : "Upgrade",
+    { label: hasPaidSubscription ? billing.pending ? "Opening subscription…" : "Manage subscription" : plansAction("Upgrade"),
       disabled: billing.pending, onClick: () => { if (hasPaidSubscription) void manageSubscription(); else onOpenPlans(); } },
     ...legalMenuItems(["terms", "privacy"]),
     { separator: true, key: "sign-out" },

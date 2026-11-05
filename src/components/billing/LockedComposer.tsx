@@ -1,6 +1,7 @@
 import { Lock } from "lucide-react";
 import { openLockedPlans } from "./freeLimitGate";
 import type { LockedView } from "./freeLimitModel";
+import { plansAction } from "./purchaseSwitch";
 
 /** Stands in for the composer of a locked tab: nothing can be typed or sent, and the way forward is the plans modal. */
 export function LockedComposer({ view }: { view: LockedView }) {
@@ -20,7 +21,7 @@ export function LockedComposer({ view }: { view: LockedView }) {
         className="inline-flex shrink-0 items-center gap-1.5 rounded border border-[var(--ct-border)] px-2.5 py-1.5 text-sm text-[var(--ct-fg)] hover:bg-[var(--ct-hover)]"
       >
         <Lock size={13} aria-hidden="true" />
-        View plans to unlock
+        {plansAction("View plans")} to unlock
       </button>
     </div>
   );

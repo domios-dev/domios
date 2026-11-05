@@ -8,6 +8,7 @@ import { SettingsPill } from "../Settings/shared";
 import { LockBadge } from "../billing/LockBadge";
 import { lockedDimClass } from "../billing/freeLimitModel";
 import { meshMachineLockedView } from "../billing/lockSurfaces";
+import { plansAction } from "../billing/purchaseSwitch";
 import { EMPTY_ACCOUNT_COPY, type AccountCanvasCard, type AccountMachineNode, type MachineCallout, type MachineTone, type PeerAccountFooter } from "./accountCanvas";
 import { MACHINE_CARD_WIDTH } from "./webGraphLayout";
 import type { MeshTarget } from "./accountMeshClient";
@@ -121,7 +122,7 @@ export function PeerAccountFooterView({ footer, name, lastSeen, busy, actions, h
         {lastSeen && <span className={UI_TEXT.metaMuted}>Last seen {lastSeen}</span>}
         <div className="ml-auto flex items-center gap-1.5">
           {footer.plans && (
-            <button type="button" onClick={() => actions.onPlans(footer.key)} aria-label={`See plans for ${name}`} className={COMPACT_ACCENT}>See plans</button>
+            <button type="button" onClick={() => actions.onPlans(footer.key)} aria-label={`${plansAction("See plans")} for ${name}`} className={COMPACT_ACCENT}>{plansAction("See plans")}</button>
           )}
 
         </div>
