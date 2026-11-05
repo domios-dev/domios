@@ -236,7 +236,7 @@ fn optional_auth_env_binds_bounded_variables_to_distinct_declared_methods() {
         let mut raw = manifest();
         raw["permissions"]["subprocess"]["allow"] = json!(["runtime-engine", "npx"]);
         raw["capabilities"]["agentRuntime"]["launchProfiles"] = json!({"selected":{
-            "binary":"npx","args":["--acp"],"authEnv":auth_env
+            "binary":"runtime-engine","args":["--acp"],"authEnv":auth_env
         }});
         PluginManifest::from_json_str(&raw.to_string())
             .is_ok_and(|manifest| manifest.validate_agent_runtime().is_ok())

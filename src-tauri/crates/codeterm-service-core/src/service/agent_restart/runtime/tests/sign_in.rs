@@ -160,6 +160,8 @@ module.exports = {
     let result = {kind:'done'};
     if (op.kind === 'openThread' || op.kind === 'resumeThread')
       result = {kind:'threadLoaded',threadId:op.threadId || ctx.bindingNonce,settings:op.settings};
+    if (op.kind === 'readHistory') result = {kind:'historyPage',threadId:op.threadId,items:[],openItems:[]};
+    if (op.kind === 'submitTurn') result = {kind:'turnAccepted',threadId:op.threadId,sendId:op.sendId,turnId:'turn'};
     return {kind:'complete',result};
   },
   runtimeReduce() { return {state:null,events:[]}; }
