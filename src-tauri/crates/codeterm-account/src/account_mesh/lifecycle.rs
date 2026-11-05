@@ -442,7 +442,10 @@ impl AccountMesh {
                     inner.record.admission_cache = None;
                 }
                 inner.rejoin_required = terminal == Some(AccountMeshRefusal::Revoked);
+                inner.select_fences(&account, None, &self.installation());
+                let revoked = inner.record.revoked_installations.clone();
                 inner.update(&self.watch, |state| {
+                    state.revoked_installations = revoked;
                     state.account_epoch += 1;
                     state.presence = Presence::SignedIn {
                         account_id: account,

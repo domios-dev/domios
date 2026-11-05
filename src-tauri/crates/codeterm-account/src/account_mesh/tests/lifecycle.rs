@@ -482,6 +482,7 @@ async fn account_mesh_account_switch_applies_each_accounts_accepted_admission() 
         script.peer_metadata_revision = metadata_revision;
     };
     set_peer(Some(("d".repeat(64), 2)), 5);
+    harness.registry.script.lock().unwrap().peer_active = Some(false);
     harness.sign_in(UID).await;
     harness
         .mesh
@@ -489,9 +490,28 @@ async fn account_mesh_account_switch_applies_each_accounts_accepted_admission() 
         .await
         .unwrap();
     assert!(harness.state().current_membership(START).is_some());
+    assert!(harness.state().revoked_installations.contains(PEER));
+    let taught = harness.state().signed_registry.clone().unwrap();
+    let account_registry = |key_id: String, generation: u64, metadata_revision: u64| {
+        let mut rows = taught.rows.clone();
+        let peer = rows
+            .iter_mut()
+            .find(|row| row.installation_id == PEER)
+            .unwrap();
+        peer.key_id = key_id;
+        peer.key_generation = generation;
+        peer.metadata_revision = metadata_revision;
+        Issuer::new().sign(&serde_json::json!({
+            "schema_version": 1, "iss": "domios-mesh-registry",
+            "aud": {"project": PROJECT, "env": "test"}, "policy_epoch": EPOCH,
+            "account_id": account_id(UID), "revision": taught.revision + 10, "issued_at": START,
+            "members": rows, "revoked_installations": [],
+        }))
+    };
 
     harness.logout().await;
     set_peer(None, 0);
+    harness.registry.script.lock().unwrap().peer_active = None;
     harness.sign_in("user-2").await;
     harness
         .mesh
@@ -508,10 +528,29 @@ async fn account_mesh_account_switch_applies_each_accounts_accepted_admission() 
         account_id("user-2"),
         "a lower generation in another account's registry is not a rollback"
     );
+    assert!(
+        !other.revoked_installations.contains(PEER),
+        "a revocation in A does not block the same installation in B"
+    );
 
     harness.logout().await;
-    set_peer(Some(("d".repeat(64), 2)), 5);
+    // Peer gossip may deliver A's registry before A's retained registry is replayed.
+    harness.mesh.with(|inner| {
+        inner.record.signed_registries.remove(&account_id(UID));
+    });
     harness.sign_in(UID).await;
+    for (key_id, generation, metadata_revision) in [("c".repeat(64), 1, 5), ("d".repeat(64), 2, 0)]
+    {
+        assert_eq!(
+            harness
+                .mesh
+                .receive_registry_snapshot(&account_registry(key_id, generation, metadata_revision))
+                .await,
+            Err(AccountMeshRefusal::Invalid),
+            "A's own fences still refuse a regressed A registry after visiting B"
+        );
+    }
+    set_peer(Some(("d".repeat(64), 2)), 5);
     harness
         .mesh
         .refresh(EnrollTrigger::Automatic)
@@ -524,6 +563,10 @@ async fn account_mesh_account_switch_applies_each_accounts_accepted_admission() 
     assert_eq!(
         back.current_membership(START).unwrap().verified.account_id,
         account_id(UID)
+    );
+    assert!(
+        back.revoked_installations.contains(PEER),
+        "A's revoked generation still blocks the installation after A to B to A"
     );
 }
 

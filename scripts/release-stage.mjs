@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { assertServerClosure, serverArtifact, SERVER_FEATURES } from './server-artifact.mjs';
-import { SERVER_COMPONENT_SCHEMA, SUPPORTED_BOOTSTRAP_PROTOCOL, validateManifest } from './package-server-component-manifest.mjs';
+import { SERVER_COMPONENT_SCHEMA, SUPPORTED_API_VERSION, SUPPORTED_BOOTSTRAP_PROTOCOL, validateManifest } from './package-server-component-manifest.mjs';
 import { HEADLESS_TARGETS, packageHeadless, validateHeadlessStage } from './headless-release-package.mjs';
 import { prepareCompileBundleStubs } from './prepare-bundle-resource-stubs.mjs';
 
@@ -73,7 +73,7 @@ export function fullComponentManifest({ target, sourceSha, serverSha256, clientS
   return validateManifest({ schema: SERVER_COMPONENT_SCHEMA, server_build: sourceSha,
     server_executable: mac ? '../MacOS/domios-server' : `domios-server/${metadata.server}`,
     server_sha256: serverSha256, client_identity: clientIdentity,
-    api_version: 3, bootstrap_protocol: SUPPORTED_BOOTSTRAP_PROTOCOL });
+    api_version: SUPPORTED_API_VERSION, bootstrap_protocol: SUPPORTED_BOOTSTRAP_PROTOCOL });
 }
 
 export function headlessComponentManifest(full, target) {
