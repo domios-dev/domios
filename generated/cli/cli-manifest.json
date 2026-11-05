@@ -1190,6 +1190,16 @@
           "aliases": [],
           "args": [
             {
+              "name": "profile",
+              "positional": false,
+              "required": false,
+              "value_name": "PROFILE",
+              "possible_values": [],
+              "default": null,
+              "help": "Last declared model and effort options for this launch profile",
+              "aliases": []
+            },
+            {
               "name": "provider",
               "positional": true,
               "required": true,

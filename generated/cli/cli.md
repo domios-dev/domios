@@ -343,6 +343,7 @@ Switch one idle agent Tab to another model. Only that Tab changes: it is relaunc
 
 List available models for a specific provider
 
+- `--profile` — Last declared model and effort options for this launch profile
 - `<provider>` — Provider id (e.g. "claude"). Required
 
 #### `domios agent providers`
