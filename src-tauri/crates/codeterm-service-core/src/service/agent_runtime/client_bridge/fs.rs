@@ -268,7 +268,11 @@ pub(super) fn write_with_sync(
                 return Err(std::io::Error::last_os_error().to_string());
             }
             renamed = true;
-            sync_parent(&parent_handle)
+            sync_parent(&parent_handle).map_err(|error| {
+                format!(
+                    "write_committed_unsynced: File was written; directory sync failed: {error}"
+                )
+            })
         };
         commit(&mut apply)
     })();

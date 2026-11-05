@@ -232,6 +232,7 @@ fn failure(message: String) -> RpcFailure {
                     | "file_locked"
                     | "reparse_point"
                     | "write_committed_superseded"
+                    | "write_committed_unsynced"
             )
         })
         .unwrap_or_else(|| {
@@ -242,7 +243,10 @@ fn failure(message: String) -> RpcFailure {
             }
         });
     let mut data = json!({"reason":reason});
-    if reason == "write_committed_superseded" {
+    if matches!(
+        reason,
+        "write_committed_superseded" | "write_committed_unsynced"
+    ) {
         data["committed"] = json!(true);
     }
     RpcFailure {
@@ -267,7 +271,18 @@ fn commit_scoped_write(
     if !granted() {
         return Err("Write grant expired before commit".into());
     }
-    commit()?;
+    let result = commit();
+    #[cfg(unix)]
+    if let Err(message) = &result {
+        if message.starts_with("write_committed_unsynced:") {
+            return Err(if granted() {
+                message.clone()
+            } else {
+                format!("{message}; the turn was superseded before confirmation")
+            });
+        }
+    }
+    result?;
     if !granted() {
         return Err("write_committed_superseded: File was written, but the turn was superseded before confirmation".into());
     }

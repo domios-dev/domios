@@ -927,3 +927,40 @@ fn unix_symlink_leaf_and_native_nofollow_errors_report_reparse_point() {
         "inside"
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn unix_committed_sync_failure_reports_written_even_when_superseded() {
+    for superseded in [true, false] {
+        let (_temp, root) = root();
+        let handle = open_root(&root);
+        let expected = context(&root);
+        let current = Mutex::new(expected.clone());
+        let message = fs::write_with_sync(
+            &root,
+            &handle,
+            Path::new("unsynced"),
+            "written",
+            |apply| commit_scoped_write(&current, &expected, apply),
+            |_| {
+                if superseded {
+                    current.lock().active_turn_id = Some("superseded".into());
+                }
+                Err("injected directory sync failure".into())
+            },
+        )
+        .unwrap_err();
+        assert_eq!(
+            std::fs::read_to_string(root.join("unsynced")).unwrap(),
+            "written"
+        );
+        assert_eq!(std::fs::read_dir(&root).unwrap().count(), 1);
+        assert!(message
+            .contains("File was written; directory sync failed: injected directory sync failure"));
+        assert_eq!(message.contains("turn was superseded"), superseded);
+        assert_eq!(
+            failure(message).data,
+            Some(json!({"reason":"write_committed_unsynced","committed":true}))
+        );
+    }
+}
