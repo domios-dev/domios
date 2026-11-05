@@ -4,6 +4,74 @@ use codeterm_plugin::agent_runtime::MAX_RUNTIME_BATCH;
 use codeterm_types::agent::chat_types::ChatMsg;
 
 impl RuntimeMaps {
+    pub(in crate::service::agent_runtime) fn written_input_id(_thread: &str, send: &str) -> String {
+        send.to_owned()
+    }
+
+    pub(in crate::service::agent_runtime) fn project_written_item(
+        &self,
+        event: &RuntimeEvent,
+        evidence: &std::collections::HashSet<(String, Option<String>)>,
+    ) -> Option<RuntimeEvent> {
+        match event {
+            RuntimeEvent::ItemUpdated { thread_id, item } if item.kind == "user" => {
+                let source = self
+                    .items
+                    .iter()
+                    .find(|stored| {
+                        stored.thread_id == *thread_id
+                            && stored.item.kind == "user"
+                            && (stored.item.runtime_source_item_id.as_ref() == Some(&item.id)
+                                || stored.item.id == item.id
+                                    && stored.item.runtime_source_item_id.is_some())
+                    })
+                    .or_else(|| {
+                        evidence.iter().find_map(|(send, id)| {
+                            if id.as_deref() != Some(item.id.as_str()) {
+                                return None;
+                            }
+                            let own = Self::written_input_id(thread_id, send);
+                            self.items.iter().find(|stored| {
+                                stored.thread_id == *thread_id
+                                    && stored.item.id == own
+                                    && stored.item.kind == "user"
+                            })
+                        })
+                    })?;
+                let mut projected = source.item.clone();
+                projected.runtime_source_item_id = source
+                    .item
+                    .runtime_source_item_id
+                    .clone()
+                    .or(Some(item.id.clone()));
+                Some(RuntimeEvent::ItemUpdated {
+                    thread_id: thread_id.clone(),
+                    item: projected,
+                })
+            }
+            RuntimeEvent::EvidenceUpdated {
+                thread_id,
+                send_id,
+                turn_id,
+                item_id: Some(item_id),
+            } => {
+                let own = Self::written_input_id(thread_id, send_id);
+                self.items.iter().find(|stored| {
+                    stored.thread_id == *thread_id
+                        && stored.item.id == own
+                        && stored.item.runtime_source_item_id.as_ref() == Some(item_id)
+                })?;
+                Some(RuntimeEvent::EvidenceUpdated {
+                    thread_id: thread_id.clone(),
+                    send_id: send_id.clone(),
+                    turn_id: turn_id.clone(),
+                    item_id: Some(own),
+                })
+            }
+            _ => None,
+        }
+    }
+
     pub(in crate::service::agent_runtime) fn routed_input(
         &self,
         send: &str,
@@ -30,11 +98,24 @@ impl RuntimeMaps {
     }
 
     pub(in crate::service::agent_runtime) fn project_routed_response_item(
-        &self,
+        &mut self,
         send: &str,
         thread: &str,
         item: &mut ChatMsg,
     ) {
+        let own = Self::written_input_id(thread, send);
+        if let Some(source) = self.items.iter().find(|stored| {
+            stored.thread_id == thread && stored.item.id == own && stored.item.kind == "user"
+        }) {
+            let mut projected = source.item.clone();
+            projected.runtime_source_item_id = projected
+                .runtime_source_item_id
+                .clone()
+                .or(Some(item.id.clone()));
+            *item = projected;
+            super::upsert_item(self, thread, item.clone());
+            return;
+        }
         if let Some((owner, source)) = self.routed_inputs.get(send) {
             if owner == thread {
                 copy_routed_body(item, source);

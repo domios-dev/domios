@@ -39,6 +39,7 @@ async fn publish_with_origin(
         return Err(RuntimeFailure::Superseded);
     }
     engine::validate_binding(svc, session)?;
+    super::super::turn_requests::publish_written_inputs(svc, session, epoch).await?;
     session.maps.lock().sync_active_turn(&context);
     let evidence = super::super::model::validated_evidence(&context.claimed_sends, &events);
     let enriched = events
@@ -92,6 +93,13 @@ async fn publish_with_origin(
         } else {
             events::translate(&event.event)
         };
+        if let RuntimeEvent::ItemUpdated { item, .. } = &mut runtime {
+            item.runtime_source_item_id = None;
+        }
+        let written = session
+            .maps
+            .lock()
+            .project_written_item(&runtime, &evidence);
         if !super::turn_lifecycle::prepare(svc, session, at, &mut runtime) {
             continue;
         }
@@ -102,6 +110,10 @@ async fn publish_with_origin(
             .maps
             .lock()
             .project_routed_item(&mut runtime, &evidence);
+        if let Some(written) = written {
+            runtime = written;
+            events::fold(&mut session.maps.lock(), epoch, &runtime);
+        }
         if let RuntimeEvent::RequestUpdated {
             thread_id,
             item_id: Some(item_id),

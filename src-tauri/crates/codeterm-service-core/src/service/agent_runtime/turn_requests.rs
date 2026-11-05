@@ -31,6 +31,7 @@ pub(super) struct PendingTurn {
     started_at: u64,
     order: u64,
     activity: tokio::sync::OnceCell<()>,
+    written_input: tokio::sync::OnceCell<()>,
     turn: String,
     witness: Arc<rpc::WriteWitness>,
     outcome: watch::Sender<Option<Result<RuntimeResult, RuntimeFailure>>>,
@@ -178,11 +179,87 @@ pub(super) fn started_at(
         .map(|pending| pending.started_at)
 }
 
+pub(super) async fn publish_written_inputs(
+    svc: &ServiceContext,
+    session: &Arc<Session>,
+    epoch: u64,
+) -> Result<(), RuntimeFailure> {
+    let mut pending = session
+        .turn_requests
+        .lock()
+        .values()
+        .filter(|pending| {
+            pending.context.epoch == epoch
+                && pending.witness.written()
+                && !pending.settled.load(Ordering::Acquire)
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    pending.sort_by_key(|pending| pending.order);
+    for pending in pending {
+        pending
+            .written_input
+            .get_or_try_init(|| async {
+                validate(svc, session, &pending.context)?;
+                let thread = pending
+                    .context
+                    .thread_id
+                    .as_deref()
+                    .ok_or(RuntimeFailure::Superseded)?;
+                let Some(claim) =
+                    pending.context.claimed_sends.iter().find(|claim| {
+                        claim.send_id == pending.send_id && claim.thread_id == thread
+                    })
+                else {
+                    return Ok(());
+                };
+                let mut item = session
+                    .maps
+                    .lock()
+                    .routed_input(&pending.send_id, thread)
+                    .unwrap_or_else(|| codeterm_types::agent::chat_types::ChatMsg {
+                        kind: "user".into(),
+                        content: claim.input.text.clone(),
+                        ..Default::default()
+                    });
+                item.id = super::events::RuntimeMaps::written_input_id(thread, &pending.send_id);
+                item.attachments =
+                    (!claim.input.attachments.is_empty()).then(|| claim.input.attachments.clone());
+                let item = session
+                    .cache
+                    .lock()
+                    .reconcile_live(item, pending.started_at);
+                super::events::fold(
+                    &mut session.maps.lock(),
+                    epoch,
+                    &super::events::RuntimeEvent::ItemUpdated {
+                        thread_id: thread.into(),
+                        item: item.clone(),
+                    },
+                );
+                validate(svc, session, &pending.context)?;
+                crate::service::tab_chat::structured_sink::emit_chat_msgs(
+                    svc.ui.as_ref(),
+                    &pending.context.tab_id,
+                    &[item],
+                    None,
+                    Some(thread),
+                    Some(&pending.context.binding_nonce),
+                );
+                super::transcript::persist(session).await;
+                Ok::<(), RuntimeFailure>(())
+            })
+            .await?;
+    }
+    Ok(())
+}
+
 async fn publish_written_activity(
     svc: &ServiceContext,
     session: &Arc<Session>,
     pending: &PendingTurn,
 ) -> Result<(), RuntimeFailure> {
+    publish_written_inputs(svc, session, pending.context.epoch).await?;
     let result = pending
         .activity
         .get_or_try_init(|| async {
@@ -280,6 +357,7 @@ pub(super) async fn run(
         started_at: now(),
         order: NEXT_REQUEST.fetch_add(1, Ordering::Relaxed),
         activity: tokio::sync::OnceCell::new(),
+        written_input: tokio::sync::OnceCell::new(),
         turn,
         witness: Arc::new(rpc::WriteWitness::default()),
         outcome: watch::channel(None).0,
@@ -430,7 +508,7 @@ async fn await_reply(
         claim.send_id == pending.send_id
             && Some(&claim.thread_id) == pending.context.thread_id.as_ref()
     }) {
-        let maps = session.maps.lock();
+        let mut maps = session.maps.lock();
         for event in &mut events {
             if let AgentRuntimeEvent::ChatItem { thread_id, item } = event {
                 if thread_id == &claim.thread_id
@@ -539,7 +617,7 @@ async fn settle_failure(
                         .then_some(claim.input.attachments),
                     ..Default::default()
                 });
-            item.id = format!("{thread_id}:send:{}", pending.send_id);
+            item.id = super::events::RuntimeMaps::written_input_id(&thread_id, &pending.send_id);
             events.push(AgentRuntimeEvent::ChatItem {
                 thread_id: thread_id.clone(),
                 item,

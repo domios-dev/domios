@@ -200,6 +200,7 @@ async fn stream_window_reports_prewrite_boundary_and_successful_receipt() {
         started_at: 1000,
         order: 1,
         activity: tokio::sync::OnceCell::new(),
+        written_input: tokio::sync::OnceCell::new(),
         turn: "turn".into(),
         witness: witness.clone(),
         outcome: watch::channel(None).0,
@@ -289,6 +290,7 @@ async fn completion_waits_for_prior_ingress_projection() {
         started_at: now(),
         order: 1,
         activity: tokio::sync::OnceCell::new(),
+        written_input: tokio::sync::OnceCell::new(),
         turn: "turn".into(),
         witness: Arc::new(rpc::WriteWitness::default()),
         outcome: watch::channel(None).0,
@@ -482,7 +484,34 @@ fn written_uncertain_send_is_confirmed_by_late_own_evidence_without_replay() {
             .state,
         ChatSendState::Unknown
     );
+    let early = session.cache.lock().snapshot();
+    assert_eq!(early.len(), 1);
+    assert_eq!(early[0].content, "opaque prompt");
+    assert_eq!(early[0].id, pending.send_id);
+    let original_id = early[0].id.clone();
     let context = session.context.lock().clone();
+    crate::async_runtime::block_on(subscriber::publish_events(
+        &fixture.service,
+        &session,
+        context.epoch,
+        vec![AgentRuntimeEvent::SendEvidence {
+            thread_id: "own-thread".into(),
+            send_id: pending.send_id.clone(),
+            turn_id: "turn".into(),
+            item_id: Some(original_id.clone()),
+        }],
+        1,
+    ))
+    .unwrap();
+    assert_eq!(
+        fixture
+            .service
+            .chat_send_ledger
+            .status(&pending.send_id)
+            .unwrap()
+            .state,
+        ChatSendState::Unknown
+    );
     crate::async_runtime::block_on(subscriber::publish_events(
         &fixture.service,
         &session,
@@ -518,6 +547,12 @@ fn written_uncertain_send_is_confirmed_by_late_own_evidence_without_replay() {
     );
     release.send(()).unwrap();
     crate::async_runtime::block_on(completed(&session));
+    let users = session.cache.lock().snapshot();
+    assert_eq!(users.iter().filter(|row| row.kind == "user").count(), 1);
+    assert_eq!(
+        users.iter().find(|row| row.kind == "user").unwrap().id,
+        original_id
+    );
     let _peer = crate::async_runtime::block_on(server).unwrap();
 }
 
@@ -965,6 +1000,7 @@ async fn silent_reply_settlement_follows_the_retirement_marker() {
 
 #[path = "tests/cancelled_delivery.rs"]
 mod cancelled_delivery;
+mod early_input;
 
 #[tokio::test]
 async fn provider_refusal_before_handoff_is_a_prewrite_failure() {

@@ -70,12 +70,11 @@ fn written_turn_end_before_output_keeps_one_user_row_and_next_turn_order() {
             ),
             Err(DeliveryError::SubmitUnconfirmed { .. })
         ));
-        assert!(session
-            .cache
-            .lock()
-            .snapshot()
-            .iter()
-            .all(|row| row.kind != "user"));
+        let early = session.cache.lock().snapshot();
+        assert_eq!(early.iter().filter(|row| row.kind == "user").count(), 1);
+        assert_eq!(early[0].content, "opaque cancelled prompt");
+        assert_eq!(early[0].inbound_kind.as_deref(), Some("cli"));
+        let original_id = early[0].id.clone();
         if cancelled {
             assert!(super::super::super::controls::interrupt(&fixture.service, &tab).unwrap());
         } else {
@@ -94,6 +93,7 @@ fn written_turn_end_before_output_keeps_one_user_row_and_next_turn_order() {
         let rows = session.cache.lock().snapshot();
         let users: Vec<_> = rows.iter().filter(|row| row.kind == "user").collect();
         assert_eq!(users.len(), 1);
+        assert_eq!(users[0].id, original_id);
         assert_eq!(users[0].content, "opaque cancelled prompt");
         assert_eq!(users[0].inbound_kind.as_deref(), Some("cli"));
         assert_eq!(users[0].content, expected.content);
@@ -161,6 +161,7 @@ fn written_turn_end_before_output_keeps_one_user_row_and_next_turn_order() {
         let rows = session.cache.lock().snapshot();
         let users: Vec<_> = rows.iter().filter(|row| row.kind == "user").collect();
         assert_eq!(users.len(), 2);
+        assert_eq!(users[0].id, original_id);
         assert_eq!(users[0].content, "opaque cancelled prompt");
         assert_eq!(users[0].inbound_kind.as_deref(), Some("cli"));
         assert_eq!(users[0].content, expected.content);

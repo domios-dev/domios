@@ -580,3 +580,111 @@ fn runtime_routed_inbound_reuses_chatbackend_metadata_without_trusting_human_fra
         assert!(item.inbound_kind.is_none());
     }
 }
+
+#[test]
+fn restart_replay_uses_source_identity_for_two_identical_written_prompts() {
+    use crate::service::agent_runtime::model::ItemCache;
+    let mut maps = RuntimeMaps::default();
+    let mut rows = Vec::new();
+    for (ordinal, (send, source)) in [
+        ("first-send", "first-source"),
+        ("second-send", "second-source"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let row = ChatMsg {
+            id: RuntimeMaps::written_input_id("t", send),
+            seq: ordinal as i64,
+            kind: "user".into(),
+            content: "identical opaque prompt".into(),
+            ..Default::default()
+        };
+        put(&mut maps, 1, row);
+        let incoming = RuntimeEvent::ItemUpdated {
+            thread_id: "t".into(),
+            item: ChatMsg {
+                id: source.into(),
+                kind: "user".into(),
+                content: "identical opaque prompt".into(),
+                ..Default::default()
+            },
+        };
+        let evidence = HashSet::from([(send.to_owned(), Some(source.to_owned()))]);
+        let projected = maps.project_written_item(&incoming, &evidence).unwrap();
+        fold(&mut maps, 1, &incoming);
+        fold(&mut maps, 1, &projected);
+        let RuntimeEvent::ItemUpdated { item, .. } = projected else {
+            panic!("Expected user row")
+        };
+        assert_eq!(item.runtime_source_item_id.as_deref(), Some(source));
+        rows.push(item);
+    }
+    let stored = serde_json::to_vec(&rows).unwrap();
+    let restored: Vec<ChatMsg> = serde_json::from_slice(&stored).unwrap();
+    let mut cache = ItemCache::default();
+    cache.restore_transcript(restored.clone());
+    maps = RuntimeMaps::default();
+    for row in restored {
+        put(&mut maps, 2, row);
+    }
+    for source in [
+        "first-source",
+        "second-source",
+        "first-source",
+        "second-source",
+    ] {
+        let incoming = RuntimeEvent::ItemUpdated {
+            thread_id: "t".into(),
+            item: ChatMsg {
+                id: source.into(),
+                kind: "user".into(),
+                content: "identical opaque prompt".into(),
+                ..Default::default()
+            },
+        };
+        let projected = maps
+            .project_written_item(&incoming, &HashSet::new())
+            .unwrap();
+        fold(&mut maps, 2, &incoming);
+        fold(&mut maps, 2, &projected);
+        let RuntimeEvent::ItemUpdated { item, .. } = projected else {
+            panic!("Expected user row")
+        };
+        cache.reconcile(item);
+    }
+    let users = cache.snapshot();
+    assert_eq!(users.len(), 2);
+    assert_eq!(
+        users[0].id,
+        RuntimeMaps::written_input_id("t", "first-send")
+    );
+    assert_eq!(
+        users[1].id,
+        RuntimeMaps::written_input_id("t", "second-send")
+    );
+    let foreign = RuntimeEvent::ItemUpdated {
+        thread_id: "foreign-thread".into(),
+        item: ChatMsg {
+            id: "first-source".into(),
+            kind: "user".into(),
+            content: "identical opaque prompt".into(),
+            ..Default::default()
+        },
+    };
+    assert!(maps
+        .project_written_item(&foreign, &HashSet::new())
+        .is_none());
+    let unknown = RuntimeEvent::ItemUpdated {
+        thread_id: "t".into(),
+        item: ChatMsg {
+            id: "third-source".into(),
+            kind: "user".into(),
+            content: "identical opaque prompt".into(),
+            ..Default::default()
+        },
+    };
+    assert!(maps
+        .project_written_item(&unknown, &HashSet::new())
+        .is_none());
+}
