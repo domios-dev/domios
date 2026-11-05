@@ -87,6 +87,15 @@ fn select(
         .unwrap_or_default();
     let mut resolved = capability.clone();
     resolved.command = command;
+    if let (Some(bridges), Some(client)) = (
+        resolved.client_bridges.as_mut(),
+        profile
+            .as_ref()
+            .and_then(|name| capability.launch_profiles.as_ref()?.get(name))
+            .and_then(|profile| profile.client_capabilities.as_ref()),
+    ) {
+        client.restrict(bridges);
+    }
     Ok(SelectedLaunch {
         capability: resolved,
         env,

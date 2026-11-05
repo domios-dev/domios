@@ -625,7 +625,6 @@ async fn ensure_locked(
             .ok_or(RuntimeFailure::Superseded)?;
         let capability = adapter.agent_runtime().ok_or(RuntimeFailure::Superseded)?;
         *session.adapter.lock() = Some(adapter.clone());
-        let declared_bridges = capability.client_bridges.clone();
         let owner = svc.clone();
         let provider_id = provider.to_string();
         let cli_context = session.context.lock().clone();
@@ -643,7 +642,7 @@ async fn ensure_locked(
         let target = tab.to_string();
         let provider_id = provider.to_string();
         let launch_nonce = context.binding_nonce.clone();
-        let (process, host_mcp) = tokio::task::spawn_blocking(move || {
+        let (process, host_mcp, declared_bridges) = tokio::task::spawn_blocking(move || {
             let nonce = launch_nonce;
             let authority = LaunchAuthority::verify(
                 &owner,
@@ -710,8 +709,15 @@ async fn ensure_locked(
                 crate::service::instance_env::instance_cli_binary_path(),
                 &env,
             );
-            super::process::spawn(&launch.binary, &launch.capability, &cwd, env, &target)
-                .map(|process| (Arc::new(process), host_mcp))
+            super::process::spawn(&launch.binary, &launch.capability, &cwd, env, &target).map(
+                |process| {
+                    (
+                        Arc::new(process),
+                        host_mcp,
+                        launch.capability.client_bridges.clone(),
+                    )
+                },
+            )
         })
         .await
         .map_err(|error| RuntimeFailure::SpawnFailed {

@@ -305,3 +305,34 @@ fn turn_scoped_requests_require_a_declared_submit_operation() {
         vec!["submitTurn"]
     );
 }
+
+#[test]
+fn launch_profile_client_capabilities_are_typed_and_strict() {
+    let mut raw = manifest();
+    raw["capabilities"]["agentRuntime"]["launchProfiles"] = json!({"selected":{
+        "binary":"runtime-engine","args":[],
+        "clientCapabilities":{"fs":{"readTextFile":false}}
+    }});
+    let parsed = PluginManifest::from_json_str(&raw.to_string()).unwrap();
+    assert_eq!(parsed.validate_agent_runtime(), Ok(()));
+    let runtime = parsed.capabilities.agent_runtime.unwrap();
+    let client = runtime.launch_profiles.unwrap()["selected"]
+        .client_capabilities
+        .clone()
+        .unwrap();
+    assert_eq!(client.fs.unwrap().read_text_file, Some(false));
+    assert_eq!(client.terminal, None);
+    for invalid in [
+        json!(false),
+        json!({"fs":false}),
+        json!({"fs":{"readTextFile":"false"}}),
+        json!({"fs":{"readTextFile":false,"unknown":true}}),
+        json!({"unknown":false}),
+        json!({"terminal":0}),
+    ] {
+        let mut invalid_raw = raw.clone();
+        invalid_raw["capabilities"]["agentRuntime"]["launchProfiles"]["selected"]
+            ["clientCapabilities"] = invalid;
+        assert!(PluginManifest::from_json_str(&invalid_raw.to_string()).is_err());
+    }
+}

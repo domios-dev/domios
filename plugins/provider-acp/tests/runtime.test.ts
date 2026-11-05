@@ -72,6 +72,10 @@ const descriptor = JSON.parse(fs.readFileSync(new URL("./runtime-manifest.json",
 const declaration = JSON.parse(fs.readFileSync(new URL("../plugin.json",import.meta.url),"utf8"));
 assert.equal(declaration.capabilities.agentRuntime.envelope,"jsonrpc2");
 assert.deepEqual(descriptor.agentRuntime, declaration.capabilities.agentRuntime);
+assert.deepEqual(declaration.capabilities.agentRuntime.launchProfiles["gemini-cli"].clientCapabilities,{fs:{readTextFile:false}});
+for (const [id,profile] of Object.entries(declaration.capabilities.agentRuntime.launchProfiles)) {
+  if (id !== "gemini-cli") assert.equal((profile as {clientCapabilities?:unknown}).clientCapabilities,undefined);
+}
 const root = new URL("./fixtures/runtime/",import.meta.url);
 const names = fs.readdirSync(root).filter(name=>name.endsWith(".json")).sort();
 assert.ok(descriptor.scenarios.length > 0);

@@ -39,7 +39,12 @@
             ]
           }
         },
-        "icon": "gemini-color.svg"
+        "icon": "gemini-color.svg",
+        "clientCapabilities": {
+          "fs": {
+            "readTextFile": false
+          }
+        }
       },
       "local": {
         "binary": "local-acp-command",
@@ -162,6 +167,7 @@
     "batch-event-limit.json",
     "batch-row-determinism.json",
     "concurrent-rpc-refusal.json",
-    "active-error-queued-prompt.json"
+    "active-error-queued-prompt.json",
+    "initialize-client-capability-mask.json"
   ]
 }

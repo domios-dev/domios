@@ -49,7 +49,12 @@
               ]
             }
           },
-          "icon": "gemini-color.svg"
+          "icon": "gemini-color.svg",
+          "clientCapabilities": {
+            "fs": {
+              "readTextFile": false
+            }
+          }
         },
         "local": {
           "binary": "local-acp-command",

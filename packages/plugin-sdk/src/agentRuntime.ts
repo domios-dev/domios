@@ -162,6 +162,7 @@ export interface RuntimeLaunchProfile {
   /** Optional credentials: injected only when stored; the listed declared sign-in methods take an API key. */
   authEnv?:Readonly<Record<string,{secret:string; methods:readonly string[]}>>;
   ownerConfigured?:boolean;
+  clientCapabilities?:{fs?:{readTextFile?:boolean; writeTextFile?:boolean}; terminal?:boolean};
 }
 export interface StdioAgentRuntimeCapability {
   hostMcp?:{param:string; methods:readonly string[]};

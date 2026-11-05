@@ -49,6 +49,36 @@ pub struct RuntimeLaunchProfile {
     pub owner_configured: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detection: Option<RuntimeProfileDetection>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_capabilities: Option<RuntimeProfileClientCapabilities>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RuntimeProfileClientCapabilities {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fs: Option<RuntimeProfileFileCapabilities>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub terminal: Option<bool>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RuntimeProfileFileCapabilities {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub read_text_file: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub write_text_file: Option<bool>,
+}
+
+impl RuntimeProfileClientCapabilities {
+    pub fn restrict(&self, bridges: &mut RuntimeClientBridges) {
+        if let Some(fs) = &self.fs {
+            bridges.fs_read &= fs.read_text_file.unwrap_or(true);
+            bridges.fs_write &= fs.write_text_file.unwrap_or(true);
+        }
+        bridges.terminal &= self.terminal.unwrap_or(true);
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
