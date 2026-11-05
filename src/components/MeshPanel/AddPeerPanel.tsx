@@ -5,6 +5,7 @@ import { Loader } from "../shared/Loader";
 import { SettingsPill } from "../Settings/shared";
 import { LockBadge } from "../billing/LockBadge";
 import { meshMachineLockedView } from "../billing/lockSurfaces";
+import { plansAction } from "../billing/purchaseSwitch";
 import { MachineSessionControls } from "./MachineSessionControls";
 import { useMyMachines, type MyMachines as MachinesController, type MyMachinesOptions } from "./useMyMachines";
 import { failureMessage, type SelfRowView } from "./accountMachines";
@@ -28,14 +29,14 @@ export function MachineManagement({ machines }: { machines: MachinesController }
   return <section aria-label="My machines" className="flex flex-col gap-3">
     <button type="button" disabled={machines.refreshing} className={ACTION_BTN} onClick={() => void machines.load()}>Refresh</button>
     {view.self && <SelfRow self={view.self} onRename={machines.renameSelf} onPlans={() => machines.openPlans(view.self!.installationId)} />}
-    {view.machineLimit && !view.self && <button type="button" onClick={() => machines.openPlans("self")} className={ACTION_BTN}>See plans for this machine</button>}
+    {view.machineLimit && !view.self && <button type="button" onClick={() => machines.openPlans("self")} className={ACTION_BTN}>{plansAction("See plans")} for this machine</button>}
     <ul aria-label="Your account's machines" className="ct-card ct-card--quiet flex flex-col">
       {view.machines.length === 0 && <li>No other machines yet. Sign in with this account on another machine to connect automatically.</li>}
       {view.machines.map(row => {
         const failure = machines.failures.get(row.key);
         return <li key={row.key} className="p-3 flex flex-col gap-2" aria-label={row.name}>
           <span>{row.name}</span><p role="status" className={UI_TEXT.meta}>{row.detail}</p>
-          {row.controls.plans && <button type="button" className={ACTION_BTN} onClick={() => machines.openPlans(row.key)}>See plans</button>}
+          {row.controls.plans && <button type="button" className={ACTION_BTN} onClick={() => machines.openPlans(row.key)}>{plansAction("See plans")}</button>}
           {(row.canSignOut || row.controls.revoke) && <MachineSessionControls name={row.name} busy={machines.busy === row.key}
             onSignOut={row.canSignOut ? () => machines.revokeSession(row) : undefined}
             onRemove={row.controls.revoke ? alsoSignOut => machines.revoke(row, row.controls.revoke!, alsoSignOut) : undefined} />}
@@ -112,7 +113,7 @@ function SelfRow({ self, onRename, onPlans }: {
       </div>
       {self.planLimited && <div className="flex items-center justify-between gap-2">
         <span className={UI_TEXT.metaMuted}>This machine is outside your plan's machine limit.</span>
-        <button type="button" aria-label="See plans for this machine" onClick={onPlans} className={`${UI_BUTTON.accent} ${UI_BUTTON.compact}`}>See plans</button>
+        <button type="button" aria-label={`${plansAction("See plans")} for this machine`} onClick={onPlans} className={`${UI_BUTTON.accent} ${UI_BUTTON.compact}`}>{plansAction("See plans")}</button>
       </div>}
       {editing && !self.readOnly && (
         <form className="flex items-center gap-2" onSubmit={(event) => { event.preventDefault(); void save(); }}>

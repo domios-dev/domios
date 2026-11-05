@@ -10,6 +10,7 @@ import { KeepAwakeTray } from "./KeepAwakeTray";
 import { ExtensionsTray } from "./ExtensionsTray";
 import { AnalyticsTray } from "./AnalyticsTray";
 import { AccountTray } from "./AccountTray";
+import { RateUsTray } from "./RateUsTray";
 import { SettingsMenu } from "./SettingsMenu";
 import type { SettingsLinkId } from "../Settings/sections";
 import { NotificationToastContainer } from "../Notifications/NotificationToast";
@@ -145,6 +146,7 @@ export function Titlebar({
         )}
         {onOpenExtensions && <ExtensionsTray onOpen={onOpenExtensions} />}
         <KeepAwakeTray />
+        <RateUsTray locked={locked} />
         {onOpenSettings && (
           <>
             <span className={UI_TRAY_DIVIDER} aria-hidden />

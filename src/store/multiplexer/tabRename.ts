@@ -1,4 +1,5 @@
 import { freeLimitGate } from "../../components/billing/freeLimitGate";
+import { plansAction } from "../../components/billing/purchaseSwitch";
 import type { LocalLimitKey } from "../../components/billing/freeLimitModel";
 import { describeError } from "../../lib/describeError";
 import type { Notice } from "../../lib/notices";
@@ -26,7 +27,7 @@ export function tabRenameFailureNotice(workspaceId: string, tabId: string, error
     workspaceId,
     title: description.title,
     detail: JSON.stringify({ code: "tab_rename_failed", message: description.cause }),
-    ...(planLocked ? { actions: [{ label: "View plans", run: () => freeLimitGate.open(limit) }] } : {}),
+    ...(planLocked ? { actions: [{ label: plansAction("View plans"), run: () => freeLimitGate.open(limit) }] } : {}),
     severity: "Error",
   };
 }
