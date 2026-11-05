@@ -960,7 +960,9 @@ fn unix_committed_sync_failure_reports_written_even_when_superseded() {
         assert_eq!(message.contains("turn was superseded"), superseded);
         assert_eq!(
             failure(message).data,
-            Some(json!({"reason":"write_committed_unsynced","committed":true}))
+            Some(
+                json!({"reason":"write_committed_unsynced","committed":true,"superseded":superseded,"synced":false})
+            )
         );
     }
 }

@@ -221,7 +221,7 @@ pub(super) fn method_supported(method: &str) -> bool {
     )
 }
 fn failure(message: String) -> RpcFailure {
-    let reason = message
+    let refusal = message
         .split_once(':')
         .map(|(reason, _)| reason)
         .filter(|reason| {
@@ -233,6 +233,7 @@ fn failure(message: String) -> RpcFailure {
                     | "reparse_point"
                     | "write_committed_superseded"
                     | "write_committed_unsynced"
+                    | "write_committed_unsynced_superseded"
             )
         })
         .unwrap_or_else(|| {
@@ -242,12 +243,21 @@ fn failure(message: String) -> RpcFailure {
                 "client_bridge_refused"
             }
         });
+    let reason = if refusal == "write_committed_unsynced_superseded" {
+        "write_committed_unsynced"
+    } else {
+        refusal
+    };
     let mut data = json!({"reason":reason});
     if matches!(
         reason,
         "write_committed_superseded" | "write_committed_unsynced"
     ) {
         data["committed"] = json!(true);
+    }
+    if reason == "write_committed_unsynced" {
+        data["superseded"] = json!(refusal == "write_committed_unsynced_superseded");
+        data["synced"] = json!(false);
     }
     RpcFailure {
         code: -32602,
@@ -274,11 +284,11 @@ fn commit_scoped_write(
     let result = commit();
     #[cfg(unix)]
     if let Err(message) = &result {
-        if message.starts_with("write_committed_unsynced:") {
+        if let Some(detail) = message.strip_prefix("write_committed_unsynced:") {
             return Err(if granted() {
                 message.clone()
             } else {
-                format!("{message}; the turn was superseded before confirmation")
+                format!("write_committed_unsynced_superseded:{detail}; the turn was superseded before confirmation")
             });
         }
     }
