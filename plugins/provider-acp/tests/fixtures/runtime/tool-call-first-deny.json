@@ -528,7 +528,7 @@
         "threadId": "session-fixture",
         "requestId": "permission-fixture",
         "prompt": {
-          "question": "{\"toolCall\":{\"toolCallId\":\"tool-fixture\",\"title\":\"Write file\",\"kind\":\"edit\",\"locations\":[{\"path\":\"/work/project/file.txt\"}],\"rawInput\":{\"path\":\"/work/project/file.txt\",\"content\":\"opaque\"}}}",
+          "question": "{\"toolCall\":{\"kind\":\"edit\",\"locations\":[{\"path\":\"/work/project/file.txt\"}],\"rawInput\":{\"content\":\"opaque\",\"path\":\"/work/project/file.txt\"},\"title\":\"Write file\",\"toolCallId\":\"tool-fixture\"}}",
           "options": [
             {
               "label": "Allow once (allow_once)",

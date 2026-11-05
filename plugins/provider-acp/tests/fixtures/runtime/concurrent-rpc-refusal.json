@@ -877,7 +877,7 @@
             "file_path": "/work/project/probe-marker.txt",
             "content": "PROBE7_MARKER\n"
           },
-          "toolArgs": "{\"file_path\":\"/work/project/probe-marker.txt\",\"content\":\"PROBE7_MARKER\\n\"}",
+          "toolArgs": "{\"content\":\"PROBE7_MARKER\\n\",\"file_path\":\"/work/project/probe-marker.txt\"}",
           "toolStatus": "running",
           "toolError": false
         }

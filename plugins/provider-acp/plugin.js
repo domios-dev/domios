@@ -69,6 +69,7 @@ var methods = {
 // plugins/provider-acp/src/runtimeReduceTools.ts
 var object = (value) => value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
 var text = (value) => typeof value === "string" && value.length > 0 ? value : void 0;
+var canonicalJson = (value) => JSON.stringify(value, (_key, item) => item !== null && typeof item === "object" && !Array.isArray(item) ? Object.fromEntries(Object.keys(item).sort().map((key) => [key, item[key]])) : item);
 function diff(content) {
   if (typeof content.path !== "string" || typeof content.newText !== "string" || content.oldText !== null && typeof content.oldText !== "string") return void 0;
   const lines = (value) => value ? value.replace(/\n$/, "").split("\n") : [];
@@ -102,7 +103,7 @@ function reduceTool(update, previous, seq) {
   }
   if (update.rawInput !== void 0) {
     row.toolInput = update.rawInput;
-    row.toolArgs = typeof update.rawInput === "string" ? update.rawInput : JSON.stringify(update.rawInput);
+    row.toolArgs = typeof update.rawInput === "string" ? update.rawInput : canonicalJson(update.rawInput);
   }
   const statuses = { pending: "running", in_progress: "running", completed: "completed", failed: "failed", cancelled: "interrupted" };
   const status = Object.prototype.hasOwnProperty.call(statuses, String(update.status)) ? statuses[String(update.status)] : void 0;
@@ -110,7 +111,7 @@ function reduceTool(update, previous, seq) {
     row.toolStatus = status;
     row.toolError = status === "failed";
   }
-  if (update.rawOutput !== void 0) row.toolResult = typeof update.rawOutput === "string" ? update.rawOutput : JSON.stringify(update.rawOutput);
+  if (update.rawOutput !== void 0) row.toolResult = typeof update.rawOutput === "string" ? update.rawOutput : canonicalJson(update.rawOutput);
   if (Array.isArray(update.content)) {
     const results = [];
     const diffs = [];
@@ -745,7 +746,7 @@ function runtimePrompt(ctx, method, params) {
     seen.add(option.optionId);
     return false;
   })) return void 0;
-  const question = JSON.stringify({ toolCall: tool });
+  const question = canonicalJson({ toolCall: tool });
   if (question.length > 65536) return void 0;
   return { question, options: options.map((option) => ({ label: `${option.name} (${option.kind})`, value: String(option.optionId) })) };
 }

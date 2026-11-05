@@ -1,4 +1,5 @@
 import type { JsonValue, PendingPrompt, PromptAnswer, RpcId, RuntimeContext, RuntimeFailure } from "@codeterm/plugin-sdk";
+import { canonicalJson } from "./runtimeReduceTools";
 
 const kinds = new Set(["allow_once", "allow_always", "reject_once", "reject_always"]);
 const object = (value:unknown):Record<string,JsonValue> =>
@@ -18,7 +19,7 @@ export function runtimePrompt(ctx:RuntimeContext, method:string, params:JsonValu
     seen.add(option.optionId);
     return false;
   })) return undefined;
-  const question=JSON.stringify({toolCall:tool});
+  const question=canonicalJson({toolCall:tool});
   if (question.length > 65536) return undefined;
   return {question,options:options.map(option=>({label:`${option.name} (${option.kind})`,value:String(option.optionId)}))};
 }

@@ -4,6 +4,13 @@ export const object = (value:unknown):Record<string,JsonValue> =>
   value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string,JsonValue> : {};
 export const text = (value:unknown):string|undefined => typeof value === "string" && value.length > 0 ? value : undefined;
 
+// WHY: hosts decode frames into maps whose key order varies by platform, so provider JSON
+// is rendered with sorted keys to keep tool text identical everywhere.
+export const canonicalJson = (value:JsonValue):string => JSON.stringify(value, (_key, item:unknown) =>
+  item !== null && typeof item === "object" && !Array.isArray(item)
+    ? Object.fromEntries(Object.keys(item).sort().map((key) => [key, (item as Record<string,unknown>)[key]]))
+    : item);
+
 function diff(content:Record<string,JsonValue>):JsonValue|undefined {
   if (typeof content.path !== "string" || typeof content.newText !== "string"
     || content.oldText !== null && typeof content.oldText !== "string") return undefined;
@@ -28,13 +35,13 @@ export function reduceTool(update:Record<string,JsonValue>, previous:ChatMsg|und
   }
   if (update.rawInput !== undefined) {
     row.toolInput=update.rawInput;
-    row.toolArgs=typeof update.rawInput === "string" ? update.rawInput : JSON.stringify(update.rawInput);
+    row.toolArgs=typeof update.rawInput === "string" ? update.rawInput : canonicalJson(update.rawInput);
   }
   const statuses = {pending:"running",in_progress:"running",completed:"completed",failed:"failed",cancelled:"interrupted"} as const;
   const status = Object.prototype.hasOwnProperty.call(statuses,String(update.status))
     ? statuses[String(update.status) as keyof typeof statuses] : undefined;
   if (status) { row.toolStatus=status; row.toolError=status === "failed"; }
-  if (update.rawOutput !== undefined) row.toolResult=typeof update.rawOutput === "string" ? update.rawOutput : JSON.stringify(update.rawOutput);
+  if (update.rawOutput !== undefined) row.toolResult=typeof update.rawOutput === "string" ? update.rawOutput : canonicalJson(update.rawOutput);
   if (Array.isArray(update.content)) {
     const results:string[]=[];
     const diffs:JsonValue[]=[];
