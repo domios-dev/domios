@@ -10,14 +10,9 @@ on:
       runner:
         type: choice
         options:
-          - air-macos
-          - ubunta-build
-          - rog-windows
           - hosted-linux
           - hosted-windows
           - hosted-macos
-          - blackstar-windows
-          - eight-macos
       recipe:
         type: choice
         options:
@@ -42,7 +37,7 @@ jobs:
   step:
     name: ${{ inputs.recipe }} ${{ inputs.target }} on ${{ inputs.runner }}
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'release/')) }}
-    runs-on: ${{ fromJSON('{"air-macos":["self-hosted","macOS","rust-shard","host-air"],"ubunta-build":["self-hosted","Linux","host-ubunta"],"rog-windows":["self-hosted","Windows","host-rog","windows-build"],"hosted-linux":"ubuntu-24.04","hosted-windows":"windows-2025","hosted-macos":"macos-15","blackstar-windows":["self-hosted","Windows","windows-build","host-blackstar"],"eight-macos":["self-hosted","macOS","codeterm-builder","host-eight"]}')[inputs.runner] }}
+    runs-on: ${{ fromJSON(vars.CI_STEP_RUNNERS || '{"hosted-linux":"ubuntu-24.04","hosted-windows":"windows-2025","hosted-macos":"macos-15"}')[inputs.runner] }}
     timeout-minutes: 60
     env:
       # GitHub withholds secrets from fork pull requests; our hosted jobs use the private store over its public edge.
@@ -50,22 +45,31 @@ jobs:
       AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
       CI_STORE_LAN_ENDPOINT: ${{ secrets.CI_STORE_LAN_ENDPOINT }}
       CI_STORE_PUBLIC_ENDPOINT: ${{ secrets.CI_STORE_PUBLIC_ENDPOINT }}
-      DOMIOS_FIREBASE_API_KEY: ${{ !startsWith(inputs.runner, 'hosted-') && secrets.DOMIOS_FIREBASE_API_KEY || '' }}
-      DOMIOS_FIREBASE_PROJECT_ID: ${{ !startsWith(inputs.runner, 'hosted-') && secrets.DOMIOS_FIREBASE_PROJECT_ID || '' }}
-      DOMIOS_FIREBASE_APP_ID: ${{ !startsWith(inputs.runner, 'hosted-') && secrets.DOMIOS_FIREBASE_APP_ID || '' }}
-      DOMIOS_ACCOUNT_REDEEM_URL: ${{ !startsWith(inputs.runner, 'hosted-') && secrets.DOMIOS_ACCOUNT_REDEEM_URL || '' }}
-      DOMIOS_BILLING_FUNCTIONS_URL: ${{ !startsWith(inputs.runner, 'hosted-') && secrets.DOMIOS_BILLING_FUNCTIONS_URL || '' }}
       CI_TARGET_ROOT: ${{ github.workspace }}/../ci-targets/step
       CODETERM_ALLOW_EXTERNAL_TARGET: '1'
-      CI_HOSTED: ${{ startsWith(inputs.runner, 'hosted-') }}
-      SCCACHE_GHA_ENABLED: ${{ startsWith(inputs.runner, 'hosted-') && 'true' || 'false' }}
-      CODETERM_SCCACHE_VERIFY_ONLY: ${{ startsWith(inputs.runner, 'hosted-') && '0' || '1' }}
       CODETERM_SCCACHE_CREDENTIAL_SOURCE: runner
       STEP_RECIPE: ${{ inputs.recipe }}
       STEP_TARGET: ${{ inputs.target }}
       STEP_FILTER: ${{ inputs.filter }}
       CI_RELEASE_TESTS: 'true'
     steps:
+      - name: Select runner environment
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        env:
+          DOMIOS_FIREBASE_API_KEY: ${{ runner.environment != 'github-hosted' && secrets.DOMIOS_FIREBASE_API_KEY || '' }}
+          DOMIOS_FIREBASE_PROJECT_ID: ${{ runner.environment != 'github-hosted' && secrets.DOMIOS_FIREBASE_PROJECT_ID || '' }}
+          DOMIOS_FIREBASE_APP_ID: ${{ runner.environment != 'github-hosted' && secrets.DOMIOS_FIREBASE_APP_ID || '' }}
+          DOMIOS_ACCOUNT_REDEEM_URL: ${{ runner.environment != 'github-hosted' && secrets.DOMIOS_ACCOUNT_REDEEM_URL || '' }}
+          DOMIOS_BILLING_FUNCTIONS_URL: ${{ runner.environment != 'github-hosted' && secrets.DOMIOS_BILLING_FUNCTIONS_URL || '' }}
+          CI_HOSTED: ${{ runner.environment == 'github-hosted' }}
+          SCCACHE_GHA_ENABLED: ${{ runner.environment == 'github-hosted' && 'true' || 'false' }}
+          CODETERM_SCCACHE_VERIFY_ONLY: ${{ runner.environment == 'github-hosted' && '0' || '1' }}
+        with:
+          script: |
+            // Runner context is available after allocation, not in job-level env.
+            for (const key of ["DOMIOS_FIREBASE_API_KEY", "DOMIOS_FIREBASE_PROJECT_ID", "DOMIOS_FIREBASE_APP_ID", "DOMIOS_ACCOUNT_REDEEM_URL", "DOMIOS_BILLING_FUNCTIONS_URL", "CI_HOSTED", "SCCACHE_GHA_ENABLED", "CODETERM_SCCACHE_VERIFY_ONLY"]) {
+              core.exportVariable(key, process.env[key]);
+            }
       - name: Use the runner bundled Node
         if: runner.environment == 'self-hosted'
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd

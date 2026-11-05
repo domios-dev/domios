@@ -27,12 +27,12 @@ jobs:
           - arch: amd64
             release_arch: x86_64
             target: x86_64-unknown-linux-gnu
-            runner: ubuntu-24.04
+            runner: ${{ vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"' }}
           - arch: arm64
             release_arch: aarch64
             target: aarch64-unknown-linux-gnu
-            runner: ubuntu-24.04-arm
-    runs-on: ${{ matrix.runner }}
+            runner: ${{ vars.CI_LINUX_ARM64_RUNNER || '"ubuntu-24.04-arm"' }}
+    runs-on: ${{ fromJSON(matrix.runner) }}
     timeout-minutes: 120
     env:
       DOMIOS_DOCKER_SMOKE: "1"
