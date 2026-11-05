@@ -21,7 +21,7 @@ const record = () => ({ id: "owned", agent_type: provider, agent_requested_model
 
 function fixture() {
   const calls = [], descriptors = [descriptor()];
-  const config = { general_agent: { first_run_complete: false }, agent: { full_access: false }, agents: { [provider]: {} } };
+  const config = { general_agent: { first_run_complete: false }, agent: {}, agents: { [provider]: {} } };
   let tab = record(), refresh = refreshed();
   const ctx = {
     options: { mode: "setup", models: modelSelections([`${provider}=${model}`]) },
@@ -40,7 +40,10 @@ function fixture() {
         }
         return structuredClone(config);
       }
-      if (path.endsWith("complete-first-run")) { Object.assign(config.general_agent, { first_run_complete: true, agent_provider: provider }); return { ok: true }; }
+      if (path.endsWith("complete-first-run")) {
+        assert.deepEqual(options.body, { provider_id: provider });
+        Object.assign(config.general_agent, { first_run_complete: true, agent_provider: provider }); return { ok: true };
+      }
       if (path === "/api/orchestration/new") return { opaque: "pair" };
       if (path === "/api/tabs/owned/chat-send") return { send_id: "own-send", state: "held" };
       throw new Error(`unexpected API ${path}`);

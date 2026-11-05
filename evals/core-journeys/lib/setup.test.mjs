@@ -1,12 +1,12 @@
-// WHAT: First-run access, completion and fixture session ownership.
-// WHY: Setup must retain persisted choices and exact session authority.
+// WHAT: Default access, first-run completion and fixture session ownership.
+// WHY: Setup must observe the current access contract and exact session authority.
 // ORACLE: Injected API calls and readback show completion and binding once.
 import assert from "node:assert/strict";
 import test from "node:test";
 import { bindFixtureSession, chooseAgentAccess, completeFirstRun, promoteFixtureOrchestrator, requireCdp } from "./setup.mjs";
 
 test("General first run uses product completion and verifies persisted navigation unlock", async () => {
-  let config = { agent: { full_access: false }, general_agent: { first_run_complete: false } };
+  let config = { agent: {}, general_agent: { first_run_complete: false } };
   let completed = 0;
   const policy = { launch: async (provider, path, call) => {
     assert.equal(provider, "fixture"); assert.equal(path, "general-first-run"); return call("selected");
@@ -14,7 +14,7 @@ test("General first run uses product completion and verifies persisted navigatio
   const api = async (route, options) => {
     if (options) {
       assert.equal(route, "/api/agents/general/complete-first-run");
-      assert.deepEqual(options, { method: "POST", body: { provider_id: "fixture", full_access: false } });
+      assert.deepEqual(options, { method: "POST", body: { provider_id: "fixture" } });
       completed++;
       config.general_agent = { first_run_complete: true, agent_provider: "fixture" };
       return { ok: true };
@@ -35,29 +35,23 @@ test("fixture promotion explicitly targets its own tab even with a scrubbed call
   });
 });
 
-test("fresh setup persists the real agent access choice and reads it back", async () => {
-  let config = { agent: {} };
+test("setup observes full access by default without writing a removed setting", async () => {
   const calls = [];
   const result = await chooseAgentAccess(async (route, options) => {
     calls.push([route, options]);
-    if (options) {
-      assert.deepEqual(options, { method: "PATCH", body: { key: "agent.full_access", value: true } });
-      config = { agent: { full_access: true } };
-    }
-    return config;
+    return { agent: {} };
   });
-  assert.deepEqual(result, { full_access: true });
-  assert.deepEqual(calls.map(([route]) => route), ["/api/config", "/api/config", "/api/config"]);
+  assert.deepEqual(result, { full_access: true, source: "non_concierge_default", obsolete_key_absent: true });
+  assert.deepEqual(calls, [["/api/config", undefined]]);
 });
 
-test("setup preserves either explicit access choice and refuses an unpersisted choice", async () => {
-  for (const value of [false, true]) {
-    assert.deepEqual(await chooseAgentAccess(async (_route, options) => {
+test("setup refuses a stale access config contract", async () => {
+  for (const value of [false, true, null]) {
+    await assert.rejects(chooseAgentAccess(async (_route, options) => {
       assert.equal(options, undefined);
       return { agent: { full_access: value } };
-    }), { full_access: value });
+    }), /Obsolete agent.full_access/);
   }
-  await assert.rejects(chooseAgentAccess(async () => ({ agent: {} })), /not persisted/);
 });
 
 test("CDP prerequisite rejects absent and invalid health ports with a launch recipe", () => {
