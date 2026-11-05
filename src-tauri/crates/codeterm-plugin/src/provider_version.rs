@@ -10,7 +10,10 @@ use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use wait_timeout::ChildExt;
 
-const PROBE_DEADLINE: Duration = Duration::from_secs(3);
+// WHY: the probe runs on its own thread; npm `.cmd` shims under startup load exceed 3 s.
+const PROBE_DEADLINE: Duration = Duration::from_secs(10);
+/// A failed probe is retried after this, so one slow start never disables a provider for good.
+const RETRY_BACKOFF: Duration = Duration::from_secs(30);
 const MAX_OUTPUT_BYTES: u64 = 64 * 1024;
 const MAX_CACHE_ENTRIES: usize = 128;
 
@@ -78,24 +81,54 @@ impl BinaryIdentity {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CacheEntry {
+    observation: VersionObservation,
+    settled: Instant,
+}
+
+impl CacheEntry {
+    fn retry_due(&self, now: Instant) -> bool {
+        matches!(
+            self.observation.status,
+            ProbeStatus::Failed | ProbeStatus::Timeout | ProbeStatus::Invalid
+        ) && now.saturating_duration_since(self.settled) >= RETRY_BACKOFF
+    }
+}
+
 #[derive(Default)]
 struct VersionCache {
-    entries: HashMap<BinaryIdentity, VersionObservation>,
+    entries: HashMap<BinaryIdentity, CacheEntry>,
 }
 
 impl VersionCache {
-    fn reserve(&mut self, identity: &BinaryIdentity) -> (VersionObservation, bool) {
-        if let Some(observed) = self.entries.get(identity) {
-            return (observed.clone(), false);
+    fn reserve(&mut self, identity: &BinaryIdentity, now: Instant) -> (VersionObservation, bool) {
+        if let Some(entry) = self
+            .entries
+            .get(identity)
+            .filter(|entry| !entry.retry_due(now))
+        {
+            return (entry.observation.clone(), false);
         }
-        self.entries
-            .retain(|key, value| key.path != identity.path || value.status == ProbeStatus::Pending);
+        self.entries.retain(|key, entry| {
+            key.path != identity.path || entry.observation.status == ProbeStatus::Pending
+        });
         if self.entries.len() >= MAX_CACHE_ENTRIES {
             return (VersionObservation::unknown(ProbeStatus::Saturated), false);
         }
         let pending = VersionObservation::unknown(ProbeStatus::Pending);
-        self.entries.insert(identity.clone(), pending.clone());
+        self.settle(identity.clone(), pending.clone(), now);
         (pending, true)
+    }
+
+    fn settle(&mut self, identity: BinaryIdentity, observation: VersionObservation, now: Instant) {
+        self.entries.insert(
+            identity,
+            CacheEntry {
+                observation,
+                settled: now,
+            },
+        );
     }
 }
 
@@ -119,7 +152,7 @@ pub fn observe(binary: &str) -> VersionObservation {
     let Some(identity) = BinaryIdentity::read(&path) else {
         return VersionObservation::unknown(ProbeStatus::Unreadable);
     };
-    let (observation, start) = CACHE.lock().reserve(&identity);
+    let (observation, start) = CACHE.lock().reserve(&identity, Instant::now());
     if start {
         let reserved = identity.clone();
         let spawned = std::thread::Builder::new()
@@ -129,17 +162,18 @@ pub fn observe(binary: &str) -> VersionObservation {
                 let unchanged = BinaryIdentity::read(&identity.path).as_ref() == Some(&identity);
                 let mut cache = CACHE.lock();
                 if unchanged {
-                    cache.entries.insert(identity, observed);
+                    cache.settle(identity, observed, Instant::now());
                 } else {
                     cache.entries.remove(&identity);
                 }
                 REVISION.fetch_add(1, Ordering::Release);
             });
         if spawned.is_err() {
-            CACHE
-                .lock()
-                .entries
-                .insert(reserved, VersionObservation::unknown(ProbeStatus::Failed));
+            CACHE.lock().settle(
+                reserved,
+                VersionObservation::unknown(ProbeStatus::Failed),
+                Instant::now(),
+            );
             REVISION.fetch_add(1, Ordering::Release);
             return VersionObservation::unknown(ProbeStatus::Failed);
         }
@@ -155,7 +189,7 @@ pub fn refresh(path: &Path) -> VersionObservation {
     {
         let mut cache = CACHE.lock();
         cache.entries.retain(|key, _| key.path != identity.path);
-        cache.entries.insert(identity, observed.clone());
+        cache.settle(identity, observed.clone(), Instant::now());
         REVISION.fetch_add(1, Ordering::Release);
     }
     observed
@@ -175,6 +209,13 @@ fn probe(path: &Path) -> VersionObservation {
 fn probe_command(mut command: Command) -> VersionObservation {
     let deadline = Instant::now() + PROBE_DEADLINE;
     codeterm_util::process_util::no_window_std(&mut command);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        const CREATE_SUSPENDED: u32 = 0x0000_0004;
+        command.creation_flags(CREATE_NO_WINDOW | CREATE_SUSPENDED);
+    }
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
@@ -188,6 +229,16 @@ fn probe_command(mut command: Command) -> VersionObservation {
         .spawn()
     else {
         return VersionObservation::unknown(ProbeStatus::Failed);
+    };
+    // A `.cmd` shim's node grandchild joins the job, so a timeout kill ends the whole tree.
+    #[cfg(windows)]
+    let job = match codeterm_util::windows_job::Job::attach_std(&child) {
+        Ok(job) => job,
+        Err(_) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return VersionObservation::unknown(ProbeStatus::Failed);
+        }
     };
     let Some(stdout) = child.stdout.take() else {
         let _ = child.kill();
@@ -210,6 +261,8 @@ fn probe_command(mut command: Command) -> VersionObservation {
     match status {
         Ok(Some(status)) if status.success() => {}
         other => {
+            #[cfg(windows)]
+            job.terminate();
             #[cfg(unix)]
             unsafe {
                 libc::kill(-(child.id() as i32), libc::SIGKILL);
