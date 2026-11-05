@@ -100,12 +100,16 @@ async fn team_takeover_unarchive_and_planner_lookup_release_mux_while_sql_is_hel
             let result = operation.await.unwrap();
             assert!(available, "SQL wait must not retain mux");
             if change_context {
-                let error = result.unwrap_err();
-                assert!(error.contains(if operation_kind == "planner" {
-                    "not live"
-                } else {
-                    "conflict"
-                }));
+                let error =
+                    result.expect_err(&format!("{operation_kind} must refuse the changed context"));
+                assert!(
+                    error.contains(if operation_kind == "planner" {
+                        "not live"
+                    } else {
+                        "conflict"
+                    }),
+                    "{operation_kind}: {error}"
+                );
                 let current = store.get(&plan.id).unwrap();
                 assert_eq!(current.owner, plan.owner);
                 assert_eq!(

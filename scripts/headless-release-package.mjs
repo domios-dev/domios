@@ -4,7 +4,7 @@ import { lstat, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gunzipSync, gzipSync } from 'node:zlib';
-import { SUPPORTED_BOOTSTRAP_PROTOCOL } from './package-server-component-manifest.mjs';
+import { SUPPORTED_API_VERSION, SUPPORTED_BOOTSTRAP_PROTOCOL } from './package-server-component-manifest.mjs';
 
 export const HEADLESS_TARGETS = Object.freeze({
   'darwin-aarch64': Object.freeze({ target: 'aarch64-apple-darwin', server: 'domios-server', cli: 'codeterm' }),
@@ -178,7 +178,7 @@ function validateComponentManifest(bytes, metadata, discovered) {
   if (JSON.stringify(manifest.client_identity) !== JSON.stringify({ kind: 'none' })) {
     fail('headless server-component.json must declare no native client identity');
   }
-  if (manifest.api_version !== 3) fail('server-component.json api_version must be 3');
+  if (manifest.api_version !== SUPPORTED_API_VERSION) fail('server-component.json api_version must be ' + SUPPORTED_API_VERSION);
   if (manifest.bootstrap_protocol !== SUPPORTED_BOOTSTRAP_PROTOCOL) {
     fail('server-component.json bootstrap_protocol must be ' + SUPPORTED_BOOTSTRAP_PROTOCOL);
   }

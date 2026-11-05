@@ -799,17 +799,16 @@ function* withOpencodeModels(inputFingerprint, then) {
     if (models3 !== null) lastGoodCatalogue = models3;
     return yield* ioResolve(then(models3));
   };
-  const result = yield* probeModels(false);
+  const verbose = yield* probeModels(true);
   if (modelCatalogue !== attempt) return yield* ioResolve(then(null));
-  if (!completeModelOutput(result)) return yield* finish(null);
-  const identities = parseOpencodeModels(result.stdout);
-  if (identities === null) return yield* finish(null);
-  const metadataResult = yield* probeModels(true);
-  if (modelCatalogue !== attempt) return yield* ioResolve(then(null));
-  const verbose = metadataResult?.code === 0 && !metadataResult.error && typeof metadataResult.stdout === "string" ? metadataResult.stdout : "";
-  const metadata = modelMetadata(verbose);
-  const enriched = new Map((parseOpencodeModels(verbose) ?? []).map((model) => [model.id, model]));
-  const models2 = identities.filter((model) => !modelUnavailable(metadata.get(model.id))).map((model) => enriched.get(model.id) ?? model);
+  let models2 = completeModelOutput(verbose) ? parseOpencodeModels(verbose.stdout) : null;
+  if (models2 === null) {
+    const plain = yield* probeModels(false);
+    if (modelCatalogue !== attempt) return yield* ioResolve(then(null));
+    if (!completeModelOutput(plain)) return yield* finish(null);
+    models2 = parseOpencodeModels(plain.stdout);
+    if (models2 === null) return yield* finish(null);
+  }
   return yield* finish(yield* filterRejectedModels(models2));
 }
 function completeModelOutput(result) {
@@ -817,7 +816,7 @@ function completeModelOutput(result) {
 }
 function* probeModels(verbose) {
   try {
-    return yield* host.io.exec({ bin: "opencode", args: verbose ? ["models", "--verbose"] : ["models"], timeoutMs: 3e3 });
+    return yield* host.io.exec({ bin: "opencode", args: verbose ? ["models", "--verbose"] : ["models"], timeoutMs: 1e4 });
   } catch {
     return null;
   }

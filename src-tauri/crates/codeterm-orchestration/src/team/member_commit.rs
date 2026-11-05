@@ -23,6 +23,11 @@ pub fn commit_team_member_prepared(
     let result = svc.transition_agent_prepared_with_at(
         now_ms,
         |mux, store| {
+            if !member_context_matches(mux, tab_id, &captured) {
+                return Err(
+                    "spawned member context conflict: live identity or placement changed".into(),
+                );
+            }
             let mut result = staffing::commit_team_member_spawn_staged(
                 mux, team_id, caller, tab_id, role, profile,
             )?;
@@ -75,19 +80,7 @@ pub fn commit_team_member_prepared(
         }
         Err(error) => {
             let mut mux = svc.mux.write();
-            let unchanged = mux.get_tab(tab_id).is_some_and(|tab| {
-                tab.lifecycle_epoch == captured.lifecycle_epoch
-                    && tab.lifecycle_operation_id == captured.lifecycle_operation_id
-                    && tab.agent_session_id == captured.agent_session_id
-                    && tab.session_binding_nonce == captured.session_binding_nonce
-                    && tab.pty_id == captured.pty_id
-                    && tab.role == captured.role
-                    && tab.role_profile == captured.role_profile
-                    && tab.team_id == captured.team_id
-                    && tab.parent_tab_id == captured.parent_tab_id
-                    && tab.task_binding == captured.task_binding
-            });
-            if !unchanged {
+            if !member_context_matches(&mux, tab_id, &captured) {
                 return Err(format!(
                     "{error}; spawned member cleanup conflict: live identity or placement changed"
                 ));
@@ -99,4 +92,23 @@ pub fn commit_team_member_prepared(
             Err(error)
         }
     }
+}
+
+fn member_context_matches(
+    mux: &MultiplexerState,
+    tab_id: &str,
+    captured: &codeterm_service_core::multiplexer::types::Tab,
+) -> bool {
+    mux.get_tab(tab_id).is_some_and(|tab| {
+        tab.lifecycle_epoch == captured.lifecycle_epoch
+            && tab.lifecycle_operation_id == captured.lifecycle_operation_id
+            && tab.agent_session_id == captured.agent_session_id
+            && tab.session_binding_nonce == captured.session_binding_nonce
+            && tab.pty_id == captured.pty_id
+            && tab.role == captured.role
+            && tab.role_profile == captured.role_profile
+            && tab.team_id == captured.team_id
+            && tab.parent_tab_id == captured.parent_tab_id
+            && tab.task_binding == captured.task_binding
+    })
 }

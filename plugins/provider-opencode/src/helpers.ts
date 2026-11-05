@@ -317,17 +317,17 @@ export function* withOpencodeModels<T>(inputFingerprint: string | null | undefin
     if (models !== null) lastGoodCatalogue = models;
     return yield* ioResolve(then(models));
   };
-  const result = yield* probeModels(false);
+  // WHY: one plugin call shares the VM's 5 s deadline, so the happy path runs a single exec.
+  const verbose = yield* probeModels(true);
   if (modelCatalogue !== attempt) return yield* ioResolve(then(null));
-  if (!completeModelOutput(result)) return yield* finish(null);
-  const identities = parseOpencodeModels(result.stdout);
-  if (identities === null) return yield* finish(null);
-  const metadataResult = yield* probeModels(true);
-  if (modelCatalogue !== attempt) return yield* ioResolve(then(null));
-  const verbose = metadataResult?.code === 0 && !metadataResult.error && typeof metadataResult.stdout === "string" ? metadataResult.stdout : "";
-  const metadata = modelMetadata(verbose);
-  const enriched = new Map((parseOpencodeModels(verbose) ?? []).map((model) => [model.id, model]));
-  const models = identities.filter((model) => !modelUnavailable(metadata.get(model.id))).map((model) => enriched.get(model.id) ?? model);
+  let models = completeModelOutput(verbose) ? parseOpencodeModels(verbose.stdout) : null;
+  if (models === null) {
+    const plain = yield* probeModels(false);
+    if (modelCatalogue !== attempt) return yield* ioResolve(then(null));
+    if (!completeModelOutput(plain)) return yield* finish(null);
+    models = parseOpencodeModels(plain.stdout);
+    if (models === null) return yield* finish(null);
+  }
   return yield* finish(yield* filterRejectedModels(models));
 }
 
@@ -344,7 +344,8 @@ function completeModelOutput(result: ModelCommandResult | null): result is Model
 
 function* probeModels(verbose: boolean): HostIoSteps<ModelCommandResult | null> {
   try {
-    return yield* host.io.exec({ bin: "opencode", args: verbose ? ["models", "--verbose"] : ["models"], timeoutMs: 3000 });
+    // WHY: `opencode models [--verbose]` measured ~2.8-3.1 s on BLACKSTAR; 10 s bounds only a hung CLI.
+    return yield* host.io.exec({ bin: "opencode", args: verbose ? ["models", "--verbose"] : ["models"], timeoutMs: 10000 });
   } catch { return null; }
 }
 
