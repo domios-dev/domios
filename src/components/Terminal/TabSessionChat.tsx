@@ -917,7 +917,7 @@ function TabSessionChatBody({
           aria-hidden
         >
           <span className="chat-empty-mark" aria-hidden>
-            <AgentIcon providerId={tabProvider} className="chat-empty-glyph text-[56px]" />
+            <AgentIcon tab={tab} providerId={tabProvider} className="chat-empty-glyph text-[56px]" />
           </span>
         </div>
       )}

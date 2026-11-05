@@ -290,7 +290,7 @@ function TabItemInner({
       ? [providerName, menuModel].filter(Boolean).join(" · ")
       : menuModel ?? "Terminal";
   const menuIcon = provider ? (
-    <ProviderGlyph iconSvg={provider.iconSvg} iconColor={provider.iconColor} iconHint={provider.iconHint} className="leading-none text-[16px]" />
+    <ProviderGlyph iconSvg={provider.iconSvg} fallbackIconSvg={provider.fallbackIconSvg} iconColor={provider.iconColor} iconHint={provider.iconHint} className="leading-none text-[16px]" />
   ) : surfaceBacking(tab) ? (
     <SurfaceIcon backing={surfaceBacking(tab)} size={16} />
   ) : tab.tab_type === "Choice" ? (
@@ -385,7 +385,7 @@ function TabItemInner({
       data-tab-id={tab.id}
       data-tab-activity={tabState.kind}
       data-tab-no-task-bubble="true"
-      title={description ? `${displayTitle}\n${description}` : displayTitle}
+      title={[displayTitle, provider?.displayName, description].filter(Boolean).join("\n")}
       data-variant={variant}
       style={insetPx != null ? { paddingLeft: insetPx } : undefined}
       className={`
@@ -447,7 +447,7 @@ function TabItemInner({
         <span data-testid="tab-tab-icon" className={`sidebar-tab-body__icon relative leading-none ${lockedDimClass(lock)}`}>
           {provider ? (
             <ProviderGlyph
-              iconSvg={provider.iconSvg}
+              iconSvg={provider.iconSvg} fallbackIconSvg={provider.fallbackIconSvg}
               iconColor={provider.iconColor}
               iconHint={provider.iconHint}
               className={`leading-none ${touchMode ? "text-[15px]" : isSubTab ? "text-[10px]" : "text-[12px]"}`}

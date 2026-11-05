@@ -131,6 +131,8 @@ pub struct RuntimeState {
     pub binary_version: Option<String>,
     #[serde(default, rename = "agentName", skip_serializing_if = "Option::is_none")]
     pub agent_name: Option<String>,
+    #[serde(default, rename = "iconSvg", skip_serializing_if = "Option::is_none")]
+    pub icon_svg: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notice: Option<String>,
     #[serde(skip)]
@@ -159,6 +161,8 @@ pub struct RuntimeSnapshot {
     pub binary_version: Option<String>,
     #[serde(default, rename = "agentName", skip_serializing_if = "Option::is_none")]
     pub agent_name: Option<String>,
+    #[serde(default, rename = "iconSvg", skip_serializing_if = "Option::is_none")]
+    pub icon_svg: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notice: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -221,6 +225,7 @@ impl RuntimeState {
             },
             binary_version: self.binary_version.clone(),
             agent_name: self.agent_name.clone(),
+            icon_svg: self.icon_svg.clone(),
             notice: self.notice.clone(),
             history: None,
             history_pages: None,
@@ -239,6 +244,7 @@ impl RuntimeState {
             epoch: 0,
             binary_version: None,
             agent_name: None,
+            icon_svg: None,
             notice: None,
             pending_load_notice: None,
             thread_id,

@@ -1,10 +1,10 @@
 {
   "id": "acp",
   "version": "0.1.0",
-  "minCodeterm": "1.18.7",
+  "minCodeterm": "1.19.1",
   "hostApi": 2,
   "displayName": "ACP",
-  "description": "Agent Client Protocol v1 runtime with host-owned launch profiles.",
+  "description": "Agent Client Protocol v1 runtime with host-owned launch profiles. See domios docs ACP for profiles, setup, registry and authentication.",
   "entry": "plugin.js",
   "icon": "icon.svg",
   "capabilities": {
@@ -30,7 +30,8 @@
           },
           "secretEnv": {
             "DEEPSEEK_API_KEY": "domios:provider:acp:deepseek-api-key"
-          }
+          },
+          "icon": "deepseek-harness.svg"
         },
         "gemini-cli": {
           "binary": "gemini",
@@ -47,7 +48,8 @@
                 "gemini-api-key"
               ]
             }
-          }
+          },
+          "icon": "gemini-cli.svg"
         },
         "local": {
           "binary": "local-acp-command",

@@ -187,6 +187,24 @@ impl AgentRuntimeCapability {
                 return Err(RuntimeManifestError::InvalidProfile);
             }
             for (name, profile) in profiles {
+                if profile
+                    .icon
+                    .as_deref()
+                    .is_some_and(|icon| !crate::plugin_icon::valid_relative_svg_path(icon))
+                    || profile
+                        .icon_url
+                        .as_deref()
+                        .is_some_and(|url| !crate::plugin_icon::registry::valid_url(url))
+                    || profile.registry_id.as_deref().is_some_and(|id| {
+                        id.is_empty()
+                            || id.len() > 128
+                            || !id
+                                .bytes()
+                                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+                    })
+                {
+                    return Err(RuntimeManifestError::InvalidProfile);
+                }
                 if name.is_empty()
                     || name.len() > 128
                     || !name
@@ -229,31 +247,7 @@ impl AgentRuntimeCapability {
                 if !valid_auth_env(&profile.auth_env) {
                     return Err(RuntimeManifestError::InvalidProfile);
                 }
-                if profile.owner_configured
-                    && (profile.install.is_some()
-                        || !profile.args.is_empty()
-                        || !profile.env.is_empty()
-                        || !profile.secret_env.is_empty()
-                        || !profile.auth_env.is_empty())
-                {
-                    return Err(RuntimeManifestError::InvalidProfile);
-                }
-                if let Some(install) = &profile.install {
-                    let Some((package, version)) = install.package.rsplit_once('@') else {
-                        return Err(RuntimeManifestError::InvalidProfile);
-                    };
-                    if package.is_empty()
-                        || semver::Version::parse(version).is_err()
-                        || install
-                            .registry
-                            .as_deref()
-                            .is_some_and(|registry| registry != "https://registry.npmjs.org")
-                        || profile.binary != "npx"
-                        || profile.args.first() != Some(&install.package)
-                    {
-                        return Err(RuntimeManifestError::InvalidProfile);
-                    }
-                } else if ["npx", "uvx", "npm", "uv"].contains(&profile.binary.as_str()) {
+                if !crate::agent_runtime::install_validation::validate(profile) {
                     return Err(RuntimeManifestError::InvalidProfile);
                 }
                 if let Some(detection) = &profile.detection {

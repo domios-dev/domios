@@ -58,3 +58,9 @@ assert.equal(authenticated.kind,"complete");
 if (authenticated.kind !== "complete") throw new Error("Authentication unavailable");
 assert.deepEqual(authenticated.events,[{kind:"authentication",authentication:{state:"authenticated",methods:[]}}]);
 console.log("✓ ACP runtime uses declared authenticate method IDs and reinitializes after success");
+
+assert.equal(decodeRegistry(JSON.stringify({version:"1.0.0",agents:[{...agent,icon:"https://icons.example/agent.svg"}]})).agents[0].icon,"https://icons.example/agent.svg");
+for (const icon of ["http://icons.example/agent.png", "javascript:alert(1)", "https://user@icons.example/a.svg"]) {
+  assert.throws(()=>decodeRegistry(JSON.stringify({version:"1.0.0",agents:[{...agent,icon}]})));
+}
+console.log("✓ ACP registry preserves HTTPS icons and refuses insecure icon references");

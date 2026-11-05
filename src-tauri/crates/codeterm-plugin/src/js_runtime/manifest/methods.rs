@@ -21,6 +21,18 @@ impl PluginManifest {
             .as_ref()
             .and_then(serde_json::Value::as_str)
             .and_then(crate::plugin_icon::sanitize_plugin_icon_color);
+        if let Some(profiles) = m
+            .capabilities
+            .agent_runtime
+            .as_mut()
+            .and_then(|runtime| runtime.launch_profiles.as_mut())
+        {
+            for profile in profiles.values_mut() {
+                profile.icon_svg = profile.icon.as_deref().and_then(|relative| {
+                    crate::plugin_icon::load_plugin_icon(path.parent()?, relative)
+                });
+            }
+        }
         let plugin_icon = m.icon_svg.clone();
         let plugin_icon_color = m.icon_color.clone();
         let bundle_dir = path.parent();

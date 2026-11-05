@@ -15,7 +15,9 @@ import { modelSwitchFailure } from "../../lib/modelSwitchFailure";
 import { BusySpinner } from "../shared/BusyState";
 import { Segmented } from "../shared/Segmented";
 import { UI_BUTTON } from "../shared/design";
+import { AgentIcon } from "../AgentIcon";
 import { ProviderGlyph } from "../ProviderGlyph";
+import { runtimeAgentLabel } from "../../lib/tabProvider";
 import {
   currentModelId,
   effortAfterModelChange,
@@ -49,6 +51,7 @@ export function TabStatusLineModelPicker({ tab, label }: { tab: Tab; label: stri
   const effort = tab.reasoning_effort_identity;
   return (
     <StatusLineModelPicker
+      tab={tab}
       tabId={tab.id}
       descriptor={descriptor}
       runtimeControls={tab.agent_runtime_state?.controls}
@@ -69,6 +72,7 @@ export function TabStatusLineModelPicker({ tab, label }: { tab: Tab; label: stri
 }
 
 export function StatusLineModelPicker({
+  tab,
   tabId,
   descriptor,
   facts,
@@ -82,6 +86,7 @@ export function StatusLineModelPicker({
   runtimeControls,
   runtimeIdentity,
 }: {
+  tab?: Tab;
   tabId: string;
   runtimeControls?: import("@codeterm/plugin-sdk").RuntimeSettings;
   runtimeIdentity?: {agentName?:string;binaryVersion?:string} | null;
@@ -165,22 +170,23 @@ export function StatusLineModelPicker({
   const displayedLabel = declaredModels
     ? runtimeStatusLineIdentity({ ...runtimeIdentity, controls: runtimeControls }, tierLabel, selection.effort, selectionStatus)
     : tabMetaParts(confirmedModelName, tierLabel, selection.effort, selectionStatus, runtimeIdentity).join(" · ");
-  const harnessName = descriptor?.display_name ?? label.split(" · ")[0];
+  const harnessName = (tab ? runtimeAgentLabel(tab) : null) ?? descriptor?.display_name ?? label.split(" · ")[0];
   const glyph = descriptor ? (
     <span aria-hidden="true" className="ct-status-identity__glyph" data-testid="status-harness-glyph" title={harnessName}>
-      <ProviderGlyph iconSvg={descriptor.icon_svg} iconColor={descriptor.icon_color} iconHint={descriptor.icon_hint} />
+      {tab ? <AgentIcon providerId={descriptor.id} tab={tab} title={harnessName} />
+        : <ProviderGlyph iconSvg={descriptor.icon_svg} iconColor={descriptor.icon_color} iconHint={descriptor.icon_hint} />}
     </span>
   ) : null;
 
   if (declaredModels && !runtimeControls?.configOptions) return (
     <span className="ct-status-identity ct-status-identity--static" title="Model controls are unavailable">
-      {runtimeStatusLineIdentity(runtimeIdentity) || descriptor?.display_name || "Agent"}
+      {glyph}{runtimeStatusLineIdentity(runtimeIdentity) || descriptor?.display_name || "Agent"}
     </span>
   );
 
   if (declaredModels && !modelOption?.options.length) return (
     <button type="button" disabled data-testid="status-model-trigger" title="This agent declared no model option" aria-label="This agent declared no model option">
-      {displayedLabel && <span>{displayedLabel} · </span>}This agent declared no model option
+      {glyph}{displayedLabel && <span>{displayedLabel} · </span>}This agent declared no model option
     </button>
   );
 

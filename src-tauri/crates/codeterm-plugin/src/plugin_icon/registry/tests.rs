@@ -1,0 +1,65 @@
+use super::*;
+
+#[test]
+fn refuses_insecure_urls_types_sizes_and_active_svg() {
+    for url in [
+        "http://example.org/a",
+        "file:///a",
+        "https://user@example.org/a",
+        "javascript:1",
+    ] {
+        assert!(!valid_url(url), "{url}");
+    }
+    assert!(valid_url("https://example.org/a.png?q=1"));
+    assert!(sanitize("text/html", b"<svg/>").is_none());
+    assert!(sanitize("image/png", b"<svg/>").is_none());
+    assert!(sanitize("image/png", &vec![0; MAX_BYTES + 1]).is_none());
+    for svg in [
+        "<svg><script/></svg>",
+        "<svg><foreignObject/></svg>",
+        "<svg><image href='https://example.org/x'/></svg>",
+        "<svg onload='alert(1)'/>",
+        "<!DOCTYPE svg [<!ENTITY x SYSTEM 'file:///a'>]><svg>&x;</svg>",
+    ] {
+        assert!(sanitize("image/svg+xml", svg.as_bytes()).is_none(), "{svg}");
+    }
+    assert!(sanitize(
+        "image/svg+xml",
+        b"<svg viewBox='0 0 24 24'><path d='M0 0L1 1'/></svg>"
+    )
+    .is_some());
+}
+
+#[test]
+fn cache_is_revalidated_and_expires_without_network() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("icon.json");
+    let entry = Cached {
+        timestamp: 100,
+        mime: "image/svg+xml".into(),
+        body: STANDARD.encode(b"<svg viewBox='0 0 24 24'><path d='M0 0'/></svg>"),
+    };
+    std::fs::write(&path, serde_json::to_vec(&entry).unwrap()).unwrap();
+    assert!(cached(&path, 101).is_some());
+    assert!(cached(&path, 99).is_none());
+    assert!(cached(&path, 100 + TTL.as_secs()).is_none());
+    let entry = Cached {
+        body: STANDARD.encode(b"<svg><script/></svg>"),
+        ..entry
+    };
+    std::fs::write(&path, serde_json::to_vec(&entry).unwrap()).unwrap();
+    assert!(cached(&path, 101).is_none());
+}
+
+#[test]
+fn raster_types_need_matching_signatures_and_use_data_only() {
+    for (mime, bytes) in [
+        ("image/png", b"\x89PNG\r\n\x1a\n".as_slice()),
+        ("image/jpeg", b"\xff\xd8\xff"),
+        ("image/webp", b"RIFF0000WEBP"),
+    ] {
+        let icon = sanitize(mime, bytes).unwrap();
+        assert!(icon.contains(&format!("href=\"data:{mime};base64,")));
+    }
+    assert!(sanitize("image/webp", b"RIFF").is_none());
+}

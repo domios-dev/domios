@@ -2,7 +2,7 @@ export const registryBounds = {bytes: 2 * 1024 * 1024, agents: 512, string: 4096
 export interface PackageDistribution {package: string; args: string[]; env: Record<string, string>}
 export interface BinaryDistribution {archive: string; cmd: string; args: string[]; env: Record<string, string>; sha256?: string}
 export interface RegistryAgent {
-  id: string; name: string; version: string; description: string;
+  id: string; name: string; version: string; description: string; icon?: string;
   distribution: {npx?: PackageDistribution; uvx?: PackageDistribution; binary?: Record<string, BinaryDistribution>};
 }
 export interface RegistryIndex {version: "1.0.0"; agents: RegistryAgent[]}
@@ -91,7 +91,7 @@ export function decodeRegistry(text: string): RegistryIndex {
     if (entry.license !== undefined) string(entry.license);
     if (entry.authors !== undefined && (!Array.isArray(entry.authors) || entry.authors.length > 64)) invalid();
     if (Array.isArray(entry.authors)) entry.authors.forEach(author => string(author));
-    return {id, name: string(entry.name, 256), version, description: string(entry.description), distribution: distribution(entry.distribution)};
+    return {id, ...(entry.icon === undefined ? {} : {icon: url(entry.icon)}), name: string(entry.name, 256), version, description: string(entry.description), distribution: distribution(entry.distribution)};
   });
   return {version: "1.0.0", agents};
 }

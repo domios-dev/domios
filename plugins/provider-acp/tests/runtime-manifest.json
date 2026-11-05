@@ -20,7 +20,8 @@
         },
         "secretEnv": {
           "DEEPSEEK_API_KEY": "domios:provider:acp:deepseek-api-key"
-        }
+        },
+        "icon": "deepseek-harness.svg"
       },
       "gemini-cli": {
         "binary": "gemini",
@@ -37,7 +38,8 @@
               "gemini-api-key"
             ]
           }
-        }
+        },
+        "icon": "gemini-cli.svg"
       },
       "local": {
         "binary": "local-acp-command",

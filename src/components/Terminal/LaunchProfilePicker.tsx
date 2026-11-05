@@ -2,6 +2,7 @@ import {useState} from "react";
 import {invoke} from "../../lib/bridge";
 import type {ProviderDescriptor} from "../../lib/types";
 import type {LaunchProfileState} from "./useLaunchProfiles";
+import {AgentIcon} from "../AgentIcon";
 import {Button} from "../shared/Button";
 
 export function LaunchProfilePicker({provider, profiles, selected, onSelect, onRefresh, error}: {
@@ -32,6 +33,7 @@ export function LaunchProfilePicker({provider, profiles, selected, onSelect, onR
   };
   return <fieldset disabled={busy} className="mt-3 flex flex-col gap-2">
     <legend>Agent profile</legend>
+    <AgentIcon providerId={provider.id} profileId={selected} title={selected || provider.display_name} />
     <label>Profile<select aria-label="Agent profile" value={selected} onChange={event => {
       setConfirming(false); setConfirmed(false); setFailure(null); onSelect(event.target.value);
     }}>

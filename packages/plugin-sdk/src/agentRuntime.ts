@@ -148,10 +148,15 @@ export type ResetCreditOutcome = "reset"|"nothingToReset"|"noCredit"|"alreadyRed
 export interface RuntimeReduction { state:JsonValue; events:readonly AgentEvent[] }
 export type AgentRuntimeTransport = "stdio-jsonrpc" | "http-sse";
 export interface RuntimeLaunchProfile {
+  icon?:string;
+  /** Host-sanitized bundle asset; never accepted from manifest JSON. */
+  iconSvg?:string;
+  registryId?:string;
+  iconUrl?:string;
   binary:string;
   args:readonly string[];
   env?:Readonly<Record<string,string>>;
-  install?:{package:string; registry?:string};
+  install?:{package:string; registry?:string; distribution?:"npx"|"uvx"|"binary"; url?:string; sha256?:string; executable?:string};
   detection?:{args:readonly string[]};
   secretEnv?:Readonly<Record<string,string>>;
   /** Optional credentials: injected only when stored; the listed declared sign-in methods take an API key. */

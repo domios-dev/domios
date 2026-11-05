@@ -3,7 +3,7 @@
 
 import { setAgentDescriptors } from "./agentDescriptorCache";
 import { setPluginProviderMeta } from "./pluginProviderMeta";
-import { resolveTabProvider } from "./tabProvider";
+import { resolveTabProvider, resolveAgentIcon } from "./tabProvider";
 import type { Tab, ProviderDescriptor } from "./types";
 
 const tests: Array<[string, () => void]> = [];
@@ -118,6 +118,19 @@ test("unknown agent still resolves as an agent identity", () => {
 test("returns null for a missing Tab", () => {
   assert(resolveTabProvider(null) === null, "null Tab -> null");
   assert(resolveTabProvider(undefined) === null, "undefined Tab -> null");
+});
+
+test("icon precedence uses the profile, registry and generic fallback", () => {
+  assert(resolveAgentIcon("profile", "registry", "generic") === "profile", "profile wins");
+  assert(resolveAgentIcon(undefined, "registry", "generic") === "registry", "registry next");
+  assert(resolveAgentIcon("", undefined, "generic") === "generic", "failure uses generic");
+});
+
+test("runtime identity and selected profile reach tab presentation without provider branches", () => {
+  setAgentDescriptors([{...claudeDescriptor, id:"acp", icon_svg:"<svg id='generic'/>", agent_runtime:{launchProfiles:{"gemini-cli":{binary:"gemini",args:[],iconSvg:"<svg id='gemini'/>"}}}} as ProviderDescriptor]);
+  const r = resolveTabProvider(tab({agent_type:"acp", agent_runtime_config:{launchProfile:"gemini-cli"}, agent_runtime_state:{state:"loaded",epoch:1,agentName:"Gemini CLI",binaryVersion:"1.2.3",iconSvg:"<svg id='registry'/>"}}));
+  assert(r?.iconSvg === "<svg id='gemini'/>", "selected profile wired");
+  assert(r.displayName === "Gemini CLI · 1.2.3", "own runtime name and version wired");
 });
 
 let failed = 0;

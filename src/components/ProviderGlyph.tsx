@@ -4,6 +4,7 @@ import { useProviderLogo } from "./useProviderLogo";
 
 interface Props {
   iconSvg?: string | null;
+  fallbackIconSvg?: string | null;
   iconColor?: string | null;
   iconHint?: string | null;
   className?: string;
@@ -17,8 +18,8 @@ export function ProviderGlyph(props: Props) {
   return <ProviderGlyphContent key={props.iconSvg ?? ""} {...props} />;
 }
 
-function ProviderGlyphContent({ iconSvg, iconColor, className, style, title, ariaLabel, working }: Props) {
-  const { presentation, onLoad, onError } = useProviderLogo(iconSvg);
+function ProviderGlyphContent({ iconSvg, fallbackIconSvg, iconColor, className, style, title, ariaLabel, working }: Props) {
+  const { presentation, failed, onLoad, onError } = useProviderLogo(iconSvg);
   const html = iconSvg ? forceInlineSize(iconSvg) : null;
 
   const cls = ["agent-icon", working ? "agent-icon-working" : "", className]
@@ -46,6 +47,10 @@ function ProviderGlyphContent({ iconSvg, iconColor, className, style, title, ari
         dangerouslySetInnerHTML={{ __html: html }}
       />
     );
+  }
+
+  if (failed && fallbackIconSvg && fallbackIconSvg !== iconSvg) {
+    return <ProviderGlyph iconSvg={fallbackIconSvg} iconColor={iconColor} className={className} style={style} title={title} ariaLabel={ariaLabel} working={working} />;
   }
 
   const label = title ? `${title} default agent icon` : "Default agent icon";

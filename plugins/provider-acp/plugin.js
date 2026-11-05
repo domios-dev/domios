@@ -1300,7 +1300,7 @@ function decodeRegistry(text2) {
     if (entry.license !== void 0) string(entry.license);
     if (entry.authors !== void 0 && (!Array.isArray(entry.authors) || entry.authors.length > 64)) invalid();
     if (Array.isArray(entry.authors)) entry.authors.forEach((author) => string(author));
-    return { id, name: string(entry.name, 256), version, description: string(entry.description), distribution: distribution(entry.distribution) };
+    return { id, ...entry.icon === void 0 ? {} : { icon: url(entry.icon) }, name: string(entry.name, 256), version, description: string(entry.description), distribution: distribution(entry.distribution) };
   });
   return { version: "1.0.0", agents };
 }

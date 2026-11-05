@@ -101,6 +101,7 @@ pub(crate) fn has_live_bound_session(tab: &crate::multiplexer::types::Tab) -> bo
 #[path = "engine/backfill.rs"]
 pub(super) mod backfill;
 
+mod icons;
 #[path = "engine/launch.rs"]
 mod launch;
 mod resume;
@@ -587,6 +588,7 @@ async fn ensure_locked(
             let mut state = session.state.lock();
             state.binary_version = None;
             state.agent_name = None;
+            state.icon_svg = None;
             state.begin()
         };
         session
@@ -773,6 +775,8 @@ async fn ensure_locked(
             let mut state = session.state.lock();
             state.binary_version = binary_version;
             state.agent_name = agent_name;
+            drop(state);
+            icons::start(svc, session);
             Ok(())
         })
         .await?;
