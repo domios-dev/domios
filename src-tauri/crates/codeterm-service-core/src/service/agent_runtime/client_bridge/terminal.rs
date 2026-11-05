@@ -1,3 +1,6 @@
+#[cfg(windows)]
+pub(super) mod windows;
+
 use super::fs::MAX_BYTES;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
@@ -66,6 +69,13 @@ pub(super) fn environment(
         if !allowed(&entry.name) || entry.value.len() > 4096 || entry.value.contains('\0') {
             return Err("Environment change denied".into());
         }
+        #[cfg(windows)]
+        {
+            if entry.name.eq_ignore_ascii_case("PATH") {
+                windows::validate_agent_path(&entry.value)?;
+            }
+            env.retain(|key, _| !key.eq_ignore_ascii_case(&entry.name));
+        }
         env.insert(entry.name.clone(), entry.value.clone());
     }
     Ok(env)
@@ -92,7 +102,19 @@ impl Terminal {
         directory: std::fs::File,
         env: &BTreeMap<String, String>,
     ) -> Result<Arc<Self>, String> {
-        let mut command = tokio::process::Command::new(&spec.command);
+        #[cfg(windows)]
+        let resolved_program = windows::program(
+            &spec.command,
+            env,
+            spec.env
+                .iter()
+                .any(|entry| entry.name.eq_ignore_ascii_case("PATH")),
+        )?;
+        #[cfg(windows)]
+        let program = &resolved_program.path;
+        #[cfg(not(windows))]
+        let program = &spec.command;
+        let mut command = tokio::process::Command::new(program);
         command
             .args(&spec.args)
             .current_dir("/")
@@ -102,6 +124,12 @@ impl Terminal {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
+        #[cfg(windows)]
+        let pinned_cwd = super::fs::windows::pinned(_cwd)?;
+        #[cfg(windows)]
+        super::fs::windows::same(pinned_cwd.last().ok_or("Missing terminal cwd")?, &directory)?;
+        #[cfg(windows)]
+        command.current_dir(super::fs::windows::cwd(&directory)?);
         #[cfg(windows)]
         crate::process_util::no_window_tokio_suspended(&mut command);
         #[cfg(unix)]
@@ -118,11 +146,9 @@ impl Terminal {
                 }
             });
         }
-        #[cfg(not(unix))]
-        {
-            let _ = directory;
-        }
         let mut child = command.spawn().map_err(|error| error.to_string())?;
+        #[cfg(windows)]
+        drop((resolved_program, pinned_cwd, directory));
         let pid = child.id().ok_or("Terminal PID unavailable")?;
         #[cfg(windows)]
         let job = Arc::new(crate::service::windows_job::Job::contain(&child)?);

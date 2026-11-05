@@ -1,12 +1,19 @@
-use std::{
-    fs::File,
-    io::Read,
-    path::{Component, Path, PathBuf},
-};
+#[cfg(not(windows))]
+use std::path::{Component, PathBuf};
+#[cfg(windows)]
+pub(super) mod windows;
+#[cfg(windows)]
+pub(super) use windows::{directory, root_matches, write};
+
+use std::{fs::File, io::Read, path::Path};
 
 pub(super) const MAX_BYTES: usize = 1024 * 1024;
 pub(super) const MAX_PATH: usize = 4096;
 
+#[cfg(windows)]
+pub(super) use windows::relative;
+
+#[cfg(not(windows))]
 pub(super) fn relative(root: &Path, raw: &str) -> Result<PathBuf, String> {
     if raw.is_empty()
         || raw.len() > MAX_PATH
@@ -82,6 +89,7 @@ pub(super) fn secret(path: &Path) -> bool {
     })
 }
 
+#[cfg(not(windows))]
 pub(super) fn check(root: &Path, relative: &Path, missing_leaf: bool) -> Result<(), String> {
     let mut path = root.to_path_buf();
     let parts = relative.components().collect::<Vec<_>>();
@@ -135,12 +143,14 @@ pub(super) fn read(
         relative.to_str().ok_or("Invalid UTF-8 path")?,
     )
     .map_err(str::to_string)?;
-    #[cfg(not(unix))]
+    #[cfg(not(any(unix, windows)))]
     let file = codeterm_blueprint_types::code_source::open_file(
         root,
         relative.to_str().ok_or("Invalid UTF-8 path")?,
     )
     .map_err(str::to_string)?;
+    #[cfg(windows)]
+    let file = windows::read(root_handle, relative)?;
     read_file(file, line, limit)
 }
 
@@ -268,7 +278,7 @@ pub(super) fn write(
     result
 }
 
-#[cfg(not(unix))]
+#[cfg(not(any(unix, windows)))]
 pub(super) fn write(
     _root: &Path,
     _root_handle: &File,
@@ -292,7 +302,7 @@ pub(super) fn root_matches(root: &Path, held: &File) -> Result<(), String> {
     }
     Ok(())
 }
-#[cfg(not(unix))]
+#[cfg(not(any(unix, windows)))]
 pub(super) fn root_matches(_root: &Path, _held: &File) -> Result<(), String> {
     Err("Client bridge unavailable".into())
 }
@@ -323,7 +333,12 @@ pub(super) fn directory(root: &File, relative: &Path) -> Result<File, String> {
     }
     Ok(parent)
 }
-#[cfg(not(unix))]
+#[cfg(not(any(unix, windows)))]
 pub(super) fn directory(_root: &File, _relative: &Path) -> Result<File, String> {
     Err("Client bridge unavailable".into())
+}
+
+#[cfg(windows)]
+pub(super) fn check(root: &Path, relative: &Path, missing_leaf: bool) -> Result<(), String> {
+    windows::check(root, relative, missing_leaf)
 }

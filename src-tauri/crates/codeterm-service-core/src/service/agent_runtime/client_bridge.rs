@@ -2,6 +2,8 @@ mod fs;
 mod terminal;
 #[cfg(test)]
 mod tests;
+#[cfg(all(test, windows))]
+mod windows_tests;
 
 use super::{
     engine::{self, Session},
@@ -104,10 +106,37 @@ struct Bridge {
     epoch: u64,
     nonce: String,
     root: PathBuf,
+    #[cfg(windows)]
+    root_alias: PathBuf,
     root_handle: std::fs::File,
     capability: RuntimeClientBridges,
     state: Mutex<State>,
     inflight: Arc<tokio::sync::Semaphore>,
+}
+impl Bridge {
+    fn file_relative(&self, raw: &str) -> Result<PathBuf, String> {
+        #[cfg(not(windows))]
+        {
+            fs::relative(&self.root, raw)
+        }
+        #[cfg(windows)]
+        {
+            if let Ok(relative) = fs::relative(&self.root, raw) {
+                return Ok(relative);
+            }
+            let relative = fs::windows::relative_directory(&self.root_alias, raw)?;
+            if relative.as_os_str().is_empty() {
+                return Err("Expected a workspace file".into());
+            }
+            Ok(relative)
+        }
+    }
+
+    #[cfg(windows)]
+    fn directory_relative(&self, raw: &str) -> Result<PathBuf, String> {
+        fs::windows::relative_directory(&self.root, raw)
+            .or_else(|_| fs::windows::relative_directory(&self.root_alias, raw))
+    }
 }
 static BRIDGES: LazyLock<Mutex<HashMap<String, Arc<Bridge>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
@@ -119,16 +148,27 @@ pub(super) fn install(
     let Some(capability) = declared else {
         return Ok(None);
     };
-    if cfg!(not(unix)) {
+    if cfg!(not(any(unix, windows))) {
         return Ok(None);
     }
+    #[cfg(windows)]
+    let root_chain = fs::windows::pinned(std::path::Path::new(&context.cwd))?;
+    #[cfg(windows)]
+    let root_handle = root_chain
+        .last()
+        .ok_or("Missing workspace root")?
+        .try_clone()
+        .map_err(|error| error.to_string())?;
+    #[cfg(windows)]
+    let root = fs::windows::final_path(&root_handle)?;
+    #[cfg(not(windows))]
     let root = codeterm_util::project_roots::canonical_root(&context.cwd)?;
     #[cfg(unix)]
     let root_handle = codeterm_blueprint_types::code_source::open_directory_no_follow(
         std::path::Path::new(&context.cwd),
     )
     .map_err(str::to_string)?;
-    #[cfg(not(unix))]
+    #[cfg(not(any(unix, windows)))]
     let root_handle =
         codeterm_blueprint_types::code_source::open_directory(&root).map_err(str::to_string)?;
     if dirs::home_dir().is_some_and(|home| home.canonicalize().ok().as_ref() == Some(&root)) {
@@ -144,6 +184,8 @@ pub(super) fn install(
             epoch: context.epoch,
             nonce: context.binding_nonce.clone(),
             root,
+            #[cfg(windows)]
+            root_alias: PathBuf::from(&context.cwd),
             root_handle,
             capability: capability.clone(),
             state: Mutex::new(State {
@@ -201,7 +243,7 @@ fn prepare(
             if !bridge.capability.fs_read || *line == Some(0) {
                 return Err("Read denied".into());
             }
-            let relative = fs::relative(&bridge.root, path)?;
+            let relative = bridge.file_relative(path)?;
             if fs::machine_secret(&relative) {
                 return Err("Machine credential store denied".into());
             }
@@ -222,7 +264,7 @@ fn prepare(
             if !bridge.capability.fs_write {
                 return Err("Write denied".into());
             }
-            let relative = fs::relative(&bridge.root, path)?;
+            let relative = bridge.file_relative(path)?;
             if fs::machine_secret(&relative) {
                 return Err("Machine credential store denied".into());
             }
@@ -303,6 +345,7 @@ fn prepare(
     let prompt = question.map(|question| serde_json::from_value(json!({"question":question,"options":[{"label":"Allow once","value":"allow_once"},{"label":"Reject","value":"reject_once"}]})).map_err(|error|error.to_string())).transpose()?;
     Ok((prompt, env))
 }
+#[cfg(not(windows))]
 fn terminal_cwd(bridge: &Bridge, command: &terminal::Command) -> Result<PathBuf, String> {
     let cwd = command
         .cwd
@@ -549,7 +592,7 @@ async fn execute(
                 if state.closed || state.generation != generation {
                     return Err("Bridge closed".into());
                 }
-                let relative = fs::relative(&bridge.root, &path)?;
+                let relative = bridge.file_relative(&path)?;
                 fs::read(&bridge.root, &bridge.root_handle, &relative, line, limit)
                     .map(|content| json!({"content":content}))
             })
@@ -565,7 +608,7 @@ async fn execute(
                 if state.closed || state.generation != generation {
                     return Err("Bridge closed".into());
                 }
-                let relative = fs::relative(&bridge.root, &path)?;
+                let relative = bridge.file_relative(&path)?;
                 fs::write(
                     &bridge.root,
                     &bridge.root_handle,
@@ -729,4 +772,18 @@ pub(super) async fn cancel_all(
     let bridges = cancel(svc, session, process, close).await;
     let permissions = super::prompt_answers::cancel_pending(svc, session, process).await;
     bridges.and(permissions)
+}
+
+#[cfg(windows)]
+fn terminal_cwd(bridge: &Bridge, command: &terminal::Command) -> Result<PathBuf, String> {
+    fs::root_matches(&bridge.root, &bridge.root_handle)?;
+    let Some(cwd) = command.cwd.as_deref() else {
+        return Ok(bridge.root.clone());
+    };
+    if std::path::Path::new(cwd) == bridge.root {
+        return Ok(bridge.root.clone());
+    }
+    let relative = bridge.directory_relative(cwd)?;
+    fs::directory(&bridge.root_handle, &relative)?;
+    Ok(bridge.root.join(relative))
 }
