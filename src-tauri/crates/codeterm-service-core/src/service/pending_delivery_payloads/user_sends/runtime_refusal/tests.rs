@@ -107,21 +107,47 @@ fn unreadable_rpc_refusal_receipt_refuses_loading_and_admission_until_removed() 
     let reopened = UserSendStore::open(dir.path()).unwrap();
     assert!(reopened.records("tab").is_err());
     assert!(reopened.receipts("tab").is_err());
+    let authority = UserSendAuthority {
+        tab_id: "tab".into(),
+        pty_id: None,
+        binding_nonce: "nonce".into(),
+        pty_session_generation: None,
+        provider_id: "fixture".into(),
+        session_id: Some("thread".into()),
+        observed_session_id: Some("thread".into()),
+        prelaunch: false,
+    };
+    let allocated = std::cell::Cell::new(false);
     assert!(reopened
-        .reserve(
-            UserSendAuthority {
-                tab_id: "tab".into(),
-                pty_id: None,
-                binding_nonce: "nonce".into(),
-                pty_session_generation: None,
-                provider_id: "fixture".into(),
-                session_id: Some("thread".into()),
-                observed_session_id: Some("thread".into()),
-                prelaunch: false,
-            },
-            None,
-            || (uuid::Uuid::new_v4().to_string(), 1)
-        )
+        .reserve(authority.clone(), None, || {
+            allocated.set(true);
+            (uuid::Uuid::new_v4().to_string(), 1)
+        })
+        .is_err());
+    assert!(!allocated.get());
+    assert!(reopened.tab("tab").admissions.lock().pending.is_empty());
+    let tab = reopened.tab("tab");
+    tab.admissions
+        .lock()
+        .tokens
+        .insert("cached-token".into(), uuid::Uuid::new_v4().to_string(), 1)
+        .unwrap()
+        .finish();
+    assert!(reopened
+        .reserve_with_replay_only(authority, Some("cached-token".into()), true, || {
+            panic!("unreadable owner must not allocate a replay identity")
+        })
+        .is_err());
+    assert_eq!(fs::read(&path).unwrap(), unreadable);
+    let status = ChatSendLedger::default()
+        .try_start("tab", "opaque", None)
+        .unwrap();
+    assert!(reopened
+        .record_delivered("tab", &[status.send_id.clone()])
+        .is_err());
+    assert!(reopened.persist_runtime_status(&status).is_err());
+    assert!(reopened
+        .persist_rpc_refusal(&status, "thread", "nonce")
         .is_err());
     assert_eq!(fs::read(&path).unwrap(), unreadable);
     // Operator recovery removes only the unreadable refusal receipts before reopening the owner.
