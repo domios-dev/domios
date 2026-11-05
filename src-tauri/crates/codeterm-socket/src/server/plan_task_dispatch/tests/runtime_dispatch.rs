@@ -117,8 +117,8 @@ fn socket_plan_task_dispatch_runtime_preserves_binding_and_reaches_worker_ack() 
 }
 
 #[test]
-fn socket_task_added_without_personality_dispatches_with_first_word_title() {
-    assert_runtime_task_dispatch(None, "Prism", false);
+fn socket_task_added_with_explicit_personality_dispatches_with_planned_title() {
+    assert_runtime_task_dispatch(Some("Prism"), "Prism", false);
 }
 
 #[test]

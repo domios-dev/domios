@@ -53,6 +53,7 @@ mod ownership;
 mod rename_guard;
 mod respond_screen;
 mod scrollback;
+mod task_personality;
 
 pub(crate) use rename_guard::refuse_task_bound_rename;
 

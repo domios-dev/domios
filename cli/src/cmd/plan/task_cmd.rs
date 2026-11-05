@@ -693,9 +693,7 @@ pub(super) fn run_task(
                 params["role_guidance"] = json!(guidance);
             }
             params["executor_role"] = json!(executor_role);
-            if !personality.is_empty() {
-                params["personality"] = json!(personality);
-            }
+            params["personality"] = json!(personality);
             if let Some(i) = intent_text {
                 params["intent"] = json!(i);
             }
