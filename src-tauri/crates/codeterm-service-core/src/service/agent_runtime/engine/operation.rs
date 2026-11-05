@@ -320,8 +320,17 @@ async fn run_inner(
                     RpcReply::Success { value } => Ok(value.clone()),
                     RpcReply::Error { error } => Err(error.clone()),
                 };
+                let approval = super::super::client_bridge::approvals::approved_reply(
+                    &context,
+                    &operation,
+                    reply.as_ref().ok(),
+                )
+                .await;
                 handed_off.store(true, Ordering::Release);
-                process.client.reply(request_id, reply).await?;
+                if let Err(reason) = process.client.reply(request_id, reply).await {
+                    super::super::client_bridge::approvals::revoke(&context, approval);
+                    return Err(reason);
+                }
                 session.prompts.lock().remove(request_id);
                 Ok(Value::Null)
             }

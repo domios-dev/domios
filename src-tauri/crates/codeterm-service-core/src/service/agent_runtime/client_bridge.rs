@@ -1,3 +1,4 @@
+pub(super) mod approvals;
 mod fs;
 mod terminal;
 #[cfg(test)]
@@ -101,6 +102,7 @@ struct State {
     session: Option<String>,
     pending: HashMap<RpcId, Pending>,
     terminals: HashMap<String, Arc<terminal::Terminal>>,
+    approvals: approvals::Approvals,
 }
 struct Bridge {
     epoch: u64,
@@ -194,6 +196,7 @@ pub(super) fn install(
                 session: context.thread_id.clone(),
                 pending: HashMap::new(),
                 terminals: HashMap::new(),
+                approvals: Default::default(),
             }),
             inflight: Arc::new(tokio::sync::Semaphore::new(64)),
         }),
@@ -361,7 +364,9 @@ fn prepare(
             if fs::secret(&relative) {
                 Some(format!(
                     "Read sensitive workspace file: {}",
-                    bridge.root.join(relative).display()
+                    codeterm_paths::strip_verbatim_prefix(
+                        &bridge.root.join(relative).to_string_lossy()
+                    )
                 ))
             } else {
                 None
@@ -381,7 +386,9 @@ fn prepare(
             fs::check(&bridge.root, &relative, true)?;
             Some(format!(
                 "Write workspace file: {}\n{}",
-                bridge.root.join(relative).display(),
+                codeterm_paths::strip_verbatim_prefix(
+                    &bridge.root.join(relative).to_string_lossy()
+                ),
                 content
             ))
         }
@@ -451,6 +458,14 @@ fn prepare(
         )?
     } else {
         BTreeMap::new()
+    };
+    let question = match request {
+        Request::Write { path, content, .. }
+            if approvals::consume(bridge, context, path, content) =>
+        {
+            None
+        }
+        _ => question,
     };
     let prompt = question.map(|question| serde_json::from_value(json!({"question":question,"options":[{"label":"Allow once","value":"allow_once"},{"label":"Reject","value":"reject_once"}]})).map_err(|error|error.to_string())).transpose()?;
     Ok((prompt, env))
@@ -817,6 +832,7 @@ pub(super) async fn cancel(
         let mut state = bridge.state.lock();
         state.closed = true;
         state.generation += 1;
+        state.approvals.clear();
         (
             std::mem::take(&mut state.pending),
             std::mem::take(&mut state.terminals),
@@ -860,6 +876,7 @@ pub(super) fn begin_turn(context: &RuntimeContext) {
         let mut state = bridge.state.lock();
         state.generation += 1;
         state.closed = false;
+        state.approvals.clear();
     }
 }
 

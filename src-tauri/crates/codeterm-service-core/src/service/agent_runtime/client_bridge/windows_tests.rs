@@ -897,3 +897,46 @@ fn windows_exclusive_reader_reports_neutral_file_locked_refusal() {
         "original"
     );
 }
+
+#[test]
+fn windows_bridge_questions_use_display_paths_without_changing_io_paths() {
+    let (_temp, root) = tests::root();
+    let (fixture, tab, _peer, _cleanup) = engine::test_support::runtime_fixture();
+    let session = engine::for_tab(&tab).unwrap();
+    {
+        let mut context = session.context.lock();
+        context.cwd = root.to_string_lossy().into_owned();
+        context.active_turn_id = Some("display-turn".into());
+    }
+    let context = session.context.lock().clone();
+    install(&context, Some(tests::capabilities())).unwrap();
+    let bridge = bridge(&context).unwrap();
+    std::fs::write(root.join(".env.local"), "opaque").unwrap();
+    for request in [
+        Request::Read {
+            session_id: "own-thread".into(),
+            path: root.join(".env.local").to_string_lossy().into_owned(),
+            line: None,
+            limit: None,
+        },
+        Request::Write {
+            session_id: "own-thread".into(),
+            path: root.join("created.txt").to_string_lossy().into_owned(),
+            content: "opaque".into(),
+        },
+    ] {
+        let question = prepare(&fixture.service, &session, &context, &bridge, &request)
+            .unwrap()
+            .0
+            .unwrap()
+            .question;
+        assert!(!question.contains(r"\\?\"));
+        let path = match request {
+            Request::Read { path, .. } | Request::Write { path, .. } => path,
+            _ => unreachable!(),
+        };
+        assert!(question.contains(&codeterm_paths::strip_verbatim_prefix(&path)));
+    }
+    assert_eq!(bridge.root, root);
+    BRIDGES.lock().remove(&context.tab_id);
+}

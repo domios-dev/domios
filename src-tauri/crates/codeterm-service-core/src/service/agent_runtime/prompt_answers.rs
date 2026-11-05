@@ -30,6 +30,7 @@ fn request_token(context: &RuntimeContext, request: &RpcId) -> String {
 
 pub fn publish(svc: &ServiceContext, session: &Session, request: RpcId, mut prompt: PendingPrompt) {
     let context = session.context.lock().clone();
+    super::client_bridge::approvals::remember(&context, &request);
     prompt.request_id = Some(request_token(&context, &request));
     let visible = {
         let mut prompts = PROMPTS.lock();
@@ -67,6 +68,7 @@ pub fn clear(svc: &ServiceContext, context: &RuntimeContext) {
 }
 
 fn remove(svc: &ServiceContext, context: &RuntimeContext, request: Option<&RpcId>) {
+    super::client_bridge::approvals::forget(context, request);
     let (removed, next) = {
         let mut prompts = PROMPTS.lock();
         let Some(queue) = prompts.get_mut(&context.tab_id) else {
