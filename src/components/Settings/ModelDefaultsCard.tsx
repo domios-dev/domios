@@ -21,7 +21,7 @@ export function ModelDefaultsCard({ config, onUpdate, onSwitchGeneralProvider, o
     <SettingsCard
       icon={<Cpu size={16} />}
       title="Model defaults"
-      description="Models used when nothing else picks one. When a provider stops offering a model, its default moves to the closest model it still offers."
+      description="Models used when nothing else picks one. When a harness stops offering a model, its default moves to the closest model it still offers."
     >
       {onSwitchGeneralProvider && <div className="mb-2 border-b border-[var(--ct-border)] pb-5">
         <GeneralAgentProviderChoice current={config.general_agent?.agent_provider} onOpenGuide={onOpenGuide}

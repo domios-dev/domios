@@ -128,7 +128,7 @@ export function OrchestrationRoleRow({
       )}
       {providerDisabled && (
         <div className="flex items-center gap-2 text-[10px] text-[var(--ct-muted-fg)]">
-          <span>{provider?.display_name ?? "This provider"}'s CLI isn't installed</span>
+          <span>{provider?.display_name ?? "This harness"}'s CLI isn't installed</span>
           {onInstallProvider && provider?.install_command && (
             <button
               type="button"

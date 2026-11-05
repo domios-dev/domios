@@ -26,7 +26,7 @@ const labels: Record<typeof ACTIVITY_LABELS[number], Outcome> = {
   relevance_scored: outcome(ArrowDownWideNarrow, "Scored memory relevance"),
   ready_idle: outcome(CircleCheck, "is ready and idle", "quiet"),
   working_normally: outcome(Play, "is working normally", "quiet"),
-  provider_update_prompt: outcome(RefreshCw, "needs a provider update"),
+  provider_update_prompt: outcome(RefreshCw, "needs a harness update"),
   trust_or_permission_prompt: outcome(ShieldCheck, "needs trust or permission"),
   login_or_auth_required: outcome(KeyRound, "needs authentication"),
   model_unavailable_or_quota: outcome(TriangleAlert, "needs an available model or quota"),
@@ -57,8 +57,8 @@ const reasons: Record<typeof ACTIVITY_REASONS[number], string> = {
   launch_ready: "launch ready", startup_deadline: "startup deadline reached",
   startup_escalation: "startup needs attention", worker_idle_without_report: "worker idle without a report",
   busy_without_output: "no new output", tab_exit: "tab exited",
-  provider_declared_safe_choice: "provider safe choice", deterministic_directory_trust: "directory trust verified",
-  verified_provider_absence: "provider absence verified", confirmed_provider_exit_to_live_shell: "provider exited to shell",
+  provider_declared_safe_choice: "harness safe choice", deterministic_directory_trust: "directory trust verified",
+  verified_provider_absence: "harness absence verified", confirmed_provider_exit_to_live_shell: "harness exited to shell",
   watchdog_dead_pty_event: "terminal lost", resumed: "session resumed", fresh_launch: "fresh launch",
   budget: "request cap reached", credit_exhausted: "credit exhausted", deadline: "decision timed out",
   unavailable: "model unavailable", no_adapter: "no decision adapter", hard_wake: "action needed",
@@ -67,7 +67,7 @@ const reasons: Record<typeof ACTIVITY_REASONS[number], string> = {
   low_confidence: "uncertain decision", other: "unclassified state", budget_exhausted: "request cap reached",
   model_deadline: "decision timed out", model_failed: "model failed", adapter_disconnected: "adapter disconnected",
   invalid_answer: "invalid model answer", route_failed: "route failed",
-  provider_safe_step_authorized: "safe provider step authorized", provider_safe_step_stale: "safe provider step expired",
+  provider_safe_step_authorized: "safe harness step authorized", provider_safe_step_stale: "safe harness step expired",
   observation_bounds: "observation unavailable",
 };
 

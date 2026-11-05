@@ -23,5 +23,5 @@ export function goalMutation(snapshot:GoalSnapshot,action:GoalAction) {
   return {action,confirmed:true,binding:snapshot.binding,expectedIntent:snapshot.intent};
 }
 export function goalConfirmation(action:GoalAction):string {
-  return action === "cancel" ? "Remove this goal from the provider session?" : action === "complete" ? "Mark this goal as achieved?" : action === "pause" ? "Pause work toward this goal?" : "Resume work toward this goal?";
+  return action === "cancel" ? "Remove this goal from the harness session?" : action === "complete" ? "Mark this goal as achieved?" : action === "pause" ? "Pause work toward this goal?" : "Resume work toward this goal?";
 }

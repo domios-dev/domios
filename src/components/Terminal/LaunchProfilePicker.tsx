@@ -63,7 +63,7 @@ export function LaunchProfileModelRow({profile, model, effort, onModel, onEffort
     [{value: "", label: "Default"}, ...(option?.options ?? []).map(entry => ({value: entry.value, label: entry.name}))];
   return <div className="mt-2 flex items-center gap-2" data-testid="launch-profile-model-row">
     {declared.model && <div className="min-w-0 flex-1">
-      <DropdownSelect aria-label="Agent model" data-testid="picker-profile-model" options={options(declared.model)} value={model} onChange={onModel} />
+      <DropdownSelect aria-label="Agent model" data-testid="picker-profile-model" options={options(declared.model)} value={model} onChange={onModel} prefix="Model" />
     </div>}
     {declared.effort && <div className="min-w-0 flex-1">
       <DropdownSelect aria-label="Agent effort" data-testid="picker-profile-effort" options={options(declared.effort)} value={effort}

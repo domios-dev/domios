@@ -152,7 +152,7 @@ function MemoryActivityTabImpl({ api, config, nodes, onNavigateToItem }: Props) 
                   const modelLabel =
                     provider?.available_models.find((item) => item.id === model)?.display_name ||
                     model ||
-                    "Provider default";
+                    "Harness default";
                   const disabled =
                     kind === "extraction"
                       ? config?.memory?.auto_extract === false
@@ -190,7 +190,7 @@ function MemoryActivityTabImpl({ api, config, nodes, onNavigateToItem }: Props) 
                         <span className={`${muted} block mt-1`}>{description}</span>
                         <span className={`${muted} block mt-2`}>
                           {config
-                            ? `${provider?.display_name || providerId || "Provider not configured"} / ${modelLabel}`
+                            ? `${provider?.display_name || providerId || "Harness not configured"} / ${modelLabel}`
                             : "Configuration unavailable"}
                         </span>
                         {current.live[0] && (

@@ -53,7 +53,7 @@ export function RuntimeLoginActions({ tabId, state, iconSvg, onCheck, providerId
   const expired = state.login?.status === "pending" && state.login.expiresAtMs != null && state.login.expiresAtMs <= Date.now();
   const login = expired ? { ...state.login, status: "failed" as const, url: undefined, userCode: undefined, error: "Sign-in expired. Cancel it and try again." } : state.login;
   const pending = login?.status === "pending";
-  const provider = state.loginProviderName ?? state.agentName ?? "the provider";
+  const provider = state.loginProviderName ?? state.agentName ?? "the agent";
   const methods = state.loginMethods ?? [];
   const failure = error ?? login?.error;
   const center = variant === "center";
@@ -139,7 +139,7 @@ export function RuntimeLoginActions({ tabId, state, iconSvg, onCheck, providerId
       <button type="submit" className={primary} disabled={busy || !code.trim()}>Submit code</button>
     </form>}
 
-    {failure && <div className="w-full text-left"><InlineErrorNotice error={failure} operation="signing in to the provider" blocking /></div>}
+    {failure && <div className="w-full text-left"><InlineErrorNotice error={failure} operation="signing in" blocking /></div>}
 
     {!pending && <div className={`flex flex-wrap items-center gap-1 ${center ? "justify-center" : ""}`}>
       {onCheck && <button className={quiet} type="button" disabled={busy} onClick={state.loginChoices?.length ? () => { void operate({ action: "check" }); } : onCheck}>I already signed in</button>}

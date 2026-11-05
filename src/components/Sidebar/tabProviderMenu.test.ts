@@ -38,7 +38,7 @@ test("a PTY agent tab is offered the other PTY providers", () => {
 
 test("the entry names the provider it is on", () => {
   const view = tabProviderMenuView(tab(), CATALOG, "Idle");
-  assert.equal(tabProviderEntryLabel(view!), "Switch provider…");
+  assert.equal(tabProviderEntryLabel(view!), "Switch harness…");
 });
 
 test("a runtime-backed tab offers managed provider handoff", () => {

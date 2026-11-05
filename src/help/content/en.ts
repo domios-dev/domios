@@ -21,7 +21,7 @@ export const enHelpContent: HelpLocaleContent = {
           items: [
             "You stay in control: agents ask before destructive actions, and every plan has explicit review gates.",
             "Everything agents do is visible — the sidebar shows who works for whom, live.",
-            "Nothing is cloud-locked: providers are pluggable (Claude, Codex, OpenCode, local models).",
+            "Nothing is cloud-locked: harnesses are pluggable (Claude, Codex, OpenCode, local models).",
           ],
         },
         {
@@ -69,7 +69,7 @@ export const enHelpContent: HelpLocaleContent = {
       blocks: [
         {
           type: "paragraph",
-          text: "Any provider can be spawned into a tab — Claude, Codex, OpenCode, local models — for a quick one-off session. But the real power is the orchestration system: one Orchestrator owns the plan and attaches a Planner specialist when structure needs careful thought.",
+          text: "Any harness can be spawned into a tab — Claude, Codex, OpenCode, local models — for a quick one-off session. But the real power is the orchestration system: one Orchestrator owns the plan and attaches a Planner specialist when structure needs careful thought.",
         },
         {
           type: "paragraph",
@@ -91,7 +91,7 @@ export const enHelpContent: HelpLocaleContent = {
         },
         {
           type: "tip",
-          text: "New session → Orchestration spawns the pair in one click: pick a provider and model for each head (defaults: Claude Opus orchestrating, Claude Fable planning) — they wake up already knowing each other.",
+          text: "New session → Orchestration spawns the pair in one click: pick a harness and model for each head (defaults: Claude Opus orchestrating, Claude Fable planning) — they wake up already knowing each other.",
         },
         {
           type: "ask",
@@ -154,9 +154,9 @@ export const enHelpContent: HelpLocaleContent = {
         { type: "paragraph", text: "The Curator never dispatches Workers, accepts or bounces reports, pauses or resumes a plan, or answers prompts. Stopping or amending a Blueprint requires an explicit grant for that round. Global saves follow the conservative evidence rule and contradiction check; a grant can provide the evidence. A free-text yes grants no authority." },
         { type: "heading", text: "Curator or Heartbeat" },
         { type: "paragraph", text: "Open Plan settings at the top of Mission Control to switch modes. Curator is the default and chooses its own pace; Heartbeat sends a plain system reminder at your selected interval or the machine default. Pause stops both until the plan resumes. Machine-wide plan reminders can silence both modes." },
-        { type: "paragraph", text: "After repeated round failures, an unavailable provider, or an absent or unbound Orchestrator, the host can fall back to Heartbeat. The settings state line shows the reason while preserving your Curator choice. A successful round clears the fallback." },
+        { type: "paragraph", text: "After repeated round failures, an unavailable harness, or an absent or unbound Orchestrator, the host can fall back to Heartbeat. The settings state line shows the reason while preserving your Curator choice. A successful round clears the fallback." },
         { type: "heading", text: "Cost and visibility" },
-        { type: "paragraph", text: "A real round uses the live Orchestrator's provider, model and reasoning effort. Quiet windows and plain heartbeats use no agent tokens. Inspect real runs in Jobs, recorded curator_round strides in the plan timeline, and one line per round in Mission Control's Team feed. Run usage contributes to the Team's token accounting." },
+        { type: "paragraph", text: "A real round uses the live Orchestrator's harness, model and reasoning effort. Quiet windows and plain heartbeats use no agent tokens. Inspect real runs in Jobs, recorded curator_round strides in the plan timeline, and one line per round in Mission Control's Team feed. Run usage contributes to the Team's token accounting." },
         { type: "heading", text: "Where learnings go" },
         { type: "paragraph", text: "Round notes become heartbeat learnings, visible with codeterm orchestrator heartbeat show. Effort-specific procedures belong in plan skills (codeterm plan skill list). Global memory is reserved for solutions supported by repeated closed episodes or an explicit save grant, checked against existing memory and saved with evidence and low initial confidence. Most rounds save nothing globally." },
         { type: "guide-link", label: "Plans", section: "plans" },
@@ -247,7 +247,7 @@ export const enHelpContent: HelpLocaleContent = {
         },
         {
           type: "paragraph",
-          text: "Quiet team heartbeats. On existing scheduler ticks, Domios checks reports, task changes and each Worker's own session, ACK, provider process, turns, lane commits and classified prompt. A connected Spinal Cord makes one shared-budget decision. Healthy, unchanged work stays quiet without model calls; coarse health hashes ignore changing turn counters and timestamps. Repeated soft decisions share the existing nudge interval. Undelivered reports, failed gates, owner messages and answers, worker incidents and mode changes always wake the Orchestrator with a next step. Uncertain answers wake too. Without a model or when its budget is exhausted, changed plan evidence or unhealthy workers wake deterministically. After two hours of silence a short status confirms the scheduler is active. Review hold notes excuse deliberate review inactivity until the state or verdict changes. Relevant learnings are capped at three; fallback uses recent learnings. Settings shows wakes and suppressions in the activity feed. This is automatic, with no feature switch.",
+          text: "Quiet team heartbeats. On existing scheduler ticks, Domios checks reports, task changes and each Worker's own session, ACK, harness process, turns, lane commits and classified prompt. A connected Spinal Cord makes one shared-budget decision. Healthy, unchanged work stays quiet without model calls; coarse health hashes ignore changing turn counters and timestamps. Repeated soft decisions share the existing nudge interval. Undelivered reports, failed gates, owner messages and answers, worker incidents and mode changes always wake the Orchestrator with a next step. Uncertain answers wake too. Without a model or when its budget is exhausted, changed plan evidence or unhealthy workers wake deterministically. After two hours of silence a short status confirms the scheduler is active. Review hold notes excuse deliberate review inactivity until the state or verdict changes. Relevant learnings are capped at three; fallback uses recent learnings. Settings shows wakes and suppressions in the activity feed. This is automatic, with no feature switch.",
         },
         { type: "heading", text: "Budget and fallback" },
         {
@@ -293,7 +293,7 @@ export const enHelpContent: HelpLocaleContent = {
             },
             {
               type: "paragraph",
-              text: "Recovery needs two agreeing observations, at least 0.90 confidence and deterministic evidence. A crash restart requires the provider process to be absent; text on a live tab alone never authorizes a restart. Automatic actions are qualified by a separate held-out evaluation; unqualified actions notify instead. The automatic provider coordinator answers classified update prompts with the declared safe option; model recovery outside it also requires agreement. Owner notifications also need two agreeing observations, each at least 0.80 confidence; observations below 0.60 are ignored. An other verdict takes no action.",
+              text: "Recovery needs two agreeing observations, at least 0.90 confidence and deterministic evidence. A crash restart requires the harness process to be absent; text on a live tab alone never authorizes a restart. Automatic actions are qualified by a separate held-out evaluation; unqualified actions notify instead. The automatic harness coordinator answers classified update prompts with the declared safe option; model recovery outside it also requires agreement. Owner notifications also need two agreeing observations, each at least 0.80 confidence; observations below 0.60 are ignored. An other verdict takes no action.",
             },
             {
               type: "paragraph",

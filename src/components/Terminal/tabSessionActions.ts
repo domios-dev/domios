@@ -10,7 +10,7 @@ export const TAB_SESSION_LABELS = {
   copy: "Copy session ID",
   autoConfirm: "Auto-confirm permissions",
   autoConfirmHint:
-    "Answers Yes once to tool permission prompts the provider recognizes. Questions, trust dialogs and anything unrecognized stay for you.",
+    "Answers Yes once to tool permission prompts the harness recognizes. Questions, trust dialogs and anything unrecognized stay for you.",
 } as const;
 
 /** The tab's persisted opt-in, or `null` when its provider cannot recognize permission prompts. */

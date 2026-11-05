@@ -364,7 +364,7 @@ it("keeps an empty remote environment list actionable and refuses spawn", async 
   }} as never);
   await renderPicker();
   await act(async () => dialog().querySelector<HTMLInputElement>('input[value="cloud"]')!.click());
-  expect(Array.from(dialog().querySelectorAll("button")).find(button => button.textContent === "Refresh providers")).toBeDefined();
+  expect(Array.from(dialog().querySelectorAll("button")).find(button => button.textContent === "Refresh harnesses")).toBeDefined();
   expect(dialog().querySelector<HTMLButtonElement>('[data-testid="picker-confirm"]')?.disabled).toBe(true);
   expect(fixture.actions.spawnAgentTab).not.toHaveBeenCalled();
 });

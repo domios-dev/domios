@@ -79,7 +79,7 @@ it("renders declared authentication methods and submits only an available method
   ]}};
   try {
     await act(async()=>root.render(<RuntimeLoginActions tabId="owned" state={state}/>));
-    const group=host.querySelector('[role="group"][aria-label="Sign in to the provider"]');
+    const group=host.querySelector('[role="group"][aria-label="Sign in to the agent"]');
     expect(group).not.toBeNull();
     // No raw state word in the card.
     expect(host.querySelector('output[aria-label="Authentication state"]')).toBeNull();
