@@ -98,6 +98,15 @@ impl RuntimeFixture {
         storage: bool,
         launch_profiles: Option<Value>,
     ) -> Self {
+        Self::prepared_with_runtime(
+            source,
+            storage,
+            launch_profiles
+                .map_or_else(|| json!({}), |profiles| json!({"launchProfiles": profiles})),
+        )
+    }
+    /// `runtime` fields are set on the fixture's `agentRuntime` declaration.
+    fn prepared_with_runtime(source: &str, storage: bool, runtime: Value) -> Self {
         let (mut mux, tab) = MultiplexerState::new();
         let target = mux.get_tab_mut(&tab).unwrap();
         target.agent_type = Some(PROVIDER.into());
@@ -182,8 +191,8 @@ impl RuntimeFixture {
                 "verifySubmit":{"kind":"none"}},
             "permissions":{"subprocess":{"allow":["node"]}}
         });
-        if let Some(launch_profiles) = launch_profiles {
-            raw_manifest["capabilities"]["agentRuntime"]["launchProfiles"] = launch_profiles;
+        for (field, value) in runtime.as_object().cloned().unwrap_or_default() {
+            raw_manifest["capabilities"]["agentRuntime"][field] = value;
         }
         let manifest = PluginManifest::from_json_str(&raw_manifest.to_string()).unwrap();
         fixture

@@ -108,7 +108,14 @@ async fn restart_inner(
     let nonce = super::authority::rotate_restart(svc, tab, provider, old_nonce)
         .map_err(RuntimeFailure::Refused)?;
     svc.stage_runtime_restart_binding(tab, binding);
+    let mut bridge_retired = Ok(());
     if let Some(session) = &session {
+        // The client bridge is found by the old epoch and nonce, so it retires (its pending
+        // requests answered, terminals killed) before the context moves to the new epoch.
+        let process = session.process.lock().clone();
+        if let Some(process) = process {
+            bridge_retired = super::client_bridge::cancel(svc, session, &process, true).await;
+        }
         let context = session.context.lock().clone();
         super::prompt_answers::clear(svc, &context);
         let epoch = session.state.lock().begin();
@@ -188,7 +195,7 @@ async fn restart_inner(
             }
             session.process.lock().take();
         }
-        Ok(())
+        bridge_retired
     }
     .await;
     drop(_permit);

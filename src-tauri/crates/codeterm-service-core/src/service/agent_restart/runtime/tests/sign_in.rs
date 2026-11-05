@@ -168,14 +168,41 @@ module.exports = {
 };
 "#;
 
+const CLIENT_BRIDGE: &str = r#"{"fsRead":true,"fsWrite":false,"terminal":false}"#;
+
+#[test]
+fn restart_retires_the_old_epoch_client_bridge_before_relaunching() {
+    let fixture = RuntimeFixture::prepared_with_runtime(
+        SOURCE,
+        true,
+        json!({"clientBridges": serde_json::from_str::<Value>(CLIENT_BRIDGE).unwrap()}),
+    );
+    agent_runtime::transport::launch(
+        &fixture.service,
+        PROVIDER,
+        &fixture.tab,
+        json!({"systemPrompt":PROMPT,"model":"supplied-model"}),
+    )
+    .unwrap();
+    let outcome = fixture.service.agent_restart(&fixture.tab, false, 0);
+    assert!(
+        outcome.as_ref().is_ok_and(|outcome| outcome.agent_ready),
+        "{outcome:?}"
+    );
+}
+
 #[test]
 fn declared_key_sign_in_stores_the_key_injects_it_and_authenticates_before_loading() {
     const SECRET: &str = "domios:provider:restart-fixture:auth";
-    let fixture = RuntimeFixture::prepared_with_launch_profiles(
+    // The bridge makes the sign-in restart retire the running epoch's bridge, as live ACP does.
+    let fixture = RuntimeFixture::prepared_with_runtime(
         KEYED_AUTH_SOURCE,
         true,
-        Some(json!({"keyed":{"binary":"node","args":[],
-            "authEnv":{"OPAQUE_AUTH_KEY":{"secret":SECRET,"methods":["opaque-key-method"]}}}})),
+        json!({
+            "launchProfiles": {"keyed":{"binary":"node","args":[],
+                "authEnv":{"OPAQUE_AUTH_KEY":{"secret":SECRET,"methods":["opaque-key-method"]}}}},
+            "clientBridges": serde_json::from_str::<Value>(CLIENT_BRIDGE).unwrap()
+        }),
     );
     crate::async_runtime::block_on(async {
         *fixture.service.secrets.write().await = Arc::new(crate::secrets::mock::MockStore::new());
