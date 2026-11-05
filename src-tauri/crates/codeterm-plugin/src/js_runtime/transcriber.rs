@@ -5,7 +5,8 @@ use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::json;
 
-use super::vm::{call_json_async, PluginVm};
+use super::call_deadline::LongCall;
+use super::vm::{call_json_async, call_json_async_until, PluginVm, VmError};
 use crate::transcribe::{TranscribeError, Transcriber, TranscriberStatus, Transcript};
 
 pub struct JsTranscriber {
@@ -61,11 +62,20 @@ impl Transcriber for JsTranscriber {
         audio_path: &Path,
         language: &str,
     ) -> Result<Transcript, TranscribeError> {
-        let args = [
+        let args = vec![
             json!(audio_path.to_string_lossy().to_string()),
             json!(language),
         ];
-        match call_json_async::<TranscribeOut>(self.vm.clone(), "transcribe", args.to_vec()).await {
+        let call = LongCall::Transcription;
+        let (cancellation, deadline) = call.interrupt();
+        let result = call_json_async_until::<TranscribeOut>(
+            self.vm.clone(),
+            "transcribe",
+            args,
+            (cancellation, deadline),
+        )
+        .await;
+        match result {
             Ok(out) => {
                 if let Some(e) = out.error {
                     return Err(TranscribeError::RequestFailed(e));
@@ -77,12 +87,32 @@ impl Transcriber for JsTranscriber {
                     Ok(Transcript { text })
                 }
             }
-            Err(e) => Err(TranscribeError::RequestFailed(format!(
-                "plugin transcribe failed: {e:?}"
-            ))),
+            Err(error) => Err(call_failure(
+                error,
+                std::time::Instant::now() >= deadline,
+                call.bound(),
+            )),
         }
     }
 }
 
+/// A deadline close revokes the call, so any interruption past the deadline is a timeout.
+fn call_failure(
+    error: VmError,
+    past_deadline: bool,
+    bound: std::time::Duration,
+) -> TranscribeError {
+    match error {
+        VmError::AsyncJobTimedOut | VmError::CallCancelled | VmError::IoUnconfirmed
+            if past_deadline =>
+        {
+            TranscribeError::TimedOut(bound)
+        }
+        error => TranscribeError::RequestFailed(format!("plugin transcribe failed: {error}")),
+    }
+}
+
+#[cfg(test)]
+mod deadline_tests;
 #[cfg(test)]
 mod tests;

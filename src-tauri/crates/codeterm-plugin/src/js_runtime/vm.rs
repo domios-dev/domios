@@ -3,7 +3,9 @@
 mod arguments;
 mod async_call;
 pub use async_call::spawn_blocking;
-pub(super) use async_call::{call_json_async, with_blocking_operation_interruptible};
+pub(super) use async_call::{
+    call_json_async, call_json_async_until, with_blocking_operation_interruptible,
+};
 mod call_mutex;
 mod connection;
 mod objects;

@@ -2,6 +2,7 @@ mod agent_commands;
 mod bin_resolve;
 mod blueprint_step;
 mod bubble;
+pub(crate) mod call_deadline;
 #[cfg(test)]
 mod call_gate;
 mod chatbackend;
