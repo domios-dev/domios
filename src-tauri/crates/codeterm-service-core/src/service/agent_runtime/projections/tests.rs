@@ -164,7 +164,7 @@ fn declare_usage(svc: &ServiceContext, provider: &str, enabled: bool) {
     let manifest=PluginManifest::from_json_str(&serde_json::json!({
         "id":provider,"version":"1.0.0","displayName":"Fixture",
         "capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},"agentRuntime":{"runtime":"stdio-jsonrpc","usage":enabled,
-            "command":{"binary":"fixture-cli","args":[]},"requestMethods":{},"notificationMethods":[]}},
+            "command":{"binary":"fixture-cli","args":[]},"requestMethods":{"initialize":["initialize"]},"notificationMethods":[]}},
         "permissions":{"subprocess":{"allow":["fixture-cli"]}}
     }).to_string()).unwrap();
     svc.agent_registry
