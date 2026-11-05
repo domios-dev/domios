@@ -1,4 +1,4 @@
-import type { CSSProperties } from "react";
+import { useId, type CSSProperties } from "react";
 import { Bot } from "lucide-react";
 import { useProviderLogo } from "./useProviderLogo";
 
@@ -20,7 +20,10 @@ export function ProviderGlyph(props: Props) {
 
 function ProviderGlyphContent({ iconSvg, fallbackIconSvg, iconColor, className, style, title, ariaLabel, working }: Props) {
   const { presentation, failed, onLoad, onError } = useProviderLogo(iconSvg);
-  const html = iconSvg ? forceInlineSize(iconSvg) : null;
+  const scope = `ct-icon-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}-`;
+  const html = iconSvg ? forceInlineSize(iconSvg)
+    .replace(/\bid="([a-zA-Z_][a-zA-Z0-9_-]*)"/g, (_match, id: string) => `id="${scope}${id}"`)
+    .replace(/url\(#([a-zA-Z_][a-zA-Z0-9_-]*)\)/g, (_match, id: string) => `url(#${scope}${id})`) : null;
 
   const cls = ["agent-icon", working ? "agent-icon-working" : "", className]
     .filter(Boolean)

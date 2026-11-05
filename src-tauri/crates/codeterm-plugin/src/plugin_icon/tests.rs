@@ -1,4 +1,3 @@
-
 use super::*;
 use std::path::PathBuf;
 
@@ -120,5 +119,45 @@ mod icon_color_tests {
         ] {
             assert!(sanitize_plugin_icon_color(color).is_none(), "{color}");
         }
+    }
+}
+
+#[test]
+fn plugin_icon_svg_accepts_shipped_color_marks_and_local_gradients() {
+    for bytes in [
+        include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../plugins/provider-acp/gemini-color.svg"
+        ))
+        .as_slice(),
+        include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../plugins/provider-acp/deepseek-color.svg"
+        ))
+        .as_slice(),
+    ] {
+        assert!(bytes.len() <= MAX_PLUGIN_ICON_BYTES);
+        assert!(sanitize_plugin_icon_svg(bytes).is_some());
+    }
+    let radial = br##"<svg viewBox="0 0 24 24"><defs><radialGradient id="paint" cx="50%" cy="50%" r="50%" fx="0" fy="1" gradientTransform="translate(1,2) scale(2)" gradientUnits="objectBoundingBox"><stop offset="0%" stop-color="#fff" stop-opacity="1"/><stop offset="100%" stop-color="#000"/></radialGradient></defs><path fill="url(#paint)" stroke="url(#paint)" fill-rule="evenodd" d="M0 0"/></svg>"##;
+    assert!(sanitize_plugin_icon_svg(radial).is_some());
+}
+
+#[test]
+fn plugin_icon_svg_refuses_external_missing_duplicate_and_inherited_gradients() {
+    for svg in [
+        r##"<svg><path fill="url(https://example.org/a.svg#paint)"/></svg>"##,
+        r##"<svg><path fill="url(#missing)"/></svg>"##,
+        r##"<svg><defs><linearGradient id="paint" href="#other"/></defs><path fill="url(#paint)"/></svg>"##,
+        r##"<svg><defs><linearGradient id="paint" xlink:href="https://example.org/a"/></defs></svg>"##,
+        r##"<svg><defs><linearGradient id="paint"/><radialGradient id="paint"/></defs></svg>"##,
+        r##"<svg><linearGradient id="paint"/></svg>"##,
+        r##"<svg><stop stop-color="#fff"/></svg>"##,
+        r##"<svg><defs><linearGradient id="paint"><stop stop-color="url(#paint)"/></linearGradient></defs></svg>"##,
+        r##"<svg><defs><linearGradient id="paint" gradientTransform="url(https://example.org/a)"/></defs></svg>"##,
+        r##"<svg><defs><linearGradient id="paint"><stop stop-color="#fff" stop-opacity="2"/></linearGradient></defs></svg>"##,
+        r##"<svg><path fill-rule="url(#paint)"/></svg>"##,
+    ] {
+        assert!(sanitize_plugin_icon_svg(svg.as_bytes()).is_none(), "{svg}");
     }
 }

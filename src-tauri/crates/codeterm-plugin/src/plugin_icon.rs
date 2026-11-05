@@ -7,10 +7,23 @@ use quick_xml::Writer;
 
 pub const MAX_PLUGIN_ICON_BYTES: usize = 8 * 1024;
 
+mod gradient;
 pub mod registry;
 
 const ALLOWED_ELEMENTS: &[&str] = &[
-    "svg", "g", "path", "circle", "ellipse", "rect", "line", "polyline", "polygon",
+    "svg",
+    "g",
+    "path",
+    "circle",
+    "ellipse",
+    "rect",
+    "line",
+    "polyline",
+    "polygon",
+    "defs",
+    "linearGradient",
+    "radialGradient",
+    "stop",
 ];
 
 pub fn load_plugin_icon(bundle_dir: &Path, relative_path: &str) -> Option<String> {
@@ -63,6 +76,7 @@ pub fn sanitize_plugin_icon_svg(bytes: &[u8]) -> Option<String> {
     let mut stack: Vec<String> = Vec::new();
     let mut saw_root = false;
     let mut closed_root = false;
+    let mut references = gradient::References::default();
 
     loop {
         let event = reader.read_event_into(&mut buffer).ok()?;
@@ -77,10 +91,12 @@ pub fn sanitize_plugin_icon_svg(bytes: &[u8]) -> Option<String> {
                     return None;
                 }
                 let name = element_name(&start)?;
-                if !allowed_element(&name) || (stack.is_empty() && name != "svg") {
+                if !allowed_element(&name)
+                    || !gradient::valid_parent(&name, stack.last().map(String::as_str))
+                {
                     return None;
                 }
-                let output = sanitized_element(&start, &name)?;
+                let output = sanitized_element(&start, &name, &mut references)?;
                 writer.write_event(Event::Start(output)).ok()?;
                 saw_root = true;
                 stack.push(name);
@@ -90,10 +106,12 @@ pub fn sanitize_plugin_icon_svg(bytes: &[u8]) -> Option<String> {
                     return None;
                 }
                 let name = element_name(&start)?;
-                if !allowed_element(&name) || (stack.is_empty() && name != "svg") {
+                if !allowed_element(&name)
+                    || !gradient::valid_parent(&name, stack.last().map(String::as_str))
+                {
                     return None;
                 }
-                let output = sanitized_element(&start, &name)?;
+                let output = sanitized_element(&start, &name, &mut references)?;
                 writer.write_event(Event::Empty(output)).ok()?;
                 if stack.is_empty() {
                     saw_root = true;
@@ -117,7 +135,7 @@ pub fn sanitize_plugin_icon_svg(bytes: &[u8]) -> Option<String> {
                 }
             }
             Event::Eof => {
-                if !saw_root || !closed_root || !stack.is_empty() {
+                if !saw_root || !closed_root || !stack.is_empty() || !references.valid() {
                     return None;
                 }
                 let output = writer.into_inner();
@@ -157,7 +175,11 @@ fn allowed_element(name: &str) -> bool {
     ALLOWED_ELEMENTS.contains(&name)
 }
 
-fn sanitized_element(element: &BytesStart<'_>, name: &str) -> Option<BytesStart<'static>> {
+fn sanitized_element(
+    element: &BytesStart<'_>,
+    name: &str,
+    references: &mut gradient::References,
+) -> Option<BytesStart<'static>> {
     let mut output = BytesStart::new(name.to_string());
     for attribute in element.attributes().with_checks(true) {
         let attribute = attribute.ok()?;
@@ -165,17 +187,29 @@ fn sanitized_element(element: &BytesStart<'_>, name: &str) -> Option<BytesStart<
             .ok()?
             .to_string();
         let value = attribute.unescape_value().ok()?.into_owned();
-        if !allowed_attribute(name, &key) || !allowed_attribute_value(&key, &value) {
+        if !allowed_attribute(name, &key)
+            || !(if gradient::definition(name) {
+                gradient::attribute_value(&key, &value)
+            } else {
+                allowed_attribute_value(&key, &value)
+            })
+        {
             return None;
         }
+        references.observe(&key, &value)?;
         output.push_attribute((key.as_str(), value.as_str()));
     }
     Some(output)
 }
 
 fn allowed_attribute(element: &str, attribute: &str) -> bool {
+    if gradient::definition(element) {
+        return gradient::attribute(element, attribute);
+    }
     match attribute {
-        "fill" | "stroke" | "stroke-width" | "stroke-linecap" | "stroke-linejoin" => true,
+        "fill" | "stroke" | "fill-rule" | "stroke-width" | "stroke-linecap" | "stroke-linejoin" => {
+            true
+        }
         "viewBox" | "xmlns" => element == "svg",
         "d" => element == "path",
         "cx" | "cy" => matches!(element, "circle" | "ellipse"),
@@ -189,6 +223,9 @@ fn allowed_attribute(element: &str, attribute: &str) -> bool {
 }
 
 fn allowed_attribute_value(attribute: &str, value: &str) -> bool {
+    if matches!(attribute, "fill" | "stroke") {
+        return gradient::paint(value);
+    }
     if attribute == "xmlns" {
         return value == "http://www.w3.org/2000/svg";
     }
@@ -202,7 +239,7 @@ fn allowed_attribute_value(attribute: &str, value: &str) -> bool {
         return false;
     }
     match attribute {
-        "fill" | "stroke" => matches!(value, "currentColor" | "none"),
+        "fill-rule" => matches!(value, "evenodd" | "nonzero"),
         "stroke-linecap" => matches!(value, "butt" | "round" | "square"),
         "stroke-linejoin" => matches!(value, "miter" | "round" | "bevel"),
         "stroke-width" | "r" | "rx" | "ry" | "width" | "height" => nonnegative_number(value),

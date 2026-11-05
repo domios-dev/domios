@@ -54,9 +54,18 @@ it("renders the selected Gemini profile asset for an ACP tab and spawn picker", 
     await act(async()=>root.render(<><AgentIcon tab={tab} providerId="acp"/><LaunchProfilePicker provider={provider} profiles={[]} selected="gemini-cli" onSelect={()=>{}} onRefresh={()=>{}} error={null}/><TabStatusLineModelPicker tab={tab} label="Gemini CLI"/></>));
     const logo = host.querySelector('[role="img"][aria-label="Gemini CLI · 1.2.3"]');
     expect(logo?.querySelector("svg")?.getAttribute("viewBox")).toBe("0 0 24 24");
-    expect(logo?.querySelector("svg")?.outerHTML).toContain('d="M17 8H9V16H17V12H13"');
-    expect(host.querySelector('[data-testid="status-harness-glyph"] svg')?.outerHTML).toContain('d="M17 8H9V16H17V12H13"');
-    expect(host.querySelector('[role="img"][aria-label="gemini-cli"] svg')?.outerHTML).toContain('d="M17 8H9V16H17V12H13"');
+    expect(logo?.querySelectorAll("linearGradient").length).toBe(3);
+    const ids = [...host.querySelectorAll("linearGradient")].map(gradient => gradient.id);
+    expect(new Set(ids).size).toBe(9);
+    for (const svg of host.querySelectorAll("svg")) {
+      for (const path of svg.querySelectorAll('path[fill^="url("]')) {
+        const id = path.getAttribute("fill")!.slice(5,-1);
+        expect([...svg.querySelectorAll("linearGradient")].some(gradient => gradient.id === id)).toBe(true);
+      }
+    }
+    expect(logo?.querySelector("svg")?.outerHTML).toContain('fill="#3186FF"');
+    expect(host.querySelector('[data-testid="status-harness-glyph"] svg')?.outerHTML).toContain('fill="#3186FF"');
+    expect(host.querySelector('[role="img"][aria-label="gemini-cli"] svg')?.outerHTML).toContain('fill="#3186FF"');
   } finally {await act(async()=>root.unmount());setAgentDescriptors([]);}
 });
 

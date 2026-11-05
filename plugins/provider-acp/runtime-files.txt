@@ -2,5 +2,6 @@ icon.svg
 plugin.js
 plugin.json
 runtime-files.txt
-gemini-cli.svg
-deepseek-harness.svg
+gemini-color.svg
+deepseek-color.svg
+NOTICE
