@@ -731,12 +731,11 @@ where
         let tab_id = mux
             .create_tab(&reservation_workspace)
             .map_err(|error| dispatch_failed("tab_reservation", error))?;
-        let title = spawn_params
-            .title
-            .get_or_insert_with(|| mux.display_label_for_tab(&tab_id));
-        if let Err(error) = mux.rename_tab(&tab_id, title) {
-            mux.rollback_spawn_tab(&reservation_workspace, &tab_id);
-            return Err(dispatch_failed("tab_reservation", error));
+        if let Some(title) = spawn_params.title.as_deref() {
+            if let Err(error) = mux.rename_tab(&tab_id, title) {
+                mux.rollback_spawn_tab(&reservation_workspace, &tab_id);
+                return Err(dispatch_failed("tab_reservation", error));
+            }
         }
         tab_id
     };
