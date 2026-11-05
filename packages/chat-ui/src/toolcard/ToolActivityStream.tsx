@@ -1,6 +1,7 @@
 import { ExpandableReader } from "../ExpandableReader";
 import { toolStreamLabel, type ToolEvent } from "@codeterm/chat-core";
 import { CardChevron } from "../CompactCard";
+import { RowMenuIsolate } from "../messageMenu";
 import { useId, useState, type ReactNode } from "react";
 import { toolCommandShape, type CommandRow } from "../codeterm/commandShape";
 import { COMMAND_TREE_CAP, CommandTree, commandCallKey, rememberOpenSegment } from "./CommandTree";
@@ -110,7 +111,7 @@ export function ToolActivityStream({ event, expanded, onToggle, renderAction }: 
   };
 
   return (
-    <ExpandableReader label="Tool activity" openerPlacement="header">{(fullscreen, opener) => (
+    <RowMenuIsolate><ExpandableReader label="Tool activity" openerPlacement="header">{(fullscreen, opener) => (
     <section
       data-testid="chat-tool-stream"
       data-flow-active={stream.active ? "true" : "false"}
@@ -173,6 +174,6 @@ export function ToolActivityStream({ event, expanded, onToggle, renderAction }: 
         )}
       </div>
     </section>
-    )}</ExpandableReader>
+    )}</ExpandableReader></RowMenuIsolate>
   );
 }

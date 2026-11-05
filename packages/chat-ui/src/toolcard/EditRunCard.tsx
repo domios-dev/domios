@@ -116,7 +116,7 @@ export function EditRunCard({ event, expanded, onToggle }: { event: ToolEvent; e
           <ChatCardMenu label={`Actions for ${title}`} items={[{
             label: "Copy paths", icon: <Copy size={14} aria-hidden />,
             onSelect: () => copyPlainText(files.map((file) => file.movePath ?? file.path).join("\n")),
-          }]} />
+          }]} joinRow />
         </span>
         <CardChevron expanded={expanded} label={`${expanded ? "Collapse" : "Expand"} edited files`} onToggle={() => onToggle(!expanded)} />
       </div>

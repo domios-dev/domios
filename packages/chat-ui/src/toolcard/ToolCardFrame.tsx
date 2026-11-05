@@ -4,6 +4,7 @@ import { toolCommandLabel, type ToolEvent } from "@codeterm/chat-core";
 import { ArrowUpRight, Copy, MessageSquarePlus, SquareTerminal } from "lucide-react";
 import { useCompactToolRow } from "../useCompactToolRow";
 import { CardChevron } from "../CompactCard";
+import { RowMenuIsolate } from "../messageMenu";
 import { useId, useState, type CSSProperties, type ReactNode } from "react";
 import { useChatBlockHost, type ChatBlockHost, type ChatCardMenuItem } from "../blocks/ChatBlockHost";
 import { askExcerpt, ChatCardMenu, copyPlainText } from "../ChatCardMenu";
@@ -51,7 +52,7 @@ function toolMenuItems(event: ToolEvent, label: string, host: ChatBlockHost): Ch
   const output = event.result?.trim() ?? "";
   const items: ChatCardMenuItem[] = [];
   if (command) items.push({ label: "Copy command", icon: <SquareTerminal size={MENU_ICON} aria-hidden />, onSelect: () => copyPlainText(command) });
-  if (output) items.push({ label: "Copy output", icon: <Copy size={MENU_ICON} aria-hidden />, onSelect: () => copyPlainText(output) });
+  if (output) items.push({ label: "Copy output", kind: "copy", icon: <Copy size={MENU_ICON} aria-hidden />, onSelect: () => copyPlainText(output) });
   if (host.askAbout) {
     const askAbout = host.askAbout;
     const summary = plainSummary(event);
@@ -61,7 +62,7 @@ function toolMenuItems(event: ToolEvent, label: string, host: ChatBlockHost): Ch
       command && command !== summary ? `Command:\n${askExcerpt(command)}` : "",
       output ? `Output:\n${askExcerpt(output)}` : "",
     ].filter(Boolean).join("\n\n");
-    items.push({ label: "Ask about this", icon: <MessageSquarePlus size={MENU_ICON} aria-hidden />, onSelect: () => askAbout({ title, text }) });
+    items.push({ label: "Ask about this", kind: "ask", icon: <MessageSquarePlus size={MENU_ICON} aria-hidden />, onSelect: () => askAbout({ title, text }) });
   }
   return items;
 }
@@ -99,8 +100,9 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
   const detailsId = `chat-details-${useId().replace(/[^a-zA-Z0-9_-]/g, "-")}`;
   const labelText = typeof label === "string" && label ? label : visual.label;
   const baseMenu = menu ?? toolMenuItems(event, labelText, host);
-  const menuItems = showTechnicalDetails ? [...baseMenu, {
+  const menuItems: readonly ChatCardMenuItem[] = showTechnicalDetails ? [...baseMenu, {
     label: "Details",
+    kind: "details",
     icon: <SquareTerminal size={14} aria-hidden />,
     checked: technicalOpen,
     onSelect: () => { setTechnicalOpen(value => !value); if (!expanded) onToggle(); },
@@ -150,7 +152,7 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
         {compact && event.status !== "success" && statusIcon}
         <span className="ct-tool-status-slot">
         {!compact && statusIcon}
-        <ChatCardMenu label={`Actions for ${labelText || "tool call"}`} items={[...readerItems, ...menuItems]} />
+        <ChatCardMenu label={`Actions for ${labelText || "tool call"}`} items={[...readerItems, ...menuItems]} joinRow />
         </span>
         {canExpand && <CardChevron expanded={open} label={open ? "Collapse card" : "Expand card"} onToggle={onToggle} />}
       </div>
@@ -164,12 +166,12 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
         style={{ boxSizing: "border-box" }}
       >
         {open || fullscreen ? (
-          <>
+          <RowMenuIsolate>
             {children}
             {technicalOpen && showTechnicalDetails && <><div className="mt-2 text-[10.5px]" style={{ color: "var(--ct-muted-fg)" }}>Command</div><BoundedMessageContent collapsedHeight="12rem" as="pre"
               data-testid="message-raw-content" className="mt-2 whitespace-pre-wrap break-words font-mono text-xs"
               style={{ color: "var(--ct-muted-fg)" }}>{event.detail || rawToolPayload(event)}</BoundedMessageContent></>}
-          </>
+          </RowMenuIsolate>
         ) : null}
       </BoundedMessageContent>
     </div>

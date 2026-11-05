@@ -114,9 +114,9 @@ export function CommandGroupCard({ event, rows, expanded, onToggle, ...navigatio
         <StatusGlyph status={event.status} />
       </span>
       <ChatCardMenu label={`Actions for ${title}`} items={[...readerItems, {
-        label: "Details", icon: <SquareTerminal size={14} aria-hidden />, checked: technicalOpen,
+        label: "Details", kind: "details", icon: <SquareTerminal size={14} aria-hidden />, checked: technicalOpen,
         onSelect: () => setTechnicalOpen(value => !value),
-      }]} />
+      }]} joinRow />
       </span>
       <CardChevron expanded={expanded} label={`${expanded ? "Collapse" : "Expand"} command group`} onToggle={() => onToggle(!expanded)} />
       </div>

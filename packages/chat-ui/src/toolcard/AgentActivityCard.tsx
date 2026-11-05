@@ -2,6 +2,7 @@ import { ExpandableReader } from "../ExpandableReader";
 import { agentActionStream, type AgentActivityState, type AgentNode, type ToolEvent } from "@codeterm/chat-core";
 import { ArrowRight, Network } from "lucide-react";
 import { CardChevron, CardFacts } from "../CompactCard";
+import { RowMenuIsolate } from "../messageMenu";
 import { Fragment, useId, useState } from "react";
 import { ToolActivityStream, type RenderStreamAction } from "./ToolActivityStream";
 import { useAgentInspection } from "../AgentInspection";
@@ -59,7 +60,7 @@ export function AgentActivityCard({ event, expanded, onToggle, renderAction }: {
   });
 
   return (
-    <ExpandableReader label={"Agent activity"} openerPlacement="header">{(fullscreen, opener) => (
+    <RowMenuIsolate><ExpandableReader label={"Agent activity"} openerPlacement="header">{(fullscreen, opener) => (
     <section
       data-testid="chat-agent-activity"
       aria-label={`Agent activity, ${counts}`}
@@ -165,6 +166,6 @@ export function AgentActivityCard({ event, expanded, onToggle, renderAction }: {
         )}
       </div>
     </section>
-    )}</ExpandableReader>
+    )}</ExpandableReader></RowMenuIsolate>
   );
 }

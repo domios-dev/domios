@@ -132,6 +132,6 @@ describe("chat boxes on desktop are unchanged", () => {
     expect(labelled("Expand command group")).not.toBeNull();
     expect(host.querySelector('[data-testid="toolcard-duration"]')?.textContent).toBe("1.8s");
     expect(host.querySelector('[data-testid="toolcard-search-counts"]')?.textContent).toBe("10 matches · 2 files");
-    expect(await menu("Actions for Inspect the repo")).toEqual(["Details"]);
+    expect(await menu("Actions for Inspect the repo")).toEqual(["Open full screen", "Details"]);
   });
 });

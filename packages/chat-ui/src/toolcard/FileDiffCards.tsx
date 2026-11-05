@@ -2,6 +2,7 @@ import { ExpandableReader } from "../ExpandableReader";
 import { type FileDiff, type FileDiffHunk, type ToolEvent } from "@codeterm/chat-core";
 import { Copy, FileDiff as FileDiffIcon, FileText, SquareTerminal } from "lucide-react";
 import { CardChevron } from "../CompactCard";
+import { RowMenuIsolate } from "../messageMenu";
 import { useId, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { SyntaxHighlighter, createElement } from "../syntaxHighlighter";
 import { BoundedMessageContent } from "../BoundedMessageContent";
@@ -134,7 +135,7 @@ function FileEditCard({ event, diff, showResult, initiallyExpanded, renderHunkAc
     menu.push({ label: "View changes", icon: <FileDiffIcon size={14} aria-hidden />, onSelect: () => open(path, "diff") });
     if (diff.kind !== "delete") menu.push({ label: "View file", icon: <FileText size={14} aria-hidden />, onSelect: () => open(path, "file") });
   }
-  if (rawCommand) menu.push({ label: "Details", icon: <SquareTerminal size={14} aria-hidden />, checked: technicalOpen,
+  if (rawCommand) menu.push({ label: "Details", kind: "details", icon: <SquareTerminal size={14} aria-hidden />, checked: technicalOpen,
     onSelect: () => { setTechnicalOpen((open) => !open); setExpanded(true); } });
   return (
     <ExpandableReader label={heading} openerPlacement="header" ownsMenu>{(fullscreen, opener, _openReader, readerItems) => (
@@ -168,7 +169,7 @@ function FileEditCard({ event, diff, showResult, initiallyExpanded, renderHunkAc
         </span>
       </button>
       {opener}
-      <span className="ct-tool-status-slot"><ChatCardMenu label={`Actions for ${name}`} items={[...readerItems, ...menu]} /></span>
+      <span className="ct-tool-status-slot"><ChatCardMenu label={`Actions for ${name}`} items={[...readerItems, ...menu]} joinRow /></span>
       <CardChevron expanded={expanded} label={`${expanded ? "Collapse" : "Expand"} diff for ${name}`} onToggle={() => setExpanded(!expanded)} />
       </div>
       <div id={regionId} role="region" aria-label={`Diff for ${name}`} hidden={!expanded && !fullscreen} className="overflow-x-auto pb-1.5">
@@ -199,7 +200,9 @@ export function FileDiffCards({ event, initiallyExpanded = false, renderHunkActi
   const diffs = event.fileDiffs ?? [];
   return (
     <div data-testid="file-diff-cards" className="mx-auto mb-1.5 flex w-full max-w-4xl min-w-0 flex-col gap-1">
-      {diffs.map((diff, index) => <FileEditCard key={`${index}:${diff.path}`} event={event} diff={diff} showResult={index === 0} initiallyExpanded={initiallyExpanded} renderHunkActions={renderHunkActions} rawCommand={rawCommand} />)}
+      {diffs.length === 1
+        ? <FileEditCard event={event} diff={diffs[0]} showResult initiallyExpanded={initiallyExpanded} renderHunkActions={renderHunkActions} rawCommand={rawCommand} />
+        : <RowMenuIsolate>{diffs.map((diff, index) => <FileEditCard key={`${index}:${diff.path}`} event={event} diff={diff} showResult={index === 0} initiallyExpanded={initiallyExpanded} renderHunkActions={renderHunkActions} rawCommand={rawCommand} />)}</RowMenuIsolate>}
     </div>
   );
 }

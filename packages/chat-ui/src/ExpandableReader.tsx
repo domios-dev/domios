@@ -35,9 +35,11 @@ export function ExpandableReader({ label, enabled = true, onOpen, openerPlacemen
   const outer = useFullscreenViewer();
   const parentReader = useReaderHost();
   const inMenu = useCompactCard().compact && openerPlacement === "header";
-  // A menu item runs after the menu has closed and focused its ⋮ again, so that ⋮ is where focus returns.
-  const readerItems: ChatCardMenuItem[] = inMenu && enabled && !open && !outer ? [{
+  // A card with its own menu always lists the reader, so a row menu that merges it (see `mergeMessageMenu`) can open it.
+  // A menu item runs after the menu has closed and focused its trigger again, so that trigger is where focus returns.
+  const readerItems: ChatCardMenuItem[] = (inMenu || ownsMenu) && enabled && !open && !outer ? [{
     label: "Open full screen",
+    kind: "open",
     icon: <Maximize2 size={14} aria-hidden />,
     testId: "chat-reader-open",
     onSelect: () => openReader(document.activeElement instanceof HTMLElement ? document.activeElement : null),

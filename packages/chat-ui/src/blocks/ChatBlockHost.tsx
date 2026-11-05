@@ -91,8 +91,14 @@ export interface ChatCardMenuItem {
   /** Present for an on/off item such as Pin. */
   checked?: boolean;
   testId?: string;
+  /** What the item does, so a card's menu and its message's menu merge without duplicates (see `mergeMessageMenu`). */
+  kind?: MessageMenuKind;
+  /** A pointer-only shortcut hint, such as Shift+click for Select. */
+  hint?: React.ReactNode;
   onSelect(): void;
 }
+
+export type MessageMenuKind = "open" | "copy" | "copy-markdown" | "ask" | "details" | "select" | "fork" | "revert" | "delete";
 
 export interface ChatCardMenuSpec {
   label: string;

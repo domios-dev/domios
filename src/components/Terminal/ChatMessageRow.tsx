@@ -1,7 +1,7 @@
-import { memo, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
-import { MessagePartsContext, type MessagePart, messageTimeLabels } from "@codeterm/chat-ui";
+import { memo, useCallback, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
+import { MessageMenuBridgeProvider, MessagePartsContext, useCompactCard, type ChatCardMenuItem, type MessageMenuBridge, type MessagePart, messageTimeLabels } from "@codeterm/chat-ui";
 import type { ClipMessage } from "@codeterm/chat-core";
-import { MessageActionsDot, type DotSide, type MessageMenuActions } from "./MessageActionsMenu";
+import { MessageActionsDot, messageMenuItems, type DotSide, type MessageMenuActions } from "./MessageActionsMenu";
 import { useMessageActionScope } from "./useMessageActionScope";
 import { useMessageActionHint } from "./useMessageActionHint";
 import { useMessageTouch } from "./useMessageTouch";
@@ -66,6 +66,25 @@ export const ChatMessageRow = memo(function ChatMessageRow({ msg, timestamp, del
     fork: onForkFromHere,
     revert: onRevertToHere,
   }), [handlers, targetId, onDelete, onForkFromHere, onRevertToHere]);
+  // One menu per row: a tool card that speaks for this row hands its items to the dot on desktop,
+  // and on a compact touch surface its own ⋮ shows the merged list while the row draws no dot.
+  const { compact } = useCompactCard();
+  const [cardOwner, setCardOwner] = useState<string | null>(null);
+  const cardItems = useRef<readonly ChatCardMenuItem[]>([]);
+  const claimCard = useCallback((key: string) => setCardOwner((owner) => owner ?? key), []);
+  const releaseCard = useCallback((key: string) => setCardOwner((owner) => owner === key ? null : owner), []);
+  const publishCard = useCallback((_key: string, items: readonly ChatCardMenuItem[]) => { cardItems.current = items; }, []);
+  const menuBridge = useMemo<MessageMenuBridge>(() => ({
+    owner: cardOwner,
+    claim: claimCard,
+    release: releaseCard,
+    publish: publishCard,
+    messageItems: () => {
+      const target = handlers.clipFor(targetId);
+      return target ? messageMenuItems(target, actions, { touch: true }) : [];
+    },
+  }), [cardOwner, claimCard, releaseCard, publishCard, handlers, targetId, actions]);
+  const readCardItems = useCallback(() => (cardOwner ? cardItems.current : []), [cardOwner]);
   useMessageTouch(rowRef, {
     selecting,
     open: (id) => { setPartId(id); setTouchMenu(true); setMenuOpen(true); hint.opened(); },
@@ -90,8 +109,9 @@ export const ChatMessageRow = memo(function ChatMessageRow({ msg, timestamp, del
   };
 
   const time = timestamp == null || (!hot && !menuOpen) ? null : messageTimeLabels(timestamp, { timeZone: TIME_ZONE, now: Date.now() });
-  const dot = clip && (!selecting || menuOpen) ? (
-    <MessageActionsDot metadata={time ? { ...time, sender: fullClip?.author, deliveryState } : undefined} touch={touchMenu} whole={whole} hasParts={parts.length > 1} onScopeChange={setWhole} clip={clip} side={side} open={menuOpen} onOpenChange={onOpenChange} actions={actions} hint={hint.hint} onHintEnd={hint.finish} />
+  const cardMenuShown = compact && cardOwner !== null;
+  const dot = clip && !cardMenuShown && (!selecting || menuOpen) ? (
+    <MessageActionsDot metadata={time ? { ...time, sender: fullClip?.author, deliveryState } : undefined} touch={touchMenu} whole={whole} hasParts={parts.length > 1} onScopeChange={setWhole} clip={clip} side={side} open={menuOpen} onOpenChange={onOpenChange} actions={actions} cardItems={readCardItems} hint={hint.hint} onHintEnd={hint.finish} />
   ) : null;
 
   return (
@@ -160,7 +180,7 @@ export const ChatMessageRow = memo(function ChatMessageRow({ msg, timestamp, del
         id: msg.id, source: fullClip.source, selecting: selecting && parts.length > 1,
         selected: handlers.selectedFor, joinNext: handlers.joinNextFor, cursor: handlers.cursorFor,
         preview: menuOpen && !whole && parts.length > 1 ? targetId : null,
-      } : null}>{children}</MessagePartsContext.Provider>
+      } : null}><MessageMenuBridgeProvider value={menuBridge}>{children}</MessageMenuBridgeProvider></MessagePartsContext.Provider>
     </div>
   );
 });
