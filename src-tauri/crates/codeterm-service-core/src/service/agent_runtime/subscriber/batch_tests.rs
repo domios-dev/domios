@@ -419,22 +419,17 @@ fn native_first_request_starts_provider_turn_before_approval_and_commits() {
             )
             .await
             .unwrap();
-        adapter
-            .runtime_plan(
-                &context,
-                &RuntimeOperation::SubmitTurn {
-                    thread_id: "thread".into(),
-                    active_turn_id: None,
-                    send_id: "first-request-send".into(),
-                    input: TurnInput {
-                        text: "opaque".into(),
-                        attachments: Vec::new(),
-                    },
-                    settings: Default::default(),
-                },
-            )
-            .await
-            .unwrap();
+        let submit = RuntimeOperation::SubmitTurn {
+            thread_id: "thread".into(),
+            active_turn_id: None,
+            send_id: "first-request-send".into(),
+            input: TurnInput {
+                text: "opaque".into(),
+                attachments: Vec::new(),
+            },
+            settings: Default::default(),
+        };
+        let planned = adapter.runtime_plan(&context, &submit).await.unwrap();
         let declared = adapter.agent_runtime().unwrap().client_bridges;
         scene
             .fixture
@@ -448,6 +443,28 @@ fn native_first_request_starts_provider_turn_before_approval_and_commits() {
             .provider_arc(&scene.session.provider);
         context.client_bridges = super::super::client_bridge::install(&context, declared).unwrap();
         *scene.session.context.lock() = context.clone();
+        let process = scene.session.process.lock().clone().unwrap();
+        let (submitted, request) = tokio::join!(
+            super::super::turn_requests::run(
+                &scene.fixture.service,
+                &scene.session,
+                &process,
+                context.clone(),
+                submit,
+                planned,
+                None,
+            ),
+            fixtures::read(&mut scene.peer),
+        );
+        assert!(matches!(
+            submitted,
+            Err(RuntimeFailure::WrittenAwaitingEvidence)
+        ));
+        assert_eq!(request["method"], "session/prompt");
+        assert_eq!(request["params"]["sessionId"], "thread");
+        let window = super::super::turn_requests::stream_window(&scene.session, vec![1]).await;
+        assert!(window.turn_requests[0].written);
+        assert_eq!(window.turn_requests[0].after_sequence, Some(0));
         let frame = RuntimeFrame::Request {
             request_id: RpcId::String("first-write".into()),
             method: "fs/write_text_file".into(),
@@ -468,7 +485,6 @@ fn native_first_request_starts_provider_turn_before_approval_and_commits() {
             .unwrap()
             .prompt
             .is_some());
-        let process = scene.session.process.lock().clone().unwrap();
         super::super::client_bridge::answer(
             &scene.fixture.service,
             &scene.session,
@@ -488,5 +504,22 @@ fn native_first_request_starts_provider_turn_before_approval_and_commits() {
         super::super::client_bridge::cancel(&scene.fixture.service, &scene.session, &process, true)
             .await
             .unwrap();
+        let mut changes = scene.session.control_changes.subscribe();
+        fixtures::write(
+            &mut scene.peer,
+            json!({"id":request["id"],"result":{"stopReason":"end_turn"}}),
+        )
+        .await;
+        tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            loop {
+                changes.borrow_and_update();
+                if scene.session.turn_requests.lock().is_empty() {
+                    break;
+                }
+                changes.changed().await.unwrap();
+            }
+        })
+        .await
+        .unwrap();
     });
 }
