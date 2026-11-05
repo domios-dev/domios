@@ -8,6 +8,8 @@ mod history;
 pub use history::*;
 mod background;
 mod capability;
+pub mod install_validation;
+pub mod owner_profiles;
 pub use authority::*;
 pub use background::*;
 mod stream_window;

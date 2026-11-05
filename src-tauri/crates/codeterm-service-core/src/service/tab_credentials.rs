@@ -279,6 +279,9 @@ impl super::ServiceContext {
         method: &str,
         params: &mut Option<serde_json::Value>,
     ) -> Result<(), String> {
+        if method == "agent.acp" {
+            super::agent_runtime::acp_profiles::authorize(self, token)?;
+        }
         match self.authenticate_local_credential(token)? {
             Some(caller) => {
                 self.authorize_neighbor_secret_rpc(&caller, method, params.as_ref())?;

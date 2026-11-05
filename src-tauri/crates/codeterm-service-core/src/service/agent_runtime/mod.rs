@@ -1,5 +1,6 @@
 use crate::service::MuxEmitCause;
 mod abort_provenance;
+pub mod acp_profiles;
 mod auth_env;
 pub(crate) mod authority;
 pub mod background;

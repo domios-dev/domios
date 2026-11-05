@@ -124,6 +124,11 @@ pub struct ReportArgs {
 
 #[derive(Subcommand, Debug)]
 pub enum AgentAction {
+    /// Manage local ACP launch profiles (local owner or Orchestrator only)
+    Acp {
+        #[command(subcommand)]
+        action: super::agent_acp::AcpAction,
+    },
     /// Move an unbound running worker under a live local Team Orchestrator without restarting it
     Reparent {
         tab: String,

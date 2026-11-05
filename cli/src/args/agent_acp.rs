@@ -1,0 +1,39 @@
+use clap::Subcommand;
+
+#[derive(Subcommand, Debug)]
+pub enum AcpAction {
+    /// List configured ACP profiles and their installation and authentication state
+    List,
+    /// Add an owner-configured installed ACP command (local owner or Orchestrator only)
+    Add {
+        name: String,
+        #[arg(long)]
+        binary: String,
+        #[arg(long = "arg", allow_hyphen_values = true)]
+        args: Vec<String>,
+        /// Non-secret environment entries as KEY=VALUE
+        #[arg(long = "env")]
+        env: Vec<String>,
+        /// Required secrets as KEY=secret-name; never pass secret values
+        #[arg(long = "secret-env")]
+        secret_env: Vec<String>,
+        /// Optional sign-in secrets as KEY=secret-name:method
+        #[arg(long = "auth-env")]
+        auth_env: Vec<String>,
+    },
+    /// Remove an owner-added ACP profile
+    Remove { name: String },
+    /// Discover and install pinned agents from the ACP registry
+    Registry {
+        #[command(subcommand)]
+        action: AcpRegistryAction,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum AcpRegistryAction {
+    /// Search the ACP registry
+    Search { query: String },
+    /// Install the registry's exact declared distribution as an owner profile
+    Install { id: String },
+}

@@ -150,6 +150,7 @@ pub(crate) fn transport_for(command: &Commands) -> Transport {
         Commands::Surface { .. } => socket_unsupported(SURFACE_LOCAL_ONLY),
         Commands::Agent { action: crate::AgentAction::Turns { .. } } => socket_unsupported("agent turns reads this daemon's authenticated session; run on the target machine"),
         Commands::Agent { action: crate::AgentAction::Reparent { .. } } => socket_unsupported("agent reparent runs on the local origin; use --peer instead of --mesh"),
+        Commands::Agent { action: crate::AgentAction::Acp { .. } } => socket_unsupported("agent acp manages this machine's profiles and secrets; run locally"),
         Commands::Agent { .. } => socket_rest(),
         Commands::Cron { .. } => socket_rest(),
         Commands::Service { .. } => socket_rest(),

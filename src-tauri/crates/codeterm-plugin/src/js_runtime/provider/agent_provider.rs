@@ -59,7 +59,8 @@ impl AgentProvider for JsProvider {
     }
 
     fn agent_runtime(&self) -> Option<crate::agent_runtime::AgentRuntimeCapability> {
-        self.manifest.capabilities.agent_runtime.clone()
+        let capability = self.manifest.capabilities.agent_runtime.clone()?;
+        crate::agent_runtime::owner_profiles::overlay(&self.manifest.id, capability).ok()
     }
 
     fn runtime_stored_history_available(&self, cwd: &str, session_id: &str) -> bool {

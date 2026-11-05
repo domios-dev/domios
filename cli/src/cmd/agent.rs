@@ -6,6 +6,8 @@ use crate::cmd::print::handle_result;
 use crate::{build_local_api, read_api_config, resolve_tab, AgentAction};
 use std::io::Read;
 
+#[path = "agent_acp.rs"]
+mod agent_acp;
 #[path = "agent_cli.rs"]
 mod agent_cli;
 #[path = "agent_compatibility.rs"]
@@ -373,6 +375,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             handle_result(json, client.call("agent.turns", Some(params)));
         }
         AgentAction::Cli { action } => agent_cli::run(client, json, action),
+        AgentAction::Acp { action } => agent_acp::run(client, json, action),
         AgentAction::Providers => match local_http
             .get(format!("{}/api/agents/providers", base))
             .send()

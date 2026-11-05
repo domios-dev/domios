@@ -12,6 +12,15 @@ pub(super) fn dispatch(
     svc: &ServiceState,
 ) -> Result<Value, JsonRpcError> {
     match method {
+        "agent.acp" => codeterm_service_core::service::agent_runtime::acp_profiles::execute(
+            svc,
+            params.as_ref().unwrap_or(&Value::Null),
+        )
+        .map_err(|message| JsonRpcError {
+            code: -32602,
+            message,
+            data: None,
+        }),
         "agent.reparent" => super::remote_team_rpc::reparent(params, svc),
         "agent.turns" => {
             let target = get_string_param(params, "tab_id")?;

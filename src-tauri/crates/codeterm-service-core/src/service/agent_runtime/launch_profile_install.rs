@@ -6,6 +6,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+mod distribution;
 mod npm;
 #[cfg(test)]
 mod tests;
@@ -68,7 +69,9 @@ fn receipt_path(root: &Path, id: &str) -> Result<PathBuf, String> {
     Ok(root.join(format!("{id}.json")))
 }
 fn fingerprint(profile: &RuntimeLaunchProfile) -> Result<String, String> {
-    let bytes = serde_json::to_vec(profile).map_err(|_| "Invalid launch profile")?;
+    let mut declaration = profile.clone();
+    declaration.icon_svg = None;
+    let bytes = serde_json::to_vec(&declaration).map_err(|_| "Invalid launch profile")?;
     Ok(format!("{:x}", Sha256::digest(bytes)))
 }
 pub fn read_receipt(
@@ -109,7 +112,10 @@ pub fn read_receipt(
     {
         return Ok(None);
     }
-    if profile.install.is_some()
+    if profile
+        .install
+        .as_ref()
+        .is_some_and(|spec| spec.distribution.as_deref().unwrap_or("npx") == "npx")
         && !receipt
             .command
             .args
@@ -117,6 +123,16 @@ pub fn read_receipt(
             .is_some_and(|script| Path::new(script).is_absolute() && Path::new(script).is_file())
     {
         return Ok(None);
+    }
+    if profile
+        .install
+        .as_ref()
+        .is_some_and(|spec| spec.distribution.as_deref() == Some("binary"))
+    {
+        let bytes = distribution::read_executable(Path::new(&receipt.command.binary))?;
+        if receipt.sha256.as_deref() != Some(format!("{:x}", Sha256::digest(&bytes)).as_str()) {
+            return Err("Installed binary checksum mismatch".into());
+        }
     }
     Ok(Some(receipt))
 }
@@ -231,7 +247,16 @@ pub async fn install(
         .install
         .as_ref()
         .ok_or("Profile has no supported installer")?;
-    let (package, version) = exact_package(&spec.package)?;
+    if !codeterm_plugin::agent_runtime::install_validation::validate(profile) {
+        return Err("Invalid pinned install declaration".into());
+    }
+    let kind = spec.distribution.as_deref().unwrap_or("npx");
+    let (package, version) = if kind == "uvx" {
+        codeterm_plugin::agent_runtime::install_validation::exact_python(&spec.package)
+            .ok_or("An exact Python package version is required")?
+    } else {
+        exact_package(&spec.package)?
+    };
     if spec
         .registry
         .as_deref()
@@ -240,8 +265,19 @@ pub async fn install(
         return Err("Invalid package registry URL".into());
     }
     let target = root.join(id).join(uuid::Uuid::new_v4().to_string());
-    let (mut command, sha256) = npm::install(&target, package, version).await?;
-    command.args.extend(profile.args.iter().skip(1).cloned());
+    let (mut command, sha256) = match kind {
+        "npx" => npm::install(&target, package, version).await?,
+        "uvx" => distribution::python(&target, &spec.package).await?,
+        "binary" => distribution::binary(&target, spec).await?,
+        _ => return Err("Unsupported install distribution".into()),
+    };
+    command.args.extend(
+        profile
+            .args
+            .iter()
+            .skip(usize::from(kind != "binary"))
+            .cloned(),
+    );
     receipt(
         root,
         id,

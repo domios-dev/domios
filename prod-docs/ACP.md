@@ -42,19 +42,38 @@ The `local` profile is the entry point for another installed ACP v1 agent:
    Domios resolves the executable and saves an owner-confirmed launch receipt.
 5. Spawn with `--profile local` or use the picker after installation reports ready.
 
-### CLI setup availability
+### Manage profiles through the CLI
 
-There is currently no CLI command or plugin configuration key to configure the
-local executable/arguments. `domios plugin config` does not configure ACP launch
-profiles. The supported owner path is the Spawn UI above. Selection is stored as
-the tab runtime's `launchProfile`; it is not a binary override.
+The local owner and live Team Orchestrators can manage profiles on this machine.
+These commands refuse `--mesh`. Human-readable output is the default; add `--json`
+to read the shared `result` envelope.
 
-The local form has no environment editor, and the saved command contains only
-`binary` and `args`. Profile `env`, `secretEnv` and `authEnv` are plugin declarations,
-not owner-editable local settings. The bundled local profile declares none.
-Agent-specific environment or credential setup therefore needs the agent's own
-supported setup outside this form; generic local secret-to-environment mappings
-cannot be configured here.
+```bash
+domios agent acp list
+domios agent acp add myagent --binary /absolute/path/to/agent --arg --stdio --env MODE=production
+domios agent acp add keyedagent --binary installed-agent --secret-env TOKEN=domios:provider:acp:myagent-token --auth-env API_KEY=domios:provider:acp:myagent-key:api-key
+domios agent acp remove myagent
+```
+
+Names contain one word of letters, digits, underscores or hyphens; Windows device
+names and existing profile names are refused. Repeat `--arg` for each argument,
+including arguments beginning with a hyphen. `--env` carries non-secret values.
+All environment options refuse `CODETERM*` names and duplicate variables.
+`--secret-env` requires a named stored secret at launch. `--auth-env` maps an
+optional secret to an agent-declared key-taking authentication method; its final
+colon separates the method from the secret name. References must use the
+`domios:provider:acp:` namespace. Store values through Settings → Secrets or the
+stdin-only secret command before launching; never put secret values in arguments.
+
+Adding a profile resolves its installed executable and saves the same kind of
+owner-confirmed command receipt as the local Spawn form. Profiles persist outside
+workspaces and appear in the Spawn picker. Select them with `agent spawn acp
+--profile NAME`. Remove accepts owner-added profiles only and leaves installed
+package files intact. Built-in profiles remain available.
+
+The list reports installation readiness and whether referenced credentials are
+configured or missing. Credential presence does not prove an authenticated agent
+session; profiles without credential mappings report authentication as `unknown`.
 
 Local commands must name an installed executable. Domios refuses `npx`, `npm`,
 `uvx`, `uv` and `env` launchers, and shell-command indirection is not supported.
@@ -77,22 +96,36 @@ empty list. `registry-refresh` fetches the ACP v1 registry, validates and saves 
 then searches it. A failed refresh retains the previous cache. These verbs require
 the plugin's `agent_commands` grant and refresh requires network access.
 
-Results describe `distribution.npx`, `distribution.uvx`, or platform-specific
-`distribution.binary` entries, including package/archive, arguments and environment.
-They are discovery metadata: there is no registry install command, automatic
-profile creation, or registry-to-Spawn import.
+### Install a registry profile
 
-- For `npx` distributions, install the named npm package using the agent's own
-  instructions; configure its installed executable or Node plus installed script.
-- For `uvx` distributions, install the Python tool using its own instructions and
-  configure its installed executable. Passing `uvx` as the local executable fails.
-- For binary distributions, choose the matching OS/architecture entry, download
-  and extract its archive using the publisher's instructions, verify its supplied
-  checksum when present, then configure the extracted command and arguments.
+```bash
+domios agent acp registry search gemini
+domios agent acp registry install REGISTRY_ID
+```
 
-Review the entry's required environment as well: registry `env` values are not
-imported into local configuration. An entry offering only a package runner is
-not directly launchable through the current local setup form.
+These commands fetch the bounded ACP v1 index directly. Installation creates an
+owner profile with the registry id, declared arguments, non-secret environment and
+icon reference. Review the publisher and distribution before installing. Existing
+profile names are refused; remove an owner profile before replacing it.
+
+- `npx`: install the registry's exact version through the same integrity-checked
+  npm installer as DeepSeek Harness. Requires Node.js and npm. Runtime launches
+  use the installed script without a package fetch.
+- `uvx`: install the exact version into an isolated uv tool directory. Requires uv,
+  an installed system Python and prebuilt wheels. Configuration discovery, source
+  builds and Python downloads are disabled. Packages with multiple executables
+  require manual installation and a local profile instead.
+- Binary: select the current OS/architecture and require its declared SHA-256.
+  Verify the download before reading its declared executable. Archive distributions
+  require a compatible `tar`; only the executable is materialized. Distributions
+  needing additional adjacent resources require manual installation. The installed
+  executable checksum is rechecked before use.
+
+Unpinned package tags/ranges, missing binary checksums, unsafe executable paths,
+reserved environment names and unsupported distributions refuse installation.
+Registry installation needs network access and does not establish authentication
+or protocol compatibility. Configure credential references with a local profile
+when an agent requires an environment mapping absent from its registry entry.
 
 ## Authenticate
 
@@ -187,8 +220,8 @@ It can also cancel a turn waiting for a permission response.
 - Host Domios MCP tools can be supplied during session creation/restoration. A
   failed session handshake may retry once without them and show a tools-unavailable
   notice. See `domios docs AGENT-CONTROL` for the tool and authority contract.
-- Registry discovery is bounded and cached; it does not establish that an agent is
-  installed, authenticated or compatible. Local CLI setup, environment editing and
-  registry installation remain gaps in the current product.
+- Plugin registry discovery is bounded and cached. CLI profile installation uses
+  the current index and refuses unsupported distributions; neither proves agent
+  authentication or compatibility.
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->

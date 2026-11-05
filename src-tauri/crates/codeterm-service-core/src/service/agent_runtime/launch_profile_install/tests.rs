@@ -164,3 +164,36 @@ async fn unconfirmed_install_never_starts_download_or_package_manager() {
         .is_err());
     assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 0);
 }
+
+#[test]
+fn binary_receipt_rechecks_executable_and_ignores_host_icon_projection() {
+    let root = tempfile::tempdir().unwrap();
+    let binary = root.path().join("agent");
+    std::fs::write(&binary, b"fixture executable").unwrap();
+    let mut profile: RuntimeLaunchProfile = serde_json::from_value(json!({
+        "binary":"agent","args":[],"ownerConfigured":true,
+        "install":{"distribution":"binary","package":"fixture@1.2.3","url":"https://example.test/agent","sha256":"a".repeat(64),"executable":"agent"}
+    })).unwrap();
+    receipt(
+        root.path(),
+        "fixture",
+        &profile,
+        "fixture@1.2.3".into(),
+        "1.2.3".into(),
+        Some(format!("{:x}", Sha256::digest(b"fixture executable"))),
+        AgentRuntimeCommand {
+            binary: binary.to_string_lossy().into_owned(),
+            args: vec![],
+        },
+    )
+    .unwrap();
+    assert!(read_receipt(root.path(), "fixture", &profile)
+        .unwrap()
+        .is_some());
+    profile.icon_svg = Some("host projection".into());
+    assert!(read_receipt(root.path(), "fixture", &profile)
+        .unwrap()
+        .is_some());
+    std::fs::write(&binary, b"tampered executable").unwrap();
+    assert!(read_receipt(root.path(), "fixture", &profile).is_err());
+}
