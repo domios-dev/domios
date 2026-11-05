@@ -9,6 +9,7 @@ import { daemonAuthToken, daemonHttpBase } from "../../lib/webApi";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { SchemaRenderer } from "./SchemaRenderer";
 import { ProviderInstallCard } from "./ProviderInstallCard";
+import { AcpProfilesCard } from "./AcpProfilesCard";
 import { ProviderIntegrationHealthCard } from "./ProviderIntegrationHealthCard";
 import { ModelEndpointsCard } from "./model_endpoints/ModelEndpointsCard";
 import { providerPageSections, providerSummary } from "./providerPageSections";
@@ -150,6 +151,7 @@ export function AgentProviderScreen({
         </div>
       </div>
       <ProviderInstallCard provider={provider} />
+      {provider.agent_runtime?.launchProfiles && <AcpProfilesCard provider={provider} />}
       {sections.integration && <ProviderIntegrationHealthCard provider={provider} />}
       {sections.modelEndpoints && (
         <ModelEndpointsCard providerId={provider.id} harnessName={provider.display_name} daemonApi={fullConfig.api} />
