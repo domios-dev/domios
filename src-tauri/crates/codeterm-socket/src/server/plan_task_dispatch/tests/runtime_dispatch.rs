@@ -79,7 +79,7 @@ fn fixture_with_profiles(
         "commands":{"autoApproveFlags":["opaque-full-access"]},
         "capabilities":{"agentProvider":true,
             "chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},
-            "agentRuntime":{"runtime":"stdio-jsonrpc",
+            "agentRuntime":{"runtimeModes":[{"id":"full-access","displayName":"Full"}],"runtime":"stdio-jsonrpc",
                 "command":{"binary":"node","args":[format!("{}/../../../tests/fixtures/agent-runtime/fake-peer.mjs",codeterm_service_core::test_support::fixture_manifest_dir().display())]},
                 "requestMethods":methods,"notificationMethods":[]}},
         "permissions":{"subprocess":{"allow":["node"]}},
@@ -641,8 +641,11 @@ fn dispatch_profile_creation_preserves_title_and_startup_owner_before_readiness(
             let owner = service.plan_store.dispatch_startup_owner_candidate(&authority.plan_id, &authority.task_id).unwrap().expect("profile recording must preserve the startup owner");
             assert_eq!(owner.attempt_id, authority.attempt_id);
             assert_eq!(owner.tab_id, attempt.executor_tab_id);
-            let titles = service.plan_store.recent_worker_attempt_titles(&workspace, None, 10).unwrap();
-            assert!(titles.contains(title), "the pending Worker title must stay reserved");
+            assert_eq!(task.lane.workspace_id, None);
+            assert!(service.mux.read().get_tab(&owner.tab_id).is_some(), "the pending Worker tab must stay reserved");
+            let pending = service.plan_store.show_task_attempt(&authority.plan_id, &authority.task_id, &authority.attempt_id).unwrap();
+            assert_eq!(pending.attempt.executor_title.as_ref(), Some(title));
+            assert_eq!(pending.attempt.executor_tab_id, owner.tab_id);
             inspected.set(true);
             Err("profile startup identity inspected before readiness".into())
         }, || {}).unwrap_err();

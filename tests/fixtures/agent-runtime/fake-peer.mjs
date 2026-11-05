@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { createInterface } from "node:readline";
 import { execFile, execFileSync } from "node:child_process";
 import { promisify } from "node:util";
@@ -11,6 +12,7 @@ if (process.argv[2] === "--cli-probe") {
     artifact: process.argv[3],
     executable: process.argv[4],
     environment: Object.fromEntries(identityKeys.map(key => [key, process.env[key]])),
+    tokenDigest: createHash("sha256").update(process.env.CODETERM_API_TOKEN ?? "").digest("hex"),
   }));
   process.exit(0);
 }
@@ -51,7 +53,11 @@ input.on("line",async line=>{
   if(frame.method==="thread/turns/list")result={data:[{id:"turn-one",status:"completed"},{id:"turn-two",status:"completed"}],nextCursor:null};
   if(frame.method==="thread/fork")result={thread:{id:"fork-thread"}};
   if(frame.method==="fixture/environment"){
-    result={environment:JSON.parse(execFileSync(process.execPath,["-e","process.stdout.write(JSON.stringify(Object.fromEntries(JSON.parse(process.argv[1]).map(key=>[key,process.env[key]]))))",JSON.stringify(frame.params.keys)],{encoding:"utf8"}))};
+    result=JSON.parse(execFileSync(process.execPath,["-e",`
+      const environment=Object.fromEntries(JSON.parse(process.argv[1]).map(key=>[key,process.env[key]]));
+      const tokenDigest=require("node:crypto").createHash("sha256").update(process.env.CODETERM_API_TOKEN ?? "").digest("hex");
+      process.stdout.write(JSON.stringify({environment,tokenDigest}));
+    `,JSON.stringify(frame.params.keys)],{encoding:"utf8"}));
   }
   if(frame.method==="fixture/cli-resolution"){
     const baseline = { ...process.env };

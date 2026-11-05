@@ -695,7 +695,19 @@ fn attempt_detail_labels_dispatched_and_session_models() {
         rendered.contains("session_model: other-model\n"),
         "{rendered}"
     );
-    assert!(rendered.contains("model_identity_mismatch: {\"actual_model\":\"other-model\",\"provider_resolved_model\":\"gpt-6-luna\",\"reason\":\"runtime_session_model_mismatch\",\"requested_model\":\"gpt-6-luna\"}\n"), "{rendered}");
+    let mismatch = rendered
+        .lines()
+        .find_map(|line| line.strip_prefix("model_identity_mismatch: "))
+        .expect("model mismatch must be rendered");
+    assert_eq!(
+        serde_json::from_str::<Value>(mismatch).unwrap(),
+        json!({
+            "actual_model": "other-model",
+            "provider_resolved_model": "gpt-6-luna",
+            "reason": "runtime_session_model_mismatch",
+            "requested_model": "gpt-6-luna",
+        })
+    );
 }
 
 #[test]

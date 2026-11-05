@@ -246,8 +246,23 @@ async fn own_tab_environment_reaches_the_child_and_its_shell_commands() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(result["environment"], serde_json::to_value(env).unwrap());
+    assert_child_environment(&result, &env);
     process.finish().await.unwrap();
+}
+
+fn assert_child_environment(result: &serde_json::Value, expected: &HashMap<String, String>) {
+    use sha2::{Digest, Sha256};
+    let token = expected.get("CODETERM_API_TOKEN").unwrap();
+    assert_eq!(
+        result["tokenDigest"],
+        format!("{:x}", Sha256::digest(token.as_bytes()))
+    );
+    let mut redacted = expected.clone();
+    redacted.insert("CODETERM_API_TOKEN".into(), "[redacted]".into());
+    assert_eq!(
+        result["environment"],
+        serde_json::to_value(redacted).unwrap()
+    );
 }
 
 fn write_cli_probe(directory: &Path, artifact: &str) {
@@ -360,10 +375,7 @@ async fn lifecycle_cli_pin_controls_bare_aliases_in_child_and_grandchild_shells(
                     .unwrap(),
                 "{surface}: {alias}"
             );
-            assert_eq!(
-                probe["environment"],
-                serde_json::to_value(&identity).unwrap()
-            );
+            assert_child_environment(probe, &identity);
         }
     }
 }
