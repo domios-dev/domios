@@ -160,11 +160,7 @@ pub(super) async fn authenticate(
     super::login::show(svc, tab)
 }
 
-pub(super) fn notice(
-    svc: &ServiceContext,
-    session: &Session,
-    message: String,
-) {
+pub(super) fn notice(svc: &ServiceContext, session: &Session, message: String) {
     let tab = session.context.lock().tab_id.clone();
     session.state.lock().notice = Some(message);
     engine::publish_controls(svc, &tab, session);

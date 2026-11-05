@@ -43,7 +43,9 @@ pub(super) fn validate_loaded_settings(
         {
             if let (Some(requested), Some(reported)) = (requested_value, reported_value) {
                 if requested != reported {
-                    notice = Some(format!("Requested model {requested}, agent reports {reported}"));
+                    notice = Some(format!(
+                        "Requested model {requested}, agent reports {reported}"
+                    ));
                 }
             }
             continue;
