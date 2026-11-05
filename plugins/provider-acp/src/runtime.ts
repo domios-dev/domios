@@ -338,7 +338,7 @@ export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue,
     state.sessionId = sessionId;
     state.sessionActive = true;
     state.instructions = op.instructions;
-    state.cursor.loading=false;
+    state.cursor.loading=op.kind === "resumeThread";
     state.settings={commands:[],configOptions:[],modes:[],...sessionSettings(value)};
     return loadedThread(op,state,sessionId);
   }
@@ -407,7 +407,8 @@ export function runtimeReduce(ctx:RuntimeContext, raw:JsonValue, frames:readonly
     const sequence=window?.frameSequences?.[index];
     const attributable=!window || witness?.written === true && witness.afterSequence !== undefined
       && sequence !== undefined && sequence > witness.afterSequence;
-    const cursor=attributable ? state.cursor : {...state.cursor,prompt:Number(object(projection).prompt) || 0};
+    const cursor=attributable ? state.cursor : {...state.cursor,prompt:Number(object(projection).prompt) || 0,
+      loading:state.cursor.loading || object(projection).loading === true};
     if (!attributable && projection === null)
       projection={...object(reduceStream(ctx,null,[],cursor).state),turn:0};
     const frameContext=!window ? ctx : {...ctx,claimedSends:ctx.claimedSends.filter(claim=>

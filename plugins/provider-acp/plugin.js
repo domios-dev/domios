@@ -1189,7 +1189,7 @@ function runtimeResponse(ctx, op, raw, reply) {
     state.sessionId = sessionId;
     state.sessionActive = true;
     state.instructions = op.instructions;
-    state.cursor.loading = false;
+    state.cursor.loading = op.kind === "resumeThread";
     state.settings = { commands: [], configOptions: [], modes: [], ...sessionSettings(value) };
     return loadedThread(op, state, sessionId);
   }
@@ -1252,7 +1252,11 @@ function runtimeReduce(ctx, raw, frames) {
     const witness = window?.turnRequests?.find((request2) => request2.sendId === state.promptSend?.sendId);
     const sequence = window?.frameSequences?.[index];
     const attributable = !window || witness?.written === true && witness.afterSequence !== void 0 && sequence !== void 0 && sequence > witness.afterSequence;
-    const cursor = attributable ? state.cursor : { ...state.cursor, prompt: Number(object4(projection).prompt) || 0 };
+    const cursor = attributable ? state.cursor : {
+      ...state.cursor,
+      prompt: Number(object4(projection).prompt) || 0,
+      loading: state.cursor.loading || object4(projection).loading === true
+    };
     if (!attributable && projection === null)
       projection = { ...object4(reduceStream(ctx, null, [], cursor).state), turn: 0 };
     const frameContext = !window ? ctx : { ...ctx, claimedSends: ctx.claimedSends.filter((claim2) => window.turnRequests?.some((request2) => request2.sendId === claim2.sendId && request2.written === true && request2.afterSequence !== void 0 && sequence !== void 0 && sequence > request2.afterSequence)) };

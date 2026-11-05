@@ -12,6 +12,152 @@ fn delta(seq: usize) -> RuntimeFrame {
     }
 }
 
+#[test]
+fn resumed_replay_stays_idle_and_first_new_turn_completes_once() {
+    crate::async_runtime::block_on(async {
+        let scene = fixtures::scene();
+        let fixture: Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../plugins/provider-acp/tests/fixtures/runtime/resume-buffered-replay-new-turn.json"
+        )))
+        .unwrap();
+        let events: Vec<AgentRuntimeEvent> =
+            serde_json::from_value(fixture["expected"]["events"].clone()).unwrap();
+        let original = events
+            .iter()
+            .find_map(|event| match event {
+                AgentRuntimeEvent::ChatItem { item, .. }
+                    if item.kind == "assistant" && item.content == "old reply" =>
+                {
+                    Some(item.clone())
+                }
+                _ => None,
+            })
+            .unwrap();
+        let epoch = {
+            let mut state = scene.session.state.lock();
+            let epoch = state.begin();
+            state.load(epoch, "thread");
+            epoch
+        };
+        scene.session.context.lock().epoch = epoch;
+        let context = scene.session.context.lock().clone();
+        assert!(scene.session.maps.lock().prepare_restore(&context));
+        super::super::transcript::apply_restored_rows(
+            &scene.session.cache,
+            &scene.session.maps,
+            &context,
+            vec![original.clone()],
+            || true,
+        )
+        .unwrap();
+        let boundary = events
+            .iter()
+            .position(|event| {
+                matches!(event,
+                    AgentRuntimeEvent::ChatItem { item, .. } if item.id == "thread:turn:8:item:1"
+                )
+            })
+            .unwrap();
+        publish_events(
+            &scene.fixture.service,
+            &scene.session,
+            epoch,
+            events[..boundary].to_vec(),
+            10,
+        )
+        .await
+        .unwrap();
+        assert!(scene.session.context.lock().active_turn_id.is_none());
+        assert!(scene
+            .session
+            .state
+            .lock()
+            .active_turn_started_at_ms
+            .is_none());
+        scene.session.context.lock().claimed_sends =
+            serde_json::from_value(fixture["operations"][2]["context"]["claimedSends"].clone())
+                .unwrap();
+        publish_events(
+            &scene.fixture.service,
+            &scene.session,
+            epoch,
+            events[boundary..].to_vec(),
+            20,
+        )
+        .await
+        .unwrap();
+        assert!(scene.session.context.lock().active_turn_id.is_none());
+        assert!(scene.session.context.lock().active_turns.is_empty());
+        assert!(scene
+            .session
+            .state
+            .lock()
+            .active_turn_started_at_ms
+            .is_none());
+        assert!(scene.session.state.lock().notice.is_none());
+        let live = serde_json::to_value(
+            &scene
+                .fixture
+                .service
+                .mux
+                .read()
+                .get_tab(&context.tab_id)
+                .unwrap()
+                .agent_state,
+        )
+        .unwrap();
+        assert_eq!(live["state"], "idle");
+        assert!(scene
+            .session
+            .completions
+            .lock()
+            .contains("thread", "thread:turn:8"));
+        let rows = scene.session.cache.lock().snapshot();
+        assert_eq!(
+            rows.iter()
+                .filter(|row| row.kind == "assistant" && row.content == "NEW-TURN-OK")
+                .count(),
+            1
+        );
+        assert_eq!(rows.iter().filter(|row| row.id == original.id).count(), 1);
+        publish_events(
+            &scene.fixture.service,
+            &scene.session,
+            epoch,
+            vec![AgentRuntimeEvent::ChatItemAppend {
+                thread_id: "thread".into(),
+                item_id: original.id.clone(),
+                content: "late".into(),
+                offset: original.content.len(),
+            }],
+            30,
+        )
+        .await
+        .unwrap();
+        assert!(scene
+            .session
+            .state
+            .lock()
+            .notice
+            .as_deref()
+            .unwrap()
+            .contains("retained content or active turn"));
+        assert_eq!(
+            scene
+                .session
+                .cache
+                .lock()
+                .snapshot()
+                .iter()
+                .find(|row| row.id == original.id)
+                .unwrap()
+                .content,
+            "old reply"
+        );
+    });
+}
+
 fn request(id: &str) -> RuntimeFrame {
     RuntimeFrame::Request {
         request_id: RpcId::String(id.into()),

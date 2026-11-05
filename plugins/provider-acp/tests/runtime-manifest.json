@@ -156,6 +156,7 @@
     "long-stream-cancel.json",
     "oversize-single-frame.json",
     "two-turns-restart-third.json",
+    "resume-buffered-replay-new-turn.json",
     "self-send-overlapping-prompts.json",
     "tool-output-retention.json",
     "oversize-astral-cut.json",

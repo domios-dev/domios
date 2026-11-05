@@ -13,6 +13,41 @@ const runtimePlan=(...args:Parameters<typeof sourcePlan>)=>{const plan=runtimeJs
 const runtimeResponse=(...args:Parameters<typeof sourceResponse>)=>{const step=runtimeJson(sourceResponse(...args),"runtimeResponse");if (step.kind === "continue") assertRuntimePlan(args[0],args[1],step.plan);return step;};
 const runtimeReduce=(...args:Parameters<typeof sourceReduce>)=>{const reduction=runtimeJson(sourceReduce(...args),"runtimeReduce");assertRuntimeReduction(reduction);return reduction;};
 
+{
+  const fixture=JSON.parse(fs.readFileSync(new URL("./fixtures/runtime/resume-buffered-replay-new-turn.json",import.meta.url),"utf8"));
+  const plans=new Map<number,ReturnType<typeof runtimePlan>>();
+  const rows=new Map<string,ChatMsg>();
+  let state:JsonValue=null;
+  const events:AgentEvent[]=[];
+  for (const record of fixture.rpc) {
+    if (record.direction === "outbound") {
+      const entry=fixture.operations[record.operation];
+      const plan=runtimePlan(entry.context ?? fixture.context,entry.operation);
+      assert.deepEqual(plan.action,record.action);
+      plans.set(record.operation,plan);
+    } else if (record.reply) {
+      const entry=fixture.operations[record.operation];
+      const step=runtimeResponse(entry.context ?? fixture.context,entry.operation,plans.get(record.operation)!.state,record.reply);
+      assert.equal(step.kind,"complete");
+      if (step.kind === "complete") events.push(...step.events ?? []);
+    } else {
+      const reduced=runtimeReduce(record.context ?? fixture.context,state,record.frames);
+      state=reduced.state;
+      events.push(...reduced.events);
+      if (!record.context.streamWindow.turnRequests.some((request:{written:boolean})=>request.written)) {
+        assert.equal(events.some(event=>event.kind === "turnState"),false,"buffered resume replay, even after planning a new prompt, leaves the tab idle");
+      }
+    }
+  }
+  assert.deepEqual(events,fixture.expected.events);
+  assert.deepEqual(events.filter(event=>event.kind === "turnState").map(event=>[event.turnId,event.state]),
+    [["thread:turn:8","working"],["thread:turn:8","idle"]]);
+  for (const event of events) foldRow(rows,event);
+  assert.equal([...rows.values()].filter(row=>row.type === "assistant" && row.content === "NEW-TURN-OK").length,1);
+  assert.equal(events.some(event=>event.kind === "notice"),false);
+  console.log("✓ ACP buffered resume replay stays idle; the first written new turn streams and completes once");
+}
+
 interface Fixture {
   context:RuntimeContext;
   operations:{operation:Operation;context?:RuntimeContext}[];
