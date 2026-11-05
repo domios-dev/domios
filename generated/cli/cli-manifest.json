@@ -929,6 +929,16 @@
               "aliases": []
             },
             {
+              "name": "method",
+              "positional": false,
+              "required": false,
+              "value_name": "ID",
+              "possible_values": [],
+              "default": null,
+              "help": "Authenticate with a method the agent declared (listed by --show); add --api-key-stdin when that method takes an API key",
+              "aliases": []
+            },
+            {
               "name": "show",
               "positional": false,
               "required": false,

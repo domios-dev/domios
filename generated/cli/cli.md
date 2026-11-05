@@ -282,6 +282,7 @@ Sign in to the tab's runtime provider without a terminal
 - `--api-key-stdin` — Read the API key from stdin; never supply credentials in argv
 - `--cancel`
 - `--device`
+- `--method` — Authenticate with a method the agent declared (listed by --show); add --api-key-stdin when that method takes an API key
 - `--show` — Read the pending sign-in without starting another flow
 - `--tab`
 
