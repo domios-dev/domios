@@ -142,7 +142,7 @@ export function reduceStream(ctx:RuntimeContext, raw:JsonValue, frames:readonly 
       if (kind === "user_message_chunk" || kind === "agent_message_chunk" || kind === "agent_thought_chunk") {
         const content=object(update.content);
         if (content.type !== "text" || typeof content.text !== "string" || state.settled && !state.loading) continue;
-        const text=content.text;
+        const chunkText=content.text;
         if (kind === "user_message_chunk" && submitted && state.evidenced.includes(submitted.sendId)) continue;
         const messageId=text(update.messageId);
         const explicit=messageId ? `${kind}:${messageId}` : undefined;
@@ -163,7 +163,7 @@ export function reduceStream(ctx:RuntimeContext, raw:JsonValue, frames:readonly 
         if (kind === "user_message_chunk" && !state.loading) {
           const claim=ctx.claimedSends.find(claim=>claim.threadId === ctx.threadId && !state.evidenced.includes(claim.sendId)
             && claim.input.attachments.length === 0 && (chunk.chars === 0 || claim.sendId === chunk.echo)
-            && claim.input.text.slice(chunk.chars,chunk.chars+text.length) === text);
+            && claim.input.text.slice(chunk.chars,chunk.chars+chunkText.length) === chunkText);
           if (claim) chunk.echo=claim.sendId;
           else delete chunk.echo;
         }
