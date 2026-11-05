@@ -205,6 +205,7 @@ fn windows_denies_all_reparse_components_and_nonregular_files() {
     let (_outside, outside) = tests::root();
     std::fs::write(root.join("regular"), "inside").unwrap();
     std::fs::write(outside.join("regular"), "outside").unwrap();
+    let reparse_file = guid_file_reparse(&root.join("internal-file"));
     junction(&root.join("internal-link"), &root);
     junction(&root.join("external-link"), &outside);
     junction(&root.join("self-link"), &root);
@@ -220,6 +221,30 @@ fn windows_denies_all_reparse_components_and_nonregular_files() {
         assert!(fs::read(&root, &handle, Path::new(path), None, None).is_err());
         assert!(fs::write(&root, &handle, Path::new(path), "changed", |apply| apply()).is_err());
     }
+    let error = fs::read(&root, &handle, Path::new("internal-file"), None, None).unwrap_err();
+    assert!(
+        error.contains("Reparse attribute"),
+        "file read must fail on reparse attribute: {error}"
+    );
+    let error = fs::write(
+        &root,
+        &handle,
+        Path::new("internal-file"),
+        "changed",
+        |apply| apply(),
+    )
+    .unwrap_err();
+    assert!(
+        error.contains("Reparse attribute"),
+        "file write must fail on reparse attribute: {error}"
+    );
+    clear_guid_reparse(&reparse_file);
+    drop(reparse_file);
+    assert_eq!(
+        std::fs::read_to_string(root.join("internal-file")).unwrap(),
+        "ordinary file"
+    );
+    std::fs::remove_file(root.join("internal-file")).unwrap();
     assert!(fs::windows::open_root(&root.join("self-link")).is_err());
     assert_eq!(
         std::fs::read_to_string(outside.join("regular")).unwrap(),
@@ -277,22 +302,62 @@ fn windows_atomic_commit_pins_parent_and_rechecks_leaf() {
         "old"
     );
     assert_eq!(std::fs::read_dir(root.join("parent")).unwrap().count(), 1);
+    let mut substituted = None;
+    let error = fs::write(&root, &handle, Path::new("parent/file"), "new", |apply| {
+        assert!(std::fs::rename(root.join("parent"), root.join("moved")).is_err());
+        std::fs::remove_file(root.join("parent/file")).unwrap();
+        substituted = Some(guid_file_reparse(&root.join("parent/file")));
+        apply()
+    })
+    .unwrap_err();
     assert!(
-        fs::write(&root, &handle, Path::new("parent/file"), "new", |apply| {
-            assert!(std::fs::rename(root.join("parent"), root.join("moved")).is_err());
-            std::fs::remove_file(root.join("parent/file")).unwrap();
-            junction(&root.join("parent/file"), &outside);
-            apply()
-        })
-        .is_err()
+        error.contains("Reparse attribute"),
+        "commit must fail on reparse attribute: {error}"
     );
     assert_eq!(
         std::fs::read_to_string(outside.join("file")).unwrap(),
         "outside"
     );
-    std::fs::remove_dir(root.join("parent/file")).unwrap();
+    clear_guid_reparse(substituted.as_ref().unwrap());
+    drop(substituted);
+    std::fs::remove_file(root.join("parent/file")).unwrap();
     std::fs::write(root.join("parent/file"), "old").unwrap();
-    let mut old = std::fs::File::open(root.join("parent/file")).unwrap();
+    use std::os::windows::fs::OpenOptionsExt;
+    use windows_sys::Win32::Storage::FileSystem::{
+        FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
+    };
+    let mut blocked = std::fs::OpenOptions::new()
+        .read(true)
+        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+        .open(root.join("parent/file"))
+        .unwrap();
+    let error = fs::write(
+        &root,
+        &handle,
+        Path::new("parent/file"),
+        "blocked",
+        |apply| apply(),
+    )
+    .unwrap_err();
+    assert_eq!(error, fs::windows::CommitRefusal::FileInUse.to_string());
+    assert_eq!(
+        std::fs::read_to_string(root.join("parent/file")).unwrap(),
+        "old"
+    );
+    let mut original = String::new();
+    blocked.read_to_string(&mut original).unwrap();
+    assert_eq!(original, "old");
+    assert_eq!(
+        std::fs::read_dir(root.join("parent")).unwrap().count(),
+        1,
+        "failed commit must remove its temporary file"
+    );
+    drop(blocked);
+    let mut old = std::fs::OpenOptions::new()
+        .read(true)
+        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
+        .open(root.join("parent/file"))
+        .unwrap();
     fs::write(&root, &handle, Path::new("parent/file"), "new", |apply| {
         apply()
     })
@@ -719,4 +784,80 @@ fn junction(link: &Path, target: &Path) {
         link.display(),
         std::io::Error::last_os_error()
     );
+}
+
+fn guid_file_reparse(path: &Path) -> std::fs::File {
+    use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
+    use windows_sys::Win32::{
+        Foundation::ERROR_PRIVILEGE_NOT_HELD,
+        Storage::FileSystem::{
+            FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_OPEN_REPARSE_POINT,
+        },
+    };
+    std::fs::write(path, "ordinary file").unwrap();
+    let handle = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+        .open(path)
+        .unwrap();
+    if let Err(error) = guid_reparse_control(&handle, 0x0009_00a4, b"regular") {
+        if error.raw_os_error() == Some(ERROR_PRIVILEGE_NOT_HELD as i32) {
+            panic!("NOT RUN: GUID file-leaf reparse proof requires unavailable privilege (ERROR_PRIVILEGE_NOT_HELD): {error}");
+        }
+        panic!(
+            "GUID file-leaf reparse fixture {} failed: {error}",
+            path.display()
+        );
+    }
+    let attributes = handle.metadata().unwrap().file_attributes();
+    assert_eq!(
+        attributes & FILE_ATTRIBUTE_DIRECTORY,
+        0,
+        "fixture must remain a FILE leaf"
+    );
+    assert_ne!(
+        attributes & FILE_ATTRIBUTE_REPARSE_POINT,
+        0,
+        "fixture must carry a reparse attribute"
+    );
+    handle
+}
+
+fn clear_guid_reparse(file: &std::fs::File) {
+    guid_reparse_control(file, 0x0009_00ac, &[]).unwrap();
+}
+
+fn guid_reparse_control(file: &std::fs::File, control: u32, payload: &[u8]) -> std::io::Result<()> {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::System::IO::DeviceIoControl;
+    const TAG: u32 = 0x0000_0042;
+    const OWNER: [u8; 16] = [
+        0x4e, 0x6d, 0xfd, 0xc7, 0x6a, 0x46, 0x21, 0x4f, 0x8c, 0x08, 0x60, 0x9b, 0x23, 0x46, 0xd9,
+        0x70,
+    ];
+    let mut data = Vec::new();
+    data.extend_from_slice(&TAG.to_le_bytes());
+    data.extend_from_slice(&(payload.len() as u16).to_le_bytes());
+    data.extend_from_slice(&0u16.to_le_bytes());
+    data.extend_from_slice(&OWNER);
+    data.extend_from_slice(payload);
+    let mut returned = 0;
+    let result = unsafe {
+        DeviceIoControl(
+            file.as_raw_handle(),
+            control,
+            data.as_ptr().cast(),
+            data.len() as u32,
+            std::ptr::null_mut(),
+            0,
+            &mut returned,
+            std::ptr::null_mut(),
+        )
+    };
+    if result == 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
 }

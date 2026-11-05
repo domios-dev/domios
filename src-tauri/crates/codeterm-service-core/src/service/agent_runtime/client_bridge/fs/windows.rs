@@ -10,7 +10,11 @@ use std::{
     path::{Component, PathBuf},
 };
 use windows_sys::Win32::{
-    Foundation::{ERROR_INVALID_DRIVE, HANDLE, OBJ_CASE_INSENSITIVE, OBJ_DONT_REPARSE},
+    Foundation::{
+        ERROR_INVALID_DRIVE, HANDLE, OBJ_CASE_INSENSITIVE, OBJ_DONT_REPARSE,
+        STATUS_INVALID_INFO_CLASS, STATUS_INVALID_PARAMETER, STATUS_NOT_SUPPORTED,
+        STATUS_REPARSE_POINT_ENCOUNTERED, STATUS_SHARING_VIOLATION,
+    },
     Storage::FileSystem::{
         GetFileInformationByHandle, GetFinalPathNameByHandleW, BY_HANDLE_FILE_INFORMATION, DELETE,
         FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
@@ -23,6 +27,31 @@ const NT_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
 const NT_SYNCHRONOUS_IO_NONALERT: u32 = 0x20;
 const NT_DIRECTORY_FILE: u32 = 1;
 const NT_NON_DIRECTORY_FILE: u32 = 0x40;
+const NT_FILE_RENAME_INFORMATION: u32 = 10;
+const NT_FILE_RENAME_INFORMATION_EX: u32 = 65;
+const RENAME_REPLACE_IF_EXISTS: u32 = 1;
+const RENAME_POSIX_SEMANTICS: u32 = 2;
+
+#[derive(Clone, Copy)]
+enum OpenPurpose {
+    Read,
+    Create,
+    ReplaceProbe,
+}
+
+pub(in super::super) enum CommitRefusal {
+    FileInUse,
+    PosixUnsupported,
+}
+
+impl std::fmt::Display for CommitRefusal {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            Self::FileInUse => "file_in_use: File is in use by a reader that does not share delete access",
+            Self::PosixUnsupported => "atomic_replace_unsupported: Native POSIX replacement is unavailable and legacy atomic rename failed",
+        })
+    }
+}
 
 #[repr(C)]
 struct UnicodeString {
@@ -185,7 +214,7 @@ fn parse_disk_path(path: &Path, agent: bool) -> Result<PathBuf, String> {
 fn validate(file: &File, directory: bool) -> Result<(), String> {
     let metadata = file.metadata().map_err(|error| error.to_string())?;
     if metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
-        return Err("Reparse traversal denied".into());
+        return Err("Reparse attribute traversal denied".into());
     }
     if if directory {
         !metadata.is_dir()
@@ -215,17 +244,29 @@ fn optional_open_at(
         } else {
             FILE_SHARE_WRITE | FILE_SHARE_DELETE
         };
-    native_open(parent, name, directory, create, true, sharing)
+    native_open(
+        parent,
+        name,
+        directory,
+        if create {
+            OpenPurpose::Create
+        } else {
+            OpenPurpose::Read
+        },
+        true,
+        sharing,
+    )
 }
 
 fn native_open(
     parent: &File,
     name: &OsStr,
     directory: bool,
-    create: bool,
+    purpose: OpenPurpose,
     agent: bool,
     sharing: u32,
 ) -> Result<Option<File>, String> {
+    let create = matches!(purpose, OpenPurpose::Create);
     validate(parent, true)?;
     valid_component(name, agent)?;
     let mut wide_name: Vec<_> = name.encode_wide().collect();
@@ -250,10 +291,10 @@ fn native_open(
     let mut handle = std::ptr::null_mut();
     let access = FILE_GENERIC_READ
         | if directory { FILE_TRAVERSE } else { 0 }
-        | if create {
-            FILE_GENERIC_WRITE | DELETE
-        } else {
-            0
+        | match purpose {
+            OpenPurpose::Create => FILE_GENERIC_WRITE | DELETE,
+            OpenPurpose::ReplaceProbe => DELETE,
+            OpenPurpose::Read => 0,
         };
     let options = NT_OPEN_REPARSE_POINT
         | NT_SYNCHRONOUS_IO_NONALERT
@@ -279,6 +320,12 @@ fn native_open(
     };
     if !create && matches!(result as u32, 0xc000_0034 | 0xc000_003a) {
         return Ok(None);
+    }
+    if result == STATUS_SHARING_VIOLATION {
+        return Err(CommitRefusal::FileInUse.to_string());
+    }
+    if result == STATUS_REPARSE_POINT_ENCOUNTERED {
+        return Err("Reparse attribute traversal denied by native no-reparse open".into());
     }
     if result < 0 {
         let error =
@@ -330,7 +377,7 @@ pub(in super::super) fn pinned_if_exists(path: &Path) -> Result<Option<Vec<File>
             parent,
             name,
             true,
-            false,
+            OpenPurpose::Read,
             false,
             FILE_SHARE_READ | FILE_SHARE_WRITE,
         )?
@@ -439,8 +486,15 @@ pub(in super::super) fn read(root: &File, relative: &Path) -> Result<File, Strin
 }
 
 pub(in super::super) fn pin_program(parent: &File, name: &OsStr) -> Result<File, String> {
-    let file = native_open(parent, name, false, false, true, FILE_SHARE_READ)?
-        .ok_or("Program does not exist")?;
+    let file = native_open(
+        parent,
+        name,
+        false,
+        OpenPurpose::Read,
+        true,
+        FILE_SHARE_READ,
+    )?
+    .ok_or("Program does not exist")?;
     resolved_policy(parent, Path::new(name), &file)?;
     Ok(file)
 }
@@ -449,10 +503,15 @@ pub(in super::super) fn root_matches(root: &Path, held: &File) -> Result<(), Str
     same(&open_root(root)?, held)
 }
 
-fn rename(file: &File, parent: &File, name: &OsStr) -> Result<(), String> {
+fn rename(
+    file: &File,
+    parent: &File,
+    name: &OsStr,
+    destination: Option<File>,
+) -> Result<(), String> {
     #[repr(C)]
     struct RenameInformation {
-        replace: u8,
+        flags: u32,
         root: HANDLE,
         name_length: u32,
         name: [u16; 1],
@@ -463,7 +522,7 @@ fn rename(file: &File, parent: &File, name: &OsStr) -> Result<(), String> {
     let mut storage = vec![0usize; length.div_ceil(std::mem::size_of::<usize>())];
     let information = storage.as_mut_ptr().cast::<RenameInformation>();
     unsafe {
-        (*information).replace = 1;
+        (*information).flags = RENAME_REPLACE_IF_EXISTS | RENAME_POSIX_SEMANTICS;
         (*information).root = parent.as_raw_handle();
         (*information).name_length = (name.len() * 2) as u32;
         std::ptr::copy_nonoverlapping(
@@ -476,15 +535,44 @@ fn rename(file: &File, parent: &File, name: &OsStr) -> Result<(), String> {
         status: 0,
         information: 0,
     };
-    let result = unsafe {
+    let mut result = unsafe {
         NtSetInformationFile(
             file.as_raw_handle(),
             &mut status,
             information.cast(),
             length as u32,
-            10,
+            NT_FILE_RENAME_INFORMATION_EX,
         )
     };
+    if matches!(
+        result,
+        STATUS_INVALID_INFO_CLASS | STATUS_INVALID_PARAMETER | STATUS_NOT_SUPPORTED
+    ) {
+        drop(destination);
+        unsafe {
+            (*information).flags = RENAME_REPLACE_IF_EXISTS;
+        }
+        result = unsafe {
+            NtSetInformationFile(
+                file.as_raw_handle(),
+                &mut status,
+                information.cast(),
+                length as u32,
+                NT_FILE_RENAME_INFORMATION,
+            )
+        };
+        if result == STATUS_SHARING_VIOLATION {
+            return Err(CommitRefusal::FileInUse.to_string());
+        }
+        if result < 0 {
+            let error =
+                std::io::Error::from_raw_os_error(unsafe { RtlNtStatusToDosError(result) } as i32);
+            return Err(format!("{}: {error}", CommitRefusal::PosixUnsupported));
+        }
+    }
+    if result == STATUS_SHARING_VIOLATION {
+        return Err(CommitRefusal::FileInUse.to_string());
+    }
     if result < 0 {
         return Err(std::io::Error::from_raw_os_error(
             unsafe { RtlNtStatusToDosError(result) } as i32
@@ -556,8 +644,19 @@ pub(in super::super) fn write(
             root_matches(root, root_handle)?;
             same(&directory(root_handle, parent)?, held)?;
             check(root, relative, true)?;
+            let destination = native_open(
+                held,
+                name,
+                false,
+                OpenPurpose::ReplaceProbe,
+                true,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            )?;
+            if let Some(destination) = &destination {
+                resolved_policy(root_handle, relative, destination)?;
+            }
             delete_on_close(&file, false)?;
-            if let Err(error) = rename(&file, held, name) {
+            if let Err(error) = rename(&file, held, name, destination) {
                 delete_on_close(&file, true)?;
                 return Err(error);
             }
