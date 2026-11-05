@@ -81,7 +81,8 @@ it("renders declared authentication methods and submits only an available method
     await act(async()=>root.render(<RuntimeLoginActions tabId="owned" state={state}/>));
     const group=host.querySelector('[role="group"][aria-label="Sign in to the provider"]');
     expect(group).not.toBeNull();
-    expect(host.querySelector('output[aria-label="Authentication state"]')?.textContent).toBe("unknown");
+    // No raw state word in the card.
+    expect(host.querySelector('output[aria-label="Authentication state"]')).toBeNull();
     const buttons=Array.from(group!.querySelectorAll("button"));
     const terminal=buttons.find(button=>button.textContent === "Terminal sign-in")!;
     expect(terminal.disabled).toBe(true);
@@ -117,28 +118,34 @@ it("asks for a key before a key-taking declared method and sends both together",
   } finally {await act(async()=>root.unmount());}
 });
 
-it("renders a session config picker, sends its pinned selection, and dismisses transient notices", async () => {
+async function choosePill(host:HTMLElement,label:string,option:string) {
+  const trigger=host.querySelector<HTMLButtonElement>(`button[aria-label^="${label}:"]`)!;
+  await act(async()=>{trigger.dispatchEvent(new Event("pointerdown",{bubbles:true,cancelable:true}));});
+  const item=Array.from(document.body.querySelectorAll<HTMLElement>('[role="menuitemradio"]')).find(entry=>entry.textContent?.trim()===option)!;
+  await act(async()=>item.click());
+}
+
+it("renders a session config picker as a pill, sends its pinned selection, and dismisses transient notices", async () => {
   bridge.invoke.mockReset();bridge.invoke.mockResolvedValue({ok:true});
-  const host=document.createElement("div");const root=createRoot(host);
+  const host=document.createElement("div");document.body.append(host);const root=createRoot(host);
   const state:AgentRuntimeState={state:"loaded",epoch:4,notice:"Agent notice",controls:{configOptions:[
     {id:"policy",name:"Policy",currentValue:"safe",options:[{value:"safe",name:"Safe"},{value:"review",name:"Review"}]},
     {id:"readonly",name:"Reported value",currentValue:"opaque",options:[]},
   ]}};
   try {
     await act(async()=>root.render(<RuntimeDeclaredControls tabId="owned" state={state}/>));
-    const picker=host.querySelector<HTMLSelectElement>('select[aria-label="Policy"]')!;
-    expect(picker.value).toBe("safe");
-    expect(Array.from(picker.options).map(option=>option.textContent)).toEqual(["Safe","Review"]);
-    await act(async()=>{picker.value="review";picker.dispatchEvent(new Event("change",{bubbles:true}));});
+    const pill=host.querySelector<HTMLButtonElement>('button[aria-label^="Policy:"]')!;
+    expect(pill.getAttribute("aria-label")).toBe("Policy: Safe");
+    await choosePill(host,"Policy","Review");
     expect(bridge.invoke).toHaveBeenCalledExactlyOnceWith("agent_runtime_controls",{tabId:"owned",request:{threadId:"own-session",bindingNonce:"own-nonce",epoch:4,id:"policy",value:"review",mode:false}});
     expect(host.querySelector("output")?.textContent).toBe("opaque");
     expect(host.querySelector('[role="status"]')?.textContent).toContain("Agent notice");
     await act(async()=>Array.from(host.querySelectorAll("button")).find(button=>button.textContent === "Dismiss notice")!.click());
     expect(host.querySelector('[role="status"]')).toBeNull();
     bridge.invoke.mockRejectedValue(new Error("Unadvertised value"));
-    await act(async()=>{picker.value="safe";picker.dispatchEvent(new Event("change",{bubbles:true}));});
+    await choosePill(host,"Policy","Review");
     expect(host.textContent).toContain("The agent refused this control value.");
-  } finally {await act(async()=>root.unmount());}
+  } finally {await act(async()=>root.unmount());host.remove();}
 });
 
 
@@ -165,7 +172,7 @@ it("leaves the declared model to the model picker and keeps other declared contr
     expect(group).not.toBeNull();
     expect(group!.querySelector('[aria-label="Model"]')).toBeNull();
     for (const name of ["Reasoning effort", "Session mode"]) {
-      const control = group!.querySelector<HTMLSelectElement>(`[role="combobox"][aria-label="${name}"]`)!;
+      const control = group!.querySelector<HTMLButtonElement>(`button[aria-label^="${name}:"]`)!;
       expect(control).not.toBeNull();
       expect(control.disabled).toBe(false);
       expect(control.tabIndex).toBe(0);

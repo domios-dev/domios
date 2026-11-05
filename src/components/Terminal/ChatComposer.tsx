@@ -194,6 +194,7 @@ function ChatComposerImpl({
   showComposerError,
   onOpenTerminalFallback,
   promptDock,
+  idlePlaceholder,
   replacement,
   inlineAttachmentSink,
   pluginError,
@@ -225,6 +226,8 @@ function ChatComposerImpl({
   showComposerError: (message: string) => void;
   onOpenTerminalFallback?: () => void;
   promptDock?: ReactNode;
+  /** What the empty input says instead of "Message", e.g. while the agent waits for a sign-in. */
+  idlePlaceholder?: string;
   replacement?: ReactNode;
   /** Where pasted and dropped files land as capsules at the caret. */
   inlineAttachmentSink?: MutableRefObject<InlineAttachmentSink | null>;
@@ -710,7 +713,7 @@ function ChatComposerImpl({
           onSelect={(e) => { capsules.snapSelection(e.currentTarget); mentionPicker.current?.syncSelection(e.currentTarget); }}
           placeholder={pendingPrompt
             ? "Agent may be waiting in the terminal."
-            : "Message"}
+            : idlePlaceholder ?? "Message"}
           enterKeyHint={composerDevice === "phone" ? "enter" : "send"}
           style={{
             color: capsulesActive ? "transparent" : "var(--ct-fg, #c9d1d9)",
@@ -798,6 +801,7 @@ export const ChatComposer = memo(ChatComposerImpl, (a, b) =>
   && a.onOpenTerminalFallback === b.onOpenTerminalFallback
   && a.replacement === b.replacement
   && a.promptDock === b.promptDock
+  && a.idlePlaceholder === b.idlePlaceholder
   && a.inlineAttachmentSink === b.inlineAttachmentSink
   && a.pluginError === b.pluginError
   && a.sessionIntent === b.sessionIntent

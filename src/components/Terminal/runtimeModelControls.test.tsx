@@ -67,8 +67,8 @@ describe("declared model controls of a runtime agent", () => {
     const switchModel = await mount();
     expect(row().querySelector('[aria-label="Model"]')).toBeNull();
     expect(row().querySelector('[aria-label="Thinking"]')).toBeNull();
-    expect(row().querySelector('[role="combobox"][aria-label="Approvals"]')).not.toBeNull();
-    expect(row().querySelector('[role="combobox"][aria-label="Session mode"]')).not.toBeNull();
+    expect(row().querySelector('button[aria-label="Approvals: Ask"]')).not.toBeNull();
+    expect(row().querySelector('button[aria-label="Session mode: Code"]')).not.toBeNull();
     expect(host.querySelectorAll('[data-testid="status-model-trigger"]')).toHaveLength(1);
     // The same presentation as every other provider: logo, model · effort; the agent's name and version only in the tooltip.
     expect(trigger().textContent).toBe("Gemini Pro · low");
@@ -92,8 +92,24 @@ describe("declared model controls of a runtime agent", () => {
 
   it("a non-model control in the row still changes through the same API", async () => {
     await mount();
-    const approvals = row().querySelector<HTMLSelectElement>('[aria-label="Approvals"]')!;
-    await act(async () => { approvals.value = "auto"; approvals.dispatchEvent(new Event("change", { bubbles: true })); });
+    const approvals = row().querySelector<HTMLButtonElement>('button[aria-label^="Approvals:"]')!;
+    await act(async () => { approvals.dispatchEvent(new Event("pointerdown", { bubbles: true, cancelable: true })); });
+    await act(async () => [...document.body.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find((item) => item.textContent?.trim() === "Auto")!.click());
     expect(bridge.invoke).toHaveBeenCalledWith("agent_runtime_controls", { tabId: "acp", request: { threadId: "acp-session", bindingNonce: "acp-nonce", epoch: 7, id: "approvals", value: "auto", mode: false } });
   });
+});
+
+it("a tab shows its session mode as a compact pill in the same row as the model bubble", async () => {
+  const { setAgentDescriptors } = await import("../../lib/agentDescriptorCache");
+  const { TabStatusLineModelPicker } = await import("./StatusLineModelPicker");
+  setAgentDescriptors([provider]);
+  host = document.createElement("div");
+  document.body.append(host);
+  root = createRoot(host);
+  await act(async () => root!.render(<TabStatusLineModelPicker tab={{ ...tab, agent_type: provider.id, backing: { kind: "chat_backend" } } as Tab} label="Gemini CLI" />));
+  const bubble = host.querySelector('[data-testid="status-model-trigger"]');
+  const mode = host.querySelector('button[aria-label="Session mode: Code"]');
+  expect(bubble).not.toBeNull();
+  expect(mode).not.toBeNull();
+  expect(mode!.closest('[role="group"][aria-label="Agent controls"]')?.parentElement).toBe(bubble!.closest(".ct-status-identity-wrap")?.parentElement);
 });

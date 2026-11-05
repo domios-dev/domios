@@ -12,6 +12,7 @@ import { chatLayoutTokens } from "./chatLayoutTokens";
 import { RuntimeQuestionCard } from "./RuntimeQuestionCard";
 import { heldMessagesForLaunch } from "./chatSetupModel";
 import { useComposerPresentation } from "./useComposerPresentation";
+import { RuntimeLoginActions, signInPlacement } from "./RuntimeLoginActions";
 import { ComposerIssuesProvider } from "./ComposerIssuesContext";
 import { runtimeResponseDeadlinePending, runtimeStatusPresentation } from "../../lib/agentRuntimeState";
 import { useAgentRuntimeState } from "./useAgentRuntimeState";
@@ -364,6 +365,10 @@ function TabSessionChatBody({
     state: runtime.state, retry: runtime.retry, startupOwned: !snapshotReady || bootSetupView.kind === "starting",
     iconSvg: provider?.iconSvg, messages: allMessages });
   const runtimeReplacement = runtimeUnavailable ? runtimeBadge : undefined;
+  // Any harness that must sign in shows one card in the chat area: centred while the chat is empty, a calm notice above
+  // the composer once there is a conversation. Never inside the composer group.
+  const signIn = signInPlacement(runtime.state, hasTranscript);
+  const signInState = signIn ? runtime.state : null;
   const runtimeFailed = runtime.state?.state === "unloaded" || runtime.state?.state === "degraded";
   const remoteChatReconnecting = tab?.remote_channels?.chat === "reconnecting";
   const chatChannelLoading = !firstTurnReady && !tabLock.locked && attachmentState !== "failed" && !runtimeFailed && (loading || recovering || (!hasTranscript && remoteChatReconnecting));
@@ -910,7 +915,13 @@ function TabSessionChatBody({
         </div>
       )}
       <div className="relative flex-1 min-h-0">
-      {showEmptyState && (
+      {signInState && signIn === "center" && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center overflow-y-auto p-4" data-testid="chat-sign-in">
+          <RuntimeLoginActions key={`${tabId}:${signInState.epoch}`} variant="center" tabId={tabId} state={signInState}
+            iconSvg={provider?.iconSvg} providerId={tabProvider ?? undefined} onCheck={() => { void runtime.retry(); }} />
+        </div>
+      )}
+      {showEmptyState && !signInState && (
         <div
           className="chat-empty-state pointer-events-none absolute inset-0 flex items-center justify-center select-none"
           data-testid="chat-empty-state"
@@ -1120,7 +1131,10 @@ function TabSessionChatBody({
           void runThreadHistory("revert", turnId, true);
         }}
       />}
+        {signInState && signIn === "inline" && <RuntimeLoginActions key={`${tabId}:${signInState.epoch}`} variant="inline" tabId={tabId} state={signInState}
+          iconSvg={provider?.iconSvg} providerId={tabProvider ?? undefined} onCheck={() => { void runtime.retry(); }} />}
         {managedTabPresentation(tab?.managed).locked ? runtimeReplacement : <ChatComposer
+          idlePlaceholder={signInState ? "Sign in to start" : undefined}
           tabId={tabId}
           tabProvider={tabProvider}
           currentPtyId={currentPtyId}

@@ -680,10 +680,12 @@ test("catalogue-free runtime refuses model-name heuristics with a visible disabl
     {id:"model",name:"Model",currentValue:"undeclared",options:[{value:"undeclared",name:"Undeclared"}]},
   ]});
   try {
-    assert.equal(view.trigger()!.disabled, true);
-    assert.match(view.trigger()!.textContent!, /This agent declared no model option/);
-    assert.doesNotMatch(view.trigger()!.textContent!, /deep|Undeclared/);
-    await act(async () => view.trigger()!.click());
+    // Nothing declared as a model: a quiet Default with the logo, and no menu to open.
+    assert.equal(view.trigger(), null);
+    const quiet = view.host.querySelector<HTMLElement>('[data-testid="status-model-default"]')!;
+    assert.equal(quiet.textContent, "Default");
+    assert.match(quiet.title, /This agent does not offer model choices/);
+    assert.doesNotMatch(view.host.textContent!, /declared no model|deep|Undeclared/);
     assert.equal(view.picker(), null);
   } finally { await view.unmount(); }
 });

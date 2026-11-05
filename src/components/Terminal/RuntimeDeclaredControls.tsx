@@ -3,41 +3,58 @@ import {useMuxSelector} from "../../store/multiplexer/hooks";
 import type {AgentRuntimeState} from "../../lib/agentRuntimeState";
 import {rowControls, selectRuntimeControl} from "../../lib/runtimeDeclaredControls";
 import {InlineErrorNotice} from "../shared/ErrorNotice";
-import {UI_INPUT} from "../shared/design";
+import {DropdownSelect} from "../shared/DropdownMenu";
 
-/** Whether a runtime state has anything for the controls row: a notice, a mode, or a control the model picker does not own. */
+/** Whether a runtime state has anything for the composer: a notice the agent sent. */
 export function hasRowControls(state:AgentRuntimeState|null|undefined):boolean {
-  return Boolean(state?.notice || rowControls(state?.controls).length || state?.controls?.modes?.length);
+  return Boolean(state?.notice);
 }
 
-/** The agent's declared controls other than model and reasoning effort, which the status-line model picker shows. */
-export function RuntimeDeclaredControls({tabId,state}:{tabId:string;state:AgentRuntimeState}) {
+/** Whether the agent declared controls other than model and effort (a session mode and the like). */
+export function hasControlPills(state:AgentRuntimeState|null|undefined):boolean {
+  return Boolean(rowControls(state?.controls).length || state?.controls?.modes?.length);
+}
+
+const PILL = "!w-auto max-w-[14rem] !py-1 [font-family:var(--ct-font-ui)]";
+
+/**
+ * The agent's declared controls other than model and reasoning effort (which the status-line model picker shows).
+ * `controls` are compact pills that sit beside the model bubble; `notice` is the agent's dismissible notice above the
+ * composer.
+ */
+export function RuntimeDeclaredControls({tabId,state,parts="all"}:{tabId:string;state:AgentRuntimeState;parts?:"all"|"notice"|"controls"}) {
   const nonce=useMuxSelector(mux=>mux.tabs[tabId]?.session_binding_nonce);
   const thread=useMuxSelector(mux=>mux.tabs[tabId]?.agent_session_id);
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState<string|null>(null);
   const [dismissed,setDismissed]=useState<string|null>(null);
   const options=rowControls(state.controls);
+  const modes=state.controls?.modes ?? [];
   async function select(id:string,value:string,mode=false) {
     setBusy(true);setError(null);
     try {await selectRuntimeControl(tabId,{threadId:thread,bindingNonce:nonce,epoch:state.epoch},id,value,mode);}
     catch {setError("The agent refused this control value.");}
     finally {setBusy(false);}
   }
-  return <div>
-    {state.notice && dismissed !== state.notice && <div role="status">{state.notice}<button type="button" onClick={()=>setDismissed(state.notice!)}>Dismiss notice</button></div>}
-    {(options.length > 0 || Boolean(state.controls?.modes?.length)) && <div role="group" aria-label="Agent controls" className="ct-status-identity-wrap flex-wrap">
-    {options.map(option=><label key={option.id} className="ct-status-identity"><span className="ct-model-picker__label">{option.name}</span>
-      {option.options.length ? <select role="combobox" className={UI_INPUT.select} aria-label={option.name} value={option.currentValue} disabled={busy} onChange={event=>void select(option.id,event.target.value)}>
-        {!option.options.some(value=>value.value === option.currentValue) && <option value={option.currentValue}>{option.currentValue}</option>}
-        {option.options.map(value=><option key={value.value} value={value.value}>{value.name}</option>)}
-      </select> : <output>{option.currentValue}</output>}
-    </label>)}
-    {Boolean(state.controls?.modes?.length) && <label className="ct-status-identity"><span className="ct-model-picker__label">Session mode</span><select role="combobox" className={UI_INPUT.select} aria-label="Session mode" value={state.controls?.mode ?? ""} disabled={busy} onChange={event=>void select("",event.target.value,true)}>
-      {!state.controls?.modes?.some(mode=>mode.id === state.controls?.mode) && <option value={state.controls?.mode ?? ""}>{state.controls?.mode ?? "Unknown"}</option>}
-      {state.controls?.modes?.map(mode=><option key={mode.id} value={mode.id}>{mode.name}</option>)}
-    </select></label>}
+  const showNotice=parts !== "controls" && state.notice && dismissed !== state.notice;
+  const showControls=parts !== "notice" && (options.length > 0 || modes.length > 0);
+  return <>
+    {showNotice && <div role="status" className="mx-auto mb-2 flex w-full max-w-4xl items-center gap-2 text-[12px] text-[var(--ct-muted-fg)]">
+      <span className="min-w-0 flex-1">{state.notice}</span>
+      <button type="button" className="shrink-0 rounded px-1.5 py-0.5 hover:text-[var(--ct-fg)]" onClick={()=>setDismissed(state.notice!)}>Dismiss notice</button>
     </div>}
+    {showControls && <span role="group" aria-label="Agent controls" className="inline-flex min-w-0 flex-wrap items-center gap-1.5">
+      {options.map(option=>option.options.length
+        ? <DropdownSelect key={option.id} aria-label={option.name} prefix={option.name} className={PILL} disabled={busy} value={option.currentValue}
+          onChange={value=>void select(option.id,value)}
+          options={[...(option.options.some(value=>value.value === option.currentValue) ? [] : [{value:option.currentValue,label:option.currentValue}]),
+            ...option.options.map(value=>({value:value.value,label:value.name}))]} />
+        : <output key={option.id} aria-label={option.name} className="text-[12px] text-[var(--ct-muted-fg)]">{option.currentValue}</output>)}
+      {modes.length > 0 && <DropdownSelect aria-label="Session mode" prefix="Mode" className={PILL} disabled={busy} value={state.controls?.mode ?? ""}
+        onChange={value=>void select("",value,true)}
+        options={[...(modes.some(mode=>mode.id === state.controls?.mode) ? [] : [{value:state.controls?.mode ?? "",label:state.controls?.mode ?? "Unknown"}]),
+          ...modes.map(mode=>({value:mode.id,label:mode.name}))]} />}
+    </span>}
     {error && <InlineErrorNotice error={error} operation="changing agent controls" />}
-  </div>;
+  </>;
 }

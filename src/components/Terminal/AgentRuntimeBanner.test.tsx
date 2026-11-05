@@ -2,6 +2,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vitest";
 import { AgentRuntimeBanner } from "./AgentRuntimeBanner";
+import { RuntimeLoginActions, runtimeSignInRequired, signInPlacement } from "./RuntimeLoginActions";
 import { invoke } from "../../lib/bridge";
 
 vi.mock("../../lib/bridge", () => ({invoke:vi.fn().mockResolvedValue(undefined)}));
@@ -77,29 +78,28 @@ it("offers one fresh-conversation action for a missing saved rollout", async () 
 it("shows the sign-in card for a launch blocked on a profile secret before an agent reports auth", async () => {
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host); const retry = vi.fn();
+  const state = {state:"loginPending" as const,epoch:1,auth:"unknown" as const,loginProviderName:"Fixture",requiredSecrets:["domios:provider:fixture:key"]};
   try {
-    await act(async () => root.render(<AgentRuntimeBanner tabId="owned" state={{state:"loginPending",epoch:1,auth:"unknown",loginProviderName:"Fixture",requiredSecrets:["domios:provider:fixture:key"]}} onRetry={retry} />));
-    const card = host.querySelector('[role="group"][aria-label="Sign in to Fixture"]');
-    expect(card).not.toBeNull();
+    expect(runtimeSignInRequired(state)).toBe(true);
+    // The banner in the composer no longer carries the card; the chat area does.
+    await act(async () => root.render(<AgentRuntimeBanner tabId="owned" state={state} onRetry={retry} />));
+    expect(host.querySelector('[role="group"][aria-label="Sign in to Fixture"]')).toBeNull();
+    await act(async () => root.render(<RuntimeLoginActions tabId="owned" state={state} onCheck={retry} variant="center" />));
+    expect(host.querySelector('[role="group"][aria-label="Sign in to Fixture"]')).not.toBeNull();
     expect(host.querySelector('[role="status"][aria-label="Required credentials"]')?.textContent).toContain("domios:provider:fixture:key");
     const check = Array.from(host.querySelectorAll("button")).find(button => button.textContent === "I already signed in");
-    expect(check).toBeDefined();
     await act(async () => check!.click()); expect(retry).toHaveBeenCalledTimes(1);
-    expect(host.querySelector('button[aria-label="Agent runtime unavailable"]')).toBeNull();
   } finally {await act(async () => root.unmount()); host.remove();}
 });
 
-it("keeps methodless unknown auth out of the sign-in card when launch credentials are present", async () => {
-  const host = document.createElement("div"); document.body.append(host);
-  const root = createRoot(host);
-  try {
-    for (const state of ["loaded", "degraded"] as const) {
-      await act(async () => root.render(<AgentRuntimeBanner tabId="owned" state={{state,epoch:1,auth:"unknown",authentication:{state:"unknown",methods:[]},requiredSecrets:[]}} onRetry={vi.fn()} />));
-      expect(host.querySelector('[role="group"][aria-label="Sign in to the provider"]')).toBeNull();
-    }
-    await act(async () => root.render(<AgentRuntimeBanner tabId="owned" state={{state:"loginPending",epoch:1,authentication:{state:"needs_auth",methods:[]},requiredSecrets:["opaque-key"]}} onRetry={vi.fn()} />));
-    expect(host.querySelector('[role="group"][aria-label="Sign in to the provider"]')).not.toBeNull();
-  } finally {await act(async () => root.unmount()); host.remove();}
+it("asks for a sign-in only when the agent needs one, never for an unreported (unknown) state", () => {
+  for (const state of ["loaded", "degraded"] as const) {
+    expect(runtimeSignInRequired({state,epoch:1,auth:"unknown",authentication:{state:"unknown",methods:[]},requiredSecrets:[]})).toBe(false);
+    expect(runtimeSignInRequired({state,epoch:1,authentication:{state:"unknown",methods:[{id:"google",name:"Log in with Google",available:true}]}})).toBe(false);
+  }
+  expect(runtimeSignInRequired({state:"loaded",epoch:1,authentication:{state:"authenticated",methods:[]}})).toBe(false);
+  expect(runtimeSignInRequired({state:"loaded",epoch:1,authentication:{state:"needs_auth",methods:[]}})).toBe(true);
+  expect(runtimeSignInRequired({state:"loaded",epoch:1,auth:"signedOut",loginMethods:["browser"]})).toBe(true);
 });
 
 it("shows one typed failure sentence with collapsed technical details", async () => {
@@ -120,4 +120,11 @@ it("shows one typed failure sentence with collapsed technical details", async ()
     expect(document.querySelector('[role="status"][aria-label="The agent refused this operation."]')).not.toBeNull();
 
   } finally {await act(async()=>root.unmount());host.remove();}
+});
+
+it("places the sign-in card in the middle of an empty chat and above the composer once there is a conversation", () => {
+  const needs = {state:"loaded" as const,epoch:1,authentication:{state:"needs_auth" as const,methods:[]}};
+  expect(signInPlacement(needs,false)).toBe("center");
+  expect(signInPlacement(needs,true)).toBe("inline");
+  expect(signInPlacement({state:"loaded",epoch:1,authentication:{state:"unknown",methods:[]}},false)).toBeNull();
 });

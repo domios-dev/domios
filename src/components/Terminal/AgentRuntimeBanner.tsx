@@ -2,7 +2,7 @@ import { hasRowControls, RuntimeDeclaredControls } from "./RuntimeDeclaredContro
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useId } from "react";
 import { CircleAlert } from "lucide-react";
-import { RuntimeLoginActions } from "./RuntimeLoginActions";
+import { runtimeSignInRequired } from "./RuntimeLoginActions";
 import { runtimeStatusPresentation, type AgentRuntimeState } from "../../lib/agentRuntimeState";
 import { TabLoadingIndicator } from "../shared/TabLoadingIndicator";
 import { useRuntimeStatusPopover } from "./useRuntimeStatusPopover";
@@ -10,17 +10,15 @@ import { AnchoredPopover } from "../shared/AnchoredPopover";
 import { describeRuntimeConnectionError, isMissingRuntimeConversation } from "../../lib/describeError";
 import { useStartNewSession } from "./useStartNewSession";
 
-export function AgentRuntimeBanner({ state, onRetry, tabId, iconSvg, startupOwned = false }: { tabId?: string; state: AgentRuntimeState | null; onRetry: () => void; iconSvg?: string | null; startupOwned?: boolean }) {
+export function AgentRuntimeBanner({ state, onRetry, tabId, startupOwned = false }: { tabId?: string; state: AgentRuntimeState | null; onRetry: () => void; iconSvg?: string | null; startupOwned?: boolean }) {
   const hasControls = hasRowControls(state);
-  if (tabId && state && (state.state === "loginPending" || (state.authentication && state.authentication.state !== "authenticated" && (state.authentication.state !== "unknown" || state.authentication.methods.length > 0 || Boolean(state.requiredSecrets?.length))) || (state.auth === "signedOut" && state.loginMethods?.length))) {
-    return <>
-      {tabId && state && hasControls && <RuntimeDeclaredControls tabId={tabId} state={state} />}
-      <RuntimeLoginActions key={`${tabId}:${state.epoch}`} tabId={tabId} state={state} iconSvg={iconSvg} onCheck={onRetry} />
-    </>;
+  // Sign-in has its own card in the chat area (TabSessionChat), never inside the composer group.
+  if (tabId && state && runtimeSignInRequired(state)) {
+    return <>{hasControls && <RuntimeDeclaredControls tabId={tabId} state={state} parts="notice" />}</>;
   }
   const view = runtimeStatusPresentation(state, startupOwned);
   return <>
-    {tabId && state && hasControls && <RuntimeDeclaredControls tabId={tabId} state={state} />}
+    {tabId && state && hasControls && <RuntimeDeclaredControls tabId={tabId} state={state} parts="notice" />}
     <RuntimeStatusBadge view={view} onRetry={onRetry} tabId={tabId} />
   </>;
 }

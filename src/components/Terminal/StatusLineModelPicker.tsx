@@ -19,6 +19,7 @@ import { AgentIcon } from "../AgentIcon";
 import { ProviderGlyph } from "../ProviderGlyph";
 import { runtimeAgentLabel } from "../../lib/tabProvider";
 import { pickerControls, selectRuntimeControl } from "../../lib/runtimeDeclaredControls";
+import { hasControlPills, RuntimeDeclaredControls } from "./RuntimeDeclaredControls";
 import {
   currentModelId,
   effortAfterModelChange,
@@ -51,7 +52,8 @@ const FOOTER_BUTTON = {
 export function TabStatusLineModelPicker({ tab, label }: { tab: Tab; label: string }) {
   const descriptor = useAgentDescriptor(tab.agent_type);
   const effort = tab.reasoning_effort_identity;
-  return (
+  const runtime = tab.agent_runtime_state;
+  return (<>
     <StatusLineModelPicker
       tab={tab}
       tabId={tab.id}
@@ -70,7 +72,9 @@ export function TabStatusLineModelPicker({ tab, label }: { tab: Tab; label: stri
         effort: effort?.resolved ?? null,
       } : undefined)}
     />
-  );
+    {/* The agent's other declared controls (a session mode and the like) sit beside the bubble as compact pills. */}
+    {runtime && hasControlPills(runtime) && <RuntimeDeclaredControls tabId={tab.id} state={runtime} parts="controls" />}
+  </>);
 }
 
 export function StatusLineModelPicker({
@@ -198,10 +202,12 @@ export function StatusLineModelPicker({
     </span>
   );
 
+  // Nothing to choose: the agent's logo and a quiet Default, with no menu.
   if (declaredModels && !modelOption?.options.length) return (
-    <button type="button" disabled data-testid="status-model-trigger" title="This agent declared no model option" aria-label="This agent declared no model option">
-      {glyph}{displayedLabel && <span>{displayedLabel} · </span>}This agent declared no model option
-    </button>
+    <span className="ct-status-identity ct-status-identity--static" data-testid="status-model-default"
+      title={`${harnessTitle ? `${harnessTitle}. ` : ""}This agent does not offer model choices`}>
+      {glyph}<span className="ct-status-identity__text">{["Default", selectionStatus].filter(Boolean).join(" · ")}</span>
+    </span>
   );
 
   if (!gate.interactive || !descriptor) {
