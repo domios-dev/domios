@@ -63,7 +63,7 @@ it("on touch, +/- visibly change the graph's scale and Fit all brings it back", 
   expect(scale()).toBeCloseTo(fitted);
 });
 
-it("pinch zooms the graph, a pan moves it, and only the gesture is kept from the page", async () => {
+it("pinch zooms the graph and is kept from the page; a one-finger touch stays a tap and pans", async () => {
   await mount(390, true);
   await act(async () => toggle()!.click());
   const canvas = layer()!.parentElement!;
@@ -71,16 +71,18 @@ it("pinch zooms the graph, a pan moves it, and only the gesture is kept from the
   const start = touchEvent("touchstart", [[100, 300], [200, 300]]);
   const pinch = touchEvent("touchmove", [[50, 300], [250, 300]]);
   await act(async () => { canvas.dispatchEvent(start); canvas.dispatchEvent(pinch); });
-  expect(start.defaultPrevented).toBe(false);
+  expect(start.defaultPrevented).toBe(true);
   expect(pinch.defaultPrevented).toBe(true);
   expect(scale()).toBeCloseTo(before * 2);
   const x = () => Number(/translate\(([-\d.e]+)px/.exec(layer()!.style.transform)?.[1]);
   const pinchedX = x();
+  const tap = touchEvent("touchstart", [[100, 300]]);
   await act(async () => {
     canvas.dispatchEvent(touchEvent("touchend", []));
-    canvas.dispatchEvent(touchEvent("touchstart", [[100, 300]]));
+    canvas.dispatchEvent(tap);
     canvas.dispatchEvent(touchEvent("touchmove", [[140, 300]]));
   });
+  expect(tap.defaultPrevented).toBe(false);
   expect(x()).toBeCloseTo(pinchedX + 40);
   expect(scale()).toBeCloseTo(before * 2);
 });

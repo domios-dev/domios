@@ -15,10 +15,11 @@ export function useCanvasTouch(containerRef: RefObject<HTMLDivElement | null>, t
       return Array.from(event.touches).slice(0, 2).map(t => ({ x: t.clientX - rect.left, y: t.clientY - rect.top }));
     };
     const onControls = (event: TouchEvent) => event.target instanceof Element && event.target.closest(CONTROLS) !== null;
-    // Starting or lifting a finger only re-anchors the gesture; it never cancels the tap that
-    // buttons and cards inside the canvas still need.
+    // Starting or lifting a finger re-anchors the gesture. One finger is never cancelled, because buttons
+    // and cards inside the canvas still need its tap; a second finger is a pinch, kept from the page at once.
     const anchor = (event: TouchEvent) => {
       if (onControls(event)) { previous = null; return; }
+      if (event.type === "touchstart" && event.touches.length > 1) event.preventDefault();
       cancelAnim();
       previous = event.touches.length ? { points: points(event), transform: transformRef.current } : null;
     };
@@ -33,7 +34,7 @@ export function useCanvasTouch(containerRef: RefObject<HTMLDivElement | null>, t
     };
     // Safari zooms the page on its own gesture events, which touch-action alone does not stop.
     const gesture = (event: Event) => event.preventDefault();
-    el.addEventListener("touchstart", anchor, { passive: true });
+    el.addEventListener("touchstart", anchor, { passive: false });
     el.addEventListener("touchmove", move, { passive: false });
     el.addEventListener("touchend", anchor, { passive: true });
     el.addEventListener("touchcancel", anchor, { passive: true });
