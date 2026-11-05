@@ -726,11 +726,20 @@ where
         .clone()
         .or_else(|| svc.mux.read().find_workspace_for_tab(&parent_tab_id))
         .ok_or_else(|| invalid_dispatch("dispatch could not resolve a workspace for its Worker"))?;
-    let reserved_tab_id = svc
-        .mux
-        .write()
-        .create_tab(&reservation_workspace)
-        .map_err(|error| dispatch_failed("tab_reservation", error))?;
+    let reserved_tab_id = {
+        let mut mux = svc.mux.write();
+        let tab_id = mux
+            .create_tab(&reservation_workspace)
+            .map_err(|error| dispatch_failed("tab_reservation", error))?;
+        let title = spawn_params
+            .title
+            .get_or_insert_with(|| mux.display_label_for_tab(&tab_id));
+        if let Err(error) = mux.rename_tab(&tab_id, title) {
+            mux.rollback_spawn_tab(&reservation_workspace, &tab_id);
+            return Err(dispatch_failed("tab_reservation", error));
+        }
+        tab_id
+    };
     let mut reservation_tab = DispatchReservationTab::new(svc, reserved_tab_id.clone());
     codeterm_service_core::startup::boot_timing::bind_request(&reserved_tab_id);
     let observed_owner = store
