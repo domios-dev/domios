@@ -141,7 +141,47 @@ pub fn billing(
     svc.notify_event("usage-snapshot-updated", serde_json::json!({"provider":session.provider,"account_id":null,"tab_id":context.tab_id,"captured_at":at}));
 }
 
+pub fn context(
+    svc: &ServiceContext,
+    session: &Session,
+    used_tokens: u64,
+    window_tokens: u64,
+    cost_micros: Option<u64>,
+) {
+    if !publishes_usage(svc, session) || session.adapter.lock().is_none() {
+        return;
+    }
+    let context = {
+        let current = session.context.lock();
+        RuntimeContext {
+            tab_id: current.tab_id.clone(),
+            binding_nonce: current.binding_nonce.clone(),
+            thread_id: current.thread_id.clone(),
+            cwd: current.cwd.clone(),
+            epoch: current.epoch,
+            ..Default::default()
+        }
+    };
+    if session.state.lock().epoch != context.epoch {
+        return;
+    }
+    crate::service::context_feed::apply_runtime(
+        svc,
+        &session.provider,
+        &context,
+        codeterm_types::agent::context::TurnContext {
+            used_tokens,
+            window_tokens,
+            cost_usd: cost_micros.map(|cost| cost as f64 / 1_000_000.0),
+            source: "agent-runtime".into(),
+        },
+    );
+}
+
 pub fn usage(svc: &ServiceContext, session: &Session, usage: TokenUsage, at: u64) {
+    if let (Some(used), Some(window)) = (usage.used_tokens, usage.window_tokens) {
+        context(svc, session, used, window, usage.cost_micros);
+    }
     if !publishes_usage(svc, session) {
         return;
     }
@@ -327,165 +367,4 @@ fn enrich_latest(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn window(name: &str, used: f64, minutes: u64) -> RuntimeRateLimit {
-        RuntimeRateLimit {
-            window: name.into(),
-            used_percent: used,
-            resets_at: Some(9000),
-            window_minutes: Some(minutes),
-        }
-    }
-
-    #[test]
-    fn all_windows_contribute_to_dispatch_headroom_at_host_receipt_time() {
-        let windows = vec![
-            window("short", 8.0, 300),
-            window("long", 20.0, 10080),
-            window("other", 97.0, 60),
-        ];
-        let sample = rate_sample("fixture", &windows, 1234);
-        let dir = tempfile::tempdir().unwrap();
-        let store = crate::usage::UsageStore::open(dir.path()).unwrap();
-        store.insert_runtime_snapshot(&sample).unwrap();
-        let row = store.get_latest("fixture", None).unwrap().unwrap();
-        assert_eq!(row.captured_at, 1234);
-        assert_eq!(crate::usage::allowance_remaining_pct(&row), 3.0);
-        assert_eq!(row.session_resets_at, Some(9000));
-        assert!(row.spend_cents.is_none());
-    }
-
-    #[test]
-    fn empty_rates_report_no_limits_or_tokens() {
-        let sample = rate_sample("fixture", &[], 10);
-        assert!(!sample.limits_reported);
-        assert_eq!(sample.session_pct, None);
-        assert_eq!(sample.weekly_pct, None);
-    }
-    #[test]
-    fn ordinary_two_windows_keep_the_existing_session_and_weekly_meaning() {
-        let sample = rate_sample(
-            "fixture",
-            &[window("short", 10.0, 300), window("long", 80.0, 10080)],
-            100,
-        );
-        assert_eq!(sample.session_pct, Some(10.0));
-        assert_eq!(sample.weekly_pct, Some(80.0));
-    }
-
-    #[test]
-    fn token_only_reading_is_visible_without_fabricating_allowance() {
-        let reading = UsageProjection {
-            tab_id: "own".into(),
-            thread_id: Some("thread".into()),
-            provider: "fixture".into(),
-            nonce: "nonce".into(),
-            epoch: 1,
-            billing_mode: codeterm_usage::contract::BillingMode::Api,
-            captured_at: 10,
-            token_usage: Some(Reading {
-                captured_at: 10,
-                value: TokenUsage {
-                    cost_micros: None,
-                    input_tokens: 12,
-                    output_tokens: 3,
-                    cache_read_tokens: Some(4),
-                    cache_write_tokens: None,
-                    used_tokens: Some(15),
-                    window_tokens: Some(100),
-                },
-            }),
-            rate_limits: None,
-            resets: None,
-            account_credits: None,
-        };
-        let wire = enrich_latest(serde_json::Value::Null, "fixture", vec![reading]).unwrap();
-        assert_eq!(
-            wire["runtime_usage"][0]["token_usage"]["value"]["input_tokens"],
-            12
-        );
-        assert_eq!(wire["runtime_usage"][0]["token_usage"]["captured_at"], 10);
-        assert!(wire.get("session_pct").is_none());
-        assert_eq!(wire["limits_reported"], false);
-        assert!(wire["runtime_usage"][0].get("nonce").is_none());
-        assert!(enrich_latest(serde_json::Value::Null, "fixture", vec![])
-            .unwrap()
-            .is_null());
-    }
-    #[test]
-    fn runtime_usage_binding_changes_clear_tokens_but_keep_account_limits() {
-        let mut readings = HashMap::new();
-        let mut context: RuntimeContext = serde_json::from_value(serde_json::json!({
-            "epoch":1,"tabId":"own","cwd":"/fixture","hostVersion":"1",
-            "bindingNonce":"nonce","settings":{},"providerSettings":{},
-            "activeTurns":[],"threadParents":[],"claimedSends":[]
-        }))
-        .unwrap();
-        let first = projection(&mut readings, "fixture", &context);
-        first.billing_mode = codeterm_usage::contract::BillingMode::Subscription;
-        first.rate_limits = Some(Reading {
-            captured_at: 10,
-            value: vec![window("primary", 20.0, 300)],
-        });
-        first.resets = Some(codeterm_plugin::agent_runtime::ResetCredits {
-            available_count: 3,
-            next_expiry: None,
-            credits: None,
-        });
-        first.account_credits = Some(RuntimeAccountCredits::Balance {
-            balance: "12.50".into(),
-        });
-        context.thread_id = Some("thread".into());
-        let loaded = projection(&mut readings, "fixture", &context);
-        assert_eq!(
-            loaded.billing_mode,
-            codeterm_usage::contract::BillingMode::Subscription
-        );
-        assert_eq!(
-            loaded.rate_limits.as_ref().unwrap().value[0].used_percent,
-            20.0
-        );
-        assert_eq!(loaded.resets.as_ref().unwrap().available_count, 3);
-        assert_eq!(
-            loaded.account_credits,
-            Some(RuntimeAccountCredits::Balance {
-                balance: "12.50".into()
-            })
-        );
-        context.binding_nonce = "new".into();
-        let rebound = projection(&mut readings, "fixture", &context);
-        assert_eq!(
-            rebound.billing_mode,
-            codeterm_usage::contract::BillingMode::Unknown
-        );
-        assert!(rebound.resets.is_none());
-        assert!(rebound.account_credits.is_none());
-        assert!(rebound.rate_limits.is_none());
-        assert!(rebound.token_usage.is_none());
-    }
-
-    #[test]
-    fn partial_confirmation_preserves_other_runtime_controls() {
-        let prior = RuntimeSettings {
-            model: Some("old".into()),
-            effort: Some("high".into()),
-            mode: Some("mode".into()),
-            ..Default::default()
-        };
-        assert_eq!(
-            merge_settings(
-                &prior,
-                RuntimeSettings {
-                    model: Some("new".into()),
-                    ..Default::default()
-                }
-            ),
-            RuntimeSettings {
-                model: Some("new".into()),
-                ..prior
-            }
-        );
-    }
-}
+mod tests;

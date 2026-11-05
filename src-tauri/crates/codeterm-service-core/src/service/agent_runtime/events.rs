@@ -66,6 +66,12 @@ pub enum RuntimeEvent {
         send_id: String,
         turn_id: String,
     },
+    ContextUpdated {
+        thread_id: String,
+        used_tokens: u64,
+        window_tokens: u64,
+        cost_micros: Option<u64>,
+    },
     UsageUpdated {
         thread_id: String,
         usage: TokenUsage,
@@ -398,6 +404,17 @@ pub fn translate(event: &AgentRuntimeEvent) -> RuntimeEvent {
             send_id: send_id.clone(),
             turn_id: turn_id.clone(),
         },
+        AgentRuntimeEvent::Context {
+            thread_id,
+            used_tokens,
+            window_tokens,
+            cost_micros,
+        } => RuntimeEvent::ContextUpdated {
+            thread_id: thread_id.clone(),
+            used_tokens: *used_tokens,
+            window_tokens: *window_tokens,
+            cost_micros: *cost_micros,
+        },
         AgentRuntimeEvent::Usage { thread_id, usage } => RuntimeEvent::UsageUpdated {
             thread_id: thread_id.clone(),
             usage: usage.clone(),
@@ -531,6 +548,7 @@ pub fn fold(maps: &mut RuntimeMaps, epoch: u64, event: &RuntimeEvent) {
                 .entry(send_id.clone())
                 .or_insert_with(|| (thread_id.clone(), turn_id.clone(), item_id.clone()));
         }
+        RuntimeEvent::ContextUpdated { .. } => {}
         RuntimeEvent::UsageUpdated { thread_id, usage } => {
             maps.usage.insert(thread_id.clone(), usage.clone());
         }

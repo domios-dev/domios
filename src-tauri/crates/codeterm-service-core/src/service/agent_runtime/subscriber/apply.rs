@@ -558,6 +558,20 @@ fn apply(
             session.prompts.lock().remove(&request_id);
             super::super::prompt_answers::resolve(svc, session, &request_id);
         }
+        RuntimeEvent::ContextUpdated {
+            thread_id,
+            used_tokens,
+            window_tokens,
+            cost_micros,
+        } if owned(&thread_id) => {
+            super::super::projections::context(
+                svc,
+                session,
+                used_tokens,
+                window_tokens,
+                cost_micros,
+            );
+        }
         RuntimeEvent::UsageUpdated { thread_id, usage } if owned(&thread_id) => {
             super::super::projections::usage(svc, session, usage, at);
         }
