@@ -7,6 +7,8 @@ use crate::service::MuxEmitCause;
 use crate::service::{agent_runtime::model::RuntimeMode, ServiceContext};
 use codeterm_plugin::agent_runtime::{RuntimeOperation, RuntimeResult, RuntimeSettings};
 
+mod declared;
+
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum SwitchRoute {
     Runtime,
@@ -83,6 +85,22 @@ pub(crate) fn switch(
         .get_tab(tab)
         .and_then(|target| target.agent_type.clone())
         .ok_or_else(|| ModelSwitchError::NotFound(tab.into()))?;
+    let live = engine::for_tab(tab);
+    let declared_controls = live
+        .as_ref()
+        .is_some_and(|session| session.context.lock().settings.config_options.is_some())
+        || svc.mux.read().get_tab(tab).is_some_and(|target| {
+            target
+                .agent_runtime_state
+                .as_ref()
+                .and_then(|state| state.pointer("/controls/configOptions"))
+                .is_some_and(serde_json::Value::is_array)
+        });
+    if declared_controls {
+        let session = crate::async_runtime::block_on(engine::ensure(svc, tab))
+            .map_err(|reason| ModelSwitchError::RuntimeControlRefused(reason.to_string()))?;
+        return declared::switch(svc, tab, &session, model, effort, mode, service_tier);
+    }
     let model_selection = crate::service::spawn::resolve_agent_model_selection(
         &svc.agent_registry,
         Some(&provider),

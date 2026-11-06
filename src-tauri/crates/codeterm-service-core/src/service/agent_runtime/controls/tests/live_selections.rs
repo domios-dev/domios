@@ -2,6 +2,53 @@ use super::*;
 use crate::service::agent_runtime::declared_controls::{self, Selection};
 
 #[test]
+fn cli_uses_declared_model_and_effort_choices_and_persists_their_exact_values() {
+    let (fixture, id) = runtime_fixture();
+    let session = crate::async_runtime::block_on(engine::ensure(&fixture.service, &id)).unwrap();
+    let model = r#"["gateway","opaque-model"]"#;
+    let controls: RuntimeSettings = serde_json::from_value(json!({
+        "model":"prior","effort":"low","configOptions":[
+            {"id":"engine","name":"Engine","category":"model","currentValue":"prior","options":[
+                {"value":"prior","name":"Prior"},{"value":model,"name":"Selected"}]},
+            {"id":"thinking","name":"Thinking","category":"thought_level","currentValue":"low","options":[
+                {"value":"low","name":"Low"},{"value":"max","name":"Maximum"}]}
+        ]
+    })).unwrap();
+    super::super::super::projections::controls(&fixture.service, &session, controls);
+    fixture
+        .service
+        .agent_switch_model_with_options(&id, "", Some("max"), false)
+        .unwrap();
+    assert_eq!(
+        session.context.lock().settings.effort.as_deref(),
+        Some("max")
+    );
+    fixture
+        .service
+        .agent_switch_model_with_options(&id, "Selected", Some("Maximum"), false)
+        .unwrap();
+    for (model, effort) in [("not-offered", "max"), ("Selected", "high")] {
+        assert!(fixture
+            .service
+            .agent_switch_model_with_options(&id, model, Some(effort), false)
+            .is_err());
+    }
+    crate::service::session_persist::flush_session_persistence(&fixture.service).unwrap();
+    let snapshot = crate::session::store::StorageDeskAdapter::from_storage(fixture.storage.clone())
+        .snapshot()
+        .unwrap();
+    let restored = MultiplexerState::from_session_snapshot(&snapshot);
+    let tab = restored.get_tab(&id).unwrap();
+    assert_eq!(tab.agent_runtime_config.as_ref().unwrap()["model"], model);
+    assert_eq!(tab.agent_runtime_config.as_ref().unwrap()["effort"], "max");
+    assert_eq!(tab.restorable_launch.model.as_deref(), Some(model));
+    assert_eq!(
+        tab.restorable_launch.requested_reasoning_effort.as_deref(),
+        Some("max")
+    );
+}
+
+#[test]
 fn picker_model_and_effort_survive_desk_restore_and_reapply_without_launch_selections() {
     let (fixture, id) = runtime_fixture();
     let session = crate::async_runtime::block_on(engine::ensure(&fixture.service, &id)).unwrap();
