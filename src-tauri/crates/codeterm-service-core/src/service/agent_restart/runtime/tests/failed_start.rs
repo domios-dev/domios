@@ -99,14 +99,14 @@ fn refused_unbound_start_fresh_restarts_without_force_into_a_loaded_runtime() {
 }
 
 #[test]
-fn restored_older_unbound_refusal_projects_recovery_and_remints_fresh_restart_authority() {
+fn restored_unbound_start_remints_fresh_restart_authority() {
     let fixture = RuntimeFixture::prepared(SOURCE, true);
     clear_thread(&fixture);
     {
         let mut mux = fixture.service.mux.write();
         let tab = mux.get_tab_mut(&fixture.tab).unwrap();
         tab.agent_runtime_state = Some(json!({"state":"degraded","epoch":1,
-            "failureCode":"provider_refused","reason":"Provider refused: ACP session is already bound"}));
+            "failureCode":"runtime_start_unbound","reason":"Provider refused: ACP session is already bound"}));
         let bytes = serde_json::to_vec(&mux.to_session_snapshot()).unwrap();
         *mux = MultiplexerState::from_session_snapshot(&serde_json::from_slice(&bytes).unwrap());
     }
@@ -151,9 +151,13 @@ fn unbound_recovery_requires_exact_unbound_runtime_shape() {
         .get_tab(&fixture.tab)
         .unwrap()
         .clone();
-    tab.agent_runtime_state = Some(json!({"state":"degraded","failureCode":"provider_refused"}));
+    tab.agent_runtime_state =
+        Some(json!({"state":"degraded","failureCode":"runtime_start_unbound"}));
     assert!(agent_runtime::start_failure::for_tab(&tab));
     let valid = tab.clone();
+    tab.agent_runtime_state.as_mut().unwrap()["failureCode"] = json!("provider_refused");
+    assert!(!agent_runtime::start_failure::for_tab(&tab));
+    tab = valid.clone();
     tab.agent_session_id = Some("bound-thread".into());
     assert!(!agent_runtime::start_failure::for_tab(&tab));
     tab = valid.clone();

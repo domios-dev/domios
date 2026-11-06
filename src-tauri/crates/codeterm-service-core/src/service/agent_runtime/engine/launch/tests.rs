@@ -156,7 +156,7 @@ async fn refused_unbound_start_retires_process_and_remains_restartable() {
     assert!(session.process.lock().is_none());
     assert!(session.adapter.lock().is_some());
     super::super::validate_restart_binding(&fixture.service, &session).unwrap();
-    let saved = serde_json::json!({"state":"degraded","failureCode":"provider_refused","reason":"opaque refusal"});
+    let saved = serde_json::json!({"state":"degraded","failureCode":"runtime_start_unbound","reason":"opaque refusal"});
     assert!(refused_start(None, Some(&saved)).is_err());
     assert!(refused_start(Some("bound-thread"), Some(&saved)).is_ok());
     session

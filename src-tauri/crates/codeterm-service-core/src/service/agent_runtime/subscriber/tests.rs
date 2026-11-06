@@ -46,6 +46,28 @@ fn teardown_preserves_degraded_reason_and_refuses_old_epoch() {
 }
 
 #[test]
+fn teardown_preserves_unbound_start_code_and_bound_refusal() {
+    use codeterm_plugin::agent_runtime::RuntimeFailureCode;
+
+    for (thread, expected) in [
+        (None, RuntimeFailureCode::RuntimeStartUnbound),
+        (Some("own".into()), RuntimeFailureCode::ProviderRefused),
+    ] {
+        let mut state = RuntimeState::unloaded(thread);
+        let epoch = state.begin();
+        state.degrade(epoch, &RuntimeFailure::Refused("opaque refusal".into()));
+        assert_eq!(state.failure_code, Some(expected));
+        assert!(unload_retaining_degradation(
+            &mut state,
+            epoch,
+            &RuntimeFailure::PipeEof
+        ));
+        assert_eq!(state.failure_code, Some(expected));
+        assert!(matches!(state.phase, RuntimePhase::Degraded { .. }));
+    }
+}
+
+#[test]
 fn ordinary_pipe_exit_still_unloads_without_fabricating_a_degraded_state() {
     let mut state = RuntimeState::unloaded(Some("own".into()));
     let epoch = state.begin();
