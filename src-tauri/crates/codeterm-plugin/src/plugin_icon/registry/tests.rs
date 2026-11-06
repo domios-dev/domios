@@ -1,6 +1,30 @@
 use super::*;
 
 #[test]
+fn registry_svg_preserves_sized_current_color_path_asset() {
+    let bytes = include_bytes!("fixtures/registry-current-color.svg");
+    let icon = sanitize("image/svg+xml", bytes).expect("sized registry SVG");
+    assert!(icon.contains("width=\"16\""));
+    assert!(icon.contains("height=\"16\""));
+    assert!(icon.contains("viewBox=\"0 0 1200 1200\""));
+    assert!(icon.contains("fill=\"currentColor\""));
+    assert_eq!(icon.matches("<path ").count(), 1);
+    assert_eq!(
+        sanitize("image/svg+xml", icon.as_bytes()).as_deref(),
+        Some(icon.as_str())
+    );
+    for dimensions in [
+        "width=\"-1\"",
+        "height=\"NaN\"",
+        "width=\"inf\"",
+        "height=\"url(x)\"",
+    ] {
+        let source = format!("<svg {dimensions}><path d=\"M0 0\"/></svg>");
+        assert!(sanitize("image/svg+xml", source.as_bytes()).is_none());
+    }
+}
+
+#[test]
 fn refuses_insecure_urls_types_sizes_and_active_svg() {
     for url in [
         "http://example.org/a",
