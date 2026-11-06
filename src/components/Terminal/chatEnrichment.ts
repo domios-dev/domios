@@ -79,7 +79,7 @@ function enrichUserMessage(raw: ChatMessage, rawItem: TimelineItem): EnrichedCha
 /** A system notice (a `from="system"` or `from="cli"` frame) with no words and no files has nothing to show;
  *  rendering it would leave a bare "System · CLI" card. */
 function emptySystemNotice(entry: EnrichedChatEntry): boolean {
-  if (entry.origin?.kind !== "system") return false;
+  if (entry.origin?.kind !== "system" && entry.msg.inboundKind !== "system") return false;
   const files = (entry.msg.segments ?? []).some((segment) => segment.type === "attachment" || (segment.type === "paste" && Boolean(segment.body.trim())));
   return !entry.msg.content.trim() && !files && !entry.msg.attachments?.length;
 }

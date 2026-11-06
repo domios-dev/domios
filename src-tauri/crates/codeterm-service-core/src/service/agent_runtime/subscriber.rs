@@ -328,13 +328,14 @@ fn unload_retaining_degradation(
     epoch: u64,
     reason: &RuntimeFailure,
 ) -> bool {
-    let degraded =
-        matches!(state.phase, RuntimePhase::Degraded { .. }).then(|| state.phase.clone());
+    let degraded = matches!(state.phase, RuntimePhase::Degraded { .. })
+        .then(|| (state.phase.clone(), state.failure_code));
     if !state.unload(epoch, reason) {
         return false;
     }
-    if let Some(phase) = degraded {
+    if let Some((phase, failure_code)) = degraded {
         state.phase = phase;
+        state.failure_code = failure_code;
     }
     true
 }
