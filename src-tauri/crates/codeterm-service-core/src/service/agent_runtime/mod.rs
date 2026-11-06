@@ -52,6 +52,7 @@ pub(crate) mod restore;
 pub use restore::all as restore_all;
 mod restore_attempt;
 mod rpc;
+mod selections;
 mod subscriber;
 pub mod transport;
 mod turn_requests;

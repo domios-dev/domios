@@ -933,7 +933,8 @@ async fn ensure_locked(
         context.thread_id.is_none() && fork.is_none(),
     )?;
     let settings = session.context.lock().settings.clone();
-    super::projections::controls(svc, session, settings);
+    super::projections::controls(svc, session, settings.clone());
+    super::selections::persist_loaded(svc, session, &context.settings, &settings)?;
     session.state.lock().finish_load_notice(load_notice);
     publish_controls(svc, tab, session);
     if let Err(reason) = super::controls::refresh_service_tiers(svc, session).await {
