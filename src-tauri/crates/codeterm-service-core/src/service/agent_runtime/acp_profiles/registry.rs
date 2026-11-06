@@ -36,8 +36,11 @@ fn transport_failure(error: reqwest::Error) -> String {
 }
 
 #[derive(Deserialize)]
-struct Index {
+struct RawIndex {
     version: String,
+    agents: Vec<Value>,
+}
+struct Index {
     agents: Vec<Agent>,
 }
 #[derive(Deserialize)]
@@ -82,37 +85,48 @@ fn decode(text: &str) -> Result<Index, String> {
     if text.len() > MAX_BYTES {
         return Err("Oversized ACP registry".into());
     }
-    let index: Index =
+    let index: RawIndex =
         serde_json::from_str(text).map_err(|error| failure("response is invalid JSON", error))?;
     if index.version != "1.0.0" || index.agents.len() > 512 {
         return Err("Unsupported or oversized ACP registry".into());
     }
+    // One malformed upstream entry must not hide every other agent; it is left out on its own.
     let mut seen = BTreeSet::new();
-    for agent in &index.agents {
-        if agent.id.len() > 128
-            || !agent.id.starts_with(|c: char| c.is_ascii_lowercase())
-            || !agent
-                .id
-                .bytes()
-                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
-            || !seen.insert(&agent.id)
-            || semver::Version::parse(&agent.version).is_err()
-            || agent.name.len() > 256
-            || agent.description.len() > 4096
-            || agent
-                .name
-                .chars()
-                .chain(agent.description.chars())
-                .any(char::is_control)
-            || agent
-                .icon
-                .as_deref()
-                .is_some_and(|url| !install_validation::https(url))
-        {
-            return Err("Invalid ACP registry entry".into());
-        }
-    }
-    Ok(index)
+    let agents = index
+        .agents
+        .into_iter()
+        .filter_map(|raw| serde_json::from_value::<Agent>(raw).ok())
+        .filter(|agent| valid_entry(agent) && seen.insert(agent.id.clone()))
+        .collect();
+    Ok(Index { agents })
+}
+
+fn valid_entry(agent: &Agent) -> bool {
+    agent.id.len() <= 128
+        && agent.id.starts_with(|c: char| c.is_ascii_lowercase())
+        && agent
+            .id
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+        && valid_version(&agent.version)
+        && agent.name.len() <= 256
+        && agent.description.len() <= 4096
+        && !agent
+            .name
+            .chars()
+            .chain(agent.description.chars())
+            .any(char::is_control)
+        && agent.icon.as_deref().is_none_or(install_validation::https)
+}
+
+/// Registry versions are opaque release labels (semver or calendar dates such as 2026.11.05).
+fn valid_version(version: &str) -> bool {
+    !version.is_empty()
+        && version.len() <= 64
+        && version.starts_with(|c: char| c.is_ascii_alphanumeric())
+        && version
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'+' | b'_'))
 }
 
 fn fetch() -> Result<Index, String> {

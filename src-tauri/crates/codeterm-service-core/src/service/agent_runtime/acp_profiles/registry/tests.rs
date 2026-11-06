@@ -100,3 +100,16 @@ fn registry_refuses_tags_conflicting_pins_reserved_environment_and_missing_sha25
     )
     .is_err());
 }
+
+#[test]
+fn one_malformed_entry_leaves_the_other_agents_listed() {
+    let mut value: Value = serde_json::from_str(include_str!("fixture.json")).unwrap();
+    value["agents"][0]["version"] = json!("bad version\n");
+    value["agents"][1]["version"] = json!("2026.11.05");
+    value["agents"][2]["unexpected"] = json!(true);
+    let index = decode(&value.to_string()).unwrap();
+    let ids: Vec<&str> = index.agents.iter().map(|agent| agent.id.as_str()).collect();
+    assert!(!ids.contains(&"fixture-npm"));
+    assert!(ids.contains(&"fixture-python"));
+    assert!(ids.contains(&"fixture-binary"));
+}
