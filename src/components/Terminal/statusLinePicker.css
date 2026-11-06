@@ -354,3 +354,18 @@ button.ct-status-identity:focus-visible {
     transform: none;
   }
 }
+
+.ct-model-picker__extras {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ct-model-picker__setting {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 28px;
+  padding-inline: var(--ct-model-picker-inset);
+}

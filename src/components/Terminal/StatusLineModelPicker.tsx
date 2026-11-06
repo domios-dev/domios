@@ -2,7 +2,6 @@ import { createNoticePublisher } from "../../lib/notices";
 import type { RuntimeServiceTierSelection as ServiceTierSelection } from "../../../packages/plugin-sdk/src/agentRuntime";
 import { confirmedTabServiceTier, serviceTierLabel, tabServiceTierAvailability, tabMetaParts } from "../../lib/tabMetaLabel";
 import { tierAfterModelChange } from "./serviceTierPickerModel";
-import { ServiceTierPicker } from "./ServiceTierPicker";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type RefObject } from "react";
 import { Check, ChevronDown, RotateCw, Search, X } from "lucide-react";
@@ -13,17 +12,16 @@ import { getModelCatalogueRefreshApi, refreshFailureToast } from "../../lib/mode
 import { getTabModelApi } from "../Sidebar/tabModelApi";
 import { modelSwitchFailure } from "../../lib/modelSwitchFailure";
 import { BusySpinner } from "../shared/BusyState";
-import { Segmented } from "../shared/Segmented";
 import { UI_BUTTON } from "../shared/design";
 import { AgentIcon } from "../AgentIcon";
 import { ProviderGlyph } from "../ProviderGlyph";
 import { runtimeAgentLabel } from "../../lib/tabProvider";
-import { pickerControls, selectRuntimeControl } from "../../lib/runtimeDeclaredControls";
-import { hasControlPills, RuntimeDeclaredControls } from "./RuntimeDeclaredControls";
+import { selectRuntimeControl } from "../../lib/runtimeDeclaredControls";
+import { pickerSections, pickerDescriptor, type PickerSection } from "../../lib/pickerSettings";
+import { PickerSettingSection } from "./PickerSettingSection";
 import {
   currentModelId,
   effortAfterModelChange,
-  effortChoices,
   matchesModel,
   pickerModelGroups,
   pickerNeedsSearch,
@@ -33,7 +31,6 @@ import {
   statusLineSwitchGate,
   statusLineModelName,
   runtimeAgentTooltip,
-  runtimeStatusLineIdentity,
   type PickerSelection,
   type StatusLineTabFacts,
 } from "./statusLinePickerModel";
@@ -52,8 +49,7 @@ const FOOTER_BUTTON = {
 export function TabStatusLineModelPicker({ tab, label }: { tab: Tab; label: string }) {
   const descriptor = useAgentDescriptor(tab.agent_type);
   const effort = tab.reasoning_effort_identity;
-  const runtime = tab.agent_runtime_state;
-  return (<>
+  return (
     <StatusLineModelPicker
       tab={tab}
       tabId={tab.id}
@@ -72,9 +68,7 @@ export function TabStatusLineModelPicker({ tab, label }: { tab: Tab; label: stri
         effort: effort?.resolved ?? null,
       } : undefined)}
     />
-    {/* The agent's other declared controls (a session mode and the like) sit beside the bubble as compact pills. */}
-    {runtime && hasControlPills(runtime) && <RuntimeDeclaredControls tabId={tab.id} state={runtime} parts="controls" />}
-  </>);
+  );
 }
 
 export function StatusLineModelPicker({
@@ -106,18 +100,14 @@ export function StatusLineModelPicker({
   serviceTierAvailability?: Record<string,readonly import("../../../packages/plugin-sdk/src/agentRuntime").RuntimeServiceTier[]>;
   pendingSelection?: { model: string; effort: string | null; confirmation_pending?: boolean };
 }) {
-  // A runtime agent that declares its model (and its reasoning effort) has them here, set through the runtime
-  // controls API; the runtime controls row leaves them out (see `pickerControls`).
-  const declaredModels = Boolean(descriptor?.agent_runtime && !descriptor.available_models.length);
-  const declared = declaredModels ? pickerControls(runtimeControls) : {};
-  const modelOption = declared.model;
-  const effortOption = declared.effort;
-  const declaredEfforts = effortOption?.options.map(option => ({ id: option.value, display_name: option.name })) ?? [];
-  if (declaredModels && descriptor) descriptor = { ...descriptor, model_switch: "live",
-    available_models: modelOption?.options.map(option => ({id:option.value,display_name:option.name,reasoning_efforts:declaredEfforts})) ?? [] };
-  if (declaredModels) currentEffort = effortOption?.currentValue;
+  const settings = pickerSections({ descriptor, controls: runtimeControls, model: currentModelId(descriptor, modelCandidates), effort: currentEffort });
+  const modelSection = settings.find(section => section.category === "model");
+  const effortSection = settings.find(section => section.category === "effort");
+  const declaredModels = modelSection?.applyTarget.kind === "config" || Boolean(descriptor?.agent_runtime && !descriptor.available_models.length);
+  if (descriptor) descriptor = pickerDescriptor(descriptor, settings);
+  if (declaredModels) currentEffort = effortSection?.current;
   const gate = statusLineSwitchGate(descriptor, facts);
-  const currentModel = declaredModels ? modelOption?.currentValue : currentModelId(descriptor, modelCandidates);
+  const currentModel = declaredModels ? modelSection?.current : currentModelId(descriptor, modelCandidates);
   const [open, setOpen] = useState(false);
   const [applied, setApplied] = useState<PickerSelection | null>(null);
   const [applying, setApplying] = useState(false);
@@ -146,8 +136,8 @@ export function StatusLineModelPicker({
       const api = getTabModelApi();
       if (declaredModels) {
         const target = { threadId: tab?.agent_session_id, bindingNonce: tab?.session_binding_nonce, epoch: tab?.agent_runtime_state?.epoch };
-        if (modelOption && selection.model !== modelOption.currentValue) await selectRuntimeControl(tabId, target, modelOption.id, selection.model);
-        if (effortOption && selection.effort && selection.effort !== effortOption.currentValue) await selectRuntimeControl(tabId, target, effortOption.id, selection.effort);
+        if (modelSection?.applyTarget.kind === "config" && selection.model !== modelSection.current) await selectRuntimeControl(tabId, target, modelSection.applyTarget.id, selection.model);
+        if (effortSection?.applyTarget.kind === "config" && selection.effort && selection.effort !== effortSection.current) await selectRuntimeControl(tabId, target, effortSection.applyTarget.id, selection.effort);
       } else if (restart) {
         if (!api.restartAndSwitchModel) throw new Error("Restart fallback is unavailable");
         const result = await api.restartAndSwitchModel(tabId, selection.model, selection.effort, selection.runtimeMode);
@@ -172,7 +162,7 @@ export function StatusLineModelPicker({
     } finally {
       setApplying(false);
     }
-  }, [actions, close, descriptor?.transport, tabId, tab, declaredModels, modelOption, effortOption]);
+  }, [actions, close, descriptor?.transport, tabId, tab, declaredModels, modelSection, effortSection]);
   commitRef.current = commit;
 
   const selection = pendingSelection ? { model: pendingSelection.model, effort: pendingSelection.effort ?? undefined }
@@ -184,7 +174,7 @@ export function StatusLineModelPicker({
   const tierLabel = serviceTierLabel(descriptor, currentServiceTier);
   const selectionStatus = pendingSelection?.confirmation_pending ? "Switch sent; confirms when this turn ends" : afterTurn ? "after this turn" : undefined;
   const displayedLabel = declaredModels
-    ? runtimeStatusLineIdentity({ ...runtimeIdentity, controls: runtimeControls }, tierLabel, selection.effort, selectionStatus)
+    ? tabMetaParts(confirmedModelName || "Default", tierLabel, selection.effort, selectionStatus).join(" · ")
     : tabMetaParts(confirmedModelName, tierLabel, selection.effort, selectionStatus).join(" · ");
   // The logo names the agent; the agent's reported name and version live only in the tooltip, never in the label.
   const providerName = descriptor?.display_name ?? label.split(" · ")[0];
@@ -196,14 +186,14 @@ export function StatusLineModelPicker({
     </span>
   ) : null;
 
-  if (declaredModels && !runtimeControls?.configOptions) return (
+  if (declaredModels && !runtimeControls?.configOptions && !settings.length) return (
     <span className="ct-status-identity ct-status-identity--static" title={harnessTitle || "Model controls are unavailable"}>
       {glyph}{providerName || "Agent"}
     </span>
   );
 
   // Nothing to choose: the agent's logo and a quiet Default, with no menu.
-  if (declaredModels && !modelOption?.options.length) return (
+  if (declaredModels && !settings.some(section => section.options.length)) return (
     <span className="ct-status-identity ct-status-identity--static" data-testid="status-model-default"
       title={`${harnessTitle ? `${harnessTitle}. ` : ""}This agent does not offer model choices`}>
       {glyph}<span className="ct-status-identity__text">{["Default", selectionStatus].filter(Boolean).join(" · ")}</span>
@@ -245,6 +235,13 @@ export function StatusLineModelPicker({
           descriptor={descriptor}
           gate={gate}
           declaredModels={declaredModels}
+          runtimeControls={runtimeControls}
+          onRuntimeControl={async (section, value) => {
+            setApplying(true);
+            try {
+              await selectRuntimeControl(tabId, { threadId: tab?.agent_session_id, bindingNonce: tab?.session_binding_nonce, epoch: tab?.agent_runtime_state?.epoch }, section.applyTarget.kind === "config" ? section.applyTarget.id : "", value, section.applyTarget.kind === "session");
+            } finally { setApplying(false); }
+          }}
           triggerRef={triggerRef}
           currentModel={declaredModels ? currentModel : selection.model}
           currentServiceTier={selection.serviceTier}
@@ -290,6 +287,8 @@ export function ModelPickerPopover({
   serviceTierAvailability,
   showReasoning = true,
   declaredModels = false,
+  runtimeControls,
+  onRuntimeControl,
   busy,
   failure,
   onCommit,
@@ -305,6 +304,8 @@ export function ModelPickerPopover({
   serviceTierAvailability?: Record<string,readonly import("../../../packages/plugin-sdk/src/agentRuntime").RuntimeServiceTier[]>;
   showReasoning?: boolean;
   declaredModels?: boolean;
+  runtimeControls?: import("@codeterm/plugin-sdk").RuntimeSettings;
+  onRuntimeControl?: (section: PickerSection, value: string) => Promise<void>;
   busy: boolean;
   failure: { message: string; selection: PickerSelection } | null;
   onCommit: (selection: PickerSelection, restart: boolean) => void;
@@ -326,9 +327,9 @@ export function ModelPickerPopover({
   const [error, setError] = useState<string | null>(failure?.message ?? null);
   const searchable = pickerNeedsSearch(descriptor);
   const groups = pickerModelGroups(descriptor, staged?.model, query, showAll, declaredModels ? "" : currentModel);
-  const efforts = showReasoning ? effortChoices(descriptor, staged?.model) : [];
-  const hasRuntimeModes = Boolean(descriptor.agent_runtime?.runtimeModes?.length);
-  const hasServiceTiers = Boolean(descriptor.agent_runtime?.serviceTiers?.length);
+  const sections = pickerSections({ descriptor, controls: runtimeControls, model: staged?.model ?? currentModel, effort: staged?.effort ?? currentEffort, runtimeMode: staged?.runtimeMode ?? currentRuntimeMode, serviceTier: staged?.serviceTier ?? currentServiceTier, serviceTierAvailability });
+  const effortSetting = sections.find(section => section.category === "effort");
+  const extraSettings = sections.filter(section => section.category !== "model" && section.category !== "effort");
   const stagedEffort = staged ? effortAfterModelChange(descriptor, staged.model, staged.effort) : undefined;
   const selectionPlan = staged ? planSelection(gate, { model: currentModel, effort: currentEffort, ...(descriptor?.agent_runtime?.serviceTiers ? { serviceTier: currentServiceTier } : {}), ...(descriptor.agent_runtime?.runtimeModes?.length ? { runtimeMode: currentRuntimeMode } : {}) }, staged) : { action: "none" };
 
@@ -415,7 +416,7 @@ export function ModelPickerPopover({
       aria-labelledby={titleId}
       data-testid="status-model-picker"
       className="ct-menu ct-model-picker"
-      style={{ width: PICKER_WIDTH, maxHeight: 440, overflowY: "auto", ...(frozenHeight ? { height: frozenHeight } : {}) }}
+      style={{ width: PICKER_WIDTH, maxHeight: "min(440px, calc(100dvh - 24px))", maxWidth: "100%", overflowY: "auto", ...(frozenHeight ? { height: frozenHeight } : {}) }}
       onKeyDown={(event) => {
         if (event.code !== "Escape" && event.code !== "Enter" && event.code !== "NumpadEnter") return;
         if (event.code !== "Escape" && (event.target as HTMLElement).closest("button")) return;
@@ -534,39 +535,19 @@ export function ModelPickerPopover({
         </button>
       )}
       <div role="separator" className="ct-menu-separator" />
-      {!searchOpen && staged && (hasRuntimeModes || efforts.length > 0 || hasServiceTiers) && (
+      {!searchOpen && ((showReasoning && effortSetting) || extraSettings.length > 0) && (
         <div className="ct-model-picker__settings">
-          {hasRuntimeModes && (
-            <label className="ct-model-picker__effort">
-              <span className="ct-model-picker__label">Runtime mode</span>
-              <select
-                role="combobox"
-                aria-label="Runtime mode"
-                value={staged.runtimeMode ?? currentRuntimeMode ?? ""}
-                disabled={busy}
-                onChange={(event) => choose({ ...staged, runtimeMode: event.currentTarget.value })}
-              >
-                {descriptor.agent_runtime?.runtimeModes?.map((mode) => (
-                  <option key={mode.id} value={mode.id}>{mode.displayName}</option>
-                ))}
-              </select>
-            </label>
-          )}
-          {efforts.length > 0 && stagedEffort && (
-            <div className="ct-model-picker__effort">
-              <span className="ct-model-picker__label">Reasoning</span>
-              <Segmented
-                aria-label="Reasoning"
-                value={stagedEffort}
-                options={efforts.map((effort) => ({ value: effort.id, label: effort.display_name }))}
-                onChange={(effort) => { if (!busy) choose({ ...staged, effort }); }}
-              />
-            </div>
-          )}
-          {hasServiceTiers && (
-            <ServiceTierPicker declared={descriptor.agent_runtime?.serviceTiers ?? []} available={serviceTierAvailability?.[staged.model]}
-              selection={staged.serviceTier} busy={busy} onChange={serviceTier => choose({...staged,serviceTier})} />
-          )}
+          {showReasoning && effortSetting && stagedEffort && <PickerSettingSection section={{ ...effortSetting, current: stagedEffort }} busy={busy}
+            onChange={effort => { if (staged && !busy) choose({ ...staged, effort }); }} />}
+          {extraSettings.length > 0 && <div className="ct-model-picker__extras">
+            {extraSettings.map(section => <PickerSettingSection key={`${section.applyTarget.kind}:${section.id}`} section={section} busy={busy}
+              onChange={value => {
+                if (busy) return;
+                if (section.applyTarget.kind === "mode") { if (staged) choose({ ...staged, runtimeMode: value }); }
+                else if (section.applyTarget.kind === "speed") { if (staged) choose({ ...staged, serviceTier: { id: JSON.parse(value) as string | null } }); }
+                else void onRuntimeControl?.(section, value).catch(() => setError("The agent refused this control value."));
+              }} />)}
+          </div>}
         </div>
       )}
       {confirming ? (
