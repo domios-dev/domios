@@ -1,7 +1,8 @@
 import { ExpandableReader } from "../ExpandableReader";
 import { ChevronRight } from "lucide-react";
-import { useId, useLayoutEffect, useRef, useState } from "react";
+import { useId, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { thoughtPresentation } from "./thoughtModel";
+import { RichMarkdown } from "../MarkdownBody";
 
 export function ThoughtLine({ text, expanded, onToggle, label = "Thinking", testId = "chat-thought", defaultExpanded = false }: {
   text: string;
@@ -13,7 +14,7 @@ export function ThoughtLine({ text, expanded, onToggle, label = "Thinking", test
 }) {
   const [localExpanded, setLocalExpanded] = useState(defaultExpanded);
   const [clipped, setClipped] = useState(false);
-  const body = useRef<HTMLParagraphElement>(null);
+  const body = useRef<HTMLDivElement>(null);
   const regionId = useId();
   const open = expanded ?? localExpanded;
   const toggle = onToggle ?? setLocalExpanded;
@@ -38,10 +39,10 @@ export function ThoughtLine({ text, expanded, onToggle, label = "Thinking", test
     </button> : caption}
     {opener}
     </div>
-    <p ref={body} id={regionId} role="region" aria-label={label} data-testid="chat-thought-line"
-      className="m-0 whitespace-pre-wrap break-words text-xs leading-[18px]"
-      style={{ color: "var(--ct-muted-fg)", ...(!open && !fullscreen ? { display: "-webkit-box", WebkitBoxOrient: "vertical", WebkitLineClamp: 3, overflow: "hidden" } as const : { maxHeight: fullscreen ? "none" : 400, overflowY: "auto", overscrollBehavior: "contain", scrollbarGutter: "stable" }) }}>
-      <span data-testid="chat-thought-text">{text}</span>
-    </p>
+    <div ref={body} id={regionId} role="region" aria-label={label} data-testid="chat-thought-line"
+      className="m-0 break-words text-xs leading-[18px]"
+      style={{ color: "var(--ct-muted-fg)", "--ct-fg": "var(--ct-muted-fg)", ...(!open && !fullscreen ? { display: "-webkit-box", WebkitBoxOrient: "vertical", WebkitLineClamp: 3, overflow: "hidden" } as const : { maxHeight: fullscreen ? "none" : 400, overflowY: "auto", overscrollBehavior: "contain", scrollbarGutter: "stable" }) } as CSSProperties & { "--ct-fg": string }}>
+      <div data-testid="chat-thought-text"><RichMarkdown text={text} localArtifacts={false} interactivePreviews={false} /></div>
+    </div>
   </div>}</ExpandableReader>;
 }

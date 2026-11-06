@@ -31,6 +31,7 @@ import {
   statusLineSwitchGate,
   statusLineModelName,
   runtimeAgentTooltip,
+  pickerHarnessName,
   type PickerSelection,
   type StatusLineTabFacts,
 } from "./statusLinePickerModel";
@@ -231,6 +232,7 @@ export function StatusLineModelPicker({
       {applying && <span className="ct-status-identity__pending" role="status">Applying…</span>}
       {open && (
         <ModelPickerPopover
+          harnessName={pickerHarnessName(descriptor, runtimeIdentity)}
           key={descriptor.id}
           descriptor={descriptor}
           gate={gate}
@@ -277,6 +279,7 @@ function selectionReached(
 }
 
 export function ModelPickerPopover({
+  harnessName,
   descriptor,
   gate,
   triggerRef,
@@ -294,6 +297,7 @@ export function ModelPickerPopover({
   onCommit,
   onClose,
 }: {
+  harnessName?: string;
   descriptor: ProviderDescriptor;
   gate: Extract<ReturnType<typeof statusLineSwitchGate>, { interactive: true }>;
   triggerRef: RefObject<HTMLButtonElement | null>;
@@ -428,7 +432,7 @@ export function ModelPickerPopover({
       }}
     >
       <div className="ct-model-picker__head">
-        <span id={titleId} className="ct-model-picker__title">{descriptor.display_name}</span>
+        <span id={titleId} className="ct-model-picker__title">{harnessName ?? descriptor.display_name}</span>
         {searchable && !searchOpen && (
           <button
             type="button"

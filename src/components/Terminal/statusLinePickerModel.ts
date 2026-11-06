@@ -73,6 +73,10 @@ export function runtimeAgentTooltip(identity: { agentName?: string; binaryVersio
   return [identity?.agentName, identity?.binaryVersion].filter(Boolean).join(" · ") || undefined;
 }
 
+export function pickerHarnessName(descriptor: ProviderDescriptor, identity?: { agentName?: string } | null): string {
+  return descriptor.agent_runtime?.launchProfiles ? identity?.agentName?.trim() || descriptor.display_name : descriptor.display_name;
+}
+
 export function statusLineModelName(
   tab: Pick<Tab, "agent_session_model" | "agent_provider_resolved_model" | "agent_requested_model">,
   fallback?: string | null,

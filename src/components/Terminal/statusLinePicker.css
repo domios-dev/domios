@@ -147,6 +147,9 @@ button.ct-status-identity:focus-visible {
   min-width: 0;
   font-weight: 600;
   font-size: 12.5px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .ct-model-picker__refresh {
@@ -362,10 +365,18 @@ button.ct-status-identity:focus-visible {
 }
 
 .ct-model-picker__setting {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
   min-height: 28px;
   padding-inline: var(--ct-model-picker-inset);
+}
+
+.ct-model-picker__setting > .ct-model-picker__label,
+.ct-model-picker__setting > output {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
