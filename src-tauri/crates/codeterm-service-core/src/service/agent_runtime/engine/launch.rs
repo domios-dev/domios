@@ -6,11 +6,7 @@ pub(super) fn refused_start(
 ) -> Result<(), RuntimeFailure> {
     if thread.is_none() {
         if let Some(state) = state.filter(|state| {
-            state["state"] == "degraded"
-                && matches!(
-                    state["failureCode"].as_str(),
-                    Some("provider_refused" | "runtime_start_unbound")
-                )
+            state["state"] == "degraded" && state["failureCode"] == "runtime_start_unbound"
         }) {
             return Err(RuntimeFailure::Refused(
                 state["reason"]

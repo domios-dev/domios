@@ -115,7 +115,6 @@ fn materialize(tab: &mut Tab, runtime_declared: bool) -> bool {
     };
     tab.pty_id = None;
     tab.chat_view = true;
-    super::start_failure::project(tab);
     let ready = super::engine::has_live_bound_session(tab)
         && tab.session_binding_nonce.is_some()
         && tab.reported_session_binding_nonce == tab.session_binding_nonce;

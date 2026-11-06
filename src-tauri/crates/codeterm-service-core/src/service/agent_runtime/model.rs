@@ -331,7 +331,14 @@ impl RuntimeState {
         if self.epoch != epoch {
             return false;
         }
-        self.failure_code = reason.code();
+        self.failure_code = match reason.code() {
+            Some(codeterm_plugin::agent_runtime::RuntimeFailureCode::ProviderRefused)
+                if self.thread_id.as_deref().is_none_or(str::is_empty) =>
+            {
+                Some(codeterm_plugin::agent_runtime::RuntimeFailureCode::RuntimeStartUnbound)
+            }
+            code => code,
+        };
         self.phase = match reason {
             RuntimeFailure::SignInRequired => RuntimePhase::LoginPending,
             _ => RuntimePhase::Degraded {
