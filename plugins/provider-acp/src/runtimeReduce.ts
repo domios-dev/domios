@@ -124,6 +124,10 @@ function submittedRow(state:StreamState, events:AgentEvent[], submitted:{sendId:
     state.evidenced.push(submitted.sendId);
     events.push({kind:"sendEvidence",threadId:state.sessionId,sendId:submitted.sendId,turnId:`${state.sessionId}:turn:${state.turn}`,itemId:id});
   }
+  if (submitted.input.attachments.length) {
+    for (const event of events) if (event.kind === "chatItem" && event.item.id === id)
+      event.item.attachments=[...submitted.input.attachments];
+  }
 }
 export function reduceStream(ctx:RuntimeContext, raw:JsonValue, frames:readonly RuntimeFrame[], cursor:StreamCursor, submitted?:{sendId:string;input:TurnInput}, retainSubmitted=false):RuntimeReduction {
   if (!ctx.threadId) return {state:raw,events:[]};

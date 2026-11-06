@@ -225,6 +225,7 @@ pub(super) async fn publish_written_inputs(
                 item.id = super::events::RuntimeMaps::written_input_id(thread, &pending.send_id);
                 item.attachments =
                     (!claim.input.attachments.is_empty()).then(|| claim.input.attachments.clone());
+                super::model::omit_user_image_data(&mut item);
                 let item = session
                     .cache
                     .lock()

@@ -184,6 +184,7 @@
     "prompt-images-refused.json",
     "prompt-images-undeclared.json",
     "prompt-image-bytes-missing.json",
-    "prompt-resource-refused.json"
+    "prompt-resource-refused.json",
+    "prompt-images-echo.json"
   ]
 }
