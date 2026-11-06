@@ -23,17 +23,14 @@ fn resumed_replay_stays_idle_and_first_new_turn_completes_once() {
         .unwrap();
         let events: Vec<AgentRuntimeEvent> =
             serde_json::from_value(fixture["expected"]["events"].clone()).unwrap();
-        let original = events
-            .iter()
-            .find_map(|event| match event {
-                AgentRuntimeEvent::ChatItem { item, .. }
-                    if item.kind == "assistant" && item.content == "old reply" =>
-                {
-                    Some(item.clone())
-                }
-                _ => None,
-            })
-            .unwrap();
+        // The durable row is restored by the host; replay no longer re-emits it once history exists.
+        let restored = serde_json::json!({"kind":"chatItem","threadId":"thread","item":{
+            "id":"thread:turn:0:item:2","seq":2,"type":"assistant","content":"old reply"}});
+        let AgentRuntimeEvent::ChatItem { item: original, .. } =
+            serde_json::from_value::<AgentRuntimeEvent>(restored).unwrap()
+        else {
+            unreachable!("fixture row is a chat item")
+        };
         let epoch = {
             let mut state = scene.session.state.lock();
             let epoch = state.begin();
