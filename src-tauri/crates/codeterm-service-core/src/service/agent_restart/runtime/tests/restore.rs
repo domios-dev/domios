@@ -68,9 +68,19 @@ fn fresh_after_load_refusal_preserves_profile_settings_and_archived_transcript()
     let (attached, rows) =
         agent_runtime::transport::snapshot(&fixture.service, &fixture.tab).unwrap();
     assert!(Arc::ptr_eq(&session, &attached));
+    // Delivery adds envelope segments to user rows; the restored identity and content are the oracle.
+    let identity = |rows: serde_json::Value| -> Vec<serde_json::Value> {
+        rows.as_array()
+            .unwrap()
+            .iter()
+            .map(|row| {
+                serde_json::json!({"id":row["id"],"type":row["type"],"content":row["content"],"seq":row["seq"]})
+            })
+            .collect()
+    };
     assert_eq!(
-        serde_json::to_value(rows).unwrap(),
-        serde_json::to_value(saved).unwrap()
+        identity(serde_json::to_value(rows).unwrap()),
+        identity(serde_json::to_value(saved).unwrap())
     );
     assert_eq!(fixture.requests(), requests_before);
     let before = fixture
