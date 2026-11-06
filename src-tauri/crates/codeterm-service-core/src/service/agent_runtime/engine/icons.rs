@@ -58,10 +58,12 @@ pub(super) fn start(svc: &ServiceContext, session: &Arc<Session>) {
         .as_ref()
         .and_then(|adapter| adapter.agent_runtime())
         .and_then(|runtime| runtime.launch_profiles?.get(profile.as_deref()?).cloned());
-    if declaration
+    if let Some(icon) = declaration
         .as_ref()
-        .is_some_and(|profile| profile.icon_svg.is_some())
+        .and_then(|profile| profile.icon_svg.clone())
+        .filter(|icon| !icon.trim().is_empty())
     {
+        publish_icon(svc, session, &context.tab_id, epoch, Some(icon));
         return;
     }
     crate::async_runtime::spawn(async move {
@@ -85,18 +87,35 @@ pub(super) fn start(svc: &ServiceContext, session: &Arc<Session>) {
         };
         let icon =
             codeterm_plugin::plugin_icon::registry::resolve(root.join("cache/icons"), &url).await;
-        if validate_binding(&svc, &session).is_err() {
-            return;
-        }
-        {
-            let mut state = session.state.lock();
-            if state.epoch != epoch {
-                return;
-            }
-            state.icon_svg = icon;
-        }
-        publish(&svc, &context.tab_id, &session);
+        publish_icon(&svc, &session, &context.tab_id, epoch, icon);
     });
+}
+
+fn publish_icon(
+    svc: &ServiceContext,
+    session: &Session,
+    tab: &str,
+    epoch: u64,
+    icon: Option<String>,
+) {
+    if validate_binding(svc, session).is_err() {
+        return;
+    }
+    let applied = apply_icon(&mut session.state.lock(), epoch, icon);
+    if applied {
+        publish(svc, tab, session);
+    }
+}
+
+fn apply_icon(state: &mut RuntimeState, epoch: u64, icon: Option<String>) -> bool {
+    if state.epoch != epoch {
+        return false;
+    }
+    let Some(icon) = icon.filter(|icon| !icon.trim().is_empty()) else {
+        return false;
+    };
+    state.icon_svg = Some(icon);
+    true
 }
 
 #[cfg(test)]

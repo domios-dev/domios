@@ -133,6 +133,25 @@ test("runtime identity and selected profile reach tab presentation without provi
   assert(r.displayName === "Gemini CLI · 1.2.3", "own runtime name and version wired");
 });
 
+test("restored tabs resolve only their own profile icon and never the shared provider logo", () => {
+  const profiles = {
+    first: { binary: "first-agent", args: [], registryId: "first-registry", iconSvg: "<svg id='first'/>" },
+    second: { binary: "second-agent", args: [], registryId: "second-registry", iconSvg: "<svg id='second'/>" },
+  };
+  const descriptor = { ...claudeDescriptor, id: "shared-runtime", icon_svg: "<svg id='shared-other'/>", agent_runtime: { launchProfiles: profiles } };
+  setAgentDescriptors([descriptor]);
+  const restored = (profile: string) => tab({ agent_type: descriptor.id, agent_runtime_config: { launchProfile: profile }, agent_runtime_state: { state: "loaded", epoch: 1, iconSvg: "" } });
+  for (const profile of ["second", "first", "second"]) {
+    const resolved = resolveTabProvider(restored(profile));
+    assert(resolved?.iconSvg === `<svg id='${profile}'/>`, "each restored tab gets its own declared icon");
+    assert(resolved.fallbackIconSvg === undefined, "shared provider is not a profile fallback");
+  }
+  setAgentDescriptors([{ ...descriptor, agent_runtime: { launchProfiles: { ...profiles, second: { ...profiles.second, iconSvg: undefined } } } }]);
+  assert(resolveTabProvider(restored("second"))?.iconSvg === undefined, "missing own icon uses generic glyph, not the other profile or provider");
+  assert(resolveTabProvider(restored("first"))?.iconSvg === profiles.first.iconSvg, "another profile remains unchanged");
+  assert(resolveTabProvider(restored("unknown"))?.iconSvg === undefined, "unknown profile cannot borrow a logo");
+});
+
 let failed = 0;
 for (const [name, fn] of tests) {
   try {

@@ -20,11 +20,12 @@ export function resolveTabProvider(tab: Tab | null | undefined): ResolvedTabProv
     if (d) {
       const profileId = tab.agent_runtime_config?.launchProfile;
       const profile = typeof profileId === "string" ? d.agent_runtime?.launchProfiles?.[profileId] : undefined;
+      const genericIcon = d.agent_runtime?.launchProfiles !== undefined || typeof profileId === "string" ? undefined : d.icon_svg;
       return {
         id: d.id,
         displayName: runtimeAgentLabel(tab) ?? d.display_name,
-        iconSvg: resolveAgentIcon(profile?.iconSvg, tab.agent_runtime_state?.iconSvg, d.icon_svg),
-        fallbackIconSvg: d.icon_svg,
+        iconSvg: resolveAgentIcon(profile?.iconSvg, tab.agent_runtime_state?.iconSvg, genericIcon),
+        fallbackIconSvg: genericIcon,
         iconColor: d.icon_color,
         iconHint: d.icon_hint,
         kind: d.transport === "chat_backend" ? "shell" : "agent",
