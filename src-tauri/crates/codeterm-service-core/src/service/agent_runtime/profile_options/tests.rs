@@ -68,12 +68,14 @@ fn profile_selections_are_resolved_before_spawn_creates_a_tab() {
     let manifest = PluginManifest::from_json_str(
         &json!({
             "id":provider,"version":"1.0.0","displayName":"Fixture",
-            "capabilities":{"agentProvider":true,"agentRuntime":{
+            "capabilities":{"agentProvider":true,
+                "chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},"agentRuntime":{
                 "runtime":"stdio-jsonrpc","command":{"binary":"fixture","args":[]},
                 "launchProfiles":{"selected":{"binary":"fixture","args":[]}},
                 "requestMethods":{"initialize":["initialize"]},"notificationMethods":[]}},
             "spawn":{"readinessStrategy":{"kind":"fixed_delay","durationMs":0},
-                "taskDelivery":"pty_input","verifySubmit":{"kind":"none"}}
+                "taskDelivery":"pty_input","verifySubmit":{"kind":"none"}},
+            "permissions":{"subprocess":{"allow":["fixture"]}}
         })
         .to_string(),
     )
