@@ -165,7 +165,7 @@ fn air_chat_start_oversized_boundary_and_frontend_pages() {
         let mut pages = Vec::new();
         let mut cursor = start.start_offset;
         for _ in 0..8 {
-            if cursor <= body_start {
+            if cursor == 0 {
                 break;
             }
             let page = chat_backfill_core(
@@ -178,12 +178,8 @@ fn air_chat_start_oversized_boundary_and_frontend_pages() {
             assert!(page.start_offset < cursor);
             assert_eq!(page.end_offset, cursor);
             cursor = page.start_offset;
-            let reached_reply = page.messages.iter().any(|row| row.id == reply_id);
             pages.push(json!({"start_offset":cursor,"end_offset":page.end_offset,"offset_kind":"bytes",
                 "messages":wire_rows(&page.messages),"source_session_id":session,"session_binding_nonce":"air-start-launch"}));
-            if reached_reply {
-                break;
-            }
         }
         assert!(
             rows.iter().any(|row| row.id == reply_id)
