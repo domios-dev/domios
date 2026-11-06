@@ -3,6 +3,8 @@ import { computeFitTransform, type ViewportBox, type ViewportTransform } from "@
 const CAMERA_LIMIT = 24;
 const cameras = new Map<string, ViewportTransform>();
 
+export type InitialCanvasFit = "pending" | "ready" | "cancelled";
+
 export function imageCanvasKey(images: readonly { src: string; path?: string }[]): string {
   let hash = 2166136261;
   let second = 5381;
@@ -35,9 +37,13 @@ export function createImageCanvasCamera(key: string, memory = cameras) {
     restored: memory.has(key),
     remember,
     fit,
-    initialize(bounds: ViewportBox, width: number, height: number) {
+    takeControl(transform: ViewportTransform) {
+      initialized = true;
+      remember(transform);
+    },
+    initialize(bounds: ViewportBox, width: number, height: number, measured = true) {
       if (initialized || width <= 0 || height <= 0) return null;
-      const transform = memory.get(key) ?? fit(bounds, width, height);
+      const transform = memory.get(key) ?? (measured ? fit(bounds, width, height) : null);
       if (transform) initialized = true;
       return transform;
     },

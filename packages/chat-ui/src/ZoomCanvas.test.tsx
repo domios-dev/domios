@@ -5,7 +5,8 @@ import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
 import { ZoomCanvas } from "./ZoomCanvas";
 import { ImageFullscreen } from "./ImageFullscreen";
-import { useCanvasViewport, type UseCanvasViewportResult } from "@codeterm/canvas-camera";
+import { computeFitTransform, formatLayerTransform, useCanvasViewport, type UseCanvasViewportResult } from "@codeterm/canvas-camera";
+import { layoutGallery } from "./galleryModel";
 
 const window = new Window();
 for (const key of ["window", "document", "HTMLElement", "Element", "Node", "MouseEvent", "ResizeObserver"] as const) {
@@ -21,6 +22,12 @@ function runFrame(time: number) {
   const next = frames.entries().next().value;
   assert(next, "an animation frame is pending");
   frames.delete(next[0]); next[1](time);
+}
+
+function loadImage(layer: HTMLElement, index: number, width = 800, height = 600) {
+  const image = layer.querySelectorAll("img")[index];
+  Object.defineProperties(image, { naturalWidth: { value: width, configurable: true }, naturalHeight: { value: height, configurable: true } });
+  image.dispatchEvent(new window.Event("load"));
 }
 
 test("canvas wheel, pan, touch and fit controls manipulate the camera and prevent scrolling", async () => {
@@ -62,13 +69,19 @@ test("image selection and navigation preserve the camera, and reopening restores
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host);
   const images = [{ name: "a", src: "data:image/png;base64,AA" }, { name: "b", src: "data:image/png;base64,BB" }];
-  await act(async () => root.render(<ImageFullscreen image={images[0]} images={images} anchorRef={{ current: host }} onClose={() => {}} />));
+  await act(async () => root.render(<ImageFullscreen image={images[1]} images={images} anchorRef={{ current: host }} onClose={() => {}} />));
   assert.equal(document.querySelectorAll('[aria-label="Zoomable canvas"] img').length, 2);
   const layer = document.querySelector('[aria-label="Zoomable canvas"]')!.firstElementChild as HTMLElement;
+  const pending = layer.style.transform;
+  await act(async () => loadImage(layer, 0, 1600, 1000));
+  assert.equal(layer.style.transform, pending, "wait for the other image instead of fitting a partial layout");
+  await act(async () => loadImage(layer, 1, 1200, 700));
+  const measuredBounds = layoutGallery([{ width: 1600, height: 1000 }, { width: 1200, height: 700 }]).bounds;
+  assert.equal(layer.style.transform, formatLayerTransform(computeFitTransform(measuredBounds, 800, 600)!));
   const fitted = layer.style.transform;
-  await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="Next image"]')!.click());
+  await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="Previous image"]')!.click());
   assert.equal(layer.style.transform, fitted);
-  assert(document.querySelector('[aria-label="Save b"]'));
+  assert(document.querySelector('[aria-label="Save a"]'));
   await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="Fit all"]')!.click());
   assert.equal(layer.style.transform, fitted);
   await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="View b"]')!.click());
@@ -79,6 +92,8 @@ test("image selection and navigation preserve the camera, and reopening restores
   await act(async () => root.render(<ImageFullscreen image={images[1]} images={images} anchorRef={{ current: host }} onClose={() => {}} />));
   const restored = document.querySelector('[aria-label="Zoomable canvas"]')!.firstElementChild as HTMLElement;
   assert.equal(restored.style.transform, custom);
+  await act(async () => { loadImage(restored, 0, 1600, 1000); loadImage(restored, 1, 1200, 700); });
+  assert.equal(restored.style.transform, custom, "late measurements cannot change the restored camera");
   await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="Next image"]')!.click());
   assert.equal(restored.style.transform, custom);
   await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="Fit all"]')!.click());
@@ -109,6 +124,39 @@ test("camera fly paints every frame without committing React until arrival", asy
   assert.equal(renders, initialRenders + 1);
   assert.deepEqual(api!.transform, { x: 80, y: -40, scale: 3 });
   await act(async () => root.unmount()); host.remove();
+});
+
+test("selection and zoom before images finish loading cancel the deferred first fit", async () => {
+  for (const action of ["Next image", "Zoom in"]) {
+    const host = document.createElement("div"); document.body.append(host);
+    const root = createRoot(host);
+    const images = [{ name: "a", src: `${action}-pending-a.png` }, { name: "b", src: `${action}-pending-b.png` }];
+    try {
+      await act(async () => root.render(<ImageFullscreen image={images[0]} images={images} anchorRef={{ current: host }} onClose={() => {}} />));
+      const layer = document.querySelector('[aria-label="Zoomable canvas"]')!.firstElementChild as HTMLElement;
+      await act(async () => document.querySelector<HTMLButtonElement>(`[aria-label="${action}"]`)!.click());
+      const controlled = layer.style.transform;
+      await act(async () => { loadImage(layer, 0, 1600, 1000); loadImage(layer, 1, 1200, 700); });
+      assert.equal(layer.style.transform, controlled, action);
+    } finally { await act(async () => root.unmount()); host.remove(); }
+  }
+});
+
+test("failed image loads settle the first-fit measurement gate", async () => {
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  const images = [{ name: "failed", src: "failed-first-fit.png", pending: true }];
+  try {
+    await act(async () => root.render(<ImageFullscreen image={images[0]} images={images} anchorRef={{ current: host }} onClose={() => {}} />));
+    const layer = document.querySelector('[aria-label="Zoomable canvas"]')!.firstElementChild as HTMLElement;
+    const pending = layer.style.transform;
+    assert.equal(layer.querySelector("img"), null);
+    const resolved = [{ ...images[0], pending: false }];
+    await act(async () => root.render(<ImageFullscreen image={resolved[0]} images={resolved} anchorRef={{ current: host }} onClose={() => {}} />));
+    await act(async () => layer.querySelector("img")!.dispatchEvent(new window.Event("error")));
+    assert.notEqual(layer.style.transform, pending);
+    assert.equal(layer.style.transform, formatLayerTransform(computeFitTransform({ x: 0, y: 0, width: 800, height: 600 }, 800, 600)!));
+  } finally { await act(async () => root.unmount()); host.remove(); }
 });
 
 test("fullscreen retains denied gallery slots without loading or offering their bytes", async () => {
@@ -184,9 +232,10 @@ test("phone fullscreen frames the clicked image once at readable scale and keeps
   const images = Array.from({ length: 32 }, (_, index) => ({ name: String(index), src: `image-${index}.png` }));
   try {
     await act(async () => root.render(<ImageFullscreen image={images[17]} images={images} anchorRef={{ current: host }} onClose={() => {}} />));
+    const layer = document.querySelector('[aria-label="Zoomable canvas"]')!.firstElementChild as HTMLElement;
+    await act(async () => { images.forEach((_, index) => loadImage(layer, index)); });
     assert(document.querySelector('[aria-label="Save 17"]'));
     assert.equal(document.querySelector('[aria-label="Fit all"]')?.getAttribute("aria-pressed"), "false");
-    const layer = document.querySelector('[aria-label="Zoomable canvas"]')!.firstElementChild as HTMLElement;
     assert(Number(/scale\(([^)]+)\)/.exec(layer.style.transform)![1]) > 0.3);
     const initial = layer.style.transform;
     await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="Next image"]')!.click());

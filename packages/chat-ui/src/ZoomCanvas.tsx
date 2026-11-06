@@ -2,11 +2,13 @@ import type { ReactNode } from "react";
 import type { ViewportBox } from "@codeterm/canvas-camera";
 import { CanvasToolbar } from "./CanvasToolbar";
 import { useZoomCanvas, type CanvasFocus } from "./useZoomCanvas";
+import type { InitialCanvasFit } from "./imageCanvasCamera";
 
-export function ZoomCanvas({ bounds, focus, cameraKey, children, onNavigate, onSelect, wheelBehavior = "zoom", fitLabel = "Fit all", resetLabel = "Reset to 100%" }: {
+export function ZoomCanvas({ bounds, focus, cameraKey, initialFit = "ready", children, onNavigate, onSelect, wheelBehavior = "zoom", fitLabel = "Fit all", resetLabel = "Reset to 100%" }: {
   bounds: ViewportBox;
   focus?: CanvasFocus | null;
   cameraKey?: string;
+  initialFit?: InitialCanvasFit;
   children: ReactNode;
   onNavigate?: (direction: number) => void;
   onSelect?: (index: number) => void;
@@ -14,7 +16,7 @@ export function ZoomCanvas({ bounds, focus, cameraKey, children, onNavigate, onS
   fitLabel?: string;
   resetLabel?: string;
 }) {
-  const { camera, mode, scaleOutput, interactions, fit, zoom, natural } = useZoomCanvas({ bounds, focus, cameraKey, wheelBehavior, onNavigate, onSelect });
+  const { camera, mode, scaleOutput, interactions, fit, zoom, natural } = useZoomCanvas({ bounds, focus, cameraKey, initialFit, wheelBehavior, onNavigate, onSelect });
   return <div className="relative min-h-0 flex-1">
     <div ref={camera.containerRef} {...camera.handlers} {...interactions} role="region" aria-label="Zoomable canvas" tabIndex={0} data-fullscreen-autofocus=""
       className="absolute inset-0 overflow-hidden focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ct-accent)]"
