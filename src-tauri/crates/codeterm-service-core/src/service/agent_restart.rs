@@ -185,7 +185,7 @@ impl RestartOutcome {
 
 /// Tab state captured before any restart leg mutates it.
 #[derive(Debug, Clone)]
-struct TabRestartSnapshot {
+pub(in crate::service) struct TabRestartSnapshot {
     tab_id: String,
     pty_id: String,
     provider: String,

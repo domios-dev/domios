@@ -13,13 +13,14 @@ fn fresh_after_load_refusal_preserves_profile_settings_and_archived_transcript()
     .into_iter()
     .map(|kind| (kind.to_owned(), json!([kind])))
     .collect::<serde_json::Map<String, Value>>();
+    let source = SOURCE.replace("code:'provider_refused'", "code:'session_load_refused'");
     let fixture = RuntimeFixture::prepared_with_runtime(
-        SOURCE,
+        &source,
         true,
         json!({"requestMethods":methods,"launchProfiles":{"opaque-profile":{"binary":"node","args":[]}}}),
     );
     let old_thread = uuid::Uuid::new_v4().to_string();
-    let config = json!({"systemPrompt":PROMPT,"model":"supplied-model","effort":"opaque-effort","launchProfile":"opaque-profile"});
+    let config = json!({"systemPrompt":format!("{PROMPT} opaque refused identity"),"model":"supplied-model","effort":"opaque-effort","launchProfile":"opaque-profile"});
     {
         let mut mux = fixture.service.mux.write();
         let tab = mux.get_tab_mut(&fixture.tab).unwrap();
@@ -30,21 +31,48 @@ fn fresh_after_load_refusal_preserves_profile_settings_and_archived_transcript()
         };
         tab.agent_runtime_config = Some(config.clone());
     }
-    agent_runtime::transport::launch(&fixture.service, PROVIDER, &fixture.tab, config).unwrap();
-    let session = agent_runtime::engine::for_tab(&fixture.tab).unwrap();
-    session.cache.lock().reconcile(ChatMsg {
-        id: "saved-turn".into(),
-        kind: "user".into(),
-        content: "opaque earlier turn".into(),
-        ..Default::default()
-    });
-    crate::async_runtime::block_on(agent_runtime::engine::persist_transcript(&session));
-    let epoch = session.state.lock().epoch;
-    session.state.lock().degrade(
-        epoch,
-        &agent_runtime::model::RuntimeFailure::SessionLoadRefused("opaque detail".into()),
+    let saved = vec![
+        ChatMsg {
+            id: "saved-turn".into(),
+            kind: "user".into(),
+            content: "opaque earlier turn".into(),
+            ..Default::default()
+        },
+        ChatMsg {
+            id: "saved-thinking".into(),
+            kind: "thinking".into(),
+            content: "opaque interrupted thought".into(),
+            seq: 1,
+            ..Default::default()
+        },
+    ];
+    crate::service::tab_chat::chatbackend_history::ChatBackendHistory::runtime_shared(
+        PROVIDER,
+        &old_thread,
+    )
+    .lock()
+    .snapshot(saved.clone())
+    .unwrap();
+    assert!(
+        agent_runtime::transport::launch(&fixture.service, PROVIDER, &fixture.tab, config).is_err()
     );
-    agent_runtime::engine::publish(&fixture.service, &fixture.tab, &session);
+    let session = agent_runtime::engine::for_tab(&fixture.tab).unwrap();
+    assert!(agent_runtime::engine::session_load_refused(
+        &fixture.service,
+        &session
+    ));
+    let process = session.process.lock().clone().unwrap();
+    assert!(process.ended.borrow().is_none());
+    assert!(process.client.ended().borrow().is_none());
+    let requests_before = fixture.requests();
+    let (attached, rows) =
+        agent_runtime::transport::snapshot(&fixture.service, &fixture.tab).unwrap();
+    assert!(Arc::ptr_eq(&session, &attached));
+    assert_eq!(
+        serde_json::to_value(rows).unwrap(),
+        serde_json::to_value(saved).unwrap()
+    );
+    assert_eq!(fixture.requests(), requests_before);
     let before = fixture
         .service
         .mux
@@ -59,12 +87,12 @@ fn fresh_after_load_refusal_preserves_profile_settings_and_archived_transcript()
             &fixture.tab,
             RestartOptions {
                 fresh: true,
-                force: true,
                 ..Default::default()
             },
         )
         .unwrap();
     assert!(outcome.agent_ready);
+    assert!(!outcome.force);
     assert_ne!(outcome.session_id.as_deref(), Some(old_thread.as_str()));
     let requests = fixture.requests();
     let opens = requests
@@ -93,7 +121,7 @@ fn fresh_after_load_refusal_preserves_profile_settings_and_archived_transcript()
         .id
         .starts_with(&format!("provider-session:{old_thread}:")));
     assert_eq!(
-        rows[1].system_subtype.as_deref(),
+        rows[2].system_subtype.as_deref(),
         Some("context_epoch_boundary")
     );
     let archive = fixture
@@ -108,4 +136,32 @@ fn fresh_after_load_refusal_preserves_profile_settings_and_archived_transcript()
         archive.transport,
         crate::multiplexer::types::ContextEpochTransport::ChatBackend
     );
+}
+
+#[test]
+fn fresh_runtime_restart_still_refuses_a_loaded_live_session() {
+    let fixture = RuntimeFixture::new();
+    fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(&fixture.tab)
+        .unwrap()
+        .agent_runtime_state =
+        Some(json!({"state":"degraded","failureCode":"session_load_refused"}));
+    let before = fixture.requests();
+    assert!(fixture
+        .service
+        .agent_restart_observed_with_options(
+            &fixture.tab,
+            RestartOptions {
+                fresh: true,
+                ..Default::default()
+            }
+        )
+        .is_err());
+    assert_eq!(fixture.requests(), before);
+    assert!(agent_runtime::engine::has_live_bound_session(
+        fixture.service.mux.read().get_tab(&fixture.tab).unwrap()
+    ));
 }

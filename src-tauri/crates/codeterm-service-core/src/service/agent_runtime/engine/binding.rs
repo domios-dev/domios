@@ -1,5 +1,19 @@
 use super::{RuntimeFailure, ServiceContext, Session};
 
+pub(crate) fn session_load_refused(svc: &ServiceContext, session: &Session) -> bool {
+    let refused = {
+        let state = session.state.lock();
+        matches!(state.phase, super::RuntimePhase::Degraded { .. })
+            && state.failure_code
+                == Some(codeterm_plugin::agent_runtime::RuntimeFailureCode::SessionLoadRefused)
+    };
+    refused
+        && !session
+            .thread_loaded
+            .load(std::sync::atomic::Ordering::Acquire)
+        && validate_binding(svc, session).is_ok()
+}
+
 pub fn validate_binding(svc: &ServiceContext, session: &Session) -> Result<(), RuntimeFailure> {
     validate_binding_inner(svc, session, true)
 }

@@ -1094,6 +1094,7 @@ pub(crate) fn record_completed_turn(session: &Session, thread: &str, turn: Optio
 }
 
 mod binding;
+pub(crate) use binding::session_load_refused;
 pub use binding::validate_binding;
 pub(super) use binding::validate_restart_binding;
 
