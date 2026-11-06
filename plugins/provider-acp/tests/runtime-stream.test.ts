@@ -13,10 +13,12 @@ const runtimePlan=(...args:Parameters<typeof sourcePlan>)=>{const plan=runtimeJs
 const runtimeResponse=(...args:Parameters<typeof sourceResponse>)=>{const step=runtimeJson(sourceResponse(...args),"runtimeResponse");if (step.kind === "continue") assertRuntimePlan(args[0],args[1],step.plan);return step;};
 const runtimeReduce=(...args:Parameters<typeof sourceReduce>)=>{const reduction=runtimeJson(sourceReduce(...args),"runtimeReduce");assertRuntimeReduction(reduction);return reduction;};
 
-{
-  const fixture=JSON.parse(fs.readFileSync(new URL("./fixtures/runtime/resume-buffered-replay-new-turn.json",import.meta.url),"utf8"));
+for (const name of ["gemini-durable-replay-new-turn","resume-buffered-replay-new-turn"]) {
+  const fixture=JSON.parse(fs.readFileSync(new URL(`./fixtures/runtime/${name}.json`,import.meta.url),"utf8"));
   const plans=new Map<number,ReturnType<typeof runtimePlan>>();
-  const rows=new Map<string,ChatMsg>();
+  const durableRows:ChatMsg[]=name === "gemini-durable-replay-new-turn"
+    ? JSON.parse(fs.readFileSync(new URL("./fixtures/gemini-durable-rows.json",import.meta.url),"utf8")) : [];
+  const rows=new Map<string,ChatMsg>(durableRows.map(row=>[row.id,{...row}]));
   let state:JsonValue=null;
   const events:AgentEvent[]=[];
   for (const record of fixture.rpc) {
@@ -43,6 +45,8 @@ const runtimeReduce=(...args:Parameters<typeof sourceReduce>)=>{const reduction=
   assert.deepEqual(events.filter(event=>event.kind === "turnState").map(event=>[event.turnId,event.state]),
     [["thread:turn:8","working"],["thread:turn:8","idle"]]);
   for (const event of events) foldRow(rows,event);
+  assert.deepEqual([...rows.values()].slice(0,durableRows.length),durableRows,"restore preserves durable row identities, order, content and tool results exactly");
+  assert.equal(rows.size,durableRows.length+3,"only the new prompt, thought and reply are added");
   assert.equal([...rows.values()].filter(row=>row.type === "assistant" && row.content === "NEW-TURN-OK").length,1);
   assert.equal(events.some(event=>event.kind === "notice"),false);
   console.log("✓ ACP buffered resume replay stays idle; the first written new turn streams and completes once");
