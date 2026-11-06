@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { ProviderDescriptor } from "./types";
 import type { RuntimeSettings } from "@codeterm/plugin-sdk";
 import { pickerSections } from "./pickerSettings";
+import modelsOnlyFixture from "../../plugins/provider-acp/tests/fixtures/runtime/session-models-only.json";
 
 const native = { available_models: [{ id: "native-model", display_name: "Native model", reasoning_efforts: [{ id: "high", display_name: "High" }] }], agent_runtime: {
   runtimeModes: [{ id: "plan", displayName: "Plan" }], serviceTiers: [{ id: "fast", name: "Fast" }],
@@ -31,6 +32,15 @@ describe("provider settings sections", () => {
     const sections = pickerSections({ controls: { configOptions: [option("opaque-one", "model"), option("opaque-two", "thought_level")] } });
     expect(sections.map(section => section.category)).toEqual(["model", "effort"]);
     expect(sections.map(section => section.applyTarget)).toEqual([{ kind: "config", id: "opaque-one" }, { kind: "config", id: "opaque-two" }]);
+  });
+
+  it("shows the models-only ACP fixture as one model section without effort", () => {
+    const loaded = modelsOnlyFixture.expected.results[1].step.result;
+    const controls = ("settings" in loaded ? loaded.settings : {}) as RuntimeSettings;
+    const sections = pickerSections({ controls });
+    expect(sections).toHaveLength(1);
+    expect(sections[0]).toMatchObject({ category: "model", current: "wire-one", applyTarget: { kind: "config", id: "acp-session-model" } });
+    expect(sections[0].options.map(option => [option.value, option.label])).toEqual([["wire-one", "First declared"], ["wire-two", "Second declared"]]);
   });
 
   it("does not infer categories or boolean types from ids, names or values", () => {

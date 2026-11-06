@@ -130,7 +130,7 @@ fn profile_selections_are_resolved_before_spawn_creates_a_tab() {
         assert!(error.contains(offered), "{error}");
         assert_eq!(fixture.service.mux.read().snapshot().tabs.len(), before);
     }
-    let mut selected = base;
+    let mut selected = base.clone();
     fixture
         .service
         .resolve_spawn_profile_options(&provider, &mut selected)
@@ -143,5 +143,46 @@ fn profile_selections_are_resolved_before_spawn_creates_a_tab() {
         panic!("runtime route missing")
     };
     assert_eq!(config["model"], "opaque-value");
+    let models_only: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../../../../plugins/provider-acp/tests/fixtures/runtime/session-models-only.json"
+    ))
+    .unwrap();
+    let settings: RuntimeSettings = serde_json::from_value(
+        models_only["expected"]["results"][1]["step"]["result"]["settings"].clone(),
+    )
+    .unwrap();
+    WRITES
+        .lock()
+        .latest
+        .insert(path.clone(), snapshot(&profile, &settings).unwrap());
+    let catalogue = read(path.parent().unwrap(), "selected", &profile);
+    assert_eq!(catalogue.len(), 1);
+    assert_eq!(catalogue[0].options[1].value, "wire-two");
+    assert_eq!(catalogue[0].options[1].name, "Second declared");
+    let mut selected = crate::service::SpawnAgentParams {
+        model: Some("Second declared".into()),
+        reasoning_effort: None,
+        ..base.clone()
+    };
+    fixture
+        .service
+        .resolve_spawn_profile_options(&provider, &mut selected)
+        .unwrap();
+    assert_eq!(selected.model.as_deref(), Some("wire-two"));
+    for (model, effort, message) in [
+        ("unknown", None, "Requested model"),
+        ("wire-two", Some("low"), "Requested reasoning effort"),
+    ] {
+        let error = fixture
+            .service
+            .spawn_agent_sync(crate::service::SpawnAgentParams {
+                model: Some(model.into()),
+                reasoning_effort: effort.map(str::to_owned),
+                ..base.clone()
+            })
+            .unwrap_err();
+        assert!(error.contains(message), "{error}");
+        assert_eq!(fixture.service.mux.read().snapshot().tabs.len(), before);
+    }
     WRITES.lock().latest.remove(&path);
 }

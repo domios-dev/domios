@@ -275,6 +275,20 @@
                 "name": "Code"
               }
             ]
+          },
+          "models": {
+            "currentModelId": "wire-one",
+            "availableModels": [
+              {
+                "modelId": "wire-one",
+                "name": "First declared",
+                "description": "First model"
+              },
+              {
+                "modelId": "wire-two",
+                "name": "Second declared"
+              }
+            ]
           }
         }
       }
@@ -499,6 +513,20 @@
               {
                 "id": "code",
                 "name": "Code"
+              }
+            ]
+          },
+          "models": {
+            "currentModelId": "wire-one",
+            "availableModels": [
+              {
+                "modelId": "wire-one",
+                "name": "First declared",
+                "description": "First model"
+              },
+              {
+                "modelId": "wire-two",
+                "name": "Second declared"
               }
             ]
           }

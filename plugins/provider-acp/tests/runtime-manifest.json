@@ -59,12 +59,14 @@
       ],
       "openThread": [
         "session/new",
-        "session/set_config_option"
+        "session/set_config_option",
+        "session/set_model"
       ],
       "resumeThread": [
         "session/load",
         "session/resume",
-        "session/set_config_option"
+        "session/set_config_option",
+        "session/set_model"
       ],
       "submitTurn": [
         "session/prompt"
@@ -76,7 +78,8 @@
         "initialize",
         "authenticate",
         "session/set_mode",
-        "session/set_config_option"
+        "session/set_config_option",
+        "session/set_model"
       ],
       "answer": []
     },
@@ -175,6 +178,7 @@
     "context-only-usage.json",
     "load-refused.json",
     "load-refused-with-mcp.json",
-    "resume-refused-with-mcp.json"
+    "resume-refused-with-mcp.json",
+    "session-models-only.json"
   ]
 }
