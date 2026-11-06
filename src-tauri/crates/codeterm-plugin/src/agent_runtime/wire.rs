@@ -178,6 +178,7 @@ pub enum RuntimeFailureCode {
     ProviderRefused,
     AuthenticationRequired,
     ThreadNotFound,
+    SessionLoadRefused,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -31,6 +31,53 @@ vi.mock("./TerminalTab", async () => {
 });
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
+it("keeps saved chat visible beside typed load recovery and starts fresh in place", async () => {
+  const tab: Tab = {
+    id:"load-refused-chat", title:"Fixture", tab_type:"Terminal", cwd:null, pty_id:null,
+    agent_type:"fixture", agent_session_id:"saved-thread", session_binding_nonce:"saved-binding",
+    backing:{kind:"chat_backend",plugin_id:"fixture",session_id:"saved-thread"},
+    boot_stage:"spawn_failed", boot_failure_reason:"opaque provider detail",
+    agent_runtime_state:{state:"degraded",epoch:1,failureCode:"session_load_refused",reason:"opaque provider detail"},
+  };
+  const state: ExtendedState = { workspaces:[],tabs:{[tab.id]:tab},teams:[],active_workspace_id:null,
+    focused_tab_id:tab.id,notifications:[],tabStatuses:{},toasts:[],activeTabIds:{},generation:1,pendingCloses:[] };
+  const requests: Array<{command:string;args?:Record<string,unknown>}> = [];
+  __setListenForTest(async () => () => {});
+  __setInvokeForTest(async <T,>(command:string,args?:Record<string,unknown>) => {
+    requests.push({command,args});
+    const value = command === "chat_start" ? {messages:[{id:"saved-row",type:"user",content:"opaque saved turn",seq:0}],
+      pending:false,text:"",offset:1,source_session_id:"saved-thread",session_binding_nonce:"saved-binding"}
+      : command === "delayed_send_list" || command === "list_agent_providers" ? []
+      : command === "plugin_manager_snapshot" ? {plugins:[],channels:[],diff:[],marketplace:[]} : {};
+    return value as T;
+  });
+  const host=document.createElement("div");document.body.append(host);
+  const root=createRoot(host);
+  const actions=new Proxy({}, {get:()=>()=>{}}) as MultiplexerActionsContextType;
+  try {
+    await act(async () => root.render(<MuxStateStoreContext.Provider value={createMuxStateStore(()=>state)}>
+      <MultiplexerActionsContext.Provider value={actions}>
+        <TabContent tab={tab} isFocused isVisible onFocusTab={()=>{}} onPtySpawned={()=>{}}
+          theme={{name:"fixture",background:"#000",foreground:"#fff"} as ThemeConfig}/>
+      </MultiplexerActionsContext.Provider>
+    </MuxStateStoreContext.Provider>));
+    const conversation=host.querySelector('[role="log"][aria-label="Conversation"]');
+    expect(conversation?.textContent).toContain("opaque saved turn");
+    expect(conversation?.closest("[inert]")).toBeNull();
+    const start=conversation?.querySelector<HTMLButtonElement>('button[aria-label="Start new session"]');
+    expect(start).not.toBeNull();
+    expect(host.querySelector('[role="progressbar"]')).toBeNull();
+    expect(conversation?.querySelector("details pre")?.textContent).toBe("opaque provider detail");
+    await act(async()=>start!.click());
+    expect(requests.filter(request=>request.command==="restart_agent_tab")).toEqual([
+      {command:"restart_agent_tab",args:{tabId:tab.id,fresh:true}},
+    ]);
+    expect(conversation?.textContent).toContain("opaque saved turn");
+  } finally {
+    await act(async()=>root.unmount());host.remove();__setInvokeForTest(null);__setListenForTest(null);
+  }
+});
+
 it("makes the previous kept-alive composer inert and releases focus in the tab-switch commit", async () => {
   const tabs: Tab[] = ["input-a", "input-b"].map(id => ({
     id, title: id, tab_type: "Terminal", cwd: null, pty_id: null,

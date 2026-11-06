@@ -397,6 +397,15 @@ async fn run_inner(
                     super::super::declared_controls::require_authentication(svc, session);
                     return Err(RuntimeFailure::SignInRequired);
                 }
+                if reason.code == RuntimeFailureCode::SessionLoadRefused
+                    && matches!(operation, RuntimeOperation::ResumeThread { .. })
+                {
+                    let detail = match &reply {
+                        RpcReply::Error { error } => super::super::restore::rpc_reason(error),
+                        _ => reason.message.clone(),
+                    };
+                    return Err(RuntimeFailure::SessionLoadRefused(detail));
+                }
                 if reason.code == RuntimeFailureCode::ThreadNotFound
                     && matches!(operation, RuntimeOperation::ResumeThread { .. })
                 {

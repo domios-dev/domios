@@ -21,10 +21,12 @@ export interface ChatBodyInput {
   bootView: ChatBodyView;
   attachmentError?: string | null;
   locked?: boolean;
+  restoreLoadRefused?: boolean;
 }
 
 export function chatBodyView(input: ChatBodyInput): ChatBodyView {
   if (input.locked) return { kind: "locked" };
+  if (input.restoreLoadRefused) return { kind: "none" };
   if (input.bootView.kind === "launch_failed") return input.bootView;
   if (input.attachmentError) return { kind: "attach_failed", reason: input.attachmentError };
   if (input.firstTurnReady && !input.unavailable) return { kind: "none" };

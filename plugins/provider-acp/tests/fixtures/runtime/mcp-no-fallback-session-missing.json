@@ -171,7 +171,7 @@
         "step": {
           "kind": "refused",
           "reason": {
-            "code": "provider_refused",
+            "code": "session_load_refused",
             "message": "Saved session unavailable"
           },
           "beforeAcceptance": true

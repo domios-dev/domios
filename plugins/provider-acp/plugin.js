@@ -1093,6 +1093,8 @@ function runtimeResponse(ctx, op, raw, reply) {
         promoteQueued(ctx, state2);
       }
     }
+    if (op.kind === "resumeThread" && sessionOperation && reply.error.code !== -32e3)
+      return refused("session_load_refused", reply.error.message);
     if (sessionOperation && ![-32e3, -32002, -32601].includes(reply.error.code) && state2 && !state2.sessionActive && object4(raw).mcpOffered === true && ctx.hostMcp) {
       state2.mcpUnavailable = `Domios tools are unavailable for this agent: ${Array.from(reply.error.message).slice(0, 1e3).join("")}`;
       const plan = request(method, { ...op.kind === "resumeThread" ? { sessionId: op.threadId } : {}, cwd: ctx.cwd, mcpServers: [] });

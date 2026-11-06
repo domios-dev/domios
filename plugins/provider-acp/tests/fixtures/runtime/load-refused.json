@@ -4,32 +4,13 @@
     "epoch": 1,
     "cwd": "/work/project",
     "hostVersion": "1.18.7",
-    "tabId": "mcp-fallback",
+    "tabId": "load-refused",
     "bindingNonce": "nonce-fixture",
     "settings": {},
     "providerSettings": {},
     "claimedSends": [],
     "activeTurns": [],
-    "threadParents": [],
-    "hostMcp": {
-      "name": "domios",
-      "command": "/opt/domios/bin/domios",
-      "args": [
-        "mcp",
-        "serve",
-        "--tab",
-        "mcp-fallback",
-        "--binding-nonce",
-        "nonce-fixture"
-      ],
-      "env": {
-        "CODETERM_API_TOKEN": "<credential-placeholder>",
-        "CODETERM_API_URL": "http://127.0.0.1:43210",
-        "CODETERM_SESSION_BINDING_NONCE": "nonce-fixture",
-        "CODETERM_TAB_ID": "mcp-fallback"
-      }
-    },
-    "threadId": "session-fixture"
+    "threadParents": []
   },
   "operations": [
     {
@@ -43,6 +24,19 @@
         "threadId": "session-fixture",
         "instructions": "",
         "settings": {}
+      },
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/project",
+        "hostVersion": "1.18.7",
+        "tabId": "load-refused",
+        "bindingNonce": "nonce-fixture",
+        "settings": {},
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "session-fixture"
       }
     }
   ],
@@ -94,65 +88,8 @@
         "call": {
           "method": "session/load",
           "params": {
-            "cwd": "/work/project",
             "sessionId": "session-fixture",
-            "mcpServers": [
-              {
-                "name": "domios",
-                "command": "/opt/domios/bin/domios",
-                "args": [
-                  "mcp",
-                  "serve",
-                  "--tab",
-                  "mcp-fallback",
-                  "--binding-nonce",
-                  "nonce-fixture"
-                ],
-                "env": [
-                  {
-                    "name": "CODETERM_API_TOKEN",
-                    "value": "<credential-placeholder>"
-                  },
-                  {
-                    "name": "CODETERM_API_URL",
-                    "value": "http://127.0.0.1:43210"
-                  },
-                  {
-                    "name": "CODETERM_SESSION_BINDING_NONCE",
-                    "value": "nonce-fixture"
-                  },
-                  {
-                    "name": "CODETERM_TAB_ID",
-                    "value": "mcp-fallback"
-                  }
-                ]
-              }
-            ]
-          }
-        }
-      }
-    },
-    {
-      "direction": "inbound",
-      "operation": 1,
-      "reply": {
-        "kind": "error",
-        "error": {
-          "code": -32603,
-          "message": "mcp-client(domios): initial connection failed"
-        }
-      }
-    },
-    {
-      "direction": "outbound",
-      "operation": 1,
-      "action": {
-        "kind": "request",
-        "call": {
-          "method": "session/load",
-          "params": {
             "cwd": "/work/project",
-            "sessionId": "session-fixture",
             "mcpServers": []
           }
         }
@@ -165,7 +102,10 @@
         "kind": "error",
         "error": {
           "code": -32603,
-          "message": "Session unavailable"
+          "message": "opaque agent refusal",
+          "data": {
+            "details": "opaque session diagnostic"
+          }
         }
       }
     }
@@ -195,8 +135,8 @@
         "step": {
           "kind": "refused",
           "reason": {
-            "code": "provider_refused",
-            "message": "Session unavailable"
+            "code": "session_load_refused",
+            "message": "opaque agent refusal"
           },
           "beforeAcceptance": true
         }

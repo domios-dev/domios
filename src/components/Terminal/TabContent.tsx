@@ -5,6 +5,7 @@ import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { RestoreStatePanel } from "./RestoreStatePanel";
 import { DeferredPresence } from "../shared/DeferredPresence";
 import { restoreActivityVisible, restorePanelOwnsBody, restoreStageView, transcriptLoadingStageView } from "../../lib/restoreStageView";
+import { runtimeSessionLoadRefused } from "../../lib/agentRuntimeState";
 import { useWakeOnOpen } from "./useWakeOnOpen";
 import { TerminalTab } from "./TerminalTab";
 import { useLayoutEffect, useRef } from "react";
@@ -100,7 +101,8 @@ export function TabContent({
     <LockedOverlay view={lock} onActivate={() => openLockedPlans(lock)} />
   </TabWrapper>;
   const sleepingTranscript = (hasSleepingTranscript(tab) || hasCachedTranscript) && restore.phase !== "ready";
-  const restoreOwnsBody = !sleepingTranscript && !hasCachedTranscript && (restorePanelOwnsBody(tab, wake, restore) || initialBody.current.waiting);
+  const loadRefused = runtimeSessionLoadRefused(tab.agent_runtime_state);
+  const restoreOwnsBody = !loadRefused && !sleepingTranscript && !hasCachedTranscript && (restorePanelOwnsBody(tab, wake, restore) || initialBody.current.waiting);
   const showRestore = restoreOwnsBody && !bodyPainted;
   const restoreInline = restoreOwnsBody && bodyPainted;
   const restorePanel = <RestoreStatePanel view={initialBody.current.waiting && restore.phase === "ready" ? transcriptLoadingStageView(tab) : restore} />;
@@ -181,7 +183,7 @@ export function TabContent({
           isActive={isVisible}
         />
         <div className="relative flex min-h-0 flex-1 flex-col" style={{ background: theme.background }}>
-          <DeferredPresence present={isVisible && (sleepingTranscript || restoreInline || hasCachedTranscript) && (restoreActivityVisible(tab, wake, restore, bodyPainted) || wake.pending || (hasCachedTranscript && !bodyPainted))}
+          <DeferredPresence present={!loadRefused && isVisible && (sleepingTranscript || restoreInline || hasCachedTranscript) && (restoreActivityVisible(tab, wake, restore, bodyPainted) || wake.pending || (hasCachedTranscript && !bodyPainted))}
             className="pointer-events-none absolute inset-x-0 top-2 z-30 flex justify-center">
             {restore.phase === "failed"
               ? <div className="pointer-events-auto"><InlineErrorNotice error={restore.detail} operation="resuming this session" /></div>

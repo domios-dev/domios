@@ -80,9 +80,7 @@
         "value": {
           "protocolVersion": 1,
           "agentCapabilities": {
-            "sessionCapabilities": {
-              "resume": {}
-            }
+            "loadSession": true
           },
           "authMethods": []
         }
@@ -94,7 +92,7 @@
       "action": {
         "kind": "request",
         "call": {
-          "method": "session/resume",
+          "method": "session/load",
           "params": {
             "cwd": "/work/project",
             "sessionId": "session-fixture",
@@ -141,32 +139,7 @@
         "kind": "error",
         "error": {
           "code": -32603,
-          "message": "mcp-client(domios): initial connection failed"
-        }
-      }
-    },
-    {
-      "direction": "outbound",
-      "operation": 1,
-      "action": {
-        "kind": "request",
-        "call": {
-          "method": "session/resume",
-          "params": {
-            "cwd": "/work/project",
-            "sessionId": "session-fixture",
-            "mcpServers": []
-          }
-        }
-      }
-    },
-    {
-      "direction": "inbound",
-      "operation": 1,
-      "reply": {
-        "kind": "success",
-        "value": {
-          "sessionId": "session-fixture"
+          "message": "opaque load refusal"
         }
       }
     }
@@ -194,23 +167,12 @@
       {
         "operation": 1,
         "step": {
-          "kind": "complete",
-          "result": {
-            "kind": "threadLoaded",
-            "threadId": "session-fixture",
-            "settings": {
-              "commands": [],
-              "configOptions": [],
-              "modes": []
-            }
+          "kind": "refused",
+          "reason": {
+            "code": "session_load_refused",
+            "message": "opaque load refusal"
           },
-          "events": [
-            {
-              "kind": "notice",
-              "threadId": "session-fixture",
-              "message": "Domios tools are unavailable for this agent: mcp-client(domios): initial connection failed"
-            }
-          ]
+          "beforeAcceptance": true
         }
       }
     ],
@@ -221,11 +183,6 @@
           "state": "unknown",
           "methods": []
         }
-      },
-      {
-        "kind": "notice",
-        "threadId": "session-fixture",
-        "message": "Domios tools are unavailable for this agent: mcp-client(domios): initial connection failed"
       }
     ]
   }

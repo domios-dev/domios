@@ -43,7 +43,7 @@ export interface OpenItem { turnId:string; item:ChatMsg }
 export type RuntimeFailureCode =
   | "unsupported" | "invalid_schema" | "size_limit" | "hook_failed"
   | "method_not_allowed" | "binding_mismatch" | "deadline"
-  | "authentication_required" | "process_unavailable" | "protocol_error" | "provider_refused" | "thread_not_found";
+  | "authentication_required" | "process_unavailable" | "protocol_error" | "provider_refused" | "thread_not_found" | "session_load_refused";
 export interface RuntimeFailure { code:RuntimeFailureCode; message:string }
 export interface RuntimeClientBridges {fsRead:boolean; fsWrite:boolean; terminal:boolean}
 export interface RuntimeHostMcp {name:string; command:string; args:readonly string[]; env?:Readonly<Record<string,string>>}
