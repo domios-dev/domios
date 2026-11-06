@@ -26,6 +26,18 @@ fn snapshot(
     tab_id: &str,
     expected: Option<(&str, &str, &str)>,
 ) -> Result<Option<Vec<ChatMsg>>, String> {
+    if crate::service::agent_runtime::requested_for_tab(svc, tab_id)
+        && svc.mux.read().get_tab(tab_id).is_some_and(|tab| {
+            tab.agent_session_id.is_none()
+                && tab
+                    .agent_runtime_state
+                    .as_ref()
+                    .is_some_and(|state| state["state"] == "degraded")
+        })
+    {
+        return Err(super::runtime_stored::StoredHistoryFailure::Unavailable
+            .error("Runtime start failed before a conversation was bound; start a new session"));
+    }
     let cached = cached(svc, tab_id, expected)?;
     if cached.as_ref().is_some_and(|rows| !rows.is_empty()) {
         return Ok(cached);
@@ -107,6 +119,15 @@ fn cached(
         return Ok(None);
     };
     let context = session.context.lock().clone();
+    if context.thread_id.is_none()
+        && matches!(
+            session.state.lock().phase,
+            crate::service::agent_runtime::model::RuntimePhase::Degraded { .. }
+        )
+    {
+        return Err(super::runtime_stored::StoredHistoryFailure::Unavailable
+            .error("Runtime start failed before a conversation was bound; start a new session"));
+    }
     if expected.is_some_and(|(provider, cwd, thread)| {
         session.provider != provider
             || context.cwd != cwd

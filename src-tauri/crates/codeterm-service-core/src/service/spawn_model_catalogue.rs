@@ -193,7 +193,6 @@ pub fn resolve_agent_model_selection(
     if let Some(provider) =
         explicit_provider.filter(|provider| profile_scoped_options(registry, provider))
     {
-        // Profile choices are opaque and become authoritative only after session loading.
         return Ok(AgentModelSelection {
             provider_id: provider.into(),
             model: raw_requested.map(str::to_owned),

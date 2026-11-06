@@ -94,7 +94,7 @@ function threadNotices(state:Negotiation, threadId:string, events:import("@codet
 
 function loadedThread(op:Extract<Operation,{kind:"openThread"|"resumeThread"}>, state:Negotiation, sessionId:string, attempted:string[]=[], confirmAuthentication=true):RuntimeStep {
   const selection=launchSelection(op.settings,state.settings,attempted);
-  if (selection.kind === "refused") return refused("provider_refused",selection.message);
+  if (selection.kind === "refused") return refuseThread(op,state,"provider_refused",selection.message);
   if (selection.kind === "set") {
     const plan=request("session/set_config_option",{sessionId,configId:selection.id,value:selection.value});
     plan.state={method:"session/set_config_option",attempted:[...attempted,selection.category],confirmAuthentication};
@@ -102,6 +102,17 @@ function loadedThread(op:Extract<Operation,{kind:"openThread"|"resumeThread"}>, 
   }
   return {kind:"complete",result:{kind:"threadLoaded",threadId:sessionId,settings:state.settings ?? {}},
     ...threadNotices(state,sessionId,confirmAuthentication ? sessionAuthentication(state) : [])};
+}
+
+function refuseThread(op:Operation, state:Negotiation, code:RuntimeFailure["code"], message:string):RuntimeStep {
+  if (op.kind === "openThread") {
+    delete state.sessionId;
+    delete state.sessionActive;
+    delete state.settings;
+    delete state.instructions;
+    state.cursor={replay:0,prompt:0,loading:false};
+  }
+  return refused(code,message);
 }
 
 function clientCapabilities(ctx:RuntimeContext):JsonValue {
@@ -274,7 +285,7 @@ export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue,
       const state=negotiated(ctx);
       if (!state?.sessionActive || !state.sessionId || op.kind === "resumeThread" && state.sessionId !== op.threadId)
         return refused("binding_mismatch","ACP session is not active in this runtime");
-      return refused("provider_refused",`Requested session options were refused: ${Array.from(reply.error.message).slice(0,1000).join("")}`);
+      return refuseThread(op,state,"provider_refused",`Requested session options were refused: ${Array.from(reply.error.message).slice(0,1000).join("")}`);
     }
     if (reply.error.code === -32000) {
       const state=negotiated(ctx);
@@ -314,7 +325,7 @@ export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue,
   if ((op.kind === "openThread" || op.kind === "resumeThread") && method === "session/set_config_option") {
     if (!state.sessionActive || !state.sessionId || op.kind === "resumeThread" && state.sessionId !== op.threadId)
       return refused("binding_mismatch","ACP session is not active in this runtime");
-    if (!Array.isArray(value.configOptions)) return refused("protocol_error","Invalid session option response");
+    if (!Array.isArray(value.configOptions)) return refuseThread(op,state,"protocol_error","Invalid session option response");
     delete state.settings?.model;
     delete state.settings?.effort;
     state.settings={...state.settings,...sessionSettings(value)};

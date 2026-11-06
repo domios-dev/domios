@@ -9,6 +9,8 @@ fn profile_options_json_preserves_ids_labels_and_profile_scope() {
         value["result"]["configOptions"][0]["options"][0]["name"],
         "Model M"
     );
+    let text = render_profile_options(&catalog, "acp", "one", false).unwrap();
+    assert!(text.contains("M  Model M"));
     assert!(render_profile_options(&catalog, "acp", "missing", false).is_err());
     assert!(render_profile_options(&catalog, "acp", "two", false)
         .unwrap()

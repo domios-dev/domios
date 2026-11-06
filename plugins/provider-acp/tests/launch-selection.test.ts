@@ -44,10 +44,20 @@ for (const [settings,values] of [[{model:"invalid"},"m1, m2"],[{effort:"invalid"
   const invalid=start(`invalid-${values}`,settings);
   assert.equal(invalid.step.kind,"refused");
   if (invalid.step.kind === "refused") assert.ok(invalid.step.reason.message.includes(`offered values: ${values}`));
+  const afterRefusal=runtimePlan(invalid.ctx,invalid.op);
+  assert.equal(afterRefusal.action.kind,"request");
+  if (afterRefusal.action.kind === "request") assert.equal(afterRefusal.action.call.method,"session/new");
 }
 const unconfirmed=start("unconfirmed",{model:"m2"});
 const refused=next(unconfirmed.ctx,unconfirmed.op,unconfirmed.step,options());
 assert.equal(refused.kind,"refused");
+assert.equal(runtimePlan(unconfirmed.ctx,unconfirmed.op).action.kind,"request");
+const configRefusal=start("config-refusal",{model:"m2"});
+if (configRefusal.step.kind !== "continue") throw new Error("Expected config selection");
+const rejected=runtimeResponse(configRefusal.ctx,configRefusal.op,configRefusal.step.plan.state,
+  {kind:"error",error:{code:-32602,message:"opaque selection refused"}});
+assert.equal(rejected.kind,"refused");
+assert.equal(runtimePlan(configRefusal.ctx,configRefusal.op).action.kind,"request");
 const defaults=start("defaults",{});
 assert.equal(defaults.step.kind,"complete");
 const dynamic=next(valid.ctx,valid.op,valid.step,options("m2").map(option=>option.category === "thought_level" ? {...option,options:[{value:"low",name:"Low"}]} : option));
