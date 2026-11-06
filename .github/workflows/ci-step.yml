@@ -115,7 +115,7 @@ jobs:
           components: clippy,rustfmt
       - name: Hosted nextest
         if: runner.environment == 'github-hosted'
-        uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32
+        uses: taiki-e/install-action@b80e2bb2635f28eb98b9fce1e2f0887e1535c6b2
         with:
           tool: cargo-nextest@0.9.148
       - name: Hosted sccache
