@@ -5,6 +5,7 @@ import { loadConfig, setUiSettings } from "../../lib/clientSettings";
 import { nativeBridge } from "../../lib/nativeBridge";
 import { Button } from "../shared/Button";
 import { UI_TRAY_BTN } from "../shared/design";
+import { AnchoredPopover } from "../shared/AnchoredPopover";
 import { answerRateUs, isRateUsDue, overlaps, parseRateUs, recordActivity, type RateUsAction, type RateUsState } from "./rateUsModel";
 
 /** The top-right corner the invite hangs over, generously sized, for the covered-input check. */
@@ -15,9 +16,7 @@ const EDITABLE = "input, textarea, select, [contenteditable=''], [contenteditabl
 /** The invite itself: what it says and its three answers. It never takes focus on its own. */
 export function RateUsInvite({ id, titleId, onAnswer }: { id: string; titleId: string; onAnswer: (action: RateUsAction) => void }) {
   return (
-    <section id={id} role="region" aria-labelledby={titleId} data-testid="rate-us-invite" className="ct-rate-us"
-      onKeyDown={(event) => { if (event.key === "Escape") (event.currentTarget.previousElementSibling as HTMLElement | null)?.focus(); }}>
-      <span aria-hidden="true" className="ct-rate-us__caret" />
+    <section id={id} role="region" aria-labelledby={titleId} data-testid="rate-us-invite" className="ct-rate-us">
       <div className="flex items-start gap-3">
         <span aria-hidden="true" className="ct-rate-us__mark">
           <Star size={16} strokeWidth={1.75} fill="currentColor" />
@@ -63,6 +62,7 @@ export function RateUsTray({ locked = false, now = Date.now }: { locked?: boolea
   const [blocked, setBlocked] = useState(false);
   const [, setTick] = useState(0);
   const current = useRef<RateUsState | null>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
   current.current = state;
   const popoverId = useId();
   const titleId = useId();
@@ -114,12 +114,15 @@ export function RateUsTray({ locked = false, now = Date.now }: { locked?: boolea
   if (locked || !due) return null;
   return (
     <span className="relative flex items-center">
-      <button type="button" aria-label="Rate Domios on GitHub" title="Rate us on GitHub"
+      <button ref={trigger} type="button" aria-label="Rate Domios on GitHub" title="Rate us on GitHub"
         aria-expanded={open && !blocked} aria-controls={popoverId} onClick={() => setOpen((value) => !value)}
         className={`${UI_TRAY_BTN} text-[var(--ct-yellow)]`}>
         <Star size={14} strokeWidth={1.8} fill="currentColor" aria-hidden="true" />
       </button>
-      {open && !blocked && <RateUsInvite id={popoverId} titleId={titleId} onAnswer={answer} />}
+      <AnchoredPopover open={open && !blocked} anchor={trigger} placement="bottom-end" gap={8} width={316} onClose={() => setOpen(false)}>
+        <span aria-hidden="true" className="ct-rate-us__caret" />
+        <RateUsInvite id={popoverId} titleId={titleId} onAnswer={answer} />
+      </AnchoredPopover>
     </span>
   );
 }
