@@ -3,10 +3,10 @@ use serde_json::json;
 
 fn profile() -> RuntimeLaunchProfile {
     serde_json::from_value(json!({"binary":"opaque-agent","args":["--opaque"],
-        "authEnv":{
-            "OPAQUE_KEY":{"secret":"domios:provider:opaque:key","methods":["opaque-key"]},
-            "OPAQUE_ALT":{"secret":"domios:provider:opaque:alt","methods":["opaque-alt","opaque-alt-2"]}
-        }}))
+    "authEnv":{
+        "OPAQUE_KEY":{"secret":"domios:provider:opaque:key","methods":["opaque-key"]},
+        "OPAQUE_ALT":{"secret":"domios:provider:opaque:alt","methods":["opaque-alt","opaque-alt-2"]}
+    }}))
     .unwrap()
 }
 
