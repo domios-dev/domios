@@ -361,6 +361,13 @@ fn refused_durable_service_admission_never_publishes_acceptance_or_evicts_first(
         .reserve_user_send(&tab, Some("client-b".into()))
         .unwrap();
     let refused_id = reserved.send_id.clone();
+    let (idle_tx, idle_rx) = mpsc::channel();
+    let _idle = OwnerIdleBoundary::install(
+        &tab,
+        Arc::new(move || {
+            let _ = idle_tx.send(());
+        }),
+    );
     let error = fixture
         .service
         .prepare_and_admit_user_send(
@@ -385,6 +392,7 @@ fn refused_durable_service_admission_never_publishes_acceptance_or_evicts_first(
             .state,
         ChatSendState::Pending
     );
+    idle_rx.recv_timeout(TEST_DEADLINE).unwrap();
     let reopened = UserSendStore::open(fixture.temp.path()).unwrap();
     assert_eq!(reopened.records(&tab).unwrap().len(), 1);
     assert_eq!(
