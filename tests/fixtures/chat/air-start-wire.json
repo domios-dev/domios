@@ -1,0 +1,452 @@
+[
+  {
+    "body_start": 33588736,
+    "first_image_start": 33589618,
+    "name": "replies-after-image",
+    "pages": [
+      {
+        "end_offset": 36928470,
+        "messages": [
+          {
+            "collapsed": true,
+            "content": "",
+            "id": "result-toolu_01JbDQ1FfBGcP6ozv3i9GYbH",
+            "seq": 0,
+            "timestamp": "2026-11-06T07:35:15.181Z",
+            "toolCallSourceId": "f086292a-ece0-4c37-b3c1-6a270ccf469e",
+            "toolId": "toolu_01JbDQ1FfBGcP6ozv3i9GYbH",
+            "toolPairing": "exact",
+            "toolResult": "[image result body omitted from wire capture]",
+            "type": "tool_result"
+          }
+        ],
+        "offset_kind": "bytes",
+        "session_binding_nonce": "air-start-launch",
+        "source_session_id": "ed30e894-a129-4a03-8550-cb10cdc26149",
+        "start_offset": 35592930
+      },
+      {
+        "end_offset": 35592930,
+        "messages": [],
+        "offset_kind": "bytes",
+        "session_binding_nonce": "air-start-launch",
+        "source_session_id": "ed30e894-a129-4a03-8550-cb10cdc26149",
+        "start_offset": 34925182
+      },
+      {
+        "end_offset": 34925182,
+        "messages": [
+          {
+            "collapsed": true,
+            "content": "",
+            "id": "result-toolu_01JbDQ1FfBGcP6ozv3i9GYbH",
+            "seq": 0,
+            "timestamp": "2026-11-06T07:35:15.181Z",
+            "toolCallSourceId": "f086292a-ece0-4c37-b3c1-6a270ccf469e",
+            "toolId": "toolu_01JbDQ1FfBGcP6ozv3i9GYbH",
+            "toolPairing": "exact",
+            "toolResult": "[image result body omitted from wire capture]",
+            "type": "tool_result"
+          }
+        ],
+        "offset_kind": "bytes",
+        "session_binding_nonce": "air-start-launch",
+        "source_session_id": "ed30e894-a129-4a03-8550-cb10cdc26149",
+        "start_offset": 33589618
+      },
+      {
+        "end_offset": 33589618,
+        "messages": [
+          {
+            "content": "<domios type=\"attachment\" kind=\"image\" path=\"/var/folders/tl/k9p6dyhs5fqgz847gwhrp99c0000gn/T/codeterm-chat/7f59e338dd294c039c5aa7d2b446ac8a.png\" label=\"image1\" /> смотри у меня в chatui какое то нето…[cut]",
+            "id": "d157e783-4579-4174-9c97-80a60ef44845-0",
+            "segments": [
+              {
+                "body": null,
+                "kind": "image",
+                "label": "image1",
+                "path": "/var/folders/tl/k9p6dyhs5fqgz847gwhrp99c0000gn/T/codeterm-chat/7f59e338dd294c039c5aa7d2b446ac8a.png",
+                "status": null,
+                "type": "attachment"
+              },
+              {
+                "text": " смотри у меня в chatui какое то нето…[cut]",
+                "type": "text"
+              }
+            ],
+            "segmentsVersion": 2,
+            "seq": 0,
+            "timestamp": "2026-11-06T07:35:12.178Z",
+            "type": "user"
+          }
+        ],
+        "offset_kind": "bytes",
+        "session_binding_nonce": "air-start-launch",
+        "source_session_id": "ed30e894-a129-4a03-8550-cb10cdc26149",
+        "start_offset": 32604691
+      },
+      {
+        "end_offset": 32604691,
+        "messages": [],
+        "offset_kind": "bytes",
+        "session_binding_nonce": "air-start-launch",
+        "source_session_id": "ed30e894-a129-4a03-8550-cb10cdc26149",
+        "start_offset": 31620646
+      },
+      {
+        "end_offset": 31620646,
+        "messages": [],
+        "offset_kind": "bytes",
+        "session_binding_nonce": "air-start-launch",
+        "source_session_id": "ed30e894-a129-4a03-8550-cb10cdc26149",
+        "start_offset": 30636601
+      },
+      {
+        "end_offset": 30636601,
+        "messages": [],
+        "offset_kind": "bytes",
+        "session_binding_nonce": "air-start-launch",
+        "source_session_id": "ed30e894-a129-4a03-8550-cb10cdc26149",
+        "start_offset": 29652556
+      },
+      {
+        "end_offset": 29652556,
+        "messages": [],
+        "offset_kind": "bytes",
+        "session_binding_nonce": "air-start-launch",
+        "source_session_id": "ed30e894-a129-4a03-8550-cb10cdc26149",
+        "start_offset": 28668511
+      }
+    ],
+    "reply_id": "f93c4ed2-d8e7-4638-9091-43c1ec91812b-0",
+    "start": {
+      "kind": "snapshot",
+      "messages": [
+        {
+          "content": "Элгар ответил: пока ничего не ставлю. Ни PROD на air, ни обновление acpqa.\n\n- **Почему:** ты сам поставил релиз 1.19.1 на паузу в его вкладке. Ничего не запушено и не опубликовано, поэтому подписанного установщика для macOS пока нет. Он появится только из релизного CI после твоего GO.\n- **Где сейчас релиз:** голова `efcae6bfb6` лежит только на BLACKSTAR. Мой `827632d7d8` отстаёт на 26 коммитов, и air не скачает новые коммиты до пуша.\n- **Что ставим:** основной (PROD) Domios на air, обычным путём обновления: `domios update install --auto`. Старый PROD при этом корректно закроет сам апдейтер.\n\nК…[cut]",
+          "id": "f93c4ed2-d8e7-4638-9091-43c1ec91812b-0",
+          "seq": 0,
+          "timestamp": "2026-11-06T07:34:52.714Z",
+          "type": "assistant"
+        },
+        {
+          "content": "<domios type=\"attachment\" kind=\"image\" path=\"/var/folders/tl/k9p6dyhs5fqgz847gwhrp99c0000gn/T/codeterm-chat/7f59e338dd294c039c5aa7d2b446ac8a.png\" label=\"image1\" /> смотри у меня в chatui какое то нето…[cut]",
+          "id": "latest-owner-0",
+          "segments": [
+            {
+              "body": null,
+              "kind": "image",
+              "label": "image1",
+              "path": "/var/folders/tl/k9p6dyhs5fqgz847gwhrp99c0000gn/T/codeterm-chat/7f59e338dd294c039c5aa7d2b446ac8a.png",
+              "status": null,
+              "type": "attachment"
+            },
+            {
+              "text": " смотри у меня в chatui какое то нето…[cut]",
+              "type": "text"
+            }
+          ],
+          "segmentsVersion": 2,
+          "seq": 1,
+          "timestamp": "2026-11-06T07:35:12.178Z",
+          "type": "user"
+        }
+      ],
+      "offset": 36931898,
+      "offset_kind": "bytes",
+      "pending": false,
+      "session_binding_nonce": "air-start-launch",
+      "source_session_id": "ed30e894-a129-4a03-8550-cb10cdc26149",
+      "start_offset": 36928470,
+      "text": ""
+    }
+  },
+  {
+    "body_start": 33588736,
+    "first_image_start": 33592188,
+    "name": "reply-behind-images",
+    "pages": [
+      {
+        "end_offset": 36931040,
+        "messages": [
+          {
+            "collapsed": true,
+            "content": "",
+            "id": "result-toolu_01JbDQ1FfBGcP6ozv3i9GYbH",
+            "seq": 0,
+            "timestamp": "2026-11-06T07:35:15.181Z",
+            "toolCallSourceId": "f086292a-ece0-4c37-b3c1-6a270ccf469e",
+            "toolId": "toolu_01JbDQ1FfBGcP6ozv3i9GYbH",
+            "toolPairing": "exact",
+            "toolResult": "[image result body omitted from wire capture]",
+            "type": "tool_result"
+          }
+        ],
+        "offset_kind": "bytes",
+        "session_binding_nonce": "air-start-launch",
+        "source_session_id": "ed30e894-a129-4a03-8550-cb10cdc26149",
+        "start_offset": 35595500
+      },
+      {
+        "end_offset": 35595500,
+        "messages": [],
+        "offset_kind": "bytes",
+        "session_binding_nonce": "air-start-launch",
+        "source_session_id": "ed30e894-a129-4a03-8550-cb10cdc26149",
+        "start_offset": 34927752
+      },
+      {
+        "end_offset": 34927752,
+        "messages": [
+          {
+            "collapsed": true,
+            "content": "",
+            "id": "result-toolu_01JbDQ1FfBGcP6ozv3i9GYbH",
+            "seq": 0,
+            "timestamp": "2026-11-06T07:35:15.181Z",
+            "toolCallSourceId": "f086292a-ece0-4c37-b3c1-6a270ccf469e",
+            "toolId": "toolu_01JbDQ1FfBGcP6ozv3i9GYbH",
+            "toolPairing": "exact",
+            "toolResult": "[image result body omitted from wire capture]",
+            "type": "tool_result"
+          }
+        ],
+        "offset_kind": "bytes",
+        "session_binding_nonce": "air-start-launch",
+        "source_session_id": "ed30e894-a129-4a03-8550-cb10cdc26149",
+        "start_offset": 33592188
+      },
+      {
+        "end_offset": 33592188,
+        "messages": [
+          {
+            "content": "<domios type=\"attachment\" kind=\"image\" path=\"/var/folders/tl/k9p6dyhs5fqgz847gwhrp99c0000gn/T/codeterm-chat/7f59e338dd294c039c5aa7d2b446ac8a.png\" label=\"image1\" /> смотри у меня в chatui какое то нето…[cut]",
+            "id": "d157e783-4579-4174-9c97-80a60ef44845-0",
+            "segments": [
+              {
+                "body": null,
+                "kind": "image",
+                "label": "image1",
+                "path": "/var/folders/tl/k9p6dyhs5fqgz847gwhrp99c0000gn/T/codeterm-chat/7f59e338dd294c039c5aa7d2b446ac8a.png",
+                "status": null,
+                "type": "attachment"
+              },
+              {
+                "text": " смотри у меня в chatui какое то нето…[cut]",
+                "type": "text"
+              }
+            ],
+            "segmentsVersion": 2,
+            "seq": 0,
+            "timestamp": "2026-11-06T07:35:12.178Z",
+            "type": "user"
+          },
+          {
+            "content": "Элгар ответил: пока ничего не ставлю. Ни PROD на air, ни обновление acpqa.\n\n- **Почему:** ты сам поставил релиз 1.19.1 на паузу в его вкладке. Ничего не запушено и не опубликовано, поэтому подписанного установщика для macOS пока нет. Он появится только из релизного CI после твоего GO.\n- **Где сейчас релиз:** голова `efcae6bfb6` лежит только на BLACKSTAR. Мой `827632d7d8` отстаёт на 26 коммитов, и air не скачает новые коммиты до пуша.\n- **Что ставим:** основной (PROD) Domios на air, обычным путём обновления: `domios update install --auto`. Старый PROD при этом корректно закроет сам апдейтер.\n\nК…[cut]",
+            "id": "f93c4ed2-d8e7-4638-9091-43c1ec91812b-0",
+            "seq": 1,
+            "timestamp": "2026-11-06T07:34:52.714Z",
+            "type": "assistant"
+          }
+        ],
+        "offset_kind": "bytes",
+        "session_binding_nonce": "air-start-launch",
+        "source_session_id": "ed30e894-a129-4a03-8550-cb10cdc26149",
+        "start_offset": 32604691
+      },
+      {
+        "end_offset": 32604691,
+        "messages": [],
+        "offset_kind": "bytes",
+        "session_binding_nonce": "air-start-launch",
+        "source_session_id": "ed30e894-a129-4a03-8550-cb10cdc26149",
+        "start_offset": 31620646
+      },
+      {
+        "end_offset": 31620646,
+        "messages": [],
+        "offset_kind": "bytes",
+        "session_binding_nonce": "air-start-launch",
+        "source_session_id": "ed30e894-a129-4a03-8550-cb10cdc26149",
+        "start_offset": 30636601
+      },
+      {
+        "end_offset": 30636601,
+        "messages": [],
+        "offset_kind": "bytes",
+        "session_binding_nonce": "air-start-launch",
+        "source_session_id": "ed30e894-a129-4a03-8550-cb10cdc26149",
+        "start_offset": 29652556
+      },
+      {
+        "end_offset": 29652556,
+        "messages": [],
+        "offset_kind": "bytes",
+        "session_binding_nonce": "air-start-launch",
+        "source_session_id": "ed30e894-a129-4a03-8550-cb10cdc26149",
+        "start_offset": 28668511
+      }
+    ],
+    "reply_id": "f93c4ed2-d8e7-4638-9091-43c1ec91812b-0",
+    "start": {
+      "kind": "snapshot",
+      "messages": [
+        {
+          "content": "<domios type=\"attachment\" kind=\"image\" path=\"/var/folders/tl/k9p6dyhs5fqgz847gwhrp99c0000gn/T/codeterm-chat/7f59e338dd294c039c5aa7d2b446ac8a.png\" label=\"image1\" /> смотри у меня в chatui какое то нето…[cut]",
+          "id": "latest-owner-0",
+          "segments": [
+            {
+              "body": null,
+              "kind": "image",
+              "label": "image1",
+              "path": "/var/folders/tl/k9p6dyhs5fqgz847gwhrp99c0000gn/T/codeterm-chat/7f59e338dd294c039c5aa7d2b446ac8a.png",
+              "status": null,
+              "type": "attachment"
+            },
+            {
+              "text": " смотри у меня в chatui какое то нето…[cut]",
+              "type": "text"
+            }
+          ],
+          "segmentsVersion": 2,
+          "seq": 0,
+          "timestamp": "2026-11-06T07:35:12.178Z",
+          "type": "user"
+        }
+      ],
+      "offset": 36931898,
+      "offset_kind": "bytes",
+      "pending": false,
+      "session_binding_nonce": "air-start-launch",
+      "source_session_id": "ed30e894-a129-4a03-8550-cb10cdc26149",
+      "start_offset": 36931040,
+      "text": ""
+    }
+  },
+  {
+    "body_start": 33588736,
+    "first_image_start": 33592188,
+    "name": "silent-tail",
+    "pages": [
+      {
+        "end_offset": 34927752,
+        "messages": [
+          {
+            "collapsed": true,
+            "content": "",
+            "id": "result-toolu_01JbDQ1FfBGcP6ozv3i9GYbH",
+            "seq": 0,
+            "timestamp": "2026-11-06T07:35:15.181Z",
+            "toolCallSourceId": "f086292a-ece0-4c37-b3c1-6a270ccf469e",
+            "toolId": "toolu_01JbDQ1FfBGcP6ozv3i9GYbH",
+            "toolPairing": "exact",
+            "toolResult": "[image result body omitted from wire capture]",
+            "type": "tool_result"
+          }
+        ],
+        "offset_kind": "bytes",
+        "session_binding_nonce": "air-start-launch",
+        "source_session_id": "ed30e894-a129-4a03-8550-cb10cdc26149",
+        "start_offset": 33592188
+      },
+      {
+        "end_offset": 33592188,
+        "messages": [
+          {
+            "content": "<domios type=\"attachment\" kind=\"image\" path=\"/var/folders/tl/k9p6dyhs5fqgz847gwhrp99c0000gn/T/codeterm-chat/7f59e338dd294c039c5aa7d2b446ac8a.png\" label=\"image1\" /> смотри у меня в chatui какое то нето…[cut]",
+            "id": "d157e783-4579-4174-9c97-80a60ef44845-0",
+            "segments": [
+              {
+                "body": null,
+                "kind": "image",
+                "label": "image1",
+                "path": "/var/folders/tl/k9p6dyhs5fqgz847gwhrp99c0000gn/T/codeterm-chat/7f59e338dd294c039c5aa7d2b446ac8a.png",
+                "status": null,
+                "type": "attachment"
+              },
+              {
+                "text": " смотри у меня в chatui какое то нето…[cut]",
+                "type": "text"
+              }
+            ],
+            "segmentsVersion": 2,
+            "seq": 0,
+            "timestamp": "2026-11-06T07:35:12.178Z",
+            "type": "user"
+          },
+          {
+            "content": "Элгар ответил: пока ничего не ставлю. Ни PROD на air, ни обновление acpqa.\n\n- **Почему:** ты сам поставил релиз 1.19.1 на паузу в его вкладке. Ничего не запушено и не опубликовано, поэтому подписанного установщика для macOS пока нет. Он появится только из релизного CI после твоего GO.\n- **Где сейчас релиз:** голова `efcae6bfb6` лежит только на BLACKSTAR. Мой `827632d7d8` отстаёт на 26 коммитов, и air не скачает новые коммиты до пуша.\n- **Что ставим:** основной (PROD) Domios на air, обычным путём обновления: `domios update install --auto`. Старый PROD при этом корректно закроет сам апдейтер.\n\nК…[cut]",
+            "id": "f93c4ed2-d8e7-4638-9091-43c1ec91812b-0",
+            "seq": 1,
+            "timestamp": "2026-11-06T07:34:52.714Z",
+            "type": "assistant"
+          }
+        ],
+        "offset_kind": "bytes",
+        "session_binding_nonce": "air-start-launch",
+        "source_session_id": "ed30e894-a129-4a03-8550-cb10cdc26149",
+        "start_offset": 32604691
+      },
+      {
+        "end_offset": 32604691,
+        "messages": [],
+        "offset_kind": "bytes",
+        "session_binding_nonce": "air-start-launch",
+        "source_session_id": "ed30e894-a129-4a03-8550-cb10cdc26149",
+        "start_offset": 31620646
+      },
+      {
+        "end_offset": 31620646,
+        "messages": [],
+        "offset_kind": "bytes",
+        "session_binding_nonce": "air-start-launch",
+        "source_session_id": "ed30e894-a129-4a03-8550-cb10cdc26149",
+        "start_offset": 30636601
+      },
+      {
+        "end_offset": 30636601,
+        "messages": [],
+        "offset_kind": "bytes",
+        "session_binding_nonce": "air-start-launch",
+        "source_session_id": "ed30e894-a129-4a03-8550-cb10cdc26149",
+        "start_offset": 29652556
+      },
+      {
+        "end_offset": 29652556,
+        "messages": [],
+        "offset_kind": "bytes",
+        "session_binding_nonce": "air-start-launch",
+        "source_session_id": "ed30e894-a129-4a03-8550-cb10cdc26149",
+        "start_offset": 28668511
+      },
+      {
+        "end_offset": 28668511,
+        "messages": [],
+        "offset_kind": "bytes",
+        "session_binding_nonce": "air-start-launch",
+        "source_session_id": "ed30e894-a129-4a03-8550-cb10cdc26149",
+        "start_offset": 27684466
+      },
+      {
+        "end_offset": 27684466,
+        "messages": [],
+        "offset_kind": "bytes",
+        "session_binding_nonce": "air-start-launch",
+        "source_session_id": "ed30e894-a129-4a03-8550-cb10cdc26149",
+        "start_offset": 26700421
+      }
+    ],
+    "reply_id": "f93c4ed2-d8e7-4638-9091-43c1ec91812b-0",
+    "start": {
+      "kind": "snapshot",
+      "messages": [],
+      "offset": 35595500,
+      "offset_kind": "bytes",
+      "pending": false,
+      "session_binding_nonce": "air-start-launch",
+      "source_session_id": "ed30e894-a129-4a03-8550-cb10cdc26149",
+      "start_offset": 34927752,
+      "text": ""
+    }
+  }
+]

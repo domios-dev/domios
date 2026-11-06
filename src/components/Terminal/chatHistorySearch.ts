@@ -3,6 +3,8 @@ import { olderChatAction, type OlderChatAction } from "./chatWindow";
 
 const CHAT_HISTORY_PAGE_BYTES = 1024 * 1024;
 const CHAT_HISTORY_SCAN_BYTES = 2 * CHAT_HISTORY_PAGE_BYTES;
+// Initial hydration must cross image results and silent records before counting conversation rows.
+export const CHAT_INITIAL_HISTORY_SCAN_BYTES = 8 * CHAT_HISTORY_PAGE_BYTES;
 
 export interface OlderChatPage {
   cursor: number;

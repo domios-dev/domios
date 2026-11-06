@@ -49,7 +49,7 @@ import { useChatSendDismissals } from "./useChatSendDismissals";
 import { cancelChatStartPaintTiming, paintChatStartTiming } from "./chatStartTiming";
 import { chatScrollDiagnostic } from "./chatScrollDiagnostic";
 import { setTranscriptAnchor } from "./transcriptStore";
-import { searchOlderChatHistory, type OlderChatPage } from "./chatHistorySearch";
+import { CHAT_INITIAL_HISTORY_SCAN_BYTES, searchOlderChatHistory, type OlderChatPage } from "./chatHistorySearch";
 
 /** Viewport projection over the committed transcript and the tab's sends: window anchor
  *  and enriched rows. It reads both stores and never keeps a copy of either. */
@@ -225,7 +225,7 @@ export function useChatWindowView({
         if (!initial) setPendingReveal(true);
         return;
       }
-      const result = await searchOlderChatHistory(backfillCursor!, loadOlderPage, undefined, page => {
+      const result = await searchOlderChatHistory(backfillCursor!, loadOlderPage, initial ? CHAT_INITIAL_HISTORY_SCAN_BYTES : undefined, page => {
         if (!page.messages) return page.rows >= CHAT_PAGE_SIZE;
         const entries = conversationEntries(page.messages);
         return firstKey == null ? entries.length >= CHAT_PAGE_SIZE
