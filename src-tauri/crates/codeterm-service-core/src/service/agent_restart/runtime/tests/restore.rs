@@ -74,6 +74,8 @@ fn fresh_after_load_refusal_preserves_profile_settings_and_archived_transcript()
     assert_eq!(opens.len(), 1);
     assert_eq!(opens[0]["params"]["settings"]["model"], "supplied-model");
     assert_eq!(opens[0]["params"]["settings"]["effort"], "opaque-effort");
+    let mut expected_config = before.unwrap();
+    expected_config["unusedThreadId"] = json!(outcome.session_id);
     assert_eq!(
         fixture
             .service
@@ -82,7 +84,7 @@ fn fresh_after_load_refusal_preserves_profile_settings_and_archived_transcript()
             .get_tab(&fixture.tab)
             .unwrap()
             .agent_runtime_config,
-        before
+        Some(expected_config)
     );
     let (rows, _) =
         crate::service::tab_chat::tab_chat_snapshot(&fixture.service, &fixture.tab, 0).unwrap();
