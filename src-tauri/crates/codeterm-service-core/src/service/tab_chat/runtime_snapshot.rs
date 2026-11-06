@@ -79,9 +79,6 @@ fn persisted(
     {
         return Ok(None);
     }
-    if !owns(&tab, provider, &context) {
-        return Err("Stored runtime transcript binding is not current".into());
-    }
     let Some(capability) = svc
         .agent_registry
         .with_provider(provider, |adapter| adapter.agent_runtime())
@@ -89,10 +86,17 @@ fn persisted(
     else {
         return Ok(None);
     };
-    let rows = engine::persisted_transcript(provider, thread, &capability).map_err(|error| {
-        super::runtime_stored::StoredHistoryFailure::Unavailable
-            .error(format!("Stored runtime transcript: {error}"))
-    })?;
+    let Some(rows) =
+        engine::persisted_transcript(provider, thread, &capability).map_err(|error| {
+            super::runtime_stored::StoredHistoryFailure::Unavailable
+                .error(format!("Stored runtime transcript: {error}"))
+        })?
+    else {
+        return Ok(None);
+    };
+    if !owns(&tab, provider, &context) {
+        return Err("Stored runtime transcript binding is not current".into());
+    }
     if !svc
         .mux
         .read()
@@ -101,10 +105,11 @@ fn persisted(
     {
         return Err("Stored runtime transcript binding changed during snapshot".into());
     }
-    if let Some(rows) = &rows {
-        log::debug!("[runtime-transcript] tab={tab_id} snapshot source=persisted provider={provider} rows={}", rows.len());
-    }
-    Ok(rows)
+    log::debug!(
+        "[runtime-transcript] tab={tab_id} snapshot source=persisted provider={provider} rows={}",
+        rows.len()
+    );
+    Ok(Some(rows))
 }
 
 fn cached(

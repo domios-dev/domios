@@ -80,7 +80,7 @@ pub(crate) fn persisted(
     }
     match chatbackend_history::read_tail(&chatbackend_history::runtime_path(provider, thread)) {
         Ok(window) => Ok(Some(window.keep_last(REREADABLE_CACHE_ROWS).messages)),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Some(Vec::new())),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(error) => Err(error),
     }
 }
