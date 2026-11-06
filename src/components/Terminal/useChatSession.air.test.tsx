@@ -25,25 +25,27 @@ test("air frontend remount retains one image send while its echo races the new s
   const repository = new MemoryChatSendRepository();
   __setChatSendRepositoryForTest(repository);
   const handlers = new Map<string, Set<(event: { payload: unknown }) => void>>();
-  __setListenForTest(async (event: string, handler: (event: { payload: unknown }) => void) => {
+  __setListenForTest(async <T,>(event: string, handler: (event: { payload: T }) => void) => {
+    const forward = (event: { payload: unknown }) => handler({ payload: event.payload as T });
     const listeners = handlers.get(event) ?? new Set();
-    listeners.add(handler);
+    listeners.add(forward);
     handlers.set(event, listeners);
-    return () => { listeners.delete(handler); };
+    return () => { listeners.delete(forward); };
   });
   const tabId = "air-remount";
   const prefix = rows.slice(0, rows.indexOf(owner));
   let response: ((value: unknown) => void) | null = null;
   let request: Record<string, unknown> = {};
-  __setInvokeForTest(async (command: string, args: Record<string, unknown>) => {
+  const invokeFixture = async (command: string, args?: Record<string, unknown>): Promise<unknown> => {
     if (command === "chat_start") {
-      request = args;
-      return new Promise(resolve => { response = resolve; });
+      request = args ?? {};
+      return new Promise<unknown>(resolve => { response = resolve; });
     }
     if (command === "chat_send_status" || command === "chat_send_dismissals") return [];
     if (command === "chat_resume") return { kind: "resumed", deltas: [], caught_up: true };
     return {};
-  });
+  };
+  __setInvokeForTest(async <T,>(command: string, args?: Record<string, unknown>) => await invokeFixture(command, args) as T);
   let view: ReturnType<typeof useChatSession> | null = null;
   function Harness() {
     const current = useChatSession({ tabId, agentSessionId: authority.sourceSessionId,
