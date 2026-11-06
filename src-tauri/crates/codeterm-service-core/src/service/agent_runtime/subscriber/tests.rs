@@ -29,6 +29,7 @@ fn teardown_preserves_degraded_reason_and_refuses_old_epoch() {
     let failure = RuntimeFailure::HookFailed("durable status write failed".into());
     state.degrade(epoch, &failure);
     let reason = state.snapshot().reason;
+    let failure_code = state.snapshot().failure_code;
     assert!(!unload_retaining_degradation(
         &mut state,
         epoch + 1,
@@ -41,6 +42,7 @@ fn teardown_preserves_degraded_reason_and_refuses_old_epoch() {
     ));
     assert!(matches!(state.phase, RuntimePhase::Degraded { .. }));
     assert_eq!(state.snapshot().reason, reason);
+    assert_eq!(state.snapshot().failure_code, failure_code);
 }
 
 #[test]

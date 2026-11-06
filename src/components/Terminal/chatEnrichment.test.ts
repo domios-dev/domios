@@ -105,4 +105,13 @@ console.log("envelope enrichment: current envelope and live command cases passed
   const entries = enrichTimelineItems([item(empty), item(spoken)], new WeakMap());
   assert.deepEqual(entries.map((entry) => entry.msg.sourceMessageId), ["cli-spoken"]);
   assert.deepEqual(entries[0].origin, { kind: "system", context: "CLI" });
+  const metadata = (id: string, content: string): NormalizedChatMessage => ({
+    id, type: "user", content, inboundKind: "system", fromContext: "CLI",
+  });
+  const normalized = enrichTimelineItems([
+    item(metadata("empty-normalized", " ")),
+    item(metadata("spoken-normalized", "opaque retained notice")),
+    item({ ...metadata("attachment-normalized", ""), segments: [{ type: "attachment", kind: "file", path: "/fixture/report.txt" }] as MessageSegment[] }),
+  ], new WeakMap());
+  assert.deepEqual(normalized.map(entry => entry.msg.sourceMessageId ?? entry.msg.id), ["spoken-normalized", "attachment-normalized"]);
 }

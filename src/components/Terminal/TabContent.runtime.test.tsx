@@ -31,22 +31,25 @@ vi.mock("./TerminalTab", async () => {
 });
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-it("keeps saved chat visible beside typed load recovery and starts fresh in place", async () => {
+it.each(["agent_launching", "spawn_failed"] as const)("keeps saved chat visible beside typed load recovery at %s and starts fresh in place", async bootStage => {
+  const viewportHeight = vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(1000);
   const tab: Tab = {
     id:"load-refused-chat", title:"Fixture", tab_type:"Terminal", cwd:null, pty_id:null,
     agent_type:"fixture", agent_session_id:"saved-thread", session_binding_nonce:"saved-binding",
     backing:{kind:"chat_backend",plugin_id:"fixture",session_id:"saved-thread"},
-    boot_stage:"spawn_failed", boot_failure_reason:"opaque provider detail",
+    boot_stage:bootStage, boot_failure_reason:"opaque provider detail",
     agent_runtime_state:{state:"degraded",epoch:1,failureCode:"session_load_refused",reason:"opaque provider detail"},
   };
   const state: ExtendedState = { workspaces:[],tabs:{[tab.id]:tab},teams:[],active_workspace_id:null,
     focused_tab_id:tab.id,notifications:[],tabStatuses:{},toasts:[],activeTabIds:{},generation:1,pendingCloses:[] };
   const requests: Array<{command:string;args?:Record<string,unknown>}> = [];
+  const saved = ["user", "status", "system", "user", "status", "user", "status", "system"]
+    .map((type, seq) => ({id:`saved-row-${seq}`, type, content:`opaque saved turn ${seq}`, seq}));
   __setListenForTest(async () => () => {});
   __setInvokeForTest(async <T,>(command:string,args?:Record<string,unknown>) => {
     requests.push({command,args});
-    const value = command === "chat_start" ? {messages:[{id:"saved-row",type:"user",content:"opaque saved turn",seq:0}],
-      pending:false,text:"",offset:1,source_session_id:"saved-thread",session_binding_nonce:"saved-binding"}
+    const value = command === "chat_start" ? {messages:saved,
+      pending:false,text:"",offset:8,offset_kind:"items",source_session_id:"saved-thread",session_binding_nonce:"saved-binding"}
       : command === "delayed_send_list" || command === "list_agent_providers" ? []
       : command === "plugin_manager_snapshot" ? {plugins:[],channels:[],diff:[],marketplace:[]} : {};
     return value as T;
@@ -63,6 +66,7 @@ it("keeps saved chat visible beside typed load recovery and starts fresh in plac
     </MuxStateStoreContext.Provider>));
     const conversation=host.querySelector('[role="log"][aria-label="Conversation"]');
     expect(conversation?.textContent).toContain("opaque saved turn");
+    for (const row of saved) expect(conversation?.textContent).toContain(row.content);
     expect(conversation?.closest("[inert]")).toBeNull();
     const start=conversation?.querySelector<HTMLButtonElement>('button[aria-label="Start new session"]');
     expect(start).not.toBeNull();
@@ -75,6 +79,7 @@ it("keeps saved chat visible beside typed load recovery and starts fresh in plac
     expect(conversation?.textContent).toContain("opaque saved turn");
   } finally {
     await act(async()=>root.unmount());host.remove();__setInvokeForTest(null);__setListenForTest(null);
+    viewportHeight.mockRestore();
   }
 });
 
