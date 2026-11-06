@@ -469,7 +469,7 @@ fn dispatch_launch_profile_refuses_before_tab_member_or_attempt_reservation() {
     plan.planning_state = codeterm_service_core::plan::PlanningState::Approved;
     svc.plan_store.save(&mut plan, 2).unwrap();
     let added = crate::server::plan_task_rpc::dispatch("plan.task.add", &Some(json!({
-        "plan_id": plan.id, "name": "Profile task", "executor_role": "Probe",
+        "plan_id": plan.id, "name": "Profile task", "executor_role": "Probe", "personality": "Ada",
         "role_guidance": "opaque-role", "body": "opaque-task", "execution_intent": "non_repository",
         "acceptance_criteria": ["opaque-result"], "test_plan": "opaque-verification",
         "caller_tab_id": owner, "session_id": "owner-session", "session_binding_nonce": "owner-nonce"
