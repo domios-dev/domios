@@ -37,6 +37,8 @@ The root scenario roster is declared in `tests/runtime-manifest.json`; native
 and JS replay require the exact discovered set.
 
 `prompt-images` sends two base64 image blocks when promptCapabilities.image is true.
+`prompt-images-echo` carries the same attachments on the authenticated user-row
+evidence so the host can merge it into the early user row instead of duplicating it.
 The refusal scenarios cover false/absent image support, missing bytes and unsupported
 resource attachments, with no outbound prompt. File and folder attachments are refused
 by the composer; audio and embedded resources are not offered by this adapter.

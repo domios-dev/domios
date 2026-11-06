@@ -538,6 +538,21 @@ test("runtime early user row keeps two image chips through source echo", async (
   }
 });
 
+test("runtime image capability refusal is visible inside its retained bubble", async () => {
+  const tabId = "runtime-image-refusal";
+  const { host, root, dispatch } = await renderChat(tabId);
+  try {
+    await act(async () => addChatSend(tabId, { id: "refused-image", correlationId: "refused-image",
+      content: 'inspect <domios type="attachment" kind="image" path="/opaque/image.png" />', sentAtMs: Date.now() }));
+    const reason = "Provider refused: This ACP agent did not declare image support. Remove image attachments before sending.";
+    await act(async () => dispatch("chat-send-status", { tab_id: tabId, send_id: "refused-image", correlationId: "refused-image",
+      state: "failed", error: `tab_busy_refused: Tab ${tabId} refused delivery (nothing written): runtime_rejected_before_write: ${reason}`, sequence: 1, ledger_id: "ledger", retained_from: 1 }));
+    const bubble = host.querySelector('[data-testid="chat-message"][data-message-role="user"]');
+    assert(bubble?.querySelector('[role="status"]')?.textContent?.includes(reason), "the refusal reason reaches the bubble status");
+    assert(bubble?.querySelector('[aria-label="Open image image.png"]'), "refused input retains its attachment chip");
+  } finally { await act(async () => root.unmount()); host.remove(); }
+});
+
 test("one bubble follows event state and Retry reuses it", async () => {
   const tabId = "bubble-delivery-states";
   const { __setInvokeForTest } = await import("../../lib/bridge");

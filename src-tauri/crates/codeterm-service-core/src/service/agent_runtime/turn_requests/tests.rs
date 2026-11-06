@@ -442,6 +442,15 @@ async fn refused_before_write_never_publishes_a_turn_failure() {
 
 #[test]
 fn written_uncertain_send_is_confirmed_by_late_own_evidence_without_replay() {
+    written_send_echo(false);
+}
+
+#[test]
+fn image_send_keeps_one_metadata_only_user_row_after_echo() {
+    written_send_echo(true);
+}
+
+fn written_send_echo(image: bool) {
     use crate::service::{
         chat_send_transaction::ChatSendState,
         delivery_error::DeliveryError,
@@ -449,10 +458,21 @@ fn written_uncertain_send_is_confirmed_by_late_own_evidence_without_replay() {
     };
     let (fixture, tab, peer, _cleanup) = runtime_fixture_turn_scoped(SOURCE);
     let session = engine::for_tab(&tab).unwrap();
+    let image_dir = tempfile::tempdir().unwrap();
+    let path = image_dir.path().join("image.png");
+    std::fs::write(&path, [137, 80, 78, 71]).unwrap();
+    let text = if image {
+        format!(
+            "inspect <domios type=\"attachment\" kind=\"image\" path=\"{}\" />",
+            path.to_string_lossy()
+        )
+    } else {
+        "opaque prompt".into()
+    };
     let pending = fixture
         .service
         .chat_send_ledger
-        .try_start(&tab, "opaque prompt", None)
+        .try_start(&tab, &text, None)
         .unwrap();
     let (release, confirmed) = tokio::sync::oneshot::channel();
     let server = crate::async_runtime::spawn(async move {
@@ -471,7 +491,7 @@ fn written_uncertain_send_is_confirmed_by_late_own_evidence_without_replay() {
     let sent = super::super::transport::send(
         &fixture.service,
         &tab,
-        &AgentInput::Human(HumanInput::composer("opaque prompt")),
+        &AgentInput::Human(HumanInput::composer(&text)),
         Some(&pending.send_id),
     );
     assert!(matches!(sent, Err(DeliveryError::SubmitUnconfirmed { .. })));
@@ -486,10 +506,27 @@ fn written_uncertain_send_is_confirmed_by_late_own_evidence_without_replay() {
     );
     let early = session.cache.lock().snapshot();
     assert_eq!(early.len(), 1);
-    assert_eq!(early[0].content, "opaque prompt");
+    assert_eq!(early[0].content, text);
     assert_eq!(early[0].id, pending.send_id);
+    if image {
+        let attachments = early[0].attachments.as_ref().unwrap();
+        assert_eq!(attachments.len(), 1);
+        assert!(attachments[0].data.is_none());
+        assert_eq!(attachments[0].path.as_deref(), path.to_str());
+    }
     let original_id = early[0].id.clone();
     let context = session.context.lock().clone();
+    let echoed_attachments = context
+        .claimed_sends
+        .iter()
+        .find(|claim| claim.send_id == pending.send_id)
+        .unwrap()
+        .input
+        .attachments
+        .clone();
+    if image {
+        assert!(echoed_attachments[0].data.is_some());
+    }
     crate::async_runtime::block_on(subscriber::publish_events(
         &fixture.service,
         &session,
@@ -522,7 +559,8 @@ fn written_uncertain_send_is_confirmed_by_late_own_evidence_without_replay() {
                 item: ChatMsg {
                     id: "late-user".into(),
                     kind: "user".into(),
-                    content: "opaque prompt".into(),
+                    content: text.clone(),
+                    attachments: (!echoed_attachments.is_empty()).then_some(echoed_attachments),
                     ..Default::default()
                 },
             },
@@ -549,6 +587,11 @@ fn written_uncertain_send_is_confirmed_by_late_own_evidence_without_replay() {
     crate::async_runtime::block_on(completed(&session));
     let users = session.cache.lock().snapshot();
     assert_eq!(users.iter().filter(|row| row.kind == "user").count(), 1);
+    if image {
+        let row = users.iter().find(|row| row.kind == "user").unwrap();
+        assert!(row.attachments.as_ref().unwrap()[0].data.is_none());
+        assert_eq!(row.runtime_source_item_id.as_deref(), Some("late-user"));
+    }
     assert_eq!(
         users.iter().find(|row| row.kind == "user").unwrap().id,
         original_id

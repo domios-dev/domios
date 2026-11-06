@@ -1,8 +1,18 @@
-#[cfg(test)]
 use codeterm_types::agent::chat_types::ChatMsg;
 use serde::{Deserialize, Serialize};
 mod item_cache;
 pub use item_cache::{ItemCache, REREADABLE_CACHE_BYTES, REREADABLE_CACHE_ROWS};
+
+pub(super) fn omit_user_image_data(item: &mut ChatMsg) {
+    if item.kind != "user" {
+        return;
+    }
+    for attachment in item.attachments.iter_mut().flatten() {
+        if attachment.path.is_some() {
+            attachment.data = None;
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]

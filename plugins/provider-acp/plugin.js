@@ -482,6 +482,10 @@ function submittedRow(state, events, submitted, evidenced) {
     state.evidenced.push(submitted.sendId);
     events.push({ kind: "sendEvidence", threadId: state.sessionId, sendId: submitted.sendId, turnId: `${state.sessionId}:turn:${state.turn}`, itemId: id });
   }
+  if (submitted.input.attachments.length) {
+    for (const event of events) if (event.kind === "chatItem" && event.item.id === id)
+      event.item.attachments = [...submitted.input.attachments];
+  }
 }
 function reduceStream(ctx, raw, frames, cursor, submitted, retainSubmitted = false) {
   if (!ctx.threadId) return { state: raw, events: [] };

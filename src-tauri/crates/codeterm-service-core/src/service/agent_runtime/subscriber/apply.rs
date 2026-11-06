@@ -95,6 +95,7 @@ async fn publish_with_origin(
         };
         if let RuntimeEvent::ItemUpdated { item, .. } = &mut runtime {
             item.runtime_source_item_id = None;
+            super::super::model::omit_user_image_data(item);
         }
         let written = session
             .maps
