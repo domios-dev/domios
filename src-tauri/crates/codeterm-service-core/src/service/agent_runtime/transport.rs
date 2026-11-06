@@ -490,9 +490,10 @@ pub fn snapshot(
 ) -> Result<(Arc<Session>, Vec<crate::agent::chat_types::ChatMsg>), String> {
     let started = std::time::Instant::now();
     let cached = engine::for_tab(tab).filter(|session| {
-        session
+        (session
             .thread_loaded
             .load(std::sync::atomic::Ordering::Acquire)
+            || engine::session_load_refused(svc, session))
             && engine::validate_binding(svc, session).is_ok()
     });
     let ensured = match cached {

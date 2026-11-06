@@ -6,14 +6,14 @@ use crate::service::MuxEmitCause;
 use crate::{multiplexer::types::TabBacking, service::ServiceContext};
 use std::sync::{atomic::Ordering, Arc};
 
-pub(crate) async fn restart(
+pub(in crate::service) async fn restart(
     svc: &ServiceContext,
     tab: &str,
     provider: &str,
     old_nonce: &str,
-    fresh: bool,
+    fresh_restart: Option<(&crate::service::agent_restart::TabRestartSnapshot, bool)>,
 ) -> Result<Arc<Session>, RuntimeFailure> {
-    let result = restart_inner(svc, tab, provider, old_nonce, fresh, false)
+    let result = restart_inner(svc, tab, provider, old_nonce, fresh_restart, false)
         .await
         .and_then(|session| session.ok_or(RuntimeFailure::Superseded));
     if let Err(reason) = &result {
@@ -37,7 +37,7 @@ pub(crate) async fn restart_idle(
     provider: &str,
     nonce: &str,
 ) -> Result<Option<Arc<Session>>, RuntimeFailure> {
-    restart_inner(svc, tab, provider, nonce, false, true)
+    restart_inner(svc, tab, provider, nonce, None, true)
         .await
         .inspect_err(|_| svc.clear_runtime_restart_binding(tab))
 }
@@ -47,7 +47,7 @@ async fn restart_inner(
     tab: &str,
     provider: &str,
     old_nonce: &str,
-    fresh: bool,
+    fresh_restart: Option<(&crate::service::agent_restart::TabRestartSnapshot, bool)>,
     idle_only: bool,
 ) -> Result<Option<Arc<Session>>, RuntimeFailure> {
     let session = engine::for_tab(tab);
@@ -60,6 +60,15 @@ async fn restart_inner(
         ),
         None => None,
     };
+    let fresh = fresh_restart.is_some();
+    if let Some((snapshot, force)) = fresh_restart {
+        svc.require_fresh_restart_allowed(snapshot, force)
+            .map_err(|_| {
+                RuntimeFailure::Refused(
+                    "Fresh restart is no longer allowed for the current session".into(),
+                )
+            })?;
+    }
     if let Some(session) = &session {
         if idle_only {
             engine::validate_binding(svc, session)?;

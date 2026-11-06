@@ -108,7 +108,11 @@ impl ServiceContext {
             outcome.session_id = None;
         }
         let result = crate::async_runtime::block_on(agent_runtime::restart::restart(
-            self, tab_id, &provider, &nonce, fresh,
+            self,
+            tab_id,
+            &provider,
+            &nonce,
+            fresh.then_some((&snap, force)),
         ));
         if result.as_ref().is_ok_and(|session| {
             matches!(
