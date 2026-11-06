@@ -1,3 +1,4 @@
+import { stressRows, stressRange, stressAuthority, stressReplyIds, stressStart, stressBackfill } from "../../../tests/fixtures/chat/imageStress";
 import { expect, test } from "vitest";
 import { plain, recordInput } from "../../../plugins/provider-shared/tests/recordHookFixture";
 import { parser, raw, lines, authority, noticeId, ownerId, flatten, parsed, rows, end, owner } from "../../../tests/fixtures/chat/airTranscript";
@@ -108,4 +109,26 @@ test("air replayed old identity cannot acquire a newer append boundary", () => {
   state = batch(state, "delta", [owner, { ...rows[0], id: "later-row" }], end + 1, end + 100);
   expect(projectTranscript(state, [send]).pending).toHaveLength(1);
 });
+test("stress cached snapshot keeps reply order after older byte pages arrive", () => {
+  const cached = [...stressRows(85, 96), ...stressRows(97, 104)];
+  const older = stressRows(77, 84);
+  let state = reduceTranscript(createTranscriptState(), {
+    kind: "snapshot", authority: stressAuthority, range: stressRange(85, 104), rows: cached,
+  }).state;
+  expect(transcriptRows(state).filter(row => stressReplyIds.includes(row.id)).map(row => row.id)).toEqual(stressReplyIds);
+  state = reduceTranscript(state, { kind: "backfill", authority: stressAuthority,
+    range: stressRange(77, 84), rows: older }).state;
+  expect(transcriptRows(state).filter(row => stressReplyIds.includes(row.id)).map(row => ({ id: row.id, seq: row.seq })))
+    .toEqual(cached.filter(row => stressReplyIds.includes(row.id)).map(row => ({ id: row.id, seq: row.seq })));
+});
 
+test("stress actual cached start and empty older page preserve source reply order", () => {
+  const authority = { sourceSessionId: stressStart.source_session_id, sessionBindingNonce: stressStart.session_binding_nonce };
+  let state = reduceTranscript(createTranscriptState(), { kind: "snapshot", authority,
+    range: { start: stressStart.start_offset, end: stressStart.offset, unit: stressStart.offset_kind }, rows: stressStart.messages }).state;
+  const before = transcriptRows(state);
+  expect(before.filter(row => stressReplyIds.includes(row.id)).map(row => row.id)).toEqual(stressReplyIds);
+  state = reduceTranscript(state, { kind: "backfill", authority,
+    range: { start: stressBackfill.start_offset, end: stressBackfill.end_offset, unit: stressBackfill.offset_kind }, rows: stressBackfill.messages }).state;
+  expect(transcriptRows(state)).toEqual(before);
+});
