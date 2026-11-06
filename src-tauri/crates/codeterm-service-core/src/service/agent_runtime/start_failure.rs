@@ -7,10 +7,14 @@ fn unbound(value: Option<&str>) -> bool {
     value.is_none_or(str::is_empty)
 }
 
+pub(super) fn is_failed_unbound_state(state: &Value) -> bool {
+    state["state"] == "degraded"
+        && serde_json::from_value::<RuntimeFailureCode>(state["failureCode"].clone()).ok()
+            == Some(RuntimeFailureCode::RuntimeStartUnbound)
+}
+
 pub(crate) fn matches(tab: &Tab, state: &Value) -> bool {
-    let code = serde_json::from_value::<RuntimeFailureCode>(state["failureCode"].clone()).ok();
-    if state["state"] != "degraded"
-        || !matches!(code, Some(RuntimeFailureCode::RuntimeStartUnbound))
+    if !is_failed_unbound_state(state)
         || !unbound(tab.agent_session_id.as_deref())
         || tab.reported_session_binding_nonce.is_some()
         || tab

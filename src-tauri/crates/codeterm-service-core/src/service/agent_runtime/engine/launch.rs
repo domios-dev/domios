@@ -4,17 +4,18 @@ pub(super) fn refused_start(
     thread: Option<&str>,
     state: Option<&serde_json::Value>,
 ) -> Result<(), RuntimeFailure> {
-    if thread.is_none() {
-        if let Some(state) = state.filter(|state| {
-            state["state"] == "degraded" && state["failureCode"] == "runtime_start_unbound"
-        }) {
-            return Err(RuntimeFailure::Refused(
-                state["reason"]
-                    .as_str()
-                    .unwrap_or("Runtime start was refused; start a new session")
-                    .into(),
-            ));
-        }
+    if let Some(state) = state.filter(|state| {
+        state["state"] == "degraded"
+            && (state["failureCode"] == "provider_refused"
+                || (thread.is_none()
+                    && super::super::start_failure::is_failed_unbound_state(state)))
+    }) {
+        return Err(RuntimeFailure::Refused(
+            state["reason"]
+                .as_str()
+                .unwrap_or("Runtime start was refused; start a new session")
+                .into(),
+        ));
     }
     Ok(())
 }
