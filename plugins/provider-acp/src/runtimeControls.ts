@@ -46,10 +46,29 @@ export function modelOption(settings:RuntimeSettings | undefined) {
 export function effortOption(settings:RuntimeSettings | undefined) {
   return settings?.configOptions?.find(option=>option.category === "thought_level");
 }
+export function sessionModel(value:unknown, declared:NonNullable<RuntimeSettings["configOptions"]>=[]) {
+  if (modelOption({configOptions:declared})) return undefined;
+  const models=object(value), seen=new Set<string>();
+  const options=list(models.availableModels,128).flatMap(model=>{
+    if (!label(model.modelId) || !label(model.name) || seen.has(model.modelId)) return [];
+    seen.add(model.modelId);return [{value:model.modelId,name:model.name}];
+  });
+  if (!label(models.currentModelId) || !seen.has(models.currentModelId)) return undefined;
+  let id="acp-session-model";
+  while (declared.some(option=>option.id === id)) id+="-";
+  return {id,name:"Model",category:"model",currentValue:models.currentModelId,options};
+}
+export function selectedSessionModel(settings:RuntimeSettings | undefined, id:string | undefined, value:unknown):RuntimeSettings | undefined {
+  const option=settings?.configOptions?.find(option=>option.id === id);
+  if (!option || !label(value) || !option.options.some(choice=>choice.value === value)) return undefined;
+  return {configOptions:settings!.configOptions!.map(option=>option.id === id ? {...option,currentValue:value} : option),model:value};
+}
 export function sessionSettings(value:unknown):RuntimeSettings {
   const response=object(value), modes=object(response.modes);
   const seen=new Set<string>();
-  const declared=Array.isArray(response.configOptions) ? configOptions(response.configOptions) : undefined;
+  const config=Array.isArray(response.configOptions) ? configOptions(response.configOptions) : undefined;
+  const fallback=sessionModel(response.models,config);
+  const declared=fallback ? [...(config ?? []).slice(0,63),fallback] : config;
   const model=modelOption({configOptions:declared})?.currentValue;
   const effort=effortOption({configOptions:declared})?.currentValue;
   return {...(declared ? {configOptions:declared,...(model ? {model} : {}),...(effort ? {effort} : {})} : {}),

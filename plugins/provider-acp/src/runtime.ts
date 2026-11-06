@@ -8,7 +8,7 @@ import { clientRequest, reduceStream, settleStream, type StreamCursor } from "./
 import { usage } from "./runtimeReducePlan";
 import { fitTextReduction } from "./runtimeReduceBudget";
 import { runtimePrompt, runtimeAnswer } from "./runtimePrompts";
-import { authentication, sessionSettings, modelOption, effortOption, label } from "./runtimeControls";
+import { authentication, sessionSettings, modelOption, effortOption, label, sessionModel, selectedSessionModel, configOptions } from "./runtimeControls";
 import { launchSelection } from "./launchSelection";
 
 interface Negotiation {
@@ -20,6 +20,7 @@ interface Negotiation {
   required?:boolean;
   settings?:import("@codeterm/plugin-sdk").RuntimeSettings;
   sessionId?:string;
+  modelStateId?:string;
   sessionActive?:boolean;
   instructions?:string;
   cursor:StreamCursor;
@@ -92,12 +93,42 @@ function threadNotices(state:Negotiation, threadId:string, events:import("@codet
   return events.length ? {events} : {};
 }
 
+function applySettings(state:Negotiation, settings:import("@codeterm/plugin-sdk").RuntimeSettings, configResponse=false):void {
+  if (configResponse && settings.configOptions) {
+    const fallback=state.settings?.configOptions?.find(option=>option.id === state.modelStateId);
+    if (modelOption(settings)) delete state.modelStateId;
+    else if (fallback) {
+      let id=fallback.id;
+      while (settings.configOptions.some(option=>option.id === id)) id+="-";
+      state.modelStateId=id;
+      settings.configOptions=[...settings.configOptions.slice(0,63),{...fallback,id}];
+      settings.model=fallback.currentValue;
+    }
+  }
+  if (settings.configOptions) {
+    delete state.settings?.model;
+    delete state.settings?.effort;
+    const model=modelOption(settings)?.currentValue, effort=effortOption(settings)?.currentValue;
+    if (model) settings.model=model;
+    if (effort) settings.effort=effort;
+  }
+  state.settings={...state.settings,...settings};
+}
+
+function optionRequest(state:Negotiation, sessionId:string, id:string, value:string):RuntimePlan {
+  const plan=id === state.modelStateId
+    ? request("session/set_model",{sessionId,modelId:value})
+    : request("session/set_config_option",{sessionId,configId:id,value});
+  if (id === state.modelStateId) plan.state={method:"session/set_model",modelId:value};
+  return plan;
+}
+
 function loadedThread(op:Extract<Operation,{kind:"openThread"|"resumeThread"}>, state:Negotiation, sessionId:string, attempted:string[]=[], confirmAuthentication=true):RuntimeStep {
   const selection=launchSelection(op.settings,state.settings,attempted);
   if (selection.kind === "refused") return refuseThread(op,state,"provider_refused",selection.message);
   if (selection.kind === "set") {
-    const plan=request("session/set_config_option",{sessionId,configId:selection.id,value:selection.value});
-    plan.state={method:"session/set_config_option",attempted:[...attempted,selection.category],confirmAuthentication};
+    const plan=optionRequest(state,sessionId,selection.id,selection.value);
+    plan.state={...object(plan.state),attempted:[...attempted,selection.category],confirmAuthentication};
     return {kind:"continue",plan};
   }
   return {kind:"complete",result:{kind:"threadLoaded",threadId:sessionId,settings:state.settings ?? {}},
@@ -109,6 +140,7 @@ function refuseThread(op:Operation, state:Negotiation, code:RuntimeFailure["code
     delete state.sessionId;
     delete state.sessionActive;
     delete state.settings;
+    delete state.modelStateId;
     delete state.instructions;
     state.cursor={replay:0,prompt:0,loading:false};
   }
@@ -160,7 +192,7 @@ export function runtimePlan(ctx:RuntimeContext, op:Operation):RuntimePlan {
     if (value.model === option?.currentValue) return refusePlan("Settings already match the reported session model");
     if (!option) return refusePlan("This agent declared no model option");
     if (!option.options.some(entry=>entry.value === value.model)) return refusePlan("Model was not declared by this agent");
-    return request("session/set_config_option",{sessionId,configId:option.id,value:value.model});
+    return optionRequest(state,sessionId,option.id,value.model as string);
   }
   if (op.kind === "control" && ["config", "mode"].includes(op.action)) {
     const sessionId=ownSession(ctx,state);
@@ -172,7 +204,7 @@ export function runtimePlan(ctx:RuntimeContext, op:Operation):RuntimePlan {
     }
     const option=state.settings?.configOptions?.find(option=>option.id === value.id);
     if (!option?.options.some(option=>option.value === value.value)) return refusePlan("Configuration value was not advertised");
-    return request("session/set_config_option",{sessionId,configId:option.id,value:value.value});
+    return optionRequest(state,sessionId,option.id,value.value as string);
   }
   switch (op.kind) {
     case "answer": {
@@ -281,7 +313,7 @@ export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue,
       plan.state={method,mcpOffered:false};
       return {kind:"continue",plan};
     }
-    if ((op.kind === "openThread" || op.kind === "resumeThread") && method === "session/set_config_option") {
+    if ((op.kind === "openThread" || op.kind === "resumeThread") && ["session/set_config_option","session/set_model"].includes(String(method))) {
       const state=negotiated(ctx);
       if (!state?.sessionActive || !state.sessionId || op.kind === "resumeThread" && state.sessionId !== op.threadId)
         return refused("binding_mismatch","ACP session is not active in this runtime");
@@ -316,19 +348,20 @@ export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue,
       capabilities:object(value.agentCapabilities), authMethods, authenticated, required:authenticated ? false : prior?.required,
       sessionId:prior?.sessionId, sessionActive:prior?.sessionActive, instructions:prior?.instructions,
       cursor:prior?.cursor ?? {replay:0,prompt:0,loading:false},inFlight:prior?.inFlight ?? false,
-      promptOrdinal:prior?.promptOrdinal, projection:prior?.projection, promptSend:prior?.promptSend, queued:prior?.queued, settings:prior?.settings});
+      promptOrdinal:prior?.promptOrdinal, projection:prior?.projection, promptSend:prior?.promptSend, queued:prior?.queued, settings:prior?.settings, modelStateId:prior?.modelStateId});
     return {kind:"complete",result:op.kind === "initialize" ? {kind:"initialized",...agentIdentity(value.agentInfo)} : {kind:"done"},
       events:[{kind:"authentication",authentication:authentication(authMethods,authenticated,authenticated ? false : prior?.required)}]};
   }
   const state = negotiated(ctx);
   if (!state) return refused("provider_refused", "ACP initialization is required for this runtime epoch");
-  if ((op.kind === "openThread" || op.kind === "resumeThread") && method === "session/set_config_option") {
+  if ((op.kind === "openThread" || op.kind === "resumeThread") && ["session/set_config_option","session/set_model"].includes(String(method))) {
     if (!state.sessionActive || !state.sessionId || op.kind === "resumeThread" && state.sessionId !== op.threadId)
       return refused("binding_mismatch","ACP session is not active in this runtime");
-    if (!Array.isArray(value.configOptions)) return refuseThread(op,state,"protocol_error","Invalid session option response");
-    delete state.settings?.model;
-    delete state.settings?.effort;
-    state.settings={...state.settings,...sessionSettings(value)};
+    const settings=method === "session/set_model"
+      ? selectedSessionModel(state.settings,state.modelStateId,object(raw).modelId)
+      : Array.isArray(value.configOptions) ? sessionSettings(value) : undefined;
+    if (!settings) return refuseThread(op,state,"protocol_error","Invalid session option response");
+    applySettings(state,settings,method === "session/set_config_option");
     const attempted=object(raw).attempted;
     if (!Array.isArray(attempted) || attempted.length > 2 || !attempted.every(value=>value === "model" || value === "thought_level"))
       return refused("protocol_error","Invalid session selection continuation");
@@ -353,23 +386,17 @@ export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue,
     state.instructions = op.instructions;
     state.cursor.loading=op.kind === "resumeThread";
     state.settings={commands:[],configOptions:[],modes:[],...sessionSettings(value)};
+    state.modelStateId=sessionModel(value.models,configOptions(value.configOptions))?.id;
     return loadedThread(op,state,sessionId);
   }
   if (op.kind === "control" && ["config","mode","settings"].includes(op.action)) {
     const sessionId=ownSession(ctx,state);
     const settings:import("@codeterm/plugin-sdk").RuntimeSettings | null=["config","settings"].includes(op.action) && method === "session/set_config_option" && Array.isArray(value.configOptions)
-      ? sessionSettings(value) : op.action === "mode" && method === "session/set_mode" && typeof op.value === "string" ? {mode:op.value} : null;
+      ? sessionSettings(value) : ["config","settings"].includes(op.action) && method === "session/set_model"
+      ? selectedSessionModel(state.settings,state.modelStateId,object(raw).modelId) ?? null : op.action === "mode" && method === "session/set_mode" && typeof op.value === "string" ? {mode:op.value} : null;
     if (!settings) return refused("protocol_error","Invalid session control response");
-    state.settings={...state.settings,...settings};
-    if (settings.configOptions) {
-      delete state.settings.model;
-      delete state.settings.effort;
-      const model=modelOption(settings)?.currentValue;
-      if (model) state.settings.model=model;
-      const effort=effortOption(settings)?.currentValue;
-      if (effort) state.settings.effort=effort;
-    }
-    return {kind:"complete",result:{kind:"done"},events:[{kind:"controlsConfirmed",threadId:sessionId,settings:op.action === "settings" ? state.settings : settings}]};
+    applySettings(state,settings,method === "session/set_config_option");
+    return {kind:"complete",result:{kind:"done"},events:[{kind:"controlsConfirmed",threadId:sessionId,settings:op.action === "settings" ? state.settings ?? settings : settings}]};
   }
   if (op.kind === "answer" && method === "session/request_permission")
     return {kind:"complete",result:{kind:"done"},events:[{kind:"promptResolved",threadId:ownSession(ctx,state),requestId:op.requestId}]};
@@ -437,15 +464,7 @@ export function runtimeReduce(ctx:RuntimeContext, raw:JsonValue, frames:readonly
   }
   const reduction={state:projection,events};
   for (const event of reduction.events) if (event.kind === "controlsConfirmed") {
-    state.settings={...state.settings,...event.settings};
-    if (event.settings.configOptions) {
-      delete state.settings.model;
-      delete state.settings.effort;
-      const model=modelOption(event.settings)?.currentValue;
-      if (model) state.settings.model=model;
-      const effort=effortOption(event.settings)?.currentValue;
-      if (effort) state.settings.effort=effort;
-    }
+    applySettings(state,event.settings,true);
   }
   const bounded=fitTextReduction(projection,[...reduction.events,...prompts]);
   state.projection=bounded.state;
