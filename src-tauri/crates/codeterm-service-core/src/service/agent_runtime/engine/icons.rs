@@ -63,7 +63,7 @@ pub(super) fn start(svc: &ServiceContext, session: &Arc<Session>) {
         .and_then(|profile| profile.icon_svg.clone())
         .filter(|icon| !icon.trim().is_empty())
     {
-        publish_icon(svc, session, &context.tab_id, epoch, Some(icon));
+        publish_icon(&svc, &session, &context.tab_id, epoch, Some(icon));
         return;
     }
     crate::async_runtime::spawn(async move {
