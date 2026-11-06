@@ -21,7 +21,7 @@ pub(super) fn refused_start(
 
 pub(super) async fn retire_refused_start(
     svc: &ServiceContext,
-    session: &super::Session,
+    session: &std::sync::Arc<super::Session>,
     reason: &RuntimeFailure,
 ) {
     if !matches!(reason, RuntimeFailure::Refused(_)) || session.context.lock().thread_id.is_some() {

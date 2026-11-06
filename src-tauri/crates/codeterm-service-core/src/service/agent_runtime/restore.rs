@@ -252,7 +252,7 @@ fn sanitize_saved_controls(
             .collect::<Vec<_>>(),
         )
     };
-    let (supported_efforts, supported_modes) = svc
+    let (supported_efforts, supported_modes, profile_scoped) = svc
         .agent_registry
         .with_provider(provider_id, |provider| {
             let model_efforts = provider.reasoning_efforts_for_model(Some(&model));
@@ -261,8 +261,11 @@ fn sanitize_saved_controls(
             } else {
                 model_efforts
             };
-            let mut modes: Vec<String> = provider
-                .agent_runtime()
+            let runtime = provider.agent_runtime();
+            let profile_scoped = runtime
+                .as_ref()
+                .is_some_and(|runtime| runtime.launch_profiles.is_some());
+            let mut modes: Vec<String> = runtime
                 .map(|control| {
                     control
                         .runtime_modes
@@ -289,15 +292,17 @@ fn sanitize_saved_controls(
                     .map(|effort| effort.id)
                     .collect::<Vec<_>>(),
                 modes,
+                profile_scoped,
             )
         })
         .ok_or_else(|| format!("Runtime provider {provider_id} disappeared during restore"))?;
     let unsupported_efforts = saved_efforts
         .iter()
         .filter(|effort| {
-            !supported_efforts
-                .iter()
-                .any(|supported| supported == *effort)
+            !profile_scoped
+                && !supported_efforts
+                    .iter()
+                    .any(|supported| supported == *effort)
         })
         .cloned()
         .collect::<Vec<_>>();
@@ -382,3 +387,7 @@ pub fn all(svc: &ServiceContext) {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+#[path = "restore/profile_selection_tests.rs"]
+mod profile_selection_tests;
