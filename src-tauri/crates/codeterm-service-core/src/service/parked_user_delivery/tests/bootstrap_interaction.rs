@@ -220,13 +220,25 @@ fn held_user_store_does_not_suppress_existing_ready_bootstrap_consumer() {
         .clone()
         .unwrap();
     mark_ready(&fixture, &tab);
-    fixture
-        .service
-        .pending_delivery_payloads
-        .user_sends
-        .tab(&tab)
-        .failed
-        .store(true, Ordering::Release);
+    let store = &fixture.service.pending_delivery_payloads.user_sends;
+    let reservation = store
+        .reserve(
+            fixture.service.user_send_authority(&tab).unwrap(),
+            None,
+            || (uuid::Uuid::new_v4().to_string(), 1),
+        )
+        .unwrap();
+    store.set_persistence_boundary(Some(Arc::new(|stage| {
+        if stage == "index" {
+            Err("opaque-index-failure".into())
+        } else {
+            Ok(())
+        }
+    })));
+    assert!(store
+        .admit(&reservation, FIRST_PAYLOAD, FIRST_PAYLOAD, None)
+        .unwrap_err()
+        .contains("opaque-index-failure"));
     let writes = Arc::new(AtomicUsize::new(0));
     let count = writes.clone();
     let _bootstrap = BootstrapSubmitBoundary::install(
@@ -241,7 +253,13 @@ fn held_user_store_does_not_suppress_existing_ready_bootstrap_consumer() {
         &tab,
         Arc::new(|_, _| panic!("held user owner must not submit")),
     );
-    fixture.service.drain_user_owner(&tab).unwrap();
+    assert!(fixture
+        .service
+        .drain_user_owner(&tab)
+        .err()
+        .unwrap()
+        .contains("opaque-index-failure"));
+    assert!(store.tab(&tab).failed.load(Ordering::Acquire));
     assert_eq!(writes.load(Ordering::Acquire), 1);
     assert!(fixture
         .service
@@ -256,13 +274,9 @@ fn held_user_store_does_not_suppress_existing_ready_bootstrap_consumer() {
         .pending_delivery_payloads
         .resolve(&pending)
         .is_err());
-    assert!(fixture
-        .service
-        .pending_delivery_payloads
-        .user_sends
-        .records(&tab)
-        .unwrap()
-        .is_empty());
+    store.set_persistence_boundary(None);
+    assert!(store.records(&tab).unwrap().is_empty());
+    assert!(!store.tab(&tab).failed.load(Ordering::Acquire));
 }
 
 #[test]

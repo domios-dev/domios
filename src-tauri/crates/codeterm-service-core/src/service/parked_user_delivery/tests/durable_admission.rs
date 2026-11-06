@@ -1,6 +1,52 @@
 use super::*;
 
 #[test]
+fn qualified_store_failure_and_revocation_refuse_fresh_and_replay_reservations() {
+    let (fixture, tab) = queue_fixture(true, None);
+    let store = &fixture.service.pending_delivery_payloads.user_sends;
+    let authority = fixture.service.user_send_authority(&tab).unwrap();
+    let reservation = store
+        .reserve(authority.clone(), Some("client-a".into()), || {
+            (uuid::Uuid::new_v4().to_string(), 1)
+        })
+        .unwrap();
+    store.set_persistence_boundary(Some(Arc::new(|stage| {
+        if stage == "index" {
+            Err("opaque-index-failure".into())
+        } else {
+            Ok(())
+        }
+    })));
+    assert!(store
+        .admit(&reservation, FIRST_PAYLOAD, FIRST_PAYLOAD, None)
+        .unwrap_err()
+        .contains("opaque-index-failure"));
+    drop(reservation);
+    for token in ["client-b", "client-a"] {
+        let error = store
+            .reserve(authority.clone(), Some(token.into()), || {
+                panic!("failed storage must not allocate a send identity")
+            })
+            .err()
+            .unwrap();
+        assert!(error.contains("opaque-index-failure"));
+    }
+    store.set_persistence_boundary(None);
+    assert!(store.records(&tab).unwrap().is_empty());
+    assert!(!store.tab(&tab).failed.load(Ordering::Acquire));
+    store.tab(&tab).revoked.store(true, Ordering::Release);
+    for token in ["client-b", "client-a"] {
+        let error = store
+            .reserve(authority.clone(), Some(token.into()), || {
+                panic!("revoked storage must not allocate a send identity")
+            })
+            .err()
+            .unwrap();
+        assert!(error.contains("revoked"));
+    }
+}
+
+#[test]
 fn held_persistence_keeps_mux_ledger_and_unrelated_admission_available_without_false_acceptance() {
     let (fixture, tab) = queue_fixture(true, None);
     let (held_tx, held_rx) = mpsc::channel();
