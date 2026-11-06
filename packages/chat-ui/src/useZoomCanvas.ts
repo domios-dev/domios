@@ -64,9 +64,9 @@ export function useZoomCanvas({ bounds, focus, cameraKey, wheelBehavior, onNavig
   }, [containerRef]);
   useLayoutEffect(() => {
     if (imageCamera) {
-      const initial = imageCamera.initialize(bounds, size.width, size.height);
+      const initial = imageCamera.initialize(focus?.bounds ?? bounds, size.width, size.height);
       if (initial) {
-        if (imageCamera.restored) { modeRef.current = "custom"; setMode("custom"); }
+        if (imageCamera.restored || focus) { modeRef.current = "custom"; setMode("custom"); }
         setTransform(initial);
       }
       return;

@@ -173,7 +173,7 @@ test("late image dimensions and resize preserve the first camera and a custom ca
   }
 });
 
-test("phone fullscreen fits the gallery once and retains the selected image", async () => {
+test("phone fullscreen frames the clicked image once at readable scale and keeps the camera on navigation", async () => {
   frames.clear();
   const originalMatchMedia = window.matchMedia;
   const originalRect = window.HTMLElement.prototype.getBoundingClientRect;
@@ -185,8 +185,9 @@ test("phone fullscreen fits the gallery once and retains the selected image", as
   try {
     await act(async () => root.render(<ImageFullscreen image={images[17]} images={images} anchorRef={{ current: host }} onClose={() => {}} />));
     assert(document.querySelector('[aria-label="Save 17"]'));
-    assert.equal(document.querySelector('[aria-label="Fit all"]')?.getAttribute("aria-pressed"), "true");
+    assert.equal(document.querySelector('[aria-label="Fit all"]')?.getAttribute("aria-pressed"), "false");
     const layer = document.querySelector('[aria-label="Zoomable canvas"]')!.firstElementChild as HTMLElement;
+    assert(Number(/scale\(([^)]+)\)/.exec(layer.style.transform)![1]) > 0.3);
     const initial = layer.style.transform;
     await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="Next image"]')!.click());
     assert.equal(layer.style.transform, initial);
