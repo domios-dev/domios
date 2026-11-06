@@ -2,19 +2,19 @@ import type { NormalizedChatMessage } from "./types";
 
 /** Known IDs keep their slot; a new row lands before the next incoming row already merged. */
 export function mergeById<T extends NormalizedChatMessage>(prev: T[], incoming: T[]): T[] {
-  return mergeBatchesById([prev, incoming]);
+  const ordered = [...new Map(incoming.map(row => [row.id, row])).values()]
+    .sort((left, right) => left.seq != null && right.seq != null ? left.seq - right.seq : 0);
+  return mergeBatchesById([prev, ordered]);
 }
 
+/** Source segments already carry order; cached segments can contain restarted local ordinals. */
 export function mergeBatchesById<T extends NormalizedChatMessage>(batches: Iterable<readonly T[]>): T[] {
   interface Entry { value: T; previous: Entry | null; next: Entry | null }
   const known = new Map<string, Entry>();
   let first: Entry | null = null;
   let last: Entry | null = null;
-  let initial = true;
   for (const batch of batches) {
     const incoming = [...new Map(batch.map(row => [row.id, row])).values()];
-    if (!initial) incoming.sort((left, right) => left.seq != null && right.seq != null ? left.seq - right.seq : 0);
-    initial = false;
     let anchor: Entry | null = null;
     for (let index = incoming.length - 1; index >= 0; index--) {
       const value = incoming[index];
