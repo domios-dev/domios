@@ -1,5 +1,47 @@
 use super::{RuntimeFailure, RuntimeSettings, ServiceContext};
 
+pub(super) fn refused_start(
+    thread: Option<&str>,
+    state: Option<&serde_json::Value>,
+) -> Result<(), RuntimeFailure> {
+    if thread.is_none() {
+        if let Some(state) = state.filter(|state| {
+            state["state"] == "degraded" && state["failureCode"] == "provider_refused"
+        }) {
+            return Err(RuntimeFailure::Refused(
+                state["reason"]
+                    .as_str()
+                    .unwrap_or("Runtime start was refused; start a new session")
+                    .into(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+pub(super) async fn retire_refused_start(
+    svc: &ServiceContext,
+    session: &super::Session,
+    reason: &RuntimeFailure,
+) {
+    if !matches!(reason, RuntimeFailure::Refused(_)) || session.context.lock().thread_id.is_some() {
+        return;
+    }
+    let process = session.process.lock().take();
+    if let Some(process) = process {
+        if let Err(error) =
+            super::super::client_bridge::cancel_all(svc, session, &process, true).await
+        {
+            log::debug!("Refused runtime bridge cleanup: {error}");
+        }
+        if let Err(error) = process.finish().await {
+            log::debug!("Refused runtime process cleanup: {error}");
+        }
+    }
+    *session.hook_state.lock() = serde_json::Value::Null;
+    session.initialization.reset();
+}
+
 pub(super) fn require_launch_authority(
     svc: &ServiceContext,
     tab: &str,

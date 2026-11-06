@@ -404,6 +404,7 @@ async fn ensure_with_fork(
     if !super::requested_for_tab(svc, tab) {
         return Err(RuntimeFailure::Refused("Runtime capability absent".into()));
     }
+    launch::refused_start(thread.as_deref(), saved_state.as_ref())?;
     let mut retired_cli = false;
     let mut retired_session = None;
     let session = {
@@ -503,7 +504,14 @@ async fn ensure_with_fork(
             .await
             .map_err(|_| RuntimeFailure::Superseded)?;
         attempted.store(true, std::sync::atomic::Ordering::Release);
-        ensure_locked(svc, tab, &provider, &config, &session, fork.as_ref()).await
+        let result = ensure_locked(svc, tab, &provider, &config, &session, fork.as_ref()).await;
+        if let Err(reason) = &result {
+            launch::retire_refused_start(svc, &session, reason).await;
+            let mut state = session.state.lock();
+            let epoch = state.epoch;
+            state.degrade(epoch, reason);
+        }
+        result
     })
     .await
     .map_err(|_| RuntimeFailure::Deadline)
@@ -528,6 +536,9 @@ async fn ensure_locked(
     session: &Arc<Session>,
     fork: Option<&(String, String)>,
 ) -> Result<(), RuntimeFailure> {
+    let thread = session.context.lock().thread_id.clone();
+    let saved = serde_json::to_value(session.state.lock().snapshot()).ok();
+    launch::refused_start(thread.as_deref(), saved.as_ref())?;
     if fork.is_some() && session.context.lock().thread_id.is_some() {
         return Err(RuntimeFailure::Refused(
             "Fork startup requires an unbound child runtime".into(),

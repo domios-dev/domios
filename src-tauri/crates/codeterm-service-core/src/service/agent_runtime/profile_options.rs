@@ -88,6 +88,77 @@ fn selectable(option: &RuntimeConfigOption) -> bool {
     matches!(option.category.as_deref(), Some("model" | "thought_level"))
 }
 
+pub(crate) fn resolve(
+    options: &[RuntimeConfigOption],
+    category: &str,
+    requested: &str,
+) -> Result<String, String> {
+    let choices = options
+        .iter()
+        .filter(|option| option.category.as_deref() == Some(category))
+        .flat_map(|option| &option.options)
+        .collect::<Vec<_>>();
+    if let Some(choice) = choices.iter().find(|choice| choice.value == requested) {
+        return Ok(choice.value.clone());
+    }
+    let named = choices
+        .iter()
+        .filter(|choice| choice.name == requested)
+        .collect::<Vec<_>>();
+    if named.len() == 1 {
+        return Ok(named[0].value.clone());
+    }
+    let offered = choices
+        .iter()
+        .map(|choice| format!("{} (value: {})", choice.name, choice.value))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let title = if category == "model" {
+        "model"
+    } else {
+        "reasoning effort"
+    };
+    Err(format!(
+        "Requested {title} '{requested}' is not uniquely offered; offered choices: {}",
+        if offered.is_empty() {
+            "none; start the profile without explicit selections to discover its catalogue"
+        } else {
+            &offered
+        }
+    ))
+}
+
+impl crate::service::ServiceContext {
+    pub(crate) fn resolve_spawn_profile_options(
+        &self,
+        provider: &str,
+        params: &mut crate::service::SpawnAgentParams,
+    ) -> Result<(), String> {
+        let Some(id) = params.launch_profile.as_deref() else {
+            return Ok(());
+        };
+        let profile = super::launch_profile_install::declaration(self, provider, id)?;
+        let options = read(
+            &super::launch_profile_install::profile_root(provider)?,
+            id,
+            &profile,
+        );
+        let model = params
+            .model
+            .as_deref()
+            .map(|value| resolve(&options, "model", value))
+            .transpose()?;
+        let effort = params
+            .reasoning_effort
+            .as_deref()
+            .map(|value| resolve(&options, "thought_level", value))
+            .transpose()?;
+        params.model = model;
+        params.reasoning_effort = effort;
+        Ok(())
+    }
+}
+
 fn snapshot(profile: &RuntimeLaunchProfile, settings: &RuntimeSettings) -> Option<Snapshot> {
     codeterm_plugin::agent_runtime::validate_runtime_settings(settings).ok()?;
     let snapshot = Snapshot {

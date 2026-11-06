@@ -36,3 +36,110 @@ fn last_declared_options_round_trip_and_bind_to_profile() {
     assert!(path(root.path(), "../escape").is_none());
     assert!(path(root.path(), "NUL").is_none());
 }
+
+#[test]
+fn profile_catalogue_resolves_only_exact_values_or_unique_declared_names() {
+    let value = r#"["endpoint","model-a"]"#;
+    let options: Vec<RuntimeConfigOption> = serde_json::from_value(json!([
+        {"id":"engine","name":"Model","category":"model","currentValue":value,
+         "options":[{"value":value,"name":"Model A"},{"value":"other","name":"Repeated"},{"value":"third","name":"Repeated"}]},
+        {"id":"effort","name":"Effort","category":"thought_level","currentValue":"low",
+         "options":[{"value":"low","name":"Low"}]}
+    ])).unwrap();
+    assert_eq!(resolve(&options, "model", value).unwrap(), value);
+    assert_eq!(resolve(&options, "model", "Model A").unwrap(), value);
+    assert_eq!(resolve(&options, "thought_level", "Low").unwrap(), "low");
+    for requested in ["missing", "Repeated", "model a", "endpoint/model-a"] {
+        let error = resolve(&options, "model", requested).unwrap_err();
+        assert!(error.contains("Model A"));
+        assert!(error.contains(value));
+    }
+    assert!(resolve(&options, "thought_level", "Model A").is_err());
+    assert!(resolve(&[], "model", value).is_err());
+}
+
+#[test]
+fn profile_selections_are_resolved_before_spawn_creates_a_tab() {
+    use codeterm_plugin::js_runtime::{JsProvider, PluginManifest, PluginVm};
+    use std::sync::Arc;
+    let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    let provider = format!("profile-selection-{}", uuid::Uuid::new_v4());
+    let manifest = PluginManifest::from_json_str(
+        &json!({
+            "id":provider,"version":"1.0.0","displayName":"Fixture",
+            "capabilities":{"agentProvider":true,"agentRuntime":{
+                "runtime":"stdio-jsonrpc","command":{"binary":"fixture","args":[]},
+                "launchProfiles":{"selected":{"binary":"fixture","args":[]}},
+                "requestMethods":{"initialize":["initialize"]},"notificationMethods":[]}},
+            "spawn":{"readinessStrategy":{"kind":"fixed_delay","durationMs":0},
+                "taskDelivery":"pty_input","verifySubmit":{"kind":"none"}}
+        })
+        .to_string(),
+    )
+    .unwrap();
+    fixture
+        .service
+        .agent_registry
+        .register_provider(Box::new(JsProvider::new(
+            manifest,
+            Arc::new(PluginVm::from_source(&provider, "module.exports = {};".into()).unwrap()),
+        )));
+    let profile =
+        super::super::launch_profile_install::declaration(&fixture.service, &provider, "selected")
+            .unwrap();
+    let settings: RuntimeSettings = serde_json::from_value(json!({"configOptions":[
+        {"id":"model","name":"Model","category":"model","currentValue":"opaque-value",
+         "options":[{"value":"opaque-value","name":"Friendly"}]},
+        {"id":"effort","name":"Effort","category":"thought_level","currentValue":"low",
+         "options":[{"value":"low","name":"Low"}]}
+    ]}))
+    .unwrap();
+    let path = path(
+        &super::super::launch_profile_install::profile_root(&provider).unwrap(),
+        "selected",
+    )
+    .unwrap();
+    WRITES
+        .lock()
+        .latest
+        .insert(path.clone(), snapshot(&profile, &settings).unwrap());
+    let before = fixture.service.mux.read().snapshot().tabs.len();
+    let base = crate::service::SpawnAgentParams {
+        agent: Some(provider.clone()),
+        launch_profile: Some("selected".into()),
+        model: Some("Friendly".into()),
+        reasoning_effort: Some("low".into()),
+        ..Default::default()
+    };
+    for (model, effort, offered) in [
+        ("missing", "low", "Friendly"),
+        ("Friendly", "invalid", "Low"),
+    ] {
+        let error = fixture
+            .service
+            .spawn_agent_sync(crate::service::SpawnAgentParams {
+                model: Some(model.into()),
+                reasoning_effort: Some(effort.into()),
+                ..base.clone()
+            })
+            .unwrap_err();
+        assert!(error.contains("offered choices"), "{error}");
+        assert!(error.contains(offered), "{error}");
+        assert_eq!(fixture.service.mux.read().snapshot().tabs.len(), before);
+    }
+    let mut selected = base;
+    fixture
+        .service
+        .resolve_spawn_profile_options(&provider, &mut selected)
+        .unwrap();
+    assert_eq!(selected.model.as_deref(), Some("opaque-value"));
+    assert_eq!(selected.reasoning_effort.as_deref(), Some("low"));
+    let mut spec = crate::service::spawn::SpawnTabSpec::from_agent_params(selected);
+    spec.route_agent_to_chatbackend().unwrap();
+    let crate::service::spawn::TabCommand::ChatBackend { config, .. } = spec.command else {
+        panic!("runtime route missing")
+    };
+    assert_eq!(config["model"], "opaque-value");
+    WRITES.lock().latest.remove(&path);
+}
