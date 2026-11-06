@@ -34,7 +34,7 @@ async function mount(start: number, end: number, loadedRows = rows(start, end),
       loadHistoryPage,
       loadOlderPage: async cursor => {
         requests++;
-        if (sparse && requests <= 2) {
+        if (sparse && requests <= 8) {
           setTranscript(current => reduceTranscript(current, { kind: "backfill", authority,
             range: { start: cursor - 1, end: cursor, unit: "items" }, rows: [] }).state);
           return { cursor: cursor - 1, consumedBytes: 1024 * 1024, rows: 0 };

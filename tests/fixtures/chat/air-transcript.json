@@ -31,6 +31,9 @@
       "file snapshots"
     ],
     "blobPaddingBytes": 667748,
-    "imageResultPaddingBytes": 1335564
+    "imageResultPaddingBytes": 1335564,
+    "additionalSourceLines": [
+      17382
+    ]
   }
 }
