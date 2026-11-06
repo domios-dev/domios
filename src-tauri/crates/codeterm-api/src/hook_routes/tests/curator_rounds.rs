@@ -44,6 +44,7 @@ async fn journey(finish: bool, deadline: bool) {
         OrchestratorRef::default(),
     );
     plan.team_id = Some("fixture-team".into());
+    plan.mode = codeterm_service_core::plan::PlanMode::Execution;
     plan.control_loop.running = Some(CuratorRun {
         number: 1,
         started_at: now,
