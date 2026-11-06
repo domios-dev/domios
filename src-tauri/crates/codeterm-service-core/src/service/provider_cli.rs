@@ -1,4 +1,4 @@
-pub(crate) use codeterm_plugin::provider_cli::{observe_cli, ProviderCliStatus};
+pub(crate) use codeterm_plugin::provider_cli::ProviderCliStatus;
 pub fn provider_cli_status(
     registry: &crate::provider::ProviderRegistry,
     provider_id: &str,
