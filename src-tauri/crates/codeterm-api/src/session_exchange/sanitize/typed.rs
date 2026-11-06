@@ -6,6 +6,7 @@ use super::{filler, private_key, IDS};
 #[derive(Clone, Copy, Default)]
 pub(super) struct Sanitizer {
     preserve_string: bool,
+    typed_map_values: bool,
 }
 
 type Error = serde_json::Error;
@@ -126,7 +127,9 @@ impl serde::Serializer for Sanitizer {
     }
 
     fn serialize_map(self, _: Option<usize>) -> Result<Object> {
-        Ok(Object::new(""))
+        let mut object = Object::new("");
+        object.typed_map_values = self.typed_map_values;
+        Ok(object)
     }
 
     fn serialize_struct(self, name: &'static str, _: usize) -> Result<Object> {
@@ -184,6 +187,7 @@ pub(super) struct Object {
     name: &'static str,
     values: Map<String, Value>,
     key: Option<String>,
+    typed_map_values: bool,
 }
 
 impl Object {
@@ -192,6 +196,7 @@ impl Object {
             name,
             values: Map::new(),
             key: None,
+            typed_map_values: false,
         }
     }
 }
@@ -242,6 +247,7 @@ impl SerializeStruct for Object {
                 || preserve_report_status
                 || preserve_continuation
                 || IDS.contains(&key),
+            typed_map_values: self.name == "ControlLoop" && key == "agent_states",
         };
         self.values.insert(key.into(), value.serialize(sanitizer)?);
         Ok(())
@@ -270,8 +276,12 @@ impl SerializeMap for Object {
             .key
             .take()
             .ok_or_else(|| error("Plan map value missing key"))?;
-        let raw = serde_json::to_value(value)?;
-        let safe = super::walk(&raw, "", true, super::SchemaLocation::None).map_err(error)?;
+        let safe = if self.typed_map_values {
+            value.serialize(Sanitizer::default())?
+        } else {
+            let raw = serde_json::to_value(value)?;
+            super::walk(&raw, "", true, super::SchemaLocation::None).map_err(error)?
+        };
         self.values.insert(key, safe);
         Ok(())
     }
