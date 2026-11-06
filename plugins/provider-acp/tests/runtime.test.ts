@@ -438,6 +438,21 @@ for (const [name, reason] of [
 }
 console.log("✓ ACP honest model refusal reasons and zero outbound frames");
 
+for (const [name, reason] of [
+  ["prompt-images-refused", "did not declare image support"],
+  ["prompt-images-undeclared", "did not declare image support"],
+  ["prompt-image-bytes-missing", "bytes are unavailable"],
+  ["prompt-resource-refused", "attachment kind"],
+] as const) {
+  const fixture:Fixture=JSON.parse(fs.readFileSync(new URL(`${name}.json`,root),"utf8"));
+  const entry=fixture.operations[2];
+  const plan=hooks.runtimePlan(entry.context ?? fixture.context,entry.operation);
+  assertPlanRefusal(plan);
+  assert.ok(plan.action.kind === "refused" && plan.action.reason.includes(reason));
+  assert.equal(fixture.rpc.some(frame=>frame.direction === "outbound" && frame.operation === 2),false);
+}
+console.log("✓ ACP unsupported attachments refuse with actionable reasons before any prompt");
+
 for (const offered of [false,true]) {
   const instance=loadHooks();
   const context={...fixture.context,tabId:`no-replay-${offered}`,...(offered ? {hostMcp:{name:"domios",command:"/trusted/domios",args:[],env:{CODETERM_API_TOKEN:"<credential-placeholder>"}}} : {})};

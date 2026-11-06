@@ -510,6 +510,34 @@ test("three optimistic sends reconcile to ordered parts of one provider turn", a
   host.remove();
 });
 
+test("runtime early user row keeps two image chips through source echo", async () => {
+  const tabId = "runtime-image-delivery";
+  const { host, root, dispatch } = await renderChat(tabId);
+  const content = 'inspect <domios type="attachment" kind="image" path="/opaque/first.png" /> <domios type="attachment" kind="image" path="/opaque/second.png" />';
+  const attachments = ["first", "second"].map(name => ({ id: name, mimeType: "image/png", path: `/opaque/${name}.png`, data: "AQID" }));
+  const assertImages = () => {
+    const bubbles = host.querySelectorAll('[data-testid="chat-message"][data-message-role="user"]');
+    assert(bubbles.length === 1, "one user row retains both attachments");
+    for (const name of ["first", "second"]) {
+      assert(bubbles[0].querySelector(`[aria-label="Open image ${name}.png"]`), `${name} image remains accessible`);
+    }
+  };
+  try {
+    await act(async () => addChatSend(tabId, { id: "image-send", correlationId: "image-send", content, sentAtMs: Date.now() }));
+    assertImages();
+    for (const runtimeSourceItemId of [undefined, "provider-image-row"]) {
+      await act(async () => dispatch(`tab-chat-msg-${tabId}`, {
+        tab_id: tabId, source_session_id: "session-1", session_binding_nonce: "nonce-1",
+        messages: [{ id: "image-send", type: "user", content, attachments,
+          runtimeSourceItemId, correlationId: "image-send", timestamp: String(Date.now()) }],
+      }));
+      assertImages();
+    }
+  } finally {
+    await act(async () => root.unmount()); host.remove();
+  }
+});
+
 test("one bubble follows event state and Retry reuses it", async () => {
   const tabId = "bubble-delivery-states";
   const { __setInvokeForTest } = await import("../../lib/bridge");

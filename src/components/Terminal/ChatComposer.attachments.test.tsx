@@ -10,6 +10,7 @@ import { MuxStateStoreContext } from "../../store/multiplexer/context";
 import type { ExtendedState } from "../../store/multiplexer/tree";
 import { ComposerIssuesProvider } from "./ComposerIssuesContext";
 import { ChatComposer } from "./ChatComposer";
+import { parseAttachmentMarkers } from "@codeterm/chat-core";
 
 vi.mock("../../lib/frontendUpdate/draftStorage", () => ({
   createDraftStorage: () => ({ read: async () => new Map<string, string>(), write: async () => {} }),
@@ -20,6 +21,7 @@ beforeEach(() => configureDaemonFixture());
 
 const readable = { filePaths: true, inlineText: true, imagePaths: true };
 const inline = { filePaths: false, inlineText: true, imagePaths: false };
+const images = { filePaths: false, inlineText: true, imagePaths: true };
 
 it.each([
   ["file", "/opaque/note.txt", inline, false],
@@ -27,6 +29,9 @@ it.each([
   ["file", "/opaque/note.txt", readable, true],
   ["image", "/opaque/photo.png", readable, true],
   ["unknown", "/opaque/note.txt", undefined, false],
+  ["image-only runtime image", "/opaque/photo.png", images, true],
+  ["image-only runtime file", "/opaque/note.txt", images, false],
+  ["image-only runtime folder", "/opaque/folder", images, false],
 ] as const)("composer checks %s path capability before clearing: %s", async (_kind, path, capabilities, allowed) => {
   const descriptor = { id: "opaque", attachments: capabilities } as ProviderDescriptor;
   setAgentDescriptors([descriptor]);
@@ -45,6 +50,7 @@ it.each([
   const store = createMuxStateStore(() => state);
   const clear = vi.fn();
   const optimistic = vi.fn(() => "sent");
+  const updateOptimistic = vi.fn();
   const error = vi.fn();
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host);
@@ -53,7 +59,7 @@ it.each([
       <ChatComposer tabId="capability" tabProvider="opaque" currentPtyId={null} chatBackend pendingPrompt={null}
         attachments={[path]} addAttachments={() => {}} removeAttachment={() => {}} clearAttachments={clear}
         handlePasteEvent={() => {}} onWillSendMessage={() => {}} addOptimistic={optimistic}
-        updateOptimistic={() => {}} observeChatSendStatus={() => {}} showComposerError={error} />
+        updateOptimistic={updateOptimistic} observeChatSendStatus={() => {}} showComposerError={error} />
     </ComposerIssuesProvider></MuxStateStoreContext.Provider>));
     const editor = host.querySelector<HTMLTextAreaElement>("textarea")!;
     await act(async () => {
@@ -71,7 +77,10 @@ it.each([
     expect(clear).toHaveBeenCalledTimes(allowed ? 1 : 0);
     expect(optimistic).toHaveBeenCalledTimes(allowed ? 1 : 0);
     expect(sent).toHaveLength(allowed ? 1 : 0);
-    if (allowed) expect(sent[0]).toContain(path);
+    if (allowed) {
+      expect(parseAttachmentMarkers(sent[0]).attachments.map(item => item.path)).toEqual([path]);
+      expect(updateOptimistic).toHaveBeenCalledWith("sent", sent[0]);
+    }
     else {
       expect(editor.value).toBe("inspect opaque");
       expect(editor.getAttribute("aria-invalid")).toBe("true");

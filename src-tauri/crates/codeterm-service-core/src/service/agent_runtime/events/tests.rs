@@ -598,6 +598,12 @@ fn restart_replay_uses_source_identity_for_two_identical_written_prompts() {
             seq: ordinal as i64,
             kind: "user".into(),
             content: "identical opaque prompt".into(),
+            attachments: Some(vec![codeterm_types::agent::chat_types::ChatAttachment {
+                id: format!("image-{ordinal}"),
+                mime_type: "image/png".into(),
+                path: Some(format!("/opaque/image-{ordinal}.png")),
+                ..Default::default()
+            }]),
             ..Default::default()
         };
         put(&mut maps, 1, row);
@@ -618,6 +624,10 @@ fn restart_replay_uses_source_identity_for_two_identical_written_prompts() {
             panic!("Expected user row")
         };
         assert_eq!(item.runtime_source_item_id.as_deref(), Some(source));
+        assert_eq!(
+            item.attachments.as_ref().unwrap()[0].id,
+            format!("image-{ordinal}")
+        );
         rows.push(item);
     }
     let stored = serde_json::to_vec(&rows).unwrap();
@@ -655,6 +665,12 @@ fn restart_replay_uses_source_identity_for_two_identical_written_prompts() {
     }
     let users = cache.snapshot();
     assert_eq!(users.len(), 2);
+    for (ordinal, row) in users.iter().enumerate() {
+        assert_eq!(
+            row.attachments.as_ref().unwrap()[0].id,
+            format!("image-{ordinal}")
+        );
+    }
     assert_eq!(
         users[0].id,
         RuntimeMaps::written_input_id("t", "first-send")

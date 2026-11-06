@@ -9,6 +9,11 @@
   "icon": "icon.svg",
   "capabilities": {
     "agentProvider": true,
+    "attachments": {
+      "filePaths": false,
+      "inlineText": true,
+      "imagePaths": true
+    },
     "agentRuntime": {
       "runtime": "stdio-jsonrpc",
       "envelope": "jsonrpc2",

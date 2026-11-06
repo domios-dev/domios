@@ -36,8 +36,11 @@ contexts and expected outcomes are adapter assertions, not wire fields.
 The root scenario roster is declared in `tests/runtime-manifest.json`; native
 and JS replay require the exact discovered set.
 
-Text is baseline ACP v1 prompt content; image, audio and embedded resources are
-not sent. Client permission requests use the host approval queue. Filesystem and terminal
+`prompt-images` sends two base64 image blocks when promptCapabilities.image is true.
+The refusal scenarios cover false/absent image support, missing bytes and unsupported
+resource attachments, with no outbound prompt. File and folder attachments are refused
+by the composer; audio and embedded resources are not offered by this adapter.
+Client permission requests use the host approval queue. Filesystem and terminal
 requests are delegated to native handlers. Own-session updates use the same stream reducer for live and loaded history.
 
 ## Stream scenarios
