@@ -129,3 +129,56 @@ fn load_notice_preserves_the_agent_reason_and_clears_previous_epoch_messages() {
     state.finish_load_notice(None);
     assert!(state.snapshot().notice.is_none());
 }
+
+#[tokio::test]
+async fn refused_unbound_start_retires_process_and_remains_restartable() {
+    let (fixture, tab, _peer, _cleanup) = super::super::tests::sync_send::runtime_fixture();
+    let session = super::super::for_tab(&tab).unwrap();
+    let process = session.process.lock().clone().unwrap();
+    session.context.lock().thread_id = None;
+    session
+        .thread_loaded
+        .store(false, std::sync::atomic::Ordering::Release);
+    {
+        let mut mux = fixture.service.mux.write();
+        let target = mux.get_tab_mut(&tab).unwrap();
+        target.agent_session_id = None;
+        target.reported_session_binding_nonce = None;
+        if let crate::multiplexer::types::TabBacking::ChatBackend { session_id, .. } =
+            &mut target.backing
+        {
+            session_id.clear();
+        }
+    }
+    let reason = RuntimeFailure::Refused("opaque option refusal".into());
+    retire_refused_start(&fixture.service, &session, &reason).await;
+    assert!(process.terminated());
+    assert!(session.process.lock().is_none());
+    assert!(session.adapter.lock().is_some());
+    super::super::validate_restart_binding(&fixture.service, &session).unwrap();
+    let saved = serde_json::json!({"state":"degraded","failureCode":"provider_refused","reason":"opaque refusal"});
+    assert!(refused_start(None, Some(&saved)).is_err());
+    assert!(refused_start(Some("bound-thread"), Some(&saved)).is_ok());
+    session
+        .state
+        .lock()
+        .degrade(session.context.lock().epoch, &reason);
+    let result = super::super::ensure_locked(
+        &fixture.service,
+        &tab,
+        &session.provider,
+        &serde_json::json!({}),
+        &session,
+        None,
+    )
+    .await;
+    assert!(
+        matches!(result, Err(RuntimeFailure::Refused(message)) if message.contains("opaque option refusal") && !message.contains("already bound"))
+    );
+    session.state.lock().phase = super::super::RuntimePhase::Unloaded { reason: None };
+    assert!(refused_start(
+        None,
+        Some(&serde_json::to_value(session.state.lock().snapshot()).unwrap())
+    )
+    .is_ok());
+}

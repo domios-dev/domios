@@ -105,6 +105,7 @@ impl ServiceContext {
         }
         self.move_chatbackend_task_to_system_prompt(&agent, &mut params)?;
         self.apply_model_preset(&agent, &mut params)?;
+        self.resolve_spawn_profile_options(&agent, &mut params)?;
         params.model = crate::service::spawn::resolve_agent_model_selection(
             &self.agent_registry,
             Some(&agent),
@@ -262,6 +263,7 @@ impl ServiceContext {
             let provider = agent_cmd.clone();
             params = tokio::task::spawn_blocking(move || {
                 svc.apply_model_preset(&provider, &mut params)?;
+                svc.resolve_spawn_profile_options(&provider, &mut params)?;
                 Ok::<_, String>(params)
             })
             .await

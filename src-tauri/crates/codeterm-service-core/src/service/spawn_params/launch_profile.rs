@@ -146,6 +146,7 @@ impl ServiceContext {
         params: &crate::service::SpawnAgentParams,
     ) -> Result<(), SpawnTargetRefusal> {
         self.validate_launch_profile(provider, params.launch_profile.as_deref())?;
+        self.resolve_spawn_profile_options(provider, &mut params.clone())?;
         crate::service::execution_sandbox::preflight(
             &self.agent_registry,
             provider,

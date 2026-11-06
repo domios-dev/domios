@@ -49,8 +49,8 @@
     {
       "id": "acp",
       "path": "provider-acp",
-      "version": "0.1.0",
-      "minCodeterm": "1.18.7"
+      "version": "0.1.1",
+      "minCodeterm": "1.19.1"
     }
   ],
   "retired": [

@@ -579,3 +579,36 @@ fn disk_transcript_survives_restart_without_replay_and_with_resume_refusal() {
         std::fs::remove_file(path).unwrap();
     }
 }
+
+#[test]
+fn refused_unbound_start_has_one_typed_snapshot_state_before_and_after_restore() {
+    use crate::service::tab_chat::runtime_stored::StoredHistoryFailure;
+    let (fixture, _cwd, _provider, tab_id) = fixture(false);
+    {
+        let mut mux = fixture.service.mux.write();
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.agent_session_id = None;
+        tab.reported_session_binding_nonce = None;
+        tab.agent_runtime_state = Some(serde_json::json!({
+            "state":"degraded","failureCode":"provider_refused","reason":"opaque option refusal"
+        }));
+        if let TabBacking::ChatBackend { session_id, .. } = &mut tab.backing {
+            session_id.clear();
+        }
+    }
+    let error = for_tab(&fixture.service, &tab_id).unwrap_err();
+    assert_eq!(
+        StoredHistoryFailure::from_error(&error),
+        Some(StoredHistoryFailure::Unavailable)
+    );
+    {
+        let mut mux = fixture.service.mux.write();
+        *mux = MultiplexerState::from_session_snapshot(&mux.to_session_snapshot());
+    }
+    let restored = for_tab(&fixture.service, &tab_id).unwrap_err();
+    assert_eq!(
+        StoredHistoryFailure::from_error(&restored),
+        Some(StoredHistoryFailure::Unavailable)
+    );
+    assert!(engine::for_tab(&tab_id).is_none());
+}

@@ -22,9 +22,7 @@
       "operation": {
         "kind": "openThread",
         "instructions": "",
-        "settings": {
-          "model": "unreported-request"
-        }
+        "settings": {}
       }
     },
     {
@@ -157,12 +155,28 @@
       {
         "operation": 1,
         "step": {
-          "kind": "refused",
-          "reason": {
-            "code": "provider_refused",
-            "message": "Requested model 'unreported-request' is not offered; offered values: none"
-          },
-          "beforeAcceptance": true
+          "kind": "complete",
+          "result": {
+            "kind": "threadLoaded",
+            "threadId": "session-fixture",
+            "settings": {
+              "commands": [],
+              "configOptions": [
+                {
+                  "id": "model",
+                  "name": "Model",
+                  "currentValue": "not-a-model-declaration",
+                  "options": [
+                    {
+                      "value": "unreported-request",
+                      "name": "Undeclared"
+                    }
+                  ]
+                }
+              ],
+              "modes": []
+            }
+          }
         }
       }
     ],

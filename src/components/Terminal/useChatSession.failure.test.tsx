@@ -1,6 +1,6 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, expect, it } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { __setInvokeForTest, __setListenForTest } from "../../lib/bridge";
 import { useChatSession } from "./useChatSession";
 import { clearTranscriptWindows } from "./transcriptStore";
@@ -52,6 +52,36 @@ afterEach(async () => {
   __setInvokeForTest(null);
   __setListenForTest(null);
   clearTranscriptWindows();
+  vi.useRealTimers();
+});
+
+it("reports an unbound refused-start snapshot once across time and parent renders", async () => {
+  vi.useFakeTimers();
+  let failures = 0;
+  let latest: ReturnType<typeof useChatSession> | undefined;
+  const error = "runtime_history_unavailable: Runtime start failed before a conversation was bound; start a new session";
+  __setInvokeForTest((async (command: string) => {
+    if (command !== "chat_start") return [];
+    starts++;
+    throw new Error(error);
+  }) as never);
+  function RefusedStart({ revision }: { revision: number }) {
+    latest = useChatSession({ tabId: "refused-unbound", agentSessionId: null,
+      sessionBindingNonce: "refused-nonce", active: true, allowUnboundAuthority: true,
+      onError: () => { failures++; } });
+    return <div data-revision={revision}>{latest.error}</div>;
+  }
+  await act(async () => root.render(<RefusedStart revision={0} />));
+  expect(starts).toBe(1);
+  expect(failures).toBe(1);
+  expect(latest?.attachmentState).toBe("failed");
+  expect(latest?.loading).toBe(false);
+  expect(host.textContent).toBe(error);
+  await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+  await act(async () => root.render(<RefusedStart revision={1} />));
+  expect(starts).toBe(1);
+  expect(failures).toBe(1);
+  expect(vi.getTimerCount()).toBe(0);
 });
 
 it("shows a failed snapshot and Retry commits a fresh authoritative transcript", async () => {
