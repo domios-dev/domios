@@ -77,7 +77,13 @@ module.exports = {
     }
     if (op.kind === 'control') {
       if (op.value.model === 'refuse') return {kind:'refused',reason:{code:'provider_refused',message:'settings refused'}};
-      if (op.value.serviceTier === undefined) events = [{kind:'controlsConfirmed',threadId:op.threadId,settings:op.value}];
+      if (op.action === 'config') {
+        if (op.value.value === 'refuse') return {kind:'refused',reason:{code:'provider_refused',message:'selection refused'}};
+        const options = ctx.settings.configOptions.map(option => option.id !== op.value.id || op.value.value === 'unconfirmed' ? option : {...option,currentValue:op.value.value});
+        const model = options.find(option => option.category === 'model').currentValue;
+        const effort = options.find(option => option.category === 'thought_level').currentValue;
+        events = [{kind:'controlsConfirmed',threadId:op.threadId,settings:{model,effort,configOptions:options}}];
+      } else if (op.value.serviceTier === undefined) events = [{kind:'controlsConfirmed',threadId:op.threadId,settings:op.value}];
     }
     return {kind:'complete',result,events};
   },
@@ -216,6 +222,14 @@ fn runtime_control_confirmation_updates_recorded_model_and_next_turn_settings() 
         );
         assert!(tab.pending_model_selection.is_none());
         assert_eq!(tab.restorable_launch.model.as_deref(), Some("target"));
+        assert_eq!(
+            tab.restorable_launch.requested_reasoning_effort.as_deref(),
+            Some("high")
+        );
+        assert_eq!(
+            tab.reasoning_effort_identity.requested.as_deref(),
+            Some("high")
+        );
         assert_eq!(
             tab.agent_runtime_config.as_ref().unwrap()["model"],
             "target"
@@ -704,3 +718,5 @@ fn confirmed_model_change_clears_a_stale_load_notice() {
         serde_json::Value::Null
     );
 }
+#[path = "tests/live_selections.rs"]
+mod live_selections;

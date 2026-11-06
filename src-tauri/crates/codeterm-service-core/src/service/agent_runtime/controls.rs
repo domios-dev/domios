@@ -298,12 +298,6 @@ async fn switch_inner(
         {
             return Err(RuntimeFailure::Superseded);
         }
-        target.restorable_launch.model = Some(actual_model.clone());
-        if !model.trim().is_empty() {
-            target.restorable_launch.requested_model = Some(model.trim().into());
-            target.agent_requested_model = Some(model.trim().into());
-        }
-        target.restorable_launch.resolved_reasoning_effort = confirmed.effort.clone();
         target.restorable_launch.structured_runtime_mode = persisted_mode.clone();
         if let (Some(options), Some(mode)) = (
             target.restorable_launch.runtime_launch_options.as_mut(),
@@ -316,23 +310,13 @@ async fn switch_inner(
         let config = target
             .agent_runtime_config
             .get_or_insert_with(|| serde_json::json!({}));
-        for (key, value) in [
-            ("model", &confirmed.model),
-            ("effort", &confirmed.effort),
-            ("mode", &persisted_mode),
-        ] {
-            if let Some(value) = value {
-                config[key] = value.clone().into();
-            }
+        if let Some(value) = &persisted_mode {
+            config["mode"] = value.clone().into();
         }
     }
     session.state.lock().notice = None;
     engine::publish_controls(svc, tab, &session);
-    crate::service::session_persist::persist_session_after_mutation(
-        svc,
-        crate::service::session_persist::SessionPersistUrgency::Prompt,
-    )
-    .map_err(RuntimeFailure::Refused)?;
+    super::selections::persist(svc, &session, &before, &settings, &confirmed)?;
     svc.emit_state_changed(MuxEmitCause::RuntimeSignal);
     Ok(ModelSwitchOutcome {
         tab_id: tab.into(),

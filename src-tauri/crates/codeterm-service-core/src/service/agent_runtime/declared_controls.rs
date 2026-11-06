@@ -1,6 +1,6 @@
 use super::engine::{self, Session};
 use crate::service::ServiceContext;
-use codeterm_plugin::agent_runtime::RuntimeOperation;
+use codeterm_plugin::agent_runtime::{RuntimeOperation, RuntimeResult, RuntimeSettings};
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use std::{sync::Arc, time::Duration};
@@ -74,18 +74,34 @@ pub async fn select(svc: &ServiceContext, tab: &str, request: Selection) -> Resu
     if !allowed {
         return Err("Control value was not advertised by this session".into());
     }
+    let category = (!request.mode)
+        .then(|| {
+            context
+                .settings
+                .config_options
+                .as_ref()
+                .and_then(|options| options.iter().find(|option| option.id == request.id))
+                .and_then(|option| option.category.clone())
+        })
+        .flatten();
+    let requested = RuntimeSettings {
+        model: (category.as_deref() == Some("model")).then(|| request.value.clone()),
+        effort: (category.as_deref() == Some("thought_level")).then(|| request.value.clone()),
+        ..Default::default()
+    };
+    session.controls_confirmation.lock().take();
     let process = session
         .process
         .lock()
         .clone()
         .ok_or("Runtime unavailable")?;
-    engine::run(
+    let result = engine::run(
         svc,
         &session.provider,
         &session,
         &process,
         RuntimeOperation::Control {
-            thread_id: context.thread_id,
+            thread_id: context.thread_id.clone(),
             action: if request.mode { "mode" } else { "config" }.into(),
             value: if request.mode {
                 json!(request.value)
@@ -96,6 +112,18 @@ pub async fn select(svc: &ServiceContext, tab: &str, request: Selection) -> Resu
     )
     .await
     .map_err(|e| e.to_string())?;
+    if !matches!(result, RuntimeResult::Done) {
+        return Err("Runtime did not apply requested control".into());
+    }
+    if requested.model.is_some() || requested.effort.is_some() {
+        let confirmed = session
+            .controls_confirmation
+            .lock()
+            .take()
+            .ok_or("Runtime did not confirm requested selection")?;
+        super::selections::persist(svc, &session, &context, &requested, &confirmed)
+            .map_err(|e| e.to_string())?;
+    }
     Ok(json!({"ok":true}))
 }
 
