@@ -29,6 +29,10 @@ export interface AgentRuntimeState {
 
 export type RuntimeHistoryState = "loading" | "complete" | "failed";
 
+export function runtimeSessionLoadRefused(state: AgentRuntimeState | null | undefined): boolean {
+  return state?.state === "degraded" && state.failureCode === "session_load_refused";
+}
+
 export function runtimeResponseDeadlinePending(
   state: AgentRuntimeState | null | undefined,
   bootFailureReason?: string | null,
@@ -100,6 +104,7 @@ export function runtimeRetryFailed(current: AgentRuntimeState | null, reason: st
 }
 
 export function runtimeStatusPresentation(state: AgentRuntimeState | null, startupOwned = false) {
+  if (runtimeSessionLoadRefused(state)) return null;
   if (state?.state === "loginPending") return { severity: "action_needed" as const,
     label: "Sign-in required", reason: "Sign in to continue.", details: null, canRetry: true };
   if (runtimeResponseDeadlinePending(state)) {

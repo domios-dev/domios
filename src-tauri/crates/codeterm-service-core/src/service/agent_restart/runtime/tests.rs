@@ -9,6 +9,7 @@ use std::sync::Arc;
 mod provider_switch;
 mod rebind;
 mod recovery;
+mod restore;
 mod sign_in;
 
 #[test]

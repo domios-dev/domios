@@ -373,7 +373,9 @@ function TabSessionChatBody({
   const remoteChatReconnecting = tab?.remote_channels?.chat === "reconnecting";
   const chatChannelLoading = !firstTurnReady && !tabLock.locked && attachmentState !== "failed" && !runtimeFailed && (loading || recovering || (!hasTranscript && remoteChatReconnecting));
   const chatLoading = chatChannelLoading;
+  const restoreLoadRefused = runtime.state?.state === "degraded" && runtime.state.failureCode === "session_load_refused";
   const setupView = runtimeUnavailable && snapshotReady && !tabLock.locked && attachmentState !== "failed" && bootSetupView.kind !== "launch_failed" ? { kind: "none" as const } : chatBodyView({
+    restoreLoadRefused,
     firstTurnReady,
     hasTranscript,
     hasHeldWindow,
@@ -867,7 +869,21 @@ function TabSessionChatBody({
     onOpenTerminalFallback, handleJumpToShellCommand, resolveFocusTab, jumpToQuoted, answerNotification, deleteSend, retryChatDelivery,
     forkFrom, revertTo]);
 
-  const showEmptyState = setupView.kind === "none"
+  const setupState = (<ChatSetupState
+          visible={isActive}
+          waitingMessages={heldMessagesForLaunch(deliverySends)}
+          workspace={planNav.workspaces.find(workspace => workspace.id === workspaceId)}
+          tab={tab}
+          view={setupView}
+          providerName={provider?.displayName ?? "the agent"}
+          providerIconSvg={provider?.iconSvg}
+          providerIconColor={provider?.iconColor}
+          providerIconHint={provider?.iconHint}
+          onEscape={focusComposer}
+          onRetry={retryAttachment}
+          lock={tabLock}
+        />);
+  const showEmptyState = !restoreLoadRefused && setupView.kind === "none"
     && !chatLoading
     && renderedEnrichedMessages.length === 0
     && outboundReports.length === 0
@@ -1039,23 +1055,11 @@ function TabSessionChatBody({
         {isActive && reportPlacement.trailing.map(renderOutboundReport)}
         {isActive && askPlacement.trailing.map(renderAsk)}
         <ChatLiveOperation message={liveOperation} />
+        {restoreLoadRefused && setupState}
         </div>
       </div>
       </CompactToolRowsProvider>
-        <ChatSetupState
-          visible={isActive}
-          waitingMessages={heldMessagesForLaunch(deliverySends)}
-          workspace={planNav.workspaces.find(workspace => workspace.id === workspaceId)}
-          tab={tab}
-          view={setupView}
-          providerName={provider?.displayName ?? "the agent"}
-          providerIconSvg={provider?.iconSvg}
-          providerIconColor={provider?.iconColor}
-          providerIconHint={provider?.iconHint}
-          onEscape={focusComposer}
-          onRetry={retryAttachment}
-          lock={tabLock}
-        />
+        {!restoreLoadRefused && setupState}
       <MessageSelectionBar
         count={messageSelection.count}
         partial={messageSelection.partial}

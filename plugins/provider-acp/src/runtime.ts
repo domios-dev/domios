@@ -262,6 +262,8 @@ export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue,
         promoteQueued(ctx,state);
       }
     }
+    if (op.kind === "resumeThread" && sessionOperation && reply.error.code !== -32000)
+      return refused("session_load_refused", reply.error.message);
     if (sessionOperation && ![-32000,-32002,-32601].includes(reply.error.code) && state && !state.sessionActive && object(raw).mcpOffered === true && ctx.hostMcp) {
       state.mcpUnavailable=`Domios tools are unavailable for this agent: ${Array.from(reply.error.message).slice(0,1000).join("")}`;
       const plan=request(method as string,{...(op.kind === "resumeThread" ? {sessionId:op.threadId} : {}),cwd:ctx.cwd,mcpServers:[]});

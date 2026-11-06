@@ -1049,11 +1049,15 @@ impl Tab {
 
     pub fn archive_context_epoch(&mut self, provider: &str, session_id: &str) {
         let cwd = self.cwd.clone().unwrap_or_default();
+        let transport = match self.backing {
+            TabBacking::ChatBackend { .. } => ContextEpochTransport::ChatBackend,
+            _ => ContextEpochTransport::AgentProvider,
+        };
         self.archive_provider_session(
             provider,
             &cwd,
             session_id,
-            ContextEpochTransport::AgentProvider,
+            transport,
             ContextEpochBoundary::ContextReset,
         );
     }

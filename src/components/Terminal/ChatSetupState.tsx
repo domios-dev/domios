@@ -13,6 +13,8 @@ import { openLockedPlans } from "../billing/freeLimitGate";
 import { useRestartTab } from "./useRestartTab";
 import { describeRuntimeConnectionError } from "../../lib/describeError";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
+import { runtimeSessionLoadRefused } from "../../lib/agentRuntimeState";
+import { useStartNewSession } from "./useStartNewSession";
 
 export { chatSetupView } from "./chatSetupModel";
 
@@ -47,6 +49,7 @@ export function ChatSetupState({
   lock,
 }: ChatSetupStateProps) {
   const recovery = useRestartTab(tab?.id);
+  const fresh = useStartNewSession(tab?.id ?? "");
   const handleKeyDown = useCallback((event: React.KeyboardEvent) => {
     if (event.key !== "Escape") return;
     event.preventDefault();
@@ -55,6 +58,16 @@ export function ChatSetupState({
 
   if (view.kind === "locked") {
     return lock ? <LockedOverlay view={lock} onActivate={() => openLockedPlans(lock)} /> : null;
+  }
+  if (runtimeSessionLoadRefused(tab?.agent_runtime_state)) {
+    const detail = tab?.agent_runtime_state?.reason ?? "";
+    return <div className="relative z-20 mx-auto my-2 w-full max-w-2xl" data-testid="chat-launch-failed">
+      <TabLaunchFailure tabId={tab?.id} workspace={workspace} reason={detail} inline
+        description={{ title: "The agent no longer has this session", cause: "", raw: detail, actions: [] }}
+        actions={[{ label: fresh.startingNewSession ? "Starting…" : "Start new session", ariaLabel: "Start new session",
+          disabled: fresh.startingNewSession, onClick: () => void fresh.onStartNewSession() }]} />
+      {fresh.actionError && <InlineErrorNotice error={fresh.actionError} operation="starting a new session" />}
+    </div>;
   }
   if (view.kind === "attach_failed") {
     const failure = describeRuntimeConnectionError(view.reason);

@@ -142,12 +142,8 @@
     "model-option-load-refused.json",
     "mcp-not-declared.json",
     "mcp-advertised.json",
-    "mcp-fallback-load-failure.json",
-    "mcp-fallback-load-success.json",
     "mcp-fallback-new-failure.json",
     "mcp-fallback-new-success.json",
-    "mcp-fallback-resume-failure.json",
-    "mcp-fallback-resume-success.json",
     "mcp-fallback-generic-error.json",
     "mcp-no-fallback-auth.json",
     "mcp-no-fallback-session-missing.json",
@@ -175,6 +171,9 @@
     "profile-selection-valid.json",
     "profile-selection-invalid.json",
     "session-authenticated.json",
-    "context-only-usage.json"
+    "context-only-usage.json",
+    "load-refused.json",
+    "load-refused-with-mcp.json",
+    "resume-refused-with-mcp.json"
   ]
 }

@@ -167,6 +167,9 @@ async fn restart_inner(
             target.agent_runtime_state = serde_json::to_value(state.snapshot()).ok();
         }
         if fresh {
+            if let Some(thread) = &old_thread {
+                target.archive_context_epoch(provider, thread);
+            }
             target.agent_session_id = None;
             target.agent_session_name = None;
             target.restored_from_snapshot = false;

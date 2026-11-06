@@ -295,6 +295,17 @@ pub(super) fn archived_window(
     let Some(provider) = svc.agent_registry.provider_arc(provider_id) else {
         return Ok(None);
     };
+    if let Some(capability) = provider.agent_runtime() {
+        if let Some(messages) = crate::service::agent_runtime::engine::persisted_transcript(
+            provider_id,
+            session,
+            &capability,
+        )
+        .map_err(|error| StoredHistoryFailure::Unavailable.error(error))?
+        {
+            return Ok(Some((messages, 0)));
+        }
+    }
     if !provider
         .agent_runtime()
         .is_some_and(|capability| capability.stored_history)
