@@ -11,6 +11,7 @@ import {
   stabilizeTimelineItems,
   timestampMs,
   transcriptBackfillCursor,
+  transcriptCommittedEnd,
   transcriptRows,
   type NormalizedChatMessage,
   type SendEcho,
@@ -291,7 +292,7 @@ export function useChatWindowView({
     const id = `opt-${sentAtMs}-${Math.floor(Math.random() * 1e6)}`;
     // The bubble's own id doubles as its send-correlation token.
     addChatSend(tabId, { id, content, sentAtMs, correlationId: id, localAttempt,
-      echoBoundary: captureSendEchoBoundary(transcript.authority ?? attachedAuthority, committedRows) });
+      echoBoundary: captureSendEchoBoundary(transcript.authority ?? attachedAuthority, committedRows, transcriptCommittedEnd(transcript)) });
     return id;
   }, [tabId]);
 
