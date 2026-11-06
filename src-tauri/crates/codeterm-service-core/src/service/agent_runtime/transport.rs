@@ -214,6 +214,26 @@ pub(super) fn runtime_input(
     }
 }
 
+fn load_image_bytes(mut input: TurnInput) -> Result<TurnInput, RuntimeFailure> {
+    use base64::Engine;
+    let mut remaining = MAX_RUNTIME_VALUE_BYTES as u64;
+    for attachment in &mut input.attachments {
+        if attachment.data.is_some() || !attachment.mime_type.starts_with("image/") {
+            continue;
+        }
+        let path = attachment.path.as_deref().ok_or_else(|| {
+            RuntimeFailure::Refused("Image attachment path is unavailable".into())
+        })?;
+        let bytes = crate::attachments::read_complete_file(std::path::Path::new(path), remaining)
+            .map_err(RuntimeFailure::Refused)?;
+        remaining = remaining.saturating_sub(bytes.len() as u64);
+        attachment.data = Some(base64::prelude::BASE64_STANDARD.encode(bytes));
+    }
+    validate_runtime_size(&input, MAX_RUNTIME_VALUE_BYTES)
+        .map_err(|reason| RuntimeFailure::Refused(reason.to_string()))?;
+    Ok(input)
+}
+
 pub(crate) async fn submit_loaded(
     svc: &ServiceContext,
     session: &Arc<Session>,
@@ -247,6 +267,30 @@ pub(crate) async fn submit_loaded(
     super::capture::validate_if_present(svc, tab, send_id)
         .map_err(|reason| before_write(tab, reason))?;
     engine::validate_binding(svc, &session).map_err(|error| before_write(tab, error))?;
+    let input = if input.attachments.is_empty() {
+        input
+    } else {
+        crate::async_runtime::spawn_blocking(move || load_image_bytes(input))
+            .await
+            .map_err(|reason| RuntimeFailure::HookFailed(reason.to_string()))
+            .and_then(|result| result)
+            .map_err(|reason| DeliveryError::TabBusyRefused {
+                tab: tab.into(),
+                detail: format!("{REJECTED_BEFORE_WRITE}: {reason}"),
+            })?
+    };
+    engine::validate_binding(svc, &session).map_err(|error| before_write(tab, error))?;
+    super::capture::validate_if_present(svc, tab, send_id)
+        .map_err(|reason| before_write(tab, reason))?;
+    {
+        let current = session.context.lock();
+        if current.epoch != context.epoch
+            || current.binding_nonce != context.binding_nonce
+            || current.thread_id != context.thread_id
+        {
+            return Err(before_write(tab, RuntimeFailure::Superseded));
+        }
+    }
     if context.claimed_sends.len() >= MAX_RUNTIME_BATCH
         || serde_json::to_vec(&input).map_or(true, |value| value.len() > MAX_RUNTIME_VALUE_BYTES)
     {

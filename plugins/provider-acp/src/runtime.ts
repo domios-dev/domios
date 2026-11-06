@@ -234,10 +234,20 @@ export function runtimePlan(ctx:RuntimeContext, op:Operation):RuntimePlan {
       const slash=op.input.text.match(/^\/([^\s]+)(?:\s|$)/);
       if (slash && !state.settings?.commands?.some(command=>command.name === slash[1]))
         return refusePlan("Command was not advertised by this session");
-      if (op.input.attachments.length) return refusePlan("ACP lifecycle supports text prompts only");
+      const images:JsonValue[] = [];
+      for (const attachment of op.input.attachments) {
+        if (!attachment.mimeType.startsWith("image/"))
+          return refusePlan("This ACP agent cannot receive this attachment kind. Remove the attachment before sending.");
+        if (object(state.capabilities.promptCapabilities).image !== true)
+          return refusePlan("This ACP agent did not declare image support. Remove image attachments before sending.");
+        if (!attachment.data)
+          return refusePlan("Image attachment bytes are unavailable. The message was not sent.");
+        images.push({type:"image",data:attachment.data,mimeType:attachment.mimeType});
+      }
       const prompt:JsonValue[] = [];
       if (state.instructions) prompt.push({type:"text", text:state.instructions});
       prompt.push({type:"text", text:op.input.text});
+      prompt.push(...images);
       const ordinal=Math.max(state.promptOrdinal ?? 0,state.cursor.prompt,Number(object(state.projection).turn) || 0,ctx.restoredRowOrdinal ?? 0,...(state.queued ?? []).map(value=>value.prompt))+1;
       state.promptOrdinal=ordinal;
       if (state.inFlight) {

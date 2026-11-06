@@ -179,6 +179,11 @@
     "load-refused.json",
     "load-refused-with-mcp.json",
     "resume-refused-with-mcp.json",
-    "session-models-only.json"
+    "session-models-only.json",
+    "prompt-images.json",
+    "prompt-images-refused.json",
+    "prompt-images-undeclared.json",
+    "prompt-image-bytes-missing.json",
+    "prompt-resource-refused.json"
   ]
 }
