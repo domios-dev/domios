@@ -28,6 +28,7 @@ use crate::service::tab_chat::{
 
 mod host_wake;
 mod large_sessions;
+mod air_transcript;
 
 struct Collector {
     msgs: Mutex<Vec<RichMessage>>,
