@@ -1,6 +1,20 @@
 use super::*;
 
 #[test]
+fn restored_profile_icon_reaches_snapshot_only_for_current_epoch() {
+    let mut state = RuntimeState::unloaded(Some("restored-thread".into()));
+    state.epoch = 7;
+    state.icon_svg = Some(String::new());
+    let icon = "<svg><path d=\"M1 1\"/></svg>";
+    assert!(apply_icon(&mut state, 7, Some(icon.into())));
+    assert_eq!(state.snapshot().icon_svg.as_deref(), Some(icon));
+    assert!(!apply_icon(&mut state, 6, Some("<svg/>".into())));
+    assert!(!apply_icon(&mut state, 7, Some("  ".into())));
+    assert!(!apply_icon(&mut state, 7, None));
+    assert_eq!(state.snapshot().icon_svg.as_deref(), Some(icon));
+}
+
+#[test]
 fn identity_lookup_requires_exact_unambiguous_registry_evidence() {
     let root = tempfile::tempdir().unwrap();
     std::fs::create_dir(root.path().join("cache")).unwrap();

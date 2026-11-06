@@ -22,10 +22,12 @@ export function AgentIcon({ providerId, tab, profileId, className, style, title,
   const descriptor = liveDescriptor ?? cachedIcon;
   const provider = useTabProvider(tab);
   const profile = liveDescriptor?.agent_runtime?.launchProfiles?.[profileId ?? ""];
+  const profileScoped = profileId !== undefined || typeof tab?.agent_runtime_config?.launchProfile === "string" || liveDescriptor?.agent_runtime?.launchProfiles !== undefined;
+  const genericIcon = profileScoped ? undefined : descriptor?.icon_svg;
   return (
     <ProviderGlyph
-      iconSvg={provider?.iconSvg ?? profile?.iconSvg ?? descriptor?.icon_svg}
-      fallbackIconSvg={descriptor?.icon_svg}
+      iconSvg={provider?.iconSvg || profile?.iconSvg || genericIcon}
+      fallbackIconSvg={provider?.fallbackIconSvg || genericIcon}
       iconColor={descriptor?.icon_color}
       iconHint={descriptor?.icon_hint}
       className={className}
