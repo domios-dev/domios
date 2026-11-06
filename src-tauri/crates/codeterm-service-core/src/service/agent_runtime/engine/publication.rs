@@ -145,6 +145,9 @@ fn publish_state(svc: &ServiceContext, tab: &str, session: &Session, lifecycle: 
                 target.frozen = true;
             }
         }
+        if super::super::start_failure::matches(target, &value) {
+            value["failureCode"] = serde_json::json!(RuntimeFailureCode::RuntimeStartUnbound);
+        }
         target.agent_runtime_state = Some(value.clone());
         if lifecycle {
             target.agent_booting = value["state"] == "loading";

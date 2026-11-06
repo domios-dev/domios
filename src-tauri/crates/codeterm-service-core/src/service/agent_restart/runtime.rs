@@ -91,16 +91,24 @@ impl ServiceContext {
         if fresh {
             self.require_fresh_restart_allowed(&snap, force)?;
         }
+        let failed_unbound = fresh && agent_runtime::start_failure::for_tab(&tab);
         let nonce = tab
             .session_binding_nonce
             .ok_or_else(|| AgentRestartError::BadRequest("Runtime binding nonce absent".into()))?;
-        if !agent_runtime::authority::verifies(self, tab_id, &provider, &nonce) {
+        let authorized = agent_runtime::authority::verifies(self, tab_id, &provider, &nonce);
+        if !authorized && !failed_unbound {
             return Err(AgentRestartError::BadRequest(
                 "Runtime restart authority unavailable".into(),
             )
             .into());
         }
         let claim = self.claim_restart(tab_id, false)?;
+        if !authorized {
+            agent_runtime::authority::authorize_failed_start_restart(
+                self, tab_id, &provider, &nonce,
+            )
+            .map_err(AgentRestartError::BadRequest)?;
+        }
         self.authorize_runtime_restart_binding(tab_id, &provider, &nonce, fresh)
             .map_err(AgentRestartError::BadRequest)?;
         let mut outcome = RestartOutcome::accepted(&snap, fresh, force);

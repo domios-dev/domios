@@ -151,27 +151,32 @@ fn fresh_after_load_refusal_preserves_profile_settings_and_archived_transcript()
 #[test]
 fn fresh_runtime_restart_still_refuses_a_loaded_live_session() {
     let fixture = RuntimeFixture::new();
-    fixture
-        .service
-        .mux
-        .write()
-        .get_tab_mut(&fixture.tab)
-        .unwrap()
-        .agent_runtime_state =
-        Some(json!({"state":"degraded","failureCode":"session_load_refused"}));
-    let before = fixture.requests();
-    assert!(fixture
-        .service
-        .agent_restart_observed_with_options(
-            &fixture.tab,
-            RestartOptions {
-                fresh: true,
-                ..Default::default()
-            }
-        )
-        .is_err());
-    assert_eq!(fixture.requests(), before);
-    assert!(agent_runtime::engine::has_live_bound_session(
-        fixture.service.mux.read().get_tab(&fixture.tab).unwrap()
-    ));
+    for code in [
+        "session_load_refused",
+        "runtime_start_unbound",
+        "provider_refused",
+    ] {
+        fixture
+            .service
+            .mux
+            .write()
+            .get_tab_mut(&fixture.tab)
+            .unwrap()
+            .agent_runtime_state = Some(json!({"state":"degraded","failureCode":code}));
+        let before = fixture.requests();
+        assert!(fixture
+            .service
+            .agent_restart_observed_with_options(
+                &fixture.tab,
+                RestartOptions {
+                    fresh: true,
+                    ..Default::default()
+                }
+            )
+            .is_err());
+        assert_eq!(fixture.requests(), before);
+        assert!(agent_runtime::engine::has_live_bound_session(
+            fixture.service.mux.read().get_tab(&fixture.tab).unwrap()
+        ));
+    }
 }
