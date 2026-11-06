@@ -83,11 +83,19 @@ function button(name: string): HTMLButtonElement {
   return found;
 }
 
-function getByRole(role: string, name: string): HTMLElement {
-  const found = Array.from(document.body.querySelectorAll<HTMLElement>("[role]"))
-    .find((entry) => entry.getAttribute("role") === role && entry.getAttribute("aria-label") === name);
-  assert.ok(found, `missing ${role} named ${name}`);
-  return found;
+async function openSetting(label: string) {
+  const trigger = document.body.querySelector<HTMLButtonElement>(`button[aria-label^="${label}:"]`)!;
+  assert.ok(trigger);
+  await act(async () => trigger.dispatchEvent(new Event("pointerdown", { bubbles: true, cancelable: true })));
+}
+function settingOption(label: string) {
+  return Array.from(document.body.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')).find(item => item.textContent?.trim() === label);
+}
+async function chooseSetting(label: string, value: string) {
+  await openSetting(label);
+  const item = settingOption(value);
+  assert.ok(item);
+  await act(async () => item.click());
 }
 
 function recordSwitches() {
@@ -220,13 +228,9 @@ test("declared runtime modes show the bound value and apply with other staged ch
   const view = await mount(provider, undefined, undefined, "auto");
   try {
     await act(async () => view.trigger()!.click());
-    const mode = getByRole("combobox", "Runtime mode") as HTMLSelectElement;
-    assert.equal(mode.value, "auto");
+    assert.ok(document.body.querySelector('button[aria-label="Runtime mode: Auto"]'));
     await act(async () => view.option("Fast").click());
-    await act(async () => {
-      mode.value = "full-access";
-      mode.dispatchEvent(new Event("change", { bubbles: true }));
-    });
+    await chooseSetting("Runtime mode", "Full access");
     assert.deepEqual(calls, []);
     await act(async () => button("Apply").click());
     assert.deepEqual(calls, [["tab", "fast", undefined, "full-access", undefined]]);
@@ -240,7 +244,7 @@ test("runtime mode control is absent without declared capability modes", async (
   const view = await mount(descriptor("live"));
   try {
     await act(async () => view.trigger()!.click());
-    assert.throws(() => getByRole("combobox", "Runtime mode"));
+    assert.equal(document.body.querySelector('button[aria-label^="Runtime mode:"]'), null);
   } finally {
     await view.unmount();
   }
@@ -590,16 +594,16 @@ test("the protected General Agent exposes the shared model picker and switch han
 });
 
 
-test("speed segments apply once and unavailable tiers are omitted", async () => {
+test("speed selections apply once and unavailable tiers are disabled", async () => {
   const calls = recordSwitches();
   const provider = {...descriptor("next_turn"),agent_runtime:{serviceTiers:[{id:"priority",name:"Fast",description:""},{id:"ultrafast",name:"Ultrafast",description:"",unavailableReason:"Not available on your plan"}]}};
   const view = await mount(provider,{id:null});
   try {
     await act(async () => view.trigger()!.click());
-    const segment = (name:string) => Array.from(document.body.querySelectorAll<HTMLButtonElement>('[role="tab"]')).find(item => item.textContent === name)!;
-    assert.ok(segment("Default"));
-    assert.equal(segment("Ultrafast"),undefined);
-    await act(async () => segment("Fast").click());
+    await openSetting("Speed");
+    assert.ok(settingOption("Default"));
+    assert.equal(settingOption("Ultrafast")?.disabled, true);
+    await act(async () => settingOption("Fast")!.click());
     assert.equal(calls.length,0);
     await act(async () => button("Apply").click());
     assert.deepEqual(calls,[["tab","deep","high",undefined,{id:"priority"}]]);
@@ -610,7 +614,7 @@ test("providers without service tiers have no speed control", async () => {
   const view = await mount(descriptor("next_turn"));
   try {
     await act(async () => view.trigger()!.click());
-    assert.equal(document.body.querySelector('[role="tablist"][aria-label="Speed"]'),null);
+    assert.equal(document.body.querySelector('button[aria-label^="Speed:"]'),null);
   } finally { await view.unmount(); }
 });
 
@@ -620,9 +624,9 @@ test("an account catalogue can enable Ultrafast for its selected model", async (
   const view = await mount(provider,{id:null},{deep:[{id:"ultrafast",name:"Ultrafast",description:""}]});
   try {
     await act(async () => view.trigger()!.click());
-    const ultra = Array.from(document.body.querySelectorAll<HTMLButtonElement>('[role="tab"]')).find(item => item.textContent === "Ultrafast")!;
-    assert.equal(ultra.disabled,false);
-    await act(async () => ultra.click());
+    await openSetting("Speed");
+    assert.equal(settingOption("Ultrafast")?.disabled,false);
+    await act(async () => settingOption("Ultrafast")!.click());
     await act(async () => button("Apply").click());
     assert.deepEqual(calls,[["tab","deep","high",undefined,{id:"ultrafast"}]]);
   } finally { await view.unmount(); __setTabModelApiForTest(null); }
@@ -674,19 +678,17 @@ test("catalogue-free runtime lists only the bound agent model declaration", asyn
   } finally { await view.unmount(); __setTabModelApiForTest(null); }
 });
 
-test("catalogue-free runtime refuses model-name heuristics with a visible disabled state", async () => {
+test("catalogue-free runtime keeps unclassified choices inside a neutral model bubble", async () => {
   const provider = {...descriptor("unsupported"), available_models:[], agent_runtime:{}} as ProviderDescriptor;
   const view = await mount(provider, undefined, undefined, undefined, {configOptions:[
     {id:"model",name:"Model",currentValue:"undeclared",options:[{value:"undeclared",name:"Undeclared"}]},
   ]});
   try {
-    // Nothing declared as a model: a quiet Default with the logo, and no menu to open.
-    assert.equal(view.trigger(), null);
-    const quiet = view.host.querySelector<HTMLElement>('[data-testid="status-model-default"]')!;
-    assert.equal(quiet.textContent, "Default");
-    assert.match(quiet.title, /This agent does not offer model choices/);
-    assert.doesNotMatch(view.host.textContent!, /declared no model|deep|Undeclared/);
-    assert.equal(view.picker(), null);
+    assert.equal(view.trigger()?.textContent, "Default");
+    assert.doesNotMatch(view.host.textContent!, /Undeclared|deep/);
+    await act(async () => view.trigger()!.click());
+    assert.ok(document.body.querySelector('button[aria-label="Model: Undeclared"]'));
+    assert.equal(view.option("Undeclared"), undefined);
   } finally { await view.unmount(); }
 });
 

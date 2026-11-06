@@ -5,9 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { RuntimeSettings } from "@codeterm/plugin-sdk";
 import type { AgentRuntimeState } from "../../lib/agentRuntimeState";
 import type { ProviderDescriptor, Tab } from "../../lib/types";
-import { pickerControls, rowControls } from "../../lib/runtimeDeclaredControls";
 import { __setTabModelApiForTest } from "../Sidebar/tabModelApi";
-import { RuntimeDeclaredControls } from "./RuntimeDeclaredControls";
 import { StatusLineModelPicker } from "./StatusLineModelPicker";
 
 const bridge = vi.hoisted(() => ({ invoke: vi.fn() }));
@@ -18,6 +16,7 @@ const controls: RuntimeSettings = {
   configOptions: [
     { id: "model", name: "Model", category: "model", currentValue: "gemini-pro", options: [{ value: "gemini-pro", name: "Gemini Pro" }, { value: "gemini-flash", name: "Gemini Flash" }] },
     { id: "reasoning_effort", name: "Thinking", category: "thought_level", currentValue: "low", options: [{ value: "low", name: "Low" }, { value: "high", name: "High" }] },
+    { id: "readonly", name: "Reported value", currentValue: "opaque", options: [] },
     { id: "approvals", name: "Approvals", category: "mode", currentValue: "ask", options: [{ value: "ask", name: "Ask" }, { value: "auto", name: "Auto" }] },
   ],
   mode: "code",
@@ -36,7 +35,7 @@ afterEach(async () => {
   __setTabModelApiForTest(null);
 });
 
-async function mount() {
+async function mount(runtimeControls = controls) {
   bridge.invoke.mockResolvedValue({});
   const switchModel = vi.fn(async () => ({ mode_used: "live", model_confirmation: "pending" }));
   __setTabModelApiForTest({ switchModel } as never);
@@ -44,37 +43,33 @@ async function mount() {
   document.body.append(host);
   root = createRoot(host);
   await act(async () => root!.render(<>
-    <RuntimeDeclaredControls tabId="acp" state={state} />
-    <StatusLineModelPicker tab={tab} tabId="acp" descriptor={provider} runtimeControls={controls} runtimeIdentity={state}
+    <StatusLineModelPicker tab={tab} tabId="acp" descriptor={provider} runtimeControls={runtimeControls} runtimeIdentity={state}
       facts={{ hasSession: true }} label="Gemini CLI" modelCandidates={[]} currentEffort={undefined} />
   </>));
   return switchModel;
 }
 
-const row = () => host.querySelector('[role="group"][aria-label="Agent controls"]')!;
+const row = () => document.body.querySelector('[data-testid="status-model-picker"]')!;
 const trigger = () => host.querySelector<HTMLButtonElement>('[data-testid="status-model-trigger"]')!;
 
 describe("declared model controls of a runtime agent", () => {
-  it("the model and thought level belong to the picker by category; other controls stay in the row", () => {
-    const owned = pickerControls(controls);
-    expect(owned.model?.id).toBe("model");
-    expect(owned.effort?.id).toBe("reasoning_effort");
-    expect(rowControls(controls).map((option) => option.id)).toEqual(["approvals"]);
-    expect(pickerControls({ configOptions: [{ id: "model", name: "Model", currentValue: "x", options: [{ value: "x", name: "X" }] }] }).model).toBeUndefined();
-  });
-
   it("shows one model control, keeps the other declared controls, and applies through the runtime controls API", async () => {
     const switchModel = await mount();
-    expect(row().querySelector('[aria-label="Model"]')).toBeNull();
-    expect(row().querySelector('[aria-label="Thinking"]')).toBeNull();
-    expect(row().querySelector('button[aria-label="Approvals: Ask"]')).not.toBeNull();
-    expect(row().querySelector('button[aria-label="Session mode: Code"]')).not.toBeNull();
+    expect(host.querySelector('button[aria-label^="Approvals:"]')).toBeNull();
     expect(host.querySelectorAll('[data-testid="status-model-trigger"]')).toHaveLength(1);
     // The same presentation as every other provider: logo, model · effort; the agent's name and version only in the tooltip.
     expect(trigger().textContent).toBe("Gemini Pro · low");
     expect(host.querySelector('[data-testid="status-harness-glyph"]')?.getAttribute("title")).toBe("Gemini CLI · 0.9.0");
 
     await act(async () => trigger().click());
+    const approvals = row().querySelector<HTMLButtonElement>('button[aria-label="Approvals: Ask"]')!;
+    expect(approvals).not.toBeNull();
+    expect(approvals.disabled).toBe(false);
+    expect(approvals.tabIndex).toBe(0);
+    approvals.focus();
+    expect(document.activeElement).toBe(approvals);
+    expect(row().querySelector('output[aria-label="Reported value"]')?.textContent).toBe("opaque");
+    expect(row().querySelector('button[aria-label^="Mode:"]')).toBeNull();
     const option = [...document.body.querySelectorAll<HTMLElement>('[role="option"]')].find((node) => node.textContent?.startsWith("Gemini Flash"))!;
     await act(async () => option.click());
     const high = document.body.querySelector<HTMLElement>('[aria-label="Reasoning"] [role="tab"][data-value="high"]')!;
@@ -90,8 +85,9 @@ describe("declared model controls of a runtime agent", () => {
     expect(switchModel).not.toHaveBeenCalled();
   });
 
-  it("a non-model control in the row still changes through the same API", async () => {
+  it("a non-model control in the picker still changes through the same API", async () => {
     await mount();
+    await act(async () => trigger().click());
     const approvals = row().querySelector<HTMLButtonElement>('button[aria-label^="Approvals:"]')!;
     await act(async () => { approvals.dispatchEvent(new Event("pointerdown", { bubbles: true, cancelable: true })); });
     await act(async () => [...document.body.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find((item) => item.textContent?.trim() === "Auto")!.click());
@@ -99,7 +95,7 @@ describe("declared model controls of a runtime agent", () => {
   });
 });
 
-it("a tab shows its session mode as a compact pill in the same row as the model bubble", async () => {
+it("a tab puts extra controls inside the model picker and leaves only its bubble in the composer", async () => {
   const { setAgentDescriptors } = await import("../../lib/agentDescriptorCache");
   const { TabStatusLineModelPicker } = await import("./StatusLineModelPicker");
   setAgentDescriptors([provider]);
@@ -107,9 +103,21 @@ it("a tab shows its session mode as a compact pill in the same row as the model 
   document.body.append(host);
   root = createRoot(host);
   await act(async () => root!.render(<TabStatusLineModelPicker tab={{ ...tab, agent_type: provider.id, backing: { kind: "chat_backend" } } as Tab} label="Gemini CLI" />));
-  const bubble = host.querySelector('[data-testid="status-model-trigger"]');
-  const mode = host.querySelector('button[aria-label="Session mode: Code"]');
-  expect(bubble).not.toBeNull();
-  expect(mode).not.toBeNull();
-  expect(mode!.closest('[role="group"][aria-label="Agent controls"]')?.parentElement).toBe(bubble!.closest(".ct-status-identity-wrap")?.parentElement);
+  expect(trigger()).not.toBeNull();
+  expect(host.querySelectorAll("button")).toHaveLength(1);
+  await act(async () => trigger().click());
+  expect(row().querySelector('button[aria-label="Approvals: Ask"]')).not.toBeNull();
+});
+
+it("legacy mode keeps its pinned mode request and refused settings remain visible", async () => {
+  await mount({ ...controls, configOptions: controls.configOptions!.filter(option => option.category !== "mode") });
+  await act(async () => trigger().click());
+  const mode = row().querySelector<HTMLButtonElement>('button[aria-label="Mode: Code"]')!;
+  await act(async () => mode.dispatchEvent(new Event("pointerdown", { bubbles: true, cancelable: true })));
+  await act(async () => [...document.body.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(item => item.textContent?.trim() === "Plan")!.click());
+  expect(bridge.invoke).toHaveBeenCalledWith("agent_runtime_controls", { tabId: "acp", request: { threadId: "acp-session", bindingNonce: "acp-nonce", epoch: 7, id: "", value: "plan", mode: true } });
+  bridge.invoke.mockRejectedValue(new Error("Refused"));
+  await act(async () => mode.dispatchEvent(new Event("pointerdown", { bubbles: true, cancelable: true })));
+  await act(async () => [...document.body.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(item => item.textContent?.trim() === "Plan")!.click());
+  expect(row().textContent).toContain("The agent refused this control value.");
 });

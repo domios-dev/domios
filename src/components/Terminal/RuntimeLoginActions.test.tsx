@@ -118,69 +118,19 @@ it("asks for a key before a key-taking declared method and sends both together",
   } finally {await act(async()=>root.unmount());}
 });
 
-async function choosePill(host:HTMLElement,label:string,option:string) {
-  const trigger=host.querySelector<HTMLButtonElement>(`button[aria-label^="${label}:"]`)!;
-  await act(async()=>{trigger.dispatchEvent(new Event("pointerdown",{bubbles:true,cancelable:true}));});
-  const item=Array.from(document.body.querySelectorAll<HTMLElement>('[role="menuitemradio"]')).find(entry=>entry.textContent?.trim()===option)!;
-  await act(async()=>item.click());
-}
-
-it("renders a session config picker as a pill, sends its pinned selection, and dismisses transient notices", async () => {
-  bridge.invoke.mockReset();bridge.invoke.mockResolvedValue({ok:true});
+it("dismisses the agent notice above the composer", async () => {
   const host=document.createElement("div");document.body.append(host);const root=createRoot(host);
-  const state:AgentRuntimeState={state:"loaded",epoch:4,notice:"Agent notice",controls:{configOptions:[
-    {id:"policy",name:"Policy",currentValue:"safe",options:[{value:"safe",name:"Safe"},{value:"review",name:"Review"}]},
-    {id:"readonly",name:"Reported value",currentValue:"opaque",options:[]},
-  ]}};
+  const state:AgentRuntimeState={state:"loaded",epoch:4,notice:"Agent notice"};
   try {
     await act(async()=>root.render(<RuntimeDeclaredControls tabId="owned" state={state}/>));
-    const pill=host.querySelector<HTMLButtonElement>('button[aria-label^="Policy:"]')!;
-    expect(pill.getAttribute("aria-label")).toBe("Policy: Safe");
-    await choosePill(host,"Policy","Review");
-    expect(bridge.invoke).toHaveBeenCalledExactlyOnceWith("agent_runtime_controls",{tabId:"owned",request:{threadId:"own-session",bindingNonce:"own-nonce",epoch:4,id:"policy",value:"review",mode:false}});
-    expect(host.querySelector("output")?.textContent).toBe("opaque");
     expect(host.querySelector('[role="status"]')?.textContent).toContain("Agent notice");
     await act(async()=>Array.from(host.querySelectorAll("button")).find(button=>button.textContent === "Dismiss notice")!.click());
     expect(host.querySelector('[role="status"]')).toBeNull();
-    bridge.invoke.mockRejectedValue(new Error("Unadvertised value"));
-    await choosePill(host,"Policy","Review");
-    expect(host.textContent).toContain("The agent refused this control value.");
   } finally {await act(async()=>root.unmount());host.remove();}
 });
-
 
 it("keeps a live notice across same-epoch snapshots and clears it for a new runtime", () => {
   const state:AgentRuntimeState={state:"loaded",epoch:4,notice:"Transient"};
   expect(runtimeStateFromSnapshot(state,{state:"loaded",epoch:4})?.notice).toBe("Transient");
   expect(runtimeStateFromSnapshot(state,{state:"loaded",epoch:5})?.notice).toBeUndefined();
-});
-
-it("leaves the declared model to the model picker and keeps other declared controls and the session mode named and focusable", async () => {
-  const host = document.createElement("div");
-  document.body.append(host);
-  const root = createRoot(host);
-  const state: AgentRuntimeState = {state:"loaded",epoch:4,controls:{
-    configOptions:[
-      {id:"model",name:"Model",category:"model",currentValue:"model-one",options:[{value:"model-one",name:"Model one"}]},
-      {id:"effort",name:"Reasoning effort",currentValue:"high",options:[{value:"high",name:"High"}]},
-    ],
-    mode:"code",modes:[{id:"code",name:"Code"}],
-  }};
-  try {
-    await act(async () => root.render(<RuntimeDeclaredControls tabId="owned" state={state} />));
-    const group = host.querySelector('[role="group"][aria-label="Agent controls"]');
-    expect(group).not.toBeNull();
-    expect(group!.querySelector('[aria-label="Model"]')).toBeNull();
-    for (const name of ["Reasoning effort", "Session mode"]) {
-      const control = group!.querySelector<HTMLButtonElement>(`button[aria-label^="${name}:"]`)!;
-      expect(control).not.toBeNull();
-      expect(control.disabled).toBe(false);
-      expect(control.tabIndex).toBe(0);
-      control.focus();
-      expect(document.activeElement).toBe(control);
-    }
-  } finally {
-    await act(async () => root.unmount());
-    host.remove();
-  }
 });

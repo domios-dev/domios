@@ -1,0 +1,81 @@
+import type { RuntimeSettings, RuntimeServiceTierSelection, RuntimeServiceTier } from "@codeterm/plugin-sdk";
+import type { ProviderDescriptor } from "./types";
+import { reasoningEffortsForModel } from "./newSessionChoice";
+
+export type PickerCategory = "model" | "effort" | "mode" | "speed";
+export type PickerApplyTarget = { kind: "config"; id: string } | { kind: "session" | PickerCategory };
+export interface PickerSection {
+  id: string;
+  label: string;
+  category?: PickerCategory;
+  kind: "select";
+  options: readonly { value: string; label: string; disabled?: boolean }[];
+  current: string;
+  applyTarget: PickerApplyTarget;
+}
+
+const CATEGORIES = new Map<string, PickerCategory>([["model", "model"], ["thought_level", "effort"], ["mode", "mode"]]);
+const ORDER: readonly PickerCategory[] = ["model", "effort", "mode", "speed"];
+
+export function pickerSections({ descriptor, controls, model, effort, runtimeMode, serviceTier, serviceTierAvailability }: {
+  descriptor?: ProviderDescriptor;
+  controls?: RuntimeSettings;
+  model?: string;
+  effort?: string;
+  runtimeMode?: string;
+  serviceTier?: RuntimeServiceTierSelection;
+  serviceTierAvailability?: Record<string, readonly RuntimeServiceTier[]>;
+}): PickerSection[] {
+  const known = new Map<PickerCategory, PickerSection>();
+  const extras: PickerSection[] = [];
+  for (const option of controls?.configOptions ?? []) {
+    const category = option.category ? CATEGORIES.get(option.category) : undefined;
+    const section: PickerSection = {
+      id: option.id, label: option.name, category, kind: "select", current: option.currentValue,
+      options: option.options.map(value => ({ value: value.value, label: value.name })),
+      applyTarget: { kind: "config", id: option.id },
+    };
+    if (category) { if (!known.has(category)) known.set(category, section); }
+    else extras.push(section);
+  }
+  if (!known.has("model") && descriptor?.available_models.length) known.set("model", {
+    id: "model", label: "Model", category: "model", kind: "select", current: model ?? "",
+    options: descriptor.available_models.map(value => ({ value: value.id, label: value.display_name, disabled: value.availability === "unavailable" || value.available === false })),
+    applyTarget: { kind: "model" },
+  });
+  const efforts = reasoningEffortsForModel(descriptor, model);
+  if (!known.has("effort") && efforts.length) known.set("effort", {
+    id: "effort", label: "Reasoning", category: "effort", kind: "select", current: effort ?? "",
+    options: efforts.map(value => ({ value: value.id, label: value.display_name })), applyTarget: { kind: "effort" },
+  });
+  if (!known.has("mode")) {
+    if (controls?.modes?.length) known.set("mode", {
+      id: "session-mode", label: "Mode", category: "mode", kind: "select", current: controls.mode ?? "",
+      options: controls.modes.map(mode => ({ value: mode.id, label: mode.name })), applyTarget: { kind: "session" },
+    });
+    else if (descriptor?.agent_runtime?.runtimeModes?.length) known.set("mode", {
+      id: "runtime-mode", label: "Runtime mode", category: "mode", kind: "select", current: runtimeMode ?? "",
+      options: descriptor.agent_runtime.runtimeModes.map(mode => ({ value: mode.id, label: mode.displayName })), applyTarget: { kind: "mode" },
+    });
+  }
+  if (descriptor?.agent_runtime?.serviceTiers?.length) {
+    const tiers = (model ? serviceTierAvailability?.[model] : undefined) ?? descriptor.agent_runtime.serviceTiers;
+    known.set("speed", {
+      id: "speed", label: "Speed", category: "speed", kind: "select", current: JSON.stringify(serviceTier?.id ?? null),
+      options: [{ value: JSON.stringify(null), label: "Default" }, ...tiers.map(tier => ({ value: JSON.stringify(tier.id), label: tier.name, disabled: Boolean(tier.unavailableReason) }))],
+      applyTarget: { kind: "speed" },
+    });
+  }
+  return [...ORDER.flatMap(category => known.has(category) ? [known.get(category)!] : []), ...extras];
+}
+
+export function pickerDescriptor(descriptor: ProviderDescriptor, sections: readonly PickerSection[]): ProviderDescriptor {
+  const model = sections.find(section => section.category === "model");
+  const effort = sections.find(section => section.category === "effort");
+  if (model?.applyTarget.kind !== "config") return descriptor.agent_runtime && !descriptor.available_models.length && sections.some(section => section.applyTarget.kind === "config" || section.applyTarget.kind === "session")
+    ? { ...descriptor, model_switch: "live" } : descriptor;
+  return { ...descriptor, model_switch: "live", available_models: model.options.map(option => ({
+    id: option.value, display_name: option.label,
+    reasoning_efforts: effort?.options.map(value => ({ id: value.value, display_name: value.label })),
+  })) };
+}
