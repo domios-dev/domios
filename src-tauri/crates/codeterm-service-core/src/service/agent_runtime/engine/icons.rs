@@ -1,7 +1,11 @@
 use super::*;
 use std::io::Read;
 
-fn registry_url(root: &std::path::Path, identity: &str) -> Option<String> {
+fn registry_url(
+    root: &std::path::Path,
+    identity: Option<&str>,
+    registry_id: Option<&str>,
+) -> Option<String> {
     let file = std::fs::File::open(root.join("cache/registry-v1.json")).ok()?;
     let mut bytes = Vec::new();
     file.take(2 * 1024 * 1024 + 1)
@@ -19,8 +23,14 @@ fn registry_url(root: &std::path::Path, identity: &str) -> Option<String> {
         return None;
     }
     let mut matching = agents.iter().filter(|agent| {
-        agent.get("id").and_then(Value::as_str) == Some(identity)
-            || agent.get("name").and_then(Value::as_str) == Some(identity)
+        if let Some(id) = registry_id {
+            agent.get("id").and_then(Value::as_str) == Some(id)
+        } else if let Some(identity) = identity {
+            agent.get("id").and_then(Value::as_str) == Some(identity)
+                || agent.get("name").and_then(Value::as_str) == Some(identity)
+        } else {
+            false
+        }
     });
     let entry = matching.next()?;
     if matching.next().is_some() {
@@ -57,11 +67,14 @@ pub(super) fn start(svc: &ServiceContext, session: &Arc<Session>) {
     crate::async_runtime::spawn(async move {
         let root = crate::paths::data_dir_path().join(&session.provider);
         let lookup_root = root.clone();
+        let registry_id = declaration
+            .as_ref()
+            .and_then(|profile| profile.registry_id.clone());
         let url = declaration.and_then(|profile| profile.icon_url);
         let url = match url {
             Some(url) => Some(url),
             None => tokio::task::spawn_blocking(move || {
-                registry_url(&lookup_root, identity.as_deref()?)
+                registry_url(&lookup_root, identity.as_deref(), registry_id.as_deref())
             })
             .await
             .ok()

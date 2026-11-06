@@ -15,9 +15,9 @@ export function PickerSettingSection({ section, busy, onChange }: {
       options={options.map(option => ({ ...option, disabled: busy || option.disabled }))} onChange={onChange} />
   </div>;
   return <div className="ct-model-picker__setting">
-    <span className="ct-model-picker__label">{section.label}</span>
+    <span className="ct-model-picker__label" title={section.label}>{section.label}</span>
     {section.options.length ? <DropdownSelect aria-label={section.label} disabled={busy} value={section.current}
-      options={[...options]} onChange={onChange} className="!w-auto min-w-0 max-w-[65%] !py-1" />
+      options={[...options]} onChange={onChange} className="min-w-0 !py-1" />
       : <output aria-label={section.label}>{section.current}</output>}
   </div>;
 }

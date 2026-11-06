@@ -120,7 +120,8 @@ describe("concise thoughts", () => {
     expect(rows.map((row) => row.dataset.testid)).toEqual([
       "chat-tool-stream-member", "chat-tool-stream-thought", "chat-tool-stream-member", "chat-tool-stream-thought", "chat-tool-stream-member",
     ]);
-    expect(all(stream, "chat-thought-line").map((line) => line.textContent)).toEqual(["**Inspect sources**\n\nReading files", "Compare output"]);
+    expect(all(stream, "chat-thought-line").map((line) => [...line.querySelectorAll("p")].map(p => p.textContent))).toEqual([["Inspect sources", "Reading files"], ["Compare output"]]);
+    expect(stream.querySelector("strong")?.textContent).toBe("Inspect sources");
     expect(all(stream, "chat-tool-stream-action").map((row) => row.textContent?.trim())).toEqual(["npm test", "git status", "npm run lint"]);
     expect(stream.textContent).not.toContain("Foreign thought");
 
@@ -185,7 +186,8 @@ describe("concise thoughts", () => {
     const claude = await render([{ ...shared, provider: "claude", sourceSessionId: CLAUDE }]);
     const codex = await render([{ ...shared, provider: "codex", sourceSessionId: CODEX }]);
     expect(neutralMarkup(claude)).toBe(neutralMarkup(codex));
-    expect(claude.querySelector('[data-testid="chat-thought-line"]')?.textContent).toBe(shared.content);
+    expect(claude.querySelector('[data-testid="chat-thought-line"] strong')?.textContent).toBe("Check the plan");
+    expect([...claude.querySelectorAll('[data-testid="chat-thought-line"] p')].map(p => p.textContent)).toEqual(["Check the plan", "Details"]);
   });
 });
 
