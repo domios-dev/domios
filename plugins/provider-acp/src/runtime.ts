@@ -409,6 +409,10 @@ export function runtimeReduce(ctx:RuntimeContext, raw:JsonValue, frames:readonly
     const sequence=window?.frameSequences?.[index];
     const attributable=!window || witness?.written === true && witness.afterSequence !== undefined
       && sequence !== undefined && sequence > witness.afterSequence;
+    const updateKind=object(object(frame.params).update).sessionUpdate;
+    if ((ctx.restoredRowOrdinal ?? 0) > 0 && (state.cursor.loading || !attributable)
+      && ["user_message_chunk","agent_message_chunk","agent_thought_chunk","tool_call","tool_call_update","plan",
+        "compaction_update","compaction_summary_chunk"].includes(String(updateKind))) continue;
     const cursor=attributable ? state.cursor : {...state.cursor,prompt:Number(object(projection).prompt) || 0,
       loading:state.cursor.loading || object(projection).loading === true};
     if (!attributable && projection === null)

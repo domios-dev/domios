@@ -199,3 +199,20 @@ RPC error while B is queued. A's projection is settled and the queued head is
 promoted exactly as on success, so B's subsequent updates and completion end at
 idle turn 2. A remains a typed Refused result, with no fabricated delivery or
 completion events: the host owns refusal settlement and deferred B activity.
+
+## Durable Gemini replay
+
+`gemini-durable-replay-new-turn` reconstructs the replay shapes observed by Rover
+on Windows DEV conduit188 (2e6a57bfba, Gemini CLI 0.67.0, 2026-11-06).
+Sources: Rover `gem-history-finding.md`, `before-dev-5d188a82-chat.json`, and
+the exact session `session-2026-11-06T08-06-56ed4849.jsonl`. This is a redacted
+derived fixture, not a raw ACP wire capture. It retains the context/function
+placeholder shapes, repeated tool identity, and cancelled reply chunk boundary;
+text and host durable rows are shortened. The host restores durable rows before
+load, so replay cannot assign synthetic identities to those rows.
+
+The fixture suppresses transcript replay both after load and after planning a
+new prompt before its write witness, preserves command updates, then streams
+the written prompt once. `../gemini-durable-rows.json` supplies the JS merge oracle; the shared
+native replay verifies the same exact event list. Existing no-durable replay
+fixtures retain the history reconstruction fallback.
