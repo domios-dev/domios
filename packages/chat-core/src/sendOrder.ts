@@ -9,6 +9,7 @@ export interface SendEchoBoundary {
   sourceSessionId: string;
   sessionBindingNonce: string | null;
   lastRowId: string | null;
+  endOffset?: number;
 }
 
 export type MatchedRowRecord =
@@ -22,9 +23,11 @@ export interface MatchedRow {
 
 export function captureSendEchoBoundary(
   authority: TranscriptAuthority | null, rows: readonly NormalizedChatMessage[],
+  endOffset?: number | null,
 ): SendEchoBoundary | undefined {
   if (!authority?.sourceSessionId) return;
-  return { ...authority, sourceSessionId: authority.sourceSessionId, lastRowId: rows[rows.length - 1]?.id ?? null };
+  return { ...authority, sourceSessionId: authority.sourceSessionId, lastRowId: rows[rows.length - 1]?.id ?? null,
+    ...(endOffset != null ? { endOffset } : {}) };
 }
 
 /** The committed source row a send reconciled to, identified by what re-parsing keeps stable. */
@@ -87,6 +90,7 @@ export function reconcileSends(
   sends: readonly ChatSend[],
   rows: readonly NormalizedChatMessage[],
   authority: TranscriptAuthority | null = null,
+  rowStarts: ReadonlyMap<string, number> = new Map(),
 ): { echoes: Map<string, SendEcho>; pending: ChatSend[] } {
   const echoes = new Map<string, SendEcho>();
   const pending: ChatSend[] = [];
@@ -101,10 +105,18 @@ export function reconcileSends(
     const index = lastRowId == null ? -1 : rows.findIndex((row) => row.id === lastRowId);
     return [send.id, lastRowId != null && index < 0 ? rows.length : index];
   }));
+  const sendsById = new Map(sends.map(send => [send.id, send]));
   const appendedRow = (sendId: string, index: number) => {
+    const send = sendsById.get(sendId)!;
+    const row = rows[index];
+    if (send.echoBoundary && row.sourceSessionId === authority?.sourceSessionId) {
+      if (send.correlationId != null && row.correlationId === send.correlationId) return true;
+      const start = rowStarts.get(row.id);
+      if (send.echoBoundary.endOffset != null && start != null && start >= send.echoBoundary.endOffset) return true;
+    }
     const boundary = boundaries.get(sendId);
     if (boundary == null) return;
-    return index > boundary && rows[index].sourceSessionId === authority?.sourceSessionId;
+    return index > boundary && row.sourceSessionId === authority?.sourceSessionId;
   };
   for (const send of sends) {
     if (send.echoEligible === false) {

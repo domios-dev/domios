@@ -26,6 +26,7 @@ use crate::service::tab_chat::{
     spawn_tailer, ChatRegistry, DeltaSink, StoreWatchConfig, TailConfig,
 };
 
+mod air_transcript;
 mod host_wake;
 mod large_sessions;
 

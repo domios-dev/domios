@@ -1,4 +1,6 @@
 [
+  "packages/chat-core/src/airTranscript.test.ts",
+  "src/components/Terminal/useChatSession.air.test.tsx",
   "src/lib/daemonRequestCallers.test.tsx",
   "src/lib/clientJournal.test.ts",
   "src/components/Sidebar/TeamUnit.board.test.tsx",
