@@ -53,6 +53,7 @@ pub use restore::all as restore_all;
 mod restore_attempt;
 mod rpc;
 mod selections;
+pub(crate) mod start_failure;
 mod subscriber;
 pub mod transport;
 mod turn_requests;

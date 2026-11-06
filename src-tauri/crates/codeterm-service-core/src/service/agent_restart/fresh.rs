@@ -164,7 +164,9 @@ impl ServiceContext {
             .is_some_and(|session| {
                 crate::service::agent_runtime::engine::session_load_refused(self, &session)
             });
+        let failed_unbound = crate::service::agent_runtime::start_failure::for_tab(&tab);
         let active = !load_refused
+            && !failed_unbound
             && (tab.agent_booting
                 || liveness == AgentLiveness::Live
                 || (liveness == AgentLiveness::Unobserved

@@ -72,7 +72,13 @@ async fn restart_inner(
     if let Some(session) = &session {
         if idle_only {
             engine::validate_binding(svc, session)?;
-        } else {
+        } else if !fresh
+            || !svc
+                .mux
+                .read()
+                .get_tab(tab)
+                .is_some_and(super::start_failure::for_tab)
+        {
             engine::validate_restart_binding(svc, session)?;
         }
         if idle_only
@@ -165,7 +171,7 @@ async fn restart_inner(
         }
         target.agent_booting = true;
         target.boot_stage = None;
-        if rebound {
+        if rebound || (fresh && session.is_none()) {
             let mut state = RuntimeState::unloaded(old_thread.clone());
             state.restore_timing(target.agent_runtime_state.as_ref());
             if let Some(session) = &session {
