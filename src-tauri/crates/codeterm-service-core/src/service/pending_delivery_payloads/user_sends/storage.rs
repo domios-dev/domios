@@ -55,7 +55,9 @@ impl UserSendStore {
                 return Err(tab.fail_storage(error));
             }
         }
-        data.as_mut().ok_or_else(|| "user index not loaded".into())
+        let loaded = data.as_mut().ok_or("user index not loaded")?;
+        tab.storage_qualified.store(true, Ordering::Release);
+        Ok(loaded)
     }
 
     fn collect_orphans(&self, tab: &UserTab, index: &UserIndex) -> Result<(), String> {

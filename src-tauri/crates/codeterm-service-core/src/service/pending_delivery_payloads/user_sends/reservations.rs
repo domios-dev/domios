@@ -25,12 +25,12 @@ impl UserSendStore {
             return Err("user correlation token exceeds metadata bound".into());
         }
         let tab = self.tab(&authority.tab_id);
-        {
-            // Validate retained state before even replay-token admission; do not nest data/admissions locks.
+        if !tab.storage_qualified.load(Ordering::Acquire) || tab.failed.load(Ordering::Acquire) {
             let mut data = tab.data.lock();
             self.load(&tab, &mut data)?;
         }
         let mut admissions = tab.admissions.lock();
+        tab.check_available()?;
         if let Some(entry) = client_token
             .as_ref()
             .and_then(|token| admissions.tokens.existing(token))
@@ -50,7 +50,6 @@ impl UserSendStore {
         if replay_only {
             return Err("admission_unknown: replay token has no retained admission".into());
         }
-        tab.check_available()?;
         if admissions.pending.len() + tab.unsettled.load(Ordering::Acquire) >= MAX_UNSETTLED {
             return Err("user send capacity: 32 unsettled admissions".into());
         }
