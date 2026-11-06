@@ -100,24 +100,26 @@ pub(super) fn handle(
         let model = current_model
             .as_deref()
             .unwrap_or_else(|| crate::cmd::print::fail(1, "tab has no current model to validate"));
-        let response = local_http
-            .get(format!("{base}/api/agents/providers"))
-            .send()
-            .unwrap_or_else(|error| crate::cmd::print::fail(1, error.to_string()));
-        let status = response.status();
-        let providers: serde_json::Value = response.json().unwrap_or_default();
-        if !status.is_success() {
-            crate::cmd::print::fail_http(1, status.as_u16(), &providers.to_string());
-        }
-        let provider = select_provider(&providers, provider_id)
+        if !has_declared_controls(tab_record) {
+            let response = local_http
+                .get(format!("{base}/api/agents/providers"))
+                .send()
+                .unwrap_or_else(|error| crate::cmd::print::fail(1, error.to_string()));
+            let status = response.status();
+            let providers: serde_json::Value = response.json().unwrap_or_default();
+            if !status.is_success() {
+                crate::cmd::print::fail_http(1, status.as_u16(), &providers.to_string());
+            }
+            let provider = select_provider(&providers, provider_id)
+                .unwrap_or_else(|error| crate::cmd::print::exit_with_cli_error(json, &error));
+            validate_controls(
+                provider,
+                model,
+                reasoning_effort.as_deref(),
+                runtime_mode.as_deref(),
+            )
             .unwrap_or_else(|error| crate::cmd::print::exit_with_cli_error(json, &error));
-        validate_controls(
-            provider,
-            model,
-            reasoning_effort.as_deref(),
-            runtime_mode.as_deref(),
-        )
-        .unwrap_or_else(|error| crate::cmd::print::exit_with_cli_error(json, &error));
+        }
     }
     if name.is_none() && speed.is_none() && reasoning_effort.is_none() && runtime_mode.is_none() {
         crate::cmd::print::fail(
@@ -172,6 +174,11 @@ pub(super) fn handle(
         }
         Err(error) => crate::cmd::print::exit_with_cli_error(json, &error),
     }
+}
+
+fn has_declared_controls(tab: &serde_json::Value) -> bool {
+    tab.pointer("/agent_runtime_state/controls/configOptions")
+        .is_some_and(serde_json::Value::is_array)
 }
 
 pub(super) fn validate_controls(
@@ -355,6 +362,21 @@ pub(super) fn render_model_switch(value: &serde_json::Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn session_config_options_defer_validation_to_the_bound_runtime() {
+        assert!(has_declared_controls(
+            &serde_json::json!({"agent_runtime_state":{"controls":{"configOptions":[
+                {"category":"thought_level","options":[{"value":"max","name":"Maximum"}]}
+            ]}}})
+        ));
+        assert!(has_declared_controls(
+            &serde_json::json!({"agent_runtime_state":{"controls":{"configOptions":[]}}})
+        ));
+        assert!(!has_declared_controls(
+            &serde_json::json!({"agent_runtime_state":{"controls":{"model":"native"}}})
+        ));
+    }
 
     fn rendered(json: bool, error: &CliError) -> (String, String) {
         let mut out = Vec::new();
