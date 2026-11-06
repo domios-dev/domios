@@ -41,8 +41,8 @@ async function mount(locked = false) {
   await act(async () => {});
 }
 
-const invite = () => host.querySelector("[data-testid=rate-us-invite]");
-const button = (name: string) => Array.from(host.querySelectorAll("button")).find((item) => item.textContent?.trim() === name)!;
+const invite = () => document.body.querySelector("[data-testid=rate-us-invite]");
+const button = (name: string) => Array.from(document.body.querySelectorAll("button")).find((item) => item.textContent?.trim() === name)!;
 const lastSaved = () => settings.setUiSettings.mock.calls[settings.setUiSettings.mock.calls.length - 1]?.[0].rate_us as RateUsState;
 
 it("shows the invite when due without taking focus, and Star opens the repository and ends it", async () => {
@@ -82,6 +82,11 @@ it("the tray star folds the dropdown away and back without answering it", async 
   expect(settings.setUiSettings).not.toHaveBeenCalled();
   await act(async () => star.click());
   expect(invite()).not.toBeNull();
+  await act(async () => button("Later").focus());
+  await act(async () => button("Later").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+  expect(invite()).toBeNull();
+  expect(document.activeElement).toBe(star);
+  expect(settings.setUiSettings).not.toHaveBeenCalled();
 });
 
 it("stays away during first run and while a modal is open", async () => {

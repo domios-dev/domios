@@ -6,6 +6,8 @@ import type { AppConfig, ProviderDescriptor } from "../../lib/types";
 import { DefaultModelPicker } from "./DefaultModelPicker";
 import { SchemaRenderer } from "./SchemaRenderer";
 
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
 afterEach(() => {
   setAgentDescriptors([]);
   document.body.replaceChildren();
@@ -53,10 +55,18 @@ it("Settings reads the stored Fast mode default and Apply saves it with the mode
       await act(async () => root.render(<DefaultModelPicker providerId="arbitrary" value="model" serviceTier={current}
         onChange={(...args) => saved.push(args)} />));
       await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Choose default model"]')!.click());
-      const toggle = Array.from(document.body.querySelectorAll<HTMLButtonElement>('[role="tab"]')).find(item => item.textContent === (current.id ? "Default" : "Fast"))!;
+      const speed = document.body.querySelector<HTMLButtonElement>('button[aria-label^="Speed:"]')!;
+      expect(speed.getAttribute("aria-label")).toBe(`Speed: ${current.id ? "Fast" : "Default"}`);
+      await act(async () => speed.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true })));
+      const choices = [...document.body.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')];
+      const choice = (label: string) => choices.find(item => item.textContent?.trim() === label);
+      expect(choice(current.id ? "Fast" : "Default")?.getAttribute("aria-checked")).toBe("true");
+      expect(choice("Ultrafast")?.disabled).toBe(true);
+      const toggle = choice(current.id ? "Default" : "Fast")!;
       expect(toggle).toBeTruthy();
       expect(toggle.disabled).toBe(false);
       await act(async () => toggle.click());
+      expect(speed.getAttribute("aria-label")).toBe(`Speed: ${current.id ? "Default" : "Fast"}`);
       expect(saved).toEqual([]);
       const apply = Array.from(document.body.querySelectorAll<HTMLButtonElement>("button")).find(button => button.textContent === "Apply")!;
       await act(async () => apply.click());
