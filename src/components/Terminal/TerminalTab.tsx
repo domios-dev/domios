@@ -56,6 +56,7 @@ import { TerminalViewControls } from "./TerminalViewControls";
 import { shouldOfferScrollToBottom } from "../../hooks/terminal/terminalFollowState";
 import { useInputWriteFailure } from "../../hooks/terminal/useInputWriteFailure";
 import { InputWriteFailureLine } from "./InputWriteFailureLine";
+import { TerminalStartFailure } from "./TerminalStartFailure";
 import { openNewSessionPicker } from "../../lib/newSessionChoice";
 import { terminalContentTopInset, terminalFrameVisible, terminalLayoutRequired } from "../../lib/terminalFrameGate";
 
@@ -187,7 +188,7 @@ export const TerminalTab = memo(function TerminalTab({
     tabId, termRef, containerRef, connectedPtyRef,
   });
 
-  const { writePty } = usePtyConnection({
+  const { writePty, readinessFailed, retryConnection } = usePtyConnection({
     termRef, connectedPtyRef, tabId, ptyId, termReady,
     onPtySpawned,
     onShellReady: shell.markReady,
@@ -493,7 +494,9 @@ export const TerminalTab = memo(function TerminalTab({
       )}
       <LockedOverlay view={lock} onActivate={() => openLockedPlans(lock)} />
       {isVisible && uiMode === "terminal" && framePtyId === null && (!terminalIoReady || !frameReady) && !lock.locked && (
-        <Loader label="Starting terminal…" variant="overlay" className="z-20" />
+        readinessFailed
+          ? <TerminalStartFailure onRetry={retryConnection} />
+          : <Loader label="Starting terminal…" variant="overlay" className="z-20" />
       )}
       <DeferredPresence present={isVisible && uiMode === "terminal" && framePtyId !== null && (!terminalIoReady || !frameReady) && !lock.locked}
         className="pointer-events-none absolute inset-x-0 top-2 z-30 flex justify-center">

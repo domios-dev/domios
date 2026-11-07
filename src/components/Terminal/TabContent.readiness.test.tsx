@@ -19,7 +19,7 @@ vi.mock("../../hooks/useAgentProviders", () => ({ useAgentProviders: () => ({ pr
 vi.mock("../../hooks/terminal", async importOriginal => ({
   ...await importOriginal<typeof import("../../hooks/terminal")>(),
   useXterm: () => ({ termRef: useRef(null), fitAddonRef: useRef(null), searchAddonRef: useRef(null), termReady: false, bellFlash: false }),
-  usePtyConnection: (options: UsePtyConnectionOptions) => { lifecycle.current = options; return { writePty: () => {} }; },
+  usePtyConnection: (options: UsePtyConnectionOptions) => { lifecycle.current = options; return { writePty: () => {}, readinessFailed: false, retryConnection: () => {} }; },
 }));
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
