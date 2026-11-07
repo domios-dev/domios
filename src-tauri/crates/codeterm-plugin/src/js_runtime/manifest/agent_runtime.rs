@@ -198,6 +198,9 @@ impl AgentRuntimeCapability {
                         .icon_url
                         .as_deref()
                         .is_some_and(|url| !crate::plugin_icon::registry::valid_url(url))
+                    || profile.full_access_mode.as_deref().is_some_and(|mode| {
+                        !crate::agent_runtime::RuntimeLaunchProfile::valid_session_mode(mode)
+                    })
                     || profile.registry_id.as_deref().is_some_and(|id| {
                         id.is_empty()
                             || id.len() > 128

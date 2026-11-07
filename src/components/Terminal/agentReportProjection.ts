@@ -7,7 +7,8 @@ export const AGENT_REPORT_EVENT = "agent-report";
 export type AgentReportOutcomeClass =
   | "stale_binding_conflict"
   | "structurally_not_attachable"
-  | "delivered_unattached";
+  | "delivered_unattached"
+  | "transition_rejected";
 
 /** Task-transition truth of one accepted report, as decided by the daemon. */
 export interface AgentReportTaskOutcome {
@@ -103,6 +104,7 @@ function reportOutcome(value: unknown): AgentReportOutcomeClass | null {
   return value === "stale_binding_conflict"
     || value === "structurally_not_attachable"
     || value === "delivered_unattached"
+    || value === "transition_rejected"
     ? value
     : null;
 }

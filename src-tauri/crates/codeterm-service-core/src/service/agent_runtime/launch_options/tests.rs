@@ -36,6 +36,7 @@ fn saved_options_round_trip_preserves_directories_and_explicit_network_denial() 
         mode: "auto-accept-edits".into(),
         additional_directories: vec![std::env::current_dir().unwrap().to_str().unwrap().into()],
         network_access: Some(false),
+        full_access_mode: Some("opaque-mode".into()),
     };
     let saved = serde_json::to_vec(&options).unwrap();
     let restored: RestorableRuntimeLaunchOptions = serde_json::from_slice(&saved).unwrap();

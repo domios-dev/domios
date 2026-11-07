@@ -175,6 +175,8 @@ export interface RuntimeLaunchProfile {
   ownerConfigured?:boolean;
   clientCapabilities?:{fs?:{readTextFile?:boolean; writeTextFile?:boolean}; terminal?:boolean};
   limitsSource?:RuntimeProfileLimitsSource;
+  /** The agent's own session mode that approves every action, entered by full-access launches. */
+  fullAccessMode?:string;
 }
 export interface StdioAgentRuntimeCapability {
   hostMcp?:{param:string; methods:readonly string[]};
@@ -185,6 +187,8 @@ export interface StdioAgentRuntimeCapability {
   registryDefaults?:Readonly<Record<string,RuntimeRegistryDefaults>>;
   restrictedCli?:{kind:"execpolicy-service-operations";metadataDirectory:string};
   runtimeModes?:readonly {id:string; displayName:string}[];
+  /** Permission requests declare their option kinds, so the host answers them from the launch policy. */
+  hostApprovals?:boolean;
   serviceTiers?:readonly RuntimeServiceTier[];
   backgroundProcesses?:boolean;
   goals?:{actions:readonly RuntimeGoalAction[]};

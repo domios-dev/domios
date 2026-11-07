@@ -446,8 +446,8 @@ fn apply(
                 if consumed {
                     let _ = svc.cleanup_confirmed_pending_delivery(&context.tab_id);
                 }
-                log::debug!(
-                    "[agent-runtime] tab={} turn={turn_id} send={send_id} evidence=delivered",
+                log::info!(
+                    "[runtime-send] tab={} send_id={send_id} turn={turn_id} delivered: own-session evidence confirmed",
                     context.tab_id
                 );
             }

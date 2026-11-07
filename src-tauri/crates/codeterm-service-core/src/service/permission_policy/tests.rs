@@ -26,6 +26,30 @@ fn permission_bypass_requires_request_and_provider_capability() {
 }
 
 #[test]
+fn runtime_host_approvals_authorize_a_flagless_full_access_launch() {
+    let fixture = fixture();
+    let runtime = |host_approvals: bool| {
+        serde_json::from_value::<codeterm_plugin::agent_runtime::AgentRuntimeCapability>(
+            serde_json::json!({
+                "runtime":"stdio-jsonrpc", "command":{"binary":"opaque","args":[]},
+                "hostApprovals":host_approvals,
+                "requestMethods":{"initialize":["initialize"]},"notificationMethods":[]
+            }),
+        )
+        .unwrap()
+    };
+    for (id, declared) in [("opaque-host-approvals", true), ("opaque-runtime", false)] {
+        fixture.service.agent_registry.register_provider(Box::new(
+            MockProvider::with_chat_ui(id).with_agent_runtime(runtime(declared)),
+        ));
+    }
+    let registry = &fixture.service.agent_registry;
+    assert!(authorize_permission_bypass(registry, "opaque-host-approvals", true).is_some());
+    assert!(authorize_permission_bypass(registry, "opaque-host-approvals", false).is_none());
+    assert!(authorize_permission_bypass(registry, "opaque-runtime", true).is_none());
+}
+
+#[test]
 fn authorization_is_provider_bound() {
     let fixture = fixture();
     let authorization =

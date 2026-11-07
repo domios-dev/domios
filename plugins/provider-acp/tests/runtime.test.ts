@@ -369,6 +369,31 @@ const unnamed=declaredPermission({toolCallId:"unnamed"},[{optionId:"opaque-a",na
 assert.deepEqual(unnamed.prompt.options.map(option=>option.label),["Always allow","Reject"]);
 console.log("✓ ACP readable permission summaries retain native paths and bounded previews; labels hide protocol ids; declared kinds reach the host");
 console.log("✓ ACP permission options and stale session/epoch/nonce boundaries");
+const advertisedModes={currentModeId:"opaque-default",availableModes:[{id:"opaque-default",name:"Default"},{id:"opaque-approve-all",name:"Approve all"}]};
+function openWithModes(tabId:string, providerSettings:JsonValue, modes:JsonValue=advertisedModes) {
+  const context={...ctx,tabId,providerSettings};
+  const plan=hooks.runtimePlan(context,init);
+  hooks.runtimeResponse(context,init,plan.state,{kind:"success",value:{protocolVersion:1,agentCapabilities:{},authMethods:[]}});
+  const opened=hooks.runtimePlan(context,fresh);
+  return {context,step:hooks.runtimeResponse(context,fresh,opened.state,{kind:"success",value:{sessionId:`${tabId}-session`,modes}})};
+}
+function loadedMode(step:RuntimeStep):string|undefined {
+  assert.ok(step.kind === "complete" && step.result.kind === "threadLoaded",JSON.stringify(step));
+  return step.kind === "complete" && step.result.kind === "threadLoaded" ? step.result.settings.mode : undefined;
+}
+const fullAccess=openWithModes("full-access-mode",{fullAccessMode:"opaque-approve-all"});
+assert.ok(fullAccess.step.kind === "continue" && fullAccess.step.plan.action.kind === "request");
+if (fullAccess.step.kind !== "continue" || fullAccess.step.plan.action.kind !== "request") throw new Error("full access must request its declared mode");
+assert.deepEqual(plain(fullAccess.step.plan.action.call.method),"session/set_mode");
+assert.deepEqual(plain(fullAccess.step.plan.action.call.params),{sessionId:"full-access-mode-session",modeId:"opaque-approve-all"});
+assert.equal(loadedMode(hooks.runtimeResponse(fullAccess.context,fresh,fullAccess.step.plan.state,{kind:"success",value:{}})),"opaque-approve-all");
+const refusedMode=openWithModes("full-access-refused",{fullAccessMode:"opaque-approve-all"});
+if (refusedMode.step.kind !== "continue") throw new Error("full access must request its declared mode");
+assert.equal(loadedMode(hooks.runtimeResponse(refusedMode.context,fresh,refusedMode.step.plan.state,{kind:"error",error:{code:-32602,message:"opaque refusal"}})),"opaque-default","a refused mode keeps the session loaded");
+assert.equal(loadedMode(openWithModes("interactive-mode",{}).step),"opaque-default","an interactive launch keeps the agent's mode");
+assert.equal(loadedMode(openWithModes("undeclared-mode",{fullAccessMode:"opaque-unadvertised"}).step),"opaque-default","an unadvertised mode is never requested");
+assert.equal(loadedMode(openWithModes("already-full",{fullAccessMode:"opaque-approve-all"},{...advertisedModes,currentModeId:"opaque-approve-all"}).step),"opaque-approve-all");
+console.log("✓ ACP full-access launches enter the profile's declared approve-everything mode only when the agent advertises it");
 assert.throws(()=>hooks.runtimePlan({...permissionContext,threadId:"foreign"},{kind:"answer",requestId:"permission-fixture",answer:{kind:"cancel"}}));
 
 for (const kind of ["agent_message_chunk","agent_thought_chunk","user_message_chunk","tool_call","plan","extension-update",...(["session/request_permission","fs/read_text_file","fs/write_text_file","terminal/create","terminal/output","terminal/wait_for_exit","terminal/kill","terminal/release"])]) {

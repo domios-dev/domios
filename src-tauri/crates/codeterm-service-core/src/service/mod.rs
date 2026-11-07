@@ -48,6 +48,7 @@ pub use capability_probe::refresh as capability_probe_refresh;
 pub(crate) mod cartographer;
 pub(crate) mod chat_send_evidence;
 pub mod chat_send_transaction;
+mod client_selection;
 mod close_history;
 pub use close_history::close_inventory_error_data;
 mod command_port_impl;

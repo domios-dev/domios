@@ -53,7 +53,8 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
         rebind_tab_session: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId"))}/session/rebind`, {
             session_id: s(a, "sessionId"),
         }),
-        mux_set_active_workspace: (a: Args) => clientFor(a).json("POST", `/api/workspaces/${enc(s(a, "workspaceId"))}/focus`),
+        // Selection is this client's own; `/select` records it without moving any other client.
+        mux_set_active_workspace: (a: Args) => clientFor(a).json("POST", `/api/workspaces/${enc(s(a, "workspaceId"))}/select`),
         mux_create_workspace: (a: Args) => clientFor(a).json("POST", "/api/workspaces", {
             name: a.name,
             cwd: a.cwd,
@@ -79,11 +80,8 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
             creator_tab_id: a.creatorTabId,
             cmd: a.cmd,
         }),
-        mux_set_active_tab: (a: Args) => clientFor(a).json("POST", `/api/workspaces/${enc(s(a, "workspaceId"))}/tabs/${enc(s(a, "tabId"))}/focus`),
-        mux_set_active_tab_and_workspace: async (a: Args) => {
-            await clientFor(a).json("POST", `/api/workspaces/${enc(s(a, "workspaceId"))}/focus`);
-            return clientFor(a).json("POST", `/api/workspaces/${enc(s(a, "workspaceId"))}/tabs/${enc(s(a, "tabId"))}/focus`);
-        },
+        mux_set_active_tab: (a: Args) => clientFor(a).json("POST", `/api/workspaces/${enc(s(a, "workspaceId"))}/tabs/${enc(s(a, "tabId"))}/select`),
+        mux_set_active_tab_and_workspace: (a: Args) => clientFor(a).json("POST", `/api/workspaces/${enc(s(a, "workspaceId"))}/tabs/${enc(s(a, "tabId"))}/select`),
         mux_close_tab: (a: Args) => clientFor(a).json("POST", `/api/workspaces/${enc(s(a, "workspaceId"))}/tabs/${enc(s(a, "tabId"))}/close`),
         mux_reopen_closed_tab: (a: Args) => clientFor(a).json("POST", `/api/workspaces/${enc(s(a, "workspaceId"))}/reopen-closed`, {
             index: a.index,
@@ -105,7 +103,7 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
         mux_reorder_workspace: (a: Args) => clientFor(a).json("POST", `/api/workspaces/reorder`, {
             ordered_workspace_ids: a.orderedWorkspaceIds,
         }),
-        mux_set_focused_tab: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId"))}/focus`),
+        mux_set_focused_tab: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId"))}/select`),
         mux_respond_prompt: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId"))}/prompt/respond`, a),
         mux_set_permission_auto_confirm: async (a: Args) => {
             const resp = await clientFor(a).json<{
@@ -184,7 +182,7 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
             if (!identity || identity.peerId !== peer) {
                 throw new Error("Remote tab owner mismatch");
             }
-            if (["/focus", "/agent/restart", "/close"].includes(s(a, "suffix"))) {
+            if (["/focus", "/select", "/agent/restart", "/close"].includes(s(a, "suffix"))) {
                 remotePtyIds.invalidate(ordinary);
             }
             const remoteTab = identity.remoteTabId;

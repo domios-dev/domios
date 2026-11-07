@@ -1027,7 +1027,11 @@ function optionRequest(state, sessionId, id, value) {
   if (id === state.modelStateId) plan.state = { method: "session/set_model", modelId: value };
   return plan;
 }
-function loadedThread(op, state, sessionId, attempted = [], confirmAuthentication = true) {
+function fullAccessMode(ctx, state) {
+  const mode = object4(ctx.providerSettings).fullAccessMode;
+  return typeof mode === "string" && mode !== state.settings?.mode && state.settings?.modes?.some((entry) => entry.id === mode) ? mode : void 0;
+}
+function loadedThread(ctx, op, state, sessionId, attempted = [], confirmAuthentication = true) {
   const selection = launchSelection(op.settings, state.settings, attempted);
   if (selection.kind === "refused") return refuseThread(op, state, "provider_refused", selection.message);
   if (selection.kind === "set") {
@@ -1035,11 +1039,26 @@ function loadedThread(op, state, sessionId, attempted = [], confirmAuthenticatio
     plan.state = { ...object4(plan.state), attempted: [...attempted, selection.category], confirmAuthentication };
     return { kind: "continue", plan };
   }
+  const mode = attempted.includes("mode") ? void 0 : fullAccessMode(ctx, state);
+  if (mode) {
+    const plan = request("session/set_mode", { sessionId, modeId: mode });
+    plan.state = { method: "session/set_mode", modeId: mode, attempted: [...attempted, "mode"], confirmAuthentication };
+    return { kind: "continue", plan };
+  }
   return {
     kind: "complete",
     result: { kind: "threadLoaded", threadId: sessionId, settings: state.settings ?? {} },
     ...threadNotices(state, sessionId, confirmAuthentication ? sessionAuthentication(state) : [])
   };
+}
+function modeContinuation(ctx, op, state, raw, mode) {
+  if (!state.sessionActive || !state.sessionId || op.kind === "resumeThread" && state.sessionId !== op.threadId)
+    return refused("binding_mismatch", "ACP session is not active in this runtime");
+  const attempted = object4(raw).attempted;
+  if (!Array.isArray(attempted) || attempted.length > 3 || attempted[attempted.length - 1] !== "mode" || !attempted.every((value) => value === "model" || value === "thought_level" || value === "mode"))
+    return refused("protocol_error", "Invalid session selection continuation");
+  if (mode) applySettings(state, { mode });
+  return loadedThread(ctx, op, state, state.sessionId, attempted, object4(raw).confirmAuthentication === true);
 }
 function refuseThread(op, state, code, message) {
   if (op.kind === "openThread") {
@@ -1223,6 +1242,8 @@ function runtimeResponse(ctx, op, raw, reply) {
       plan.state = { method, mcpOffered: false };
       return { kind: "continue", plan };
     }
+    if (state2 && (op.kind === "openThread" || op.kind === "resumeThread") && method === "session/set_mode")
+      return modeContinuation(ctx, op, state2, raw);
     if ((op.kind === "openThread" || op.kind === "resumeThread") && ["session/set_config_option", "session/set_model"].includes(String(method))) {
       const state3 = negotiated(ctx);
       if (!state3?.sessionActive || !state3.sessionId || op.kind === "resumeThread" && state3.sessionId !== op.threadId)
@@ -1296,11 +1317,15 @@ function runtimeResponse(ctx, op, raw, reply) {
     const attempted = object4(raw).attempted;
     if (!Array.isArray(attempted) || attempted.length > 2 || !attempted.every((value2) => value2 === "model" || value2 === "thought_level"))
       return refused("protocol_error", "Invalid session selection continuation");
-    return loadedThread(op, state, state.sessionId, attempted, object4(raw).confirmAuthentication === true);
+    return loadedThread(ctx, op, state, state.sessionId, attempted, object4(raw).confirmAuthentication === true);
+  }
+  if ((op.kind === "openThread" || op.kind === "resumeThread") && method === "session/set_mode") {
+    if (typeof object4(raw).modeId !== "string") return refused("protocol_error", "Invalid session mode continuation");
+    return modeContinuation(ctx, op, state, raw, object4(raw).modeId);
   }
   if (op.kind === "resumeThread" && method === "boundSession") {
     if (!state.sessionActive || state.sessionId !== op.threadId) return refused("binding_mismatch", "ACP session is not active in this runtime");
-    return loadedThread(op, state, ownSession(ctx, state), [], false);
+    return loadedThread(ctx, op, state, ownSession(ctx, state), [], false);
   }
   if (op.kind === "openThread" || op.kind === "resumeThread") {
     if (op.kind === "resumeThread") {
@@ -1316,7 +1341,7 @@ function runtimeResponse(ctx, op, raw, reply) {
     state.cursor.loading = op.kind === "resumeThread";
     state.settings = { commands: [], configOptions: [], modes: [], ...sessionSettings(value) };
     state.modelStateId = sessionModel(value.models, configOptions(value.configOptions))?.id;
-    return loadedThread(op, state, sessionId);
+    return loadedThread(ctx, op, state, sessionId);
   }
   if (op.kind === "control" && ["config", "mode", "settings"].includes(op.action)) {
     const sessionId = ownSession(ctx, state);

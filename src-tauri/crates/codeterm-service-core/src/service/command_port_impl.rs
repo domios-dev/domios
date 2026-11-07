@@ -67,7 +67,7 @@ impl CommandPort for ServiceContext {
     }
 
     fn focus_tab(&self, tab_id: &str) -> Result<(), String> {
-        ServiceContext::focus_tab(self, tab_id)
+        ServiceContext::request_tab_focus(self, tab_id)
     }
 
     fn rename_tab(&self, tab_id: &str, title: &str) -> Result<(), String> {

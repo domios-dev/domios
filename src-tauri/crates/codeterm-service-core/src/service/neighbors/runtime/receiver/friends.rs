@@ -66,6 +66,7 @@ impl ServiceContext {
     }
 
     pub(in crate::service::neighbors) fn neighbor_friend_receiver_snapshot(&self) -> (Value, u64) {
+        let lapsed = self.neighbor_lapsed_installations();
         let generation = self.neighbor_cell().generation.load(Ordering::Acquire);
         let cell = self.extensions.get_or_init(Cell::default);
         let known = cell.known.lock();
@@ -73,8 +74,10 @@ impl ServiceContext {
             .iter()
             .filter(|(_, known)| known.generation == generation)
             .map(|(id, known)| {
-                let view = Self::receiver_view(&known.receiver.status);
-                (id.clone(), view)
+                (
+                    id.clone(),
+                    Self::receiver_view(&known.receiver.status, &lapsed),
+                )
             })
             .collect();
         (Value::Object(views), cell.version.load(Ordering::Acquire))

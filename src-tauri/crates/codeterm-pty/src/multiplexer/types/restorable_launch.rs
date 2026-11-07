@@ -106,6 +106,9 @@ pub struct RestorableRuntimeLaunchOptions {
     pub additional_directories: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub network_access: Option<bool>,
+    /// The launch profile's declared approve-everything session mode; set only for full access.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub full_access_mode: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

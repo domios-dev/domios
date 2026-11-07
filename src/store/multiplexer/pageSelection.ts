@@ -67,6 +67,28 @@ export function reconcilePageSelection(
   };
 }
 
+/** Payload of the daemon's explicit request (CLI, API, agent) to show a tab or workspace in every client. */
+export interface FocusRequest { tab_id?: string | null; workspace_id?: string | null }
+
+export const TAB_FOCUS_REQUESTED_EVENT = "tab-focus-requested";
+
+export interface FocusTarget { workspaceId: string; tabId: string | null }
+
+/** What a focus request shows, when this client already knows it; a workspace without a tab keeps this client's own tab there. */
+export function focusRequestTarget(
+  workspaces: readonly SelectionWorkspace[],
+  request: FocusRequest | null | undefined,
+): FocusTarget | null {
+  const tabId = request?.tab_id ?? null;
+  if (!tabId) {
+    const workspace = workspaces.find((candidate) => candidate.id === request?.workspace_id);
+    return workspace ? { workspaceId: workspace.id, tabId: null } : null;
+  }
+  const owner = workspaces.find((workspace) => workspace.id === request?.workspace_id && workspace.tabs.includes(tabId))
+    ?? workspaces.find((workspace) => workspace.tabs.includes(tabId));
+  return owner ? { workspaceId: owner.id, tabId } : null;
+}
+
 export function acceptsPageFocus(
   selection: Pick<PageSelection, "active_workspace_id" | "activeTabIds">,
   tabId: string,

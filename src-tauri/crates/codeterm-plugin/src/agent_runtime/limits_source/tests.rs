@@ -139,3 +139,27 @@ fn installed_registry_profiles_resolve_their_declared_default_and_own_sources_wi
         "a default must still hold for the profile"
     );
 }
+
+#[test]
+fn registry_profiles_inherit_a_declared_full_access_mode_and_own_declarations_win() {
+    let defaults: std::collections::BTreeMap<String, RuntimeRegistryDefaults> =
+        serde_json::from_value(json!({"fixture-acp":{"fullAccessMode":"opaque-approve-all"}}))
+            .unwrap();
+    assert!(valid_registry_defaults(&defaults));
+    let mut installed = registry_profile(json!({"binary":"npx","args":["fixture@1.0.0"],
+        "ownerConfigured":true,"registryId":"fixture-acp"}));
+    resolve_registry_defaults(&mut installed, &defaults);
+    assert_eq!(
+        installed.full_access_mode.as_deref(),
+        Some("opaque-approve-all")
+    );
+    let mut explicit = registry_profile(json!({"binary":"npx","args":["fixture@1.0.0"],
+        "ownerConfigured":true,"registryId":"fixture-acp","fullAccessMode":"opaque-own"}));
+    resolve_registry_defaults(&mut explicit, &defaults);
+    assert_eq!(explicit.full_access_mode.as_deref(), Some("opaque-own"));
+    for invalid in ["", "line\nbreak"] {
+        let defaults: std::collections::BTreeMap<String, RuntimeRegistryDefaults> =
+            serde_json::from_value(json!({"fixture-acp":{"fullAccessMode":invalid}})).unwrap();
+        assert!(!valid_registry_defaults(&defaults), "{invalid:?}");
+    }
+}
