@@ -199,8 +199,10 @@ export function useXterm({
     term.options.windowsPty = geometryOptions.windowsPty;
     term.options.reflowCursorLine = geometryOptions.reflowCursorLine;
 
+    // Cell metrics change with the font; the resize owner refits and a follower
+    // keeps the owner's geometry, so the shared refit path decides, not a bare fit.
     requestAnimationFrame(() => {
-      try { fitAddonRef.current?.fit(); } catch { /* ignore */ }
+      window.dispatchEvent(new CustomEvent("codeterm-tab-resize", { detail: { force: true } }));
     });
   }, [theme, fontConfig, terminalConfig, viewerLocalGeometry, winBuildNumber]);
 
