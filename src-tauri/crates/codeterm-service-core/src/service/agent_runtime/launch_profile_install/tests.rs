@@ -197,14 +197,21 @@ fn binary_receipt_rechecks_executable_and_ignores_host_icon_projection() {
     std::fs::write(&binary, b"tampered executable").unwrap();
     assert!(read_receipt(root.path(), "fixture", &profile).is_err());
 }
-/// A registry install exactly as the owner profile store recorded it before declaration overlays.
-const CLAUDE_ACP_DECLARATION: &str = r#"{"registryId":"claude-acp","iconUrl":"https://cdn.agentclientprotocol.com/registry/v1/latest/claude-acp.svg","binary":"npx","args":["@agentclientprotocol/claude-agent-acp@0.101.0"],"install":{"distribution":"npx","package":"@agentclientprotocol/claude-agent-acp@0.101.0"},"ownerConfigured":true}"#;
-/// The declaration hash the build that installed it wrote into its receipt.
-const CLAUDE_ACP_EARLIER_RECEIPT_SHA256: &str =
-    "b6739036e49f035d0494a742bc2b215448c087a30e899d463a6c4903ab2c701b";
+/// Registry installs exactly as an earlier build recorded them, kept beside the shipped plugin.
+fn earlier_install() -> serde_json::Value {
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../../../../plugins/provider-acp/tests/fixtures/earlier-install-receipts.json"
+    ))
+    .unwrap();
+    fixture["registryInstalls"][0].clone()
+}
+
+fn earlier_text(field: &str) -> String {
+    earlier_install()[field].as_str().unwrap().to_owned()
+}
 
 fn earlier_declaration() -> RuntimeLaunchProfile {
-    serde_json::from_str(CLAUDE_ACP_DECLARATION).unwrap()
+    serde_json::from_value(earlier_install()["declaration"].clone()).unwrap()
 }
 
 /// The profile a launch reads: the shipped ACP runtime with the owner profile overlaid.
@@ -214,12 +221,12 @@ fn resolved_at_launch(declaration: RuntimeLaunchProfile) -> RuntimeLaunchProfile
     ))
     .unwrap();
     let shipped = serde_json::from_value(manifest["capabilities"]["agentRuntime"].clone()).unwrap();
-    let owner = BTreeMap::from([("claude-acp".to_string(), declaration)]);
+    let owner = BTreeMap::from([(earlier_text("profileId"), declaration)]);
     let mut resolved = codeterm_plugin::agent_runtime::owner_profiles::overlay_with(shipped, owner)
         .unwrap()
         .launch_profiles
         .unwrap()
-        .remove("claude-acp")
+        .remove(&earlier_text("profileId"))
         .unwrap();
     assert!(resolved.full_access_mode.is_some() && resolved.limits_source.is_some());
     resolved.icon_svg = Some("<svg/>".into());
@@ -249,10 +256,10 @@ fn an_install_from_an_earlier_declaration_starts_under_todays_resolved_declarati
     let root = app.path().join("profiles");
     let saved = receipt(
         &root,
-        "claude-acp",
+        &earlier_text("profileId"),
         &earlier_declaration(),
-        "@agentclientprotocol/claude-agent-acp@0.101.0".into(),
-        "0.101.0".into(),
+        earlier_text("package"),
+        earlier_text("version"),
         Some("a".repeat(64)),
         installed_command(app.path()),
     )
@@ -260,13 +267,17 @@ fn an_install_from_an_earlier_declaration_starts_under_todays_resolved_declarati
     let mut today = resolved_at_launch(earlier_declaration());
     declared_later(&mut today);
     assert_eq!(
-        read_receipt(&root, "claude-acp", &today).unwrap(),
+        read_receipt(&root, &earlier_text("profileId"), &today).unwrap(),
         Some(saved)
     );
-    assert_eq!(detect(&root, "claude-acp", &today), InstallState::Installed);
-    today.install.as_mut().unwrap().package =
-        "@agentclientprotocol/claude-agent-acp@0.102.0".into();
-    assert!(read_receipt(&root, "claude-acp", &today).unwrap().is_none());
+    assert_eq!(
+        detect(&root, &earlier_text("profileId"), &today),
+        InstallState::Installed
+    );
+    today.install.as_mut().unwrap().package = earlier_text("nextPackage");
+    assert!(read_receipt(&root, &earlier_text("profileId"), &today)
+        .unwrap()
+        .is_none());
 }
 
 #[test]
@@ -276,19 +287,21 @@ fn a_receipt_written_by_an_earlier_build_starts_without_reinstall_and_is_rebound
     std::fs::create_dir_all(&root).unwrap();
     let command = installed_command(app.path());
     let earlier = InstallReceipt {
-        profile_id: "claude-acp".into(),
-        declaration_sha256: CLAUDE_ACP_EARLIER_RECEIPT_SHA256.into(),
-        package: "@agentclientprotocol/claude-agent-acp@0.101.0".into(),
-        version: "0.101.0".into(),
+        profile_id: earlier_text("profileId"),
+        declaration_sha256: earlier_text("receiptSha256"),
+        package: earlier_text("package"),
+        version: earlier_text("version"),
         sha256: Some("a".repeat(64)),
         command: command.clone(),
         timestamp_ms: 1,
     };
-    let path = root.join("claude-acp.json");
+    let path = root.join(format!("{}.json", earlier_text("profileId")));
     std::fs::write(&path, serde_json::to_vec(&earlier).unwrap()).unwrap();
     let mut today = resolved_at_launch(earlier_declaration());
     std::fs::remove_file(&command.args[0]).unwrap();
-    assert!(read_receipt(&root, "claude-acp", &today).unwrap().is_none());
+    assert!(read_receipt(&root, &earlier_text("profileId"), &today)
+        .unwrap()
+        .is_none());
     assert_eq!(
         serde_json::from_slice::<InstallReceipt>(&std::fs::read(&path).unwrap()).unwrap(),
         earlier
@@ -299,7 +312,7 @@ fn a_receipt_written_by_an_earlier_build_starts_without_reinstall_and_is_rebound
         ..earlier.clone()
     };
     assert_eq!(
-        read_receipt(&root, "claude-acp", &today).unwrap(),
+        read_receipt(&root, &earlier_text("profileId"), &today).unwrap(),
         Some(rebound.clone())
     );
     assert_eq!(
@@ -308,9 +321,11 @@ fn a_receipt_written_by_an_earlier_build_starts_without_reinstall_and_is_rebound
     );
     declared_later(&mut today);
     assert_eq!(
-        read_receipt(&root, "claude-acp", &today).unwrap(),
+        read_receipt(&root, &earlier_text("profileId"), &today).unwrap(),
         Some(rebound)
     );
     today.args.push("--other".into());
-    assert!(read_receipt(&root, "claude-acp", &today).unwrap().is_none());
+    assert!(read_receipt(&root, &earlier_text("profileId"), &today)
+        .unwrap()
+        .is_none());
 }

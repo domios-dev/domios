@@ -83,17 +83,14 @@ fn install_identity_ignores_presentation_policy_and_overlays_but_tracks_the_inst
 #[test]
 fn receipts_hashed_by_earlier_builds_keep_their_binding_and_ignore_later_fields() {
     // Declarations and hashes exactly as an earlier build stored them for registry installs.
-    for (declaration, recorded) in [
-        (
-            r#"{"registryId":"claude-acp","iconUrl":"https://cdn.agentclientprotocol.com/registry/v1/latest/claude-acp.svg","binary":"npx","args":["@agentclientprotocol/claude-agent-acp@0.101.0"],"install":{"distribution":"npx","package":"@agentclientprotocol/claude-agent-acp@0.101.0"},"ownerConfigured":true}"#,
-            "b6739036e49f035d0494a742bc2b215448c087a30e899d463a6c4903ab2c701b",
-        ),
-        (
-            r#"{"registryId":"codex-acp","iconUrl":"https://cdn.agentclientprotocol.com/registry/v1/latest/codex-acp.svg","binary":"npx","args":["@agentclientprotocol/codex-acp@2.5.0"],"install":{"distribution":"npx","package":"@agentclientprotocol/codex-acp@2.5.0"},"ownerConfigured":true}"#,
-            "668f922cb398a0fc0cdca5487864caaeffea6d99d7cabdb8f7f927911298d9bc",
-        ),
-    ] {
-        let mut profile: RuntimeLaunchProfile = serde_json::from_str(declaration).unwrap();
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../../../../../plugins/provider-acp/tests/fixtures/earlier-install-receipts.json"
+    ))
+    .unwrap();
+    for install in fixture["registryInstalls"].as_array().unwrap() {
+        let recorded = install["receiptSha256"].as_str().unwrap();
+        let mut profile: RuntimeLaunchProfile =
+            serde_json::from_value(install["declaration"].clone()).unwrap();
         assert_eq!(
             bound_by(&profile, recorded).unwrap(),
             Some(Binding::LegacyDeclaration)
