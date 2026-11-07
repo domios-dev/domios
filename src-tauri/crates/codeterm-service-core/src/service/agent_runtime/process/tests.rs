@@ -1,5 +1,9 @@
+use super::super::launch_profile::ResolvedLaunch;
 use super::*;
-use codeterm_plugin::agent_runtime::{AgentRuntimeCommand, AgentRuntimeProtocol, RpcCall};
+use codeterm_plugin::agent_runtime::{
+    AgentRuntimeCapability, AgentRuntimeCommand, AgentRuntimeProtocol, RpcCall,
+};
+use std::path::Path;
 
 #[cfg(target_os = "macos")]
 struct ProcessBoundaryTestLogger;
@@ -113,8 +117,7 @@ async fn assert_tree_exit(action: &str) {
         crate::test_support::fixture_manifest_dir().display()
     )];
     let process = spawn(
-        Path::new("node"),
-        &cap,
+        &ResolvedLaunch::unprofiled("node", cap),
         dir.path().to_str().unwrap(),
         HashMap::new(),
         "fixture-owned-tree",
@@ -228,8 +231,7 @@ async fn own_tab_environment_reaches_the_child_and_its_shell_commands() {
         ),
     ]);
     let process = spawn(
-        Path::new("node"),
-        &capability(),
+        &ResolvedLaunch::unprofiled("node", capability()),
         dir.path().to_str().unwrap(),
         env.clone(),
         "fixture-tab",
@@ -337,8 +339,7 @@ async fn lifecycle_cli_pin_controls_bare_aliases_in_child_and_grandchild_shells(
     .unwrap();
     env.insert("PATH".into(), inherited_path.clone());
     let process = spawn(
-        Path::new("node"),
-        &capability(),
+        &ResolvedLaunch::unprofiled("node", capability()),
         dir.path().to_str().unwrap(),
         env,
         "fixture-own-tab",
@@ -385,8 +386,7 @@ async fn lifecycle_cli_pin_controls_bare_aliases_in_child_and_grandchild_shells(
 async fn child_exit_reports_status_and_stderr() {
     let dir = tempfile::tempdir().unwrap();
     let process = spawn(
-        Path::new("node"),
-        &capability(),
+        &ResolvedLaunch::unprofiled("node", capability()),
         dir.path().to_str().unwrap(),
         HashMap::new(),
         "fixture-tab",
@@ -426,8 +426,7 @@ async fn pipe_drop_from_a_live_peer_is_not_success() {
 
     let dir = tempfile::tempdir().unwrap();
     let process = spawn(
-        Path::new("node"),
-        &capability(),
+        &ResolvedLaunch::unprofiled("node", capability()),
         dir.path().to_str().unwrap(),
         HashMap::new(),
         "fixture-tab",

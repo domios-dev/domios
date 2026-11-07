@@ -19,6 +19,19 @@ pub(super) struct ResolvedLaunch {
 }
 
 impl ResolvedLaunch {
+    /// A profile-less launch of `capability`'s own command from `binary`.
+    #[cfg(test)]
+    pub(super) fn unprofiled(binary: &str, capability: AgentRuntimeCapability) -> Self {
+        Self {
+            binary: PathBuf::from(binary),
+            capability,
+            env: BTreeMap::new(),
+            working_directory: None,
+            profile: None,
+            nonce: String::new(),
+        }
+    }
+
     /// The agent process's directory: the profile's host-owned one when declared, else the tab's.
     pub(super) fn process_cwd<'a>(&'a self, tab_cwd: &'a str) -> &'a str {
         self.working_directory.as_deref().unwrap_or(tab_cwd)
