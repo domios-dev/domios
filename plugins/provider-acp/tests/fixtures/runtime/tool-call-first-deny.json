@@ -531,20 +531,41 @@
           "question": "Write file\nKind: edit\nPath: /work/project/file.txt\nAllow this tool call?",
           "options": [
             {
-              "label": "Allow once (allow_once)",
+              "label": "Allow once",
               "value": "allow"
             },
             {
-              "label": "Allow always (allow_always)",
+              "label": "Allow always",
               "value": "always"
             },
             {
-              "label": "Reject once (reject_once)",
+              "label": "Reject once",
               "value": "reject"
             },
             {
-              "label": "Reject always (reject_always)",
+              "label": "Reject always",
               "value": "never"
+            }
+          ]
+        },
+        "permission": {
+          "action": "write",
+          "options": [
+            {
+              "value": "allow",
+              "decision": "allow_once"
+            },
+            {
+              "value": "always",
+              "decision": "allow_always"
+            },
+            {
+              "value": "reject",
+              "decision": "reject_once"
+            },
+            {
+              "value": "never",
+              "decision": "reject_always"
             }
           ]
         }

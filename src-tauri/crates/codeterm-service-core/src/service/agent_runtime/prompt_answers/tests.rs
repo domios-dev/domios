@@ -132,6 +132,7 @@ fn pending_requests_cancelled_before_interrupt_and_prompts_resolved() {
                         params: serde_json::json!({"sessionId":"own-thread"}),
                     },
                     prompt: Some(shown.clone()),
+                    permission: None,
                 },
             );
             publish(&fixture.service, &session, request, shown);

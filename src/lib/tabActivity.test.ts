@@ -111,3 +111,13 @@ assert.equal(readableActivityLine("Reading files"), "Reading files", "ordinary s
 const commandQuestion = tabActivity({ ...agent, pending_prompt: { question: '"C:\\Windows\\pwsh.exe" -Command Set-Content x' } } as TabActivityInput, "Waiting");
 assert.notEqual(commandQuestion.label.includes("\\"), true, "a raw command approval does not show its path");
 assert.equal(tabActivity({ ...agent, pending_prompt: { question: "Which file?" } } as TabActivityInput, "Waiting").label, "Which file?", "a real question keeps its text");
+const choices = [{ label: "label-a", value: "value-a" }, { label: "label-b", value: "value-b" }];
+const toolApproval = { question: "title-token\ndetail-token\nask-token", options: choices };
+const chatBacking = { kind: "chat_backend", plugin_id: "fixture", session_id: "chat-session" } as const;
+const chatApproval = tabActivity({ ...agent, backing: chatBacking, pending_prompt: toolApproval } as TabActivityInput, "Waiting").label;
+assert.equal(chatApproval, "Waiting for your permission", "a chat runtime approval summarises instead of repeating its question");
+assert.ok(!chatApproval.includes("title-token"));
+assert.equal(tabActivity({ ...agent, pending_prompt: { question: "short-token", options: choices }, pending_prompt_kind: "permission" } as TabActivityInput, "Waiting").label, "Waiting for your permission");
+assert.equal(tabActivity({ ...agent, pending_prompt: toolApproval, agent_state: { state: "question", subtype: "permission" } } as TabActivityInput, "Waiting").label, "Waiting for your permission");
+assert.equal(tabActivity({ ...agent, pending_prompt: toolApproval } as TabActivityInput, "Waiting").label, "Waiting for your answer", "a multi-line question is summarised");
+assert.equal(tabActivity({ ...agent, pending_prompt: { question: "x".repeat(81), options: choices } } as TabActivityInput, "Waiting").label, "Waiting for your answer", "a long question is summarised");

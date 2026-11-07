@@ -638,6 +638,8 @@ pub enum AgentRuntimeEvent {
         thread_id: String,
         request_id: RpcId,
         prompt: PendingPrompt,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        permission: Option<RuntimePermission>,
     },
     PromptResolved {
         thread_id: String,
@@ -691,6 +693,39 @@ pub struct RuntimeRateLimit {
 pub enum RuntimeAccountCredits {
     Balance { balance: String },
     Unlimited,
+}
+
+/// Agent-declared meaning of a permission prompt; the host answers it from the launch policy.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RuntimePermission {
+    pub action: RuntimePermissionAction,
+    pub options: Vec<RuntimePermissionOption>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RuntimePermissionAction {
+    Read,
+    Write,
+    Command,
+    Other,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RuntimePermissionOption {
+    pub value: String,
+    pub decision: RuntimePermissionDecision,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RuntimePermissionDecision {
+    AllowOnce,
+    AllowAlways,
+    RejectOnce,
+    RejectAlways,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

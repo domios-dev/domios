@@ -1,8 +1,8 @@
 use codeterm_plugin::agent_runtime::RpcId;
 use codeterm_plugin::agent_runtime::{
     AgentRuntimeEvent, RuntimeAccountCredits, RuntimeAuthState, RuntimeContext, RuntimeLoginState,
-    RuntimeQuestion, RuntimeQuestionResponse, RuntimeRateLimit, RuntimeSettings, RuntimeTurnDetail,
-    RuntimeTurnState, TokenUsage,
+    RuntimePermission, RuntimeQuestion, RuntimeQuestionResponse, RuntimeRateLimit, RuntimeSettings,
+    RuntimeTurnDetail, RuntimeTurnState, TokenUsage,
 };
 use codeterm_types::agent::chat_types::ChatMsg;
 use codeterm_types::pty::PendingPrompt;
@@ -58,6 +58,7 @@ pub enum RuntimeEvent {
         questions: Option<Vec<RuntimeQuestion>>,
         response: Option<RuntimeQuestionResponse>,
         prompt: Option<PendingPrompt>,
+        permission: Option<RuntimePermission>,
         resolved: bool,
     },
     EvidenceUpdated {
@@ -352,6 +353,7 @@ pub fn translate(event: &AgentRuntimeEvent) -> RuntimeEvent {
             questions: Some(questions.clone()),
             response: Some(response.clone()),
             prompt: None,
+            permission: None,
             resolved: false,
         },
         AgentRuntimeEvent::RateLimits {
@@ -423,6 +425,7 @@ pub fn translate(event: &AgentRuntimeEvent) -> RuntimeEvent {
             thread_id,
             request_id,
             prompt,
+            permission,
         } => RuntimeEvent::RequestUpdated {
             thread_id: thread_id.clone(),
             request_id: Some(request_id.clone()),
@@ -430,6 +433,7 @@ pub fn translate(event: &AgentRuntimeEvent) -> RuntimeEvent {
             questions: None,
             response: None,
             prompt: Some(prompt.clone()),
+            permission: permission.clone(),
             resolved: false,
         },
         AgentRuntimeEvent::PromptResolved {
@@ -442,6 +446,7 @@ pub fn translate(event: &AgentRuntimeEvent) -> RuntimeEvent {
             questions: None,
             response: None,
             prompt: None,
+            permission: None,
             resolved: true,
         },
         AgentRuntimeEvent::ControlsConfirmed {

@@ -347,8 +347,22 @@ const largePermission=permissionPrompt({toolCallId:"large",title:"Large edit",ki
 assert.ok(largePermission.prompt.question.length <= 2048);
 assert.ok(largePermission.prompt.question.endsWith("…"));
 assert.ok(!/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u.test(largePermission.prompt.question));
-assert.equal(permissionPrompt({toolCallId:"minimal"}).prompt.question,"Tool permission requested\nKind: other\nAllow this tool call?");
-console.log("✓ ACP readable permission summaries retain native paths, option IDs and bounded previews");
+assert.equal(permissionPrompt({toolCallId:"minimal"}).prompt.question,"Tool permission requested\nAllow this tool call?");
+assert.equal(permissionPrompt({toolCallId:"other",title:"Opaque tool",kind:"other"}).prompt.question,"Opaque tool\nAllow this tool call?");
+function declaredPermission(toolCall:JsonValue, options?:JsonValue) {
+  const params={...(request.params as Record<string,JsonValue>),toolCall,...(options ? {options} : {})};
+  const event=hooks.runtimeReduce(permissionContext,null,[{kind:"request",requestId:"declared",method:request.method,params}]).events.find(event=>event.kind === "prompt");
+  assert.ok(event && event.kind === "prompt");
+  return event;
+}
+const declared=declaredPermission({toolCallId:"declared",kind:"edit"});
+assert.deepEqual(declared.prompt.options.map(option=>option.label),(request.params as {options:{name:string}[]}).options.map(option=>option.name));
+assert.deepEqual(plain(declared.permission),{action:"write",options:(request.params as {options:{optionId:string;kind:string}[]}).options.map(option=>({value:option.optionId,decision:option.kind}))});
+for (const [kind,action] of [["read","read"],["search","read"],["edit","write"],["delete","write"],["move","write"],["execute","command"],["fetch","other"],["think","other"],["other","other"],[undefined,"other"]] as const)
+  assert.equal(declaredPermission({toolCallId:`kind-${kind}`,...(kind ? {kind} : {})}).permission?.action,action,String(kind));
+const unnamed=declaredPermission({toolCallId:"unnamed"},[{optionId:"opaque-a",name:"",kind:"allow_always"},{optionId:"opaque-b",name:"",kind:"reject_once"}]);
+assert.deepEqual(unnamed.prompt.options.map(option=>option.label),["Always allow","Reject"]);
+console.log("✓ ACP readable permission summaries retain native paths and bounded previews; labels hide protocol ids; declared kinds reach the host");
 console.log("✓ ACP permission options and stale session/epoch/nonce boundaries");
 assert.throws(()=>hooks.runtimePlan({...permissionContext,threadId:"foreign"},{kind:"answer",requestId:"permission-fixture",answer:{kind:"cancel"}}));
 
