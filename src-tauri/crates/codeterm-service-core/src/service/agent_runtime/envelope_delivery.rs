@@ -15,14 +15,6 @@ fn outcome(status: ChatSendStatus) -> Result<Delivery, String> {
         ChatSendState::Written | ChatSendState::Sent => Ok(Delivery::ChatBackend {
             message_id: status.send_id,
         }),
-        // The provider refused this exact send before accepting it; nothing reached the agent.
-        ChatSendState::Failed if status.error.as_deref() == Some("runtime_prompt_busy") => Err(
-            crate::service::delivery_error::DeliveryError::TabBusyRefused {
-                tab: status.tab_id,
-                detail: "busy with a turn; the message was not delivered".into(),
-            }
-            .ledger_message(),
-        ),
         ChatSendState::Failed => Err(status
             .error
             .unwrap_or_else(|| "Runtime envelope was not delivered".into())),
@@ -192,7 +184,7 @@ mod tests {
         );
     }
     #[test]
-    fn provider_busy_refusal_reaches_the_caller_as_a_zero_write_busy_refusal() {
+    fn provider_busy_refusal_of_a_written_prompt_reaches_the_caller_as_unconfirmed() {
         let ledger = crate::service::chat_send_transaction::ChatSendLedger::default();
         let pending = ledger.try_start("tab", "opaque", None).unwrap();
         assert!(ledger.bind_rpc_send(
@@ -202,17 +194,17 @@ mod tests {
                 binding_nonce: Some("nonce".into()),
             }
         ));
-        let refused = ledger
-            .refuse_rpc_send("tab", "thread", "nonce", &pending.send_id)
+        let refused = ledger.mark_rpc_uncertain(&pending.send_id).unwrap();
+        assert_eq!(refused.error, None);
+        assert!(
+            matches!(outcome(refused).unwrap(), Delivery::Unconfirmed { delivery_id } if delivery_id == pending.send_id)
+        );
+        let late = ledger
+            .finish(&pending.send_id, Err("submit_unconfirmed: opaque".into()))
             .unwrap();
-        let error = outcome(refused).unwrap_err();
-        let gateway = crate::service::message_gateway::classify("tab", error);
-        let surfaced =
-            crate::service::delivery_error::DeliveryError::from_opaque("tab", gateway.to_string());
-        assert_eq!(surfaced.code(), "tab_busy_refused");
-        assert!(!surfaced.bytes_written());
-        let message = surfaced.to_string();
-        assert!(!message.contains("transport error"), "{message}");
-        assert!(!message.contains("tab_busy_refused"), "{message}");
+        assert!(matches!(
+            outcome(late).unwrap(),
+            Delivery::Unconfirmed { .. }
+        ));
     }
 }

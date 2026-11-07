@@ -116,57 +116,6 @@ impl ChatSendLedger {
         self.confirm_send_with_row(client_id, source.as_ref())
     }
 
-    pub(crate) fn rpc_refusal_candidate(
-        &self,
-        tab: &str,
-        thread: &str,
-        nonce: &str,
-        send_id: &str,
-    ) -> Option<ChatSendStatus> {
-        let state = self.state.lock();
-        let status = state.by_id.get(send_id)?;
-        let binding = state.rpc_by_id.get(send_id)?;
-        (status.tab_id == tab
-            && status.state != ChatSendState::Sent
-            && status.matched_row.is_none()
-            && !state.terminal_failures.contains(send_id)
-            && binding.session_id.as_deref() == Some(thread)
-            && binding.binding_nonce.as_deref() == Some(nonce))
-        .then(|| Self::with_retention_window(&state, status.clone()))
-    }
-
-    pub(crate) fn refuse_rpc_send(
-        &self,
-        tab: &str,
-        thread: &str,
-        nonce: &str,
-        send_id: &str,
-    ) -> Option<ChatSendStatus> {
-        let mut state = self.state.lock();
-        let binding = state.rpc_by_id.get(send_id)?;
-        let status = state.by_id.get(send_id)?;
-        if status.tab_id != tab
-            || status.state == ChatSendState::Sent
-            || status.matched_row.is_some()
-            || binding.session_id.as_deref() != Some(thread)
-            || binding.binding_nonce.as_deref() != Some(nonce)
-            || state.terminal_failures.contains(send_id)
-        {
-            return None;
-        }
-        let status = state.by_id.get_mut(send_id)?;
-        status.state = ChatSendState::Failed;
-        status.error = Some("runtime_prompt_busy".into());
-        status.pending_reason = None;
-        let status = status.clone();
-        state.owned.remove(send_id);
-        state.written_deadlines.remove(send_id);
-        state
-            .latest_failure_by_tab
-            .insert(tab.into(), send_id.into());
-        Some(Self::with_retention_window(&state, status))
-    }
-
     pub(crate) fn mark_rpc_uncertain(&self, send_id: &str) -> Option<ChatSendStatus> {
         let mut state = self.state.lock();
         if !state.rpc_by_id.contains_key(send_id) {

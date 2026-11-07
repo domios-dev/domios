@@ -155,7 +155,7 @@ export const ChatTranscriptRow = memo(function ChatTranscriptRow({ entry, daySep
             userProgress={deliveryView === "sending" && Boolean(deliverySend?.draft?.recordedVoiceAttachments.length)
               ? <VoiceTranscriptionProgress /> : undefined}
             userFooter={deliverySend ? <>
-              {deliveryView && deliveryView !== "delivered" && <ChatDeliveryState state={deliveryView} error={deliverySend.status?.error} agentRefusal={deliverySend.status?.error === "runtime_prompt_busy"} onRetry={canRetryChatSend(deliverySend) ? () => context.retrySend(deliverySend.id) : undefined} />}
+              {deliveryView && deliveryView !== "delivered" && <ChatDeliveryState state={deliveryView} error={deliverySend.status?.error} onRetry={canRetryChatSend(deliverySend) ? () => context.retrySend(deliverySend.id) : undefined} />}
               <DroppedUploadNotice tabId={context.tabId} id={deliverySend.id} names={deliverySend.droppedUploads} />
             </> : undefined}
             item={item.kind === "tool" ? item : undefined}
