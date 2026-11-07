@@ -65,7 +65,8 @@ domios agent set-orchestrator --tab $CODETERM_TAB_ID
 # View the complete local workspace map (workspaces, Teams, Plans, and nested tabs); --workspace selects the existing one-workspace tree; --agents = agent tabs only
 domios tab list
 
-# Get one tab's state (working|question|idle|error|exited, as tab list shows), type, session, prompt
+# Get one tab's state (working|question|idle|error|exited, as tab list shows), type, session, prompt;
+# a failed restore or degraded runtime adds a `failure:` line with its state, code and reason
 domios tab status --tab $WORKER
 
 # Include pending_prompt question and numbered options for an active provider dialog
@@ -179,4 +180,4 @@ Agents that negotiate ACP v1 can receive the `domios` stdio tool server from the
 
 The host supplies the tab-scoped credential, API URL and matching tab binding in the descriptor environment; Domios does not log or persist credential values. The agent receives this tab’s credential in session parameters and may store its session configuration. Missing credentials or a changed tab or binding nonce refuses MCP startup. If session creation or restoration fails with MCP offered, the host retries that session method once without tools and shows a “Domios tools are unavailable” notice; a second failure remains visible. ACP v1 requires stdio MCP support; `mcpCapabilities` advertises optional HTTP/SSE transports and does not gate this stdio server. Without a host descriptor, the agent receives no server.
 
-<!-- revision: 39 -->
+<!-- revision: 40 -->

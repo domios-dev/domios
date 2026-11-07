@@ -558,6 +558,9 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                             println!("agent:   {}", at);
                             println!("title:   {}", title);
                             println!("status:  {}", status);
+                            if let Some(line) = status_failure_line(&p) {
+                                println!("{line}");
+                            }
                             for line in status_prompt_lines(&p) {
                                 println!("{line}");
                             }
@@ -845,6 +848,24 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
         TabAction::Capture { action } => handle_tab_capture(client, json, action),
         TabAction::Todo { action } => crate::cmd::tab_todo::handle_tab(client, json, action),
     }
+}
+
+fn status_failure_line(status: &serde_json::Value) -> Option<String> {
+    let failure = status.get("failure").filter(|value| value.is_object())?;
+    let text = |key: &str| failure.get(key).and_then(|value| value.as_str());
+    let states = [text("boot_stage"), text("runtime_state")]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+        .join(", ");
+    let code = text("code")
+        .map(|code| format!(" ({code})"))
+        .unwrap_or_default();
+    Some(format!(
+        "failure: {}{code}: {}",
+        if states.is_empty() { "failed" } else { &states },
+        text("reason").unwrap_or("no reason recorded")
+    ))
 }
 
 fn status_prompt_lines(status: &serde_json::Value) -> Vec<String> {
