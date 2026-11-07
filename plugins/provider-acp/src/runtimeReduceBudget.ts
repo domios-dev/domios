@@ -68,16 +68,17 @@ function shift(state:JsonValue, events:AgentEvent[], index:number, id:string, re
       events[next]={...event,offset:event.offset-removed};
     }
   }
-  const cursor=state as unknown as {chunk?:{id:string;offset:number;echo?:string};offsetById?:Record<string,{offset:number;chars:number;echo?:string}>};
+  const cursor=state as unknown as {chunk?:{id:string;offset:number;echo?:string};offsetById?:Record<string,{offset:number;chars:number;echo?:string;row?:string}>};
   if (cursor.chunk?.id === id) {
     const before=size(cursor.chunk);
     cursor.chunk={...cursor.chunk,offset:cursor.chunk.offset-removed};delete cursor.chunk.echo;
     delta+=size(cursor.chunk)-before;
   }
-  const previous=cursor.offsetById?.[id];
-  if (previous) {
-    cursor.offsetById![id]={...previous,offset:previous.offset-removed};delete cursor.offsetById![id].echo;
-    delta+=size(cursor.offsetById![id])-size(previous);
+  const key=Object.keys(cursor.offsetById ?? {}).find(key=>(cursor.offsetById![key].row ?? key) === id);
+  const previous=key === undefined ? undefined : cursor.offsetById![key];
+  if (key !== undefined && previous) {
+    cursor.offsetById![key]={...previous,offset:previous.offset-removed};delete cursor.offsetById![key].echo;
+    delta+=size(cursor.offsetById![key])-size(previous);
   }
   return delta;
 }

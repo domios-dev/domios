@@ -544,6 +544,7 @@ impl ServiceContext {
                 launched_model: model.into(),
                 confirmation_detail: Some(pending::PENDING_DETAIL.into()),
                 confirmation: ModelSwitchConfirmation::Pending,
+                control_changes: Vec::new(),
             });
         }
         if let Some((_, signal)) = self
@@ -614,6 +615,7 @@ impl ServiceContext {
                 model: model.to_owned(),
                 evidence: ModelSwitchEvidence::LiveSessionRecord,
             },
+            control_changes: Vec::new(),
         })
     }
 

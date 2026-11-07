@@ -97,6 +97,7 @@ pub(super) fn switch(
             restart: None,
             mechanism: crate::agent::provider::ModelSwitchMode::Live,
             fallback_reason: None,
+            control_changes: super::control_changes(&before.settings, &after),
             previous_model: before.settings.model,
             requested_model: model.unwrap_or_else(|| actual.clone()),
             launched_model: actual.clone(),

@@ -513,8 +513,25 @@ for (let index=0;index<512;index++) {
   assert.ok(Buffer.byteLength(JSON.stringify(many))<65536);
   for (const event of reduced.events) foldRow(manyRows,event);
 }
-const continued=reduceStream(streamContext,many,[streamFrame("last")],{replay:0,prompt:1,loading:false});
+const continued=reduceStream(streamContext,many,[streamFrame("last"),streamFrame("!")],{replay:0,prompt:1,loading:false});
 for (const event of continued.events) foldRow(manyRows,event);
-assert.equal(manyRows.get("own:turn:1:message:agent_message_chunk:long")?.content,"partlast");
-assert.ok([...manyRows.values()].some(row=>row.content.includes("message identity budget exhausted")));
-console.log("✓ ACP bounded identity metadata degrades new rows visibly while retaining earlier continuation offsets");
+assert.equal(manyRows.size,513);
+assert.ok([...manyRows.values()].every(row=>!row.content.includes("[ACP row truncated")));
+assert.equal(manyRows.get("own:turn:1:message:agent_message_chunk:long")?.content,"part");
+assert.deepEqual([...manyRows.values()].filter(row=>row.content==="last!").length,1);
+assert.ok(Buffer.byteLength(JSON.stringify(continued.state))<65536);
+console.log("✓ ACP bounded identity metadata keeps every new message and continues an evicted one without overwriting it");
+
+const userFrame=(id:string):RuntimeFrame=>({kind:"notification",method:"session/update",params:{sessionId:"own",update:{sessionUpdate:"user_message_chunk",messageId:id,content:{type:"text",text:"ask"}}}});
+const agentFrame=(id:string):RuntimeFrame=>({kind:"notification",method:"session/update",params:{sessionId:"own",update:{sessionUpdate:"agent_message_chunk",messageId:id,content:{type:"text",text:"answer"}}}});
+let replayed:JsonValue=null;
+const replayedRows=new Map<string,ChatMsg>();
+for (let turn=0;turn<600;turn++) {
+  const reduced=reduceStream(streamContext,replayed,[userFrame(`user-${turn}-${"u".repeat(64)}`),agentFrame(`agent-${turn}-${"a".repeat(64)}`)],{replay:1,prompt:0,loading:true});
+  replayed=reduced.state;
+  for (const event of reduced.events) foldRow(replayedRows,event);
+}
+assert.equal(replayedRows.size,1200);
+assert.ok([...replayedRows.values()].every(row=>row.content === "ask" || row.content === "answer"));
+assert.ok(Buffer.byteLength(JSON.stringify(replayed))<65536);
+console.log("✓ ACP long session replay keeps real rows for every turn within the identity budget");

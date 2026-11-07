@@ -29,6 +29,7 @@ fn staged_switch_exposes_pending_selection_without_restart_or_observation() {
         launched_model: "selected".into(),
         confirmation_detail: None,
         confirmation: ModelSwitchConfirmation::AfterTurn,
+        control_changes: Vec::new(),
     });
     assert_eq!(body["staged"], true);
     assert_eq!(body["requested_model"], "selected");
@@ -65,6 +66,7 @@ fn live_command_success_preserves_session_and_has_no_restart() {
             model: "chosen-opaque".into(),
             evidence: ModelSwitchEvidence::LiveSessionRecord,
         },
+        control_changes: Vec::new(),
     });
     assert_eq!(body["mode_used"], "live_command");
     assert_eq!(body["model_confirmation"], "observed");
@@ -119,6 +121,7 @@ fn codex_rpc_control_next_turn_response_pending_then_observed_has_no_restart() {
         launched_model: "selected".into(),
         confirmation_detail: None,
         confirmation: ModelSwitchConfirmation::Pending,
+        control_changes: Vec::new(),
     };
     let pending = model_switch_success_body(&outcome);
     assert_eq!(pending["mode_used"], "next_turn");
@@ -169,6 +172,7 @@ fn pending_model_switch_success_reports_ready_same_session_relaunch() {
         launched_model: launched_model.into(),
         confirmation_detail: None,
         confirmation: ModelSwitchConfirmation::Pending,
+        control_changes: Vec::new(),
     };
 
     let body = model_switch_success_body(&outcome);
@@ -214,7 +218,18 @@ fn live_model_switch_success_reports_the_bound_session_record() {
             model: "provider/new".into(),
             evidence: ModelSwitchEvidence::LiveSessionRecord,
         },
+        control_changes: vec![
+            codeterm_service_core::service::agent_restart::ControlChange {
+                control: "effort",
+                previous: Some("medium".into()),
+                current: Some("high".into()),
+            },
+        ],
     });
+    assert_eq!(
+        body["control_changes"],
+        serde_json::json!([{"control":"effort","previous":"medium","current":"high"}])
+    );
 
     assert_eq!(body["mode_used"], "live");
     assert_eq!(body["model_confirmation"], "observed");
