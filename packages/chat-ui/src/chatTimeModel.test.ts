@@ -29,12 +29,14 @@ assert.deepEqual([...chatDaySeparators([
 assert.deepEqual([...chatDaySeparators([], context)], []);
 assert.deepEqual([...chatDaySeparators([null, Number.NaN], context)], []);
 const local = Date.parse("2026-03-09T04:30:00Z");
-const pending = (index: number) => index === 2;
-assert.deepEqual([...chatDaySeparators([null, null, local], context, pending)], [], "a pending send after undated rows opens no day");
-assert.deepEqual([...chatDaySeparators([local, null, local], context, pending)], [[0, "current-day"]], "nor a second group on its known day");
-assert.deepEqual([...chatDaySeparators([Date.parse("2026-03-08T05:30:00Z"), null, local], context, pending)],
-  [[0, "previous-day"], [2, "current-day"]], "a pending send on a really different day opens it");
-assert.deepEqual([...chatDaySeparators([local], context, () => true)], [[0, "current-day"]], "the first row of a chat still opens its day");
+const undated = (index: number) => index < 2;
+assert.deepEqual([...chatDaySeparators([null, null, local], context, undated)], [], "a dated row after undated messages opens no day");
+assert.deepEqual([...chatDaySeparators([null, null, Date.parse("2026-03-08T05:30:00Z"), local], context, undated)],
+  [[3, "current-day"]], "a later known change of day still opens");
+assert.deepEqual([...chatDaySeparators([null, null, local], context)], [[2, "current-day"]], "undated notices do not hide the first day");
+assert.deepEqual([...chatDaySeparators([local, null, local], context, () => true)], [[0, "current-day"]], "nor a second group on its known day");
+assert.deepEqual([...chatDaySeparators([Date.parse("2026-03-08T05:30:00Z"), null, local], context, () => true)],
+  [[0, "previous-day"], [2, "current-day"]], "a row on a really different day opens it");
 assert.deepEqual(messageTimeLabels(Date.parse("2026-01-01T23:15:00Z"), { timeZone: "Europe/Riga", locale: "en-GB" }), {
   time: "1:15", date: "Friday, 2 January 2026", shortDate: "2 Jan 2026", dateTime: "2026-01-01T23:15:00.000Z",
 });
