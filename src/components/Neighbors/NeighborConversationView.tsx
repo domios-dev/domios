@@ -37,7 +37,7 @@ import { useNeighbors } from "./useNeighbors";
 import { readNeighborCache, type CachedFriend } from "./neighborListCache";
 import { useNeighborPermission } from "./useNeighborPermission";
 import { formatBytes, neighborFilesClient, NeighborFilesFailure, type NeighborFile, type NeighborFilesClient } from "./neighborFilesClient";
-import { useReceiverState } from "./useReceiverState";
+import { notReceivingReason, useReceiverState } from "./useReceiverState";
 import { useNeighborStatus } from "./neighborStatusStore";
 import { FriendReceiveConfirm, friendReceiveItems, useFriendReceiveRequest } from "./neighborFriendReceiving";
 
@@ -297,7 +297,7 @@ function Conversation({ friend, removed, locked, enabled, runtimeClient, concier
     </div>
     {receiver && !receiver.receiving_here && <div role="status" className="neighbor-chat__moved">
       <span>{receiver.receiving_enabled ? `${name}'s messages arrive on ${receiver.receiver_machine_label ?? "another machine"}.`
-        : `No machine is receiving ${name}'s messages.`}</span>
+        : [`No machine is receiving ${name}'s messages`, notReceivingReason(receiver)].filter(Boolean).join(": ") + "."}</span>
       {receive.request === null && <Button size="sm" variant="ghost" onClick={() => receive.open(friendship, "set")}>Receive this friend here</Button>}
     </div>}
     {receive.request && receiver && <div className="neighbor-chat__notice"><FriendReceiveConfirm request={receive.request} receiver={receiver} friendName={name}
