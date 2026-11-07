@@ -26,6 +26,16 @@ export function latestUsageSnapshot(snapshot: UsageSnapshot | null, tabId?: stri
   return {...snapshot, resets: own.resets};
 }
 
+/** A tab borrowing a native account shows that account's freshest subscription limits, resolved as its own tabs resolve them. */
+export function accountUsageSnapshot(snapshot: UsageSnapshot | null): UsageSnapshot | null {
+  if (!snapshot?.runtime_usage?.length) return snapshot;
+  const reading = snapshot.runtime_usage
+    .filter(row => row.billing_mode === "subscription" && row.rate_limits)
+    .reduce<RuntimeUsageProjection | null>((latest, row) => !latest || (row.rate_limits?.captured_at ?? 0) > (latest.rate_limits?.captured_at ?? 0) ? row : latest, null);
+  if (reading) return latestUsageSnapshot(snapshot, reading.tab_id, reading.thread_id);
+  return snapshot.parsed_ok ? {...snapshot, runtime_usage: undefined} : null;
+}
+
 export function ownRuntimeUsage(snapshot: UsageSnapshot | null, tabId?:string, threadId?:string | null): RuntimeUsageProjection | null {
   return snapshot?.runtime_usage?.find(row => row.tab_id === tabId && row.thread_id === threadId) ?? null;
 }

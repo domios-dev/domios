@@ -12,6 +12,8 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { ChevronDown, RotateCw } from "lucide-react";
 import { TabModeSwitch } from "./TabModeSwitch";
 import { UsageBubble } from "../Usage/UsageBubble";
+import { BalanceBubble, UnavailableLimitsBubble } from "../Usage/ProfileLimitsBubble";
+import type { TabUsageSource } from "./usageTracking";
 import { resolveTabProvider } from "../../lib/tabProvider";
 import { PluginBubbles } from "../Extensions/PluginBubbles";
 import type { ModelGroup, Tab } from "../../lib/types";
@@ -48,8 +50,8 @@ interface TabTopBarProps {
   cwd: string | null;
   /** Show the Terminal | Chat switch (chat-capable PTY tabs only). */
   showSwitch: boolean;
-  /** Usage provider id, or null to omit the usage pill. */
-  usageProvider?: string | null;
+  /** What the usage pill shows, or null to omit it. */
+  usageSource?: TabUsageSource | null;
   usageVisible?: boolean;
   /** The tab's selected model + its provider-declared groups, so a group-spend
    *  capsule shows for the upstream the tab is actually running. */
@@ -99,7 +101,7 @@ export function TabTopBar({
   shellTab,
   cwd,
   showSwitch,
-  usageProvider,
+  usageSource,
   usageVisible,
   usageModelId,
   usageModelGroups,
@@ -319,16 +321,21 @@ export function TabTopBar({
         </>}
         {isWatcherTab && <WatcherStatusBadge lastStatus={watcherLastStatus} />}
         {/* Order is priority: the first row keeps tokens, then changes, then plugins. */}
-        {usageProvider && (
+        {usageSource?.kind === "unavailable" && usageVisible && <UnavailableLimitsBubble reason={usageSource.reason} />}
+        {usageSource?.kind === "balance" && (
+          <BalanceBubble provider={usageSource.provider} accountId={usageSource.accountId} trackingEnabled={!!usageVisible} />
+        )}
+        {usageSource?.kind === "meter" && (
           <UsageBubble
-            provider={usageProvider}
+            provider={usageSource.provider}
             providerLabel={shellTab ? (shellTab.agent_runtime_state?.agentName ?? resolveTabProvider(shellTab)?.displayName) : undefined}
             tabId={tabId}
             threadId={shellTab?.agent_session_id}
             trackingEnabled={!!usageVisible}
-            modelId={usageModelId}
-            modelGroups={usageModelGroups}
+            modelId={usageSource.borrowedAccount ? null : usageModelId}
+            modelGroups={usageSource.borrowedAccount ? undefined : usageModelGroups}
             context={shellTab && "context" in shellTab ? shellTab.context : undefined}
+            borrowedAccount={usageSource.borrowedAccount}
           />
         )}
         <ComposerContextMeter tabId={tabId} />

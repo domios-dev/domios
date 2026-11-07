@@ -2,6 +2,7 @@ import type { ChatMsg } from "./gen/ChatMsg";
 import type { ChatAttachment } from "./gen/ChatAttachment";
 import type { ParsedSessionRecord, SessionRecordsMeta } from "./jsonlRecords";
 import type { HostOwnedCapabilities } from "./capabilities";
+import type { RuntimeProfileLimitsSource } from "./limitsSource";
 
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 export type RpcId = string | number;
@@ -164,6 +165,7 @@ export interface RuntimeLaunchProfile {
   authEnv?:Readonly<Record<string,{secret:string; methods:readonly string[]}>>;
   ownerConfigured?:boolean;
   clientCapabilities?:{fs?:{readTextFile?:boolean; writeTextFile?:boolean}; terminal?:boolean};
+  limitsSource?:RuntimeProfileLimitsSource;
 }
 export interface StdioAgentRuntimeCapability {
   hostMcp?:{param:string; methods:readonly string[]};

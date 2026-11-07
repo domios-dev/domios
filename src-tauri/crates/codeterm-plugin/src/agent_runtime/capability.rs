@@ -51,6 +51,8 @@ pub struct RuntimeLaunchProfile {
     pub detection: Option<RuntimeProfileDetection>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub client_capabilities: Option<RuntimeProfileClientCapabilities>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limits_source: Option<super::RuntimeProfileLimitsSource>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

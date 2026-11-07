@@ -25,6 +25,31 @@ fn acp_commands_parse_repeated_arguments_and_secret_names() {
             "--auth-env",
             "KEY=domios:provider:acp:key:api-key",
         ],
+        vec![
+            "agent",
+            "acp",
+            "add",
+            "derived",
+            "--binary",
+            "fixture-agent",
+            "--like",
+            "fixture-base",
+            "--client-capability",
+            "fs.readTextFile=false",
+            "--client-capability",
+            "terminal=true",
+            "--limits-source",
+            "unavailable:Quota has no public endpoint",
+        ],
+        vec![
+            "agent",
+            "acp",
+            "registry",
+            "install",
+            "fixture",
+            "--limits-source",
+            "account:fixture-native",
+        ],
     ] {
         assert!(
             crate::args::cli::Cli::try_parse_from(std::iter::once("domios").chain(args)).is_ok()

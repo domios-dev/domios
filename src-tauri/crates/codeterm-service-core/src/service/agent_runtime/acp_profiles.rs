@@ -1,6 +1,9 @@
 use super::launch_profile_install as installer;
 use crate::service::ServiceContext;
-use codeterm_plugin::agent_runtime::{owner_profiles, AgentRuntimeCommand, RuntimeLaunchProfile};
+use codeterm_plugin::agent_runtime::{
+    owner_profiles, AgentRuntimeCommand, RuntimeLaunchProfile, RuntimeProfileClientCapabilities,
+    RuntimeProfileLimitsSource,
+};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
@@ -44,6 +47,111 @@ struct Add {
     secret_env: Vec<String>,
     #[serde(default)]
     auth_env: Vec<String>,
+    #[serde(default)]
+    like: Option<String>,
+    #[serde(default)]
+    client_capabilities: Vec<String>,
+    #[serde(default)]
+    limits_source: Option<String>,
+}
+
+/// Declared identity copied from a base profile; its launch command and credentials are never copied.
+fn inherit(profile: &mut RuntimeLaunchProfile, base: RuntimeLaunchProfile) {
+    profile.icon = base.icon;
+    profile.icon_svg = base.icon_svg;
+    profile.icon_url = base.icon_url;
+    profile.registry_id = base.registry_id;
+    profile.client_capabilities = base.client_capabilities;
+    profile.limits_source = base.limits_source;
+}
+
+fn client_capabilities(
+    entries: Vec<String>,
+    inherited: Option<RuntimeProfileClientCapabilities>,
+) -> Result<Option<RuntimeProfileClientCapabilities>, String> {
+    if entries.is_empty() {
+        return Ok(inherited);
+    }
+    if entries.len() > 16 {
+        return Err("Too many client capability overrides".into());
+    }
+    let invalid = || {
+        "Client capabilities require a declared NAME=true|false, such as fs.readTextFile=false"
+            .to_string()
+    };
+    let mut value = serde_json::to_value(inherited.unwrap_or_default()).map_err(|_| invalid())?;
+    let mut seen = BTreeSet::new();
+    for entry in entries {
+        let (path, flag) = entry.split_once('=').ok_or_else(invalid)?;
+        let flag = match flag {
+            "true" => true,
+            "false" => false,
+            _ => return Err(invalid()),
+        };
+        let segments: Vec<&str> = path.split('.').collect();
+        if !seen.insert(path.to_owned())
+            || segments.len() > 2
+            || segments.iter().any(|segment| segment.is_empty())
+        {
+            return Err(invalid());
+        }
+        let (leaf, parents) = segments.split_last().ok_or_else(invalid)?;
+        let mut node = &mut value;
+        for parent in parents {
+            node = node
+                .as_object_mut()
+                .ok_or_else(invalid)?
+                .entry(*parent)
+                .or_insert_with(|| json!({}));
+        }
+        node.as_object_mut()
+            .ok_or_else(invalid)?
+            .insert((*leaf).to_owned(), Value::Bool(flag));
+    }
+    // The declaration type refuses unknown names, so overrides track its fields exactly.
+    serde_json::from_value(value)
+        .map(Some)
+        .map_err(|_| invalid())
+}
+
+fn limits_source(spec: &str) -> Result<RuntimeProfileLimitsSource, String> {
+    let invalid = || {
+        "Limits source must be account:PROVIDER, balance:READER:ENV or unavailable:REASON"
+            .to_string()
+    };
+    let (kind, rest) = spec.split_once(':').ok_or_else(invalid)?;
+    let value = match kind {
+        "account" => json!({"kind":kind,"provider":rest}),
+        "balance" => {
+            let (reader, env) = rest.split_once(':').ok_or_else(invalid)?;
+            json!({"kind":kind,"reader":reader,"credentialEnv":env})
+        }
+        "unavailable" => json!({"kind":kind,"reason":rest}),
+        _ => return Err(invalid()),
+    };
+    serde_json::from_value(value).map_err(|_| invalid())
+}
+
+fn checked_limits_source(profile: &RuntimeLaunchProfile) -> Result<(), String> {
+    if profile
+        .limits_source
+        .as_ref()
+        .is_some_and(|source| !source.valid_for(profile))
+    {
+        return Err("Invalid limits source: a balance credential must be one of the profile's --secret-env or --auth-env variables, a provider must be a provider id, and a reason must be one line of at most 240 characters".into());
+    }
+    Ok(())
+}
+
+fn base_profile(svc: &ServiceContext, name: &str) -> Result<RuntimeLaunchProfile, String> {
+    owner_profiles::valid_name(name)?;
+    svc.agent_registry
+        .with_provider(PROVIDER, |p| p.agent_runtime())
+        .flatten()
+        .and_then(|capability| capability.launch_profiles?.get(name).cloned())
+        .ok_or_else(|| {
+            format!("Unknown base profile {name}; list profiles with domios agent acp list")
+        })
 }
 
 fn variable(key: &str) -> bool {
@@ -90,7 +198,10 @@ fn entries(
         .collect()
 }
 
-fn parse_add(request: Add) -> Result<(String, RuntimeLaunchProfile), String> {
+fn parse_add(
+    request: Add,
+    base: Option<RuntimeLaunchProfile>,
+) -> Result<(String, RuntimeLaunchProfile), String> {
     owner_profiles::valid_name(&request.name)?;
     let mut seen = BTreeSet::new();
     let env = entries(request.env, &mut seen)?;
@@ -116,12 +227,23 @@ fn parse_add(request: Add) -> Result<(String, RuntimeLaunchProfile), String> {
             Ok((key, json!({"secret":name,"methods":[method]})))
         })
         .collect::<Result<BTreeMap<_, _>, String>>()?;
-    let profile: RuntimeLaunchProfile = serde_json::from_value(json!({
+    let mut profile: RuntimeLaunchProfile = serde_json::from_value(json!({
         "binary":request.binary,"args":request.args,"env":env,"secretEnv":secret_env,"authEnv":auth_env,"ownerConfigured":true
     })).map_err(|_| "Invalid owner profile")?;
     if !codeterm_plugin::agent_runtime::install_validation::validate(&profile) {
         return Err("Local commands must name the installed agent binary; package launchers require a pinned registry install".into());
     }
+    if let Some(base) = base {
+        inherit(&mut profile, base);
+    }
+    profile.client_capabilities = client_capabilities(
+        request.client_capabilities,
+        profile.client_capabilities.take(),
+    )?;
+    if let Some(spec) = request.limits_source.as_deref() {
+        profile.limits_source = Some(limits_source(spec)?);
+    }
+    checked_limits_source(&profile)?;
     Ok((request.name, profile))
 }
 
@@ -220,8 +342,14 @@ pub fn registry_search(query: &str) -> Result<Value, String> {
     registry::search(query)
 }
 
-fn install_registry(svc: &ServiceContext, id: &str) -> Result<Value, String> {
+fn install_registry(
+    svc: &ServiceContext,
+    id: &str,
+    limits: Option<RuntimeProfileLimitsSource>,
+) -> Result<Value, String> {
     let mut profile = registry::profile(id)?;
+    profile.limits_source = limits;
+    checked_limits_source(&profile)?;
     validate(svc, id, &profile)?;
     crate::async_runtime::block_on(installer::install(
         &installer::profile_root(PROVIDER)?,
@@ -249,7 +377,7 @@ pub fn begin_registry_install(
     available_name(svc, &id)?;
     let service = svc.clone();
     super::launch_profile_setup::start(svc, PROVIDER.into(), id.clone(), move || {
-        install_registry(&service, &id).map(|_| ())
+        install_registry(&service, &id, None).map(|_| ())
     })
 }
 
@@ -312,9 +440,14 @@ pub fn execute(svc: &ServiceContext, params: &Value) -> Result<Value, String> {
         "list" => catalog(svc),
         "add" => {
             let _mutation = super::launch_profile_setup::mutation()?;
-            let request =
+            let request: Add =
                 serde_json::from_value(params.clone()).map_err(|_| "Invalid ACP add parameters")?;
-            let (id, profile) = parse_add(request)?;
+            let base = request
+                .like
+                .as_deref()
+                .map(|name| base_profile(svc, name))
+                .transpose()?;
+            let (id, profile) = parse_add(request, base)?;
             no_active_setup(&id)?;
             validate(svc, &id, &profile)?;
             let root = installer::profile_root(PROVIDER)?;
@@ -335,8 +468,13 @@ pub fn execute(svc: &ServiceContext, params: &Value) -> Result<Value, String> {
         "registry_install" => {
             let _mutation = super::launch_profile_setup::mutation()?;
             let id = text("id")?;
+            let limits = params
+                .get("limitsSource")
+                .and_then(Value::as_str)
+                .map(limits_source)
+                .transpose()?;
             no_active_setup(id)?;
-            install_registry(svc, id)
+            install_registry(svc, id, limits)
         }
         _ => Err("Unknown ACP operation".into()),
     }

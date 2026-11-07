@@ -58,3 +58,37 @@ fn cached_profile_icon_refresh_matches_only_its_declared_url() {
     assert_eq!(std::fs::read(&path).unwrap(), bytes);
     cache().lock().remove(&path);
 }
+
+#[test]
+fn derived_owner_profiles_show_the_sanitized_bundle_icon_their_base_declares() {
+    let mut capability: AgentRuntimeCapability = serde_json::from_value(json!({
+        "runtime":"stdio-jsonrpc","command":{"binary":"fixture-agent","args":[]},
+        "requestMethods":{"initialize":["initialize"]},"notificationMethods":[],
+        "launchProfiles":{"base":{"binary":"base-agent","args":[],"icon":"base-color.svg"}}
+    }))
+    .unwrap();
+    let bundled = "<svg><path d=\"M1 1\"/></svg>";
+    capability
+        .launch_profiles
+        .as_mut()
+        .unwrap()
+        .get_mut("base")
+        .unwrap()
+        .icon_svg = Some(bundled.into());
+    let owner: Profiles = serde_json::from_value(json!({
+        "derived":{"binary":"derived-agent","args":[],"ownerConfigured":true,"icon":"base-color.svg"},
+        "undeclared":{"binary":"other-agent","args":[],"ownerConfigured":true,"icon":"absent.svg"}
+    }))
+    .unwrap();
+    let profiles = overlay_with(capability.clone(), owner)
+        .unwrap()
+        .launch_profiles
+        .unwrap();
+    assert_eq!(profiles["derived"].icon_svg.as_deref(), Some(bundled));
+    assert!(profiles["undeclared"].icon_svg.is_none());
+    let colliding: Profiles = serde_json::from_value(json!({
+        "base":{"binary":"derived-agent","args":[],"ownerConfigured":true}
+    }))
+    .unwrap();
+    assert!(overlay_with(capability, colliding).is_err());
+}

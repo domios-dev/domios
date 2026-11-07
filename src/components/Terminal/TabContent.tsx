@@ -25,7 +25,7 @@ import type {
   FontConfig,
   TerminalConfigSettings,
 } from "../../lib/types";
-import { usageTrackingEnabled, tabUsageProvider } from "./usageTracking";
+import { usageTrackingEnabled, tabUsageSource } from "./usageTracking";
 import { configureRemoteTabTransport } from "../../lib/remoteTabTransport";
 import { useHeaderTabMenu } from "./useHeaderTabMenu";
 import { SurfaceTabHost } from "./SurfaceTabHost";
@@ -87,6 +87,10 @@ export function TabContent({
   };
   if (bodyPainted) initialBody.current.waiting = false;
   const headerTabMenu = useHeaderTabMenu(tab, workspaceId, descriptor);
+  const launchProfileId = tab?.agent_runtime_config?.launchProfile;
+  const usageSource = tabUsageSource(tab?.agent_type, tab?.backing?.kind === "chat_backend", descriptor?.agent_runtime?.usage,
+    typeof launchProfileId === "string" ? {id:launchProfileId, limitsSource:descriptor?.agent_runtime?.launchProfiles?.[launchProfileId]?.limitsSource} : undefined);
+  const trackingDescriptor = useAgentDescriptor(usageSource?.trackingProvider ?? null);
   useLayoutEffect(() => {
     if (tab?.close_restore?.record_id) {
       consumePendingCommand(tab.id);
@@ -129,11 +133,10 @@ export function TabContent({
   const chatBacking = tab.backing?.kind === "chat_backend" ? tab.backing : null;
   const isChatBackend = chatBacking !== null;
   const showSwitch = !isChatBackend && descriptor?.supports_chat_ui === true;
-  const usageProvider = tabUsageProvider(tab.agent_type,isChatBackend,descriptor?.agent_runtime?.usage);
-  const usageVisible = usageTrackingEnabled(
-    descriptor?.settings_schema ?? [],
-    usageProvider ? usageEnabledByProvider?.[usageProvider] : false,
-  );
+  const usageVisible = usageSource ? usageTrackingEnabled(
+    trackingDescriptor?.settings_schema ?? [],
+    usageEnabledByProvider?.[usageSource.trackingProvider],
+  ) : false;
   // The catalog id the tab resolved at launch names its upstream group; the
   // live session model can be a bare leaf a group cannot be read from.
   const usageModelId =
@@ -173,7 +176,7 @@ export function TabContent({
           cwd={cwd}
           workspaceId={workspaceId}
           showSwitch={showSwitch}
-          usageProvider={usageProvider}
+          usageSource={usageSource}
           usageVisible={usageVisible}
           usageModelId={usageModelId}
           usageModelGroups={descriptor?.model_groups}

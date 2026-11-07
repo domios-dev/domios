@@ -197,3 +197,18 @@ fn binary_receipt_rechecks_executable_and_ignores_host_icon_projection() {
     std::fs::write(&binary, b"tampered executable").unwrap();
     assert!(read_receipt(root.path(), "fixture", &profile).is_err());
 }
+#[test]
+fn declaring_a_limits_source_keeps_existing_install_receipts_valid() {
+    let installed = profile();
+    let mut declared = installed.clone();
+    declared.limits_source = Some(
+        codeterm_plugin::agent_runtime::RuntimeProfileLimitsSource::Balance {
+            reader: "fixture-balance".into(),
+            credential_env: "DEEPSEEK_API_KEY".into(),
+        },
+    );
+    assert_eq!(fingerprint(&installed), fingerprint(&declared));
+    let mut relaunched = installed.clone();
+    relaunched.args.push("--other".into());
+    assert_ne!(fingerprint(&installed), fingerprint(&relaunched));
+}

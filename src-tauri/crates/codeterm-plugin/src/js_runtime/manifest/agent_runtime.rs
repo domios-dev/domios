@@ -244,7 +244,12 @@ impl AgentRuntimeCapability {
                 {
                     return Err(RuntimeManifestError::InvalidProfile);
                 }
-                if !valid_auth_env(&profile.auth_env) {
+                if !valid_auth_env(&profile.auth_env)
+                    || profile
+                        .limits_source
+                        .as_ref()
+                        .is_some_and(|source| !source.valid_for(profile))
+                {
                     return Err(RuntimeManifestError::InvalidProfile);
                 }
                 if !crate::agent_runtime::install_validation::validate(profile) {

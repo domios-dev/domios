@@ -1,0 +1,39 @@
+/** Where a launch profile's account limits come from; hosts branch only on `kind`. */
+export type RuntimeProfileLimitsSource =
+  | {kind:"account"; provider:string}
+  | {kind:"balance"; reader:string; credentialEnv:string}
+  | {kind:"unavailable"; reason:string};
+
+export const maxUnavailableReasonChars = 240;
+
+interface CredentialDeclarations {secretEnv?:Readonly<Record<string,unknown>>; authEnv?:Readonly<Record<string,unknown>>}
+
+function exactKeys(value:object, keys:readonly string[]): boolean {
+  const own = Object.keys(value);
+  return own.length === keys.length && own.every(key => keys.includes(key));
+}
+function providerIdentity(value:unknown): boolean {
+  return typeof value === "string" && value.length <= 64 && /^[a-z0-9][a-z0-9_-]*$/.test(value)
+    && !/^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/.test(value);
+}
+function readerIdentity(value:unknown): boolean {
+  return typeof value === "string" && /^[a-z][a-z0-9-]{0,63}$/.test(value);
+}
+function reason(value:unknown): boolean {
+  if (typeof value !== "string" || !value.trim() || value.trim() !== value) return false;
+  return [...value].length <= maxUnavailableReasonChars && !/\p{Cc}/u.test(value);
+}
+const owns = (map:Readonly<Record<string,unknown>> | undefined, key:string) => !!map && Object.prototype.hasOwnProperty.call(map, key);
+
+/** The same rules the host manifest validator applies, so plugins and the host agree on shared fixtures. */
+export function validLimitsSource(source:unknown, profile:CredentialDeclarations): source is RuntimeProfileLimitsSource {
+  if (!source || typeof source !== "object" || Array.isArray(source)) return false;
+  const value = source as Record<string,unknown>;
+  switch (value.kind) {
+    case "account": return exactKeys(value, ["kind","provider"]) && providerIdentity(value.provider);
+    case "balance": return exactKeys(value, ["kind","reader","credentialEnv"]) && readerIdentity(value.reader)
+      && typeof value.credentialEnv === "string" && (owns(profile.secretEnv, value.credentialEnv) || owns(profile.authEnv, value.credentialEnv));
+    case "unavailable": return exactKeys(value, ["kind","reason"]) && reason(value.reason);
+    default: return false;
+  }
+}

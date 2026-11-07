@@ -37,7 +37,12 @@
           "secretEnv": {
             "DEEPSEEK_API_KEY": "domios:provider:acp:deepseek-api-key"
           },
-          "icon": "deepseek-color.svg"
+          "icon": "deepseek-color.svg",
+          "limitsSource": {
+            "kind": "balance",
+            "reader": "deepseek-balance",
+            "credentialEnv": "DEEPSEEK_API_KEY"
+          }
         },
         "gemini-cli": {
           "binary": "gemini",
@@ -60,6 +65,10 @@
             "fs": {
               "readTextFile": false
             }
+          },
+          "limitsSource": {
+            "kind": "unavailable",
+            "reason": "Gemini API-key quota has no public endpoint; check usage in Google AI Studio"
           }
         },
         "local": {
@@ -141,7 +150,8 @@
     "agent_commands": true,
     "network": {
       "allow": [
-        "cdn.agentclientprotocol.com"
+        "cdn.agentclientprotocol.com",
+        "api.deepseek.com"
       ]
     }
   },
