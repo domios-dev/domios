@@ -1,11 +1,13 @@
 mod account;
 pub mod account_mesh;
+pub mod account_target;
 pub mod adapters;
 mod build_config;
 pub mod firebase_endpoints;
 mod flow;
 pub mod session_revocation;
 mod sign_in_diagnostic;
+pub use account_target::TargetMismatch;
 pub use sign_in_diagnostic::{SignInFailure, SignInStage};
 mod installation;
 mod loopback;
@@ -105,6 +107,7 @@ pub enum Error {
     Provider,
     Credentials,
     Browser,
+    TargetMismatch,
 }
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

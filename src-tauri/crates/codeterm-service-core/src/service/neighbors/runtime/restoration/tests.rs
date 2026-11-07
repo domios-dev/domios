@@ -69,6 +69,57 @@ async fn setup_outages_recover_control_and_friend_watches_without_opening_neighb
     assert!(service.neighbor_cell().restoration.lock().is_none());
 }
 
+async fn settle_restoration() {
+    for _ in 0..32 {
+        tokio::task::yield_now().await;
+    }
+}
+
+#[tokio::test]
+async fn friends_locked_holds_restoration_until_an_entitlement_change_even_across_restarts() {
+    let (mux, _) = MultiplexerState::new();
+    let fixture = ServiceFixture::new(mux);
+    let service = &fixture.service;
+    let (clock, mut deadlines) = super::super::super::recovery::test_clock::Clock::new();
+    let (events, mut observed) = tokio::sync::mpsc::unbounded_channel();
+    let attempt = move || {
+        let events = events.clone();
+        async move {
+            events.send(()).unwrap();
+            Err::<(), _>(Error::Locked)
+        }
+    };
+    service.start_neighbor_restoration_with(
+        service.neighbor_history_generation(),
+        attempt.clone(),
+        clock.clone(),
+    );
+    assert_eq!(observed.recv().await, Some(()));
+
+    service.rearm_neighbor_restoration();
+    clock.advance();
+    settle_restoration().await;
+    assert!(observed.try_recv().is_err());
+    assert!(deadlines.try_recv().is_err());
+
+    service.pause_neighbor_reception();
+    service.start_neighbor_restoration_with(
+        service.neighbor_history_generation(),
+        attempt.clone(),
+        clock.clone(),
+    );
+    settle_restoration().await;
+    assert!(observed.try_recv().is_err());
+
+    service.neighbor_restoration_entitlement_changed();
+    service.rearm_neighbor_restoration();
+    assert_eq!(observed.recv().await, Some(()));
+    settle_restoration().await;
+    assert!(observed.try_recv().is_err());
+    assert!(deadlines.try_recv().is_err());
+    service.pause_neighbor_reception();
+}
+
 #[tokio::test]
 async fn entitlement_rearm_arriving_before_failed_restoration_returns_is_not_lost() {
     let (mux, _) = MultiplexerState::new();

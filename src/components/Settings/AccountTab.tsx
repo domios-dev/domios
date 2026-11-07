@@ -96,6 +96,7 @@ export function AccountTab({ focusCard, purchases: explicitPurchases }: { focusC
         </div>;
       })() : <div className="flex flex-col items-start gap-3 text-xs">
         {model.kind === "signed_out" && model.sessionRevoked && <p role="status" className={MUTED}>{SESSION_REVOKED_MESSAGE}</p>}
+        {model.kind === "signed_out" && !model.sessionRevoked && model.targetMismatch && <p role="status" className={MUTED}>{model.targetMismatch}</p>}
         {model.kind === "pending"
           ? <p role="status" className={MUTED}>Finish signing in in your browser.</p>
           : <p className={MUTED}>Sign in to keep your plan and settings with your account.</p>}

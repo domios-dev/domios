@@ -126,6 +126,7 @@ impl ServiceContext {
                 }
                 *previous = Some(locked);
             }
+            service.neighbor_restoration_entitlement_changed();
             service.retire_callable_waiters();
             service.neighbor_paid_changed();
             if locked {
