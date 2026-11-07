@@ -392,9 +392,11 @@ impl ServiceContext {
             }
         }
         if loop_state != plan.control_loop {
+            // Waiting for the owner is loop state, not a round outcome; keep last_round.
             let fallback = loop_state
                 .fallback_reason
                 .as_ref()
+                .filter(|reason| !waits_for_orchestrator(Some(**reason)))
                 .filter(|reason| plan.control_loop.fallback_reason.as_ref() != Some(reason))
                 .map(|reason| CuratorRound {
                     number: loop_state
