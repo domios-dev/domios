@@ -3,7 +3,7 @@ import { object, text, reduceTool } from "./runtimeReduceTools";
 import { planRow, contextUsage } from "./runtimeReducePlan";
 import { commands, sessionSettings } from "./runtimeControls";
 import { copyAccounting, clearEntries, putEntry, removeEntry, mapBytes, mapKeys, utf8Length } from "./runtimeReduceAccounting";
-import { markSeen } from "./runtimeReduceSeen";
+import { evictedMayInclude, recordEvicted } from "./runtimeReduceSeen";
 
 export interface StreamCursor { replay:number; prompt:number; loading:boolean }
 // `row` names the row that continues a message whose earlier offset was evicted.
@@ -11,9 +11,9 @@ interface TextCursor { offset:number; chars:number; echo?:string; row?:string }
 const OFFSET_BUDGET=16384;
 interface StreamState {
   epoch:number; nonce:string; sessionId:string; replay:number; prompt:number;
-  turn:number; ordinal:number; seq:number; chunk?:TextCursor & {kind:string; id:string; base?:string};
+  turn:number; ordinal:number; seq:number; chunk?:TextCursor & {kind:string; id:string};
   items:Record<string,ChatMsg>; offsetById:Record<string,TextCursor>; warnings:Record<string,number>; controls:Record<string,JsonValue>;
-  evidenced:string[]; compacted:string[]; seenItems:string[]; seenMessages?:string; loading:boolean; settled:boolean; started:boolean;
+  evidenced:string[]; compacted:string[]; seenItems:string[]; evictedMessages?:string; loading:boolean; settled:boolean; started:boolean;
 }
 const json=(value:unknown):JsonValue=>value as JsonValue;
 function initial(ctx:RuntimeContext, raw:JsonValue, cursor:StreamCursor):StreamState {
@@ -26,9 +26,9 @@ function initial(ctx:RuntimeContext, raw:JsonValue, cursor:StreamCursor):StreamS
     evidenced:[...state.evidenced],compacted:[...state.compacted],seenItems:[...state.seenItems],...(state.chunk ? {chunk:{...state.chunk}} : {})};
   copyAccounting(state,copy);
   if (copy.replay !== cursor.replay) {
-    copy.replay=cursor.replay;copy.turn=1;copy.ordinal=0;copy.seenItems=[];clearEntries(copy,"offsetById");delete copy.seenMessages;delete copy.chunk;copy.settled=false;copy.started=false;
+    copy.replay=cursor.replay;copy.turn=1;copy.ordinal=0;copy.seenItems=[];clearEntries(copy,"offsetById");delete copy.evictedMessages;delete copy.chunk;copy.settled=false;copy.started=false;
   } else if (copy.prompt !== cursor.prompt) {
-    copy.turn=Math.max(copy.turn+1,cursor.prompt);copy.ordinal=0;copy.seenItems=[];clearEntries(copy,"offsetById");delete copy.seenMessages;delete copy.chunk;copy.settled=false;copy.started=false;
+    copy.turn=Math.max(copy.turn+1,cursor.prompt);copy.ordinal=0;copy.seenItems=[];clearEntries(copy,"offsetById");delete copy.evictedMessages;delete copy.chunk;copy.settled=false;copy.started=false;
   }
   copy.prompt=cursor.prompt;copy.loading=cursor.loading;
   return copy;
@@ -69,10 +69,14 @@ function rememberOffset(state:StreamState, base:string, cursor:TextCursor):void 
   const entry=utf8Length(JSON.stringify({[base]:cursor}));
   if (entry > OFFSET_BUDGET) return;
   let bytes=mapBytes(state,"offsetById")+entry;
+  const evicted:string[]=[];
   for (const known of Object.keys(state.offsetById)) {
     if (bytes <= OFFSET_BUDGET) break;
     bytes+=removeEntry(state,"offsetById",known);
+    evicted.push(known);
   }
+  const filter=recordEvicted(state.evictedMessages,evicted);
+  if (filter !== undefined) state.evictedMessages=filter;
   putEntry(state,"offsetById",base,cursor);
 }
 function rememberControl(state:StreamState, kind:string, update:Record<string,JsonValue>):void {
@@ -171,20 +175,19 @@ export function reduceStream(ctx:RuntimeContext, raw:JsonValue, frames:readonly 
         const messageId=text(update.messageId);
         const explicit=messageId ? `${kind}:${messageId}` : undefined;
         const base=explicit ? `${state.sessionId}:turn:${state.turn}:message:${explicit}` : undefined;
-        if (!state.chunk || state.chunk.kind !== kind || base && (state.chunk.base ?? state.chunk.id) !== base) {
+        if (!state.chunk || state.chunk.kind !== kind || base && state.chunk.id !== (state.offsetById[base]?.row ?? base)) {
           closeChunk(ctx,state,events);
           if (kind === "user_message_chunk" && state.loading && state.ordinal > 0) {
             // Message identities embed the turn, so a replayed turn's offsets can never match again.
-            state.turn++;state.ordinal=0;state.seenItems=[];clearEntries(state,"offsetById");delete state.seenMessages;
+            state.turn++;state.ordinal=0;state.seenItems=[];clearEntries(state,"offsetById");delete state.evictedMessages;
           }
           state.ordinal++;
           const key=explicit ? `${state.sessionId}:turn:${state.turn}:message:${explicit}` : undefined;
           const known=key ? state.offsetById[key] : undefined;
-          let resumed=false;
-          if (key) ({filter:state.seenMessages,seen:resumed}=markSeen(state.seenMessages,key));
+          const resumed=key !== undefined && !known && evictedMayInclude(state.evictedMessages,key);
           const id=!key ? `${ctx.threadId}:turn:${state.turn}:item:${state.ordinal}`
-            : known?.row ?? (!known && resumed ? `${key}:continued:${state.seq+1}` : key);
-          state.chunk={kind,id,offset:known?.offset ?? 0,chars:known?.chars ?? 0,...(known?.echo ? {echo:known.echo} : {}),...(key ? {base:key} : {})};
+            : known?.row ?? (resumed ? `${key}:continued:${state.seq+1}` : key);
+          state.chunk={kind,id,offset:known?.offset ?? 0,chars:known?.chars ?? 0,...(known?.echo ? {echo:known.echo} : {})};
         }
         const chunk=state.chunk;
         if (kind === "user_message_chunk" && !state.loading) {
@@ -202,7 +205,8 @@ export function reduceStream(ctx:RuntimeContext, raw:JsonValue, frames:readonly 
           : {kind:"chatItem",threadId:state.sessionId,item:{...row,content:content.text}});
         chunk.offset+=utf8Length(content.text);
         putEntry(state,"items",row.id,row);
-        if (chunk.base) rememberOffset(state,chunk.base,{offset:chunk.offset,chars:chunk.chars,...(chunk.echo ? {echo:chunk.echo} : {}),...(chunk.id !== chunk.base ? {row:chunk.id} : {})});
+        const key=explicit ? `${state.sessionId}:turn:${state.turn}:message:${explicit}` : undefined;
+        if (key) rememberOffset(state,key,{offset:chunk.offset,chars:chunk.chars,...(chunk.echo ? {echo:chunk.echo} : {}),...(chunk.id !== key ? {row:chunk.id} : {})});
         if (!state.loading && !state.started && kind === "agent_message_chunk") events.push({kind:"turnState",threadId:ctx.threadId,turnId:ctx.activeTurnId ?? `${ctx.threadId}:turn:${state.turn}`,state:"working"});
         continue;
       }

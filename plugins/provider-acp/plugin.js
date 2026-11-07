@@ -320,25 +320,31 @@ function clearEntries(state, key) {
 
 // plugins/provider-acp/src/runtimeReduceSeen.ts
 var BITS = 4096;
-function hash(value, seed) {
-  let hash2 = seed;
-  for (let index = 0; index < value.length; index++) {
-    hash2 ^= value.charCodeAt(index);
-    hash2 = Math.imul(hash2, 16777619) >>> 0;
-  }
-  return hash2 % BITS;
+function bits(id) {
+  return [2166136261, 374761393].map((seed) => {
+    let hash = seed;
+    for (let index = 0; index < id.length; index++) {
+      hash ^= id.charCodeAt(index);
+      hash = Math.imul(hash, 16777619) >>> 0;
+    }
+    return hash % BITS;
+  });
 }
-function markSeen(filter, id) {
+function decode(filter) {
   const bytes = new Uint8Array(BITS / 8);
   if (filter?.length === BITS / 4) for (let index = 0; index < bytes.length; index++) bytes[index] = Number.parseInt(filter.slice(index * 2, index * 2 + 2), 16);
-  let seen = true;
-  for (const bit of [hash(id, 2166136261), hash(id, 374761393)]) {
-    const mask = 1 << bit % 8;
-    const byte = bytes[bit >> 3] ?? 0;
-    if (!(byte & mask)) seen = false;
-    bytes[bit >> 3] = byte | mask;
-  }
-  return { filter: Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join(""), seen };
+  return bytes;
+}
+function evictedMayInclude(filter, id) {
+  if (filter === void 0) return false;
+  const bytes = decode(filter);
+  return bits(id).every((bit) => ((bytes[bit >> 3] ?? 0) & 1 << bit % 8) !== 0);
+}
+function recordEvicted(filter, ids) {
+  if (!ids.length) return filter;
+  const bytes = decode(filter);
+  for (const id of ids) for (const bit of bits(id)) bytes[bit >> 3] = (bytes[bit >> 3] ?? 0) | 1 << bit % 8;
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 // plugins/provider-acp/src/runtimeReduce.ts
@@ -386,7 +392,7 @@ function initial(ctx, raw, cursor) {
     copy.ordinal = 0;
     copy.seenItems = [];
     clearEntries(copy, "offsetById");
-    delete copy.seenMessages;
+    delete copy.evictedMessages;
     delete copy.chunk;
     copy.settled = false;
     copy.started = false;
@@ -395,7 +401,7 @@ function initial(ctx, raw, cursor) {
     copy.ordinal = 0;
     copy.seenItems = [];
     clearEntries(copy, "offsetById");
-    delete copy.seenMessages;
+    delete copy.evictedMessages;
     delete copy.chunk;
     copy.settled = false;
     copy.started = false;
@@ -451,10 +457,14 @@ function rememberOffset(state, base, cursor) {
   const entry = utf8Length(JSON.stringify({ [base]: cursor }));
   if (entry > OFFSET_BUDGET) return;
   let bytes = mapBytes(state, "offsetById") + entry;
+  const evicted = [];
   for (const known of Object.keys(state.offsetById)) {
     if (bytes <= OFFSET_BUDGET) break;
     bytes += removeEntry(state, "offsetById", known);
+    evicted.push(known);
   }
+  const filter = recordEvicted(state.evictedMessages, evicted);
+  if (filter !== void 0) state.evictedMessages = filter;
   putEntry(state, "offsetById", base, cursor);
 }
 function rememberControl(state, kind, update) {
@@ -554,22 +564,21 @@ function reduceStream(ctx, raw, frames, cursor, submitted, retainSubmitted = fal
         const messageId = text(update.messageId);
         const explicit = messageId ? `${kind}:${messageId}` : void 0;
         const base = explicit ? `${state.sessionId}:turn:${state.turn}:message:${explicit}` : void 0;
-        if (!state.chunk || state.chunk.kind !== kind || base && (state.chunk.base ?? state.chunk.id) !== base) {
+        if (!state.chunk || state.chunk.kind !== kind || base && state.chunk.id !== (state.offsetById[base]?.row ?? base)) {
           closeChunk(ctx, state, events);
           if (kind === "user_message_chunk" && state.loading && state.ordinal > 0) {
             state.turn++;
             state.ordinal = 0;
             state.seenItems = [];
             clearEntries(state, "offsetById");
-            delete state.seenMessages;
+            delete state.evictedMessages;
           }
           state.ordinal++;
-          const key = explicit ? `${state.sessionId}:turn:${state.turn}:message:${explicit}` : void 0;
-          const known = key ? state.offsetById[key] : void 0;
-          let resumed = false;
-          if (key) ({ filter: state.seenMessages, seen: resumed } = markSeen(state.seenMessages, key));
-          const id = !key ? `${ctx.threadId}:turn:${state.turn}:item:${state.ordinal}` : known?.row ?? (!known && resumed ? `${key}:continued:${state.seq + 1}` : key);
-          state.chunk = { kind, id, offset: known?.offset ?? 0, chars: known?.chars ?? 0, ...known?.echo ? { echo: known.echo } : {}, ...key ? { base: key } : {} };
+          const key2 = explicit ? `${state.sessionId}:turn:${state.turn}:message:${explicit}` : void 0;
+          const known = key2 ? state.offsetById[key2] : void 0;
+          const resumed = key2 !== void 0 && !known && evictedMayInclude(state.evictedMessages, key2);
+          const id = !key2 ? `${ctx.threadId}:turn:${state.turn}:item:${state.ordinal}` : known?.row ?? (resumed ? `${key2}:continued:${state.seq + 1}` : key2);
+          state.chunk = { kind, id, offset: known?.offset ?? 0, chars: known?.chars ?? 0, ...known?.echo ? { echo: known.echo } : {} };
         }
         const chunk = state.chunk;
         if (kind === "user_message_chunk" && !state.loading) {
@@ -584,7 +593,8 @@ function reduceStream(ctx, raw, frames, cursor, submitted, retainSubmitted = fal
         events.push(chunk.offset ? { kind: "chatItemAppend", threadId: state.sessionId, itemId: row.id, content: content.text, offset: chunk.offset } : { kind: "chatItem", threadId: state.sessionId, item: { ...row, content: content.text } });
         chunk.offset += utf8Length(content.text);
         putEntry(state, "items", row.id, row);
-        if (chunk.base) rememberOffset(state, chunk.base, { offset: chunk.offset, chars: chunk.chars, ...chunk.echo ? { echo: chunk.echo } : {}, ...chunk.id !== chunk.base ? { row: chunk.id } : {} });
+        const key = explicit ? `${state.sessionId}:turn:${state.turn}:message:${explicit}` : void 0;
+        if (key) rememberOffset(state, key, { offset: chunk.offset, chars: chunk.chars, ...chunk.echo ? { echo: chunk.echo } : {}, ...chunk.id !== key ? { row: chunk.id } : {} });
         if (!state.loading && !state.started && kind === "agent_message_chunk") events.push({ kind: "turnState", threadId: ctx.threadId, turnId: ctx.activeTurnId ?? `${ctx.threadId}:turn:${state.turn}`, state: "working" });
         continue;
       }
