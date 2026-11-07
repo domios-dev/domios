@@ -46,6 +46,8 @@ export interface ChatSend {
   matchedRow?: MatchedRow;
   echoEligible?: boolean;
   flowAtMs?: number;
+  /** Held by the host until the running turn ends, so it waits after every committed row. */
+  held?: boolean;
   segments?: MessageSegment[];
   echoBoundary?: SendEchoBoundary;
 }

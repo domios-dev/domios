@@ -13,11 +13,13 @@ interface Props {
   onToggle: () => void;
   bodyClassName?: string;
   role?: string;
+  /** Stays in the header whether or not the body is expanded. */
+  status?: ReactNode;
   children: ReactNode;
 }
 
 /** Collapsible inline notice in the transcript, on the shared ct-card surface. */
-export function ChatNoticeCard({ testId, icon, title, subtitle, tone, expanded, onToggle, bodyClassName = "", role, children }: Props) {
+export function ChatNoticeCard({ testId, icon, title, subtitle, tone, expanded, onToggle, bodyClassName = "", role, status, children }: Props) {
   return (
     <ExpandableReader label={typeof title === "string" ? title : "Notice"} enabled={true} openerPlacement="header">{(fullscreen, opener) => (
 
@@ -31,6 +33,7 @@ export function ChatNoticeCard({ testId, icon, title, subtitle, tone, expanded, 
             {subtitle && <span className="ct-card__meta block truncate">{subtitle}</span>}
           </span>
         </button>
+        {status}
         {opener}
         <CardChevron expanded={expanded} label={expanded ? "Collapse notice" : "Expand notice"} onToggle={onToggle} className="ct-reader-opener ct-notice-chevron" style={{}} />
         </div>

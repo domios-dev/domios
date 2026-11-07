@@ -961,6 +961,59 @@ fn live_worker_close_with_a_rebound_session_names_its_live_attempt() {
 }
 
 #[test]
+fn live_worker_close_refusal_classifies_the_failing_identity_proof() {
+    for (drift, expected) in [
+        ("session", ExecutorIdentityDrift::Session),
+        ("nonce", ExecutorIdentityDrift::LaunchUnreported),
+        ("unreported", ExecutorIdentityDrift::LaunchUnreported),
+    ] {
+        let (fixture, draft) = fixture();
+        let tab_id = &draft.source_attempt.executor_tab_id;
+        drift_executor_session(&fixture.service, tab_id, drift);
+        let mux = fixture.service.mux.read();
+        let tab = mux.get_tab(tab_id).unwrap();
+        assert_eq!(
+            executor_identity_drift(tab, (&draft).into()),
+            Some(expected),
+            "{drift}"
+        );
+    }
+    let (fixture, draft) = fixture();
+    let tab_id = &draft.source_attempt.executor_tab_id;
+    {
+        let mut mux = fixture.service.mux.write();
+        let tab = mux.get_tab_mut(tab_id).unwrap();
+        tab.session_binding_nonce = Some("rotated-nonce".into());
+        tab.reported_session_binding_nonce = Some("rotated-nonce".into());
+    }
+    let mux = fixture.service.mux.read();
+    assert_eq!(
+        executor_identity_drift(mux.get_tab(tab_id).unwrap(), (&draft).into()),
+        Some(ExecutorIdentityDrift::LaunchRotated)
+    );
+}
+
+#[test]
+fn in_review_worker_close_refusal_names_the_review_instead_of_a_session_mismatch() {
+    let (fixture, draft) = fixture();
+    let svc = &fixture.service;
+    let tab_id = &draft.source_attempt.executor_tab_id;
+    drift_executor_session(svc, tab_id, "unreported");
+    svc.plan_store
+        .edit_plan_fixture("plan", 2, |plan| {
+            plan.tasks[0].status = crate::plan::TaskStatus::InReview;
+            Ok(())
+        })
+        .unwrap();
+    let error = svc
+        .close_tab_guarded(Some("owner"), tab_id, true)
+        .unwrap_err();
+    assert!(error.contains("in review"), "{error}");
+    assert!(!error.contains("session"), "{error}");
+    assert!(svc.mux.read().get_tab(tab_id).is_some());
+}
+
+#[test]
 fn finished_worker_close_refuses_while_the_tab_runs_another_live_attempt() {
     let (fixture, draft) = fixture();
     let svc = &fixture.service;

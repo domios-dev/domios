@@ -109,7 +109,7 @@ import { interruptAgentArgs } from "../../lib/agentInterrupt";
 import { useTabChoiceHost } from "./useTabChoiceHost";
 import { ChatMessageRow } from "./ChatMessageRow";
 import { HoldWhileHidden } from "./HoldWhileHidden";
-import { awaitsTranscriptEcho, deliveryPresentation, sendForRow } from "./chatDeliveryModel";
+import { awaitsTranscriptEcho, deliveryPresentation, queuedBehindTurn, sendForRow } from "./chatDeliveryModel";
 import { beginChatSendRetry, failChatSendRequest, useChatSendSnapshot } from "./chatSendStore";
 import { deleteTrackedChatMessage, sendTrackedChatMessage } from "./chatSendStatus";
 import { prepareChatDelivery } from "./chatDeliveryPreparation";
@@ -1010,6 +1010,7 @@ function TabSessionChatBody({
               asks={followingAsks.length ? followingAsks.map((index) => asks[index]).filter(Boolean) : NO_ASKS}
               deliverySend={deliverySend}
               deliveryView={deliverySend ? deliveryPresentation(deliverySend, agentActivity.kind) : undefined}
+              deliveryBehindTurn={deliverySend ? queuedBehindTurn(deliverySend, agentActivity.kind) : undefined}
               sourceOrdinal={mountedWindow.identities[messageIndex].ordinal}
               ariaLabel={chatMessageAccessibleName(msg.type, msg.content)}
               selected={messageSelection.selected.has(msg.id)}

@@ -13,7 +13,9 @@ export interface DeliveryDraft {
   capsules: CapsuleRegistry;
   reply: ComposerReply | null;
 }
-export type DeliverySend = ChatSend & { localAttempt?: { ptyId: string; bindingNonce: string }; droppedUploads?: string[]; dismissed?: boolean; status?: ChatSendStatus; requestFailed?: boolean; requestUncertain?: boolean; requestHadResponse?: boolean; admissionSettled?: boolean; draft?: DeliveryDraft };
+export type DeliverySend = ChatSend & { localAttempt?: { ptyId: string; bindingNonce: string }; droppedUploads?: string[]; dismissed?: boolean; status?: ChatSendStatus; requestFailed?: boolean; requestUncertain?: boolean; requestHadResponse?: boolean; admissionSettled?: boolean; draft?: DeliveryDraft;
+  /** Once held, the send was written only after the turn it waited behind, so it keeps its place after that turn. */
+  wasHeld?: boolean };
 
 function sameMatchedRow(left: ChatSendStatus["matched_row"], right: ChatSendStatus["matched_row"]): boolean {
   if (left == null || right == null) return left === right;
@@ -47,6 +49,14 @@ export function deliveryPresentation(send: DeliverySend, _activity: TabActivity[
   return deliveryState(send) === "sending" && send.status?.state === "written" ? "written" : deliveryState(send);
 }
 
+const ACTIVE_TURN_HOLD = "held_active_turn";
+
+/** A held send waits for the running turn when the host says so, or while the agent is mid-turn. */
+export function queuedBehindTurn(send: DeliverySend, activity: TabActivity["kind"]): boolean {
+  return deliveryState(send) === "queued"
+    && (send.status?.pending_reason === ACTIVE_TURN_HOLD || activity === "working");
+}
+
 export function applyDeliveryStatus(send: DeliverySend, status: ChatSendStatus): DeliverySend {
   if (status.correlationId !== send.correlationId) return send;
   if (send.status?.ledger_id === status.ledger_id && send.status.sequence > status.sequence) return send;
@@ -62,6 +72,7 @@ export function applyDeliveryStatus(send: DeliverySend, status: ChatSendStatus):
     && sameMatchedRow(send.status.matched_row, status.matched_row)) return send;
   return {
     ...send,
+    ...(send.wasHeld || status.state === "held" ? { wasHeld: true } : {}),
     matchedRow: status.matched_row ?? send.matchedRow,
     status,
     requestFailed: false,
@@ -123,6 +134,7 @@ export function deliveryProjectionSends(
         segments: frame ? [{ type: "frame" as const, kind: frame.attrs.from as FrameKind, from: frame.attrs.from, attrs: frame.attrs, body: frame.body, tip: null }] : send.segments,
         echoEligible: deliveryState(send) !== "failed",
         flowAtMs: send.sentAtMs,
+        held: deliveryState(send) === "queued" || send.wasHeld === true,
       };
     });
 }

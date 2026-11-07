@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { applyDeliveryStatus, deliveryState, deliveryPresentation, sendForRow, reconcileDeliveryStatusesModel, reconcileAdmissionEvidence, deliveryProjectionSends, type DeliverySend } from "./chatDeliveryModel";
+import { applyDeliveryStatus, deliveryState, deliveryPresentation, queuedBehindTurn, sendForRow, reconcileDeliveryStatusesModel, reconcileAdmissionEvidence, deliveryProjectionSends, type DeliverySend } from "./chatDeliveryModel";
 import { createTranscriptState, reduceTranscript, projectTranscript } from "@codeterm/chat-core";
 import type { ChatSendStatus } from "./chatSendStatus";
 
@@ -181,11 +181,37 @@ test("written sends flow above later rows while held and failed sends retain the
     const current = applyDeliveryStatus({ ...send(), sentAtMs: at }, status(state, 2));
     const projected = projectTranscript(transcript, deliveryProjectionSends([current]));
     assert.deepEqual(projected.rows.map((row) => row.id),
-      ["old", "bubble", "new"]);
+      state === "held" ? ["old", "new", "bubble"] : ["old", "bubble", "new"]);
     assert.equal(projected.pending.length, 1);
     assert.equal(deliveryState(current), state === "written" ? "sending" : state === "submit_unconfirmed" ? "uncertain"
       : state === "held" ? "queued" : state);
   }
+});
+
+test("a held send stays one bubble after the running turn until its exact echo replaces it", () => {
+  const at = 1_800_000_000_000;
+  const authority = { sourceSessionId: "own", sessionBindingNonce: "launch" };
+  const running = reduceTranscript(createTranscriptState(), {
+    kind: "snapshot", authority, range: null,
+    rows: [
+      { id: "turn", type: "user", content: "earlier ask", timestamp: String(at - 1000) },
+      { id: "work", type: "assistant", content: "still working", timestamp: String(at + 1000) },
+    ],
+  }).state;
+  const held = applyDeliveryStatus({ ...send(), sentAtMs: at }, { ...status("held", 1), pending_reason: "held_active_turn" });
+  assert.equal(queuedBehindTurn(held, "idle"), true);
+  assert.deepEqual(projectTranscript(running, deliveryProjectionSends([held])).rows.map((row) => row.id), ["turn", "work", "bubble"]);
+  const written = applyDeliveryStatus(held, status("written", 2));
+  assert.equal(queuedBehindTurn(written, "working"), false);
+  assert.deepEqual(projectTranscript(running, deliveryProjectionSends([written])).rows.map((row) => row.id), ["turn", "work", "bubble"]);
+  const echoed = reduceTranscript(running, {
+    kind: "delta", authority, range: null,
+    rows: [{ id: "echo", type: "user", content: "opaque", timestamp: String(at + 2000), correlationId: "token" }],
+  }).state;
+  const delivered = applyDeliveryStatus(written, status("delivered", 3));
+  const rows = projectTranscript(echoed, deliveryProjectionSends([delivered])).rows;
+  assert.deepEqual(rows.map((row) => row.id), ["turn", "work", "echo"]);
+  assert.equal(sendForRow([delivered], rows[2])?.id, "bubble");
 });
 
 test("written and unconfirmed receipts keep their meaning across agent activity", () => {
