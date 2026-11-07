@@ -152,6 +152,17 @@ test("restored tabs resolve only their own profile icon and never the shared pro
   assert(resolveTabProvider(restored("unknown"))?.iconSvg === undefined, "unknown profile cannot borrow a logo");
 });
 
+test("sleeping profile tabs select declared icons without runtime sessions", () => {
+  setAgentDescriptors([{ ...claudeDescriptor, id: "shared-runtime", icon_svg: "<svg id='shared'/>", agent_runtime: { launchProfiles: {
+    declared: { binary: "declared-agent", args: [], iconSvg: "<svg id='sleeping-profile'/>" },
+    unmarked: { binary: "unmarked-agent", args: [] },
+  } } }]);
+  const sleeping = (profile: string) => tab({ agent_type: "shared-runtime", agent_runtime_config: { launchProfile: profile }, slept_at_ms: 1, agent_runtime_state: null });
+  assert(resolveTabProvider(sleeping("declared"))?.iconSvg === "<svg id='sleeping-profile'/>", "sleeping tab needs only its own descriptor icon");
+  assert(resolveTabProvider(sleeping("unmarked"))?.iconSvg === undefined, "unmarked sleeping profile stays generic");
+  assert(resolveTabProvider(sleeping("unmarked"))?.fallbackIconSvg === undefined, "no shared provider fallback while sleeping");
+});
+
 let failed = 0;
 for (const [name, fn] of tests) {
   try {

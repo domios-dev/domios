@@ -84,6 +84,27 @@ pub fn load(provider: &str) -> Result<Profiles, String> {
         .clone()
 }
 
+pub fn refresh_icon(provider: &str, url: &str, icon: &str) -> Result<bool, String> {
+    refresh_icon_at(&path(provider)?, url, icon)
+}
+
+fn refresh_icon_at(path: &Path, url: &str, icon: &str) -> Result<bool, String> {
+    let mut cache = cache().lock();
+    let profiles = cache
+        .entry(path.to_owned())
+        .or_insert_with(|| read(path))
+        .as_mut()
+        .map_err(|error| error.clone())?;
+    let mut changed = false;
+    for profile in profiles.values_mut() {
+        if profile.icon_url.as_deref() == Some(url) && profile.icon_svg.as_deref() != Some(icon) {
+            profile.icon_svg = Some(icon.to_owned());
+            changed = true;
+        }
+    }
+    Ok(changed)
+}
+
 pub fn update<T>(
     provider: &str,
     change: impl FnOnce(&mut Profiles) -> Result<T, String>,
