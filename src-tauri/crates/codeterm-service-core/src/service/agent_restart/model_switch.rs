@@ -52,6 +52,15 @@ pub struct ModelSwitchOutcome {
     pub launched_model: String,
     pub confirmation_detail: Option<String>,
     pub confirmation: ModelSwitchConfirmation,
+    /// Non-model controls this switch confirmed, as before/after values.
+    pub control_changes: Vec<ControlChange>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ControlChange {
+    pub control: &'static str,
+    pub previous: Option<String>,
+    pub current: Option<String>,
 }
 
 fn effective_model_switch_mode(
@@ -743,6 +752,7 @@ impl ServiceContext {
                 launched_model: requested.to_string(),
                 confirmation_detail: detail,
                 confirmation,
+                control_changes: Vec::new(),
             });
         }
         if mechanism == ModelSwitchMode::Unsupported {
@@ -812,6 +822,7 @@ impl ServiceContext {
             launched_model,
             confirmation_detail: None,
             confirmation,
+            control_changes: Vec::new(),
         })
     }
 

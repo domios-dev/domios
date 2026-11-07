@@ -695,6 +695,74 @@ fn model_switch_preserves_the_current_mode_and_clears_the_previous_notice() {
 }
 
 #[test]
+fn control_changes_name_only_confirmed_non_model_controls_that_changed() {
+    let declared = |effort: &str| codeterm_plugin::agent_runtime::RuntimeConfigOption {
+        category: Some("thought_level".into()),
+        id: "opaque-effort".into(),
+        name: "Effort".into(),
+        current_value: effort.into(),
+        options: Vec::new(),
+    };
+    let before = RuntimeSettings {
+        model: Some("same".into()),
+        config_options: Some(vec![declared("medium")]),
+        mode: Some("auto".into()),
+        ..Default::default()
+    };
+    let after = RuntimeSettings {
+        config_options: Some(vec![declared("high")]),
+        service_tier: Some(tier_selection(true)),
+        ..before.clone()
+    };
+    let changes = control_changes(&before, &after);
+    assert_eq!(
+        changes
+            .iter()
+            .map(|change| (
+                change.control,
+                change.previous.as_deref(),
+                change.current.as_deref()
+            ))
+            .collect::<Vec<_>>(),
+        vec![
+            ("effort", Some("medium"), Some("high")),
+            ("speed", None, tier_selection(true).id.as_deref()),
+        ]
+    );
+    assert!(control_changes(&before, &before).is_empty());
+    let partial = RuntimeSettings {
+        effort: Some("high".into()),
+        ..Default::default()
+    };
+    let partial = control_changes(
+        &RuntimeSettings {
+            config_options: None,
+            ..before.clone()
+        },
+        &partial,
+    );
+    assert_eq!(partial.len(), 1);
+    assert_eq!(partial[0].control, "effort");
+}
+
+#[test]
+fn model_switch_on_a_sleeping_runtime_tab_wakes_it_and_applies_the_selection() {
+    let (fixture, id) = runtime_fixture();
+    fixture.service.mux.write().get_tab_mut(&id).unwrap().frozen = true;
+    let outcome = fixture
+        .service
+        .agent_switch_model_with_options(&id, "target", Some("high"), false)
+        .unwrap();
+    assert!(
+        matches!(outcome.confirmation, ModelSwitchConfirmation::Observed { model, .. } if model == "target")
+    );
+    let mux = fixture.service.mux.read();
+    let tab = mux.get_tab(&id).unwrap();
+    assert!(!tab.frozen);
+    assert_eq!(tab.agent_session_model.as_deref(), Some("target"));
+}
+
+#[test]
 fn confirmed_model_change_clears_a_stale_load_notice() {
     let (fixture, id) = runtime_fixture();
     let session = crate::async_runtime::block_on(engine::ensure(&fixture.service, &id)).unwrap();

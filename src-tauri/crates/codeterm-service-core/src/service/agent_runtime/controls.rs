@@ -85,6 +85,16 @@ pub(crate) fn switch(
         .get_tab(tab)
         .and_then(|target| target.agent_type.clone())
         .ok_or_else(|| ModelSwitchError::NotFound(tab.into()))?;
+    // A switch addresses the tab the same way a send does, so it wakes a sleeping tab.
+    if svc
+        .mux
+        .read()
+        .get_tab(tab)
+        .is_some_and(|target| target.frozen)
+    {
+        svc.wake_frozen_tab(tab)
+            .map_err(ModelSwitchError::RuntimeControlRefused)?;
+    }
     let live = engine::for_tab(tab);
     let declared_controls = live
         .as_ref()
@@ -343,6 +353,7 @@ async fn switch_inner(
         restart: None,
         mechanism: crate::agent::provider::ModelSwitchMode::Live,
         fallback_reason: None,
+        control_changes: control_changes(&before.settings, &confirmed),
         previous_model: before.settings.model,
         requested_model: model.into(),
         launched_model: actual_model.clone(),
@@ -352,6 +363,69 @@ async fn switch_inner(
             evidence: ModelSwitchEvidence::LiveSessionRecord,
         },
     })
+}
+
+fn declared_value(settings: &RuntimeSettings, category: &str) -> Option<String> {
+    settings
+        .config_options
+        .as_ref()?
+        .iter()
+        .find(|option| option.category.as_deref() == Some(category))
+        .map(|option| option.current_value.clone())
+}
+
+/// Effort, mode and speed before and after a switch; a control the confirmation omits is unchanged.
+pub(super) fn control_changes(
+    before: &RuntimeSettings,
+    after: &RuntimeSettings,
+) -> Vec<crate::service::agent_restart::ControlChange> {
+    let effort = |settings: &RuntimeSettings| {
+        declared_value(settings, "thought_level").or_else(|| settings.effort.clone())
+    };
+    let mode = |settings: &RuntimeSettings| {
+        declared_value(settings, "mode").or_else(|| settings.mode.clone())
+    };
+    let speed = |settings: &RuntimeSettings| {
+        settings
+            .service_tier
+            .as_ref()
+            .and_then(|tier| tier.id.clone())
+    };
+    let effort_before = effort(before);
+    let mode_before = mode(before);
+    let speed_before = speed(before);
+    [
+        (
+            "effort",
+            effort(after).or_else(|| effort_before.clone()),
+            effort_before,
+        ),
+        (
+            "mode",
+            mode(after).or_else(|| mode_before.clone()),
+            mode_before,
+        ),
+        (
+            "speed",
+            if after.service_tier.is_some() {
+                speed(after)
+            } else {
+                speed_before.clone()
+            },
+            speed_before,
+        ),
+    ]
+    .into_iter()
+    .map(|(control, current, previous)| (control, previous, current))
+    .filter(|(_, previous, current)| previous != current)
+    .map(
+        |(control, previous, current)| crate::service::agent_restart::ControlChange {
+            control,
+            previous,
+            current,
+        },
+    )
+    .collect()
 }
 
 fn unchanged_settings(

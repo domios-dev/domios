@@ -85,6 +85,23 @@ pub(crate) fn persisted(
     }
 }
 
+/// The host's own durable transcript for one thread, when the runtime keeps it.
+/// `None` means the record is absent from this host's authority or unreadable.
+pub(super) fn durable_rows(
+    provider: &str,
+    thread: &str,
+    capability: &AgentRuntimeCapability,
+) -> Option<Vec<ChatMsg>> {
+    if !enabled(capability) {
+        return None;
+    }
+    match chatbackend_history::read_tail(&chatbackend_history::runtime_path(provider, thread)) {
+        Ok(window) => Some(window.messages),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Some(Vec::new()),
+        Err(_) => None,
+    }
+}
+
 pub(crate) async fn restore(session: &Arc<Session>) -> Result<(), RuntimeFailure> {
     if !selected(session) {
         return Ok(());

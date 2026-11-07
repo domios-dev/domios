@@ -522,6 +522,7 @@ async fn ensure_with_fork(
             let epoch = session.state.lock().epoch;
             session.state.lock().degrade(epoch, &reason);
             publish(svc, tab, &session);
+            super::lost_session::schedule(svc, &session, &reason);
         }
         return Err(reason);
     }

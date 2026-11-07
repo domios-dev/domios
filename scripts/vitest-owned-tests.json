@@ -281,6 +281,8 @@
   "src/lib/eventSubscriptionRegistry.test.ts",
   "plugins/provider-opencode/tests/turnErrors.test.ts",
   "packages/chat-ui/src/MessageBubble.api-error.test.tsx",
+  "packages/chat-ui/src/MessageBubble.status.test.tsx",
+  "packages/chat-ui/src/boundedNotice.test.ts",
   "src/lib/aggregateOutputRegistry.test.ts",
   "src/components/Notifications/NotificationBody.test.tsx",
   "src/components/Settings/generalAgentSettingsModel.test.ts",

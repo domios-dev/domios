@@ -28,6 +28,7 @@ pub mod launch_profile_setup;
 #[cfg(unix)]
 pub(crate) mod lease;
 pub mod login;
+pub(crate) mod lost_session;
 pub mod model;
 mod owned_context;
 #[cfg(any(unix, test))]

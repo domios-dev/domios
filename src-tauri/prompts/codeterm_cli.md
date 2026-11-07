@@ -95,7 +95,7 @@ Every agent tab, Orchestrator included, keeps its own checklist with `domios tod
 
 After `domios tab rebind SESSION_ID --tab ID` on an `agentRuntime` Chat tab, use `domios agent restart --tab ID` to resume the recorded session and its own history. `sessions resume` refuses an unusable already-bound tab and names that restart command.
 
-The owner's explicit `domios agent restart --tab <ID> --fresh` starts a new session in the same tab with its recorded model and effort. An existing exact restored session is refused; a live agent requires `--force`. Restore never makes this choice automatically.
+The owner's explicit `domios agent restart --tab <ID> --fresh` starts a new session in the same tab with its recorded model and effort. An existing exact restored session is refused; a live agent requires `--force`. Restore makes this choice automatically only when the provider refuses to load a session whose saved transcript holds no agent output.
 
 For an in-place provider handoff, use `domios agent switch-provider TARGET --tab TAB`. The target builds its summary from bounded recent messages and host context. Full history is not transferred. Optional `--model` and `--reasoning-effort` follow the target catalogue; a busy tab requires waiting or explicit `--force` to stop first. Self-switch is daemon-owned and returns an operation id immediately; read it with `agent switch-provider-status ID --tab TAB`. Switching `main` also saves the General’s provider/model/effort defaults.
 
