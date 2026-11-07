@@ -46,6 +46,8 @@ async fn busy_rpc_refusal_of_a_written_prompt_stays_uncertain_until_its_late_ech
         let context = session.context.lock().clone();
         let store = &fixture.service.pending_delivery_payloads.user_sends;
         let ledger = &fixture.service.chat_send_ledger;
+        // Every service user-send reservation binds the ledger's owner; startup binds it too.
+        fixture.service.bind_user_send_owner();
         let reservation = store
             .reserve(
                 UserSendAuthority {
