@@ -13,6 +13,10 @@ use crate::service::plan_batch_authority::{
 use crate::service::ServiceContext;
 use codeterm_types::agent::ReportOutcomeClass;
 
+const SHARED_REPORT_NEXT_STEP: &str = "commit only your declared paths as one \
+     ordinary commit on the current shared checkout HEAD and report again with that literal \
+     SHA; if the work cannot land on the shared HEAD, ask the Orchestrator for a lane.";
+
 #[derive(Debug)]
 pub(super) struct ReportPersistenceFailure {
     pub cause: String,
@@ -67,6 +71,10 @@ fn plan_failure(
         crate::service::plan::PlanError::ReviewEvidenceRequired => ReportPersistenceFailure {
             cause: crate::service::plan::PlanError::ReviewEvidenceRequired.to_string(),
             report_outcome: ReportOutcomeClass::MissingReviewEvidence,
+        },
+        crate::service::plan::PlanError::SharedReportRejected(cause) => ReportPersistenceFailure {
+            cause: format!("{cause}\nWorker next step: {SHARED_REPORT_NEXT_STEP}"),
+            report_outcome: ReportOutcomeClass::TransitionRejected,
         },
         other => incident_failure(tab_id, plan_id, task_id, &other.to_string()),
     }
@@ -245,6 +253,13 @@ pub(super) fn rejected_report_delivery_message(
             "REPORT RECEIVED — TASK TRANSITION REJECTED\n\
              The report was not persisted. Ask the Orchestrator to add exact acceptance and QA evidence, then resubmit with --status in_review; do not retry without a status.\n\
              Required evidence: {cause}\n\n{message}"
+        );
+    }
+    if outcome == ReportOutcomeClass::TransitionRejected {
+        return format!(
+            "REPORT RECEIVED — TASK TRANSITION REJECTED\n\
+             The report was not persisted and the task is not in review; do not accept or bounce it. The Worker corrects and reports again.\n\
+             Cause: {cause}\n\n{message}"
         );
     }
     format!(

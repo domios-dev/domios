@@ -2,7 +2,8 @@ export type ReportOutcomeClass =
   | "stale_binding_conflict"
   | "structurally_not_attachable"
   | "delivered_unattached"
-  | "block_proposed";
+  | "block_proposed"
+  | "transition_rejected";
 
 /** Task-transition truth of one accepted report, as decided by the daemon. */
 export interface ReportTaskOutcome {
@@ -13,7 +14,8 @@ export interface ReportTaskOutcome {
 }
 
 const REJECTED_HEADLINE = "TASK TRANSITION REJECTED";
-const CAUSE_LINE = /^Owner action required:\s*(.+)$/;
+/** An incident names the owner's action; an ordinary refusal names its cause for the Worker. */
+const CAUSE_LINE = /^(Owner action required|Cause):\s*(.+)$/;
 
 /** A refused transition is delivered with its own incident header, so a card
  *  with no structured event linked can still be truthful. Only a body that
@@ -22,10 +24,12 @@ export function parseDeliveredTaskOutcome(body: string): ReportTaskOutcome | nul
   const lines = body.split("\n");
   if (!lines[0]?.trim().endsWith(REJECTED_HEADLINE)) return null;
   let cause: string | null = null;
+  let reportOutcome: ReportOutcomeClass = "stale_binding_conflict";
   for (const line of lines.slice(1, 4)) {
     const match = CAUSE_LINE.exec(line.trim());
     if (match) {
-      cause = match[1].trim();
+      cause = match[2].trim();
+      if (match[1] === "Cause") reportOutcome = "transition_rejected";
       break;
     }
   }
@@ -33,7 +37,7 @@ export function parseDeliveredTaskOutcome(body: string): ReportTaskOutcome | nul
     persisted: false,
     transitionRejected: true,
     cause,
-    reportOutcome: "stale_binding_conflict",
+    reportOutcome,
   };
 }
 
