@@ -125,6 +125,9 @@ pub struct AgentRuntimeCapability {
     pub client_bridges: Option<RuntimeClientBridges>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub launch_profiles: Option<BTreeMap<String, RuntimeLaunchProfile>>,
+    /// Declarations a profile installed from this registry id inherits unless it declares its own.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub registry_defaults: BTreeMap<String, super::RuntimeRegistryDefaults>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub restricted_cli: Option<RestrictedCliCapability>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

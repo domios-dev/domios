@@ -36,5 +36,25 @@
      "profile": {"binary": "fixture-agent", "args": [], "limitsSource": {"kind": "unavailable", "reason": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}}},
     {"name": "source is not an object", "valid": false,
      "profile": {"binary": "fixture-agent", "args": [], "limitsSource": "account"}}
+  ],
+  "registryDefaultCases": [
+    {"name": "account and unavailable defaults by registry id", "valid": true,
+     "registryDefaults": {"fixture-acp": {"limitsSource": {"kind": "account", "provider": "fixture-native"}}, "fixture-other": {"limitsSource": {"kind": "unavailable", "reason": "Fixture quota has no public endpoint"}}}},
+    {"name": "an empty default declares nothing", "valid": true,
+     "registryDefaults": {"fixture-acp": {}}},
+    {"name": "no defaults", "valid": true,
+     "registryDefaults": {}},
+    {"name": "a balance default has no profile credential to read", "valid": false,
+     "registryDefaults": {"fixture-acp": {"limitsSource": {"kind": "balance", "reader": "fixture-balance", "credentialEnv": "KEY"}}}},
+    {"name": "registry id is not a registry identity", "valid": false,
+     "registryDefaults": {"Fixture ACP": {"limitsSource": {"kind": "account", "provider": "fixture-native"}}}},
+    {"name": "registry id starts with a digit", "valid": false,
+     "registryDefaults": {"1fixture": {"limitsSource": {"kind": "account", "provider": "fixture-native"}}}},
+    {"name": "malformed default source", "valid": false,
+     "registryDefaults": {"fixture-acp": {"limitsSource": {"kind": "account"}}}},
+    {"name": "default carries an undeclared field", "valid": false,
+     "registryDefaults": {"fixture-acp": {"limitsSource": {"kind": "account", "provider": "fixture-native"}, "icon": "fixture.svg"}}},
+    {"name": "default is not an object", "valid": false,
+     "registryDefaults": {"fixture-acp": "account:fixture-native"}}
   ]
 }

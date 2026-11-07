@@ -25,6 +25,19 @@ function reason(value:unknown): boolean {
 }
 const owns = (map:Readonly<Record<string,unknown>> | undefined, key:string) => !!map && Object.prototype.hasOwnProperty.call(map, key);
 
+/** Declarations a profile installed from a registry id inherits unless it declares its own. */
+export interface RuntimeRegistryDefaults {limitsSource?:RuntimeProfileLimitsSource}
+
+/** Keyed by registry id; a default must hold for a credential-free profile, since registry installs carry none. */
+export function validRegistryDefaults(defaults:unknown): defaults is Readonly<Record<string,RuntimeRegistryDefaults>> {
+  if (!defaults || typeof defaults !== "object" || Array.isArray(defaults)) return false;
+  const entries = Object.entries(defaults);
+  return entries.length <= 128 && entries.every(([id, entry]) =>
+    /^[a-z][a-z0-9-]{0,127}$/.test(id) && !!entry && typeof entry === "object" && !Array.isArray(entry)
+    && Object.keys(entry).every(key => key === "limitsSource")
+    && ((entry as RuntimeRegistryDefaults).limitsSource === undefined || validLimitsSource((entry as RuntimeRegistryDefaults).limitsSource, {})));
+}
+
 /** The same rules the host manifest validator applies, so plugins and the host agree on shared fixtures. */
 export function validLimitsSource(source:unknown, profile:CredentialDeclarations): source is RuntimeProfileLimitsSource {
   if (!source || typeof source !== "object" || Array.isArray(source)) return false;

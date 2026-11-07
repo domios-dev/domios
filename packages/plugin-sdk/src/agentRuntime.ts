@@ -2,7 +2,7 @@ import type { ChatMsg } from "./gen/ChatMsg";
 import type { ChatAttachment } from "./gen/ChatAttachment";
 import type { ParsedSessionRecord, SessionRecordsMeta } from "./jsonlRecords";
 import type { HostOwnedCapabilities } from "./capabilities";
-import type { RuntimeProfileLimitsSource } from "./limitsSource";
+import type { RuntimeProfileLimitsSource, RuntimeRegistryDefaults } from "./limitsSource";
 
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 export type RpcId = string | number;
@@ -173,6 +173,7 @@ export interface StdioAgentRuntimeCapability {
   interrupt?:{beforeFirstTurn:boolean};
   clientBridges?:RuntimeClientBridges;
   launchProfiles?:Readonly<Record<string,RuntimeLaunchProfile>>;
+  registryDefaults?:Readonly<Record<string,RuntimeRegistryDefaults>>;
   restrictedCli?:{kind:"execpolicy-service-operations";metadataDirectory:string};
   runtimeModes?:readonly {id:string; displayName:string}[];
   serviceTiers?:readonly RuntimeServiceTier[];

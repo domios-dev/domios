@@ -21,16 +21,18 @@ pub enum RuntimeProfileLimitsSource {
 
 impl RuntimeProfileLimitsSource {
     pub fn valid_for(&self, profile: &RuntimeLaunchProfile) -> bool {
+        self.valid_with(|env| {
+            profile.secret_env.contains_key(env) || profile.auth_env.contains_key(env)
+        })
+    }
+
+    fn valid_with(&self, declares_credential: impl Fn(&str) -> bool) -> bool {
         match self {
             Self::Account { provider } => crate::plugin_id::valid(provider) && provider.len() <= 64,
             Self::Balance {
                 reader,
                 credential_env,
-            } => {
-                valid_reader(reader)
-                    && (profile.secret_env.contains_key(credential_env)
-                        || profile.auth_env.contains_key(credential_env))
-            }
+            } => valid_reader(reader) && declares_credential(credential_env.as_str()),
             Self::Unavailable { reason } => valid_reason(reason),
         }
     }
@@ -49,6 +51,52 @@ fn valid_reason(reason: &str) -> bool {
         && reason.trim() == reason
         && reason.chars().count() <= MAX_UNAVAILABLE_REASON_CHARS
         && !reason.chars().any(char::is_control)
+}
+
+/// Declared data for profiles installed from one registry id.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RuntimeRegistryDefaults {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limits_source: Option<RuntimeProfileLimitsSource>,
+}
+
+/// Registry ids follow the registry's own identity rule; a default must hold for a profile
+/// that declares no credentials, since registry installs carry none.
+pub fn valid_registry_defaults(
+    defaults: &std::collections::BTreeMap<String, RuntimeRegistryDefaults>,
+) -> bool {
+    defaults.len() <= 128
+        && defaults.iter().all(|(id, entry)| {
+            valid_registry_id(id)
+                && entry
+                    .limits_source
+                    .as_ref()
+                    .is_none_or(|source| source.valid_with(|_| false))
+        })
+}
+
+pub fn valid_registry_id(id: &str) -> bool {
+    (1..=128).contains(&id.len())
+        && id.starts_with(|c: char| c.is_ascii_lowercase())
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+}
+
+/// A profile's own source wins; otherwise the default its registry id declares, if it holds.
+pub fn resolve_registry_defaults(
+    profile: &mut RuntimeLaunchProfile,
+    defaults: &std::collections::BTreeMap<String, RuntimeRegistryDefaults>,
+) {
+    if profile.limits_source.is_some() {
+        return;
+    }
+    profile.limits_source = profile
+        .registry_id
+        .as_ref()
+        .and_then(|id| defaults.get(id)?.limits_source.clone())
+        .filter(|source| source.valid_for(profile));
 }
 
 /// The account-id key under which a profile's plugin-read balance is stored.

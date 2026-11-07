@@ -174,6 +174,10 @@ fn overlay_with(
             }
             profiles.insert(id, profile);
         }
+        // Resolved on every load, so existing installs gain it without rewriting their records.
+        for profile in profiles.values_mut() {
+            super::limits_source::resolve_registry_defaults(profile, &capability.registry_defaults);
+        }
         capability
             .validate_declaration()
             .map_err(|_| "Invalid owner profile declaration")?;

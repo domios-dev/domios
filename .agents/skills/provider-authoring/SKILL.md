@@ -746,7 +746,11 @@ A launch profile's `limitsSource` names where its account limits come from:
 `{kind:"account",provider}` reuses that native provider's account meter,
 `{kind:"balance",reader,credentialEnv}` asks the plugin's `readProfileLimits({profile,source},nowMs)`
 export for a UsageSnapshot-shaped JSON string (balance under `usage_details.balance`), and
-`{kind:"unavailable",reason}` shows a one-line reason. Host and UI branch only on `kind`;
+`{kind:"unavailable",reason}` shows a one-line reason. `agentRuntime.registryDefaults`
+maps a registry id to `{limitsSource}` for profiles whose own declaration names none;
+the host resolves it on every profile load (never persisted, outside install fingerprints),
+and a default must hold for a credential-free profile, so `balance` is refused there.
+Host and UI branch only on `kind`;
 the plugin dispatches on its own declared `reader` names. `credentialEnv` must be a
 `secretEnv`/`authEnv` variable of the same profile. A balance request passes
 `profileSecret:{profile,env,headers}` to `host.fetch`; the host fills `{secret}` header

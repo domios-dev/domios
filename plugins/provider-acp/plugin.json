@@ -77,6 +77,26 @@
           "ownerConfigured": true
         }
       },
+      "registryDefaults": {
+        "claude-acp": {
+          "limitsSource": {
+            "kind": "account",
+            "provider": "claude"
+          }
+        },
+        "codex-acp": {
+          "limitsSource": {
+            "kind": "account",
+            "provider": "codex"
+          }
+        },
+        "gemini": {
+          "limitsSource": {
+            "kind": "unavailable",
+            "reason": "Gemini API-key quota has no public endpoint; check usage in Google AI Studio"
+          }
+        }
+      },
       "requestMethods": {
         "initialize": [
           "initialize"

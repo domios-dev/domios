@@ -92,3 +92,41 @@ fn derived_owner_profiles_show_the_sanitized_bundle_icon_their_base_declares() {
     .unwrap();
     assert!(overlay_with(capability, colliding).is_err());
 }
+
+#[test]
+fn installed_registry_profiles_gain_the_plugin_registry_default_on_load() {
+    let capability: AgentRuntimeCapability = serde_json::from_value(json!({
+        "runtime":"stdio-jsonrpc","command":{"binary":"fixture-agent","args":[]},
+        "requestMethods":{"initialize":["initialize"]},"notificationMethods":[],
+        "launchProfiles":{"base":{"binary":"base-agent","args":[]}},
+        "registryDefaults":{"fixture-acp":{"limitsSource":{"kind":"account","provider":"fixture-native"}}}
+    }))
+    .unwrap();
+    let stored: Profiles = serde_json::from_value(json!({
+        "installed":{"binary":"installed-agent","args":[],"ownerConfigured":true,"registryId":"fixture-acp"},
+        "chosen":{"binary":"chosen-agent","args":[],"ownerConfigured":true,"registryId":"fixture-acp",
+            "limitsSource":{"kind":"unavailable","reason":"Owner reason"}},
+        "foreign":{"binary":"foreign-agent","args":[],"ownerConfigured":true,"registryId":"unknown-acp"}
+    }))
+    .unwrap();
+    let profiles = overlay_with(capability, stored.clone())
+        .unwrap()
+        .launch_profiles
+        .unwrap();
+    assert_eq!(
+        profiles["installed"].limits_source,
+        Some(crate::agent_runtime::RuntimeProfileLimitsSource::Account {
+            provider: "fixture-native".into()
+        })
+    );
+    assert_eq!(
+        profiles["chosen"].limits_source,
+        stored["chosen"].limits_source
+    );
+    assert_eq!(profiles["foreign"].limits_source, None);
+    assert_eq!(profiles["base"].limits_source, None);
+    assert_eq!(
+        stored["installed"].limits_source, None,
+        "the stored record is not rewritten"
+    );
+}

@@ -82,9 +82,15 @@ which lets Gemini CLI create new files through its own reader.
 - `unavailable:REASON` shows the one-line reason (at most 240 characters) instead
   of an empty bubble.
 
-Copied sources can be overridden the same way. `domios agent acp registry install
-REGISTRY_ID --limits-source account:codex` declares the source for a registry
-profile. To change an existing profile, remove it and add it again.
+Copied sources can be overridden the same way.
+
+A profile installed from the ACP registry needs no flag: the plugin declares a
+default per registry id, applied whenever profiles load, so already-installed
+profiles pick it up without reinstalling. `claude-acp` and `codex-acp` show the
+Claude and Codex account limits; `gemini` states that Gemini API-key quota has no
+public endpoint. A profile's own source always wins; `domios agent acp registry
+install REGISTRY_ID --limits-source unavailable:REASON` overrides the default at
+install. Other registry agents have no default.
 
 The bundled `deepseek-harness` profile reads its DeepSeek balance; `gemini-cli`
 states that Gemini API-key quota has no public endpoint. Profiles without a source

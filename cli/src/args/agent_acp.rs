@@ -46,7 +46,7 @@ pub enum AcpRegistryAction {
     /// Install the registry's exact declared distribution as an owner profile
     Install {
         id: String,
-        /// Where account limits come from: account:PROVIDER, balance:READER:ENV or unavailable:REASON
+        /// Override the plugin's declared default for this registry id: account:PROVIDER, balance:READER:ENV or unavailable:REASON
         #[arg(long = "limits-source")]
         limits_source: Option<String>,
     },
