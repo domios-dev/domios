@@ -1,3 +1,5 @@
+import { reconcilePageSelection } from "../store/multiplexer/pageSelection";
+import { fireResync, onResync } from "./resync";
 import { createDelayedMessageFeed } from "../components/Terminal/delayedMessageFeed";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
@@ -13,7 +15,7 @@ import type { TransportOptions } from "./transportClient";
 
 interface Posted { id: string; session: string; path: string; method: string; init: RequestInit }
 
-function fixture(onGatewayState?: (available: boolean) => void) {
+function fixture(onGatewayState?: (available: boolean) => void, origin = "http://mux.fixture") {
   const posted: Posted[] = [], deleted: string[] = [], sessions: string[] = [], credits: Array<{ session: string; received: number }> = [];
   let refuseMux = 0, failCredits = 0;
   const waiting: Array<(post: Posted) => void> = [];
@@ -43,7 +45,7 @@ function fixture(onGatewayState?: (available: boolean) => void) {
     posted.push(post); waiting.shift()?.(post);
     return reply(post);
   };
-  const client = withStreamMux({ origin: "http://mux.fixture", token: "fixture-token", fetch, onGatewayState });
+  const client = withStreamMux({ origin, token: "fixture-token", fetch, onGatewayState });
   const push = (value: unknown) => controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(value)}\n\n`));
   return {
     client, posted, deleted, sessions, credits, push,
@@ -345,4 +347,43 @@ it("expires an undispatched queued action as safe to retry without later sending
   f.head(first); f.text(first, '{}'); f.end(first);
   await expect(f.client.localJson("POST", "/api/witness", {})).resolves.toEqual({});
   expect(f.posted.some(post => post.path.endsWith("/stop"))).toBe(false);
+});
+
+it("keeps a passive browser single-flight while another browser switches shared selection and causes resync", async () => {
+  // Two isolated browser transports reach one shared selection model through separate origin aliases.
+  const a = fixture(undefined, "http://client-a.fixture"), b = fixture(undefined, "http://client-b.fixture");
+  const workspaces = [{ id: "w", tabs: ["own", "other"] }];
+  let selection = { active_workspace_id: "w", focused_tab_id: "own", activeTabIds: { w: "own" } };
+  let passive = selection;
+  const server = { select(tab: string) {
+    selection = { ...selection, focused_tab_id: tab, activeTabIds: { w: tab } };
+    passive = reconcilePageSelection(passive, selection, workspaces, true) as typeof passive;
+  } };
+  a.reply(async post => {
+    server.select(JSON.parse(String(post.init.body)).tab);
+    a.head(post); a.text(post, '{}'); a.end(post);
+    return Response.json({ accepted: true }, { status: 202 });
+  });
+  let pending = 0, maximum = 0, loads = 0;
+  const feeds = ["delayed-messages", "system-heartbeats"].map(path => createDelayedMessageFeed("own", {
+    load: async (tab, signal) => {
+      loads++; pending++; maximum = Math.max(maximum, pending);
+      try { return await b.client.localJson("GET", `/api/tabs/${tab}/${path}`, undefined, { signal }); }
+      finally { pending--; }
+    }, publish: () => {}, subscribe: async () => () => {},
+  }));
+  const stopResync = onResync(() => { for (const feed of feeds) void feed.wake(); });
+  try {
+    const first = [await b.next(), await b.next()];
+    for (let index = 0; index < 32; index++) {
+      await a.client.localJson("POST", "/api/shared-selection", { tab: index % 2 ? "own" : "other" });
+      fireResync(index % 2 ? "overflow" : "wake");
+      for (const feed of feeds) void feed.wake();
+    }
+    expect(passive.focused_tab_id).toBe("own");
+    expect(b.posted).toHaveLength(2); expect(loads).toBe(2); expect(maximum).toBe(2);
+    for (const post of first) { b.head(post); b.text(post, '[]'); b.end(post); }
+    await b.next(); await b.next();
+    expect(loads).toBe(4); expect(pending).toBe(2); expect(maximum).toBe(2);
+  } finally { stopResync(); for (const feed of feeds) feed.dispose(); }
 });

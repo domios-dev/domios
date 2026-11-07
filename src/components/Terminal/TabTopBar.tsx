@@ -268,6 +268,7 @@ export function TabTopBar({
   return (
     <div
       data-testid="tab-top-bar"
+      data-toast-obstacle
       className="ct-tab-top-bar flex min-w-0 shrink-0 flex-nowrap items-start justify-between gap-1.5 px-2 sm:gap-2"
       style={{
         ["--ct-tab-pill-h" as string]: `${TAB_BAR_CONTROL_H}px`,
