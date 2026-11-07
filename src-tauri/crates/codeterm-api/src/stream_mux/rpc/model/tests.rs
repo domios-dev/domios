@@ -50,3 +50,21 @@ fn mutation_cancellation_cannot_be_claimed_by_metadata() {
         })
     ));
 }
+
+#[test]
+fn chat_snapshot_reads_are_cancellable_directly_and_through_relay() {
+    assert!(cancellable(
+        &Method::POST,
+        "/api/tabs/t/chat-raw/start",
+        None
+    ));
+    assert!(cancellable(
+        &Method::POST,
+        "/api/mesh/relay-to",
+        Some(&RelayOperation {
+            method: "POST".into(),
+            path: "/api/tabs/t/chat-raw/start".into()
+        })
+    ));
+    assert!(!cancellable(&Method::POST, "/api/tabs/t/chat-send", None));
+}

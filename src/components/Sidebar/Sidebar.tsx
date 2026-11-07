@@ -67,6 +67,8 @@ import {
   workspaceSectionBodyVisible,
 } from "./workspacesSectionModel";
 
+import { useSidebarScrollAnchor } from "./useSidebarScrollAnchor";
+
 const SIDEBAR_REGION_ID = "codeterm-sidebar";
 const SIDEBAR_COLLAPSED_WIDTH = 0;
 const SIDEBAR_COMPACT_WIDTH = 64;
@@ -641,6 +643,7 @@ export const Sidebar = memo(function Sidebar({
       setSelectedWorkspaceId(ordinaryWorkspaces[0]?.id ?? null);
     }
   }, [ordinaryWorkspaces, selectedWorkspaceId, state.active_workspace_id]);
+  const contentScrollRef = useSidebarScrollAnchor(state.active_workspace_id, selectedWorkspaceId);
   const workspaceStatuses = useMemo(() => Object.fromEntries(ordinaryWorkspaces.map((workspace) => [
     workspace.id,
     aggregateTabStatuses(
@@ -748,7 +751,7 @@ export const Sidebar = memo(function Sidebar({
         >
           {(!isSidebarCollapsed || isPeeking) && (
             <>
-            <div className="ct-sidebar-content flex-1 min-w-0 overflow-y-scroll overflow-x-hidden" onMouseDown={keepPressFocusInPlace}>
+            <div ref={contentScrollRef} className="ct-sidebar-content flex-1 min-w-0 overflow-y-scroll overflow-x-hidden" onMouseDown={keepPressFocusInPlace}>
               {restoring && <SidebarSkeleton compact={isCompact} />}
               {isCompact && !restoring && (
                 <SidebarCompactRail

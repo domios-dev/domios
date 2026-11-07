@@ -44,16 +44,13 @@ fn restored_shell_gets_current_credential_after_server_restart_and_nonce_rotatio
         false,
     )
     .unwrap();
-    let path = std::fs::read_dir(restarted.service.ensure_agent_pad(&tab_id).unwrap().path())
-        .unwrap()
-        .map(|entry| entry.unwrap().path())
-        .find(|path| {
-            path.file_name()
-                .unwrap()
-                .to_string_lossy()
-                .starts_with(".launch-credential-")
-        })
-        .unwrap();
+    let handoff = wrapped.file.as_ref().unwrap().path();
+    let path = restarted
+        .service
+        .ext::<crate::service::launch_credentials::Directory>()
+        .path()
+        .join(handoff.file_name().unwrap());
+    assert_eq!(path.as_path(), handoff);
     let current = std::fs::read_to_string(&path).unwrap();
     assert!(!wrapped.command.contains(&current));
     assert!(!wrapped.command.contains(&old_token));

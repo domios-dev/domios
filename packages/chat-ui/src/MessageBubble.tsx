@@ -30,6 +30,7 @@ import { NeighborOriginHeader } from "./codeterm/NeighborOriginHeader";
 import { CompactMessageContent } from "./codeterm/CompactMessageContent";
 import { ChatNoticeCard } from "./ChatNoticeCard";
 import { BoundedMessageContent } from "./BoundedMessageContent";
+import { BoundedNoticeText } from "./BoundedNoticeText";
 import { MessageTimeFrame } from "./MessageTimeFrame";
 import { messageRowTime } from "./messageRowTime";
 import type { PeerNameResolver, TabNameResolver } from "./codeterm/templates";
@@ -422,7 +423,7 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
 
   if (message.type === "system" || message.type === "local_command") {
     if (message.systemSubtype === "api_error") {
-      return <div role="alert" aria-label="Provider API error" className="mb-2 w-full rounded-md border p-3 text-sm" style={{ color: "var(--ct-red)", borderColor: "var(--ct-red)" }}>{message.content}</div>;
+      return <div role="alert" aria-label="Provider API error" className="mb-2 w-full rounded-md border p-3 text-sm" style={{ color: "var(--ct-red)", borderColor: "var(--ct-red)" }}><BoundedNoticeText text={message.content} /></div>;
     }
     if (message.systemSubtype === "context_epoch_boundary") {
       return (
@@ -632,15 +633,15 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
   if (message.type === "status") {
     return (
       <div className="flex w-full min-w-0 justify-center mb-2">
-        <span
-          className="text-[10px] px-2.5 py-0.5 rounded-full"
-          style={{
+        <BoundedNoticeText
+          text={message.content}
+          className="max-w-full items-center text-[10px]"
+          summaryClassName="px-2.5 py-0.5 rounded-full"
+          summaryStyle={{
             color: "var(--ct-muted-fg)",
             background: "var(--ct-surface)",
           }}
-        >
-          {message.content}
-        </span>
+        />
       </div>
     );
   }

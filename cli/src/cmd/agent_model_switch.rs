@@ -305,6 +305,26 @@ pub(super) fn model_switch_result(
     })
 }
 
+fn control_changes(value: &serde_json::Value) -> String {
+    let named = |change: &serde_json::Value, key: &str| {
+        change[key].as_str().unwrap_or("default").to_string()
+    };
+    value["control_changes"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|change| {
+            let control = change["control"].as_str()?;
+            Some(format!(
+                "{control} {} -> {}",
+                named(change, "previous"),
+                named(change, "current")
+            ))
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 pub(super) fn render_model_switch(value: &serde_json::Value) -> String {
     let field = |key: &str| value.get(key).and_then(|v| v.as_str()).unwrap_or("-");
     let fallback = value
@@ -329,11 +349,29 @@ pub(super) fn render_model_switch(value: &serde_json::Value) -> String {
             .get("observed_model")
             .and_then(|v| v.as_str())
             .unwrap_or_else(|| field("requested_model"));
+        let controls = control_changes(value);
+        if observed_model != field("previous_model") {
+            let controls = if controls.is_empty() {
+                String::new()
+            } else {
+                format!("; {controls}")
+            };
+            return format!(
+                "Switched Tab {} to {} (was {}){controls}; model confirmed from its session record without a restart",
+                field("tab_id"),
+                observed_model,
+                field("previous_model"),
+            );
+        }
+        if controls.is_empty() {
+            return format!(
+                "Tab {} already uses {observed_model}; nothing changed",
+                field("tab_id")
+            );
+        }
         return format!(
-            "Switched Tab {} to {} (was {}); model confirmed from its session record without a restart",
+            "Updated Tab {}: {controls}, model {observed_model} unchanged; confirmed from its session record without a restart",
             field("tab_id"),
-            observed_model,
-            field("previous_model"),
         );
     }
     if field("model_confirmation") == "pending" {
@@ -543,6 +581,44 @@ mod tests {
         assert_eq!(value["mode_used"], "live");
         assert_eq!(value["model_confirmation"], "observed");
         assert_eq!(value["evidence"], "live_session_record");
+    }
+
+    #[test]
+    fn agent_model_control_only_switch_names_what_changed_and_keeps_the_model() {
+        for (control, previous, current) in [
+            ("effort", "medium", "high"),
+            ("speed", "standard", "priority"),
+            ("mode", "approval-required", "auto"),
+        ] {
+            let value = serde_json::json!({
+                "ok": true,
+                "tab_id": "tab-4f3a",
+                "mode_used": "live",
+                "requested_model": "opaque-model",
+                "observed_model": "opaque-model",
+                "previous_model": "opaque-model",
+                "model_confirmation": "observed",
+                "control_changes": [{"control": control, "previous": previous, "current": current}],
+            });
+            let rendered = render_model_switch(&value);
+            assert!(
+                rendered.contains(&format!("{control} {previous} -> {current}")),
+                "{rendered}"
+            );
+            assert!(
+                rendered.contains("model opaque-model unchanged"),
+                "{rendered}"
+            );
+            assert!(!rendered.contains("(was opaque-model)"), "{rendered}");
+        }
+        let unchanged = serde_json::json!({
+            "tab_id": "tab-4f3a",
+            "mode_used": "live",
+            "observed_model": "opaque-model",
+            "previous_model": "opaque-model",
+            "model_confirmation": "observed",
+        });
+        assert!(render_model_switch(&unchanged).contains("nothing changed"));
     }
 
     #[test]

@@ -318,7 +318,31 @@ function clearEntries(state, key) {
   state[key] = /* @__PURE__ */ Object.create(null);
 }
 
+// plugins/provider-acp/src/runtimeReduceSeen.ts
+var BITS = 4096;
+function hash(value, seed) {
+  let hash2 = seed;
+  for (let index = 0; index < value.length; index++) {
+    hash2 ^= value.charCodeAt(index);
+    hash2 = Math.imul(hash2, 16777619) >>> 0;
+  }
+  return hash2 % BITS;
+}
+function markSeen(filter, id) {
+  const bytes = new Uint8Array(BITS / 8);
+  if (filter?.length === BITS / 4) for (let index = 0; index < bytes.length; index++) bytes[index] = Number.parseInt(filter.slice(index * 2, index * 2 + 2), 16);
+  let seen = true;
+  for (const bit of [hash(id, 2166136261), hash(id, 374761393)]) {
+    const mask = 1 << bit % 8;
+    const byte = bytes[bit >> 3] ?? 0;
+    if (!(byte & mask)) seen = false;
+    bytes[bit >> 3] = byte | mask;
+  }
+  return { filter: Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join(""), seen };
+}
+
 // plugins/provider-acp/src/runtimeReduce.ts
+var OFFSET_BUDGET = 16384;
 var json = (value) => value;
 function initial(ctx, raw, cursor) {
   const previous = object(raw);
@@ -362,6 +386,7 @@ function initial(ctx, raw, cursor) {
     copy.ordinal = 0;
     copy.seenItems = [];
     clearEntries(copy, "offsetById");
+    delete copy.seenMessages;
     delete copy.chunk;
     copy.settled = false;
     copy.started = false;
@@ -370,6 +395,7 @@ function initial(ctx, raw, cursor) {
     copy.ordinal = 0;
     copy.seenItems = [];
     clearEntries(copy, "offsetById");
+    delete copy.seenMessages;
     delete copy.chunk;
     copy.settled = false;
     copy.started = false;
@@ -419,6 +445,17 @@ function admitToolIdentity(state, retained) {
     bytes += removeEntry(state, "items", id);
   }
   return bytes <= 16384;
+}
+function rememberOffset(state, base, cursor) {
+  removeEntry(state, "offsetById", base);
+  const entry = utf8Length(JSON.stringify({ [base]: cursor }));
+  if (entry > OFFSET_BUDGET) return;
+  let bytes = mapBytes(state, "offsetById") + entry;
+  for (const known of Object.keys(state.offsetById)) {
+    if (bytes <= OFFSET_BUDGET) break;
+    bytes += removeEntry(state, "offsetById", known);
+  }
+  putEntry(state, "offsetById", base, cursor);
 }
 function rememberControl(state, kind, update) {
   const encoded = JSON.stringify(update);
@@ -516,28 +553,25 @@ function reduceStream(ctx, raw, frames, cursor, submitted, retainSubmitted = fal
         if (kind === "user_message_chunk" && submitted && state.evidenced.includes(submitted.sendId)) continue;
         const messageId = text(update.messageId);
         const explicit = messageId ? `${kind}:${messageId}` : void 0;
-        if (!state.chunk || state.chunk.kind !== kind || explicit && state.chunk.id !== `${state.sessionId}:turn:${state.turn}:message:${explicit}`) {
+        const base = explicit ? `${state.sessionId}:turn:${state.turn}:message:${explicit}` : void 0;
+        if (!state.chunk || state.chunk.kind !== kind || base && (state.chunk.base ?? state.chunk.id) !== base) {
           closeChunk(ctx, state, events);
           if (kind === "user_message_chunk" && state.loading && state.ordinal > 0) {
             state.turn++;
             state.ordinal = 0;
             state.seenItems = [];
+            clearEntries(state, "offsetById");
+            delete state.seenMessages;
           }
           state.ordinal++;
-          const id = explicit ? `${state.sessionId}:turn:${state.turn}:message:${explicit}` : `${ctx.threadId}:turn:${state.turn}:item:${state.ordinal}`;
-          state.chunk = { kind, id, offset: 0, chars: 0, ...explicit ? state.offsetById[id] : {} };
-          if (explicit && state.offsetById[id] === void 0 && mapBytes(state, "offsetById") + utf8Length(id) + 32 > 16384) {
-            state.chunk.dropped = true;
-            emit(state, events, {
-              id,
-              seq: 0,
-              type: kind === "agent_thought_chunk" ? "thinking" : kind === "user_message_chunk" ? "user" : "assistant",
-              content: "[ACP row truncated: message identity budget exhausted]"
-            });
-          }
+          const key = explicit ? `${state.sessionId}:turn:${state.turn}:message:${explicit}` : void 0;
+          const known = key ? state.offsetById[key] : void 0;
+          let resumed = false;
+          if (key) ({ filter: state.seenMessages, seen: resumed } = markSeen(state.seenMessages, key));
+          const id = !key ? `${ctx.threadId}:turn:${state.turn}:item:${state.ordinal}` : known?.row ?? (!known && resumed ? `${key}:continued:${state.seq + 1}` : key);
+          state.chunk = { kind, id, offset: known?.offset ?? 0, chars: known?.chars ?? 0, ...known?.echo ? { echo: known.echo } : {}, ...key ? { base: key } : {} };
         }
         const chunk = state.chunk;
-        if (chunk.dropped) continue;
         if (kind === "user_message_chunk" && !state.loading) {
           const claim = ctx.claimedSends.find((claim2) => claim2.threadId === ctx.threadId && !state.evidenced.includes(claim2.sendId) && claim2.input.attachments.length === 0 && (chunk.chars === 0 || claim2.sendId === chunk.echo) && claim2.input.text.slice(chunk.chars, chunk.chars + chunkText.length) === chunkText);
           if (claim) chunk.echo = claim.sendId;
@@ -550,7 +584,7 @@ function reduceStream(ctx, raw, frames, cursor, submitted, retainSubmitted = fal
         events.push(chunk.offset ? { kind: "chatItemAppend", threadId: state.sessionId, itemId: row.id, content: content.text, offset: chunk.offset } : { kind: "chatItem", threadId: state.sessionId, item: { ...row, content: content.text } });
         chunk.offset += utf8Length(content.text);
         putEntry(state, "items", row.id, row);
-        if (explicit) putEntry(state, "offsetById", chunk.id, { offset: chunk.offset, chars: chunk.chars, ...chunk.echo ? { echo: chunk.echo } : {} });
+        if (chunk.base) rememberOffset(state, chunk.base, { offset: chunk.offset, chars: chunk.chars, ...chunk.echo ? { echo: chunk.echo } : {}, ...chunk.id !== chunk.base ? { row: chunk.id } : {} });
         if (!state.loading && !state.started && kind === "agent_message_chunk") events.push({ kind: "turnState", threadId: ctx.threadId, turnId: ctx.activeTurnId ?? `${ctx.threadId}:turn:${state.turn}`, state: "working" });
         continue;
       }
@@ -725,11 +759,12 @@ function shift(state, events, index, id, removed) {
     delete cursor.chunk.echo;
     delta += size(cursor.chunk) - before;
   }
-  const previous = cursor.offsetById?.[id];
-  if (previous) {
-    cursor.offsetById[id] = { ...previous, offset: previous.offset - removed };
-    delete cursor.offsetById[id].echo;
-    delta += size(cursor.offsetById[id]) - size(previous);
+  const key = Object.keys(cursor.offsetById ?? {}).find((key2) => (cursor.offsetById[key2].row ?? key2) === id);
+  const previous = key === void 0 ? void 0 : cursor.offsetById[key];
+  if (key !== void 0 && previous) {
+    cursor.offsetById[key] = { ...previous, offset: previous.offset - removed };
+    delete cursor.offsetById[key].echo;
+    delta += size(cursor.offsetById[key]) - size(previous);
   }
   return delta;
 }

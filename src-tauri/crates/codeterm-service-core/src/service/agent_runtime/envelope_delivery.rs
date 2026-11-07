@@ -15,6 +15,14 @@ fn outcome(status: ChatSendStatus) -> Result<Delivery, String> {
         ChatSendState::Written | ChatSendState::Sent => Ok(Delivery::ChatBackend {
             message_id: status.send_id,
         }),
+        // The provider refused this exact send before accepting it; nothing reached the agent.
+        ChatSendState::Failed if status.error.as_deref() == Some("runtime_prompt_busy") => Err(
+            crate::service::delivery_error::DeliveryError::TabBusyRefused {
+                tab: status.tab_id,
+                detail: "busy with a turn; the message was not delivered".into(),
+            }
+            .ledger_message(),
+        ),
         ChatSendState::Failed => Err(status
             .error
             .unwrap_or_else(|| "Runtime envelope was not delivered".into())),
@@ -182,5 +190,29 @@ mod tests {
         assert!(
             matches!(outcome(delivered).unwrap(), Delivery::ChatBackend {message_id} if message_id == status.send_id)
         );
+    }
+    #[test]
+    fn provider_busy_refusal_reaches_the_caller_as_a_zero_write_busy_refusal() {
+        let ledger = crate::service::chat_send_transaction::ChatSendLedger::default();
+        let pending = ledger.try_start("tab", "opaque", None).unwrap();
+        assert!(ledger.bind_rpc_send(
+            &pending.send_id,
+            crate::service::chat_send_transaction::SendLiveBinding {
+                session_id: Some("thread".into()),
+                binding_nonce: Some("nonce".into()),
+            }
+        ));
+        let refused = ledger
+            .refuse_rpc_send("tab", "thread", "nonce", &pending.send_id)
+            .unwrap();
+        let error = outcome(refused).unwrap_err();
+        let gateway = crate::service::message_gateway::classify("tab", error);
+        let surfaced =
+            crate::service::delivery_error::DeliveryError::from_opaque("tab", gateway.to_string());
+        assert_eq!(surfaced.code(), "tab_busy_refused");
+        assert!(!surfaced.bytes_written());
+        let message = surfaced.to_string();
+        assert!(!message.contains("transport error"), "{message}");
+        assert!(!message.contains("tab_busy_refused"), "{message}");
     }
 }

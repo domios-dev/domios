@@ -32,3 +32,10 @@ export function hydrateProtectedExpanded(
   }
   return { expanded: next, hydratedProtectedIds: hydrated };
 }
+
+
+export interface SidebarScrollScope { activeWorkspaceId: string | null; selectedWorkspaceId: string | null }
+
+export function sidebarWorkspaceScrollTop(previous: SidebarScrollScope, next: SidebarScrollScope, current: number): number {
+  return previous.activeWorkspaceId === next.activeWorkspaceId && previous.selectedWorkspaceId === next.selectedWorkspaceId ? current : 0;
+}

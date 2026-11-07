@@ -3,14 +3,17 @@ import { object, text, reduceTool } from "./runtimeReduceTools";
 import { planRow, contextUsage } from "./runtimeReducePlan";
 import { commands, sessionSettings } from "./runtimeControls";
 import { copyAccounting, clearEntries, putEntry, removeEntry, mapBytes, mapKeys, utf8Length } from "./runtimeReduceAccounting";
+import { markSeen } from "./runtimeReduceSeen";
 
 export interface StreamCursor { replay:number; prompt:number; loading:boolean }
-interface TextCursor { offset:number; chars:number; echo?:string }
+// `row` names the row that continues a message whose earlier offset was evicted.
+interface TextCursor { offset:number; chars:number; echo?:string; row?:string }
+const OFFSET_BUDGET=16384;
 interface StreamState {
   epoch:number; nonce:string; sessionId:string; replay:number; prompt:number;
-  turn:number; ordinal:number; seq:number; chunk?:TextCursor & {kind:string; id:string; dropped?:boolean};
+  turn:number; ordinal:number; seq:number; chunk?:TextCursor & {kind:string; id:string; base?:string};
   items:Record<string,ChatMsg>; offsetById:Record<string,TextCursor>; warnings:Record<string,number>; controls:Record<string,JsonValue>;
-  evidenced:string[]; compacted:string[]; seenItems:string[]; loading:boolean; settled:boolean; started:boolean;
+  evidenced:string[]; compacted:string[]; seenItems:string[]; seenMessages?:string; loading:boolean; settled:boolean; started:boolean;
 }
 const json=(value:unknown):JsonValue=>value as JsonValue;
 function initial(ctx:RuntimeContext, raw:JsonValue, cursor:StreamCursor):StreamState {
@@ -23,9 +26,9 @@ function initial(ctx:RuntimeContext, raw:JsonValue, cursor:StreamCursor):StreamS
     evidenced:[...state.evidenced],compacted:[...state.compacted],seenItems:[...state.seenItems],...(state.chunk ? {chunk:{...state.chunk}} : {})};
   copyAccounting(state,copy);
   if (copy.replay !== cursor.replay) {
-    copy.replay=cursor.replay;copy.turn=1;copy.ordinal=0;copy.seenItems=[];clearEntries(copy,"offsetById");delete copy.chunk;copy.settled=false;copy.started=false;
+    copy.replay=cursor.replay;copy.turn=1;copy.ordinal=0;copy.seenItems=[];clearEntries(copy,"offsetById");delete copy.seenMessages;delete copy.chunk;copy.settled=false;copy.started=false;
   } else if (copy.prompt !== cursor.prompt) {
-    copy.turn=Math.max(copy.turn+1,cursor.prompt);copy.ordinal=0;copy.seenItems=[];clearEntries(copy,"offsetById");delete copy.chunk;copy.settled=false;copy.started=false;
+    copy.turn=Math.max(copy.turn+1,cursor.prompt);copy.ordinal=0;copy.seenItems=[];clearEntries(copy,"offsetById");delete copy.seenMessages;delete copy.chunk;copy.settled=false;copy.started=false;
   }
   copy.prompt=cursor.prompt;copy.loading=cursor.loading;
   return copy;
@@ -59,6 +62,18 @@ function admitToolIdentity(state:StreamState, retained:ChatMsg):boolean {
     bytes+=removeEntry(state,"items",id);
   }
   return bytes <= 16384;
+}
+/** Offsets belong to the active turn; older messages give way least recently used first, so a new message always keeps its identity. */
+function rememberOffset(state:StreamState, base:string, cursor:TextCursor):void {
+  removeEntry(state,"offsetById",base);
+  const entry=utf8Length(JSON.stringify({[base]:cursor}));
+  if (entry > OFFSET_BUDGET) return;
+  let bytes=mapBytes(state,"offsetById")+entry;
+  for (const known of Object.keys(state.offsetById)) {
+    if (bytes <= OFFSET_BUDGET) break;
+    bytes+=removeEntry(state,"offsetById",known);
+  }
+  putEntry(state,"offsetById",base,cursor);
 }
 function rememberControl(state:StreamState, kind:string, update:Record<string,JsonValue>):void {
   const encoded=JSON.stringify(update);
@@ -155,20 +170,23 @@ export function reduceStream(ctx:RuntimeContext, raw:JsonValue, frames:readonly 
         if (kind === "user_message_chunk" && submitted && state.evidenced.includes(submitted.sendId)) continue;
         const messageId=text(update.messageId);
         const explicit=messageId ? `${kind}:${messageId}` : undefined;
-        if (!state.chunk || state.chunk.kind !== kind || explicit && state.chunk.id !== `${state.sessionId}:turn:${state.turn}:message:${explicit}`) {
+        const base=explicit ? `${state.sessionId}:turn:${state.turn}:message:${explicit}` : undefined;
+        if (!state.chunk || state.chunk.kind !== kind || base && (state.chunk.base ?? state.chunk.id) !== base) {
           closeChunk(ctx,state,events);
-          if (kind === "user_message_chunk" && state.loading && state.ordinal > 0) { state.turn++;state.ordinal=0;state.seenItems=[]; }
-          state.ordinal++;
-          const id=explicit ? `${state.sessionId}:turn:${state.turn}:message:${explicit}` : `${ctx.threadId}:turn:${state.turn}:item:${state.ordinal}`;
-          state.chunk={kind,id,offset:0,chars:0,...(explicit ? state.offsetById[id] : {})};
-          if (explicit && state.offsetById[id] === undefined && mapBytes(state,"offsetById")+utf8Length(id)+32 > 16384) {
-            state.chunk.dropped=true;
-            emit(state,events,{id,seq:0,type:kind === "agent_thought_chunk" ? "thinking" : kind === "user_message_chunk" ? "user" : "assistant",
-              content:"[ACP row truncated: message identity budget exhausted]"});
+          if (kind === "user_message_chunk" && state.loading && state.ordinal > 0) {
+            // Message identities embed the turn, so a replayed turn's offsets can never match again.
+            state.turn++;state.ordinal=0;state.seenItems=[];clearEntries(state,"offsetById");delete state.seenMessages;
           }
+          state.ordinal++;
+          const key=explicit ? `${state.sessionId}:turn:${state.turn}:message:${explicit}` : undefined;
+          const known=key ? state.offsetById[key] : undefined;
+          let resumed=false;
+          if (key) ({filter:state.seenMessages,seen:resumed}=markSeen(state.seenMessages,key));
+          const id=!key ? `${ctx.threadId}:turn:${state.turn}:item:${state.ordinal}`
+            : known?.row ?? (!known && resumed ? `${key}:continued:${state.seq+1}` : key);
+          state.chunk={kind,id,offset:known?.offset ?? 0,chars:known?.chars ?? 0,...(known?.echo ? {echo:known.echo} : {}),...(key ? {base:key} : {})};
         }
         const chunk=state.chunk;
-        if (chunk.dropped) continue;
         if (kind === "user_message_chunk" && !state.loading) {
           const claim=ctx.claimedSends.find(claim=>claim.threadId === ctx.threadId && !state.evidenced.includes(claim.sendId)
             && claim.input.attachments.length === 0 && (chunk.chars === 0 || claim.sendId === chunk.echo)
@@ -184,7 +202,7 @@ export function reduceStream(ctx:RuntimeContext, raw:JsonValue, frames:readonly 
           : {kind:"chatItem",threadId:state.sessionId,item:{...row,content:content.text}});
         chunk.offset+=utf8Length(content.text);
         putEntry(state,"items",row.id,row);
-        if (explicit) putEntry(state,"offsetById",chunk.id,{offset:chunk.offset,chars:chunk.chars,...(chunk.echo ? {echo:chunk.echo} : {})});
+        if (chunk.base) rememberOffset(state,chunk.base,{offset:chunk.offset,chars:chunk.chars,...(chunk.echo ? {echo:chunk.echo} : {}),...(chunk.id !== chunk.base ? {row:chunk.id} : {})});
         if (!state.loading && !state.started && kind === "agent_message_chunk") events.push({kind:"turnState",threadId:ctx.threadId,turnId:ctx.activeTurnId ?? `${ctx.threadId}:turn:${state.turn}`,state:"working"});
         continue;
       }

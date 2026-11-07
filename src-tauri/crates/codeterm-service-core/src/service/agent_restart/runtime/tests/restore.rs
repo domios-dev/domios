@@ -1,8 +1,7 @@
 use super::*;
 use crate::agent::chat_types::ChatMsg;
 
-#[test]
-fn fresh_after_load_refusal_preserves_profile_settings_and_archived_transcript() {
+fn refused_load_fixture(saved: &[ChatMsg]) -> (RuntimeFixture, String, Value) {
     let methods = [
         "initialize",
         "openThread",
@@ -31,6 +30,113 @@ fn fresh_after_load_refusal_preserves_profile_settings_and_archived_transcript()
         };
         tab.agent_runtime_config = Some(config.clone());
     }
+    crate::service::tab_chat::chatbackend_history::ChatBackendHistory::runtime_shared(
+        PROVIDER,
+        &old_thread,
+    )
+    .lock()
+    .snapshot(saved.to_vec())
+    .unwrap();
+    (fixture, old_thread, config)
+}
+
+#[test]
+fn lost_session_without_agent_work_starts_fresh_once_and_keeps_the_saved_transcript() {
+    let unanswered = ChatMsg {
+        id: "saved-prompt".into(),
+        kind: "user".into(),
+        content: "opaque unanswered prompt".into(),
+        ..Default::default()
+    };
+    let notice = ChatMsg {
+        id: "saved-notice".into(),
+        kind: "system".into(),
+        content: "opaque host notice".into(),
+        seq: 1,
+        ..Default::default()
+    };
+    let (fixture, old_thread, config) = refused_load_fixture(&[unanswered, notice]);
+    assert!(
+        agent_runtime::transport::launch(&fixture.service, PROVIDER, &fixture.tab, config).is_err()
+    );
+    assert!(agent_runtime::lost_session::join_for_test(&fixture.tab));
+    let tab = fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&fixture.tab)
+        .unwrap()
+        .clone();
+    let fresh_thread = tab.agent_session_id.clone().unwrap();
+    assert_ne!(fresh_thread, old_thread);
+    assert!(tab
+        .context_epoch_archives
+        .iter()
+        .any(|archive| archive.session_id == old_thread));
+    let opens = fixture
+        .requests()
+        .into_iter()
+        .filter(|request| request["method"] == "openThread")
+        .count();
+    assert_eq!(opens, 1);
+    assert!(!fixture
+        .requests()
+        .iter()
+        .any(|request| request["method"] == "submitTurn"));
+    let (rows, _) =
+        crate::service::tab_chat::tab_chat_snapshot(&fixture.service, &fixture.tab, 0).unwrap();
+    assert_eq!(rows[0].content, "opaque unanswered prompt");
+}
+
+#[test]
+fn lost_session_after_agent_work_keeps_the_owner_choice() {
+    for kind in ["assistant", "tool_call"] {
+        let saved = [
+            ChatMsg {
+                id: "saved-prompt".into(),
+                kind: "user".into(),
+                content: "opaque prompt".into(),
+                ..Default::default()
+            },
+            ChatMsg {
+                id: "saved-reply".into(),
+                kind: kind.into(),
+                content: "opaque reply".into(),
+                seq: 1,
+                ..Default::default()
+            },
+        ];
+        let (fixture, old_thread, config) = refused_load_fixture(&saved);
+        assert!(
+            agent_runtime::transport::launch(&fixture.service, PROVIDER, &fixture.tab, config)
+                .is_err()
+        );
+        assert!(agent_runtime::lost_session::join_for_test(&fixture.tab));
+        let session = agent_runtime::engine::for_tab(&fixture.tab).unwrap();
+        assert!(agent_runtime::engine::session_load_refused(
+            &fixture.service,
+            &session
+        ));
+        assert_eq!(
+            fixture
+                .service
+                .mux
+                .read()
+                .get_tab(&fixture.tab)
+                .unwrap()
+                .agent_session_id
+                .as_deref(),
+            Some(old_thread.as_str())
+        );
+        assert!(!fixture
+            .requests()
+            .iter()
+            .any(|request| request["method"] == "openThread"));
+    }
+}
+
+#[test]
+fn fresh_after_load_refusal_preserves_profile_settings_and_archived_transcript() {
     let saved = vec![
         ChatMsg {
             id: "saved-turn".into(),
@@ -46,13 +152,7 @@ fn fresh_after_load_refusal_preserves_profile_settings_and_archived_transcript()
             ..Default::default()
         },
     ];
-    crate::service::tab_chat::chatbackend_history::ChatBackendHistory::runtime_shared(
-        PROVIDER,
-        &old_thread,
-    )
-    .lock()
-    .snapshot(saved.clone())
-    .unwrap();
+    let (fixture, old_thread, config) = refused_load_fixture(&saved);
     assert!(
         agent_runtime::transport::launch(&fixture.service, PROVIDER, &fixture.tab, config).is_err()
     );

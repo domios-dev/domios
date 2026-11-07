@@ -7,14 +7,14 @@ import { MultiplexerProvider, useMultiplexer, useMuxState } from "../../store/mu
 import { NotificationToastContainer } from "../Notifications/NotificationToast";
 const { signIn, signOut, manage, openPlans, openUrl, state } = vi.hoisted(() => ({
   signIn: vi.fn(), signOut: vi.fn(), manage: vi.fn(), openPlans: vi.fn(), openUrl: vi.fn(),
-  state: { signedIn: false, sessionOnly: false, billingPending: false, paidSubscription: true, planStatus: "active", planAuthority: "billing", fullAccess: false, useRealPlan: false, photoUrl: null as string | null },
+  state: { signedIn: false, sessionOnly: false, billingPending: false, paidSubscription: true, planStatus: "active", planAuthority: "billing", fullAccess: false, useRealPlan: false, photoUrl: null as string | null, targetMismatch: null as string | null },
 }));
 const localFetch = vi.hoisted(() => vi.fn());
 vi.mock("../Settings/useAccount", async (importOriginal) => ({
   ...await importOriginal<typeof import("../Settings/useAccount")>(),
   useAccount: () => ({model: state.signedIn
     ? {kind:"signed_in",sessionOnly:state.sessionOnly,identity:{uid:"user",display_name:"Ada",email:"ada@example.test",provider:"fake",photo_url:state.photoUrl}}
-    : {kind:"signed_out"}, signIn, signOut}),
+    : {kind:"signed_out", ...(state.targetMismatch ? {targetMismatch:state.targetMismatch} : {})}, signIn, signOut}),
 }));
 vi.mock("../Settings/useAccountPlan", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../Settings/useAccountPlan")>();
@@ -105,6 +105,22 @@ it("opens the existing account menu and starts login once from its sign-in item"
     expect(signIn).toHaveBeenCalledTimes(1);
     expect(signIn).toHaveBeenCalledWith({mode:"signin"});
   } finally { await act(async () => root.unmount()); host.remove(); }
+});
+
+it("shows a target-mismatch sign-in as signed out with its reason and a sign-in item", async () => {
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  state.targetMismatch = "opaque-mismatch-reason";
+  try {
+    await act(async () => root.render(<AccountTrayWithActions />));
+    const button = host.querySelector("button");
+    expect(button?.getAttribute("aria-label")).toBe("Account");
+    await act(async () => button!.dispatchEvent(new KeyboardEvent("keydown", {key:"Enter",bubbles:true})));
+    const notices = Array.from(document.querySelectorAll<HTMLElement>('[role="status"]'));
+    expect(notices.some(notice => notice.textContent === "opaque-mismatch-reason")).toBe(true);
+    const items = Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'));
+    expect(items.some(item => item.textContent === "Sign in")).toBe(true);
+  } finally { await act(async () => root.unmount()); host.remove(); state.targetMismatch = null; }
 });
 
 it("shows a stage-named toast with a retry after sign-in fails", async () => {

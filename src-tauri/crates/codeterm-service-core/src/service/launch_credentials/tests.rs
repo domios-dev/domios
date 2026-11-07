@@ -43,8 +43,6 @@ fn reset_removes_stale_credentials_and_preserves_agent_pads() {
     ] {
         fs::write(directory.path.join(name), b"stale").unwrap();
     }
-    fs::create_dir(directory.path.join("nested")).unwrap();
-    fs::write(directory.path.join("nested/stale"), b"stale").unwrap();
     let restored = Directory::reset(root.path()).unwrap();
     assert_eq!(restored.path, directory.path);
     assert_eq!(fs::read_dir(&restored.path).unwrap().count(), 0);
@@ -54,7 +52,7 @@ fn reset_removes_stale_credentials_and_preserves_agent_pads() {
 }
 
 #[test]
-fn reset_does_not_follow_a_replacement_directory_link() {
+fn reset_refuses_a_replacement_directory_link() {
     let root = tempfile::tempdir().unwrap();
     let directory = Directory::reset(root.path()).unwrap();
     let outside = tempfile::tempdir().unwrap();
@@ -62,25 +60,55 @@ fn reset_does_not_follow_a_replacement_directory_link() {
     fs::write(&victim, b"outside").unwrap();
     fs::rename(&directory.path, root.path().join("retired")).unwrap();
     directory_link(outside.path(), &directory.path);
-    directory.clear_and_create().unwrap();
+    let error = directory.clear_and_create().unwrap_err();
+    assert!(error.contains("ordinary directory"));
     assert_eq!(fs::read(victim).unwrap(), b"outside");
-    assert!(codeterm_util::private_file::open_directory_owner_only(&directory.path).is_ok());
-    assert_eq!(fs::read_dir(directory.path).unwrap().count(), 0);
+    assert!(codeterm_util::safe_tree::is_link(
+        &fs::symlink_metadata(directory.path).unwrap()
+    ));
 }
 
 #[test]
-fn reset_does_not_follow_replaced_entries_inside_the_directory() {
+fn reset_refuses_directory_link_entries_without_touching_their_targets() {
     let root = tempfile::tempdir().unwrap();
     let directory = Directory::reset(root.path()).unwrap();
     let outside = tempfile::tempdir().unwrap();
     let victim = outside.path().join(".launch-credential-victim.txt");
     fs::write(&victim, b"outside").unwrap();
     directory_link(outside.path(), &directory.path.join("replacement"));
-    #[cfg(unix)]
-    std::os::unix::fs::symlink(&victim, directory.path.join("file-link")).unwrap();
-    directory.clear_and_create().unwrap();
+    let error = directory.clear_and_create().unwrap_err();
+    assert!(error.contains("non-regular launch credential entry"));
     assert_eq!(fs::read(victim).unwrap(), b"outside");
-    assert_eq!(fs::read_dir(directory.path).unwrap().count(), 0);
+    assert!(directory.path.join("replacement").exists());
+}
+
+#[test]
+fn reset_refuses_unexpected_child_directories_without_descending() {
+    let root = tempfile::tempdir().unwrap();
+    let directory = Directory::reset(root.path()).unwrap();
+    let nested = directory.path.join("nested");
+    fs::create_dir(&nested).unwrap();
+    let retained = nested.join(".runtime-launch-keep.json");
+    fs::write(&retained, b"keep").unwrap();
+    let error = directory.clear_and_create().unwrap_err();
+    assert!(error.contains("non-regular launch credential entry"));
+    assert_eq!(fs::read(retained).unwrap(), b"keep");
+}
+
+#[cfg(unix)]
+#[test]
+fn reset_refuses_file_symlinks_without_touching_their_targets() {
+    let root = tempfile::tempdir().unwrap();
+    let directory = Directory::reset(root.path()).unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let victim = outside.path().join(".launch-credential-victim.txt");
+    fs::write(&victim, b"outside").unwrap();
+    let link = directory.path.join("file-link");
+    std::os::unix::fs::symlink(&victim, &link).unwrap();
+    let error = directory.clear_and_create().unwrap_err();
+    assert!(error.contains("non-regular launch credential entry"));
+    assert_eq!(fs::read(victim).unwrap(), b"outside");
+    assert!(fs::symlink_metadata(link).unwrap().file_type().is_symlink());
 }
 
 #[test]

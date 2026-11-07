@@ -135,16 +135,16 @@ fn classify_http_error(status: u16, body: Option<&Value>) -> Error {
         "USER_DISABLED",
         "USER_NOT_FOUND",
     ];
-    if status == 400
-        && body
-            .and_then(|body| body.get("error"))
-            .and_then(|error| error.get("message").or(Some(error)))
-            .and_then(Value::as_str)
-            .is_some_and(|code| credential_rejections.contains(&code))
-    {
-        Error::Credentials
-    } else {
-        Error::Transport
+    let code = body
+        .and_then(|body| body.get("error"))
+        .and_then(|error| error.get("message").or(Some(error)))
+        .and_then(Value::as_str)
+        .filter(|_| status == 400);
+    match code {
+        // The refresh token belongs to another Firebase project than this build's API key.
+        Some("PROJECT_NUMBER_MISMATCH") => Error::TargetMismatch,
+        Some(code) if credential_rejections.contains(&code) => Error::Credentials,
+        _ => Error::Transport,
     }
 }
 

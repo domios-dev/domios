@@ -1038,6 +1038,7 @@ mod shutdown;
 pub mod sleep_transition;
 pub(crate) mod timing;
 mod unverified_shell;
+pub use model_switch::ControlChange;
 pub use model_switch::ModelSwitchConfirmation;
 pub use model_switch::ModelSwitchError;
 pub use model_switch::ModelSwitchEvidence;

@@ -692,6 +692,7 @@ impl ServiceContext {
             launched_model: model.into(),
             confirmation_detail: None,
             confirmation: ModelSwitchConfirmation::AfterTurn,
+            control_changes: Vec::new(),
         })
     }
 
