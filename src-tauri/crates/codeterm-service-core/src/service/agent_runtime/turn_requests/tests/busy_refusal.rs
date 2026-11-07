@@ -188,23 +188,6 @@ async fn busy_rpc_refusal_of_a_written_prompt_stays_uncertain_until_its_late_ech
         .await
         .unwrap();
         let delivered = ledger.status(&record.send_id).unwrap();
-        if delivered.state != ChatSendState::Sent {
-            let direct = ledger.confirm_rpc_send(
-                &tab,
-                &thread,
-                &context.binding_nonce,
-                &record.send_id,
-                None,
-            );
-            panic!(
-                "late evidence did not confirm; a direct confirm_rpc_send {} it",
-                if direct.is_some() {
-                    "confirms"
-                } else {
-                    "also refuses"
-                }
-            );
-        }
         assert_eq!(delivered.state, ChatSendState::Sent);
         assert_eq!(delivered.error, None);
         assert_eq!(
