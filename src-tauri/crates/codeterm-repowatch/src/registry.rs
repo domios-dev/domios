@@ -1,6 +1,6 @@
 use super::backend::{ActiveWatch, NotifyBackend, WatchBackend, WatchSignal, WatchSpec};
 use super::events::{RepoEventSink, RepoWatchError, RepoWatchUnavailable};
-use super::filter::{batch_is_relevant, WatchHalf};
+use super::filter::{batch_is_relevant, head_moved, WatchHalf};
 use super::identity::RepoIdentity;
 use super::unresolved::{PathShape, UnresolvedPaths};
 use parking_lot::Mutex;
@@ -224,14 +224,22 @@ impl RepoWatchRegistry {
                                 sink.repository_unavailable(&error.identity, error.reason)
                             }
                         }
+                        if head_moved(target, &paths) {
+                            sink.repository_head_moved(&target.id);
+                        }
                     }
                 }
-                WatchSignal::Rescan => untrusted(
-                    &sink,
-                    &targets,
-                    RepoWatchUnavailable::RescanRequired,
-                    "backend reported a rescan: events may have been missed",
-                ),
+                WatchSignal::Rescan => {
+                    untrusted(
+                        &sink,
+                        &targets,
+                        RepoWatchUnavailable::RescanRequired,
+                        "backend reported a rescan: events may have been missed",
+                    );
+                    for target in &targets {
+                        sink.repository_head_moved(&target.id);
+                    }
+                }
                 WatchSignal::Failed(detail) => untrusted(
                     &sink,
                     &targets,

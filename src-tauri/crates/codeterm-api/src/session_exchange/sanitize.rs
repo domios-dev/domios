@@ -198,7 +198,7 @@ impl SchemaLocation {
         match (self, field) {
             (Self::None, _) => Self::None,
             (Self::Plan, "control_loop") => Self::ControlLoop,
-            (Self::ControlLoop, "last_round" | "rounds") => Self::CuratorRound,
+            (Self::ControlLoop, "last_round") => Self::CuratorRound,
             _ => Self::Other,
         }
     }

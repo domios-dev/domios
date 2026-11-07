@@ -343,7 +343,7 @@ fn sanitized_plan_keeps_durable_attempt_state_and_deserializes() {
     let private = "private round é中🙂\"\\\n\r\t\u{0}";
     plan.control_loop.fallback_reason = Some(CuratorFailure::MirrorUnavailable);
     plan.control_loop.suspended_reason = Some(CuratorSuspension::WaitingOnHuman);
-    plan.control_loop.rounds = outcomes
+    let rounds: Vec<CuratorRound> = outcomes
         .into_iter()
         .enumerate()
         .map(|(index, outcome)| CuratorRound {
@@ -366,10 +366,9 @@ fn sanitized_plan_keeps_durable_attempt_state_and_deserializes() {
         })
         .collect();
 
-    for asked in asked_variants {
-        let mut last_round = plan.control_loop.rounds[0].clone();
-        last_round.asked = asked;
-        plan.control_loop.last_round = Some(last_round);
+    for round in rounds {
+        let (asked, outcome) = (round.asked, round.outcome);
+        plan.control_loop.last_round = Some(round);
         let raw = serde_json::to_value(&plan).unwrap();
         for document in [raw.clone(), json!([raw.clone()])] {
             let safe_plan = sanitize_plan(&plan).unwrap();
@@ -390,22 +389,11 @@ fn sanitized_plan_keeps_durable_attempt_state_and_deserializes() {
             } else {
                 serde_json::from_value::<codeterm_types::plan::Plan>(safe).unwrap()
             };
-            assert_eq!(
-                restored.control_loop.last_round.as_ref().unwrap().asked,
-                asked
-            );
-            assert_eq!(restored.control_loop.rounds.len(), 7);
-            for (original, restored) in plan
-                .control_loop
-                .rounds
-                .iter()
-                .zip(&restored.control_loop.rounds)
-            {
-                assert_eq!(restored.asked, original.asked);
-                assert_eq!(restored.outcome, original.outcome);
-                assert_eq!(restored.summary, filler(private));
-                assert_eq!(restored.tab_id.as_deref(), Some("curator-tab"));
-            }
+            let restored_round = restored.control_loop.last_round.as_ref().unwrap();
+            assert_eq!(restored_round.asked, asked);
+            assert_eq!(restored_round.outcome, outcome);
+            assert_eq!(restored_round.summary, filler(private));
+            assert_eq!(restored_round.tab_id.as_deref(), Some("curator-tab"));
             assert_eq!(
                 restored.control_loop.fallback_reason,
                 Some(CuratorFailure::MirrorUnavailable)

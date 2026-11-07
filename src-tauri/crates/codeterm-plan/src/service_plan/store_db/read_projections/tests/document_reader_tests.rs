@@ -79,13 +79,15 @@ fn document_and_loop_reads_ignore_task_bodies_attempts_strides_and_unselected_lo
         decorate(&mut plan);
         plan.tasks[0].body.push_str(&"x".repeat(extra));
         plan.loops[1].deviation = Some("x".repeat(extra));
-        plan.control_loop.rounds = (0..rounds)
-            .map(|number| crate::plan::CuratorRound {
-                number,
-                ended_at: number,
-                ..Default::default()
-            })
-            .collect();
+        plan.strides.extend(fixtures::round_strides(
+            (0..rounds)
+                .map(|number| crate::plan::CuratorRound {
+                    number,
+                    ended_at: number,
+                    ..Default::default()
+                })
+                .collect(),
+        ));
         for index in 0..history {
             let mut attempt =
                 crate::service_plan::load_audit::attempt(&format!("closed-{index}"), "other");
@@ -234,13 +236,15 @@ fn coverage_and_spec_links_ignore_bodies_attempts_strides_history_and_rounds() {
         plan.tasks[0].body.push_str(&"x".repeat(extra));
         plan.sections[0].body.push_str(&"x".repeat(extra));
         spec.sections[0].body.push_str(&"x".repeat(extra));
-        plan.control_loop.rounds = (0..rounds)
-            .map(|number| crate::plan::CuratorRound {
-                number,
-                ended_at: number,
-                ..Default::default()
-            })
-            .collect();
+        plan.strides.extend(fixtures::round_strides(
+            (0..rounds)
+                .map(|number| crate::plan::CuratorRound {
+                    number,
+                    ended_at: number,
+                    ..Default::default()
+                })
+                .collect(),
+        ));
         for index in 0..history {
             plan.tasks[0].milestones.push(serde_json::from_value(json!({"id":format!("history-{index}"),"from":{},"kind":"note","text":"unrequested history","ts":1})).unwrap());
         }
@@ -444,13 +448,15 @@ fn gate_goal_and_nudge_reads_ignore_unselected_payloads_task_bodies_and_history(
             delivery.request_id = format!("unselected-{number}");
             plan.planner_inbox.push(delivery);
         }
-        plan.control_loop.rounds = (0..rounds)
-            .map(|number| crate::plan::CuratorRound {
-                number,
-                ended_at: number,
-                ..Default::default()
-            })
-            .collect();
+        plan.strides.extend(fixtures::round_strides(
+            (0..rounds)
+                .map(|number| crate::plan::CuratorRound {
+                    number,
+                    ended_at: number,
+                    ..Default::default()
+                })
+                .collect(),
+        ));
         let database = fixtures::database(directory.path(), &plan);
         let store = PlanStore::open(database.path()).unwrap();
         fixtures::audit(&database);

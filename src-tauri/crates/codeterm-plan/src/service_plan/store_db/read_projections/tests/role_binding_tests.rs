@@ -108,13 +108,15 @@ fn role_binding_materialization_excludes_task_history_and_unused_owner_fields() 
         let mut plan = fixtures::fixture(directory.path(), strides, attempts);
         plan.owner.tab_id = Some("owner".into());
         plan.tasks[0].body.push_str(&"x".repeat(body));
-        plan.control_loop.rounds = (0..rounds)
-            .map(|number| crate::plan::CuratorRound {
-                number,
-                summary: "unrelated history".repeat(16),
-                ..Default::default()
-            })
-            .collect();
+        plan.strides.extend(fixtures::round_strides(
+            (0..rounds)
+                .map(|number| crate::plan::CuratorRound {
+                    number,
+                    summary: "unrelated history".repeat(16),
+                    ..Default::default()
+                })
+                .collect(),
+        ));
         let database = fixtures::database(directory.path(), &plan);
         database
             .connection

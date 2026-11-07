@@ -87,7 +87,13 @@ impl PlanStore {
             .map_err(|error| PlanError::Io(error.into()))?
             .flatten();
         let shared_inspection = if transition == Some(TaskStatus::InReview) {
-            self.inspect_shared_report(plan_id, task_id, reporter_tab, report.sha.as_deref())?
+            self.inspect_shared_report(
+                plan_id,
+                task_id,
+                reporter_tab,
+                report.sha.as_deref(),
+                now_ms,
+            )?
         } else {
             None
         };
