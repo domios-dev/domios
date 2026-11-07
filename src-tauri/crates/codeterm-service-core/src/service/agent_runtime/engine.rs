@@ -576,14 +576,14 @@ async fn ensure_locked(
     let owner = svc.clone();
     let target = tab.to_string();
     let settings =
-        tokio::task::spawn_blocking(move || super::launch_options::restore(&owner, &target))
+        tokio::task::spawn_blocking(move || super::launch_options::restore_ctx(&owner, &target))
             .await
             .map_err(|reason| RuntimeFailure::HookFailed(reason.to_string()))?
             .map_err(RuntimeFailure::Refused)?;
     let resolved_cwd = svc.mux.read().get_tab(tab).and_then(|tab| tab.cwd.clone());
     {
         let mut context = session.context.lock();
-        context.settings = settings;
+        (context.settings, context.provider_settings) = settings;
         if let Some(cwd) = resolved_cwd {
             context.cwd = cwd;
         }

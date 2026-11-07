@@ -394,6 +394,25 @@ assert.equal(loadedMode(openWithModes("interactive-mode",{}).step),"opaque-defau
 assert.equal(loadedMode(openWithModes("undeclared-mode",{fullAccessMode:"opaque-unadvertised"}).step),"opaque-default","an unadvertised mode is never requested");
 assert.equal(loadedMode(openWithModes("already-full",{fullAccessMode:"opaque-approve-all"},{...advertisedModes,currentModeId:"opaque-approve-all"}).step),"opaque-approve-all");
 console.log("✓ ACP full-access launches enter the profile's declared approve-everything mode only when the agent advertises it");
+const selectableModels={currentModelId:"opaque-m1",availableModels:[{modelId:"opaque-m1",name:"First"},{modelId:"opaque-m2",name:"Second"}]};
+function selectedThenFullAccess(tabId:string, resumed:boolean):string[] {
+  const context={...ctx,tabId,threadId:resumed ? `${tabId}-session` : undefined,providerSettings:{fullAccessMode:"opaque-approve-all"}};
+  const plan=hooks.runtimePlan(context,init);
+  hooks.runtimeResponse(context,init,plan.state,{kind:"success",value:{protocolVersion:1,agentCapabilities:{loadSession:true},authMethods:[]}});
+  const op:Operation=resumed ? {kind:"resumeThread",threadId:`${tabId}-session`,instructions:"",settings:{model:"opaque-m2"}} : {kind:"openThread",instructions:"",settings:{model:"opaque-m2"}};
+  const opening=hooks.runtimePlan(context,op);
+  const methods=[opening.action.kind === "request" ? opening.action.call.method : opening.action.kind];
+  let step=hooks.runtimeResponse(context,op,opening.state,{kind:"success",value:{...(resumed ? {} : {sessionId:`${tabId}-session`}),models:selectableModels,modes:advertisedModes}});
+  while (step.kind === "continue" && step.plan.action.kind === "request") {
+    methods.push(step.plan.action.call.method);
+    step=hooks.runtimeResponse(context,op,step.plan.state,{kind:"success",value:{}});
+  }
+  assert.equal(loadedMode(step),"opaque-approve-all",tabId);
+  return methods;
+}
+assert.deepEqual(selectedThenFullAccess("full-access-new-selected",false),["session/new","session/set_model","session/set_mode"]);
+assert.deepEqual(selectedThenFullAccess("full-access-resumed-selected",true),["session/load","session/set_model","session/set_mode"]);
+console.log("✓ ACP new and resumed full-access sessions send set_mode once after the launch model selection");
 assert.throws(()=>hooks.runtimePlan({...permissionContext,threadId:"foreign"},{kind:"answer",requestId:"permission-fixture",answer:{kind:"cancel"}}));
 
 for (const kind of ["agent_message_chunk","agent_thought_chunk","user_message_chunk","tool_call","plan","extension-update",...(["session/request_permission","fs/read_text_file","fs/write_text_file","terminal/create","terminal/output","terminal/wait_for_exit","terminal/kill","terminal/release"])]) {

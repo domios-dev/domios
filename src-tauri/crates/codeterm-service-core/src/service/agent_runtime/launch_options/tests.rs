@@ -56,6 +56,7 @@ fn register_neighbor_runtime(svc: &ServiceContext) {
         "capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},
             "agentRuntime":{"runtimeModes":[{"id":"full-access","displayName":"Full"}],
                 "runtime":"stdio-jsonrpc","command":{"binary":"fixture-cli","args":[]},
+                "launchProfiles":{"approve-profile":{"binary":"fixture-cli","args":[],"fullAccessMode":"opaque-approve-all"}},
                 "requestMethods":{"initialize":["handshake"]},"notificationMethods":[]}},
         "spawn":{"readinessStrategy":{"kind":"fixed_delay","durationMs":0},"taskDelivery":"pty_input","verifySubmit":{"kind":"none"},
             "executionSandbox":{"platforms":["windows","linux","macos"],
@@ -353,6 +354,50 @@ fn contradictory_neighbor_bypass_records_require_current_root_grant_for_both_res
             svc.neighbor_identity_changed();
             assert!(svc.require_neighbor_restore_grant(&root, false).is_err());
         }
+    }
+}
+
+#[test]
+fn fresh_full_access_spawn_carries_its_profile_mode_before_the_tab_config_names_the_profile() {
+    use crate::{multiplexer::state::MultiplexerState, service::test_fixture::ServiceFixture};
+    let (mut mux, id) = MultiplexerState::new();
+    let tab = mux.get_tab_mut(&id).unwrap();
+    tab.agent_type = Some("pad-runtime".into());
+    tab.session_binding_nonce = Some("nonce".into());
+    let directory = tempfile::tempdir().unwrap();
+    tab.cwd = Some(directory.path().to_string_lossy().into_owned());
+    assert!(tab.agent_runtime_config.is_none());
+    let fixture = ServiceFixture::new(mux);
+    fixture.install_seeded_storage_desk();
+    register_neighbor_runtime(&fixture.service);
+    let svc = &fixture.service;
+    for (full_access, expected) in [(true, Some("opaque-approve-all")), (false, None)] {
+        let params = SpawnAgentParams {
+            agent: Some("pad-runtime".into()),
+            launch_profile: Some("approve-profile".into()),
+            skip_permissions: Some(full_access),
+            permission_bypass_authorization: permission_policy::authorize_permission_bypass(
+                &svc.agent_registry,
+                "pad-runtime",
+                full_access,
+            ),
+            ..Default::default()
+        };
+        svc.prepare_agent_runtime_launch_options(&id, &params)
+            .unwrap();
+        let mux = svc.mux.read();
+        let tab = mux.get_tab(&id).unwrap();
+        let options = tab.restorable_launch.runtime_launch_options.as_ref();
+        assert_eq!(
+            options.unwrap().full_access_mode.as_deref(),
+            expected,
+            "{full_access}"
+        );
+        assert_eq!(
+            tab.agent_runtime_config.as_ref().unwrap()["fullAccessMode"].as_str(),
+            expected,
+            "{full_access}"
+        );
     }
 }
 

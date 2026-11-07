@@ -48,21 +48,25 @@ fn apply_full_access_mode(
 }
 
 /// The selected launch profile's declared approve-everything session mode, for full-access launches only.
+/// A fresh spawn names its profile in the params: the tab config only receives it once the launch starts.
 fn full_access_mode(
     svc: &ServiceContext,
     tab_id: &str,
     provider: &str,
+    params: &SpawnAgentParams,
     full_access: bool,
 ) -> Option<String> {
     if !full_access {
         return None;
     }
-    let profile = svc.mux.read().get_tab(tab_id).and_then(|tab| {
-        tab.agent_runtime_config
-            .as_ref()?
-            .get("launchProfile")?
-            .as_str()
-            .map(str::to_owned)
+    let profile = params.launch_profile.clone().or_else(|| {
+        svc.mux.read().get_tab(tab_id).and_then(|tab| {
+            tab.agent_runtime_config
+                .as_ref()?
+                .get("launchProfile")?
+                .as_str()
+                .map(str::to_owned)
+        })
     })?;
     svc.agent_registry
         .with_provider(provider, |provider| {
@@ -199,7 +203,7 @@ impl ServiceContext {
                     crate::agent::provider::current_platform_tag(),
                 )
             },
-            full_access_mode: full_access_mode(self, tab_id, &provider, skip),
+            full_access_mode: full_access_mode(self, tab_id, &provider, params, skip),
         };
         let settings = runtime_settings(&options);
         validate_runtime_settings(&settings).map_err(|reason| reason.to_string())?;
@@ -331,6 +335,22 @@ pub(super) fn restore(svc: &ServiceContext, tab_id: &str) -> Result<RuntimeSetti
     restored.effort = settings.effort;
     restored.mode = structured_runtime_mode.or(settings.mode).or(restored.mode);
     Ok(restored)
+}
+
+/// Restored settings plus the provider settings of the config restore just rewrote, so a live
+/// context never keeps the pre-launch snapshot (a fresh spawn's full-access mode lands here).
+pub(super) fn restore_ctx(
+    svc: &ServiceContext,
+    tab_id: &str,
+) -> Result<(RuntimeSettings, serde_json::Value), String> {
+    let settings = restore(svc, tab_id)?;
+    let config = svc
+        .mux
+        .read()
+        .get_tab(tab_id)
+        .and_then(|tab| tab.agent_runtime_config.clone())
+        .unwrap_or(serde_json::Value::Null);
+    Ok((settings, super::model::public_provider_settings(&config)))
 }
 
 #[cfg(test)]
