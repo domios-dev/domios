@@ -12,17 +12,24 @@ pub(super) fn run(client: &mut SocketClient, json_output: bool, action: AcpActio
             env,
             secret_env,
             auth_env,
+            like,
+            client_capabilities,
+            limits_source,
         } => (
             "add",
-            json!({"name":name,"binary":binary,"args":args,"env":env,"secretEnv":secret_env,"authEnv":auth_env}),
+            json!({"name":name,"binary":binary,"args":args,"env":env,"secretEnv":secret_env,"authEnv":auth_env,
+                "like":like,"clientCapabilities":client_capabilities,"limitsSource":limits_source}),
         ),
         AcpAction::Remove { name } => ("remove", json!({"name":name})),
         AcpAction::Registry {
             action: AcpRegistryAction::Search { query },
         } => ("registry_search", json!({"query":query})),
         AcpAction::Registry {
-            action: AcpRegistryAction::Install { id },
-        } => ("registry_install", json!({"id":id})),
+            action: AcpRegistryAction::Install { id, limits_source },
+        } => (
+            "registry_install",
+            json!({"id":id,"limitsSource":limits_source}),
+        ),
     };
     params["operation"] = operation.into();
     match client.call("agent.acp", Some(params)) {

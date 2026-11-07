@@ -285,10 +285,19 @@ pub fn latest(
     let row = svc
         .usage_store
         .get_latest_with_stale_reason(provider, account)?;
-    let result = serde_json::to_value(row).map_err(|error| error.to_string())?;
     if account.is_some() {
-        return Ok(result);
+        return serde_json::to_value(row).map_err(|error| error.to_string());
     }
+    // A profile's plugin-read balance is its own reading, never the provider's account meter.
+    let row = row.filter(|row| {
+        row.account_id
+            .as_deref()
+            .and_then(
+                codeterm_plugin::agent_runtime::limits_source::profile_from_balance_account_key,
+            )
+            .is_none()
+    });
+    let result = serde_json::to_value(row).map_err(|error| error.to_string())?;
     let mux = svc.mux.read();
     let mut readings = USAGE.lock();
     readings.retain(|tab, _| mux.get_tab(tab).is_some());

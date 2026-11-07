@@ -184,6 +184,7 @@ impl AgentProvider for StoredRuntimeProvider {
             interrupt: None,
             client_bridges: None,
             launch_profiles: None,
+            registry_defaults: Default::default(),
             restricted_cli: None,
             runtime_modes: Vec::new(),
             service_tiers: Vec::new(),

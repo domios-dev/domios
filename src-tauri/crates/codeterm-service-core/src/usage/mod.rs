@@ -1,6 +1,7 @@
 mod freshness;
 pub mod poller;
 pub mod probe;
+pub(crate) mod profile_limits;
 pub use codeterm_usage::{projection, store};
 
 pub use poller::{TabActivity, UsagePoller};

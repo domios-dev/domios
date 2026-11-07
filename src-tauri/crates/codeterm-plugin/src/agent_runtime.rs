@@ -9,6 +9,8 @@ pub use history::*;
 mod background;
 mod capability;
 pub mod install_validation;
+pub mod limits_source;
+pub use limits_source::{RuntimeProfileLimitsSource, RuntimeRegistryDefaults};
 pub mod owner_profiles;
 pub use authority::*;
 pub use background::*;

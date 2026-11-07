@@ -537,6 +537,14 @@ fn prepare_fetch(sandbox: &PluginSandbox, opts_json: &str) -> Result<String, Str
         return Err("fetch denied".to_string());
     }
     let prepared = super::host_credentials::inject(sandbox.credentials(), opts_json)?;
+    let prepared = super::host_credentials::inject_profile_secret(&prepared, |profile, env| {
+        if !sandbox.secrets_allowed() {
+            return None;
+        }
+        sandbox
+            .service()?
+            .launch_profile_secret(sandbox.plugin_id(), profile, env)
+    })?;
     let token = if sandbox.token_mode == TokenMode::None || !sandbox.supporter_token_allowed(&host)
     {
         None

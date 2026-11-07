@@ -144,14 +144,39 @@ fn update_at<T>(
 
 pub fn overlay(
     provider: &str,
+    capability: AgentRuntimeCapability,
+) -> Result<AgentRuntimeCapability, String> {
+    if capability.launch_profiles.is_none() {
+        return Ok(capability);
+    }
+    overlay_with(capability, load(provider)?)
+}
+
+fn overlay_with(
     mut capability: AgentRuntimeCapability,
+    owner: Profiles,
 ) -> Result<AgentRuntimeCapability, String> {
     if let Some(profiles) = &mut capability.launch_profiles {
-        for (id, profile) in load(provider)? {
+        // An inherited bundle icon is resolved from the same sanitized asset its built-in declares.
+        let bundle_icons: BTreeMap<String, String> = profiles
+            .values()
+            .filter_map(|profile| Some((profile.icon.clone()?, profile.icon_svg.clone()?)))
+            .collect();
+        for (id, mut profile) in owner {
             if profiles.contains_key(&id) {
                 return Err("Owner profile collides with a built-in profile".into());
             }
+            if profile.icon_svg.is_none() {
+                profile.icon_svg = profile
+                    .icon
+                    .as_ref()
+                    .and_then(|icon| bundle_icons.get(icon).cloned());
+            }
             profiles.insert(id, profile);
+        }
+        // Resolved on every load, so existing installs gain it without rewriting their records.
+        for profile in profiles.values_mut() {
+            super::limits_source::resolve_registry_defaults(profile, &capability.registry_defaults);
         }
         capability
             .validate_declaration()

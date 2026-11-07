@@ -1007,6 +1007,14 @@ impl AgentProvider for JsProvider {
         self.has_js("fetchUsage")
     }
 
+    fn read_profile_limits(
+        &self,
+        profile: &str,
+        source: &crate::agent_runtime::RuntimeProfileLimitsSource,
+    ) -> Option<Result<String, String>> {
+        self.js_read_profile_limits(profile, source)
+    }
+
     fn fetch_usage(&self) -> Option<Result<String, String>> {
         if !self.has_js("fetchUsage") {
             return None;

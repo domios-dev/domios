@@ -4,7 +4,7 @@ import {invoke} from "../../lib/bridge";
 import {DEV_BUILD} from "../../lib/devBuild";
 import {resetCreditsForTab, type ResetResponse} from "./resetCreditsModel";
 import {ResetCreditsSection} from "./ResetCreditsSection";
-import { ownRuntimeUsage, latestUsageSnapshot, runtimeTokenLabel, runtimeTokenBreakdown, runtimeAccountCreditsLabel } from "./runtimeUsage";
+import { accountUsageSnapshot, ownRuntimeUsage, latestUsageSnapshot, runtimeTokenLabel, runtimeTokenBreakdown, runtimeAccountCreditsLabel } from "./runtimeUsage";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useUsageSnapshot } from "../../hooks/useUsageSnapshot";
 import { useProviderModelUsageState } from "../../hooks/useProviderModelUsage";
@@ -43,6 +43,8 @@ interface UsageBubbleProps {
   context?: unknown;
   /// The harness name for the popover title.
   providerLabel?: string;
+  /// The tab borrows `provider`'s account limits: show the account's view, never this tab's runtime readings.
+  borrowedAccount?: boolean;
 }
 
 const ONE_HOUR_MS = 60 * 60 * 1000;
@@ -58,6 +60,7 @@ export function UsageBubble({
   modelGroups,
   context,
   providerLabel,
+  borrowedAccount = false,
 }: UsageBubbleProps) {
   // The group's provider-declared spend meter takes precedence over the
   // provider-scoped polled snapshot: it is the tab's own upstream group.
@@ -75,8 +78,8 @@ export function UsageBubble({
     accountId,
     enabled: trackingEnabled,
   });
-  const runtime = ownRuntimeUsage(snapshot,tabId,threadId);
-  const active = runtime || snapshot?.runtime_usage
+  const runtime = borrowedAccount ? null : ownRuntimeUsage(snapshot,tabId,threadId);
+  const active = borrowedAccount ? accountUsageSnapshot(snapshot) : runtime || snapshot?.runtime_usage
     ? latestUsageSnapshot(snapshot, tabId, threadId)
     : groupSnapshot ?? snapshot;
   const accountCreditsLabel = runtimeAccountCreditsLabel(runtime?.account_credits);

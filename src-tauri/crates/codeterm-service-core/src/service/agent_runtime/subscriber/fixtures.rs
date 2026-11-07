@@ -102,6 +102,7 @@ impl AgentProvider for Adapter {
                     terminal: true,
                 }),
             launch_profiles: None,
+            registry_defaults: Default::default(),
             restricted_cli: None,
             runtime_modes: Vec::new(),
             service_tiers: Vec::new(),

@@ -182,6 +182,9 @@ impl AgentRuntimeCapability {
             return Err(RuntimeManifestError::InvalidMethods);
         }
         validate_command(&self.command)?;
+        if !crate::agent_runtime::limits_source::valid_registry_defaults(&self.registry_defaults) {
+            return Err(RuntimeManifestError::InvalidProfile);
+        }
         if let Some(profiles) = &self.launch_profiles {
             if profiles.len() > 128 {
                 return Err(RuntimeManifestError::InvalidProfile);
@@ -244,7 +247,12 @@ impl AgentRuntimeCapability {
                 {
                     return Err(RuntimeManifestError::InvalidProfile);
                 }
-                if !valid_auth_env(&profile.auth_env) {
+                if !valid_auth_env(&profile.auth_env)
+                    || profile
+                        .limits_source
+                        .as_ref()
+                        .is_some_and(|source| !source.valid_for(profile))
+                {
                     return Err(RuntimeManifestError::InvalidProfile);
                 }
                 if !crate::agent_runtime::install_validation::validate(profile) {

@@ -55,6 +55,47 @@ domios agent acp add keyedagent --binary installed-agent --secret-env TOKEN=domi
 domios agent acp remove myagent
 ```
 
+To add a variant of an existing profile, name it with `--like`. The new profile
+copies that profile's declared icon, registry icon reference, client capabilities
+and limits source; it never copies the launch command, environment or credential
+mappings, so supply those yourself. Override a copied client capability with
+`--client-capability NAME=true|false`, where `NAME` is `fs.readTextFile`,
+`fs.writeTextFile` or `terminal`; undeclared names are refused.
+
+```bash
+domios agent acp add gemini-yolo --like gemini-cli --binary gemini --arg --acp --arg --yolo --env GEMINI_CLI_TRUST_WORKSPACE=true --auth-env GEMINI_API_KEY=domios:provider:acp:gemini-api-key:gemini-api-key
+domios agent acp add gemini-lite-files --like gemini-cli --binary gemini --arg --acp --client-capability fs.writeTextFile=false
+```
+
+Both examples keep Gemini's icon and its `fs.readTextFile=false` workaround,
+which lets Gemini CLI create new files through its own reader.
+
+`--limits-source` states where the usage bubble reads the profile's limits:
+
+- `account:PROVIDER` shows that native provider's account limits exactly as its
+  own tabs show them, gated by that provider's Usage Tracking setting; for
+  example `account:claude` for a Claude ACP adapter signed in to the same account.
+- `balance:READER:ENV` lets the plugin read an account balance with the profile's
+  own credential `ENV`, which must be one of its `--secret-env` or `--auth-env`
+  variables. The host places the key only in that request's header; it never
+  appears in arguments, logs or the plugin. `deepseek-balance` is the bundled reader.
+- `unavailable:REASON` shows the one-line reason (at most 240 characters) instead
+  of an empty bubble.
+
+Copied sources can be overridden the same way.
+
+A profile installed from the ACP registry needs no flag: the plugin declares a
+default per registry id, applied whenever profiles load, so already-installed
+profiles pick it up without reinstalling. `claude-acp` and `codex-acp` show the
+Claude and Codex account limits; `gemini` states that Gemini API-key quota has no
+public endpoint. A profile's own source always wins; `domios agent acp registry
+install REGISTRY_ID --limits-source unavailable:REASON` overrides the default at
+install. Other registry agents have no default.
+
+The bundled `deepseek-harness` profile reads its DeepSeek balance; `gemini-cli`
+states that Gemini API-key quota has no public endpoint. Profiles without a source
+keep the runtime's own context and cost reading.
+
 Names contain one word of letters, digits, underscores or hyphens; Windows device
 names and existing profile names are refused. Repeat `--arg` for each argument,
 including arguments beginning with a hyphen. `--env` carries non-secret values.
@@ -250,4 +291,4 @@ It can also cancel a turn waiting for a permission response.
   the current index and refuses unsupported distributions; neither proves agent
   authentication or compatibility.
 
-<!-- revision: 4 -->
+<!-- revision: 5 -->

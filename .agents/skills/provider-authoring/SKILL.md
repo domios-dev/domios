@@ -742,6 +742,24 @@ with no filesystem, network, environment or subprocess access. The guard,
 confirmation reader and native/JS model-label detection share that parser;
 shared command fixtures cover native/QuickJS parity.
 
+A launch profile's `limitsSource` names where its account limits come from:
+`{kind:"account",provider}` reuses that native provider's account meter,
+`{kind:"balance",reader,credentialEnv}` asks the plugin's `readProfileLimits({profile,source},nowMs)`
+export for a UsageSnapshot-shaped JSON string (balance under `usage_details.balance`), and
+`{kind:"unavailable",reason}` shows a one-line reason. `agentRuntime.registryDefaults`
+maps a registry id to `{limitsSource}` for profiles whose own declaration names none;
+the host resolves it on every profile load (never persisted, outside install fingerprints),
+and a default must hold for a credential-free profile, so `balance` is refused there.
+Host and UI branch only on `kind`;
+the plugin dispatches on its own declared `reader` names. `credentialEnv` must be a
+`secretEnv`/`authEnv` variable of the same profile. A balance request passes
+`profileSecret:{profile,env,headers}` to `host.fetch`; the host fills `{secret}` header
+templates only with that profile's declared balance credential in the plugin's own
+`domios:provider:<id>:` namespace, so the key never enters the VM. It adds no filesystem,
+environment or subprocess access; network still follows `permissions.network.allow`. The host
+manifest validator and the SDK `validLimitsSource` agree on
+`codeterm-plugin/src/js_runtime/parity_test/fixtures/limits-sources.json`.
+
 `agentRuntime.usage: true` declares live usage publication and earns the shared Usage Tracking setting. Runtime auth events declare `billingMode`; account rate windows reach the subscription meter and exact-thread token events reach the session chip. `TokenUsage.cost_micros` is optional reported USD cost, never an estimate. These pure data extensions grant no host filesystem, environment, network or subprocess access.
 
 `agentRuntime.resetCreditsMinVersion` declares account rate-limit reset support
