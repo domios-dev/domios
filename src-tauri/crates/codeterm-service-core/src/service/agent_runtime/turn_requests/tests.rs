@@ -884,8 +884,19 @@ async fn busy_rpc_refusal_of_a_written_prompt_stays_uncertain_until_its_late_ech
             .unwrap()
             .iter()
             .all(|receipt| receipt.state != ReceiptState::Failed));
+        // The runtime user drain's own settlement after a written handoff, in its order.
         store.finish_handoff(&record, false).unwrap();
-        store.complete(&record).unwrap();
+        assert_eq!(
+            ledger
+                .finish(&record.send_id, Err("submit_unconfirmed: opaque".into()))
+                .unwrap()
+                .state,
+            ChatSendState::Unknown
+        );
+        assert!(store.complete(&record).unwrap());
+        let settled = ledger.status(&record.send_id).unwrap();
+        store.persist_runtime_status(&settled).unwrap();
+        super::super::envelope_delivery::record_write(&fixture.service, &settled).unwrap();
         // The busy agent finishes its turn, then runs the prompt it reported as refused.
         release.send(()).unwrap();
         loop {
@@ -896,12 +907,39 @@ async fn busy_rpc_refusal_of_a_written_prompt_stays_uncertain_until_its_late_ech
             changes.changed().await.unwrap();
         }
         assert!(session.context.lock().active_turn_id.is_none());
+        let thread = context.thread_id.clone().unwrap();
+        // Every precondition of the late confirmation, checked separately so a failure names it.
+        assert!(
+            session
+                .context
+                .lock()
+                .claimed_sends
+                .iter()
+                .any(|claim| claim.send_id == record.send_id),
+            "the refused claim was retired before its late evidence"
+        );
+        assert!(
+            ledger.has_rpc_handoff(&record.send_id),
+            "the RPC binding was cleared"
+        );
+        assert!(
+            super::super::user_delivery::is_ready(&fixture.service, &record.authority),
+            "the send authority is not ready"
+        );
+        assert!(
+            fixture.service.user_authority_is_current_session(
+                &record.authority,
+                &thread,
+                &context.binding_nonce
+            ),
+            "the send authority is not the current session"
+        );
         subscriber::publish_events(
             &fixture.service,
             &session,
             context.epoch,
             vec![AgentRuntimeEvent::SendEvidence {
-                thread_id: context.thread_id.clone().unwrap(),
+                thread_id: thread.clone(),
                 send_id: record.send_id.clone(),
                 turn_id: "queued-turn".into(),
                 item_id: None,
@@ -911,6 +949,23 @@ async fn busy_rpc_refusal_of_a_written_prompt_stays_uncertain_until_its_late_ech
         .await
         .unwrap();
         let delivered = ledger.status(&record.send_id).unwrap();
+        if delivered.state != ChatSendState::Sent {
+            let direct = ledger.confirm_rpc_send(
+                &tab,
+                &thread,
+                &context.binding_nonce,
+                &record.send_id,
+                None,
+            );
+            panic!(
+                "late evidence did not confirm; a direct confirm_rpc_send {} it",
+                if direct.is_some() {
+                    "confirms"
+                } else {
+                    "also refuses"
+                }
+            );
+        }
         assert_eq!(delivered.state, ChatSendState::Sent);
         assert_eq!(delivered.error, None);
         assert_eq!(
