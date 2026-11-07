@@ -45,13 +45,14 @@ fn restored_orchestrator_recovers_unbound_fallback_only_while_runtime_is_live() 
     let recovered = service.control_loop_show(&id).unwrap();
     assert_eq!(recovered.fallback_reason, None);
     assert!(!recovered.owner_heartbeat());
-    assert_eq!(recovered.cron_id, absent.cron_id);
-    assert_eq!(recovered.next_at, absent.next_at);
+    assert!(absent.cron_id.is_none());
+    assert!(recovered.cron_id.is_some());
+    assert_eq!(absent.next_at, None);
+    assert!(recovered.next_at.is_some());
 
     for reason in [
         CuratorFailure::ProviderUnavailable,
         CuratorFailure::MirrorUnavailable,
-        CuratorFailure::OrchestratorAbsent,
         CuratorFailure::LaunchFailed,
         CuratorFailure::ConsecutiveFailures,
     ] {
@@ -351,4 +352,58 @@ fn curator_owner_setting_disables_job_and_agents_cannot_change_it() {
     assert!(!state.owner_heartbeat());
     assert_eq!(state.next_at, None);
     assert!(!cron.lock().get(&job_id).unwrap().enabled);
+}
+
+#[test]
+fn unbound_curator_waits_without_repeated_prepare_or_commit_and_resumes_once() {
+    let (fixture, id, cron) = fixture(false);
+    let service = &fixture.service;
+    let owner = service.plan_store.get(&id).unwrap().owner.tab_id.unwrap();
+    assert!(service.set_ext(CuratorTabs::default()).is_ok());
+    let initial = service.control_loop_show(&id).unwrap();
+    let job_id = initial.cron_id.unwrap();
+    let bound = service.mux.read().get_tab(&owner).unwrap().clone();
+    service
+        .mux
+        .write()
+        .get_tab_mut(&owner)
+        .unwrap()
+        .reported_session_binding_nonce = None;
+    service.reconcile_curator_for_test(&id, NOW);
+    let waiting = service.plan_store.get(&id).unwrap();
+    assert_eq!(waiting.control_loop.next_at, None);
+    assert_eq!(
+        waiting.control_loop.fallback_reason,
+        Some(CuratorFailure::OrchestratorUnbound)
+    );
+    assert!(!cron.lock().get(&job_id).unwrap().enabled);
+    assert_eq!(cron.lock().get(&job_id).unwrap().next_run, None);
+    let clock = crate::cron::clock::MockClock::starting_at(NOW);
+    for delta in [1_000, 60_000, 86_400_000] {
+        let now = clock.advance_ms(delta);
+        service.reconcile_curator_for_test(&id, now);
+        service
+            .curator_fire_failed(&id, CuratorFailure::OrchestratorUnbound, now)
+            .unwrap();
+        assert_eq!(service.plan_store.get(&id).unwrap(), waiting);
+        assert!(cron
+            .lock()
+            .list()
+            .iter()
+            .all(|job| !job.enabled && job.next_run.is_none()));
+    }
+    *service.mux.write().get_tab_mut(&owner).unwrap() = bound;
+    let now = clock.advance_ms(1);
+    service.reconcile_curator_for_test(&id, now);
+    let resumed = service.plan_store.get(&id).unwrap();
+    assert_eq!(resumed.control_loop.fallback_reason, None);
+    assert_eq!(
+        resumed.control_loop.cron_id.as_deref(),
+        Some(job_id.as_str())
+    );
+    assert!(resumed.control_loop.next_at.is_some());
+    assert_eq!(cron.lock().list().len(), 1);
+    assert!(cron.lock().get(&job_id).unwrap().enabled);
+    service.reconcile_curator_for_test(&id, now);
+    assert_eq!(service.plan_store.get(&id).unwrap(), resumed);
 }

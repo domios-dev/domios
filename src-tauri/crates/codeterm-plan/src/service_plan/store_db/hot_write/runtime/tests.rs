@@ -244,3 +244,29 @@ fn curator_state_failure_rolls_back_and_concurrent_updates_conserve_both_writes(
         2
     );
 }
+
+#[test]
+fn unchanged_curator_round_performs_zero_database_writes() {
+    let dir = tempfile::tempdir().unwrap();
+    let plan = Plan::new(
+        "unchanged curator".into(),
+        dir.path().display().to_string(),
+        OrchestratorRef::default(),
+    );
+    let db = database(dir.path(), &plan);
+    let before = db.load_plan(&plan.id).unwrap().unwrap();
+    let changes = db.connection.lock().total_changes();
+    let operations = db.operation_count_for_test(Some(&plan.id));
+    for now in [20, 1_020, 86_400_020] {
+        let (applied, receipt) = db
+            .edit_runtime_rows::<CuratorRoundRows, _>(&plan.id, now, |_| Ok(false))
+            .unwrap();
+        assert!(!applied);
+        assert_eq!(receipt.header_rows, 0);
+        assert_eq!(receipt.heartbeat_rows, 0);
+        assert_eq!(receipt.strides, 0);
+        assert_eq!(db.connection.lock().total_changes(), changes);
+        assert_eq!(db.operation_count_for_test(Some(&plan.id)), operations);
+    }
+    assert_eq!(db.load_plan(&plan.id).unwrap().unwrap(), before);
+}
