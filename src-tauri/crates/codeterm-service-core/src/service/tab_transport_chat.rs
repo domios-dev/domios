@@ -500,7 +500,9 @@ impl ServiceContext {
         if super::agent_runtime::requested_for_tab(self, tab_id) {
             let session =
                 crate::async_runtime::block_on(super::agent_runtime::engine::ensure(self, tab_id))
-                    .map_err(|error| error.to_string())?;
+                    .map_err(|error| {
+                        super::agent_runtime::lost_session::wake_failure(self, tab_id, &error)
+                    })?;
             let thread = session.context.lock().thread_id.clone();
             return Ok(thread);
         }

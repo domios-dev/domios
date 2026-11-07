@@ -12,7 +12,7 @@ explicit profile; a model id does not select an agent executable.
 
 | Profile | Requirements and setup |
 |---|---|
-| `gemini-cli` | Install Gemini CLI separately so Domios can resolve `gemini`. The profile launches `gemini --acp`. Authenticate using the agent's declared methods below. There is no built-in installer for this profile. |
+| `gemini-cli` | Install Gemini CLI separately so Domios can resolve `gemini`. The profile launches `gemini --acp` with Gemini's session cleanup turned off, so parallel Gemini tabs never delete each other's saved sessions; your own `~/.gemini` settings are not changed. Authenticate using the agent's declared methods below. There is no built-in installer for this profile. |
 | `deepseek-harness` | In the Spawn picker, select ACP and this profile, choose **Install profile**, confirm the exact package, then **Confirm setup**. The pinned package is `@deepseek-ai/dsh@0.2.1-rc.5`, with `--profile acp`. Installation requires Node.js, npm and access to the npm registry. The installed runtime uses Node and the installed script, rather than fetching a package on every launch. |
 | `local` | An owner-confirmed installed ACP executable and argument array. Configure it through the Spawn picker as described below. The placeholder `local-acp-command` is not an installed agent. |
 
@@ -56,8 +56,8 @@ domios agent acp remove myagent
 ```
 
 To add a variant of an existing profile, name it with `--like`. The new profile
-copies that profile's declared icon, registry icon reference, client capabilities
-and limits source; it never copies the launch command, environment or credential
+copies that profile's declared icon, registry icon reference, client capabilities,
+limits source and host-written agent settings files; it never copies the launch command, environment or credential
 mappings, so supply those yourself. Override a copied client capability with
 `--client-capability NAME=true|false`, where `NAME` is `fs.readTextFile`,
 `fs.writeTextFile` or `terminal`; undeclared names are refused.
@@ -67,8 +67,9 @@ domios agent acp add gemini-yolo --like gemini-cli --binary gemini --arg --acp -
 domios agent acp add gemini-lite-files --like gemini-cli --binary gemini --arg --acp --client-capability fs.writeTextFile=false
 ```
 
-Both examples keep Gemini's icon and its `fs.readTextFile=false` workaround,
-which lets Gemini CLI create new files through its own reader.
+Both examples keep Gemini's icon, its `fs.readTextFile=false` workaround,
+which lets Gemini CLI create new files through its own reader, and its session
+cleanup override.
 
 `--limits-source` states where the usage bubble reads the profile's limits:
 
@@ -291,4 +292,4 @@ It can also cancel a turn waiting for a permission response.
   the current index and refuses unsupported distributions; neither proves agent
   authentication or compatibility.
 
-<!-- revision: 5 -->
+<!-- revision: 6 -->

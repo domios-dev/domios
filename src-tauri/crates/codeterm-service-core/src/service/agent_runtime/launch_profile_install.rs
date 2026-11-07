@@ -74,8 +74,10 @@ fn receipt_path(root: &Path, id: &str) -> Result<PathBuf, String> {
 pub(super) fn fingerprint(profile: &RuntimeLaunchProfile) -> Result<String, String> {
     let mut declaration = profile.clone();
     declaration.icon_svg = None;
-    // Where limits are read never changes what was installed, so it cannot stale a receipt.
+    // Limits sources and host-written settings never change what was installed,
+    // so they cannot stale a receipt.
     declaration.limits_source = None;
+    declaration.settings_files.clear();
     let bytes = serde_json::to_vec(&declaration).map_err(|_| "Invalid launch profile")?;
     Ok(format!("{:x}", Sha256::digest(bytes)))
 }

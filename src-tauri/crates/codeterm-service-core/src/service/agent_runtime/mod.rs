@@ -55,6 +55,7 @@ pub use restore::all as restore_all;
 mod restore_attempt;
 mod rpc;
 mod selections;
+mod settings_files;
 pub(crate) mod start_failure;
 mod subscriber;
 pub mod transport;

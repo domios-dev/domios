@@ -75,6 +75,11 @@ const declaration = JSON.parse(fs.readFileSync(new URL("../plugin.json",import.m
 assert.equal(declaration.capabilities.agentRuntime.envelope,"jsonrpc2");
 assert.deepEqual(descriptor.agentRuntime, declaration.capabilities.agentRuntime);
 assert.deepEqual(declaration.capabilities.agentRuntime.launchProfiles["gemini-cli"].clientCapabilities,{fs:{readTextFile:false}});
+// Gemini CLI prunes every chat file it cannot resume on each start; the highest-precedence
+// (system) settings scope keeps parallel Domios launches from deleting each other's sessions.
+assert.deepEqual(declaration.capabilities.agentRuntime.launchProfiles["gemini-cli"].settingsFiles,
+  {GEMINI_CLI_SYSTEM_SETTINGS_PATH:{general:{sessionRetention:{enabled:false}}}});
+assert.equal(declaration.capabilities.agentRuntime.launchProfiles["gemini-cli"].env.GEMINI_CLI_SYSTEM_SETTINGS_PATH,undefined);
 for (const [id,profile] of Object.entries(declaration.capabilities.agentRuntime.launchProfiles)) {
   if (id !== "gemini-cli") assert.equal((profile as {clientCapabilities?:unknown}).clientCapabilities,undefined);
 }
