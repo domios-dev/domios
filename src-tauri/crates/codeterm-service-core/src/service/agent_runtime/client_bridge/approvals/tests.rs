@@ -130,6 +130,7 @@ fn exact_approved_write_is_consumed_once_and_persisted_without_another_prompt() 
             engine::OutstandingRequest {
                 request: pending.clone(),
                 prompt: Some(prompt.clone()),
+                permission: None,
             },
         );
         super::super::super::prompt_answers::publish(

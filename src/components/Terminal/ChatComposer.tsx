@@ -245,6 +245,7 @@ function ChatComposerImpl({
   const [expandedEditor, setExpandedEditor] = useState(false);
   const recall = useComposerRecall(tabId);
   const workspaceId = useMuxSelector(useLatestCallback((state) => state.workspaces.find((workspace) => workspace.tabs.includes(tabId))?.id ?? state.tabs[tabId]?.workspace_id ?? null, [tabId]));
+  const chatOnly = useMuxSelector(useLatestCallback((state) => state.tabs[tabId]?.backing?.kind === "chat_backend", [tabId]));
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerHighlight, setPickerHighlight] = useState(0);
   const touchMode = useTouchOptimizedUi();
@@ -713,7 +714,7 @@ function ChatComposerImpl({
           onCut={(e) => capsules.handleCopy(e, true)}
           onSelect={(e) => { capsules.snapSelection(e.currentTarget); mentionPicker.current?.syncSelection(e.currentTarget); }}
           placeholder={pendingPrompt
-            ? "Agent may be waiting in the terminal."
+            ? chatOnly ? "Answer the request above to continue." : "Agent may be waiting in the terminal."
             : idlePlaceholder ?? "Message"}
           enterKeyHint={composerDevice === "phone" ? "enter" : "send"}
           style={{

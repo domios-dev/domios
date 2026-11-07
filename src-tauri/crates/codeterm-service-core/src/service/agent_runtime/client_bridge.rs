@@ -1,6 +1,6 @@
 pub(super) mod approvals;
 mod fs;
-mod gate;
+pub(super) mod gate;
 mod terminal;
 #[cfg(test)]
 mod tests;
@@ -661,6 +661,7 @@ pub(super) async fn handle(
                             params: params.clone(),
                         },
                         prompt: Some(prompt.clone()),
+                        permission: None,
                     },
                 );
                 false

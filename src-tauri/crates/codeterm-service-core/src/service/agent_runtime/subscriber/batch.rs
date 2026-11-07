@@ -120,6 +120,7 @@ pub(super) async fn handle(
                                     params: params.clone(),
                                 },
                                 prompt: None,
+                                permission: None,
                             },
                         );
                         false

@@ -118,18 +118,21 @@ fn unmapped_requests_get_correlated_error_decision() {
         thread_id: "own".into(),
         request_id: id.clone(),
         prompt: prompt.clone(),
+        permission: None,
     };
     assert!(unmapped_request_error(&context, &id, &[own]).is_none());
     let foreign = AgentRuntimeEvent::Prompt {
         thread_id: "foreign".into(),
         request_id: id.clone(),
         prompt: prompt.clone(),
+        permission: None,
     };
     assert!(unmapped_request_error(&context, &id, &[foreign]).is_some());
     let unrelated = AgentRuntimeEvent::Prompt {
         thread_id: "own".into(),
         request_id: RpcId::Number(4),
         prompt,
+        permission: None,
     };
     assert!(unmapped_request_error(&context, &id, &[unrelated]).is_some());
 }
@@ -172,6 +175,7 @@ async fn mock_runtime_unmapped_requests_reply_and_capacity_stays_bounded() {
                         params: Value::Null,
                     },
                     prompt: None,
+                    permission: None,
                 },
             );
         }

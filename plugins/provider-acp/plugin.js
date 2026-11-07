@@ -823,6 +823,8 @@ function fitTextReduction(state, source) {
 
 // plugins/provider-acp/src/runtimePrompts.ts
 var kinds = /* @__PURE__ */ new Set(["allow_once", "allow_always", "reject_once", "reject_always"]);
+var kindLabels = { allow_once: "Allow once", allow_always: "Always allow", reject_once: "Reject", reject_always: "Always reject" };
+var actions = { read: "read", search: "read", edit: "write", delete: "write", move: "write", execute: "command" };
 var object3 = (value) => value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
 function fail(message) {
   throw { code: "provider_refused", message };
@@ -862,9 +864,9 @@ function writeHeader(tool) {
 }
 function permissionQuestion(tool) {
   const title = readable(tool.title, 256).trim() || "Tool permission requested";
-  const kind = readable(tool.kind, 64).trim() || "other";
-  const lines = [`${title}
-Kind: ${kind}`];
+  const kind = readable(tool.kind, 64).trim();
+  const lines = [kind && kind !== "other" ? `${title}
+Kind: ${kind}` : title];
   const paths = /* @__PURE__ */ new Set();
   const addPath = (value) => {
     const path = readable(value, 512);
@@ -907,10 +909,13 @@ function runtimePrompt(ctx, method, params) {
     return false;
   })) return void 0;
   const question = permissionQuestion(tool);
-  return { question, options: options.map((option) => ({ label: `${option.name} (${option.kind})`, value: String(option.optionId) })) };
+  return {
+    prompt: { question, options: options.map((option) => ({ label: readable(option.name, 128).trim() || kindLabels[option.kind], value: String(option.optionId) })) },
+    permission: { action: actions[String(tool.kind)] ?? "other", options: options.map((option) => ({ value: String(option.optionId), decision: option.kind })) }
+  };
 }
 function runtimeAnswer(ctx, method, params, _id, answer) {
-  const prompt = runtimePrompt(ctx, method, params);
+  const prompt = runtimePrompt(ctx, method, params)?.prompt;
   if (!prompt) fail("Permission request does not belong to this session");
   if (answer.kind === "cancel") return { outcome: { outcome: "cancelled" } };
   if (answer.kind !== "choice" || answer.values.length !== 1 || !prompt.options.some((option) => option.value === answer.values[0]))
@@ -1353,8 +1358,8 @@ function runtimeReduce(ctx, raw, frames) {
   const own = frames.flatMap((frame, index) => object4(frame.params).sessionId === ctx.threadId && (frame.kind === "notification" && frame.method === methods.update || frame.kind === "request" && clientRequest(frame.method)) ? [{ frame, index }] : []);
   const prompts = frames.flatMap((frame) => {
     if (frame.kind !== "request") return [];
-    const prompt = runtimePrompt(ctx, frame.method, frame.params);
-    return prompt ? [{ kind: "prompt", threadId: ctx.threadId, requestId: frame.requestId, prompt }] : [];
+    const request2 = runtimePrompt(ctx, frame.method, frame.params);
+    return request2 ? [{ kind: "prompt", threadId: ctx.threadId, requestId: frame.requestId, ...request2 }] : [];
   });
   if (!own.length) return { state: raw, events: prompts };
   let projection = state.projection ?? raw;

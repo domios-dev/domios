@@ -532,6 +532,7 @@ fn apply(
             thread_id,
             request_id: Some(request_id),
             prompt: Some(prompt),
+            permission,
             resolved: false,
             ..
         } if owned(&thread_id) => {
@@ -539,12 +540,21 @@ fn apply(
                 let mut prompts = session.prompts.lock();
                 if let Some(pending) = prompts.get_mut(&request_id) {
                     pending.prompt = Some(prompt.clone());
+                    pending.permission = permission.clone();
                     true
                 } else {
                     false
                 }
             };
-            if accepted {
+            if accepted
+                && !super::super::permission_policy::answer(
+                    svc,
+                    session,
+                    &request_id,
+                    &prompt,
+                    permission.as_ref(),
+                )
+            {
                 super::super::prompt_answers::publish(svc, session, request_id, prompt);
             }
         }

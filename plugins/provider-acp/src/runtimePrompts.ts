@@ -1,6 +1,8 @@
-import type { JsonValue, PendingPrompt, PromptAnswer, RpcId, RuntimeContext, RuntimeFailure } from "@codeterm/plugin-sdk";
+import type { JsonValue, PendingPrompt, PromptAnswer, RpcId, RuntimeContext, RuntimeFailure, RuntimePermission, RuntimePermissionAction, RuntimePermissionDecision } from "@codeterm/plugin-sdk";
 
-const kinds = new Set(["allow_once", "allow_always", "reject_once", "reject_always"]);
+const kinds = new Set<string>(["allow_once", "allow_always", "reject_once", "reject_always"] satisfies RuntimePermissionDecision[]);
+const kindLabels:Record<RuntimePermissionDecision,string> = {allow_once:"Allow once",allow_always:"Always allow",reject_once:"Reject",reject_always:"Always reject"};
+const actions:Record<string,RuntimePermissionAction> = {read:"read",search:"read",edit:"write",delete:"write",move:"write",execute:"command"};
 const object = (value:unknown):Record<string,JsonValue> =>
   value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string,JsonValue> : {};
 function fail(message:string):never { throw {code:"provider_refused",message} satisfies RuntimeFailure; }
@@ -38,8 +40,8 @@ function writeHeader(tool:Record<string,JsonValue>):string {
 }
 function permissionQuestion(tool:Record<string,JsonValue>):string {
   const title=readable(tool.title,256).trim() || "Tool permission requested";
-  const kind=readable(tool.kind,64).trim() || "other";
-  const lines=[`${title}\nKind: ${kind}`];
+  const kind=readable(tool.kind,64).trim();
+  const lines=[kind && kind !== "other" ? `${title}\nKind: ${kind}` : title];
   const paths=new Set<string>();
   const addPath=(value:JsonValue|undefined):void=>{
     const path=readable(value,512);
@@ -66,7 +68,8 @@ function permissionQuestion(tool:Record<string,JsonValue>):string {
   const budget=Math.max(0,2048-header.length);
   return header+(budget ? readable(lines.join("\n"),budget) : "");
 }
-export function runtimePrompt(ctx:RuntimeContext, method:string, params:JsonValue):PendingPrompt|undefined {
+interface PermissionRequest { prompt:PendingPrompt; permission:RuntimePermission }
+export function runtimePrompt(ctx:RuntimeContext, method:string, params:JsonValue):PermissionRequest|undefined {
   const data=object(params);
   if (method !== "session/request_permission" || !ctx.threadId || data.sessionId !== ctx.threadId) return undefined;
   const tool=object(data.toolCall);
@@ -81,10 +84,13 @@ export function runtimePrompt(ctx:RuntimeContext, method:string, params:JsonValu
     return false;
   })) return undefined;
   const question=permissionQuestion(tool);
-  return {question,options:options.map(option=>({label:`${option.name} (${option.kind})`,value:String(option.optionId)}))};
+  return {
+    prompt:{question,options:options.map(option=>({label:readable(option.name,128).trim() || kindLabels[option.kind as RuntimePermissionDecision],value:String(option.optionId)}))},
+    permission:{action:actions[String(tool.kind)] ?? "other",options:options.map(option=>({value:String(option.optionId),decision:option.kind as RuntimePermissionDecision}))},
+  };
 }
 export function runtimeAnswer(ctx:RuntimeContext, method:string, params:JsonValue, _id:RpcId, answer:PromptAnswer):JsonValue {
-  const prompt=runtimePrompt(ctx,method,params);
+  const prompt=runtimePrompt(ctx,method,params)?.prompt;
   if (!prompt) fail("Permission request does not belong to this session");
   if (answer.kind === "cancel") return {outcome:{outcome:"cancelled"}};
   if (answer.kind !== "choice" || answer.values.length !== 1 || !prompt.options.some(option=>option.value === answer.values[0]))

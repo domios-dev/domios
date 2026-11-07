@@ -31,6 +31,13 @@ export interface PendingPrompt {
   submit_available?:boolean;
   selected_values?:readonly string[];
 }
+/** What an agent permission request would do; the host answers it from the tab's launch policy. */
+export type RuntimePermissionAction = "read" | "write" | "command" | "other";
+export type RuntimePermissionDecision = "allow_once" | "allow_always" | "reject_once" | "reject_always";
+export interface RuntimePermission {
+  action:RuntimePermissionAction;
+  options:readonly {value:string; decision:RuntimePermissionDecision}[];
+}
 export interface TokenUsage {
   cost_micros?:number;
   input_tokens:number;
@@ -134,7 +141,7 @@ export type AgentEvent =
   | {kind:"sendEvidence"; threadId:string; sendId:string; turnId:string; itemId?:string}
   | {kind:"usage"; threadId:string; usage:TokenUsage}
   | {kind:"context"; threadId:string; used_tokens:number; window_tokens:number; cost_micros?:number}
-  | {kind:"prompt"; threadId:string; requestId:RpcId; prompt:PendingPrompt}
+  | {kind:"prompt"; threadId:string; requestId:RpcId; prompt:PendingPrompt; permission?:RuntimePermission}
   | {kind:"promptResolved"; threadId:string; requestId:RpcId}
   | {kind:"controlsConfirmed"; threadId:string; settings:RuntimeSettings}
   | {kind:"contextCompacted"; threadId:string; itemId:string}

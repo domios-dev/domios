@@ -2,7 +2,7 @@ use super::*;
 use codeterm_types::plan::ExecutionIntent;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Kind {
+pub(in crate::service::agent_runtime) enum Kind {
     SensitiveRead,
     Write,
     Command,
@@ -20,7 +20,7 @@ impl Kind {
 }
 
 #[derive(Clone, Copy)]
-pub(super) enum Access {
+pub(in crate::service::agent_runtime) enum Access {
     Full,
     WorkspaceWrite,
     ReadOnly,
@@ -28,14 +28,14 @@ pub(super) enum Access {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub(super) enum Decision {
+pub(in crate::service::agent_runtime) enum Decision {
     Allow,
     Prompt,
     Refuse,
 }
 
 #[derive(Default)]
-pub(super) struct SessionGrants {
+pub(in crate::service::agent_runtime) struct SessionGrants {
     identity: Option<(String, u64, String, Option<String>)>,
     read: bool,
     write: bool,
@@ -65,7 +65,7 @@ impl SessionGrants {
         } = true;
     }
 
-    pub(super) fn decide(&self, access: Access, kind: Kind) -> Decision {
+    pub(in crate::service::agent_runtime) fn decide(&self, access: Access, kind: Kind) -> Decision {
         match (access, kind) {
             (Access::ReadOnly, Kind::Write | Kind::Command)
             | (Access::WorkspaceWrite, Kind::Command) => Decision::Refuse,
@@ -83,7 +83,10 @@ impl SessionGrants {
     }
 }
 
-pub(super) fn access(svc: &ServiceContext, context: &RuntimeContext) -> Result<Access, String> {
+pub(in crate::service::agent_runtime) fn access(
+    svc: &ServiceContext,
+    context: &RuntimeContext,
+) -> Result<Access, String> {
     let mux = svc.mux.read();
     let tab = mux
         .get_tab(&context.tab_id)

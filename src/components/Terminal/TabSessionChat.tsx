@@ -1036,7 +1036,7 @@ function TabSessionChatBody({
           cursor={false}
           handlers={messageSelection.rowHandlers}
         >
-          <div data-message-part={promptPart.id}>
+          <div data-message-part={promptPart.id} className="ct-chat-message-row ct-chat-message-row--agent w-full max-w-4xl min-w-0 mx-auto">
             <PendingPromptCard key={promptPart.id} pendingPrompt={promptPart.prompt} onRespond={(value) => { void handleRespondPrompt(value).catch(() => {}); }} />
           </div>
         </ChatMessageRow>}

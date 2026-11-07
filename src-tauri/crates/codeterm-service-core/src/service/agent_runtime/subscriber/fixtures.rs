@@ -212,7 +212,7 @@ impl AgentProvider for Adapter {
         Ok(RuntimeReduction {
             state: Value::Null,
             events: if self.0.native_prompt.load(Ordering::SeqCst) {
-                frames.iter().filter_map(|frame| match frame {RuntimeFrame::Request {request_id,..} => Some(AgentRuntimeEvent::Prompt {thread_id:ctx.thread_id.clone().unwrap(),request_id:request_id.clone(),prompt:serde_json::from_value(json!({"question":"opaque","options":[{"label":"Allow","value":"yes"}]})).unwrap()}),_ => None}).collect()
+                frames.iter().filter_map(|frame| match frame {RuntimeFrame::Request {request_id,..} => Some(AgentRuntimeEvent::Prompt {thread_id:ctx.thread_id.clone().unwrap(),request_id:request_id.clone(),prompt:serde_json::from_value(json!({"question":"opaque","options":[{"label":"Allow","value":"yes"}]})).unwrap(),permission:None}),_ => None}).collect()
             } else {
                 Vec::new()
             },

@@ -445,8 +445,8 @@ export function runtimeReduce(ctx:RuntimeContext, raw:JsonValue, frames:readonly
       ? [{frame,index}] : []);
   const prompts=frames.flatMap(frame=>{
     if (frame.kind !== "request") return [];
-    const prompt=runtimePrompt(ctx,frame.method,frame.params);
-    return prompt ? [{kind:"prompt" as const,threadId:ctx.threadId!,requestId:frame.requestId,prompt}] : [];
+    const request=runtimePrompt(ctx,frame.method,frame.params);
+    return request ? [{kind:"prompt" as const,threadId:ctx.threadId!,requestId:frame.requestId,...request}] : [];
   });
   if (!own.length) return {state:raw,events:prompts};
   let projection=state.projection ?? raw;

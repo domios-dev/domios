@@ -19,6 +19,7 @@ import { freeLimitGate } from "../billing/freeLimitGate";
 import { getPersistedChatScrollState } from "./chatViewport";
 import { readTranscriptWindow, transcriptWindowKey } from "./transcriptStore";
 import type { ChatStartResult } from "./chatSessionAuthority";
+import { reconnectTabSession } from "./tabSessionActions";
 
 vi.mock("../../hooks/useAgentProviders", () => ({ useAgentProviders: () => ({ providers: [], loading: false, error: null }) }));
 vi.mock("./TerminalTab", async () => {
@@ -577,9 +578,7 @@ it("refreshes only its chat attachment while retaining draft, authority, transcr
     expect(getPersistedChatScrollState(scrollKey)?.mode).toBe("detached");
     const authority = readTranscriptWindow(transcriptWindowKey(tab.id, "refresh-session")).transcript.authority;
     expect(authority).toEqual({ sourceSessionId: "refresh-session", sessionBindingNonce: "refresh-binding" });
-    const refresh = ownSurface().querySelector<HTMLButtonElement>('button[aria-label="Refresh chat"]')!;
-    expect(refresh).not.toBeNull();
-    await act(async () => refresh.click());
+    await act(async () => reconnectTabSession(tab.id));
     expect(completeRefresh).toBeDefined();
     expect(ownSurface().querySelector("textarea")).toBe(composer);
     expect(composer.value).toBe("unsent refresh draft");

@@ -22,6 +22,7 @@ use std::{
 pub struct OutstandingRequest {
     pub request: PendingRuntimeRequest,
     pub prompt: Option<codeterm_types::pty::PendingPrompt>,
+    pub permission: Option<codeterm_plugin::agent_runtime::RuntimePermission>,
 }
 
 pub struct Session {
