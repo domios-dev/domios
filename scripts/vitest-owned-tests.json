@@ -208,6 +208,7 @@
   "src/components/Terminal/ComposerActions.uploads.test.tsx",
   "src/components/Terminal/ComposerCapsuleField.test.tsx",
   "src/components/Terminal/ChatComposer.uploads.test.tsx",
+  "src/hooks/terminal/resizeAuthority.test.ts",
   "src/hooks/terminal/terminalScroll.test.ts",
   "src/hooks/terminal/windowsBuildNumber.test.ts",
   "src/components/Notifications/attentionSurfaceModel.test.ts",

@@ -23,14 +23,19 @@ export function resizeOwnerChangedEvent(tabId?: string | null): string {
     : "pty-resize-owner-changed";
 }
 
+/**
+ * One id per window: two windows of one browser are two views of a PTY and
+ * must not both believe they own its size. Session storage survives a reload
+ * of the same window, so ownership survives a reconnect.
+ */
 export function getResizeClientId(): string {
   const prefix = "client:";
   if (typeof window === "undefined") return "server";
   try {
-    const existing = window.localStorage.getItem(CLIENT_ID_KEY);
+    const existing = window.sessionStorage.getItem(CLIENT_ID_KEY);
     if (existing?.startsWith(prefix)) return existing;
     const next = prefix + uid();
-    window.localStorage.setItem(CLIENT_ID_KEY, next);
+    window.sessionStorage.setItem(CLIENT_ID_KEY, next);
     return next;
   } catch {
     return prefix + "ephemeral-" + Math.random().toString(36).slice(2);
