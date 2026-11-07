@@ -10,9 +10,11 @@ use windows_sys::Win32::Security::Authorization::{SetEntriesInAclW, GRANT_ACCESS
 use windows_sys::Win32::Security::{
     InitializeSecurityDescriptor, SetSecurityDescriptorControl, SetSecurityDescriptorDacl,
     SetSecurityDescriptorOwner, SECURITY_ATTRIBUTES, SECURITY_DESCRIPTOR, SE_DACL_PROTECTED,
+    SUB_CONTAINERS_AND_OBJECTS_INHERIT,
 };
 use windows_sys::Win32::Storage::FileSystem::{
-    CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_CREATION_DISPOSITION, FILE_SHARE_MODE,
+    CreateDirectoryW, CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_CREATION_DISPOSITION,
+    FILE_SHARE_MODE,
 };
 use windows_sys::Win32::System::SystemServices::SECURITY_DESCRIPTOR_REVISION;
 
@@ -21,10 +23,45 @@ pub(super) fn open(
     creation: FILE_CREATION_DISPOSITION,
     sharing: FILE_SHARE_MODE,
 ) -> io::Result<File> {
+    with_attributes(0, |attributes| {
+        let name = wide_path(path);
+        let handle = unsafe {
+            CreateFileW(
+                name.as_ptr(),
+                GENERIC_READ | GENERIC_WRITE,
+                sharing,
+                attributes,
+                creation,
+                FILE_ATTRIBUTE_NORMAL,
+                null_mut(),
+            )
+        };
+        if handle == INVALID_HANDLE_VALUE {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(unsafe { File::from_raw_handle(handle) })
+    })
+}
+
+pub(super) fn create_dir(path: &Path) -> io::Result<()> {
+    with_attributes(SUB_CONTAINERS_AND_OBJECTS_INHERIT, |attributes| {
+        let name = wide_path(path);
+        if unsafe { CreateDirectoryW(name.as_ptr(), attributes) } == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(())
+    })
+}
+
+fn with_attributes<T>(
+    inheritance: u32,
+    create: impl FnOnce(&SECURITY_ATTRIBUTES) -> io::Result<T>,
+) -> io::Result<T> {
     let user = CurrentUser::open()?;
+    let mut entry = access_entry(&user, GRANT_ACCESS);
+    entry.grfInheritance = inheritance;
     let mut acl = null_mut();
-    let result =
-        unsafe { SetEntriesInAclW(1, &access_entry(&user, GRANT_ACCESS), null(), &mut acl) };
+    let result = unsafe { SetEntriesInAclW(1, &entry, null(), &mut acl) };
     if result != 0 {
         return Err(io::Error::from_raw_os_error(result as i32));
     }
@@ -39,25 +76,9 @@ pub(super) fn open(
     {
         return Err(io::Error::last_os_error());
     }
-    let attributes = SECURITY_ATTRIBUTES {
+    create(&SECURITY_ATTRIBUTES {
         nLength: size_of::<SECURITY_ATTRIBUTES>() as u32,
         lpSecurityDescriptor: descriptor,
         bInheritHandle: 0,
-    };
-    let name = wide_path(path);
-    let handle = unsafe {
-        CreateFileW(
-            name.as_ptr(),
-            GENERIC_READ | GENERIC_WRITE,
-            sharing,
-            &attributes,
-            creation,
-            FILE_ATTRIBUTE_NORMAL,
-            null_mut(),
-        )
-    };
-    if handle == INVALID_HANDLE_VALUE {
-        return Err(io::Error::last_os_error());
-    }
-    Ok(unsafe { File::from_raw_handle(handle) })
+    })
 }

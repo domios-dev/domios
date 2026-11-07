@@ -2,6 +2,25 @@ use super::*;
 use std::io::{Read, Write};
 
 #[test]
+fn private_directory_creation_is_exclusive_and_checked_by_handle() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("credentials");
+    create_dir_owner_only(&path).unwrap();
+    assert!(open_directory_owner_only(&path).is_ok());
+    assert!(create_dir_owner_only(&path).is_err());
+    assert!(open_owner_only(&path, 8192).is_err());
+    let file = root.path().join("file");
+    create_new_owner_only(&file).unwrap();
+    assert!(open_directory_owner_only(&file).is_err());
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(open_directory_owner_only(&path).is_err());
+    }
+}
+
+#[test]
 fn creation_is_exclusive_and_owner_only_before_writing() {
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join("launch.json");
@@ -87,8 +106,12 @@ fn exact_handle_metadata_refuses_foreign_uid_and_public_modes() {
     let root = tempfile::tempdir().unwrap();
     let file = create_new_owner_only(&root.path().join("launch.json")).unwrap();
     let metadata = file.metadata().unwrap();
-    assert!(unix_owned(&metadata, metadata.uid()));
-    assert!(!unix_owned(&metadata, metadata.uid().wrapping_add(1)));
+    assert!(unix_owned(&metadata, metadata.uid(), 0o600));
+    assert!(!unix_owned(
+        &metadata,
+        metadata.uid().wrapping_add(1),
+        0o600
+    ));
     file.set_permissions(std::fs::Permissions::from_mode(0o644))
         .unwrap();
     assert!(validate(&file, 8192).is_err());

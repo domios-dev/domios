@@ -29,6 +29,30 @@ pub fn open_owner_only(path: &Path, max_bytes: u64) -> io::Result<File> {
     Ok(file)
 }
 
+pub fn create_dir_owner_only(path: &Path) -> io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        std::fs::DirBuilder::new().mode(0o700).create(path)?;
+    }
+    #[cfg(windows)]
+    super::windows_create::create_dir(path)?;
+    open_directory_owner_only(path)?;
+    Ok(())
+}
+
+pub fn open_directory_owner_only(path: &Path) -> io::Result<File> {
+    let file = open_no_follow(path)?;
+    let metadata = file.metadata()?;
+    if !metadata.is_dir() || !handle_owner_only(&file, &metadata, 0o700)? {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "Expected an owner-only directory",
+        ));
+    }
+    Ok(file)
+}
+
 fn open_no_follow(path: &Path) -> io::Result<File> {
     let mut options = OpenOptions::new();
     options.read(true);
@@ -50,17 +74,9 @@ fn open_no_follow(path: &Path) -> io::Result<File> {
 
 fn validate(file: &File, max_bytes: u64) -> io::Result<()> {
     let metadata = file.metadata()?;
-    let valid = metadata.is_file() && metadata.len() <= max_bytes;
-    #[cfg(unix)]
-    let valid = valid && unix_owned(&metadata, unsafe { libc::geteuid() });
-    #[cfg(windows)]
-    let valid = {
-        use std::os::windows::fs::MetadataExt;
-        use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
-        valid
-            && metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT == 0
-            && windows::owner_only(file)?
-    };
+    let valid = metadata.is_file()
+        && metadata.len() <= max_bytes
+        && handle_owner_only(file, &metadata, 0o600)?;
     if !valid {
         return Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
@@ -70,10 +86,27 @@ fn validate(file: &File, max_bytes: u64) -> io::Result<()> {
     Ok(())
 }
 
+fn handle_owner_only(file: &File, metadata: &std::fs::Metadata, _mode: u32) -> io::Result<bool> {
+    #[cfg(unix)]
+    {
+        let _ = file;
+        Ok(unix_owned(metadata, unsafe { libc::geteuid() }, _mode))
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
+        Ok(
+            metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT == 0
+                && windows::owner_only(file)?,
+        )
+    }
+}
+
 #[cfg(unix)]
-fn unix_owned(metadata: &std::fs::Metadata, uid: libc::uid_t) -> bool {
+fn unix_owned(metadata: &std::fs::Metadata, uid: libc::uid_t, mode: u32) -> bool {
     use std::os::unix::fs::MetadataExt;
-    metadata.uid() == uid && metadata.mode() & 0o7777 == 0o600
+    metadata.uid() == uid && metadata.mode() & 0o7777 == mode
 }
 
 #[cfg(test)]

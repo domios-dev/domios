@@ -440,6 +440,7 @@ impl ServiceFixture {
             crate::agent::status::TabStatusTracker::new(),
         ));
         let mut extensions = crate::service::extensions::ExtensionsBuilder::default();
+        extensions.insert(crate::service::launch_credentials::Directory::reset(&data_dir).unwrap());
         extensions.insert(crate::mem_ops::author::OwnerMemoryAuthor::default());
         extensions.insert_service_slots();
         extensions.insert_late::<super::neighbors::runtime::logout::LogoutKeyPorts>();

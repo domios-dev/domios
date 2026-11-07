@@ -36,6 +36,11 @@ fn restored_chat_launch_environment_mints_current_credentials_and_rejects_the_pr
     let env = compose(&restored.service, &id, "fixture-runtime", &nonce).unwrap();
     let current_token = &env["CODETERM_API_TOKEN"];
     let current_file = std::path::PathBuf::from(&env[codeterm_util::tab_launch::FILE_ENV]);
+    assert_eq!(
+        current_file.parent().unwrap().file_name().unwrap(),
+        "launch-credentials"
+    );
+    assert!(!current_file.starts_with(std::path::Path::new(&env["CODETERM_PAD_DIR"])));
     let scrubbed = env
         .iter()
         .filter(|(key, _)| {
