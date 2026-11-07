@@ -1,5 +1,6 @@
 use super::{column, decode, record_query};
 use crate::plan::{TaskFiles, WorkerPlacement};
+use crate::service_plan::shared_checkout::ReportedSharedCommit;
 use crate::service_plan::store_db::{db_error, PlanDatabase};
 use crate::service_plan::{PlanError, PlanStore};
 use rusqlite::params;
@@ -52,6 +53,95 @@ impl PlanStore {
             .map(|(id, _)| id.clone())
             .collect::<Vec<_>>();
         self.database.checkout_peer_facts(&roots, &ids)
+    }
+
+    pub(in crate::service_plan) fn checkout_plan_ids(
+        &self,
+        canonical_checkout: &str,
+    ) -> Result<Vec<String>, PlanError> {
+        Ok(self
+            .database
+            .checkout_roots()?
+            .into_iter()
+            .filter(|(_, root)| {
+                super::super::super::shared_checkout::canonical_path(root) == canonical_checkout
+            })
+            .map(|(id, _)| id)
+            .collect())
+    }
+}
+
+impl PlanDatabase {
+    /// Validated in_review reports of shared attempts whose task is in review or accepted.
+    pub(in crate::service_plan) fn reported_shared_commits(
+        &self,
+        plan_ids: &[String],
+    ) -> Result<Vec<ReportedSharedCommit>, PlanError> {
+        let ids =
+            serde_json::to_string(plan_ids).map_err(|error| PlanError::Io(error.to_string()))?;
+        let connection = self.connection.lock();
+        record_query();
+        let mut statement = connection
+            .prepare_cached(
+                "SELECT a.plan_id,a.task_id,a.attempt_id,json_extract(a.row_json,'$.report.sha')
+             FROM plan_task_attempts a
+             JOIN plan_tasks t ON t.plan_id=a.plan_id AND t.task_id=a.task_id
+             JOIN plans p ON p.id=a.plan_id
+             WHERE a.plan_id IN (SELECT value FROM json_each(?1)) AND p.status='active'
+                AND t.status IN ('in_review','done')
+                AND json_extract(a.row_json,'$.placement')='shared'
+                AND json_extract(a.row_json,'$.report.status')='in_review'
+                AND json_type(a.row_json,'$.report.sha')='text'
+             ORDER BY a.plan_id,t.position,a.position",
+            )
+            .map_err(db_error)?;
+        let rows = statement
+            .query_map(params![ids], |row| {
+                Ok(ReportedSharedCommit {
+                    plan_id: row.get(0)?,
+                    task_id: row.get(1)?,
+                    attempt_id: row.get(2)?,
+                    sha: row.get(3)?,
+                })
+            })
+            .map_err(db_error)?;
+        rows.collect::<Result<_, _>>().map_err(db_error)
+    }
+
+    pub(in crate::service_plan) fn stride_recorded(
+        &self,
+        plan_id: &str,
+        stride_id: &str,
+    ) -> Result<bool, PlanError> {
+        let connection = self.connection.lock();
+        record_query();
+        connection
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM plan_strides
+                 WHERE json_extract(row_json,'$.id')=?2 AND plan_id=?1)",
+                params![plan_id, stride_id],
+                |row| row.get(0),
+            )
+            .map_err(db_error)
+    }
+
+    pub(in crate::service_plan) fn shared_history_checkouts(
+        &self,
+    ) -> Result<Vec<String>, PlanError> {
+        let connection = self.connection.lock();
+        record_query();
+        let mut statement = connection
+            .prepare_cached(
+                "SELECT DISTINCT json_extract(a.row_json,'$.checkout_path')
+             FROM plan_task_attempts a JOIN plans p ON p.id=a.plan_id
+             WHERE p.status='active' AND json_extract(a.row_json,'$.placement')='shared'
+                AND json_type(a.row_json,'$.checkout_path')='text'",
+            )
+            .map_err(db_error)?;
+        let rows = statement
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(db_error)?;
+        rows.collect::<Result<_, _>>().map_err(db_error)
     }
 }
 

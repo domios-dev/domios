@@ -17,13 +17,15 @@ fn identity_materialization_excludes_task_and_curator_history_and_propagates_err
         plan.owner.session_id = Some("session".into());
         plan.team_id = Some("team".into());
         plan.tasks[0].body.push_str(&"body".repeat(extra_body));
-        plan.control_loop.rounds = (0..rounds)
-            .map(|number| CuratorRound {
-                number,
-                summary: "history".repeat(128),
-                ..Default::default()
-            })
-            .collect();
+        plan.strides.extend(fixtures::round_strides(
+            (0..rounds)
+                .map(|number| CuratorRound {
+                    number,
+                    summary: "history".repeat(128),
+                    ..Default::default()
+                })
+                .collect(),
+        ));
         let database = fixtures::database(directory.path(), &plan);
         fixtures::audit(&database);
         take_metrics();
@@ -116,13 +118,15 @@ fn notice_delivery_target_is_bounded_and_selected_failures_are_loud() {
         let mut plan = fixtures::fixture(directory.path(), strides, attempts);
         plan.owner.tab_id = Some("owner".into());
         plan.tasks[0].body.push_str(&"x".repeat(body));
-        plan.control_loop.rounds = (0..rounds)
-            .map(|number| CuratorRound {
-                number,
-                summary: "history".repeat(128),
-                ..Default::default()
-            })
-            .collect();
+        plan.strides.extend(fixtures::round_strides(
+            (0..rounds)
+                .map(|number| CuratorRound {
+                    number,
+                    summary: "history".repeat(128),
+                    ..Default::default()
+                })
+                .collect(),
+        ));
         let database = fixtures::database(directory.path(), &plan);
         fixtures::audit(&database);
         database

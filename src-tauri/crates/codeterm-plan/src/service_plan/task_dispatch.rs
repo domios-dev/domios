@@ -525,7 +525,7 @@ impl PlanStore {
         let mut undo = None;
         let shared_binding: Option<super::shared_checkout::SharedDispatchInspection> =
             if placement == crate::plan::WorkerPlacement::Shared {
-                Some(self.inspect_shared_dispatch(plan_id, task_id)?)
+                Some(self.inspect_shared_dispatch(plan_id, task_id, now_ms)?)
             } else {
                 None
             };

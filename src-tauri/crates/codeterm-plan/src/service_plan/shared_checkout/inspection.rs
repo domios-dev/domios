@@ -83,6 +83,7 @@ impl PlanStore {
         &self,
         plan_id: &str,
         task_id: &str,
+        now_ms: u64,
     ) -> Result<SharedDispatchInspection, PlanError> {
         let read = self.database.shared_dispatch_projection(plan_id, task_id)?;
         read.files
@@ -91,6 +92,7 @@ impl PlanStore {
         super::validate_edit_links_at(&super::canonical_path(&read.checkout), &read.files)
             .map_err(PlanError::InvalidPlanText)?;
         let checkout = read.checkout;
+        self.observe_shared_history(&checkout, now_ms);
         let head = self
             .shared_git(&checkout, &["rev-parse", "--verify", "HEAD^{commit}"])
             .map_err(PlanError::InvalidPlanText)?
@@ -109,6 +111,7 @@ impl PlanStore {
         task_id: &str,
         reporter: &str,
         sha: Option<&str>,
+        now_ms: u64,
     ) -> Result<Option<SharedReportInspection>, PlanError> {
         let Some(snapshot) = self
             .database
@@ -119,6 +122,7 @@ impl PlanStore {
         let checkout = snapshot.checkout.as_deref().ok_or_else(|| {
             PlanError::InvalidPlanText("shared attempt has no checkout binding".into())
         })?;
+        self.observe_shared_history(checkout, now_ms);
         let start = snapshot
             .start_sha
             .as_deref()

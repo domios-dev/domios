@@ -73,6 +73,7 @@ pub mod lane_stats;
 pub mod launch_artifacts;
 pub mod launch_delivery;
 mod pty_memory;
+mod shared_history;
 pub use launch_delivery::prepare_spawn_input as launch_delivery_prepare_spawn_input;
 pub(crate) mod launch_diagnostics;
 pub(crate) mod launch_input_gate;

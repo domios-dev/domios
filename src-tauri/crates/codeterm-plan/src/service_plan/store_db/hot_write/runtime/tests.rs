@@ -197,6 +197,66 @@ fn curator_round_rows_stay_bounded_and_commit_state_and_stride_atomically() {
 }
 
 #[test]
+fn curator_round_header_write_is_constant_as_round_history_grows() {
+    use crate::plan::{CuratorCounts, CuratorOutcome, CuratorRound};
+    let dir = tempfile::tempdir().unwrap();
+    let plan = Plan::new(
+        "rounds".into(),
+        dir.path().display().to_string(),
+        OrchestratorRef::default(),
+    );
+    let db = database(dir.path(), &plan);
+    let now = 30 * 24 * 60 * 60 * 1000_u64;
+    let mut writes = Vec::new();
+    for number in 100..164_u64 {
+        let ended_at = now - 1_000_000 + number;
+        let (_, receipt) = db
+            .edit_runtime_rows::<CuratorRoundRows, _>(&plan.id, ended_at, |rows| {
+                rows.append_round(CuratorRound {
+                    number,
+                    ended_at,
+                    outcome: if number % 2 == 0 {
+                        CuratorOutcome::Quiet
+                    } else {
+                        CuratorOutcome::Nudged
+                    },
+                    summary: "constant".into(),
+                    learnings: 1,
+                    ..Default::default()
+                });
+                Ok(())
+            })
+            .unwrap();
+        let header: i64 = db
+            .connection
+            .lock()
+            .query_row(
+                "SELECT length(header_json) FROM plans WHERE id=?1",
+                [&plan.id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        writes.push((receipt.strides, receipt.serialized_bytes, header));
+    }
+    assert!(
+        writes.windows(2).all(|pair| pair[0] == pair[1]),
+        "{writes:?}"
+    );
+    let counts =
+        super::super::super::status_queries::control_counts(&db.connection.lock(), &plan.id, now)
+            .unwrap();
+    assert_eq!(
+        counts,
+        CuratorCounts {
+            quiet: 32,
+            nudged: 32,
+            learnings: 64,
+            ..Default::default()
+        }
+    );
+}
+
+#[test]
 fn curator_state_failure_rolls_back_and_concurrent_updates_conserve_both_writes() {
     let dir = tempfile::tempdir().unwrap();
     let store = Arc::new(PlanStore::new_for_test(dir.path()));

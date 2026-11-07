@@ -155,7 +155,7 @@ impl ServiceContext {
             .map_err(|error| error.to_string())?;
         let metadata = read.metadata();
         let mut state = read
-            .control_loop_window()
+            .projected_control_loop(now)
             .map_err(|error| error.to_string())?;
         state.suspended_reason = self.curator_suspended_reason_for_fields(
             &metadata.mode,

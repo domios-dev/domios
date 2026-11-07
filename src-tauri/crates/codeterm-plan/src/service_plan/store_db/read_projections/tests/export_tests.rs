@@ -34,11 +34,12 @@ fn full_export_preserves_record_shape_history_order_and_requested_plan_order() {
         .collect();
     plan.tasks = vec![task];
     plan.strides = plan.tasks[0].milestones.clone();
-    plan.control_loop.rounds = vec![CuratorRound {
-        number: 1,
-        summary: "retained complete round".into(),
-        ..Default::default()
-    }];
+    plan.strides
+        .extend(fixtures::round_strides(vec![CuratorRound {
+            number: 1,
+            summary: "retained complete round".into(),
+            ..Default::default()
+        }]));
     let database = fixtures::database(directory.path(), &plan);
     let mut second = plan.clone();
     second.id = "pl_a".into();
@@ -120,12 +121,14 @@ fn full_export_materialization_is_proportional_to_the_requested_document() {
         let directory = tempfile::tempdir().unwrap();
         let mut plan = fixtures::fixture(directory.path(), strides, attempts);
         plan.tasks[1].body.push_str(&"x".repeat(extra_body));
-        plan.control_loop.rounds = (0..rounds)
-            .map(|number| CuratorRound {
-                number,
-                ..Default::default()
-            })
-            .collect();
+        plan.strides.extend(fixtures::round_strides(
+            (0..rounds)
+                .map(|number| CuratorRound {
+                    number,
+                    ..Default::default()
+                })
+                .collect(),
+        ));
         let database = fixtures::database(directory.path(), &plan);
         fixtures::audit(&database);
         take_metrics();

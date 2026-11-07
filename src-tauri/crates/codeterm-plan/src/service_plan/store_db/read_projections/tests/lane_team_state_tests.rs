@@ -28,13 +28,15 @@ fn bounded_state(consumer: &str) {
             },
         ];
         plan.tasks[1].body.push_str(&"x".repeat(body));
-        plan.control_loop.rounds = (0..rounds)
-            .map(|number| crate::plan::CuratorRound {
-                number,
-                summary: "unrelated history".repeat(32),
-                ..Default::default()
-            })
-            .collect();
+        plan.strides.extend(fixtures::round_strides(
+            (0..rounds)
+                .map(|number| crate::plan::CuratorRound {
+                    number,
+                    summary: "unrelated history".repeat(32),
+                    ..Default::default()
+                })
+                .collect(),
+        ));
         if consumer == "lifecycle_plan" {
             plan.mode = crate::plan::PlanMode::Paused;
             plan.paused_from_mode = Some(crate::plan::PlanMode::Execution);

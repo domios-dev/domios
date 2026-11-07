@@ -2,8 +2,7 @@ use super::*;
 use crate::service_plan::state::input::{StateAttemptInput, StateInput, StateTaskInput};
 
 const HEADER: &str = "WITH selected AS (SELECT json_group_object(h.key,json(p.header_json -> ('$.' || h.key))) AS document FROM plans p,json_each(p.header_json) h WHERE p.id=?1 AND h.key IN ('id','title','status','mode','owner','team_id','project_path','canonical_project_path','planner','planning_state','goal','loops','task_groups','tag_facets','spec_refs','spec_links','primary_spec_id','control_loop','review_policy','gates','regression_gate_overrides','orphaned') GROUP BY p.id)
-    SELECT json_set(document,'$.control_loop.rounds',json((SELECT json_group_array(json(value)) FROM (
-        SELECT value FROM (SELECT key,value FROM plans p,json_each(p.header_json,'$.control_loop.rounds') WHERE p.id=?1 AND json_extract(value,'$.ended_at')>=?2 ORDER BY key DESC LIMIT 20) ORDER BY key)))) FROM selected";
+    SELECT json_remove(document,'$.control_loop.rounds') FROM selected";
 
 const TASKS: &str = "SELECT json_set((SELECT json_group_object(h.key,json(t.row_json -> ('$.' || h.key))) FROM json_each(t.row_json) h WHERE h.key IN ('id','name','key','handle','status','review_stage','qa_state','status_label','status_changed_at','tags','section_ids','executor_role','competition','parent_task_id','depends_on','assigned_tab_id','lane','peer','group')),
     '$.review_evidence',json(CASE WHEN json_array_length(row_json,'$.review_evidence')>0
@@ -29,11 +28,7 @@ pub(super) fn load_status_projection(
 ) -> Result<PlanStatusRead, PlanError> {
     record_query();
     let header: String = connection
-        .query_row(
-            HEADER,
-            params![plan_id, now_ms.saturating_sub(7 * 24 * 60 * 60 * 1000)],
-            |row| column(row, 0),
-        )
+        .query_row(HEADER, params![plan_id], |row| column(row, 0))
         .optional()
         .map_err(db_error)?
         .ok_or(PlanError::NotFound)?;

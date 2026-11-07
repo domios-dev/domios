@@ -2,6 +2,7 @@ use super::*;
 use crate::plan::{OrchestratorRef, TaskExecutionAttempt};
 use std::process::Command;
 mod candidates;
+mod history;
 mod inspection;
 
 fn task(id: &str, edits: &[&str], live: bool) -> Task {
