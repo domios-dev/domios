@@ -13,11 +13,17 @@ pub(super) struct ResolvedLaunch {
     pub binary: PathBuf,
     pub capability: AgentRuntimeCapability,
     pub env: BTreeMap<String, String>,
+    working_directory: Option<String>,
     profile: Option<String>,
     nonce: String,
 }
 
 impl ResolvedLaunch {
+    /// The agent process's directory: the profile's host-owned one when declared, else the tab's.
+    pub(super) fn process_cwd<'a>(&'a self, tab_cwd: &'a str) -> &'a str {
+        self.working_directory.as_deref().unwrap_or(tab_cwd)
+    }
+
     pub(super) fn apply_environment(
         &self,
         env: &mut HashMap<String, String>,
@@ -155,13 +161,12 @@ pub(super) fn resolve(
             .authorize_agent_runtime(authority, selected.profile.as_deref())
             .map_err(|error| RuntimeFailure::Refused(error.to_string()))?
     };
-    if let (Some(name), Some(profile)) = (selected.profile.as_deref(), profile) {
-        selected.env.extend(super::settings_files::environment(
-            &authority.binding().provider_id,
-            name,
-            profile,
-        )?);
-    }
+    let working_directory = match (selected.profile.as_deref(), profile) {
+        (Some(name), Some(profile)) => {
+            super::working_directory::resolve(&authority.binding().provider_id, name, profile)?
+        }
+        _ => None,
+    };
     if let Some(profile) = profile {
         selected
             .env
@@ -180,6 +185,7 @@ pub(super) fn resolve(
         binary,
         capability: selected.capability,
         env: selected.env,
+        working_directory,
         profile: selected.profile,
         nonce: authority.binding().binding_nonce.clone(),
     })

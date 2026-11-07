@@ -55,12 +55,12 @@ pub use restore::all as restore_all;
 mod restore_attempt;
 mod rpc;
 mod selections;
-mod settings_files;
 pub(crate) mod start_failure;
 mod subscriber;
 pub mod transport;
 mod turn_requests;
 pub(crate) mod user_delivery;
+mod working_directory;
 
 pub fn requested_for_tab(svc: &crate::service::ServiceContext, tab: &str) -> bool {
     let provider = svc

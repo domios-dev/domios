@@ -59,6 +59,7 @@ fn sandbox_environment_overrides_profile_collision() {
             ("SANDBOX_POLICY".into(), "profile-override".into()),
             ("PROFILE".into(), "fixed".into()),
         ]),
+        working_directory: None,
         profile: Some("selected".into()),
         nonce: "nonce".into(),
     };

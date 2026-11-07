@@ -55,10 +55,10 @@ struct Add {
     limits_source: Option<String>,
 }
 
-/// Declared identity and agent settings copied from a base profile; its launch command
+/// Declared identity and agent behaviour copied from a base profile; its launch command
 /// and credentials are never copied.
 fn inherit(profile: &mut RuntimeLaunchProfile, base: RuntimeLaunchProfile) {
-    profile.settings_files = base.settings_files;
+    profile.host_working_directory = base.host_working_directory;
     profile.icon = base.icon;
     profile.icon_svg = base.icon_svg;
     profile.icon_url = base.icon_url;

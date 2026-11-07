@@ -7,6 +7,7 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 
 mod failed_start;
+mod launch_directory;
 mod provider_switch;
 mod rebind;
 mod recovery;
