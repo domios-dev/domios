@@ -211,9 +211,12 @@ fn scheduler_exact_cas_rejects_a_concurrent_round_append() {
     assert_eq!(store.get(&plan.id).unwrap().control_loop, plan.control_loop);
     drop(snapshot);
     let fresh = database.curator_schedule_projection(&plan.id).unwrap();
+    let mut next = fresh.metadata().control_loop.clone();
+    next.next_at = Some(42);
     let mut current = plan.control_loop.clone();
     assert!(fresh.apply_control_loop(&mut current, next).unwrap());
     assert_eq!(current.last_round, plan.control_loop.last_round);
+    assert_eq!(current.next_at, Some(42));
 }
 
 #[test]

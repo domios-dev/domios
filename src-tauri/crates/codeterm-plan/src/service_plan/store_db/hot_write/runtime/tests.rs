@@ -197,7 +197,7 @@ fn curator_round_rows_stay_bounded_and_commit_state_and_stride_atomically() {
 }
 
 #[test]
-fn curator_round_header_write_is_constant_as_round_history_grows() {
+fn curator_round_header_write_stays_bounded_as_round_history_grows() {
     use crate::plan::{CuratorCounts, CuratorOutcome, CuratorRound};
     let dir = tempfile::tempdir().unwrap();
     let plan = Plan::new(
@@ -238,10 +238,15 @@ fn curator_round_header_write_is_constant_as_round_history_grows() {
             .unwrap();
         writes.push((receipt.strides, receipt.serialized_bytes, header));
     }
-    assert!(
-        writes.windows(2).all(|pair| pair[0] == pair[1]),
-        "{writes:?}"
-    );
+    // Only the alternating outcome name and `_revision` digits vary; header history
+    // would add a whole serialized round per write.
+    let spread = |value: fn(&(usize, usize, i64)) -> i64| {
+        let values = writes.iter().map(value);
+        values.clone().max().unwrap() - values.min().unwrap()
+    };
+    assert!(writes.iter().all(|write| write.0 == 1), "{writes:?}");
+    assert!(spread(|write| write.1 as i64) <= 4, "{writes:?}");
+    assert!(spread(|write| write.2) <= 4, "{writes:?}");
     let counts =
         super::super::super::status_queries::control_counts(&db.connection.lock(), &plan.id, now)
             .unwrap();

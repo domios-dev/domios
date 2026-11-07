@@ -180,9 +180,10 @@ fn team_sql_filters_before_materializing_unrequested_history_and_bodies() {
         }
         plan.strides.extend(fixtures::round_strides(
             (0..rounds)
+                // Old round rows sit below the selected event window, as header history did.
                 .map(|number| crate::plan::CuratorRound {
                     number,
-                    ended_at: number,
+                    ended_at: 1,
                     ..Default::default()
                 })
                 .collect(),
