@@ -742,6 +742,14 @@ with no filesystem, network, environment or subprocess access. The guard,
 confirmation reader and native/JS model-label detection share that parser;
 shared command fixtures cover native/QuickJS parity.
 
+A launch profile's `settingsFiles` maps an environment variable to a JSON object.
+At launch the host writes each object to a host-owned file under the provider's
+profile data and passes its absolute path in that variable, so an agent can read
+per-launch settings without touching the owner's own configuration. Variables
+follow `env` rules and may not repeat an `env`/`secretEnv`/`authEnv` name; at
+most 8 entries of 16 KiB each. It adds no plugin filesystem or environment access,
+stays outside install fingerprints, and `agent acp add --like` copies it.
+
 A launch profile's `limitsSource` names where its account limits come from:
 `{kind:"account",provider}` reuses that native provider's account meter,
 `{kind:"balance",reader,credentialEnv}` asks the plugin's `readProfileLimits({profile,source},nowMs)`

@@ -155,6 +155,13 @@ pub(super) fn resolve(
             .authorize_agent_runtime(authority, selected.profile.as_deref())
             .map_err(|error| RuntimeFailure::Refused(error.to_string()))?
     };
+    if let (Some(name), Some(profile)) = (selected.profile.as_deref(), profile) {
+        selected.env.extend(super::settings_files::environment(
+            &authority.binding().provider_id,
+            name,
+            profile,
+        )?);
+    }
     if let Some(profile) = profile {
         selected
             .env

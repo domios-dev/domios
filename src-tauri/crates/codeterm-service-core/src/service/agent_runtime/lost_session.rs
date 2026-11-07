@@ -68,6 +68,23 @@ pub(crate) fn join_for_test(tab: &str) -> bool {
     handle.is_some_and(|handle| crate::async_runtime::block_on(handle).is_ok())
 }
 
+/// A wake or send that meets a provider-lost session names that cause, so tab
+/// status, senders and restore presentation offer Start new session.
+pub(crate) fn wake_failure(svc: &ServiceContext, tab: &str, failure: &RuntimeFailure) -> String {
+    let RuntimeFailure::SessionLoadRefused(detail) = failure else {
+        return failure.to_string();
+    };
+    let thread = svc
+        .mux
+        .read()
+        .get_tab(tab)
+        .and_then(|target| target.agent_session_id.clone())
+        .unwrap_or_default();
+    format!(
+        "restored_session_unavailable: session_missing: The provider no longer has session {thread} for Tab {tab}; its saved transcript is kept, start a new session to continue ({detail})"
+    )
+}
+
 /// Runs after the ensure gate is released, because the fresh restart takes it.
 pub(super) fn schedule(svc: &ServiceContext, session: &Arc<Session>, reason: &RuntimeFailure) {
     if !matches!(reason, RuntimeFailure::SessionLoadRefused(_)) {

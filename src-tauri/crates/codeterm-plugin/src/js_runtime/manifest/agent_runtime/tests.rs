@@ -156,6 +156,32 @@ fn launch_profiles_refuse_ungranted_shell_and_unknown_fields() {
 }
 
 #[test]
+fn launch_profile_settings_files_name_their_own_object_variables() {
+    let mut raw = manifest();
+    raw["capabilities"]["agentRuntime"]["launchProfiles"] = json!({"selected":{
+        "binary":"runtime-engine","args":["serve"],"env":{"PROFILE":"fixed"},
+        "settingsFiles":{"OPAQUE_SETTINGS_PATH":{"opaque":{"enabled":false}}}
+    }});
+    let parsed: PluginManifest = serde_json::from_value(raw.clone()).unwrap();
+    assert_eq!(parsed.validate_agent_runtime(), Ok(()));
+    for variable in ["PROFILE", "CODETERM_SETTINGS", ""] {
+        let mut invalid = raw.clone();
+        invalid["capabilities"]["agentRuntime"]["launchProfiles"]["selected"]["settingsFiles"] =
+            json!({ variable: {"opaque": true} });
+        let parsed: PluginManifest = serde_json::from_value(invalid).unwrap();
+        assert_eq!(
+            parsed.validate_agent_runtime(),
+            Err(RuntimeManifestError::InvalidProfile),
+            "{variable:?}"
+        );
+    }
+    let mut invalid = raw;
+    invalid["capabilities"]["agentRuntime"]["launchProfiles"]["selected"]["settingsFiles"] =
+        json!({"OPAQUE_SETTINGS_PATH": "not-an-object"});
+    assert!(serde_json::from_value::<PluginManifest>(invalid).is_err());
+}
+
+#[test]
 fn client_bridges_reject_malformed_and_empty_declarations() {
     for bridges in [
         json!({"fsRead":"yes","fsWrite":false,"terminal":false}),

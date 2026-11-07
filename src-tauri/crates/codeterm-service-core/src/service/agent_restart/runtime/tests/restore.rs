@@ -136,6 +136,68 @@ fn lost_session_after_agent_work_keeps_the_owner_choice() {
 }
 
 #[test]
+fn focus_wake_of_a_lost_answered_session_shows_the_degraded_state_and_why() {
+    let saved = [
+        ChatMsg {
+            id: "saved-prompt".into(),
+            kind: "user".into(),
+            content: "opaque prompt".into(),
+            ..Default::default()
+        },
+        ChatMsg {
+            id: "saved-reply".into(),
+            kind: "assistant".into(),
+            content: "opaque reply".into(),
+            seq: 1,
+            ..Default::default()
+        },
+    ];
+    let (fixture, old_thread, config) = refused_load_fixture(&saved);
+    assert!(
+        agent_runtime::transport::launch(&fixture.service, PROVIDER, &fixture.tab, config).is_err()
+    );
+    assert!(agent_runtime::lost_session::join_for_test(&fixture.tab));
+    {
+        let mut mux = fixture.service.mux.write();
+        let tab = mux.get_tab_mut(&fixture.tab).unwrap();
+        tab.restored_from_snapshot = true;
+        tab.frozen = true;
+        tab.agent_runtime_state = None;
+    }
+
+    let reason = fixture
+        .service
+        .wake_tab_on_request(&fixture.tab)
+        .unwrap_err();
+
+    assert!(reason.starts_with("restored_session_unavailable: session_missing:"));
+    assert!(reason.contains(&old_thread));
+    let tab = fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&fixture.tab)
+        .unwrap()
+        .clone();
+    assert_eq!(tab.agent_session_id.as_deref(), Some(old_thread.as_str()));
+    assert_eq!(
+        tab.boot_stage,
+        Some(codeterm_types::pty::BootStage::SpawnFailed)
+    );
+    assert_eq!(tab.boot_failure_reason.as_deref(), Some(reason.as_str()));
+    let state = tab.agent_runtime_state.expect("published runtime state");
+    assert_eq!(state["state"], "degraded");
+    assert_eq!(state["failureCode"], "session_load_refused");
+    let (rows, _) =
+        crate::service::tab_chat::tab_chat_snapshot(&fixture.service, &fixture.tab, 0).unwrap();
+    assert!(rows.iter().any(|row| row.content == "opaque reply"));
+    assert!(!fixture
+        .requests()
+        .iter()
+        .any(|request| request["method"] == "openThread"));
+}
+
+#[test]
 fn fresh_after_load_refusal_preserves_profile_settings_and_archived_transcript() {
     let saved = vec![
         ChatMsg {
