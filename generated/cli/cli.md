@@ -221,7 +221,10 @@ Add an owner-configured installed ACP command (local owner or Orchestrator only)
 - `--arg`
 - `--auth-env` — Optional sign-in secrets as KEY=secret-name:method
 - `--binary`
+- `--client-capability` — Override a declared client capability as NAME=true|false (e.g. fs.readTextFile=false)
 - `--env` — Non-secret environment entries as KEY=VALUE
+- `--like` — Copy the icon, client capabilities and limits source declared by this profile
+- `--limits-source` — Where account limits come from: account:PROVIDER, balance:READER:ENV or unavailable:REASON
 - `<name>`
 - `--secret-env` — Required secrets as KEY=secret-name; never pass secret values
 
@@ -238,6 +241,7 @@ Discover and install pinned agents from the ACP registry
 Install the registry's exact declared distribution as an owner profile
 
 - `<id>`
+- `--limits-source` — Override the plugin's declared default for this registry id: account:PROVIDER, balance:READER:ENV or unavailable:REASON
 
 #### `domios agent acp registry search`
 

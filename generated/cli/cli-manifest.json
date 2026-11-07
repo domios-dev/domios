@@ -695,6 +695,16 @@
                   "aliases": []
                 },
                 {
+                  "name": "client-capability",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "CLIENT_CAPABILITIES",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Override a declared client capability as NAME=true|false (e.g. fs.readTextFile=false)",
+                  "aliases": []
+                },
+                {
                   "name": "env",
                   "positional": false,
                   "required": false,
@@ -702,6 +712,26 @@
                   "possible_values": [],
                   "default": null,
                   "help": "Non-secret environment entries as KEY=VALUE",
+                  "aliases": []
+                },
+                {
+                  "name": "like",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "LIKE",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Copy the icon, client capabilities and limits source declared by this profile",
+                  "aliases": []
+                },
+                {
+                  "name": "limits-source",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "LIMITS_SOURCE",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Where account limits come from: account:PROVIDER, balance:READER:ENV or unavailable:REASON",
                   "aliases": []
                 },
                 {
@@ -753,6 +783,16 @@
                       "possible_values": [],
                       "default": null,
                       "help": null,
+                      "aliases": []
+                    },
+                    {
+                      "name": "limits-source",
+                      "positional": false,
+                      "required": false,
+                      "value_name": "LIMITS_SOURCE",
+                      "possible_values": [],
+                      "default": null,
+                      "help": "Override the plugin's declared default for this registry id: account:PROVIDER, balance:READER:ENV or unavailable:REASON",
                       "aliases": []
                     }
                   ],
