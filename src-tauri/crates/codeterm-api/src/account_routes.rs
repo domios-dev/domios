@@ -34,7 +34,7 @@ pub async fn status(
     let cached = state
         .svc
         .try_ext::<codeterm_service_core::service::account::startup::StartupAccount>();
-    Ok(Json(project_status(status, cached.as_ref())))
+    Ok(Json(project_status(status, cached)))
 }
 
 fn project_status(

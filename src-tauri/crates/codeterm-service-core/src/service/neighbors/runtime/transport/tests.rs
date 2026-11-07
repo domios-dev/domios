@@ -4,6 +4,7 @@ use serde_json::json;
 
 fn emulator() -> Endpoints {
     Endpoints {
+        project: "demo-domios",
         identity_toolkit: "http://127.0.0.1:19099/identitytoolkit.googleapis.com/v1/",
         secure_token: "http://127.0.0.1:19099/securetoken.googleapis.com/v1/",
         functions: "http://127.0.0.1:15001/demo-domios/us-central1/",
@@ -16,6 +17,7 @@ fn emulator() -> Endpoints {
 
 fn qa() -> Endpoints {
     Endpoints {
+        project: "domios-signin-qa",
         functions: "https://us-central1-domios-signin-qa.cloudfunctions.net/",
         signin: "https://domios-signin-qa.web.app/signin/",
         redeem: "https://us-central1-domios-signin-qa.cloudfunctions.net/redeemDesktopLoginCode",
