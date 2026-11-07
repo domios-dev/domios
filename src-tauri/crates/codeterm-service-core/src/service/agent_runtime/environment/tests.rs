@@ -41,7 +41,7 @@ fn restored_chat_launch_environment_mints_current_credentials_and_rejects_the_pr
         .filter(|(key, _)| {
             !["KEY", "PASSWORD", "SECRET", "TOKEN"]
                 .iter()
-                .any(|word| key.to_ascii_uppercase().contains(word))
+                .any(|word| key.to_ascii_uppercase().contains(*word))
         })
         .map(|(key, value)| (key.clone(), value.clone()))
         .collect::<HashMap<_, _>>();

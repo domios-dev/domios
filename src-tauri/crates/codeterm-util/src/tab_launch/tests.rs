@@ -34,7 +34,7 @@ fn environment_precedes_file_and_scrubbed_children_keep_the_tab_credential() {
     env.retain(|key, _| {
         !["KEY", "PASSWORD", "SECRET", "TOKEN"]
             .iter()
-            .any(|word| key.contains(word))
+            .any(|word| key.contains(*word))
     });
     assert_eq!(
         lookup(|key| env.get(key).cloned()).unwrap().as_deref(),
