@@ -250,8 +250,7 @@ impl AgentRuntimeCapability {
                 {
                     return Err(RuntimeManifestError::InvalidProfile);
                 }
-                if !valid_settings_files(profile)
-                    || !valid_auth_env(&profile.auth_env)
+                if !valid_auth_env(&profile.auth_env)
                     || profile
                         .limits_source
                         .as_ref()
@@ -385,20 +384,6 @@ fn valid_auth_env(
                 && entry.methods.len() <= 8
                 && valid_methods(&entry.methods)
                 && entry.methods.iter().all(|method| methods.insert(method))
-        })
-}
-
-fn valid_settings_files(profile: &crate::agent_runtime::RuntimeLaunchProfile) -> bool {
-    profile.settings_files.len() <= 8
-        && profile.settings_files.iter().all(|(key, settings)| {
-            !key.is_empty()
-                && key.len() <= 128
-                && key.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
-                && !key.to_ascii_uppercase().starts_with("CODETERM")
-                && !profile.env.contains_key(key)
-                && !profile.secret_env.contains_key(key)
-                && !profile.auth_env.contains_key(key)
-                && serde_json::to_vec(settings).is_ok_and(|bytes| bytes.len() <= 16384)
         })
 }
 

@@ -742,13 +742,15 @@ with no filesystem, network, environment or subprocess access. The guard,
 confirmation reader and native/JS model-label detection share that parser;
 shared command fixtures cover native/QuickJS parity.
 
-A launch profile's `settingsFiles` maps an environment variable to a JSON object.
-At launch the host writes each object to a host-owned file under the provider's
-profile data and passes its absolute path in that variable, so an agent can read
-per-launch settings without touching the owner's own configuration. Variables
-follow `env` rules and may not repeat an `env`/`secretEnv`/`authEnv` name; at
-most 8 entries of 16 KiB each. It adds no plugin filesystem or environment access,
-stays outside install fingerprints, and `agent acp add --like` copies it.
+A launch profile's `hostWorkingDirectory: true` starts the agent process in a
+host-owned directory under the provider's profile data (`<profile>/launch-cwd`)
+instead of the tab's folder; the runtime context `cwd`, and so every session the
+plugin opens, stays the tab's folder. Use it when an agent scopes startup
+housekeeping to its process directory: Gemini CLI prunes the unresumable chats of
+that directory's project on each start, and loads system settings only from
+admin- or root-owned paths, so a host-written settings file cannot turn that off.
+It adds no plugin filesystem or environment access, stays outside install
+fingerprints, and `agent acp add --like` copies it.
 
 `agentRuntime.hostApprovals: true` declares that the runtime's agent permission requests
 carry declared option kinds (`prompt` event `permission`), so the host answers them from the

@@ -26,10 +26,7 @@ fn install_identity_ignores_presentation_policy_and_overlays_but_tracks_the_inst
         ("registryId", json!("other-acp")),
         ("iconUrl", json!("https://example.test/other.svg")),
         ("env", json!({"FIXTURE_MODE":"fixture"})),
-        (
-            "settingsFiles",
-            json!({"FIXTURE_SETTINGS":{"fixture":true}}),
-        ),
+        ("hostWorkingDirectory", json!(true)),
         (
             "secretEnv",
             json!({"FIXTURE_TOKEN":"domios:provider:acp:fixture"}),
@@ -105,9 +102,7 @@ fn receipts_hashed_by_earlier_builds_keep_their_binding_and_ignore_later_fields(
         profile.full_access_mode = Some("fixture-approve-all".into());
         profile.limits_source =
             serde_json::from_value(json!({"kind":"account","provider":"fixture"})).unwrap();
-        profile
-            .settings_files
-            .insert("FIXTURE_SETTINGS".into(), serde_json::Map::new());
+        profile.host_working_directory = true;
         assert_eq!(
             bound_by(&profile, recorded).unwrap(),
             Some(Binding::LegacyDeclaration)

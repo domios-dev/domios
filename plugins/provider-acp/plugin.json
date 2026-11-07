@@ -53,15 +53,7 @@
           "env": {
             "GEMINI_CLI_TRUST_WORKSPACE": "true"
           },
-          "settingsFiles": {
-            "GEMINI_CLI_SYSTEM_SETTINGS_PATH": {
-              "general": {
-                "sessionRetention": {
-                  "enabled": false
-                }
-              }
-            }
-          },
+          "hostWorkingDirectory": true,
           "authEnv": {
             "GEMINI_API_KEY": {
               "secret": "domios:provider:acp:gemini-api-key",

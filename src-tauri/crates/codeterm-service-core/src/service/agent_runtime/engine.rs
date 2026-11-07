@@ -728,15 +728,13 @@ async fn ensure_locked(
                 crate::service::instance_env::instance_cli_binary_path(),
                 &env,
             );
-            super::process::spawn(&launch.binary, &launch.capability, &cwd, env, &target).map(
-                |process| {
-                    (
-                        Arc::new(process),
-                        host_mcp,
-                        launch.capability.client_bridges.clone(),
-                    )
-                },
-            )
+            super::process::spawn(&launch, &cwd, env, &target).map(|process| {
+                (
+                    Arc::new(process),
+                    host_mcp,
+                    launch.capability.client_bridges.clone(),
+                )
+            })
         })
         .await
         .map_err(|error| RuntimeFailure::SpawnFailed {

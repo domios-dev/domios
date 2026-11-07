@@ -1,5 +1,5 @@
 use super::{model::RuntimeFailure, rpc::Client};
-use codeterm_plugin::agent_runtime::{AgentRuntimeCapability, AgentRuntimeProtocol};
+use codeterm_plugin::agent_runtime::AgentRuntimeProtocol;
 
 fn transport_name(protocol: &AgentRuntimeProtocol) -> &'static str {
     match protocol {
@@ -8,7 +8,7 @@ fn transport_name(protocol: &AgentRuntimeProtocol) -> &'static str {
     }
 }
 use parking_lot::Mutex;
-use std::{collections::HashMap, path::Path, process::Stdio, sync::Arc, time::Duration};
+use std::{collections::HashMap, process::Stdio, sync::Arc, time::Duration};
 use tokio::{io::AsyncReadExt, sync::watch};
 
 pub struct Process {
@@ -118,16 +118,17 @@ impl Drop for Process {
     }
 }
 
-pub fn spawn(
-    binary: &Path,
-    cap: &AgentRuntimeCapability,
-    cwd: &str,
+pub(super) fn spawn(
+    launch: &super::launch_profile::ResolvedLaunch,
+    tab_cwd: &str,
     env: HashMap<String, String>,
     _tab: &str,
 ) -> Result<Process, RuntimeFailure> {
+    let (binary, cap) = (launch.binary.as_path(), &launch.capability);
+    let cwd = launch.process_cwd(tab_cwd);
     #[cfg(test)]
     if let Some(factory) = test_ports::factory(_tab) {
-        test_ports::record_env(_tab, &env);
+        test_ports::record_spawn(_tab, &env, cwd);
         return Ok(factory());
     }
     if cap.runtime != codeterm_plugin::agent_runtime::AgentRuntimeProtocol::StdioJsonrpc {

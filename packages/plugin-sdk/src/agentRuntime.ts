@@ -165,8 +165,8 @@ export interface RuntimeLaunchProfile {
   binary:string;
   args:readonly string[];
   env?:Readonly<Record<string,string>>;
-  /** Each variable receives the path of a host-owned JSON file holding this object, written at launch. */
-  settingsFiles?:Readonly<Record<string,Readonly<Record<string,JsonValue>>>>;
+  /** The agent process starts in a host-owned directory under the profile's data; sessions keep the tab's directory. */
+  hostWorkingDirectory?:boolean;
   install?:{package:string; registry?:string; distribution?:"npx"|"uvx"|"binary"; url?:string; sha256?:string; executable?:string};
   detection?:{args:readonly string[]};
   secretEnv?:Readonly<Record<string,string>>;

@@ -240,9 +240,7 @@ fn installed_command(dir: &Path) -> AgentRuntimeCommand {
 fn declared_later(profile: &mut RuntimeLaunchProfile) {
     profile.icon_url = Some("https://example.test/refreshed.svg".into());
     profile.client_capabilities = serde_json::from_value(json!({"terminal":false})).unwrap();
-    profile
-        .settings_files
-        .insert("FIXTURE_SETTINGS".into(), serde_json::Map::new());
+    profile.host_working_directory = true;
 }
 
 #[test]

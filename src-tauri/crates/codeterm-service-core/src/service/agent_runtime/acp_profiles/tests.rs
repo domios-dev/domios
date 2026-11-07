@@ -26,7 +26,7 @@ fn bundled_base() -> Value {
     json!({"binary":"base-agent","args":["--acp"],"env":{"BASE_ONLY":"1"},"icon":"base-color.svg",
         "authEnv":{"BASE_KEY":{"secret":"domios:provider:acp:base-key","methods":["base-key"]}},
         "clientCapabilities":{"fs":{"readTextFile":false}},
-        "settingsFiles":{"BASE_SETTINGS_PATH":{"opaque":{"enabled":false}}},
+        "hostWorkingDirectory":true,
         "limitsSource":{"kind":"unavailable","reason":"Base quota has no public endpoint"}})
 }
 
@@ -42,13 +42,7 @@ fn derived_profiles_copy_declared_identity_but_never_the_launch_command_or_crede
     assert!(profile.env.is_empty() && profile.auth_env.is_empty() && profile.secret_env.is_empty());
     assert!(profile.owner_configured);
     assert_eq!(profile.icon.as_deref(), Some("base-color.svg"));
-    assert_eq!(
-        profile.settings_files["BASE_SETTINGS_PATH"],
-        json!({"opaque":{"enabled":false}})
-            .as_object()
-            .unwrap()
-            .clone()
-    );
+    assert!(profile.host_working_directory);
     let fs = profile
         .client_capabilities
         .as_ref()
