@@ -221,7 +221,6 @@ impl super::ServiceContext {
         tab_id: &str,
         nonce: &str,
     ) -> Result<String, String> {
-        let pad = self.ensure_agent_pad(tab_id)?;
         let token = {
             let credentials = self.tab_credentials.0.lock();
             let credential = credentials
@@ -233,11 +232,10 @@ impl super::ServiceContext {
             }
             credential.token.clone()
         };
-        let file = CredentialFile(pad.path().join(format!(
-            "{}{}.json",
-            codeterm_util::tab_launch::RUNTIME_FILE_PREFIX,
-            uuid::Uuid::new_v4()
-        )));
+        let file = CredentialFile(
+            self.ext::<super::launch_credentials::Directory>()
+                .file_path(codeterm_util::tab_launch::RUNTIME_FILE_PREFIX, ".json"),
+        );
         let bytes = serde_json::to_vec(&codeterm_util::tab_launch::LaunchCredential {
             tab_id: tab_id.into(),
             binding_nonce: nonce.into(),

@@ -58,22 +58,6 @@ pub fn write_new(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     file.sync_all()
 }
 
-pub fn is_handoff_file(name: &str) -> bool {
-    [
-        (RUNTIME_FILE_PREFIX, ".json"),
-        (HANDOFF_FILE_PREFIX, ".txt"),
-    ]
-    .into_iter()
-    .any(|(prefix, suffix)| {
-        (name.starts_with(prefix) && name.ends_with(suffix))
-            || (name
-                .strip_prefix('.')
-                .is_some_and(|name| name.starts_with(prefix))
-                && name.contains(format!("{suffix}.").as_str())
-                && name.ends_with(".tmp"))
-    })
-}
-
 pub fn resolve(
     environment: Option<&str>,
     path: Option<&Path>,

@@ -90,6 +90,10 @@ fn fixture_command() -> (ServiceFixture, String, String, CredentialCommand) {
 fn no_write_abort_and_replacement_remove_only_the_owned_file() {
     let (fixture, tab, nonce, mut command) = fixture_command();
     let path = command.file.as_ref().unwrap().path().to_path_buf();
+    assert_eq!(
+        path.parent().unwrap().file_name().unwrap(),
+        "launch-credentials"
+    );
     assert!(codeterm_util::private_file::owner_only(&path).unwrap());
     assert!(command.send(&fixture.service, "absent-pty").is_err());
     drop(command);

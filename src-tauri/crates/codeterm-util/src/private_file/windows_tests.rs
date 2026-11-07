@@ -118,6 +118,18 @@ fn launch_file_is_owner_only_at_creation_under_a_broad_inheritable_root() {
 }
 
 #[test]
+fn launch_directory_is_private_at_creation_under_a_broad_inheritable_root() {
+    let root = tempfile::tempdir().unwrap();
+    grant(root.path(), WinWorldSid);
+    let before = masks(root.path(), WinWorldSid);
+    let path = root.path().join("launch-credentials");
+    create_dir_owner_only(&path).unwrap();
+    assert!(open_directory_owner_only(&path).is_ok());
+    assert!(masks(&path, WinWorldSid).is_empty());
+    assert_eq!(masks(root.path(), WinWorldSid), before);
+}
+
+#[test]
 fn private_directory_tightening_preserves_explicit_grants_and_removes_broad_access() {
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join("secrets");

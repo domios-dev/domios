@@ -3,9 +3,6 @@ use std::fs;
 use std::io::Write;
 use std::path::{Component, Path, PathBuf};
 
-mod launch_files;
-pub use launch_files::sweep_launch_files;
-
 const TOMBSTONE_PREFIX: &str = ".revoked-";
 const POINTER_TEMPLATE: &str = "Read and follow the message in {path}";
 const INBOX_MAX_AGE: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
