@@ -5,6 +5,7 @@ use codeterm_neighbors::{
     receive::InboxEvent,
     supervisor::{InboxSession, ListenerState, ReceptionEvents},
 };
+use std::collections::BTreeSet;
 
 impl ServiceContext {
     pub(super) fn neighbor_concierge_view(
@@ -12,6 +13,18 @@ impl ServiceContext {
         friendship: &str,
         settings: &Settings,
         receiver: &ReceiverStatus,
+    ) -> Value {
+        let lapsed = self.neighbor_lapsed_installations();
+        self.neighbor_concierge_projection(friendship, settings, receiver, &lapsed)
+    }
+
+    /// The concierge follows the `friend_receivers` projection: a receiver whose membership expired is not receiving.
+    pub(super) fn neighbor_concierge_projection(
+        &self,
+        friendship: &str,
+        settings: &Settings,
+        receiver: &ReceiverStatus,
+        lapsed: &BTreeSet<String>,
     ) -> Value {
         let gateway = settings
             .bindings
@@ -21,7 +34,8 @@ impl ServiceContext {
         let paused = self.neighbor_effective_pause(settings, friendship);
         let enabled = self.configuration().neighbors.enabled;
         let here = enabled && receiver.receiving_here();
-        let state = if !enabled || !receiver.receiving_enabled {
+        let expired = Self::receiver_membership_expired(receiver, lapsed);
+        let state = if !enabled || !receiver.receiving_enabled || expired {
             "not_receiving"
         } else if !here {
             "receiving_elsewhere"
@@ -45,20 +59,26 @@ impl ServiceContext {
         };
         let initial_context_digest = settings.initial_context_digest(friendship);
         let options = self.neighbor_launch_options(settings, friendship);
-        json!({"concierge_dormant":settings.dormant_concierges.contains_key(friendship),"reasoning_effort":options.reasoning_effort,"service_tier":options.service_tier,"initial_context_digest":initial_context_digest,"gateway_tab":gateway,"paused":paused,"my_paused":paused,"concierge_missing":missing,"pending_count":count,"pending_count_capped":count.is_some_and(|count| count >= codeterm_neighbors::adapter::PENDING_COUNT_LIMIT),"receiving_here":here,"receiver_machine_label":receiver.receiver_machine_label,"state":state})
+        let mut view = json!({"concierge_dormant":settings.dormant_concierges.contains_key(friendship),"reasoning_effort":options.reasoning_effort,"service_tier":options.service_tier,"initial_context_digest":initial_context_digest,"gateway_tab":gateway,"paused":paused,"my_paused":paused,"concierge_missing":missing,"pending_count":count,"pending_count_capped":count.is_some_and(|count| count >= codeterm_neighbors::adapter::PENDING_COUNT_LIMIT),"receiving_here":here,"receiver_machine_label":receiver.receiver_machine_label,"state":state});
+        if expired {
+            view["not_receiving_reason"] = json!("membership_expired");
+        }
+        view
     }
 
     pub(super) fn neighbor_concierge_views(&self, settings: &Settings, friends: &Value) -> Value {
         let mut views = serde_json::Map::new();
+        let lapsed = self.neighbor_lapsed_installations();
         if let Some(friends) = friends["friends"].as_array() {
             for friend in friends {
                 if let Some(id) = friend["friendship_id"].as_str() {
                     views.insert(
                         id.into(),
-                        self.neighbor_concierge_view(
+                        self.neighbor_concierge_projection(
                             id,
                             settings,
                             &self.neighbor_friend_receiver(id).unwrap_or_default(),
+                            &lapsed,
                         ),
                     );
                 }

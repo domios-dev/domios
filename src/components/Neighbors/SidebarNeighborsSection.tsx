@@ -153,8 +153,10 @@ function LocalNeighborsSection({ uiFontScale, touchMode, onNavigateToTab, enable
                 <span className="sidebar-tab-body__title flex min-w-0 items-center gap-1.5">
                   <span className={`${text} block truncate min-w-0 text-[var(--ct-fg)]`}>{name}</span>
                 </span>
-                <span className="sidebar-tab-body__sub neighbor-status text-[10px] leading-3">
-                  <span className="neighbor-dot" data-tone={paused || elsewhere ? "muted" : missing ? "progress" : !loading && enabled && paid ? "ok" : "muted"} aria-hidden="true" />{line}
+                <span className="sidebar-tab-body__sub neighbor-status text-[10px] leading-3" title={line}>
+                  <span className="neighbor-dot" data-tone={paused || elsewhere ? "muted" : missing ? "progress" : !loading && enabled && paid ? "ok" : "muted"} aria-hidden="true" />
+                  {/* Touch has no hover tooltip, so the full reason wraps there instead of truncating. */}
+                  <span className={`min-w-0 ${touchMode ? "whitespace-normal [overflow-wrap:anywhere]" : "truncate"}`}>{line}</span>
                 </span>
               </span>
             </button>

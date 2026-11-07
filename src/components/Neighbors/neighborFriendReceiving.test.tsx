@@ -83,6 +83,7 @@ it("a receiver whose membership expired is shown as the reason the friend is not
   const runtimeClient = receiving(lapsed);
   await mount(<SidebarNeighborsSection touchMode={false} client={friends([neighbor])} runtimeClient={runtimeClient} />);
   expect(document.body.textContent).toContain("not receiving · Studio Mac's membership expired");
+  expect(Array.from(document.querySelectorAll<HTMLElement>("[title]"), element => element.title)).toContain("not receiving · Studio Mac's membership expired");
   expect(document.body.textContent).not.toContain("receiving on");
   await act(async () => mounted.current!.root.unmount()); mounted.current!.host.remove(); mounted.current = null;
   await mount(<NeighborConversationView friendship="pair" client={friends([neighbor])} runtimeClient={runtimeClient} conciergeClient={concierge([])} />);

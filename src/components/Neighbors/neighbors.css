@@ -271,6 +271,11 @@
   white-space: nowrap;
 }
 
+/* A sidebar subline keeps its dot beside a text span that truncates, or wraps on touch. */
+.sidebar-tab-body__sub.neighbor-status {
+  display: flex;
+}
+
 .neighbor-dot {
   width: 6px;
   height: 6px;
