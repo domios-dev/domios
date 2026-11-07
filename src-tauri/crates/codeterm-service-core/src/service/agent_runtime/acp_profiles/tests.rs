@@ -128,14 +128,15 @@ fn client_capability_overrides_merge_over_the_base_and_follow_the_declaration_ty
 
 #[test]
 fn limits_sources_parse_validate_against_the_profile_and_override_the_base() {
-    let account =
-        request(json!({"name":"plain","binary":"plain-agent","limitsSource":"account:claude"}))
-            .unwrap()
-            .1;
+    let account = request(
+        json!({"name":"plain","binary":"plain-agent","limitsSource":"account:native-fixture"}),
+    )
+    .unwrap()
+    .1;
     assert_eq!(
         account.limits_source,
         Some(RuntimeProfileLimitsSource::Account {
-            provider: "claude".into()
+            provider: "native-fixture".into()
         })
     );
     let balance = request(json!({"name":"plain","binary":"plain-agent","secretEnv":["KEY=domios:provider:acp:key"],"limitsSource":"balance:fixture-balance:KEY"})).unwrap().1;
@@ -151,7 +152,7 @@ fn limits_sources_parse_validate_against_the_profile_and_override_the_base() {
         })
     );
     for bad in [
-        "claude",
+        "native-fixture",
         "account:",
         "account:Two Words",
         "balance:fixture-balance",
