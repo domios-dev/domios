@@ -526,6 +526,8 @@ fn apply(
                     &thread_id,
                     &context.binding_nonce,
                 );
+                // Sends held behind this turn are submitted once, in order, now that it settled.
+                svc.wake_user_owner_on_state_change(&context.tab_id);
             }
         }
         RuntimeEvent::RequestUpdated {

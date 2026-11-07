@@ -34,6 +34,14 @@ use serde::{Deserialize, Serialize};
 const MAX_RESULTS: usize = 256;
 const MAX_IN_FLIGHT: usize = 32;
 
+/// Marks a written prompt the agent refused while busy; it stays unconfirmed and is never resent.
+pub(crate) const RPC_REFUSED_WHILE_BUSY: &str = "agent_refused_while_busy";
+
+/// Later transport classification keeps the refusal note; only exact evidence clears it.
+fn rpc_refusal_note(error: Option<String>) -> Option<String> {
+    error.filter(|error| error.starts_with(RPC_REFUSED_WHILE_BUSY))
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ChatSendState {
@@ -473,7 +481,7 @@ impl ChatSendLedger {
                     ) =>
                 {
                     status.state = ChatSendState::Unknown;
-                    status.error = None;
+                    status.error = rpc_refusal_note(status.error.take());
                     status.pending_reason = None;
                     None
                 }
@@ -490,13 +498,13 @@ impl ChatSendLedger {
                 Ok(()) => {
                     status.pending_reason = None;
                     status.state = ChatSendState::Unknown;
-                    status.error = None;
+                    status.error = rpc_refusal_note(status.error.take());
                     None
                 }
                 Err(error) if error.starts_with("submit_unconfirmed:") => {
                     status.pending_reason = None;
                     status.state = ChatSendState::Unknown;
-                    status.error = None;
+                    status.error = rpc_refusal_note(status.error.take());
                     None
                 }
                 Err(_)
@@ -507,7 +515,7 @@ impl ChatSendLedger {
                 {
                     status.pending_reason = None;
                     status.state = ChatSendState::Unknown;
-                    status.error = None;
+                    status.error = rpc_refusal_note(status.error.take());
                     None
                 }
                 Err(error) => {

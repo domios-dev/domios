@@ -109,10 +109,16 @@ async fn busy_rpc_refusal_of_a_written_prompt_stays_uncertain_until_its_late_ech
             }
             changes.changed().await.unwrap();
         }
-        // A refusal of a written prompt is not proof of non-delivery: no failure, no Retry.
+        // A refusal of a written prompt is not proof of non-delivery: no failure, no Retry,
+        // but the unconfirmed bubble says why it is not pending forever.
         let refused = ledger.status(&record.send_id).unwrap();
         assert_eq!(refused.state, ChatSendState::Unknown);
-        assert_eq!(refused.error, None);
+        let reason = |status: &crate::service::chat_send_transaction::ChatSendStatus| {
+            status.error.as_deref().is_some_and(|error| {
+                error.starts_with(crate::service::chat_send_transaction::RPC_REFUSED_WHILE_BUSY)
+            })
+        };
+        assert!(reason(&refused), "{:?}", refused.error);
         assert_eq!(session.context.lock().active_turn_id.as_deref(), Some("a"));
         assert!(store
             .receipts(&tab)
@@ -121,12 +127,13 @@ async fn busy_rpc_refusal_of_a_written_prompt_stays_uncertain_until_its_late_ech
             .all(|receipt| receipt.state != ReceiptState::Failed));
         // The runtime user drain's own settlement after a written handoff, in its order.
         store.finish_handoff(&record, false).unwrap();
-        assert_eq!(
-            ledger
-                .finish(&record.send_id, Err("submit_unconfirmed: opaque".into()))
-                .unwrap()
-                .state,
-            ChatSendState::Unknown
+        let finished = ledger
+            .finish(&record.send_id, Err("submit_unconfirmed: opaque".into()))
+            .unwrap();
+        assert_eq!(finished.state, ChatSendState::Unknown);
+        assert!(
+            reason(&finished),
+            "late transport classification keeps the reason"
         );
         assert!(store.complete(&record).unwrap());
         let settled = ledger.status(&record.send_id).unwrap();

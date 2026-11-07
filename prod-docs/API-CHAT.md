@@ -15,7 +15,7 @@ Both routes exist as distinct handlers; choosing is route selection.
 
 `POST .../send` carries user text, mesh relays, service push-token writes, and low-level `actions` / `raw` / `batch` input. User text sent while a provider dialog is classified waits in the durable user-send queue until a PTY state change makes delivery safe; agent and programmatic text use the delivery outbox the same way. A failure serializes the delivery taxonomy (`tab_not_reachable_on_peer`, `tab_busy_refused`, `pty_unavailable`, `submit_unconfirmed`).
 
-Local `domios send` uses socket `tab.send_text`: `OK (sent)` after a confirmed write, `OK (pending)` when the route accepted background work or wrote bytes without submit confirmation, a refusal when no bytes were written. A substituted send names its recipient inbox file as `pad_file`; human output prints the path and multi-target JSON reports `pad_files`. With `--json`, `delivery` and any `bytes_written` field carry the same distinction for one target; multi-target JSON includes `pending_written` for accepted writes that still lack submit confirmation. The resolved payload echo is emitted for confirmed delivery or a pending write.
+Local `domios send` uses socket `tab.send_text`: `OK (sent)` after a confirmed write, `OK (pending)` when the route accepted background work, `OK (written; submit unconfirmed)` when it wrote bytes without submit confirmation, a refusal when no bytes were written. A substituted send names its recipient inbox file as `pad_file`; human output prints the path and multi-target JSON reports `pad_files`. With `--json`, `delivery` and any `bytes_written` field carry the same distinction for one target; multi-target JSON includes `pending_written` for accepted writes that still lack submit confirmation. The resolved payload echo is emitted for confirmed delivery or a pending write.
 
 `POST .../chat-send` is the Chat UI user turn. A PTY tab without agent identity is refused before the send transaction so prose never reaches a bare shell. Accepted sends open a ledger entry for later reconciliation; `GET .../chat-send` reads it, `state` one of `accepted`, `unknown`, `confirmed`, `failed`.
 
@@ -23,6 +23,9 @@ Runtime-tab sends retain a Chat send ledger entry. A possible handoff returns
 `delivery:"pending"`, `bytes_written:true`, and `send_id`; this is uncertainty,
 not permission to replay. `GET .../chat-send` reconciles the receipt against exact
 own-session evidence. Other programmatic transports do not open this ledger entry.
+A runtime whose submit spans its turn holds a send that arrives during an active
+turn: it returns `delivery:"pending"`, `bytes_written:false` and `send_id`, stays
+queued, and is written once when that turn settles. Do not resend it.
 
 Neither route promises the recipient *answered*. Replies come through the sender's return-address channel (`domios send --tab ID [--mesh PEER]`, or `domios agent report` for a Worker). The recipient's visible terminal text is never a delivery signal.
 
@@ -91,4 +94,4 @@ Chat requests use the target tab's owned session. Bridge thread changes require 
 | POST | `/api/tabs/{id}/chat-raw/resume` | Resume raw chat streaming. |
 | POST | `/api/tabs/{id}/chat-send/admissions` | Read admission results for submitted chat sends. |
 
-<!-- revision: 11 -->
+<!-- revision: 12 -->

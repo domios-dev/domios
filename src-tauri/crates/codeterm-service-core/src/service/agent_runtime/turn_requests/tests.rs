@@ -821,6 +821,7 @@ async fn silent_reply_settlement_follows_the_retirement_marker() {
     .expect("settlement waits must follow request retirement without sleeps");
 }
 
+mod active_turn_hold;
 mod busy_refusal;
 #[path = "tests/cancelled_delivery.rs"]
 mod cancelled_delivery;
