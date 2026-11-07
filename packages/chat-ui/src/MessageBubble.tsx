@@ -71,6 +71,8 @@ interface MessageBubbleProps {
   onContentLayout?: () => void;
   showTimestamp?: boolean;
   userFooter?: React.ReactNode;
+  /** A system notice's own send state, shown in its header while the body stays collapsed. */
+  noticeStatus?: React.ReactNode;
   userProgress?: React.ReactNode;
   item?: TimelineItem;
   isLatestFailedToolCall?: boolean;
@@ -124,7 +126,7 @@ function recordBubbleRender(id: string): void {
   counts[id] = (counts[id] ?? 0) + 1;
 }
 
-const MessageBubbleContent = React.memo(function MessageBubbleContent({ message, streaming, onContentLayout, userFooter, userProgress, item, origin, originAvatar, onOriginClick, resolveTabName, resolvePeerName, onFocusTab, onOpenPlan, resolvePlanRef, fontScale, onRerunShellCommand, onJumpToShellCommand, onStopReminder, onOpenJobs, onJumpToMessage }: MessageBubbleProps) {
+const MessageBubbleContent = React.memo(function MessageBubbleContent({ message, streaming, onContentLayout, userFooter, noticeStatus, userProgress, item, origin, originAvatar, onOriginClick, resolveTabName, resolvePeerName, onFocusTab, onOpenPlan, resolvePlanRef, fontScale, onRerunShellCommand, onJumpToShellCommand, onStopReminder, onOpenJobs, onJumpToMessage }: MessageBubbleProps) {
   const dsScope = useContext(DsRenderContext);
   const sourceIdentity = `${dsScope.authority}:${message.sourceSessionId ?? ""}:${message.sourceMessageId ?? message.id}:${message.contextEpoch ?? 0}`;
   const source = useMemo(() => ({ authority: sourceIdentity, text: message.content }), [sourceIdentity, message.content]);
@@ -230,6 +232,7 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
           expanded={expanded}
           onToggle={() => setExpandedPersistent(!expanded)}
           bodyClassName={`${userText} ${TEXT_WRAP_CLASS}`}
+          status={prompt ? undefined : noticeStatus}
         >
           {reminder
             ? <CompactMessageContent text={reminder.text} fontScale={fontScale} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} collapseAfter={Number.POSITIVE_INFINITY} />

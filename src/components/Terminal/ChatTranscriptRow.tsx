@@ -62,6 +62,7 @@ export interface ChatTranscriptRowProps {
   hideMessage?: boolean;
   deliverySend?: DeliverySend;
   deliveryView?: DeliveryState;
+  deliveryBehindTurn?: boolean;
   sourceOrdinal?: number;
   selected: boolean;
   joinNext: boolean;
@@ -124,9 +125,11 @@ function sameRowProps(left: ChatTranscriptRowProps, right: ChatTranscriptRowProp
 
 /** One transcript row; it renders again only when its own message, rails, delivery or selection change. */
 export const ChatTranscriptRow = memo(function ChatTranscriptRow({ entry, daySeparator, originProps, reports, asks, liveActivityLabel, hideMessage,
-  deliverySend, deliveryView, sourceOrdinal, selected, joinNext, selecting, cursor, streaming, latestFailedToolCall,
+  deliverySend, deliveryView, deliveryBehindTurn, sourceOrdinal, selected, joinNext, selecting, cursor, streaming, latestFailedToolCall,
   forkable, revertible, ariaLabel, context }: ChatTranscriptRowProps) {
   const { msg, item, origin } = entry;
+  const pendingDelivery = deliverySend && deliveryView && deliveryView !== "delivered";
+  const onRetry = deliverySend && canRetryChatSend(deliverySend) ? () => context.retrySend(deliverySend.id) : undefined;
   const message = useMemo(() => context.promptAnswers ? msg : { ...msg, interactive: [] }, [msg, context.promptAnswers]);
   const turnId = msg.toolFlowId;
   return (
@@ -155,9 +158,12 @@ export const ChatTranscriptRow = memo(function ChatTranscriptRow({ entry, daySep
             userProgress={deliveryView === "sending" && Boolean(deliverySend?.draft?.recordedVoiceAttachments.length)
               ? <VoiceTranscriptionProgress /> : undefined}
             userFooter={deliverySend ? <>
-              {deliveryView && deliveryView !== "delivered" && <ChatDeliveryState state={deliveryView} error={deliverySend.status?.error} onRetry={canRetryChatSend(deliverySend) ? () => context.retrySend(deliverySend.id) : undefined} />}
+              {pendingDelivery && <ChatDeliveryState state={deliveryView} error={deliverySend.status?.error} queuedBehindTurn={deliveryBehindTurn} onRetry={onRetry} />}
               <DroppedUploadNotice tabId={context.tabId} id={deliverySend.id} names={deliverySend.droppedUploads} />
             </> : undefined}
+            noticeStatus={pendingDelivery
+              ? <ChatDeliveryState inline state={deliveryView} error={deliverySend.status?.error} queuedBehindTurn={deliveryBehindTurn} onRetry={onRetry} />
+              : undefined}
             item={item.kind === "tool" ? item : undefined}
             isLatestFailedToolCall={latestFailedToolCall}
             origin={originProps?.origin ?? origin}

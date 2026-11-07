@@ -12,7 +12,7 @@ explicit profile; a model id does not select an agent executable.
 
 | Profile | Requirements and setup |
 |---|---|
-| `gemini-cli` | Install Gemini CLI separately so Domios can resolve `gemini`. The profile starts `gemini --acp` from a Domios-owned folder while its sessions open in the tab's folder, so the chat cleanup Gemini runs on each start never deletes another Gemini tab's saved session; your own `~/.gemini` settings are not changed. A resumed session reads your user settings but not the project's `.gemini/settings.json`. A `gemini` you start yourself in that project can still prune Domios sessions it cannot resume, such as one that has no messages yet. Authenticate using the agent's declared methods below. There is no built-in installer for this profile. |
+| `gemini-cli` | Install Gemini CLI separately so Domios can resolve `gemini`. The profile starts `gemini --acp` from a Domios-owned folder while its sessions open in the tab's folder, so the chat cleanup Gemini runs on each start never deletes another Gemini tab's saved session; your own `~/.gemini` settings are not changed. Gemini labels its shell rows `[current working directory …]` with that Domios-owned launch folder, because the label comes from Gemini's own process; the commands still run in the tab's project folder. A resumed session reads your user settings but not the project's `.gemini/settings.json`. A `gemini` you start yourself in that project can still prune Domios sessions it cannot resume, such as one that has no messages yet. Authenticate using the agent's declared methods below. There is no built-in installer for this profile. |
 | `deepseek-harness` | In the Spawn picker, select ACP and this profile, choose **Install profile**, confirm the exact package, then **Confirm setup**. The pinned package is `@deepseek-ai/dsh@0.2.1-rc.5`, with `--profile acp`. Installation requires Node.js, npm and access to the npm registry. The installed runtime uses Node and the installed script, rather than fetching a package on every launch. |
 | `local` | An owner-confirmed installed ACP executable and argument array. Configure it through the Spawn picker as described below. The placeholder `local-acp-command` is not an installed agent. |
 
@@ -292,4 +292,4 @@ It can also cancel a turn waiting for a permission response.
   the current index and refuses unsupported distributions; neither proves agent
   authentication or compatibility.
 
-<!-- revision: 7 -->
+<!-- revision: 8 -->

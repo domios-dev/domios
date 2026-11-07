@@ -27,6 +27,15 @@ test("absent timestamps do not fabricate placement or delivery", () => {
   assert.deepEqual(placePendingSends([row("unknown")], sends).map((item) => item.id), ["unknown", "written", "held"]);
 });
 
+test("a held send waits after the running turn instead of splitting it at its send time", () => {
+  const turn = [row("user-turn", -1000), row("tool-before", -500), row("tool-after", 500), row("still-streaming", 1500)];
+  const held = { ...send("held", 0), held: true };
+  assert.deepEqual(placePendingSends(turn, [held]).map((item) => item.id),
+    ["user-turn", "tool-before", "tool-after", "still-streaming", "held"]);
+  const queue = [held, { ...send("held-later", 1000), held: true }];
+  assert.deepEqual(placePendingSends(turn, queue).map((item) => item.id).slice(-2), ["held", "held-later"]);
+});
+
 test("only an explicit flow anchor places a send inside the flow", () => {
   const later = [row("old", -1), row("new", 1), row("newer", 2)];
   const unanchored = [{ id: "pending", content: "pending", sentAtMs: at }];
