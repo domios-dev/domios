@@ -55,6 +55,14 @@
     {"name": "default carries an undeclared field", "valid": false,
      "registryDefaults": {"fixture-acp": {"limitsSource": {"kind": "account", "provider": "fixture-native"}, "icon": "fixture.svg"}}},
     {"name": "default is not an object", "valid": false,
-     "registryDefaults": {"fixture-acp": "account:fixture-native"}}
+     "registryDefaults": {"fixture-acp": "account:fixture-native"}},
+    {"name": "a declared full-access session mode", "valid": true,
+     "registryDefaults": {"fixture-acp": {"fullAccessMode": "opaque-approve-all"}}},
+    {"name": "an empty full-access session mode", "valid": false,
+     "registryDefaults": {"fixture-acp": {"fullAccessMode": ""}}},
+    {"name": "a full-access session mode with a control character", "valid": false,
+     "registryDefaults": {"fixture-acp": {"fullAccessMode": "opaque\napprove"}}},
+    {"name": "a full-access session mode that is not a string", "valid": false,
+     "registryDefaults": {"fixture-acp": {"fullAccessMode": true}}}
   ]
 }

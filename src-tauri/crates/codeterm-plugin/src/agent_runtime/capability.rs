@@ -53,6 +53,15 @@ pub struct RuntimeLaunchProfile {
     pub client_capabilities: Option<RuntimeProfileClientCapabilities>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limits_source: Option<super::RuntimeProfileLimitsSource>,
+    /// The agent's own session mode that approves every action, applied to full-access launches.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub full_access_mode: Option<String>,
+}
+
+impl RuntimeLaunchProfile {
+    pub fn valid_session_mode(mode: &str) -> bool {
+        (1..=128).contains(&mode.chars().count()) && !mode.chars().any(char::is_control)
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -132,6 +141,10 @@ pub struct AgentRuntimeCapability {
     pub restricted_cli: Option<RestrictedCliCapability>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub runtime_modes: Vec<RuntimeModeDescriptor>,
+    /// Agent permission requests carry declared option kinds, so the host answers them from the
+    /// launch policy and a full-access launch needs no command-line flag.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub host_approvals: bool,
     #[serde(default)]
     pub service_tiers: Vec<super::RuntimeServiceTier>,
     #[serde(default)]

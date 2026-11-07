@@ -59,6 +59,8 @@ fn valid_reason(reason: &str) -> bool {
 pub struct RuntimeRegistryDefaults {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limits_source: Option<RuntimeProfileLimitsSource>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub full_access_mode: Option<String>,
 }
 
 /// Registry ids follow the registry's own identity rule; a default must hold for a profile
@@ -73,6 +75,10 @@ pub fn valid_registry_defaults(
                     .limits_source
                     .as_ref()
                     .is_none_or(|source| source.valid_with(|_| false))
+                && entry
+                    .full_access_mode
+                    .as_deref()
+                    .is_none_or(RuntimeLaunchProfile::valid_session_mode)
         })
 }
 
@@ -84,19 +90,23 @@ pub fn valid_registry_id(id: &str) -> bool {
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
 }
 
-/// A profile's own source wins; otherwise the default its registry id declares, if it holds.
+/// A profile's own declarations win; otherwise the defaults its registry id declares, if they hold.
 pub fn resolve_registry_defaults(
     profile: &mut RuntimeLaunchProfile,
     defaults: &std::collections::BTreeMap<String, RuntimeRegistryDefaults>,
 ) {
-    if profile.limits_source.is_some() {
+    let Some(declared) = profile.registry_id.as_ref().and_then(|id| defaults.get(id)) else {
         return;
+    };
+    if profile.full_access_mode.is_none() {
+        profile.full_access_mode = declared.full_access_mode.clone();
     }
-    profile.limits_source = profile
-        .registry_id
-        .as_ref()
-        .and_then(|id| defaults.get(id)?.limits_source.clone())
-        .filter(|source| source.valid_for(profile));
+    if profile.limits_source.is_none() {
+        profile.limits_source = declared
+            .limits_source
+            .clone()
+            .filter(|source| source.valid_for(profile));
+    }
 }
 
 /// The account-id key under which a profile's plugin-read balance is stored.
