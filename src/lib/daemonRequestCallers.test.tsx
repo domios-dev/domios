@@ -17,7 +17,7 @@ vi.mock("./bridge", async importOriginal => ({
   IS_WEB: false,
   listen: vi.fn(async () => () => {}),
 }));
-vi.mock("../store/multiplexer/hooks", () => ({ useMuxState: () => ({ workspaces: [] }) }));
+vi.mock("../store/multiplexer/hooks", () => ({ useMuxState: () => ({ workspaces: [] }), useMultiplexer: () => ({ selectTabByTab: async () => {} }) }));
 vi.mock("../components/AgentRun/useAgentRunStream", () => ({
   useAgentRunStream: () => ({ events: [], rawLines: [], connected: false, error: null }),
 }));

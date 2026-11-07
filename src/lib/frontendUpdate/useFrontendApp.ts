@@ -44,7 +44,8 @@ export function useFrontendApp(selection: FrontendSelection): boolean {
       setRestored(true);
       return;
     }
-    if (selection.pageSnapshot && selection.workspaceId) {
+    // Every client remembers its own selection so a reload restores where this client was.
+    if (selection.workspaceId) {
       if (savedSelection.current?.workspaceId !== selection.workspaceId || savedSelection.current?.tabId !== selection.tabId) {
         savedSelection.current = { workspaceId: selection.workspaceId, tabId: selection.tabId };
         saveClientPageSelection(savedSelection.current);

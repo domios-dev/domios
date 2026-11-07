@@ -406,6 +406,7 @@ pub(super) fn create_router_with_preview_admission(
         )
         .merge(super::runtime_login::router())
         .merge(super::tab_todo_routes::router())
+        .merge(super::client_selection_routes::router())
         .route(
             "/api/tabs/{id}/agent/runtime/retry",
             post(web_routes::agent_runtime_retry),

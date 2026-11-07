@@ -127,7 +127,7 @@
     "mux_set_active_workspace": [
       [
         "POST",
-        "/api/workspaces/workspace/focus"
+        "/api/workspaces/workspace/select"
       ]
     ],
     "mux_create_workspace": [
@@ -163,17 +163,13 @@
     "mux_set_active_tab": [
       [
         "POST",
-        "/api/workspaces/workspace/tabs/tab/focus"
+        "/api/workspaces/workspace/tabs/tab/select"
       ]
     ],
     "mux_set_active_tab_and_workspace": [
       [
         "POST",
-        "/api/workspaces/workspace/focus"
-      ],
-      [
-        "POST",
-        "/api/workspaces/workspace/tabs/tab/focus"
+        "/api/workspaces/workspace/tabs/tab/select"
       ]
     ],
     "mux_close_tab": [
@@ -246,7 +242,7 @@
     "mux_set_focused_tab": [
       [
         "POST",
-        "/api/tabs/tab/focus"
+        "/api/tabs/tab/select"
       ]
     ],
     "mux_respond_prompt": [
