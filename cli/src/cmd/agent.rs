@@ -818,7 +818,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                         )
                     })
             };
-            let attempt_id = required_env("CODETERM_STARTUP_ATTEMPT_ID");
+            let attempt_id = crate::nonempty_env("CODETERM_STARTUP_ATTEMPT_ID");
             let binding_nonce = required_env("CODETERM_SESSION_BINDING_NONCE");
             handle_result(
                 json,

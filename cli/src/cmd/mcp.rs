@@ -2,7 +2,7 @@ use serde_json::{json, Value};
 use std::io::{BufRead, Read, Write};
 
 mod tools;
-use tools::{tool_args, tools};
+use tools::{launch_args, tool_args, tools};
 
 const MAX_FRAME: u64 = 1024 * 1024;
 const STARTUP_REFUSED: &str =
@@ -51,6 +51,7 @@ pub fn serve(tab: &str, nonce: &str, mesh: Option<&str>) {
         std::process::exit(7);
     }
     let token = crate::nonempty_env("CODETERM_API_TOKEN").unwrap_or_default();
+    let task_bound = crate::nonempty_env("CODETERM_TASK_ID").is_some();
     let executable = match std::env::current_exe() {
         Ok(path) => path,
         Err(_) => {
@@ -64,7 +65,7 @@ pub fn serve(tab: &str, nonce: &str, mesh: Option<&str>) {
         &token,
         |args| {
             let mut command = std::process::Command::new(&executable);
-            command.args(args);
+            command.args(launch_args(args.to_vec(), task_bound));
             let output = codeterm_util::process_util::bounded_output(
                 command,
                 std::time::Duration::from_secs(60),
