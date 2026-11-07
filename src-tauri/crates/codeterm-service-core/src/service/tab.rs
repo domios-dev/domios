@@ -543,6 +543,12 @@ impl ServiceContext {
             |focused| self.emit_tab_focus_changed(focused),
             || self.schedule_focused_tab_model_refresh(),
         )?;
+        self.wake_opened_tab(tab_id);
+        Ok(())
+    }
+
+    /// A tab someone opened wakes from lazy restore off the request path.
+    pub(super) fn wake_opened_tab(&self, tab_id: &str) {
         let target = {
             let mux = self.mux.read();
             mux.resolve_tab_id(tab_id).filter(|id| {
@@ -558,7 +564,6 @@ impl ServiceContext {
                 }
             });
         }
-        Ok(())
     }
 
     pub fn link_pty(&self, tab_id: &str, pty_id: String) -> Result<String, String> {

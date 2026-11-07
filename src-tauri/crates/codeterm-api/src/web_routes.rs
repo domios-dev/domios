@@ -156,7 +156,7 @@ pub async fn tab_focus(
             .map_err(|e| (StatusCode::NOT_FOUND, e))?;
         state
             .svc
-            .focus_tab(&tab_id)
+            .request_tab_focus(&tab_id)
             .map_err(|e| (StatusCode::NOT_FOUND, e))?;
         Ok(Json(serde_json::json!({"ok": true})))
     })
