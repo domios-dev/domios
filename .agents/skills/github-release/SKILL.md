@@ -205,6 +205,9 @@ merge to master stay separate steps.
 The store endpoint is defined once in `scripts/ci-store.sh`. When a CI job finds it unreachable,
 `ci-artifact.sh put` spools the file with a warning and the job's `ci-artifact-spool` action uploads
 it as a run artifact; `get`/`get-prefix` read `<run-id>/...` keys back from that run's artifacts.
+`put` re-probes the store once before spooling. Once the store is back, reads return store and spooled
+objects together; a key present in both takes the newest copy (store LastModified against artifact
+`created_at`) and stops with `copy_order_ambiguous` when the two lie within the clock-skew bound.
 `manifest-local-verification.json` records `retained_via` and a per-file `location`. Rust jobs then
 compile with a job-local sccache that `build.sh cache-release` stops at job end. A reachable store
 that refuses a request, and any digest or signature mismatch, still fail.
