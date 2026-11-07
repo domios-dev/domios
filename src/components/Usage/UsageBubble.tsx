@@ -4,7 +4,7 @@ import {invoke} from "../../lib/bridge";
 import {DEV_BUILD} from "../../lib/devBuild";
 import {resetCreditsForTab, type ResetResponse} from "./resetCreditsModel";
 import {ResetCreditsSection} from "./ResetCreditsSection";
-import { accountUsageSnapshot, ownRuntimeUsage, latestUsageSnapshot, runtimeTokenLabel, runtimeTokenBreakdown, runtimeAccountCreditsLabel } from "./runtimeUsage";
+import { accountRuntimeUsage, accountUsageSnapshot, ownRuntimeUsage, latestUsageSnapshot, runtimeTokenLabel, runtimeTokenBreakdown, runtimeAccountCreditsLabel } from "./runtimeUsage";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useUsageSnapshot } from "../../hooks/useUsageSnapshot";
 import { useProviderModelUsageState } from "../../hooks/useProviderModelUsage";
@@ -82,7 +82,9 @@ export function UsageBubble({
   const active = borrowedAccount ? accountUsageSnapshot(snapshot) : runtime || snapshot?.runtime_usage
     ? latestUsageSnapshot(snapshot, tabId, threadId)
     : groupSnapshot ?? snapshot;
-  const accountCreditsLabel = runtimeAccountCreditsLabel(runtime?.account_credits);
+  // The reading whose account rows (credits, session resets) this popover shows; a borrowing tab shows the native tab's.
+  const accountReading = borrowedAccount ? accountRuntimeUsage(snapshot) : runtime;
+  const accountCreditsLabel = runtimeAccountCreditsLabel(accountReading?.account_credits);
   const [, updateAge] = useState(0);
   const refreshAge = () => updateAge(value => value + 1);
   useEffect(() => {
@@ -165,6 +167,11 @@ export function UsageBubble({
         ? "warn"
         : "neutral";
 
+  // A borrowing tab shows the account's resets read-only: redeeming acts on the native tab's runtime.
+  const resetSection = tabId && accountReading
+    ? <ResetCreditsSection resets={active.resets} model={borrowedAccount ? null : resetModel} />
+    : undefined;
+
   const refreshUsage = async () => {
     if (groupSnapshot) {
       refreshModelUsage();
@@ -236,7 +243,7 @@ export function UsageBubble({
         <UsageSpendDetail
           snapshot={active}
           accountCreditsLabel={accountCreditsLabel}
-          resetSection={tabId && runtime && resetModel ? <ResetCreditsSection resets={active.resets} model={resetModel} /> : undefined}
+          resetSection={resetSection}
           onRefresh={refreshUsage}
           onOpenHistory={() => {
             setHistoryOpen(true);
@@ -249,7 +256,7 @@ export function UsageBubble({
         <UsageDetail
           snapshot={active}
           accountCreditsLabel={accountCreditsLabel}
-          resetSection={tabId && runtime && resetModel ? <ResetCreditsSection resets={active.resets} model={resetModel} /> : undefined}
+          resetSection={resetSection}
           onRefresh={refreshUsage}
           onOpenHistory={() => {
             setHistoryOpen(true);
