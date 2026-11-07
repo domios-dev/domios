@@ -13,7 +13,7 @@ fn diagnostic(text: &str) -> String {
 }
 
 fn resume_reason(name: &str, cause: &str) -> String {
-    let cause = cause.strip_prefix("Provider refused: ").unwrap_or(cause);
+    let cause = cause.trim_start_matches(super::model::REFUSED_PREFIX);
     if cause.contains(" could not resume the session: ") {
         return diagnostic(cause);
     }

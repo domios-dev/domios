@@ -141,6 +141,91 @@ fn restored_unbound_start_remints_fresh_restart_authority() {
 }
 
 #[test]
+fn explicit_restart_retries_a_restored_refused_resume_that_automatic_restarts_leave_blocked() {
+    const CAUSE: &str = "Fixture could not resume the session: opaque install refusal";
+    let fixture = RuntimeFixture::prepared(SOURCE, true);
+    {
+        let mut mux = fixture.service.mux.write();
+        let tab = mux.get_tab_mut(&fixture.tab).unwrap();
+        tab.restored_from_snapshot = true;
+        tab.agent_runtime_state = Some(json!({"state":"degraded","epoch":1,
+            "failureCode":"provider_refused","reason":format!("Provider refused: Provider refused: {CAUSE}")}));
+    }
+    assert!(agent_runtime::engine::for_tab(&fixture.tab).is_none());
+    let retained = |fixture: &RuntimeFixture| {
+        let mux = fixture.service.mux.read();
+        let state = mux
+            .get_tab(&fixture.tab)
+            .unwrap()
+            .agent_runtime_state
+            .clone()
+            .unwrap();
+        (
+            state["state"].clone(),
+            state["failureCode"].clone(),
+            state["reason"].clone(),
+        )
+    };
+    let clear_cooldown = |fixture: &RuntimeFixture| {
+        fixture
+            .service
+            .ext::<crate::service::agent_restart::RestartTracker>()
+            .lock()
+            .last_restart
+            .remove(&fixture.tab);
+    };
+    for _ in 0..2 {
+        assert!(
+            crate::async_runtime::block_on(agent_runtime::engine::ensure(
+                &fixture.service,
+                &fixture.tab
+            ))
+            .is_err()
+        );
+        clear_cooldown(&fixture);
+        assert!(matches!(
+            fixture.service.agent_restart_observed_with_options(&fixture.tab, RestartOptions::default()),
+            Err(RestartAttemptError::Failed { ref reason, .. }) if *reason == format!("Provider refused: {CAUSE}")
+        ));
+        assert_eq!(
+            retained(&fixture),
+            (
+                json!("degraded"),
+                json!("provider_refused"),
+                json!(format!("Provider refused: {CAUSE}"))
+            )
+        );
+    }
+    assert!(fixture.requests().is_empty());
+    clear_cooldown(&fixture);
+    let outcome = fixture
+        .service
+        .agent_restart_observed_with_options(
+            &fixture.tab,
+            RestartOptions {
+                retry_refused_start: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    assert!(outcome.agent_ready);
+    assert_eq!(outcome.session_id.as_deref(), Some("own-thread"));
+    let requests = fixture.requests();
+    let resumed: Vec<_> = requests
+        .iter()
+        .filter(|frame| frame["method"] == "resumeThread")
+        .collect();
+    assert_eq!(resumed.len(), 1);
+    assert_eq!(resumed[0]["params"]["threadId"], "own-thread");
+    assert!(requests.iter().all(|frame| frame["method"] != "openThread"));
+    let session = agent_runtime::engine::for_tab(&fixture.tab).unwrap();
+    assert!(session
+        .thread_loaded
+        .load(std::sync::atomic::Ordering::Acquire));
+    assert_eq!(retained(&fixture).0, json!("loaded"));
+}
+
+#[test]
 fn unbound_recovery_requires_exact_unbound_runtime_shape() {
     let fixture = RuntimeFixture::prepared(SOURCE, true);
     clear_thread(&fixture);

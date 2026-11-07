@@ -8,6 +8,9 @@ pub struct RestartOptions {
     pub target_provider: Option<String>,
     pub handoff_history: bool,
     pub fresh: bool,
+    /// An explicit request relaunches a runtime whose last start the provider refused;
+    /// automatic restarts leave that refusal blocking.
+    pub retry_refused_start: bool,
 }
 
 impl ServiceContext {
@@ -27,6 +30,7 @@ impl ServiceContext {
             target_provider,
             handoff_history,
             fresh,
+            retry_refused_start,
         } = options;
         let (resolved, current_provider, backing) = {
             let mux = self.mux.read();
@@ -61,7 +65,7 @@ impl ServiceContext {
                     )
                     .into());
                 }
-                return self.restart_runtime_agent(&resolved, force, fresh);
+                return self.restart_runtime_agent(&resolved, force, fresh, retry_refused_start);
             }
         }
         if fresh {

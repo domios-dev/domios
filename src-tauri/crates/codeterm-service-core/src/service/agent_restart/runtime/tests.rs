@@ -793,7 +793,7 @@ fn locked_tab_refuses_restart_switch_runtime_and_shared_launch_before_side_effec
     let svc = &fixture.service;
     for result in [
         svc.agent_restart_observed_with_options(&tab, RestartOptions::default()),
-        svc.restart_runtime_agent(&tab, true, false),
+        svc.restart_runtime_agent(&tab, true, false, true),
     ] {
         assert!(
             matches!(result, Err(RestartAttemptError::Request(AgentRestartError::BadRequest(ref message))) if message.starts_with("plan_limit_locked: "))
