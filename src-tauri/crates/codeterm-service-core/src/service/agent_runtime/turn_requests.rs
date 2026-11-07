@@ -402,6 +402,7 @@ pub(super) async fn run(
         }
         runtime.turn_requests.lock().remove(&send);
         runtime.control_changes.send_replace(());
+        owner.wake_user_owner_on_state_change(&pending.context.tab_id);
     });
     loop {
         if let Some(result) = outcome.borrow_and_update().clone() {
@@ -655,6 +656,32 @@ pub(super) fn waiting(session: &Session, epoch: u64) -> bool {
         .lock()
         .values()
         .any(|pending| pending.context.epoch == epoch && !pending.settled.load(Ordering::Acquire))
+}
+
+pub(crate) const ACTIVE_TURN_HOLD: &str = "held_active_turn";
+
+/// A declared turn-scoped submit owns its turn until its reply, so another submit while a turn
+/// is outstanding would be a concurrent prompt the runtime never declared it accepts.
+pub(crate) fn holds_new_submit(session: &Session) -> bool {
+    let turn_scoped = session
+        .adapter
+        .lock()
+        .clone()
+        .and_then(|adapter| adapter.agent_runtime())
+        .is_some_and(|capability| {
+            capability
+                .turn_scoped_requests
+                .iter()
+                .any(|kind| kind == "submitTurn")
+        });
+    if !turn_scoped {
+        return false;
+    }
+    let (active, epoch) = {
+        let context = session.context.lock();
+        (context.active_turn_id.is_some(), context.epoch)
+    };
+    active || waiting(session, epoch)
 }
 
 pub(super) async fn cancel_timed_out(

@@ -80,7 +80,7 @@ pub fn analyze_send_text_response(value: &serde_json::Value) -> SendTextOutcome 
                     .and_then(serde_json::Value::as_str)
                     .is_some()
                 {
-                    "send is retained and may still be written; do not resend; inspect its status"
+                    "send is queued and not written yet; it may still be written once; do not resend; inspect its status"
                 } else {
                     "send has not been written"
                 }
@@ -113,16 +113,27 @@ pub fn analyze_send_text_response(value: &serde_json::Value) -> SendTextOutcome 
     if value.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
         return match value.get("delivery").and_then(serde_json::Value::as_str) {
             Some("sent") => SendTextOutcome::Success("OK (sent)".to_string()),
-            _ => SendTextOutcome::Pending {
-                message: "OK (pending)".to_string(),
-                bytes_written: value
+            _ => {
+                let bytes_written = value
                     .get("bytes_written")
                     .and_then(serde_json::Value::as_bool)
-                    .unwrap_or(false),
-            },
+                    .unwrap_or(false);
+                SendTextOutcome::Pending {
+                    message: pending_message(bytes_written).to_string(),
+                    bytes_written,
+                }
+            }
         };
     }
     SendTextOutcome::Other
+}
+
+fn pending_message(bytes_written: bool) -> &'static str {
+    if bytes_written {
+        "OK (written; submit unconfirmed)"
+    } else {
+        "OK (pending)"
+    }
 }
 
 fn write_send_text_failure(
@@ -512,7 +523,10 @@ fn send_text_to_targets(
             println!("OK (sent) {tab_id}");
         }
         for tab_id in &pending {
-            println!("OK (pending) {tab_id}");
+            println!(
+                "{} {tab_id}",
+                pending_message(pending_written.contains(tab_id))
+            );
         }
         for entry in &pad_files {
             if let (Some(tab), Some(path)) = (entry["tab"].as_str(), entry["path"].as_str()) {

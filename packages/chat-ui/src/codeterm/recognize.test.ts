@@ -90,6 +90,7 @@ const sent = recognize('codeterm send --tab bda0e267 "hi there"')!;
 eq(renderTemplate(sent).title, "Sent to tab bda0e267", "send title");
 eq(renderTemplate(sent, "OK (sent)").status, { ok: true, label: "sent" }, "send status from result");
 eq(renderTemplate(sent, "OK (pending)").status, { ok: false, label: "pending", pending: true }, "pending send status is not delivered");
+eq(renderTemplate(sent, "OK (written; submit unconfirmed)").status, { ok: false, label: "submit_unconfirmed", pending: true }, "written unconfirmed send is not delivered");
 
 const sendAlias = recognize('codeterm send --tab keats "Привет от send"')!;
 eq(renderTemplate(sendAlias).title, "Sent to tab keats", "send title from renamed command");

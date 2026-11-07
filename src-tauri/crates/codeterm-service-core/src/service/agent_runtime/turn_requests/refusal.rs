@@ -8,8 +8,8 @@ pub(super) async fn apply(
     reason: &codeterm_plugin::agent_runtime::RuntimeFailure,
     before_acceptance: bool,
 ) -> Result<(), RuntimeFailure> {
-    // The prompt was already written, and a busy agent may still record it, so this refusal
-    // settles the request as uncertain: no Retry, and late own-session evidence still delivers it.
+    // A busy agent may still record the written prompt, so the refusal settles it as uncertain with
+    // a visible reason: no Retry, and late own-session evidence still delivers it.
     if !eligible(
         reply,
         reason.code,
@@ -44,6 +44,10 @@ pub(super) async fn apply(
     );
     pending.refused.store(true, Ordering::Release);
     pending.settled.store(true, Ordering::Release);
+    let status = svc
+        .chat_send_ledger
+        .note_rpc_refused_while_busy(&pending.send_id)
+        .unwrap_or(status);
     svc.ui.emit(
         "chat-send-status",
         serde_json::to_value(status).unwrap_or_default(),

@@ -553,6 +553,24 @@ test("runtime image capability refusal is visible inside its retained bubble", a
   } finally { await act(async () => root.unmount()); host.remove(); }
 });
 
+test("a written prompt the agent refused while busy says so without offering Retry", async () => {
+  const tabId = "runtime-busy-refusal";
+  const { host, root, dispatch } = await renderChat(tabId);
+  try {
+    await act(async () => addChatSend(tabId, { id: "busy-refused", correlationId: "busy-refused",
+      content: "opaque-busy-message", sentAtMs: Date.now() }));
+    const reason = "opaque-refusal-reason";
+    await act(async () => dispatch("chat-send-status", { tab_id: tabId, send_id: "busy-refused", correlationId: "busy-refused",
+      state: "submit_unconfirmed", error: `agent_refused_while_busy: ${reason}`, sequence: 1, ledger_id: "ledger", retained_from: 1 }));
+    const bubble = host.querySelector('[data-testid="chat-message"][data-message-role="user"]');
+    const status = bubble?.querySelector('[role="status"]');
+    assert(status?.getAttribute("data-state") === "uncertain", "the refused written prompt stays unconfirmed");
+    assert(status?.textContent?.includes(reason), "the refusal reason reaches the bubble status");
+    assert(![...(bubble?.querySelectorAll("button") ?? [])].some((button) => button.textContent === "Retry"),
+      "written input never offers Retry");
+  } finally { await act(async () => root.unmount()); host.remove(); }
+});
+
 test("one bubble follows event state and Retry reuses it", async () => {
   const tabId = "bubble-delivery-states";
   const { __setInvokeForTest } = await import("../../lib/bridge");

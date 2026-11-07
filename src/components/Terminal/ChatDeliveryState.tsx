@@ -10,8 +10,9 @@ const LABEL: Record<Exclude<DeliveryState, "delivered">, string> = {
 
 export function ChatDeliveryState({ state, error, onRetry }: { state: DeliveryState; error?: string | null; onRetry?: () => void }) {
   if (state === "delivered") return null;
-  const refusalMarker = "runtime_rejected_before_write:";
-  const refusal = state === "failed" && error?.includes(refusalMarker)
+  const refusalMarker = state === "failed" ? "runtime_rejected_before_write:"
+    : state === "uncertain" ? "agent_refused_while_busy:" : null;
+  const refusal = refusalMarker && error?.includes(refusalMarker)
     ? error.slice(error.indexOf(refusalMarker) + refusalMarker.length).trim() : null;
   const label = refusal || LABEL[state];
   return <span role="status" aria-live="polite" className="ct-delivery" data-state={state} title={label}>

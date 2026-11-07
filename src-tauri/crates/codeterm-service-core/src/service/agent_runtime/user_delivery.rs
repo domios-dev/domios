@@ -150,6 +150,18 @@ pub(crate) fn drain(svc: &ServiceContext, tab: &str) -> Result<UserDrain, String
         if !is_ready(svc, &record.authority) || !store.eligible(&record) {
             return Ok(UserDrain::Idle);
         }
+        if super::turn_requests::holds_new_submit(&session) {
+            if let Some(status) = svc.chat_send_ledger.set_user_pending_reason(
+                &record.send_id,
+                Some(super::turn_requests::ACTIVE_TURN_HOLD),
+            ) {
+                svc.ui.emit(
+                    "chat-send-status",
+                    serde_json::to_value(status).unwrap_or_default(),
+                );
+            }
+            return Ok(UserDrain::Idle);
+        }
         if record.capture_required && !super::capture::valid(svc, tab, &record.send_id) {
             if store.discard_queued_from_ended_launch(&record)? {
                 if let Some(status) = svc.chat_send_ledger.expire_owned_before_write(

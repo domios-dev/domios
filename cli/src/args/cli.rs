@@ -224,7 +224,9 @@ pub enum Commands {
         ///   EOF
         ///
         /// A local background route reports `OK (pending)` after accepting
-        /// work; `OK (sent)` means the selected route completed its write.
+        /// work and `OK (written; submit unconfirmed)` after a write that still
+        /// lacks submit confirmation; `OK (sent)` means the selected route
+        /// completed its write.
         /// Neither status waits for the agent to answer.
         #[arg(long, visible_alias = "from-stdin", conflicts_with = "text")]
         stdin: bool,

@@ -200,7 +200,7 @@ fn written_pending_succeeds_but_explicit_failure_exits_nonzero() {
     assert_eq!(
         analyze_send_text_response(&pending),
         SendTextOutcome::Pending {
-            message: "OK (pending)".into(),
+            message: "OK (written; submit unconfirmed)".into(),
             bytes_written: true,
         },
     );
@@ -507,7 +507,7 @@ fn unconfirmed_pending_json_keeps_receipt_and_resolved_body_without_failure() {
     assert_eq!(
         outcome,
         SendTextOutcome::Pending {
-            message: "OK (pending)".into(),
+            message: "OK (written; submit unconfirmed)".into(),
             bytes_written: true
         }
     );

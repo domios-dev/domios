@@ -251,6 +251,16 @@ pub(crate) async fn submit_loaded(
             RuntimeFailure::Refused("Context restoration pending or failed; sends held".into()),
         ));
     }
+    // Every submit holds the session gate, so this check cannot race another host submit.
+    if super::turn_requests::holds_new_submit(session) {
+        return Err(before_write(
+            tab,
+            RuntimeFailure::Refused(format!(
+                "{}: the agent's current turn is still running",
+                super::turn_requests::ACTIVE_TURN_HOLD
+            )),
+        ));
+    }
     let thread = context
         .thread_id
         .clone()
