@@ -1,3 +1,10 @@
+import { act, createElement } from "react";
+import { createRoot } from "react-dom/client";
+import { __setInvokeForTest, __setListenForTest } from "./bridge";
+import { useChatSession } from "../components/Terminal/useChatSession";
+import { chatBodyView } from "../components/Terminal/chatBodyVisibility";
+import { ChatSetupState } from "../components/Terminal/ChatSetupState";
+import { clearTranscriptWindows } from "../components/Terminal/transcriptStore";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { __resetStreamMuxesForTest, OutcomeUnknown, RetryableMuxError, withStreamMux } from "./streamMux";
 import { MUX_REQUEST_TIMEOUT, type MuxRequestInit } from "./streamMuxRequestModel";
@@ -165,4 +172,85 @@ describe("mux bulk credit and credential refusal", () => {
     expect(f.sessions).toHaveLength(1);
     expect(f.posted).toHaveLength(0);
   });
+});
+
+
+it("attaches a declared large snapshot received before acknowledgement and repeats overflow resync safely", async () => {
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  const f = fixture();
+  let accept!: (response: Response) => void;
+  f.reply(post => post.path.endsWith("/chat-raw/start") ? new Promise(resolve => { accept = resolve; })
+    : Promise.resolve(Response.json({ accepted: true }, { status: 202 })));
+  __setListenForTest(async () => () => {});
+  __setInvokeForTest((async (command: string, args: Record<string, unknown>) => command === "chat_start"
+    ? f.client.localJson("POST", "/api/tabs/large/chat-raw/start", args) : []) as never);
+  clearTranscriptWindows();
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  let latest: ReturnType<typeof useChatSession> | undefined;
+  let failed = false;
+  function Probe() {
+    latest = useChatSession({ tabId: "large", agentSessionId: "own", sessionBindingNonce: "nonce", active: true });
+    failed ||= latest.attachmentState === "failed";
+    const view = chatBodyView({ snapshotReady: latest.snapshotReady, hasTranscript: latest.allMessages.length > 0,
+      chatLoading: latest.loading, attachmentError: latest.attachmentState === "failed" ? latest.error : null,
+      unavailable: latest.transcriptUnavailable, bootView: { kind: "none" } });
+    return createElement(ChatSetupState, { tab: null, providerName: "Fixture", view, onRetry: latest.retry });
+  }
+  try {
+    await act(async () => root.render(createElement(Probe)));
+    const content = "x".repeat(820_000);
+    for (let round = 0; round < 2; round++) {
+      const post = await f.next();
+      const body = JSON.stringify({ source_session_id: "own", session_binding_nonce: "nonce", subscription_id: JSON.parse(String(post.init.body)).subscriptionId,
+        messages: [{ id: "answer", type: "assistant", content }], text: "", start_offset: 0, offset: content.length, pending: false });
+      f.head(post, 200, [["content-type", "application/json"], ["content-length", String(new TextEncoder().encode(body).byteLength)]]);
+      for (let index = 0; index < body.length; index += 16 * 1024) f.text(post, body.slice(index, index + 16 * 1024));
+      f.end(post);
+      const barrier = f.client.localJson("GET", "/api/fixture/barrier");
+      const marker = await f.next();
+      f.head(marker); f.text(marker, "{}"); f.end(marker);
+      await act(async () => { await barrier; accept(Response.json({ accepted: true }, { status: 202 })); });
+      expect(latest?.attachmentState).toBe("attached");
+      expect(latest?.allMessages[0]?.content.length).toBe(820_000);
+      expect(failed).toBe(false);
+      expect(host.querySelector('[aria-label="Chat connection failed"]')).toBeNull();
+      if (round === 0) {
+        const { fireResync } = await import("./resync");
+        await act(async () => fireResync("overflow"));
+      }
+    }
+  } finally {
+    await act(async () => root.unmount()); host.remove();
+    __setInvokeForTest(null); __setListenForTest(null); clearTranscriptWindows();
+  }
+});
+
+it("classifies chat_start acknowledgement loss as a retryable read, including a relayed read", async () => {
+  const f = fixture(); f.reply(async () => { throw new TypeError("ack lost"); });
+  await expect(f.client.localJson("POST", "/api/tabs/t/chat-raw/start", {})).rejects.toBeInstanceOf(RetryableMuxError);
+  await expect(f.client.localJson("POST", "/api/mesh/relay-to", { method: "POST", path: "/api/tabs/t/chat-raw/start", body: {} })).rejects.toBeInstanceOf(RetryableMuxError);
+});
+it("reports the overflowing request's bytes and limit instead of the aggregate session total", async () => {
+  const f = fixture();
+  const other = f.client.request!("/api/paused"); const paused = await f.next();
+  f.head(paused); const unread = await other;
+  for (let index = 0; index < 4; index++) f.text(paused, "p".repeat(64 * 1024));
+  const response = f.client.request!("/api/fixture"); const post = await f.next();
+  f.head(post); const received = await response;
+  for (let index = 0; index < 9; index++) f.text(post, "x".repeat(64 * 1024));
+  const barrier = f.client.localJson("GET", "/api/fixture/barrier"); const marker = await f.next();
+  f.head(marker); f.text(marker, "{}"); f.end(marker); await barrier;
+  await expect(received.text()).rejects.toThrow(/per-request.*589824.*524288/);
+  await unread.body?.cancel();
+});
+it("keeps the aggregate buffer bounded even when a response advertises a larger body", async () => {
+  const f = fixture();
+  const response = f.client.request!("/api/fixture"); const post = await f.next();
+  f.head(post, 200, [["content-type", "application/json"], ["content-length", String(8 * 1024 * 1024)]]);
+  const received = await response;
+  for (let index = 0; index < 65; index++) f.text(post, "x".repeat(64 * 1024));
+  const barrier = f.client.localJson("GET", "/api/fixture/barrier"); const marker = await f.next();
+  f.head(marker); f.text(marker, "{}"); f.end(marker); await barrier;
+  await expect(received.text()).rejects.toThrow(/session.*4259840.*4194304/);
 });

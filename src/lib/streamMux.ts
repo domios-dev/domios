@@ -10,6 +10,21 @@ type Head = Extract<MuxFrame, { kind: "open" }>;
 const SESSION_BUFFER = 4 * 1024 * 1024;
 const REQUEST_BUFFER = 512 * 1024;
 
+function responseBufferLimit(head: Head): number {
+  const length = head.headers.find(([name]) => name.toLowerCase() === "content-length")?.[1];
+  if (length == null || !/^\d+$/.test(length)) return REQUEST_BUFFER;
+  const bytes = Number(length);
+  return Number.isSafeInteger(bytes) ? Math.min(SESSION_BUFFER, Math.max(REQUEST_BUFFER, bytes)) : REQUEST_BUFFER;
+}
+
+class MuxCapacityError extends SseCapacityError {
+  constructor(scope: "frame" | "session" | "per-request", bytes: number, limit: number) {
+    super(bytes);
+    this.name = "MuxCapacityError";
+    this.message = `Mux ${scope} buffer limit exceeded (${bytes} bytes; limit ${limit} bytes)`;
+  }
+}
+
 export class OutcomeUnknown extends Error {
   constructor(public method: string, public path: string, cause?: string) {
     super("The daemon request may have completed; reconcile its status before sending again" + (cause ? ` (${cause})` : ""));
@@ -48,6 +63,7 @@ interface Pending {
   ended: boolean;
   queue: Uint8Array[];
   buffered: number;
+  bufferLimit: number;
   tracked: boolean;
   demand: boolean;
   controller: ReadableStreamDefaultController<Uint8Array> | null;
@@ -205,6 +221,7 @@ export function createStreamMux(transport: () => TransportClient, fetcher: Fetch
     if (frame.kind === "open") {
       if (entry.head) { failure(entry, new Error("Duplicate mux response head")); return; }
       entry.head = frame;
+      entry.bufferLimit = responseBufferLimit(frame);
       entry.state = transitionMuxRequest(entry.state, { type: "frame", stage: "head" }).state;
       deliverHead(entry);
     } else if (frame.kind === "chunk") {
@@ -214,8 +231,11 @@ export function createStreamMux(transport: () => TransportClient, fetcher: Fetch
         bytes = frame.enc === "utf8" ? new TextEncoder().encode(frame.chunk)
           : Uint8Array.from(atob(frame.chunk), character => character.charCodeAt(0));
       } catch (error) { failure(entry, error); return; }
-      if (bytes.byteLength > 64 * 1024 || buffered + bytes.byteLength > SESSION_BUFFER || entry.buffered + bytes.byteLength > REQUEST_BUFFER) {
-        cancelRemote(entry); failure(entry, new SseCapacityError(buffered + bytes.byteLength)); return;
+      const overflow = bytes.byteLength > 64 * 1024 ? new MuxCapacityError("frame", bytes.byteLength, 64 * 1024)
+        : buffered + bytes.byteLength > SESSION_BUFFER ? new MuxCapacityError("session", buffered + bytes.byteLength, SESSION_BUFFER)
+        : entry.buffered + bytes.byteLength > entry.bufferLimit ? new MuxCapacityError("per-request", entry.buffered + bytes.byteLength, entry.bufferLimit) : null;
+      if (overflow) {
+        cancelRemote(entry); failure(entry, overflow); return;
       }
       entry.state = transitionMuxRequest(entry.state, { type: "frame", stage: "body" }).state;
       entry.queue.push(bytes); entry.buffered += bytes.byteLength; buffered += bytes.byteLength;
@@ -397,7 +417,7 @@ export function createStreamMux(transport: () => TransportClient, fetcher: Fetch
           id: uid(), method, path, init: options, stream, traffic: policy.traffic,
           postTraffic,
           state: initialMuxRequest(stream || policy.cancellable), session: null, acked: false, head: null,
-          outcome: undefined, resolved: false, ended: false, queue: [], buffered: 0, tracked: true, demand: false, controller: null,
+          outcome: undefined, resolved: false, ended: false, queue: [], buffered: 0, bufferLimit: REQUEST_BUFFER, tracked: true, demand: false, controller: null,
           aborter, post: null, detach: () => {}, resolve, reject,
         };
         const timeout = stream ? null : restRequestTimeoutMs(operation.method, operation.path, options[MUX_REQUEST_TIMEOUT]);

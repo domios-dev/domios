@@ -355,3 +355,15 @@ async fn spooling_replays_exact_bytes_off_runtime_and_enforces_the_envelope_boun
     let refused = spool::receive(Body::from(vec![0u8; 65]), 64).await;
     assert!(matches!(refused, Err((StatusCode::PAYLOAD_TOO_LARGE, _))));
 }
+
+#[test]
+fn response_head_advertises_exact_serialized_body_bytes_for_client_buffering() {
+    let response = Response::new(Body::from(vec![b'x'; 820_186]));
+    let head = frames::encode_response_head("snapshot", &response);
+    let wire: Value = serde_json::from_slice(&head[6..head.len() - 2]).unwrap();
+    assert!(wire["headers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|pair| pair == &serde_json::json!(["content-length", "820186"])));
+}

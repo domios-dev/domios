@@ -1,6 +1,6 @@
 import { DEV_BUILD } from "../../lib/devBuild";
 import { chatResponsivenessTrace } from "./chatProjectionDiagnostics";
-import { canRetryChatStart, runChatStart } from "./chatStartFlight";
+import { canRetryChatStart, isInterruptedChatRead, runChatStart } from "./chatStartFlight";
 import {
   type MutableRefObject,
   useCallback,
@@ -204,7 +204,7 @@ export function useChatSession({
   }, [emitDiagnostic, tabId]);
 
   const attachment = useChatAttachment(tabId, observeSubscription);
-  const abortedStartRecoveryRef = useRef(false);
+  const interruptedStartRecoveryRef = useRef(false);
   const abortedListenerRecoveryRef = useRef(false);
   const failedStartRef = useRef<string | null>(null);
   const { begin: beginAttach, generation } = attachment;
@@ -241,7 +241,7 @@ export function useChatSession({
 
   const requestAttach = useCallback((cause = "attachment") => {
     if (!canRetryChatStart(attachmentStateRef.current, cause)) return;
-    if (cause !== "superseded") abortedStartRecoveryRef.current = false;
+    if (cause !== "read_interrupted") interruptedStartRecoveryRef.current = false;
     const requested = requestedAuthorityRef.current;
     if (attachmentStateRef.current === "attaching"
       && requested?.source_session_id === agentSessionIdRef.current
@@ -274,7 +274,7 @@ export function useChatSession({
   }, [beginAttach, reconcileSendStatuses, tabId]);
 
   const markAttached = useCallback(() => {
-    abortedStartRecoveryRef.current = false;
+    interruptedStartRecoveryRef.current = false;
     markTranscriptSnapshotReady(windowKeyRef.current, sessionBindingNonceRef.current);
     adoptChatStartTiming(tabId);
     attachmentStateRef.current = "attached";
@@ -772,15 +772,15 @@ export function useChatSession({
         if (recover) requestRecoveryAttach(true, "pending_recover_gap");
       } catch (e) {
         if (cancelled || !owner.isCurrent(generationAtRequest)) return;
-        if (e instanceof DOMException && e.name === "AbortError") {
+        if (isInterruptedChatRead(e)) {
           attachmentStateRef.current = "idle";
           requestedAuthorityRef.current = null;
           setAttachmentState("idle");
           setError(null);
           setLoading(false);
-          if (!abortedStartRecoveryRef.current) {
-            abortedStartRecoveryRef.current = true;
-            requestAttach("superseded");
+          if (!interruptedStartRecoveryRef.current) {
+            interruptedStartRecoveryRef.current = true;
+            requestAttach("read_interrupted");
           }
           return;
         }
