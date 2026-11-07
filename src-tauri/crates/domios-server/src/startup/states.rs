@@ -146,6 +146,7 @@ fn reconcile_startup_teams(
 }
 
 const INHERITED_IDENTITY_ENV_VARS: &[&str] = &[
+    "CODETERM_LAUNCH_FILE",
     "CODETERM_ATTEMPT_ID",
     "CODETERM_LANE_BASE",
     "CODETERM_MACHINE_AGENT_IDENTITY",

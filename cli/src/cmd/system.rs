@@ -675,9 +675,9 @@ fn instance_api_token(data_root: &std::path::Path, remote: bool) -> Result<Strin
 mod token_tests;
 
 pub fn handle_api_token(remote: bool) {
-    let caller = crate::nonempty_env("CODETERM_TAB_ID");
-    let token = super::host_credentials::read(&crate::data_root(), remote, caller.as_deref())
-        .and_then(|token| {
+    let caller = codeterm_util::tab_launch::marked().then_some("launch");
+    let token =
+        super::host_credentials::read(&crate::data_root(), remote, caller).and_then(|token| {
             token.ok_or_else(|| "No local instance API credential; start Domios first".into())
         });
     match token {

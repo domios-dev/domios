@@ -197,6 +197,39 @@ fn terminal_environment_refuses_secrets_and_strips_inherited_credentials() {
     assert!(!env.contains_key("PATH"));
 }
 
+#[test]
+fn terminal_children_keep_host_launch_identity_and_refuse_agent_overrides() {
+    let base = HashMap::from([
+        (
+            "CODETERM_LAUNCH_FILE".into(),
+            "/private/own-launch.json".into(),
+        ),
+        ("CODETERM_TAB_ID".into(), "own-tab".into()),
+        ("CODETERM_SESSION_BINDING_NONCE".into(), "own-nonce".into()),
+        ("CODETERM_API_URL".into(), "http://127.0.0.1:17686".into()),
+        ("CODETERM_API_TOKEN".into(), "own-token".into()),
+    ]);
+    let env = terminal::environment(base.clone(), &[], &["CODETERM_API_TOKEN".into()]).unwrap();
+    for key in [
+        "CODETERM_LAUNCH_FILE",
+        "CODETERM_TAB_ID",
+        "CODETERM_SESSION_BINDING_NONCE",
+        "CODETERM_API_URL",
+    ] {
+        assert_eq!(env[key], base[key]);
+        assert!(terminal::environment(
+            base.clone(),
+            &[terminal::Env {
+                name: key.into(),
+                value: "foreign".into(),
+            }],
+            &[]
+        )
+        .is_err());
+    }
+    assert!(!env.contains_key("CODETERM_API_TOKEN"));
+}
+
 #[cfg(any(unix, windows))]
 #[test]
 fn foreign_session_epoch_and_nonce_refused_before_approval() {

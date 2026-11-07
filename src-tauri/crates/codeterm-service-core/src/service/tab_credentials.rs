@@ -120,6 +120,7 @@ struct Credential {
     token: String,
     caller: TabCaller,
     session: Option<String>,
+    file: Option<CredentialFile>,
 }
 
 #[derive(Default)]
@@ -137,6 +138,7 @@ impl TabCredentials {
                 token: uuid::Uuid::new_v4().to_string(),
                 caller: caller.clone(),
                 session: None,
+                file: None,
             });
         if entry.caller != caller {
             self.1.lock().remove(&caller.tab_id);
@@ -144,6 +146,7 @@ impl TabCredentials {
                 token: uuid::Uuid::new_v4().to_string(),
                 caller,
                 session: None,
+                file: None,
             };
         }
         entry.token.clone()
@@ -213,6 +216,57 @@ impl TabCredentials {
 }
 
 impl super::ServiceContext {
+    pub(crate) fn runtime_credential_file(
+        &self,
+        tab_id: &str,
+        nonce: &str,
+    ) -> Result<String, String> {
+        let pad = self.ensure_agent_pad(tab_id)?;
+        let token = {
+            let credentials = self.tab_credentials.0.lock();
+            let credential = credentials
+                .get(tab_id)
+                .filter(|credential| credential.caller.binding_nonce == nonce)
+                .ok_or("Runtime credential unavailable")?;
+            if let Some(file) = &credential.file {
+                return Ok(file.path().to_string_lossy().into_owned());
+            }
+            credential.token.clone()
+        };
+        let file = CredentialFile(
+            pad.path()
+                .join(format!(".runtime-launch-{}.json", uuid::Uuid::new_v4())),
+        );
+        let bytes = serde_json::to_vec(&codeterm_util::tab_launch::LaunchCredential {
+            tab_id: tab_id.into(),
+            binding_nonce: nonce.into(),
+            token: token.clone(),
+        })
+        .map_err(|error| error.to_string())?;
+        codeterm_util::private_file::write_atomic(file.path(), &bytes)
+            .map_err(|error| format!("Runtime credential handoff failed: {error}"))?;
+        let mux = self.mux.read();
+        let tab = mux.get_tab(tab_id).ok_or("Runtime tab unavailable")?;
+        if tab.session_binding_nonce.as_deref() != Some(nonce) {
+            return Err("Runtime launch changed before credential handoff".into());
+        }
+        let mut credentials = self.tab_credentials.0.lock();
+        let credential = credentials
+            .get_mut(tab_id)
+            .ok_or("Runtime credential unavailable")?;
+        if credential.caller.binding_nonce != nonce || credential.token != token {
+            return Err("Runtime credential belongs to another launch".into());
+        }
+        if credential.file.is_none() {
+            credential.file = Some(file);
+        }
+        credential
+            .file
+            .as_ref()
+            .map(|file| file.path().to_string_lossy().into_owned())
+            .ok_or_else(|| "Runtime credential file unavailable".into())
+    }
+
     pub(crate) fn retain_launch_credential_file(
         &self,
         tab_id: &str,
