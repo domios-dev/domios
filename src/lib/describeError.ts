@@ -8,6 +8,17 @@ export interface ErrorDescription {
 }
 export interface ErrorContext { operation?: string; cwd?: string | null }
 
+const AUTHORED_CAUSE = "authored_cause";
+
+/** Marks a cause Domios wrote for the owner, so every error surface shows it as written; it travels as plain text through string-typed error channels. */
+export function authoredCause(message: string): string {
+  return JSON.stringify({ code: AUTHORED_CAUSE, message });
+}
+
+export function isAuthoredCause(input: unknown): boolean {
+  return unpack(input).code === AUTHORED_CAUSE;
+}
+
 export function isMissingRuntimeConversation(input: unknown): boolean {
   const {raw, code} = unpack(input);
   return code === "conversationMissing" || raw.startsWith("ConversationMissing:");
@@ -104,6 +115,7 @@ export function describeError(input: unknown, context: ErrorContext = {}): Error
   const details = switching ? message.slice(0, 2048) : raw;
   const result = (title: string, cause: string, actions: ErrorAction[], pending = false): ErrorDescription => ({ title, cause, actions, raw: details, ...(pending ? { pending: true } : {}) });
   const kind = code.toLowerCase();
+  if (kind === AUTHORED_CAUSE && message.trim()) return { title: message.trim(), cause: "", actions: [], raw: "" };
   if (kind === "client_capacity" || /client_capacity:|Mux client capacity reached before dispatch/.test(raw)) {
     return result("The connection is busy", "This request was not sent because other requests are using the available connection capacity. Try again.", ["retry"], true);
   }

@@ -8,13 +8,20 @@ mod stop;
 
 impl ServiceContext {
     /// An installation whose signed membership expired receives nothing until Domios renews it there, so it is never shown receiving.
-    pub(super) fn receiver_view(status: &ReceiverStatus, lapsed: &BTreeSet<String>) -> Value {
-        let expired = !status.is_me
+    pub(super) fn receiver_membership_expired(
+        status: &ReceiverStatus,
+        lapsed: &BTreeSet<String>,
+    ) -> bool {
+        !status.is_me
             && status.receiving_enabled
             && status
                 .receiver_installation_id
                 .as_ref()
-                .is_some_and(|id| lapsed.contains(id));
+                .is_some_and(|id| lapsed.contains(id))
+    }
+
+    pub(super) fn receiver_view(status: &ReceiverStatus, lapsed: &BTreeSet<String>) -> Value {
+        let expired = Self::receiver_membership_expired(status, lapsed);
         let mut view = json!({"receiving_here":status.receiving_here(), "receiver_machine_label":status.receiver_machine_label,
             "receiving_enabled":status.receiving_enabled && !expired,"revision":status.receiver_revision,"is_me":status.is_me});
         if expired {

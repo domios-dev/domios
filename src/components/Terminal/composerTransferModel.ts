@@ -1,4 +1,5 @@
 import { isImagePath } from "@codeterm/chat-core";
+import { authoredCause } from "../../lib/describeError";
 
 export interface FileTransfer {
   files?: ArrayLike<File>;
@@ -22,7 +23,7 @@ export function extractTransferFiles(data: FileTransfer): File[] {
 export function planFileDrop(data: FileTransfer) {
   const files = extractTransferFiles(data);
   const unreadable = files.length === 0 && (isFileTransfer(data) || data.types?.includes("text/uri-list"));
-  return { preventNavigation: true, files, error: unreadable ? "This drop contains no readable file. Use the file picker to attach the image." : null };
+  return { preventNavigation: true, files, error: unreadable ? authoredCause("This drop contains no readable file. Use the file picker to attach the image.") : null };
 }
 
 export function imageUploadName(name: string, mime: string): string {
