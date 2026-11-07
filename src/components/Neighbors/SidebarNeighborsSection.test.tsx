@@ -205,3 +205,14 @@ it("disables a friend from their sidebar row menu and shows the row as disabled"
   expect(conciergeClient.setPaused).toHaveBeenCalledExactlyOnceWith("pair", true);
   expect(button("Open Ada").textContent).toContain("disabled");
 });
+it("ends a refused first read without claiming cached friends are connected", async () => {
+  localStorage.setItem("domios.neighbors.last-known:owner", JSON.stringify({ access: "paid", friends: [neighbor] }));
+  const client: NeighborClient = { list: vi.fn(async () => { throw new Error("Sign in with a hosted account to use Neighbors"); }), apply: vi.fn() };
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted.current = { root, host };
+  await act(async () => root.render(<SidebarNeighborsSection touchMode={false} client={client} runtimeClient={runtime()} />));
+  await expandSection();
+  expect(document.querySelector('[aria-label="Refreshing Neighbors"]')).toBeNull();
+  expect(host.querySelector('[role="status"]')?.textContent).toContain("Sign in with a hosted account to use Neighbors");
+  expect(host.textContent).not.toContain("connected");
+});

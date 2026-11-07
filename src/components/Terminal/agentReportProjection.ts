@@ -41,6 +41,7 @@ export interface AgentReportEventPayload {
   report: AgentReportPayloadReport;
   task_report?: AgentReportTaskOutcome | null;
   report_outcome?: AgentReportOutcomeClass | null;
+  sender_position?: { source_session_id: string; message_id: string } | null;
 }
 
 export type AgentReportSide = "outbound" | "inbound";
@@ -59,6 +60,7 @@ export interface ProjectedAgentReport {
   branch: string | null;
   sha: string | null;
   taskOutcome: AgentReportTaskOutcome | null;
+  senderPosition: { source_session_id: string; message_id: string } | null;
   /** Epoch milliseconds — normalized once at ingest, comparable to Date.parse. */
   timestamp: number | null;
 }
@@ -79,6 +81,7 @@ interface AgentReportRecord {
   branch: string | null;
   sha: string | null;
   taskOutcome: AgentReportTaskOutcome | null;
+  senderPosition: { source_session_id: string; message_id: string } | null;
   timestamp: number | null;
 }
 
@@ -173,6 +176,7 @@ export function ingestAgentReport(payload: AgentReportEventPayload): boolean {
     sha: text(payload.report.sha),
     taskOutcome: outcome,
     timestamp: normalizeEpochMs(payload.report.timestamp),
+    senderPosition: payload.sender_position ?? null,
   });
   while (records.size > MAX_PROJECTED_REPORTS) {
     const oldest = records.keys().next().value;

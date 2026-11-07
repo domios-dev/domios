@@ -64,13 +64,14 @@ export function placeChatRails<M>(args: {
   messages: M[];
   messageTimeMs: (message: M) => number | null;
   reportTimes: Array<number | null>;
+  reportPositions?: { sourceMessageIds: string[]; messageId: (message: M) => string; reportMessageIds: Array<string | null> };
   askTimes: Array<number | null>;
 }): ChatRailPlacements {
   if (!args.visible) {
     return { reports: emptyPlacement(), asks: emptyPlacement() };
   }
   return {
-    reports: placeOutboundReports(args.messages, args.messageTimeMs, args.reportTimes),
+    reports: placeOutboundReports(args.messages, args.messageTimeMs, args.reportTimes, args.reportPositions),
     asks: placeOutboundReports(args.messages, args.messageTimeMs, args.askTimes),
   };
 }

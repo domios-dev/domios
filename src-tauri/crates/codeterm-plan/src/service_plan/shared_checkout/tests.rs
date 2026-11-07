@@ -362,3 +362,49 @@ fn shared_commit_guard_accepts_own_commit_with_foreign_dirt_and_refuses_foreign_
     attempt.shared_start_sha = Some(own.clone());
     assert!(validate_shared_report(&mine, &attempt, Some(&own)).is_err());
 }
+
+#[test]
+fn shared_report_names_a_commit_reset_away_from_head() {
+    let root = tempfile::tempdir().unwrap();
+    git(root.path(), &["init"]);
+    git(root.path(), &["config", "user.name", "Fixture"]);
+    git(
+        root.path(),
+        &["config", "user.email", "fixture@example.invalid"],
+    );
+    std::fs::write(root.path().join("owned"), "initial").unwrap();
+    git(root.path(), &["add", "owned"]);
+    git(root.path(), &["commit", "-m", "initial"]);
+    let start = git(root.path(), &["rev-parse", "HEAD"]);
+    std::fs::write(root.path().join("owned"), "changed").unwrap();
+    git(root.path(), &["commit", "-am", "task"]);
+    let reported = git(root.path(), &["rev-parse", "HEAD"]);
+    git(root.path(), &["reset", "--hard", &start]);
+    let attempt = TaskExecutionAttempt {
+        checkout_path: Some(root.path().display().to_string()),
+        shared_start_sha: Some(start.clone()),
+        ..Default::default()
+    };
+    let error = validate_shared_report(&task("mine", &["owned"], false), &attempt, Some(&reported))
+        .unwrap_err();
+    assert!(
+        error.contains(&format!(
+            "reported commit {reported} is not on the shared checkout HEAD {start}"
+        )),
+        "{error}"
+    );
+    assert!(error.contains("reset or amended"), "{error}");
+}
+
+#[test]
+fn missing_report_commit_is_a_git_failure_not_false_ancestry() {
+    let root = tempfile::tempdir().unwrap();
+    git(root.path(), &["init"]);
+    let error = super::report::git(
+        root.path().to_str().unwrap(),
+        &["merge-base", "--is-ancestor", &"f".repeat(40), "HEAD"],
+    )
+    .unwrap_err();
+    assert!(error.contains("git inspection failed"), "{error}");
+    assert!(!error.contains("reset or amended"), "{error}");
+}

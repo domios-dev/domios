@@ -234,6 +234,10 @@ impl ItemCache {
         }
         true
     }
+    pub fn last_message_id(&self) -> Option<&str> {
+        self.items.back().map(|row| row.id.as_str())
+    }
+
     pub fn tail(&self, limit: usize) -> Vec<ChatMsg> {
         self.items
             .range(self.items.len().saturating_sub(limit)..)

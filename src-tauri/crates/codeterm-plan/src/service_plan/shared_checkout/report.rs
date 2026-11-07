@@ -10,9 +10,27 @@ pub(super) fn git(checkout: &str, args: &[&str]) -> Result<String, String> {
         .output()
         .map_err(|error| error.to_string())?;
     if !output.status.success() {
+        if output.status.code() == Some(1)
+            && args.len() == 4
+            && args[..2] == ["merge-base", "--is-ancestor"]
+        {
+            if args[3] == "HEAD" {
+                let head = shared_checkout_head(checkout)?;
+                return Err(format!(
+                    "reported commit {} is not on the shared checkout HEAD {head}; it may have been reset or amended",
+                    args[2]
+                ));
+            }
+            return Err(format!(
+                "commit {} is not an ancestor of reported commit {}",
+                args[2], args[3]
+            ));
+        }
         return Err(format!(
-            "shared checkout git inspection failed: {}",
-            String::from_utf8_lossy(&output.stderr)
+            "shared checkout git inspection failed (git {}, status {}): {}",
+            args.join(" "),
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim()
         ));
     }
     String::from_utf8(output.stdout).map_err(|error| error.to_string())

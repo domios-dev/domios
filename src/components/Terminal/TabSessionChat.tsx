@@ -603,11 +603,12 @@ function TabSessionChatBody({
   // The sender's own transcript never contains the report it just sent, so the
   // outbound card comes from the accepted-report event, keyed by report_id.
   const outboundReports = useMemo<
-    Array<{ targetTabId: string; at: number | null; descriptor: OutboundReportDescriptor }>
+    Array<{ targetTabId: string; at: number | null; position: { source_session_id: string; message_id: string } | null; descriptor: OutboundReportDescriptor }>
   >(
     () => reportProjection.outbound.map((report) => ({
       targetTabId: report.targetTabId,
       at: report.timestamp,
+      position: report.senderPosition,
       descriptor: {
         reportId: report.reportId,
         recipient: tabTitleMap.get(report.targetTabId.slice(0, 8)) ?? report.targetTabId.slice(0, 8),
@@ -653,9 +654,14 @@ function TabSessionChatBody({
       messages: renderedEnrichedMessages,
       messageTimeMs: ({ msg }) => messageTimeMs(msg.timestamp),
       reportTimes: outboundReports.map((report) => report.at),
+      reportPositions: {
+        sourceMessageIds: allMessages.map(msg => msg.sourceMessageId ?? msg.id),
+        messageId: ({ msg }) => msg.sourceMessageId ?? msg.id,
+        reportMessageIds: outboundReports.map(report => report.position?.source_session_id === agentSessionId ? report.position.message_id : null),
+      },
       askTimes: asks.map((ask) => normalizeEpochMs(ask.timestamp)),
     }),
-    [asks, outboundReports, railsVisible, renderedEnrichedMessages],
+    [agentSessionId, allMessages, asks, outboundReports, railsVisible, renderedEnrichedMessages],
   );
   const deferredPlanRefMessages = useDeferredValue(enrichedMessages);
   // Record the visible tail after paint so diagnostics do not overstate progress
