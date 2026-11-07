@@ -3,13 +3,35 @@ use super::*;
 #[test]
 fn launch_policy_allows_workspace_operations_and_read_only_refuses_even_with_grants() {
     let mut grants = SessionGrants::default();
+    assert_eq!(
+        grants.decide(Access::WorkspaceWrite, Kind::Write),
+        Decision::Allow
+    );
     for kind in [Kind::Write, Kind::Command] {
         assert_eq!(grants.decide(Access::Full, kind), Decision::Allow);
-        assert_eq!(grants.decide(Access::WorkspaceWrite, kind), Decision::Allow);
         assert_eq!(grants.decide(Access::Interactive, kind), Decision::Prompt);
         grants.grant(kind);
         assert_eq!(grants.decide(Access::ReadOnly, kind), Decision::Refuse);
     }
+}
+
+#[test]
+fn workspace_write_refuses_unconfined_commands_even_with_a_session_grant() {
+    let mut grants = SessionGrants::default();
+    assert_eq!(
+        grants.decide(Access::WorkspaceWrite, Kind::Command),
+        Decision::Refuse
+    );
+    grants.grant(Kind::Command);
+    assert_eq!(
+        grants.decide(Access::WorkspaceWrite, Kind::Command),
+        Decision::Refuse
+    );
+    assert_eq!(grants.decide(Access::Full, Kind::Command), Decision::Allow);
+    assert_eq!(
+        grants.decide(Access::WorkspaceWrite, Kind::Write),
+        Decision::Allow
+    );
 }
 
 #[test]
@@ -174,6 +196,17 @@ fn permitting_launch_skips_write_prompt_but_preserves_hard_refusals() {
             .unwrap()
             .0
             .is_none()
+    );
+    let command = serde_json::from_value(json!({"method":"terminal/create","params":{
+        "sessionId":confined.thread_id,"command":"tool","cwd":root
+    }}))
+    .unwrap();
+    assert_eq!(
+        prepare(&fixture.service, &session, &confined, &bridge, &command)
+            .err()
+            .unwrap()
+            .to_string(),
+        "Execution sandbox denies client operation"
     );
     fixture
         .service

@@ -67,10 +67,9 @@ impl SessionGrants {
 
     pub(super) fn decide(&self, access: Access, kind: Kind) -> Decision {
         match (access, kind) {
-            (Access::ReadOnly, Kind::Write | Kind::Command) => Decision::Refuse,
-            (Access::Full, _) | (Access::WorkspaceWrite, Kind::Write | Kind::Command) => {
-                Decision::Allow
-            }
+            (Access::ReadOnly, Kind::Write | Kind::Command)
+            | (Access::WorkspaceWrite, Kind::Command) => Decision::Refuse,
+            (Access::Full, _) | (Access::WorkspaceWrite, Kind::Write) => Decision::Allow,
             _ if match kind {
                 Kind::SensitiveRead => self.read,
                 Kind::Write => self.write,
