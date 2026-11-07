@@ -63,11 +63,10 @@ pub(super) fn read(
     let Some(snapshot) = snapshot else {
         return Vec::new();
     };
-    if super::launch_profile_install::fingerprint(profile)
-        .ok()
-        .as_deref()
-        != Some(snapshot.declaration_sha256.as_str())
-    {
+    if !matches!(
+        super::launch_profile_install::bound_by(profile, &snapshot.declaration_sha256),
+        Ok(Some(_))
+    ) {
         return Vec::new();
     }
     let settings = RuntimeSettings {
