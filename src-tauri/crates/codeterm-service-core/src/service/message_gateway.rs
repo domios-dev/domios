@@ -106,6 +106,10 @@ pub enum DeliveryError {
     Transport {
         detail: String,
     },
+    /// The target refused before any write; `detail` keeps the typed `tab_busy_refused:` refusal.
+    BusyRefused {
+        detail: String,
+    },
     /// A system notice was refused because the target has no live agent; nothing was written.
     AgentUnavailable {
         target: String,
@@ -128,6 +132,7 @@ impl std::fmt::Display for DeliveryError {
             Self::TabNotFound { target } => write!(f, "Tab not found: {target}"),
             Self::DeliveredUnverified { detail } => write!(f, "delivered unverified: {detail}"),
             Self::Transport { detail } => write!(f, "transport error: {detail}"),
+            Self::BusyRefused { detail } => f.write_str(detail),
             Self::AgentUnavailable { target } => write!(
                 f,
                 "tab_busy_refused: system notice withheld from Tab {target}: it has no live agent (nothing written)"
@@ -367,12 +372,14 @@ impl super::ServiceContext {
 
 /// PHASE 1 wraps `Result<_, String>` paths, so failures are classified by the
 /// structural markers those paths already emit until typed errors land upstream.
-fn classify(target: &str, err: String) -> DeliveryError {
+pub(crate) fn classify(target: &str, err: String) -> DeliveryError {
     let low = err.to_lowercase();
     if err.starts_with("curator_read_only:") {
         DeliveryError::ReadOnly {
             target: target.to_string(),
         }
+    } else if err.starts_with("tab_busy_refused:") {
+        DeliveryError::BusyRefused { detail: err }
     } else if low.contains("not found")
         || low.contains("Tab missing")
         || low.contains("has no pty")

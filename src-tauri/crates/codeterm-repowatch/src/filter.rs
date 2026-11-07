@@ -25,6 +25,17 @@ pub fn batch_is_relevant(
     }
 }
 
+/// Did this batch move what HEAD resolves to? This worktree's HEAD or any ref
+/// write qualifies; working-tree and index churn never does.
+pub fn head_moved(identity: &RepoIdentity, paths: &[PathBuf]) -> bool {
+    paths.iter().any(|path| {
+        !is_lock(path)
+            && (relative_to(&identity.gitdir, path, identity.ignore_case)
+                .is_some_and(|rest| rest == Path::new("HEAD"))
+                || shared_ref_relevant(identity, path))
+    })
+}
+
 fn shared_ref_relevant(identity: &RepoIdentity, path: &Path) -> bool {
     if is_lock(path) {
         return false;

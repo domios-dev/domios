@@ -1,6 +1,58 @@
 use crate::cmd::print::CliError;
 use serde_json::Value;
 
+pub(super) fn render_profile_options(
+    catalog: &Value,
+    provider: &str,
+    profile: &str,
+    json: bool,
+) -> Result<String, CliError> {
+    let row = catalog
+        .as_array()
+        .and_then(|rows| rows.iter().find(|row| row["id"].as_str() == Some(profile)))
+        .ok_or_else(|| {
+            CliError::new(format!(
+                "Unknown launch profile '{profile}' for provider '{provider}'"
+            ))
+        })?;
+    let options = row
+        .get("configOptions")
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!([]));
+    if json {
+        return Ok(format!(
+            "{}\n",
+            crate::cmd::output::encode(
+                &serde_json::json!({"provider":provider,"profile":profile,"configOptions":options})
+            )
+            .unwrap()
+        ));
+    }
+    let mut output = format!(
+        "{provider}/{profile}: last declared session options (validated again at launch)\n"
+    );
+    for option in options.as_array().into_iter().flatten() {
+        output.push_str(&format!(
+            "{} ({})\n",
+            option["name"].as_str().unwrap_or("?"),
+            option["id"].as_str().unwrap_or("?")
+        ));
+        for choice in option["options"].as_array().into_iter().flatten() {
+            output.push_str(&format!(
+                "  {}  {}\n",
+                choice["value"].as_str().unwrap_or("?"),
+                choice["name"].as_str().unwrap_or("?")
+            ));
+        }
+    }
+    if options.as_array().is_none_or(Vec::is_empty) {
+        output.push_str(
+            "No options observed yet; start this profile once to discover its choices.\n",
+        );
+    }
+    Ok(output)
+}
+
 pub(super) fn select_provider<'a>(
     descriptors: &'a Value,
     provider: &str,

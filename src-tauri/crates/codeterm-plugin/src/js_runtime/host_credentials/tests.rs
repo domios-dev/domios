@@ -306,3 +306,49 @@ fn credential_document_budget_refuses_oversized_secrets_without_returning_conten
     .unwrap_err();
     assert!(!error.contains("opaque-secret"));
 }
+
+#[test]
+fn profile_secret_fills_only_header_templates_and_leaves_the_vm_request_keyless() {
+    let opts = r#"{"url":"https://balance.example.test/user","headers":{"Accept":"application/json"},
+        "profileSecret":{"profile":"fixture","env":"FIXTURE_KEY","headers":{"Authorization":"Bearer {secret}"}}}"#;
+    let mut asked = None;
+    let prepared = inject_profile_secret(opts, |profile, env| {
+        asked = Some((profile.to_owned(), env.to_owned()));
+        Some("opaque-fixture".into())
+    })
+    .unwrap();
+    assert_eq!(asked, Some(("fixture".into(), "FIXTURE_KEY".into())));
+    let value: Value = serde_json::from_str(&prepared).unwrap();
+    assert!(value.get("profileSecret").is_none());
+    assert_eq!(value["headers"]["Authorization"], "Bearer opaque-fixture");
+    assert_eq!(value["headers"]["Accept"], "application/json");
+    let plain = r#"{"url":"https://balance.example.test/user"}"#;
+    assert_eq!(
+        inject_profile_secret(plain, |_, _| unreachable!()).unwrap(),
+        plain
+    );
+}
+
+#[test]
+fn unresolvable_or_malformed_profile_secret_requests_fail_instead_of_sending_unauthenticated() {
+    let request = |secret: &str| {
+        format!(r#"{{"url":"https://balance.example.test","profileSecret":{secret}}}"#)
+    };
+    let complete =
+        r#"{"profile":"fixture","env":"KEY","headers":{"Authorization":"Bearer {secret}"}}"#;
+    let error = inject_profile_secret(&request(complete), |_, _| None).unwrap_err();
+    assert!(!error.contains("opaque"));
+    for malformed in [
+        r#"{"env":"KEY","headers":{"Authorization":"Bearer {secret}"}}"#,
+        r#"{"profile":"fixture","headers":{"Authorization":"Bearer {secret}"}}"#,
+        r#"{"profile":"fixture","env":"KEY"}"#,
+        r#"{"profile":"fixture","env":"KEY","headers":{}}"#,
+        r#"{"profile":"fixture","env":"KEY","headers":{"Authorization":"Bearer {other}"}}"#,
+        r#"{"profile":"fixture","env":"KEY","headers":{"Authorization":1}}"#,
+    ] {
+        assert!(
+            inject_profile_secret(&request(malformed), |_, _| Some("opaque".into())).is_err(),
+            "{malformed}"
+        );
+    }
+}

@@ -1,6 +1,8 @@
 import { ExpandableReader } from "../ExpandableReader";
 import { agentActionStream, type AgentActivityState, type AgentNode, type ToolEvent } from "@codeterm/chat-core";
-import { ArrowRight, ChevronRight, Network } from "lucide-react";
+import { ArrowRight, Network } from "lucide-react";
+import { CardChevron, CardFacts } from "../CompactCard";
+import { RowMenuIsolate } from "../messageMenu";
 import { Fragment, useId, useState } from "react";
 import { ToolActivityStream, type RenderStreamAction } from "./ToolActivityStream";
 import { useAgentInspection } from "../AgentInspection";
@@ -58,7 +60,7 @@ export function AgentActivityCard({ event, expanded, onToggle, renderAction }: {
   });
 
   return (
-    <ExpandableReader label={"Agent activity"} openerPlacement="header">{(fullscreen, opener) => (
+    <RowMenuIsolate><ExpandableReader label={"Agent activity"} openerPlacement="header">{(fullscreen, opener) => (
     <section
       data-testid="chat-agent-activity"
       aria-label={`Agent activity, ${counts}`}
@@ -79,9 +81,9 @@ export function AgentActivityCard({ event, expanded, onToggle, renderAction }: {
         </span>
         {described ? (
           <>
-            <span data-testid="chat-agent-facts" className="shrink-0 font-mono text-[10.5px]" style={{ color: "var(--ct-muted-fg)" }}>
+            <CardFacts brief={null} full={<span data-testid="chat-agent-facts" className="shrink-0 font-mono text-[10.5px]" style={{ color: "var(--ct-muted-fg)" }}>
               {agentFacts(described).join(" · ")}
-            </span>
+            </span>} />
             <span data-testid="chat-agent-header-state" className="shrink-0 font-mono text-[10.5px]" style={{ color: STATE_COLOR[described.state] }}>
               {described.state}
             </span>
@@ -91,14 +93,7 @@ export function AgentActivityCard({ event, expanded, onToggle, renderAction }: {
         )}
       </button>
       {opener}
-      <button type="button" aria-label={`${expanded ? "Collapse" : "Expand"} agent activity`} aria-expanded={expanded} aria-controls={regionId} onClick={() => onToggle(!expanded)} className="flex shrink-0 items-center">
-        <ChevronRight
-          aria-hidden="true"
-          size={14}
-          className={`shrink-0 motion-safe:transition-transform motion-reduce:transition-none ${expanded ? "rotate-90" : ""}`}
-          style={{ color: "var(--ct-muted-fg)" }}
-        />
-      </button>
+      <CardChevron expanded={expanded} label={`${expanded ? "Collapse" : "Expand"} agent activity`} controls={regionId} onToggle={() => onToggle(!expanded)} />
       </div>
       <div id={regionId} role="region" aria-label="Agent activity details" hidden={!expanded && !fullscreen} className="px-3 pb-2">
         {(expanded || fullscreen) && tree.agents.length > 0 && (
@@ -171,6 +166,6 @@ export function AgentActivityCard({ event, expanded, onToggle, renderAction }: {
         )}
       </div>
     </section>
-    )}</ExpandableReader>
+    )}</ExpandableReader></RowMenuIsolate>
   );
 }

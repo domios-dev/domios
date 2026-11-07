@@ -4,6 +4,8 @@ use codeterm_service_core::service::tab_chat::session_window::{
 };
 use std::sync::Arc;
 
+mod air_start;
+
 #[test]
 fn chat_start_replays_registered_sse_history_without_a_plugin_store() {
     use codeterm_service_core::multiplexer::state::MultiplexerState;

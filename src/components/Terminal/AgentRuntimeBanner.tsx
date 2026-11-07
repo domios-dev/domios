@@ -1,22 +1,26 @@
+import { hasRowControls, RuntimeDeclaredControls } from "./RuntimeDeclaredControls";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useId } from "react";
 import { CircleAlert } from "lucide-react";
-import { RuntimeLoginActions } from "./RuntimeLoginActions";
+import { runtimeSignInRequired } from "./RuntimeLoginActions";
 import { runtimeStatusPresentation, type AgentRuntimeState } from "../../lib/agentRuntimeState";
 import { TabLoadingIndicator } from "../shared/TabLoadingIndicator";
 import { useRuntimeStatusPopover } from "./useRuntimeStatusPopover";
 import { AnchoredPopover } from "../shared/AnchoredPopover";
-import { isMissingRuntimeConversation } from "../../lib/describeError";
+import { describeRuntimeConnectionError, isMissingRuntimeConversation } from "../../lib/describeError";
 import { useStartNewSession } from "./useStartNewSession";
 
-export function AgentRuntimeBanner({ state, onRetry, tabId, iconSvg, startupOwned = false }: { tabId?: string; state: AgentRuntimeState | null; onRetry: () => void; iconSvg?: string | null; startupOwned?: boolean }) {
-  if (tabId && state?.auth === "signedOut" && state.loginMethods?.length) {
-    return <>
-      <RuntimeLoginActions key={`${tabId}:${state.epoch}`} tabId={tabId} state={state} iconSvg={iconSvg} onCheck={onRetry} />
-    </>;
+export function AgentRuntimeBanner({ state, onRetry, tabId, startupOwned = false }: { tabId?: string; state: AgentRuntimeState | null; onRetry: () => void; iconSvg?: string | null; startupOwned?: boolean }) {
+  const hasControls = hasRowControls(state);
+  // Sign-in has its own card in the chat area (TabSessionChat), never inside the composer group.
+  if (tabId && state && runtimeSignInRequired(state)) {
+    return <>{hasControls && <RuntimeDeclaredControls tabId={tabId} state={state} parts="notice" />}</>;
   }
   const view = runtimeStatusPresentation(state, startupOwned);
-  return <RuntimeStatusBadge view={view} onRetry={onRetry} tabId={tabId} />;
+  return <>
+    {tabId && state && hasControls && <RuntimeDeclaredControls tabId={tabId} state={state} parts="notice" />}
+    <RuntimeStatusBadge view={view} onRetry={onRetry} tabId={tabId} />
+  </>;
 }
 
 function RuntimeStatusBadge({ view, onRetry, tabId }: { view: ReturnType<typeof runtimeStatusPresentation>; onRetry: () => void; tabId?: string }) {
@@ -37,7 +41,7 @@ function RuntimeStatusBadge({ view, onRetry, tabId }: { view: ReturnType<typeof 
       <div id={id} ref={popoverRef} role="dialog" aria-label={label} tabIndex={-1}
         className="ct-menu w-64 max-w-full p-3 text-xs text-[var(--ct-fg)]">
         {view && <InlineErrorNotice
-          description={view.severity === "transient" ? { title: view.label, cause: view.reason, raw: view.details ?? "", actions: [] } : undefined}
+          description={view.severity === "transient" ? { title: view.label, cause: view.reason, raw: view.details ?? "", actions: [] } : missing ? undefined : describeRuntimeConnectionError(view.details)}
           error={view.details} operation="connecting to the agent runtime"
           actions={missing && tabId
             ? [{label:"Start a new conversation",disabled:fresh.startingNewSession,onClick:() => void fresh.onStartNewSession()}]

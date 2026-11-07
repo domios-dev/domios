@@ -1,4 +1,4 @@
-//! Explicit personas stay validated; omitted personas are derived by the daemon.
+//! New tasks require explicit validated personas.
 
 use clap::Parser;
 
@@ -6,14 +6,23 @@ use crate::{Cli, Commands, PlanAction};
 
 #[test]
 fn ease_task_add_defers_missing_required_fields_to_the_aggregate_validator() {
-    let parsed = Cli::try_parse_from(["domios", "plan", "task", "add", "pl_1"]).unwrap();
+    let parsed = Cli::try_parse_from([
+        "domios",
+        "plan",
+        "task",
+        "add",
+        "pl_1",
+        "--personality",
+        "Ada",
+    ])
+    .unwrap();
     assert!(matches!(parsed.command, Commands::Plan {
         action: PlanAction::Task { action: crate::args::plan::PlanTaskAction::Add { name, executor_role, role_guidance: None, .. } }
     } if name.is_empty() && executor_role.is_empty()));
 }
 
 #[test]
-fn ease_personality_add_allows_omission_for_daemon_derivation() {
+fn personality_required_add_refuses_omission() {
     let parsed = Cli::try_parse_from([
         "codeterm",
         "plan",
@@ -27,10 +36,13 @@ fn ease_personality_add_allows_omission_for_daemon_derivation() {
         "--role-guidance",
         "focused worker",
     ])
-    .expect("the daemon derives an omitted executor persona");
-    assert!(matches!(parsed.command, Commands::Plan {
-        action: PlanAction::Task { action: crate::args::plan::PlanTaskAction::Add { personality, .. } }
-    } if personality.is_empty()));
+    .err()
+    .expect("task add without --personality must be refused");
+    assert_eq!(
+        parsed.kind(),
+        clap::error::ErrorKind::MissingRequiredArgument
+    );
+    assert!(parsed.to_string().contains("--personality"));
 }
 
 #[test]

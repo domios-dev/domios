@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
 import { Mail, Pause, Plus, RefreshCw, UserRound } from "lucide-react";
+import { plansAction } from "../billing/purchaseSwitch";
 import { formatAge } from "../../lib/timeLabels";
 import { useAccount } from "../Settings/useAccount";
 import { accountTrayModel } from "../Titlebar/accountTrayModel";
@@ -185,7 +186,7 @@ function NeighborhoodPage({ identity, account, client, runtimeClient, conciergeC
 
         {referral && <div role="status" className="ct-card ct-card--static neighbors-referral">
           <p className="ct-card__meta">{referral}</p>
-          {neighbors.referral?.trial_end !== null && neighbors.referral?.trial_end !== undefined && <Button size="sm" variant="accent" onClick={openPlans}>Subscribe</Button>}
+          {neighbors.referral?.trial_end !== null && neighbors.referral?.trial_end !== undefined && <Button size="sm" variant="accent" onClick={openPlans}>{plansAction("Subscribe")}</Button>}
         </div>}
       </div>
       {enabled && request && <NeighborRequestPanel request={{ ...request, name: neighborName(request) }} pending={neighbors.pending}
@@ -223,7 +224,7 @@ function NodeButton({ node, index, selected, paused, canInvite, onSelect }: {
   const style = { left: `${node.x}%`, top: `${node.y}%`, "--neighbor-from-x": `${(50 - node.x) * 2}%`, "--neighbor-from-y": `${(50 - node.y) * 2}%`,
     "--neighbor-delay": `${index * 45}ms` } as CSSProperties;
   if (node.kind === "add") {
-    const label = canInvite === false ? "Upgrade to add Neighbors" : "Add Neighbor";
+    const label = canInvite === false ? `${plansAction("Upgrade")} to add Neighbors` : "Add Neighbor";
     return <button type="button" data-neighbor-node className="neighbor-node neighbor-node--add" style={style}
       disabled={canInvite === undefined} title={canInvite === undefined ? "Invitation eligibility is unavailable. Refresh Neighbors to check again." : label}
       onClick={onSelect}>

@@ -65,6 +65,52 @@ fn missing_review_evidence_has_its_own_report_outcome() {
     );
 }
 
+#[test]
+fn rejected_shared_commit_reaches_the_parent_as_rejected_with_the_worker_next_step() {
+    let cause = "reported commit 152cefbf is not on the shared checkout HEAD 57521bf1; it may have been reset or amended";
+    let failure = plan_failure(
+        "worker",
+        "plan",
+        "task",
+        crate::service::plan::PlanError::SharedReportRejected(cause.into()),
+    );
+    assert_eq!(
+        failure.report_outcome,
+        ReportOutcomeClass::TransitionRejected
+    );
+    assert!(failure.cause.starts_with(cause), "{}", failure.cause);
+    assert!(failure.cause.contains(SHARED_REPORT_NEXT_STEP));
+    assert!(!failure.cause.contains("PRODUCT INCIDENT"));
+    assert!(!failure.cause.contains("--plan and --task"));
+
+    let delivered =
+        rejected_report_delivery_message(failure.report_outcome, &failure.cause, "evidence");
+    assert!(delivered.starts_with("REPORT RECEIVED — TASK TRANSITION REJECTED\n"));
+    assert!(delivered.contains(&format!("Cause: {cause}")));
+    assert!(delivered.contains("do not accept or bounce it"));
+    assert!(!delivered.contains("PRODUCT INCIDENT"));
+    assert!(!delivered.contains("Owner action required"));
+    assert!(delivered.ends_with("\n\nevidence"));
+}
+
+#[test]
+fn a_real_persistence_incident_stays_labelled_as_an_incident() {
+    let failure = plan_failure(
+        "worker",
+        "plan",
+        "task",
+        crate::service::plan::PlanError::Io("database is locked".into()),
+    );
+    assert_eq!(
+        failure.report_outcome,
+        ReportOutcomeClass::StaleBindingConflict
+    );
+    assert!(failure.cause.starts_with("ORCHESTRATION PRODUCT INCIDENT"));
+    let delivered =
+        rejected_report_delivery_message(failure.report_outcome, &failure.cause, "evidence");
+    assert!(delivered.contains("Owner action required: ORCHESTRATION PRODUCT INCIDENT"));
+}
+
 fn add_task(store: &PlanStore, plan_id: &str, name: &str, now_ms: u64) -> String {
     store
         .add_task(
@@ -110,6 +156,7 @@ fn late_bound_no_id_report_persists_exact_task_milestone() {
             None,
             Some("worker-session"),
             Some("worker-nonce"),
+            None,
             4,
         )
         .unwrap();
@@ -413,6 +460,7 @@ fn verified_nonce_resolves_missing_report_session_id() {
             None,
             Some("live-session"),
             Some("live-nonce"),
+            None,
             4,
         )
         .unwrap();
@@ -482,6 +530,7 @@ fn current_tab_binding_resolves_missing_report_identity_before_persistence() {
             None,
             Some("live-session"),
             Some("live-nonce"),
+            None,
             4,
         )
         .unwrap();

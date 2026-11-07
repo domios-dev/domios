@@ -46,7 +46,7 @@ import type {
   MeshPeersResponse,
 } from "../../lib/types";
 import { reducer } from "./reducer";
-import { acceptsPageFocus, initialPageSelection } from "./pageSelection";
+import { acceptsPageFocus, focusRequestTarget, initialPageSelection, TAB_FOCUS_REQUESTED_EVENT, type FocusRequest, type FocusTarget } from "./pageSelection";
 import { loadClientPageSelection } from "../../lib/clientPageSelection";
 import { buildInitialState, HYDRATED_GENERATION } from "./initialState";
 import { applyPendingTabGuard, type TabGuards } from "./pendingTabGuard";
@@ -168,8 +168,9 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     backendStateRevisionRef.current++;
     // here silently dropped the closed-history on every reload.
     const guarded = applyPendingTabGuard(s, pendingTabSwitchRef.current);
-    dispatch({ type: "SET_STATE", state: guarded, force, pageOwnedSelection: IS_WEB,
-      initialSelection: IS_WEB && !reconciledRef.current ? initialPageSelection(guarded, loadClientPageSelection()) : undefined });
+    // Every client owns its selection: the daemon's active tab only seeds a client that has none yet.
+    dispatch({ type: "SET_STATE", state: guarded, force, pageOwnedSelection: true,
+      initialSelection: !reconciledRef.current ? initialPageSelection(guarded, loadClientPageSelection()) : undefined });
     const remoteTabs = Object.fromEntries(
       Object.entries(stateRef.current.tabs).filter(([, tab]) => Boolean(tab.remote_peer_id)),
     );
@@ -617,11 +618,26 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     window.addEventListener("codeterm-web-boot-changed", onBootChanged);
     unlisteners.push(() => window.removeEventListener("codeterm-web-boot-changed", onBootChanged));
 
+    // The daemon's focus is another client's selection; only a tab this client already shows may take it.
     listen<{ tab_id: string }>("tab-focused", (event) => {
       const tabId = event.payload.tab_id;
-      if (!acceptsPageFocus(stateRef.current, tabId, IS_WEB)) return;
-      if (stateRef.current.tabs[tabId]) dispatch({ type: "SET_FOCUSED_TAB", tabId });
-      else void refreshFromBackend();
+      if (stateRef.current.tabs[tabId] && acceptsPageFocus(stateRef.current, tabId, true)) dispatch({ type: "SET_FOCUSED_TAB", tabId });
+    }).then((unlisten) => unlisteners.push(unlisten));
+
+    // An explicit request to show a tab (CLI, agent) is not a client's selection: every client shows it.
+    listen<FocusRequest>(TAB_FOCUS_REQUESTED_EVENT, (event) => {
+      const show = (target: FocusTarget) => {
+        dispatch({ type: "SET_ACTIVE_WORKSPACE", source: "program", id: target.workspaceId });
+        if (target.tabId) dispatch({ type: "SET_ACTIVE_TAB", source: "program", workspaceId: target.workspaceId, tabId: target.tabId });
+        const focused = target.tabId ?? stateRef.current.activeTabIds[target.workspaceId];
+        if (focused) dispatch({ type: "SET_FOCUSED_TAB", tabId: focused });
+      };
+      const known = focusRequestTarget(stateRef.current.workspaces, event.payload);
+      if (known) return show(known);
+      const requested = event.payload?.workspace_id
+        ? { workspaceId: event.payload.workspace_id, tabId: event.payload.tab_id ?? null } : null;
+      // Reducer actions apply in order, so the selection lands on the refreshed snapshot.
+      if (requested) void refreshFromBackend().then(() => show(requested));
     }).then((unlisten) => unlisteners.push(unlisten));
 
     listen<unknown>(SURFACE_ACTIVITY_EVENT, (event) => recordSurfaceActivity(event.payload))
@@ -701,6 +717,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       dispatch({ type: "SET_ACTIVE_TAB", source: "program", workspaceId, tabId: tabInfo.id });
       // Explicit New Tab click focuses the new tab; background spawns don't.
       guardedInvoke("mux_set_focused_tab", { tabId: tabInfo.id }).catch(() => {});
+      dispatch({ type: "SET_FOCUSED_TAB", tabId: tabInfo.id });
       return { id: tabInfo.id };
     } catch (e) {
       if (!raiseFreeLimit(e, "agent.tabs")) console.error("Failed to create tab:", e);
@@ -715,6 +732,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       dispatch({ type: "SET_ACTIVE_WORKSPACE", source: "program", id: workspaceId });
       dispatch({ type: "SET_ACTIVE_TAB", source: "program", workspaceId, tabId: tabInfo.tab_id });
       guardedInvoke("mux_set_focused_tab", { tabId: tabInfo.tab_id }).catch(() => {});
+      dispatch({ type: "SET_FOCUSED_TAB", tabId: tabInfo.tab_id });
       refreshFromBackend();
     } catch (e) {
       console.error("Failed to reopen closed tab:", e);
@@ -733,6 +751,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       dispatch({ type: "SET_ACTIVE_WORKSPACE", source: "program", id: result.workspace_id });
       dispatch({ type: "SET_ACTIVE_TAB", source: "program", workspaceId: result.workspace_id, tabId: result.tab_id });
       guardedInvoke("mux_set_focused_tab", { tabId: result.tab_id }).catch(() => {});
+      dispatch({ type: "SET_FOCUSED_TAB", tabId: result.tab_id });
       refreshFromBackend();
     } catch (e) {
       console.error("Failed to reopen closed group:", e);
@@ -748,6 +767,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       dispatch({ type: "SET_ACTIVE_WORKSPACE", source: "program", id: result.workspace_id });
       dispatch({ type: "SET_ACTIVE_TAB", source: "program", workspaceId: result.workspace_id, tabId: result.tab_id });
       guardedInvoke("mux_set_focused_tab", { tabId: result.tab_id }).catch(() => {});
+      dispatch({ type: "SET_FOCUSED_TAB", tabId: result.tab_id });
       refreshFromBackend();
     } catch (e) {
       console.error("Failed to restore orphaned tab:", e);
@@ -867,6 +887,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     preset?: string,
     intent?: SessionLaunchIntent,
     executionMode?: string,
+    launchProfile?: string,
   ): Promise<SpawnedTab | null> => {
     if (precheckFreeLimit(["agent.tabs"])) return null;
     if (intent === "fresh_general") {
@@ -890,7 +911,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     spawnInFlight.current.add(guardKey);
     try {
       const res = await guardedInvoke<AtomicSpawn>("mux_spawn_tab", {
-        params: { agentId, workspaceId, cwd, model, reasoningEffort, ...atomicSpawnPreset(getAgentDescriptor(agentId), preset, executionMode) },
+        params: { agentId, workspaceId, cwd, model, reasoningEffort, ...(launchProfile ? { launchProfile } : {}), ...atomicSpawnPreset(getAgentDescriptor(agentId), preset, executionMode) },
       });
       applyBackendState(res.snapshot);
       if (res.launch_command) {
@@ -900,7 +921,6 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       pendingTabSwitchRef.current[res.workspace_id] = { tabId: res.tab_id };
       dispatch({ type: "SET_ACTIVE_WORKSPACE", source: "program", id: res.workspace_id });
       dispatch({ type: "SET_ACTIVE_TAB", source: "program", workspaceId: res.workspace_id, tabId: res.tab_id });
-      // Snappy local focus; backend also emits the authoritative tab-focused.
       dispatch({ type: "SET_FOCUSED_TAB", tabId: res.tab_id });
       return { workspaceId: res.workspace_id, tabId: res.tab_id };
     } catch (e) {
@@ -982,7 +1002,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     });
     dispatch({ type: "SET_ACTIVE_WORKSPACE", source: "user", id: workspaceId });
     dispatch({ type: "SET_ACTIVE_TAB", source: "user", workspaceId, tabId });
-    if (IS_WEB) dispatch({ type: "SET_FOCUSED_TAB", tabId });
+    dispatch({ type: "SET_FOCUSED_TAB", tabId });
   }, [guardedInvoke, restoreFromBackend]);
 
   // Select + focus a just-spawned tab by resolving its owning tab; a fresh
@@ -1011,9 +1031,8 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   }, [guardedInvoke, applyBackendState]);
 
   const setFocusedTab = useCallback((tabId: string) => {
-    // Optimistic local update for snappy click feedback.
     dispatch({ type: "SET_FOCUSED_TAB", tabId });
-    // Backend re-emits `tab-focused` and keeps `focused_tab_id` authoritative.
+    // The daemon records it as the last selection only; no other client follows it.
     guardedInvoke("mux_set_focused_tab", { tabId }).catch(() => {});
   }, [guardedInvoke]);
 

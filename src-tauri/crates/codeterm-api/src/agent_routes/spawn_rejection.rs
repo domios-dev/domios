@@ -6,6 +6,7 @@ use axum::{
 
 /// JSON error surface for `/api/agents/spawn`, so the mesh relay can parse it
 /// instead of collapsing a bare `(StatusCode, String)` body to "HTTP 500".
+#[derive(Debug)]
 pub struct SpawnRejection {
     pub(crate) status: StatusCode,
     pub(crate) body: serde_json::Value,
@@ -74,6 +75,41 @@ impl From<codeterm_service_core::service::spawn_launch_verdict::SpawnLaunchFailu
             body: serde_json::json!({ "ok": false, "error": error }),
         }
     }
+}
+
+impl From<codeterm_service_core::service::spawn_params::SpawnTargetRefusal> for SpawnRejection {
+    fn from(error: codeterm_service_core::service::spawn_params::SpawnTargetRefusal) -> Self {
+        match error.data() {
+            Some(data) => Self {
+                status: StatusCode::UNPROCESSABLE_ENTITY,
+                body: serde_json::json!({"ok":false,"error":data}),
+            },
+            None => Self::from(error.to_string()),
+        }
+    }
+}
+
+impl From<codeterm_service_core::service::spawn_params::LaunchProfileRefusal> for SpawnRejection {
+    fn from(error: codeterm_service_core::service::spawn_params::LaunchProfileRefusal) -> Self {
+        Self {
+            status: StatusCode::UNPROCESSABLE_ENTITY,
+            body: serde_json::json!({"ok": false, "error": error.data()}),
+        }
+    }
+}
+
+pub(crate) async fn validate_spawn_options(
+    svc: &codeterm_service_core::service::ServiceState,
+    provider: &str,
+    params: &codeterm_service_core::service::SpawnAgentParams,
+) -> Result<(), SpawnRejection> {
+    let svc = svc.clone();
+    let provider = provider.to_owned();
+    let params = params.clone();
+    tokio::task::spawn_blocking(move || svc.validate_spawn_options(&provider, &params))
+        .await
+        .map_err(|error| SpawnRejection::from(error.to_string()))?
+        .map_err(SpawnRejection::from)
 }
 
 /// Answer for the launch this spawn started, off the async runtime.

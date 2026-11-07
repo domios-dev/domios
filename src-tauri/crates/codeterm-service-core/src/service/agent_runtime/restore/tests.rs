@@ -457,3 +457,154 @@ fn cloud_launch_record_never_materializes_a_local_runtime() {
         Some("opaque-cloud")
     );
 }
+
+#[test]
+fn undeclared_saved_modes_are_cleared_before_same_session_materialization() {
+    let (mut mux, id) = MultiplexerState::new();
+    let tab = mux.get_tab_mut(&id).unwrap();
+    tab.agent_type = Some("session-modes".into());
+    tab.agent_session_id = Some("saved-thread".into());
+    tab.agent_runtime_config = Some(serde_json::json!({"mode":"auto-accept-edits"}));
+    tab.structured_runtime_mode = Some("auto-accept-edits".into());
+    tab.restorable_launch.structured_runtime_mode = Some("auto-accept-edits".into());
+    let fixture = ServiceFixture::new(MultiplexerState::from_session_snapshot(
+        &mux.to_session_snapshot(),
+    ));
+    let manifest = codeterm_plugin::js_runtime::PluginManifest::from_json_str(&serde_json::json!({
+        "id":"session-modes","version":"1.0.0","displayName":"Fixture",
+        "capabilities":{"agentProvider":true,"chatBackend":{"enabled":true,"spawnable":true,"sessionConfig":true,"agentTasks":true},"agentRuntime":{"runtime":"stdio-jsonrpc",
+            "command":{"binary":"fixture-cli","args":[]},"requestMethods":{"initialize":["initialize"]},"notificationMethods":[]}},
+        "permissions":{"subprocess":{"allow":["fixture-cli"]}}
+    }).to_string()).unwrap();
+    let vm = Arc::new(
+        codeterm_plugin::js_runtime::PluginVm::from_source(
+            "session-modes",
+            "module.exports={}".into(),
+        )
+        .unwrap(),
+    );
+    fixture.service.agent_registry.register_provider(Box::new(
+        codeterm_plugin::js_runtime::JsProvider::new(manifest, vm),
+    ));
+    assert!(super::tab(&fixture.service, &id).unwrap());
+    let mux = fixture.service.mux.read();
+    let tab = mux.get_tab(&id).unwrap();
+    assert_eq!(tab.agent_session_id.as_deref(), Some("saved-thread"));
+    assert!(matches!(tab.backing, TabBacking::ChatBackend { .. }));
+    assert!(tab.chat_view);
+    assert!(tab
+        .agent_runtime_config
+        .as_ref()
+        .unwrap()
+        .get("mode")
+        .is_none());
+    assert!(tab.structured_runtime_mode.is_none());
+    assert!(tab.restorable_launch.structured_runtime_mode.is_none());
+}
+
+#[test]
+fn saved_provider_refusal_is_named_before_any_runtime_starts() {
+    let (mut mux, id) = MultiplexerState::new();
+    let tab = mux.get_tab_mut(&id).unwrap();
+    tab.agent_type = Some("restore-runtime".into());
+    tab.agent_session_id = Some("saved-thread".into());
+    tab.session_binding_nonce = Some("saved-nonce".into());
+    tab.reported_session_binding_nonce = Some("saved-nonce".into());
+    tab.agent_runtime_state = Some(
+        serde_json::json!({"state":"degraded","failure_code":"provider_refused",
+        "agent_name":"Opaque runtime","reason":"Provider refused: ProviderRefused: Internal error"}),
+    );
+    let fixture = ServiceFixture::new(MultiplexerState::from_session_snapshot(
+        &mux.to_session_snapshot(),
+    ));
+    register_runtime(&fixture.service);
+    assert!(super::super::engine::for_tab(&id).is_none());
+    for _ in 0..2 {
+        assert!(super::tab(&fixture.service, &id).unwrap());
+        let tab = fixture.service.mux.read().get_tab(&id).unwrap().clone();
+        let state = tab.agent_runtime_state.unwrap();
+        assert_eq!(state["state"], "degraded");
+        assert_eq!(state["failure_code"], "provider_refused");
+        assert_eq!(state["reason"],"Provider refused: Opaque runtime could not resume the session: ProviderRefused: Internal error");
+        assert_eq!(tab.agent_session_id.as_deref(), Some("saved-thread"));
+        assert!(super::super::engine::for_tab(&id).is_none());
+    }
+}
+
+#[test]
+fn initialize_refusal_keeps_named_redacted_bounded_rpc_cause() {
+    use super::super::{engine, model::RuntimeFailure};
+    use codeterm_plugin::agent_runtime::{RpcFailure, RuntimeOperation};
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    const SOURCE: &str = r#"
+    module.exports={
+        runtimePlan(){return {action:{kind:'request',call:{method:'fixture/initialize',params:{}}},state:null};},
+        runtimeResponse(ctx,op,state,reply){return {kind:'refused',reason:{code:'provider_refused',message:reply.error.message},beforeAcceptance:true};},
+        runtimeReduce(){return {state:null,events:[]};}
+    };"#;
+    let (fixture, id, peer, _cleanup) = engine::test_support::runtime_fixture_with(SOURCE);
+    let session = engine::for_tab(&id).unwrap();
+    session.state.lock().agent_name = None;
+    crate::async_runtime::block_on(async {
+        let server = tokio::spawn(async move {
+            let mut peer = BufReader::new(peer);
+            let mut line = String::new();
+            peer.read_line(&mut line).await.unwrap();
+            let request: serde_json::Value = serde_json::from_str(&line).unwrap();
+            assert_eq!(request["method"], "fixture/initialize");
+            let reply = serde_json::json!({"id":request["id"],"error":{"code":-32603,"message":"Internal error",
+                "data":{"details":"opaque underlying cause\nAuthorization: Bearer hidden-credential","token":"hidden-extra-field"}}});
+            peer.get_mut()
+                .write_all(format!("{reply}\n").as_bytes())
+                .await
+                .unwrap();
+            peer
+        });
+        let process = session.process.lock().clone().unwrap();
+        let failure = engine::run(
+            &fixture.service,
+            &session.provider,
+            &session,
+            &process,
+            RuntimeOperation::Initialize,
+        )
+        .await
+        .unwrap_err();
+        let saved = serde_json::json!({"agent_name":"Opaque runtime"});
+        let failure = super::refusal(&fixture.service, &session, Some(&saved), failure);
+        let text = failure.to_string();
+        assert!(text.contains("Opaque runtime could not resume the session:"));
+        assert!(text.contains("JSON-RPC -32603: Internal error"));
+        assert!(text.contains("opaque underlying cause"));
+        assert!(!text.contains("hidden-credential"));
+        assert!(!text.contains("hidden-extra-field"));
+        assert_eq!(
+            super::refusal(&fixture.service, &session, Some(&saved), failure.clone()),
+            failure
+        );
+        assert!(matches!(failure, RuntimeFailure::Refused(_)));
+        let _peer = server.await.unwrap();
+    });
+    let plain = super::rpc_reason(&RpcFailure {
+        code: -32603,
+        message: "Internal error".into(),
+        data: None,
+    });
+    assert_eq!(plain, "JSON-RPC -32603: Internal error");
+    let long = super::rpc_reason(&RpcFailure {
+        code: -32603,
+        message: "Internal error".into(),
+        data: Some(serde_json::json!({"error":{"message":"x".repeat(20000)}})),
+    });
+    assert!(long.chars().count() < 1200);
+    assert!(long.contains("JSON-RPC -32603: Internal error"));
+    assert_eq!(
+        super::refusal(
+            &fixture.service,
+            &session,
+            None,
+            RuntimeFailure::SignInRequired
+        ),
+        RuntimeFailure::SignInRequired
+    );
+}

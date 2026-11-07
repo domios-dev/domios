@@ -7,6 +7,7 @@ use axum::{
 };
 use codeterm_account::Status;
 mod login_paste;
+pub(crate) mod neighbor_sidebar;
 type Error = (StatusCode, String);
 pub(crate) fn admit(caller: Option<&Extension<CallerIdentity>>) -> Result<(), Error> {
     if matches!(caller.map(|c| &c.0), Some(CallerIdentity::Local)) {
@@ -30,16 +31,29 @@ pub async fn status(
         .map_err(unavailable)?
         .status()
         .await;
+    let cached = state
+        .svc
+        .try_ext::<codeterm_service_core::service::account::startup::StartupAccount>();
+    Ok(Json(project_status(status, cached)))
+}
+
+fn project_status(
+    mut status: Status,
+    cached: Option<&codeterm_service_core::service::account::startup::StartupAccount>,
+) -> Status {
+    let Some(cached) = cached else {
+        return status;
+    };
+    if let Some(mismatch) = status.target_mismatch.take() {
+        status.target_mismatch = Some(mismatch.with_saved(cached.saved_target()));
+        return status;
+    }
     if status.identity.is_none() && !status.pending && !status.session_revoked {
-        if let Some(cached) = state
-            .svc
-            .try_ext::<codeterm_service_core::service::account::startup::StartupAccount>()
-            .filter(|cached| cached.is_valid())
-        {
-            return Ok(Json(cached.status()));
+        if let Some(projected) = cached.projected_status() {
+            return projected;
         }
     }
-    Ok(Json(status))
+    status
 }
 
 pub async fn backend(

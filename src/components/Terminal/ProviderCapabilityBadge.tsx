@@ -13,7 +13,7 @@ export const ProviderCapabilityBadge = memo(function ProviderCapabilityBadge({ta
     <button type="button" disabled={busy} aria-label="Refresh provider capabilities" onClick={async()=>{
       setBusy(true); setError(null);
       try { await invoke("refresh_provider_capabilities",{tabId}); }
-      catch {setError("Provider capabilities unavailable (refresh failed)");}
+      catch {setError("Harness capabilities unavailable (refresh failed)");}
       finally {setBusy(false);}
     }}>Refresh</button>
   </div>;

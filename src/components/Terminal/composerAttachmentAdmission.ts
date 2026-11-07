@@ -19,11 +19,11 @@ export function composerAttachmentError(
     ...(reply ? ["quote" as const] : []),
   ];
   if (!kinds.length) return null;
-  if (!capabilities) return "Attachment support is unavailable for this provider. Remove attachments before sending.";
+  if (!capabilities) return "Attachment support is unavailable for this harness. Remove attachments before sending.";
   for (const kind of kinds) {
     if (kind === "image" ? capabilities.imagePaths : capabilities.filePaths) continue;
     const suggestion = capabilities.inlineText ? " Paste text directly into the message instead." : "";
-    return `This provider cannot read ${kind === "image" ? "image" : "file"} attachments. Remove the attachment before sending.${suggestion}`;
+    return `This harness cannot read ${kind === "image" ? "image" : "file"} attachments. Remove the attachment before sending.${suggestion}`;
   }
   return null;
 }

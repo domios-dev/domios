@@ -1,3 +1,4 @@
+use super::report::SharedReportError;
 use super::{PlanError, PlanStore, TaskFiles, WorkerPlacement};
 use crate::plan::Task;
 use crate::service_plan::task_authority_projection::SharedReportRead as SharedReportSnapshot;
@@ -68,7 +69,7 @@ impl SharedReportInspection {
 }
 
 impl PlanStore {
-    fn shared_git(&self, checkout: &str, args: &[&str]) -> Result<String, String> {
+    fn shared_git(&self, checkout: &str, args: &[&str]) -> Result<String, SharedReportError> {
         #[cfg(test)]
         {
             let observer = self.shared_git_observer.read().clone();
@@ -83,6 +84,7 @@ impl PlanStore {
         &self,
         plan_id: &str,
         task_id: &str,
+        now_ms: u64,
     ) -> Result<SharedDispatchInspection, PlanError> {
         let read = self.database.shared_dispatch_projection(plan_id, task_id)?;
         read.files
@@ -91,9 +93,10 @@ impl PlanStore {
         super::validate_edit_links_at(&super::canonical_path(&read.checkout), &read.files)
             .map_err(PlanError::InvalidPlanText)?;
         let checkout = read.checkout;
+        self.observe_shared_history(&checkout, now_ms);
         let head = self
             .shared_git(&checkout, &["rev-parse", "--verify", "HEAD^{commit}"])
-            .map_err(PlanError::InvalidPlanText)?
+            .map_err(|error| PlanError::InvalidPlanText(error.to_string()))?
             .trim()
             .to_string();
         Ok(SharedDispatchInspection {
@@ -109,6 +112,7 @@ impl PlanStore {
         task_id: &str,
         reporter: &str,
         sha: Option<&str>,
+        now_ms: u64,
     ) -> Result<Option<SharedReportInspection>, PlanError> {
         let Some(snapshot) = self
             .database
@@ -119,6 +123,7 @@ impl PlanStore {
         let checkout = snapshot.checkout.as_deref().ok_or_else(|| {
             PlanError::InvalidPlanText("shared attempt has no checkout binding".into())
         })?;
+        self.observe_shared_history(checkout, now_ms);
         let start = snapshot
             .start_sha
             .as_deref()
@@ -130,7 +135,10 @@ impl PlanStore {
             sha,
             |checkout, args| self.shared_git(checkout, args),
         )
-        .map_err(PlanError::InvalidPlanText)?;
+        .map_err(|error| match error {
+            SharedReportError::Rejected(cause) => PlanError::SharedReportRejected(cause),
+            SharedReportError::Inspection(cause) => PlanError::InvalidPlanText(cause),
+        })?;
         Ok(Some(SharedReportInspection {
             snapshot,
             changed_files,

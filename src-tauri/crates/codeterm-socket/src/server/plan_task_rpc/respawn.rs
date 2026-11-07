@@ -34,6 +34,10 @@ pub(super) fn respawn(
         data: None,
     })?;
     let request = codeterm_service_core::service::plan::task_attempts::TaskRespawnRequest {
+        launch_profile: body
+            .get("launch_profile")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
         reasoning_effort: body
             .get("reasoning_effort")
             .and_then(Value::as_str)
@@ -63,6 +67,8 @@ pub(super) fn respawn(
     let mut draft = store
         .build_task_respawn_draft(&id, &tid, request)
         .map_err(plan_rpc_err)?;
+    svc.validate_launch_profile(&draft.provider, draft.launch_profile.as_deref())
+        .map_err(super::super::model_errors::launch_profile_rpc_error)?;
     let seed = store
         .task_dispatch_seed_projection(&id, &tid, "")
         .map_err(plan_rpc_err)?;
@@ -110,15 +116,6 @@ pub(super) fn respawn(
             data: None,
         })?;
     draft.parent_tab_id = Some(parent_tab_id.clone());
-    let _respawn_reservation = store
-        .reserve_task_respawn_startup(&id, &tid, &draft.source_attempt.id, &draft.attempt_id)
-        .map_err(plan_rpc_err)?;
-    svc.retire_respawn_executor(&draft)
-        .map_err(|error| JsonRpcError {
-            code: -32603,
-            message: error,
-            data: None,
-        })?;
     let mut spawn_params = super::super::plan_task_dispatch::respawn_worker_params(
         &draft,
         &task.name,
@@ -130,6 +127,17 @@ pub(super) fn respawn(
         .and_then(Value::as_str)
         .map(str::to_owned)
         .or(spawn_params.speed);
+    svc.validate_spawn_options(&draft.provider, &spawn_params)
+        .map_err(super::super::model_errors::spawn_target_rpc_error)?;
+    let _respawn_reservation = store
+        .reserve_task_respawn_startup(&id, &tid, &draft.source_attempt.id, &draft.attempt_id)
+        .map_err(plan_rpc_err)?;
+    svc.retire_respawn_executor(&draft)
+        .map_err(|error| JsonRpcError {
+            code: -32603,
+            message: error,
+            data: None,
+        })?;
     let speed = spawn_params.speed.clone();
     let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
     let spawn = svc

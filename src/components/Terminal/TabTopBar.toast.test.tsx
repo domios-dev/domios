@@ -51,7 +51,7 @@ it("shows header action failures in a retryable toast without an inline alert", 
   const root = createRoot(host);
   try {
     await act(async () => root.render(<Harness />));
-    const reconnect = host.querySelector<HTMLButtonElement>('button[aria-label="Refresh chat"]');
+    const reconnect = Array.from(host.querySelectorAll<HTMLButtonElement>("button")).find(button => button.textContent === "Reconnect");
     await act(async () => reconnect!.click());
     expect(host.querySelector('[data-testid="notification-toast"]')?.getAttribute("role")).toBe("status");
     expect(host.querySelector('[role="alert"]')).toBeNull();
@@ -64,27 +64,28 @@ it("shows header action failures in a retryable toast without an inline alert", 
   }
 });
 
-it("shares the selected tab reconnect action between the refresh button, menu and shortcut", async () => {
+it("keeps reconnect in the tab menu and shortcut with no separate refresh button", async () => {
   fakes.reconnect.mockReset().mockResolvedValue(undefined);
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host);
+  const shortcut = () => new KeyboardEvent("keydown", { code: "KeyR", ctrlKey: true, bubbles: true, cancelable: true });
   try {
+    for (const props of [{}, { chat: false, chatCapable: true }]) {
+      await act(async () => root.render(<Harness {...props} />));
+      expect(host.querySelector('button[aria-label="Refresh chat"]')).toBeNull();
+    }
     await act(async () => root.render(<Harness />));
-    const refresh = host.querySelector<HTMLButtonElement>('button[aria-label="Refresh chat"]');
-    expect(refresh?.disabled).toBe(false);
-    await act(async () => refresh!.click());
     const menu = Array.from(host.querySelectorAll<HTMLButtonElement>("button")).find(button => button.textContent === "Reconnect");
     await act(async () => menu!.click());
-    const shortcut = new KeyboardEvent("keydown", { code: "KeyR", ctrlKey: true, bubbles: true, cancelable: true });
-    await act(async () => window.dispatchEvent(shortcut));
-    expect(shortcut.defaultPrevented).toBe(true);
-    expect(fakes.reconnect.mock.calls).toEqual([["tab-a"], ["tab-a"], ["tab-a"]]);
+    const pressed = shortcut();
+    await act(async () => window.dispatchEvent(pressed));
+    expect(pressed.defaultPrevented).toBe(true);
+    expect(fakes.reconnect.mock.calls).toEqual([["tab-a"], ["tab-a"]]);
     await act(async () => root.render(<Harness locked />));
-    expect(host.querySelector<HTMLButtonElement>('button[aria-label="Refresh chat"]')?.disabled).toBe(true);
-    await act(async () => root.render(<Harness chat={false} />));
-    expect(host.querySelector('button[aria-label="Refresh chat"]')).toBeNull();
-    await act(async () => root.render(<Harness chat={false} chatCapable />));
-    expect(host.querySelector<HTMLButtonElement>('button[aria-label="Refresh chat"]')?.disabled).toBe(false);
+    const locked = shortcut();
+    await act(async () => window.dispatchEvent(locked));
+    expect(locked.defaultPrevented).toBe(false);
+    expect(fakes.reconnect).toHaveBeenCalledTimes(2);
   } finally {
     await act(async () => root.unmount()); host.remove();
   }

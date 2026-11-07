@@ -485,10 +485,15 @@ fn junction_owner_is_refused_before_acl_changes_or_external_payload_writes() {
     assert!(command.status().unwrap().success());
     let before = super::super::acl_setup_calls();
     let store = UserSendStore::open(dir.path()).unwrap();
-    let ticket = reserve(&store, 1);
-    let error = store
-        .admit(&ticket, "opaque-original", "opaque-transport", None)
-        .unwrap_err();
+    // WHY: storage requalification may refuse the junction at reservation, before admission.
+    let error = match store.reserve(authority(), Some("token-1".into()), || {
+        (uuid::Uuid::new_v4().to_string(), 1)
+    }) {
+        Err(error) => error,
+        Ok(ticket) => store
+            .admit(&ticket, "opaque-original", "opaque-transport", None)
+            .unwrap_err(),
+    };
     assert!(error.contains("reparse point"));
     assert_eq!(super::super::acl_setup_calls(), before);
     assert_eq!(
@@ -497,4 +502,124 @@ fn junction_owner_is_refused_before_acl_changes_or_external_payload_writes() {
     );
     assert_eq!(fs::read_dir(&external).unwrap().count(), 1);
     fs::remove_dir(&owned).unwrap();
+}
+
+#[test]
+fn storage_failure_recovers_new_admissions_without_replaying_uncertain_send() {
+    for stage in ["payload", "index", "index_replaced"] {
+        let dir = tempfile::tempdir().unwrap();
+        let store = UserSendStore::open(dir.path()).unwrap();
+        let first = reserve(&store, 1);
+        let uncertain_id = first.send_id.clone();
+        store.set_persistence_boundary(Some(Arc::new(move |observed| {
+            if observed == stage {
+                Err("injected disk full".into())
+            } else {
+                Ok(())
+            }
+        })));
+        let error = store
+            .admit(&first, "opaque-first", "opaque-first", None)
+            .unwrap_err();
+        assert!(error.contains(
+            "send storage write failed: injected disk full; retry when storage is writable"
+        ));
+        assert!(!error.contains("revoked"));
+        if stage != "payload" {
+            assert!(error.starts_with("admission_unknown:"));
+        }
+        drop(first);
+        store.set_persistence_boundary(Some(Arc::new(|_| Err("still unwritable".into()))));
+        let error = store
+            .reserve(authority(), None, || {
+                panic!("unqualified storage allocated identity")
+            })
+            .err()
+            .unwrap();
+        assert!(error.contains("send storage write failed: still unwritable"));
+        assert!(store.tab("opaque-tab").failed.load(Ordering::Acquire));
+
+        store.set_persistence_boundary(None);
+        let later = admit(&store, 2, "opaque-later");
+        assert!(!store.tab("opaque-tab").failed.load(Ordering::Acquire));
+        let duplicate = store
+            .reserve(authority(), Some("token-1".into()), || {
+                panic!("uncertain send allocated another identity")
+            })
+            .unwrap();
+        assert!(duplicate.wait_existing().unwrap());
+        assert_eq!(duplicate.send_id, uncertain_id);
+        assert!(store
+            .admit(&duplicate, "opaque-first", "opaque-first", None)
+            .is_err());
+        drop(duplicate);
+        assert!(store.claim(&later, "opaque-session").unwrap());
+        store.finish_handoff(&later, false).unwrap();
+        let queued = store.queued("opaque-tab").unwrap();
+        assert!(queued.is_empty());
+        let records = store.records("opaque-tab").unwrap();
+        if stage == "index_replaced" {
+            let uncertain = records
+                .iter()
+                .find(|record| record.send_id == uncertain_id)
+                .unwrap();
+            assert_eq!(uncertain.state, UserSendState::Uncertain);
+            assert!(!store.claim(uncertain, "opaque-session").unwrap());
+        } else {
+            assert!(!records.iter().any(|record| record.send_id == uncertain_id));
+        }
+        let reopened = UserSendStore::open(dir.path()).unwrap();
+        assert!(reopened.queued("opaque-tab").unwrap().is_empty());
+        assert!(!store.tab("opaque-tab").dir.join("index.next.json").exists());
+    }
+}
+
+#[test]
+fn recovery_preserves_queued_tail_and_does_not_requeue_possible_handoff() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = UserSendStore::open(dir.path()).unwrap();
+    let first = admit(&store, 1, "opaque-first");
+    let tail = admit(&store, 2, "opaque-tail");
+    assert!(store.claim(&first, "opaque-session").unwrap());
+    store.set_persistence_boundary(Some(Arc::new(|stage| {
+        if stage == "index_replaced" {
+            Err("injected sync failure".into())
+        } else {
+            Ok(())
+        }
+    })));
+    assert!(store.finish_handoff(&first, true).is_err());
+    store.set_persistence_boundary(None);
+    let later = admit(&store, 3, "opaque-later");
+    let records = store.records("opaque-tab").unwrap();
+    assert_eq!(records[0].state, UserSendState::Uncertain);
+    assert!(!store.claim(&first, "opaque-session").unwrap());
+    assert!(store.claim(&tail, "opaque-session").unwrap());
+    assert!(store.claim(&later, "opaque-session").unwrap());
+    assert!(records
+        .windows(2)
+        .all(|pair| pair[0].acceptance_sequence < pair[1].acceptance_sequence));
+}
+
+#[test]
+fn purged_tab_never_recovers_storage_or_accepts_another_send() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = UserSendStore::open(dir.path()).unwrap();
+    let ticket = reserve(&store, 1);
+    store.set_persistence_boundary(Some(Arc::new(|_| Err("injected disk full".into()))));
+    assert!(store
+        .admit(&ticket, "opaque-first", "opaque-first", None)
+        .is_err());
+    drop(ticket);
+    store.purge_closed_tab("opaque-tab").unwrap();
+    store.set_persistence_boundary(None);
+    let error = store
+        .reserve(authority(), None, || {
+            panic!("purged tab allocated identity")
+        })
+        .err()
+        .unwrap();
+    assert!(error.contains("revoked"));
+    assert!(!store.tab("opaque-tab").dir.exists());
+    assert!(store.records("opaque-tab").is_err());
 }

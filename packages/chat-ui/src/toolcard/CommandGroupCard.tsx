@@ -2,7 +2,8 @@ import { ExpandableReader } from "../ExpandableReader";
 import { BoundedMessageContent } from "../BoundedMessageContent";
 import type { ShellScript, ToolEvent } from "@codeterm/chat-core";
 import { ChatCardMenu } from "../ChatCardMenu";
-import { ChevronRight, SquareTerminal } from "lucide-react";
+import { SquareTerminal } from "lucide-react";
+import { CardChevron } from "../CompactCard";
 import { useId, useState } from "react";
 import { SyntaxHighlighter } from "../syntaxHighlighter";
 import { commandGroupSummary, type CommandRow } from "../codeterm/commandShape";
@@ -81,7 +82,7 @@ export function CommandGroupCard({ event, rows, expanded, onToggle, ...navigatio
   const countLabel = `${rows.length} commands`;
 
   return (
-    <ExpandableReader label={title} openerPlacement="header">{(fullscreen, opener) => (
+    <ExpandableReader label={title} openerPlacement="header" ownsMenu>{(fullscreen, opener, _openReader, readerItems) => (
     <section
 
       data-testid="chat-command-group"
@@ -112,14 +113,12 @@ export function CommandGroupCard({ event, rows, expanded, onToggle, ...navigatio
       <span data-testid="chat-command-group-status" role="status" aria-label={statusName(event.status)} className="ct-tool-status-icon flex items-center justify-center">
         <StatusGlyph status={event.status} />
       </span>
-      <ChatCardMenu label={`Actions for ${title}`} items={[{
-        label: "Details", icon: <SquareTerminal size={14} aria-hidden />, checked: technicalOpen,
+      <ChatCardMenu label={`Actions for ${title}`} items={[...readerItems, {
+        label: "Details", kind: "details", icon: <SquareTerminal size={14} aria-hidden />, checked: technicalOpen,
         onSelect: () => setTechnicalOpen(value => !value),
-      }]} />
+      }]} joinRow />
       </span>
-      <button type="button" aria-label={`${expanded ? "Collapse" : "Expand"} command group`} onClick={() => onToggle(!expanded)} className="flex shrink-0 items-center justify-center" style={{ color: "var(--ct-muted-fg)" }}>
-        <ChevronRight aria-hidden size={14} className={expanded ? "rotate-90" : ""} />
-      </button>
+      <CardChevron expanded={expanded} label={`${expanded ? "Collapse" : "Expand"} command group`} onToggle={() => onToggle(!expanded)} />
       </div>
       {shellFileOperationPreview(event)}
       <div className="pb-1 pr-2">

@@ -23,7 +23,7 @@ const BACKOFF_STEPS_S: [u64; 5] = [600, 1200, 1800, 2400, 3000];
 /// timer from hammering the provider every tick.
 const RESET_PROBE_MIN_INTERVAL: Duration = Duration::from_secs(120);
 
-fn usage_sample(snapshot: &UsageSnapshot) -> UsageSample {
+pub(super) fn usage_sample(snapshot: &UsageSnapshot) -> UsageSample {
     UsageSample {
         usage_details: snapshot.usage_details.clone(),
         provider: snapshot.provider.clone(),
@@ -183,6 +183,17 @@ impl UsagePoller {
             log::info!(
                 "[usage.poller] manual refresh skipped — tracking disabled for provider {}",
                 provider
+            );
+            return;
+        }
+        if let Some(profile) = account_id.as_deref().and_then(
+            codeterm_plugin::agent_runtime::limits_source::profile_from_balance_account_key,
+        ) {
+            super::profile_limits::spawn_refresh(
+                self.inner.svc.clone(),
+                self.inner.store.clone(),
+                provider.to_string(),
+                profile.to_string(),
             );
             return;
         }
@@ -674,9 +685,18 @@ fn accounts_for_tabs(_svc: &ServiceContext, _tabs: &[String]) -> Vec<Option<Stri
 }
 
 fn emit_event(svc: &ServiceContext, key: &AccountKey, snapshot_id: i64) {
+    emit_snapshot_event(svc, &key.provider, key.account_id.as_deref(), snapshot_id);
+}
+
+pub(super) fn emit_snapshot_event(
+    svc: &ServiceContext,
+    provider: &str,
+    account_id: Option<&str>,
+    snapshot_id: i64,
+) {
     let payload = serde_json::json!({
-        "provider": key.provider,
-        "account_id": key.account_id,
+        "provider": provider,
+        "account_id": account_id,
         "snapshot_id": snapshot_id,
     });
     svc.ui.emit(

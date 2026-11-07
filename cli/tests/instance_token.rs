@@ -78,12 +78,18 @@ fn instance_token_command_refuses_tab_context_without_disclosing_host_authority(
     codeterm_util::secret_file::SecretFile::new_at(dir.path(), "domios.instance")
         .set("api_token", "isolated-host-authority")
         .unwrap();
-    let output = command(dir.path())
-        .env("CODETERM_TAB_ID", "isolated-tab")
-        .args(["system", "api-token"])
-        .output()
-        .unwrap();
-    assert!(!output.status.success());
-    assert!(output.stdout.is_empty());
-    assert!(!String::from_utf8_lossy(&output.stderr).contains("isolated-host-authority"));
+    for marker in codeterm_util::tab_launch::MARKERS {
+        let output = command(dir.path())
+            .env_remove("CODETERM_API_TOKEN")
+            .env(marker, "isolated-tab")
+            .args(["system", "api-token"])
+            .output()
+            .unwrap();
+        assert!(!output.status.success(), "{marker}");
+        assert!(output.stdout.is_empty(), "{marker}");
+        assert!(
+            !String::from_utf8_lossy(&output.stderr).contains("isolated-host-authority"),
+            "{marker}"
+        );
+    }
 }

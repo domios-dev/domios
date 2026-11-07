@@ -183,4 +183,28 @@ mod tests {
             matches!(outcome(delivered).unwrap(), Delivery::ChatBackend {message_id} if message_id == status.send_id)
         );
     }
+    #[test]
+    fn provider_busy_refusal_of_a_written_prompt_reaches_the_caller_as_unconfirmed() {
+        let ledger = crate::service::chat_send_transaction::ChatSendLedger::default();
+        let pending = ledger.try_start("tab", "opaque", None).unwrap();
+        assert!(ledger.bind_rpc_send(
+            &pending.send_id,
+            crate::service::chat_send_transaction::SendLiveBinding {
+                session_id: Some("thread".into()),
+                binding_nonce: Some("nonce".into()),
+            }
+        ));
+        let refused = ledger.mark_rpc_uncertain(&pending.send_id).unwrap();
+        assert_eq!(refused.error, None);
+        assert!(
+            matches!(outcome(refused).unwrap(), Delivery::Unconfirmed { delivery_id } if delivery_id == pending.send_id)
+        );
+        let late = ledger
+            .finish(&pending.send_id, Err("submit_unconfirmed: opaque".into()))
+            .unwrap();
+        assert!(matches!(
+            outcome(late).unwrap(),
+            Delivery::Unconfirmed { .. }
+        ));
+    }
 }

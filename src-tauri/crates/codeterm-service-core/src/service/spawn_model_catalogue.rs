@@ -18,6 +18,15 @@ pub struct AgentModelSelection {
     pub model: Option<String>,
 }
 
+pub(crate) fn profile_scoped_options(registry: &AgentRegistry, provider: &str) -> bool {
+    registry
+        .with_provider(provider, |p| {
+            p.agent_runtime()
+                .is_some_and(|capability| capability.launch_profiles.is_some())
+        })
+        .unwrap_or(false)
+}
+
 impl InvalidModelError {
     pub fn rpc_data(&self) -> serde_json::Value {
         serde_json::json!({
@@ -181,6 +190,14 @@ pub fn resolve_agent_model_selection(
     default_provider: &str,
 ) -> Result<AgentModelSelection, InvalidModelError> {
     let raw_requested = model.map(str::trim).filter(|value| !value.is_empty());
+    if let Some(provider) =
+        explicit_provider.filter(|provider| profile_scoped_options(registry, provider))
+    {
+        return Ok(AgentModelSelection {
+            provider_id: provider.into(),
+            model: raw_requested.map(str::to_owned),
+        });
+    }
     let providers = registry.provider_ids();
     let explicit_provider = explicit_provider
         .map(str::trim)

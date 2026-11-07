@@ -21,7 +21,7 @@ export function ModelDefaultsCard({ config, onUpdate, onSwitchGeneralProvider, o
     <SettingsCard
       icon={<Cpu size={16} />}
       title="Model defaults"
-      description="Models used when nothing else picks one. When a provider stops offering a model, its default moves to the closest model it still offers."
+      description="Models used when nothing else picks one. When a harness stops offering a model, its default moves to the closest model it still offers."
     >
       {onSwitchGeneralProvider && <div className="mb-2 border-b border-[var(--ct-border)] pb-5">
         <GeneralAgentProviderChoice current={config.general_agent?.agent_provider} onOpenGuide={onOpenGuide}
@@ -30,7 +30,7 @@ export function ModelDefaultsCard({ config, onUpdate, onSwitchGeneralProvider, o
       {rows.some((row) => row.key.startsWith("memory.")) && <h3 className="mt-2 text-sm font-medium text-[var(--ct-fg)]">Background models</h3>}
       {rows.length === 0 ? (
         <p className="text-xs text-[var(--ct-muted-fg)]">
-          No model defaults are set, so each provider starts sessions on its own default.
+          No model defaults are set, so each harness starts sessions on its own default.
         </p>
       ) : (
         <ul className="flex flex-col divide-y divide-[var(--ct-border-subtle)]" aria-label="Model defaults">

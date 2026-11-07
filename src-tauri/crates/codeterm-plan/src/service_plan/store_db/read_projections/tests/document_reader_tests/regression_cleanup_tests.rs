@@ -166,13 +166,15 @@ fn regression_and_cleanup_reads_ignore_unrequested_growth_without_writes() {
             attempt.closed_at = Some(1);
             plan.tasks[0].execution_attempts.push(attempt);
         }
-        plan.control_loop.rounds = (0..rounds)
-            .map(|number| crate::plan::CuratorRound {
-                number,
-                ended_at: number,
-                ..Default::default()
-            })
-            .collect();
+        plan.strides.extend(fixtures::round_strides(
+            (0..rounds)
+                .map(|number| crate::plan::CuratorRound {
+                    number,
+                    ended_at: number,
+                    ..Default::default()
+                })
+                .collect(),
+        ));
         let expected = RegressionInput::from(&plan);
         let database = fixtures::database(directory.path(), &plan);
         let store = PlanStore::open(database.path()).unwrap();

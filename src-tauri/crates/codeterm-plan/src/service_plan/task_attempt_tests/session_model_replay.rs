@@ -51,6 +51,7 @@ fn session_model_detected_before_binding_is_replayed_when_attempt_becomes_eligib
             None,
             Some("worker-session"),
             Some("worker-nonce"),
+            None,
             5,
         )
         .unwrap();
@@ -129,6 +130,7 @@ fn attempt_model_identity_is_visible_in_inspection() {
             None,
             Some("worker-session"),
             Some("worker-nonce"),
+            None,
             4,
         )
         .unwrap();

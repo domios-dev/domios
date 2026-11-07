@@ -214,6 +214,26 @@ pub(super) fn runtime_input(
     }
 }
 
+fn load_image_bytes(mut input: TurnInput) -> Result<TurnInput, RuntimeFailure> {
+    use base64::Engine;
+    let mut remaining = MAX_RUNTIME_VALUE_BYTES as u64;
+    for attachment in &mut input.attachments {
+        if attachment.data.is_some() || !attachment.mime_type.starts_with("image/") {
+            continue;
+        }
+        let path = attachment.path.as_deref().ok_or_else(|| {
+            RuntimeFailure::Refused("Image attachment path is unavailable".into())
+        })?;
+        let bytes = crate::attachments::read_complete_file(std::path::Path::new(path), remaining)
+            .map_err(RuntimeFailure::Refused)?;
+        remaining = remaining.saturating_sub(bytes.len() as u64);
+        attachment.data = Some(base64::prelude::BASE64_STANDARD.encode(bytes));
+    }
+    validate_runtime_size(&input, MAX_RUNTIME_VALUE_BYTES)
+        .map_err(|reason| RuntimeFailure::Refused(reason.to_string()))?;
+    Ok(input)
+}
+
 pub(crate) async fn submit_loaded(
     svc: &ServiceContext,
     session: &Arc<Session>,
@@ -247,6 +267,30 @@ pub(crate) async fn submit_loaded(
     super::capture::validate_if_present(svc, tab, send_id)
         .map_err(|reason| before_write(tab, reason))?;
     engine::validate_binding(svc, &session).map_err(|error| before_write(tab, error))?;
+    let input = if input.attachments.is_empty() {
+        input
+    } else {
+        crate::async_runtime::spawn_blocking(move || load_image_bytes(input))
+            .await
+            .map_err(|reason| RuntimeFailure::HookFailed(reason.to_string()))
+            .and_then(|result| result)
+            .map_err(|reason| DeliveryError::TabBusyRefused {
+                tab: tab.into(),
+                detail: format!("{REJECTED_BEFORE_WRITE}: {reason}"),
+            })?
+    };
+    engine::validate_binding(svc, &session).map_err(|error| before_write(tab, error))?;
+    super::capture::validate_if_present(svc, tab, send_id)
+        .map_err(|reason| before_write(tab, reason))?;
+    {
+        let current = session.context.lock();
+        if current.epoch != context.epoch
+            || current.binding_nonce != context.binding_nonce
+            || current.thread_id != context.thread_id
+        {
+            return Err(before_write(tab, RuntimeFailure::Superseded));
+        }
+    }
     if context.claimed_sends.len() >= MAX_RUNTIME_BATCH
         || serde_json::to_vec(&input).map_or(true, |value| value.len() > MAX_RUNTIME_VALUE_BYTES)
     {
@@ -254,6 +298,12 @@ pub(crate) async fn submit_loaded(
             tab,
             RuntimeFailure::Refused("Runtime input or outstanding claim limit".into()),
         ));
+    }
+    if let crate::service::messenger::AgentInput::Framed(frame) = &classified {
+        let mut maps = session.maps.lock();
+        maps.sync_active_turn(&context);
+        maps.remember_routed_input(&pending.send_id, &thread, frame)
+            .map_err(|reason| before_write(tab, RuntimeFailure::Refused(reason)))?;
     }
     if !svc.chat_send_ledger.bind_rpc_send(
         &pending.send_id,
@@ -285,25 +335,23 @@ pub(crate) async fn submit_loaded(
     let before_start = starts.sequence();
     let (result, handed_off) = engine::run_submit(svc, session, process, operation).await;
     let result = match result {
-        Err(
-            reason @ (RuntimeFailure::PipeEof
-            | RuntimeFailure::PipeFailure { .. }
-            | RuntimeFailure::ProcessExited {
-                requested: false, ..
-            }),
-        ) if !handed_off => Err(RuntimeFailure::PrewriteRefused(format!(
-            "{REJECTED_BEFORE_WRITE}: {reason}"
-        ))),
-        Err(RuntimeFailure::HookFailed(reason)) if !handed_off => Err(
-            RuntimeFailure::PrewriteRefused(format!("{REJECTED_BEFORE_WRITE}: {reason}")),
-        ),
+        Err(reason) if !handed_off => Err(RuntimeFailure::PrewriteRefused(match reason {
+            RuntimeFailure::PrewriteRefused(reason) => reason,
+            reason => format!("{REJECTED_BEFORE_WRITE}: {reason}"),
+        })),
         other => other,
     };
-    if let Err(failure) = &result {
-        log::warn!(
+    match &result {
+        // Not a failure: the outcome is logged once when own-session evidence confirms it.
+        Err(RuntimeFailure::WrittenAwaitingEvidence) => log::info!(
+            "[runtime-send] tab={tab} send_id={} written; awaiting own-session delivery evidence",
+            pending.send_id
+        ),
+        Err(failure) => log::warn!(
             "[runtime-send] tab={tab} send_id={} handed_off={handed_off} failed: {failure}",
             pending.send_id
-        );
+        ),
+        Ok(_) => {}
     }
     match result {
         Ok(RuntimeResult::TurnAccepted {
@@ -374,7 +422,12 @@ pub(crate) async fn submit_loaded(
             }
             Err(DeliveryError::SubmitUnconfirmed {
                 tab: tab.into(),
-                detail: format!("Runtime handoff uncertain: {other:?}"),
+                detail: match other {
+                    Err(RuntimeFailure::WrittenAwaitingEvidence) => {
+                        "Input was written; waiting for the agent to confirm receipt".into()
+                    }
+                    other => format!("Runtime handoff uncertain: {other:?}"),
+                },
             })
         }
     }
@@ -487,9 +540,10 @@ pub fn snapshot(
 ) -> Result<(Arc<Session>, Vec<crate::agent::chat_types::ChatMsg>), String> {
     let started = std::time::Instant::now();
     let cached = engine::for_tab(tab).filter(|session| {
-        session
+        (session
             .thread_loaded
             .load(std::sync::atomic::Ordering::Acquire)
+            || engine::session_load_refused(svc, session))
             && engine::validate_binding(svc, session).is_ok()
     });
     let ensured = match cached {

@@ -33,6 +33,14 @@ function railsFor(view: ChatBodyView, messages: Array<{ at: number | null }>) {
 }
 
 describe("chat body authority", () => {
+  it("keeps the saved transcript available when loading the session was refused", () => {
+    const view = chatBodyView({ restoreLoadRefused: true, snapshotReady: true, hasTranscript: true,
+      chatLoading: false, unavailable: null, bootView: { kind: "launch_failed", reason: "opaque" } });
+    expect(view.kind).toBe("none");
+    expect(chatRailsVisible(view)).toBe(true);
+    expect(chatBodyView({ restoreLoadRefused: true, locked: true, hasTranscript: true,
+      chatLoading: false, unavailable: null, bootView: view }).kind).toBe("locked");
+  });
   it("pending first-turn rendering selects only exact current-attempt local sends", () => {
     const send = { id: "own-send", correlationId: "own-send", content: "opaque", sentAtMs: 1,
       localAttempt: { ptyId: "own-pty", bindingNonce: "own-nonce" } };

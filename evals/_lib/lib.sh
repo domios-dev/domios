@@ -57,6 +57,18 @@ EVAL_LIB_CALLER_API_PORT="${CODETERM_API_PORT:-}"
 EVAL_LIB_CALLER_SOCKET_PATH="${CODETERM_SOCKET_PATH:-}"
 EVAL_LIB_CALLER_SESSION_ID="${CODETERM_SESSION_ID:-}"
 EVAL_LIB_CALLER_NONCE="${CODETERM_SESSION_BINDING_NONCE:-}"
+# The caller's launch identity belongs to its own instance; every DEV call clears all of tab_launch::MARKERS.
+source "$EVAL_LIB_REPO_ROOT/scripts/launch-markers.sh"
+EVAL_LIB_LAUNCH_MARKERS=()
+EVAL_LIB_LAUNCH_UNSET=()
+EVAL_LIB_LAUNCH_MARKERS_READY=0
+if EVAL_LIB_LAUNCH_MARKER_NAMES="$(launch_marker_names)"; then
+  for EVAL_LIB_LAUNCH_MARKER in $EVAL_LIB_LAUNCH_MARKER_NAMES; do
+    EVAL_LIB_LAUNCH_MARKERS+=("$EVAL_LIB_LAUNCH_MARKER")
+    EVAL_LIB_LAUNCH_UNSET+=(-u "$EVAL_LIB_LAUNCH_MARKER")
+  done
+  EVAL_LIB_LAUNCH_MARKERS_READY=1
+fi
 EVAL_LIB_DEV_API_PORT=7686
 EVAL_LIB_DEV_VITE_PORT=1420
 EVAL_LIB_DEV_CDP_PORT=9223
@@ -187,9 +199,13 @@ dev_resolve_identity() {
     echo "ERROR [dev-resolution]: CODETERM_INSTANCE cannot select a default API port; set its named instance port." >&2
     return 7
   fi
+  if [ "$EVAL_LIB_LAUNCH_MARKERS_READY" != 1 ]; then
+    dev_resolution_error '<unresolved>' '<readable tab_launch::MARKERS>'
+    return 7
+  fi
   cli="$(dev_bootstrap_cli)" || return 7
   if ! output="$(
-    unset CODETERM_API_URL CODETERM_API_TOKEN CODETERM_DATA_DIR CODETERM_TAB_ID CODETERM_PARENT_TAB_ID
+    unset CODETERM_API_URL CODETERM_API_TOKEN CODETERM_DATA_DIR "${EVAL_LIB_LAUNCH_MARKERS[@]}"
     if [ -n "$EVAL_LIB_REQUESTED_INSTANCE" ]; then
       export CODETERM_INSTANCE="$EVAL_LIB_REQUESTED_INSTANCE"
       unset CODETERM_SOCKET_PATH
@@ -286,7 +302,7 @@ dev_token() {
   data_dir="$(dev_data_dir)" || return 7
   cli="$(dev_bootstrap_cli)" || return 7
   # The calling tab belongs to the parent instance, not this dev instance; its identity must not reach dev.
-  env -u CODETERM_API_TOKEN -u CODETERM_API_URL -u CODETERM_TAB_ID -u CODETERM_SESSION_ID -u CODETERM_SESSION_BINDING_NONCE \
+  env -u CODETERM_API_TOKEN -u CODETERM_API_URL "${EVAL_LIB_LAUNCH_UNSET[@]}" \
     CODETERM_DATA_DIR="$data_dir" CODETERM_API_PORT="$EVAL_LIB_DEV_API_PORT" \
     "$cli" system api-token || { dev_resolution_error "$data_dir/.secrets" "$data_dir"; return 7; }
 }
@@ -350,7 +366,7 @@ dev_auth_header() {
 # Those variables live for that process only, which is what keeps a leaked
 # parent CODETERM_API_PORT from redirecting the call and leaves this shell
 # unchanged. `--as-tab <id>` requires that DEV tab's own launch environment; the default
-# blanks the parent's tab id, which would prefix every send with [from <tab>].
+# carries no tab identity, which would otherwise prefix every send with [from <tab>].
 dev_run() {
   local caller_tab_id="" token
   if [ "${1:-}" = "--as-tab" ]; then
@@ -378,7 +394,8 @@ dev_run() {
       return 7
     fi
     token="$EVAL_LIB_CALLER_API_TOKEN"
-    caller_vars+=("CODETERM_SESSION_ID=$EVAL_LIB_CALLER_SESSION_ID"
+    caller_vars+=("CODETERM_TAB_ID=$caller_tab_id"
+      "CODETERM_SESSION_ID=$EVAL_LIB_CALLER_SESSION_ID"
       "CODETERM_SESSION_BINDING_NONCE=$EVAL_LIB_CALLER_NONCE")
   fi
   local -a dev_vars=(
@@ -396,11 +413,9 @@ dev_run() {
     "CODETERM_INSTANCE=$EVAL_LIB_RESOLVED_INSTANCE"
     "CODETERM_DEV_DATA_DIR=$EVAL_LIB_RESOLVED_DATA_DIR"
     "CODETERM_DEV_AUTH_HEADER=Authorization: Bearer $token"
-    "CODETERM_TAB_ID=$caller_tab_id"
-    "CODETERM_PARENT_TAB_ID="
   )
-  # A prod tab's own identity (attempt, nonce, session, team, plan, task) must never reach dev.
-  env -u CODETERM_STARTUP_ATTEMPT_ID -u CODETERM_SESSION_BINDING_NONCE -u CODETERM_SESSION_ID     -u CODETERM_TEAM_ID -u CODETERM_PLAN_ID -u CODETERM_TASK_ID -u CODETERM_ATTEMPT_ID     "${dev_vars[@]}" ${caller_vars[@]+"${caller_vars[@]}"} "$@"
+  # The caller tab's launch identity must never reach dev; only --as-tab re-adds that DEV tab's binding.
+  env "${EVAL_LIB_LAUNCH_UNSET[@]}" "${dev_vars[@]}" ${caller_vars[@]+"${caller_vars[@]}"} "$@"
 }
 
 dev_api_url() {

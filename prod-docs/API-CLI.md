@@ -1,5 +1,9 @@
 # CLI and environment API
 
+For connecting, configuring and authenticating ACP agents, read `domios docs ACP`.
+
+`--profile <id>` selects a provider-declared ACP launch profile, independently of `--model` and Worker `--kind`/`--role-profile`. Unknown, missing required, and uninstalled profiles refuse before creating a tab or attempt with `unknown_launch_profile`, `launch_profile_required`, and `launch_profile_not_installed`. Respawn inherits the selected attempt's profile when the flag is omitted and the provider stays the same. Profile selection on task dispatch/respawn is local-only; `agent spawn --mesh` carries it to the peer.
+
 Every `--json` command returns one object with its payload under `result`: an array for a list/search, an object for a record, or a scalar/null. Optional `meta` retains list metadata, `next` carries pagination and `warnings` carries diagnostics. Failures also include `ok:false` and `error`; their daemon receipt is under `result`. Read `result` directly; do not guess `data`, `results`, `hits`, `tasks` or `tabs` envelopes.
 
 Search/list output defaults to one line per record: `id  title — short snippet` (80 characters, one line). Known omitted counts end with `N more — refine the query or use --limit`. Use `--verbose` for scores, relevance, warnings and detailed views.
@@ -43,7 +47,7 @@ domios agent cli install <provider>
 domios agent cli update <provider>
 ```
 
-The `agent cli` verbs are local-only; run them in a tab on the target peer. Status returns `required`, `installed` (true/false/null for unknown), `binary`, `resolved_path`, `detected_version`, `latest_version`, `update_job`, `update_refusal`, `availability`, `searched`, `installer`, and `updater`. `latest_version` is the published update availability; status never starts discovery. `update_job` reports the current job state/result. Status also includes `installer_prerequisites` and `updater_prerequisites`: detected command runners with `binary`, `installed` (true/false/null), and a setup `hint`. Runners and `command -v`/`which`/`Get-Command` checks are detected from the manifest command (diagnostic, not a shell parser); missing runners produce warnings and setup guidance. The host never installs prerequisites or alters manifest commands. Dispatch JSON adds `warnings`; completion retains prerequisite diagnostics. Install/update refuse when the OS has no manifest command; otherwise they open a visible utility tab in the caller's workspace and Team and return `tab_id`, `launch_state: "command_dispatched"`. Shell completion or exit produces a routed report for an agent caller or a kept notification record for a shell caller. Completion prose is never sent as shell input; the result also lands in the utility tab description and `provider-cli-completed` carries a fresh status. A completion deadline reports uncertainty; dispatch alone never means installation succeeded. `agent providers` names missing CLIs; `agent spawn` refuses before creating a tab and names the installer and CLI fix. REST: `GET /api/agents/providers/{id}/cli` returns status; `POST` accepts `{operation: "install"|"update", caller_tab_id?}`. Plugin `--json` responses add `cli_status`, keyed by installed provider id.
+The `agent cli` verbs are local-only; run them in a tab on the target peer. Status returns `required`, `installed` (true/false/null for unknown), `binary`, `resolved_path`, `detected_version`, `latest_version`, `update_job`, `update_refusal`, `availability`, `searched`, `installer`, and `updater`. `latest_version` is the published update availability; status never starts discovery. `update_job` reports the current job state/result. Status also includes `installer_prerequisites` and `updater_prerequisites`: detected command runners with `binary`, `installed` (true/false/null), and a setup `hint`. Runners and `command -v`/`which`/`Get-Command` checks are detected from the manifest command (diagnostic, not a shell parser); missing runners produce warnings and setup guidance. The host never installs prerequisites or alters manifest commands. Dispatch JSON adds `warnings`; completion retains prerequisite diagnostics. Install/update refuse when the OS has no manifest command; otherwise they open a visible utility tab in the caller's workspace and Team and return `tab_id`, `launch_state: "command_dispatched"`. Shell completion or exit produces a routed report for an agent caller or a kept notification record for a shell caller. Completion prose is never sent as shell input; the result also lands in the utility tab description and `provider-cli-completed` carries a fresh status. A completion deadline reports uncertainty; dispatch alone never means installation succeeded. `agent providers` names missing CLIs; `agent spawn` refuses before creating a tab and names the installer and CLI fix. A provider launched through launch profiles also reports `launch_profiles` (each `id` with `installed` true/false/null) instead of a CLI warning; readiness is cached and re-observed only by an explicit re-check. REST: `GET /api/agents/providers/{id}/cli` returns status, and `?refresh=true` re-observes launch profiles; `POST` accepts `{operation: "install"|"update", caller_tab_id?}`. Plugin `--json` responses add `cli_status`, keyed by installed provider id.
 
 ### Agent usage, reset credits, and child history
 
@@ -189,10 +193,15 @@ Runtime provider sign-in (Chat card or CLI):
 domios agent login --tab ID --device
 domios agent login --tab ID --show --mesh PEER --json
 domios agent login --tab ID --cancel
+domios agent login --tab ID --method METHOD_ID
 ```
 
 Provider-declared flows also support default browser sign-in and local
-`--api-key-stdin` (never argv or mesh). `--show` reads without starting:
+`--api-key-stdin` (never argv or mesh). ACP agents declare their own methods:
+`--show` lists them, and `--method ID` authenticates with one. A method the
+launch profile marks as key-taking also needs `--api-key-stdin`; Domios stores
+the key in its secret store, restarts the runtime with it in the agent's
+environment and then authenticates. A refusal prints the daemon's reason. `--show` reads without starting:
 `login.url`, `userCode`, `expiresAtMs` (Unix milliseconds). Values disappear at
 completion, cancellation or within 15 minutes; an earlier provider deadline wins.
 One flow per provider; cancel before retry. Verified completion resumes the same
@@ -203,4 +212,4 @@ saved sessions and notifications omit login values.
 
 Account installations connect automatically after same-account sign-in. `domios mesh peers` lists each installation once; `domios mesh status` is read-only for local agents.
 
-<!-- revision: 69 -->
+<!-- revision: 74 -->

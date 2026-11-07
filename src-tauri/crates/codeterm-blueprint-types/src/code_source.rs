@@ -26,6 +26,12 @@ pub fn read_bounded(directory: &Path, relative: &str, max: usize) -> Result<Stri
 /// Open a regular file without following the root or any child symlink/reparse point.
 #[cfg(unix)]
 pub fn open_file(directory: &Path, relative: &str) -> Result<File, &'static str> {
+    let parent = open_directory(directory)?;
+    open_file_at(&parent, relative)
+}
+
+#[cfg(unix)]
+pub fn open_file_at(directory: &File, relative: &str) -> Result<File, &'static str> {
     let parts = Path::new(relative)
         .components()
         .map(|component| match component {
@@ -38,7 +44,7 @@ pub fn open_file(directory: &Path, relative: &str) -> Result<File, &'static str>
     if parts.is_empty() {
         return Err("contract_violation");
     }
-    let mut parent = open_directory(directory)?;
+    let mut parent = directory.try_clone().map_err(|_| "contract_violation")?;
     let mut source = None;
     for (index, part) in parts.iter().enumerate() {
         let last = index + 1 == parts.len();
@@ -79,6 +85,45 @@ pub fn open_directory(directory: &Path) -> Result<File, &'static str> {
         return Err("contract_violation");
     }
     Ok(unsafe { File::from_raw_fd(fd) })
+}
+
+#[cfg(unix)]
+pub fn open_directory_no_follow(directory: &Path) -> Result<File, &'static str> {
+    if !directory.is_absolute() {
+        return Err("contract_violation");
+    }
+    let root = CString::new("/").map_err(|_| "contract_violation")?;
+    let fd = unsafe {
+        libc::open(
+            root.as_ptr(),
+            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+        )
+    };
+    if fd < 0 {
+        return Err("contract_violation");
+    }
+    let mut parent = unsafe { File::from_raw_fd(fd) };
+    for part in directory.components() {
+        let name = match part {
+            Component::RootDir => continue,
+            Component::Normal(name) => {
+                CString::new(name.as_encoded_bytes()).map_err(|_| "contract_violation")?
+            }
+            _ => return Err("contract_violation"),
+        };
+        let fd = unsafe {
+            libc::openat(
+                parent.as_raw_fd(),
+                name.as_ptr(),
+                libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+            )
+        };
+        if fd < 0 {
+            return Err("contract_violation");
+        }
+        parent = unsafe { File::from_raw_fd(fd) };
+    }
+    Ok(parent)
 }
 
 #[cfg(windows)]

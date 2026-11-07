@@ -16,7 +16,7 @@ export function recordInput(text: string, fromOffset = 0, sourceKey?: string): {
     offset += Buffer.byteLength(line) + (row + 1 < lines.length ? 1 : 0);
   }
   return {records,meta:{fromOffset,toOffset:offset,newOffset:offset,truncatedTail:false,sourceKey,
-    counts:{total:lines.length-(lines.at(-1)==="" ? 1 : 0),matched:records.length,invalid,oversized:0}}};
+    counts:{total:lines.length-(lines[lines.length-1]==="" ? 1 : 0),matched:records.length,invalid,oversized:0}}};
 }
 
 export function loadRecordPlugin(directory: string, fsOverrides: Partial<HostFs> = {}): PluginModule {

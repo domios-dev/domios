@@ -1,9 +1,11 @@
 import { ExpandableReader } from "../ExpandableReader";
 import { BoundedMessageContent } from "../BoundedMessageContent";
 import { toolCommandLabel, type ToolEvent } from "@codeterm/chat-core";
-import { ArrowUpRight, Copy, ChevronRight, Maximize2, MessageSquarePlus, SquareTerminal } from "lucide-react";
+import { ArrowUpRight, Copy, MessageSquarePlus, SquareTerminal } from "lucide-react";
 import { useCompactToolRow } from "../useCompactToolRow";
-import { useId, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { CardChevron } from "../CompactCard";
+import { RowMenuIsolate } from "../messageMenu";
+import { useId, useState, type CSSProperties, type ReactNode } from "react";
 import { useChatBlockHost, type ChatBlockHost, type ChatCardMenuItem } from "../blocks/ChatBlockHost";
 import { askExcerpt, ChatCardMenu, copyPlainText } from "../ChatCardMenu";
 import type { ToolKindVisual } from "./toolKindVisual";
@@ -50,7 +52,7 @@ function toolMenuItems(event: ToolEvent, label: string, host: ChatBlockHost): Ch
   const output = event.result?.trim() ?? "";
   const items: ChatCardMenuItem[] = [];
   if (command) items.push({ label: "Copy command", icon: <SquareTerminal size={MENU_ICON} aria-hidden />, onSelect: () => copyPlainText(command) });
-  if (output) items.push({ label: "Copy output", icon: <Copy size={MENU_ICON} aria-hidden />, onSelect: () => copyPlainText(output) });
+  if (output) items.push({ label: "Copy output", kind: "copy", icon: <Copy size={MENU_ICON} aria-hidden />, onSelect: () => copyPlainText(output) });
   if (host.askAbout) {
     const askAbout = host.askAbout;
     const summary = plainSummary(event);
@@ -60,7 +62,7 @@ function toolMenuItems(event: ToolEvent, label: string, host: ChatBlockHost): Ch
       command && command !== summary ? `Command:\n${askExcerpt(command)}` : "",
       output ? `Output:\n${askExcerpt(output)}` : "",
     ].filter(Boolean).join("\n\n");
-    items.push({ label: "Ask about this", icon: <MessageSquarePlus size={MENU_ICON} aria-hidden />, onSelect: () => askAbout({ title, text }) });
+    items.push({ label: "Ask about this", kind: "ask", icon: <MessageSquarePlus size={MENU_ICON} aria-hidden />, onSelect: () => askAbout({ title, text }) });
   }
   return items;
 }
@@ -77,7 +79,6 @@ export function ToolCardChips({ chips, wrap = false }: { chips: readonly string[
 export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onToggle, children, primaryContent, title, subtitle, summary, metric, chips, tail, action, variant = "smart", visualOverride, disclosureLabel, menu, minHeight, communication = false, showTechnicalDetails = true, headerTestId, statusTestId = "toolcard-status", statusLabel, expandable = true }: ToolCardFrameProps) {
   const host = useChatBlockHost();
   const compact = useCompactToolRow();
-  const header = useRef<HTMLDivElement>(null);
   const [technicalOpen, setTechnicalOpen] = useState(false);
   const canExpand = expandable || technicalOpen;
   const open = expanded && canExpand;
@@ -99,15 +100,16 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
   const detailsId = `chat-details-${useId().replace(/[^a-zA-Z0-9_-]/g, "-")}`;
   const labelText = typeof label === "string" && label ? label : visual.label;
   const baseMenu = menu ?? toolMenuItems(event, labelText, host);
-  const menuItems = showTechnicalDetails ? [...baseMenu, {
+  const menuItems: readonly ChatCardMenuItem[] = showTechnicalDetails ? [...baseMenu, {
     label: "Details",
+    kind: "details",
     icon: <SquareTerminal size={14} aria-hidden />,
     checked: technicalOpen,
     onSelect: () => { setTechnicalOpen(value => !value); if (!expanded) onToggle(); },
   }] : baseMenu;
 
   return (
-    <ExpandableReader label={labelText} enabled={canExpand} openerPlacement="header">{(fullscreen, opener, openReader) => (
+    <ExpandableReader label={labelText} enabled={canExpand} openerPlacement="header" ownsMenu>{(fullscreen, opener, _openReader, readerItems) => (
     <div
       data-testid={testId}
       data-tool-status={event.status}
@@ -117,7 +119,7 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
       className={`ct-card group/toolcard mx-auto mb-1.5 w-full max-w-4xl min-w-0 overflow-hidden${communication ? " ct-communication-card" : ""}${inlineRow ? " ct-command-inline" : ""}${quiet ? " ct-card--quiet" : ""}${error ? " ct-card--error" : ""}`}
       style={{ minHeight, "--ct-card-tone": error || quietOperation ? "var(--ct-muted-fg)" : visual.color } as CSSProperties}
     >
-      <div ref={header} data-testid={headerTestId} className={`ct-card__header flex min-w-0 items-center gap-2.5 px-3 py-2 text-left text-xs${inlineRow ? " ct-command-inline__head" : ""}`}
+      <div data-testid={headerTestId} className={`ct-card__header flex min-w-0 items-center gap-2.5 px-3 py-2 text-left text-xs${inlineRow ? " ct-command-inline__head" : ""}`}
         onClick={compact && canExpand ? (event) => {
           if (event.target instanceof Element && !event.target.closest('button, a, input, select, textarea, [role="button"]')) onToggle();
         } : undefined}>
@@ -142,24 +144,17 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
             {!expanded && tail}
           </span>
         </button>
-        {!compact && opener}
+        {opener}
         {event.status === "unresolved" && (
           <span data-testid="toolcard-no-result" className="shrink-0 font-mono text-[10.5px]" style={{ color: "var(--ct-muted-fg)" }}>no result</span>
         )}
         {action}
         {compact && event.status !== "success" && statusIcon}
-        {compact && canExpand && <ChevronRight aria-hidden size={14} className={`ct-tool-indicator ${open ? "rotate-90" : ""}`} />}
         <span className="ct-tool-status-slot">
         {!compact && statusIcon}
-        <ChatCardMenu label={`Actions for ${labelText || "tool call"}`} items={compact && canExpand && !fullscreen ? [{
-          label: "Open full screen",
-          icon: <Maximize2 size={14} aria-hidden />,
-          onSelect: () => openReader(header.current?.querySelector<HTMLElement>('button[aria-haspopup="menu"]')),
-        }, ...menuItems] : menuItems} />
+        <ChatCardMenu label={`Actions for ${labelText || "tool call"}`} items={[...readerItems, ...menuItems]} joinRow />
         </span>
-        {!compact && canExpand && <button type="button" aria-label={open ? "Collapse card" : "Expand card"} onClick={onToggle} className="flex shrink-0 items-center justify-center" style={{ color: "var(--ct-muted-fg)" }}>
-          <ChevronRight aria-hidden size={14} className={open ? "rotate-90" : ""} />
-        </button>}
+        {canExpand && <CardChevron expanded={open} label={open ? "Collapse card" : "Expand card"} onToggle={onToggle} />}
       </div>
       {primaryContent && <div className="px-3 pb-2">{primaryContent}</div>}
       <BoundedMessageContent collapsedHeight={communication ? "160px" : "600px"}
@@ -171,12 +166,12 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
         style={{ boxSizing: "border-box" }}
       >
         {open || fullscreen ? (
-          <>
+          <RowMenuIsolate>
             {children}
             {technicalOpen && showTechnicalDetails && <><div className="mt-2 text-[10.5px]" style={{ color: "var(--ct-muted-fg)" }}>Command</div><BoundedMessageContent collapsedHeight="12rem" as="pre"
               data-testid="message-raw-content" className="mt-2 whitespace-pre-wrap break-words font-mono text-xs"
               style={{ color: "var(--ct-muted-fg)" }}>{event.detail || rawToolPayload(event)}</BoundedMessageContent></>}
-          </>
+          </RowMenuIsolate>
         ) : null}
       </BoundedMessageContent>
     </div>

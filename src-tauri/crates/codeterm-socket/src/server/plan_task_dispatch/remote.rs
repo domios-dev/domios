@@ -73,6 +73,11 @@ pub(super) fn dispatch(
     if owned_str(p, "sandbox").is_some() {
         return Err(invalid_dispatch("explicit sandbox selection is local-only; remote dispatch cannot drop a confinement request"));
     }
+    if owned_str(p, "launch_profile").is_some() {
+        return Err(invalid_dispatch(
+            "launch_profile selection is local-only for task dispatch; dispatch on the provider host or use agent spawn --mesh with --profile",
+        ));
+    }
     if owned_str(p, "worker_kind").is_some() {
         return Err(invalid_dispatch(
             "worker_kind overrides are local-only; mesh dispatch does not compose local Worker role prompts",

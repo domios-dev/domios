@@ -63,7 +63,7 @@ jobs:
     # A release branch's push already runs these checks on the exact SHA in release.yml.
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'release/')) }}
     # Every job waits on this gate, so any free light runner takes it.
-    runs-on: ${{ vars.CI_LINUX_LIGHT_RUNNER || 'ubuntu-24.04' }}
+    runs-on: ${{ fromJSON(vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
     permissions:
       contents: read
       actions: read
@@ -76,20 +76,29 @@ jobs:
       heavy: ${{ steps.tree.outputs.run == 'true' && steps.scope.outputs.heavy == 'true' }}
       plugins: ${{ steps.tree.outputs.run == 'true' && steps.scope.outputs.plugins || '[]' }}
     env:
-      DOMIOS_CI_WEBHOOK_URL: ${{ !((vars.CI_LINUX_LIGHT_RUNNER || 'ubuntu-24.04') == 'ubuntu-24.04') && secrets.DOMIOS_CI_WEBHOOK_URL || '' }}
-      DOMIOS_CI_WEBHOOK_TOKEN: ${{ !((vars.CI_LINUX_LIGHT_RUNNER || 'ubuntu-24.04') == 'ubuntu-24.04') && secrets.DOMIOS_CI_WEBHOOK_TOKEN || '' }}
       AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
       CI_STORE_LAN_ENDPOINT: ${{ secrets.CI_STORE_LAN_ENDPOINT }}
       CI_STORE_PUBLIC_ENDPOINT: ${{ secrets.CI_STORE_PUBLIC_ENDPOINT }}
-      DOMIOS_FIREBASE_API_KEY: ${{ !((vars.CI_LINUX_LIGHT_RUNNER || 'ubuntu-24.04') == 'ubuntu-24.04') && secrets.DOMIOS_FIREBASE_API_KEY || '' }}
-      DOMIOS_FIREBASE_PROJECT_ID: ${{ !((vars.CI_LINUX_LIGHT_RUNNER || 'ubuntu-24.04') == 'ubuntu-24.04') && secrets.DOMIOS_FIREBASE_PROJECT_ID || '' }}
-      DOMIOS_FIREBASE_APP_ID: ${{ !((vars.CI_LINUX_LIGHT_RUNNER || 'ubuntu-24.04') == 'ubuntu-24.04') && secrets.DOMIOS_FIREBASE_APP_ID || '' }}
-      DOMIOS_ACCOUNT_REDEEM_URL: ${{ !((vars.CI_LINUX_LIGHT_RUNNER || 'ubuntu-24.04') == 'ubuntu-24.04') && secrets.DOMIOS_ACCOUNT_REDEEM_URL || '' }}
-      DOMIOS_BILLING_FUNCTIONS_URL: ${{ !((vars.CI_LINUX_LIGHT_RUNNER || 'ubuntu-24.04') == 'ubuntu-24.04') && secrets.DOMIOS_BILLING_FUNCTIONS_URL || '' }}
-      CI_HOSTED: ${{ (vars.CI_LINUX_LIGHT_RUNNER || 'ubuntu-24.04') == 'ubuntu-24.04' }}
       CI_ARTIFACT_STORAGE: ''
     steps:
+      - name: Select runner environment
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        env:
+          DOMIOS_CI_WEBHOOK_URL: ${{ !(runner.environment == 'github-hosted') && secrets.DOMIOS_CI_WEBHOOK_URL || '' }}
+          DOMIOS_CI_WEBHOOK_TOKEN: ${{ !(runner.environment == 'github-hosted') && secrets.DOMIOS_CI_WEBHOOK_TOKEN || '' }}
+          DOMIOS_FIREBASE_API_KEY: ${{ !(runner.environment == 'github-hosted') && secrets.DOMIOS_FIREBASE_API_KEY || '' }}
+          DOMIOS_FIREBASE_PROJECT_ID: ${{ !(runner.environment == 'github-hosted') && secrets.DOMIOS_FIREBASE_PROJECT_ID || '' }}
+          DOMIOS_FIREBASE_APP_ID: ${{ !(runner.environment == 'github-hosted') && secrets.DOMIOS_FIREBASE_APP_ID || '' }}
+          DOMIOS_ACCOUNT_REDEEM_URL: ${{ !(runner.environment == 'github-hosted') && secrets.DOMIOS_ACCOUNT_REDEEM_URL || '' }}
+          DOMIOS_BILLING_FUNCTIONS_URL: ${{ !(runner.environment == 'github-hosted') && secrets.DOMIOS_BILLING_FUNCTIONS_URL || '' }}
+          CI_HOSTED: ${{ runner.environment == 'github-hosted' }}
+        with:
+          script: |
+            // Runner context is available after allocation, not in job-level env.
+            for (const key of ["DOMIOS_CI_WEBHOOK_URL", "DOMIOS_CI_WEBHOOK_TOKEN", "DOMIOS_FIREBASE_API_KEY", "DOMIOS_FIREBASE_PROJECT_ID", "DOMIOS_FIREBASE_APP_ID", "DOMIOS_ACCOUNT_REDEEM_URL", "DOMIOS_BILLING_FUNCTIONS_URL", "CI_HOSTED"]) {
+              core.exportVariable(key, process.env[key]);
+            }
       - name: Use the runner bundled Node
         if: runner.environment == 'self-hosted'
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
@@ -179,7 +188,7 @@ jobs:
     needs: changed
     # The Node and Python release contracts assume Linux paths (macOS /var is a symlink).
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'release/')) }}
-    runs-on: ubuntu-24.04
+    runs-on: ${{ fromJSON(vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
     permissions:
       contents: read
       actions: read
@@ -267,7 +276,7 @@ jobs:
     name: plugin (${{ matrix.plugin.id }})
     needs: changed
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'release/')) && (needs.changed.outputs.plugins != '[]') }}
-    runs-on: ubuntu-24.04
+    runs-on: ${{ fromJSON(vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
     permissions:
       contents: read
     timeout-minutes: 15
@@ -312,7 +321,7 @@ jobs:
     name: ts static checks
     needs: changed
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'release/')) && (needs.changed.outputs.frontend == 'true') }}
-    runs-on: ubuntu-24.04
+    runs-on: ${{ fromJSON(vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
     permissions:
       contents: read
     timeout-minutes: 15
@@ -368,7 +377,7 @@ jobs:
     name: frontend producer
     needs: changed
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'release/')) && (needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true') }}
-    runs-on: ubuntu-24.04
+    runs-on: ${{ fromJSON(vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
     permissions:
       contents: read
     timeout-minutes: 15
@@ -409,7 +418,7 @@ jobs:
     name: ts generated types
     needs: changed
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'release/')) && (needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true') }}
-    runs-on: ubuntu-24.04
+    runs-on: ${{ fromJSON(vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
     permissions:
       contents: read
     timeout-minutes: 20
@@ -467,13 +476,11 @@ jobs:
           WARNING_TARGET: ${{ runner.os == 'macOS' && (runner.arch == 'ARM64' && 'aarch64-apple-darwin' || 'x86_64-apple-darwin') || runner.os == 'Windows' && 'x86_64-pc-windows-msvc' || 'x86_64-unknown-linux-gnu' }}
           WARNING_COMPLETE: ${{ job.status == 'success' }}
           WARNING_INPUT: ci-rust-warnings.log
-      - &release-job-cache
-        name: Stop this job's local compile cache
+      - name: Stop this job's local compile cache
         if: always()
         shell: bash
         run: bash build.sh cache-release
-      - &clean-job-outputs
-        name: Remove job archives and sweep old Rust targets
+      - name: Remove job archives and sweep old Rust targets
         if: always()
         continue-on-error: true
         run: node scripts/ci-workspace-cleanup.mjs
@@ -497,7 +504,7 @@ jobs:
         shard: [1, 2, 3, 4]
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'release/')) && (needs.changed.outputs.frontend == 'true') }}
     # Air is idle until the Rust tier starts; the Ubuntu host compiles during the fast tier.
-    runs-on: ubuntu-24.04
+    runs-on: ${{ fromJSON(vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
     permissions:
       contents: read
     timeout-minutes: 15
@@ -542,7 +549,7 @@ jobs:
     name: ts vitest
     needs: changed
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'release/')) && (needs.changed.outputs.frontend == 'true') }}
-    runs-on: ubuntu-24.04
+    runs-on: ${{ fromJSON(vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
     permissions:
       contents: read
     timeout-minutes: 15
@@ -585,7 +592,7 @@ jobs:
     name: plugin bundles + tests
     needs: changed
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'release/')) && (needs.changed.outputs.rust == 'true') }}
-    runs-on: ubuntu-24.04
+    runs-on: ${{ fromJSON(vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
     permissions:
       contents: read
     timeout-minutes: 15

@@ -406,6 +406,7 @@ pub(super) fn create_router_with_preview_admission(
         )
         .merge(super::runtime_login::router())
         .merge(super::tab_todo_routes::router())
+        .merge(super::client_selection_routes::router())
         .route(
             "/api/tabs/{id}/agent/runtime/retry",
             post(web_routes::agent_runtime_retry),
@@ -541,6 +542,10 @@ pub(super) fn create_router_with_preview_admission(
             post(super::analytics_routes::consent),
         )
         .route("/api/analytics/event", post(super::analytics_routes::event))
+        .route(
+            "/api/neighbors/sidebar",
+            get(super::account_routes::neighbor_sidebar::read),
+        )
         .route("/api/account/plan", get(super::account_routes::plan))
         .route("/api/account/upgrade", post(super::account_routes::upgrade))
         .route("/api/account/portal", post(super::account_routes::portal))

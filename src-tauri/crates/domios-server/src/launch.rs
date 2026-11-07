@@ -477,6 +477,7 @@ pub fn install_selectors(options: &LaunchOptions) -> io::Result<()> {
         "CODETERM_API_URL",
         "CODETERM_API_PORT",
         "CODETERM_API_TOKEN",
+        "CODETERM_LAUNCH_FILE",
         "CODETERM_SOCKET_PATH",
         "CODETERM_INSTANCE",
         "CODETERM_DATA_DIR",

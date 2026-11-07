@@ -7,7 +7,8 @@ export const AGENT_REPORT_EVENT = "agent-report";
 export type AgentReportOutcomeClass =
   | "stale_binding_conflict"
   | "structurally_not_attachable"
-  | "delivered_unattached";
+  | "delivered_unattached"
+  | "transition_rejected";
 
 /** Task-transition truth of one accepted report, as decided by the daemon. */
 export interface AgentReportTaskOutcome {
@@ -41,6 +42,7 @@ export interface AgentReportEventPayload {
   report: AgentReportPayloadReport;
   task_report?: AgentReportTaskOutcome | null;
   report_outcome?: AgentReportOutcomeClass | null;
+  sender_position?: { source_session_id: string; message_id: string } | null;
 }
 
 export type AgentReportSide = "outbound" | "inbound";
@@ -59,6 +61,7 @@ export interface ProjectedAgentReport {
   branch: string | null;
   sha: string | null;
   taskOutcome: AgentReportTaskOutcome | null;
+  senderPosition: { source_session_id: string; message_id: string } | null;
   /** Epoch milliseconds — normalized once at ingest, comparable to Date.parse. */
   timestamp: number | null;
 }
@@ -79,6 +82,7 @@ interface AgentReportRecord {
   branch: string | null;
   sha: string | null;
   taskOutcome: AgentReportTaskOutcome | null;
+  senderPosition: { source_session_id: string; message_id: string } | null;
   timestamp: number | null;
 }
 
@@ -100,6 +104,7 @@ function reportOutcome(value: unknown): AgentReportOutcomeClass | null {
   return value === "stale_binding_conflict"
     || value === "structurally_not_attachable"
     || value === "delivered_unattached"
+    || value === "transition_rejected"
     ? value
     : null;
 }
@@ -173,6 +178,7 @@ export function ingestAgentReport(payload: AgentReportEventPayload): boolean {
     sha: text(payload.report.sha),
     taskOutcome: outcome,
     timestamp: normalizeEpochMs(payload.report.timestamp),
+    senderPosition: payload.sender_position ?? null,
   });
   while (records.size > MAX_PROJECTED_REPORTS) {
     const oldest = records.keys().next().value;

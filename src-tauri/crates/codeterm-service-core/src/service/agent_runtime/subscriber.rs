@@ -78,7 +78,9 @@ pub fn start(svc: ServiceContext, _provider: String, session: Arc<Session>, proc
             let step = match drained {
                 batch::Drained::Closed { frames } => {
                     if !frames.is_empty() {
-                        let _ = batch::handle(&svc, &session, &process, epoch, frames, false).await;
+                        let _ =
+                            batch::handle_stamped(&svc, &session, &process, epoch, frames, false)
+                                .await;
                     }
                     process.client.close(RuntimeFailure::PipeFailure {
                         stream: "events".into(),
@@ -87,7 +89,7 @@ pub fn start(svc: ServiceContext, _provider: String, session: Arc<Session>, proc
                     break;
                 }
                 batch::Drained::Ready { frames, lagged } => {
-                    batch::handle(&svc, &session, &process, epoch, frames, lagged).await
+                    batch::handle_stamped(&svc, &session, &process, epoch, frames, lagged).await
                 }
             };
             match step {
@@ -130,6 +132,11 @@ pub fn start(svc: ServiceContext, _provider: String, session: Arc<Session>, proc
                 }
             }
             let permit = session.gate.try_acquire().ok();
+            let bridge_cleanup =
+                super::client_bridge::cancel_all(&svc, &session, &process, true).await;
+            if let Err(reason) = bridge_cleanup {
+                log::error!("[agent-runtime] client bridge cleanup failed: {reason}");
+            }
             let cleanup = super::background::cleanup(
                 &svc,
                 &session,
@@ -321,13 +328,14 @@ fn unload_retaining_degradation(
     epoch: u64,
     reason: &RuntimeFailure,
 ) -> bool {
-    let degraded =
-        matches!(state.phase, RuntimePhase::Degraded { .. }).then(|| state.phase.clone());
+    let degraded = matches!(state.phase, RuntimePhase::Degraded { .. })
+        .then(|| (state.phase.clone(), state.failure_code));
     if !state.unload(epoch, reason) {
         return false;
     }
-    if let Some(phase) = degraded {
+    if let Some((phase, failure_code)) = degraded {
         state.phase = phase;
+        state.failure_code = failure_code;
     }
     true
 }

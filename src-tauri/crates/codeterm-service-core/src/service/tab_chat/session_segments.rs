@@ -99,27 +99,23 @@ fn archived_session_messages(svc: &ServiceContext, archive: &ContextEpochArchive
                     )
                 })
         }
-        ContextEpochTransport::ChatBackend => super::runtime_stored::archived_messages(
-            svc,
-            &archive.provider,
-            &archive.cwd,
-            &archive.session_id,
-        )
-        .and_then(|stored| match stored {
-            Some(messages) => Ok(messages),
-            None => svc
-                .chatbackend_registry
-                .get(&archive.provider)
-                .ok_or_else(|| "chat backend provider is unavailable".to_owned())
-                .and_then(|provider| {
-                    super::chatbackend_transcript_snapshot(
-                        provider.as_ref(),
-                        &archive.session_id,
-                        0,
-                    )
-                })
-                .map(|(messages, _)| messages),
-        }),
+        ContextEpochTransport::ChatBackend => {
+            super::runtime_stored::archived_messages(svc, archive).and_then(|stored| match stored {
+                Some(messages) => Ok(messages),
+                None => svc
+                    .chatbackend_registry
+                    .get(&archive.provider)
+                    .ok_or_else(|| "chat backend provider is unavailable".to_owned())
+                    .and_then(|provider| {
+                        super::chatbackend_transcript_snapshot(
+                            provider.as_ref(),
+                            &archive.session_id,
+                            0,
+                        )
+                    })
+                    .map(|(messages, _)| messages),
+            })
+        }
     };
     match result {
         Ok(messages) => messages,

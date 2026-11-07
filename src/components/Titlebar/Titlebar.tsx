@@ -10,6 +10,7 @@ import { KeepAwakeTray } from "./KeepAwakeTray";
 import { ExtensionsTray } from "./ExtensionsTray";
 import { AnalyticsTray } from "./AnalyticsTray";
 import { AccountTray } from "./AccountTray";
+import { RateUsTray } from "./RateUsTray";
 import { SettingsMenu } from "./SettingsMenu";
 import type { SettingsLinkId } from "../Settings/sections";
 import { NotificationToastContainer } from "../Notifications/NotificationToast";
@@ -83,6 +84,7 @@ export function Titlebar({
     <FirstRunControls locked={locked}>
     <div
       data-testid="titlebar"
+      data-toast-obstacle
       className={`ct-titlebar flex min-w-0 items-center select-none shrink-0 ${IS_WEB ? "relative z-50 max-sm:min-h-[calc(44px+var(--ct-safe-top,0px))]" : ""}`}
       style={{
         height: "calc(2rem + var(--ct-safe-top, 0px))",
@@ -145,6 +147,7 @@ export function Titlebar({
         )}
         {onOpenExtensions && <ExtensionsTray onOpen={onOpenExtensions} />}
         <KeepAwakeTray />
+        <RateUsTray locked={locked} />
         {onOpenSettings && (
           <>
             <span className={UI_TRAY_DIVIDER} aria-hidden />

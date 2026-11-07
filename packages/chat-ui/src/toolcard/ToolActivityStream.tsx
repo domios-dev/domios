@@ -1,6 +1,7 @@
 import { ExpandableReader } from "../ExpandableReader";
 import { toolStreamLabel, type ToolEvent } from "@codeterm/chat-core";
-import { ChevronRight } from "lucide-react";
+import { CardChevron } from "../CompactCard";
+import { RowMenuIsolate } from "../messageMenu";
 import { useId, useState, type ReactNode } from "react";
 import { toolCommandShape, type CommandRow } from "../codeterm/commandShape";
 import { COMMAND_TREE_CAP, CommandTree, commandCallKey, rememberOpenSegment } from "./CommandTree";
@@ -110,7 +111,7 @@ export function ToolActivityStream({ event, expanded, onToggle, renderAction }: 
   };
 
   return (
-    <ExpandableReader label="Tool activity" openerPlacement="header">{(fullscreen, opener) => (
+    <RowMenuIsolate><ExpandableReader label="Tool activity" openerPlacement="header">{(fullscreen, opener) => (
     <section
       data-testid="chat-tool-stream"
       data-flow-active={stream.active ? "true" : "false"}
@@ -148,9 +149,7 @@ export function ToolActivityStream({ event, expanded, onToggle, renderAction }: 
         <span className="shrink-0 font-mono text-[10.5px]" style={{ color: "var(--ct-muted-fg)" }}>{countLabel}</span>
       </button>
       {opener}
-      <button type="button" aria-label={`${expanded ? "Collapse" : "Expand"} tool activity`} aria-expanded={expanded} aria-controls={regionId} onClick={() => onToggle(!expanded)} className="flex shrink-0 items-center">
-        <ChevronRight aria-hidden="true" size={14} className={`shrink-0 ${expanded ? "rotate-90" : ""}`} style={{ color: "var(--ct-muted-fg)" }} />
-      </button>
+      <CardChevron expanded={expanded} label={`${expanded ? "Collapse" : "Expand"} tool activity`} controls={regionId} onToggle={() => onToggle(!expanded)} />
       </div>
       {miniView && !fullscreen && (
         <ol data-testid="chat-tool-stream-mini" aria-label="Recent actions" className="m-0 list-none px-3 pb-1.5 pl-8">
@@ -175,6 +174,6 @@ export function ToolActivityStream({ event, expanded, onToggle, renderAction }: 
         )}
       </div>
     </section>
-    )}</ExpandableReader>
+    )}</ExpandableReader></RowMenuIsolate>
   );
 }

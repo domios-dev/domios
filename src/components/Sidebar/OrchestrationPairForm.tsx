@@ -20,6 +20,8 @@ export interface OrchestrationPairValues {
 
 interface RoleRowProps {
   modelControls?: boolean;
+  /** Takes the model's place beside the provider pill, e.g. an ACP profile pill. */
+  modelSlot?: ReactNode;
   label: string;
   providers: ProviderDescriptor[];
   providerId: string;
@@ -43,6 +45,7 @@ interface RoleRowProps {
 
 export function OrchestrationRoleRow({
   modelControls = true,
+  modelSlot,
   label,
   providers,
   providerId,
@@ -97,7 +100,8 @@ export function OrchestrationRoleRow({
             leading={<AgentIcon providerId={providerId} className="text-[12px] shrink-0" />}
           />
         </div>
-        {modelControls && <div className="flex-1 min-w-0">
+        {modelSlot && <div className="flex-1 min-w-0">{modelSlot}</div>}
+        {!modelSlot && modelControls && <div className="flex-1 min-w-0">
           <DropdownSelect
             data-testid={modelTestId}
             options={modelOptions}
@@ -124,7 +128,7 @@ export function OrchestrationRoleRow({
       )}
       {providerDisabled && (
         <div className="flex items-center gap-2 text-[10px] text-[var(--ct-muted-fg)]">
-          <span>{provider?.display_name ?? "This provider"}'s CLI isn't installed</span>
+          <span>{provider?.display_name ?? "This harness"}'s CLI isn't installed</span>
           {onInstallProvider && provider?.install_command && (
             <button
               type="button"

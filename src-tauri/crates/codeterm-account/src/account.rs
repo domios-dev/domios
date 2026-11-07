@@ -34,6 +34,11 @@ pub struct Status {
     pub pending: bool,
     pub session_only: bool,
     pub last_sign_in_failure: Option<SignInFailure>,
+    /// Signed out because the saved sign-in belongs to another account target; the credential is kept.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_mismatch: Option<crate::TargetMismatch>,
+    /// The remote purchase switch; false unless the last fetch said exactly "true".
+    pub purchases_enabled: bool,
 }
 #[derive(Default)]
 struct State {
@@ -51,6 +56,7 @@ struct State {
     #[cfg(debug_assertions)]
     pending_url: Option<url::Url>,
     last_sign_in_failure: Option<SignInFailure>,
+    target_mismatch: Option<crate::TargetMismatch>,
 }
 pub struct Account {
     provider: Arc<dyn IdentityProvider>,
@@ -111,6 +117,8 @@ impl Account {
             pending: state.busy,
             session_only: state.session.is_some() && state.session_only,
             last_sign_in_failure: state.last_sign_in_failure,
+            target_mismatch: state.target_mismatch.clone(),
+            purchases_enabled: crate::remote_config::purchases_enabled(),
         }
     }
     #[cfg(debug_assertions)]
@@ -282,6 +290,7 @@ impl Account {
             state.refresh_blocked = false;
             state.session_revoked = false;
             state.last_sign_in_failure = None;
+            state.target_mismatch = None;
             state.publication_revision += 1;
             (
                 state.publication_revision,
@@ -340,12 +349,18 @@ impl Account {
             let mut state = self.state.lock().await;
             state.refresh_revision += 1;
             state.last_refresh = Some((generation, result));
-            if result == Err(Error::Credentials)
-                && state.generation == generation
-                && state
-                    .session
-                    .as_ref()
-                    .is_some_and(|session| force || session.expires_at.is_some_and(token_expired))
+            let mismatch = result == Err(Error::TargetMismatch) && state.generation == generation;
+            if mismatch {
+                state.target_mismatch = Some(crate::TargetMismatch::refused(
+                    crate::account_target::build_target(),
+                ));
+            }
+            if (mismatch && state.session.is_some())
+                || (result == Err(Error::Credentials)
+                    && state.generation == generation
+                    && state.session.as_ref().is_some_and(|session| {
+                        force || session.expires_at.is_some_and(token_expired)
+                    }))
             {
                 state.generation += 1;
                 state.session = None;
@@ -413,6 +428,7 @@ impl Account {
             state.busy = false;
             state.session_revoked = false;
             state.last_sign_in_failure = None;
+            state.target_mismatch = None;
             (state.generation, state.publication_revision)
         };
         let (deleted, notified) = tokio::join!(
@@ -448,6 +464,7 @@ impl Account {
             state.session = None;
             state.session_revoked = true;
             state.last_sign_in_failure = None;
+            state.target_mismatch = None;
             state.publication_revision += 1;
             (state.generation, state.publication_revision)
         };

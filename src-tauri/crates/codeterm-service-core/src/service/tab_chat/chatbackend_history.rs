@@ -78,6 +78,17 @@ pub fn session_path(plugin_id: &str, session_id: &str) -> PathBuf {
     session_dir(plugin_id).join(format!("{}.jsonl", sanitize(session_id)))
 }
 
+pub fn runtime_path(plugin_id: &str, session_id: &str) -> PathBuf {
+    use sha2::{Digest, Sha256};
+    let mut hash = Sha256::new();
+    hash.update(plugin_id.as_bytes());
+    hash.update([0]);
+    hash.update(session_id.as_bytes());
+    session_dir(plugin_id)
+        .join("runtime")
+        .join(format!("{:x}.jsonl", hash.finalize()))
+}
+
 /// Sidecar path for the host-composed context decision record. Shares
 /// `session_dir` and `sanitize`, so a plugin-chosen id still cannot escape it.
 pub fn context_sidecar_path(plugin_id: &str, session_id: &str) -> PathBuf {
@@ -218,6 +229,7 @@ enum Operation {
     Upsert(Vec<ChatMsg>),
     Remove(String),
     Compact,
+    Snapshot(Vec<ChatMsg>),
 }
 
 struct Request {
@@ -249,6 +261,18 @@ impl ChatBackendHistory {
             (plugin_id.into(), session_id.into()),
             session_path(plugin_id, session_id),
         )
+    }
+
+    pub fn runtime_shared(plugin_id: &str, session_id: &str) -> SharedHistory {
+        shared_in(
+            &SHARED,
+            (format!("runtime:{plugin_id}"), session_id.into()),
+            runtime_path(plugin_id, session_id),
+        )
+    }
+
+    pub fn snapshot(&mut self, rows: Vec<ChatMsg>) -> std::io::Result<()> {
+        self.request(Operation::Snapshot(rows)).map(|_| ())
     }
 
     pub fn release(plugin_id: &str, session_id: &str) {

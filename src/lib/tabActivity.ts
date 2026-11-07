@@ -1,4 +1,5 @@
 import type { Tab, TabAgentState, TabStatus } from "./types";
+import { runtimeResponseDeadlinePending } from "./agentRuntimeState";
 import { providerErrorReason } from "./providerSignals";
 import { shellStateLabel } from "./shellCommandState";
 
@@ -48,11 +49,20 @@ export function readableActivityLine(line: string): string {
   return `${name}${rest}`.trim();
 }
 
-/** A pending approval whose question is a raw command line shows as the question kind instead. */
-function questionText(question: string | null | undefined): string | null {
-  const text = question?.trim();
-  if (!text) return null;
-  return readableActivityLine(text) === text ? text : null;
+const SHORT_QUESTION_CHARS = 80;
+
+/** A status line summarises a pending prompt; only a short one-line question is quoted verbatim. */
+function promptStatus(tab: TabActivityInput | null | undefined, subtype: TabAgentState["subtype"]): string | null {
+  const prompt = tab?.pending_prompt;
+  const text = prompt?.question?.trim();
+  if (!prompt || !text) return null;
+  // Agent-runtime prompts with choices are tool approvals; the card below carries the details.
+  const permission = subtype === "permission"
+    || tab?.pending_prompt_kind === "permission" || tab?.pending_prompt_kind === "automatic_permission"
+    || (tab?.backing?.kind === "chat_backend" && (prompt.options?.length ?? 0) > 0);
+  if (permission) return "Waiting for your permission";
+  if (readableActivityLine(text) !== text) return null;
+  return !text.includes("\n") && text.length <= SHORT_QUESTION_CHARS ? text : "Waiting for your answer";
 }
 
 const startingStages = new Set<Tab["boot_stage"]>([
@@ -105,9 +115,13 @@ export function tabActivity(tab: TabActivityInput | null | undefined, status?: T
     || tab?.boot_stage === "awaiting_owner_prompt"
     || (declaresAgent && !sessionBound && tab?.boot_stage !== "agent_ready"))
     && !lazyComposerReady && !boundSessionRetiresShellStartup(tab) && !curatorWorking;
+  const runtimeFailed = tab?.backing?.kind === "chat_backend"
+    && (tab.agent_runtime_state?.state === "degraded"
+      || (tab.agent_runtime_state?.state === "unloaded" && Boolean(tab.agent_runtime_state.reason)))
+    && !runtimeResponseDeadlinePending(tab.agent_runtime_state, tab.boot_failure_reason);
   const authoritativeStatus = status ?? "Idle";
   let kind: TabActivity["kind"];
-  if (status === "Dead" || status === "Error" || tab?.boot_stage === "spawn_failed") kind = "failed";
+  if (runtimeFailed || status === "Dead" || status === "Error" || tab?.boot_stage === "spawn_failed") kind = "failed";
   else if (tab?.pending_prompt || tab?.boot_stage === "awaiting_owner_prompt") kind = "waiting-on-user";
   else if (launching) kind = "starting";
   else if (authoritativeStatus === "Waiting") kind = "waiting-on-user";
@@ -120,7 +134,7 @@ export function tabActivity(tab: TabActivityInput | null | undefined, status?: T
   const matchingLive = kind !== "starting" && kind !== "failed" && live?.state === state;
   const subtype = state === "question" && matchingLive ? live?.subtype : undefined;
   const phase = kind === "working" && matchingLive && (live?.phase === "thinking" || live?.phase === "streaming" || live?.phase === "compacting") ? live.phase : "work";
-  const question = kind === "waiting-on-user" ? questionText(tab?.pending_prompt?.question) : null;
+  const question = kind === "waiting-on-user" ? promptStatus(tab, subtype) : null;
   const providerReason = kind !== "working" && kind !== "starting" && kind !== "failed"
     ? providerErrorReason(tab?.provider_signals?.api_error) : null;
   const statusLine = matchingLive ? live?.status_line?.trim() : null;

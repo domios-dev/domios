@@ -17,9 +17,9 @@ export function ExecutionLocationPicker({provider, location, environmentId, onLo
       {capability.environments.length > 0 ? <label>Environment<select aria-label="Cloud environment" value={environmentId} onChange={event => onEnvironment(event.target.value)}>
         <option value="">Choose an environment</option>
         {capability.environments.map(environment => <option key={environment.id} value={environment.id}>{environment.label}</option>)}
-      </select></label> : <p role="status">No remote environments are available. Connect the account that owns your Cloud environments, then refresh providers.</p>}
-      <Button variant="ghost" onClick={onRefresh}>Refresh providers</Button>
-      <p>Remote tasks use your provider’s Cloud allowance. One task runs per tab.</p>
+      </select></label> : <p role="status">No remote environments are available. Connect the account that owns your Cloud environments, then refresh harnesses.</p>}
+      <Button variant="ghost" onClick={onRefresh}>Refresh harnesses</Button>
+      <p>Remote tasks use your harness’s Cloud allowance. One task runs per tab.</p>
     </div>}
   </fieldset>;
 }

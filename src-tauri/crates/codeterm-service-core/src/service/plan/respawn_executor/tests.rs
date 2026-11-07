@@ -24,6 +24,7 @@ fn fixture() -> (ServiceFixture, TaskRespawnDraft) {
     });
     let fixture = ServiceFixture::new(mux);
     let draft = TaskRespawnDraft {
+        launch_profile: None,
         plan_id: "plan".into(),
         task_id: "task".into(),
         execution_intent: ExecutionIntent::Mutating,

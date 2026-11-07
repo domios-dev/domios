@@ -19,7 +19,7 @@ afterEach(async () => {
 });
 
 async function mount(start: number, end: number, loadedRows = rows(start, end),
-  loadHistoryPage?: (message: NormalizedChatMessage) => Promise<NormalizedChatMessage[] | null>, sparse = false) {
+  loadHistoryPage?: (message: NormalizedChatMessage) => Promise<NormalizedChatMessage[] | null>, sparse: boolean | number = false) {
   let view!: ReturnType<typeof useChatWindowView>;
   let requests = 0;
   const host = document.createElement("main");
@@ -34,7 +34,7 @@ async function mount(start: number, end: number, loadedRows = rows(start, end),
       loadHistoryPage,
       loadOlderPage: async cursor => {
         requests++;
-        if (sparse && requests <= 2) {
+        if (sparse && requests <= (typeof sparse === "number" ? sparse : 8)) {
           setTranscript(current => reduceTranscript(current, { kind: "backfill", authority,
             range: { start: cursor - 1, end: cursor, unit: "items" }, rows: [] }).state);
           return { cursor: cursor - 1, consumedBytes: 1024 * 1024, rows: 0 };
@@ -116,9 +116,19 @@ it("a leading archive gap uses only the top paging control and disappears when e
 it("a scan-limited initial window reveals exactly one batch without filling unused capacity", async () => {
   const mounted = await mount(300, 367, rows(300, 367), undefined, true);
   expect(mounted.view().enrichedMessages).toHaveLength(67);
-  expect(mounted.view().backfillNotice).toBe("limit");
+  expect(mounted.view().backfillNotice).toBeNull();
   const previous = mounted.view().enrichedMessages.map(entry => entry.msg.id);
   await act(async () => mounted.host.querySelector("button")!.click());
   expect(mounted.view().enrichedMessages).toHaveLength(167);
   expect(mounted.view().enrichedMessages.map(entry => entry.msg.id).slice(-67)).toEqual(previous);
+});
+
+
+it("a top paging action crosses multiple byte-bounded scans until an older visible page is filled", async () => {
+  const mounted = await mount(300, 367, rows(300, 367), undefined, 12);
+  expect(mounted.view().backfillNotice).toBeNull();
+  await act(async () => mounted.host.querySelector("button")!.click());
+  expect(mounted.requests()).toBe(13);
+  expect(mounted.view().enrichedMessages).toHaveLength(167);
+  expect(mounted.view().backfillNotice).toBeNull();
 });

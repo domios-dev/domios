@@ -76,6 +76,14 @@ function enrichUserMessage(raw: ChatMessage, rawItem: TimelineItem): EnrichedCha
   ];
 }
 
+/** A system notice (a `from="system"` or `from="cli"` frame) with no words and no files has nothing to show;
+ *  rendering it would leave a bare "System · CLI" card. */
+function emptySystemNotice(entry: EnrichedChatEntry): boolean {
+  if (entry.origin?.kind !== "system" && entry.msg.inboundKind !== "system") return false;
+  const files = (entry.msg.segments ?? []).some((segment) => segment.type === "attachment" || (segment.type === "paste" && Boolean(segment.body.trim())));
+  return !entry.msg.content.trim() && !files && !entry.msg.attachments?.length;
+}
+
 /** One rendered row per message identity. A duplicate occurrence of the same
  *  message object is dropped; a distinct object with grown content is a streamed
  *  update and replaces the stale row in place. */
@@ -104,7 +112,7 @@ export function enrichTimelineItems(visible: TimelineItem[], cache: EnrichmentCa
       for (const entry of cached) append(entry);
       continue;
     }
-    const entries = enrichUserMessage(m, item);
+    const entries = enrichUserMessage(m, item).filter((entry) => !emptySystemNotice(entry));
     cache.set(m, entries);
     for (const entry of entries) append(entry);
   }

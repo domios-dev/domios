@@ -12,7 +12,7 @@ import type { NeighborRuntimeClient } from "./neighborRuntimeClient";
 import { createNeighborsViewFixture } from "./neighborsView.testdata";
 
 const notices = vi.hoisted(() => ({ publishNotice: vi.fn() }));
-const transport = vi.hoisted(() => ({ localFetch: vi.fn() }));
+const transport = vi.hoisted(() => ({ localFetch: vi.fn(), webJson: vi.fn() }));
 const bridge = vi.hoisted(() => ({ handlers: {} as Record<string, Set<(event: { payload: unknown }) => void>>, invoke: vi.fn(async () => undefined) }));
 const account = vi.hoisted(() => ({ model: { kind: "signed_in", identity: { uid: "owner", email: "me@example.test", display_name: "Me", photo_url: null } } as Record<string, unknown>, signIn: vi.fn() }));
 const mux = vi.hoisted(() => ({
@@ -38,6 +38,35 @@ async function expandSection() {
   const toggle = document.querySelector<HTMLButtonElement>('section[aria-label="Neighbors"] button[aria-expanded="false"]');
   if (toggle) await act(async () => toggle.click());
 }
+
+it("groups the selected remote peer's concierge without reading or managing the origin account", async () => {
+  const { setRelayTarget } = await import("../../lib/webApi");
+  setRelayTarget("blackstar", "Blackstar");
+  transport.webJson.mockResolvedValue({ pair: { tab_id: "tab-gateway", friend_display_name: "Remote Friend" } });
+  const localClient: NeighborClient = { list: vi.fn(), apply: vi.fn() };
+  const localRuntime = runtime({ pair: "tab-general" });
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted.current = { root, host };
+  const seen: Array<ReadonlySet<string>> = [];
+  function Probe() { seen.push(useNeighborGatewayIds()); return null; }
+  await act(async () => root.render(<><SidebarNeighborsSection touchMode={false} client={localClient} runtimeClient={localRuntime} /><Probe /></>));
+  await expandSection();
+  expect(hasButton("Open Remote Friend's concierge")).toBe(true);
+  expect(seen[seen.length - 1]?.has("tab-gateway")).toBe(true);
+  expect(seen[seen.length - 1]?.has("tab-general")).toBe(false);
+  expect(localClient.list).not.toHaveBeenCalled();
+  expect(localRuntime.status).not.toHaveBeenCalled();
+  expect(hasButton("Actions for Remote Friend's concierge")).toBe(false);
+  expect(transport.webJson).toHaveBeenCalledWith("GET", "/api/neighbors/sidebar", undefined, { signal: expect.any(AbortSignal) });
+  transport.webJson.mockReturnValue(new Promise(() => {}));
+  await act(async () => {
+    window.dispatchEvent(new CustomEvent("codeterm-peer-switch-reset"));
+    setRelayTarget("eight", "Eight");
+    window.dispatchEvent(new CustomEvent("codeterm-peer-switch-rebind"));
+  });
+  expect(hasButton("Open Remote Friend's concierge")).toBe(false);
+  expect(seen[seen.length - 1]?.size).toBe(0);
+});
 
 it("keeps the sidebar Neighbors section away until there is a Neighbor", async () => {
   await renderSection([]);
@@ -175,4 +204,15 @@ it("disables a friend from their sidebar row menu and shows the row as disabled"
   await act(async () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(item => item.textContent === "Disable Ada")!.click());
   expect(conciergeClient.setPaused).toHaveBeenCalledExactlyOnceWith("pair", true);
   expect(button("Open Ada").textContent).toContain("disabled");
+});
+it("ends a refused first read without claiming cached friends are connected", async () => {
+  localStorage.setItem("domios.neighbors.last-known:owner", JSON.stringify({ access: "paid", friends: [neighbor] }));
+  const client: NeighborClient = { list: vi.fn(async () => { throw new Error("Sign in with a hosted account to use Neighbors"); }), apply: vi.fn() };
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted.current = { root, host };
+  await act(async () => root.render(<SidebarNeighborsSection touchMode={false} client={client} runtimeClient={runtime()} />));
+  await expandSection();
+  expect(document.querySelector('[aria-label="Refreshing Neighbors"]')).toBeNull();
+  expect(host.querySelector('[role="status"]')?.textContent).toContain("Sign in with a hosted account to use Neighbors");
+  expect(host.textContent).not.toContain("connected");
 });

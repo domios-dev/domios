@@ -90,7 +90,7 @@ export function ChatBlockFrame({
   const hasFooter = confirming !== null || actions.length > 0 || fullPage !== undefined || details !== undefined || !body;
 
   return (
-    <ExpandableReader label={title} enabled={Boolean(details || body)} openerPlacement="header">{(fullscreen, opener) => (
+    <ExpandableReader label={title} enabled={Boolean(details || body)} openerPlacement="header" ownsMenu>{(fullscreen, opener, _openReader, readerItems) => (
 
     <section
       data-testid="chat-block"
@@ -115,7 +115,7 @@ export function ChatBlockFrame({
           {summary && <div className="ct-card__meta mt-0.5 leading-relaxed">{summary}</div>}
         </div>
         {opener}
-        <BlockMenu source={source} title={title} askText={askText} pinned={pinned} pinnable={pinnable} />
+        <BlockMenu source={source} title={title} askText={askText} pinned={pinned} pinnable={pinnable} leading={readerItems} />
       </header>
 
       {body && <div data-testid="chat-block-body" className="ct-card__body" style={hasFooter ? { paddingBottom: 0 } : undefined}>{body}</div>}
@@ -192,9 +192,9 @@ export function BlockButton({ primary = false, children, className = "", ...prop
   );
 }
 
-function BlockMenu({ source, title, askText, pinned, pinnable }: { source: string; title: string; askText?: string; pinned: boolean; pinnable: boolean }) {
+function BlockMenu({ source, title, askText, pinned, pinnable, leading }: { source: string; title: string; askText?: string; pinned: boolean; pinnable: boolean; leading: readonly ChatCardMenuItem[] }) {
   const host = useChatBlockHost();
-  const items: ChatCardMenuItem[] = [];
+  const items: ChatCardMenuItem[] = [...leading];
   if (host.askAbout) {
     const askAbout = host.askAbout;
     items.push({

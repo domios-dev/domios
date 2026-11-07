@@ -1,9 +1,10 @@
 Flag corrections; see `domios plan --help` and `domios task --help`. `<task>` accepts id (`task_xxxxxx`), handle or key (`COD-12`); ambiguity refuses.
 
 - `domios plan create --title "..."` — no `--goal`; the goal comes afterwards from `plan goal set`, whose `--vector` is required while the plan has no goal. A Team-bound caller without `--project` uses its Team workspace cwd.
-- `domios plan task add <plan> --name "..." --sections <csv> --criterion "..."` — never `--title`, `--section` or `--acceptance`; `--criterion` repeats. Long-text flags have `-file` twins. Its `--execution-intent` is `repository_mutation|non_repository`, not the dispatch enum.
+- `domios plan task add <plan> --name "..." --personality <OneWord> --sections <csv> --criterion "..."` — `--personality` is required; never `--title`, `--section` or `--acceptance`; `--criterion` repeats. Long-text flags have `-file` twins. Its `--execution-intent` is `repository_mutation|non_repository`, not the dispatch enum.
 - `domios plan task update <plan> <task> --criterion "..."` — appends; add `--replace-criteria` to replace the list. `--model <provider>:<model>` is stored verbatim; a bare provider resolves at dispatch.
-- `domios plan task dispatch <plan> <task> --execution-intent read_only|mutating` — intent required; no `--brief`: task body is the brief. Repeat `--authorized-gate <token>` for exact gate claims (default: none). `--kind qa|release_manager` selects a builtin prompt without changing the task's `executor_role`. `--canonical-writer` requires mutating intent and exclusive canonical ownership; refuses another live holder. Reports must match clean canonical `HEAD`.
+- `domios plan task dispatch <plan> <task> --execution-intent read_only|mutating` — intent required; `--profile <id>` selects the ACP launch profile; no `--brief`: task body is the brief. Repeat `--authorized-gate <token>` for exact gate claims (default: none). `--kind qa|release_manager` selects a builtin prompt without changing the task's `executor_role`. `--canonical-writer` requires mutating intent and exclusive canonical ownership; refuses another live holder. Reports must match clean canonical `HEAD`.
+- `domios plan task respawn <plan> <task> --attempt <attempt> --profile <id>` — overrides the source attempt's ACP launch profile; omit `--profile` to inherit it when the provider stays the same.
 - Choose the lightest placement: non-repository tasks need no checkout; review dispatches `read_only` in canonical. Local mutating tasks share canonical with declared disjoint edit files; `--placement shared|lane` overrides automatic selection. Overlap, a `build-breaking` tag, or a retained lane selects isolation. Explicit shared conflicts refuse and name the owner.
 - After accepting a `--mesh` dispatch, run `domios plan task merge-remote-lane <plan> <task> <attempt>` on the origin to fetch the lane bundle and create a real merge commit.
 - `domios agent spawn <provider> --role Worker --plan <plan> --execution-intent read_only --authorized-gate "<command>"` — canonical verifier: no task or `--plan-task`; reports without `--status`; runs only its gates. Mutating Workers require a task binding.
@@ -15,4 +16,4 @@ Flag corrections; see `domios plan --help` and `domios task --help`. `<task>` ac
 
 Split files and the rest of plan editing: `domios docs PLAN-EDITING`.
 
-<!-- revision: 1 -->
+<!-- revision: 3 -->

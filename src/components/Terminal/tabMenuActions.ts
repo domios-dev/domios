@@ -41,7 +41,7 @@ export async function performTabMenuAction(
     case "switchModel":
       return switchTabModel(action.view, action.modelId);
     case "switchProvider":
-      if (!handlers.switchProvider) throw new Error("Provider switching requires the handoff confirmation dialog.");
+      if (!handlers.switchProvider) throw new Error("Harness switching requires the handoff confirmation dialog.");
       handlers.switchProvider(action.providerId);
       return;
     case "replaceOrchestrator":

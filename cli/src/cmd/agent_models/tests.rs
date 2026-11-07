@@ -1,5 +1,22 @@
 use super::*;
 
+#[test]
+fn profile_options_json_preserves_ids_labels_and_profile_scope() {
+    let catalog = serde_json::json!([{"id":"one","configOptions":[{"id":"engine","name":"Engine","category":"model","currentValue":"M","options":[{"value":"M","name":"Model M"}]}]},{"id":"two","configOptions":[]}]);
+    let output = render_profile_options(&catalog, "acp", "one", true).unwrap();
+    let value: Value = serde_json::from_str(&output).unwrap();
+    assert_eq!(
+        value["result"]["configOptions"][0]["options"][0]["name"],
+        "Model M"
+    );
+    let text = render_profile_options(&catalog, "acp", "one", false).unwrap();
+    assert!(text.contains("M  Model M"));
+    assert!(render_profile_options(&catalog, "acp", "missing", false).is_err());
+    assert!(render_profile_options(&catalog, "acp", "two", false)
+        .unwrap()
+        .contains("No options observed"));
+}
+
 fn descriptors() -> Value {
     serde_json::json!([
         {"id": "other", "available_models": [{"id": "other-model"}]},

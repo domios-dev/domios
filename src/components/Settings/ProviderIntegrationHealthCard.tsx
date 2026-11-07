@@ -128,7 +128,7 @@ export function ProviderIntegrationHealthCard({
   return (
     <SettingsCard
       icon={<Cable size={16} />}
-      title="Provider integration"
+      title="Harness integration"
       headerRight={<IntegrationStatePill state={phase} />}
       description={`${provider.display_name} hooks tell Domios when a session starts and stops, so each tab binds to its own session.`}
     >
@@ -145,7 +145,7 @@ export function ProviderIntegrationHealthCard({
             data-provider-integration-action-required={health?.repair_requires_consent === true ? "explicit-consent" : undefined}
             className="text-xs text-[var(--ct-fg)]"
           >
-            <InlineErrorNotice description={{ title: "The provider integration needs attention", cause: phase === "absent"
+            <InlineErrorNotice description={{ title: "The harness integration needs attention", cause: phase === "absent"
               ? "The integration is absent. Install it before starting a new agent session."
               : phase === "stale-version"
                 ? "The integration is from an older release. Refresh it before starting a new agent session."
@@ -155,7 +155,7 @@ export function ProviderIntegrationHealthCard({
               ? "The session-start hook is missing or stale. Repair the integration before starting a new agent session."
               : staleStopHook
                 ? "The stop hook is missing or stale. Repair the integration to restore agent stop callbacks."
-                : "The provider hook integration is incomplete and needs repair.", raw: "", actions: [] }} />
+                : "The harness hook integration is incomplete and needs repair.", raw: "", actions: [] }} />
           </div>
         )}
 

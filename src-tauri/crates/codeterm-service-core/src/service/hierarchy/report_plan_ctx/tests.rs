@@ -358,6 +358,7 @@ fn seed_plan(
                 None,
                 Some("caller-session"),
                 Some("caller-nonce"),
+                None,
                 5,
             )
             .unwrap();
@@ -384,7 +385,11 @@ fn stale_task_report_transitions_nothing_and_names_the_mismatch() {
             .submit_report(
                 &h.caller,
                 "STALE_REPORT_PAYLOAD",
-                h.details(ReportStatus::InReview),
+                ReportDetails {
+                    plan_id: Some(h.plan_id.clone()),
+                    task_id: Some(h.stale.clone()),
+                    ..h.details(ReportStatus::InReview)
+                },
                 Some(&h.plan_id),
                 Some(&h.stale),
                 None,
@@ -414,6 +419,14 @@ fn stale_task_report_transitions_nothing_and_names_the_mismatch() {
 
     // The report itself still reached the parent, so it must not be resent.
     assert!(h.reports().contains("STALE_REPORT_PAYLOAD"));
+    // A refused transition never reaches the parent framed as a review to judge.
+    let reports = h.fx.service.report_store.lock().get(&h.root, false);
+    let body = reports[0].inject_body();
+    assert!(!body.contains("plan review accept|bounce"), "{body}");
+    assert!(
+        !body.lines().any(|line| line == "status: In Review"),
+        "{body}"
+    );
 }
 
 #[test]

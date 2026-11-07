@@ -21,10 +21,12 @@ export interface ChatBodyInput {
   bootView: ChatBodyView;
   attachmentError?: string | null;
   locked?: boolean;
+  restoreLoadRefused?: boolean;
 }
 
 export function chatBodyView(input: ChatBodyInput): ChatBodyView {
   if (input.locked) return { kind: "locked" };
+  if (input.restoreLoadRefused) return { kind: "none" };
   if (input.bootView.kind === "launch_failed") return input.bootView;
   if (input.attachmentError) return { kind: "attach_failed", reason: input.attachmentError };
   if (input.firstTurnReady && !input.unavailable) return { kind: "none" };
@@ -62,13 +64,14 @@ export function placeChatRails<M>(args: {
   messages: M[];
   messageTimeMs: (message: M) => number | null;
   reportTimes: Array<number | null>;
+  reportPositions?: { sourceMessageIds: string[]; messageId: (message: M) => string; reportMessageIds: Array<string | null> };
   askTimes: Array<number | null>;
 }): ChatRailPlacements {
   if (!args.visible) {
     return { reports: emptyPlacement(), asks: emptyPlacement() };
   }
   return {
-    reports: placeOutboundReports(args.messages, args.messageTimeMs, args.reportTimes),
+    reports: placeOutboundReports(args.messages, args.messageTimeMs, args.reportTimes, args.reportPositions),
     asks: placeOutboundReports(args.messages, args.messageTimeMs, args.askTimes),
   };
 }

@@ -129,7 +129,7 @@ export function MemoryActivityServices({ config, activity, nodes, onNavigateToIt
                 <details className="text-[var(--ct-muted-fg)]">
                   <summary className="cursor-pointer">Source</summary>
                   <p className="break-all">
-                    {event.source.kind} / {event.source.agent_provider || "Provider unknown"}
+                    {event.source.kind} / {event.source.agent_provider || "Harness unknown"}
                     {event.source.worker_id && ` / ${event.source.worker_id}`}
                     {event.source.tab_id && ` / ${event.source.tab_id}`}
                   </p>

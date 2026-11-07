@@ -45,8 +45,63 @@
   color: var(--ct-fg);
 }
 
+/* "Rate us on GitHub": hangs from its tray star, lit faintly by it, and never takes focus. */
+.ct-rate-us {
+  position: relative;
+  width: 100%;
+  padding: 14px 14px 12px;
+  border: 1px solid var(--ct-border);
+  border-radius: 12px;
+  background:
+    radial-gradient(120% 90% at 0% 0%, color-mix(in srgb, var(--ct-yellow) 7%, transparent), transparent 60%),
+    var(--ct-surface);
+  box-shadow: 0 12px 32px color-mix(in srgb, #000 28%, transparent), 0 1px 0 color-mix(in srgb, var(--ct-fg) 5%, transparent) inset;
+  color: var(--ct-fg);
+  transform-origin: var(--ct-menu-origin);
+  animation: ct-rate-us-in 220ms var(--ct-ease-decel, ease-out) both;
+}
+
+.ct-rate-us__caret {
+  position: absolute;
+  top: -6px;
+  right: 9px;
+  width: 10px;
+  height: 10px;
+  border-top: 1px solid var(--ct-border);
+  border-left: 1px solid var(--ct-border);
+  background: var(--ct-surface);
+  transform: rotate(45deg);
+}
+
+[data-anchored-popover][data-side="top"] > .ct-rate-us__caret {
+  top: auto;
+  bottom: -6px;
+  transform: rotate(225deg);
+}
+
+.ct-rate-us__mark {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  place-items: center;
+  border-radius: 999px;
+  color: var(--ct-yellow);
+  background: color-mix(in srgb, var(--ct-yellow) 15%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ct-yellow) 22%, transparent) inset;
+}
+
+@keyframes ct-rate-us-in {
+  from { opacity: 0; transform: translateY(-4px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .ct-titlebar {
     transition: none;
+  }
+
+  .ct-rate-us {
+    animation: none;
   }
 }

@@ -19,6 +19,7 @@ import { freeLimitGate } from "../billing/freeLimitGate";
 import { getPersistedChatScrollState } from "./chatViewport";
 import { readTranscriptWindow, transcriptWindowKey } from "./transcriptStore";
 import type { ChatStartResult } from "./chatSessionAuthority";
+import { reconnectTabSession } from "./tabSessionActions";
 
 vi.mock("../../hooks/useAgentProviders", () => ({ useAgentProviders: () => ({ providers: [], loading: false, error: null }) }));
 vi.mock("./TerminalTab", async () => {
@@ -30,6 +31,58 @@ vi.mock("./TerminalTab", async () => {
   };
 });
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+it.each(["agent_launching", "spawn_failed"] as const)("keeps saved chat visible beside typed load recovery at %s and starts fresh in place", async bootStage => {
+  const viewportHeight = vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(1000);
+  const tab: Tab = {
+    id:"load-refused-chat", title:"Fixture", tab_type:"Terminal", cwd:null, pty_id:null,
+    agent_type:"fixture", agent_session_id:"saved-thread", session_binding_nonce:"saved-binding",
+    backing:{kind:"chat_backend",plugin_id:"fixture",session_id:"saved-thread"},
+    boot_stage:bootStage, boot_failure_reason:"opaque provider detail",
+    agent_runtime_state:{state:"degraded",epoch:1,failureCode:"session_load_refused",reason:"opaque provider detail"},
+  };
+  const state: ExtendedState = { workspaces:[],tabs:{[tab.id]:tab},teams:[],active_workspace_id:null,
+    focused_tab_id:tab.id,notifications:[],tabStatuses:{},toasts:[],activeTabIds:{},generation:1,pendingCloses:[] };
+  const requests: Array<{command:string;args?:Record<string,unknown>}> = [];
+  const saved = ["user", "status", "system", "user", "status", "user", "status", "system"]
+    .map((type, seq) => ({id:`saved-row-${seq}`, type, content:`opaque saved turn ${seq}`, seq}));
+  __setListenForTest(async () => () => {});
+  __setInvokeForTest(async <T,>(command:string,args?:Record<string,unknown>) => {
+    requests.push({command,args});
+    const value = command === "chat_start" ? {messages:saved,
+      pending:false,text:"",offset:8,offset_kind:"items",source_session_id:"saved-thread",session_binding_nonce:"saved-binding"}
+      : command === "delayed_send_list" || command === "list_agent_providers" ? []
+      : command === "plugin_manager_snapshot" ? {plugins:[],channels:[],diff:[],marketplace:[]} : {};
+    return value as T;
+  });
+  const host=document.createElement("div");document.body.append(host);
+  const root=createRoot(host);
+  const actions=new Proxy({}, {get:()=>()=>{}}) as MultiplexerActionsContextType;
+  try {
+    await act(async () => root.render(<MuxStateStoreContext.Provider value={createMuxStateStore(()=>state)}>
+      <MultiplexerActionsContext.Provider value={actions}>
+        <TabContent tab={tab} isFocused isVisible onFocusTab={()=>{}} onPtySpawned={()=>{}}
+          theme={{name:"fixture",background:"#000",foreground:"#fff"} as ThemeConfig}/>
+      </MultiplexerActionsContext.Provider>
+    </MuxStateStoreContext.Provider>));
+    const conversation=host.querySelector('[role="log"][aria-label="Conversation"]');
+    expect(conversation?.textContent).toContain("opaque saved turn");
+    for (const row of saved) expect(conversation?.textContent).toContain(row.content);
+    expect(conversation?.closest("[inert]")).toBeNull();
+    const start=conversation?.querySelector<HTMLButtonElement>('button[aria-label="Start new session"]');
+    expect(start).not.toBeNull();
+    expect(host.querySelector('[role="progressbar"]')).toBeNull();
+    expect(conversation?.querySelector("details pre")?.textContent).toBe("opaque provider detail");
+    await act(async()=>start!.click());
+    expect(requests.filter(request=>request.command==="restart_agent_tab")).toEqual([
+      {command:"restart_agent_tab",args:{tabId:tab.id,fresh:true}},
+    ]);
+    expect(conversation?.textContent).toContain("opaque saved turn");
+  } finally {
+    await act(async()=>root.unmount());host.remove();__setInvokeForTest(null);__setListenForTest(null);
+    viewportHeight.mockRestore();
+  }
+});
 
 it("makes the previous kept-alive composer inert and releases focus in the tab-switch commit", async () => {
   const tabs: Tab[] = ["input-a", "input-b"].map(id => ({
@@ -525,9 +578,7 @@ it("refreshes only its chat attachment while retaining draft, authority, transcr
     expect(getPersistedChatScrollState(scrollKey)?.mode).toBe("detached");
     const authority = readTranscriptWindow(transcriptWindowKey(tab.id, "refresh-session")).transcript.authority;
     expect(authority).toEqual({ sourceSessionId: "refresh-session", sessionBindingNonce: "refresh-binding" });
-    const refresh = ownSurface().querySelector<HTMLButtonElement>('button[aria-label="Refresh chat"]')!;
-    expect(refresh).not.toBeNull();
-    await act(async () => refresh.click());
+    await act(async () => reconnectTabSession(tab.id));
     expect(completeRefresh).toBeDefined();
     expect(ownSurface().querySelector("textarea")).toBe(composer);
     expect(composer.value).toBe("unsent refresh draft");

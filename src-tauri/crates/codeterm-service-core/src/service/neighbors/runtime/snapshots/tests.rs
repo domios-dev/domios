@@ -1,6 +1,34 @@
 use super::*;
 use crate::{multiplexer::state::MultiplexerState, service::test_fixture::ServiceFixture};
 
+#[tokio::test]
+async fn sidebar_projection_contains_only_bound_friend_names_and_tab_ids() {
+    let (mux, tab) = MultiplexerState::new();
+    let fixture = ServiceFixture::new(mux);
+    let friendship = "a".repeat(64);
+    fixture
+        .seed_neighbor_concierge(
+            &tab,
+            &friendship,
+            Permission {
+                allowed: true,
+                scope: "private grant".into(),
+                ..Default::default()
+            },
+        )
+        .await;
+    fixture
+        .service
+        .remember_neighbor_names(&json!({"access":"paid", "friends":[
+            {"friendship_id": friendship, "displayName":"Opaque Friend", "private_key":"secret"},
+            {"friendship_id": "b".repeat(64), "displayName":"Unbound Friend"}
+        ]}));
+    assert_eq!(
+        fixture.service.neighbor_sidebar_projection().await.unwrap(),
+        json!({friendship: {"tab_id":tab, "friend_display_name":"Opaque Friend"}})
+    );
+}
+
 #[test]
 fn registry_cache_retains_explicit_receiver_authority_including_malformed_projection() {
     let fixture = ServiceFixture::new(MultiplexerState::new().0);

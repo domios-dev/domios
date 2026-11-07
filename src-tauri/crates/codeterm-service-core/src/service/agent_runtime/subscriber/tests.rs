@@ -29,6 +29,7 @@ fn teardown_preserves_degraded_reason_and_refuses_old_epoch() {
     let failure = RuntimeFailure::HookFailed("durable status write failed".into());
     state.degrade(epoch, &failure);
     let reason = state.snapshot().reason;
+    let failure_code = state.snapshot().failure_code;
     assert!(!unload_retaining_degradation(
         &mut state,
         epoch + 1,
@@ -41,6 +42,29 @@ fn teardown_preserves_degraded_reason_and_refuses_old_epoch() {
     ));
     assert!(matches!(state.phase, RuntimePhase::Degraded { .. }));
     assert_eq!(state.snapshot().reason, reason);
+    assert_eq!(state.snapshot().failure_code, failure_code);
+}
+
+#[test]
+fn teardown_preserves_unbound_start_code_and_bound_refusal() {
+    use codeterm_plugin::agent_runtime::RuntimeFailureCode;
+
+    for (thread, expected) in [
+        (None, RuntimeFailureCode::RuntimeStartUnbound),
+        (Some("own".into()), RuntimeFailureCode::ProviderRefused),
+    ] {
+        let mut state = RuntimeState::unloaded(thread);
+        let epoch = state.begin();
+        state.degrade(epoch, &RuntimeFailure::Refused("opaque refusal".into()));
+        assert_eq!(state.failure_code, Some(expected));
+        assert!(unload_retaining_degradation(
+            &mut state,
+            epoch,
+            &RuntimeFailure::PipeEof
+        ));
+        assert_eq!(state.failure_code, Some(expected));
+        assert!(matches!(state.phase, RuntimePhase::Degraded { .. }));
+    }
 }
 
 #[test]
@@ -94,18 +118,21 @@ fn unmapped_requests_get_correlated_error_decision() {
         thread_id: "own".into(),
         request_id: id.clone(),
         prompt: prompt.clone(),
+        permission: None,
     };
     assert!(unmapped_request_error(&context, &id, &[own]).is_none());
     let foreign = AgentRuntimeEvent::Prompt {
         thread_id: "foreign".into(),
         request_id: id.clone(),
         prompt: prompt.clone(),
+        permission: None,
     };
     assert!(unmapped_request_error(&context, &id, &[foreign]).is_some());
     let unrelated = AgentRuntimeEvent::Prompt {
         thread_id: "own".into(),
         request_id: RpcId::Number(4),
         prompt,
+        permission: None,
     };
     assert!(unmapped_request_error(&context, &id, &[unrelated]).is_some());
 }
@@ -148,6 +175,7 @@ async fn mock_runtime_unmapped_requests_reply_and_capacity_stays_bounded() {
                         params: Value::Null,
                     },
                     prompt: None,
+                    permission: None,
                 },
             );
         }

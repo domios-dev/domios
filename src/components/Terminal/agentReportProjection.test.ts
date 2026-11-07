@@ -41,6 +41,7 @@ const REJECTED_REPORT: AgentReportEventPayload = {
     report_outcome: "stale_binding_conflict",
   },
   report_outcome: "stale_binding_conflict",
+  sender_position: { source_session_id: "worker-session", message_id: "row-63" },
 };
 
 const ACCEPTED_REPORT: AgentReportEventPayload = {
@@ -136,6 +137,7 @@ async function main(): Promise<void> {
   );
 
   assert(ingestAgentReport(REJECTED_REPORT), "an accepted report was not projected");
+  assert(readAgentReportProjection(WORKER_TAB).outbound[0].senderPosition?.message_id === "row-63", "report source ordinal was lost");
 
   // (i) the sender sees exactly one truthful outbound card.
   const sender = readAgentReportProjection(WORKER_TAB);

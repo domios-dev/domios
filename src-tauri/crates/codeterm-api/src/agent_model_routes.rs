@@ -239,6 +239,11 @@ pub(crate) fn model_switch_success_body(outcome: &ModelSwitchOutcome) -> serde_j
         },
         "session_id": outcome.session_id,
         "staged": matches!(outcome.confirmation, ModelSwitchConfirmation::AfterTurn),
+        "control_changes": outcome.control_changes.iter().map(|change| serde_json::json!({
+            "control": change.control,
+            "previous": change.previous,
+            "current": change.current,
+        })).collect::<Vec<_>>(),
     });
     if let Some(detail) = &outcome.confirmation_detail {
         body["confirmation_detail"] = detail.clone().into();

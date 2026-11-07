@@ -5,6 +5,7 @@ import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { RestoreStatePanel } from "./RestoreStatePanel";
 import { DeferredPresence } from "../shared/DeferredPresence";
 import { restoreActivityVisible, restorePanelOwnsBody, restoreStageView, transcriptLoadingStageView } from "../../lib/restoreStageView";
+import { runtimeSessionLoadRefused } from "../../lib/agentRuntimeState";
 import { useWakeOnOpen } from "./useWakeOnOpen";
 import { TerminalTab } from "./TerminalTab";
 import { useLayoutEffect, useRef } from "react";
@@ -24,7 +25,7 @@ import type {
   FontConfig,
   TerminalConfigSettings,
 } from "../../lib/types";
-import { usageTrackingEnabled, tabUsageProvider } from "./usageTracking";
+import { usageTrackingEnabled, tabUsageSource } from "./usageTracking";
 import { configureRemoteTabTransport } from "../../lib/remoteTabTransport";
 import { useHeaderTabMenu } from "./useHeaderTabMenu";
 import { SurfaceTabHost } from "./SurfaceTabHost";
@@ -86,6 +87,10 @@ export function TabContent({
   };
   if (bodyPainted) initialBody.current.waiting = false;
   const headerTabMenu = useHeaderTabMenu(tab, workspaceId, descriptor);
+  const launchProfileId = tab?.agent_runtime_config?.launchProfile;
+  const usageSource = tabUsageSource(tab?.agent_type, tab?.backing?.kind === "chat_backend", descriptor?.agent_runtime?.usage,
+    typeof launchProfileId === "string" ? {id:launchProfileId, limitsSource:descriptor?.agent_runtime?.launchProfiles?.[launchProfileId]?.limitsSource} : undefined);
+  const trackingDescriptor = useAgentDescriptor(usageSource?.trackingProvider ?? null);
   useLayoutEffect(() => {
     if (tab?.close_restore?.record_id) {
       consumePendingCommand(tab.id);
@@ -100,7 +105,8 @@ export function TabContent({
     <LockedOverlay view={lock} onActivate={() => openLockedPlans(lock)} />
   </TabWrapper>;
   const sleepingTranscript = (hasSleepingTranscript(tab) || hasCachedTranscript) && restore.phase !== "ready";
-  const restoreOwnsBody = !sleepingTranscript && !hasCachedTranscript && (restorePanelOwnsBody(tab, wake, restore) || initialBody.current.waiting);
+  const loadRefused = runtimeSessionLoadRefused(tab.agent_runtime_state);
+  const restoreOwnsBody = !loadRefused && !sleepingTranscript && !hasCachedTranscript && (restorePanelOwnsBody(tab, wake, restore) || initialBody.current.waiting);
   const showRestore = restoreOwnsBody && !bodyPainted;
   const restoreInline = restoreOwnsBody && bodyPainted;
   const restorePanel = <RestoreStatePanel view={initialBody.current.waiting && restore.phase === "ready" ? transcriptLoadingStageView(tab) : restore} />;
@@ -127,11 +133,10 @@ export function TabContent({
   const chatBacking = tab.backing?.kind === "chat_backend" ? tab.backing : null;
   const isChatBackend = chatBacking !== null;
   const showSwitch = !isChatBackend && descriptor?.supports_chat_ui === true;
-  const usageProvider = tabUsageProvider(tab.agent_type,isChatBackend,descriptor?.agent_runtime?.usage);
-  const usageVisible = usageTrackingEnabled(
-    descriptor?.settings_schema ?? [],
-    usageProvider ? usageEnabledByProvider?.[usageProvider] : false,
-  );
+  const usageVisible = usageSource ? usageTrackingEnabled(
+    trackingDescriptor?.settings_schema ?? [],
+    usageEnabledByProvider?.[usageSource.trackingProvider],
+  ) : false;
   // The catalog id the tab resolved at launch names its upstream group; the
   // live session model can be a bare leaf a group cannot be read from.
   const usageModelId =
@@ -171,7 +176,7 @@ export function TabContent({
           cwd={cwd}
           workspaceId={workspaceId}
           showSwitch={showSwitch}
-          usageProvider={usageProvider}
+          usageSource={usageSource}
           usageVisible={usageVisible}
           usageModelId={usageModelId}
           usageModelGroups={descriptor?.model_groups}
@@ -181,7 +186,7 @@ export function TabContent({
           isActive={isVisible}
         />
         <div className="relative flex min-h-0 flex-1 flex-col" style={{ background: theme.background }}>
-          <DeferredPresence present={isVisible && (sleepingTranscript || restoreInline || hasCachedTranscript) && (restoreActivityVisible(tab, wake, restore, bodyPainted) || wake.pending || (hasCachedTranscript && !bodyPainted))}
+          <DeferredPresence present={!loadRefused && isVisible && (sleepingTranscript || restoreInline || hasCachedTranscript) && (restoreActivityVisible(tab, wake, restore, bodyPainted) || wake.pending || (hasCachedTranscript && !bodyPainted))}
             className="pointer-events-none absolute inset-x-0 top-2 z-30 flex justify-center">
             {restore.phase === "failed"
               ? <div className="pointer-events-auto"><InlineErrorNotice error={restore.detail} operation="resuming this session" /></div>

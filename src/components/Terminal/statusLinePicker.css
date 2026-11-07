@@ -115,6 +115,8 @@ button.ct-status-identity:focus-visible {
 /* Every text start shares the menu row's 9px inset inside a 6px frame; controls run to the frame. */
 .ct-menu.ct-model-picker {
   --ct-model-picker-inset: 9px;
+  background: var(--ct-surface);
+  backdrop-filter: none;
   display: flex;
   flex-direction: column;
   padding: 6px;
@@ -147,6 +149,9 @@ button.ct-status-identity:focus-visible {
   min-width: 0;
   font-weight: 600;
   font-size: 12.5px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .ct-model-picker__refresh {
@@ -353,4 +358,27 @@ button.ct-status-identity:focus-visible {
   button.ct-status-identity:hover {
     transform: none;
   }
+}
+
+.ct-model-picker__extras {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ct-model-picker__setting {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  padding-inline: var(--ct-model-picker-inset);
+}
+
+.ct-model-picker__setting > .ct-model-picker__label,
+.ct-model-picker__setting > output {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }

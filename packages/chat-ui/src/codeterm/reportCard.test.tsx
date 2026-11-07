@@ -49,6 +49,18 @@ async function main(): Promise<void> {
   assert(outcome?.transitionRejected === true, "delivered rejection header was not recognised");
   assert(outcome?.persisted === false, "a refused transition was parsed as persisted");
   assert(outcome?.cause === "missing caller session id", `rejection cause was ${outcome?.cause}`);
+  const ordinary = parseDeliveredTaskOutcome([
+    "REPORT RECEIVED — TASK TRANSITION REJECTED",
+    "The report was not persisted and the task is not in review.",
+    "Cause: opaque-cause",
+    "Worker next step: opaque-step",
+    "",
+    SUMMARY,
+  ].join("\n"));
+  assert(ordinary?.transitionRejected === true, "ordinary rejection header was not recognised");
+  assert(ordinary?.cause === "opaque-cause", `ordinary rejection cause was ${ordinary?.cause}`);
+  assert(ordinary?.reportOutcome === "transition_rejected", "ordinary rejection was classed as an incident");
+  assert(outcome?.reportOutcome === "stale_binding_conflict", "an incident lost its incident class");
   assert(
     parseDeliveredTaskOutcome(`${SUMMARY}\nREPORT RECEIVED — TASK TRANSITION REJECTED`) === null,
     "quoted incident prose was misread as an incident header",

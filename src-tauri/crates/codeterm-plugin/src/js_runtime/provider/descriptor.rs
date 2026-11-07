@@ -20,6 +20,7 @@ impl JsProvider {
         };
         let started = std::time::Instant::now();
         let mut descriptor = snapshot.descriptor.clone();
+        descriptor.agent_runtime = self.agent_runtime();
         let clone_us = started.elapsed().as_micros();
         let catalogue_started = std::time::Instant::now();
         descriptor.catalogue_version = crate::model_catalog::current_version(self.id());

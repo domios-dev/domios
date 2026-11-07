@@ -507,6 +507,7 @@ pub(crate) fn start_servers(
         }
     }
     service_state.start_account_mesh_transport();
+    service_state.start_purchase_switch();
 
     let integrations = states.config.lock().integrations.clone();
     if integrations.telegram_enabled {

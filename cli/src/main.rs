@@ -123,10 +123,12 @@ pub use args::usage::UsageAction;
 mod plugin_bundle;
 
 fn main() {
-    if let Err(reason) = restricted_cli_scope(
-        std::env::var_os("CODETERM_CLI_SCOPE").as_deref(),
-        crate::nonempty_env("CODETERM_API_TOKEN").is_some(),
-    ) {
+    let scope = std::env::var_os("CODETERM_CLI_SCOPE");
+    let launch_credential = crate::nonempty_env("CODETERM_API_TOKEN").is_some()
+        || (scope.is_some()
+            && codeterm_util::tab_launch::lookup(|key| std::env::var(key).ok())
+                .is_ok_and(|token| token.is_some()));
+    if let Err(reason) = restricted_cli_scope(scope.as_deref(), launch_credential) {
         eprintln!("{reason}");
         std::process::exit(7);
     }
@@ -145,7 +147,7 @@ fn restricted_cli_scope(
         return Err("Restricted CLI scope is unknown");
     }
     if !inherited_credential {
-        return Err("Restricted CLI scope requires its inherited launch credential");
+        return Err("Restricted CLI scope requires its launch credential; restart the tab");
     }
     Ok(())
 }
@@ -189,6 +191,13 @@ fn main_impl() {
         )
     {
         cmd::system::handle_api_token(true);
+        return;
+    }
+    if let Commands::Mcp {
+        action: args::mcp::McpAction::Serve { tab, binding_nonce },
+    } = &cli.command
+    {
+        cmd::mcp::serve(tab, binding_nonce, cli.mesh.as_deref());
         return;
     }
     let scoped = std::env::var_os("CODETERM_CLI_SCOPE").is_some();
@@ -666,6 +675,7 @@ fn main_impl() {
         Commands::Config { .. } => unreachable!(),
 
         // cli-manifest is handled before socket connect (introspects clap tree)
+        Commands::Mcp { .. } => unreachable!(),
         Commands::CliManifest { .. } => unreachable!(),
 
         // plugin is handled before socket connect (filesystem-local)

@@ -156,6 +156,52 @@ pub(super) fn inject(credentials: &[CredentialConfig], opts_json: &str) -> Resul
     serde_json::to_string(&opts).map_err(|e| format!("serialize fetch opts: {e}"))
 }
 
+/// `"profileSecret": {"profile", "env", "headers"}` fills `{secret}` header templates with the
+/// credential the plugin's own launch profile declares; the key is stripped from outgoing opts.
+pub(super) fn inject_profile_secret(
+    opts_json: &str,
+    resolve: impl FnOnce(&str, &str) -> Option<String>,
+) -> Result<String, String> {
+    let mut opts: Value =
+        serde_json::from_str(opts_json).map_err(|_| "bad fetch opts".to_string())?;
+    let Some(request) = opts
+        .as_object_mut()
+        .and_then(|object| object.remove("profileSecret"))
+    else {
+        return Ok(opts_json.to_string());
+    };
+    let field = |key: &str| {
+        request
+            .get(key)
+            .and_then(Value::as_str)
+            .ok_or_else(|| format!("profile secret request has no {key}"))
+    };
+    let (profile, env) = (field("profile")?, field("env")?);
+    let templates = request
+        .get("headers")
+        .and_then(Value::as_object)
+        .filter(|headers| !headers.is_empty())
+        .ok_or_else(|| "profile secret request has no headers".to_string())?;
+    let secret =
+        resolve(profile, env).ok_or_else(|| "profile credential is unavailable".to_string())?;
+    let fields = BTreeMap::from([("secret".to_string(), secret)]);
+    let headers = opts
+        .as_object_mut()
+        .ok_or_else(|| "fetch opts is not an object".to_string())?
+        .entry("headers".to_string())
+        .or_insert_with(|| Value::Object(Default::default()))
+        .as_object_mut()
+        .ok_or_else(|| "fetch headers is not an object".to_string())?;
+    for (name, template) in templates {
+        let filled = template
+            .as_str()
+            .and_then(|template| substitute(template, &fields))
+            .ok_or_else(|| format!("profile secret cannot fill header {name}"))?;
+        headers.insert(name.clone(), Value::String(filled));
+    }
+    serde_json::to_string(&opts).map_err(|_| "could not prepare fetch request".to_string())
+}
+
 pub(super) fn inject_supporter_token(
     token_mode: TokenMode,
     token: Option<&str>,

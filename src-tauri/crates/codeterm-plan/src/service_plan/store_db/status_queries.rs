@@ -173,14 +173,16 @@ pub(super) fn control_counts(
 ) -> Result<crate::plan::CuratorCounts, PlanError> {
     record_query();
     connection.query_row(
-        "SELECT coalesce(sum(json_extract(r.value,'$.outcome') NOT IN ('quiet','nudged','fallback')),0),
-                coalesce(sum(json_extract(r.value,'$.outcome')='quiet'),0),
-                coalesce(sum(json_extract(r.value,'$.outcome')='nudged'),0),
-                coalesce(sum(json_extract(r.value,'$.learnings')),0),
-                coalesce(sum(json_extract(r.value,'$.save_id') IS NOT NULL),0),
-                coalesce(sum(json_extract(r.value,'$.outcome')='fallback'),0)
-         FROM plans p,json_each(p.header_json,'$.control_loop.rounds') r
-         WHERE p.id=?1 AND json_extract(r.value,'$.ended_at')>=?2",
+        "SELECT coalesce(sum(json_extract(r,'$.outcome') NOT IN ('quiet','nudged','fallback')),0),
+                coalesce(sum(json_extract(r,'$.outcome')='quiet'),0),
+                coalesce(sum(json_extract(r,'$.outcome')='nudged'),0),
+                coalesce(sum(json_extract(r,'$.learnings')),0),
+                coalesce(sum(json_extract(r,'$.save_id') IS NOT NULL),0),
+                coalesce(sum(json_extract(r,'$.outcome')='fallback'),0)
+         FROM (SELECT json_extract(row_json,'$.text') AS r FROM plan_strides
+            WHERE plan_id=?1 AND coalesce(json_extract(row_json,'$.ts'),0)>=?2
+                AND json_extract(row_json,'$.kind')='curator_round')
+         WHERE json_valid(r)",
         params![plan_id,now_ms.saturating_sub(7*24*60*60*1000)], |row| Ok(crate::plan::CuratorCounts {
             rounds:row.get(0)?,quiet:row.get(1)?,nudged:row.get(2)?,learnings:row.get(3)?,saves:row.get(4)?,fallbacks:row.get(5)?,
         })

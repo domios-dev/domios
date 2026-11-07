@@ -1049,3 +1049,70 @@ fn manifest_accepts_a_one_line_pitch() {
         Some("Let agents find your Telegram chats, read them and send messages for you.")
     );
 }
+
+#[test]
+fn launch_profile_icons_load_only_sanitized_bundle_assets() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(
+        root.path().join("badge.svg"),
+        r#"<svg viewBox="0 0 24 24"><path d="M0 0L1 1"/></svg>"#,
+    )
+    .unwrap();
+    let manifest = serde_json::json!({
+        "id":"fixture", "version":"1.0.0", "displayName":"Fixture",
+        "capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},"agentRuntime":{
+            "runtime":"stdio-jsonrpc","command":{"binary":"fixture","args":[]},"requestMethods":{"initialize":["initialize"]},
+            "notificationMethods":[],
+            "launchProfiles":{"selected":{"binary":"fixture","args":[],"icon":"badge.svg"}}
+        }},"permissions":{"subprocess":{"allow":["fixture"]}}
+    });
+    let mut forged = manifest.clone();
+    forged["capabilities"]["agentRuntime"]["launchProfiles"]["selected"]["iconSvg"] =
+        "<svg><script/></svg>".into();
+    if let Ok(parsed) = super::PluginManifest::from_json_str(&forged.to_string()) {
+        assert!(parsed
+            .capabilities
+            .agent_runtime
+            .unwrap()
+            .launch_profiles
+            .unwrap()["selected"]
+            .icon_svg
+            .is_none());
+    }
+    let path = root.path().join("plugin.json");
+    std::fs::write(&path, manifest.to_string()).unwrap();
+    let loaded = super::PluginManifest::load(&path).unwrap();
+    let profiles = loaded
+        .capabilities
+        .agent_runtime
+        .unwrap()
+        .launch_profiles
+        .unwrap();
+    let profile = &profiles["selected"];
+    assert!(profile.icon_svg.as_ref().unwrap().contains("<path"));
+    for icon in [
+        "../badge.svg",
+        "https://example.org/a.svg",
+        "C:/outside.svg",
+    ] {
+        let mut invalid = manifest.clone();
+        invalid["capabilities"]["agentRuntime"]["launchProfiles"]["selected"]["icon"] = icon.into();
+        assert!(super::PluginManifest::from_json_str(&invalid.to_string()).is_err());
+    }
+    for url in ["http://example.org/a.svg", "https://user@example.org/a.svg"] {
+        let mut invalid = manifest.clone();
+        invalid["capabilities"]["agentRuntime"]["launchProfiles"]["selected"]["iconUrl"] =
+            url.into();
+        assert!(super::PluginManifest::from_json_str(&invalid.to_string()).is_err());
+    }
+    std::fs::write(root.path().join("badge.svg"), "<svg><script/></svg>").unwrap();
+    let loaded = super::PluginManifest::load(&path).unwrap();
+    assert!(loaded
+        .capabilities
+        .agent_runtime
+        .unwrap()
+        .launch_profiles
+        .unwrap()["selected"]
+        .icon_svg
+        .is_none());
+}

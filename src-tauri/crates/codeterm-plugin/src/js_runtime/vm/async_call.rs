@@ -43,25 +43,26 @@ pub(in crate::js_runtime) async fn call_json_async<
     method: &'static str,
     args: Vec<serde_json::Value>,
 ) -> Result<R, VmError> {
-    with_blocking_operation(vm, move |vm, context| {
+    let interrupt = default_call_interrupt(&vm);
+    call_json_async_until(vm, method, args, interrupt).await
+}
+
+/// Like [`call_json_async`], bounded by `interrupt` instead of the standard call bound.
+pub(in crate::js_runtime) async fn call_json_async_until<
+    R: serde::de::DeserializeOwned + Send + 'static,
+>(
+    vm: Arc<PluginVm>,
+    method: &'static str,
+    args: Vec<serde_json::Value>,
+    interrupt: (crate::converter::ConversionCancellation, std::time::Instant),
+) -> Result<R, VmError> {
+    with_blocking_operation_interruptible(vm, interrupt, move |vm, context| {
         call_in_operation(vm, method, &args, context)
     })
     .await
 }
 
-pub(in crate::js_runtime) async fn with_blocking_operation<R, F>(
-    vm: Arc<PluginVm>,
-    work: F,
-) -> Result<R, VmError>
-where
-    R: Send + 'static,
-    F: FnOnce(&PluginVm, Arc<operation::Context>) -> Result<R, VmError> + Send + 'static,
-{
-    let interrupt = default_call_interrupt(&vm);
-    with_blocking_operation_interruptible(vm, interrupt, work).await
-}
-
-/// Runs `work` like [`with_blocking_operation`], with `interrupt` as the whole
+/// Runs synchronous plugin `work` on the blocking pool, with `interrupt` as the whole
 /// operation's cancellation and deadline, host I/O jobs included.
 pub(in crate::js_runtime) async fn with_blocking_operation_interruptible<R, F>(
     vm: Arc<PluginVm>,

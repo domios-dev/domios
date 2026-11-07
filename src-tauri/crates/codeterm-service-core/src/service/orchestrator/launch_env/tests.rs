@@ -291,7 +291,11 @@ fn dev_instance_agents_resolve_the_instance_cli_first() {
 #[test]
 fn direct_launch_specs_cannot_replace_or_remove_tab_credentials() {
     use codeterm_types::agent::LaunchSpec;
-    for key in ["CODETERM_API_TOKEN", "CODETERM_TAB_ID"] {
+    for key in [
+        "CODETERM_API_TOKEN",
+        "CODETERM_TAB_ID",
+        "CODETERM_LAUNCH_FILE",
+    ] {
         for spec in [
             LaunchSpec {
                 env_set: [(key.into(), "foreign".into())].into(),

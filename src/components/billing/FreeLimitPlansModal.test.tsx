@@ -12,6 +12,9 @@ const account = vi.hoisted(() => ({
 }));
 vi.mock("../../lib/webApi", async (actual) => ({ ...await actual<object>(), ...fetches }));
 
+const bridge = vi.hoisted(() => ({ openUrl: vi.fn(async (_url: string) => {}) }));
+vi.mock("../../lib/nativeBridge", () => ({ nativeBridge: bridge }));
+
 vi.mock("./useDesktopBilling", () => ({ useDesktopBilling: () => ({
   loading: false, subscription: { paid_subscription: account.signedIn && account.paid && account.plan !== "free" ? { tier: account.plan } : null },
 }) }));
@@ -23,6 +26,8 @@ import type { PlanCatalog } from "./planCatalog";
 import { FreeLimitPlansModal } from "./FreeLimitPlansModal";
 import { checkoutTheme } from "./checkoutTheme";
 import { AlreadySubscribedError, freeLimitGate, upgradePlan } from "./freeLimitGate";
+import { PURCHASES_DEFAULT } from "./purchaseSwitch";
+import { siteLinks } from "../../../shared/siteLinks";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -61,11 +66,12 @@ beforeEach(() => {
   disconnectToasts = connectNoticeToasts((toast) => { toasts.push(toast); });
 });
 
-async function render(upgrade: (planKey: string) => Promise<void>, catalog?: PlanCatalog) {
+/** Purchase flows render with purchase on, so they keep working for when it returns; the shipped default is covered below. */
+async function render(upgrade: (planKey: string) => Promise<void>, catalog?: PlanCatalog, purchases = true) {
   const host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
-  const modal = <FreeLimitPlansModal upgrade={upgrade} />;
+  const modal = <FreeLimitPlansModal upgrade={upgrade} purchases={purchases} />;
   await act(async () => root!.render(catalog ? <PlanCatalogProvider source={{ load: async () => catalog }}>{modal}</PlanCatalogProvider> : modal));
 }
 
@@ -290,6 +296,45 @@ it("uses the injected catalog checkout key without inferring a tier price", asyn
   await openModal("workspaces");
   await click("Upgrade");
   expect(upgrade).toHaveBeenCalledExactlyOnceWith("opaque-price-key");
+});
+
+describe("while in-app purchase is off", () => {
+  const renderShipped = (upgrade = vi.fn(async () => {})) => render(upgrade, undefined, PURCHASES_DEFAULT).then(() => upgrade);
+
+  it("shows the limit with the free-key notice and no way to buy", async () => {
+    const upgrade = await renderShipped();
+    await openModal("workspaces");
+    expect(dialog()!.querySelector("[data-testid=community-keys-notice]")).not.toBeNull();
+    expect(dialog()!.querySelector("section[aria-label$='plan']")).toBeNull();
+    expect(button("Upgrade")).toBeUndefined();
+    expect(fetches.localFetch.mock.calls.some(([path]) => String(path).includes("/upgrade"))).toBe(false);
+    expect(upgrade).not.toHaveBeenCalled();
+  });
+
+  it("opens Discord and Telegram in the system browser", async () => {
+    bridge.openUrl.mockClear();
+    await renderShipped();
+    await openModal("teams");
+    await click("Discord");
+    await click("Telegram");
+    expect(bridge.openUrl.mock.calls.map(([url]) => url)).toEqual([siteLinks.discord, siteLinks.telegram]);
+    expect(dialog()).not.toBeNull();
+  });
+
+  it("sends a user who already has a key to redemption, and Close closes", async () => {
+    const opened: unknown[] = [];
+    const listen = (event: Event) => opened.push((event as CustomEvent).detail);
+    window.addEventListener("codeterm:open-panel", listen);
+    await renderShipped();
+    await openModal("agent.tabs");
+    await click("I have a key");
+    window.removeEventListener("codeterm:open-panel", listen);
+    expect(opened).toEqual([{ panel: "settings:plans" }]);
+    expect(dialog()).toBeNull();
+    await openModal("workspaces");
+    await click("Close");
+    expect(dialog()).toBeNull();
+  });
 });
 
 it("lets a granted Pro account upgrade instead of offering subscription management", async () => {

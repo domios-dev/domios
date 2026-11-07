@@ -587,6 +587,7 @@ fn stripped_pty_env_drops_ci_markers() {
 #[test]
 fn pty_env_drops_inherited_orchestration_authority() {
     let inherited = [
+        "CODETERM_LAUNCH_FILE",
         "CODETERM_PLAN_ID",
         "CODETERM_TASK_ID",
         "CODETERM_ATTEMPT_ID",

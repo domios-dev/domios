@@ -414,3 +414,29 @@ fn degraded_settlement_cannot_cancel_claimed_input_or_publish_before_durability(
     assert!(reopened.receipts("tab").unwrap().is_empty());
     assert_eq!(reopened.queued("tab").unwrap()[0].send_id, queued.send_id);
 }
+
+#[test]
+fn legacy_rpc_refusal_receipt_restores_as_uncertain_without_retry() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = UserSendStore::open(dir.path()).unwrap();
+    assert!(store.records("tab").unwrap().is_empty());
+    let path = store.tab("tab").dir.join("index.json");
+    let send_id = uuid::Uuid::new_v4().to_string();
+    let mut index = serde_json::to_value(UserIndex::default()).unwrap();
+    index["receipts"] = serde_json::json!([{
+        "send_id": send_id, "tab_id":"tab", "client_token":null,
+        "ledger_sequence":7, "state":"RpcRefused"
+    }]);
+    fs::write(&path, serde_json::to_vec(&index).unwrap()).unwrap();
+    drop(store);
+    let receipts = UserSendStore::open(dir.path())
+        .unwrap()
+        .receipts("tab")
+        .unwrap();
+    assert_eq!(receipts[0].state, ReceiptState::Uncertain);
+    let ledger = ChatSendLedger::default();
+    ledger.restore_user_receipt(&receipts[0]);
+    let status = ledger.status(&send_id).unwrap();
+    assert_eq!(status.state, ChatSendState::Unknown);
+    assert_eq!(status.error, None);
+}

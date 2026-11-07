@@ -76,7 +76,7 @@ impl ServiceContext {
                 })
                 .unwrap_or(0);
             let mut view = status
-                .map(Self::receiver_view)
+                .map(|status| Self::receiver_view(status, &self.neighbor_lapsed_installations()))
                 .unwrap_or_else(|| json!({"receiver_unavailable":true}));
             view["friendship_id"] = json!(change.friendship_id);
             view["friend_receivers_version"] = json!(change.version);

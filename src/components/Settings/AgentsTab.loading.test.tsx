@@ -18,7 +18,7 @@ it("wires the provider loading boundary and leaves it when the request settles",
   const screen = <AgentProviderScreen providerId="opaque-provider" fullConfig={{} as AppConfig} onUpdateFullConfig={vi.fn()} onProviderGone={gone} />;
   try {
     await act(async () => root.render(screen));
-    expect(host.querySelector('[role="status"][aria-label="Loading provider"]')).not.toBeNull();
+    expect(host.querySelector('[role="status"][aria-label="Loading harness"]')).not.toBeNull();
     expect(gone).not.toHaveBeenCalled();
     fixture.loading = false;
     await act(async () => root.render(<AgentProviderScreen providerId="opaque-provider" fullConfig={{} as AppConfig} onUpdateFullConfig={vi.fn()} onProviderGone={gone} />));

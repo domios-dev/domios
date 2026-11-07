@@ -7,6 +7,17 @@ use std::{
 
 type Factory = Arc<dyn Fn() -> Process + Send + Sync>;
 static FACTORIES: LazyLock<Mutex<HashMap<String, Factory>>> = LazyLock::new(Default::default);
+static SPAWNED_ENV: LazyLock<Mutex<HashMap<String, HashMap<String, String>>>> =
+    LazyLock::new(Default::default);
+
+pub(super) fn record_env(tab: &str, env: &HashMap<String, String>) {
+    SPAWNED_ENV.lock().insert(tab.into(), env.clone());
+}
+
+/// The environment the host composed for the tab's latest fixture process spawn.
+pub(crate) fn spawned_env(tab: &str) -> HashMap<String, String> {
+    SPAWNED_ENV.lock().get(tab).cloned().unwrap_or_default()
+}
 
 pub(crate) struct Registration(String);
 
@@ -37,5 +48,6 @@ pub(super) fn factory(tab: &str) -> Option<Factory> {
 impl Drop for Registration {
     fn drop(&mut self) {
         FACTORIES.lock().remove(&self.0);
+        SPAWNED_ENV.lock().remove(&self.0);
     }
 }

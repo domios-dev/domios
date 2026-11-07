@@ -510,6 +510,49 @@ test("three optimistic sends reconcile to ordered parts of one provider turn", a
   host.remove();
 });
 
+test("runtime early user row keeps two image chips through source echo", async () => {
+  const tabId = "runtime-image-delivery";
+  const { host, root, dispatch } = await renderChat(tabId);
+  const content = 'inspect <domios type="attachment" kind="image" path="/opaque/first.png" /> <domios type="attachment" kind="image" path="/opaque/second.png" />';
+  const attachments = ["first", "second"].map(name => ({ id: name, mimeType: "image/png", path: `/opaque/${name}.png`, data: "AQID" }));
+  const assertImages = () => {
+    const bubbles = host.querySelectorAll('[data-testid="chat-message"][data-message-role="user"]');
+    assert(bubbles.length === 1, "one user row retains both attachments");
+    for (const name of ["first", "second"]) {
+      assert(bubbles[0].querySelector(`[aria-label="Open image ${name}.png"]`), `${name} image remains accessible`);
+    }
+  };
+  try {
+    await act(async () => addChatSend(tabId, { id: "image-send", correlationId: "image-send", content, sentAtMs: Date.now() }));
+    assertImages();
+    for (const runtimeSourceItemId of [undefined, "provider-image-row"]) {
+      await act(async () => dispatch(`tab-chat-msg-${tabId}`, {
+        tab_id: tabId, source_session_id: "session-1", session_binding_nonce: "nonce-1",
+        messages: [{ id: "image-send", type: "user", content, attachments,
+          runtimeSourceItemId, correlationId: "image-send", timestamp: String(Date.now()) }],
+      }));
+      assertImages();
+    }
+  } finally {
+    await act(async () => root.unmount()); host.remove();
+  }
+});
+
+test("runtime image capability refusal is visible inside its retained bubble", async () => {
+  const tabId = "runtime-image-refusal";
+  const { host, root, dispatch } = await renderChat(tabId);
+  try {
+    await act(async () => addChatSend(tabId, { id: "refused-image", correlationId: "refused-image",
+      content: 'inspect <domios type="attachment" kind="image" path="/opaque/image.png" />', sentAtMs: Date.now() }));
+    const reason = "Provider refused: This ACP agent did not declare image support. Remove image attachments before sending.";
+    await act(async () => dispatch("chat-send-status", { tab_id: tabId, send_id: "refused-image", correlationId: "refused-image",
+      state: "failed", error: `tab_busy_refused: Tab ${tabId} refused delivery (nothing written): runtime_rejected_before_write: ${reason}`, sequence: 1, ledger_id: "ledger", retained_from: 1 }));
+    const bubble = host.querySelector('[data-testid="chat-message"][data-message-role="user"]');
+    assert(bubble?.querySelector('[role="status"]')?.textContent?.includes(reason), "the refusal reason reaches the bubble status");
+    assert(bubble?.querySelector('[aria-label="Open image image.png"]'), "refused input retains its attachment chip");
+  } finally { await act(async () => root.unmount()); host.remove(); }
+});
+
 test("one bubble follows event state and Retry reuses it", async () => {
   const tabId = "bubble-delivery-states";
   const { __setInvokeForTest } = await import("../../lib/bridge");

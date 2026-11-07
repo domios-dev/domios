@@ -178,13 +178,16 @@ fn team_sql_filters_before_materializing_unrequested_history_and_bodies() {
         for number in 0..history {
             plan.tasks[0].milestones.push(serde_json::from_value(json!({"id":format!("old-{number}"),"kind":"note","text":"unselected old milestone","from":{},"ts":1})).unwrap());
         }
-        plan.control_loop.rounds = (0..rounds)
-            .map(|number| crate::plan::CuratorRound {
-                number,
-                ended_at: number,
-                ..Default::default()
-            })
-            .collect();
+        plan.strides.extend(fixtures::round_strides(
+            (0..rounds)
+                // Old round rows sit below the selected event window, as header history did.
+                .map(|number| crate::plan::CuratorRound {
+                    number,
+                    ended_at: 1,
+                    ..Default::default()
+                })
+                .collect(),
+        ));
         let expected = expected_page(&plan, 2, None);
         let database = fixtures::database(directory.path(), &plan);
         let mut foreign = plan.clone();

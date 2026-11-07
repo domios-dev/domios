@@ -25,6 +25,9 @@ pub(crate) fn authorize_permission_bypass(
         && registry
             .with_provider(provider_id, |provider| {
                 !provider.auto_approve_flags().is_empty()
+                    || provider
+                        .agent_runtime()
+                        .is_some_and(|runtime| runtime.host_approvals)
             })
             .unwrap_or(false))
     .then(|| PermissionBypassAuthorization {

@@ -18,6 +18,7 @@ export let useState: typeof import("react").useState;
 export let createRoot: typeof import("react-dom/client").createRoot;
 
 type TestFn = () => void | Promise<void>;
+const mountedSidebars = new Set<() => void>();
 
 /// One registry per spec file. `run` loads React, executes every registered case,
 /// and exits non-zero on the first failure — so a suite that registers nothing
@@ -48,6 +49,10 @@ export function createSuite(label: string) {
         failed += 1;
         console.error(`✗ ${name}`);
         console.error(error);
+      } finally {
+        await act(async () => {
+          for (const unmount of mountedSidebars) unmount();
+        });
       }
     }
     if (failed > 0) process.exit(1);
@@ -153,6 +158,13 @@ export async function renderSidebar({
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);
+  const unmount = root.unmount.bind(root);
+  root.unmount = () => {
+    mountedSidebars.delete(root.unmount);
+    unmount();
+    host.remove();
+  };
+  mountedSidebars.add(root.unmount);
   const rerender = async (nextPlans: Plan[], nextPlanIndex = planIndex) => act(async () => {
     root.render(
       <SidebarDnd handlers={{ reorderTabs: () => {}, reorderDisplay: () => {}, reorderWorkspaces: () => {} }}>

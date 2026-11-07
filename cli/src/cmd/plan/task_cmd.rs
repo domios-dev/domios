@@ -343,6 +343,7 @@ pub(super) fn run_dispatch(
         placement,
         worker_kind,
         model,
+        launch_profile,
         speed,
         description,
         reasoning_effort,
@@ -382,6 +383,9 @@ pub(super) fn run_dispatch(
     }
     if let Some(model) = model {
         params["model"] = json!(model);
+    }
+    if let Some(profile) = launch_profile {
+        params["launch_profile"] = json!(profile);
     }
     if let Some(speed) = speed {
         params["speed"] = json!(speed);
@@ -689,9 +693,7 @@ pub(super) fn run_task(
                 params["role_guidance"] = json!(guidance);
             }
             params["executor_role"] = json!(executor_role);
-            if !personality.is_empty() {
-                params["personality"] = json!(personality);
-            }
+            params["personality"] = json!(personality);
             if let Some(i) = intent_text {
                 params["intent"] = json!(i);
             }
@@ -1047,6 +1049,7 @@ pub(super) fn run_task(
             attempt,
             provider,
             model,
+            launch_profile,
             reasoning_effort,
             speed,
             parent,
@@ -1060,6 +1063,9 @@ pub(super) fn run_task(
             });
             if let Some(provider) = provider {
                 params["provider"] = json!(provider);
+            }
+            if let Some(profile) = launch_profile {
+                params["launch_profile"] = json!(profile);
             }
             if let Some(speed) = speed {
                 params["speed"] = json!(speed);

@@ -20,6 +20,8 @@ test("parseArgs reads driver flags and refuses unknown or missing ones", () => {
   assert.deepEqual(options.providers, ["claude", "codex"]);
   assert.equal(options.historyBytes, 8192);
   assert.ok(options.allTabs);
+  assert.deepEqual({ ...parseArgs(["setup", "--out", "/tmp/x", "--model", "acp=gemini-cli", "--model", "codex=opaque/model"]).models },
+    { acp: "gemini-cli", codex: "opaque/model" });
   assert.throws(() => parseArgs(["verify"]), /--out/);
   assert.throws(() => parseArgs(["deploy", "--out", "/tmp/x"]), /mode/);
   assert.throws(() => parseArgs(["setup", "--out", "/tmp/x", "--bogus"]), /flag/);

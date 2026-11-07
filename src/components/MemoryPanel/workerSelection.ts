@@ -24,7 +24,7 @@ export function resolveWorkerSelection(
   const modelOptions = provider?.available_models ?? [];
   return {
     provider,
-    providerLabel: provider?.display_name ?? (selectedProvider || defaultProvider || "No provider"),
+    providerLabel: provider?.display_name ?? (selectedProvider || defaultProvider || "No harness"),
     defaultModelLabel: modelLabel(provider),
     modelOptions,
     modelCompatible: !selectedModel || modelOptions.some((model) => model.id === selectedModel),

@@ -3,6 +3,7 @@ import { DEV_BUILD } from "../../lib/devBuild";
 import { localFetch } from "../../lib/webApi";
 import { listen } from "../../lib/bridge";
 import { onResync } from "../../lib/resync";
+import { applyAccountPurchaseSwitch } from "../billing/purchaseSwitch";
 import { accountFailure, accountModel, accountLoginPath, type LoginHint, type AccountModel, type AccountStatus, type SignInFailure } from "./accountModel";
 
 export function signInFailureToastMessage(failure: SignInFailure): string {
@@ -35,6 +36,7 @@ export function useAccount(onSignOutFailure?: (message: string) => void) {
       if (acting.current) return;
       const generation = ++active.current;
       request("status", controller.signal).then((status) => {
+        applyAccountPurchaseSwitch(status);
         if (generation === active.current) setModel(accountModel(status));
       }).catch((error: unknown) => {
         if (controller.signal.aborted || generation !== active.current) return;

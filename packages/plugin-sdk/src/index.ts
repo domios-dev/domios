@@ -59,6 +59,7 @@ export { recordedTextDiff, recordedPatchDiff, type RecordedFileDiff } from "./fi
 export type { ModelProviderConfig, ModelProviderDefinition, ModelPreset } from './modelProviders';
 
 export * from "./agentRuntime";
+export * from "./limitsSource";
 export * from "./remoteTasks";
 export {RemoteTaskFileStorage} from "./remoteTaskStorage";
 export type { ParsedSessionRecord, JsonlRecordFilter, JsonlRecordSource, JsonlRecordSources, SessionRecordsMeta } from "./jsonlRecords";

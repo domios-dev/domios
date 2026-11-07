@@ -30,6 +30,7 @@ impl Selection {
             FirestoreTarget::debug_emulator("http://127.0.0.1:18080", "demo-domios")?
         } else if endpoints.qa {
             let qa = Endpoints {
+                project: "domios-signin-qa",
                 functions: "https://us-central1-domios-signin-qa.cloudfunctions.net/",
                 signin: "https://domios-signin-qa.web.app/signin/",
                 redeem:

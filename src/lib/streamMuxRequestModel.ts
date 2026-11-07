@@ -3,7 +3,7 @@ export interface MuxRequestPolicy { traffic: MuxTraffic; cancellable: boolean }
 export const MUX_REQUEST_TIMEOUT = Symbol("mux-request-timeout");
 export type MuxRequestInit = RequestInit & { [MUX_REQUEST_TIMEOUT]?: number | null };
 
-const READ_POST = /^\/api\/(?:tabs\/[^/]+\/(?:preview\/(?:read|check)|chat-raw\/(?:history|backfill))|essence-maps)$/;
+const READ_POST = /^\/api\/(?:tabs\/[^/]+\/(?:preview\/(?:read|check)|chat-raw\/(?:start|history|backfill))|essence-maps)$/;
 const BULK_GET = /^\/api\/(?:essence-source|logs|sessions\/transcript|agent-runs\/[^/]+\/log|mem\/workers\/[^/]+\/log)$/;
 
 export function muxRequestOperation(method: string, path: string, body?: BodyInit | null): { method: string; path: string } {
@@ -31,19 +31,19 @@ export function muxRequestPolicy(method: string, path: string, body?: BodyInit |
 
 export function muxPostTraffic(traffic: MuxTraffic, upload: boolean): MuxTraffic { return upload ? "bulk" : traffic; }
 
-export function muxRequestAdmission(stream: boolean, traffic: MuxTraffic, streams: number, requests: number, bulk: number): boolean {
-  return stream ? streams < 256 : requests < 64 && (traffic !== "bulk" || bulk < 48);
+export function muxRequestAdmission(stream: boolean, traffic: MuxTraffic, streams: number, requests: number, bulk: number, foreground = false): boolean {
+  return stream ? streams < 256 : foreground || requests < 48 && (traffic !== "bulk" || bulk < 48);
 }
 
 export interface MuxPostState {
-  readonly active: ReadonlyMap<string, MuxTraffic>;
-  readonly pending: ReadonlyArray<{ id: string; traffic: MuxTraffic }>;
+  readonly active: ReadonlyMap<string, { traffic: MuxTraffic; foreground: boolean }>;
+  readonly pending: ReadonlyArray<{ id: string; traffic: MuxTraffic; foreground: boolean }>;
   readonly burst: number;
 }
 export const EMPTY_MUX_POSTS: MuxPostState = { active: new Map(), pending: [], burst: 0 };
 
-export function muxPostEnqueue(state: MuxPostState, id: string, traffic: MuxTraffic): MuxPostState {
-  return { ...state, pending: [...state.pending, { id, traffic }] };
+export function muxPostEnqueue(state: MuxPostState, id: string, traffic: MuxTraffic, foreground = false): MuxPostState {
+  return { ...state, pending: [...state.pending, { id, traffic, foreground }] };
 }
 
 export function muxPostRemove(state: MuxPostState, id: string): MuxPostState {
@@ -55,16 +55,19 @@ export function muxPostCancel(state: MuxPostState, id: string): MuxPostState {
   return { ...state, pending: state.pending.filter(item => item.id !== id) };
 }
 
-export function muxPostStart(state: MuxPostState): { state: MuxPostState; ids: string[] } {
+export function muxPostStart(state: MuxPostState, canStart: (id: string, selected: string[]) => boolean = () => true): { state: MuxPostState; ids: string[] } {
   const active = new Map(state.active), pending = [...state.pending], ids: string[] = [];
   let burst = state.burst;
   while (active.size < 4) {
-    const interactive = pending.findIndex(item => item.traffic === "interactive");
-    const bulk = [...active.values()].filter(traffic => traffic === "bulk").length < 2 ? pending.findIndex(item => item.traffic === "bulk") : -1;
-    const index = interactive >= 0 && (burst < 8 || bulk < 0) ? interactive : bulk;
+    const bulkAvailable = [...active.values()].filter(item => item.traffic === "bulk").length < 2;
+    const eligible = (item: MuxPostState["pending"][number]) => (item.traffic !== "bulk" || bulkAvailable) && canStart(item.id, ids);
+    const foreground = pending.findIndex(item => item.foreground && eligible(item));
+    const interactive = active.size < 3 ? pending.findIndex(item => !item.foreground && item.traffic === "interactive" && eligible(item)) : -1;
+    const bulk = active.size < 3 ? pending.findIndex(item => !item.foreground && item.traffic === "bulk" && eligible(item)) : -1;
+    const index = foreground >= 0 ? foreground : interactive >= 0 && (burst < 8 || bulk < 0) ? interactive : bulk;
     if (index < 0) break;
     const [item] = pending.splice(index, 1);
-    active.set(item.id, item.traffic); ids.push(item.id);
+    active.set(item.id, { traffic: item.traffic, foreground: item.foreground }); ids.push(item.id);
     burst = item.traffic === "interactive" ? Math.min(8, burst + 1) : 0;
   }
   return { state: { active, pending, burst }, ids };

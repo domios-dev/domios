@@ -73,6 +73,48 @@ pub fn resolve_mirror(tab: &crate::multiplexer::types::Tab) -> Result<Mirror, Cu
     })
 }
 
+fn waits_for_orchestrator(reason: Option<CuratorFailure>) -> bool {
+    matches!(
+        reason,
+        Some(CuratorFailure::OrchestratorAbsent | CuratorFailure::OrchestratorUnbound)
+    )
+}
+
+fn reconcile_idle_loop(
+    state: &mut ControlLoop,
+    mirror_failure: Option<CuratorFailure>,
+    group_close: Option<u64>,
+    now: u64,
+) {
+    match mirror_failure {
+        Some(reason) => state.fallback_reason = Some(reason),
+        None if waits_for_orchestrator(state.fallback_reason) => state.fallback_reason = None,
+        None => {}
+    }
+    if waits_for_orchestrator(state.fallback_reason) {
+        state.next_at = None;
+        return;
+    }
+    if group_close.is_some_and(|at| {
+        state
+            .last_synthesis_group_close_at
+            .is_none_or(|prior| at > prior)
+    }) {
+        let wake = now.saturating_add(1000);
+        state.next_at = Some(state.next_at.map_or(wake, |next| next.min(wake)));
+    }
+    let bound = now.saturating_add(codeterm_types::plan::CURATOR_MAX_DELAY_SECS * 1000);
+    state.next_at = Some(
+        state
+            .next_at
+            .unwrap_or_else(|| now.saturating_add(curator_delay(None) * 1000))
+            .min(bound),
+    );
+}
+
+#[cfg(test)]
+mod tests;
+
 impl ServiceContext {
     fn wake_curator_schedule(&self) {
         if let Some(wake) = self
@@ -103,6 +145,18 @@ impl ServiceContext {
         reason: CuratorFailure,
         now: u64,
     ) -> Result<(), String> {
+        if waits_for_orchestrator(Some(reason)) {
+            self.plan_store
+                .edit_curator_state(plan_id, now, |plan| {
+                    plan.control_loop.fallback_reason = Some(reason);
+                    plan.control_loop.next_at = None;
+                    Ok(())
+                })
+                .map_err(|error| error.to_string())?;
+            self.events
+                .publish_internal("curator-reconcile", json!({"plan_id":plan_id}));
+            return Ok(());
+        }
         let round = self
             .plan_store
             .edit_curator_round(plan_id, now, |plan| {
@@ -243,7 +297,20 @@ impl ServiceContext {
                 return Ok(());
             }
         }
-        if !eligible {
+        if eligible && loop_state.running.is_none() {
+            let tab = plan
+                .owner
+                .tab_id
+                .as_ref()
+                .and_then(|id| self.mux.read().get_tab(id).cloned());
+            let mirror = tab
+                .as_ref()
+                .ok_or(CuratorFailure::OrchestratorAbsent)
+                .and_then(resolve_mirror)
+                .and_then(|mirror| self.available_mirror(mirror));
+            reconcile_idle_loop(&mut loop_state, mirror.err(), read.group_close(), now);
+        }
+        if !eligible || waits_for_orchestrator(loop_state.fallback_reason) {
             loop_state.next_at = None;
             if let Some(id) = &loop_state.cron_id {
                 let job = { cron.lock().get(id).cloned() };
@@ -260,36 +327,7 @@ impl ServiceContext {
                 }
             }
         } else if loop_state.running.is_none() {
-            let tab = plan
-                .owner
-                .tab_id
-                .as_ref()
-                .and_then(|id| self.mux.read().get_tab(id).cloned());
-            let mirror = tab
-                .as_ref()
-                .ok_or(CuratorFailure::OrchestratorAbsent)
-                .and_then(resolve_mirror)
-                .and_then(|mirror| self.available_mirror(mirror));
-            if let Err(reason) = mirror {
-                loop_state.fallback_reason = Some(reason);
-            } else if loop_state.fallback_reason == Some(CuratorFailure::OrchestratorUnbound) {
-                loop_state.fallback_reason = None;
-            }
-            let close = read.group_close();
-            if close.is_some_and(|at| {
-                loop_state
-                    .last_synthesis_group_close_at
-                    .is_none_or(|prior| at > prior)
-            }) {
-                let wake = now.saturating_add(1000);
-                loop_state.next_at = Some(loop_state.next_at.map_or(wake, |next| next.min(wake)));
-            }
-            let bound = now.saturating_add(codeterm_types::plan::CURATOR_MAX_DELAY_SECS * 1000);
-            let next = loop_state
-                .next_at
-                .unwrap_or_else(|| now.saturating_add(curator_delay(None) * 1000))
-                .min(bound);
-            loop_state.next_at = Some(next);
+            let next = loop_state.next_at.ok_or("Curator wake time absent")?;
             let existing = loop_state
                 .cron_id
                 .as_ref()
@@ -354,9 +392,11 @@ impl ServiceContext {
             }
         }
         if loop_state != plan.control_loop {
+            // Waiting for the owner is loop state, not a round outcome; keep last_round.
             let fallback = loop_state
                 .fallback_reason
                 .as_ref()
+                .filter(|reason| !waits_for_orchestrator(Some(**reason)))
                 .filter(|reason| plan.control_loop.fallback_reason.as_ref() != Some(reason))
                 .map(|reason| CuratorRound {
                     number: loop_state

@@ -196,7 +196,8 @@ export function createTransportClient(options: TransportOptions): TransportClien
       options.onGatewayState?.(true);
       return response;
     } catch (error) {
-      if (!init.signal?.aborted) options.onGatewayState?.(false);
+      const notDispatched = error instanceof TransportError && "dispatched" in error && error.dispatched === false;
+      if (!init.signal?.aborted && !notDispatched) options.onGatewayState?.(false);
       throw error;
     }
   };

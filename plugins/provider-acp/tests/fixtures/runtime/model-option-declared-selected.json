@@ -1,0 +1,907 @@
+{
+  "schemaVersion": 1,
+  "context": {
+    "epoch": 1,
+    "cwd": "/work/project",
+    "hostVersion": "1.18.7",
+    "tabId": "model-option-declared-selected",
+    "bindingNonce": "nonce-fixture",
+    "settings": {},
+    "providerSettings": {},
+    "claimedSends": [],
+    "activeTurns": [],
+    "threadParents": []
+  },
+  "operations": [
+    {
+      "operation": {
+        "kind": "initialize"
+      }
+    },
+    {
+      "operation": {
+        "kind": "openThread",
+        "instructions": "",
+        "settings": {}
+      }
+    },
+    {
+      "operation": {
+        "kind": "control",
+        "threadId": "session-fixture",
+        "action": "settings",
+        "value": {
+          "model": "wire-two",
+          "mode": "code"
+        }
+      },
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/project",
+        "hostVersion": "1.18.7",
+        "tabId": "model-option-declared-selected",
+        "bindingNonce": "nonce-fixture",
+        "settings": {},
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "session-fixture"
+      }
+    },
+    {
+      "operation": {
+        "kind": "control",
+        "threadId": "session-fixture",
+        "action": "settings",
+        "value": {
+          "model": "not-declared",
+          "mode": "code"
+        }
+      },
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/project",
+        "hostVersion": "1.18.7",
+        "tabId": "model-option-declared-selected",
+        "bindingNonce": "nonce-fixture",
+        "settings": {},
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "session-fixture"
+      }
+    },
+    {
+      "operation": {
+        "kind": "control",
+        "threadId": "session-fixture",
+        "action": "settings",
+        "value": {
+          "model": "wire-one",
+          "mode": "code"
+        }
+      },
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/project",
+        "hostVersion": "1.18.7",
+        "tabId": "model-option-declared-selected",
+        "bindingNonce": "nonce-fixture",
+        "settings": {},
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "session-fixture"
+      }
+    },
+    {
+      "operation": {
+        "kind": "control",
+        "threadId": "session-fixture",
+        "action": "settings",
+        "value": {
+          "mode": "code"
+        }
+      },
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/project",
+        "hostVersion": "1.18.7",
+        "tabId": "model-option-declared-selected",
+        "bindingNonce": "nonce-fixture",
+        "settings": {},
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "session-fixture"
+      }
+    },
+    {
+      "operation": {
+        "kind": "control",
+        "threadId": "session-fixture",
+        "action": "settings",
+        "value": {
+          "model": "wire-one",
+          "mode": "code"
+        }
+      },
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/project",
+        "hostVersion": "1.18.7",
+        "tabId": "model-option-declared-selected",
+        "bindingNonce": "nonce-fixture",
+        "settings": {},
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "session-fixture"
+      }
+    },
+    {
+      "operation": {
+        "kind": "initialize"
+      },
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/project",
+        "hostVersion": "1.18.7",
+        "tabId": "declared-spawn",
+        "bindingNonce": "nonce-fixture",
+        "settings": {},
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": []
+      }
+    },
+    {
+      "operation": {
+        "kind": "openThread",
+        "instructions": "",
+        "settings": {
+          "model": "wire-two"
+        }
+      },
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/project",
+        "hostVersion": "1.18.7",
+        "tabId": "declared-spawn",
+        "bindingNonce": "nonce-fixture",
+        "settings": {},
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": []
+      }
+    }
+  ],
+  "rpc": [
+    {
+      "direction": "outbound",
+      "operation": 0,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "initialize",
+          "params": {
+            "protocolVersion": 1,
+            "clientCapabilities": {
+              "fs": {
+                "readTextFile": false,
+                "writeTextFile": false
+              },
+              "terminal": false
+            },
+            "clientInfo": {
+              "name": "domios",
+              "title": "Domios",
+              "version": "1.18.7"
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 0,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "protocolVersion": 1,
+          "agentCapabilities": {
+            "promptCapabilities": {
+              "image": false,
+              "audio": false,
+              "embeddedContext": false
+            }
+          },
+          "authMethods": []
+        }
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 1,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "session/new",
+          "params": {
+            "cwd": "/work/project",
+            "mcpServers": []
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 1,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "sessionId": "session-fixture",
+          "configOptions": [
+            {
+              "id": "engine-choice",
+              "name": "Engine",
+              "type": "select",
+              "category": "model",
+              "currentValue": "wire-one",
+              "options": [
+                {
+                  "value": "wire-one",
+                  "name": "First declared"
+                },
+                {
+                  "value": "wire-two",
+                  "name": "Second declared"
+                }
+              ]
+            }
+          ],
+          "modes": {
+            "currentModeId": "code",
+            "availableModes": [
+              {
+                "id": "code",
+                "name": "Code"
+              }
+            ]
+          },
+          "models": {
+            "currentModelId": "wire-one",
+            "availableModels": [
+              {
+                "modelId": "wire-one",
+                "name": "First declared",
+                "description": "First model"
+              },
+              {
+                "modelId": "wire-two",
+                "name": "Second declared"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 2,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "session/set_config_option",
+          "params": {
+            "sessionId": "session-fixture",
+            "configId": "engine-choice",
+            "value": "wire-two"
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 2,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "configOptions": [
+            {
+              "id": "engine-choice",
+              "name": "Engine",
+              "type": "select",
+              "category": "model",
+              "currentValue": "wire-two",
+              "options": [
+                {
+                  "value": "wire-one",
+                  "name": "First declared"
+                },
+                {
+                  "value": "wire-two",
+                  "name": "Second declared"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 6,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "session/set_config_option",
+          "params": {
+            "sessionId": "session-fixture",
+            "configId": "engine-choice",
+            "value": "wire-one"
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 6,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "configOptions": [
+            {
+              "id": "engine-choice",
+              "name": "Engine",
+              "type": "select",
+              "category": "model",
+              "currentValue": "wire-two",
+              "options": [
+                {
+                  "value": "wire-one",
+                  "name": "First declared"
+                },
+                {
+                  "value": "wire-two",
+                  "name": "Second declared"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/project",
+        "hostVersion": "1.18.7",
+        "tabId": "model-option-declared-selected",
+        "bindingNonce": "nonce-fixture",
+        "settings": {},
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "session-fixture"
+      },
+      "frame": {
+        "kind": "notification",
+        "method": "session/update",
+        "params": {
+          "sessionId": "session-fixture",
+          "update": {
+            "sessionUpdate": "config_option_update",
+            "configOptions": [
+              {
+                "id": "engine-choice",
+                "name": "Engine",
+                "type": "select",
+                "category": "model",
+                "currentValue": "wire-one",
+                "options": [
+                  {
+                    "value": "wire-one",
+                    "name": "First declared"
+                  },
+                  {
+                    "value": "wire-two",
+                    "name": "Second declared"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 7,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "initialize",
+          "params": {
+            "protocolVersion": 1,
+            "clientCapabilities": {
+              "fs": {
+                "readTextFile": false,
+                "writeTextFile": false
+              },
+              "terminal": false
+            },
+            "clientInfo": {
+              "name": "domios",
+              "title": "Domios",
+              "version": "1.18.7"
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 7,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "protocolVersion": 1,
+          "agentCapabilities": {
+            "promptCapabilities": {
+              "image": false,
+              "audio": false,
+              "embeddedContext": false
+            }
+          },
+          "authMethods": []
+        }
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 8,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "session/new",
+          "params": {
+            "cwd": "/work/project",
+            "mcpServers": []
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 8,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "sessionId": "spawn-session",
+          "configOptions": [
+            {
+              "id": "engine-choice",
+              "name": "Engine",
+              "type": "select",
+              "category": "model",
+              "currentValue": "wire-one",
+              "options": [
+                {
+                  "value": "wire-one",
+                  "name": "First declared"
+                },
+                {
+                  "value": "wire-two",
+                  "name": "Second declared"
+                }
+              ]
+            }
+          ],
+          "modes": {
+            "currentModeId": "code",
+            "availableModes": [
+              {
+                "id": "code",
+                "name": "Code"
+              }
+            ]
+          },
+          "models": {
+            "currentModelId": "wire-one",
+            "availableModels": [
+              {
+                "modelId": "wire-one",
+                "name": "First declared",
+                "description": "First model"
+              },
+              {
+                "modelId": "wire-two",
+                "name": "Second declared"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 8,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "session/set_config_option",
+          "params": {
+            "sessionId": "spawn-session",
+            "configId": "engine-choice",
+            "value": "wire-two"
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 8,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "configOptions": [
+            {
+              "id": "engine-choice",
+              "name": "Engine",
+              "type": "select",
+              "category": "model",
+              "currentValue": "wire-two",
+              "options": [
+                {
+                  "value": "wire-one",
+                  "name": "First declared"
+                },
+                {
+                  "value": "wire-two",
+                  "name": "Second declared"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "expected": {
+    "results": [
+      {
+        "operation": 0,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "initialized"
+          },
+          "events": [
+            {
+              "kind": "authentication",
+              "authentication": {
+                "state": "unknown",
+                "methods": []
+              }
+            }
+          ]
+        }
+      },
+      {
+        "operation": 1,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "threadLoaded",
+            "threadId": "session-fixture",
+            "settings": {
+              "commands": [],
+              "configOptions": [
+                {
+                  "id": "engine-choice",
+                  "name": "Engine",
+                  "category": "model",
+                  "currentValue": "wire-one",
+                  "options": [
+                    {
+                      "value": "wire-one",
+                      "name": "First declared"
+                    },
+                    {
+                      "value": "wire-two",
+                      "name": "Second declared"
+                    }
+                  ]
+                }
+              ],
+              "modes": [
+                {
+                  "id": "code",
+                  "name": "Code"
+                }
+              ],
+              "model": "wire-one",
+              "mode": "code"
+            }
+          }
+        }
+      },
+      {
+        "operation": 2,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "done"
+          },
+          "events": [
+            {
+              "kind": "controlsConfirmed",
+              "threadId": "session-fixture",
+              "settings": {
+                "model": "wire-two",
+                "configOptions": [
+                  {
+                    "id": "engine-choice",
+                    "name": "Engine",
+                    "category": "model",
+                    "currentValue": "wire-two",
+                    "options": [
+                      {
+                        "value": "wire-one",
+                        "name": "First declared"
+                      },
+                      {
+                        "value": "wire-two",
+                        "name": "Second declared"
+                      }
+                    ]
+                  }
+                ],
+                "mode": "code",
+                "modes": [
+                  {
+                    "id": "code",
+                    "name": "Code"
+                  }
+                ],
+                "commands": []
+              }
+            }
+          ]
+        }
+      },
+      {
+        "operation": 6,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "done"
+          },
+          "events": [
+            {
+              "kind": "controlsConfirmed",
+              "threadId": "session-fixture",
+              "settings": {
+                "configOptions": [
+                  {
+                    "id": "engine-choice",
+                    "name": "Engine",
+                    "category": "model",
+                    "currentValue": "wire-two",
+                    "options": [
+                      {
+                        "value": "wire-one",
+                        "name": "First declared"
+                      },
+                      {
+                        "value": "wire-two",
+                        "name": "Second declared"
+                      }
+                    ]
+                  }
+                ],
+                "model": "wire-two",
+                "mode": "code",
+                "modes": [
+                  {
+                    "id": "code",
+                    "name": "Code"
+                  }
+                ],
+                "commands": []
+              }
+            }
+          ]
+        }
+      },
+      {
+        "operation": 7,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "initialized"
+          },
+          "events": [
+            {
+              "kind": "authentication",
+              "authentication": {
+                "state": "unknown",
+                "methods": []
+              }
+            }
+          ]
+        }
+      },
+      {
+        "operation": 8,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "threadLoaded",
+            "threadId": "spawn-session",
+            "settings": {
+              "commands": [],
+              "configOptions": [
+                {
+                  "id": "engine-choice",
+                  "name": "Engine",
+                  "category": "model",
+                  "currentValue": "wire-two",
+                  "options": [
+                    {
+                      "value": "wire-one",
+                      "name": "First declared"
+                    },
+                    {
+                      "value": "wire-two",
+                      "name": "Second declared"
+                    }
+                  ]
+                }
+              ],
+              "modes": [
+                {
+                  "id": "code",
+                  "name": "Code"
+                }
+              ],
+              "model": "wire-two",
+              "mode": "code"
+            }
+          }
+        }
+      }
+    ],
+    "events": [
+      {
+        "kind": "authentication",
+        "authentication": {
+          "state": "unknown",
+          "methods": []
+        }
+      },
+      {
+        "kind": "controlsConfirmed",
+        "threadId": "session-fixture",
+        "settings": {
+          "commands": [],
+          "model": "wire-two",
+          "configOptions": [
+            {
+              "id": "engine-choice",
+              "name": "Engine",
+              "category": "model",
+              "currentValue": "wire-two",
+              "options": [
+                {
+                  "value": "wire-one",
+                  "name": "First declared"
+                },
+                {
+                  "value": "wire-two",
+                  "name": "Second declared"
+                }
+              ]
+            }
+          ],
+          "modes": [
+            {
+              "id": "code",
+              "name": "Code"
+            }
+          ],
+          "mode": "code"
+        }
+      },
+      {
+        "kind": "controlsConfirmed",
+        "threadId": "session-fixture",
+        "settings": {
+          "configOptions": [
+            {
+              "id": "engine-choice",
+              "name": "Engine",
+              "category": "model",
+              "currentValue": "wire-two",
+              "options": [
+                {
+                  "value": "wire-one",
+                  "name": "First declared"
+                },
+                {
+                  "value": "wire-two",
+                  "name": "Second declared"
+                }
+              ]
+            }
+          ],
+          "model": "wire-two",
+          "mode": "code",
+          "modes": [
+            {
+              "id": "code",
+              "name": "Code"
+            }
+          ],
+          "commands": []
+        }
+      },
+      {
+        "kind": "controlsConfirmed",
+        "threadId": "session-fixture",
+        "settings": {
+          "configOptions": [
+            {
+              "id": "engine-choice",
+              "name": "Engine",
+              "category": "model",
+              "currentValue": "wire-one",
+              "options": [
+                {
+                  "value": "wire-one",
+                  "name": "First declared"
+                },
+                {
+                  "value": "wire-two",
+                  "name": "Second declared"
+                }
+              ]
+            }
+          ],
+          "model": "wire-one"
+        }
+      },
+      {
+        "kind": "authentication",
+        "authentication": {
+          "state": "unknown",
+          "methods": []
+        }
+      }
+    ],
+    "planErrors": [
+      {
+        "operation": 3,
+        "code": "provider_refused"
+      },
+      {
+        "operation": 4,
+        "code": "provider_refused"
+      },
+      {
+        "operation": 5,
+        "code": "provider_refused"
+      }
+    ]
+  }
+}

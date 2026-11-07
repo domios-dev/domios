@@ -13,6 +13,8 @@ import { usePlanCatalog } from "./planCatalogContext";
 import { useDesktopBilling } from "./useDesktopBilling";
 import { billingFailureToast } from "../Settings/accountFailureToast";
 import { usePurchaseIntent } from "./usePurchaseIntent";
+import { usePurchasesEnabled } from "./purchaseSwitch";
+import { CommunityKeysNotice } from "../shared/CommunityLinks";
 
 function PlansModal({ limit, max, detail, onClose, onUpgrade, catalog }: {
   limit: FreeLimitKey;
@@ -91,10 +93,45 @@ function PlansModal({ limit, max, detail, onClose, onUpgrade, catalog }: {
   );
 }
 
+/** The limit, said once, with the free-key notice where the plans would be and a way to redeem a key already received. */
+function FreeKeyModal({ limit, max, detail, onClose }: { limit: FreeLimitKey; max?: number | null; detail?: string; onClose: () => void }) {
+  const titleId = useId();
+  const descriptionId = useId();
+  // Focus starts on Close, so an Enter never opens an outside link by accident.
+  const close = useRef<HTMLButtonElement>(null);
+  useEffect(() => { close.current?.focus(); }, []);
+  const redeem = () => {
+    onClose();
+    window.dispatchEvent(new CustomEvent("codeterm:open-panel", { detail: { panel: "settings:plans" } }));
+  };
+  return (
+    <FormDialog titleId={titleId} descriptionId={detail ? descriptionId : undefined} className="max-w-md" onCancel={onClose}
+      onSubmit={(event) => { event.preventDefault(); onClose(); }}>
+      <h2 id={titleId} className="m-0 text-base font-semibold">{limitHeadline(limit, max)}</h2>
+      {detail && <p id={descriptionId} className="m-0 text-xs text-[var(--ct-muted-fg)]">{detail}</p>}
+      <CommunityKeysNotice />
+      <div className="flex items-center justify-end gap-2">
+        <Button size="sm" variant="ghost" className="mr-auto" onClick={redeem}>I have a key</Button>
+        <Button ref={close} size="sm" variant="primary" type="submit">Close</Button>
+      </div>
+    </FormDialog>
+  );
+}
+
 /** Mounted once; any creation trigger opens it through `freeLimitGate`. */
-export function FreeLimitPlansModal({ upgrade = upgradePlan }: { upgrade?: (planKey: string) => Promise<void> }) {
+export function FreeLimitPlansModal({ upgrade = upgradePlan, purchases: explicitPurchases }: {
+  upgrade?: (planKey: string) => Promise<void>;
+  purchases?: boolean;
+}) {
+  const remotePurchases = usePurchasesEnabled();
+  const purchases = explicitPurchases ?? remotePurchases;
   const prompt = useFreeLimitPrompt();
   if (!prompt) return null;
+  if (!purchases) {
+    return prompt.key === "mesh.machines"
+      ? <FreeKeyModal key={`mesh:${prompt.requestId}`} limit={prompt.key} max={prompt.limit} detail={meshMachinesDetail(prompt)} onClose={freeLimitGate.close} />
+      : <FreeKeyModal key={prompt.key} limit={prompt.key} max={freeLimitGate.limits()?.max[prompt.key]} onClose={freeLimitGate.close} />;
+  }
   if (prompt.key === "mesh.machines") {
     return <PlansModal key={`mesh:${prompt.requestId}`} limit={prompt.key} max={prompt.limit} detail={meshMachinesDetail(prompt)}
       onClose={freeLimitGate.close} onUpgrade={upgrade} />;

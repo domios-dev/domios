@@ -227,17 +227,24 @@ function writeSinkBytes(sink: TabOutputSink, bytes: Uint8Array): void | Promise<
   return sink.onOutput(new TextDecoder().decode(bytes));
 }
 
+// A capacity end means this client fell behind; one resume without delivered output is allowed before parking.
+let lagResumedWithoutProgress = false;
+
 function recoverOutputStream(): void {
+  lagResumedWithoutProgress = false;
   aggregate.recover();
 }
 
 function openAggregateStream(): () => void {
   const abort = new AbortController();
   streamAbort = abort;
+  let progressed = false;
   const client = outputClient ?? createTransportClient({ origin: apiHost(), token: currentToken });
   client.subscribe(outputStreamUrl().slice(client.origin().length), (_name, data) => {
     if (abort.signal.aborted || streamAbort !== abort) return;
-    return handleFrame(data as OutputFrame);
+    const frame = data as OutputFrame;
+    if (typeof frame?.b64 === "string" || frame?.replay_complete) progressed = true;
+    return handleFrame(frame);
   }, {
     signal: abort.signal, raw: true,
     onActivity() { for (const set of sinks.values()) for (const sink of set) sink.onReady?.(); },
@@ -245,14 +252,28 @@ function openAggregateStream(): () => void {
       if (abort.signal.aborted || streamAbort !== abort) return;
       streamAbort = null;
       aggregate.ended();
-      if (DEV_BUILD) console.debug("[output-stream] waiting for recovery signal", { reason: end.reason });
-      if (end.reason === "error" || end.reason === "http" || end.reason === "capacity") {
-        const error = end.error instanceof Error ? end.error : new Error(end.reason === "capacity" ? `SSE capacity exceeded (${end.bytes} bytes)` : String(end.error));
-        for (const set of sinks.values()) for (const sink of set) sink.onStreamError?.(error);
+      if (end.reason === "capacity" && (progressed || !lagResumedWithoutProgress)) {
+        lagResumedWithoutProgress = !progressed;
+        if (DEV_BUILD) console.debug("[output-stream] resuming after capacity end", { progressed });
+        aggregate.recover();
+        return;
       }
+      if (DEV_BUILD) console.debug("[output-stream] waiting for recovery signal", { reason: end.reason });
+      if (end.reason === "abort") return;
+      const error = end.error instanceof Error ? end.error
+        : new Error(end.reason === "capacity" ? `SSE capacity exceeded (${end.bytes} bytes)` : end.reason === "eof" ? "Output stream ended" : String(end.error));
+      for (const set of sinks.values()) for (const sink of set) sink.onStreamError?.(error);
     },
   });
   return () => { abort.abort(); if (streamAbort === abort) streamAbort = null; };
+}
+
+/** An explicit Retry: replace the aggregate connection (even one that is open but not delivering) from the cursor. */
+export function restartOutputStream(): void {
+  lagResumedWithoutProgress = false;
+  if (started) aggregate.replace(openAggregateStream);
+  else if (sinks.size > 0) ensureStarted();
+  resumeRemoteOutputStreams();
 }
 
 function ensureStarted(): void {
@@ -281,7 +302,9 @@ export function subscribeTabOutput(tabId: string, sink: TabOutputSink, terminal:
   }
   const completed = completedReplays.get(tabId);
   if (completed) deliverReplayComplete(tabId, sink, completed);
-  ensureStarted();
+  // Attaching a terminal is an activation: it revives a parked aggregate connection.
+  if (started) recoverOutputStream();
+  else ensureStarted();
   return () => {
     set!.delete(sink);
     if (set!.size === 0) sinks.delete(tabId);

@@ -313,7 +313,7 @@ function TeamMenu({
                   );
                 });
               })() : (
-                <div data-testid="team-picker-no-models" role="status">This provider requires a model, but none are available.</div>
+                <div data-testid="team-picker-no-models" role="status">This harness requires a model, but none are available.</div>
               )}
             </>
           ) : providerRole ? (
@@ -322,8 +322,8 @@ function TeamMenu({
                 <span className="ct-menu-row__icon"><ChevronLeft size={14} /></span> Back
               </button>
               <div className="ct-menu-caption">Choose agent</div>
-              {providersLoading ? <div data-testid="team-picker-loading" role="status">Loading available providers…</div> : null}
-              {!providersLoading && spawnProviders.length === 0 ? <div data-testid="team-picker-empty" role="status">No providers are available to add.</div> : null}
+              {providersLoading ? <div data-testid="team-picker-loading" role="status">Loading available harnesses…</div> : null}
+              {!providersLoading && spawnProviders.length === 0 ? <div data-testid="team-picker-empty" role="status">No harnesses are available to add.</div> : null}
               {onAddMember && !providersLoading && spawnProviders.map((provider) => (
                 <button
                   className="ct-menu-row"

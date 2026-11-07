@@ -28,7 +28,21 @@ impl ServiceContext {
         ) {
             return;
         }
-        apply_runtime_controls(tab, thread, settings);
+        let mut settings = settings.clone();
+        if context.settings.modes.is_some() {
+            settings.mode = None;
+        }
+        apply_runtime_controls(tab, thread, &settings);
+        let profile = tab
+            .agent_runtime_config
+            .as_ref()
+            .and_then(|config| config.get("launchProfile"))
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned);
+        drop(mux);
+        if let Some(profile) = profile {
+            super::agent_runtime::profile_options::record(self, provider, &profile, &settings);
+        }
     }
 
     pub(crate) fn start_focused_tab_model_poller(&self) {
@@ -958,8 +972,10 @@ fn apply_runtime_controls(
             "bindingNonce": tab.session_binding_nonce,
         });
     }
-    if let Some(mode) = settings.mode.as_ref() {
-        tab.structured_runtime_mode = Some(mode.clone());
+    if settings.modes.is_none() {
+        if let Some(mode) = settings.mode.as_ref() {
+            tab.structured_runtime_mode = Some(mode.clone());
+        }
     }
 }
 

@@ -429,12 +429,13 @@ stop_dev_before_replacement() {
 }
 
 request_dev_clean_restart() {
-  local token cli="$CT_DATA_DIR/bin/codeterm"
+  local token markers cli="$CT_DATA_DIR/bin/codeterm"
   [ -x "$cli" ] || cli="$cli.exe"
   [ -x "$cli" ] || return 1
-  token=$(env -u CODETERM_API_TOKEN -u CODETERM_API_URL -u CODETERM_TAB_ID -u CODETERM_SESSION_ID -u CODETERM_SESSION_BINDING_NONCE \
-    CODETERM_DATA_DIR="$CT_DATA_DIR" CODETERM_API_PORT="$CT_PORT" \
-    "$cli" system api-token) || return 1
+  markers="$(launch_marker_names)" || return 1
+  # shellcheck disable=SC2086 # marker names are plain identifiers
+  token=$(unset CODETERM_API_TOKEN CODETERM_API_URL $markers
+    CODETERM_DATA_DIR="$CT_DATA_DIR" CODETERM_API_PORT="$CT_PORT" "$cli" system api-token) || return 1
   [ -n "$token" ] || return 1
 
   curl --fail --silent --show-error --max-time 3 \
@@ -853,8 +854,10 @@ esac
 
 case "$CMD" in
   dev|dev-prebuilt|dev-server|dev-front|kill|e2e|e2e:llm)
-    unset CODETERM_API_URL CODETERM_API_TOKEN CODETERM_SOCKET_PATH CODETERM_DATA_DIR \
-      CODETERM_TAB_ID CODETERM_PARENT_TAB_ID CODETERM_SESSION_BINDING_NONCE CODETERM_SESSION_ID
+    # DEV inherits no caller launch identity; only the parent CLI restores it, for parent notices.
+    ct_launch_markers="$(launch_marker_names)" || exit 2
+    # shellcheck disable=SC2086 # marker names are plain identifiers
+    unset CODETERM_API_URL CODETERM_API_TOKEN CODETERM_SOCKET_PATH CODETERM_DATA_DIR $ct_launch_markers
     ;;
 esac
 

@@ -41,13 +41,60 @@ async fn friend_receiver_fence_requires_current_enabled_installation_and_revisio
         );
     }
     assert_eq!(
-        ServiceContext::receiver_view(&status),
+        ServiceContext::receiver_view(&status, &["machine".to_string()].into()),
         json!({"receiving_here":true,"receiver_machine_label":"Desk","receiving_enabled":true,"revision":8,"is_me":true})
     );
     assert!(serde_json::from_value::<NeighborRuntimeCommand>(
         json!({"operation":"enroll","takeover_confirmed":true})
     )
     .is_err());
+}
+
+#[test]
+fn an_installation_with_expired_membership_is_never_presented_as_the_receiver() {
+    let row = |id: &str, expires: Option<u64>, active: bool, signed_out: bool| {
+        codeterm_mesh::types::AccountInstallation {
+            installation_id: id.into(),
+            name: id.into(),
+            active,
+            signed_out,
+            membership_expires_at: expires,
+            endpoint_expires_at: None,
+            instance_id: None,
+            online: false,
+        }
+    };
+    let lapsed = lapsed_installations(
+        &[
+            row("expired", Some(100), true, false),
+            row("boundary", Some(200), true, false),
+            row("current", Some(201), true, false),
+            row("unknown", None, true, false),
+            row("removed", Some(100), false, false),
+            row("signed-out", Some(100), true, true),
+        ],
+        200,
+    );
+    assert_eq!(
+        lapsed,
+        ["boundary".to_string(), "expired".to_string()].into()
+    );
+    let elsewhere = |installation: &str| ReceiverStatus {
+        receiver_revision: 4,
+        receiver_installation_id: Some(installation.into()),
+        receiver_encryption_key_id: Some("key".into()),
+        receiver_machine_label: Some("Other desk".into()),
+        receiving_enabled: true,
+        is_me: false,
+    };
+    assert_eq!(
+        ServiceContext::receiver_view(&elsewhere("expired"), &lapsed),
+        json!({"receiving_here":false,"receiver_machine_label":"Other desk","receiving_enabled":false,"revision":4,"is_me":false,"not_receiving_reason":"membership_expired"})
+    );
+    assert_eq!(
+        ServiceContext::receiver_view(&elsewhere("current"), &lapsed),
+        json!({"receiving_here":false,"receiver_machine_label":"Other desk","receiving_enabled":true,"revision":4,"is_me":false})
+    );
 }
 
 #[tokio::test]

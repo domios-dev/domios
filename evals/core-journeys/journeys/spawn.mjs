@@ -2,10 +2,11 @@ import { dcJson } from "../lib/env.mjs";
 import { historyFiller, marker } from "../lib/fixtures.mjs";
 import { probeReply, stopLongTurn, waitReady } from "../lib/tabs.mjs";
 import { JourneyFailure } from "../lib/wait.mjs";
+import { launchFlags } from "../lib/profile-policy.mjs";
 
 export async function spawnOne(ctx, provider) {
   const { workspace } = ctx.state;
-  const spawned = await ctx.policy.launch(provider.id, "J1-spawn", (model) => (ctx.command ?? dcJson)(["agent", "spawn", provider.id, "--model", model, "--workspace", workspace.id, "--cwd", workspace.cwd,
+  const spawned = await ctx.policy.launch(provider.id, "J1-spawn", (model, profile) => (ctx.command ?? dcJson)(["agent", "spawn", provider.id, ...launchFlags(model, profile), "--workspace", workspace.id, "--cwd", workspace.cwd,
     "--title", `cj${provider.id}`, "--non-user-facing", "--description", `core-journeys ${ctx.state.run}`]));
   const id = spawned?.tab_id;
   if (!id) throw new JourneyFailure(`spawn returned no tab id: ${JSON.stringify(spawned).slice(0, 300)}`);

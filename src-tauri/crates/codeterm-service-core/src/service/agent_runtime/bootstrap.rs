@@ -91,7 +91,8 @@ pub(super) async fn submit(
     let binding = session.context.lock().clone();
     svc.run_watcher
         .arm_runtime(&binding.tab_id, &binding.binding_nonce);
-    svc.gateway
+    let result = svc
+        .gateway
         .submit_runtime_loaded_turn(
             svc,
             session,
@@ -101,44 +102,19 @@ pub(super) async fn submit(
                 crate::service::messenger::LaunchBootstrap::new(payload),
             ),
         )
-        .await
+        .await;
+    readiness_after_submit(result)
+}
+
+fn readiness_after_submit(
+    result: Result<(), crate::service::delivery_error::DeliveryError>,
+) -> Result<(), RuntimeFailure> {
+    result
+        .or_else(|reason| {
+            reason.into_surfaced(crate::service::delivery_error::SendOrigin::Programmatic)
+        })
         .map_err(|reason| RuntimeFailure::Refused(reason.ledger_message()))
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::multiplexer::types::PendingDeliveryChannel;
-    #[test]
-    fn startup_uses_the_existing_claim_and_never_replays_an_attempt_after_resume() {
-        let mut record = PendingDeliveryRecord::new(
-            "opaque-digest".into(),
-            PendingDeliveryChannel::InteractiveInput,
-        )
-        .with_send_id("own-send".into());
-        assert!(claimable(&record));
-        record
-            .begin_attempt(crate::service::launch_delivery::next_attempt())
-            .unwrap();
-        assert!(!claimable(&record));
-        record.mark_unconfirmed();
-        let restored: PendingDeliveryRecord =
-            serde_json::from_value(serde_json::to_value(&record).unwrap()).unwrap();
-        assert!(!claimable(&restored));
-        assert_eq!(restored.send_id(), Some("own-send"));
-        let mut accepted = restored;
-        accepted.confirm_strong().unwrap();
-        assert!(!claimable(&accepted));
-    }
-    #[test]
-    fn preclaimed_runtime_id_cannot_admit_a_second_payload() {
-        let ledger = crate::service::chat_send_transaction::ChatSendLedger::default();
-        let id = uuid::Uuid::new_v4().to_string();
-        let first = ledger.start_runtime_claim("tab", "opaque", &id).unwrap();
-        assert_eq!(first.send_id, id);
-        assert!(ledger.start_runtime_claim("tab", "opaque", &id).is_err());
-        assert!(ledger
-            .start_runtime_claim("other", "different", &id)
-            .is_err());
-    }
-}
+mod tests;

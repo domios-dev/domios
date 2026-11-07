@@ -29,6 +29,46 @@ fn local_identity_needs_persisted_credentials_and_invalidation_reaches_clones() 
     assert!(load(root.path()).is_none());
 }
 
+#[test]
+fn saved_sign_in_from_another_target_starts_signed_out_with_reason_and_keeps_credential() {
+    let root = tempfile::tempdir().unwrap();
+    let identity = Identity {
+        uid: "opaque-owner".into(),
+        email: None,
+        display_name: None,
+        provider: "fixture".into(),
+        photo_url: None,
+    };
+    let file = SecretFile::new_at(root.path(), "domios.account");
+    let credential = super::super::credentials::credential_name("fixture");
+    file.set(&credential, "opaque-foreign-refresh").unwrap();
+    remember_for_target(
+        root.path(),
+        "fixture",
+        Some(identity.clone()),
+        "domios-signin-qa",
+    )
+    .unwrap();
+
+    let same = load_for_target(root.path(), "domios-signin-qa").unwrap();
+    assert_eq!(same.projected_status().unwrap().identity, Some(identity));
+
+    let cached = load_for_target(root.path(), "domios-d9357").unwrap();
+    assert!(!cached.is_valid());
+    assert!(cached.snapshot().is_none());
+    assert_eq!(cached.saved_target(), Some("domios-signin-qa"));
+    let status = cached.projected_status().unwrap();
+    assert_eq!(status.identity, None);
+    assert_eq!(status.last_sign_in_failure, None);
+    assert_eq!(
+        status.target_mismatch,
+        TargetMismatch::detect(Some("domios-signin-qa"), "domios-d9357")
+    );
+    assert_eq!(file.get(&credential).unwrap(), "opaque-foreign-refresh");
+    cached.invalidate();
+    assert!(cached.projected_status().is_none());
+}
+
 fn paid_account() -> (StartupAccount, Arc<AtomicU64>) {
     use codeterm_entitlements::{
         Activation, Binding, CompiledKey, Enforcement, EntitlementAuthority, Mode, PinnedAuthority,
@@ -87,6 +127,8 @@ fn paid_account() -> (StartupAccount, Arc<AtomicU64>) {
             valid: Arc::new(AtomicBool::new(true)),
             observed: Arc::new(AtomicU64::new(0)),
             clock: Arc::new(move || clock.load(Ordering::SeqCst)),
+            saved_target: None,
+            mismatch: None,
         },
         time,
     )

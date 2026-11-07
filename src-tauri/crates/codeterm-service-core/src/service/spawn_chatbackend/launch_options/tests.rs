@@ -181,6 +181,7 @@ fn prepared_options() -> crate::multiplexer::types::RestorableRuntimeLaunchOptio
         mode: "auto-accept-edits".into(),
         additional_directories: vec!["opaque-host-root".into()],
         network_access: Some(false),
+        full_access_mode: None,
     }
 }
 
@@ -191,7 +192,7 @@ fn prepared_options_override_caller_grants_and_preserve_launch_context() {
         serde_json::json!({
             "mode": "full-access", "additionalDirectories": ["opaque-caller-root"],
             "networkAccess": true, "model": "opaque-model", "effort": "opaque-effort",
-            "systemPrompt": "opaque-prompt"
+            "systemPrompt": "opaque-prompt", "fullAccessMode": "opaque-caller-mode"
         }),
         &options.provider_id,
         Some(&options.binding_nonce),
@@ -207,8 +208,13 @@ fn prepared_options_override_caller_grants_and_preserve_launch_context() {
     assert_eq!(config["model"], "opaque-model");
     assert_eq!(config["effort"], "opaque-effort");
     assert_eq!(config["systemPrompt"], "opaque-prompt");
+    assert!(
+        config.get("fullAccessMode").is_none(),
+        "only the host's prepared full-access launch names an agent mode"
+    );
     let mut no_network = options.clone();
     no_network.network_access = None;
+    no_network.full_access_mode = Some("opaque-approve-all".into());
     let config = apply_prepared(
         config,
         &options.provider_id,
@@ -217,6 +223,7 @@ fn prepared_options_override_caller_grants_and_preserve_launch_context() {
     )
     .unwrap();
     assert!(config.get("networkAccess").is_none());
+    assert_eq!(config["fullAccessMode"], "opaque-approve-all");
 }
 
 #[test]

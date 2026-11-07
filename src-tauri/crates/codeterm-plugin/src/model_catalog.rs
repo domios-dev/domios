@@ -500,9 +500,8 @@ pub fn register_reasoning_efforts(
 /// is reused; older (or absent) triggers a background refresh.
 pub const DEFAULT_TTL: Duration = Duration::from_secs(6 * 3600);
 
-/// Call deadline for a plugin `discoverModels`: a background catalogue refresh may
-/// wait on slow provider CLIs far beyond the standard plugin call bound.
-pub const MODEL_DISCOVERY_DEADLINE: Duration = Duration::from_secs(30);
+/// Call deadline for a plugin `discoverModels`: the standard plugin call bound.
+pub const MODEL_DISCOVERY_DEADLINE: Duration = crate::js_runtime::call_deadline::STANDARD;
 
 /// Hard cap on a single `discover_models` probe — it may shell out / hit the
 /// network, so it must never hang the refresh task. It outlasts the plugin call

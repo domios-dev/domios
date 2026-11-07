@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { searchOlderChatHistory } from "./chatHistorySearch";
+import { CHAT_INITIAL_HISTORY_SCAN_BYTES, searchOlderChatHistory } from "./chatHistorySearch";
 
 test("empty consumed pages continue to a non-empty page", async () => {
   const requests: number[] = [];
@@ -76,4 +76,14 @@ test("raw rows do not stop a scan until the rendered conversation page is filled
   }, 1000, page => page.cursor <= 100);
   assert.deepEqual(requests, [300, 200]);
   assert.equal(result.kind, "reveal");
+});
+
+test("initial hydration remains bounded when whole oversized records exceed request sizes", async () => {
+  const budgets: number[] = [];
+  const result = await searchOlderChatHistory(20_000_000, async (cursor, maxBytes) => {
+    budgets.push(maxBytes);
+    return { cursor: cursor - 2_000_000, consumedBytes: 2_000_000, rows: 0 };
+  }, CHAT_INITIAL_HISTORY_SCAN_BYTES);
+  assert.deepEqual(budgets, [1_048_576, 1_048_576, 1_048_576, 1_048_576, 388_608]);
+  assert.deepEqual(result, { kind: "stop", reason: "limit" });
 });

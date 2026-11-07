@@ -223,6 +223,8 @@ pub struct ChatAttachment {
 #[serde(rename_all = "camelCase")]
 pub struct ChatMsg {
     pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime_source_item_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub inherited_from_session_id: Option<String>,
     #[serde(rename = "type")]

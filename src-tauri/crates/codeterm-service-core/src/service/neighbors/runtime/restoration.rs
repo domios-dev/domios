@@ -7,7 +7,20 @@ type WatchStartup<'a> =
 #[derive(Default)]
 struct RestorationRearm(Arc<super::super::recovery::Rearm>);
 
+#[cfg(any(test, not(feature = "test-support")))]
+#[derive(Default)]
+struct RestorationHold(Arc<super::super::recovery::hold::EntitlementHold>);
+
 impl ServiceContext {
+    /// Entitlement and account changes are the only events that may lift a held entitlement refusal.
+    pub(in crate::service::neighbors) fn neighbor_restoration_entitlement_changed(&self) {
+        #[cfg(any(test, not(feature = "test-support")))]
+        self.extensions
+            .get_or_init(RestorationHold::default)
+            .0
+            .changed();
+    }
+
     #[cfg(any(test, not(feature = "test-support")))]
     pub(super) fn spawn_neighbor_restoration(
         &self,
@@ -58,6 +71,23 @@ impl ServiceContext {
             .get_or_init(RestorationRearm::default)
             .0
             .clone();
+        let hold = self
+            .extensions
+            .get_or_init(RestorationHold::default)
+            .0
+            .clone();
+        let mut unheld = attempt;
+        let attempt = move || {
+            let hold = hold.clone();
+            let next = unheld();
+            async move {
+                hold.released().await;
+                let epoch = hold.epoch();
+                let result = next.await;
+                log_hold_transition(hold.settle(epoch, &result));
+                result
+            }
+        };
         let service = self.clone();
         self.spawn_neighbor_restoration(async move {
             let _ = super::super::recovery::run(&rearm, clock.as_ref(), attempt, || {
@@ -133,12 +163,29 @@ impl ServiceContext {
                 service.require_neighbor_generation(generation).map_err(|_| Error::Revoked)?;
                 service.require_neighbors_enabled()?;
                 result.map_err(|error| {
-                    log::debug!("[neighbors] restoration failed: {error}");
+                    let refusal = super::super::recovery::startup_error(&error);
+                    if !super::super::recovery::hold::entitlement_refusal(refusal) {
+                        log::debug!("[neighbors] restoration failed: {error}");
+                    }
                     service.ui.emit("neighbor-runtime-status", json!({"receiver_unavailable":true,"reason":"neighbor_reception_start_failed","message":error}));
-                    super::super::recovery::startup_error(&error)
+                    refusal
                 })
             }
         }, Arc::new(codeterm_neighbors::supervisor::RuntimeClock));
+    }
+}
+
+#[cfg(any(test, not(feature = "test-support")))]
+fn log_hold_transition(transition: super::super::recovery::hold::HoldTransition) {
+    use super::super::recovery::hold::HoldTransition;
+    match transition {
+        HoldTransition::Held(error) => log::info!(
+            "[neighbors] restoration held until an entitlement or account change: {error}"
+        ),
+        HoldTransition::Released(error) => {
+            log::info!("[neighbors] restoration hold released: {error}")
+        }
+        HoldTransition::Unchanged => {}
     }
 }
 

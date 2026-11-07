@@ -37,8 +37,8 @@ export function GeneralAgentProviderChoice({ current, enabled, onSwitch, onOpenG
     </div>
     {error != null && <InlineErrorNotice error={error} operation="changing the General Agent" />}
     {pending && <ConfirmDialog title="Change General Agent?"
-      message={enabled ? "Your General Agent will restart with the selected provider." : "The selected provider will be used when you enable the General Agent."}
-      confirmLabel={busy ? "Applying…" : enabled ? "Change and restart" : "Change provider"}
+      message={enabled ? "Your General Agent will restart with the selected harness." : "The selected harness will be used when you enable the General Agent."}
+      confirmLabel={busy ? "Applying…" : enabled ? "Change and restart" : "Change harness"}
       onConfirm={() => void confirm()} onCancel={() => { if (!busy) setPending(null); }} />}
   </div>;
 }

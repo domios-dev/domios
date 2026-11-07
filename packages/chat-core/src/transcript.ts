@@ -1,6 +1,7 @@
 import { projectTranscriptParts } from "./messageParts";
 import { placePendingSends } from "./sendPlacement";
-import { mergeById } from "./merge";
+import { placeQueuedRows } from "./queuedPlacement";
+import { mergeBatchesById, mergeById } from "./merge";
 import { reconcileSends, type ChatSend, type SendEcho } from "./sendOrder";
 import type { NormalizedChatMessage } from "./types";
 
@@ -128,17 +129,9 @@ function orderedSegments(segments: TranscriptSegment[]): TranscriptSegment[] {
 
 /** Provider IDs survive every source window; the newest occurrence wins. */
 export function transcriptRows(state: TranscriptState): NormalizedChatMessage[] {
-  const rows: NormalizedChatMessage[] = [];
-  for (const segment of orderedSegments(state.segments)) rows.push(...segment.rows);
-  const seen = new Set<string>(state.expandedGaps);
-  const out: NormalizedChatMessage[] = [];
-  for (let index = rows.length - 1; index >= 0; index -= 1) {
-    const row = rows[index];
-    if (seen.has(row.id)) continue;
-    seen.add(row.id);
-    out.push(row);
-  }
-  return out.reverse();
+  const expanded = new Set(state.expandedGaps);
+  return mergeBatchesById(orderedSegments(state.segments).map(segment =>
+    segment.rows.filter(row => !expanded.has(row.id))));
 }
 
 export function transcriptRowCount(state: TranscriptState): number {
@@ -281,7 +274,7 @@ function supersedeRows(
   let anchorStart = Number.POSITIVE_INFINITY;
   let anchorEnd = 0;
   for (const segment of segments) {
-    const rows = segment.rows.filter(row => !incomingIds.has(row.id));
+    const rows = segment.rows.every(row => incomingIds.has(row.id)) ? [] : segment.rows;
     if (rows.length > 0) {
       preserved.push({ ...segment, rows });
     } else if (segment.range != null) {
@@ -426,7 +419,14 @@ export function projectTranscript(
   sends: readonly ChatSend[] = [],
 ): TranscriptProjection {
   const committedRows = transcriptRows(state);
-  const { echoes, pending } = reconcileSends(sends, committedRows, state.authority);
+  const rowStarts = new Map<string, number>();
+  if (sends.some(send => send.echoBoundary?.endOffset != null)) {
+    for (const segment of orderedSegments(state.segments)) {
+      if (segment.range == null || segment.range.unit === "items") continue;
+      for (const row of segment.rows) rowStarts.set(row.id, Math.min(rowStarts.get(row.id) ?? Infinity, segment.range.start));
+    }
+  }
+  const { echoes, pending } = reconcileSends(sends, committedRows, state.authority, rowStarts);
   const projectedCommittedRows = projectTranscriptParts(committedRows, sends);
-  return { rows: placePendingSends(projectedCommittedRows, pending), pending, echoes };
+  return { rows: placePendingSends(placeQueuedRows(projectedCommittedRows), pending), pending, echoes };
 }

@@ -1,0 +1,39 @@
+{
+  "pluginDirectory": "provider-claude",
+  "providerVersion": "1.14.28",
+  "transcript": "air-transcript.jsonl",
+  "capture": {
+    "providerCli": "Claude Code 2.1.300",
+    "appBuild": "313d36540a",
+    "sessionId": "ed30e894-a129-4a03-8550-cb10cdc26149",
+    "sourceLineRanges": [
+      [
+        16150,
+        16179
+      ],
+      [
+        17348,
+        17359
+      ],
+      [
+        17388,
+        17429
+      ],
+      [
+        17520,
+        17545
+      ]
+    ],
+    "trimmed": [
+      "tool bodies",
+      "image base64",
+      "request metadata",
+      "file snapshots"
+    ],
+    "blobPaddingBytes": 667748,
+    "imageResultPaddingBytes": 1335564,
+    "additionalSourceLines": [
+      17382
+    ]
+  }
+}

@@ -50,6 +50,12 @@ export function sameRowTab(previous: Tab, next: Tab): boolean {
     && previous.ownership?.controller_title === next.ownership?.controller_title
     && previous.ownership?.team?.id === next.ownership?.team?.id
     && previous.agent_runtime_config?.confirmedServiceTier === next.agent_runtime_config?.confirmedServiceTier
+    && previous.agent_runtime_config?.launchProfile === next.agent_runtime_config?.launchProfile
+    && previous.agent_runtime_state?.state === next.agent_runtime_state?.state
+    && previous.agent_runtime_state?.reason === next.agent_runtime_state?.reason
+    && previous.agent_runtime_state?.iconSvg === next.agent_runtime_state?.iconSvg
+    && previous.agent_runtime_state?.agentName === next.agent_runtime_state?.agentName
+    && previous.agent_runtime_state?.binaryVersion === next.agent_runtime_state?.binaryVersion
     && previous.agent_state?.state === next.agent_state?.state
     && previous.agent_state?.status_line === next.agent_state?.status_line
     && previous.agent_state?.phase === next.agent_state?.phase

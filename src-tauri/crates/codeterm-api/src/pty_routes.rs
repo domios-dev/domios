@@ -245,19 +245,39 @@ pub async fn pty_resize(
     Json(body): Json<PtyResizeBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     tokio::task::spawn_blocking(move || {
-        if let Some(client_id) = body.client_id.as_deref() {
-            if !state.resize_owner.lock().is_owner(&pty_id, client_id) {
-                return Ok(Json(serde_json::json!({"ok": true, "ignored": true})));
-            }
+        let client_id = body.client_id.as_deref().unwrap_or("-");
+        if body.client_id.is_some() && !state.resize_owner.lock().is_owner(&pty_id, client_id) {
+            log::debug!(
+                "[pty-resize] pty={pty_id} client={client_id} requested={}x{} ignored=not_owner",
+                body.cols,
+                body.rows
+            );
+            return Ok(Json(serde_json::json!({"ok": true, "ignored": true})));
         }
+        log::debug!(
+            "[pty-resize] pty={pty_id} client={client_id} requested={}x{}",
+            body.cols,
+            body.rows
+        );
         codeterm_commands::commands::resize_pty_core(
             &state.svc.pty,
             &state.svc.screen_state,
-            pty_id,
+            pty_id.clone(),
             body.cols,
             body.rows,
         )
         .map_err(|e| (StatusCode::NOT_FOUND, e))?;
+        // Followers render the owner's geometry, so every applied owner size is published.
+        let recorded = state
+            .resize_owner
+            .lock()
+            .record_size(&pty_id, client_id, body.cols, body.rows);
+        if let Some(owner) = recorded {
+            state.events.publish(crate::events::SystemEvent::Generic {
+                event_type: "pty-resize-owner-changed".to_string(),
+                data: serde_json::to_value(&owner).unwrap_or_default(),
+            });
+        }
         Ok(Json(serde_json::json!({"ok": true})))
     })
     .await

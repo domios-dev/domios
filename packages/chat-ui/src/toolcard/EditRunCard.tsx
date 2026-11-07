@@ -1,5 +1,6 @@
 import type { FileDiff, ToolEvent } from "@codeterm/chat-core";
-import { ChevronRight, Copy, Maximize2 } from "lucide-react";
+import { Copy, Maximize2 } from "lucide-react";
+import { CardChevron } from "../CompactCard";
 import { useId, useMemo, useState } from "react";
 import { ChatCardMenu, copyPlainText } from "../ChatCardMenu";
 import { useChatBlockHost } from "../blocks/ChatBlockHost";
@@ -115,11 +116,9 @@ export function EditRunCard({ event, expanded, onToggle }: { event: ToolEvent; e
           <ChatCardMenu label={`Actions for ${title}`} items={[{
             label: "Copy paths", icon: <Copy size={14} aria-hidden />,
             onSelect: () => copyPlainText(files.map((file) => file.movePath ?? file.path).join("\n")),
-          }]} />
+          }]} joinRow />
         </span>
-        <button type="button" aria-label={`${expanded ? "Collapse" : "Expand"} edited files`} onClick={() => onToggle(!expanded)} className="flex shrink-0 items-center justify-center" style={{ color: QUIET }}>
-          <ChevronRight aria-hidden size={14} className={expanded ? "rotate-90" : ""} />
-        </button>
+        <CardChevron expanded={expanded} label={`${expanded ? "Collapse" : "Expand"} edited files`} onToggle={() => onToggle(!expanded)} />
       </div>
       <ol id={regionId} data-testid="chat-edit-run-files" aria-label={`${files.length} edited files`} className="m-0 min-w-0 list-none py-0.5 pb-1 pl-4 pr-2 font-mono text-[11.5px]">
         {files.slice(0, visible).map((file, index) => {

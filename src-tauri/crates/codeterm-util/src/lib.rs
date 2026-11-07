@@ -26,6 +26,7 @@ pub mod safe_tree;
 pub mod secret_file;
 pub mod sensitive_state;
 pub mod shell;
+pub mod tab_launch;
 pub mod task_files;
 pub mod tcp_listener;
 pub mod terminal;

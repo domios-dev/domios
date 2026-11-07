@@ -364,7 +364,7 @@ it("keeps an empty remote environment list actionable and refuses spawn", async 
   }} as never);
   await renderPicker();
   await act(async () => dialog().querySelector<HTMLInputElement>('input[value="cloud"]')!.click());
-  expect(Array.from(dialog().querySelectorAll("button")).find(button => button.textContent === "Refresh providers")).toBeDefined();
+  expect(Array.from(dialog().querySelectorAll("button")).find(button => button.textContent === "Refresh harnesses")).toBeDefined();
   expect(dialog().querySelector<HTMLButtonElement>('[data-testid="picker-confirm"]')?.disabled).toBe(true);
   expect(fixture.actions.spawnAgentTab).not.toHaveBeenCalled();
 });
@@ -394,4 +394,71 @@ it("shows Cloud only under Codex and explains its unavailable environment state"
   expect(dialog().querySelector('select[aria-label="Cloud environment"]')).toBeNull();
   expect(dialog().querySelector<HTMLButtonElement>('[data-testid="picker-confirm"]')?.disabled).toBe(true);
   expect(fixture.actions.spawnAgentTab).not.toHaveBeenCalled();
+});
+
+describe("NewSessionPicker launch profiles", () => {
+  it("offers one ACP provider with a labelled nested choice and passes the chosen profile once", async () => {
+    fixture.providers.providers = [
+      {id:"opencode",display_name:"OpenCode",available_models:[],reasoning_efforts:[]},
+      {id:"opaque-acp",display_name:"ACP",transport:"chat_backend",available_models:[],agent_runtime:{launchProfiles:{
+        "deepseek-harness":{binary:"npx",args:["@deepseek-ai/dsh@0.2.1-rc.5","--profile","acp"]},
+        "gemini-cli":{binary:"gemini",args:["--acp"]},
+      }}},
+    ] as never[];
+    vi.mocked(invoke).mockImplementation(async command => command === "provider_launch_profiles" ? [
+      {id:"deepseek-harness",install:"installed",auth:"unknown",canInstall:true,ownerConfigured:false},
+      {id:"gemini-cli",install:"detected",auth:"unknown",canInstall:false,ownerConfigured:false},
+    ] : undefined);
+    await renderPicker();
+    await choose("Agent provider","ACP");
+    // The profile is a pill in the model's place in the Agent row, listing each profile with its state word.
+    const pill = dialog().querySelector<HTMLButtonElement>('[data-testid="picker-profile-single"]');
+    expect(pill?.getAttribute("aria-label")).toBe("Agent profile: Choose a profile");
+    expect(dialog().querySelector('[role="radiogroup"]')).toBeNull();
+    await act(async () => { pill!.dispatchEvent(new window.Event("pointerdown", { bubbles: true, cancelable: true })); });
+    const options = [...document.body.querySelectorAll<HTMLElement>('[data-testid^="picker-profile-single-option-"]')];
+    expect(options.map(option => option.textContent?.trim())).toEqual(["deepseek-harnessInstalled", "gemini-cliInstalled"]);
+    expect(fixture.actions.spawnAgentTab).not.toHaveBeenCalled();
+    await act(async () => options[1].click());
+    expect(dialog().querySelector('[data-testid="picker-profile-single"]')?.getAttribute("aria-label")).toBe("Agent profile: gemini-cli");
+    const start = dialog().querySelector<HTMLButtonElement>('[data-testid="picker-confirm"]');
+    expect(start).not.toBeNull();
+    await act(async () => start!.click());
+    expect(fixture.actions.spawnAgentTab).toHaveBeenCalledTimes(1);
+    expect(fixture.actions.spawnAgentTab).toHaveBeenCalledWith("workspace","opaque-acp","/workspace",undefined,undefined,undefined,undefined,undefined,"gemini-cli");
+  });
+
+  it("after a ready ACP profile, offers the model and effort it last declared (none when it declares none), defaulting to the agent's own, and spawns with the choice", async () => {
+    fixture.providers.providers = [
+      {id:"opaque-acp",display_name:"ACP",transport:"chat_backend",available_models:[],agent_runtime:{launchProfiles:{
+        "deepseek-harness":{binary:"npx",args:[]},
+        "gemini-cli":{binary:"gemini",args:["--acp"]},
+      }}},
+    ] as never[];
+    vi.mocked(invoke).mockImplementation(async command => command === "provider_launch_profiles" ? [
+      {id:"deepseek-harness",install:"installed",auth:"unknown",canInstall:true,ownerConfigured:false,configOptions:[
+        {id:"model",name:"Model",category:"model",currentValue:"flash",options:[{value:"flash",name:"deepseek-v4-flash"},{value:"pro",name:"DeepSeek-V4-Pro"}]},
+        {id:"reasoning_effort",name:"Reasoning effort",category:"thought_level",currentValue:"high",options:[{value:"low",name:"Low"},{value:"high",name:"High"}]},
+      ]},
+      {id:"gemini-cli",install:"detected",auth:"unknown",canInstall:false,ownerConfigured:false,configOptions:[]},
+    ] : undefined);
+    await renderPicker();
+    const pick = async (testId: string, option: string) => {
+      const trigger = dialog().querySelector<HTMLButtonElement>(`[data-testid="${testId}"]`)!;
+      await act(async () => { trigger.dispatchEvent(new window.Event("pointerdown", { bubbles: true, cancelable: true })); });
+      await act(async () => document.body.querySelector<HTMLElement>(`[data-testid="${testId}-option-${option}"]`)!.click());
+    };
+    await pick("picker-profile-single", "gemini-cli");
+    const model = () => dialog().querySelector<HTMLButtonElement>('[data-testid="picker-profile-model"]');
+    // A profile that declares no model or effort offers no pills; the agent keeps its own default.
+    expect(dialog().querySelector('[data-testid="launch-profile-model-row"]')).toBeNull();
+
+    await pick("picker-profile-single", "deepseek-harness");
+    expect(model()?.disabled).toBe(false);
+    expect(model()?.textContent).toContain("Default");
+    await pick("picker-profile-model", "pro");
+    await pick("picker-profile-effort", "low");
+    await act(async () => dialog().querySelector<HTMLButtonElement>('[data-testid="picker-confirm"]')!.click());
+    expect(fixture.actions.spawnAgentTab).toHaveBeenCalledWith("workspace","opaque-acp","/workspace","pro","low",undefined,undefined,undefined,"deepseek-harness");
+  });
 });

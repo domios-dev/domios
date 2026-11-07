@@ -1,6 +1,7 @@
 import { catalogueSelection, modelIdentity, selectedModel } from "./model-policy.mjs";
 import { REQUIRED_PROVIDERS } from "./oracle.mjs";
 import { fixtureProviderId } from "./fixture-control.mjs";
+import { profileSelection, profileIdentity, selectionDefault } from "./profile-policy.mjs";
 
 export function modelEvidenceErrors(state, { verify = true, builds = {} } = {}) {
   const errors = [];
@@ -44,6 +45,11 @@ export function modelEvidenceErrors(state, { verify = true, builds = {} } = {}) 
   });
   const catalogue = (entry, provider, selected) => {
     require(entry?.provider === provider && entry.selected === selected, `${provider} catalogue selection absent or changed`);
+    if (entry.kind === "profile") {
+      const observed = profileSelection({ id: provider, agent_runtime: { launchProfiles: { [entry.launch_profile]: {} } } }, selected, [entry.profile]);
+      require(observed.launch_profile === entry.launch_profile && observed.model === entry.model, `${provider} profile selection changed`);
+      return;
+    }
     catalogueSelection({ id: provider, availability: "available", model_catalogue: entry.capability,
       available_models: [entry.model], catalogue_version: entry.catalogue_version }, selected, entry.refresh,
       entry.qualification ? { qualification: entry.qualification, phase: verify ? "verify" : "setup", run: state.run,
@@ -55,15 +61,18 @@ export function modelEvidenceErrors(state, { verify = true, builds = {} } = {}) 
     if (policy.verify_catalogues?.[provider]) catalogue(policy.verify_catalogues[provider], provider, selected);
     for (const phase of verify ? ["setup", "verify"] : ["setup"]) {
       const configuration = policy.configurations?.[phase];
-      require(configuration?.defaults?.[provider] === selected, `${phase} ${provider} scoped default absent or substituted`);
+      require(configuration?.defaults?.[provider] === selectionDefault(policy.catalogues[provider]), `${phase} ${provider} scoped default absent or substituted`);
       require(configuration.general_provider === policy.general_provider
         && configuration.general_model === selectedModel(policy.selections, policy.general_provider), `${phase} General selection absent or substituted`);
     }
     require(state.tabs?.some((tab) => tab.journey === "J1" && tab.provider === provider), `${provider} J1 roster coverage absent`);
   });
   for (const launch of policy.launches ?? []) check(() => {
-    require(launch.model === selectedModel(policy.selections, launch.provider), `${launch.path} model substituted`);
-    catalogue(launch.catalogue, launch.provider, launch.model);
+    const selected = selectedModel(policy.selections, launch.provider);
+    if (launch.catalogue?.kind === "profile") require(launch.selection === selected
+      && launch.launch_profile === launch.catalogue.launch_profile && launch.model === launch.catalogue.model, `${launch.path} profile or model substituted`);
+    else require(launch.model === selected, `${launch.path} model substituted`);
+    catalogue(launch.catalogue, launch.provider, selected);
     require(typeof launch.checked_at === "string" && launch.checked_at.length > 0, "launch catalogue observation time absent");
   });
   for (const path of ["J1-spawn", "J2-api-pair", "J2-ui-pair", "J3-dispatch"]) check(() => {
@@ -72,6 +81,13 @@ export function modelEvidenceErrors(state, { verify = true, builds = {} } = {}) 
   const identity = (entry, tab) => {
     const selected = selectedModel(policy.selections, tab.provider ?? tab.agent_type);
     require(entry?.selected === selected, `tab ${tab.id} selected identity absent`);
+    const provider = tab.provider ?? tab.agent_type;
+    const record = { id: tab.id, agent_type: entry.provider, agent_requested_model: entry.requested,
+      agent_provider_resolved_model: entry.resolved, agent_session_model: entry.actual, agent_session_id: entry.session };
+    if (policy.catalogues?.[provider]?.kind === "profile") {
+      profileIdentity({ ...record, agent_runtime_config: { launchProfile: entry.launch_profile } }, provider, policy.catalogues[provider]);
+      return;
+    }
     modelIdentity({ id: tab.id, agent_type: entry.provider, agent_requested_model: entry.requested,
       agent_provider_resolved_model: entry.resolved, agent_session_model: entry.actual,
       agent_session_id: entry.session }, tab.provider ?? tab.agent_type, selected);

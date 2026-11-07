@@ -1,8 +1,10 @@
+import { Events } from "./env.mjs";
 // WHAT: Exact advertised selections guard every paid bench boundary.
 // WHY: Implicit launch defaults and restore sends can violate the owner's model policy.
 // ORACLE: Injected API/command spies see explicit IDs or zero paid calls on refusal.
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
 import { setup, parseArgs } from "../driver.mjs";
 import { dispatchWorker, review } from "../journeys/dispatch.mjs";
 import { spawnOne } from "../journeys/spawn.mjs";
@@ -20,7 +22,7 @@ const record = () => ({ id: "owned", agent_type: provider, agent_requested_model
   agent_provider_resolved_model: model, agent_session_model: model, agent_session_id: "own-session" });
 
 function fixture() {
-  const calls = [], descriptors = [descriptor()];
+  const calls = [], descriptors = [descriptor()], profiles = [];
   const config = { general_agent: { first_run_complete: false }, agent: {}, agents: { [provider]: {} } };
   let tab = record(), refresh = refreshed();
   const ctx = {
@@ -32,6 +34,7 @@ function fixture() {
     api: async (path, options) => {
       calls.push({ path, options });
       if (path === "/api/agents/providers") return descriptors;
+      if (path === "/api/agents/providers/acp/profiles") return profiles;
       if (path === "/api/agents/providers/refresh") return refresh;
       if (path === "/api/config") {
         if (options) {
@@ -52,11 +55,146 @@ function fixture() {
     },
     command: async (args, options) => { calls.push({ args, options }); return { tab_id: "created" }; },
   };
-  return { ctx, calls, descriptors, config, setTab: (value) => { tab = value; }, setRefresh: (value) => { refresh = value; },
+  return { ctx, calls, descriptors, profiles, config, setTab: (value) => { tab = value; }, setRefresh: (value) => { refresh = value; },
     prepare: async (configure = true) => { ctx.policy = await preparePolicy(ctx, { configure, required: [], readRecord: async () => tab }); return ctx.policy; } };
 }
 
 const paidCalls = (calls) => calls.filter((call) => call.args || call.path?.endsWith("/chat-send") || ["/api/agents/general/complete-first-run", "/api/orchestration/new"].includes(call.path));
+
+function profileFixture(selection = "gemini-cli") {
+  const f = fixture();
+  f.descriptors.push({ id: "acp", availability: "available", agent_runtime: { launchProfiles: { "gemini-cli": {} } }, available_models: [] });
+  f.profiles.push({ id: "gemini-cli", install: "detected", auth: "unknown", configOptions: [] });
+  f.ctx.options.models.acp = selection;
+  f.setTab({ id: "owned", agent_type: "acp", agent_runtime_config: { launchProfile: "gemini-cli" }, agent_session_id: "acp-session" });
+  return f;
+}
+
+test("emitted profile spawn and dispatch flags exist in the generated CLI contract", async () => {
+  const manifest = JSON.parse(readFileSync(new URL("../../../generated/cli/cli-manifest.json", import.meta.url), "utf8"));
+  const f = profileFixture("gemini-cli/exact-model");
+  f.profiles[0].configOptions = [{ category: "model", options: [{ value: "exact-model" }] }];
+  await f.prepare();
+  await spawnOne(f.ctx, { id: "acp", runtime: true });
+  await dispatchWorker(f.ctx, "acp", "p", "t", "o", f.ctx.state.workspace);
+  for (const { args } of paidCalls(f.calls)) {
+    let command = manifest;
+    let depth = 0;
+    const allowed = new Set();
+    for (;;) {
+      for (const option of command.args) if (!option.positional) {
+        allowed.add(`--${option.name}`);
+        for (const alias of option.aliases) allowed.add(`--${alias}`);
+      }
+      const next = command.subcommands.find(child => child.name === args[depth]);
+      if (!next) break;
+      depth++;
+      command = next;
+    }
+    for (const flag of args.filter(arg => arg.startsWith("--"))) assert.ok(allowed.has(flag), `${args.slice(0, depth).join(" ")} does not declare ${flag}`);
+    assert.equal(args[args.indexOf("--profile") + 1], "gemini-cli");
+    assert.equal(args[args.indexOf("--model") + 1], "exact-model");
+  }
+});
+
+test("a failed ACP launch or send does not poison another provider's sends", async () => {
+  for (const action of ["launch", "send"]) {
+    const f = profileFixture(); await f.prepare();
+    const failure = new Error(`ACP ${action} failed`);
+    const originalCommand = f.ctx.command;
+    f.ctx.command = async (args, options) => {
+      if (args[2] === "acp") throw failure;
+      return originalCommand(args, options);
+    };
+    const failed = action === "launch" ? spawnOne(f.ctx, { id: "acp", runtime: true })
+      : f.ctx.policy.send("owned", () => { throw failure; });
+    await assert.rejects(failed, error => error === failure);
+    assert.equal(f.ctx.state.model_policy.refusal, undefined);
+    f.setTab(record());
+    await sendText(f.ctx, "owned", "other provider still runs");
+    assert.equal(f.calls.filter(call => call.path?.endsWith("/chat-send")).length, 1);
+  }
+});
+
+test("nested policy failures preserve one original root cause", async () => {
+  const f = fixture(); await f.prepare();
+  f.setTab({ ...record(), agent_requested_model: "wrong" });
+  await assert.rejects(sendText(f.ctx, "owned", "refused"), /requested\/resolved identity/);
+  const root = f.ctx.state.model_policy.refusal;
+  assert.equal(root.includes("persisted refusal"), false);
+  await assert.rejects(sendText(f.ctx, "owned", "still refused"), /persisted refusal/);
+  assert.equal(f.ctx.state.model_policy.refusal, root);
+  assert.deepEqual(paidCalls(f.calls), []);
+});
+
+test("profile-backed providers remain in the full roster and name ready selections on refusal", async () => {
+  const f = profileFixture(); delete f.ctx.options.models.acp;
+  await assert.rejects(f.prepare(), /complete installed provider roster; expected --model acp=<profile> \(ready profiles: gemini-cli\)/);
+  assert.deepEqual(paidCalls(f.calls), []);
+  assert.equal(f.calls.some(call => call.options?.method === "PATCH"), false);
+});
+
+test("profile defaults spawn and dispatch with launch_profile, no invented model or flat refresh", async () => {
+  for (const selection of ["gemini-cli", "gemini-cli/default"]) {
+    const f = profileFixture(selection); await f.prepare();
+    assert.deepEqual(f.ctx.policy.roster.run.map(value => value.id), [provider, "acp"]);
+    assert.equal(f.config.agents.acp.default_model, null);
+    await spawnOne(f.ctx, { id: "acp", runtime: true });
+    await dispatchWorker(f.ctx, "acp", "p", "t", "o", f.ctx.state.workspace);
+    for (const { args } of paidCalls(f.calls)) {
+      assert.equal(args[args.indexOf("--profile") + 1], "gemini-cli");
+      assert.equal(args.includes("--model"), false);
+    }
+    assert.equal(f.calls.some(call => call.path === "/api/agents/providers/refresh" && call.options.body.provider_id === "acp"), false);
+    const entry = f.ctx.state.model_policy.launches[0];
+    assert.equal(entry.selection, selection); assert.equal(entry.launch_profile, "gemini-cli"); assert.equal(entry.model, null);
+  }
+});
+
+test("explicit profile models are exact declared choices, including opaque slash IDs", async () => {
+  const f = profileFixture("gemini-cli/vendor/exact");
+  f.profiles[0].configOptions = [{ id: "model-id", category: "model", options: [{ value: "vendor/exact" }] }];
+  await f.prepare(); await spawnOne(f.ctx, { id: "acp", runtime: true });
+  const { args } = paidCalls(f.calls)[0];
+  assert.equal(args[args.indexOf("--profile") + 1], "gemini-cli");
+  assert.equal(args[args.indexOf("--model") + 1], "vendor/exact");
+  f.setTab({ id: "owned", agent_type: "acp", agent_runtime_config: { launchProfile: "gemini-cli" },
+    agent_requested_model: "vendor/exact", agent_provider_resolved_model: "vendor/exact", agent_session_model: "vendor/exact", agent_session_id: "s" });
+  await f.ctx.policy.identity("owned");
+  f.profiles[0].configOptions[0].options = [];
+  await assert.rejects(spawnOne(f.ctx, { id: "acp" }), /unknown or ambiguous profile model/);
+  assert.equal(paidCalls(f.calls).length, 1);
+});
+
+test("unknown, duplicate, uninstalled, busy and auth-blocked profiles refuse before configuration or paid work", async () => {
+  for (const mutate of [
+    f => { f.ctx.options.models.acp = "missing"; }, f => { f.profiles.push({ ...f.profiles[0] }); },
+    f => { f.profiles[0].install = "not_installed"; }, f => { f.profiles[0].setup = { state: "installing" }; },
+    f => { f.profiles[0].auth = "needs_auth"; }, f => { f.ctx.options.models.acp = "gemini-cli/guessed-model"; },
+  ]) {
+    const f = profileFixture(); mutate(f);
+    await assert.rejects(f.prepare(), /model policy refused/);
+    assert.deepEqual(paidCalls(f.calls), []);
+    assert.equal(f.calls.some(call => call.options?.method === "PATCH"), false);
+  }
+  const f = profileFixture(); await f.prepare(); f.profiles[0].install = "not_installed";
+  await assert.rejects(spawnOne(f.ctx, { id: "acp" }), /not installed and ready/);
+  assert.deepEqual(paidCalls(f.calls), []);
+});
+
+test("profile default identity survives restart without claiming a model and rejects wrong profile or session", async () => {
+  const f = profileFixture(); await f.prepare();
+  const before = await f.ctx.policy.identity("owned");
+  assert.equal(before.actual, null); assert.equal(before.requested, null); assert.equal(before.launch_profile, "gemini-cli");
+  f.ctx.state = JSON.parse(JSON.stringify(f.ctx.state)); f.ctx.options.mode = "verify";
+  await f.prepare(false);
+  await f.ctx.policy.identity("owned", { restored: true });
+  for (const patch of [{ agent_runtime_config: { launchProfile: "other" } }, { agent_session_id: "foreign" }]) {
+    const g = profileFixture(); await g.prepare(); await g.ctx.policy.identity("owned");
+    g.setTab({ id: "owned", agent_type: "acp", agent_runtime_config: { launchProfile: "gemini-cli" }, agent_session_id: "acp-session", ...patch });
+    await assert.rejects(g.ctx.policy.identity("owned", { restored: true }), /profile.*(mismatched|changed)/);
+  }
+});
 
 test("the run's control fixture never narrows the complete real provider roster", async () => {
   const f = fixture();
@@ -161,6 +299,17 @@ test("fresh rejection at each launch boundary causes zero paid calls", async () 
     await assert.rejects(launch(f.ctx), /capability unavailable or unknown/);
     assert.deepEqual(paidCalls(f.calls), []);
   }
+});
+
+test("flat launch validation observes models after the refresh completes", async () => {
+  const f = fixture(); await f.prepare(); f.calls.length = 0;
+  const original = f.ctx.api;
+  f.ctx.api = async (path, options) => {
+    if (path === "/api/agents/providers/refresh") f.descriptors[0] = { ...descriptor(), available_models: [] };
+    return original(path, options);
+  };
+  await assert.rejects(spawnOne(f.ctx, { id: provider }), /catalogue absent/);
+  assert.deepEqual(paidCalls(f.calls), []);
 });
 
 test("only initial J1 input may precede actual model evidence; unknown then blocks every later send", async () => {
@@ -279,7 +428,7 @@ test("startup completion followed by a refused refresh never loops or weakens mo
 test("startup catalogue subscription deadline reports the provider before any refresh", async () => {
   const f = fixture();
   f.ctx.catalogueEvents = async () => { throw new Error("deadline"); };
-  await assert.rejects(f.prepare(), new RegExp(`${provider} startup catalogue completion event did not arrive`));
+  await assert.rejects(f.prepare(), new RegExp(`${provider} catalogue refresh response did not arrive before the 45 s deadline`));
   assert.equal(f.calls.some(call => call.path === "/api/agents/providers/refresh"), false);
 });
 
@@ -313,4 +462,58 @@ test("verify cache qualification refuses missing live setup, a different build/r
     assert.deepEqual(paidCalls(f.calls), []);
     assert.equal(f.calls.filter(call => call.path === "/api/agents/providers/refresh").length, 1);
   }
+});
+
+
+test("a cached refresh response arriving after 15 s starts its own later event window and qualifies verify", async () => {
+  const f = fixture(); await f.prepare(); f.ctx.options.mode = "verify";
+  const bounds = [], eventDeadline = new AbortController();
+  let elapsed = 0;
+  f.ctx.catalogueDeadline = ms => {
+    bounds.push({ ms, at: elapsed });
+    return ms === 15_000 ? eventDeadline.signal : new AbortController().signal;
+  };
+  const original = f.ctx.api;
+  f.ctx.api = async (path, options) => {
+    if (path === "/api/agents/providers/refresh") {
+      assert.deepEqual(bounds, [{ ms: 45_000, at: 0 }]);
+      elapsed = 20_000;
+      assert.equal(options.signal.aborted, false);
+      return { ...refreshed(), refreshed: false };
+    }
+    return original(path, options);
+  };
+  f.ctx.catalogueEvents = async () => ({
+    next: async signal => {
+      assert.equal(signal, eventDeadline.signal);
+      assert.deepEqual(bounds, [{ ms: 45_000, at: 0 }, { ms: 15_000, at: 20_000 }]);
+      eventDeadline.abort(); throw new Error("deadline");
+    }, close() {},
+  });
+  await f.prepare(false);
+  assert.equal(f.ctx.state.model_policy.verify_catalogues[provider].qualification.verified_live_in_setup, true);
+});
+
+test("a missing refresh response refuses at its own bound and never qualifies a cached verify", async () => {
+  const f = fixture(); await f.prepare(); f.ctx.options.mode = "verify";
+  const request = new AbortController(), bounds = [];
+  f.ctx.catalogueDeadline = ms => { bounds.push(ms); return request.signal; };
+  const original = f.ctx.api;
+  f.ctx.api = async (path, options) => {
+    if (path === "/api/agents/providers/refresh") { request.abort(); throw new Error("deadline"); }
+    return original(path, options);
+  };
+  await assert.rejects(f.prepare(false), /catalogue refresh response did not arrive before the 45 s deadline/);
+  assert.deepEqual(bounds, [45_000]);
+  assert.equal(f.ctx.state.model_policy.verify_catalogues, undefined);
+});
+
+test("an event subscription can use a separate per-wait abort signal without timing out its lifetime", async () => {
+  const lifetime = new AbortController(), event = new AbortController();
+  const events = new Events({}, lifetime.signal);
+  const pending = events.next(event.signal);
+  event.abort();
+  await assert.rejects(pending, /deadline/);
+  assert.equal(lifetime.signal.aborted, false);
+  assert.equal(events.waiter, null);
 });

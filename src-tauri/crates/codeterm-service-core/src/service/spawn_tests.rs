@@ -134,6 +134,7 @@ pub struct ModelProvider {
     model_catalogue: crate::agent::provider::ModelCatalogueCapability,
     cli_binary: Option<&'static str>,
     install_command: Option<&'static str>,
+    runtime: Option<codeterm_plugin::agent_runtime::AgentRuntimeCapability>,
 }
 
 impl ModelProvider {
@@ -160,6 +161,7 @@ impl ModelProvider {
             model_catalogue: Default::default(),
             cli_binary: None,
             install_command: None,
+            runtime: None,
         }
     }
 
@@ -179,6 +181,9 @@ impl ModelProvider {
 }
 
 impl crate::agent::provider::AgentProvider for ModelProvider {
+    fn agent_runtime(&self) -> Option<codeterm_plugin::agent_runtime::AgentRuntimeCapability> {
+        self.runtime.clone()
+    }
     fn id(&self) -> &str {
         self.id
     }
@@ -426,6 +431,7 @@ fn fresh_agent_model_keeps_explicit_model() {
 fn fresh_agent_model_canonicalizes_display_name() {
     let registry = registry_with(ModelProvider {
         id: "model-test-display",
+        runtime: None,
         models: vec![crate::agent::provider::ModelInfo {
             default_reasoning_effort: None,
             id: "gpt-5.5".into(),
@@ -690,6 +696,7 @@ fn agent_spec_roundtrips_json() {
 fn from_agent_params_carries_model_into_spec() {
     let params = SpawnAgentParams {
         execution_mode: None,
+        launch_profile: None,
         context_files: None,
         neighbor_authority: None,
         neighbor_machine_access: None,
@@ -781,6 +788,7 @@ fn to_agent_params_carries_model_as_dedicated_field() {
 fn planned_effort_survives_host_owned_params_spec_pipeline() {
     let params = SpawnAgentParams {
         execution_mode: None,
+        launch_profile: None,
         context_files: None,
         neighbor_authority: None,
         context_skills: None,
@@ -858,6 +866,7 @@ fn from_agent_params_preserves_can_spawn_option() {
     // --can-spawn=b explicitly". The spec must NOT collapse None → Some(false) (the pre-fix-#42 behavior that clobbered Orchestrator default to false on every spawn).
     let mut p = SpawnAgentParams {
         execution_mode: None,
+        launch_profile: None,
         context_files: None,
         neighbor_authority: None,
         neighbor_machine_access: None,
@@ -938,6 +947,7 @@ fn from_agent_params_preserves_can_spawn_option() {
 fn from_agent_params_carries_activate_into_spec() {
     let mut p = SpawnAgentParams {
         execution_mode: None,
+        launch_profile: None,
         context_files: None,
         neighbor_authority: None,
         neighbor_machine_access: None,

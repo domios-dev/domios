@@ -56,8 +56,9 @@ import { TerminalViewControls } from "./TerminalViewControls";
 import { shouldOfferScrollToBottom } from "../../hooks/terminal/terminalFollowState";
 import { useInputWriteFailure } from "../../hooks/terminal/useInputWriteFailure";
 import { InputWriteFailureLine } from "./InputWriteFailureLine";
+import { TerminalStartFailure } from "./TerminalStartFailure";
 import { openNewSessionPicker } from "../../lib/newSessionChoice";
-import { terminalFrameVisible, terminalLayoutRequired } from "../../lib/terminalFrameGate";
+import { terminalContentTopInset, terminalFrameVisible, terminalLayoutRequired } from "../../lib/terminalFrameGate";
 
 interface TerminalTabProps {
   wakingTranscript?: boolean;
@@ -161,7 +162,6 @@ export const TerminalTab = memo(function TerminalTab({
   const stopManagedGeneration = useManagedTerminal(termRef, connectedPtyRef, termReady, managedView.locked, tabId);
   const resizeClientId = useMemo(() => getResizeClientId(), []);
   const {
-    commitResize,
     setResizeOwner,
     loseResizeOwnership,
     hasResizeOwnership,
@@ -188,7 +188,7 @@ export const TerminalTab = memo(function TerminalTab({
     tabId, termRef, containerRef, connectedPtyRef,
   });
 
-  const { writePty } = usePtyConnection({
+  const { writePty, readinessFailed, retryConnection } = usePtyConnection({
     termRef, connectedPtyRef, tabId, ptyId, termReady,
     onPtySpawned,
     onShellReady: shell.markReady,
@@ -350,13 +350,9 @@ export const TerminalTab = memo(function TerminalTab({
     if (!terminalLayoutRequired(isVisible, terminalVisible, termReady)) return;
     const term = termRef.current;
     if (!term) return;
-    try {
-      fitAddonRef.current?.fit();
-      commitResize();
-      term.refresh(0, term.rows - 1);
-    } catch { /* teardown */ }
+    refitAndCommitResize();
     if (frameReady) term.focus();
-  }, [terminalVisible, isVisible, showTerminalKeyBar, termReady, frameReady, termRef, fitAddonRef, commitResize]);
+  }, [terminalVisible, isVisible, showTerminalKeyBar, termReady, frameReady, termRef, refitAndCommitResize]);
 
   useEffect(() => {
     if (!terminalFallbackOpen || uiMode !== "chat") return;
@@ -382,7 +378,7 @@ export const TerminalTab = memo(function TerminalTab({
 
   const handleClick = useCallback(() => {
     onFocus?.(tabId);
-    activateTerminal();
+    activateTerminal("interaction");
     termRef.current?.focus();
   }, [onFocus, tabId, termRef, activateTerminal]);
 
@@ -498,7 +494,9 @@ export const TerminalTab = memo(function TerminalTab({
       )}
       <LockedOverlay view={lock} onActivate={() => openLockedPlans(lock)} />
       {isVisible && uiMode === "terminal" && framePtyId === null && (!terminalIoReady || !frameReady) && !lock.locked && (
-        <Loader label="Starting terminal…" variant="overlay" className="z-20" />
+        readinessFailed
+          ? <TerminalStartFailure onRetry={retryConnection} />
+          : <Loader label="Starting terminal…" variant="overlay" className="z-20" />
       )}
       <DeferredPresence present={isVisible && uiMode === "terminal" && framePtyId !== null && (!terminalIoReady || !frameReady) && !lock.locked}
         className="pointer-events-none absolute inset-x-0 top-2 z-30 flex justify-center">
@@ -568,9 +566,12 @@ export const TerminalTab = memo(function TerminalTab({
           }
           style={{
             padding: fallbackChat || showTerminalKeyBar ? 8 : 0,
-            paddingTop: touchUi && uiMode === "terminal"
-              ? "calc(1.25rem + var(--ct-safe-top, 0px))"
-              : fallbackChat || showTerminalKeyBar ? 8 : 0,
+            paddingTop: terminalContentTopInset({
+              terminalMode: uiMode === "terminal",
+              touchUi,
+              fallbackChat,
+              keyBar: showTerminalKeyBar,
+            }),
             opacity: shell.overlayVisible ? 0 : 1,
             transition: "opacity 0.3s ease-in",
             background: terminalBackground,

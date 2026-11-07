@@ -5,7 +5,7 @@ const startupPhaseLabels: Record<StartupPhase, string> = {
   listener: "Opening API listener",
   integrity: "Verifying resources",
   states: "Initializing state",
-  providers: "Registering providers",
+  providers: "Registering harnesses",
   service: "Preparing service",
   plans: "Loading plans",
   background: "Starting background services",
