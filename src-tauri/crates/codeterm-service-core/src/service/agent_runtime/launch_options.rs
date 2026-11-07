@@ -30,6 +30,52 @@ fn validate_host_directories(roots: Vec<PathBuf>) -> Result<Vec<String>, String>
     Ok(directories)
 }
 
+const FULL_ACCESS_MODE_KEY: &str = "fullAccessMode";
+
+/// The runtime config names the full-access session mode only while the prepared options carry one.
+fn apply_full_access_mode(
+    config: &mut serde_json::Map<String, serde_json::Value>,
+    options: &RestorableRuntimeLaunchOptions,
+) {
+    match &options.full_access_mode {
+        Some(mode) => {
+            config.insert(FULL_ACCESS_MODE_KEY.into(), serde_json::json!(mode));
+        }
+        None => {
+            config.remove(FULL_ACCESS_MODE_KEY);
+        }
+    }
+}
+
+/// The selected launch profile's declared approve-everything session mode, for full-access launches only.
+fn full_access_mode(
+    svc: &ServiceContext,
+    tab_id: &str,
+    provider: &str,
+    full_access: bool,
+) -> Option<String> {
+    if !full_access {
+        return None;
+    }
+    let profile = svc.mux.read().get_tab(tab_id).and_then(|tab| {
+        tab.agent_runtime_config
+            .as_ref()?
+            .get("launchProfile")?
+            .as_str()
+            .map(str::to_owned)
+    })?;
+    svc.agent_registry
+        .with_provider(provider, |provider| {
+            provider
+                .agent_runtime()?
+                .launch_profiles?
+                .get(&profile)?
+                .full_access_mode
+                .clone()
+        })
+        .flatten()
+}
+
 fn authorized_mode(requested: Option<bool>, authorized: bool) -> Result<&'static str, String> {
     match requested {
         Some(true) if authorized => Ok("full-access"),
@@ -153,6 +199,7 @@ impl ServiceContext {
                     crate::agent::provider::current_platform_tag(),
                 )
             },
+            full_access_mode: full_access_mode(self, tab_id, &provider, skip),
         };
         let settings = runtime_settings(&options);
         validate_runtime_settings(&settings).map_err(|reason| reason.to_string())?;
@@ -184,6 +231,7 @@ impl ServiceContext {
             } else {
                 config.remove("networkAccess");
             }
+            apply_full_access_mode(config, &options);
             tab.restorable_launch.permission_bypass_requested = skip;
             tab.restorable_launch.runtime_launch_options = Some(options);
         }

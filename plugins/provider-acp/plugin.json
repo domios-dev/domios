@@ -18,6 +18,7 @@
       "runtime": "stdio-jsonrpc",
       "envelope": "jsonrpc2",
       "usage": true,
+      "hostApprovals": true,
       "command": {
         "binary": "acp-agent",
         "args": []
@@ -61,6 +62,7 @@
             }
           },
           "icon": "gemini-color.svg",
+          "fullAccessMode": "yolo",
           "clientCapabilities": {
             "fs": {
               "readTextFile": false
@@ -79,18 +81,21 @@
       },
       "registryDefaults": {
         "claude-acp": {
+          "fullAccessMode": "bypassPermissions",
           "limitsSource": {
             "kind": "account",
             "provider": "claude"
           }
         },
         "codex-acp": {
+          "fullAccessMode": "full-access",
           "limitsSource": {
             "kind": "account",
             "provider": "codex"
           }
         },
         "gemini": {
+          "fullAccessMode": "yolo",
           "limitsSource": {
             "kind": "unavailable",
             "reason": "Gemini API-key quota has no public endpoint; check usage in Google AI Studio"
@@ -104,13 +109,15 @@
         "openThread": [
           "session/new",
           "session/set_config_option",
-          "session/set_model"
+          "session/set_model",
+          "session/set_mode"
         ],
         "resumeThread": [
           "session/load",
           "session/resume",
           "session/set_config_option",
-          "session/set_model"
+          "session/set_model",
+          "session/set_mode"
         ],
         "submitTurn": [
           "session/prompt"

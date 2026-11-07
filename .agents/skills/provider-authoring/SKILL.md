@@ -742,6 +742,13 @@ with no filesystem, network, environment or subprocess access. The guard,
 confirmation reader and native/JS model-label detection share that parser;
 shared command fixtures cover native/QuickJS parity.
 
+`agentRuntime.hostApprovals: true` declares that the runtime's agent permission requests
+carry declared option kinds (`prompt` event `permission`), so the host answers them from the
+tab's launch policy and a full-access launch is authorized without `autoApproveFlags`.
+A launch profile (or `registryDefaults` entry) may declare `fullAccessMode`, the agent's own
+approve-everything session mode id; full-access launch options carry it to the runtime config
+as `fullAccessMode`, and the plugin enters it only when the agent advertises that mode.
+
 A launch profile's `limitsSource` names where its account limits come from:
 `{kind:"account",provider}` reuses that native provider's account meter,
 `{kind:"balance",reader,credentialEnv}` asks the plugin's `readProfileLimits({profile,source},nowMs)`

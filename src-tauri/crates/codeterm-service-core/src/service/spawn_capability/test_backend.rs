@@ -67,6 +67,7 @@ impl ChatBackendProvider for RuntimeTestBackend {
             registry_defaults: Default::default(),
             restricted_cli: None,
             runtime_modes: Vec::new(),
+            host_approvals: false,
             service_tiers: Vec::new(),
             background_processes: false,
             goals: None,

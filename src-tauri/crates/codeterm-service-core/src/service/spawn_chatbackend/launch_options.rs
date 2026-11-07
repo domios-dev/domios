@@ -68,6 +68,11 @@ pub(super) fn apply_prepared(
     } else {
         object.remove("networkAccess");
     }
+    if let Some(mode) = &options.full_access_mode {
+        object.insert("fullAccessMode".into(), serde_json::json!(mode));
+    } else {
+        object.remove("fullAccessMode");
+    }
     Ok(config)
 }
 
