@@ -54,6 +54,11 @@ export function NeighborConversationView({ friendship, enabled = true, client, r
   const cached = useMemo(() => readNeighborCache(identity), [identity]);
   const fresh = neighbors.list?.friends.find(entry => entry.friendship_id === friendship);
   const friend: ConversationFriend | undefined = fresh ?? (neighbors.list === null ? cached?.friends.find(entry => entry.friendship_id === friendship) : undefined);
+  if (neighbors.error) {
+    return <div className="neighbor-chat absolute inset-0 flex items-center justify-center bg-[var(--ct-bg)]">
+      <p role="status">Neighbors unavailable: {neighbors.error}</p>
+    </div>;
+  }
   if (!friend && neighbors.list === null) {
     return <div className="neighbor-chat absolute inset-0 flex items-center justify-center bg-[var(--ct-bg)]">
       <BusyState inline label="Loading conversation" phase="work" />

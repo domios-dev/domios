@@ -128,3 +128,58 @@ it("Retry reinstalls a rejected event listener before requesting the snapshot", 
   expect(starts).toBe(1);
 });
 
+it("recovers a superseded start without presenting a terminal attach failure", async () => {
+  let latest: ReturnType<typeof useChatSession> | undefined;
+  __setInvokeForTest((async (command: string, args: Record<string, unknown>) => {
+    if (command !== "chat_start") return [];
+    starts++;
+    if (starts === 1) throw new DOMException("Attachment superseded", "AbortError");
+    return { ...authority, subscription_id: args.subscriptionId, messages: [{ id: "row", type: "assistant", content: "Restored transcript" }], text: "", start_offset: 0, offset: 40, pending: false };
+  }) as never);
+  const failures: string[] = [];
+  function Probe() {
+    latest = useChatSession({ tabId: "superseded", agentSessionId: "own-session", sessionBindingNonce: "own-nonce", active: true, onError: error => failures.push(error) });
+    return <div>{latest.allMessages.map(row => row.content).join("")}</div>;
+  }
+  await act(async () => root.render(<Probe />));
+  expect(failures).toEqual([]);
+  expect(latest?.attachmentState).toBe("attached");
+  expect(host.textContent).toBe("Restored transcript");
+  expect(starts).toBe(2);
+});
+it("bounds aborted attach recovery and resumes on a later activation", async () => {
+  let resumed = false;
+  let latest: ReturnType<typeof useChatSession> | undefined;
+  __setInvokeForTest((async (command: string, args: Record<string, unknown>) => {
+    if (command !== "chat_start") return [];
+    starts++;
+    if (starts <= 2) throw new DOMException("Request aborted", "AbortError");
+    if (starts === 3 && !resumed) throw new Error("unexpected automatic retry");
+    return { ...authority, subscription_id: args.subscriptionId, messages: [], text: "", start_offset: 0, offset: 0, pending: false };
+  }) as never);
+  function Probe({ active = true }: { active?: boolean }) {
+    latest = useChatSession({ tabId: "aborted", agentSessionId: "own-session", sessionBindingNonce: "own-nonce", active, retainAttachment: true });
+    return null;
+  }
+  await act(async () => root.render(<Probe />));
+  expect(starts).toBe(2);
+  expect(latest?.error).toBeNull();
+  expect(latest?.attachmentState).not.toBe("failed");
+  resumed = true;
+  await act(async () => root.render(<Probe active={false} />));
+  await act(async () => root.render(<Probe />));
+  expect(starts).toBe(3);
+  expect(latest?.attachmentState).toBe("attached");
+});
+it("reattaches after an aborted listener setup without reporting a terminal failure", async () => {
+  failSnapshot = false;
+  let listenerCalls = 0;
+  __setListenForTest(async event => {
+    if (event === "tab-chat-msg-failed-attach" && ++listenerCalls === 1) throw new DOMException("Listener aborted", "AbortError");
+    return () => {};
+  });
+  await act(async () => root.render(<Harness />));
+  expect(host.querySelector('[aria-label="Chat connection failed"]')).toBeNull();
+  expect(host.querySelector('[role="log"]')?.textContent).toBe("Restored transcript");
+  expect(listenerCalls).toBe(2);
+});

@@ -1,29 +1,20 @@
 import { createConsumerFlight } from "../../lib/consumerFlight";
-import { createChatAttachFlight } from "./chatAttachFlight";
 
 export function createChatStartFlight() {
   const consumers = createConsumerFlight<unknown>();
-  const tabs = new Map<string, { flight: ReturnType<typeof createChatAttachFlight<unknown>>; owners: number }>();
-  let sequence = 0;
+  const tabs = new Map<string, Promise<unknown>>();
   return <T>(tabId: string, key: string, start: (signal: AbortSignal) => Promise<T>, signal?: AbortSignal): Promise<T> => {
-    return consumers.run(JSON.stringify([tabId, key]), async sharedSignal => {
-      let tab = tabs.get(tabId);
-      if (!tab) {
-        tab = { flight: createChatAttachFlight<unknown>(), owners: 0 };
-        tabs.set(tabId, tab);
-      }
-      const owned = tab;
-      owned.owners++;
-      try {
-        const result = await owned.flight.run(String(++sequence), () => {
-          sharedSignal.throwIfAborted();
-          return start(sharedSignal);
-        });
-        if (result.kind === "superseded") throw new DOMException("Attachment superseded", "AbortError");
-        return result.value;
-      } finally {
-        if (--owned.owners === 0 && tabs.get(tabId) === owned) tabs.delete(tabId);
-      }
+    return consumers.run(JSON.stringify([tabId, key]), sharedSignal => {
+      const previous = tabs.get(tabId);
+      const attach = () => {
+        sharedSignal.throwIfAborted();
+        return start(sharedSignal);
+      };
+      const next = previous ? previous.then(attach, attach) : attach();
+      tabs.set(tabId, next);
+      return next.finally(() => {
+        if (tabs.get(tabId) === next) tabs.delete(tabId);
+      });
     }, signal) as Promise<T>;
   };
 }
