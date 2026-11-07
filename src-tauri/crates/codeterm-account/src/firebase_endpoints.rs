@@ -1,5 +1,6 @@
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Endpoints {
+    pub project: &'static str,
     pub identity_toolkit: &'static str,
     pub secure_token: &'static str,
     pub functions: &'static str,
@@ -40,6 +41,7 @@ pub fn configured_functions(saved: Option<&str>) -> Result<Option<&str>, &'stati
 }
 
 pub const PRODUCTION: Endpoints = Endpoints {
+    project: "domios-d9357",
     identity_toolkit: "https://identitytoolkit.googleapis.com/v1/",
     secure_token: "https://securetoken.googleapis.com/v1/",
     functions: "https://us-central1-domios-d9357.cloudfunctions.net/",
@@ -51,6 +53,7 @@ pub const PRODUCTION: Endpoints = Endpoints {
 
 #[cfg(any(debug_assertions, test))]
 const EMULATOR: Endpoints = Endpoints {
+    project: "demo-domios",
     identity_toolkit: "http://127.0.0.1:19099/identitytoolkit.googleapis.com/v1/",
     secure_token: "http://127.0.0.1:19099/securetoken.googleapis.com/v1/",
     functions: "http://127.0.0.1:15001/demo-domios/us-central1/",
@@ -64,14 +67,14 @@ pub fn current() -> Endpoints {
     let endpoints = selected_endpoints();
     static LOGGED: std::sync::Once = std::sync::Once::new();
     LOGGED.call_once(|| {
-        let (target, project) = if endpoints.qa {
-            ("qa", "domios-signin-qa")
+        let target = if endpoints.qa {
+            "qa"
         } else if endpoints.emulator {
-            ("emulator", "demo-domios")
+            "emulator"
         } else {
-            ("production", "domios-d9357")
+            "production"
         };
-        log::info!("account target: {target} ({project})");
+        log::info!("account target: {target} ({})", endpoints.project);
     });
     endpoints
 }
