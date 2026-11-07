@@ -130,7 +130,7 @@ pub(crate) struct TabCredentials(
 );
 
 impl TabCredentials {
-    fn mint(&self, caller: TabCaller) -> String {
+    fn mint(&self, caller: TabCaller, current_session: Option<&str>, attested: bool) -> String {
         let mut credentials = self.0.lock();
         let entry = credentials
             .entry(caller.tab_id.clone())
@@ -140,7 +140,11 @@ impl TabCredentials {
                 session: None,
                 file: None,
             });
-        if entry.caller != caller {
+        let session_changed = entry
+            .session
+            .as_deref()
+            .is_some_and(|session| Some(session) != current_session);
+        if entry.caller != caller || session_changed {
             self.1.lock().remove(&caller.tab_id);
             *entry = Credential {
                 token: uuid::Uuid::new_v4().to_string(),
@@ -148,6 +152,9 @@ impl TabCredentials {
                 session: None,
                 file: None,
             };
+        }
+        if entry.session.is_none() && attested {
+            entry.session = current_session.map(str::to_owned);
         }
         entry.token.clone()
     }
@@ -493,17 +500,14 @@ impl super::ServiceContext {
         if binding_nonce.as_str() != expected_nonce {
             return None;
         }
-        let token = self.tab_credentials.mint(TabCaller {
-            tab_id: tab.id.clone(),
-            binding_nonce: binding_nonce.clone(),
-        });
-        self.tab_credentials
-            .verify_session(
-                &token,
-                tab.agent_session_id.as_deref(),
-                tab.reported_session_binding_nonce.as_deref() == Some(binding_nonce.as_str()),
-            )
-            .then_some(token)
+        Some(self.tab_credentials.mint(
+            TabCaller {
+                tab_id: tab.id.clone(),
+                binding_nonce: binding_nonce.clone(),
+            },
+            tab.agent_session_id.as_deref(),
+            tab.reported_session_binding_nonce.as_deref() == Some(binding_nonce.as_str()),
+        ))
     }
 
     pub fn identify_tab_credential(&self, token: &str) -> Option<TabCaller> {
