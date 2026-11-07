@@ -64,7 +64,13 @@ pub(super) fn start(svc: &ServiceContext, session: &Arc<Session>) {
         .filter(|icon| !icon.trim().is_empty())
     {
         publish_icon(&svc, &session, &context.tab_id, epoch, Some(icon));
-        return;
+        if declaration
+            .as_ref()
+            .and_then(|profile| profile.icon_url.as_ref())
+            .is_none()
+        {
+            return;
+        }
     }
     crate::async_runtime::spawn(async move {
         let root = crate::paths::data_dir_path().join(&session.provider);
@@ -87,6 +93,27 @@ pub(super) fn start(svc: &ServiceContext, session: &Arc<Session>) {
         };
         let icon =
             codeterm_plugin::plugin_icon::registry::resolve(root.join("cache/icons"), &url).await;
+        if let Some(icon) = icon.as_ref() {
+            let provider = session.provider.clone();
+            let url = url.clone();
+            let icon = icon.clone();
+            let projection = tokio::task::spawn_blocking(move || {
+                codeterm_plugin::agent_runtime::owner_profiles::refresh_icon(&provider, &url, &icon)
+            })
+            .await;
+            match projection {
+                Ok(Ok(true)) => {
+                    svc.provider_registry.recheck_profiles(&session.provider);
+                    svc.events
+                        .publish(codeterm_events::SystemEvent::ContributionsChanged {
+                            kind: "agent_provider".into(),
+                        });
+                }
+                Ok(Ok(false)) => {}
+                Ok(Err(error)) => log::debug!("[runtime.icon] profile projection failed: {error}"),
+                Err(error) => log::debug!("[runtime.icon] profile projection task failed: {error}"),
+            }
+        }
         publish_icon(&svc, &session, &context.tab_id, epoch, icon);
     });
 }

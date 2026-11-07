@@ -48,7 +48,7 @@ fn now() -> u64 {
         .unwrap_or_default()
         .as_secs()
 }
-fn cached(path: &std::path::Path, time: u64) -> Option<String> {
+fn cached(path: &std::path::Path, time: Option<u64>) -> Option<String> {
     let file = std::fs::File::open(path).ok()?;
     let mut bytes = Vec::new();
     file.take((MAX_BYTES * 2 + 1) as u64)
@@ -58,20 +58,20 @@ fn cached(path: &std::path::Path, time: u64) -> Option<String> {
         return None;
     }
     let entry: Cached = serde_json::from_slice(&bytes).ok()?;
-    if time < entry.timestamp || time - entry.timestamp >= TTL.as_secs() {
+    if time.is_some_and(|time| time < entry.timestamp || time - entry.timestamp >= TTL.as_secs()) {
         return None;
     }
     sanitize(&entry.mime, &STANDARD.decode(entry.body).ok()?)
 }
 
-/// Read and revalidate a fresh URL-keyed cache entry without network access.
+/// Revalidate a stored display icon independently of its network refresh age.
 pub fn read_cached(root: &std::path::Path, url: &str) -> Option<String> {
     if !valid_url(url) {
         return None;
     }
     cached(
         &root.join(format!("{:x}.json", Sha256::digest(url.as_bytes()))),
-        now(),
+        None,
     )
 }
 
@@ -82,7 +82,7 @@ pub async fn resolve(root: PathBuf, url: &str) -> Option<String> {
     }
     let path = root.join(format!("{:x}.json", Sha256::digest(url.as_bytes())));
     let read_path = path.clone();
-    if let Some(icon) = tokio::task::spawn_blocking(move || cached(&read_path, now()))
+    if let Some(icon) = tokio::task::spawn_blocking(move || cached(&read_path, Some(now())))
         .await
         .ok()?
     {

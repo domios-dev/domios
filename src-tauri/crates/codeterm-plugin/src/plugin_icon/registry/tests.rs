@@ -64,15 +64,40 @@ fn cache_is_revalidated_and_expires_without_network() {
         body: STANDARD.encode(b"<svg viewBox='0 0 24 24'><path d='M0 0'/></svg>"),
     };
     std::fs::write(&path, serde_json::to_vec(&entry).unwrap()).unwrap();
-    assert!(cached(&path, 101).is_some());
-    assert!(cached(&path, 99).is_none());
-    assert!(cached(&path, 100 + TTL.as_secs()).is_none());
+    assert!(cached(&path, Some(101)).is_some());
+    assert!(cached(&path, Some(99)).is_none());
+    assert!(cached(&path, Some(100 + TTL.as_secs())).is_none());
     let entry = Cached {
         body: STANDARD.encode(b"<svg><script/></svg>"),
         ..entry
     };
     std::fs::write(&path, serde_json::to_vec(&entry).unwrap()).unwrap();
-    assert!(cached(&path, 101).is_none());
+    assert!(cached(&path, Some(101)).is_none());
+}
+
+#[test]
+fn sleeping_profile_display_revalidates_aged_url_keyed_icons_without_network() {
+    let root = tempfile::tempdir().unwrap();
+    let url = "https://example.org/profile.svg";
+    let path = root
+        .path()
+        .join(format!("{:x}.json", Sha256::digest(url.as_bytes())));
+    let entry = Cached {
+        timestamp: 0,
+        mime: "image/svg+xml".into(),
+        body: STANDARD.encode(b"<svg viewBox='0 0 24 24'><path d='M1 1'/></svg>"),
+    };
+    std::fs::write(&path, serde_json::to_vec(&entry).unwrap()).unwrap();
+    assert!(cached(&path, Some(TTL.as_secs() + 1)).is_none());
+    assert!(read_cached(root.path(), url).is_some());
+    assert!(read_cached(root.path(), "https://example.org/other.svg").is_none());
+    assert!(read_cached(root.path(), "http://example.org/profile.svg").is_none());
+    let invalid = Cached {
+        body: STANDARD.encode(b"<svg><script/></svg>"),
+        ..entry
+    };
+    std::fs::write(path, serde_json::to_vec(&invalid).unwrap()).unwrap();
+    assert!(read_cached(root.path(), url).is_none());
 }
 
 #[test]
