@@ -83,7 +83,9 @@ For an `ownerConfigured` profile, supply an installed executable and its argumen
 There is no environment field. A local command must resolve to an installed file;
 shell commands and package-fetching launchers (`npx`, `npm`, `uvx`, `uv`, `env`) are
 refused. Installation uses the profile's pinned distribution, verifies its archive
-and saves a declaration-bound receipt. POST returns `202 Accepted` with
+and saves a receipt bound to the profile's binary, arguments and install spec; icons,
+limits, launch policy and settings never stale it, and receipts from earlier builds
+are rebound on first use without reinstalling. POST returns `202 Accepted` with
 `{jobId, providerId, profileId, state:"accepted"}` before installation completes.
 The `provider-profile-setup` event carries that job through `installing` to
 `installed` or `failed`; a failed job includes an `error` string. GET includes the
@@ -139,4 +141,4 @@ text reason. Installed package files remain on disk. Deletion and CLI mutation
 share the same reservation. Terminal setup state is cleared on successful removal.
 These routes create no agent tab.
 
-<!-- revision: 12 -->
+<!-- revision: 13 -->

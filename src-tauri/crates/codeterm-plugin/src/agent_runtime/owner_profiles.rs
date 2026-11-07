@@ -152,7 +152,7 @@ pub fn overlay(
     overlay_with(capability, load(provider)?)
 }
 
-fn overlay_with(
+pub fn overlay_with(
     mut capability: AgentRuntimeCapability,
     owner: Profiles,
 ) -> Result<AgentRuntimeCapability, String> {

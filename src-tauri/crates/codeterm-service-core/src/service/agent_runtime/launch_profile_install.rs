@@ -6,13 +6,17 @@ use std::{
     path::{Path, PathBuf},
 };
 
+mod binding;
 mod distribution;
 mod npm;
 #[cfg(test)]
 mod tests;
 
+pub(super) use binding::{bound_by, fingerprint, Binding};
+
 pub const MAX_ARCHIVE_BYTES: usize = 64 * 1024 * 1024;
 const MAX_RECEIPT_BYTES: u64 = 64 * 1024;
+static RECEIPT_WRITES: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -71,17 +75,6 @@ fn receipt_path(root: &Path, id: &str) -> Result<PathBuf, String> {
     valid_id(id)?;
     Ok(root.join(format!("{id}.json")))
 }
-pub(super) fn fingerprint(profile: &RuntimeLaunchProfile) -> Result<String, String> {
-    let mut declaration = profile.clone();
-    declaration.icon_svg = None;
-    // Limits sources, host-written settings and the full-access mode never change
-    // what was installed, so they cannot stale a receipt.
-    declaration.limits_source = None;
-    declaration.settings_files.clear();
-    declaration.full_access_mode = None;
-    let bytes = serde_json::to_vec(&declaration).map_err(|_| "Invalid launch profile")?;
-    Ok(format!("{:x}", Sha256::digest(bytes)))
-}
 pub fn read_receipt(
     root: &Path,
     id: &str,
@@ -111,9 +104,12 @@ pub fn read_receipt(
     }
     let receipt: InstallReceipt =
         serde_json::from_slice(&bytes).map_err(|_| "Malformed install receipt")?;
-    if receipt.profile_id != id || receipt.declaration_sha256 != fingerprint(profile)? {
+    if receipt.profile_id != id {
         return Ok(None);
     }
+    let Some(bound) = bound_by(profile, &receipt.declaration_sha256)? else {
+        return Ok(None);
+    };
     validate_command(&receipt.command)?;
     if !Path::new(&receipt.command.binary).is_absolute()
         || !Path::new(&receipt.command.binary).is_file()
@@ -142,14 +138,42 @@ pub fn read_receipt(
             return Err("Installed binary checksum mismatch".into());
         }
     }
+    if bound == Binding::LegacyDeclaration {
+        return Ok(Some(rebind(&path, &bytes, receipt, profile)?));
+    }
     Ok(Some(receipt))
+}
+/// A verified legacy receipt is rebound once to its install identity, so later declaration
+/// fields cannot stale it; a receipt rewritten meanwhile is left as it is.
+fn rebind(
+    path: &Path,
+    verified: &[u8],
+    mut receipt: InstallReceipt,
+    profile: &RuntimeLaunchProfile,
+) -> Result<InstallReceipt, String> {
+    receipt.declaration_sha256 = fingerprint(profile)?;
+    let bytes = serde_json::to_vec(&receipt).map_err(|_| "Invalid receipt")?;
+    let _writes = RECEIPT_WRITES
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if std::fs::read(path).ok().as_deref() == Some(verified)
+        && codeterm_util::atomic_write::write_atomic(path, bytes).is_err()
+    {
+        log::debug!("[launch-profile] legacy install receipt kept: rebinding could not be saved");
+    }
+    Ok(receipt)
 }
 fn write_receipt(root: &Path, receipt: &InstallReceipt) -> Result<(), String> {
     std::fs::create_dir_all(root).map_err(|_| "Profile data directory unavailable")?;
     let path = receipt_path(root, &receipt.profile_id)?;
     let bytes = serde_json::to_vec(receipt).map_err(|_| "Invalid receipt")?;
-    codeterm_util::atomic_write::write_atomic(&path, bytes)
-        .map_err(|_| "Install receipt could not be saved".to_string())?;
+    {
+        let _writes = RECEIPT_WRITES
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        codeterm_util::atomic_write::write_atomic(&path, bytes)
+            .map_err(|_| "Install receipt could not be saved".to_string())?;
+    }
     crate::provider::invalidate_profile_readiness(root);
     Ok(())
 }

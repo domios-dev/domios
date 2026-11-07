@@ -197,21 +197,122 @@ fn binary_receipt_rechecks_executable_and_ignores_host_icon_projection() {
     std::fs::write(&binary, b"tampered executable").unwrap();
     assert!(read_receipt(root.path(), "fixture", &profile).is_err());
 }
+/// A registry install exactly as the owner profile store recorded it before declaration overlays.
+const CLAUDE_ACP_DECLARATION: &str = r#"{"registryId":"claude-acp","iconUrl":"https://cdn.agentclientprotocol.com/registry/v1/latest/claude-acp.svg","binary":"npx","args":["@agentclientprotocol/claude-agent-acp@0.101.0"],"install":{"distribution":"npx","package":"@agentclientprotocol/claude-agent-acp@0.101.0"},"ownerConfigured":true}"#;
+/// The declaration hash the build that installed it wrote into its receipt.
+const CLAUDE_ACP_EARLIER_RECEIPT_SHA256: &str =
+    "b6739036e49f035d0494a742bc2b215448c087a30e899d463a6c4903ab2c701b";
+
+fn earlier_declaration() -> RuntimeLaunchProfile {
+    serde_json::from_str(CLAUDE_ACP_DECLARATION).unwrap()
+}
+
+/// The profile a launch reads: the shipped ACP runtime with the owner profile overlaid.
+fn resolved_at_launch(declaration: RuntimeLaunchProfile) -> RuntimeLaunchProfile {
+    let manifest: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../../../../plugins/provider-acp/plugin.json"
+    ))
+    .unwrap();
+    let shipped = serde_json::from_value(manifest["capabilities"]["agentRuntime"].clone()).unwrap();
+    let owner = BTreeMap::from([("claude-acp".to_string(), declaration)]);
+    let mut resolved = codeterm_plugin::agent_runtime::owner_profiles::overlay_with(shipped, owner)
+        .unwrap()
+        .launch_profiles
+        .unwrap()
+        .remove("claude-acp")
+        .unwrap();
+    assert!(resolved.full_access_mode.is_some() && resolved.limits_source.is_some());
+    resolved.icon_svg = Some("<svg/>".into());
+    resolved
+}
+
+fn installed_command(dir: &Path) -> AgentRuntimeCommand {
+    let node = dir.join("node");
+    let script = dir.join("index.js");
+    std::fs::write(&node, b"fixture runtime").unwrap();
+    std::fs::write(&script, b"fixture script").unwrap();
+    AgentRuntimeCommand {
+        binary: node.to_string_lossy().into_owned(),
+        args: vec![script.to_string_lossy().into_owned()],
+    }
+}
+
+fn declared_later(profile: &mut RuntimeLaunchProfile) {
+    profile.icon_url = Some("https://example.test/refreshed.svg".into());
+    profile.client_capabilities = serde_json::from_value(json!({"terminal":false})).unwrap();
+    profile
+        .settings_files
+        .insert("FIXTURE_SETTINGS".into(), serde_json::Map::new());
+}
+
 #[test]
-fn declaring_a_limits_source_keeps_existing_install_receipts_valid() {
-    let installed = profile();
-    let mut declared = installed.clone();
-    declared.limits_source = Some(
-        codeterm_plugin::agent_runtime::RuntimeProfileLimitsSource::Balance {
-            reader: "fixture-balance".into(),
-            credential_env: "DEEPSEEK_API_KEY".into(),
-        },
+fn an_install_from_an_earlier_declaration_starts_under_todays_resolved_declaration() {
+    let app = tempfile::tempdir().unwrap();
+    let root = app.path().join("profiles");
+    let saved = receipt(
+        &root,
+        "claude-acp",
+        &earlier_declaration(),
+        "@agentclientprotocol/claude-agent-acp@0.101.0".into(),
+        "0.101.0".into(),
+        Some("a".repeat(64)),
+        installed_command(app.path()),
+    )
+    .unwrap();
+    let mut today = resolved_at_launch(earlier_declaration());
+    declared_later(&mut today);
+    assert_eq!(
+        read_receipt(&root, "claude-acp", &today).unwrap(),
+        Some(saved)
     );
-    assert_eq!(fingerprint(&installed), fingerprint(&declared));
-    let mut full_access = installed.clone();
-    full_access.full_access_mode = Some("fixture-approve-all".into());
-    assert_eq!(fingerprint(&installed), fingerprint(&full_access));
-    let mut relaunched = installed.clone();
-    relaunched.args.push("--other".into());
-    assert_ne!(fingerprint(&installed), fingerprint(&relaunched));
+    assert_eq!(detect(&root, "claude-acp", &today), InstallState::Installed);
+    today.install.as_mut().unwrap().package =
+        "@agentclientprotocol/claude-agent-acp@0.102.0".into();
+    assert!(read_receipt(&root, "claude-acp", &today).unwrap().is_none());
+}
+
+#[test]
+fn a_receipt_written_by_an_earlier_build_starts_without_reinstall_and_is_rebound() {
+    let app = tempfile::tempdir().unwrap();
+    let root = app.path().join("profiles");
+    std::fs::create_dir_all(&root).unwrap();
+    let command = installed_command(app.path());
+    let earlier = InstallReceipt {
+        profile_id: "claude-acp".into(),
+        declaration_sha256: CLAUDE_ACP_EARLIER_RECEIPT_SHA256.into(),
+        package: "@agentclientprotocol/claude-agent-acp@0.101.0".into(),
+        version: "0.101.0".into(),
+        sha256: Some("a".repeat(64)),
+        command: command.clone(),
+        timestamp_ms: 1,
+    };
+    let path = root.join("claude-acp.json");
+    std::fs::write(&path, serde_json::to_vec(&earlier).unwrap()).unwrap();
+    let mut today = resolved_at_launch(earlier_declaration());
+    std::fs::remove_file(&command.args[0]).unwrap();
+    assert!(read_receipt(&root, "claude-acp", &today).unwrap().is_none());
+    assert_eq!(
+        serde_json::from_slice::<InstallReceipt>(&std::fs::read(&path).unwrap()).unwrap(),
+        earlier
+    );
+    std::fs::write(&command.args[0], b"fixture script").unwrap();
+    let rebound = InstallReceipt {
+        declaration_sha256: fingerprint(&today).unwrap(),
+        ..earlier.clone()
+    };
+    assert_eq!(
+        read_receipt(&root, "claude-acp", &today).unwrap(),
+        Some(rebound.clone())
+    );
+    assert_eq!(
+        serde_json::from_slice::<InstallReceipt>(&std::fs::read(&path).unwrap()).unwrap(),
+        rebound
+    );
+    declared_later(&mut today);
+    assert_eq!(
+        read_receipt(&root, "claude-acp", &today).unwrap(),
+        Some(rebound)
+    );
+    today.args.push("--other".into());
+    assert!(read_receipt(&root, "claude-acp", &today).unwrap().is_none());
 }
