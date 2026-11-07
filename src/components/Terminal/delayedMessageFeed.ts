@@ -1,7 +1,7 @@
 import type { DelayedMessage } from "./delayedSend";
 
 interface FeedDependencies {
-  load: (tabId: string) => Promise<DelayedMessage[]>;
+  load: (tabId: string, signal: AbortSignal) => Promise<DelayedMessage[]>;
   publish: (messages: DelayedMessage[]) => void;
   subscribe: (changed: (tabId?: string) => void) => Promise<() => void>;
 }
@@ -24,22 +24,35 @@ export function createDelayedMessageFeed(tabId: string, dependencies: FeedDepend
   let generation = 0;
   let unlisten: (() => void) | undefined;
   let previous: Map<string, DelayedMessage> | undefined;
-  async function refresh() {
-    if (!active) return;
-    const request = ++generation;
-    let messages: DelayedMessage[];
-    try {
-      messages = await dependencies.load(tabId);
-    } catch {
-      return;
-    }
-    if (!active || request !== generation) return;
-    if (previous?.size === messages.length && messages.every(message => {
-      const old = previous?.get(message.id);
-      return old !== undefined && sameMessage(old, message);
-    })) return;
-    previous = new Map(messages.map(message => [message.id, message]));
-    dependencies.publish(messages);
+  let running = false;
+  let dirty = false;
+  let flight: Promise<void> = Promise.resolve();
+  let controller: AbortController | undefined;
+  function refresh(): Promise<void> {
+    if (!active) return Promise.resolve();
+    if (running) { generation++; dirty = true; return flight; }
+    running = true;
+    const run = async () => {
+      try {
+        do {
+          dirty = false;
+          const request = ++generation;
+          controller = new AbortController();
+          let messages: DelayedMessage[];
+          try { messages = await dependencies.load(tabId, controller.signal); }
+          catch { continue; }
+          if (!active || request !== generation) continue;
+          if (previous?.size === messages.length && messages.every(message => {
+            const old = previous?.get(message.id);
+            return old !== undefined && sameMessage(old, message);
+          })) continue;
+          previous = new Map(messages.map(message => [message.id, message]));
+          dependencies.publish(messages);
+        } while (active && dirty);
+      } finally { running = false; }
+    };
+    flight = run();
+    return flight;
   }
   const ready = dependencies.subscribe((changedTabId) => {
     if (!changedTabId || changedTabId === tabId) void refresh();
@@ -56,6 +69,7 @@ export function createDelayedMessageFeed(tabId: string, dependencies: FeedDepend
     },
     dispose() {
       active = false;
+      controller?.abort();
       unlisten?.();
     },
   };

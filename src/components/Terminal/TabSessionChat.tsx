@@ -1,3 +1,4 @@
+import { describeError } from "../../lib/describeError";
 import { DEV_BUILD } from "../../lib/devBuild";
 import { useProviderPromptLifecycle } from "./useProviderPromptLifecycle";
 import { tabActivity } from "../../lib/tabActivity";
@@ -267,15 +268,16 @@ function TabSessionChatBody({
   const resolvePluginName = usePluginDisplayNameResolver();
 
   const showComposerError = useLatestCallback((message: string) => {
+    const description = describeError(message);
     createNoticePublisher({ upsertToast })({ kind: "toast", tabId: tabId,
-      workspaceId: null,
-      title: isMicrophonePermissionError(message)
+      workspaceId: null, id: `chat-error:${tabId}`,
+      title: description.pending ? description.title : isMicrophonePermissionError(message)
         ? "Microphone unavailable"
         : "Chat error",
-      detail: isMicrophonePermissionError(message)
+      detail: description.pending ? description.cause : isMicrophonePermissionError(message)
         ? `${message} Open microphone permissions in Settings if needed.`
         : message,
-      severity: "Error",
+      severity: description.pending ? "Info" : "Error",
       lifetimeMs: CHAT_ERROR_TOAST_LIFETIME_MS });
   }, [upsertToast, tabId]);
 
@@ -1001,7 +1003,7 @@ function TabSessionChatBody({
         {backfillNotice === "stalled_cursor"
           ? <InlineErrorNotice error="Older history could not be read." operation="loading older messages" />
           : backfillNotice && <p role="status" className="text-center text-xs text-[var(--ct-muted-fg)]">
-            {backfillNotice === "limit" ? "History scan limit reached. Load previous to continue." : "No earlier messages."}
+            No earlier messages.
           </p>}
         {isActive && (reportPlacement.afterIndex.get(-1) ?? []).map(renderOutboundReport)}
         {isActive && (askPlacement.afterIndex.get(-1) ?? []).map(renderAsk)}

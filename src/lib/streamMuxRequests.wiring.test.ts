@@ -1,3 +1,4 @@
+import { createDelayedMessageFeed } from "../components/Terminal/delayedMessageFeed";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { __setInvokeForTest, __setListenForTest } from "./bridge";
@@ -12,7 +13,7 @@ import type { TransportOptions } from "./transportClient";
 
 interface Posted { id: string; session: string; path: string; method: string; init: RequestInit }
 
-function fixture() {
+function fixture(onGatewayState?: (available: boolean) => void) {
   const posted: Posted[] = [], deleted: string[] = [], sessions: string[] = [], credits: Array<{ session: string; received: number }> = [];
   let refuseMux = 0, failCredits = 0;
   const waiting: Array<(post: Posted) => void> = [];
@@ -42,7 +43,7 @@ function fixture() {
     posted.push(post); waiting.shift()?.(post);
     return reply(post);
   };
-  const client = withStreamMux({ origin: "http://mux.fixture", token: "fixture-token", fetch });
+  const client = withStreamMux({ origin: "http://mux.fixture", token: "fixture-token", fetch, onGatewayState });
   const push = (value: unknown) => controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(value)}\n\n`));
   return {
     client, posted, deleted, sessions, credits, push,
@@ -253,4 +254,95 @@ it("keeps the aggregate buffer bounded even when a response advertises a larger 
   const barrier = f.client.localJson("GET", "/api/fixture/barrier"); const marker = await f.next();
   f.head(marker); f.text(marker, "{}"); f.end(marker); await barrier;
   await expect(received.text()).rejects.toThrow(/session.*4259840.*4194304/);
+});
+
+
+it("coalesces the two composer feeds across a wake burst instead of filling all 64 RPC slots", async () => {
+  const f = fixture();
+  f.reply(async post => {
+    if (post.path.endsWith("/stop")) { f.head(post); f.text(post, '{"ok":true}'); f.end(post); }
+    return Response.json({ accepted: true }, { status: 202 });
+  });
+  let loads = 0;
+  const feeds = Array.from({ length: 16 }, (_, index) => createDelayedMessageFeed(`tab-${index >> 1}`, {
+    load: (tab, signal?: AbortSignal) => { loads++; return f.client.localJson("GET", `/api/tabs/${tab}/${index % 2 ? "system-heartbeats" : "delayed-messages"}`, undefined, { signal }); },
+    publish: () => {}, subscribe: async () => () => {},
+  }));
+  try {
+    for (let index = 0; index < 16; index++) await f.next();
+    for (let event = 0; event < 3; event++) for (const feed of feeds) void feed.wake();
+    expect(loads).toBe(16);
+    await expect(f.client.localJson("POST", "/api/tabs/active/stop")).resolves.toEqual({ ok: true });
+  } finally { for (const feed of feeds) feed.dispose(); }
+});
+
+it("reserves admission for foreground chat_start and user actions under a background-read flood", async () => {
+  const f = fixture();
+  f.reply(async post => {
+    if (post.method !== "GET") { f.head(post); f.text(post, '{"ok":true}'); f.end(post); }
+    return Response.json({ accepted: true }, { status: 202 });
+  });
+  const reads = Array.from({ length: 64 }, (_, index) => f.client.localJson("GET", `/api/tabs/t-${index}/delayed-messages`).catch(error => error));
+  await f.next();
+  for (const [method, path] of [["POST", "chat-raw/start"], ["POST", "stop"], ["POST", "chat-send"], ["POST", "prompt/respond"], ["POST", "approve"], ["DELETE", "close"]]) {
+    await expect(f.client.localJson(method, `/api/tabs/active/${path}`, {})).resolves.toEqual({ ok: true });
+  }
+  expect(reads).toHaveLength(64);
+});
+
+it("keeps a carrier POST slot for Stop before background acknowledgements return", async () => {
+  const f = fixture();
+  const accepts: Array<(response: Response) => void> = [];
+  f.reply(post => {
+    if (post.path.endsWith("/stop")) { f.head(post); f.text(post, '{}'); f.end(post); return Promise.resolve(Response.json({ accepted: true }, { status: 202 })); }
+    return new Promise(resolve => accepts.push(resolve));
+  });
+  for (let index = 0; index < 4; index++) void f.client.localJson("GET", `/api/read-${index}`).catch(() => {});
+  try {
+    for (let index = 0; index < 3; index++) await f.next();
+    const stop = f.client.localJson("POST", "/api/tabs/active/stop").catch(error => error);
+    expect((await f.next()).path).toBe("/api/tabs/active/stop");
+    expect(await stop).toEqual({});
+  } finally { for (const accept of accepts) accept(Response.json({ accepted: true }, { status: 202 })); }
+});
+
+it("queues an action at the 64-request wire limit without replaying any posted mutation", async () => {
+  const f = fixture();
+  f.reply(async post => {
+    if (post.path.endsWith("/stop")) { f.head(post); f.text(post, '{"ok":true}'); f.end(post); }
+    return Response.json({ accepted: true }, { status: 202 });
+  });
+  for (let index = 0; index < 64; index++) void f.client.localJson("POST", `/api/tabs/t-${index}/send`, { token: index }).catch(() => {});
+  let first!: Posted;
+  for (let index = 0; index < 64; index++) { const post = await f.next(); if (index === 0) first = post; }
+  const stop = f.client.localJson("POST", "/api/tabs/active/stop").catch(error => error);
+  f.head(first); f.text(first, '{}'); f.end(first);
+  expect(await stop).toEqual({ ok: true });
+  expect(f.posted.filter(post => post.path.endsWith("/stop"))).toHaveLength(1);
+  expect(f.posted.filter(post => post.path.endsWith("/send"))).toHaveLength(64);
+});
+
+it("does not declare the healthy browser gateway unavailable for a local admission refusal", async () => {
+  const gateway = vi.fn(); const f = fixture(gateway);
+  for (let index = 0; index < 64; index++) void f.client.localJson("GET", `/api/read-${index}`).catch(() => {});
+  await f.next();
+  await expect(f.client.localJson("GET", "/api/one-more-read")).rejects.toBeInstanceOf(RetryableMuxError);
+  expect(gateway.mock.calls.some(([available]) => available === false)).toBe(false);
+});
+
+it("expires an undispatched queued action as safe to retry without later sending it", async () => {
+  vi.useFakeTimers(); const f = fixture();
+  f.reply(async post => {
+    if (post.path.endsWith("/witness")) { f.head(post); f.text(post, '{}'); f.end(post); }
+    return Response.json({ accepted: true }, { status: 202 });
+  });
+  for (let index = 0; index < 64; index++) void f.client.localJson("POST", `/api/tabs/t-${index}/send`, {}).catch(() => {});
+  let first!: Posted;
+  for (let index = 0; index < 64; index++) { const post = await f.next(); if (!index) first = post; }
+  const expired = f.client.localJson("POST", "/api/tabs/active/stop", {}, { timeoutMs: 10 }).catch(error => error);
+  await vi.advanceTimersByTimeAsync(10);
+  expect(await expired).toMatchObject({ code: "client_capacity", dispatched: false });
+  f.head(first); f.text(first, '{}'); f.end(first);
+  await expect(f.client.localJson("POST", "/api/witness", {})).resolves.toEqual({});
+  expect(f.posted.some(post => post.path.endsWith("/stop"))).toBe(false);
 });

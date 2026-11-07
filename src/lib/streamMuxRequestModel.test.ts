@@ -78,7 +78,8 @@ describe("mux POST admission", () => {
 
   it("reserves in-flight capacity for interactive responses independently of streams", () => {
     expect(muxRequestAdmission(false, "bulk", 256, 48, 48)).toBe(false);
-    expect(muxRequestAdmission(false, "interactive", 256, 48, 48)).toBe(true);
+    expect(muxRequestAdmission(false, "interactive", 256, 48, 48)).toBe(false);
+    expect(muxRequestAdmission(false, "interactive", 256, 64, 48, true)).toBe(true);
     expect(muxRequestAdmission(false, "interactive", 0, 64, 48)).toBe(false);
     expect(muxRequestAdmission(true, "bulk", 256, 0, 0)).toBe(false);
   });

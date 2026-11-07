@@ -60,9 +60,9 @@ export function createCapabilitiesTransport(client: CapabilitiesClient) {
     delayed_send_delete: (a) =>
       webJson("DELETE", `/api/delayed-messages/${enc(s(a, "id"))}`),
     delayed_send_list: (a) =>
-      webJson("GET", `/api/tabs/${enc(s(a, "tabId"))}/delayed-messages`),
+      webJson("GET", `/api/tabs/${enc(s(a, "tabId"))}/delayed-messages`, undefined, { signal: a.signal as AbortSignal | undefined }),
     system_heartbeat_list: (a) =>
-      webJson("GET", `/api/tabs/${enc(s(a, "tabId"))}/system-heartbeats`),
+      webJson("GET", `/api/tabs/${enc(s(a, "tabId"))}/system-heartbeats`, undefined, { signal: a.signal as AbortSignal | undefined }),
     delayed_send_send_now: (a) =>
       webJson("POST", `/api/delayed-messages/${enc(s(a, "id"))}/send-now`),
     delayed_send_update: (a) =>
