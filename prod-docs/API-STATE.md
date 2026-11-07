@@ -56,7 +56,8 @@ The daemon root serves the static web mirror through its fallback when the front
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
 | GET | `/api/mux/state` | — | Published multiplexer snapshot (workspaces/tabs + focus). Writers and rebuilds do not delay reads or cause 503. Genuine storage unavailability still returns 503. Publication sends `mux-state-changed`; callers must not poll. |
-| POST | `/api/workspaces/{id}/tabs/{tab_id}/focus` | — | Switch active tab. |
+| POST | `/api/workspaces/{id}/tabs/{tab_id}/focus` | — | Explicit focus request: every open client shows that tab. |
+| POST | `/api/workspaces/{id}/tabs/{tab_id}/select` | — | Record one client's own selection silently; no other client follows it. |
 | POST | `/api/workspaces/{id}/tabs/{tab_id}/close` | — | Close a tab. |
 | POST | `/api/tabs/{id}/chat-view` | `{enabled}` | Toggle a tab's chat view flag. |
 | GET | `/api/mesh/peers/{id}/services` | — | Peer services view (same cache+failover as the Mesh tab). |
@@ -209,4 +210,4 @@ Responses carry `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, an
 
 Related documents — service registration, health, and activity: `domios docs API-SERVICES`. Bridge and cron integrations: `domios docs API-INTEGRATIONS`.
 
-<!-- revision: 40 -->
+<!-- revision: 41 -->

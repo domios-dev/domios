@@ -138,7 +138,8 @@ Restore matches normalized `cwd`. `GET /api/mux/state`: newest-first `recently_c
 | POST | `/api/tabs/{id}/agent/runtime/reset-credits` | `{action:"read"}` or `{action:"redeem", idempotencyKey, confirmed:true, creditId?}` | Read support, or redeem one reset credit (UUID v4 key + confirmation; `creditId` omitted = provider picks); returns outcome and before/after counts |
 | GET | `/api/tabs/{id}/output/stream` | — | SSE real-time output stream |
 | GET | `/api/agent-runs/{tab_id}/log` | — | Agent run log for a tab |
-| POST | `/api/tabs/{id}/focus` | — | Focus tab |
+| POST | `/api/tabs/{id}/focus` | — | Explicit focus request: every open client shows the tab |
+| POST | `/api/tabs/{id}/select` | — | Record one client's own tab selection silently; no other client follows it |
 | POST | `/api/tabs/{id}/close` | `?force=true` | Close tab + kill PTY. With `X-CodeTerm-Tab-Id`, closing a Worker that executes an `in_progress` task returns `409` unless `force=true`; without it the close proceeds and returns `warnings`. The Orchestrator is notified either way (see `tab.close` in API-TRANSPORT). |
 | POST | `/api/tabs/{id}/restart` | `{cwd?}` | Replace a plain shell PTY in the same tab while preserving tab and Team metadata. Agent and chat-backend tabs are rejected, including an agent-role tab whose provider exited (`shell_restart_agent_member`; resume it with `agent restart`). |
 | POST | `/api/tabs/{id}/rename` | `{title}` | Rename tab. |
@@ -208,4 +209,4 @@ Live authenticated Plan owners can recover `update`/`assign`/`respawn`/`close` a
 
 Related: `API-PLAN`, `API-TABS`, `API-CHAT`, `API-MEMORY`, `API-TRANSPORT`, `API-CLI`, `TELEGRAM-SETUP`. Analytics (`/api/analytics/{status,consent,event}`), account and plan routes: `ACCOUNT`.
 
-<!-- revision: 244 -->
+<!-- revision: 245 -->
