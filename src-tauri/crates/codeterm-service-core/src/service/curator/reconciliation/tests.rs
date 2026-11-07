@@ -77,7 +77,11 @@ fn restored_orchestrator_recovers_unbound_fallback_only_while_runtime_is_live() 
         Some(CuratorFailure::OrchestratorUnbound)
     );
     assert!(lost.owner_heartbeat());
-    assert_eq!(service.plan_store.get(&id).unwrap().control_loop, lost);
+    // Storage never holds the 7-day counts; show projects them from round rows.
+    let mut stored = service.plan_store.get(&id).unwrap().control_loop;
+    assert_eq!(stored.counts_7d, crate::plan::CuratorCounts::default());
+    stored.counts_7d = lost.counts_7d.clone();
+    assert_eq!(stored, lost);
 }
 
 fn fixture(running_cron: bool) -> (ServiceFixture, String, crate::CronState) {

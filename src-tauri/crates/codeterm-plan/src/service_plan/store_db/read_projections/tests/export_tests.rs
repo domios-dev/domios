@@ -147,11 +147,16 @@ fn full_export_materialization_is_proportional_to_the_requested_document() {
         assert!(decoded <= response_bytes + 128 * 1024);
         assert_eq!(document["tasks"].as_array().unwrap().len(), fixtures::TASKS);
         assert_eq!(document["tasks"][1]["body"], plan.tasks[1].body);
-        assert_eq!(document["strides"].as_array().unwrap().len(), strides);
+        let exported = document["strides"].as_array().unwrap();
+        assert_eq!(exported.len(), strides + rounds as usize);
         assert_eq!(
-            document["control_loop"]["rounds"].as_array().unwrap().len(),
+            exported
+                .iter()
+                .filter(|stride| stride["kind"] == "curator_round")
+                .count(),
             rounds as usize
         );
+        assert!(document["control_loop"].get("rounds").is_none());
         assert!(fixtures::audit_counts(&database).is_empty());
         println!("fixture={} consumer=full_document_export tasks={} base_bytes={} requested_strides={strides} requested_attempts={attempts} requested_extra_body={extra_body} requested_rounds={rounds} queries={} materialized_text_bytes={} decoded_json_bytes={decoded} serialized_row_bytes={serialized} response_bytes={response_bytes} changed_rows=0",fixtures::SEED,fixtures::TASKS,fixtures::CONTENT_BYTES,metrics.queries,metrics.materialized_bytes);
     }
