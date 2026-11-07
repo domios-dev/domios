@@ -18,8 +18,10 @@ fn foreground_cleanup_reaps_child_and_joins_descendant_pipe_readers() {
     };
     #[cfg(unix)]
     let mut command = {
+        // dash gives an async list /dev/null stdin even with `<&0`, so a stdin reader exits 0
+        // on its own; `tail -f /dev/null` ends only when the cancellation SIGKILLs the group.
         let mut command = Command::new("sh");
-        command.args(["-c", "cat <&0 & echo $!; wait"]);
+        command.args(["-c", "tail -f /dev/null & echo $!; wait"]);
         command
     };
     command
