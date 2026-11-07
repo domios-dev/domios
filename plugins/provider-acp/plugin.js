@@ -22,6 +22,7 @@ var plugin_exports = {};
 __export(plugin_exports, {
   default: () => plugin_default,
   onAgentCommand: () => onAgentCommand,
+  readProfileLimits: () => readProfileLimits2,
   runtimePlan: () => runtimePlan,
   runtimeReduce: () => runtimeReduce,
   runtimeResponse: () => runtimeResponse
@@ -1528,8 +1529,64 @@ function discoveryCommand(host2, ctx) {
   }
 }
 
+// plugins/provider-acp/src/limits.ts
+var decimal = /^-?\d{1,15}(?:\.\d{1,8})?$/;
+var currency = /^[A-Z]{3}$/;
+function deepseekBalance(body2) {
+  const value = JSON.parse(body2);
+  if (typeof value.is_available !== "boolean" || !Array.isArray(value.balance_infos) || value.balance_infos.length > 8) return null;
+  const amounts = value.balance_infos.map((entry) => typeof entry?.currency === "string" && currency.test(entry.currency) && typeof entry.total_balance === "string" && decimal.test(entry.total_balance) ? { currency: entry.currency, amount: entry.total_balance } : null);
+  return amounts.every(Boolean) ? { available: value.is_available, amounts } : null;
+}
+var readers = {
+  "deepseek-balance": { url: "https://api.deepseek.com/user/balance", parse: deepseekBalance }
+};
+function snapshot(balance, nowMs) {
+  return JSON.stringify({
+    provider: "",
+    account_id: null,
+    captured_at_ms: nowMs,
+    billing_mode: "api",
+    limits_reported: true,
+    session_pct: null,
+    session_resets_at_ms: null,
+    weekly_pct: null,
+    weekly_resets_at_ms: null,
+    spend_cents: null,
+    spend_limit_cents: null,
+    spend_remaining_cents: null,
+    spend_resets_at_ms: null,
+    raw_text: "",
+    usage_details: { limits: [], dollar_credits: [], extra_usage: null, balance }
+  });
+}
+function readProfileLimits(fetch, request2, nowMs) {
+  const source = request2.source;
+  if (source.kind !== "balance") return null;
+  const reader = Object.prototype.hasOwnProperty.call(readers, source.reader) ? readers[source.reader] : void 0;
+  if (!reader) return null;
+  return fetch({
+    url: reader.url,
+    method: "GET",
+    timeoutMs: 15e3,
+    headers: { Accept: "application/json" },
+    profileSecret: { profile: request2.profile, env: source.credentialEnv, headers: { Authorization: "Bearer {secret}" } }
+  }, (result) => {
+    if (result.error || result.status !== 200 || !result.body || result.body.length > 64 * 1024) return null;
+    try {
+      const balance = reader.parse(result.body);
+      return balance ? snapshot(balance, nowMs) : null;
+    } catch {
+      return null;
+    }
+  });
+}
+
 // plugins/provider-acp/src/plugin.ts
 function onAgentCommand(ctx) {
   return discoveryCommand(host, ctx);
 }
-var plugin_default = { runtimePlan, runtimeResponse, runtimeReduce, onAgentCommand };
+function readProfileLimits2(request2, nowMs) {
+  return readProfileLimits((opts, then) => host.fetch.async(opts, then), request2, nowMs);
+}
+var plugin_default = { runtimePlan, runtimeResponse, runtimeReduce, onAgentCommand, readProfileLimits: readProfileLimits2 };
