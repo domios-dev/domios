@@ -210,7 +210,7 @@ fn authentication_declarations_are_cleared_with_the_runtime_epoch() {
 
 #[test]
 fn shared_long_stream_fixtures_fold_append_content_and_survive_replay() {
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+    let root = crate::test_support::fixture_manifest_dir()
         .join("../../../plugins/provider-acp/tests/fixtures/runtime");
     for name in [
         "long-stream-complete",

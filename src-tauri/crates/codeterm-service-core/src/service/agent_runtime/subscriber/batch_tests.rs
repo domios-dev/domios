@@ -512,7 +512,7 @@ fn native_first_request_starts_provider_turn_before_approval_and_commits() {
         context.cwd = root.to_string_lossy().into_owned();
         assert!(context.active_turn_id.is_none());
         let plugin =
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../plugins/provider-acp");
+            crate::test_support::fixture_manifest_dir().join("../../../plugins/provider-acp");
         let mut raw: Value =
             serde_json::from_str(&std::fs::read_to_string(plugin.join("plugin.json")).unwrap())
                 .unwrap();

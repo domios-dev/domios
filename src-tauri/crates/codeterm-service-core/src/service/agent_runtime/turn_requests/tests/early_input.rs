@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn app_server_turns_keep_one_native_user_row_per_turn() {
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../plugins");
+    let root = crate::test_support::fixture_manifest_dir().join("../../../plugins");
     let mut recorded = None;
     for entry in std::fs::read_dir(root).unwrap() {
         let path = entry
