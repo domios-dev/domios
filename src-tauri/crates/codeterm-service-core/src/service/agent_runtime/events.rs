@@ -124,6 +124,11 @@ impl RestoreBinding {
     }
 }
 
+struct RefusedClaim {
+    turn: String,
+    busy_turn: Option<Option<String>>,
+}
+
 #[derive(Default)]
 pub struct RuntimeMaps {
     pub authentication: Option<codeterm_plugin::agent_runtime::RuntimeAuthentication>,
@@ -137,7 +142,7 @@ pub struct RuntimeMaps {
     threads: HashMap<String, Option<String>>,
     requests: HashMap<String, bool>,
     evidence: HashMap<String, (String, String, Option<String>)>,
-    refused_claims: HashMap<String, String>,
+    refused_claims: HashMap<String, RefusedClaim>,
     routed_inputs: HashMap<String, (String, ChatMsg)>,
     usage: HashMap<String, TokenUsage>,
     rate_limits: HashMap<String, Vec<RuntimeRateLimit>>,
@@ -203,7 +208,13 @@ impl RuntimeMaps {
 
     pub fn remember_refused_claim(&mut self, epoch: u64, send: &str, turn: &str) {
         if self.epoch == epoch {
-            self.refused_claims.insert(send.into(), turn.into());
+            self.refused_claims.insert(
+                send.into(),
+                RefusedClaim {
+                    turn: turn.into(),
+                    busy_turn: None,
+                },
+            );
         }
     }
 
@@ -211,12 +222,19 @@ impl RuntimeMaps {
         if self.epoch != epoch {
             return Vec::new();
         }
-        let expired = self
-            .refused_claims
-            .iter()
-            .filter(|(_, refused_turn)| Some(refused_turn.as_str()) != turn)
-            .map(|(send, _)| send.clone())
-            .collect::<Vec<_>>();
+        let mut expired = Vec::new();
+        for (send, claim) in &mut self.refused_claims {
+            if Some(claim.turn.as_str()) == turn {
+                continue;
+            }
+            // A busy agent can run the refused prompt after the turn it was busy with,
+            // so its evidence stays eligible until the turn after that one settles.
+            match claim.busy_turn.as_ref().map(|busy| busy.as_deref() == turn) {
+                None => claim.busy_turn = Some(turn.map(str::to_owned)),
+                Some(true) => {}
+                Some(false) => expired.push(send.clone()),
+            }
+        }
         for send in &expired {
             self.refused_claims.remove(send);
             self.routed_inputs.remove(send);

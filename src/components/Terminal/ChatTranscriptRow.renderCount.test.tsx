@@ -63,7 +63,7 @@ it("shows a refusal with an explicit Retry and removes it when delivery wins", a
   const send: DeliverySend = {
     id: "busy-row", content: "opaque", sentAtMs: 1, correlationId: "busy-correlation",
     draft: { text: "opaque", attachments: [], recordedVoiceAttachments: [], capsules: {}, reply: null },
-    status: { send_id: "busy-request", state: "failed", error: "runtime_prompt_busy", tab_id: "tab",
+    status: { send_id: "busy-request", state: "failed", error: "launch_ended_before_write", tab_id: "tab",
       ledger_id: "ledger", sequence: 1, retained_from: 1, correlationId: "busy-correlation" },
   };
   const message: NormalizedChatMessage = { id: send.id, content: send.content, type: "user" };

@@ -6,9 +6,10 @@ pub(super) const MAX_RECEIPTS: usize = 256;
 pub(crate) enum ReceiptState {
     Failed,
     Degraded,
+    // A refusal of a written prompt never proved non-delivery; such receipts restore as uncertain.
+    #[serde(alias = "RpcRefused")]
     Uncertain,
     Delivered,
-    RpcRefused,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -41,9 +42,7 @@ pub(crate) fn known_session_changed(previous: Option<&str>, current: Option<&str
 
 pub(super) fn retain_receipt(index: &mut UserIndex, record: &UserSendRecord, state: ReceiptState) {
     if index.receipts.iter().any(|receipt| {
-        receipt.send_id == record.send_id
-            && (receipt.state == ReceiptState::Delivered
-                || receipt.state == ReceiptState::RpcRefused && state != ReceiptState::Delivered)
+        receipt.send_id == record.send_id && receipt.state == ReceiptState::Delivered
     }) {
         return;
     }
@@ -252,11 +251,7 @@ impl UserSendStore {
         let mut next = loaded.index.clone();
         let mut changed = false;
         for receipt in &mut next.receipts {
-            if matches!(
-                receipt.state,
-                ReceiptState::Uncertain | ReceiptState::RpcRefused
-            ) && send_ids.contains(&receipt.send_id)
-            {
+            if receipt.state == ReceiptState::Uncertain && send_ids.contains(&receipt.send_id) {
                 receipt.state = ReceiptState::Delivered;
                 changed = true;
             }

@@ -768,7 +768,7 @@ async fn queued_written_prompt_starts_after_active_turn_settles_without_updates(
 }
 
 #[tokio::test]
-async fn concurrent_rpc_refusal_preserves_active_turn_and_late_delivery_wins() {
+async fn busy_rpc_refusal_of_a_written_prompt_stays_uncertain_until_its_late_echo_delivers_it() {
     use crate::service::chat_send_transaction::{ChatSendState, SendLiveBinding};
     use crate::service::pending_delivery_payloads::user_sends::{
         continuity::ReceiptState, UserSendAuthority,
@@ -863,41 +863,24 @@ async fn concurrent_rpc_refusal_preserves_active_turn_and_late_delivery_wins() {
         assert!(written);
         loop {
             changes.borrow_and_update();
-            if ledger.status(&record.send_id).unwrap().state == ChatSendState::Failed {
+            if !session.turn_requests.lock().contains_key(&record.send_id) {
                 break;
             }
             changes.changed().await.unwrap();
         }
+        // A refusal of a written prompt is not proof of non-delivery: no failure, no Retry.
+        let refused = ledger.status(&record.send_id).unwrap();
+        assert_eq!(refused.state, ChatSendState::Unknown);
+        assert_eq!(refused.error, None);
         assert_eq!(session.context.lock().active_turn_id.as_deref(), Some("a"));
-        assert_eq!(
-            store.receipts(&tab).unwrap()[0].state,
-            ReceiptState::RpcRefused
-        );
+        assert!(store
+            .receipts(&tab)
+            .unwrap()
+            .iter()
+            .all(|receipt| receipt.state != ReceiptState::Failed));
         store.finish_handoff(&record, false).unwrap();
         store.complete(&record).unwrap();
-        subscriber::publish_events(
-            &fixture.service,
-            &session,
-            context.epoch,
-            vec![AgentRuntimeEvent::SendEvidence {
-                thread_id: context.thread_id.clone().unwrap(),
-                send_id: record.send_id.clone(),
-                turn_id: record.send_id.clone(),
-                item_id: None,
-            }],
-            now(),
-        )
-        .await
-        .unwrap();
-        assert_eq!(
-            ledger.status(&record.send_id).unwrap().state,
-            ChatSendState::Sent
-        );
-        assert_eq!(
-            store.receipts(&tab).unwrap()[0].state,
-            ReceiptState::Delivered
-        );
-        assert_eq!(session.context.lock().active_turn_id.as_deref(), Some("a"));
+        // The busy agent finishes its turn, then runs the prompt it reported as refused.
         release.send(()).unwrap();
         loop {
             changes.borrow_and_update();
@@ -907,16 +890,44 @@ async fn concurrent_rpc_refusal_preserves_active_turn_and_late_delivery_wins() {
             changes.changed().await.unwrap();
         }
         assert!(session.context.lock().active_turn_id.is_none());
+        subscriber::publish_events(
+            &fixture.service,
+            &session,
+            context.epoch,
+            vec![AgentRuntimeEvent::SendEvidence {
+                thread_id: context.thread_id.clone().unwrap(),
+                send_id: record.send_id.clone(),
+                turn_id: "queued-turn".into(),
+                item_id: None,
+            }],
+            now(),
+        )
+        .await
+        .unwrap();
+        let delivered = ledger.status(&record.send_id).unwrap();
+        assert_eq!(delivered.state, ChatSendState::Sent);
+        assert_eq!(delivered.error, None);
+        assert_eq!(
+            store.receipts(&tab).unwrap()[0].state,
+            ReceiptState::Delivered
+        );
+        // Nothing can write the refused prompt again: no rebind and no requeued record.
+        assert!(!ledger.bind_rpc_send(&record.send_id, SendLiveBinding::default()));
+        assert!(store
+            .records(&tab)
+            .unwrap()
+            .iter()
+            .all(|item| item.send_id != record.send_id));
     };
     tokio::time::timeout(Duration::from_secs(5), async {
         tokio::join!(exercise, server);
     })
     .await
-    .expect("correlated refusal must settle independently without replay");
+    .expect("busy refusal must settle as uncertain and reconcile from late evidence");
 }
 
 #[tokio::test]
-async fn refused_claim_survives_its_own_idle_and_expires_at_next_other_settlement() {
+async fn refused_claim_survives_the_busy_turn_and_expires_when_the_following_turn_settles() {
     let (fixture, tab, _peer, _cleanup) = runtime_fixture_turn_scoped(SOURCE);
     let session = engine::for_tab(&tab).unwrap();
     let context = session.context.lock().clone();
@@ -964,6 +975,32 @@ async fn refused_claim_survives_its_own_idle_and_expires_at_next_other_settlemen
         .claimed_sends
         .iter()
         .any(|claim| claim.send_id == "refused"));
+    let has_refused = || {
+        session
+            .context
+            .lock()
+            .claimed_sends
+            .iter()
+            .any(|claim| claim.send_id == "refused")
+    };
+    for _ in 0..2 {
+        subscriber::publish_events(
+            &fixture.service,
+            &session,
+            context.epoch,
+            vec![
+                transition("busy-turn", RuntimeTurnState::Working),
+                transition("busy-turn", RuntimeTurnState::Idle),
+            ],
+            now(),
+        )
+        .await
+        .unwrap();
+        assert!(
+            has_refused(),
+            "the busy turn may still precede the refused prompt"
+        );
+    }
     subscriber::publish_events(
         &fixture.service,
         &session,

@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn only_correlated_overlapping_rpc_refusal_before_any_acceptance_allows_retry() {
+fn only_correlated_overlapping_rpc_refusal_before_any_acceptance_settles_uncertain() {
     let error = |code, message| {
         serde_json::from_value::<RpcReply>(serde_json::json!({
             "kind":"error", "error":{"code":code,"message":message}

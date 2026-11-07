@@ -464,12 +464,7 @@ impl ChatSendLedger {
                     status.pending_reason = None;
                     None
                 }
-                _ if terminal_failure
-                    || (status.state == ChatSendState::Failed
-                        && status.error.as_deref() == Some("runtime_prompt_busy")) =>
-                {
-                    None
-                }
+                _ if terminal_failure => None,
                 _ if rpc_accepted => None,
                 _ if user_owned
                     && matches!(
