@@ -1,8 +1,10 @@
 use serde::{Deserialize, Serialize};
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::Path;
 
 pub const FILE_ENV: &str = "CODETERM_LAUNCH_FILE";
+pub const RUNTIME_FILE_PREFIX: &str = ".runtime-launch-";
+pub const HANDOFF_FILE_PREFIX: &str = ".launch-credential-";
 pub const RESTART_GUIDANCE: &str = "This tab has no valid launch credential; restart the tab";
 pub const MARKERS: &[&str] = &[
     "CODETERM",
@@ -50,6 +52,28 @@ pub struct LaunchCredential {
     pub token: String,
 }
 
+pub fn write_new(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    let mut file = crate::private_file::create_new_owner_only(path)?;
+    file.write_all(bytes)?;
+    file.sync_all()
+}
+
+pub fn is_handoff_file(name: &str) -> bool {
+    [
+        (RUNTIME_FILE_PREFIX, ".json"),
+        (HANDOFF_FILE_PREFIX, ".txt"),
+    ]
+    .into_iter()
+    .any(|(prefix, suffix)| {
+        (name.starts_with(prefix) && name.ends_with(suffix))
+            || (name
+                .strip_prefix('.')
+                .is_some_and(|name| name.starts_with(prefix))
+                && name.contains(format!("{suffix}.").as_str())
+                && name.ends_with(".tmp"))
+    })
+}
+
 pub fn resolve(
     environment: Option<&str>,
     path: Option<&Path>,
@@ -61,15 +85,8 @@ pub fn resolve(
     }
     let read = || -> Option<String> {
         let path = path?;
-        let metadata = std::fs::symlink_metadata(path).ok()?;
-        if !metadata.is_file()
-            || metadata.len() > 8192
-            || !crate::private_file::owner_only(path).ok()?
-        {
-            return None;
-        }
         let mut bytes = Vec::new();
-        std::fs::File::open(path)
+        crate::private_file::open_owner_only(path, 8192)
             .ok()?
             .take(8193)
             .read_to_end(&mut bytes)

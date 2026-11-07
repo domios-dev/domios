@@ -2,8 +2,13 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
+mod owned;
+pub use owned::{create_new_owner_only, open_owner_only};
+
 #[cfg(windows)]
 mod windows;
+#[cfg(windows)]
+mod windows_create;
 #[cfg(windows)]
 mod windows_lock;
 #[cfg(windows)]

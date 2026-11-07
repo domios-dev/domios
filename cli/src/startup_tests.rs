@@ -40,7 +40,7 @@ fn assert_local_resolution(scrubbed: bool) {
     let root = tempfile::tempdir().unwrap();
     if scrubbed {
         let path = root.path().join("launch.json");
-        codeterm_util::private_file::write_atomic(
+        codeterm_util::tab_launch::write_new(
             &path,
             &serde_json::to_vec(&codeterm_util::tab_launch::LaunchCredential {
                 tab_id: "fixture-tab".into(),
