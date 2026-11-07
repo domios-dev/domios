@@ -13,6 +13,8 @@
 # In a GitHub Actions job whose store is unreachable, put spools the file under
 # $RUNNER_TEMP/ci-artifact-spool/<key> with a warning; the job's ci-artifact-spool action uploads
 # it as a run artifact, and get/get-prefix read keys "<run-id>/..." back from that run's artifacts.
+# While the store is up, such reads return store objects together with spooled ones; a duplicate resolves to its
+# newest copy (store LastModified against artifact created_at) or is refused when the clocks cannot order it.
 # CI_ARTIFACT_SOURCES, when set, names a file that receives "<key>\t<location>" per object moved.
 set -euo pipefail
 
@@ -39,7 +41,9 @@ store_down() {
     esac
   fi
   [ "${CI_ARTIFACT_STORAGE:-}" != github ] || return 0
-  [ -n "${GITHUB_ACTIONS:-}" ] && ! CT_CI_STORE_ENDPOINT="$endpoint" ct_ci_store_reachable
+  [ -n "${GITHUB_ACTIONS:-}" ] || return 1
+  # One immediate re-probe: a single dropped health check must not split a run's evidence across backends.
+  ! { CT_CI_STORE_ENDPOINT="$endpoint" ct_ci_store_reachable || CT_CI_STORE_ENDPOINT="$endpoint" ct_ci_store_reachable; }
 }
 
 spool_put() {
@@ -63,6 +67,27 @@ fallback_cache() {
     return 2
   fi
   printf '%s\n' "$cache"
+}
+
+# The run whose spooled copies a store-up read must also see: only an Actions job holds or downloads them.
+spooled_run() {
+  local run="${key%%/*}"
+  case "$run" in ''|*[!0-9]*) return 1 ;; esac
+  [ -n "${RUNNER_TEMP:-}" ] && printf '%s\n' "$run"
+}
+
+# Lists the store under the key and resolves it against spooled copies; writes to $2 the store keys left to fetch.
+store_plan() {
+  local destination="$1" plan="$2" run listing
+  listing=$(mktemp "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/ci-artifact-listing.XXXXXX")
+  s3 "${endpoint%/}/$bucket?list-type=2&prefix=$key" > "$listing"
+  if run=$(spooled_run); then
+    node "$(dirname "${BASH_SOURCE[0]}")/ci-artifact-fallback.mjs" "$RUNNER_TEMP/ci-artifact-fallback/$run" \
+      "$key" "$destination" "$verb" "$listing" "$plan" || { rm -f "$listing"; return 1; }
+  else
+    grep -o '<Key>[^<]*</Key>' "$listing" | sed 's#</*Key>##g' > "$plan" || true
+  fi
+  rm -f "$listing"
 }
 
 s3() {
@@ -173,6 +198,12 @@ case "$verb" in
     ;;
   get)
     file=${3:?missing file}
+    if spooled_run > /dev/null; then
+      plan=$(mktemp "$RUNNER_TEMP/ci-artifact-plan.XXXXXX")
+      store_plan "$file" "$plan"
+      if ! grep -qxF "$key" "$plan"; then rm -f "$plan"; exit 0; fi
+      rm -f "$plan"
+    fi
     ranged_get "$file"
     record "$key" "private-store:$bucket/$key"
     echo "ci-artifact: got $bucket/$key ($(wc -c < "$file") bytes)"
@@ -184,13 +215,15 @@ case "$verb" in
   get-prefix)
     dir=${3:?missing directory}
     mkdir -p "$dir"
-    keys=$(s3 "${endpoint%/}/$bucket?list-type=2&prefix=$key" | grep -o '<Key>[^<]*</Key>' | sed 's#</*Key>##g' || true)
+    plan=$(mktemp "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/ci-artifact-plan.XXXXXX")
+    store_plan "$dir" "$plan"
     count=0
-    for object in $keys; do
+    while IFS= read -r object; do
       s3 --output "$dir/${object##*/}" "${endpoint%/}/$bucket/$object"
       record "$object" "private-store:$bucket/$object"
       count=$((count + 1))
-    done
+    done < "$plan"
+    rm -f "$plan"
     echo "ci-artifact: got $count object(s) under $bucket/$key into $dir"
     ;;
 esac
