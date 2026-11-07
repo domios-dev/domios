@@ -465,25 +465,35 @@ pub(super) fn dispatch(
 
         "agent.startup_ack" => {
             let caller_tab_id = get_string_param(params, "caller_tab_id")?;
-            let attempt_id = get_string_param(params, "attempt_id")?;
+            let attempt_id = params
+                .as_ref()
+                .and_then(|params| params.get("attempt_id"))
+                .and_then(Value::as_str)
+                .map(str::to_owned);
             let binding_nonce = get_string_param(params, "binding_nonce")?;
-            let acknowledgment =
-                match svc.acknowledge_agent_startup(&caller_tab_id, &attempt_id, &binding_nonce) {
-                    Ok(acknowledgment) => acknowledgment,
-                    Err(message) => {
-                        let refusal_class = if message.contains("not awaiting acknowledgement") {
-                            "startup_ack_not_awaiting"
-                        } else {
-                            "startup_ack_not_owner"
-                        };
-                        log_ack_event("startup_ack", "refused", refusal_class, None, None);
-                        return Err(JsonRpcError {
-                            code: -32603,
-                            message,
-                            data: None,
-                        });
-                    }
-                };
+            let acknowledged = match attempt_id.as_deref() {
+                Some(attempt_id) => {
+                    svc.acknowledge_agent_startup(&caller_tab_id, attempt_id, &binding_nonce)
+                }
+                None => svc.acknowledge_attemptless_agent_startup(&caller_tab_id, &binding_nonce),
+            };
+            let attempt_id = attempt_id.unwrap_or_default();
+            let acknowledgment = match acknowledged {
+                Ok(acknowledgment) => acknowledgment,
+                Err(message) => {
+                    let refusal_class = if message.contains("not awaiting acknowledgement") {
+                        "startup_ack_not_awaiting"
+                    } else {
+                        "startup_ack_not_owner"
+                    };
+                    log_ack_event("startup_ack", "refused", refusal_class, None, None);
+                    return Err(JsonRpcError {
+                        code: -32603,
+                        message,
+                        data: None,
+                    });
+                }
+            };
             let not_required = matches!(
                 acknowledgment,
                 codeterm_service_core::service::worker_ack::AgentStartupAcknowledgement::NotRequired

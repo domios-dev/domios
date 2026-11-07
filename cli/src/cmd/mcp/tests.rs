@@ -276,3 +276,17 @@ fn mcp_tool_and_argument_descriptions_come_from_prompt_source() {
         }
     }
 }
+
+#[test]
+fn mcp_startup_ack_runs_the_task_ack_only_for_a_task_bound_tab() {
+    let startup = tool_args("agent_startup_ack", &json!({})).unwrap();
+    assert_eq!(startup, ["--json", "agent", "startup-ack"]);
+    assert_eq!(launch_args(startup.clone(), false), startup);
+    let task_ack = launch_args(startup, true);
+    assert_eq!(task_ack, ["--json", "agent", "ack"]);
+    assert!(
+        crate::Cli::try_parse_from(std::iter::once("domios".to_owned()).chain(task_ack)).is_ok()
+    );
+    let report = tool_args("agent_report", &json!({"from_pad":"report.md"})).unwrap();
+    assert_eq!(launch_args(report.clone(), true), report);
+}

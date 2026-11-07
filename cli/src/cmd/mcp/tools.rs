@@ -70,6 +70,14 @@ pub(super) fn tools() -> Vec<Value> {
     }).collect()
 }
 
+/// A task-bound tab's own launch ACK is its dispatch ACK; a bare startup ACK is refused there.
+pub(super) fn launch_args(mut args: Vec<String>, task_bound: bool) -> Vec<String> {
+    if task_bound && args == ["--json", "agent", "startup-ack"] {
+        args[2] = "ack".into();
+    }
+    args
+}
+
 pub(super) fn tool_args(name: &str, arguments: &Value) -> Result<Vec<String>, &'static str> {
     let tool = TOOLS
         .iter()

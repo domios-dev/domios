@@ -30,7 +30,7 @@ pub(super) fn descriptor(
         return None;
     }
     let command = executable?.to_str()?.to_owned();
-    let env = [
+    let mut env: std::collections::BTreeMap<String, String> = [
         "CODETERM_API_TOKEN",
         "CODETERM_API_URL",
         "CODETERM_TAB_ID",
@@ -39,6 +39,13 @@ pub(super) fn descriptor(
     .into_iter()
     .map(|key| Some((key.to_owned(), environment.get(key)?.clone())))
     .collect::<Option<_>>()?;
+    // The task identity selects the tab's own ACK; agents may not forward their env.
+    env.extend(
+        ["CODETERM_PLAN_ID", "CODETERM_TASK_ID"]
+            .into_iter()
+            .filter_map(|key| Some((key.to_owned(), environment.get(key)?.clone())))
+            .filter(|(_, value)| !value.trim().is_empty()),
+    );
     Some(RuntimeHostMcp {
         env,
         name: "domios".into(),
