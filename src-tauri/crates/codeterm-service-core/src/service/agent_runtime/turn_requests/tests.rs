@@ -820,7 +820,7 @@ async fn busy_rpc_refusal_of_a_written_prompt_stays_uncertain_until_its_late_ech
                     pty_id: None,
                     binding_nonce: context.binding_nonce.clone(),
                     pty_session_generation: None,
-                    provider_id: "fixture".into(),
+                    provider_id: session.provider.clone(),
                     session_id: context.thread_id.clone(),
                     observed_session_id: context.thread_id.clone(),
                     prelaunch: false,
@@ -832,6 +832,13 @@ async fn busy_rpc_refusal_of_a_written_prompt_stays_uncertain_until_its_late_ech
         let record = store.admit(&reservation, "opaque", "opaque", None).unwrap();
         drop(reservation);
         ledger.admit_user(&record);
+        // The same handoff order as the runtime user drain: claim, ledger handoff, RPC binding.
+        assert!(store.claim(&record, context.thread_id.as_deref()).unwrap());
+        assert!(ledger.begin_user_handoff(
+            &record,
+            "opaque",
+            fixture.service.chat_send_anchor(&tab)
+        ));
         assert!(ledger.bind_rpc_send(
             &record.send_id,
             SendLiveBinding {
@@ -839,7 +846,6 @@ async fn busy_rpc_refusal_of_a_written_prompt_stays_uncertain_until_its_late_ech
                 binding_nonce: Some(context.binding_nonce.clone()),
             }
         ));
-        assert!(store.claim(&record, context.thread_id.as_deref()).unwrap());
         session.context.lock().claimed_sends.push(ClaimedSend {
             send_id: record.send_id.clone(),
             thread_id: context.thread_id.clone().unwrap(),
