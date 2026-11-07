@@ -208,6 +208,9 @@ fn declaring_a_limits_source_keeps_existing_install_receipts_valid() {
         },
     );
     assert_eq!(fingerprint(&installed), fingerprint(&declared));
+    let mut full_access = installed.clone();
+    full_access.full_access_mode = Some("fixture-approve-all".into());
+    assert_eq!(fingerprint(&installed), fingerprint(&full_access));
     let mut relaunched = installed.clone();
     relaunched.args.push("--other".into());
     assert_ne!(fingerprint(&installed), fingerprint(&relaunched));
