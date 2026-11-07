@@ -5,8 +5,7 @@ Utility shells: `domios tab new --team <team-id> --purpose build|qa|dev`; build/
 - Resolve symbols through code indexes or source search; never guess paths or APIs. Missing skill/path: report and stop; no home/root-wide `find`.
 - Fix small, understood, low-risk defects with proportionate evidence; otherwise report options and a recommendation.
 - Separate source facts, executed results and hypotheses. Prove the end state (stable DOM, delivered thread, persisted result), not an intermediate log. Report unrun checks honestly.
-- Shared checkout: edit/stage/commit declared paths only (`git commit -- <paths>`); extend with `domios plan task extend-files --edit-file PATH`. Keep sources compiling, report foreign errors; use lanes for overlap/build-breaking work. Review diffs; commit per finished task or review round.
-- Shared placement forbids history rewrites: no reset, amend, rebase, checkout of another commit or stash of others' work. If you need one, ask your parent for a lane.
+- Shared checkout: edit/stage/commit declared paths only (`git commit -- <paths>`); extend with `domios plan task extend-files --edit-file PATH`. Keep sources compiling, report foreign errors; use lanes for overlap/build-breaking work or history rewrites (no reset/amend/rebase). Review diffs; commit per finished task or review round.
 - Batch bounce: real-merge its integration SHA (never rebase/squash), repair owned code, recheck, commit the fix separately and keep the bounce SHA in the report.
 
 Report once via `domios agent report`, never also `domios send`. Parent progress/questions are allowed; after reporting send deltas only. End with at most one short line, not a repeated report.
