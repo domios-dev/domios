@@ -20,6 +20,22 @@ function Notice({ state }: { state: DeliveryState }) {
     noticeStatus={state === "delivered" ? undefined : <ChatDeliveryState inline state={state} queuedBehindTurn />} />;
 }
 
+test("beside a bubble only a held send shows a short visible label and keeps its full reason as name and tooltip", async () => {
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  await act(async () => root.render(<ChatDeliveryState state="queued" queuedBehindTurn />));
+  const status = host.querySelector<HTMLElement>('.ct-delivery[role="status"]');
+  assert.equal(status?.querySelector(".ct-delivery__label:not(.sr-only)")?.textContent, "Queued");
+  assert.equal(status?.getAttribute("aria-label"), status?.title);
+  assert.ok(status?.title && status.title !== "Queued");
+  for (const state of ["sending", "written", "uncertain"] as const) {
+    await act(async () => root.render(<ChatDeliveryState state={state} />));
+    assert.equal(host.querySelector(".ct-delivery__label:not(.sr-only)"), null, `${state} stays a quiet dot`);
+  }
+  await act(async () => root.unmount());
+});
+
 test("a held CLI notice shows its queued state while collapsed and drops it once delivered", async () => {
   const host = document.createElement("div");
   document.body.append(host);

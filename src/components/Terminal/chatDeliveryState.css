@@ -80,6 +80,13 @@
   font-size: 11px;
 }
 
+.ct-delivery__label--short {
+  white-space: nowrap;
+  color: var(--ct-muted-fg);
+  font-size: 11px;
+  line-height: 1;
+}
+
 .ct-delivery__retry {
   flex-shrink: 0;
   white-space: nowrap;

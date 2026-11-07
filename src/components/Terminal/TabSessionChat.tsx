@@ -24,7 +24,7 @@ import { ThreadRevertConfirmation } from "./ThreadRevertConfirmation";
 import { forkableTurnEnds } from "./messageForkModel";
 import { AskRow, ChatTranscriptRow, OutboundReportRow, type ChatTranscriptRowContext, type OutboundReportEntry } from "./ChatTranscriptRow";
 import { chatWindowRows } from "./chatWindowRowsModel";
-import { projectChatTranscriptActivity } from "./chatTranscriptActivity";
+import { liveOperationSlot, projectChatTranscriptActivity } from "./chatTranscriptActivity";
 import { ChatLiveOperation } from "./ChatLiveOperation";
 import { CompactToolRowsProvider, LocalArtifactScope } from "@codeterm/chat-ui";
 import { chatMessageAccessibleName } from "./chatMessageAccessibleName";
@@ -109,7 +109,7 @@ import { interruptAgentArgs } from "../../lib/agentInterrupt";
 import { useTabChoiceHost } from "./useTabChoiceHost";
 import { ChatMessageRow } from "./ChatMessageRow";
 import { HoldWhileHidden } from "./HoldWhileHidden";
-import { awaitsTranscriptEcho, deliveryPresentation, queuedBehindTurn, sendForRow } from "./chatDeliveryModel";
+import { awaitsTranscriptEcho, deliveryPresentation, queuedBehindTurn, sendForRow, waitsAfterTurn } from "./chatDeliveryModel";
 import { beginChatSendRetry, failChatSendRequest, useChatSendSnapshot } from "./chatSendStore";
 import { deleteTrackedChatMessage, sendTrackedChatMessage } from "./chatSendStatus";
 import { prepareChatDelivery } from "./chatDeliveryPreparation";
@@ -387,6 +387,10 @@ function TabSessionChatBody({
   );
   const sharedScrollRef = useRef<HTMLDivElement | null>(null);
   const liveOperation = renderedEnrichedMessages.find(({ msg }) => msg.id === chatTranscriptActivity.liveToolId)?.msg ?? null;
+  const liveSlotId = useMemo(() => liveOperationSlot(renderedEnrichedMessages, liveOperation?.id ?? null, (msg) => {
+    const send = sendForRow(deliverySends, msg);
+    return send != null && waitsAfterTurn(send);
+  }), [renderedEnrichedMessages, liveOperation?.id, deliverySends]);
   const chatUserScrollingRef = useRef(false);
   const mountedWindow = useMountedChatWindow({ rows: renderedEnrichedMessages, scrollRef: sharedScrollRef,
     active: transcriptMounted, followTailRef: chatFollowTailRef, sessionKey: `${tabId}:${agentSessionId ?? ""}`, userScrollingRef: chatUserScrollingRef });
@@ -623,7 +627,8 @@ function TabSessionChatBody({
   const daySeparators = useMemo(() => chatDaySeparators(renderedEnrichedMessages.map(({ msg, item, origin }) => messageRowTime(msg, item, origin)?.timestamp ?? null), {
     now: Date.now(), timeZone: CHAT_TIME_ZONE,
     labels: { today: "Today", yesterday: "Yesterday" },
-  }), [renderedEnrichedMessages, localToday]);
+  }, (index) => sendForRow(deliverySends, renderedEnrichedMessages[index].msg)?.id === renderedEnrichedMessages[index].msg.id),
+  [renderedEnrichedMessages, localToday, deliverySends]);
   const streamingId = streamingMessageId(renderedEnrichedMessages, agentActivity.active);
   const messageSelection = useChatMessageSelection({ tabId, rows: renderedEnrichedMessages, agent: tab?.title || provider?.displayName || "Agent", surfaceRef: scrollRef, streamingMessageId: streamingId, prepareMessage: mountedWindow.prepareMessage, contentVersion: mountedContentVersion });
   const jumpToQuoted = useLatestCallback((messageId: string) => { requestChatMessageReveal(tabId, messageId); }, [tabId]);
@@ -1004,6 +1009,7 @@ function TabSessionChatBody({
               key={msg.id}
               entry={entry}
               hideMessage={msg.id === liveOperation?.id}
+              leadingLiveOperation={msg.id === liveSlotId ? liveOperation : undefined}
               daySeparator={daySeparators.get(messageIndex)}
               originProps={originPropsById.get(msg.id)}
               reports={following.length ? following.map((index) => outboundReports[index]).filter(Boolean) : NO_REPORTS}
@@ -1044,7 +1050,7 @@ function TabSessionChatBody({
         </ChatMessageRow>}
         {isActive && reportPlacement.trailing.map(renderOutboundReport)}
         {isActive && askPlacement.trailing.map(renderAsk)}
-        <ChatLiveOperation message={liveOperation} />
+        <ChatLiveOperation message={liveSlotId ? null : liveOperation} />
         {restoreLoadRefused && setupState}
         </div>
       </div>

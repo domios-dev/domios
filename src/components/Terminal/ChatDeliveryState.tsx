@@ -9,7 +9,7 @@ const LABEL: Record<Exclude<DeliveryState, "delivered">, string> = {
 };
 const QUEUED_BEHIND_TURN = "Queued until the current turn ends";
 
-/** `inline` sits inside a card header and shows its label; beside a bubble it stays one quiet dot. */
+/** `inline` sits inside a card header and shows its label; beside a bubble it stays one quiet dot, a held send adding a short "Queued". */
 export function ChatDeliveryState({ state, error, onRetry, queuedBehindTurn = false, inline = false }: {
   state: DeliveryState; error?: string | null; onRetry?: () => void; queuedBehindTurn?: boolean; inline?: boolean;
 }) {
@@ -19,8 +19,11 @@ export function ChatDeliveryState({ state, error, onRetry, queuedBehindTurn = fa
   const refusal = refusalMarker && error?.includes(refusalMarker)
     ? error.slice(error.indexOf(refusalMarker) + refusalMarker.length).trim() : null;
   const label = refusal || (state === "queued" && queuedBehindTurn ? QUEUED_BEHIND_TURN : LABEL[state]);
-  return <span role="status" aria-live="polite" className={inline ? "ct-delivery ct-delivery--inline" : "ct-delivery"} data-state={state} title={label}>
+  const short = state === "queued" && !inline && !refusal;
+  return <span role="status" aria-live="polite" aria-label={short ? label : undefined}
+    className={inline ? "ct-delivery ct-delivery--inline" : "ct-delivery"} data-state={state} title={label}>
     <span className="ct-delivery__dot" aria-hidden="true" />
+    {short && <span className="ct-delivery__label ct-delivery__label--short" aria-hidden="true">Queued</span>}
     <span className={refusal || inline ? "ct-delivery__label" : "sr-only"}>{label}</span>
     {state === "failed" && onRetry && <button type="button" className="ct-delivery__retry" onClick={onRetry}>Retry</button>}
   </span>;

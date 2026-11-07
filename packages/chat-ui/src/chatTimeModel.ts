@@ -51,14 +51,16 @@ export function messageTimeLabels(timestamp: number, context: Pick<ChatTimeConte
   };
 }
 
-export function chatDaySeparators(timestamps: readonly (number | null)[], context: ChatTimeContext): ReadonlyMap<number, string> {
+/** A provisional row (a local send awaiting its echo) opens a day only first in the transcript or after a known other day. */
+export function chatDaySeparators(timestamps: readonly (number | null)[], context: ChatTimeContext,
+  provisional: (index: number) => boolean = () => false): ReadonlyMap<number, string> {
   const result = new Map<number, string>();
   const today = chatLocalDay(context.now, context.timeZone);
   let previous: number | null = null;
   timestamps.forEach((timestamp, index) => {
     if (timestamp == null) return;
     const day = chatLocalDay(timestamp, context.timeZone);
-    if (day == null) return;
+    if (day == null || (previous == null && index > 0 && provisional(index))) return;
     if (day !== previous) {
       result.set(index, day === today ? context.labels.today
         : today != null && day === today - 86_400_000 ? context.labels.yesterday
