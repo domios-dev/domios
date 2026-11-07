@@ -12,6 +12,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { ChevronDown, RotateCw } from "lucide-react";
 import { TabModeSwitch } from "./TabModeSwitch";
 import { UsageBubble } from "../Usage/UsageBubble";
+import { resolveTabProvider } from "../../lib/tabProvider";
 import { PluginBubbles } from "../Extensions/PluginBubbles";
 import type { ModelGroup, Tab } from "../../lib/types";
 import { TAB_BAR_CONTROL_H } from "./tabBarConstants";
@@ -321,6 +322,7 @@ export function TabTopBar({
         {usageProvider && (
           <UsageBubble
             provider={usageProvider}
+            providerLabel={shellTab ? (shellTab.agent_runtime_state?.agentName ?? resolveTabProvider(shellTab)?.displayName) : undefined}
             tabId={tabId}
             threadId={shellTab?.agent_session_id}
             trackingEnabled={!!usageVisible}
