@@ -34,7 +34,7 @@ __setInvokeForTest(async (command) => {
 __setListenForTest(async () => () => {});
 const noop = () => {};
 const actions = {
-  setFocusedTab: noop, selectTabByTab: async () => {}, upsertToast: noop, answerNotification: noop,
+  setFocusedTab: noop, selectTabByTab: async () => {}, upsertToast: noop, dismissToast: noop, answerNotification: noop,
 } as unknown as MultiplexerActionsContextType;
 const host = document.createElement("div");
 document.body.append(host);
