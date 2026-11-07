@@ -38,6 +38,23 @@ pub(super) fn environment(
     changes: &[Env],
     exclusions: &[String],
 ) -> Result<BTreeMap<String, String>, String> {
+    let launch = base
+        .iter()
+        .filter(|(key, _)| {
+            codeterm_util::tab_launch::MARKERS.contains(&key.as_str())
+                || [
+                    "CODETERM_API_URL",
+                    "CODETERM_API_PORT",
+                    "CODETERM_SOCKET_PATH",
+                    "CODETERM_CLI_PATH",
+                    "CODETERM_TEAM_ID",
+                    "CODETERM_PLAN_ID",
+                    "CODETERM_LANE_BASE",
+                ]
+                .contains(&key.as_str())
+        })
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect::<BTreeMap<_, _>>();
     let allowed = |key: &str| {
         [
             "PATH",
@@ -78,6 +95,7 @@ pub(super) fn environment(
         }
         env.insert(entry.name.clone(), entry.value.clone());
     }
+    env.extend(launch);
     Ok(env)
 }
 

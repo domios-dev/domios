@@ -19,6 +19,8 @@ fn restored_chat_launch_environment_mints_current_credentials_and_rejects_the_pr
     let previous = ServiceFixture::new(mux);
     let old_env = compose(&previous.service, &id, "fixture-runtime", "saved-nonce").unwrap();
     let old_token = &old_env["CODETERM_API_TOKEN"];
+    let old_file = std::path::PathBuf::from(&old_env[codeterm_util::tab_launch::FILE_ENV]);
+    assert!(codeterm_util::private_file::owner_only(&old_file).unwrap());
     let restored = ServiceFixture::new(MultiplexerState::from_session_snapshot(
         &previous.service.mux.read().to_session_snapshot(),
     ));
@@ -33,6 +35,29 @@ fn restored_chat_launch_environment_mints_current_credentials_and_rejects_the_pr
         .unwrap();
     let env = compose(&restored.service, &id, "fixture-runtime", &nonce).unwrap();
     let current_token = &env["CODETERM_API_TOKEN"];
+    let current_file = std::path::PathBuf::from(&env[codeterm_util::tab_launch::FILE_ENV]);
+    let scrubbed = env
+        .iter()
+        .filter(|(key, _)| {
+            !["KEY", "PASSWORD", "SECRET", "TOKEN"]
+                .iter()
+                .any(|word| key.to_ascii_uppercase().contains(*word))
+        })
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect::<HashMap<_, _>>();
+    let child_token = codeterm_util::tab_launch::lookup(|key| scrubbed.get(key).cloned())
+        .unwrap()
+        .unwrap();
+    assert_eq!(&child_token, current_token);
+    assert_eq!(
+        restored
+            .service
+            .authenticate_local_credential(&child_token)
+            .unwrap()
+            .unwrap()
+            .tab_id,
+        id
+    );
     assert_ne!(current_token, old_token);
     assert!(restored
         .service
@@ -53,12 +78,15 @@ fn restored_chat_launch_environment_mints_current_credentials_and_rejects_the_pr
     );
 
     let next_nonce = restored.service.rotate_session_binding_nonce(&id);
+    assert!(!current_file.exists());
     let next_env = compose(&restored.service, &id, "fixture-runtime", &next_nonce).unwrap();
     assert!(restored
         .service
         .authenticate_local_credential(current_token)
         .is_err());
     assert_ne!(next_env["CODETERM_API_TOKEN"], *current_token);
+    let next_file = std::path::PathBuf::from(&next_env[codeterm_util::tab_launch::FILE_ENV]);
+    assert_ne!(next_file, current_file);
     assert_eq!(
         restored
             .service
@@ -79,6 +107,10 @@ fn restored_chat_launch_environment_mints_current_credentials_and_rejects_the_pr
             .as_deref(),
         Some("own-thread")
     );
+    previous.service.revoke_tab_credential(&id);
+    assert!(!old_file.exists());
+    restored.service.close_tab(&id).unwrap();
+    assert!(!next_file.exists());
 }
 
 #[test]
@@ -87,6 +119,7 @@ fn host_identity_wins_and_absent_roles_cannot_leak_from_extra_env() {
         ("CODETERM_TASK_ID".into(), "foreign".into()),
         ("CODETERM_ROLE".into(), "foreign".into()),
         ("CODETERM_API_TOKEN".into(), "foreign".into()),
+        ("CODETERM_LAUNCH_FILE".into(), "foreign".into()),
         ("PATH".into(), "owned-path".into()),
         ("CODETERM_CLI_PATH".into(), "owned-cli".into()),
         ("HIDDEN_WORKER_CONTEXT".into(), "owned-context".into()),
@@ -101,6 +134,7 @@ fn host_identity_wins_and_absent_roles_cannot_leak_from_extra_env() {
     assert_eq!(env.get("CODETERM_API_TOKEN").unwrap(), "own-token");
     assert_eq!(env.get("CODETERM_WORKER_ID").unwrap(), "own-worker");
     assert!(!env.contains_key("CODETERM_ROLE"));
+    assert!(!env.contains_key("CODETERM_LAUNCH_FILE"));
     assert_eq!(env.get("PATH").unwrap(), "owned-path");
     assert_eq!(env.get("CODETERM_CLI_PATH").unwrap(), "owned-cli");
     assert_eq!(env.get("HIDDEN_WORKER_CONTEXT").unwrap(), "owned-context");

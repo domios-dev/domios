@@ -127,10 +127,15 @@ pub fn resolve_api_config() -> ResolvedApiConfig {
         port,
         port_source,
     );
+    let launch_token = codeterm_util::tab_launch::lookup(|key| std::env::var(key).ok())
+        .unwrap_or_else(|error| crate::cmd::print::fail(1, error));
+    if codeterm_util::tab_launch::marked() && launch_token.is_none() {
+        crate::cmd::print::fail(1, codeterm_util::tab_launch::RESTART_GUIDANCE);
+    }
     let token = resolve_connection_token(
         &config_dir,
-        crate::nonempty_env("CODETERM_TAB_ID").as_deref(),
-        env_token.as_deref(),
+        launch_token.is_some(),
+        launch_token.as_deref().or(env_token.as_deref()),
         require_stored,
     )
     .unwrap_or_else(|error| crate::cmd::print::fail(1, error));
@@ -148,11 +153,11 @@ pub fn resolve_api_config() -> ResolvedApiConfig {
 
 fn resolve_connection_token(
     data_root: &std::path::Path,
-    caller_tab: Option<&str>,
+    tab_launch: bool,
     environment: Option<&str>,
     require_stored: bool,
 ) -> Result<Option<String>, String> {
-    if caller_tab.is_some() {
+    if tab_launch {
         if require_stored {
             return Err("A tab credential cannot authenticate another instance; use an owner shell on the target instance".into());
         }

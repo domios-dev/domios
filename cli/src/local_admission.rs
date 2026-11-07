@@ -45,7 +45,7 @@ pub(crate) fn requires_admission(scoped: bool) -> bool {
     admission_required(
         scoped,
         crate::nonempty_env("CODETERM_API_TOKEN").is_some(),
-        crate::nonempty_env("CODETERM_TAB_ID").is_some(),
+        codeterm_util::tab_launch::marked(),
     )
 }
 
