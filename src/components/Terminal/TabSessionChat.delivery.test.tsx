@@ -63,10 +63,11 @@ function setupDom() {
   return window;
 }
 
-function tabState(tabId: string, runtimeState?: AgentRuntimeState): ExtendedState {
+function tabState(tabId: string, runtimeState?: AgentRuntimeState, working = false): ExtendedState {
   const tab = {
     id: tabId,
     agent_runtime_state: runtimeState,
+    ...(working ? { agent_state: { state: "working" } } : {}),
     pty_id: null,
     tab_type: "Terminal",
     title: "Delivery test",
@@ -82,7 +83,7 @@ function tabState(tabId: string, runtimeState?: AgentRuntimeState): ExtendedStat
     active_workspace_id: null,
     focused_tab_id: tabId,
     notifications: [],
-    tabStatuses: {},
+    tabStatuses: working ? { [tabId]: "Working" } : {},
     toasts: [],
     activeTabIds: {},
     generation: 1,
@@ -132,7 +133,8 @@ function muxActions(): MultiplexerActionsContextType {
 
 type ChatEventHandler = (event: { payload: unknown }) => void;
 
-async function renderChat(tabId = "delivery-tab", runtimeState?: AgentRuntimeState, sessionIntent?: { title: string; goal: string }, chatError?: string): Promise<{
+async function renderChat(tabId = "delivery-tab", runtimeState?: AgentRuntimeState, sessionIntent?: { title: string; goal: string }, chatError?: string,
+  seed: { messages?: unknown[]; working?: boolean } = {}): Promise<{
   host: HTMLDivElement;
   root: Root;
   dispatch: (event: string, payload: unknown) => void;
@@ -152,7 +154,7 @@ async function renderChat(tabId = "delivery-tab", runtimeState?: AgentRuntimeSta
       return {
         text: "",
         offset: 0,
-        messages: sessionIntent ? [{ id: "intent", type: "custom", content: "", timestamp: 1, sessionIntent }] : [],
+        messages: seed.messages ?? (sessionIntent ? [{ id: "intent", type: "custom", content: "", timestamp: 1, sessionIntent }] : []),
         source_session_id: "session-1",
         session_binding_nonce: "nonce-1",
         subscription_id: "delivery-subscription",
@@ -174,7 +176,7 @@ async function renderChat(tabId = "delivery-tab", runtimeState?: AgentRuntimeSta
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);
-  const store = createMuxStateStore(() => tabState(tabId, runtimeState));
+  const store = createMuxStateStore(() => tabState(tabId, runtimeState, seed.working));
   await act(async () => {
     root.render(
       <MuxStateStoreContext.Provider value={store}>
@@ -569,6 +571,50 @@ test("a written prompt the agent refused while busy says so without offering Ret
     assert(![...(bubble?.querySelectorAll("button") ?? [])].some((button) => button.textContent === "Retry"),
       "written input never offers Retry");
   } finally { await act(async () => root.unmount()); host.remove(); }
+});
+
+test("a held send waits after the running turn's live operation and becomes its one delivered bubble", async () => {
+  const tabId = "held-behind-live-tool";
+  const { __setInvokeForTest } = await import("../../lib/bridge");
+  const turn = [
+    { id: "turn-prompt", type: "user", content: "opaque-prompt" },
+    { id: "turn-text", type: "assistant", content: "opaque-preamble" },
+    { id: "turn-tool", type: "tool_call", content: "", toolId: "turn-tool", toolKind: "command", toolInput: { cmd: "opaque-command" },
+      toolStatus: "running", toolStartedAtMs: Date.now() - 1000 },
+  ];
+  const { host, root, dispatch } = await renderChat(tabId, undefined, undefined, undefined, { messages: turn, working: true });
+  const status = (state: "held" | "delivered", sequence: number) => ({
+    tab_id: tabId, send_id: "held-tx", correlationId: "held-send", state, sequence,
+    ledger_id: "ledger", retained_from: 1, error: null, pending_reason: state === "held" ? "held_active_turn" : undefined,
+  });
+  let latest = status("held", 1);
+  __setInvokeForTest(async <T,>(command: string) => (command === "chat_send_status" ? [latest] : []) as T);
+  const bubbles = () => host.querySelectorAll('[data-testid="chat-message"][data-message-role="user"]');
+  try {
+    await act(async () => addChatSend(tabId, { id: "held-send", correlationId: "held-send", content: "opaque-held", sentAtMs: Date.now() }));
+    await act(async () => dispatch("chat-send-status", latest));
+    const live = host.querySelectorAll('[data-testid="chat-live-operation"]');
+    const held = host.querySelector('[data-message-id="held-send"]');
+    assert(live.length === 1 && held, "one live operation and the held bubble render");
+    assert(live[0].compareDocumentPosition(held) & Node.DOCUMENT_POSITION_FOLLOWING, "the held send follows the running tool");
+    const rows = Array.from(host.querySelectorAll("[data-chat-window-row]"));
+    assert(rows[rows.length - 1]?.contains(held), "the held send is the last transcript row");
+    assert(!host.querySelector('[role="separator"]'), "an untimestamped turn gains no day divider from the held send");
+    const queued = held.querySelector<HTMLElement>('.ct-delivery[data-state="queued"]');
+    assert(queued?.querySelector(".ct-delivery__label:not(.sr-only)")?.textContent === "Queued", "a short visible Queued label");
+    assert(queued?.title === "Queued until the current turn ends", "the full reason stays the tooltip");
+    assert(queued?.getAttribute("aria-label") === "Queued until the current turn ends", "the full reason is the accessible name");
+
+    latest = status("delivered", 2);
+    await act(async () => dispatch("chat-send-status", latest));
+    const delivered = Array.from(bubbles()).filter((bubble) => bubble.textContent?.includes("opaque-held"));
+    assert(delivered.length === 1 && delivered[0].getAttribute("data-message-id") === "held-send", "delivery keeps the one bubble");
+    const stillLive = host.querySelector('[data-testid="chat-live-operation"]');
+    assert(stillLive && stillLive.compareDocumentPosition(delivered[0]) & Node.DOCUMENT_POSITION_FOLLOWING,
+      "until its echo the delivered send stays after the running tool");
+  } finally {
+    await act(async () => root.unmount()); host.remove();
+  }
 });
 
 test("one bubble follows event state and Retry reuses it", async () => {

@@ -57,6 +57,11 @@ export function queuedBehindTurn(send: DeliverySend, activity: TabActivity["kind
     && (send.status?.pending_reason === ACTIVE_TURN_HOLD || activity === "working");
 }
 
+/** A send that is or was held stays after the turn it was held behind. */
+export function waitsAfterTurn(send: DeliverySend): boolean {
+  return send.wasHeld === true || deliveryState(send) === "queued";
+}
+
 export function applyDeliveryStatus(send: DeliverySend, status: ChatSendStatus): DeliverySend {
   if (status.correlationId !== send.correlationId) return send;
   if (send.status?.ledger_id === status.ledger_id && send.status.sequence > status.sequence) return send;

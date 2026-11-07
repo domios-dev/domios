@@ -1,4 +1,5 @@
 import { memo, useMemo, type ReactNode } from "react";
+import type { NormalizedChatMessage } from "@codeterm/chat-core";
 import type { InteractiveAnswerHandler, OutboundReportDescriptor } from "@codeterm/chat-ui";
 import { ChatDaySeparator, ChatHighlightRow, MessageBubble, MessageTimeFrame, OutboundReportCard, messageRowTime } from "@codeterm/chat-ui";
 import type { Notification } from "../../lib/types";
@@ -7,6 +8,7 @@ import { ChatAskCard } from "../Notifications/ChatAskCard";
 import { ChatWindowRow } from "./ChatWindowRow";
 import { ChatMessageRow, type MessageRowHandlers } from "./ChatMessageRow";
 import { ChatDeliveryState } from "./ChatDeliveryState";
+import { ChatLiveOperation } from "./ChatLiveOperation";
 import { DroppedUploadNotice } from "./DroppedUploadNotice";
 import { VoiceTranscriptionProgress } from "./voice/VoiceTranscriptionProgress";
 import { canRetryChatSend, canDeleteChatSend, type DeliverySend, type DeliveryState } from "./chatDeliveryModel";
@@ -60,6 +62,8 @@ export interface ChatTranscriptRowProps {
   asks: readonly Notification[];
   liveActivityLabel?: string;
   hideMessage?: boolean;
+  /** The running turn's live operation, drawn above the send queued behind that turn. */
+  leadingLiveOperation?: NormalizedChatMessage | null;
   deliverySend?: DeliverySend;
   deliveryView?: DeliveryState;
   deliveryBehindTurn?: boolean;
@@ -124,7 +128,7 @@ function sameRowProps(left: ChatTranscriptRowProps, right: ChatTranscriptRowProp
 }
 
 /** One transcript row; it renders again only when its own message, rails, delivery or selection change. */
-export const ChatTranscriptRow = memo(function ChatTranscriptRow({ entry, daySeparator, originProps, reports, asks, liveActivityLabel, hideMessage,
+export const ChatTranscriptRow = memo(function ChatTranscriptRow({ entry, daySeparator, originProps, reports, asks, liveActivityLabel, hideMessage, leadingLiveOperation,
   deliverySend, deliveryView, deliveryBehindTurn, sourceOrdinal, selected, joinNext, selecting, cursor, streaming, latestFailedToolCall,
   forkable, revertible, ariaLabel, context }: ChatTranscriptRowProps) {
   const { msg, item, origin } = entry;
@@ -134,6 +138,7 @@ export const ChatTranscriptRow = memo(function ChatTranscriptRow({ entry, daySep
   const turnId = msg.toolFlowId;
   return (
     <ChatWindowRow message={msg} liveActivityLabel={liveActivityLabel}>
+      {leadingLiveOperation && <ChatLiveOperation message={leadingLiveOperation} />}
       <ChatDaySeparator label={daySeparator} />
       {!hideMessage && <ChatHighlightRow id={msg.id}>
         <ChatMessageRow
