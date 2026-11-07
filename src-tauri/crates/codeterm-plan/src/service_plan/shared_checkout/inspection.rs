@@ -1,3 +1,4 @@
+use super::report::SharedReportError;
 use super::{PlanError, PlanStore, TaskFiles, WorkerPlacement};
 use crate::plan::Task;
 use crate::service_plan::task_authority_projection::SharedReportRead as SharedReportSnapshot;
@@ -68,7 +69,7 @@ impl SharedReportInspection {
 }
 
 impl PlanStore {
-    fn shared_git(&self, checkout: &str, args: &[&str]) -> Result<String, String> {
+    fn shared_git(&self, checkout: &str, args: &[&str]) -> Result<String, SharedReportError> {
         #[cfg(test)]
         {
             let observer = self.shared_git_observer.read().clone();
@@ -95,7 +96,7 @@ impl PlanStore {
         self.observe_shared_history(&checkout, now_ms);
         let head = self
             .shared_git(&checkout, &["rev-parse", "--verify", "HEAD^{commit}"])
-            .map_err(PlanError::InvalidPlanText)?
+            .map_err(|error| PlanError::InvalidPlanText(error.to_string()))?
             .trim()
             .to_string();
         Ok(SharedDispatchInspection {
@@ -134,7 +135,10 @@ impl PlanStore {
             sha,
             |checkout, args| self.shared_git(checkout, args),
         )
-        .map_err(PlanError::InvalidPlanText)?;
+        .map_err(|error| match error {
+            SharedReportError::Rejected(cause) => PlanError::SharedReportRejected(cause),
+            SharedReportError::Inspection(cause) => PlanError::InvalidPlanText(cause),
+        })?;
         Ok(Some(SharedReportInspection {
             snapshot,
             changed_files,

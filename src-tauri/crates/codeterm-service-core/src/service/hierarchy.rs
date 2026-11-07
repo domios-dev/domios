@@ -565,7 +565,8 @@ impl ServiceContext {
                 task_id: eff_task_id.clone(),
                 cause,
                 report_outcome: report_outcome
-                    .filter(|outcome| *outcome == ReportOutcomeClass::StaleBindingConflict),
+                    .filter(|outcome| *outcome == ReportOutcomeClass::StaleBindingConflict)
+                    .or(Some(ReportOutcomeClass::TransitionRejected)),
             });
 
         let (from_title, default_target_opt, model_identity, from_ref) = {
@@ -786,6 +787,10 @@ impl ServiceContext {
             report_outcome = Some(ReportOutcomeClass::StructurallyNotAttachable);
         }
 
+        let rejected_outcome = rejected_task_transition
+            .as_ref()
+            .and_then(|r| r.report_outcome);
+        report_outcome = report_outcome.or(rejected_outcome);
         let storage_key = target.storage_key();
         let delivered_message = rejected_task_transition.as_ref().map_or_else(
             || message.to_string(),

@@ -341,11 +341,17 @@ pub(crate) async fn submit_loaded(
         })),
         other => other,
     };
-    if let Err(failure) = &result {
-        log::warn!(
+    match &result {
+        // Not a failure: the outcome is logged once when own-session evidence confirms it.
+        Err(RuntimeFailure::WrittenAwaitingEvidence) => log::info!(
+            "[runtime-send] tab={tab} send_id={} written; awaiting own-session delivery evidence",
+            pending.send_id
+        ),
+        Err(failure) => log::warn!(
             "[runtime-send] tab={tab} send_id={} handed_off={handed_off} failed: {failure}",
             pending.send_id
-        );
+        ),
+        Ok(_) => {}
     }
     match result {
         Ok(RuntimeResult::TurnAccepted {

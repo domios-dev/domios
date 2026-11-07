@@ -395,6 +395,13 @@ fn shared_report_names_a_commit_reset_away_from_head() {
         "{error}"
     );
     assert!(error.contains("reset or amended"), "{error}");
+    assert!(matches!(
+        super::report::git(
+            root.path().to_str().unwrap(),
+            &["merge-base", "--is-ancestor", &reported, "HEAD"],
+        ),
+        Err(super::report::SharedReportError::Rejected(_))
+    ));
 }
 
 #[test]
@@ -406,6 +413,11 @@ fn missing_report_commit_is_a_git_failure_not_false_ancestry() {
         &["merge-base", "--is-ancestor", &"f".repeat(40), "HEAD"],
     )
     .unwrap_err();
+    assert!(
+        matches!(error, super::report::SharedReportError::Inspection(_)),
+        "{error}"
+    );
+    let error = error.to_string();
     assert!(error.contains("git inspection failed"), "{error}");
     assert!(!error.contains("reset or amended"), "{error}");
 }
