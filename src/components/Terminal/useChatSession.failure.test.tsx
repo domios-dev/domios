@@ -1,3 +1,4 @@
+import { OutcomeUnknown, RetryableMuxError } from "../../lib/streamMux";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -182,4 +183,19 @@ it("reattaches after an aborted listener setup without reporting a terminal fail
   expect(host.querySelector('[aria-label="Chat connection failed"]')).toBeNull();
   expect(host.querySelector('[role="log"]')?.textContent).toBe("Restored transcript");
   expect(listenerCalls).toBe(2);
+});
+
+it.each([new RetryableMuxError("/api/tabs/t/chat-raw/start", "Mux per-request buffer limit exceeded (600000 bytes; limit 524288 bytes)"),
+  new OutcomeUnknown("POST", "/api/tabs/t/chat-raw/start", "SSE capacity exceeded")])("recovers an interrupted read snapshot once without a write-uncertainty banner: %s", async failure => {
+  failSnapshot = false;
+  __setInvokeForTest((async (command: string, args: Record<string, unknown>) => {
+    if (command !== "chat_start") return [];
+    starts++;
+    if (starts === 1) throw failure;
+    return { ...authority, subscription_id: args.subscriptionId, messages: [{ id: "row", type: "assistant", content: "Restored transcript" }], text: "", start_offset: 0, offset: 40, pending: false };
+  }) as never);
+  await act(async () => root.render(<Harness />));
+  expect(host.querySelector('[aria-label="Chat connection failed"]')).toBeNull();
+  expect(host.querySelector('[role="log"]')?.textContent).toBe("Restored transcript");
+  expect(starts).toBe(2);
 });
