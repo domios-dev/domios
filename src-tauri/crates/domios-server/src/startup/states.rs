@@ -246,6 +246,12 @@ pub(crate) fn init_states(
     config_state: ConfigState,
     rest_api: codeterm_service_core::startup::RestApiControlState,
 ) -> AppStates {
+    if let Err(error) =
+        service::agent_pad::sweep_launch_files(&codeterm_service_core::paths::data_dir())
+    {
+        log::error!("[agent-pad] launch credential cleanup failed: {error}");
+        std::process::exit(2);
+    }
     let mut storage = codeterm_service_core::startup::open_instance_storage();
 
     let pty_state: PtyState = Arc::new(TimedMutex::new("pty", PtyManager::new()));

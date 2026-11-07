@@ -3,7 +3,7 @@ use std::collections::HashMap;
 
 fn file(root: &Path) -> std::path::PathBuf {
     let path = root.join("launch.json");
-    crate::private_file::write_atomic(
+    write_new(
         &path,
         &serde_json::to_vec(&LaunchCredential {
             tab_id: "own-tab".into(),

@@ -233,17 +233,18 @@ impl super::ServiceContext {
             }
             credential.token.clone()
         };
-        let file = CredentialFile(
-            pad.path()
-                .join(format!(".runtime-launch-{}.json", uuid::Uuid::new_v4())),
-        );
+        let file = CredentialFile(pad.path().join(format!(
+            "{}{}.json",
+            codeterm_util::tab_launch::RUNTIME_FILE_PREFIX,
+            uuid::Uuid::new_v4()
+        )));
         let bytes = serde_json::to_vec(&codeterm_util::tab_launch::LaunchCredential {
             tab_id: tab_id.into(),
             binding_nonce: nonce.into(),
             token: token.clone(),
         })
         .map_err(|error| error.to_string())?;
-        codeterm_util::private_file::write_atomic(file.path(), &bytes)
+        codeterm_util::tab_launch::write_new(file.path(), &bytes)
             .map_err(|error| format!("Runtime credential handoff failed: {error}"))?;
         let mux = self.mux.read();
         let tab = mux.get_tab(tab_id).ok_or("Runtime tab unavailable")?;
