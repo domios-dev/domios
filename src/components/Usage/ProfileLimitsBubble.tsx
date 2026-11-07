@@ -36,11 +36,12 @@ export function UnavailableLimitsBubble({ reason }: { reason: string }) {
 export function BalanceBubble({ provider, accountId, trackingEnabled }: { provider: string; accountId: string; trackingEnabled: boolean }) {
   const { snapshot, refresh } = useUsageSnapshot({ provider, accountId, enabled: trackingEnabled });
   const requested = useRef(false);
+  const needsRead = balanceNeedsRead(snapshot, Date.now());
   useEffect(() => {
-    if (!trackingEnabled || requested.current || !balanceNeedsRead(snapshot, Date.now())) return;
+    if (!trackingEnabled || requested.current || !needsRead) return;
     requested.current = true;
     void refresh();
-  }, [trackingEnabled, snapshot, refresh]);
+  }, [trackingEnabled, needsRead, refresh]);
   if (!trackingEnabled) return null;
   const reading = balanceReading(snapshot);
   const failure = snapshot && !snapshot.parsed_ok ? snapshot.failure_reason ?? "Balance unavailable" : null;
