@@ -56,6 +56,7 @@ pub fn publish(svc: &ServiceContext, session: &Session, request: RpcId, mut prom
     };
     svc.push_structured_prompt(&context.tab_id, visible);
     svc.mark_agent_waiting(&context.tab_id);
+    auto_confirm_bridge(svc, &context.tab_id);
 }
 
 pub fn resolve(svc: &ServiceContext, session: &Session, request: &RpcId) {
@@ -100,6 +101,7 @@ fn remove(svc: &ServiceContext, context: &RuntimeContext, request: Option<&RpcId
             );
         }
         svc.push_structured_prompt(&context.tab_id, next);
+        auto_confirm_bridge(svc, &context.tab_id);
     }
 }
 
@@ -191,6 +193,51 @@ pub async fn respond(
     value: &str,
     expected: Option<&PromptIdentity>,
 ) -> Option<Result<RespondPromptOutcome, String>> {
+    respond_inner(svc, tab, value, expected, false).await
+}
+
+pub(crate) fn auto_confirm_bridge(svc: &ServiceContext, tab: &str) {
+    if !automatic_bridge_enabled(svc, tab) {
+        return;
+    }
+    let entry = PROMPTS
+        .lock()
+        .get(tab)
+        .and_then(|queue| queue.front())
+        .filter(|entry| !entry.claimed)
+        .cloned();
+    let Some(entry) = entry else {
+        return;
+    };
+    let Some(session) = engine::for_tab(tab) else {
+        return;
+    };
+    let context = session.context.lock().clone();
+    if !super::client_bridge::pending(&context, &entry.request) {
+        return;
+    }
+    let identity = PromptIdentity::new(PromptKind::Structured, &entry.prompt);
+    let owner = svc.clone();
+    let tab = tab.to_owned();
+    crate::async_runtime::spawn(async move {
+        let _ = respond_inner(&owner, &tab, "allow_once", Some(&identity), true).await;
+    });
+}
+
+fn automatic_bridge_enabled(svc: &ServiceContext, tab: &str) -> bool {
+    svc.mux
+        .read()
+        .get_tab(tab)
+        .is_some_and(|tab| tab.auto_approve || tab.permission_auto_confirm)
+}
+
+async fn respond_inner(
+    svc: &ServiceContext,
+    tab: &str,
+    value: &str,
+    expected: Option<&PromptIdentity>,
+    automatic_bridge: bool,
+) -> Option<Result<RespondPromptOutcome, String>> {
     let runtime = super::requested_for_tab(svc, tab);
     let has_token = expected.is_some_and(|identity| identity.request_id.is_some());
     if !runtime && !has_token {
@@ -226,6 +273,12 @@ pub async fn respond(
                     .map_err(|_| "Runtime approval permit deadline")?
                     .map_err(|_| "Runtime stopped")?;
             let current = session.context.lock().clone();
+            if automatic_bridge
+                && (!automatic_bridge_enabled(svc, tab)
+                    || !super::client_bridge::pending(&current, &entry.request))
+            {
+                return Ok(RespondPromptOutcome::StalePrompt);
+            }
             if !matching_entry(&entry, &current, expected)
                 || !current_prompt_matches(svc, tab, &current, expected)
                 || engine::validate_binding(svc, &session).is_err()

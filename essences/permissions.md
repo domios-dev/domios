@@ -8,6 +8,8 @@ Every Domios agent launches with full machine access by default, using its provi
 
 Without full access, a model whose provider declares no unattended permission mode receives launch-scoped grants for its role's Domios commands. Launching an Orchestrator or Planner on such a model is refused before tab creation, with the model named; Team pairing checks both members first. Provider capabilities determine this behavior, not provider identity.
 
+Host file and terminal bridges honor the tab's recorded launch access: full access and workspace-write access permit workspace writes and command creation without another prompt. Read-only access refuses both. Bridge size, path, credential-store, command and working-directory bounds apply before any policy allowance or approval. Prompting tabs offer Allow once, Allow for this session and Reject; session grants are separate for writes, commands and sensitive reads, and end on runtime restart or session rebinding. Tab auto-confirm answers bridge prompts with Allow once and never creates a session grant.
+
 Command and tool permission prompts follow the tab's own permission policy. At an agent's launch or during a cron run, a prompt offering provider-declared options may be answered by one confident model choice of a declared option under the [Supporter prompt-answer rule](supporter-agent.md#provider-declared-prompt-answers); otherwise a model observation never approves it. Notification audience controls who is alerted, not execution access.
 
 ## Operator and role authority

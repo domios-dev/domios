@@ -1,5 +1,6 @@
 pub(super) mod approvals;
 mod fs;
+mod gate;
 mod terminal;
 #[cfg(test)]
 mod tests;
@@ -114,6 +115,7 @@ struct State {
     pending: HashMap<RpcId, Pending>,
     terminals: HashMap<String, Arc<terminal::Terminal>>,
     approvals: approvals::Approvals,
+    session_grants: gate::SessionGrants,
 }
 struct Bridge {
     epoch: u64,
@@ -208,6 +210,7 @@ pub(super) fn install(
                 pending: HashMap::new(),
                 terminals: HashMap::new(),
                 approvals: Default::default(),
+                session_grants: Default::default(),
             }),
             inflight: Arc::new(tokio::sync::Semaphore::new(64)),
         }),
@@ -233,6 +236,9 @@ pub(super) fn method_supported(method: &str) -> bool {
             | "terminal/kill"
             | "terminal/release"
     )
+}
+pub(super) fn pending(context: &RuntimeContext, id: &RpcId) -> bool {
+    bridge(context).is_ok_and(|bridge| bridge.state.lock().pending.contains_key(id))
 }
 #[derive(Debug, PartialEq, Eq)]
 enum BridgeError {
@@ -437,6 +443,23 @@ fn prepare(
             None
         }
     };
+    let question = if let Some(kind) = gate::Kind::of(request) {
+        let access = gate::access(svc, context)?;
+        let decision = {
+            let mut state = bridge.state.lock();
+            state.session_grants.bind(context);
+            state.session_grants.decide(access, kind)
+        };
+        match decision {
+            gate::Decision::Allow => None,
+            gate::Decision::Prompt => question,
+            gate::Decision::Refuse => {
+                return Err("Execution sandbox denies client operation".into())
+            }
+        }
+    } else {
+        question
+    };
     if question.is_some() {
         crate::service::execution_sandbox::validate_runtime_operation(
             svc,
@@ -478,7 +501,7 @@ fn prepare(
         }
         _ => question,
     };
-    let prompt = question.map(|question| serde_json::from_value(json!({"question":question,"options":[{"label":"Allow once","value":"allow_once"},{"label":"Reject","value":"reject_once"}]})).map_err(|error|error.to_string())).transpose()?;
+    let prompt = question.map(gate::prompt).transpose()?;
     Ok((prompt, env))
 }
 #[cfg(not(windows))]
@@ -698,7 +721,7 @@ pub(super) async fn answer(
     let unchanged = original.as_ref() == Some(&pending.request);
     session.prompts.lock().remove(id);
     super::prompt_answers::resolve(svc, session, id);
-    let granted = matches!(answer,PromptAnswer::Choice {values} if values == &["allow_once"]);
+    let granted = gate::allowed_answer(answer);
     let policy = crate::service::execution_sandbox::validate_runtime_operation(
         svc,
         &context,
@@ -715,6 +738,8 @@ pub(super) async fn answer(
         Err("Client operation denied".into())
     } else if context.active_turn_id.as_deref() != Some(&pending.turn) {
         Err("Approval turn expired".into())
+    } else if let Err(error) = gate::record_session_grant(&bridge, &context, &pending, answer) {
+        Err(error.into())
     } else {
         execute(
             svc,
@@ -871,6 +896,9 @@ pub(super) async fn cancel(
         state.closed = true;
         state.generation += 1;
         state.approvals.clear();
+        if close {
+            state.session_grants = Default::default();
+        }
         (
             std::mem::take(&mut state.pending),
             std::mem::take(&mut state.terminals),
@@ -918,6 +946,7 @@ pub(super) fn begin_turn(context: &RuntimeContext) {
         state.generation += 1;
         state.closed = false;
         state.approvals.clear();
+        state.session_grants.bind(context);
     }
 }
 
