@@ -1,8 +1,8 @@
-import { describeError } from "../../lib/describeError";
+import { createChatErrorNotice } from "./chatErrorNotice";
 import { DEV_BUILD } from "../../lib/devBuild";
 import { useProviderPromptLifecycle } from "./useProviderPromptLifecycle";
 import { tabActivity } from "../../lib/tabActivity";
-import { createNoticePublisher } from "../../lib/notices";
+
 import { useLatestCallback } from "../../hooks/useLatestCallback";
 import { useChatTabNameResolver } from "./useChatTabNameResolver";
 import { isInputBlockedTab } from "../../lib/tabInputPolicy";
@@ -18,7 +18,7 @@ import { ComposerIssuesProvider } from "./ComposerIssuesContext";
 import { runtimeResponseDeadlinePending, runtimeStatusPresentation } from "../../lib/agentRuntimeState";
 import { useAgentRuntimeState } from "./useAgentRuntimeState";
 import { manualPendingPrompt, promptMessagePart, promptResponseArgs } from "../../lib/promptAnswers";
-import { CHAT_ERROR_TOAST_LIFETIME_MS } from "../Notifications/toastLifetime";
+
 import { ThreadRevertConfirmation } from "./ThreadRevertConfirmation";
 import { forkableTurnEnds } from "./messageForkModel";
 import { AskRow, ChatTranscriptRow, OutboundReportRow, type ChatTranscriptRowContext, type OutboundReportEntry } from "./ChatTranscriptRow";
@@ -140,20 +140,6 @@ const NO_RAIL_INDICES: readonly number[] = [];
 const NO_REPORTS: readonly OutboundReportEntry[] = [];
 const NO_ASKS: readonly Notification[] = [];
 
-function isMicrophonePermissionError(message: string): boolean {
-  const normalized = message.toLowerCase();
-  if (normalized.includes("needs https")) return false;
-  return (
-    normalized.includes("microphone") ||
-    normalized.includes("mic api") ||
-    normalized.includes("media device") ||
-    normalized.includes("getusermedia") ||
-    normalized.includes("notallowederror") ||
-    normalized.includes("denied permission") ||
-    normalized.includes("permission denied") ||
-    normalized.includes("not allowed by the user agent")
-  );
-}
 
 function OriginProviderAvatar({ providerId }: { providerId: string | null | undefined }) {
   if (!providerId) return null;
@@ -220,7 +206,7 @@ function TabSessionChatBody({
   const floatingBottomInset = useChatLayoutInsets(chatRootRef);
   const chatFollowTailRef = useRef(true);
 
-  const { setFocusedTab, selectTabByTab, upsertToast, answerNotification } = useMultiplexer();
+  const { setFocusedTab, selectTabByTab, upsertToast, dismissToast, answerNotification } = useMultiplexer();
   const openPlanTarget = usePlanTargetNavigation();
   const tabSelector = useLatestCallback((s: Parameters<typeof selectTab>[0]) => selectTab(s, tabId), [tabId]);
   const tab = useMuxSelector(tabSelector, tabFieldsEqual);
@@ -267,19 +253,8 @@ function TabSessionChatBody({
   const resolvePeerName = useMeshPeerNameResolver(isActive);
   const resolvePluginName = usePluginDisplayNameResolver();
 
-  const showComposerError = useLatestCallback((message: string) => {
-    const description = describeError(message);
-    createNoticePublisher({ upsertToast })({ kind: "toast", tabId: tabId,
-      workspaceId: null, id: `chat-error:${tabId}`,
-      title: description.pending ? description.title : isMicrophonePermissionError(message)
-        ? "Microphone unavailable"
-        : "Chat error",
-      detail: description.pending ? description.cause : isMicrophonePermissionError(message)
-        ? `${message} Open microphone permissions in Settings if needed.`
-        : message,
-      severity: description.pending ? "Info" : "Error",
-      lifetimeMs: CHAT_ERROR_TOAST_LIFETIME_MS });
-  }, [upsertToast, tabId]);
+  const composerErrorNotice = useMemo(() => createChatErrorNotice(tabId, { upsertToast, dismissToast }), [tabId, upsertToast, dismissToast]);
+  const showComposerError = composerErrorNotice.show;
 
   const {
     loading,
@@ -321,6 +296,10 @@ function TabSessionChatBody({
     history: runtime.state?.history,
     live: isActive || awaitsTranscriptEcho(deliverySends),
   });
+  const transcriptTailId = allMessages[allMessages.length - 1]?.id;
+  useEffect(() => {
+    if (attachmentState === "attached" && !recovering && !error) composerErrorNotice.recover();
+  }, [composerErrorNotice, attachmentState, recovering, error, transcriptTailId]);
   const retryChatDelivery = useLatestCallback(async (id: string) => {
     const send = beginChatSendRetry(tabId, id);
     if (!send) return;
@@ -496,6 +475,7 @@ function TabSessionChatBody({
       try {
         await invoke("mux_respond_prompt", promptResponseArgs(tabId, value, pendingPrompt, tab?.pending_prompt_kind ?? "structured"));
         promptLifecycle.resolve(promptLifecycle.key);
+        composerErrorNotice.recover();
       } catch (error) {
         setAnsweredPromptQuestion(null);
         showComposerError(error instanceof Error ? error.message : String(error));
@@ -504,7 +484,7 @@ function TabSessionChatBody({
         promptResponseInFlight.current = false;
       }
     },
-    [pendingPrompt, structuredPrompts, tabId, tab?.pending_prompt_kind, showComposerError, promptLifecycle.key, promptLifecycle.resolve],
+    [pendingPrompt, structuredPrompts, tabId, tab?.pending_prompt_kind, showComposerError, promptLifecycle.key, promptLifecycle.resolve, composerErrorNotice],
   );
   // input path the composer uses; jump surfaces the live terminal output.
   const handleRerunShellCommand = useLatestCallback((command: string) => {
@@ -539,10 +519,10 @@ function TabSessionChatBody({
       return;
     }
     lastStopAtRef.current = now;
-    void invoke("interrupt_agent", args).catch((e) =>
+    void invoke("interrupt_agent", args).then(composerErrorNotice.recover).catch((e) =>
       showComposerError(e instanceof Error ? e.message : String(e)),
     );
-  }, [interruptTarget, showComposerError]);
+  }, [interruptTarget, showComposerError, composerErrorNotice]);
 
   const openJobs = useLatestCallback(() => {
     window.dispatchEvent(new CustomEvent("codeterm:open-panel", { detail: { panel: "settings:jobs" } }));

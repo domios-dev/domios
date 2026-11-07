@@ -405,5 +405,7 @@
   "src/components/Terminal/StatusLineModelPicker.test.tsx",
   "src/lib/streamMux.startup.test.ts",
   "src/lib/pickerSettings.test.ts",
-  "src/hooks/terminal/usePtyConnection.readiness.test.tsx"
+  "src/hooks/terminal/usePtyConnection.readiness.test.tsx",
+  "src/components/Terminal/chatErrorNotice.test.ts",
+  "src/components/Notifications/toastPlacement.test.ts"
 ]
