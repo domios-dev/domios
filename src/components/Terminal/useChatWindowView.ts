@@ -85,7 +85,7 @@ export function useChatWindowView({
   const windowSize = readingSize.key === windowKey ? readingSize.size : CHAT_PAGE_SIZE;
   const setWindowSize = (size: number) => setReadingSize({ key: windowKey, size });
   const initialFillRef = useRef<string | null>(null);
-  const [backfillNotice, setBackfillNotice] = useState<"limit" | "exhausted" | "stalled_cursor" | null>(null);
+  const [backfillNotice, setBackfillNotice] = useState<"exhausted" | "stalled_cursor" | null>(null);
 
   const updateWindowAnchor = useLatestCallback((next: string | null) => {
     setTranscriptAnchor(windowKey, next);
@@ -225,14 +225,23 @@ export function useChatWindowView({
         if (!initial) setPendingReveal(true);
         return;
       }
-      const result = await searchOlderChatHistory(backfillCursor!, loadOlderPage, initial ? CHAT_INITIAL_HISTORY_SCAN_BYTES : undefined, page => {
+      let cursor = backfillCursor!;
+      let result: Awaited<ReturnType<typeof searchOlderChatHistory>>;
+      do {
+        result = await searchOlderChatHistory(cursor, async (before, maxBytes) => {
+          const page = await loadOlderPage(before, maxBytes);
+          if (page) cursor = page.cursor;
+          return page;
+        }, initial ? CHAT_INITIAL_HISTORY_SCAN_BYTES : undefined, page => {
         if (!page.messages) return page.rows >= CHAT_PAGE_SIZE;
         const entries = conversationEntries(page.messages);
         return firstKey == null ? entries.length >= CHAT_PAGE_SIZE
           : entries.findIndex(entry => entry.msg.id === firstKey) >= CHAT_PAGE_SIZE;
-      });
+        });
+      } while (!initial && result.kind === "stop" && result.reason === "limit");
       if (!initial && (result.kind === "reveal" || result.kind === "stop")) setPendingReveal(true);
-      if (result.kind === "stop" || result.kind === "error") setBackfillNotice(result.reason);
+      if (result.kind === "error") setBackfillNotice(result.reason);
+      else if (result.kind === "stop" && result.reason === "exhausted") setBackfillNotice("exhausted");
     } catch {
       setBackfillNotice("stalled_cursor");
     } finally {
@@ -305,8 +314,7 @@ export function useChatWindowView({
     compactionFailure: compaction.failure ? `Compaction history could not be saved: ${compaction.failure}` : undefined,
     allMessages,
     backfillLoading,
-    backfillNotice: backfillNotice ?? (initialFillRef.current === windowKey && !backfillLoading
-      && canBackfillOlder && enrichedMessages.length < CHAT_PAGE_SIZE ? "limit" : null),
+    backfillNotice,
     canBackfillOlder,
     committedRows,
     enrichedMessages,

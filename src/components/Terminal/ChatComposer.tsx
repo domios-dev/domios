@@ -330,6 +330,7 @@ function ChatComposerImpl({
   }, []);
 
   useEffect(() => {
+    if (!isActive) return;
     if (delayedTabRef.current !== tabId) {
       setDelayedMessages([]);
       setSystemHeartbeats([]);

@@ -104,6 +104,9 @@ export function describeError(input: unknown, context: ErrorContext = {}): Error
   const details = switching ? message.slice(0, 2048) : raw;
   const result = (title: string, cause: string, actions: ErrorAction[], pending = false): ErrorDescription => ({ title, cause, actions, raw: details, ...(pending ? { pending: true } : {}) });
   const kind = code.toLowerCase();
+  if (kind === "client_capacity" || /client_capacity:|Mux client capacity reached before dispatch/.test(raw)) {
+    return result("The connection is busy", "This request was not sent because other requests are using the available connection capacity. Try again.", ["retry"], true);
+  }
   if (switching) {
     if (kind === "provider_switch_auth_timeout" || /\bprovider_switch_auth_timeout\b/.test(raw)) {
       return result("The harness authentication check timed out", "The target CLI did not finish its authentication check in time. Retry the switch.", ["retry"]);
