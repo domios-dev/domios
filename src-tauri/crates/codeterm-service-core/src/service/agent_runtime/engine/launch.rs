@@ -10,11 +10,10 @@ pub(super) fn refused_start(
                 || (thread.is_none()
                     && super::super::start_failure::is_failed_unbound_state(state)))
     }) {
-        return Err(RuntimeFailure::Refused(
+        return Err(RuntimeFailure::retained_refusal(
             state["reason"]
                 .as_str()
-                .unwrap_or("Runtime start was refused; start a new session")
-                .into(),
+                .unwrap_or("Runtime start was refused; start a new session"),
         ));
     }
     Ok(())

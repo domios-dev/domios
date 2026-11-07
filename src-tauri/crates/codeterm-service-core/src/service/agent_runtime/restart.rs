@@ -12,8 +12,14 @@ pub(in crate::service) async fn restart(
     provider: &str,
     old_nonce: &str,
     fresh_restart: Option<(&crate::service::agent_restart::TabRestartSnapshot, bool)>,
+    retry_refused_start: bool,
 ) -> Result<Arc<Session>, RuntimeFailure> {
-    let result = restart_inner(svc, tab, provider, old_nonce, fresh_restart, false)
+    let trigger = if retry_refused_start {
+        Trigger::RetryRefused
+    } else {
+        Trigger::Request
+    };
+    let result = restart_inner(svc, tab, provider, old_nonce, fresh_restart, trigger)
         .await
         .and_then(|session| session.ok_or(RuntimeFailure::Superseded));
     if let Err(reason) = &result {
@@ -37,9 +43,17 @@ pub(crate) async fn restart_idle(
     provider: &str,
     nonce: &str,
 ) -> Result<Option<Arc<Session>>, RuntimeFailure> {
-    restart_inner(svc, tab, provider, nonce, None, true)
+    restart_inner(svc, tab, provider, nonce, None, Trigger::IdleUpdate)
         .await
         .inspect_err(|_| svc.clear_runtime_restart_binding(tab))
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Trigger {
+    IdleUpdate,
+    Request,
+    /// Only this trigger retires a retained provider refusal, so it relaunches.
+    RetryRefused,
 }
 
 async fn restart_inner(
@@ -48,8 +62,9 @@ async fn restart_inner(
     provider: &str,
     old_nonce: &str,
     fresh_restart: Option<(&crate::service::agent_restart::TabRestartSnapshot, bool)>,
-    idle_only: bool,
+    trigger: Trigger,
 ) -> Result<Option<Arc<Session>>, RuntimeFailure> {
+    let idle_only = trigger == Trigger::IdleUpdate;
     let session = engine::for_tab(tab);
     let _permit = match &session {
         Some(session) => Some(
@@ -171,7 +186,8 @@ async fn restart_inner(
         }
         target.agent_booting = true;
         target.boot_stage = None;
-        if rebound || (fresh && session.is_none()) {
+        // Without a live session the tab's retained state is all the launch guard reads.
+        if rebound || (session.is_none() && (fresh || trigger == Trigger::RetryRefused)) {
             let mut state = RuntimeState::unloaded(old_thread.clone());
             state.restore_timing(target.agent_runtime_state.as_ref());
             if let Some(session) = &session {

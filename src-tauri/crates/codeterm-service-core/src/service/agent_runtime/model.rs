@@ -63,6 +63,15 @@ pub enum RuntimeFailure {
     Superseded,
 }
 
+pub(crate) const REFUSED_PREFIX: &str = "Provider refused: ";
+
+impl RuntimeFailure {
+    /// A retained refusal stores its displayed text, so restoring it must not prefix it again.
+    pub(crate) fn retained_refusal(reason: &str) -> Self {
+        Self::Refused(reason.trim_start_matches(REFUSED_PREFIX).to_owned())
+    }
+}
+
 impl std::fmt::Display for RuntimeFailure {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -98,7 +107,7 @@ impl std::fmt::Display for RuntimeFailure {
             Self::ProtocolError { code, message } => write!(formatter, "Agent protocol error {code}: {message}"),
             Self::Deadline => formatter.write_str("Runtime did not respond in time"),
             Self::HookFailed(reason) => write!(formatter, "Provider operation failed: {reason}"),
-            Self::Refused(reason) => write!(formatter, "Provider refused: {reason}"),
+            Self::Refused(reason) => write!(formatter, "{REFUSED_PREFIX}{reason}"),
             Self::SignInRequired => formatter.write_str("Sign-in required"),
             Self::ConversationMissing => formatter.write_str("ConversationMissing: The provider's saved conversation rollout is unavailable. Start a new conversation to continue."),
             Self::SessionLoadRefused(reason) => formatter.write_str(reason),

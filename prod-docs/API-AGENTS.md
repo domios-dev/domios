@@ -5,7 +5,7 @@ REST endpoints for agent restart, model switch, spawn, reports, keep-awake, and 
 
 Restart a live agent through its provider exit command, bounded shell-ready wait and PTY replacement. Resume its recorded session if present; otherwise launch fresh. Unobserved liveness allows fresh launch only with `LaunchBindingUnconfirmed`, no owning launch, a live shell prompt and no verified lineage/journal recovery session; it replaces the PTY and clears the unverified binding without sending exit. Other unobserved states refuse. An observed exited provider recovers in its surviving shell without teardown: select the newest lineage session (journal fallback), require nonce-verification evidence and exactly one owning provider, then resume through normal launch.
 
-Chat tabs with `agentRuntime` resume the tab's recorded thread with a new epoch and nonce, retaining identity and launch options without replay. After `tab rebind`, restart stops the stale runtime before loading the newly recorded thread and its own history. Explicit `fresh: true` opens a new thread under fresh guards. Readiness requires `thread_loaded`; PTY ids are null. Failures degrade and preserve the recorded thread for another `domios agent restart --tab ID`. Handoff refuses with `runtime_provider_handoff_unsupported`.
+Chat tabs with `agentRuntime` resume the tab's recorded thread with a new epoch and nonce, retaining identity and launch options without replay. After `tab rebind`, restart stops the stale runtime before loading the newly recorded thread and its own history. Explicit `fresh: true` opens a new thread under fresh guards. Readiness requires `thread_loaded`; PTY ids are null. Failures degrade and preserve the recorded thread for another `domios agent restart --tab ID`. A provider refusal blocks automatic wakes and restarts; this explicit restart relaunches, and the refusal reason is recorded once. Handoff refuses with `runtime_provider_handoff_unsupported`.
 
 ```json
 {"force": false, "grace_secs": 10, "provider": null, "handoff_history": false}
@@ -250,4 +250,4 @@ Runtime requests remain bound to the target tab's session and epoch. Provider CL
 | POST | `/api/tabs/{id}/agent/runtime/retry` | Retry initialization of the same runtime session. |
 | POST | `/api/tabs/{id}/agent/runtime/thread-history` | Read runtime-owned thread history. |
 
-<!-- revision: 78 -->
+<!-- revision: 79 -->

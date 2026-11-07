@@ -39,6 +39,7 @@ impl ServiceContext {
         tab_id: &str,
         force: bool,
         fresh: bool,
+        retry_refused_start: bool,
     ) -> Result<RestartOutcome, RestartAttemptError> {
         if let Some(refusal) = self.tab_write_lock(tab_id) {
             return Err(AgentRestartError::BadRequest(refusal.to_string()).into());
@@ -121,6 +122,7 @@ impl ServiceContext {
             &provider,
             &nonce,
             fresh.then_some((&snap, force)),
+            retry_refused_start,
         ));
         if result.as_ref().is_ok_and(|session| {
             matches!(
