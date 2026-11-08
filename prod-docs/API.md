@@ -134,7 +134,7 @@ Restore matches normalized `cwd`. `GET /api/mux/state`: newest-first `recently_c
 | GET | `/api/tabs/{id}/usage` | — | Latest usage/cost counters for this tab |
 | GET | `/api/tabs/{id}/agent/runtime/login` | — | Read the exact runtime's pending URL, user code and `expiresAtMs`; authenticated local callers and permitted paired peers only; `Cache-Control: no-store` |
 | POST | `/api/tabs/{id}/agent/runtime/login` | `{method:"device"}` or `{action:"notify"}` or `{action:"cancel"}` | Start a declared login flow, request one phone notification or cancel it. API-key entry stays local. |
-| GET | `/api/tabs/{id}/agent/runtime/usage` | — | Exact-tab limits, account and reset credits |
+| GET | `/api/tabs/{id}/agent/runtime/usage` | — | What the tab's usage pill shows, from its declared limits source: reading, `limits_source`, `context`, `unavailable_reason`, reset credits (API-CLI) |
 | POST | `/api/tabs/{id}/agent/runtime/reset-credits` | `{action:"read"}` or `{action:"redeem", idempotencyKey, confirmed:true, creditId?}` | Read support, or redeem one reset credit (UUID v4 key + confirmation; `creditId` omitted = provider picks); returns outcome and before/after counts |
 | GET | `/api/tabs/{id}/output/stream` | — | SSE real-time output stream |
 | GET | `/api/agent-runs/{tab_id}/log` | — | Agent run log for a tab |
@@ -209,4 +209,4 @@ Live authenticated Plan owners can recover `update`/`assign`/`respawn`/`close` a
 
 Related: `API-PLAN`, `API-TABS`, `API-CHAT`, `API-MEMORY`, `API-TRANSPORT`, `API-CLI`, `TELEGRAM-SETUP`. Analytics (`/api/analytics/{status,consent,event}`), account and plan routes: `ACCOUNT`.
 
-<!-- revision: 246 -->
+<!-- revision: 247 -->

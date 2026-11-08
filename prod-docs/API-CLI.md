@@ -76,9 +76,9 @@ domios sessions get CLOSED_TAB_OR_SESSION [--json]
 
 A closed agent tab stays readable by id. `child-history --closed` lists the parent's closed child tabs, and `--child` reads one child's transcript. `tab chat` reads a closed tab by its full or unique short id and says that it is closed. `sessions get` also accepts a closed tab id or a host-kept session id, and adds `closed_tab` and `transcript_command`. All three answer only the owner, the tab's parent and its Team; `domios docs API-CHAT` has the response shape and retention.
 
-These commands always name the target tab. `usage read` returns session/weekly limits, account credits, reset-credit count and expiry from that tab's cached runtime projection. `usage reset` consumes a reset credit through the existing runtime route; `--confirm` is mandatory and each invocation carries a fresh idempotency UUID. Its JSON includes the provider outcome and observed before/after reset-credit counts. `child-history` passes the current parent binding authority to the existing recorded-child route; stale bindings and unrecorded descendants are refused. The cursor is opaque and may be supplied from `nextCursor` to continue.
+These commands always name the target tab. `usage read` answers what the tab's usage pill shows, from the limits source its launch profile declares: `limits_source.kind` is `balance`, `quota` (a plugin read under `account_id: "profile:<id>"`, in `usage_details`), `account` (the named native provider's session/weekly limits, `resets` and `account_credits`), `meter` (the provider's own meter, also every terminal tab) or `unavailable`. Without a reading `limits_reported` is `false` and `unavailable_reason` says why, including a failed read or disabled usage tracking. `context` is the session's reported fill (`used_tokens`, `window_tokens`, `cost_usd`) or `null`; `runtime_usage` is the tab's own binding-checked reading when it has one. A due balance or quota is read first, waiting at most 15 seconds, so a background tab answers too. `usage reset` consumes a reset credit through the existing runtime route; `--confirm` is mandatory and each invocation carries a fresh idempotency UUID. Its JSON includes the provider outcome and observed before/after reset-credit counts. `child-history` passes the current parent binding authority to the existing recorded-child route; stale bindings and unrecorded descendants are refused. The cursor is opaque and may be supplied from `nextCursor` to continue.
 
-Both read `GET /api/tabs/{id}/agent/runtime/usage` (exact-tab, binding-checked projection); a missing post-consume count stays `null`.
+Both read `GET /api/tabs/{id}/agent/runtime/usage`; a missing post-consume count stays `null`.
 
 `domios agent model --tab TAB_ID [MODEL]` switches the model; `--reasoning-effort` and `--runtime-mode` take catalogue values (omit `MODEL` to keep it); `--runtime-mode` belongs to the owner, and an agent caller gets `owner_required`. Unsupported values exit non-zero listing the choices; `--json` keeps `mode_used`, `model_confirmation`, `evidence`. `--speed TIER|default` and `--list-speeds` manage service tiers. Worker kinds work with or without `--plan-task`:
 
@@ -231,4 +231,4 @@ saved sessions and notifications omit login values.
 
 Account installations connect automatically after same-account sign-in. `domios mesh peers` lists each installation once; `domios mesh status` is read-only for local agents.
 
-<!-- revision: 81 -->
+<!-- revision: 82 -->
