@@ -24,15 +24,50 @@ fn truncate_for_chat(s: &str, max: usize) -> String {
     format!("{}… [+{} chars]", cut, n - max)
 }
 
+/// The line saying a transcript belongs to a tab that no longer exists.
+fn closed_notice(v: &serde_json::Value) -> Option<String> {
+    if v.get("closed").and_then(|closed| closed.as_bool()) != Some(true) {
+        return None;
+    }
+    let text = |key: &str| {
+        v.get("tab")
+            .and_then(|tab| tab.get(key))
+            .and_then(|value| value.as_str())
+            .unwrap_or("?")
+    };
+    let truncated = v.get("truncated").and_then(|flag| flag.as_bool()) == Some(true);
+    Some(format!(
+        "(tab {} \"{}\" is closed; read-only transcript{})",
+        text("tab_id"),
+        text("title"),
+        if truncated {
+            ", older messages omitted"
+        } else {
+            ""
+        }
+    ))
+}
+
 /// Human-readable transcript: one capped line per message, tool calls show
 /// the command, tool results show their output, origin markers become `(from X)`.
-pub(super) fn print_tab_chat(v: &serde_json::Value) {
+pub(crate) fn print_tab_chat(v: &serde_json::Value) {
+    let closed = closed_notice(v);
+    if let Some(notice) = &closed {
+        println!("{notice}");
+    }
     let Some(msgs) = v.get("messages").and_then(|m| m.as_array()) else {
         println!("(no chat transcript)");
         return;
     };
     if msgs.is_empty() {
-        println!("(no chat messages yet)");
+        println!(
+            "{}",
+            if closed.is_some() {
+                "(no retained messages)"
+            } else {
+                "(no chat messages yet)"
+            }
+        );
         return;
     }
     for m in msgs {

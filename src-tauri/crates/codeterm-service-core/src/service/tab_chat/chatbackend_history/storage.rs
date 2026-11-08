@@ -165,6 +165,19 @@ impl HistoryLog {
     }
 
     fn append(&mut self, line: &str) -> io::Result<u64> {
+        let at = self.length;
+        let mut bytes = Vec::with_capacity(line.len() + 1);
+        bytes.extend_from_slice(line.as_bytes());
+        bytes.push(b'\n');
+        self.flush(&mut bytes)?;
+        Ok(at)
+    }
+
+    /// One write and one sync for however many records are waiting.
+    fn flush(&mut self, batch: &mut Vec<u8>) -> io::Result<()> {
+        if batch.is_empty() {
+            return Ok(());
+        }
         if let Some(parent) = self.path.parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -177,18 +190,18 @@ impl HistoryLog {
             file.set_len(self.length)?;
         }
         file.seek(SeekFrom::Start(self.length))?;
-        let at = self.length;
         self.pending_sync = true;
-        file.write_all(line.as_bytes())?;
-        file.write_all(b"\n")?;
+        file.write_all(batch)?;
         file.sync_data()?;
         self.pending_sync = false;
-        self.length += line.len() as u64 + 1;
-        Ok(at)
+        self.length += batch.len() as u64;
+        batch.clear();
+        Ok(())
     }
 
     fn upsert(&mut self, messages: Vec<ChatMsg>) -> io::Result<bool> {
         let mut changed = false;
+        let mut batch = Vec::new();
         for message in messages {
             let full =
                 serde_json::to_string(&serde_json::to_value(&message).map_err(io::Error::other)?)
@@ -196,15 +209,25 @@ impl HistoryLog {
             let previous = match self.live.get(&message.id).copied() {
                 Some(live) => {
                     let at = live.offset;
-                    let before = match &self.last {
+                    let cached = match &self.last {
                         Some((id, cached_at, line)) if *id == message.id && *cached_at == at => {
-                            line.clone()
+                            Some(line.clone())
                         }
-                        _ => versions::resolve(
-                            &mut std::fs::File::open(&self.path)?,
-                            at,
-                            &message.id,
-                        )?,
+                        _ => None,
+                    };
+                    let before = match cached {
+                        Some(line) => line,
+                        None => {
+                            // A version still in the batch has to reach the file to be read.
+                            if at >= self.length {
+                                self.flush(&mut batch)?;
+                            }
+                            versions::resolve(
+                                &mut std::fs::File::open(&self.path)?,
+                                at,
+                                &message.id,
+                            )?
+                        }
                     };
                     Some((live, before))
                 }
@@ -224,7 +247,9 @@ impl HistoryLog {
             } else {
                 (full.clone(), 0)
             };
-            let at = self.append(&line)?;
+            let at = self.length + batch.len() as u64;
+            batch.extend_from_slice(line.as_bytes());
+            batch.push(b'\n');
             self.live.insert(
                 message.id.clone(),
                 Live {
@@ -235,6 +260,7 @@ impl HistoryLog {
             self.last = Some((message.id, at, full));
             changed = true;
         }
+        self.flush(&mut batch)?;
         Ok(changed)
     }
 

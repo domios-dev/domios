@@ -1,6 +1,39 @@
 use super::*;
 
 #[test]
+fn a_qualified_session_model_is_labelled_by_its_declared_name_or_plain_id() {
+    let raw = r#"["deepseek-official","deepseek-v4-pro"]"#;
+    let mut tab = tab_with("runtime-tab", TabBacking::Pty);
+    assert_eq!(tab.agent_session_model_label(), None);
+    tab.agent_session_model = Some(raw.into());
+    assert_eq!(
+        tab.agent_session_model_label().as_deref(),
+        Some("deepseek-v4-pro")
+    );
+    tab.agent_runtime_state = Some(serde_json::json!({"controls":{"configOptions":[
+        {"id":"effort","category":"thought_level","options":[{"value":raw,"name":"Wrong"}]},
+        {"id":"model","category":"model","options":[
+            {"value":"other","name":"Other"},
+            {"value":raw,"name":"DeepSeek-V4-Pro"}
+        ]}
+    ]}}));
+    assert_eq!(
+        tab.declared_model_name().as_deref(),
+        Some("DeepSeek-V4-Pro")
+    );
+    assert_eq!(
+        tab.agent_session_model_label().as_deref(),
+        Some("DeepSeek-V4-Pro")
+    );
+    tab.agent_session_model = Some("plain-model".into());
+    assert_eq!(tab.declared_model_name(), None);
+    assert_eq!(
+        tab.agent_session_model_label().as_deref(),
+        Some("plain-model")
+    );
+}
+
+#[test]
 fn staged_model_selection_is_visible_but_never_restores_execution() {
     let mut tab = tab_with("pending-model-tab", TabBacking::Pty);
     tab.pending_model_selection = Some(PendingModelSelection {

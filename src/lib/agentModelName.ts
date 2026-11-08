@@ -50,12 +50,36 @@ function isVersion(token: string): boolean {
   return /^[0-9.]+$/.test(token) && /[0-9]/.test(token);
 }
 
+/** The bare id inside a runtime's qualified `["group","id"]` model value. */
+function qualifiedModelLeaf(model: string): string | null {
+  const trimmed = model.trim();
+  if (!trimmed.startsWith("[")) return null;
+  try {
+    const parts: unknown = JSON.parse(trimmed);
+    if (!Array.isArray(parts) || !parts.every((part) => typeof part === "string")) return null;
+    const leaves = (parts as string[]).map((part) => part.trim()).filter(Boolean);
+    return leaves[leaves.length - 1] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Whether a model value is a runtime-qualified id rather than a plain one. */
+export function isQualifiedModelId(model: string): boolean {
+  return qualifiedModelLeaf(model) !== null;
+}
+
+/** The id a label may show: a qualified value's bare id, any other value as is. */
+export function plainModelId(model: string): string {
+  return qualifiedModelLeaf(model) ?? model.trim();
+}
+
 /**
  * The short name for a catalogue model, or `null` when no catalogue claims it.
  * Pure: it only decides what to render and never speaks for the stored value.
  */
 export function shortModelName(model: string): string | null {
-  const tokens = tokenize(model);
+  const tokens = tokenize(plainModelId(model));
   const familyIndex = tokens.findIndex((token) => FAMILIES.has(token));
   if (familyIndex >= 0) {
     const family = tokens[familyIndex];

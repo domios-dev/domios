@@ -426,3 +426,45 @@ fn bounded_windows_page_back_over_the_whole_log() {
     let expected: Vec<String> = all.into_iter().map(|m| m.id).collect();
     assert_eq!(ids, expected);
 }
+
+#[test]
+fn one_upsert_batch_lands_as_one_write_and_stays_readable() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("s.jsonl");
+    let mut h = ChatBackendHistory::open_at(path.clone());
+    let body = "x".repeat(2048);
+    h.try_upsert(&[
+        msg("a", &body),
+        msg("b", "other"),
+        msg("a", &format!("{body}-second")),
+    ])
+    .unwrap();
+    let read = read_log(&path).unwrap();
+    assert_eq!(read.len(), 2);
+    assert_eq!(read[0].id, "a");
+    assert!(read[0].content.ends_with("-second"));
+    assert_eq!(read[1].id, "b");
+    assert_eq!(read_messages(&path), read);
+    drop(h);
+    let mut reopened = ChatBackendHistory::open_at(path.clone());
+    reopened
+        .try_upsert(&[msg("a", &format!("{body}-third"))])
+        .unwrap();
+    assert!(read_log(&path).unwrap()[0].content.ends_with("-third"));
+}
+
+#[test]
+fn session_logs_are_distinct_from_the_restart_snapshot() {
+    assert_ne!(
+        archive_path("fixture", "part/one"),
+        runtime_path("fixture", "part/one")
+    );
+    assert_ne!(
+        archive_path("fixture", "part/one"),
+        archive_path("fixture", "part_one")
+    );
+    assert_ne!(
+        archive_path("fixture", "part/one"),
+        archive_rotated_path("fixture", "part/one")
+    );
+}

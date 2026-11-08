@@ -10,6 +10,8 @@ use std::sync::Arc;
 
 use crate::multiplexer::types::{ClosedTab, TabBacking};
 mod structures;
+mod transcripts;
+pub use transcripts::{ClosedTranscript, ClosedTranscriptReader};
 
 const CURRENT_CLOSED_SCHEMA_VERSION: u32 = 6;
 
@@ -86,6 +88,7 @@ pub struct ClosedTabsStore {
     snapshot_structures: Arc<RwLock<Vec<super::ClosedStructureView>>>,
     next_write_sequence: Arc<AtomicU64>,
     write_order: Arc<(Mutex<u64>, Condvar)>,
+    evicted_transcripts: Arc<Mutex<Vec<ClosedTranscript>>>,
     per_workspace_cap: usize,
     group_cap: usize,
 }
@@ -125,6 +128,7 @@ impl ClosedTabsStore {
             snapshot_structures: Arc::new(RwLock::new(Vec::new())),
             next_write_sequence: Arc::new(AtomicU64::new(0)),
             write_order: Arc::new((Mutex::new(0), Condvar::new())),
+            evicted_transcripts: Arc::new(Mutex::new(Vec::new())),
             per_workspace_cap: RECENTLY_CLOSED_CAP,
             group_cap: CLOSED_GROUP_CAP,
         };
@@ -146,6 +150,7 @@ impl ClosedTabsStore {
             snapshot_structures: Arc::new(RwLock::new(Vec::new())),
             next_write_sequence: Arc::new(AtomicU64::new(0)),
             write_order: Arc::new((Mutex::new(0), Condvar::new())),
+            evicted_transcripts: Arc::new(Mutex::new(Vec::new())),
             per_workspace_cap,
             group_cap,
         };
@@ -209,7 +214,8 @@ impl ClosedTabsStore {
         Self::migrate_pane_rename(conn)?;
         let version = Self::user_version(conn)?;
         Self::migrate(conn, version)?;
-        Self::init_structures(conn)
+        Self::init_structures(conn)?;
+        Self::init_transcripts(conn)
     }
 
     /// The pane->tab rename (9e41cf8a2) changed table/column names in SQL with

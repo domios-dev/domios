@@ -689,7 +689,7 @@ pub async fn send_text(
                         let source_tab = mux.get_tab(&resolved);
                         let from_agent = source_tab
                             .is_some_and(|tab| tab.agent_type.is_some() || tab.agent_booting);
-                        let model = source_tab.and_then(|tab| tab.agent_session_model.clone());
+                        let model = source_tab.and_then(|tab| tab.agent_session_model_label());
                         let purpose = source_tab.and_then(utility_shell_purpose);
                         Some(
                             codeterm_service_core::service::messenger::MessageEnvelope::tab(

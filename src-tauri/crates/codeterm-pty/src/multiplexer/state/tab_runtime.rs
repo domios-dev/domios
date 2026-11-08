@@ -439,6 +439,7 @@ impl MultiplexerState {
 
         let workspace_id = self.find_workspace_for_tab(tab_id);
         self.remove_tab_from_tree(tab_id)?;
+        self.record_closed_transcript(tab_id);
 
         let (owned_surfaces, children): (Vec<String>, Vec<String>) = self
             .get_children_ids(tab_id)
