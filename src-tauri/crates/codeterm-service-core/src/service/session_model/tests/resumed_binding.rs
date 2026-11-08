@@ -38,7 +38,7 @@ async fn report_binding(fixture: &ServiceFixture, tab_id: &str, body: serde_json
     .unwrap();
     assert!(!claim.changed);
     assert!(claim.nonce_verified);
-    finish_session_binding(
+    let _reply = finish_session_binding(
         &fixture.service,
         tab_id,
         PROVIDER,
