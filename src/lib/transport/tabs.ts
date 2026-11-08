@@ -44,6 +44,7 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
         agent_runtime_thread_history: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId"))}/agent/runtime/thread-history`, a.request),
         agent_runtime_reset_credits: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId"))}/agent/runtime/reset-credits`, a.request),
         agent_runtime_controls: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId"))}/agent/runtime/controls`, a.request),
+        agent_runtime_host_approvals: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId"))}/agent/runtime/host-approvals`, a.request),
         agent_runtime_login: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId"))}/agent/runtime/login`, a.request),
         agent_runtime_retry: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId"))}/agent/runtime/retry`),
         agent_runtime_child_history: (a: Args) => clientFor(a).json("GET", `/api/tabs/${enc(s(a, "tabId"))}${childHistorySuffix(s(a,"threadId"), a.request as ChildTranscriptAuthority & {cursor?:string})}`),

@@ -225,6 +225,73 @@ fn permitting_launch_skips_write_prompt_but_preserves_hard_refusals() {
 
 #[cfg(any(unix, windows))]
 #[test]
+fn switching_to_allow_all_answers_the_waiting_request_and_ask_prompts_again() {
+    crate::async_runtime::block_on(async {
+        use tokio::io::{AsyncBufReadExt, BufReader};
+        let (_temp, root) = super::super::tests::root();
+        let (fixture, tab, peer, _cleanup) = engine::test_support::runtime_fixture_host_approvals();
+        let _storage = fixture.install_seeded_storage_desk();
+        let svc = &fixture.service;
+        svc.set_tab_host_approvals(&tab, false).unwrap();
+        assert!(!svc.effective_full_access(&tab));
+        let session = engine::for_tab(&tab).unwrap();
+        {
+            let mut context = session.context.lock();
+            context.cwd = root.to_string_lossy().into_owned();
+            context.active_turn_id = Some("turn".into());
+        }
+        let context = session.context.lock().clone();
+        install(&context, Some(super::super::tests::capabilities())).unwrap();
+        let process = session.process.lock().clone().unwrap();
+        handle(
+            svc,
+            &session,
+            &process,
+            &RpcId::Number(501),
+            "fs/write_text_file",
+            &json!({"sessionId":context.thread_id,"path":root.join("waiting.txt"),"content":"waiting"}),
+        )
+        .await
+        .unwrap();
+        assert!(!root.join("waiting.txt").exists());
+
+        svc.set_tab_host_approvals(&tab, true).unwrap();
+        let mut reader = BufReader::new(peer);
+        let mut line = String::new();
+        tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            reader.read_line(&mut line),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            serde_json::from_str::<Value>(&line).unwrap(),
+            json!({"id":501,"result":{}})
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join("waiting.txt")).unwrap(),
+            "waiting"
+        );
+        assert!(svc.effective_full_access(&tab));
+
+        svc.set_tab_host_approvals(&tab, false).unwrap();
+        let installed = bridge(&context).unwrap();
+        let write = Request::Write {
+            session_id: context.thread_id.clone().unwrap(),
+            path: root.join("next.txt").to_string_lossy().into_owned(),
+            content: "next".into(),
+        };
+        assert!(prepare(svc, &session, &context, &installed, &write)
+            .unwrap()
+            .0
+            .is_some());
+        cancel(svc, &session, &process, true).await.unwrap();
+    });
+}
+
+#[cfg(any(unix, windows))]
+#[test]
 fn auto_confirm_pending_bridge_uses_allow_once_and_does_not_grant_session() {
     crate::async_runtime::block_on(async {
         use tokio::io::{AsyncBufReadExt, BufReader};

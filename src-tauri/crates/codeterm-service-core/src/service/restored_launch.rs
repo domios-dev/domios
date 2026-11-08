@@ -67,7 +67,19 @@ pub(crate) fn capture_tab_launch_parameters(
             tab.restorable_launch.runtime_launch_options.as_ref(),
         )
     });
+    let (host_approval_choice, selected_session_mode) = mux
+        .read()
+        .get_tab(tab_id)
+        .map(|tab| {
+            (
+                tab.restorable_launch.host_approval_choice,
+                tab.restorable_launch.selected_session_mode.clone(),
+            )
+        })
+        .unwrap_or_default();
     let launch = RestorableLaunchParameters {
+        host_approval_choice,
+        selected_session_mode,
         execution_mode: None,
         execution_sandbox: mux
             .read()

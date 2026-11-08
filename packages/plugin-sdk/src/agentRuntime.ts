@@ -187,7 +187,7 @@ export interface StdioAgentRuntimeCapability {
   registryDefaults?:Readonly<Record<string,RuntimeRegistryDefaults>>;
   restrictedCli?:{kind:"execpolicy-service-operations";metadataDirectory:string};
   runtimeModes?:readonly {id:string; displayName:string}[];
-  /** Permission requests declare their option kinds, so the host answers them from the launch policy. */
+  /** Permission requests declare their option kinds, so the host answers them from the tab's effective choice. */
   hostApprovals?:boolean;
   serviceTiers?:readonly RuntimeServiceTier[];
   backgroundProcesses?:boolean;

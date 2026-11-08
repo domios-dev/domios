@@ -142,6 +142,9 @@ pub async fn select(
     if !matches!(result, RuntimeResult::Done) {
         return Err("Runtime did not apply requested control".into());
     }
+    if request.mode || category.as_deref() == Some("mode") {
+        super::permission_policy::record_selected_mode(svc, &session, &request.value);
+    }
     if requested.model.is_some() || requested.effort.is_some() {
         let confirmed = session
             .controls_confirmation

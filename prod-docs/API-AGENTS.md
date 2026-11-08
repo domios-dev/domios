@@ -197,7 +197,8 @@ With `background_work_guard` enabled, restarts and restart-based model switches 
 
 | Method | Path | Operation |
 |--------|------|-----------|
-| POST | `/api/tabs/{id}/agent/runtime/controls` | Select an advertised configuration value or mode on the exact bound runtime session. |
+| POST | `/api/tabs/{id}/agent/runtime/controls` | Select an advertised configuration value or mode on the exact bound runtime session. Changing a mode, as `mode: true` or through a `category: "mode"` option, is owner only: agent callers get 403. |
+| POST | `/api/tabs/{id}/agent/runtime/host-approvals` | Owner only: set this tab's answer to agent permission requests with `{"allowAll":true}` or `{"allowAll":false}`. Applies live and persists. Refused with 409 on a confined tab, or where the agent's own approve-all mode is the switch; refused with 403 for agent callers. |
 
 Requires authenticated API access and the target runtime's current authority
 tuple. Request fields are camelCase; unknown fields are rejected:
@@ -250,4 +251,4 @@ Runtime requests remain bound to the target tab's session and epoch. Provider CL
 | POST | `/api/tabs/{id}/agent/runtime/retry` | Retry initialization of the same runtime session. |
 | POST | `/api/tabs/{id}/agent/runtime/thread-history` | Read runtime-owned thread history. |
 
-<!-- revision: 79 -->
+<!-- revision: 80 -->

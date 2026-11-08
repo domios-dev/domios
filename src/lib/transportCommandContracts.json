@@ -1304,6 +1304,9 @@
     "agent_runtime_controls": [
       ["POST", "/api/tabs/tab/agent/runtime/controls"]
     ],
+    "agent_runtime_host_approvals": [
+      ["POST", "/api/tabs/tab/agent/runtime/host-approvals"]
+    ],
     "agent_runtime_login": [
       [
         "POST",
