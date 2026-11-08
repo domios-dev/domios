@@ -19,8 +19,8 @@ import type {UsageSnapshot} from "../../types/usage";
 import { unreportedBillingLabel, usageMetricsAriaLabel, visibleUsageMetrics, usagePillText, type VisibleUsageMetric } from "./metrics";
 import { formatAge } from "../../lib/timeLabels";
 import { AnchoredPopover } from "../shared/AnchoredPopover";
-import { contextUsage, formatCostMicros, hasQuota, useClaimContext } from "./contextUsage";
-import { ContextUsageDetail } from "./ContextUsageDetail";
+import { contextUsage, hasQuota, useClaimContext } from "./contextUsage";
+import { ContextUsageBubble } from "./ContextUsageBubble";
 
 interface UsageBubbleProps {
   /** Provider id — required, no default. The component is hosted by a
@@ -118,29 +118,12 @@ export function UsageBubble({
   useClaimContext(tabId, contextMode);
 
   if (contextMode && contextReading) {
-    const pct = Math.round(contextReading.percent);
-    const state = classify(contextReading.percent);
-    const cost = contextReading.costMicros != null ? ` · ${formatCostMicros(contextReading.costMicros)}` : "";
     return (
-      <div className="ct-usage" style={{ position: "relative", display: "inline-flex" }} data-testid="usage-context-bubble">
-        <button ref={btnRef} type="button"
-          className={["ct-bar-pill ct-usage-bubble", state === "warn" ? "is-warn" : "", state === "danger" ? "is-danger" : "", open ? "is-open" : ""].filter(Boolean).join(" ")}
-          aria-label={`context ${pct}% of window${cost}`} aria-expanded={open}
-          onClick={(event) => { event.stopPropagation(); setOpen((value) => !value); }}>
-          <span className={`glyph ${state}`}>
-            <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-              <rect x="1.6" y="2.4" width="8.8" height="7.2" rx="1.6" /><path d="M3.8 6h4.4" />
-            </svg>
-            <span className="pct">ctx {pct}%</span>
-          </span>
-        </button>
-        <AnchoredPopover open={open} anchor={btnRef} placement="bottom-end" className="ct-usage" onClose={closeDetail}>
-          <ContextUsageDetail title={`${providerLabel ?? provider} usage`} usage={contextReading} now={Date.now()}
-            capturedAt={runtime?.token_usage?.captured_at ?? runtime?.captured_at ?? null}
-            onOpenHistory={active ? () => { setHistoryOpen(true); setOpen(false); } : undefined} />
-        </AnchoredPopover>
+      <ContextUsageBubble title={`${providerLabel ?? provider} usage`} usage={contextReading}
+        capturedAt={runtime?.token_usage?.captured_at ?? runtime?.captured_at ?? null}
+        onOpenHistory={active ? () => setHistoryOpen(true) : undefined}>
         {historyOpen && <UsageHistoryModal provider={provider} accountId={accountId} onClose={() => setHistoryOpen(false)} />}
-      </div>
+      </ContextUsageBubble>
     );
   }
 

@@ -229,3 +229,104 @@ fn balance_readings_are_keyed_by_profile_and_never_retain_raw_payloads() {
     assert!(decode("fixture", "deep-1", "not json").is_err());
     assert!(decode("fixture", "deep-1", &"x".repeat(64 * 1024 + 1)).is_err());
 }
+
+/// Points the shipped Gemini credential declarations at a fixture home for one test.
+struct GeminiHome(tempfile::TempDir);
+
+impl GeminiHome {
+    fn new() -> Self {
+        let home = tempfile::tempdir().unwrap();
+        std::fs::create_dir(home.path().join(".gemini")).unwrap();
+        std::env::set_var("GEMINI_CLI_HOME", home.path());
+        Self(home)
+    }
+
+    fn write(&self, name: &str, value: serde_json::Value) {
+        std::fs::write(self.0.path().join(".gemini").join(name), value.to_string()).unwrap();
+    }
+}
+
+impl Drop for GeminiHome {
+    fn drop(&mut self) {
+        std::env::remove_var("GEMINI_CLI_HOME");
+    }
+}
+
+#[test]
+fn the_shipped_plugin_reads_gemini_quota_only_for_a_google_sign_in_with_a_host_filled_token() {
+    use codeterm_plugin::js_runtime::fetch_test_port::{install, FetchReply};
+    const FIXTURE_TOKEN: &str = "fixture-google-token";
+    let _serial = SHARED_FETCH_PORT.lock();
+    let home = GeminiHome::new();
+    let expiry = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64
+        + 3_600_000;
+    home.write(
+        "settings.json",
+        json!({"security":{"auth":{"selectedType":"oauth-personal"}}}),
+    );
+    home.write(
+        "oauth_creds.json",
+        json!({"access_token":FIXTURE_TOKEN,"expiry_date":expiry}),
+    );
+    let seen = std::sync::Arc::new(parking_lot::Mutex::new(Vec::new()));
+    let recorded = seen.clone();
+    let _port = install("cloudcode-pa.googleapis.com", move |request| {
+        recorded.lock().push((
+            request.url.clone(),
+            request.headers.get("authorization").cloned(),
+        ));
+        let body = if request.url.ends_with(":loadCodeAssist") {
+            json!({"cloudaicompanionProject":"opaque-project"})
+        } else {
+            json!({"buckets":[{"modelId":"fixture-pro","remainingFraction":0.75}]})
+        };
+        FetchReply {
+            status: 200,
+            body: body.to_string(),
+        }
+    });
+    let acp = shipped_acp(None);
+
+    let snapshot = match read(&acp.fixture.service, "acp", "gemini-cli") {
+        Ok(snapshot) => snapshot,
+        Err((_, reason)) => panic!("quota read failed: {reason}"),
+    };
+
+    assert_eq!(snapshot.account_id.as_deref(), Some("profile:gemini-cli"));
+    let details = snapshot.usage_details.unwrap();
+    assert_eq!(details["quota"]["limits"][0]["label"], "fixture-pro");
+    assert_eq!(details["quota"]["limits"][0]["used_percent"], 25);
+    let stored = details.to_string();
+    assert!(!stored.contains(FIXTURE_TOKEN), "{stored}");
+    assert!(!stored.contains("opaque-project"), "{stored}");
+    let bearer = Some(format!("Bearer {FIXTURE_TOKEN}"));
+    assert_eq!(
+        seen.lock().as_slice(),
+        [
+            (
+                "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist".to_string(),
+                bearer.clone(),
+            ),
+            (
+                "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota".to_string(),
+                bearer,
+            ),
+        ],
+    );
+
+    seen.lock().clear();
+    home.write(
+        "settings.json",
+        json!({"security":{"auth":{"selectedType":"gemini-api-key"}}}),
+    );
+    let reason = match read(&acp.fixture.service, "acp", "gemini-cli") {
+        Ok(_) => panic!("an API-key sign-in must not read a leftover login's quota"),
+        Err((_, reason)) => reason,
+    };
+    assert!(reason.contains("Google AI Studio"), "{reason}");
+    assert!(!reason.contains(FIXTURE_TOKEN), "{reason}");
+    assert!(seen.lock().is_empty(), "no quota request in API-key mode");
+}

@@ -15,11 +15,18 @@ pub enum RuntimeProfileLimitsSource {
         #[serde(rename = "credentialEnv")]
         credential_env: String,
     },
+    /// Account quota the plugin reads with credentials its own manifest declares.
+    Quota { reader: String },
     /// No readable limits; the reason is shown instead of an empty bubble.
     Unavailable { reason: String },
 }
 
 impl RuntimeProfileLimitsSource {
+    /// Whether the plugin's `readProfileLimits` answers for this source.
+    pub fn plugin_read(&self) -> bool {
+        matches!(self, Self::Balance { .. } | Self::Quota { .. })
+    }
+
     pub fn valid_for(&self, profile: &RuntimeLaunchProfile) -> bool {
         self.valid_with(|env| {
             profile.secret_env.contains_key(env) || profile.auth_env.contains_key(env)
@@ -33,6 +40,7 @@ impl RuntimeProfileLimitsSource {
                 reader,
                 credential_env,
             } => valid_reader(reader) && declares_credential(credential_env.as_str()),
+            Self::Quota { reader } => valid_reader(reader),
             Self::Unavailable { reason } => valid_reason(reason),
         }
     }
@@ -109,7 +117,7 @@ pub fn resolve_registry_defaults(
     }
 }
 
-/// The account-id key under which a profile's plugin-read balance is stored.
+/// The account-id key under which a profile's plugin-read balance or quota is stored.
 pub fn balance_account_key(profile: &str) -> String {
     format!("profile:{profile}")
 }

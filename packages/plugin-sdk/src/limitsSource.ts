@@ -2,6 +2,7 @@
 export type RuntimeProfileLimitsSource =
   | {kind:"account"; provider:string}
   | {kind:"balance"; reader:string; credentialEnv:string}
+  | {kind:"quota"; reader:string}
   | {kind:"unavailable"; reason:string};
 
 export const maxUnavailableReasonChars = 240;
@@ -52,6 +53,7 @@ export function validLimitsSource(source:unknown, profile:CredentialDeclarations
     case "account": return exactKeys(value, ["kind","provider"]) && providerIdentity(value.provider);
     case "balance": return exactKeys(value, ["kind","reader","credentialEnv"]) && readerIdentity(value.reader)
       && typeof value.credentialEnv === "string" && (owns(profile.secretEnv, value.credentialEnv) || owns(profile.authEnv, value.credentialEnv));
+    case "quota": return exactKeys(value, ["kind","reader"]) && readerIdentity(value.reader);
     case "unavailable": return exactKeys(value, ["kind","reason"]) && reason(value.reason);
     default: return false;
   }

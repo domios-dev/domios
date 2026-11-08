@@ -34,6 +34,7 @@
 }
 .ct-usage-bubble.is-warn { --ct-bar-pill-tone: var(--u-warn); }
 .ct-usage-bubble.is-danger { --ct-bar-pill-tone: var(--u-danger); }
+.ct-usage-bubble.is-quiet { color: var(--u-neutral); }
 .ct-usage-bubble.is-stale {
   opacity: 0.8;
 }
