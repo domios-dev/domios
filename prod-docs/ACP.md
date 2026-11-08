@@ -247,6 +247,25 @@ already exists on PATH.
 
 ## Permission questions and cancellation
 
+New ACP tabs run with no permission questions, as other Domios agents do. Change this
+per tab in the model picker; the choice applies at once and survives restart and restore:
+
+- **Agents with an approve-all mode** (Gemini YOLO, `claude-acp` bypassPermissions,
+  `codex-acp` full-access): the agent's **Mode** row is the only switch. In that mode
+  Domios also answers any question the agent still asks, such as Gemini's prompt about
+  paths outside the project. In any other mode you chose, the agent asks. Domios
+  re-applies your chosen mode after every restore.
+- **Other agents** (DeepSeek, for example): a **Permissions** row offers **Ask each
+  time** and **Allow all**. A question already waiting follows the new setting.
+
+`domios tab status --json` reports the effective state as `full_access`, and
+`domios agent restart` prints the same value. Tabs confined by a sandbox or a neighbor
+grant keep their confinement and show no Permissions row.
+
+**Allow all** answers the agent's questions; it does not widen what the agent itself
+enforces. DeepSeek keeps its workspace-write sandbox, and a denied command is retried
+with approval, which Domios gives. So the command still runs, one retry later.
+
 When the tab status is `question`, inspect the current prompt and numbered options:
 
 ```bash
@@ -292,4 +311,4 @@ It can also cancel a turn waiting for a permission response.
   the current index and refuses unsupported distributions; neither proves agent
   authentication or compatibility.
 
-<!-- revision: 8 -->
+<!-- revision: 9 -->

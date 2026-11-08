@@ -401,6 +401,171 @@ fn fresh_full_access_spawn_carries_its_profile_mode_before_the_tab_config_names_
     }
 }
 
+fn host_approval_fixture(profile: &str) -> (crate::service::test_fixture::ServiceFixture, String) {
+    use crate::{multiplexer::state::MultiplexerState, service::test_fixture::ServiceFixture};
+    use codeterm_plugin::js_runtime::{JsProvider, PluginManifest, PluginVm};
+    let (mut mux, id) = MultiplexerState::new();
+    let tab = mux.get_tab_mut(&id).unwrap();
+    tab.agent_type = Some("host-runtime".into());
+    tab.session_binding_nonce = Some("nonce".into());
+    tab.cwd = Some(
+        crate::test_support::fixture_manifest_dir()
+            .to_string_lossy()
+            .into_owned(),
+    );
+    tab.agent_runtime_config = Some(serde_json::json!({"launchProfile":profile}));
+    tab.restorable_launch.captured = true;
+    tab.restorable_launch.permission_bypass_requested = false;
+    let fixture = ServiceFixture::new(mux);
+    fixture.install_seeded_storage_desk();
+    let manifest = PluginManifest::from_json_str(&serde_json::json!({
+        "id":"host-runtime","version":"1.0.0","displayName":"Fixture",
+        "capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},
+            "agentRuntime":{"hostApprovals":true,"runtime":"stdio-jsonrpc","command":{"binary":"fixture-cli","args":[]},
+                "launchProfiles":{"plain":{"binary":"fixture-cli","args":[]},
+                    "native":{"binary":"fixture-cli","args":[],"fullAccessMode":"opaque-approve-all"}},
+                "requestMethods":{"initialize":["handshake"]},"notificationMethods":[]}},
+        "permissions":{"subprocess":{"allow":["fixture-cli"]}}
+    }).to_string()).unwrap();
+    let vm = std::sync::Arc::new(
+        PluginVm::from_source("host-runtime", "module.exports={}".into()).unwrap(),
+    );
+    fixture
+        .service
+        .agent_registry
+        .register_provider(Box::new(JsProvider::new(manifest, vm)));
+    (fixture, id)
+}
+
+fn restored_state(
+    svc: &ServiceContext,
+    id: &str,
+) -> (bool, bool, serde_json::Value, serde_json::Value) {
+    restore(svc, id).unwrap();
+    let mux = svc.mux.read();
+    let tab = mux.get_tab(id).unwrap();
+    let config = tab.agent_runtime_config.as_ref().unwrap();
+    (
+        tab.restorable_launch.permission_bypass_requested,
+        tab.auto_approve,
+        config["hostApprovals"].clone(),
+        config.get("fullAccessMode").cloned().unwrap_or_default(),
+    )
+}
+
+#[test]
+fn a_legacy_launch_record_restores_without_questions_and_the_owner_choice_survives_restore() {
+    let (fixture, id) = host_approval_fixture("plain");
+    let svc = &fixture.service;
+    assert_eq!(
+        restored_state(svc, &id),
+        (
+            true,
+            true,
+            serde_json::json!("allow_all"),
+            serde_json::Value::Null
+        ),
+        "a false record from an older launch is not an owner choice"
+    );
+    assert!(svc.effective_full_access(&id));
+
+    assert!(!svc.set_tab_host_approvals(&id, false).unwrap());
+    assert!(!svc.effective_full_access(&id));
+    let saved =
+        serde_json::to_value(&svc.mux.read().get_tab(&id).unwrap().restorable_launch).unwrap();
+    assert_eq!(saved["host_approval_choice"], "ask");
+    let reloaded: crate::multiplexer::types::RestorableLaunchParameters =
+        serde_json::from_value(saved).unwrap();
+    svc.mux.write().get_tab_mut(&id).unwrap().restorable_launch = reloaded;
+    assert_eq!(
+        restored_state(svc, &id),
+        (
+            false,
+            false,
+            serde_json::json!("ask"),
+            serde_json::Value::Null
+        ),
+        "the owner's ask survives a restore"
+    );
+    assert!(!svc.get_tab_status(&id).unwrap().full_access);
+
+    assert!(svc.set_tab_host_approvals(&id, true).unwrap());
+    assert_eq!(
+        restored_state(svc, &id),
+        (
+            true,
+            true,
+            serde_json::json!("allow_all"),
+            serde_json::Value::Null
+        ),
+    );
+    assert!(svc.get_tab_status(&id).unwrap().full_access);
+}
+
+#[test]
+fn a_native_mode_stays_the_single_switch_and_its_choice_is_reapplied_on_restore() {
+    let (fixture, id) = host_approval_fixture("native");
+    let svc = &fixture.service;
+    let mode_key = || {
+        svc.mux
+            .read()
+            .get_tab(&id)
+            .unwrap()
+            .agent_runtime_config
+            .as_ref()
+            .unwrap()
+            .get("sessionMode")
+            .cloned()
+    };
+    assert!(svc.set_tab_host_approvals(&id, false).is_err());
+    let unchosen = restored_state(svc, &id);
+    assert_eq!(
+        unchosen.3,
+        serde_json::json!("opaque-approve-all"),
+        "a new or legacy tab enters the approve-all mode"
+    );
+    assert!(unchosen.0);
+    assert_eq!(mode_key(), None);
+
+    let select = |mode: &str| {
+        svc.mux
+            .write()
+            .get_tab_mut(&id)
+            .unwrap()
+            .restorable_launch
+            .selected_session_mode = Some(mode.into());
+    };
+    select("opaque-default");
+    let asking = restored_state(svc, &id);
+    assert!(!asking.0, "a chosen asking mode keeps asking after restore");
+    assert_eq!(asking.3, serde_json::Value::Null);
+    assert_eq!(mode_key(), Some(serde_json::json!("opaque-default")));
+
+    select("opaque-approve-all");
+    let approving = restored_state(svc, &id);
+    assert!(approving.0);
+    assert_eq!(approving.3, serde_json::json!("opaque-approve-all"));
+    assert_eq!(mode_key(), Some(serde_json::json!("opaque-approve-all")));
+}
+
+#[test]
+fn confinement_refuses_the_host_switch_and_locks_the_picker() {
+    let (fixture, id) = host_approval_fixture("plain");
+    let svc = &fixture.service;
+    svc.mux.write().get_tab_mut(&id).unwrap().neighbor_authority =
+        Some(crate::multiplexer::types::NeighborAuthority {
+            uid: "owner".into(),
+            friendship_id: "a".repeat(64),
+            root_tab_id: None,
+        });
+    assert!(svc.set_tab_host_approvals(&id, true).is_err());
+    assert_eq!(
+        crate::service::agent_runtime::permission_policy::host_approvals_view(svc, &id, false),
+        Some("locked")
+    );
+    assert!(!svc.effective_full_access(&id));
+}
+
 #[test]
 fn undeclared_spawn_default_is_not_persisted_as_a_runtime_mode() {
     use crate::{multiplexer::state::MultiplexerState, service::test_fixture::ServiceFixture};

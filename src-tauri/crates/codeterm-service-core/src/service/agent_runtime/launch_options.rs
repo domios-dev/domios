@@ -68,16 +68,7 @@ fn full_access_mode(
                 .map(str::to_owned)
         })
     })?;
-    svc.agent_registry
-        .with_provider(provider, |provider| {
-            provider
-                .agent_runtime()?
-                .launch_profiles?
-                .get(&profile)?
-                .full_access_mode
-                .clone()
-        })
-        .flatten()
+    super::permission_policy::declared_full_access_mode(svc, provider, &profile)
 }
 
 fn authorized_mode(requested: Option<bool>, authorized: bool) -> Result<&'static str, String> {
@@ -141,13 +132,20 @@ impl ServiceContext {
         self.prepare_neighbor_restore_grant(tab_id, &provider, params)?;
         let policy =
             crate::service::execution_sandbox::for_launch(self, tab_id, &provider, params, true)?;
-        let skip = policy.is_none() && params.permission_bypass_requested(&provider);
+        let granted = policy.is_none() && params.permission_bypass_requested(&provider);
+        let skip =
+            policy.is_none() && super::permission_policy::launch_full_access(self, tab_id, granted);
+        let requested = if skip == granted {
+            params.skip_permissions
+        } else {
+            Some(skip)
+        };
         let mode = match &policy {
             Some(policy) => policy
                 .runtime_mode
                 .as_deref()
                 .ok_or("Execution sandbox runtime mapping absent")?,
-            None => authorized_mode(params.skip_permissions, skip)?,
+            None => authorized_mode(requested, skip)?,
         };
         let pad = self.ensure_agent_pad(tab_id)?;
         let project =
@@ -207,6 +205,7 @@ impl ServiceContext {
         };
         let settings = runtime_settings(&options);
         validate_runtime_settings(&settings).map_err(|reason| reason.to_string())?;
+        let host_approvals = super::permission_policy::host_approvals_view(self, tab_id, skip);
         {
             let mut mux = self.mux.write();
             let tab = mux.get_tab_mut(tab_id).ok_or("Runtime tab unavailable")?;
@@ -236,6 +235,24 @@ impl ServiceContext {
                 config.remove("networkAccess");
             }
             apply_full_access_mode(config, &options);
+            match &tab.restorable_launch.selected_session_mode {
+                Some(mode) => {
+                    config.insert(
+                        super::permission_policy::SESSION_MODE_KEY.into(),
+                        serde_json::json!(mode),
+                    );
+                }
+                None => {
+                    config.remove(super::permission_policy::SESSION_MODE_KEY);
+                }
+            }
+            if let Some(view) = host_approvals {
+                config.insert(
+                    super::permission_policy::HOST_APPROVALS_KEY.into(),
+                    serde_json::json!(view),
+                );
+                tab.auto_approve = skip;
+            }
             tab.restorable_launch.permission_bypass_requested = skip;
             tab.restorable_launch.runtime_launch_options = Some(options);
         }

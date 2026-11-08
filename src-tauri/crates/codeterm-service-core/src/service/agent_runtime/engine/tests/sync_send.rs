@@ -43,25 +43,30 @@ pub(super) fn runtime_fixture_with_notifications(
     source: &str,
     notifications: &[&str],
 ) -> (ServiceFixture, String, tokio::io::DuplexStream, Cleanup) {
-    runtime_fixture_options(source, notifications, false, true, false)
+    runtime_fixture_options(source, notifications, false, true, false, false)
+}
+
+pub(in crate::service::agent_runtime) fn runtime_fixture_host_approvals(
+) -> (ServiceFixture, String, tokio::io::DuplexStream, Cleanup) {
+    runtime_fixture_options(RUNTIME_FIXTURE_SOURCE, &[], false, true, false, true)
 }
 
 pub(super) fn runtime_fixture_with_stored_history(
     source: &str,
 ) -> (ServiceFixture, String, tokio::io::DuplexStream, Cleanup) {
-    runtime_fixture_options(source, &[], true, true, false)
+    runtime_fixture_options(source, &[], true, true, false, false)
 }
 
 pub(super) fn runtime_fixture_without_remote_history(
     source: &str,
 ) -> (ServiceFixture, String, tokio::io::DuplexStream, Cleanup) {
-    runtime_fixture_options(source, &[], true, false, false)
+    runtime_fixture_options(source, &[], true, false, false, false)
 }
 
 pub(in crate::service::agent_runtime) fn runtime_fixture_turn_scoped(
     source: &str,
 ) -> (ServiceFixture, String, tokio::io::DuplexStream, Cleanup) {
-    runtime_fixture_options(source, &[], false, true, true)
+    runtime_fixture_options(source, &[], false, true, true, false)
 }
 
 fn runtime_fixture_options(
@@ -70,6 +75,7 @@ fn runtime_fixture_options(
     stored_history: bool,
     remote_history: bool,
     turn_scoped: bool,
+    host_approvals: bool,
 ) -> (ServiceFixture, String, tokio::io::DuplexStream, Cleanup) {
     const PROVIDER: &str = "sync-send-fixture";
     let (mut mux, tab_id) = MultiplexerState::new();
@@ -104,6 +110,9 @@ fn runtime_fixture_options(
         manifest["capabilities"]["agentRuntime"]["interrupt"] = json!({"beforeFirstTurn":true});
         manifest["capabilities"]["agentRuntime"]["requestMethods"]["interrupt"] =
             json!(["fixture/cancel"]);
+    }
+    if host_approvals {
+        manifest["capabilities"]["agentRuntime"]["hostApprovals"] = json!(true);
     }
     if !remote_history {
         manifest["capabilities"]["agentRuntime"]["requestMethods"]

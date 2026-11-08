@@ -165,9 +165,52 @@ async fn controls(
     .map_err(|reason| (StatusCode::CONFLICT, reason))
 }
 
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct HostApprovalsRequest {
+    allow_all: bool,
+}
+
+/// Owner only: an agent answering its own permission questions would defeat "Ask each time".
+async fn host_approvals(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(raw_tab): Path<String>,
+    Json(request): Json<HostApprovalsRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    if crate::auth::tab_caller(&state, &headers)?.is_some() {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "Only the owner changes a tab's permissions".to_string(),
+        ));
+    }
+    let tab = crate::routes::resolve_tab_async(&state, &raw_tab)
+        .await
+        .map_err(|(status, message)| (status, message.to_string()))?;
+    let svc = state.svc.clone();
+    let target = tab.clone();
+    let allow_all =
+        tokio::task::spawn_blocking(move || svc.set_tab_host_approvals(&target, request.allow_all))
+            .await
+            .map_err(|_| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "host approvals task join failed".to_string(),
+                )
+            })?
+            .map_err(|reason| (StatusCode::CONFLICT, reason))?;
+    Ok(Json(
+        serde_json::json!({"tab_id": tab, "allow_all": allow_all}),
+    ))
+}
+
 pub(super) fn router() -> Router<AppState> {
     Router::new()
         .route("/api/tabs/{id}/agent/runtime/controls", post(controls))
+        .route(
+            "/api/tabs/{id}/agent/runtime/host-approvals",
+            post(host_approvals),
+        )
         .route("/api/tabs/{id}/agent/runtime/goal", post(goal))
         .route("/api/tabs/{id}/agent/runtime/usage", get(tab_usage))
         .route(

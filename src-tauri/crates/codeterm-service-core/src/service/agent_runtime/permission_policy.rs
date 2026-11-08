@@ -1,15 +1,274 @@
 use super::client_bridge::gate::{self, Access, Decision, Kind, SessionGrants};
 use super::engine::{self, Session};
 use super::model::RuntimeFailure;
-use crate::service::ServiceContext;
+use crate::multiplexer::types::HostApprovalChoice;
+use crate::service::{MuxEmitCause, ServiceContext};
 use codeterm_plugin::agent_runtime::{
     PromptAnswer, RpcId, RuntimeOperation, RuntimePermission, RuntimePermissionAction,
-    RuntimePermissionDecision,
+    RuntimePermissionDecision, RuntimeSettings,
 };
 use codeterm_types::pty::PendingPrompt;
 use std::{sync::Arc, time::Duration};
 
 const PERMIT_DEADLINE: Duration = Duration::from_secs(30);
+pub(super) const HOST_APPROVALS_KEY: &str = "hostApprovals";
+pub(super) const SESSION_MODE_KEY: &str = "sessionMode";
+
+/// What the full-access decision reads; plain inputs keep the rule testable.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) struct AccessFacts<'a> {
+    pub recorded: bool,
+    pub host_approvals: bool,
+    pub grant_bound: bool,
+    pub native_mode: Option<&'a str>,
+    /// `None` before the tab has a session to report the modes it offers.
+    pub native_advertised: Option<bool>,
+    pub current_mode: Option<&'a str>,
+    pub selected_mode: Option<&'a str>,
+    pub choice: Option<HostApprovalChoice>,
+}
+
+/// Whether the owner's effective choice is "no permission questions" for this tab.
+///
+/// An agent can still ask in its approve-all mode, so the host answers from this result rather
+/// than trusting the mode. An unset choice is full access, the same default every launch has.
+pub(super) fn full_access_in_effect(facts: AccessFacts<'_>) -> bool {
+    if facts.grant_bound || !facts.host_approvals {
+        return facts.recorded;
+    }
+    if let (Some(native), Some(selected)) = (facts.native_mode, facts.selected_mode) {
+        if facts.native_advertised != Some(false) {
+            return facts.current_mode.unwrap_or(selected) == native;
+        }
+    }
+    facts.choice != Some(HostApprovalChoice::Ask)
+}
+
+/// The selected launch profile's declared approve-everything session mode.
+pub(super) fn declared_full_access_mode(
+    svc: &ServiceContext,
+    provider: &str,
+    profile: &str,
+) -> Option<String> {
+    svc.agent_registry
+        .with_provider(provider, |provider| {
+            provider
+                .agent_runtime()?
+                .launch_profiles?
+                .get(profile)?
+                .full_access_mode
+                .clone()
+        })
+        .flatten()
+}
+
+pub(super) fn declares_host_approvals(svc: &ServiceContext, provider: &str) -> bool {
+    svc.agent_registry
+        .with_provider(provider, |provider| {
+            provider
+                .agent_runtime()
+                .is_some_and(|runtime| runtime.host_approvals)
+        })
+        .unwrap_or(false)
+}
+
+struct TabPolicy {
+    provider: String,
+    profile: Option<String>,
+    recorded: bool,
+    sandboxed: bool,
+    grant_bound: bool,
+    selected_mode: Option<String>,
+    choice: Option<HostApprovalChoice>,
+}
+
+fn tab_policy(svc: &ServiceContext, tab_id: &str) -> Option<TabPolicy> {
+    let mux = svc.mux.read();
+    let tab = mux.get_tab(tab_id)?;
+    Some(TabPolicy {
+        provider: tab.agent_type.clone()?,
+        profile: tab
+            .agent_runtime_config
+            .as_ref()
+            .and_then(|config| config.get("launchProfile"))
+            .and_then(|profile| profile.as_str())
+            .map(str::to_owned),
+        recorded: tab.restorable_launch.permission_bypass_requested,
+        sandboxed: tab.restorable_launch.execution_sandbox.is_some(),
+        grant_bound: tab.neighbor_authority.is_some(),
+        selected_mode: tab.restorable_launch.selected_session_mode.clone(),
+        choice: tab.restorable_launch.host_approval_choice,
+    })
+}
+
+fn resolve(
+    svc: &ServiceContext,
+    policy: &TabPolicy,
+    recorded: bool,
+    settings: Option<&RuntimeSettings>,
+) -> bool {
+    if policy.sandboxed {
+        return false;
+    }
+    let native = policy
+        .profile
+        .as_deref()
+        .and_then(|profile| declared_full_access_mode(svc, &policy.provider, profile));
+    full_access_in_effect(AccessFacts {
+        recorded,
+        host_approvals: declares_host_approvals(svc, &policy.provider),
+        grant_bound: policy.grant_bound,
+        native_mode: native.as_deref(),
+        native_advertised: native_advertised(native.as_deref(), settings),
+        current_mode: settings.and_then(|settings| settings.mode.as_deref()),
+        selected_mode: policy.selected_mode.as_deref(),
+        choice: policy.choice,
+    })
+}
+
+fn native_advertised(native: Option<&str>, settings: Option<&RuntimeSettings>) -> Option<bool> {
+    let native = native?;
+    let modes = settings?.modes.as_ref();
+    Some(modes.is_some_and(|modes| modes.iter().any(|mode| mode.id == native)))
+}
+
+/// A launch resolves from what the launch was granted, before any session reports its modes.
+pub(super) fn launch_full_access(svc: &ServiceContext, tab_id: &str, granted: bool) -> bool {
+    tab_policy(svc, tab_id).map_or(granted, |policy| resolve(svc, &policy, granted, None))
+}
+
+/// The view the picker reads while the tab sleeps; `locked` means confinement owns the answer.
+pub(super) fn host_approvals_view(
+    svc: &ServiceContext,
+    tab_id: &str,
+    full_access: bool,
+) -> Option<&'static str> {
+    let policy = tab_policy(svc, tab_id)?;
+    declares_host_approvals(svc, &policy.provider).then_some(
+        if policy.sandboxed || policy.grant_bound {
+            "locked"
+        } else if full_access {
+            "allow_all"
+        } else {
+            "ask"
+        },
+    )
+}
+
+impl ServiceContext {
+    /// The tab's effective full access now, from its live session when it has one.
+    pub(crate) fn effective_full_access(&self, tab_id: &str) -> bool {
+        let settings =
+            engine::for_tab(tab_id).map(|session| session.context.lock().settings.clone());
+        self.full_access_with_settings(tab_id, settings.as_ref())
+    }
+
+    pub(super) fn full_access_with_settings(
+        &self,
+        tab_id: &str,
+        settings: Option<&RuntimeSettings>,
+    ) -> bool {
+        tab_policy(self, tab_id)
+            .is_some_and(|policy| resolve(self, &policy, policy.recorded, settings))
+    }
+
+    /// The owner's live switch for agents with no approve-all mode of their own.
+    pub fn set_tab_host_approvals(&self, tab_id: &str, allow_all: bool) -> Result<bool, String> {
+        if let Some(refusal) = self.tab_write_lock(tab_id) {
+            return Err(refusal.to_string());
+        }
+        let policy = tab_policy(self, tab_id).ok_or("Agent tab unavailable")?;
+        if !declares_host_approvals(self, &policy.provider) {
+            return Err("This agent does not support host approvals".into());
+        }
+        if policy.sandboxed || policy.grant_bound {
+            return Err("This tab's confinement decides its permissions".into());
+        }
+        let settings =
+            engine::for_tab(tab_id).map(|session| session.context.lock().settings.clone());
+        let native = policy
+            .profile
+            .as_deref()
+            .and_then(|profile| declared_full_access_mode(self, &policy.provider, profile));
+        if native.is_some()
+            && native_advertised(native.as_deref(), settings.as_ref()) != Some(false)
+        {
+            return Err("This agent's own mode is its permission switch".into());
+        }
+        let choice = if allow_all {
+            HostApprovalChoice::AllowAll
+        } else {
+            HostApprovalChoice::Ask
+        };
+        let previous =
+            self.record_host_policy(tab_id, |launch| launch.host_approval_choice.replace(choice))?;
+        if let Err(error) = crate::service::session_persist::persist_session_after_mutation(
+            self,
+            crate::service::session_persist::SessionPersistUrgency::Prompt,
+        ) {
+            self.record_host_policy(tab_id, |launch| launch.host_approval_choice = previous)?;
+            return Err(error);
+        }
+        super::prompt_answers::settle_after_policy_change(self, tab_id);
+        self.emit_state_changed(MuxEmitCause::Prompt);
+        Ok(allow_all)
+    }
+
+    /// Writes the choice, then every projection of it, so the tab never reports a stale state.
+    fn record_host_policy<T>(
+        &self,
+        tab_id: &str,
+        change: impl FnOnce(&mut crate::multiplexer::types::RestorableLaunchParameters) -> T,
+    ) -> Result<T, String> {
+        let result = {
+            let mut mux = self.mux.write();
+            let tab = mux.get_tab_mut(tab_id).ok_or("Agent tab unavailable")?;
+            change(&mut tab.restorable_launch)
+        };
+        let full_access = self.effective_full_access(tab_id);
+        let view = host_approvals_view(self, tab_id, full_access);
+        let mut mux = self.mux.write();
+        let tab = mux.get_tab_mut(tab_id).ok_or("Agent tab unavailable")?;
+        tab.restorable_launch.permission_bypass_requested = full_access;
+        tab.auto_approve = full_access;
+        let config = tab
+            .agent_runtime_config
+            .get_or_insert_with(|| serde_json::json!({}));
+        if let (Some(config), Some(view)) = (config.as_object_mut(), view) {
+            config.insert(HOST_APPROVALS_KEY.into(), serde_json::json!(view));
+        }
+        Ok(result)
+    }
+}
+
+/// A chosen session mode survives restore; the agent's load resets it to its own default.
+pub(super) fn record_selected_mode(svc: &ServiceContext, session: &Arc<Session>, mode: &str) {
+    let tab_id = session.context.lock().tab_id.clone();
+    let Some(policy) = tab_policy(svc, &tab_id) else {
+        return;
+    };
+    if !declares_host_approvals(svc, &policy.provider) || policy.sandboxed || policy.grant_bound {
+        return;
+    }
+    {
+        let mut context = session.context.lock();
+        context.settings.mode = Some(mode.to_owned());
+    }
+    let recorded = svc.record_host_policy(&tab_id, |launch| {
+        launch.selected_session_mode = Some(mode.to_owned());
+    });
+    let persisted = recorded.and_then(|()| {
+        crate::service::session_persist::persist_session_after_mutation(
+            svc,
+            crate::service::session_persist::SessionPersistUrgency::Prompt,
+        )
+    });
+    if let Err(error) = persisted {
+        log::warn!("[runtime-permission] tab={tab_id} chosen mode was not persisted: {error}");
+    }
+    super::prompt_answers::settle_after_policy_change(svc, &tab_id);
+    svc.emit_state_changed(MuxEmitCause::Prompt);
+}
 
 /// The option the launch policy picks for an agent permission request; `None` asks the user.
 pub(super) fn decide(
@@ -111,9 +370,12 @@ async fn reply(
             values: vec![value],
         },
     };
-    engine::run(svc, &session.provider, session, &process, operation)
-        .await
-        .map(drop)
+    engine::run(svc, &session.provider, session, &process, operation).await?;
+    // A prompt already shown to the owner leaves the screen once the new setting answered it.
+    if !session.prompts.lock().contains_key(request) {
+        super::prompt_answers::resolve(svc, session, request);
+    }
+    Ok(())
 }
 
 /// Choosing only declared reject options never escalates, so the sandbox checks it as a cancel.

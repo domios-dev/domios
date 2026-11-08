@@ -1027,8 +1027,9 @@ function optionRequest(state, sessionId, id, value) {
   if (id === state.modelStateId) plan.state = { method: "session/set_model", modelId: value };
   return plan;
 }
-function fullAccessMode(ctx, state) {
-  const mode = object4(ctx.providerSettings).fullAccessMode;
+function launchMode(ctx, state) {
+  const settings = object4(ctx.providerSettings);
+  const mode = settings.sessionMode ?? settings.fullAccessMode;
   return typeof mode === "string" && mode !== state.settings?.mode && state.settings?.modes?.some((entry) => entry.id === mode) ? mode : void 0;
 }
 function loadedThread(ctx, op, state, sessionId, attempted = [], confirmAuthentication = true) {
@@ -1039,7 +1040,7 @@ function loadedThread(ctx, op, state, sessionId, attempted = [], confirmAuthenti
     plan.state = { ...object4(plan.state), attempted: [...attempted, selection.category], confirmAuthentication };
     return { kind: "continue", plan };
   }
-  const mode = attempted.includes("mode") ? void 0 : fullAccessMode(ctx, state);
+  const mode = attempted.includes("mode") ? void 0 : launchMode(ctx, state);
   if (mode) {
     const plan = request("session/set_mode", { sessionId, modeId: mode });
     plan.state = { method: "session/set_mode", modeId: mode, attempted: [...attempted, "mode"], confirmAuthentication };

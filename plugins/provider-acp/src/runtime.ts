@@ -123,9 +123,13 @@ function optionRequest(state:Negotiation, sessionId:string, id:string, value:str
   return plan;
 }
 
-/** A full-access launch enters the session mode its launch profile declares as approving everything. */
-function fullAccessMode(ctx:RuntimeContext, state:Negotiation):string|undefined {
-  const mode=object(ctx.providerSettings).fullAccessMode;
+/**
+ * The owner's chosen session mode wins: agents rebuild their own default on load, so it is re-entered
+ * on every open and resume. Otherwise a full-access launch enters its profile's approve-everything mode.
+ */
+function launchMode(ctx:RuntimeContext, state:Negotiation):string|undefined {
+  const settings=object(ctx.providerSettings);
+  const mode=settings.sessionMode ?? settings.fullAccessMode;
   return typeof mode === "string" && mode !== state.settings?.mode && state.settings?.modes?.some(entry=>entry.id === mode) ? mode : undefined;
 }
 
@@ -137,7 +141,7 @@ function loadedThread(ctx:RuntimeContext, op:Extract<Operation,{kind:"openThread
     plan.state={...object(plan.state),attempted:[...attempted,selection.category],confirmAuthentication};
     return {kind:"continue",plan};
   }
-  const mode=attempted.includes("mode") ? undefined : fullAccessMode(ctx,state);
+  const mode=attempted.includes("mode") ? undefined : launchMode(ctx,state);
   if (mode) {
     const plan=request("session/set_mode",{sessionId,modeId:mode});
     plan.state={method:"session/set_mode",modeId:mode,attempted:[...attempted,"mode"],confirmAuthentication};

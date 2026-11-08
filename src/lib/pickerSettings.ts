@@ -3,7 +3,8 @@ import type { ProviderDescriptor } from "./types";
 import { reasoningEffortsForModel } from "./newSessionChoice";
 
 export type PickerCategory = "model" | "effort" | "mode" | "speed";
-export type PickerApplyTarget = { kind: "config"; id: string } | { kind: "session" | PickerCategory };
+export type PickerApplyTarget = { kind: "config"; id: string } | { kind: "session" | "host_approvals" | PickerCategory };
+export type HostApprovalsValue = "ask" | "allow_all";
 export interface PickerSection {
   id: string;
   label: string;
@@ -17,7 +18,24 @@ export interface PickerSection {
 const CATEGORIES = new Map<string, PickerCategory>([["model", "model"], ["thought_level", "effort"], ["mode", "mode"]]);
 const ORDER: readonly PickerCategory[] = ["model", "effort", "mode", "speed"];
 
-export function pickerSections({ descriptor, controls, model, effort, runtimeMode, serviceTier, serviceTierAvailability }: {
+/**
+ * The tab's host-approval choice, or `undefined` when the control does not apply: the agent's own
+ * approve-all mode is the single switch where it exists, and confinement owns the answer where it binds.
+ */
+export function hostApprovalsChoice(
+  descriptor: ProviderDescriptor | undefined,
+  config: Readonly<Record<string, unknown>> | null | undefined,
+  controls: RuntimeSettings | undefined,
+): HostApprovalsValue | undefined {
+  const runtime = descriptor?.agent_runtime;
+  if (!runtime?.hostApprovals || config?.hostApprovals === "locked") return undefined;
+  const profile = typeof config?.launchProfile === "string" ? runtime.launchProfiles?.[config.launchProfile] : undefined;
+  const native = profile?.fullAccessMode;
+  if (native && (!controls || controls.modes?.some(mode => mode.id === native))) return undefined;
+  return config?.hostApprovals === "ask" ? "ask" : "allow_all";
+}
+
+export function pickerSections({ descriptor, controls, model, effort, runtimeMode, serviceTier, serviceTierAvailability, hostApprovals }: {
   descriptor?: ProviderDescriptor;
   controls?: RuntimeSettings;
   model?: string;
@@ -25,6 +43,7 @@ export function pickerSections({ descriptor, controls, model, effort, runtimeMod
   runtimeMode?: string;
   serviceTier?: RuntimeServiceTierSelection;
   serviceTierAvailability?: Record<string, readonly RuntimeServiceTier[]>;
+  hostApprovals?: HostApprovalsValue;
 }): PickerSection[] {
   const known = new Map<PickerCategory, PickerSection>();
   const extras: PickerSection[] = [];
@@ -66,13 +85,18 @@ export function pickerSections({ descriptor, controls, model, effort, runtimeMod
       applyTarget: { kind: "speed" },
     });
   }
-  return [...ORDER.flatMap(category => known.has(category) ? [known.get(category)!] : []), ...extras];
+  const permissions: PickerSection[] = hostApprovals ? [{
+    id: "host-approvals", label: "Permissions", kind: "select", current: hostApprovals,
+    options: [{ value: "ask", label: "Ask each time" }, { value: "allow_all", label: "Allow all" }],
+    applyTarget: { kind: "host_approvals" },
+  }] : [];
+  return [...ORDER.flatMap(category => known.has(category) ? [known.get(category)!] : []), ...permissions, ...extras];
 }
 
 export function pickerDescriptor(descriptor: ProviderDescriptor, sections: readonly PickerSection[]): ProviderDescriptor {
   const model = sections.find(section => section.category === "model");
   const effort = sections.find(section => section.category === "effort");
-  if (model?.applyTarget.kind !== "config") return descriptor.agent_runtime && !descriptor.available_models.length && sections.some(section => section.applyTarget.kind === "config" || section.applyTarget.kind === "session")
+  if (model?.applyTarget.kind !== "config") return descriptor.agent_runtime && !descriptor.available_models.length && sections.some(section => ["config", "session", "host_approvals"].includes(section.applyTarget.kind))
     ? { ...descriptor, model_switch: "live" } : descriptor;
   return { ...descriptor, model_switch: "live", available_models: model.options.map(option => ({
     id: option.value, display_name: option.label,

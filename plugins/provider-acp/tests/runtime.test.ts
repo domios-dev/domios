@@ -393,6 +393,15 @@ assert.equal(loadedMode(openWithModes("interactive-mode",{}).step),"opaque-defau
 assert.equal(loadedMode(openWithModes("undeclared-mode",{fullAccessMode:"opaque-unadvertised"}).step),"opaque-default","an unadvertised mode is never requested");
 assert.equal(loadedMode(openWithModes("already-full",{fullAccessMode:"opaque-approve-all"},{...advertisedModes,currentModeId:"opaque-approve-all"}).step),"opaque-approve-all");
 console.log("✓ ACP full-access launches enter the profile's declared approve-everything mode only when the agent advertises it");
+const chosenMode=openWithModes("chosen-mode",{sessionMode:"opaque-approve-all"});
+if (chosenMode.step.kind !== "continue" || chosenMode.step.plan.action.kind !== "request") throw new Error("a chosen mode must be re-entered");
+assert.deepEqual(plain(chosenMode.step.plan.action.call.params),{sessionId:"chosen-mode-session",modeId:"opaque-approve-all"},"an interactive launch re-enters the owner's chosen mode");
+const chosenOverFull=openWithModes("chosen-over-full",{sessionMode:"opaque-plan",fullAccessMode:"opaque-approve-all"},{currentModeId:"opaque-approve-all",availableModes:[{id:"opaque-plan",name:"Plan"},{id:"opaque-approve-all",name:"Approve all"}]});
+if (chosenOverFull.step.kind !== "continue" || chosenOverFull.step.plan.action.kind !== "request") throw new Error("a chosen mode must win");
+assert.deepEqual(plain(chosenOverFull.step.plan.action.call.params),{sessionId:"chosen-over-full-session",modeId:"opaque-plan"},"the owner's chosen mode wins over the profile's full-access mode");
+assert.equal(loadedMode(openWithModes("chosen-unadvertised",{sessionMode:"opaque-gone"}).step),"opaque-default","a chosen mode the agent no longer offers is never requested");
+assert.equal(loadedMode(openWithModes("chosen-already",{sessionMode:"opaque-default"}).step),"opaque-default","a chosen mode already in effect sends nothing");
+console.log("✓ ACP re-enters the owner's chosen session mode on load, ahead of the profile default");
 const selectableModels={currentModelId:"opaque-m1",availableModels:[{modelId:"opaque-m1",name:"First"},{modelId:"opaque-m2",name:"Second"}]};
 function selectedThenFullAccess(tabId:string, resumed:boolean):string[] {
   const context={...ctx,tabId,threadId:resumed ? `${tabId}-session` : undefined,providerSettings:{fullAccessMode:"opaque-approve-all"}};

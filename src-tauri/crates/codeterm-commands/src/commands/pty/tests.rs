@@ -323,6 +323,7 @@ mod spawn_pty_restore_tests {
             identity_instructions: Some(INSTRUCTIONS.into()),
             permission_bypass_requested: false,
             runtime_launch_options: None,
+            ..Default::default()
         };
 
         let fixture = ServiceFixture::new(mux);
