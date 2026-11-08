@@ -177,6 +177,34 @@ fn write_receipt(root: &Path, receipt: &InstallReceipt) -> Result<(), String> {
     crate::provider::invalidate_profile_readiness(root);
     Ok(())
 }
+pub(super) fn remove_file_if_present(path: &Path) -> Result<(), String> {
+    match std::fs::remove_file(path) {
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+            Err(format!("Could not delete {}: {error}", path.display()))
+        }
+        _ => Ok(()),
+    }
+}
+/// Deletes what Domios keeps for exactly this profile: its `<id>/` tree of installs and process
+/// folders, its options and its receipt.
+pub(super) fn remove_files(root: &Path, id: &str) -> Result<(), String> {
+    let receipt = receipt_path(root, id)?;
+    let directory = root.join(id);
+    match std::fs::remove_dir_all(&directory) {
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+            return Err(format!("Could not delete {}: {error}", directory.display()));
+        }
+        _ => {}
+    }
+    super::profile_options::forget(root, id)?;
+    if codeterm_plugin::agent_runtime::owner_profiles::names_the_store(id) {
+        return Ok(());
+    }
+    let _writes = RECEIPT_WRITES
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    remove_file_if_present(&receipt)
+}
 fn validate_command(command: &AgentRuntimeCommand) -> Result<(), String> {
     let capability: codeterm_plugin::agent_runtime::AgentRuntimeCapability = serde_json::from_value(serde_json::json!({
         "runtime":"stdio-jsonrpc", "command":command, "requestMethods":{"initialize":["initialize"]}, "notificationMethods":[]
