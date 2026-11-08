@@ -14,6 +14,10 @@ const cases: Array<[string, TabFailureFacts, ReturnType<typeof tabFailure>["kind
   ["a launched session whose runtime stopped", { launched: true, runtime: { state: "unloaded", epoch: 1, reason: "opaque" } }, "runtime_stopped", "restart"],
   ["a session the agent refused to load", { launched: true, runtime: { ...degraded, failureCode: "session_load_refused" } }, "session_unavailable", "start_new_session"],
   ["a start the runtime could not bind", { launched: false, runtime: { ...degraded, failureCode: "runtime_start_unbound" } }, "launch_failed", "start_new_session"],
+  ["a failed relaunch of a session whose runtime degraded", { bootStage: "spawn_failed", launched: true, runtime: degraded }, "runtime_needs_recovery", "restart"],
+  ["a failed relaunch of a session whose runtime stopped", { bootStage: "spawn_failed", launched: true, runtime: { state: "unloaded", epoch: 1, reason: "opaque" } }, "runtime_stopped", "restart"],
+  ["a chat runtime that never bound a session", { bootStage: "spawn_failed", launched: false, chatBacked: true }, "launch_failed", "start_new_session"],
+  ["a chat runtime that degraded before any session", { launched: false, chatBacked: true, runtime: degraded }, "launch_failed", "start_new_session"],
   ["a live agent the tracker reports in error", { status: "Error", launched: true }, "agent_error", "restart"],
   ["an error before the agent launched", { status: "Error", launched: false }, "launch_failed", "restart"],
 ];

@@ -179,6 +179,18 @@ const liveFixture=JSON.parse(fs.readFileSync(new URL("./fixtures/live-turns.json
   firstPrompt:string;secondPrompt:string;updates:JsonValue[];secondUpdate:JsonValue;completedReply:JsonValue;cancelledReply:JsonValue;
 };
 const updateFrame=(update:JsonValue):RuntimeFrame=>({kind:"notification",method:"session/update",params:{sessionId:"session-fixture",update}});
+{
+  const midReply=reduceStream(context,null,[frame("agent_message_chunk","before "),frame("agent_message_chunk","[MODE_UPDATE] plan"),frame("agent_message_chunk","after")],{prompt:1,loading:false});
+  const rows=new Map<string,ChatMsg>();
+  for (const event of midReply.events) foldRow(rows,event);
+  assert.deepEqual([...rows.values()].map(row=>row.content),["before after"],"the marker never joins the reply it interrupts");
+  for (const [text,id] of [["[MODE_UPDATE] plan and more"],["see [MODE_UPDATE] plan"],["[MODE_UPDATE] "],["[MODE_UPDATE] plan","message-identified"]] as const) {
+    const prose=reduceStream(context,null,[frame("agent_message_chunk",text,id)],{prompt:1,loading:false});
+    assert.equal(prose.events.some(event=>event.kind === "controlsConfirmed"),false,`assistant text stays text: ${text}`);
+    assert.equal(prose.events.some(event=>event.kind === "chatItem" && event.item.content === text),true,`assistant text stays visible: ${text}`);
+  }
+  console.log("✓ a whole-chunk mode marker updates the mode quietly and prose quoting it stays assistant text");
+}
 const failures:string[]=[];
 for (const scenario of ["no-echo-delivery", "cancel-race", "two-turn-retention", "empty-session-modes"]) {
   try {

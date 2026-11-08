@@ -100,6 +100,26 @@ async function main() {
       __setInvokeForTest(null);
     }
   });
+  for (const [name, overrides, label, args] of [
+    ["PTY launch restarts", {}, "Restart the agent", { tabId: "p-1" }],
+    ["chat launch with no session starts a new one", { backing: { kind: "chat_backend", plugin_id: "fixture", session_id: "" } }, "Start new session", { tabId: "p-1", fresh: true }],
+  ] as const) {
+    await test(`a never-ready ${name}, beside Close tab`, async () => {
+      const requests: Array<{ command: string; args: unknown }> = [];
+      __setInvokeForTest(async <T,>(command: string, args?: Record<string, unknown>): Promise<T> => {
+        requests.push({ command, args });
+        return undefined as T;
+      });
+      try {
+        const p = { ...tab("spawn_failed", "opaque launch detail"), ...overrides } as Tab;
+        const host = await render(<ChatSetupState tab={p} view={chatSetupView(p)} providerName="fixture" />);
+        const action = host.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`);
+        assert(action, "the never-ready launch offers its recovery");
+        await act(async () => action.click());
+        assert(JSON.stringify(requests) === JSON.stringify([{ command: "restart_agent_tab", args }]), "recovery targets this tab once");
+      } finally { __setInvokeForTest(null); }
+    });
+  }
   await test("view resolves ready to none and launching to starting", () => {
     assert(chatSetupView(tab("agent_ready")).kind === "none", "ready is none");
     assert(chatSetupView(tab("preparing_role_instructions")).kind === "starting", "preparing is starting");

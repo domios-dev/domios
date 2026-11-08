@@ -1,5 +1,5 @@
 import { createNoticePublisher } from "../../lib/notices";
-import type { RuntimeServiceTierSelection as ServiceTierSelection } from "../../../packages/plugin-sdk/src/agentRuntime";
+import type { RuntimeAskScope, RuntimeServiceTierSelection as ServiceTierSelection } from "../../../packages/plugin-sdk/src/agentRuntime";
 import { confirmedTabServiceTier, serviceTierLabel, tabServiceTierAvailability, tabMetaParts } from "../../lib/tabMetaLabel";
 import { tierAfterModelChange } from "./serviceTierPickerModel";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
@@ -17,7 +17,7 @@ import { AgentIcon } from "../AgentIcon";
 import { ProviderGlyph } from "../ProviderGlyph";
 import { runtimeAgentLabel } from "../../lib/tabProvider";
 import { selectRuntimeControl, setHostApprovals } from "../../lib/runtimeDeclaredControls";
-import { hostApprovalsChoice, hostFullAccessOverride, pickerSections, pickerDescriptor, type HostApprovalsValue, type PickerSection } from "../../lib/pickerSettings";
+import { declaredAskScope, hostApprovalsChoice, hostFullAccessOverride, pickerSections, pickerDescriptor, type HostApprovalsValue, type PickerSection } from "../../lib/pickerSettings";
 import { PickerSettingSection } from "./PickerSettingSection";
 import {
   currentModelId,
@@ -102,8 +102,9 @@ export function StatusLineModelPicker({
   pendingSelection?: { model: string; effort: string | null; confirmation_pending?: boolean };
 }) {
   const hostApprovals = tab ? hostApprovalsChoice(descriptor, tab.agent_runtime_config, runtimeControls) : undefined;
+  const hostAskScope = tab ? declaredAskScope(descriptor, tab.agent_runtime_config) : undefined;
   const hostFullAccess = tab ? hostFullAccessOverride(descriptor, tab.agent_runtime_config, runtimeControls) : false;
-  const settings = pickerSections({ descriptor, controls: runtimeControls, model: currentModelId(descriptor, modelCandidates), effort: currentEffort, hostApprovals, hostFullAccess });
+  const settings = pickerSections({ descriptor, controls: runtimeControls, model: currentModelId(descriptor, modelCandidates), effort: currentEffort, hostApprovals, hostAskScope, hostFullAccess });
   const modelSection = settings.find(section => section.category === "model");
   const effortSection = settings.find(section => section.category === "effort");
   const declaredModels = modelSection?.applyTarget.kind === "config" || Boolean(descriptor?.agent_runtime && !descriptor.available_models.length);
@@ -242,6 +243,7 @@ export function StatusLineModelPicker({
           declaredModels={declaredModels}
           runtimeControls={runtimeControls}
           hostApprovals={hostApprovals}
+          hostAskScope={hostAskScope}
           hostFullAccess={hostFullAccess}
           onRuntimeControl={async (section, value) => {
             setApplying(true);
@@ -298,6 +300,7 @@ export function ModelPickerPopover({
   declaredModels = false,
   runtimeControls,
   hostApprovals,
+  hostAskScope,
   hostFullAccess,
   onRuntimeControl,
   busy,
@@ -318,6 +321,7 @@ export function ModelPickerPopover({
   declaredModels?: boolean;
   runtimeControls?: import("@codeterm/plugin-sdk").RuntimeSettings;
   hostApprovals?: HostApprovalsValue;
+  hostAskScope?: RuntimeAskScope;
   hostFullAccess?: boolean;
   onRuntimeControl?: (section: PickerSection, value: string) => Promise<void>;
   busy: boolean;
@@ -342,7 +346,7 @@ export function ModelPickerPopover({
   const [notice, setNotice] = useState<string | null>(null);
   const searchable = pickerNeedsSearch(descriptor);
   const groups = pickerModelGroups(descriptor, staged?.model, query, showAll, declaredModels ? "" : currentModel);
-  const sections = pickerSections({ descriptor, controls: runtimeControls, model: staged?.model ?? currentModel, effort: staged?.effort ?? currentEffort, runtimeMode: staged?.runtimeMode ?? currentRuntimeMode, serviceTier: staged?.serviceTier ?? currentServiceTier, serviceTierAvailability, hostApprovals, hostFullAccess });
+  const sections = pickerSections({ descriptor, controls: runtimeControls, model: staged?.model ?? currentModel, effort: staged?.effort ?? currentEffort, runtimeMode: staged?.runtimeMode ?? currentRuntimeMode, serviceTier: staged?.serviceTier ?? currentServiceTier, serviceTierAvailability, hostApprovals, hostAskScope, hostFullAccess });
   const effortSetting = sections.find(section => section.category === "effort");
   const extraSettings = sections.filter(section => section.category !== "model" && section.category !== "effort");
   const stagedEffort = staged ? effortAfterModelChange(descriptor, staged.model, staged.effort) : undefined;
