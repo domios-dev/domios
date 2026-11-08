@@ -37,14 +37,40 @@ static SHARED_FETCH_PORT: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
 /// The shipped ACP bundle, registered and bound the way the server composition does it.
 struct ShippedAcp {
     fixture: crate::service::test_fixture::ServiceFixture,
+    tab: String,
     _host: std::sync::Arc<dyn codeterm_plugin::PluginHostCtx>,
+}
+
+impl ShippedAcp {
+    /// The fixture's tab as a bound ACP runtime tab launched on `profile`.
+    fn tab_on(&self, profile: &str) -> &str {
+        let mut mux = self.fixture.service.mux.write();
+        let tab = mux.get_tab_mut(&self.tab).unwrap();
+        tab.agent_type = Some("acp".into());
+        tab.agent_session_id = Some("own-thread".into());
+        tab.session_binding_nonce = Some("fixture-nonce".into());
+        tab.reported_session_binding_nonce = Some("fixture-nonce".into());
+        tab.backing = crate::multiplexer::types::TabBacking::ChatBackend {
+            plugin_id: "acp".into(),
+            session_id: "own-thread".into(),
+        };
+        tab.agent_runtime_config = Some(json!({"launchProfile":profile}));
+        &self.tab
+    }
+
+    fn store(&self, snapshot: &UsageSnapshot) {
+        self.fixture
+            .service
+            .usage_store
+            .insert_snapshot(&crate::usage::poller::usage_sample(snapshot))
+            .unwrap();
+    }
 }
 
 fn shipped_acp(stored_key: Option<&str>) -> ShippedAcp {
     crate::service::test_fixture::install_test_runtime();
-    let fixture = crate::service::test_fixture::ServiceFixture::new(
-        crate::multiplexer::state::MultiplexerState::new().0,
-    );
+    let (mux, tab) = crate::multiplexer::state::MultiplexerState::new();
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
     let store: std::sync::Arc<dyn crate::secrets::SecretStore> =
         std::sync::Arc::new(crate::secrets::mock::MockStore::new());
     crate::async_runtime::block_on(async {
@@ -76,8 +102,130 @@ fn shipped_acp(stored_key: Option<&str>) -> ShippedAcp {
         .register_provider(Box::new(provider));
     ShippedAcp {
         fixture,
+        tab,
         _host: host,
     }
+}
+
+fn tab_read(acp: &ShippedAcp, tab: &str) -> serde_json::Value {
+    crate::service::agent_runtime::projections::for_tab(&acp.fixture.service, tab).unwrap()
+}
+
+fn read_through(acp: &ShippedAcp, tab: &str) -> serde_json::Value {
+    crate::async_runtime::block_on(crate::service::agent_runtime::read_usage_for_tab(
+        &acp.fixture.service,
+        tab,
+    ))
+    .unwrap()
+}
+
+/// The live finding: `usage latest` answered the balance while the tab read said `limits_reported:false`.
+#[test]
+fn a_tab_on_a_balance_profile_reports_the_balance_through_the_tab_read() {
+    let _serial = SHARED_FETCH_PORT.lock();
+    let acp = shipped_acp(Some(FIXTURE_KEY));
+    let (_port, _seen) = answering(200, BALANCE_BODY);
+    let snapshot = match read(&acp.fixture.service, "acp", PROFILE) {
+        Ok(snapshot) => snapshot,
+        Err((_, reason)) => panic!("balance read failed: {reason}"),
+    };
+    acp.store(&snapshot);
+
+    let wire = tab_read(&acp, acp.tab_on(PROFILE));
+
+    assert_eq!(wire["limits_reported"], true);
+    assert_eq!(wire["billing_mode"], "api");
+    assert_eq!(wire["account_id"], "profile:deepseek-harness");
+    assert_eq!(
+        wire["usage_details"]["balance"],
+        json!({"available":true,"amounts":[{"currency":"USD","amount":"8.42"}]})
+    );
+    assert_eq!(
+        wire["limits_source"],
+        json!({"kind":"balance","provider":"acp","account_id":"profile:deepseek-harness"})
+    );
+    assert!(wire.get("unavailable_reason").is_none());
+    let latest = crate::service::agent_runtime::projections_latest(
+        &acp.fixture.service,
+        "acp",
+        Some("profile:deepseek-harness"),
+    )
+    .unwrap();
+    assert_eq!(wire["usage_details"], latest["usage_details"]);
+    assert_eq!(wire["captured_at"], latest["captured_at"]);
+}
+
+#[test]
+fn a_tab_read_requests_a_due_balance_once_and_answers_with_it() {
+    let _serial = SHARED_FETCH_PORT.lock();
+    let acp = shipped_acp(Some(FIXTURE_KEY));
+    let (_port, seen) = answering(200, BALANCE_BODY);
+    let tab = acp.tab_on(PROFILE);
+
+    let wire = read_through(&acp, tab);
+    assert_eq!(wire["limits_reported"], true);
+    assert_eq!(
+        wire["usage_details"]["balance"]["amounts"][0]["amount"],
+        "8.42"
+    );
+    assert_eq!(seen.lock().len(), 1);
+
+    read_through(&acp, tab);
+    assert_eq!(seen.lock().len(), 1, "a current reading is not read again");
+}
+
+#[test]
+fn a_tab_read_names_why_the_balance_could_not_be_read() {
+    let _serial = SHARED_FETCH_PORT.lock();
+    let acp = shipped_acp(None);
+    let (_port, seen) = answering(200, BALANCE_BODY);
+
+    let wire = read_through(&acp, acp.tab_on(PROFILE));
+
+    assert_eq!(wire["limits_reported"], false);
+    assert_eq!(wire["limits_source"]["kind"], "balance");
+    let reason = wire["unavailable_reason"].as_str().unwrap();
+    assert!(reason.contains("credential"), "{reason}");
+    assert!(seen.lock().is_empty(), "no key means no request");
+}
+
+#[test]
+fn a_tab_on_a_quota_profile_reports_the_quota_through_the_tab_read() {
+    let acp = shipped_acp(None);
+    let raw = json!({"provider":"forged","account_id":"forged","captured_at_ms":7,"billing_mode":"subscription","limits_reported":true,
+        "session_pct":null,"session_resets_at_ms":null,"weekly_pct":null,"weekly_resets_at_ms":null,"raw_text":"",
+        "usage_details":{"quota":{"title":"Fixture quota","limits":[{"label":"fixture-pro","used_percent":25,"resets_at":null}]}}})
+    .to_string();
+    acp.store(&decode("acp", "gemini-cli", &raw).unwrap());
+
+    let wire = tab_read(&acp, acp.tab_on("gemini-cli"));
+
+    assert_eq!(wire["limits_reported"], true);
+    assert_eq!(wire["account_id"], "profile:gemini-cli");
+    assert_eq!(
+        wire["usage_details"]["quota"]["limits"][0]["label"],
+        "fixture-pro"
+    );
+    assert_eq!(
+        wire["limits_source"],
+        json!({"kind":"quota","provider":"acp","account_id":"profile:gemini-cli"})
+    );
+}
+
+#[test]
+fn a_tab_on_a_profile_with_no_source_reports_unavailable_with_its_reason() {
+    let acp = shipped_acp(None);
+
+    let wire = read_through(&acp, acp.tab_on("local"));
+
+    assert_eq!(wire["limits_reported"], false);
+    assert_eq!(
+        wire["limits_source"],
+        json!({"kind":"meter","provider":"acp"})
+    );
+    let reason = wire["unavailable_reason"].as_str().unwrap();
+    assert!(reason.contains("local"), "{reason}");
+    assert!(reason.contains("no limits source"), "{reason}");
 }
 
 fn answering(

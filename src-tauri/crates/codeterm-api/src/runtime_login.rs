@@ -12,7 +12,8 @@ pub(super) async fn tab_usage(
     _headers: HeaderMap,
     Path(tab): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    codeterm_service_core::service::agent_runtime::usage_for_tab(&state.svc, &tab)
+    codeterm_service_core::service::agent_runtime::read_usage_for_tab(&state.svc, &tab)
+        .await
         .map(Json)
         .map_err(|reason| (StatusCode::CONFLICT, reason))
 }

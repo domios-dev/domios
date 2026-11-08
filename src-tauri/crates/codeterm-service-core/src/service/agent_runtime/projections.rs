@@ -7,6 +7,9 @@ use parking_lot::Mutex;
 use serde::Serialize;
 use std::{collections::HashMap, sync::LazyLock};
 
+mod tab_usage;
+pub use tab_usage::{for_tab, read_for_tab};
+
 #[derive(Clone, Serialize)]
 struct Reading<T> {
     captured_at: u64,
@@ -344,39 +347,6 @@ pub fn latest(
         .collect::<Vec<_>>();
     current.sort_by(|a, b| a.tab_id.cmp(&b.tab_id));
     enrich_latest(result, provider, current)
-}
-
-pub fn for_tab(svc: &ServiceContext, tab_id: &str) -> Result<serde_json::Value, String> {
-    let (provider, thread_id, nonce) = {
-        let mux = svc.mux.read();
-        let tab = mux.get_tab(tab_id).ok_or("Tab not found")?;
-        let provider = tab.agent_type.clone().ok_or("Tab has no provider")?;
-        let nonce = tab
-            .session_binding_nonce
-            .clone()
-            .filter(|value| tab.reported_session_binding_nonce.as_ref() == Some(value))
-            .ok_or("Tab runtime binding is not authoritative")?;
-        (provider, tab.agent_session_id.clone(), nonce)
-    };
-    let mut result = latest(svc, &provider, None)?;
-    let readings = USAGE.lock();
-    let reading = readings.get(tab_id).filter(|reading| {
-        reading.provider == provider
-            && reading.nonce == nonce
-            && (reading.thread_id == thread_id || reading.thread_id.is_none())
-    });
-    if let Some(reading) = reading {
-        result["runtime_usage"] = serde_json::json!([reading]);
-    } else if let Some(rows) = result
-        .get_mut("runtime_usage")
-        .and_then(|rows| rows.as_array_mut())
-    {
-        rows.retain(|row| row.get("tab_id").and_then(|value| value.as_str()) == Some(tab_id));
-    }
-    if result.is_null() {
-        result = serde_json::json!({"provider":provider,"limits_reported":false});
-    }
-    Ok(result)
 }
 
 fn enrich_latest(

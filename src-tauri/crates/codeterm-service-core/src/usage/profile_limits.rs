@@ -128,17 +128,18 @@ fn read(
 }
 
 /// One read per profile at a time; the result lands in the usage store under the profile's key.
+/// A read already in flight returns `None`, leaving its caller to answer from what is stored.
 pub(crate) fn spawn_refresh(
     svc: ServiceContext,
     store: UsageStoreHandle,
     provider: String,
     profile: String,
-) {
+) -> Option<crate::async_runtime::JoinHandle<()>> {
     let key = (provider.clone(), profile.clone());
     if !in_flight().lock().insert(key.clone()) {
-        return;
+        return None;
     }
-    crate::async_runtime::spawn(async move {
+    Some(crate::async_runtime::spawn(async move {
         let account = limits_source::balance_account_key(&profile);
         let reader = svc.clone();
         let (reader_provider, reader_profile) = (provider.clone(), profile.clone());
@@ -163,7 +164,7 @@ pub(crate) fn spawn_refresh(
             }
             Err(error) => log::warn!("[usage.balance] store failed: {error}"),
         }
-    });
+    }))
 }
 
 #[cfg(test)]
