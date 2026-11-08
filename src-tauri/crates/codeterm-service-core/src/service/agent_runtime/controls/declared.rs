@@ -12,12 +12,28 @@ pub(super) fn switch(
     service_tier: Option<codeterm_plugin::agent_runtime::RuntimeServiceTierSelection>,
 ) -> Result<ModelSwitchOutcome, ModelSwitchError> {
     let refused = |reason: String| ModelSwitchError::RuntimeControlRefused(reason);
-    if mode.is_some() || service_tier.is_some() {
+    if service_tier.is_some() {
         return Err(refused(
-            "Use the session's declared controls for mode and service tier changes".into(),
+            "Use the session's declared controls for service tier changes".into(),
         ));
     }
     let before = session.context.lock().clone();
+    let mode = mode.map(str::trim).filter(|value| !value.is_empty());
+    if let Some(requested) = mode {
+        let supported = before
+            .settings
+            .modes
+            .iter()
+            .flatten()
+            .map(|mode| mode.id.clone())
+            .collect::<Vec<_>>();
+        if !supported.iter().any(|id| id == requested) {
+            return Err(ModelSwitchError::UnsupportedRuntimeMode {
+                requested: requested.to_owned(),
+                supported,
+            });
+        }
+    }
     let options = before
         .settings
         .config_options
@@ -78,6 +94,9 @@ pub(super) fn switch(
                 declared_controls::ControlError::Refused(reason) => refused(reason),
             })?;
         }
+        if let Some(requested) = mode {
+            select_mode(svc, tab, session, &before, requested).await?;
+        }
         let after = session.context.lock().settings.clone();
         let requested = RuntimeSettings {
             model: model.clone(),
@@ -86,10 +105,26 @@ pub(super) fn switch(
         };
         selections::persist(svc, session, &before, &requested, &after)
             .map_err(|reason| refused(reason.to_string()))?;
-        let actual = after
-            .model
-            .clone()
-            .ok_or_else(|| refused("Runtime model confirmation absent".into()))?;
+        // A session may report no model at all; only a requested model needs its confirmation.
+        let actual = match after.model.clone() {
+            Some(actual) => actual,
+            None if model.is_none() && effort.is_none() => String::new(),
+            None => return Err(refused("Runtime model confirmation absent".into())),
+        };
+        let mut control_changes = super::control_changes(&before.settings, &after);
+        // An agent can leave its mode config option stale after set_mode; the session mode is the fact.
+        if mode.is_some()
+            && before.settings.mode != after.mode
+            && !control_changes
+                .iter()
+                .any(|change| change.control == "mode")
+        {
+            control_changes.push(crate::service::agent_restart::ControlChange {
+                control: "mode",
+                previous: before.settings.mode.clone(),
+                current: after.mode.clone(),
+            });
+        }
         Ok(ModelSwitchOutcome {
             tab_id: tab.into(),
             provider: session.provider.clone(),
@@ -100,7 +135,7 @@ pub(super) fn switch(
             restart: None,
             mechanism: crate::agent::provider::ModelSwitchMode::Live,
             fallback_reason: None,
-            control_changes: super::control_changes(&before.settings, &after),
+            control_changes,
             previous_model: before.settings.model,
             requested_model: model.unwrap_or_else(|| actual.clone()),
             launched_model: actual.clone(),
@@ -111,4 +146,51 @@ pub(super) fn switch(
             },
         })
     })
+}
+
+/// The same selection the picker's mode row makes; the route admits owner callers only.
+async fn select_mode(
+    svc: &ServiceContext,
+    tab: &str,
+    session: &Arc<engine::Session>,
+    before: &codeterm_plugin::agent_runtime::RuntimeContext,
+    requested: &str,
+) -> Result<(), ModelSwitchError> {
+    let refused = |reason: &str| ModelSwitchError::RuntimeControlRefused(reason.into());
+    let current = session.context.lock().clone();
+    if current.epoch != before.epoch
+        || current.thread_id != before.thread_id
+        || current.binding_nonce != before.binding_nonce
+    {
+        return Err(refused("Runtime session changed during selection"));
+    }
+    if current.settings.mode.as_deref() == Some(requested) {
+        return Ok(());
+    }
+    declared_controls::select(
+        svc,
+        tab,
+        declared_controls::Selection {
+            thread_id: current
+                .thread_id
+                .clone()
+                .ok_or_else(|| refused("Runtime thread unavailable"))?,
+            binding_nonce: current.binding_nonce,
+            epoch: current.epoch,
+            id: String::new(),
+            value: requested.to_owned(),
+            mode: true,
+        },
+    )
+    .await
+    .map_err(|error| match error {
+        declared_controls::ControlError::Busy => ModelSwitchError::RuntimeBusy,
+        declared_controls::ControlError::Refused(reason) => {
+            ModelSwitchError::RuntimeControlRefused(reason)
+        }
+    })?;
+    if session.context.lock().settings.mode.as_deref() != Some(requested) {
+        return Err(refused("Runtime did not confirm the requested mode"));
+    }
+    Ok(())
 }

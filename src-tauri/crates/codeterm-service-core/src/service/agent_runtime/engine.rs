@@ -935,7 +935,7 @@ async fn ensure_locked(
     let settings = session.context.lock().settings.clone();
     super::projections::controls(svc, session, settings.clone());
     super::selections::persist_loaded(svc, session, &context.settings, &settings)?;
-    session.state.lock().finish_load_notice(load_notice);
+    super::full_access::finish_load(svc, session, load_notice);
     publish_controls(svc, tab, session);
     if let Err(reason) = super::controls::refresh_service_tiers(svc, session).await {
         log::debug!("Runtime service tier catalogue unavailable: {reason}");

@@ -121,19 +121,25 @@ impl ServiceContext {
                         return Ok(());
                     }
                     service.nudge_unacknowledged_startup(&worker_tab_id, &attempt_id);
+                    let mut event = worker_ack_timeout_event(
+                        &plan_id,
+                        &task_id,
+                        &worker_tab_id,
+                        &attempt_id,
+                        &spawn_command,
+                    );
+                    if let Some(cause) =
+                        service.worker_ack_failure_cause(&worker_tab_id, &attempt_id)
+                    {
+                        event["failure_reason"] = cause.into();
+                    }
                     service.publish_worker_lifecycle_report(
                         &parent_tab_id,
                         &worker_tab_id,
                         &worker_title,
                         &plan_id,
                         &task_id,
-                        worker_ack_timeout_event(
-                            &plan_id,
-                            &task_id,
-                            &worker_tab_id,
-                            &attempt_id,
-                            &spawn_command,
-                        ),
+                        event,
                     );
                     Ok(())
                 })();

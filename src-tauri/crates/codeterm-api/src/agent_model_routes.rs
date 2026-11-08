@@ -157,12 +157,41 @@ pub struct AgentModelBody {
     pub restart_resume: bool,
 }
 
+/// Owner only: a runtime mode decides what an agent may do, so no agent may pick its own or another's.
+fn require_owner_for_runtime_mode(
+    state: &AppState,
+    headers: &HeaderMap,
+    body: &AgentModelBody,
+) -> Result<(), Response> {
+    if body.cancel || body.runtime_mode.is_none() {
+        return Ok(());
+    }
+    let refusal = |status: StatusCode, error: String| {
+        (
+            status,
+            Json(serde_json::json!({"ok":false,"error":error,"reason":"owner_required"})),
+        )
+            .into_response()
+    };
+    match crate::auth::tab_caller(state, headers) {
+        Ok(None) => Ok(()),
+        Ok(Some(_)) => Err(refusal(
+            StatusCode::FORBIDDEN,
+            "Only the owner changes a tab's runtime mode".into(),
+        )),
+        Err((status, error)) => Err(refusal(status, error)),
+    }
+}
+
 pub async fn agent_model_handler(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(raw_tab_id): Path<String>,
     Json(body): Json<AgentModelBody>,
 ) -> Response {
+    if let Err(refusal) = require_owner_for_runtime_mode(&state, &headers, &body) {
+        return refusal;
+    }
     let tab_id = match crate::routes::resolve_tab_async(&state, &raw_tab_id).await {
         Ok(tab_id) => tab_id,
         Err((status, message)) => {

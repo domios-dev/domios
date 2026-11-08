@@ -77,30 +77,31 @@ pub(super) fn handle(
             .get("agent_type")
             .and_then(serde_json::Value::as_str)
             .unwrap_or_else(|| crate::cmd::print::fail(1, "tab has no agent provider"));
-        current_model = name
-            .clone()
-            .or_else(|| {
-                tab_record
-                    .pointer("/agent_runtime_config/model")
-                    .and_then(serde_json::Value::as_str)
-                    .map(str::to_owned)
-            })
-            .or_else(|| {
-                tab_record
-                    .get("agent_session_model")
-                    .and_then(serde_json::Value::as_str)
-                    .map(str::to_owned)
-            })
-            .or_else(|| {
-                tab_record
-                    .get("agent_provider_resolved_model")
-                    .and_then(serde_json::Value::as_str)
-                    .map(str::to_owned)
-            });
-        let model = current_model
-            .as_deref()
-            .unwrap_or_else(|| crate::cmd::print::fail(1, "tab has no current model to validate"));
+        // A session's declared controls are validated by its runtime, which keeps its model when none is named.
         if !has_declared_controls(tab_record) {
+            current_model = name
+                .clone()
+                .or_else(|| {
+                    tab_record
+                        .pointer("/agent_runtime_config/model")
+                        .and_then(serde_json::Value::as_str)
+                        .map(str::to_owned)
+                })
+                .or_else(|| {
+                    tab_record
+                        .get("agent_session_model")
+                        .and_then(serde_json::Value::as_str)
+                        .map(str::to_owned)
+                })
+                .or_else(|| {
+                    tab_record
+                        .get("agent_provider_resolved_model")
+                        .and_then(serde_json::Value::as_str)
+                        .map(str::to_owned)
+                });
+            let model = current_model.as_deref().unwrap_or_else(|| {
+                crate::cmd::print::fail(1, "tab has no current model to validate")
+            });
             let response = local_http
                 .get(format!("{base}/api/agents/providers"))
                 .send()
@@ -350,6 +351,12 @@ pub(super) fn render_model_switch(value: &serde_json::Value) -> String {
             .and_then(|v| v.as_str())
             .unwrap_or_else(|| field("requested_model"));
         let controls = control_changes(value);
+        if !controls.is_empty() && observed_model.is_empty() {
+            return format!(
+                "Updated Tab {}: {controls}; confirmed without a restart",
+                field("tab_id")
+            );
+        }
         if observed_model != field("previous_model") {
             let controls = if controls.is_empty() {
                 String::new()
@@ -611,6 +618,18 @@ mod tests {
             );
             assert!(!rendered.contains("(was opaque-model)"), "{rendered}");
         }
+        let modelless = render_model_switch(&serde_json::json!({
+            "tab_id": "tab-4f3a",
+            "mode_used": "live",
+            "observed_model": "",
+            "model_confirmation": "observed",
+            "control_changes": [{"control": "mode", "previous": "opaque-a", "current": "opaque-b"}],
+        }));
+        assert!(
+            modelless.contains("mode opaque-a -> opaque-b"),
+            "{modelless}"
+        );
+        assert!(!modelless.contains("model"), "{modelless}");
         let unchanged = serde_json::json!({
             "tab_id": "tab-4f3a",
             "mode_used": "live",

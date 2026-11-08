@@ -39,6 +39,7 @@ pub fn controls(svc: &ServiceContext, session: &Session, settings: RuntimeSettin
     if settings.model.is_some() && settings.model != context.settings.model {
         session.state.lock().notice = None;
     }
+    super::full_access::observe_confirmed(session, &settings);
     svc.record_runtime_controls(&session.provider, &context, &settings);
     *session.controls_confirmation.lock() = Some(settings.clone());
     let settings = merge_settings(&context.settings, settings);
