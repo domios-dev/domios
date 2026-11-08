@@ -15,6 +15,7 @@ export interface ChatBodyInput {
   firstTurnReady?: boolean;
   snapshotReady?: boolean;
   hasHeldWindow?: boolean;
+  hasUndeliveredSends?: boolean;
   hasTranscript: boolean;
   chatLoading: boolean;
   unavailable: ChatUnavailableReason | null;
@@ -29,7 +30,7 @@ export function chatBodyView(input: ChatBodyInput): ChatBodyView {
   if (input.restoreLoadRefused) return { kind: "none" };
   if (input.bootView.kind === "launch_failed") return input.bootView;
   if (input.attachmentError) return { kind: "attach_failed", reason: input.attachmentError };
-  if (input.firstTurnReady && !input.unavailable) return { kind: "none" };
+  if ((input.firstTurnReady || input.hasUndeliveredSends) && !input.unavailable) return { kind: "none" };
   if (input.hasHeldWindow) return { kind: "none" };
   if (input.snapshotReady === false) {
     return input.unavailable ? { kind: "failed", reason: input.unavailable } : { kind: "starting", label: "Loading conversation" };
@@ -44,6 +45,12 @@ export function chatBodyView(input: ChatBodyInput): ChatBodyView {
  *  loading state left to own, and always once it has none. */
 export function chatRailsVisible(view: ChatBodyView): boolean {
   return view.kind === "none";
+}
+
+/** A setup state beside rows takes a row of the log, so it and they can never cover each other. */
+export function setupFlowsInLog(view: ChatBodyView, restoreLoadRefused: boolean, hasRows: boolean): boolean {
+  return restoreLoadRefused || view.kind === "attach_failed" || view.kind === "failed"
+    || (view.kind === "launch_failed" && hasRows);
 }
 
 export function chatChannelLoadingRow(loading: boolean, view: ChatBodyView, snapshotReady: boolean, hasHeldWindow = false): "model" | null {

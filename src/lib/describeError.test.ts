@@ -44,6 +44,7 @@ const fixtures: { input: unknown; title: string; actions: ErrorAction[] }[] = [
   { input: { kind: "runtime_deadline", raw: "opaque" }, title: "The agent runtime is taking longer than usual", actions: [] },
   { input: "Deadline: opaque", title: "The agent runtime is taking longer than usual", actions: [] },
   { input: "Runtime did not respond in time: opaque", title: "The agent runtime is taking longer than usual", actions: [] },
+  { input: "opaque: Interrupt completion deadline exceeded; runtime recovery required", title: "The agent runtime needs recovery", actions: ["retry"] },
   { input: "spawn shell: os error 5", title: "Access was denied", actions: ["check-access", "retry"] },
   { input: "spawn shell: EACCES", title: "Access was denied", actions: ["check-access", "retry"] },
   { input: "spawn shell: os error 2", title: "The program could not be found", actions: ["check-executable", "retry"] },

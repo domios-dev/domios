@@ -104,6 +104,12 @@ assert.equal(ended.label, "Ended", "a dead role tab reads as ended, not as a lau
 assert.equal(ended.active, false, "a dead role tab is never a live worker");
 assert.equal(ended.status, "Dead");
 assert.equal(tabActivity({ ...agent, boot_stage: "spawn_failed" }, "Working").label, "Launch failed");
+const degradedLive = tabActivity({ ...agent, backing: { kind: "chat_backend", plugin_id: "fixture", session_id: "bound-session" }, boot_stage: "agent_ready",
+  agent_runtime_state: { state: "degraded", epoch: 1, failureCode: "provider_refused", reason: "opaque deadline exceeded; runtime recovery required" } }, "Working");
+assert.equal(degradedLive.label, "Runtime needs recovery", "a launched session that degraded is not a launch failure");
+assert.equal(degradedLive.failure?.recovery, "restart");
+assert.equal(degradedLive.canStop, false, "a degraded runtime owns no stoppable turn");
+assert.equal(tabActivity({ ...agent, agent_state: { state: "working" } }, "Working").failure, undefined);
 
 assert.equal(readableActivityLine('"C:\\Users\\User\\AppData\\Local\\Microsoft\\WindowsApps\\pwsh.exe" -Command Get-Content x'), "pwsh -Command Get-Content x", "a quoted escaped program path reads as its name");
 assert.equal(readableActivityLine("/opt/homebrew/bin/node script.mjs"), "node script.mjs", "an unquoted absolute program reads as its name");

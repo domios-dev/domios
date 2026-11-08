@@ -97,9 +97,10 @@ import { resolveTabNavigationTarget } from "./tabNavigation";
 import { useMeshPeerNameResolver } from "./useMeshPeerNameResolver";
 import { useAgentReportProjection } from "./agentReportProjection";
 import { readTranscriptWindow, transcriptWindowKey } from "./transcriptStore";
-import { chatBodyView, chatChannelLoadingRow, chatRailsVisible, placeChatRails } from "./chatBodyVisibility";
+import { chatBodyView, chatChannelLoadingRow, chatRailsVisible, placeChatRails, setupFlowsInLog } from "./chatBodyVisibility";
 import { lazyFirstTurnComposerIsLive } from "../../lib/tabActivity";
-import { firstTurnLocalSends, isFirstTurnLocalRow } from "./firstTurnLocalRows";
+import { firstTurnLocalSends, isLocalSendRow, sendsOfCurrentAttempt } from "./firstTurnLocalRows";
+import { TabRecoveryAction } from "./TabRecoveryAction";
 import { messageTimeMs, normalizeEpochMs } from "./outboundReportPlacement";
 import { useChatMessageReveal } from "./useChatMessageReveal";
 import { useSessionBindingSurface } from "./useSessionBindingSurface";
@@ -110,7 +111,7 @@ import { interruptAgentArgs } from "../../lib/agentInterrupt";
 import { useTabChoiceHost } from "./useTabChoiceHost";
 import { ChatMessageRow } from "./ChatMessageRow";
 import { HoldWhileHidden } from "./HoldWhileHidden";
-import { awaitsTranscriptEcho, deliveryPresentation, queuedBehindTurn, sendForRow, waitsAfterTurn } from "./chatDeliveryModel";
+import { awaitsTranscriptEcho, deliveryPresentation, queuedBehindTurn, sendForRow, undeliveredSends, waitsAfterTurn } from "./chatDeliveryModel";
 import { beginChatSendRetry, failChatSendRequest, useChatSendSnapshot } from "./chatSendStore";
 import { deleteTrackedChatMessage, sendTrackedChatMessage } from "./chatSendStatus";
 import { prepareChatDelivery } from "./chatDeliveryPreparation";
@@ -200,7 +201,7 @@ function TabSessionChatBody({
   }
 
   const touchMode = useTouchOptimizedUi();
-  const { sends: deliverySends } = useChatSendSnapshot(tabId);
+  const { sends: deliverySends, unownedHeld } = useChatSendSnapshot(tabId);
   const { expand: expandDeliveryTasks, plansSink: deliveryPlansSink } = useDsTasksExpander(tabId);
   const tabBlockHost = useTabChatBlockHost(tabId);
   const lastStopAtRef = useRef(0);
@@ -357,11 +358,14 @@ function TabSessionChatBody({
   const chatChannelLoading = !firstTurnReady && !tabLock.locked && attachmentState !== "failed" && !runtimeFailed && (loading || recovering || (!hasTranscript && remoteChatReconnecting));
   const chatLoading = chatChannelLoading;
   const restoreLoadRefused = runtime.state?.state === "degraded" && runtime.state.failureCode === "session_load_refused";
+  const undelivered = useMemo(() => sendsOfCurrentAttempt(undeliveredSends(deliverySends), tab?.pty_id, tab?.session_binding_nonce),
+    [deliverySends, tab?.pty_id, tab?.session_binding_nonce]);
   const setupView = runtimeUnavailable && snapshotReady && !tabLock.locked && attachmentState !== "failed" && bootSetupView.kind !== "launch_failed" ? { kind: "none" as const } : chatBodyView({
     restoreLoadRefused,
     firstTurnReady,
     hasTranscript,
     hasHeldWindow,
+    hasUndeliveredSends: undelivered.length > 0,
     snapshotReady,
     chatLoading,
     unavailable: transcriptUnavailable,
@@ -371,10 +375,11 @@ function TabSessionChatBody({
   });
 
   const renderedEnrichedMessages = useMemo(
-    () => setupView.kind !== "none" ? [] : chatWindowRows(enrichedMessages.filter(({ msg }) =>
-      !isSessionIntentOnlyMessage(msg) && (snapshotReady || !firstTurnReady || isFirstTurnLocalRow(msg, localFirstTurnSends)))),
-    [enrichedMessages, setupView.kind, snapshotReady, firstTurnReady, localFirstTurnSends],
+    () => chatWindowRows(enrichedMessages.filter(({ msg }) => setupView.kind !== "none" ? isLocalSendRow(msg, undelivered)
+      : !isSessionIntentOnlyMessage(msg) && (snapshotReady || !firstTurnReady || isLocalSendRow(msg, localFirstTurnSends)))),
+    [enrichedMessages, setupView.kind, snapshotReady, firstTurnReady, localFirstTurnSends, undelivered],
   );
+  const setupInLog = setupFlowsInLog(setupView, restoreLoadRefused, renderedEnrichedMessages.length > 0);
   const transcriptActivityAvailable = setupView.kind === "none" && !chatLoading;
   const chatTranscriptActivity = useMemo(
     () => projectChatTranscriptActivity(
@@ -877,6 +882,7 @@ function TabSessionChatBody({
           onEscape={focusComposer}
           onRetry={retryAttachment}
           lock={tabLock}
+          inLog={setupInLog}
         />);
   const showEmptyState = !restoreLoadRefused && setupView.kind === "none"
     && !chatLoading
@@ -1052,11 +1058,14 @@ function TabSessionChatBody({
         {isActive && reportPlacement.trailing.map(renderOutboundReport)}
         {isActive && askPlacement.trailing.map(renderAsk)}
         <ChatLiveOperation message={liveSlotId ? null : liveOperation} />
-        {restoreLoadRefused && setupState}
+        {unownedHeld > 0 && <p role="status" data-testid="chat-unowned-held" className="py-1 text-center text-xs text-[var(--ct-muted-fg)]">
+          {unownedHeld} {unownedHeld === 1 ? "message" : "messages"} from another window queued for this agent.
+        </p>}
+        {setupInLog && setupState}
         </div>
       </div>
       </CompactToolRowsProvider>
-        {!restoreLoadRefused && setupState}
+        {!setupInLog && setupState}
       <MessageSelectionBar
         count={messageSelection.count}
         partial={messageSelection.partial}
@@ -1112,6 +1121,7 @@ function TabSessionChatBody({
             ? () => setBindingRecoveryOpen(true)
             : undefined}
           renderIdentity={tab ? (label) => <TabStatusLineModelPicker tab={tab} label={label} /> : undefined}
+          recovery={readOnly ? undefined : <TabRecoveryAction tabId={tabId} onError={showComposerError} />}
         />        {bindingRecoveryOpen && (
           <SessionBindingRecoveryForm
             tabId={tabId}

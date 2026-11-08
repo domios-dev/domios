@@ -13,7 +13,8 @@ import {
 import { createMuxStateStore } from "../../store/multiplexer/selectorStore";
 import type { ExtendedState } from "../../store/multiplexer/tree";
 import { addChatSend, readChatSends, updateChatSendContent, failChatSendRequest, setChatSendDraft,
-  __setChatSendRepositoryForTest, ensureChatSendTabHydrated, chatSendTabHydrationState } from "./chatSendStore";
+  __setChatSendRepositoryForTest, ensureChatSendTabHydrated, chatSendTabHydrationState, forgetChatSendsInMemory,
+  observeChatSendDismissal, observeDeliveryStatus } from "./chatSendStore";
 import { encodeChatSend } from "./chatSendDurableModel";
 import { MemoryChatSendRepository } from "./chatSendRepository.testSupport";
 import { sendTrackedChatMessage } from "./chatSendStatus";
@@ -134,7 +135,7 @@ function muxActions(): MultiplexerActionsContextType {
 type ChatEventHandler = (event: { payload: unknown }) => void;
 
 async function renderChat(tabId = "delivery-tab", runtimeState?: AgentRuntimeState, sessionIntent?: { title: string; goal: string }, chatError?: string,
-  seed: { messages?: unknown[]; working?: boolean } = {}): Promise<{
+  seed: { messages?: unknown[]; working?: boolean; statuses?: unknown[] } = {}): Promise<{
   host: HTMLDivElement;
   root: Root;
   dispatch: (event: string, payload: unknown) => void;
@@ -160,7 +161,8 @@ async function renderChat(tabId = "delivery-tab", runtimeState?: AgentRuntimeSta
         subscription_id: "delivery-subscription",
       };
     }
-    if (command === "delayed_send_list" || command === "system_heartbeat_list" || command === "chat_send_status") return [];
+    if (command === "chat_send_status") return seed.statuses ?? [];
+    if (command === "delayed_send_list" || command === "system_heartbeat_list") return [];
     return {};
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   }) as any);
@@ -614,6 +616,112 @@ test("a held send waits after the running turn's live operation and becomes its 
       "until its echo the delivered send stays after the running tool");
   } finally {
     await act(async () => root.unmount()); host.remove();
+  }
+});
+
+const degradedRuntime: AgentRuntimeState = { state: "degraded", epoch: 2, failureCode: "provider_refused",
+  reason: "opaque deadline exceeded; runtime recovery required" };
+
+async function heldSendBeforeDegrade(tabId: string, repository: MemoryChatSendRepository) {
+  __setChatSendRepositoryForTest(repository);
+  await ensureChatSendTabHydrated(tabId);
+  const held = { tab_id: tabId, send_id: "held-tx", correlationId: "held-send", state: "held" as const, sequence: 1,
+    ledger_id: "ledger", retained_from: 1, error: null, pending_reason: "held_active_turn" };
+  await act(async () => {
+    addChatSend(tabId, { id: "held-send", correlationId: "held-send", content: "йо", sentAtMs: Date.now() });
+    observeDeliveryStatus(held);
+  });
+  return held;
+}
+const heldBubble = (host: ParentNode) => host.querySelector('[data-testid="chat-message"][data-message-id="held-send"]');
+
+test("a held send stays one Queued bubble across a degraded runtime and a reload", async () => {
+  const tabId = "held-across-degrade";
+  const repository = new MemoryChatSendRepository();
+  await heldSendBeforeDegrade(tabId, repository);
+  const first = await renderChat(tabId, { state: "loaded", epoch: 1 }, undefined, undefined, { messages: [{ id: "row", type: "assistant", content: "opaque" }] });
+  try {
+    await act(async () => first.dispatch("agent-runtime-state", { tab_id: tabId, session_binding_nonce: "nonce-1", state: degradedRuntime }));
+    assert(heldBubble(first.host)?.querySelector('[role="status"][data-state="queued"]'), "the degrade keeps the Queued bubble");
+  } finally {
+    await act(async () => first.root.unmount()); first.host.remove();
+  }
+  await act(async () => { forgetChatSendsInMemory(); });
+  const reloaded = await renderChat(tabId, degradedRuntime, undefined, undefined, { messages: [{ id: "row", type: "assistant", content: "opaque" }] });
+  try {
+    await act(async () => { await ensureChatSendTabHydrated(tabId); });
+    const bubbles = reloaded.host.querySelectorAll('[data-message-id="held-send"]');
+    assert(bubbles.length === 1, "the reload restores one bubble");
+    const queued = bubbles[0]?.querySelector('[role="status"][data-state="queued"]');
+    assert(queued, "the reloaded bubble still says Queued");
+    assert(queued.getAttribute("aria-label") === "Queued for the agent", "a failed runtime is not described as a running turn");
+    const rows = Array.from(reloaded.host.querySelectorAll("[data-chat-window-row]"));
+    assert(rows[rows.length - 1]?.contains(bubbles[0]), "the held send is still the tail row");
+  } finally {
+    await act(async () => reloaded.root.unmount()); reloaded.host.remove();
+    __setChatSendRepositoryForTest(null);
+  }
+});
+
+test("a never-written send settled by a degrade offers Retry across a reload and leaves when dismissed", async () => {
+  const tabId = "failed-across-reload";
+  const repository = new MemoryChatSendRepository();
+  const held = await heldSendBeforeDegrade(tabId, repository);
+  const settled = { ...held, state: "failed" as const, sequence: 2, pending_reason: undefined, error: "launch_degraded_before_write" };
+  await act(async () => observeDeliveryStatus(settled));
+  await act(async () => { forgetChatSendsInMemory(); });
+  const { host, root } = await renderChat(tabId, degradedRuntime, undefined, undefined, { statuses: [settled] });
+  try {
+    await act(async () => { await ensureChatSendTabHydrated(tabId); });
+    const bubble = heldBubble(host);
+    assert(bubble?.querySelector('[role="status"][data-state="failed"]'), "the reloaded bubble says it was not delivered");
+    assert(Array.from(bubble!.querySelectorAll("button")).some((button) => button.textContent === "Retry"), "never-written input offers Retry");
+    await act(async () => observeChatSendDismissal(tabId, { send_id: "held-tx", send: { id: "held-send", correlationId: "held-send", content: "йо", sentAtMs: 1 } }));
+    assert(!heldBubble(host), "dismissal is what removes it");
+  } finally {
+    await act(async () => root.unmount()); host.remove();
+    __setChatSendRepositoryForTest(null);
+  }
+});
+
+test("a chat that cannot attach keeps undelivered bubbles beside its error and hides the rest", async () => {
+  const tabId = "held-without-attachment";
+  const repository = new MemoryChatSendRepository();
+  await heldSendBeforeDegrade(tabId, repository);
+  const { host, root } = await renderChat(tabId, degradedRuntime, undefined, "opaque-attach-refusal");
+  try {
+    await act(async () => { await Promise.resolve(); });
+    const error = host.querySelector('[data-testid="chat-recovery-error"]');
+    assert(error, "the attach failure is shown");
+    const bubble = heldBubble(host);
+    assert(bubble?.querySelector('[role="status"][data-state="queued"]'), "the Queued bubble survives the failed attach");
+    const log = host.querySelector('[role="log"]');
+    assert(log?.contains(error) && log.contains(bubble), "error and bubble are rows of one log, so neither covers the other");
+    assert(bubble!.compareDocumentPosition(error) & Node.DOCUMENT_POSITION_FOLLOWING, "the error follows the bubble");
+  } finally {
+    await act(async () => root.unmount()); host.remove();
+    __setChatSendRepositoryForTest(null);
+  }
+});
+
+test("a held send from another window is at least counted", async () => {
+  const tabId = "held-elsewhere";
+  const repository = new MemoryChatSendRepository();
+  __setChatSendRepositoryForTest(repository);
+  await ensureChatSendTabHydrated(tabId);
+  const { host, root } = await renderChat(tabId);
+  const notice = () => host.querySelector('[data-testid="chat-unowned-held"]');
+  try {
+    assert(!notice(), "nothing is queued yet");
+    const held = { tab_id: tabId, send_id: "other-tx", correlationId: "other-token", state: "held" as const, sequence: 1,
+      ledger_id: "ledger", retained_from: 1, error: null };
+    await act(async () => observeDeliveryStatus(held));
+    assert(notice()?.getAttribute("role") === "status", "the owner can see something is pending");
+    await act(async () => observeDeliveryStatus({ ...held, state: "written", sequence: 2 }));
+    assert(!notice(), "the notice ends with the hold");
+  } finally {
+    await act(async () => root.unmount()); host.remove();
+    __setChatSendRepositoryForTest(null);
   }
 });
 

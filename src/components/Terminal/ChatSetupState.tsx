@@ -36,6 +36,8 @@ interface ChatSetupStateProps {
   onEscape?: () => void;
   onRetry?: () => void;
   lock?: LockedView;
+  /** Kept rows share the log with this state, so a launch failure takes a row instead of the whole body. */
+  inLog?: boolean;
 }
 
 export function ChatSetupState({
@@ -47,6 +49,7 @@ export function ChatSetupState({
   onEscape,
   onRetry,
   lock,
+  inLog = false,
 }: ChatSetupStateProps) {
   const recovery = useRestartTab(tab?.id);
   const fresh = useStartNewSession(tab?.id ?? "");
@@ -77,7 +80,7 @@ export function ChatSetupState({
       action={<button type="button" data-testid="chat-retry" onClick={onRetry}>Retry</button>} />;
   }
   if (view.kind === "launch_failed") {
-    return <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-4 overflow-auto bg-[var(--ct-bg)]" data-testid="chat-launch-failed">
+    return <div className={`${inLog ? "my-3" : "absolute inset-0 z-20 justify-center overflow-auto bg-[var(--ct-bg)]"} flex flex-col items-center gap-4`} data-testid="chat-launch-failed">
       <TabLaunchFailure tabId={tab?.id} workspace={workspace} cwd={tab?.cwd} reason={view.reason} />
       {waitingMessages > 0 && <p role="status" className="text-xs text-[var(--ct-muted-fg)]">{waitingMessages} {waitingMessages === 1 ? "message is" : "messages are"} waiting for this tab to start.</p>}
     </div>;
