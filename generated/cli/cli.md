@@ -267,9 +267,12 @@ Toggle whether a tab can spawn children
 Read one recorded child's transcript under the exact parent binding
 
 - `--binding-nonce` — Current parent binding nonce
+- `--child` — With --closed: read this closed child tab's transcript
+- `--closed` — List the parent's closed child tabs instead of reading a recorded thread
 - `--cursor` — Opaque continuation cursor from the prior response
 - `--epoch` — Current parent runtime epoch
 - `--root-thread-id` — Current parent thread id from its runtime binding
+- `--since` — With --child: only return messages from this index onward
 - `--tab` — Parent agent tab id
 - `--thread` — Recorded child thread id
 

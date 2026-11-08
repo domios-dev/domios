@@ -373,6 +373,7 @@ impl MultiplexerState {
             closed_store: super::ClosedTabsStore::in_memory(),
             defer_closed_history: false,
             pending_closed_history: Vec::new(),
+            pending_closed_transcripts: Vec::new(),
             workspace_close_reservations: HashMap::new(),
             tab_close_reservations: HashMap::new(),
             limit_gate: codeterm_entitlements::LimitGate::new(
