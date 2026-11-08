@@ -55,8 +55,8 @@
           }
         },
         "limitsSource": {
-          "kind": "unavailable",
-          "reason": "Gemini API-key quota has no public endpoint; check usage in Google AI Studio"
+          "kind": "quota",
+          "reader": "gemini-code-assist"
         }
       },
       "local": {
@@ -83,8 +83,8 @@
       "gemini": {
         "fullAccessMode": "yolo",
         "limitsSource": {
-          "kind": "unavailable",
-          "reason": "Gemini API-key quota has no public endpoint; check usage in Google AI Studio"
+          "kind": "quota",
+          "reader": "gemini-code-assist"
         }
       }
     },

@@ -54,6 +54,34 @@ fn declared_sources_round_trip_with_their_wire_names() {
         serde_json::to_value(&profile).unwrap()["limitsSource"],
         json!({"kind":"balance","reader":"fixture-balance","credentialEnv":"KEY"})
     );
+    let quota: RuntimeProfileLimitsSource =
+        serde_json::from_value(json!({"kind":"quota","reader":"fixture-quota"})).unwrap();
+    assert_eq!(
+        quota,
+        RuntimeProfileLimitsSource::Quota {
+            reader: "fixture-quota".into()
+        }
+    );
+    assert_eq!(
+        serde_json::to_value(&quota).unwrap(),
+        json!({"kind":"quota","reader":"fixture-quota"})
+    );
+}
+
+#[test]
+fn only_balance_and_quota_sources_are_read_by_the_plugin() {
+    for (source, read) in [
+        (json!({"kind":"quota","reader":"fixture-quota"}), true),
+        (
+            json!({"kind":"balance","reader":"fixture-balance","credentialEnv":"KEY"}),
+            true,
+        ),
+        (json!({"kind":"account","provider":"fixture-native"}), false),
+        (json!({"kind":"unavailable","reason":"Opaque"}), false),
+    ] {
+        let parsed: RuntimeProfileLimitsSource = serde_json::from_value(source.clone()).unwrap();
+        assert_eq!(parsed.plugin_read(), read, "{source}");
+    }
 }
 
 #[test]

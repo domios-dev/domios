@@ -19,6 +19,7 @@ pub(crate) struct CronSpawnInputs {
     pub(crate) run_id: String,
     pub(crate) job_name: String,
     pub(crate) agent: String,
+    pub(crate) launch_profile: Option<String>,
     pub(crate) model: Option<String>,
     pub(crate) reasoning_effort: Option<String>,
     pub(crate) task_text: String,
@@ -40,6 +41,7 @@ pub(crate) fn build_cron_spawn_spec(
     let policy = crate::service::role_policy::resolve(inputs.role.as_deref());
     let mut params = SpawnAgentParams {
         agent: Some(inputs.agent.clone()),
+        launch_profile: inputs.launch_profile,
         model: inputs.model,
         reasoning_effort: inputs.reasoning_effort,
         task: Some(inputs.task_text),

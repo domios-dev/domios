@@ -778,8 +778,13 @@ A launch profile's `limitsSource` names where its account limits come from:
 `{kind:"account",provider}` reuses that native provider's account meter,
 `{kind:"balance",reader,credentialEnv}` asks the plugin's `readProfileLimits({profile,source},nowMs)`
 export for a UsageSnapshot-shaped JSON string (balance under `usage_details.balance`), or
-`{error}` naming why the read failed (never a response body), which the bubble shows, and
-`{kind:"unavailable",reason}` shows a one-line reason. `agentRuntime.registryDefaults`
+`{error}` naming why the read failed (never a response body), which the bubble shows,
+`{kind:"quota",reader}` asks the same export for a snapshot with `usage_details.quota`
+(`{title,limits:[{label,used_percent,resets_at}]}`) or an `{error}` reason, shown as a dash, and
+`{kind:"unavailable",reason}` shows a quiet dash with the reason in its popover; both show the
+session's reported context fill instead when there is one. A quota reader uses manifest
+`credentials` through `credentialPublic` and `host.fetch` `credential` header templates.
+`agentRuntime.registryDefaults`
 maps a registry id to `{limitsSource}` for profiles whose own declaration names none;
 the host resolves it on every profile load (never persisted, outside install fingerprints),
 and a default must hold for a credential-free profile, so `balance` is refused there.

@@ -12,7 +12,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { ChevronDown } from "lucide-react";
 import { TabModeSwitch } from "./TabModeSwitch";
 import { UsageBubble } from "../Usage/UsageBubble";
-import { BalanceBubble, UnavailableLimitsBubble } from "../Usage/ProfileLimitsBubble";
+import { BalanceBubble, QuotaBubble, UnavailableLimitsBubble } from "../Usage/ProfileLimitsBubble";
 import type { TabUsageSource } from "./usageTracking";
 import { resolveTabProvider } from "../../lib/tabProvider";
 import { PluginBubbles } from "../Extensions/PluginBubbles";
@@ -240,6 +240,8 @@ export function TabTopBar({
   const bubblesRef = useRef<HTMLDivElement>(null);
   const [hiddenBubbles, setHiddenBubbles] = useState(0);
   const [bubblesOpen, setBubblesOpen] = useState(false);
+  const usageLabel = shellTab ? (shellTab.agent_runtime_state?.agentName ?? resolveTabProvider(shellTab)?.displayName) : undefined;
+  const usageContext = shellTab && "context" in shellTab ? shellTab.context : undefined;
   useLayoutEffect(() => {
     const row = bubblesRef.current;
     if (!row) return;
@@ -322,20 +324,26 @@ export function TabTopBar({
         </>}
         {isWatcherTab && <WatcherStatusBadge lastStatus={watcherLastStatus} />}
         {/* Order is priority: the first row keeps tokens, then changes, then plugins. */}
-        {usageSource?.kind === "unavailable" && usageVisible && <UnavailableLimitsBubble reason={usageSource.reason} />}
+        {usageSource?.kind === "unavailable" && usageVisible && (
+          <UnavailableLimitsBubble reason={usageSource.reason} session={{ provider: usageSource.trackingProvider, tabId, threadId: shellTab?.agent_session_id, context: usageContext, label: usageLabel }} />
+        )}
         {usageSource?.kind === "balance" && (
           <BalanceBubble provider={usageSource.provider} accountId={usageSource.accountId} trackingEnabled={!!usageVisible} />
+        )}
+        {usageSource?.kind === "quota" && (
+          <QuotaBubble provider={usageSource.provider} accountId={usageSource.accountId} trackingEnabled={!!usageVisible}
+            session={{ provider: usageSource.trackingProvider, tabId, threadId: shellTab?.agent_session_id, context: usageContext, label: usageLabel }} />
         )}
         {usageSource?.kind === "meter" && (
           <UsageBubble
             provider={usageSource.provider}
-            providerLabel={shellTab ? (shellTab.agent_runtime_state?.agentName ?? resolveTabProvider(shellTab)?.displayName) : undefined}
+            providerLabel={usageLabel}
             tabId={tabId}
             threadId={shellTab?.agent_session_id}
             trackingEnabled={!!usageVisible}
             modelId={usageSource.borrowedAccount ? null : usageModelId}
             modelGroups={usageSource.borrowedAccount ? undefined : usageModelGroups}
-            context={shellTab && "context" in shellTab ? shellTab.context : undefined}
+            context={usageContext}
             borrowedAccount={usageSource.borrowedAccount}
           />
         )}

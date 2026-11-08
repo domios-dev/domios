@@ -47,6 +47,7 @@ impl BlueprintAction {
 
 pub struct CronLaunch {
     pub provider: String,
+    pub launch_profile: Option<String>,
     pub model: String,
     pub effort: Option<String>,
     pub task: String,
