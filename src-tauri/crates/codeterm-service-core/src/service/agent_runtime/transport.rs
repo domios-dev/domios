@@ -207,7 +207,8 @@ pub(crate) async fn submit_loaded(
         ));
     }
     // Every submit holds the session gate, so this check cannot race another host submit.
-    if super::turn_requests::holds_new_submit(session) {
+    let joins_turn = super::turn_requests::joins_running_turn(session, &input.text);
+    if !joins_turn && super::turn_requests::holds_new_submit(session) {
         return Err(before_write(
             tab,
             RuntimeFailure::Refused(format!(
@@ -267,8 +268,11 @@ pub(crate) async fn submit_loaded(
     if let crate::service::messenger::AgentInput::Framed(frame) = &classified {
         let mut maps = session.maps.lock();
         maps.sync_active_turn(&context);
-        maps.remember_routed_input(&pending.send_id, &thread, frame)
-            .map_err(|reason| before_write(tab, RuntimeFailure::Refused(reason)))?;
+        // A digest head already recorded its own row, which is not the digest it travels in.
+        if maps.routed_input(&pending.send_id, &thread).is_none() {
+            maps.remember_routed_input(&pending.send_id, &thread, frame)
+                .map_err(|reason| before_write(tab, RuntimeFailure::Refused(reason)))?;
+        }
     }
     if !svc.chat_send_ledger.bind_rpc_send(
         &pending.send_id,
@@ -324,6 +328,7 @@ pub(crate) async fn submit_loaded(
             send_id,
             turn_id,
         }) if thread_id == thread && send_id == pending.send_id => {
+            let joined_turn = turn_id.clone().filter(|_| joins_turn);
             if turn_id.is_none() || turn_id.as_ref() != submitted_turn.as_ref() {
                 svc.arm_runtime_turn_start(
                     session,
@@ -352,6 +357,18 @@ pub(crate) async fn submit_loaded(
                     "chat-send-status",
                     serde_json::to_value(status).unwrap_or_default(),
                 );
+            }
+            if let Some(turn) = joined_turn {
+                // The agent's reply to this exact request is the evidence: it took the input in.
+                super::inbound::publish_delivered(
+                    svc,
+                    session,
+                    context.epoch,
+                    &thread,
+                    &turn,
+                    &pending.send_id,
+                )
+                .await;
             }
             Ok(())
         }

@@ -99,6 +99,11 @@ The `interrupt.beforeFirstTurn` declaration is provider-neutral. The host uses i
 only with an exact outstanding RPC send from its current epoch; the provider
 also refuses cancellation when its own prompt cursor is not in flight.
 
+`steering-mid-turn` follows the `_session/steering` contract of
+`@agentclientprotocol/claude-agent-acp` 0.101.0 (published source, not a live capture): an
+advertised agent takes input into its running prompt, the reply reports `injected`, and
+the owning prompt still ends the one turn.
+
 `controls-selection` derives mode/config request shapes from the same v1 schema
 and proves local refusal of unadvertised commands, methods and values.
 `declared-auth` proves that only the declared agent method reaches authenticate,

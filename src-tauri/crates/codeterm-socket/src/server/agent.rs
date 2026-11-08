@@ -516,6 +516,42 @@ pub(super) fn dispatch(
             ))
         }
 
+        "agent.inbound_claim" => {
+            let caller_tab_id = get_string_param(params, "caller_tab_id")?;
+            let binding_nonce = get_string_param(params, "session_binding_nonce")?;
+            let claim_id = get_string_param(params, "claim_id")?;
+            let text = svc
+                .claim_inbound_tool_messages(&caller_tab_id, &binding_nonce, &claim_id)
+                .map_err(|message| JsonRpcError {
+                    code: -32603,
+                    message,
+                    data: None,
+                })?;
+            Ok(serde_json::json!({ "text": text }))
+        }
+
+        "agent.inbound_settle" => {
+            let caller_tab_id = get_string_param(params, "caller_tab_id")?;
+            let binding_nonce = get_string_param(params, "session_binding_nonce")?;
+            let claim_id = get_string_param(params, "claim_id")?;
+            let written = params
+                .as_ref()
+                .and_then(|params| params.get("written"))
+                .and_then(Value::as_bool)
+                .ok_or_else(|| JsonRpcError {
+                    code: -32602,
+                    message: "written must be a boolean".into(),
+                    data: None,
+                })?;
+            svc.settle_inbound_tool_messages(&caller_tab_id, &binding_nonce, &claim_id, written)
+                .map_err(|message| JsonRpcError {
+                    code: -32603,
+                    message,
+                    data: None,
+                })?;
+            Ok(serde_json::json!({ "settled": true }))
+        }
+
         "agent.startup_hold" => {
             let caller_tab_id = get_string_param(params, "caller_tab_id")?;
             let tab_id = get_string_param(params, "tab_id")?;

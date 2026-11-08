@@ -208,6 +208,7 @@ fn write_send_text_held(
 ) {
     if json {
         let mut data = value.clone();
+        data["code"] = serde_json::json!(crate::cmd::error_contract::ErrorCode::Held.as_str());
         data["hint"] = serde_json::json!(
             "the send is queued and not written yet; inspect its status; do not replay this send"
         );

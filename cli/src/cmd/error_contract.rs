@@ -29,9 +29,10 @@ pub enum ErrorCode {
     StartupFailed,
     Internal,
     ExecutionSandboxUnsupported,
+    Held,
 }
 
-pub const ALL_ERROR_CODES: [ErrorCode; 10] = [
+pub const ALL_ERROR_CODES: [ErrorCode; 11] = [
     ErrorCode::NotFound,
     ErrorCode::InvalidArgument,
     ErrorCode::Conflict,
@@ -42,6 +43,7 @@ pub const ALL_ERROR_CODES: [ErrorCode; 10] = [
     ErrorCode::StartupFailed,
     ErrorCode::Internal,
     ErrorCode::ExecutionSandboxUnsupported,
+    ErrorCode::Held,
 ];
 
 impl ErrorCode {
@@ -57,6 +59,7 @@ impl ErrorCode {
             Self::StartupFailed => "startup_failed",
             Self::Internal => "internal",
             Self::ExecutionSandboxUnsupported => "execution_sandbox_unsupported",
+            Self::Held => "held",
         }
     }
 
@@ -83,6 +86,9 @@ impl ErrorCode {
             Self::Internal => "check the daemon log for the failure",
             Self::ExecutionSandboxUnsupported => {
                 "select a provider that supports the requested execution sandbox"
+            }
+            Self::Held => {
+                "the send is queued and not written yet; inspect its status; do not replay it"
             }
         }
     }

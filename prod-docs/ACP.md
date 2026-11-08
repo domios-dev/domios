@@ -311,6 +311,24 @@ domios tab stop --tab TAB_ID
 Stop interrupts the active turn via ACP `session/cancel`; it does not close the tab.
 It can also cancel a turn waiting for a permission response.
 
+### Messages during a turn
+
+An ACP turn takes no second prompt, so reports and owner messages reach a busy agent
+in one of three ways, in this order:
+
+- An agent that advertises `_meta.steering.supported` at initialize, such as
+  `claude-agent-acp`, takes them into the running turn right away.
+- Any agent with Domios tools receives them in the next successful Domios tool result,
+  under an `Inbound messages` block. The message counts as delivered once that result
+  was returned. An agent that makes no Domios tool call receives nothing this way, and
+  `messages_check` lets it collect them between long steps.
+- Anything still held when the turn ends goes out as one digest prompt, in arrival
+  order, with each message identified. A command, an attachment or a recording keeps
+  its own prompt and is never overtaken.
+
+Each message is delivered once. A claim the host cannot confirm stays
+`submit_unconfirmed` and is never replayed. Check with `domios tab send-status <send-id>`.
+
 ### Full access
 
 A full-access launch enters the session mode its profile declares, chosen from the
@@ -359,4 +377,4 @@ an agent cannot change its own or another tab's mode this way.
   the current index and refuses unsupported distributions; neither proves agent
   authentication or compatibility.
 
-<!-- revision: 12 -->
+<!-- revision: 13 -->

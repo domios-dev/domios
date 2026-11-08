@@ -116,7 +116,8 @@ export type OperationResult =
   | {kind:"goal"; threadId:string; intent:import("./gen/ChatSessionIntent").ChatSessionIntent|null}
   | {kind:"backgroundProcesses"; threadId:string; processes:readonly RuntimeBackgroundProcess[]; nextCursor:string|null}
   | {kind:"backgroundProcessTermination"; threadId:string; processId:string; acknowledged:boolean}
-  | {kind:"initialized"; binaryVersion?:string; agentName?:string}
+  /** midTurnInput: this agent accepts input into a running turn, so the host stops holding it for the turn's end. */
+  | {kind:"initialized"; binaryVersion?:string; agentName?:string; midTurnInput?:boolean}
   | {kind:"threadLoaded"; threadId:string; settings:RuntimeSettings}
   | {kind:"threadForked"; sourceThreadId:string; threadId:string; turnId:string}
   | {kind:"historyPage"; threadId:string; items:readonly ChatMsg[];

@@ -1,8 +1,12 @@
 use serde_json::{json, Value};
 use std::io::{BufRead, Read, Write};
 
+mod inbound;
 mod tools;
-use tools::{launch_args, tool_args, tools};
+use inbound::Inbound;
+#[cfg(test)]
+use inbound::NoInbound;
+use tools::{is_held_receipt, is_messages_check, launch_args, tool_args, tools, MESSAGES_CHECKED};
 
 const MAX_FRAME: u64 = 1024 * 1024;
 const STARTUP_REFUSED: &str =
@@ -59,10 +63,11 @@ pub fn serve(tab: &str, nonce: &str, mesh: Option<&str>) {
             std::process::exit(7);
         }
     };
-    let result = protocol(
+    let result = protocol_with(
         std::io::stdin().lock(),
         &mut std::io::stdout().lock(),
         &token,
+        &mut inbound::Daemon::new(tab, nonce),
         |args| {
             let mut command = std::process::Command::new(&executable);
             command.args(launch_args(args.to_vec(), task_bound));
@@ -73,7 +78,7 @@ pub fn serve(tab: &str, nonce: &str, mesh: Option<&str>) {
             .map_err(|_| {
                 "CLI outcome unavailable; check the receipt before replaying a mutation"
             })?;
-            if !output.status.success() {
+            if !output.status.success() && !is_held_receipt(&output.stdout) {
                 return Err("CLI operation refused or failed; inspect the tab's own task evidence");
             }
             if output.stdout.len() > MAX_FRAME as usize {
@@ -119,10 +124,21 @@ fn scrub(value: &mut Value, token: &str) {
     }
 }
 
+#[cfg(test)]
 pub(super) fn protocol(
+    input: impl BufRead,
+    output: &mut impl Write,
+    token: &str,
+    execute: impl FnMut(&[String]) -> Result<String, &'static str>,
+) -> std::io::Result<()> {
+    protocol_with(input, output, token, &mut NoInbound, execute)
+}
+
+pub(super) fn protocol_with(
     mut input: impl BufRead,
     output: &mut impl Write,
     token: &str,
+    inbound: &mut impl Inbound,
     mut execute: impl FnMut(&[String]) -> Result<String, &'static str>,
 ) -> std::io::Result<()> {
     loop {
@@ -152,6 +168,7 @@ pub(super) fn protocol(
         let Some(id) = request.get("id") else {
             continue;
         };
+        let mut carries_messages = false;
         let result = if request["jsonrpc"] != "2.0" {
             Err((-32600, "Invalid JSON-RPC request"))
         } else {
@@ -162,10 +179,17 @@ pub(super) fn protocol(
                 Some("tools/list") => Ok(json!({"tools":tools()})),
                 Some("tools/call") => {
                     let call = serde_json::from_value::<ToolCall>(request["params"].clone());
+                    let checks_messages = call
+                        .as_ref()
+                        .is_ok_and(|call| is_messages_check(&call.name, &call.arguments));
                     match call
                         .map_err(|_| "Invalid tool call")
                         .and_then(|call| tool_args(&call.name, &call.arguments))
                     {
+                        Err(_) if checks_messages => {
+                            carries_messages = true;
+                            Ok(json!({"content":[{"type":"text","text":MESSAGES_CHECKED}]}))
+                        }
                         Err(reason) => Err((-32602, reason)),
                         Ok(args) => {
                             if !token.is_empty() && args.iter().any(|arg| arg.contains(token)) {
@@ -179,6 +203,7 @@ pub(super) fn protocol(
                             } else {
                                 match execute(&args) {
                                     Ok(text) => {
+                                        carries_messages = true;
                                         Ok(json!({"content":[{"type":"text","text":text}]}))
                                     }
                                     Err(reason) => Ok(
@@ -198,9 +223,19 @@ pub(super) fn protocol(
                 json!({"jsonrpc":"2.0","id":id,"error":{"code":code,"message":message}})
             }
         };
+        let claim = carries_messages.then(|| inbound.claim()).flatten();
+        if let Some(claim) = &claim {
+            if let Some(content) = response["result"]["content"].as_array_mut() {
+                content.push(json!({"type":"text","text":claim.text}));
+            }
+        }
         scrub(&mut response, token);
+        // A failed write is left unsettled: bytes may have gone out, so the daemon never replays it.
         writeln!(output, "{response}")?;
         output.flush()?;
+        if let Some(claim) = &claim {
+            inbound.settle(&claim.id, true);
+        }
     }
 }
 

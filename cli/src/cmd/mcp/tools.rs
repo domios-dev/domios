@@ -61,13 +61,34 @@ const TOOLS: &[Tool] = &[
     },
 ];
 
+/// Runs no CLI command: its result exists to carry messages waiting for this tab.
+pub(super) const MESSAGES_TOOL: &str = "messages_check";
+pub(super) const MESSAGES_CHECKED: &str = "No other messages are waiting.";
+
 pub(super) fn tools() -> Vec<Value> {
     let descriptions: Value =
         serde_json::from_str(DESCRIPTIONS).expect("embedded MCP descriptions must be JSON");
-    TOOLS.iter().map(|tool| {
+    let mut listed: Vec<Value> = TOOLS.iter().map(|tool| {
         let properties: serde_json::Map<String,Value> = tool.required.iter().chain(tool.optional).map(|key| ((*key).into(), json!({"type":"string","minLength":1,"maxLength":4096,"description":descriptions["arguments"][*key]}))).collect();
         json!({"name":tool.name,"description":descriptions["tools"][tool.name],"inputSchema":{"type":"object","properties":properties,"required":tool.required,"additionalProperties":false}})
-    }).collect()
+    }).collect();
+    listed.push(json!({"name":MESSAGES_TOOL,"description":descriptions["tools"][MESSAGES_TOOL],"inputSchema":{"type":"object","properties":{},"additionalProperties":false}}));
+    listed
+}
+
+pub(super) fn is_messages_check(name: &str, arguments: &Value) -> bool {
+    name == MESSAGES_TOOL
+        && arguments
+            .as_object()
+            .is_some_and(|values| values.is_empty())
+}
+
+/// A send the daemon accepted and queued exits nonzero by contract, yet it did not fail: the
+/// sender needs this receipt so it does not send the message again.
+pub(super) fn is_held_receipt(stdout: &[u8]) -> bool {
+    serde_json::from_slice::<Value>(stdout).is_ok_and(|value| {
+        value["error"]["code"] == "held" && value["result"]["send_id"].is_string()
+    })
 }
 
 /// A task-bound tab's own launch ACK is its dispatch ACK; a bare startup ACK is refused there.

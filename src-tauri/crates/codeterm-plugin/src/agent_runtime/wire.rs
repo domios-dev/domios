@@ -425,6 +425,9 @@ pub enum RuntimeResult {
         binary_version: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         agent_name: Option<String>,
+        /// This agent takes input into a running turn, as it declared for this process.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        mid_turn_input: bool,
     },
     ThreadLoaded {
         thread_id: String,

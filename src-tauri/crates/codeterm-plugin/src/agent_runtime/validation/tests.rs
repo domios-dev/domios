@@ -73,6 +73,39 @@ fn turn_scoped_request_requires_exact_owned_target_and_valid_turn_id() {
 }
 
 #[test]
+fn only_input_offered_to_a_running_turn_can_be_declined_by_a_success_reply() {
+    let capability: AgentRuntimeCapability = serde_json::from_str(include_str!(
+        "../../js_runtime/parity_test/fixtures/runtime/turn-scoped-requests.json"
+    ))
+    .unwrap();
+    let context = RuntimeContext {
+        thread_id: Some("own".into()),
+        ..Default::default()
+    };
+    let submit = |active: Option<&str>| -> RuntimeOperation {
+        let mut raw = json!({"kind":"submitTurn","threadId":"own","sendId":"send","input":{"text":"opaque","attachments":[]},"settings":{}});
+        if let Some(active) = active {
+            raw["activeTurnId"] = json!(active);
+        }
+        serde_json::from_value(raw).unwrap()
+    };
+    let success: RpcReply = serde_json::from_value(json!({"kind":"success","value":{}})).unwrap();
+    let declined: RuntimeStep = serde_json::from_value(json!({"kind":"refused","reason":{"code":"provider_refused","message":"opaque"},"beforeAcceptance":true})).unwrap();
+    assert!(validate_runtime_step(
+        &capability,
+        &context,
+        &submit(Some("turn")),
+        &success,
+        &declined
+    )
+    .is_ok());
+    assert!(
+        validate_runtime_step(&capability, &context, &submit(None), &success, &declined).is_err(),
+        "a prompt that was answered was accepted"
+    );
+}
+
+#[test]
 fn stream_window_refuses_malformed_ids_and_sequence_boundaries() {
     let base = serde_json::json!({"epoch":1,"tabId":"tab","bindingNonce":"nonce","cwd":"/work","hostVersion":"1.0.0","claimedSends":[],"settings":{},"providerSettings":{},
         "streamWindow":{"frameSequences":[11],"turnRequests":[{"sendId":"send","turnId":"turn","afterSequence":10,"written":true}]}});

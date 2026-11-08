@@ -160,6 +160,9 @@ pub struct RuntimeState {
     pub access_failure: Option<String>,
     #[serde(skip)]
     pub pending_load_notice: Option<String>,
+    /// Declared by this process at initialize: input may join its running turn.
+    #[serde(skip)]
+    pub mid_turn_input: bool,
     pub thread_id: Option<String>,
     pub phase: RuntimePhase,
     pub active_turn_started_at_ms: Option<u64>,
@@ -279,12 +282,33 @@ impl RuntimeState {
             notice: None,
             access_failure: None,
             pending_load_notice: None,
+            mid_turn_input: false,
             thread_id,
             phase: RuntimePhase::Unloaded { reason: None },
             active_turn_started_at_ms: None,
             last_turn_duration_ms: None,
         }
     }
+    pub(super) fn record_initialized(
+        &mut self,
+        result: codeterm_plugin::agent_runtime::RuntimeResult,
+    ) -> Result<(), RuntimeFailure> {
+        let codeterm_plugin::agent_runtime::RuntimeResult::Initialized {
+            binary_version,
+            agent_name,
+            mid_turn_input,
+        } = result
+        else {
+            return Err(RuntimeFailure::HookFailed(
+                "Initialize result is invalid".into(),
+            ));
+        };
+        self.binary_version = binary_version;
+        self.agent_name = agent_name;
+        self.mid_turn_input = mid_turn_input;
+        Ok(())
+    }
+
     pub fn finish_load_notice(&mut self, host_notice: Option<String>) {
         let messages = [self.pending_load_notice.take(), host_notice]
             .into_iter()

@@ -145,6 +145,7 @@ pub struct RuntimeMaps {
     evidence: HashMap<String, (String, String, Option<String>)>,
     refused_claims: HashMap<String, RefusedClaim>,
     routed_inputs: HashMap<String, (String, ChatMsg)>,
+    digest_members: HashMap<String, Vec<String>>,
     usage: HashMap<String, TokenUsage>,
     rate_limits: HashMap<String, Vec<RuntimeRateLimit>>,
     auth: Option<RuntimeAuthState>,

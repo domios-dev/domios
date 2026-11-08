@@ -261,7 +261,10 @@ async fn publish_with_origin(
         run_completed |= completed_turn
             .is_some_and(|(thread, turn)| session.completions.lock().contains(&thread, &turn));
         run_chat_item |= chat_item;
-        if let Some(status) = send_id.and_then(|id| svc.chat_send_ledger.status(&id)) {
+        if let Some(status) = send_id
+            .as_ref()
+            .and_then(|id| svc.chat_send_ledger.status(id))
+        {
             let owner = svc.clone();
             tokio::task::spawn_blocking(move || {
                 owner
@@ -273,6 +276,9 @@ async fn publish_with_origin(
             .await
             .map_err(|reason| RuntimeFailure::HookFailed(reason.to_string()))?
             .map_err(RuntimeFailure::HookFailed)?;
+        }
+        if let Some(head) = &send_id {
+            super::super::inbound::confirm_digest_members(svc, session, &context, head).await;
         }
     }
     if run_completed {

@@ -505,6 +505,11 @@ fn held_send_keeps_exit_contract_without_failure_framing() {
             let value: serde_json::Value = serde_json::from_slice(&out).unwrap();
             assert_eq!(value["ok"], false);
             assert_eq!(value["result"]["send_id"], "own-send");
+            assert_eq!(value["result"]["status"], "held");
+            assert_eq!(
+                value["error"]["code"], "held",
+                "a held receipt is typed, never an internal error"
+            );
         } else {
             assert!(out.is_empty());
         }
