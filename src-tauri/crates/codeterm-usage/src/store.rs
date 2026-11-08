@@ -865,12 +865,11 @@ mod tests {
     fn a_kept_reading_outranks_a_newer_failure_and_carries_its_cause() {
         let store = UsageStore::open_in_memory().unwrap();
         let now = chrono::Utc::now().timestamp_millis();
-        store
-            .insert_snapshot(&guarded_snapshot(now - 86_400_000, 12.0, 7.0, 0, 0))
-            .unwrap();
+        let kept = guarded_snapshot(now - 86_400_000, 12.0, 7.0, 0, 0);
+        store.insert_snapshot(&kept).unwrap();
         store
             .insert_failure_kind(
-                "codex",
+                &kept.provider,
                 None,
                 None,
                 UsageFailureKind::FetchError,
@@ -879,7 +878,10 @@ mod tests {
             )
             .unwrap();
 
-        let row = store.get_latest_or_failure("codex", None).unwrap().unwrap();
+        let row = store
+            .get_latest_or_failure(&kept.provider, None)
+            .unwrap()
+            .unwrap();
         assert!(row.parsed_ok);
         assert!(row.failure_reason.unwrap().ends_with("opaque cause"));
     }
