@@ -1,3 +1,4 @@
+pub(crate) use super::transcript::closed_rows as closed_transcript_rows;
 pub(crate) use super::transcript::persisted as persisted_transcript;
 #[cfg(test)]
 pub(crate) use super::transcript::{persist as persist_transcript, restore as restore_transcript};
@@ -300,6 +301,7 @@ async fn stop_session(
             return Err(reason.to_string());
         }
     }
+    super::transcript::archive(&session).await;
     {
         let mut sessions = SESSIONS.lock();
         if !sessions

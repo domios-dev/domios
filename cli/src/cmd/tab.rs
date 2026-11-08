@@ -24,7 +24,7 @@ mod text;
 mod workspace_topology;
 use adopt::handle_tab_adopt_agent;
 use capture::handle_tab_capture;
-use chat_view::print_tab_chat;
+pub(crate) use chat_view::print_tab_chat;
 use inspect::handle_tab_inspect;
 #[cfg(test)]
 use remote_target::remote_inspect_target;
@@ -835,8 +835,13 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
             };
             let url = format!("{}/api/tabs/{}/chat?since={}", api_url, tab_id, since);
             match api.get(url).send() {
-                // Non-JSON / empty body (e.g. tab not bound yet) -> {} so the renderer prints an honest "(no chat ...)" instead of a decode error.
                 Ok(resp) => {
+                    let status = resp.status();
+                    if !status.is_success() {
+                        let body = resp.text().unwrap_or_default();
+                        crate::cmd::print::fail_http(1, status.as_u16(), &body);
+                    }
+                    // Non-JSON / empty body (e.g. tab not bound yet) -> {} so the renderer prints an honest "(no chat ...)" instead of a decode error.
                     let v = resp
                         .json::<serde_json::Value>()
                         .unwrap_or_else(|_| serde_json::json!({}));

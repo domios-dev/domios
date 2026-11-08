@@ -22,18 +22,30 @@ pub struct ChildHistoryArgs {
     /// Parent agent tab id.
     #[arg(long, value_name = "TAB", required = true)]
     pub tab: String,
+    /// List the parent's closed child tabs instead of reading a recorded thread.
+    #[arg(
+        long,
+        conflicts_with_all = ["thread", "root_thread_id", "binding_nonce", "epoch", "cursor"]
+    )]
+    pub closed: bool,
+    /// With --closed: read this closed child tab's transcript.
+    #[arg(long, value_name = "TAB", requires = "closed")]
+    pub child: Option<String>,
+    /// With --child: only return messages from this index onward.
+    #[arg(long, default_value_t = 0, requires = "child")]
+    pub since: usize,
     /// Recorded child thread id.
-    #[arg(long, value_name = "THREAD", required = true)]
-    pub thread: String,
+    #[arg(long, value_name = "THREAD", required_unless_present = "closed")]
+    pub thread: Option<String>,
     /// Current parent thread id from its runtime binding.
-    #[arg(long, required = true)]
-    pub root_thread_id: String,
+    #[arg(long, required_unless_present = "closed")]
+    pub root_thread_id: Option<String>,
     /// Current parent binding nonce.
-    #[arg(long, required = true)]
-    pub binding_nonce: String,
+    #[arg(long, required_unless_present = "closed")]
+    pub binding_nonce: Option<String>,
     /// Current parent runtime epoch.
-    #[arg(long, required = true)]
-    pub epoch: u64,
+    #[arg(long, required_unless_present = "closed")]
+    pub epoch: Option<u64>,
     /// Opaque continuation cursor from the prior response.
     #[arg(long)]
     pub cursor: Option<String>,
@@ -99,8 +111,87 @@ mod tests {
         assert!(matches!(
             history.command,
             Commands::Agent {
-                action: AgentAction::ChildHistory(ChildHistoryArgs { epoch: 7, .. })
+                action: AgentAction::ChildHistory(ChildHistoryArgs {
+                    epoch: Some(7),
+                    closed: false,
+                    ..
+                })
             }
         ));
+    }
+
+    #[test]
+    fn closed_child_history_needs_no_runtime_binding_and_refuses_to_mix_with_one() {
+        let list = Cli::try_parse_from([
+            "codeterm",
+            "agent",
+            "child-history",
+            "--tab",
+            "p",
+            "--closed",
+        ])
+        .unwrap();
+        assert!(matches!(
+            list.command,
+            Commands::Agent {
+                action: AgentAction::ChildHistory(ChildHistoryArgs {
+                    closed: true,
+                    child: None,
+                    ..
+                })
+            }
+        ));
+        let read = Cli::try_parse_from([
+            "codeterm",
+            "agent",
+            "child-history",
+            "--tab",
+            "p",
+            "--closed",
+            "--child",
+            "c",
+            "--since",
+            "3",
+        ])
+        .unwrap();
+        assert!(matches!(
+            read.command,
+            Commands::Agent {
+                action: AgentAction::ChildHistory(ChildHistoryArgs { since: 3, .. })
+            }
+        ));
+        for refused in [
+            vec![
+                "codeterm",
+                "agent",
+                "child-history",
+                "--tab",
+                "p",
+                "--child",
+                "c",
+            ],
+            vec![
+                "codeterm",
+                "agent",
+                "child-history",
+                "--tab",
+                "p",
+                "--closed",
+                "--thread",
+                "t",
+            ],
+            vec![
+                "codeterm",
+                "agent",
+                "child-history",
+                "--tab",
+                "p",
+                "--closed",
+                "--since",
+                "1",
+            ],
+        ] {
+            assert!(Cli::try_parse_from(refused).is_err());
+        }
     }
 }

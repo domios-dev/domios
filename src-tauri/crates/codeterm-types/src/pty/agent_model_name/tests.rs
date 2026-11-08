@@ -2,6 +2,28 @@ use super::*;
 
 use std::path::PathBuf;
 
+#[test]
+fn a_qualified_model_id_reads_as_its_plain_id() {
+    assert_eq!(
+        plain_model_id(r#"["deepseek-official","deepseek-v4-pro"]"#),
+        "deepseek-v4-pro"
+    );
+    assert_eq!(plain_model_id("gpt-5.6-sol"), "gpt-5.6-sol");
+    assert_eq!(plain_model_id("opus[1m]"), "opus[1m]");
+    assert_eq!(plain_model_id(r#"["unterminated"#), r#"["unterminated"#);
+    assert!(is_qualified_model_id(r#"["group","id"]"#));
+    assert!(!is_qualified_model_id("[]"));
+    assert!(!is_qualified_model_id("group/id"));
+    assert_eq!(
+        short_model_name(r#"["anthropic","claude-opus-5"]"#).as_deref(),
+        Some("opus")
+    );
+    assert_eq!(
+        short_model_name(r#"["deepseek-official","deepseek-v4-pro"]"#),
+        None
+    );
+}
+
 fn repo_root() -> PathBuf {
     PathBuf::from(crate::test_support::fixture_manifest_dir())
         .join("..")

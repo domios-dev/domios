@@ -559,6 +559,7 @@ impl ServiceContext {
         if let Some(batch) = history_batch {
             let evicted = batch.persist_on_blocking_thread_collect_evicted();
             self.forget_evicted_tab_todos(evicted);
+            crate::service::tab_chat::closed_transcript::forget_evicted(self);
         }
         let pty_ids = close_result?;
         let post_focus = self.mux.read().get_focused_tab_id().map(str::to_string);

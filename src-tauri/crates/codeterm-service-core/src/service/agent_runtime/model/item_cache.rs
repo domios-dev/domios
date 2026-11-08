@@ -17,8 +17,31 @@ pub struct ItemCache {
     history_pages: u32,
     pub(super) live_during_backfill: HashSet<String>,
     pub(super) history_origin: HashSet<String>,
+    archive_tracking: bool,
+    archive_dirty: HashSet<String>,
 }
 impl ItemCache {
+    /// Start noting changed rows for the host's append-only session log.
+    pub fn track_archive(&mut self) {
+        self.archive_tracking = true;
+    }
+    /// The rows changed since the last call, oldest first.
+    pub fn take_archive_rows(&mut self) -> Vec<ChatMsg> {
+        let dirty = std::mem::take(&mut self.archive_dirty);
+        let mut rows: Vec<ChatMsg> = dirty
+            .iter()
+            .filter_map(|id| self.get(id).cloned())
+            .collect();
+        rows.sort_by_key(|row| row.seq);
+        rows
+    }
+    /// Put rows back after a failed append, so the next one retries them.
+    pub fn mark_archive_rows(&mut self, rows: &[ChatMsg]) {
+        if self.archive_tracking {
+            self.archive_dirty
+                .extend(rows.iter().map(|row| row.id.clone()));
+        }
+    }
     pub fn bound_rereadable(&mut self) {
         self.rereadable = true;
         self.cached_bytes = self.items.iter().map(Self::row_bytes).sum();
@@ -164,6 +187,9 @@ impl ItemCache {
     }
     pub fn reconcile(&mut self, mut item: ChatMsg) -> ChatMsg {
         item = item.with_segments();
+        if self.archive_tracking {
+            self.archive_dirty.insert(item.id.clone());
+        }
         if let Some(index) = self.index(&item.id) {
             item.seq = self.items[index].seq;
             if self.rereadable {
@@ -198,6 +224,8 @@ impl ItemCache {
             let seq = row.seq;
             let id = row.id.clone();
             self.reconcile(row);
+            // A restored row came from disk, so it has nothing new to append.
+            self.archive_dirty.remove(&id);
             if let Some(index) = self.index(&id) {
                 self.items[index].seq = seq;
             }

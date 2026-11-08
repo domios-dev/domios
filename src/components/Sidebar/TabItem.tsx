@@ -22,6 +22,7 @@ import type { Tab, TabStatus } from "../../lib/types";
 import { anchorsTeam, isGeneralAgent as isGeneralAgentTab } from "../../lib/roleKind";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
 import { agentModelForBadge } from "../../lib/agentLabel";
+import { plainModelId } from "../../lib/agentModelName";
 import { restoreFailurePresentation } from "../../lib/restoreFailurePresentation";
 import { SidebarDisclosure } from "./SidebarDisclosure";
 import { RoleBadge } from "./RoleBadge";
@@ -283,7 +284,7 @@ function TabItemInner({
   const tabState = tabActivity(tab, status);
   const shellRunning = utilityShell && tabState.active;
   const accessibleTitle = isGeneralAgent ? "General Agent" : utilityShell ? `${shellPurposeLabel(tab.purpose)}, ${displayTitle}` : displayTitle;
-  const menuModel = restoreFailure.showIdentityBadges ? tabModel : null;
+  const menuModel = restoreFailure.showIdentityBadges && tabModel ? plainModelId(tabModel) : null;
   const menuSubtitle = utilityShell
     ? shellPurposeLabel(tab.purpose)
     : provider

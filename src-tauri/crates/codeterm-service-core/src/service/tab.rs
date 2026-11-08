@@ -406,6 +406,7 @@ impl ServiceContext {
         if let Some(batch) = history_batch {
             let evicted = batch.persist_on_blocking_thread_collect_evicted();
             self.forget_evicted_tab_todos(evicted);
+            crate::service::tab_chat::closed_transcript::forget_evicted(self);
         }
         let pty_ids = close_result?;
         if let Err(error) = self.settle_closed_durable_deliveries(&canonical_tab_id) {

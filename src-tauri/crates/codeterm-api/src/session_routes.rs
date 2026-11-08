@@ -229,15 +229,52 @@ async fn find_session_off_runtime(
 /// Returns `null` + 404 when nothing claims the id.
 pub async fn get_session_api(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(session_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    match find_session_off_runtime(&state, &session_id).await? {
-        Some(meta) => Ok(Json(serde_json::to_value(meta).unwrap_or_default())),
-        None => Err((
+    let meta = find_session_off_runtime(&state, &session_id).await?;
+    let closed_state = state.clone();
+    let closed_key = session_id.clone();
+    let closed = tokio::task::spawn_blocking(move || {
+        crate::tab_chat_routes::closed::session_record(&closed_state, &closed_key, &headers)
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{e}")))?;
+    let Some(value) = session_body(meta, closed) else {
+        return Err((
             StatusCode::NOT_FOUND,
             format!("session {} not found", session_id),
-        )),
+        ));
+    };
+    Ok(Json(value))
+}
+
+/// Provider metadata when a provider claims the id, plus the closed tab that held
+/// it. A host-kept session no provider lists is answered from the closed tab alone.
+fn session_body(
+    meta: Option<codeterm_service_core::agent::provider::SessionMetadata>,
+    closed: Option<codeterm_service_core::multiplexer::state::ClosedTranscript>,
+) -> Option<serde_json::Value> {
+    let closed = closed.map(|record| {
+        let read = format!("domios tab chat --tab {}", record.tab_id);
+        (record, read)
+    });
+    match (meta, closed) {
+        (Some(meta), None) => Some(serde_json::to_value(meta).unwrap_or_default()),
+        (Some(meta), Some((record, read))) => {
+            let mut value = serde_json::to_value(meta).unwrap_or_default();
+            value["closed_tab"] = serde_json::json!(record);
+            value["transcript_command"] = serde_json::json!(read);
+            Some(value)
+        }
+        (None, Some((record, read))) => Some(serde_json::json!({
+            "provider": record.provider,
+            "session_id": record.session_id,
+            "project_path": record.cwd,
+            "closed_tab": record,
+            "transcript_command": read,
+        })),
+        (None, None) => None,
     }
 }
 

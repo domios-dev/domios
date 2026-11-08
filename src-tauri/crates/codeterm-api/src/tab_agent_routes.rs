@@ -46,6 +46,10 @@ pub(crate) fn mount(router: Router<AppState>) -> Router<AppState> {
             get(blocking_json(tab_chat_routes::snapshot)),
         )
         .route(
+            "/api/tabs/{id}/closed-children",
+            get(tab_chat_routes::closed::closed_children),
+        )
+        .route(
             "/api/tabs/{id}/chat-send",
             post(tab_routes::chat_send_text).get(tab_routes::chat_send_status),
         )

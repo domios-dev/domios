@@ -39,10 +39,35 @@ fn is_version(token: &str) -> bool {
         && token.chars().all(|c| c.is_ascii_digit() || c == '.')
 }
 
+/// The bare id inside a runtime's qualified `["group","id"]` model value.
+fn qualified_model_leaf(model: &str) -> Option<String> {
+    let trimmed = model.trim();
+    if !trimmed.starts_with('[') {
+        return None;
+    }
+    serde_json::from_str::<Vec<String>>(trimmed)
+        .ok()?
+        .into_iter()
+        .rev()
+        .map(|part| part.trim().to_string())
+        .find(|part| !part.is_empty())
+}
+
+/// Whether a model value is a runtime-qualified id rather than a plain one.
+pub fn is_qualified_model_id(model: &str) -> bool {
+    qualified_model_leaf(model).is_some()
+}
+
+/// The id a label may show: a qualified value's bare id, any other value as is.
+/// The stored value keeps its qualified form, which provider controls round-trip.
+pub fn plain_model_id(model: &str) -> String {
+    qualified_model_leaf(model).unwrap_or_else(|| model.trim().to_string())
+}
+
 /// The short name for a catalogue model, or `None` when no catalogue claims it.
 /// Pure: it only decides what to render and never speaks for the stored value.
 pub fn short_model_name(model: &str) -> Option<String> {
-    let tokens = tokenize(model);
+    let tokens = tokenize(&plain_model_id(model));
     if let Some((family_index, family)) = tokens
         .iter()
         .enumerate()

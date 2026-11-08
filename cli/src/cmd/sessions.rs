@@ -329,6 +329,11 @@ pub fn handle_sessions(
                     println!("  cwd:      {}", cwd);
                     println!("  file:     {}", file);
                     println!("  modified: {}", format_unix_ts(modified));
+                    if let Some(tab) = val.get("closed_tab") {
+                        let id = tab.get("tab_id").and_then(|v| v.as_str()).unwrap_or("?");
+                        println!("  closed tab: {}", id);
+                        println!("  transcript: domios tab chat --tab {}", id);
+                    }
                 }
                 Err(e) => fail_transport(json_mode, &e),
             }

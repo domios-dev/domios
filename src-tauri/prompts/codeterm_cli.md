@@ -55,7 +55,7 @@ Each command's `--help` has the flags; the Docs column has the depth.
 | A tab with a wrong or stale agent binding | `tab rebind`, `tab repair --from-evidence`, `tab adopt-agent` (read `--help` first). Never type task or ACK text into an unverified shell or picker | `docs ROUTING` |
 | Servers, watchers | `tab new --purpose dev --cmd "..."`; replace it with `tab restart --tab ID --cmd "..."` | — |
 | Agents: spawn, restart, switch provider, report | `agent spawn`, `agent restart`, `agent switch-provider`, `agent switch-provider-status`, `agent report`, `agent providers` / `agent models` | `docs ORCHESTRATION` |
-| Agent usage, reset credits, child transcript | `agent usage read|reset`, `agent child-history` (all require exact tab ids) | `docs API-CLI` |
+| Agent usage, reset credits, child transcript | `agent usage read|reset`, `agent child-history` (all require exact tab ids); a closed tab stays readable: `agent child-history --tab <PARENT> --closed`, `tab chat --tab <CLOSED_ID>` | `docs API-CLI` |
 | Becoming an Orchestrator | Roleless, team-less local agents: `agent set-orchestrator` on self; tab menu Make Orchestrator; spawn with `--role Orchestrator` | `docs AGENT-CONTROL` |
 | Plans, specs, tasks | `plan --help`, `spec --help`, `task --help`; state/next/lanes default to bounded detail pages with full totals (`--page N`, explicit `--all`); `plan lanes <plan> --clean` previews merged lanes and unregistered build residue, `--confirm` executes, `--fetch` refreshes refs; dirty lanes stay protected | `docs PLAN-EDITING` |
 | Delayed or repeated message to a tab | `send --delay` / `--at` / `--every`, `delayed --help` | — |

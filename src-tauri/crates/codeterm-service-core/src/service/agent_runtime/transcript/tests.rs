@@ -70,6 +70,147 @@ fn two_turns_restore_in_order_and_new_turn_keeps_distinct_ids() {
     );
 }
 
+fn append(io: &TranscriptIo, cache: &Mutex<ItemCache>, dir: &Path, rotate_at: u64) {
+    io.append_archive(
+        cache,
+        &dir.join("archive.jsonl"),
+        &dir.join("archive.prev.jsonl"),
+        rotate_at,
+        "fixture",
+    );
+}
+
+fn tracking_cache() -> Mutex<ItemCache> {
+    let mut cache = ItemCache::default();
+    cache.track_archive();
+    Mutex::new(cache)
+}
+
+#[test]
+fn the_session_log_keeps_every_row_the_restart_snapshot_drops() {
+    let root = tempfile::tempdir().unwrap();
+    let (io, cache) = (TranscriptIo::default(), tracking_cache());
+    let total = REREADABLE_CACHE_ROWS + 50;
+    for index in 0..total {
+        cache
+            .lock()
+            .reconcile(row(&format!("row-{index}"), 0, "assistant", "body"));
+    }
+    append(&io, &cache, root.path(), u64::MAX);
+    let snapshot = root.path().join("snapshot.jsonl");
+    ChatBackendHistory::open_at(snapshot.clone())
+        .snapshot(bounded_rows(cache.lock().tail(REREADABLE_CACHE_ROWS)))
+        .unwrap();
+    assert_eq!(
+        chatbackend_history::read_log(&snapshot).unwrap().len(),
+        REREADABLE_CACHE_ROWS
+    );
+    let merged = merged_logs(&[snapshot, root.path().join("archive.jsonl")])
+        .unwrap()
+        .unwrap();
+    assert_eq!(merged.len(), total);
+    assert_eq!(merged[0].id, "row-0");
+    assert_eq!(merged[total - 1].id, format!("row-{}", total - 1));
+}
+
+#[test]
+fn the_session_log_appends_only_what_changed() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("archive.jsonl");
+    let (io, cache) = (TranscriptIo::default(), tracking_cache());
+    for index in 0..20 {
+        cache.lock().reconcile(row(
+            &format!("row-{index}"),
+            0,
+            "assistant",
+            &"x".repeat(4096),
+        ));
+    }
+    append(&io, &cache, root.path(), u64::MAX);
+    let first = std::fs::metadata(&path).unwrap().len();
+    append(&io, &cache, root.path(), u64::MAX);
+    assert_eq!(std::fs::metadata(&path).unwrap().len(), first);
+    let mut changed = row("row-3", 0, "assistant", &"x".repeat(4096));
+    changed.content.push_str("-final");
+    cache.lock().reconcile(changed);
+    append(&io, &cache, root.path(), u64::MAX);
+    let grown = std::fs::metadata(&path).unwrap().len() - first;
+    assert!(grown > 0 && grown < 1024, "one small delta, grew {grown}");
+    let rows = chatbackend_history::read_log(&path).unwrap();
+    assert_eq!(rows.len(), 20);
+    assert!(rows[3].content.ends_with("-final"));
+}
+
+#[test]
+fn a_full_session_log_rotates_once_and_nothing_retained_is_lost() {
+    let root = tempfile::tempdir().unwrap();
+    let (io, cache) = (TranscriptIo::default(), tracking_cache());
+    cache.lock().reconcile(row("old", 0, "assistant", "old"));
+    append(&io, &cache, root.path(), 1);
+    cache.lock().reconcile(row("new", 0, "assistant", "new"));
+    append(&io, &cache, root.path(), 1);
+    assert!(root.path().join("archive.prev.jsonl").is_file());
+    let merged = merged_logs(&[
+        root.path().join("archive.prev.jsonl"),
+        root.path().join("archive.jsonl"),
+    ])
+    .unwrap()
+    .unwrap();
+    assert_eq!(
+        merged.iter().map(|row| row.id.as_str()).collect::<Vec<_>>(),
+        ["old", "new"]
+    );
+}
+
+#[test]
+fn a_failed_append_keeps_its_rows_for_the_next_one() {
+    let root = tempfile::tempdir().unwrap();
+    let (io, cache) = (TranscriptIo::default(), tracking_cache());
+    cache.lock().reconcile(row("kept", 0, "assistant", "body"));
+    let blocked = root.path().join("blocked");
+    std::fs::create_dir(&blocked).unwrap();
+    std::fs::write(blocked.join("file"), b"").unwrap();
+    io.append_archive(
+        &cache,
+        &blocked.join("file").join("archive.jsonl"),
+        &root.path().join("unused"),
+        u64::MAX,
+        "fixture",
+    );
+    assert!(io.archive_failed.load(Ordering::Relaxed));
+    append(&io, &cache, root.path(), u64::MAX);
+    let rows = chatbackend_history::read_log(&root.path().join("archive.jsonl")).unwrap();
+    assert_eq!(rows[0].id, "kept");
+}
+
+#[test]
+fn restored_rows_have_nothing_new_to_append() {
+    let cache = tracking_cache();
+    cache
+        .lock()
+        .restore_transcript(vec![row("restored", 4, "assistant", "body")]);
+    assert!(cache.lock().take_archive_rows().is_empty());
+    let mut untracked = ItemCache::default();
+    untracked.reconcile(row("ignored", 0, "assistant", "body"));
+    assert!(untracked.take_archive_rows().is_empty());
+}
+
+#[test]
+fn mid_turn_appends_are_rate_limited_without_a_timer() {
+    let last = AtomicU64::new(0);
+    assert!(archive_tick_due(&last, ARCHIVE_TICK_MS));
+    assert!(!archive_tick_due(&last, ARCHIVE_TICK_MS + 1));
+    assert!(archive_tick_due(&last, 2 * ARCHIVE_TICK_MS));
+}
+
+#[test]
+fn no_log_reads_as_absent_rather_than_empty() {
+    let root = tempfile::tempdir().unwrap();
+    assert!(merged_logs(&[root.path().join("missing.jsonl")])
+        .unwrap()
+        .is_none());
+}
+
 #[test]
 fn declared_remote_or_stored_history_never_selects_host_fallback() {
     let capability: AgentRuntimeCapability = serde_json::from_value(serde_json::json!({
