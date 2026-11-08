@@ -53,7 +53,7 @@ Switch one agent tab to another model. Domios never types a provider model comma
 
 An `agentRuntime` Chat provider may apply settings live to the exact bound thread, or declare `next_turn` and apply model/effort on its next turn. Runtime sessions use the live path: a confirmed settings control returns `mode_used: "live"`, `model_confirmation: "observed"`, and `evidence: "live_session_record"`. Runtime modes come from the provider's `agent_runtime.runtimeModes` capability and require the bound runtime. Settings stay per-thread. Runtime failure is visible and retryable through exact-thread resume; it never selects a terminal fallback. Providers declaring RestartResume keep their idle-only switching contract.
 
-`reasoning_effort` is checked against the selected model's published effort levels, falling back to the provider's list when the model publishes none. `runtime_mode` is checked against the declared structured-control modes. Both checks happen before runtime control, tab identity updates, or persistence; unsupported values return `400 unsupported_reasoning_effort` or `400 unsupported_runtime_mode` with a `supported` array. On restore, a saved value no longer present in the catalogue is cleared before runtime settings are built; the model's default is used and a warning is logged.
+`reasoning_effort` is checked against the selected model's published effort levels, falling back to the provider's list when the model publishes none. `runtime_mode` belongs to the owner and paired machines: a request from an agent returns `403 owner_required`. It is checked against the declared structured-control modes, or the modes the session advertises when the session declares its own controls. Both checks happen before runtime control, tab identity updates, or persistence; unsupported values return `400 unsupported_reasoning_effort` or `400 unsupported_runtime_mode` with a `supported` array. On restore, a saved value no longer present in the catalogue is cleared before runtime settings are built; the model's default is used and a warning is logged.
 
 The live session GET or, after a RestartResume fallback, the current binding's launch report or first post-relaunch assistant turn can confirm the model. A live request whose session record does not show the requested model returns pending with `confirmation_detail`; no screen output or POST status is treated as confirmation. After the bounded RestartResume confirmation deadline, a ready relaunch with no model observation still succeeds as pending; the label and `agent_session_model` follow the first turn when it arrives. A live request failure or a confirmed different RestartResume model remains an error.
 
@@ -197,7 +197,8 @@ With `background_work_guard` enabled, restarts and restart-based model switches 
 
 | Method | Path | Operation |
 |--------|------|-----------|
-| POST | `/api/tabs/{id}/agent/runtime/controls` | Select an advertised configuration value or mode on the exact bound runtime session. |
+| POST | `/api/tabs/{id}/agent/runtime/controls` | Select an advertised configuration value or mode on the exact bound runtime session. Changing a mode, as `mode: true` or through a `category: "mode"` option, is owner only: agent callers get 403. |
+| POST | `/api/tabs/{id}/agent/runtime/host-approvals` | Owner only: set this tab's answer to agent permission requests with `{"allowAll":true}` or `{"allowAll":false}`. Applies live and persists. Refused with 409 on a confined tab, or where the agent's own approve-all mode is the switch; refused with 403 for agent callers. |
 
 Requires authenticated API access and the target runtime's current authority
 tuple. Request fields are camelCase; unknown fields are rejected:
@@ -250,4 +251,4 @@ Runtime requests remain bound to the target tab's session and epoch. Provider CL
 | POST | `/api/tabs/{id}/agent/runtime/retry` | Retry initialization of the same runtime session. |
 | POST | `/api/tabs/{id}/agent/runtime/thread-history` | Read runtime-owned thread history. |
 
-<!-- revision: 79 -->
+<!-- revision: 81 -->

@@ -24,34 +24,36 @@ impl Messenger {
             .as_ref()
             .map(FramedDelivery::to_message)
             .unwrap_or(body);
+        let frame = routed_frame.ok_or("turn continuation requires a frame")?;
+        let Some(pty_id) = expected_pty_id else {
+            // The durable owner holds this behind a running turn and writes it once; the claim
+            // already makes this the only delivery, so each one gets its own token.
+            let authority = svc.user_send_authority(to_tab)?;
+            if !super::super::agent_runtime::user_delivery::is_current_session(
+                svc,
+                &authority,
+                expected_session_id,
+                expected_binding_nonce,
+            ) {
+                return Err(crate::service::turn_resume::SESSION_CHANGED.into());
+            }
+            let token = format!("turn-resume:{}", uuid::Uuid::new_v4().simple());
+            return super::super::agent_runtime::transport::send_envelope(
+                svc, to_tab, &frame, &token, None,
+            );
+        };
         let pending = svc.attach_system_send(to_tab, &text)?;
         svc.ui.emit(
             "chat-send-status",
             serde_json::to_value(&pending).unwrap_or_default(),
         );
-        let result = (|| {
-            let frame = routed_frame.ok_or("turn continuation requires a frame")?;
-            if let Some(pty_id) = expected_pty_id {
-                svc.send_to_authenticated_agent_session_pinned_routed(
-                    to_tab,
-                    pty_id,
-                    expected_session_id,
-                    expected_binding_nonce,
-                    frame,
-                )?;
-            } else {
-                super::super::agent_runtime::transport::send_pinned(
-                    svc,
-                    to_tab,
-                    &AgentInput::Framed(frame),
-                    &pending.send_id,
-                    expected_session_id,
-                    expected_binding_nonce,
-                )
-                .map_err(|error| error.ledger_message())?;
-            }
-            Ok(())
-        })();
+        let result = svc.send_to_authenticated_agent_session_pinned_routed(
+            to_tab,
+            pty_id,
+            expected_session_id,
+            expected_binding_nonce,
+            frame,
+        );
         if let Some(status) = svc
             .chat_send_ledger
             .finish(&pending.send_id, result.clone())
@@ -62,12 +64,6 @@ impl Messenger {
             );
         }
         result?;
-        Ok(if expected_pty_id.is_some() {
-            Delivery::Pty { text }
-        } else {
-            Delivery::ChatBackend {
-                message_id: pending.send_id,
-            }
-        })
+        Ok(Delivery::Pty { text })
     }
 }

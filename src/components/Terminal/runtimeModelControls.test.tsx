@@ -109,6 +109,77 @@ it("a tab puts extra controls inside the model picker and leaves only its bubble
   expect(row().querySelector('button[aria-label="Approvals: Ask"]')).not.toBeNull();
 });
 
+describe("the Permissions control", () => {
+  const launchProfiles = {
+    "host-only": { binary: "opaque", args: [] },
+    "approve-mode": { binary: "opaque", args: [], fullAccessMode: "yolo" },
+  };
+  const hostProvider = { ...provider, agent_runtime: { hostApprovals: true, launchProfiles } } as unknown as ProviderDescriptor;
+  const modelOnly: RuntimeSettings = { configOptions: controls.configOptions!.filter(option => option.category === "model") };
+  const withModes: RuntimeSettings = { ...modelOnly, mode: "default", modes: [{ id: "default", name: "Default" }, { id: "yolo", name: "YOLO" }] };
+
+  async function open(descriptor: ProviderDescriptor, runtimeControls: RuntimeSettings, config: Record<string, unknown>) {
+    bridge.invoke.mockResolvedValue({});
+    host = document.createElement("div");
+    document.body.append(host);
+    root = createRoot(host);
+    await act(async () => root!.render(<StatusLineModelPicker tab={{ ...tab, agent_runtime_config: config } as Tab} tabId="acp" descriptor={descriptor}
+      runtimeControls={runtimeControls} runtimeIdentity={state} facts={{ hasSession: true }} label="Agent" modelCandidates={[]} currentEffort={undefined} />));
+    await act(async () => trigger().click());
+  }
+  const permissions = () => row().querySelector<HTMLButtonElement>('button[aria-label^="Permissions:"]');
+
+  it("shows no-questions by default on a host-approval profile and switches live", async () => {
+    await open(hostProvider, modelOnly, { launchProfile: "host-only" });
+    expect(permissions()?.getAttribute("aria-label")).toBe("Permissions: Allow all");
+    await act(async () => permissions()!.dispatchEvent(new Event("pointerdown", { bubbles: true, cancelable: true })));
+    await act(async () => [...document.body.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(item => item.textContent?.trim() === "Ask each time")!.click());
+    expect(bridge.invoke).toHaveBeenCalledWith("agent_runtime_host_approvals", { tabId: "acp", request: { allowAll: false } });
+    expect([...document.body.querySelectorAll("button")].some(button => button.textContent === "Apply" && !button.disabled)).toBe(false);
+  });
+
+  it("shows the owner's saved choice", async () => {
+    await open(hostProvider, modelOnly, { launchProfile: "host-only", hostApprovals: "ask" });
+    expect(permissions()?.getAttribute("aria-label")).toBe("Permissions: Ask each time");
+  });
+
+  it("leaves the agent's advertised approve-all mode as the single switch", async () => {
+    await open(hostProvider, withModes, { launchProfile: "approve-mode" });
+    expect(permissions()).toBeNull();
+    expect(row().querySelector('button[aria-label="Mode: Default"]')).not.toBeNull();
+  });
+
+  it("says so when the host gives full access while the mode row reads otherwise", async () => {
+    await open(hostProvider, withModes, { launchProfile: "approve-mode", hostApprovals: "allow_all" });
+    expect(row().querySelector('output[aria-label="Permissions"]')?.textContent).toBe("Full access (host)");
+    expect(permissions()).toBeNull();
+    expect(row().querySelector('button[aria-label="Mode: Default"]')).not.toBeNull();
+  });
+
+  it("falls back to the host control when the agent does not offer its declared mode", async () => {
+    await open(hostProvider, { ...modelOnly, mode: "default", modes: [{ id: "default", name: "Default" }] }, { launchProfile: "approve-mode" });
+    expect(permissions()).not.toBeNull();
+  });
+
+  it("is absent on a confined tab and on a profile without host approvals", async () => {
+    await open(hostProvider, modelOnly, { launchProfile: "host-only", hostApprovals: "locked" });
+    expect(permissions()).toBeNull();
+    await act(async () => root?.unmount());
+    host.remove();
+    await open(provider, modelOnly, {});
+    expect(permissions()).toBeNull();
+  });
+
+  it("reports a refused switch instead of pretending it applied", async () => {
+    await open(hostProvider, modelOnly, { launchProfile: "host-only" });
+    bridge.invoke.mockRejectedValue(new Error("Refused"));
+    await act(async () => permissions()!.dispatchEvent(new Event("pointerdown", { bubbles: true, cancelable: true })));
+    await act(async () => [...document.body.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(item => item.textContent?.trim() === "Ask each time")!.click());
+    expect(row().textContent).toContain("The agent refused this control value.");
+    expect(permissions()?.getAttribute("aria-label")).toBe("Permissions: Allow all");
+  });
+});
+
 it("legacy mode keeps its pinned mode request and refused settings remain visible", async () => {
   await mount({ ...controls, configOptions: controls.configOptions!.filter(option => option.category !== "mode") });
   await act(async () => trigger().click());
@@ -120,4 +191,19 @@ it("legacy mode keeps its pinned mode request and refused settings remain visibl
   await act(async () => mode.dispatchEvent(new Event("pointerdown", { bubbles: true, cancelable: true })));
   await act(async () => [...document.body.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(item => item.textContent?.trim() === "Plan")!.click());
   expect(row().textContent).toContain("The agent refused this control value.");
+});
+
+it("a busy agent shows a short notice in the picker, not a refusal", async () => {
+  const { TransportError } = await import("../../lib/transportClient");
+  await mount({ ...controls, configOptions: controls.configOptions!.filter(option => option.category !== "mode") });
+  await act(async () => trigger().click());
+  const mode = row().querySelector<HTMLButtonElement>('button[aria-label="Mode: Code"]')!;
+  bridge.invoke.mockRejectedValue(new TransportError(409, "/api/tabs/acp/agent/runtime/controls",
+    JSON.stringify({ ok: false, reason: "runtime_busy", error: "opaque busy text" })));
+  await act(async () => mode.dispatchEvent(new Event("pointerdown", { bubbles: true, cancelable: true })));
+  await act(async () => [...document.body.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(item => item.textContent?.trim() === "Plan")!.click());
+  const notice = document.body.querySelector('.ct-model-picker [role="status"]');
+  expect(notice?.textContent).toBe("opaque busy text");
+  expect(document.body.querySelector('.ct-model-picker [role="alert"]')).toBeNull();
+  expect(document.body.textContent).not.toContain("The agent refused this control value.");
 });

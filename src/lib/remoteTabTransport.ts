@@ -89,6 +89,7 @@ export function remoteTransportCall(command: string, args: Record<string, unknow
     case "agent_runtime_thread_history": return call("POST", "/agent/runtime/thread-history", args.request);
     case "agent_runtime_reset_credits": return call("POST", "/agent/runtime/reset-credits", args.request);
     case "agent_runtime_controls": return call("POST", "/agent/runtime/controls", args.request);
+    case "agent_runtime_host_approvals": return call("POST", "/agent/runtime/host-approvals", args.request);
     case "agent_runtime_login": return call("POST", "/agent/runtime/login", args.request);
     case "agent_runtime_retry": return call("POST", "/agent/runtime/retry");
     case "read_local_preview_file": return call("POST", "/preview/read", { path: args.path, kind: args.kind });

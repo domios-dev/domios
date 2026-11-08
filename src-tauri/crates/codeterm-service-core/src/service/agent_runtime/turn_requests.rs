@@ -391,7 +391,7 @@ pub(super) async fn run(
                     &owner,
                     &runtime,
                     &pending,
-                    RuntimeTurnDetail::Failed,
+                    reply_failure_detail(reason),
                     format!("Turn completion reply failed: {reason}"),
                 )
                 .await;
@@ -687,6 +687,21 @@ fn submit_owns_turn(session: &Session) -> bool {
         })
 }
 
+pub(super) fn open_turns(session: &Session, context: &RuntimeContext) -> Vec<String> {
+    session
+        .turn_requests
+        .lock()
+        .values()
+        .filter(|pending| {
+            pending.context.epoch == context.epoch
+                && pending.context.binding_nonce == context.binding_nonce
+                && pending.context.thread_id == context.thread_id
+                && !pending.settled.load(Ordering::Acquire)
+        })
+        .map(|pending| pending.turn.clone())
+        .collect()
+}
+
 /// With no request awaiting a reply the provider has no turn to cancel, whatever the host recorded.
 pub(super) fn no_provider_turn(session: &Session, epoch: u64) -> bool {
     submit_owns_turn(session) && !waiting(session, epoch)
@@ -712,6 +727,18 @@ pub(super) async fn cancel_timed_out(
     Ok(!pending.is_empty())
 }
 
+/// A runtime that stopped has not failed the turn: restart and recovery own what happens next,
+/// so this must not read as a provider failure that ends automatic recovery.
+fn reply_failure_detail(reason: &RuntimeFailure) -> RuntimeTurnDetail {
+    match reason {
+        RuntimeFailure::ProcessExited { .. }
+        | RuntimeFailure::PipeEof
+        | RuntimeFailure::PipeFailure { .. }
+        | RuntimeFailure::Superseded => RuntimeTurnDetail::Interrupted,
+        _ => RuntimeTurnDetail::Failed,
+    }
+}
+
 pub(super) async fn end_for_lifecycle(svc: &ServiceContext, session: &Arc<Session>, reason: &str) {
     let pending = session
         .turn_requests
@@ -724,7 +751,7 @@ pub(super) async fn end_for_lifecycle(svc: &ServiceContext, session: &Arc<Sessio
             svc,
             session,
             &turn,
-            RuntimeTurnDetail::Failed,
+            RuntimeTurnDetail::Interrupted,
             reason.into(),
         )
         .await;

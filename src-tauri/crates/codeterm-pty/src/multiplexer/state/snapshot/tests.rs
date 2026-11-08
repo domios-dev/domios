@@ -1109,6 +1109,8 @@ fn restorable_launch_parameters_round_trip_in_snapshot() {
         identity_instructions: Some("opaque-instruction-fragment".into()),
         permission_bypass_requested: true,
         runtime_launch_options: None,
+        host_approval_choice: Some(crate::multiplexer::types::HostApprovalChoice::Ask),
+        selected_session_mode: Some("opaque-session-mode".into()),
         structured_runtime_mode: Some("auto".into()),
     };
     state.get_tab_mut(&tab_id).unwrap().restorable_launch = launch.clone();

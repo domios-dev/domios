@@ -77,7 +77,8 @@ module.exports = {
     }
     if (op.kind === 'control') {
       if (op.value.model === 'refuse') return {kind:'refused',reason:{code:'provider_refused',message:'settings refused'}};
-      if (op.action === 'config') {
+      if (op.action === 'mode') events = [{kind:'controlsConfirmed',threadId:op.threadId,settings:{mode:op.value}}];
+      else if (op.action === 'config') {
         if (op.value.value === 'refuse') return {kind:'refused',reason:{code:'provider_refused',message:'selection refused'}};
         const options = ctx.settings.configOptions.map(option => option.id !== op.value.id || op.value.value === 'unconfirmed' ? option : {...option,currentValue:op.value.value});
         const model = options.find(option => option.category === 'model').currentValue;

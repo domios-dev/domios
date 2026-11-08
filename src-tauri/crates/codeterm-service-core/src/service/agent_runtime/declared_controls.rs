@@ -28,12 +28,39 @@ pub struct Selection {
     pub mode: bool,
 }
 
-pub async fn select(svc: &ServiceContext, tab: &str, request: Selection) -> Result<Value, String> {
+pub const RUNTIME_BUSY_REASON: &str = "runtime_busy";
+pub const RUNTIME_BUSY_MESSAGE: &str = "The agent is busy. Try again in a moment.";
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum ControlError {
+    /// Another runtime operation held the gate for the whole wait; nothing was sent.
+    Busy,
+    Refused(String),
+}
+
+impl From<String> for ControlError {
+    fn from(reason: String) -> Self {
+        Self::Refused(reason)
+    }
+}
+
+impl From<&str> for ControlError {
+    fn from(reason: &str) -> Self {
+        Self::Refused(reason.to_owned())
+    }
+}
+
+pub async fn select(
+    svc: &ServiceContext,
+    tab: &str,
+    request: Selection,
+) -> Result<Value, ControlError> {
     let session = engine::for_tab(tab).ok_or("Runtime unavailable")?;
-    let _permit = tokio::time::timeout(Duration::from_secs(30), session.gate.acquire())
-        .await
-        .map_err(|_| "Control deadline exceeded")?
-        .map_err(|_| "Runtime unavailable")?;
+    let Ok(permit) = tokio::time::timeout(super::controls::GATE_WAIT, session.gate.acquire()).await
+    else {
+        return Err(ControlError::Busy);
+    };
+    let _permit = permit.map_err(|_| "Runtime unavailable")?;
     engine::validate_binding(svc, &session).map_err(|e| e.to_string())?;
     let context = session.context.lock().clone();
     if context.thread_id.as_ref() != Some(&request.thread_id)
@@ -114,6 +141,9 @@ pub async fn select(svc: &ServiceContext, tab: &str, request: Selection) -> Resu
     .map_err(|e| e.to_string())?;
     if !matches!(result, RuntimeResult::Done) {
         return Err("Runtime did not apply requested control".into());
+    }
+    if request.mode || category.as_deref() == Some("mode") {
+        super::permission_policy::record_selected_mode(svc, &session, &request.value);
     }
     if requested.model.is_some() || requested.effort.is_some() {
         let confirmed = session

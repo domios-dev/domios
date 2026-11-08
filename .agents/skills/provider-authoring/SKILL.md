@@ -754,17 +754,37 @@ fingerprints, and `agent acp add --like` copies it.
 
 `agentRuntime.hostApprovals: true` declares that the runtime's agent permission requests
 carry declared option kinds (`prompt` event `permission`), so the host answers them from the
-tab's launch policy and a full-access launch is authorized without `autoApproveFlags`.
+tab's effective choice and a full-access launch is authorized without `autoApproveFlags`.
 A launch profile (or `registryDefaults` entry) may declare `fullAccessMode`, the agent's own
 approve-everything session mode id; full-access launch options carry it to the runtime config
-as `fullAccessMode`, and the plugin enters it only when the agent advertises that mode.
+as `fullAccessMode`, and the plugin enters it only when the agent advertises that mode. The
+host checks the loaded session against the declaration: a mode not advertised or not reached
+is the named failure `full_access_unavailable`, never a silent sandbox. Record the agent's real
+modes in `plugins/provider-acp/tests/fixtures/advertised-session-modes.json` when declaring one.
+
+Where the session offers that mode, as a session mode or a `category: "mode"` config option, the
+mode is the tab's single switch. The owner's choice of mode is persisted and reaches the plugin as
+`sessionMode`, which it enters on every open and resume ahead of `fullAccessMode`, because agents
+rebuild their own default on load. The host decides from that choice and never from the agent's
+live mode: an agent can ask in its approve-all mode, and must not lift its own Ask by changing
+mode. Mode changes on the controls route are owner only. A profile with no such mode gets the
+picker's Permissions row (`POST .../agent/runtime/host-approvals`).
+
+Declare `fullAccessMode` only for a mode the session can enter and leave over the protocol. A
+process-wide setting read at session creation, such as an environment variable, cannot follow
+the live switch or reach resumed sessions, so it does not qualify.
 
 A launch profile's `limitsSource` names where its account limits come from:
 `{kind:"account",provider}` reuses that native provider's account meter,
 `{kind:"balance",reader,credentialEnv}` asks the plugin's `readProfileLimits({profile,source},nowMs)`
 export for a UsageSnapshot-shaped JSON string (balance under `usage_details.balance`), or
-`{error}` naming why the read failed (never a response body), which the bubble shows, and
-`{kind:"unavailable",reason}` shows a one-line reason. `agentRuntime.registryDefaults`
+`{error}` naming why the read failed (never a response body), which the bubble shows,
+`{kind:"quota",reader}` asks the same export for a snapshot with `usage_details.quota`
+(`{title,limits:[{label,used_percent,resets_at}]}`) or an `{error}` reason, shown as a dash, and
+`{kind:"unavailable",reason}` shows a quiet dash with the reason in its popover; both show the
+session's reported context fill instead when there is one. A quota reader uses manifest
+`credentials` through `credentialPublic` and `host.fetch` `credential` header templates.
+`agentRuntime.registryDefaults`
 maps a registry id to `{limitsSource}` for profiles whose own declaration names none;
 the host resolves it on every profile load (never persisted, outside install fingerprints),
 and a default must hold for a credential-free profile, so `balance` is refused there.

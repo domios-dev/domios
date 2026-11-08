@@ -99,8 +99,8 @@ Bounce resumes the Worker or reopens its task; hold keeps review, assignment and
 
 ### Quiet team heartbeat
 
-The default Curator control loop replaces the Orchestrator heartbeat. It mirrors the Orchestrator's model, starts from a bounded activity digest, and chooses its next round within 45 minutes to two hours. Quiet windows use a free heartbeat nudge only when work needs attention. Paused plans, completed plans and Teams waiting on a human do not launch rounds. Owners can select heartbeat mode and its interval; failures expose a visible heartbeat fallback. Worker reminders keep their own interval. See `ORCHESTRATION-OPERATIONS`.
+The default Curator control loop replaces the Orchestrator heartbeat. It mirrors the Orchestrator's provider, launch profile and model, starts from a bounded activity digest, and chooses its next round within 45 minutes to two hours. Quiet windows use a free heartbeat nudge only when work needs attention. Paused plans, completed plans and Teams waiting on a human do not launch rounds. Owners can select heartbeat mode and its interval; failures expose a visible heartbeat fallback. Worker reminders keep their own interval. See `ORCHESTRATION-OPERATIONS`.
 
 A `[provider access lost]` notice means recover the login or respawn on another provider, never a completed task; routing is in `ORCHESTRATION-TASKS`.
 
-<!-- revision: 146 -->
+<!-- revision: 147 -->

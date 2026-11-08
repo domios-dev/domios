@@ -1027,9 +1027,17 @@ function optionRequest(state, sessionId, id, value) {
   if (id === state.modelStateId) plan.state = { method: "session/set_model", modelId: value };
   return plan;
 }
-function fullAccessMode(ctx, state) {
-  const mode = object4(ctx.providerSettings).fullAccessMode;
-  return typeof mode === "string" && mode !== state.settings?.mode && state.settings?.modes?.some((entry) => entry.id === mode) ? mode : void 0;
+function launchMode(ctx, state) {
+  const settings = object4(ctx.providerSettings);
+  const mode = settings.sessionMode ?? settings.fullAccessMode;
+  if (typeof mode !== "string") return void 0;
+  const option = state.settings?.configOptions?.find((entry) => entry.category === "mode" && entry.options.some((value) => value.value === mode));
+  if (option) return option.currentValue === mode ? void 0 : { mode, optionId: option.id };
+  return mode !== state.settings?.mode && state.settings?.modes?.some((entry) => entry.id === mode) ? { mode } : void 0;
+}
+function modeAttempt(raw) {
+  const attempted = object4(raw).attempted;
+  return Array.isArray(attempted) && attempted[attempted.length - 1] === "mode";
 }
 function loadedThread(ctx, op, state, sessionId, attempted = [], confirmAuthentication = true) {
   const selection = launchSelection(op.settings, state.settings, attempted);
@@ -1039,10 +1047,15 @@ function loadedThread(ctx, op, state, sessionId, attempted = [], confirmAuthenti
     plan.state = { ...object4(plan.state), attempted: [...attempted, selection.category], confirmAuthentication };
     return { kind: "continue", plan };
   }
-  const mode = attempted.includes("mode") ? void 0 : fullAccessMode(ctx, state);
-  if (mode) {
-    const plan = request("session/set_mode", { sessionId, modeId: mode });
-    plan.state = { method: "session/set_mode", modeId: mode, attempted: [...attempted, "mode"], confirmAuthentication };
+  const entry = attempted.includes("mode") ? void 0 : launchMode(ctx, state);
+  if (entry?.optionId) {
+    const plan = optionRequest(state, sessionId, entry.optionId, entry.mode);
+    plan.state = { ...object4(plan.state), attempted: [...attempted, "mode"], confirmAuthentication };
+    return { kind: "continue", plan };
+  }
+  if (entry) {
+    const plan = request("session/set_mode", { sessionId, modeId: entry.mode });
+    plan.state = { method: "session/set_mode", modeId: entry.mode, attempted: [...attempted, "mode"], confirmAuthentication };
     return { kind: "continue", plan };
   }
   return {
@@ -1250,7 +1263,7 @@ function runtimeResponse(ctx, op, raw, reply) {
       plan.state = { method, mcpOffered: false };
       return { kind: "continue", plan };
     }
-    if (state2 && (op.kind === "openThread" || op.kind === "resumeThread") && method === "session/set_mode")
+    if (state2 && (op.kind === "openThread" || op.kind === "resumeThread") && (method === "session/set_mode" || method === "session/set_config_option" && modeAttempt(raw)))
       return modeContinuation(ctx, op, state2, raw);
     if ((op.kind === "openThread" || op.kind === "resumeThread") && ["session/set_config_option", "session/set_model"].includes(String(method))) {
       const state3 = negotiated(ctx);
@@ -1323,7 +1336,7 @@ function runtimeResponse(ctx, op, raw, reply) {
     if (!settings) return refuseThread(op, state, "protocol_error", "Invalid session option response");
     applySettings(state, settings, method === "session/set_config_option");
     const attempted = object4(raw).attempted;
-    if (!Array.isArray(attempted) || attempted.length > 2 || !attempted.every((value2) => value2 === "model" || value2 === "thought_level"))
+    if (!Array.isArray(attempted) || attempted.length > 3 || !attempted.every((value2) => value2 === "model" || value2 === "thought_level" || value2 === "mode"))
       return refused("protocol_error", "Invalid session selection continuation");
     return loadedThread(ctx, op, state, state.sessionId, attempted, object4(raw).confirmAuthentication === true);
   }
@@ -1388,16 +1401,16 @@ function runtimeReduce(ctx, raw, frames) {
   binding(ctx);
   const state = negotiated(ctx);
   if (!ctx.threadId || !state || state.sessionId !== ctx.threadId) return { state: raw, events: [] };
-  const own = frames.flatMap((frame, index) => object4(frame.params).sessionId === ctx.threadId && (frame.kind === "notification" && frame.method === methods.update || frame.kind === "request" && clientRequest(frame.method)) ? [{ frame, index }] : []);
+  const own2 = frames.flatMap((frame, index) => object4(frame.params).sessionId === ctx.threadId && (frame.kind === "notification" && frame.method === methods.update || frame.kind === "request" && clientRequest(frame.method)) ? [{ frame, index }] : []);
   const prompts = frames.flatMap((frame) => {
     if (frame.kind !== "request") return [];
     const request2 = runtimePrompt(ctx, frame.method, frame.params);
     return request2 ? [{ kind: "prompt", threadId: ctx.threadId, requestId: frame.requestId, ...request2 }] : [];
   });
-  if (!own.length) return { state: raw, events: prompts };
+  if (!own2.length) return { state: raw, events: prompts };
   let projection = state.projection ?? raw;
   const events = [];
-  for (const { frame, index } of own) {
+  for (const { frame, index } of own2) {
     const window = ctx.streamWindow;
     const witness = window?.turnRequests?.find((request2) => request2.sendId === state.promptSend?.sendId);
     const sequence = window?.frameSequences?.[index];
@@ -1580,12 +1593,12 @@ function deepseekBalance(body2) {
 var readers = {
   "deepseek-balance": { url: "https://api.deepseek.com/user/balance", parse: deepseekBalance }
 };
-function snapshot(balance, nowMs) {
+function snapshot(billingMode, details, nowMs) {
   return JSON.stringify({
     provider: "",
     account_id: null,
     captured_at_ms: nowMs,
-    billing_mode: "api",
+    billing_mode: billingMode,
     limits_reported: true,
     session_pct: null,
     session_resets_at_ms: null,
@@ -1596,31 +1609,98 @@ function snapshot(balance, nowMs) {
     spend_remaining_cents: null,
     spend_resets_at_ms: null,
     raw_text: "",
-    usage_details: { limits: [], dollar_credits: [], extra_usage: null, balance }
+    usage_details: { limits: [], dollar_credits: [], extra_usage: null, ...details }
   });
 }
-var unexpectedResponse = { error: "Balance response has an unexpected format" };
-function readProfileLimits(fetch, request2, nowMs) {
+function readJson(fetch, opts, subject, parse) {
+  return fetch(opts, (result) => {
+    if (result.error) return { error: result.error };
+    if (result.status !== 200) return { error: `${subject} endpoint answered HTTP ${result.status}` };
+    if (!result.body || result.body.length > 64 * 1024) return { error: `${subject} response is empty or too large` };
+    try {
+      return parse(result.body);
+    } catch {
+      return { error: `${subject} response has an unexpected format` };
+    }
+  });
+}
+var CODE_ASSIST = "https://cloudcode-pa.googleapis.com/v1internal";
+var GEMINI_QUOTA = "Gemini quota";
+var modelId = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+function codeAssistRequest(method, body2) {
+  return {
+    url: `${CODE_ASSIST}:${method}`,
+    method: "POST",
+    timeoutMs: 15e3,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body2),
+    credential: { id: "geminiOauth", headers: { Authorization: "Bearer {accessToken}" } }
+  };
+}
+function codeAssistLimits(body2) {
+  const buckets = JSON.parse(body2).buckets;
+  if (!Array.isArray(buckets) || buckets.length > 128) return null;
+  const lowest = /* @__PURE__ */ new Map();
+  for (const bucket of buckets) {
+    if (bucket?.modelId == null || bucket.remainingFraction == null) continue;
+    const fraction = bucket.remainingFraction;
+    if (typeof bucket.modelId !== "string" || !modelId.test(bucket.modelId) || typeof fraction !== "number" || !(fraction >= 0 && fraction <= 1)) return null;
+    const known = lowest.get(bucket.modelId);
+    if (!known || fraction < known.fraction) lowest.set(bucket.modelId, { fraction, resetTime: bucket.resetTime });
+  }
+  return [...lowest].map(([label2, { fraction, resetTime }]) => {
+    const resets = typeof resetTime === "string" ? Date.parse(resetTime) : NaN;
+    return { label: label2, used_percent: Math.round((1 - fraction) * 1e3) / 10, resets_at: Number.isFinite(resets) ? resets : null };
+  }).sort((a, b) => b.used_percent - a.used_percent || a.label.localeCompare(b.label));
+}
+function noGoogleQuotaReason(mode) {
+  if (mode === "gemini-api-key") return "Gemini API-key quota has no public endpoint; check usage in Google AI Studio";
+  if (mode === "vertex-ai") return "Vertex AI quota is not readable here; check usage in the Google Cloud console";
+  if (mode === void 0) return "Gemini has no readable sign-in yet, so no quota can be read";
+  return "This Gemini sign-in mode reports no quota";
+}
+function geminiCodeAssistQuota({ fetch, credentialPublic }, nowMs) {
+  return credentialPublic("geminiSettings", (settings) => {
+    if (settings?.selectedType !== "oauth-personal") return { error: noGoogleQuotaReason(settings?.selectedType) };
+    return credentialPublic("geminiOauth", (login) => {
+      if (!login) return { error: "Gemini's Google sign-in is not in a file Domios can read, so no quota can be read" };
+      if (!(Number(login.expiresAt) > nowMs)) return { error: "Gemini's sign-in token has expired; quota reads again once Gemini renews it" };
+      const metadata = { ideType: "IDE_UNSPECIFIED", platform: "PLATFORM_UNSPECIFIED", pluginType: "GEMINI" };
+      return readJson(fetch, codeAssistRequest("loadCodeAssist", { metadata }), GEMINI_QUOTA, (body2) => {
+        const project = JSON.parse(body2).cloudaicompanionProject;
+        if (typeof project !== "string" || !project) return { error: "This Google account uses its own GOOGLE_CLOUD_PROJECT, which Domios cannot read, so no quota can be read" };
+        return readJson(fetch, codeAssistRequest("retrieveUserQuota", { project }), GEMINI_QUOTA, (quotaBody) => {
+          const limits = codeAssistLimits(quotaBody);
+          if (!limits) return { error: `${GEMINI_QUOTA} response has an unexpected format` };
+          if (!limits.length) return { error: "Gemini reported no model quota for this account" };
+          return snapshot("subscription", { quota: { title: "Gemini model quota", limits } }, nowMs);
+        });
+      });
+    });
+  });
+}
+var quotaReaders = {
+  "gemini-code-assist": geminiCodeAssistQuota
+};
+var own = (table, key) => Object.prototype.hasOwnProperty.call(table, key) ? table[key] : void 0;
+function readProfileLimits(ports, request2, nowMs) {
   const source = request2.source;
-  if (source.kind !== "balance") return { error: "Profile declares no balance source" };
-  const reader = Object.prototype.hasOwnProperty.call(readers, source.reader) ? readers[source.reader] : void 0;
+  if (source.kind === "quota") {
+    const reader2 = own(quotaReaders, source.reader);
+    return reader2 ? reader2(ports, nowMs) : { error: "Profile names an unknown quota reader" };
+  }
+  if (source.kind !== "balance") return { error: "Profile declares no plugin-read limits source" };
+  const reader = own(readers, source.reader);
   if (!reader) return { error: "Profile names an unknown balance reader" };
-  return fetch({
+  return readJson(ports.fetch, {
     url: reader.url,
     method: "GET",
     timeoutMs: 15e3,
     headers: { Accept: "application/json" },
     profileSecret: { profile: request2.profile, env: source.credentialEnv, headers: { Authorization: "Bearer {secret}" } }
-  }, (result) => {
-    if (result.error) return { error: result.error };
-    if (result.status !== 200) return { error: `Balance endpoint answered HTTP ${result.status}` };
-    if (!result.body || result.body.length > 64 * 1024) return { error: "Balance response is empty or too large" };
-    try {
-      const balance = reader.parse(result.body);
-      return balance ? snapshot(balance, nowMs) : unexpectedResponse;
-    } catch {
-      return unexpectedResponse;
-    }
+  }, "Balance", (body2) => {
+    const balance = reader.parse(body2);
+    return balance ? snapshot("api", { balance }, nowMs) : { error: "Balance response has an unexpected format" };
   });
 }
 
@@ -1628,7 +1708,11 @@ function readProfileLimits(fetch, request2, nowMs) {
 function onAgentCommand(ctx) {
   return discoveryCommand(host, ctx);
 }
+var limitsPorts = {
+  fetch: (opts, then) => host.fetch.async(opts, then),
+  credentialPublic: (id, then) => host.io({ op: "credentialPublic", id }, (fields2) => then(fields2))
+};
 function readProfileLimits2(request2, nowMs) {
-  return readProfileLimits((opts, then) => host.fetch.async(opts, then), request2, nowMs);
+  return readProfileLimits(limitsPorts, request2, nowMs);
 }
 var plugin_default = { runtimePlan, runtimeResponse, runtimeReduce, onAgentCommand, readProfileLimits: readProfileLimits2 };

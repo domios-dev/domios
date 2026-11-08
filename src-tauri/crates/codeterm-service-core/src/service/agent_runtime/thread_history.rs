@@ -162,6 +162,7 @@ async fn fork(
     let cwd = source_tab.cwd.clone().ok_or("Source cwd unavailable")?;
     let params = SpawnAgentParams {
         agent: Some(source_session.provider.clone()),
+        launch_profile: super::launch_profile::of_tab(&source_tab),
         cwd: Some(cwd.clone()),
         workspace_id: Some(workspace_id.clone()),
         force_tab: Some(true),

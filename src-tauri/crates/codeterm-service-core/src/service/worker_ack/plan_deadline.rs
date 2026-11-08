@@ -767,6 +767,7 @@ impl ServiceContext {
     ) -> bool {
         let identity = self.worker_ack_identity_for_attempt(plan_id, task_id, tab_id, &attempt.id);
         let acknowledged = self.worker_ack.acknowledge(&identity);
+        self.worker_ack.clear_ack_evidence(tab_id);
         let task_identity = StartupTaskIdentity {
             plan_id: plan_id.to_string(),
             task_id: task_id.to_string(),

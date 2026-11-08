@@ -793,6 +793,12 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                             "Tab {} is not working (status: {}); nothing to stop",
                             tab_id, status
                         );
+                    } else if let Some(line) = body
+                        .get("reason")
+                        .and_then(|v| v.as_str())
+                        .and_then(stop_pending_line)
+                    {
+                        println!("Tab {}: {}", tab_id, line);
                     } else {
                         println!("Tab {} has no agent to stop", tab_id);
                     }
@@ -847,6 +853,15 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
         }
         TabAction::Capture { action } => handle_tab_capture(client, json, action),
         TabAction::Todo { action } => crate::cmd::tab_todo::handle_tab(client, json, action),
+    }
+}
+
+fn stop_pending_line(reason: &str) -> Option<&'static str> {
+    match reason {
+        "interrupt_unconfirmed" => Some("stop requested; the agent has not confirmed it yet"),
+        "turn_ended" => Some("the turn already ended; nothing to stop"),
+        "turn_changed" => Some("a new turn started; press stop again to end it"),
+        _ => None,
     }
 }
 

@@ -361,6 +361,17 @@ fn apply(
         }
         RuntimeEvent::ItemUpdated { thread_id, item } if owned(&thread_id) => {
             super::super::turn_requests::observe_item(session, &context, &item);
+            if live {
+                if let Some(outcome) =
+                    crate::service::worker_ack::ack_failure::ack_tool_outcome(&item)
+                {
+                    let owner = svc.clone();
+                    let tab = context.tab_id.clone();
+                    crate::async_runtime::spawn_blocking(move || {
+                        owner.record_worker_ack_tool_outcome(&tab, &outcome);
+                    });
+                }
+            }
             let item = session.cache.lock().reconcile_live(item, at);
             crate::flow_trace::SourceCursor::rpc(
                 &context.tab_id,

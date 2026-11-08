@@ -22,6 +22,8 @@ pub struct TabStatusInfo {
     pub pending_prompt: Option<PendingPrompt>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub failure: Option<TabFailure>,
+    /// The effective permission state, not the launch request: no questions when true.
+    pub full_access: bool,
 }
 
 /// Why a tab's agent is not running: a failed boot or a degraded runtime, with a one-line reason.
@@ -55,14 +57,21 @@ fn tab_failure(
     let runtime_state = field("state")
         .filter(|_| runtime_failed)
         .map(str::to_string);
-    if boot_stage.is_none() && !runtime_failed {
+    let access_failure = field("accessFailure");
+    if boot_stage.is_none() && !runtime_failed && access_failure.is_none() {
         return None;
     }
+    let code = code.or_else(|| {
+        access_failure.map(|_| {
+            crate::service::agent_runtime::full_access::FULL_ACCESS_UNAVAILABLE.to_string()
+        })
+    });
     let reason = boot_stage
         .as_ref()
         .and(boot_failure_reason)
         .and_then(first_line)
         .or_else(|| field("reason").and_then(first_line))
+        .or_else(|| access_failure.and_then(first_line))
         .unwrap_or_else(|| "no reason recorded".into());
     Some(TabFailure {
         boot_stage,
@@ -74,6 +83,8 @@ fn tab_failure(
 
 impl ServiceContext {
     pub fn get_tab_status(&self, tab_id: &str) -> Result<TabStatusInfo, String> {
+        let ack_failure = self.worker_ack.reported_ack_failure(tab_id);
+        let full_access = self.effective_full_access(tab_id);
         let mux = self.mux.read();
         let tab = mux
             .get_tab(tab_id)
@@ -101,7 +112,18 @@ impl ServiceContext {
                 tab.boot_stage,
                 tab.boot_failure_reason.as_deref(),
                 tab.agent_runtime_state.as_ref(),
-            ),
+            )
+            .or_else(|| {
+                ack_failure.map(|reason| TabFailure {
+                    boot_stage: None,
+                    runtime_state: None,
+                    code: Some(
+                        crate::service::worker_ack::ack_failure::WORKER_ACK_FAILED.to_string(),
+                    ),
+                    reason,
+                })
+            }),
+            full_access,
         })
     }
 }

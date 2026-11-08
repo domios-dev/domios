@@ -84,7 +84,7 @@ impl ServiceContext {
             target_provider: None,
             session_id: tab.agent_session_id.clone(),
             cwd: tab.cwd.clone(),
-            auto_approve: tab.restorable_launch.permission_bypass_requested,
+            auto_approve: self.effective_full_access(tab_id),
             role: tab.role.map(|role| format!("{role:?}")),
             role_profile: tab.role_profile.clone(),
             handoff_history: None,

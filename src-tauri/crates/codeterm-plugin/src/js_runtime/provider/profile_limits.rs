@@ -29,15 +29,13 @@ fn bounded_failure(error: &str) -> String {
 }
 
 impl JsProvider {
-    /// The plugin reads its declared balance; the credential reaches only the outbound request header.
+    /// The plugin reads its declared balance or quota; the credential reaches only the outbound request header.
     pub(super) fn js_read_profile_limits(
         &self,
         profile: &str,
         source: &RuntimeProfileLimitsSource,
     ) -> Option<Result<String, String>> {
-        if !matches!(source, RuntimeProfileLimitsSource::Balance { .. })
-            || !self.has_js("readProfileLimits")
-        {
+        if !source.plugin_read() || !self.has_js("readProfileLimits") {
             return None;
         }
         let now_ms = chrono::Utc::now().timestamp_millis();

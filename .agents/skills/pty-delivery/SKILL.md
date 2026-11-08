@@ -119,6 +119,9 @@ Claimed or uncertain records remain held and are never replayed.
   loads again. If that attempt fails on the published degraded state, each
   never-written send settles `failed` with `launch_degraded_before_write` and
   Retry; sign-in and a replaced launch keep them held for the launch that follows.
+- A restart continue on a structured runtime enters the same durable owner as a
+  runtime envelope: held behind a running turn, written once, and written means
+  awaiting evidence, never a failed delivery.
 - `written/submit_unconfirmed → delivered` only happens
   when the tab's **own bound session transcript** appends a user turn whose
   normalized content equals the send's payload
@@ -212,4 +215,4 @@ Expected turn evidence and the Chat reader follow the same rule.
 | Closed-chat append-window evidence scan | `service/chat_send_evidence.rs` |
 | Live transcript deltas (evidence source) | `service/tab_chat/` sinks |
 
-<!-- revision: 10 -->
+<!-- revision: 11 -->

@@ -34,7 +34,7 @@ export function tabUsageProvider(provider:string | null | undefined, chatBackend
 /** What a tab's usage bubble shows. `trackingProvider` owns the Usage Tracking toggle that gates it. */
 export type TabUsageSource =
   | {kind:"meter"; provider:string; trackingProvider:string; borrowedAccount:boolean}
-  | {kind:"balance"; provider:string; accountId:string; trackingProvider:string}
+  | {kind:"balance" | "quota"; provider:string; accountId:string; trackingProvider:string}
   | {kind:"unavailable"; reason:string; trackingProvider:string};
 
 export interface TabLaunchProfile {id:string; limitsSource?:RuntimeProfileLimitsSource}
@@ -44,7 +44,8 @@ export function tabUsageSource(provider:string | null | undefined, chatBackend:b
   const source = chatBackend ? profile?.limitsSource : undefined;
   switch (source?.kind) {
     case "account": return {kind:"meter", provider:source.provider, trackingProvider:source.provider, borrowedAccount:true};
-    case "balance": return provider && profile ? {kind:"balance", provider, accountId:`profile:${profile.id}`, trackingProvider:provider} : null;
+    case "balance":
+    case "quota": return provider && profile ? {kind:source.kind, provider, accountId:`profile:${profile.id}`, trackingProvider:provider} : null;
     case "unavailable": return provider ? {kind:"unavailable", reason:source.reason, trackingProvider:provider} : null;
   }
   const meter = tabUsageProvider(provider, chatBackend, runtimeUsage);

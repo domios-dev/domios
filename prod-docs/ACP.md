@@ -80,22 +80,39 @@ Domios-owned process folder.
   own credential `ENV`, which must be one of its `--secret-env` or `--auth-env`
   variables. The host places the key only in that request's header; it never
   appears in arguments, logs or the plugin. `deepseek-balance` is the bundled reader.
-- `unavailable:REASON` shows the one-line reason (at most 240 characters) instead
-  of an empty bubble.
+- `unavailable:REASON` shows a quiet dash, with the one-line reason (at most 240
+  characters) in its popover. If the session reports a context window, the bubble
+  shows that fill instead and keeps the reason in its popover.
 
-Copied sources can be overridden the same way.
+Plugins can also declare a `quota` source, which reads account quota with the
+credentials the plugin's manifest declares. `--limits-source` does not set it, but
+`--like gemini-cli` copies it. Copied sources can be overridden the same way.
 
 A profile installed from the ACP registry needs no flag: the plugin declares a
 default per registry id, applied whenever profiles load, so already-installed
 profiles pick it up without reinstalling. `claude-acp` and `codex-acp` show the
-Claude and Codex account limits; `gemini` states that Gemini API-key quota has no
-public endpoint. A profile's own source always wins; `domios agent acp registry
+Claude and Codex account limits; `gemini` reads Gemini quota as described below.
+A profile's own source always wins; `domios agent acp registry
 install REGISTRY_ID --limits-source unavailable:REASON` overrides the default at
 install. Other registry agents have no default.
 
-The bundled `deepseek-harness` profile reads its DeepSeek balance; `gemini-cli`
-states that Gemini API-key quota has no public endpoint. Profiles without a source
-keep the runtime's own context and cost reading.
+The bundled `deepseek-harness` profile reads its DeepSeek balance. Profiles without
+a source keep the runtime's own context and cost reading.
+
+The bundled `gemini-cli` profile follows Gemini CLI's selected sign-in mode:
+
+- Signed in with Google (`oauth-personal`), the bubble shows the percentage used on
+  the model closest to its limit, with every model and its reset time in the popover.
+  This reads Gemini Code Assist quota with the token Gemini CLI stores in
+  `~/.gemini/oauth_creds.json`. The host places the token only in that request's
+  header. Domios never renews it, so after the token expires the read waits until
+  Gemini CLI renews it. The endpoint is internal to Gemini CLI and can change.
+- With an API key or Vertex AI, no quota endpoint is read. The bubble shows the
+  context fill Gemini reports for the session, or a dash until it reports one, and
+  its popover explains why.
+
+An account that requires `GOOGLE_CLOUD_PROJECT`, or a login kept in encrypted
+storage, shows the same dash or context fill with its reason.
 
 Names contain one word of letters, digits, underscores or hyphens; Windows device
 names and existing profile names are refused. Repeat `--arg` for each argument,
@@ -247,6 +264,32 @@ already exists on PATH.
 
 ## Permission questions and cancellation
 
+New ACP tabs run with no permission questions, as other Domios agents do. Change this
+per tab in the model picker; the choice applies at once and survives restart and restore:
+
+- **Agents with an approve-all mode** (Gemini YOLO, `claude-acp` bypassPermissions,
+  `codex-acp` full-access): the agent's **Mode** row is the only switch. If you choose
+  that mode, Domios also answers any question the agent still asks, such as Gemini's
+  prompt about paths outside the project. If you choose any other mode, the agent asks.
+  Domios re-applies your chosen mode after every restore.
+- **Other agents** (DeepSeek, for example): a **Permissions** row offers **Ask each
+  time** and **Allow all**. A question already waiting follows the new setting.
+
+Only you can change these. An agent's request to change its mode or Permissions is
+refused, and a mode the agent enters by itself doesn't change what Domios answers.
+
+If the picker shows **Permissions: Full access (host)** beside a Mode row, the agent
+isn't in its approve-all mode (it refused the mode or left it), but Domios is still
+answering its questions.
+
+`domios tab status --json` reports the effective state as `full_access`, and
+`domios agent restart` prints the same value. Tabs confined by a sandbox or a neighbor
+grant keep their confinement and show no Permissions row.
+
+**Allow all** answers the agent's questions; it does not widen what the agent itself
+enforces. DeepSeek keeps its workspace-write sandbox, and a denied command is retried
+with approval, which Domios gives. So the command still runs, one retry later.
+
 When the tab status is `question`, inspect the current prompt and numbered options:
 
 ```bash
@@ -267,6 +310,30 @@ domios tab stop --tab TAB_ID
 
 Stop interrupts the active turn via ACP `session/cancel`; it does not close the tab.
 It can also cancel a turn waiting for a permission response.
+
+### Full access
+
+A full-access launch enters the session mode its profile declares, chosen from the
+modes the agent advertises at session start. If the agent does not advertise that
+mode, or refuses it, the tab runs inside the agent's own sandbox and says so:
+`domios tab status` reports `failure.code` `full_access_unavailable` with the reason,
+including the modes the agent offers. `domios tab inspect` shows it as
+`agent_runtime_state.accessFailure`, the tab shows it as a notice, and the parent
+receives a report.
+
+A sandbox can stop a Worker's `domios agent ack` from reaching Domios. Domios sees that
+failed command in the session, reports it to the parent with its output, and shows
+`failure.code` `worker_ack_failed` in `domios tab status`.
+
+The local owner can switch the session mode from the CLI:
+
+```bash
+domios agent model --tab TAB_ID --runtime-mode MODE
+```
+
+This makes the same selection as the model picker. `MODE` must be one the session
+advertises. Requests carrying a tab credential are refused with `owner_required`, so
+an agent cannot change its own or another tab's mode this way.
 
 ## Platform notes and limits
 
@@ -292,4 +359,4 @@ It can also cancel a turn waiting for a permission response.
   the current index and refuses unsupported distributions; neither proves agent
   authentication or compatibility.
 
-<!-- revision: 8 -->
+<!-- revision: 11 -->

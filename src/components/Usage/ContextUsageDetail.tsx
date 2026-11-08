@@ -10,8 +10,8 @@ const compact = new Intl.NumberFormat("en-US", { notation: "compact", maximumFra
  * The usage popover for a harness that reports its context fill but no quota: the same popover shell and gauge as the
  * quota view, with the session tokens and cost when the harness reports them. Sections without data are left out.
  */
-export function ContextUsageDetail({ title, usage, capturedAt, now, onOpenHistory }: {
-  title: string; usage: ContextUsage; capturedAt: number | null; now: number; onOpenHistory?: () => void;
+export function ContextUsageDetail({ title, usage, capturedAt, now, reason, onOpenHistory }: {
+  title: string; usage: ContextUsage; capturedAt: number | null; now: number; reason?: string; onOpenHistory?: () => void;
 }) {
   return (
     <div className="ct-usage-popover" role="dialog" aria-label="usage details">
@@ -20,6 +20,7 @@ export function ContextUsageDetail({ title, usage, capturedAt, now, onOpenHistor
         now={now} note={`${compact.format(usage.used)} of ${compact.format(usage.window)} tokens`} />
       {usage.sessionTokens != null && <div className="ct-usage-account-credits"><span className="k">Session tokens</span><span className="v">{usage.sessionTokens.toLocaleString("en-US")}</span></div>}
       {usage.costMicros != null && <div className="ct-usage-account-credits"><span className="k">Session cost</span><span className="v">{formatCostMicros(usage.costMicros)}</span></div>}
+      {reason && <p className="ct-usage-detail">{reason}</p>}
       <div className="ct-usage-foot">
         <span className="live">
           <span className="pulse ct-live-pulse" />

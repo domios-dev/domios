@@ -1,7 +1,7 @@
-//! Plugin-read balances declared by a launch profile's `balance` limits source.
+//! Plugin-read balances and quota declared by a launch profile's `balance` or `quota` limits source.
 //!
-//! The plugin performs the request; the host resolves only the credential that profile
-//! names as its balance credential and places it into the outbound header.
+//! The plugin performs the request; the host resolves only the credential the profile or the
+//! plugin's manifest declares and places it into the outbound header.
 
 use std::collections::BTreeSet;
 use std::sync::OnceLock;
@@ -103,10 +103,10 @@ fn read(
 ) -> Result<UsageSnapshot, (UsageFailureKind, String)> {
     let source = declared(svc, provider, profile)
         .and_then(|declaration| declaration.limits_source)
-        .filter(|source| matches!(source, RuntimeProfileLimitsSource::Balance { .. }))
+        .filter(RuntimeProfileLimitsSource::plugin_read)
         .ok_or((
             UsageFailureKind::SourceUnavailable,
-            String::from("Profile declares no balance source"),
+            String::from("Profile declares no plugin-read limits source"),
         ))?;
     let raw = svc
         .agent_registry

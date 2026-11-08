@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { modelSwitchFailure } from "./modelSwitchFailure";
+import { modelSwitchFailure, runtimeBusy } from "./modelSwitchFailure";
 import { TransportError } from "./transportClient";
 
 function refusal(reason: string, fallback?: boolean) {
@@ -24,5 +24,13 @@ describe("model switch failure", () => {
     expect(modelSwitchFailure(refusal("live_command_failed", true), false).restartAvailable).toBe(true);
     expect(modelSwitchFailure(refusal("invalid_model"), false).restartAvailable).toBe(false);
     expect(modelSwitchFailure(new Error("opaque failure"), false)).toEqual({ message: "opaque failure", restartAvailable: true });
+  });
+});
+
+describe("runtime busy", () => {
+  it("recognizes only the typed busy outcome", () => {
+    expect(runtimeBusy(refusal("runtime_busy"))).toBe(true);
+    expect(runtimeBusy(refusal("runtime_control_refused"))).toBe(false);
+    expect(runtimeBusy(new Error("opaque failure"))).toBe(false);
   });
 });

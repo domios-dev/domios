@@ -24,6 +24,11 @@ export interface RuntimeControlTarget {
   epoch?: number;
 }
 
+/** The owner's live answer to this tab's permission requests; applies without a restart. */
+export function setHostApprovals(tabId: string, allowAll: boolean): Promise<unknown> {
+  return invoke("agent_runtime_host_approvals", { tabId, request: { allowAll } });
+}
+
 /** Sets one declared control (or the session mode) through the runtime controls API. */
 export function selectRuntimeControl(tabId: string, target: RuntimeControlTarget, id: string, value: string, mode = false): Promise<unknown> {
   return invoke("agent_runtime_controls", { tabId, request: { threadId: target.threadId, bindingNonce: target.bindingNonce, epoch: target.epoch, id, value, mode } });

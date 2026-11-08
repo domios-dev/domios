@@ -106,11 +106,14 @@ pub(in crate::service::agent_runtime) fn access(
             Access::ReadOnly
         });
     }
-    Ok(if tab.restorable_launch.permission_bypass_requested {
-        Access::Full
-    } else {
-        Access::Interactive
-    })
+    drop(mux);
+    Ok(
+        if svc.full_access_with_settings(&context.tab_id, Some(&context.settings)) {
+            Access::Full
+        } else {
+            Access::Interactive
+        },
+    )
 }
 
 pub(super) fn prompt(question: String) -> Result<PendingPrompt, String> {

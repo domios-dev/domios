@@ -60,6 +60,19 @@ pub struct RestorableLaunchParameters {
     pub permission_bypass_requested: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub runtime_launch_options: Option<RestorableRuntimeLaunchOptions>,
+    /// Absent means the owner never chose; a false launch record alone is not an owner choice.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_approval_choice: Option<HostApprovalChoice>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selected_session_mode: Option<String>,
+}
+
+/// The owner's per-tab answer to agent permission requests the host can answer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HostApprovalChoice {
+    Ask,
+    AllowAll,
 }
 
 impl RestorableLaunchParameters {
@@ -95,6 +108,8 @@ impl RestorableLaunchParameters {
             && self.identity_instructions.is_none()
             && !self.permission_bypass_requested
             && self.runtime_launch_options.is_none()
+            && self.host_approval_choice.is_none()
+            && self.selected_session_mode.is_none()
     }
 }
 
