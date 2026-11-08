@@ -1180,7 +1180,7 @@ pub(super) fn snapshot(session: &Session) -> model::RuntimeSnapshot {
 
 mod publication;
 pub use publication::publish;
-pub(super) use publication::publish_controls;
+pub(super) use publication::{publish_controls, publish_degraded};
 
 fn validate_restored_arguments(
     provider: &str,

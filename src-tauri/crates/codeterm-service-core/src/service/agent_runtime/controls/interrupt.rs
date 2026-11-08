@@ -117,7 +117,12 @@ pub(super) fn interrupt(svc: &ServiceContext, tab: &str) -> Result<bool, String>
             .map_err(|_| RuntimeFailure::Refused("Runtime operation already in progress".into()))?;
         engine::validate_binding(svc, &session)?;
         let context = session.context.lock().clone();
-        let target = InterruptTarget::capture(&context)?;
+        let mut target = InterruptTarget::capture(&context)?;
+        let no_provider_turn =
+            super::super::turn_requests::no_provider_turn(&session, context.epoch);
+        if no_provider_turn {
+            target.turns.clear();
+        }
         let before_first = before_first_turn(svc, &session, &context);
         let had_turn = !target.turns.is_empty() || before_first;
         let process = session
@@ -126,7 +131,9 @@ pub(super) fn interrupt(svc: &ServiceContext, tab: &str) -> Result<bool, String>
             .clone()
             .ok_or(RuntimeFailure::PipeEof)?;
         super::super::client_bridge::cancel_all(svc, &session, &process, false).await?;
-        if !had_turn {
+        let context = if had_turn {
+            context
+        } else {
             super::super::subscriber::publish_events(
                 svc,
                 &session,
@@ -146,10 +153,14 @@ pub(super) fn interrupt(svc: &ServiceContext, tab: &str) -> Result<bool, String>
                 chrono::Utc::now().timestamp_millis().max(1) as u64,
             )
             .await?;
+            if no_provider_turn {
+                session.context.lock().active_turns.clear();
+            }
             if !super::super::background::supported(&session) {
                 return Ok(false);
             }
-        }
+            session.context.lock().clone()
+        };
         {
             let mut current = session.context.lock();
             if current.epoch != context.epoch
@@ -224,7 +235,7 @@ pub(super) fn interrupt(svc: &ServiceContext, tab: &str) -> Result<bool, String>
                     && session.context.lock().epoch == target.epoch
                 {
                     session.state.lock().degrade(target.epoch, &reason);
-                    engine::publish(svc, tab, &session);
+                    engine::publish_degraded(svc, tab, &session);
                     svc.emit_state_changed(MuxEmitCause::RuntimeSignal);
                 }
                 return Err(reason);
@@ -292,15 +303,14 @@ async fn wait(
             if super::super::turn_requests::cancel_timed_out(svc, session, target.epoch).await? {
                 return Ok(());
             }
-            let reason = RuntimeFailure::Refused(
-                "Interrupt completion deadline exceeded; runtime recovery required".into(),
-            );
+            // A provider that stays silent has refused nothing, and a refusal would bar every later resume.
+            let reason = RuntimeFailure::Deadline;
             if engine::validate_binding(svc, session).is_ok()
                 && session.context.lock().epoch == target.epoch
             {
                 session.state.lock().degrade(target.epoch, &reason);
                 let tab = session.context.lock().tab_id.clone();
-                engine::publish(svc, &tab, session);
+                engine::publish_degraded(svc, &tab, session);
                 svc.emit_state_changed(MuxEmitCause::RuntimeSignal);
             }
             Err(reason)

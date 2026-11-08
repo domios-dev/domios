@@ -5,7 +5,8 @@ import { commands, sessionSettings } from "./runtimeControls";
 import { copyAccounting, clearEntries, putEntry, removeEntry, mapBytes, mapKeys, utf8Length } from "./runtimeReduceAccounting";
 import { evictedMayInclude, recordEvicted } from "./runtimeReduceSeen";
 
-export interface StreamCursor { replay:number; prompt:number; loading:boolean }
+// `unattributed` marks a frame no written prompt owns: it may update rows and controls but never start a turn.
+export interface StreamCursor { replay:number; prompt:number; loading:boolean; unattributed?:boolean }
 // `row` names the row that continues a message whose earlier offset was evicted.
 interface TextCursor { offset:number; chars:number; echo?:string; row?:string }
 const OFFSET_BUDGET=16384;
@@ -160,12 +161,12 @@ export function reduceStream(ctx:RuntimeContext, raw:JsonValue, frames:readonly 
     if (params.sessionId !== ctx.threadId) continue;
     try {
       if (ownSubmitted && !state.loading && !state.settled) submittedRow(state,events,ownSubmitted,false);
-      if (frame.kind === "request" && clientRequest(frame.method)) { startTurn(ctx,state,events);continue; }
+      if (frame.kind === "request" && clientRequest(frame.method)) { if (!cursor.unattributed) startTurn(ctx,state,events);continue; }
       if (frame.kind !== "notification" || frame.method !== "session/update") continue;
       const update=object(params.update);
       const kind=text(update.sessionUpdate);
       if (!kind) continue;
-      startTurn(ctx,state,events);
+      if (!cursor.unattributed) startTurn(ctx,state,events);
       if (ownSubmitted && !state.loading && !state.settled) submittedRow(state,events,ownSubmitted,true);
       if (kind === "user_message_chunk" || kind === "agent_message_chunk" || kind === "agent_thought_chunk") {
         const content=object(update.content);
@@ -207,7 +208,7 @@ export function reduceStream(ctx:RuntimeContext, raw:JsonValue, frames:readonly 
         putEntry(state,"items",row.id,row);
         const key=explicit ? `${state.sessionId}:turn:${state.turn}:message:${explicit}` : undefined;
         if (key) rememberOffset(state,key,{offset:chunk.offset,chars:chunk.chars,...(chunk.echo ? {echo:chunk.echo} : {}),...(chunk.id !== key ? {row:chunk.id} : {})});
-        if (!state.loading && !state.started && kind === "agent_message_chunk") events.push({kind:"turnState",threadId:ctx.threadId,turnId:ctx.activeTurnId ?? `${ctx.threadId}:turn:${state.turn}`,state:"working"});
+        if (!cursor.unattributed && !state.loading && !state.started && kind === "agent_message_chunk") events.push({kind:"turnState",threadId:ctx.threadId,turnId:ctx.activeTurnId ?? `${ctx.threadId}:turn:${state.turn}`,state:"working"});
         continue;
       }
       if (kind === "tool_call" || kind === "tool_call_update") {

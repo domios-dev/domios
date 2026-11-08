@@ -108,7 +108,7 @@ pub(super) fn record_write(svc: &ServiceContext, status: &ChatSendStatus) -> Res
                         epoch,
                         &super::model::RuntimeFailure::HookFailed(reason.clone()),
                     );
-                    super::engine::publish(svc, &status.tab_id, &session);
+                    super::engine::publish_degraded(svc, &status.tab_id, &session);
                 }
             }
             return Err(reason);

@@ -104,7 +104,7 @@ async fn monitor(
                         format!("Runtime failed after provider update to {version}; automatic recovery exhausted (reported version: {:?})", session.state.lock().binary_version)));
                     let epoch = session.state.lock().epoch;
                     session.state.lock().degrade(epoch, &reason);
-                    engine::publish(&svc, &tab, &session);
+                    engine::publish_degraded(&svc, &tab, &session);
                 }
                 return;
             }

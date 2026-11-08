@@ -4,6 +4,27 @@ pub fn publish(svc: &ServiceContext, tab: &str, session: &Session) {
     publish_state(svc, tab, session, true);
 }
 
+/// Publishes a degrade no restart owns: tracked requests end and held sends get their outcome now.
+pub(in crate::service::agent_runtime) fn publish_degraded(
+    svc: &ServiceContext,
+    tab: &str,
+    session: &Arc<Session>,
+) {
+    publish(svc, tab, session);
+    if !session.turn_requests.lock().is_empty() {
+        let (owner, runtime) = (svc.clone(), session.clone());
+        crate::async_runtime::spawn(async move {
+            super::super::turn_requests::end_for_lifecycle(
+                &owner,
+                &runtime,
+                "Runtime degraded before the turn completion reply",
+            )
+            .await;
+        });
+    }
+    svc.wake_user_owner_on_state_change(tab);
+}
+
 pub(in crate::service::agent_runtime) fn publish_controls(
     svc: &ServiceContext,
     tab: &str,
@@ -149,6 +170,9 @@ fn publish_state(svc: &ServiceContext, tab: &str, session: &Session, lifecycle: 
         if lifecycle {
             target.agent_booting = value["state"] == "loading";
         }
+    }
+    if lifecycle && matches!(session.state.lock().phase, RuntimePhase::Degraded { .. }) {
+        super::super::subscriber::release_lost_turn(svc, session);
     }
     session.control_changes.send_replace(());
     svc.notify_event(
