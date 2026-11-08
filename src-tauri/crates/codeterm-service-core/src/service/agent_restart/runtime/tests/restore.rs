@@ -311,6 +311,101 @@ fn fresh_after_load_refusal_preserves_profile_settings_and_archived_transcript()
 }
 
 #[test]
+fn start_new_session_after_a_failed_relaunch_opens_a_thread_and_archives_the_dead_one() {
+    let saved = [
+        ChatMsg {
+            id: "saved-reply".into(),
+            kind: "assistant".into(),
+            content: "opaque earlier reply".into(),
+            ..Default::default()
+        },
+        ChatMsg {
+            id: "saved-tool".into(),
+            kind: "tool_call".into(),
+            content: "opaque cut-off tool".into(),
+            tool_status: Some("running".into()),
+            seq: 1,
+            ..Default::default()
+        },
+    ];
+    let (fixture, old_thread, config) = refused_load_fixture(&saved);
+    assert!(
+        agent_runtime::transport::launch(&fixture.service, PROVIDER, &fixture.tab, config).is_err()
+    );
+    assert!(agent_runtime::lost_session::join_for_test(&fixture.tab));
+    let count = |method: &str| {
+        fixture
+            .requests()
+            .iter()
+            .filter(|request| request["method"] == method)
+            .count()
+    };
+    // Automatic recovery relaunches the lost session once and fails, as a killed process does.
+    assert!(fixture
+        .service
+        .agent_restart(&fixture.tab, false, 0)
+        .is_err());
+    assert_eq!(
+        fixture
+            .service
+            .mux
+            .read()
+            .get_tab(&fixture.tab)
+            .unwrap()
+            .boot_stage,
+        Some(codeterm_types::pty::BootStage::SpawnFailed)
+    );
+    let loads = count("resumeThread");
+
+    // Opening the tab retries nothing, so the explicit action below is not blocked by a relaunch.
+    fixture.service.wake_tab_on_request(&fixture.tab).unwrap();
+    assert_eq!(count("resumeThread"), loads);
+    assert_eq!(count("openThread"), 0);
+
+    let outcome = fixture
+        .service
+        .agent_restart_observed_with_options(
+            &fixture.tab,
+            RestartOptions {
+                fresh: true,
+                retry_refused_start: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+    assert!(outcome.agent_ready);
+    assert_eq!(outcome.session_action(), "fresh_launch");
+    assert_ne!(outcome.session_id.as_deref(), Some(old_thread.as_str()));
+    assert_eq!(count("resumeThread"), loads);
+    assert_eq!(count("openThread"), 1);
+    let (rows, _) =
+        crate::service::tab_chat::tab_chat_snapshot(&fixture.service, &fixture.tab, 0).unwrap();
+    assert_eq!(rows[0].content, "opaque earlier reply");
+    assert_eq!(rows[1].content, "opaque cut-off tool");
+    assert_eq!(rows[1].tool_status.as_deref(), Some("interrupted"));
+    assert_eq!(
+        rows[2].system_subtype.as_deref(),
+        Some("context_epoch_boundary")
+    );
+    let tab = fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&fixture.tab)
+        .unwrap()
+        .clone();
+    assert!(tab
+        .agent_runtime_state
+        .as_ref()
+        .is_some_and(|state| state["active_turn_started_at_ms"].is_null()));
+    assert_eq!(
+        tab.agent_state.map(|live| live.state),
+        Some(codeterm_types::pty::TimelineState::Idle)
+    );
+}
+
+#[test]
 fn fresh_runtime_restart_still_refuses_a_loaded_live_session() {
     let fixture = RuntimeFixture::new();
     for code in [

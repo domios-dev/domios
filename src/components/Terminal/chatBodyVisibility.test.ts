@@ -7,6 +7,7 @@ import {
   chatBodyView,
   chatChannelLoadingRow,
   chatRailsVisible,
+  chatRowsPartial,
   placeChatRails,
   railRowCount,
   setupFlowsInLog,
@@ -269,6 +270,21 @@ describe("chat loader terminal state", () => {
       bootView: { kind: "none" },
     });
     expect(view.kind).toBe("none");
+  });
+});
+
+describe("chatRowsPartial", () => {
+  const none: ChatBodyView = { kind: "none" };
+  const attached = { snapshotReady: true, hasHeldWindow: false, firstTurnReady: false };
+  it("a relaunch that has not reattached its transcript draws only part of it", () => {
+    expect(chatRowsPartial(none, { ...attached, snapshotReady: false })).toBe(true);
+    expect(chatRowsPartial({ kind: "starting", label: "opaque" }, attached)).toBe(true);
+    expect(chatRowsPartial({ kind: "launch_failed", reason: null }, attached)).toBe(true);
+  });
+  it("an attached transcript, a held window and a first turn draw every row they have", () => {
+    expect(chatRowsPartial(none, attached)).toBe(false);
+    expect(chatRowsPartial(none, { ...attached, snapshotReady: false, hasHeldWindow: true })).toBe(false);
+    expect(chatRowsPartial(none, { ...attached, snapshotReady: false, firstTurnReady: true })).toBe(false);
   });
 });
 

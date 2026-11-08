@@ -137,10 +137,14 @@ fn archived_session_messages(svc: &ServiceContext, archive: &ContextEpochArchive
     }
 }
 
-/// Read-only identity of a row from an archived session.
+/// Read-only identity of a row from an archived session, whose tools can no longer be running.
 pub(crate) fn scope_archived(message: &mut ChatMsg, session_id: &str) {
     scope_historical_message(message, session_id);
     message.interactive.clear();
+    if message.tool_status.as_deref() == Some("running") {
+        message.tool_status = Some("interrupted".into());
+        message.tool_interrupted = Some(true);
+    }
 }
 
 fn scope_historical_message(message: &mut ChatMsg, session_id: &str) {
@@ -261,5 +265,32 @@ mod tests {
             rows.iter().map(|row| row.seq).collect::<Vec<_>>(),
             [0, 1, 2, 3]
         );
+    }
+
+    #[test]
+    fn a_tool_kept_running_in_an_archived_session_reads_as_interrupted() {
+        let tool = || ChatMsg {
+            id: "tool".into(),
+            kind: "tool_call".into(),
+            tool_status: Some("running".into()),
+            ..Default::default()
+        };
+        let rows = project_timeline(vec![
+            TimelineSegment {
+                session_id: "previous-session".into(),
+                boundary_before: None,
+                read_only: true,
+                messages: vec![tool()],
+            },
+            TimelineSegment {
+                session_id: "current-session".into(),
+                boundary_before: Some(ContextEpochBoundary::ContextReset),
+                read_only: false,
+                messages: vec![tool()],
+            },
+        ]);
+        assert_eq!(rows[0].tool_status.as_deref(), Some("interrupted"));
+        assert_eq!(rows[0].tool_interrupted, Some(true));
+        assert_eq!(rows[2].tool_status.as_deref(), Some("running"));
     }
 }

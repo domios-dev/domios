@@ -30,10 +30,19 @@ impl Drop for WakeRequest {
     }
 }
 
+/// Reloading a session the provider refused cannot succeed; only the owner's
+/// Start new session or an explicit restart moves such a tab on.
+fn provider_lost_session(tab: &Tab) -> bool {
+    tab.agent_runtime_state.as_ref().is_some_and(|state| {
+        state["state"] == "degraded" && state["failureCode"] == "session_load_refused"
+    })
+}
+
 pub(crate) fn wake_eligible(tab: &Tab, explicit: bool) -> bool {
     tab.frozen
         || explicit
             && !tab.protected
+            && !provider_lost_session(tab)
             && (tab.boot_stage == Some(BootStage::SpawnFailed)
                 || tab.restored_from_snapshot
                     && matches!(tab.backing, TabBacking::ChatBackend { .. })

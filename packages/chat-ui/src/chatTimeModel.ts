@@ -53,11 +53,12 @@ export function messageTimeLabels(timestamp: number, context: Pick<ChatTimeConte
 
 /** After a message whose day is unknown, the first dated row opens no day: the earlier messages may share it. */
 export function chatDaySeparators(timestamps: readonly (number | null)[], context: ChatTimeContext,
-  undatedMessage: (index: number) => boolean = () => false): ReadonlyMap<number, string> {
+  undatedMessage: (index: number) => boolean = () => false, transcriptPartial = false): ReadonlyMap<number, string> {
   const result = new Map<number, string>();
   const today = chatLocalDay(context.now, context.timeZone);
   let previous: number | null = null;
-  let unknownBefore = false;
+  // Rows known to be missing above these may be undated, so the first dated row cannot claim to open a day.
+  let unknownBefore = transcriptPartial;
   timestamps.forEach((timestamp, index) => {
     const day = timestamp == null ? null : chatLocalDay(timestamp, context.timeZone);
     if (timestamp == null || day == null) {

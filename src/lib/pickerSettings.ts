@@ -72,6 +72,32 @@ function sessionOffersMode(controls: RuntimeSettings, mode: string): boolean {
   return Boolean(modeOption(controls)?.options.some(option => option.value === mode) || controls.modes?.some(entry => entry.id === mode));
 }
 
+/** The names the agent gave its modes this session; a stopped session no longer declares them. */
+export function sessionModeNames(controls: RuntimeSettings | undefined): readonly (readonly [string, string])[] {
+  return [
+    ...(controls?.modes ?? []).map(mode => [mode.id, mode.name] as const),
+    ...(controls ? modeOption(controls)?.options ?? [] : []).map(option => [option.value, option.name] as const),
+  ];
+}
+
+const RECOVERING_MODE_UNKNOWN = "Unknown while recovering";
+
+/**
+ * What the identity chip reads while no live session reports a mode: the owner's last choice, or an honest
+ * unknown once the session is down. `null` means a live session answers, so the chip reads as it normally does.
+ */
+export function recoveringModeLabel(
+  runtimeState: "loading" | "loginPending" | "loaded" | "unloaded" | "degraded" | null | undefined,
+  config: Readonly<Record<string, unknown>> | null | undefined,
+  names: ReadonlyMap<string, string>,
+): string | null {
+  if (runtimeState !== "degraded" && runtimeState !== "unloaded" && runtimeState !== "loading") return null;
+  const chosen = [config?.sessionMode, config?.fullAccessMode, config?.mode]
+    .find((mode): mode is string => typeof mode === "string" && mode.trim().length > 0);
+  if (chosen) return names.get(chosen) ?? chosen;
+  return runtimeState === "loading" ? null : RECOVERING_MODE_UNKNOWN;
+}
+
 export function pickerSections({ descriptor, controls, model, effort, runtimeMode, serviceTier, serviceTierAvailability, hostApprovals, hostAskScope, hostFullAccess }: {
   descriptor?: ProviderDescriptor;
   controls?: RuntimeSettings;

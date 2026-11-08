@@ -17,7 +17,7 @@ import { AgentIcon } from "../AgentIcon";
 import { ProviderGlyph } from "../ProviderGlyph";
 import { runtimeAgentLabel } from "../../lib/tabProvider";
 import { selectRuntimeControl, setHostApprovals } from "../../lib/runtimeDeclaredControls";
-import { declaredAskScope, hostApprovalsChoice, hostFullAccessOverride, pickerSections, pickerDescriptor, type HostApprovalsValue, type PickerSection } from "../../lib/pickerSettings";
+import { declaredAskScope, hostApprovalsChoice, hostFullAccessOverride, pickerSections, pickerDescriptor, recoveringModeLabel, sessionModeNames, type HostApprovalsValue, type PickerSection } from "../../lib/pickerSettings";
 import { PickerSettingSection } from "./PickerSettingSection";
 import {
   currentModelId,
@@ -101,6 +101,9 @@ export function StatusLineModelPicker({
   serviceTierAvailability?: Record<string,readonly import("../../../packages/plugin-sdk/src/agentRuntime").RuntimeServiceTier[]>;
   pendingSelection?: { model: string; effort: string | null; confirmation_pending?: boolean };
 }) {
+  const modeNames = useRef(new Map<string, string>());
+  for (const [id, name] of sessionModeNames(runtimeControls)) modeNames.current.set(id, name);
+  const unavailableLabel = recoveringModeLabel(tab?.agent_runtime_state?.state, tab?.agent_runtime_config, modeNames.current) ?? "Default";
   const hostApprovals = tab ? hostApprovalsChoice(descriptor, tab.agent_runtime_config, runtimeControls) : undefined;
   const hostAskScope = tab ? declaredAskScope(descriptor, tab.agent_runtime_config) : undefined;
   const hostFullAccess = tab ? hostFullAccessOverride(descriptor, tab.agent_runtime_config, runtimeControls) : false;
@@ -179,7 +182,7 @@ export function StatusLineModelPicker({
   const tierLabel = serviceTierLabel(descriptor, currentServiceTier);
   const selectionStatus = pendingSelection?.confirmation_pending ? "Switch sent; confirms when this turn ends" : afterTurn ? "after this turn" : undefined;
   const displayedLabel = declaredModels
-    ? tabMetaParts(confirmedModelName || "Default", tierLabel, selection.effort, selectionStatus).join(" · ")
+    ? tabMetaParts(confirmedModelName || unavailableLabel, tierLabel, selection.effort, selectionStatus).join(" · ")
     : tabMetaParts(confirmedModelName, tierLabel, selection.effort, selectionStatus).join(" · ");
   // The logo names the agent; the agent's reported name and version live only in the tooltip, never in the label.
   const providerName = descriptor?.display_name ?? label.split(" · ")[0];
@@ -201,7 +204,7 @@ export function StatusLineModelPicker({
   if (declaredModels && !settings.some(section => section.options.length)) return (
     <span className="ct-status-identity ct-status-identity--static" data-testid="status-model-default"
       title={`${harnessTitle ? `${harnessTitle}. ` : ""}This agent does not offer model choices`}>
-      {glyph}<span className="ct-status-identity__text">{["Default", selectionStatus].filter(Boolean).join(" · ")}</span>
+      {glyph}<span className="ct-status-identity__text">{[unavailableLabel, selectionStatus].filter(Boolean).join(" · ")}</span>
     </span>
   );
 

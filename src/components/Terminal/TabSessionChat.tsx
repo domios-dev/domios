@@ -24,7 +24,7 @@ import { ThreadRevertConfirmation } from "./ThreadRevertConfirmation";
 import { forkableTurnEnds } from "./messageForkModel";
 import { AskRow, ChatTranscriptRow, OutboundReportRow, type ChatTranscriptRowContext, type OutboundReportEntry } from "./ChatTranscriptRow";
 import { chatWindowRows } from "./chatWindowRowsModel";
-import { liveOperationSlot, projectChatTranscriptActivity } from "./chatTranscriptActivity";
+import { composerRunningTool, liveOperationSlot, projectChatTranscriptActivity } from "./chatTranscriptActivity";
 import { ChatLiveOperation } from "./ChatLiveOperation";
 import { CompactToolRowsProvider, LocalArtifactScope } from "@codeterm/chat-ui";
 import { chatMessageAccessibleName } from "./chatMessageAccessibleName";
@@ -97,7 +97,7 @@ import { resolveTabNavigationTarget } from "./tabNavigation";
 import { useMeshPeerNameResolver } from "./useMeshPeerNameResolver";
 import { useAgentReportProjection } from "./agentReportProjection";
 import { readTranscriptWindow, transcriptWindowKey } from "./transcriptStore";
-import { chatBodyView, chatChannelLoadingRow, chatRailsVisible, placeChatRails, setupFlowsInLog } from "./chatBodyVisibility";
+import { chatBodyView, chatChannelLoadingRow, chatRailsVisible, chatRowsPartial, placeChatRails, setupFlowsInLog } from "./chatBodyVisibility";
 import { lazyFirstTurnComposerIsLive } from "../../lib/tabActivity";
 import { firstTurnLocalSends, isLocalSendRow, sendsOfCurrentAttempt } from "./firstTurnLocalRows";
 import { TabRecoveryAction } from "./TabRecoveryAction";
@@ -381,7 +381,7 @@ function TabSessionChatBody({
     [enrichedMessages, setupView.kind, snapshotReady, firstTurnReady, localFirstTurnSends, undelivered],
   );
   const setupInLog = setupFlowsInLog(setupView, restoreLoadRefused, renderedEnrichedMessages.length > 0);
-  const transcriptActivityAvailable = setupView.kind === "none" && !chatLoading;
+  const transcriptActivityAvailable = setupView.kind === "none" && !chatLoading && !runtimeFailed;
   const chatTranscriptActivity = useMemo(
     () => projectChatTranscriptActivity(
       renderedEnrichedMessages,
@@ -631,11 +631,12 @@ function TabSessionChatBody({
   };
 
   const localToday = chatLocalDay(Date.now(), CHAT_TIME_ZONE);
+  const rowsPartial = chatRowsPartial(setupView, { snapshotReady, hasHeldWindow, firstTurnReady });
   const daySeparators = useMemo(() => chatDaySeparators(renderedEnrichedMessages.map(({ msg, item, origin }) => messageRowTime(msg, item, origin)?.timestamp ?? null), {
     now: Date.now(), timeZone: CHAT_TIME_ZONE,
     labels: { today: "Today", yesterday: "Yesterday" },
-  }, (index) => isUndatedTranscriptRow(renderedEnrichedMessages[index].msg, renderedEnrichedMessages[index].item)),
-  [renderedEnrichedMessages, localToday]);
+  }, (index) => isUndatedTranscriptRow(renderedEnrichedMessages[index].msg, renderedEnrichedMessages[index].item), rowsPartial),
+  [renderedEnrichedMessages, localToday, rowsPartial]);
   const streamingId = streamingMessageId(renderedEnrichedMessages, agentActivity.active);
   const messageSelection = useChatMessageSelection({ tabId, rows: renderedEnrichedMessages, agent: tab?.title || provider?.displayName || "Agent", surfaceRef: scrollRef, streamingMessageId: streamingId, prepareMessage: mountedWindow.prepareMessage, contentVersion: mountedContentVersion });
   const jumpToQuoted = useLatestCallback((messageId: string) => { requestChatMessageReveal(tabId, messageId); }, [tabId]);
@@ -1104,7 +1105,7 @@ function TabSessionChatBody({
         <AgentStateIndicator
           tab={tab}
           activity={composerActivity}
-          activeTool={allMessages.find((message) => message.type === "tool_call" && message.toolStatus === "running")}
+          activeTool={composerRunningTool(allMessages, runtime.state?.state)}
           runtimeState={runtime.state}
           showActivity={setupView.kind === "none" && !chatLoading}
           channelLoadingLabel={chatChannelLoadingRow(chatLoading, setupView, snapshotReady, hasHeldWindow) === "model"
