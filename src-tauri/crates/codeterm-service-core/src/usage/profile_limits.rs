@@ -59,7 +59,7 @@ pub(crate) fn launch_profile_secret(
 ) -> Option<String> {
     let name = balance_secret_name(plugin_id, &declared(svc, plugin_id, profile)?, env)?;
     // A thread outside any runtime context keeps block_on safe whichever VM thread asks.
-    std::thread::scope(|scope| {
+    let stored = std::thread::scope(|scope| {
         scope
             .spawn(|| {
                 crate::async_runtime::block_on(async {
@@ -74,8 +74,14 @@ pub(crate) fn launch_profile_secret(
             .join()
             .ok()
             .flatten()
-    })
-    .filter(|value| !value.trim().is_empty())
+    })?;
+    header_credential(&stored)
+}
+
+/// A pasted key keeps its line ending in the store, and HTTP refuses a control byte in a header.
+fn header_credential(stored: &str) -> Option<String> {
+    let credential = stored.trim();
+    (!credential.is_empty()).then(|| credential.to_owned())
 }
 
 pub(crate) fn decode(provider: &str, profile: &str, raw: &str) -> Result<UsageSnapshot, String> {

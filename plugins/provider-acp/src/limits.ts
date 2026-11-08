@@ -3,6 +3,9 @@ import type {FetchOpts, FetchResult, RuntimeProfileLimitsSource} from "@codeterm
 export interface ProfileLimitsRequest {profile:string; source:RuntimeProfileLimitsSource}
 export type FetchPort = <T>(opts:FetchOpts, then:(result:FetchResult) => T) => T;
 export interface BalanceAmount {currency:string; amount:string}
+/** Failures name their cause and never carry a response body. */
+export interface ProfileLimitsFailure {error:string}
+export type ProfileLimitsReply = string | ProfileLimitsFailure;
 
 interface BalanceReader {
   url:string;
@@ -35,22 +38,26 @@ function snapshot(balance:{available:boolean; amounts:BalanceAmount[]}, nowMs:nu
   });
 }
 
+const unexpectedResponse:ProfileLimitsFailure = {error:"Balance response has an unexpected format"};
+
 /** The key never enters the plugin: the host fills the `{secret}` header from the profile's declared credential. */
-export function readProfileLimits(fetch:FetchPort, request:ProfileLimitsRequest, nowMs:number): string | null {
+export function readProfileLimits(fetch:FetchPort, request:ProfileLimitsRequest, nowMs:number): ProfileLimitsReply {
   const source = request.source;
-  if (source.kind !== "balance") return null;
+  if (source.kind !== "balance") return {error:"Profile declares no balance source"};
   const reader = Object.prototype.hasOwnProperty.call(readers, source.reader) ? readers[source.reader] : undefined;
-  if (!reader) return null;
-  return fetch({
+  if (!reader) return {error:"Profile names an unknown balance reader"};
+  return fetch<ProfileLimitsReply>({
     url:reader.url, method:"GET", timeoutMs:15000, headers:{Accept:"application/json"},
     profileSecret:{profile:request.profile, env:source.credentialEnv, headers:{Authorization:"Bearer {secret}"}},
   }, result => {
-    if (result.error || result.status !== 200 || !result.body || result.body.length > 64 * 1024) return null;
+    if (result.error) return {error:result.error};
+    if (result.status !== 200) return {error:`Balance endpoint answered HTTP ${result.status}`};
+    if (!result.body || result.body.length > 64 * 1024) return {error:"Balance response is empty or too large"};
     try {
       const balance = reader.parse(result.body);
-      return balance ? snapshot(balance, nowMs) : null;
+      return balance ? snapshot(balance, nowMs) : unexpectedResponse;
     } catch {
-      return null;
+      return unexpectedResponse;
     }
   });
 }

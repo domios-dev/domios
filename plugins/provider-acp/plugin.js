@@ -1590,11 +1590,12 @@ function snapshot(balance, nowMs) {
     usage_details: { limits: [], dollar_credits: [], extra_usage: null, balance }
   });
 }
+var unexpectedResponse = { error: "Balance response has an unexpected format" };
 function readProfileLimits(fetch, request2, nowMs) {
   const source = request2.source;
-  if (source.kind !== "balance") return null;
+  if (source.kind !== "balance") return { error: "Profile declares no balance source" };
   const reader = Object.prototype.hasOwnProperty.call(readers, source.reader) ? readers[source.reader] : void 0;
-  if (!reader) return null;
+  if (!reader) return { error: "Profile names an unknown balance reader" };
   return fetch({
     url: reader.url,
     method: "GET",
@@ -1602,12 +1603,14 @@ function readProfileLimits(fetch, request2, nowMs) {
     headers: { Accept: "application/json" },
     profileSecret: { profile: request2.profile, env: source.credentialEnv, headers: { Authorization: "Bearer {secret}" } }
   }, (result) => {
-    if (result.error || result.status !== 200 || !result.body || result.body.length > 64 * 1024) return null;
+    if (result.error) return { error: result.error };
+    if (result.status !== 200) return { error: `Balance endpoint answered HTTP ${result.status}` };
+    if (!result.body || result.body.length > 64 * 1024) return { error: "Balance response is empty or too large" };
     try {
       const balance = reader.parse(result.body);
-      return balance ? snapshot(balance, nowMs) : null;
+      return balance ? snapshot(balance, nowMs) : unexpectedResponse;
     } catch {
-      return null;
+      return unexpectedResponse;
     }
   });
 }
