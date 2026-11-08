@@ -38,6 +38,38 @@ fn last_declared_options_round_trip_and_bind_to_profile() {
 }
 
 #[test]
+fn forgetting_a_profile_drops_only_its_own_remembered_and_queued_options() {
+    let root = tempfile::tempdir().unwrap();
+    let profile: RuntimeLaunchProfile =
+        serde_json::from_value(json!({"binary":"fixture-agent","args":[]})).unwrap();
+    let settings: RuntimeSettings = serde_json::from_value(json!({"configOptions":[
+        {"id":"model-choice","name":"Model","category":"model","currentValue":"M","options":[{"value":"M","name":"Model M"}]}
+    ]})).unwrap();
+    let saved = snapshot(&profile, &settings).unwrap();
+    let (removed, kept) = (
+        path(root.path(), "fixture").unwrap(),
+        path(root.path(), "fixture-extra").unwrap(),
+    );
+    for path in [&removed, &kept] {
+        write(path, &saved).unwrap();
+        let mut writes = WRITES.lock();
+        writes.latest.insert(path.clone(), saved.clone());
+        writes.pending.insert(path.clone(), saved.clone());
+    }
+    forget(root.path(), "fixture").unwrap();
+    assert!(!removed.exists());
+    assert!(read(root.path(), "fixture", &profile).is_empty());
+    {
+        let writes = WRITES.lock();
+        assert!(!writes.pending.contains_key(&removed) && !writes.latest.contains_key(&removed));
+    }
+    assert!(kept.exists());
+    assert_eq!(read(root.path(), "fixture-extra", &profile).len(), 1);
+    forget(root.path(), "fixture").unwrap();
+    forget(root.path(), "fixture-extra").unwrap();
+}
+
+#[test]
 fn profile_catalogue_resolves_only_exact_values_or_unique_declared_names() {
     let value = r#"["endpoint","model-a"]"#;
     let options: Vec<RuntimeConfigOption> = serde_json::from_value(json!([

@@ -55,6 +55,10 @@ domios agent acp add keyedagent --binary installed-agent --secret-env TOKEN=domi
 domios agent acp remove myagent
 ```
 
+`remove` deletes the owner profile with its install receipt, options and Domios-owned
+folder, including installed packages. It refuses, naming the tab, while a tab uses the
+profile. Shipped profiles cannot be removed. Icon caches are shared by URL and stay.
+
 To add a variant of an existing profile, name it with `--like`. The new profile
 copies that profile's declared icon, registry icon reference, client capabilities,
 limits source and Domios-owned process folder; it never copies the launch command, environment or credential
@@ -391,4 +395,4 @@ an agent cannot change its own or another tab's mode this way.
   the current index and refuses unsupported distributions; neither proves agent
   authentication or compatibility.
 
-<!-- revision: 17 -->
+<!-- revision: 18 -->

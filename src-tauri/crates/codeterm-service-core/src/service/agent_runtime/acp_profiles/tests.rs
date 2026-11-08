@@ -222,6 +222,182 @@ fn add_validates_names_environment_and_secret_references() {
     }
 }
 
+fn seed_files(id: &str) -> Vec<std::path::PathBuf> {
+    let root = installer::profile_root(PROVIDER).unwrap();
+    let directory = root.join(id);
+    let cwd = directory.join("launch-cwd");
+    let install = directory.join("install-fixture");
+    std::fs::create_dir_all(&cwd).unwrap();
+    std::fs::create_dir_all(&install).unwrap();
+    let binary = install.join("agent");
+    let receipt = root.join(format!("{id}.json"));
+    let options = root.join(format!("{id}.options.json"));
+    for file in [&binary, &receipt, &options] {
+        std::fs::write(file, b"fixture").unwrap();
+    }
+    vec![receipt, options, directory, cwd, binary]
+}
+
+fn seed_owner(id: &str) {
+    let profile = request(json!({"name":id,"binary":"fixture-agent"}))
+        .unwrap()
+        .1;
+    owner_profiles::update(PROVIDER, |profiles| {
+        profiles.insert(id.into(), profile);
+        Ok(())
+    })
+    .unwrap();
+}
+
+fn declared(id: &str) -> bool {
+    owner_profiles::load(PROVIDER).unwrap().contains_key(id)
+}
+
+fn all_exist(files: &[std::path::PathBuf]) -> bool {
+    files.iter().all(|file| file.exists())
+}
+
+fn none_exist(files: &[std::path::PathBuf]) -> bool {
+    files.iter().all(|file| !file.exists())
+}
+
+/// `remove` refuses while another removal holds the process-wide mutation lock.
+static REMOVALS: parking_lot::Mutex<()> = parking_lot::const_mutex(());
+
+fn fixture() -> (ServiceFixture, String, parking_lot::MutexGuard<'static, ()>) {
+    let serial = REMOVALS.lock();
+    let (mux, tab) = MultiplexerState::new();
+    (ServiceFixture::new(mux), tab, serial)
+}
+
+#[test]
+fn removal_deletes_the_profiles_own_files_and_no_prefix_sharing_profiles_files() {
+    let (fixture, _, _serial) = fixture();
+    let svc = &fixture.service;
+    seed_owner("remove-own");
+    seed_owner("remove-own-extra");
+    let own = seed_files("remove-own");
+    let longer = seed_files("remove-own-extra");
+    let shorter = seed_files("remove-ow");
+
+    remove(svc, "remove-own").unwrap();
+
+    assert!(none_exist(&own), "{own:?}");
+    assert!(!declared("remove-own"));
+    assert!(all_exist(&longer) && all_exist(&shorter));
+    assert!(declared("remove-own-extra"));
+    assert_eq!(
+        remove(svc, "remove-own").unwrap_err(),
+        "Only owner-added profiles can be removed"
+    );
+}
+
+#[test]
+fn shipped_profiles_cannot_be_removed_and_keep_their_files() {
+    let (fixture, _, _serial) = fixture();
+    let files = seed_files("remove-shipped");
+    assert_eq!(
+        remove(&fixture.service, "remove-shipped").unwrap_err(),
+        "Only owner-added profiles can be removed"
+    );
+    assert!(all_exist(&files));
+}
+
+#[test]
+fn a_profile_a_tab_uses_is_refused_with_that_tab_named_and_loses_nothing() {
+    let (fixture, tab, _serial) = fixture();
+    let svc = &fixture.service;
+    seed_owner("remove-live");
+    let files = seed_files("remove-live");
+    let bind = |agent: &str| {
+        let mut mux = svc.mux.write();
+        let target = mux.get_tab_mut(&tab).unwrap();
+        target.agent_type = Some(agent.into());
+        target.agent_runtime_config = Some(json!({"launchProfile":"remove-live"}));
+    };
+
+    bind(PROVIDER);
+    let refusal = remove(svc, "remove-live").unwrap_err();
+    assert!(
+        refusal.contains("remove-live") && refusal.contains(&tab),
+        "{refusal}"
+    );
+    assert!(all_exist(&files));
+    assert!(declared("remove-live"));
+
+    bind("another-provider");
+    remove(svc, "remove-live").unwrap();
+    assert!(
+        none_exist(&files),
+        "another provider's profile is unrelated"
+    );
+}
+
+#[test]
+fn a_profile_named_like_the_owner_store_never_deletes_the_store() {
+    let (fixture, _, _serial) = fixture();
+    let svc = &fixture.service;
+    seed_owner("remove-beside-store");
+    seed_owner("owner-profiles");
+    let directory = installer::profile_root(PROVIDER)
+        .unwrap()
+        .join("owner-profiles");
+    std::fs::create_dir_all(&directory).unwrap();
+
+    remove(svc, "owner-profiles").unwrap();
+
+    let store = owner_profiles::read(&owner_profiles::path(PROVIDER).unwrap()).unwrap();
+    assert!(store.contains_key("remove-beside-store"));
+    assert!(!store.contains_key("owner-profiles"));
+    assert!(!directory.exists());
+    for name in ["owner-profiles", "Owner-Profiles"] {
+        assert!(
+            available_name(svc, name).unwrap_err().contains("reserved"),
+            "{name}"
+        );
+    }
+}
+
+#[test]
+fn names_differing_only_by_case_are_refused_because_they_can_share_files() {
+    let (fixture, _, _serial) = fixture();
+    let svc = &fixture.service;
+    seed_owner("remove-case");
+    seed_owner("REMOVE-CASE");
+    let root = installer::profile_root(PROVIDER).unwrap();
+    let receipt = root.join("remove-case.json");
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(&receipt, b"fixture").unwrap();
+
+    let refusal = remove(svc, "REMOVE-CASE").unwrap_err();
+
+    assert!(refusal.contains("remove-case"), "{refusal}");
+    assert!(receipt.exists());
+    assert!(declared("remove-case") && declared("REMOVE-CASE"));
+}
+
+#[test]
+fn a_failed_delete_names_the_path_and_keeps_the_profile_removable() {
+    let (fixture, _, _serial) = fixture();
+    let svc = &fixture.service;
+    seed_owner("remove-retry");
+    let root = installer::profile_root(PROVIDER).unwrap();
+    std::fs::create_dir_all(&root).unwrap();
+    let receipt = root.join("remove-retry.json");
+    let blocker = root.join("remove-retry");
+    std::fs::write(&receipt, b"fixture").unwrap();
+    std::fs::write(&blocker, b"a file where the profile folder belongs").unwrap();
+
+    let refusal = remove(svc, "remove-retry").unwrap_err();
+
+    assert!(refusal.contains("remove-retry"), "{refusal}");
+    assert!(declared("remove-retry"));
+    assert!(receipt.exists());
+    std::fs::remove_file(&blocker).unwrap();
+    remove(svc, "remove-retry").unwrap();
+    assert!(!receipt.exists() && !declared("remove-retry"));
+}
+
 #[test]
 fn management_requires_owner_or_live_orchestrator_credentials() {
     let (mut mux, ordinary) = MultiplexerState::new();

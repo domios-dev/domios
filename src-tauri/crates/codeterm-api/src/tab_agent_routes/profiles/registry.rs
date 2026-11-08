@@ -53,8 +53,11 @@ pub(crate) async fn install(
     .map_err(|error| (StatusCode::BAD_REQUEST, error))
 }
 
-pub(crate) async fn remove(Path(name): Path<String>) -> Result<Json<Value>, (StatusCode, String)> {
-    tokio::task::spawn_blocking(move || acp_profiles::remove(&name))
+pub(crate) async fn remove(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    tokio::task::spawn_blocking(move || acp_profiles::remove(&state.svc, &name))
         .await
         .map_err(|_| {
             (

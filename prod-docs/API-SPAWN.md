@@ -42,7 +42,7 @@ An unknown id on an authoritative catalogue or a published free-form live list i
 | POST | `/api/agents/providers/{id}/profiles` | Confirm an installation or configure an owner-controlled local command. |
 | GET | `/api/agents/providers/acp/registry` | Search the ACP registry as the local owner. |
 | POST | `/api/agents/providers/acp/registry/install` | Accept an asynchronous pinned ACP registry installation. |
-| DELETE | `/api/agents/providers/acp/profiles/{name}` | Remove an owner-added ACP profile unless its setup is active. |
+| DELETE | `/api/agents/providers/acp/profiles/{name}` | Remove an owner-added ACP profile and its files unless its setup is active or a tab uses it. |
 
 Both routes require authenticated API access. POST additionally requires the local
 owner identity (desktop app or owner's web session); tab, relayed, peer and service
@@ -141,4 +141,4 @@ text reason. Installed package files remain on disk. Deletion and CLI mutation
 share the same reservation. Terminal setup state is cleared on successful removal.
 These routes create no agent tab.
 
-<!-- revision: 13 -->
+<!-- revision: 14 -->
