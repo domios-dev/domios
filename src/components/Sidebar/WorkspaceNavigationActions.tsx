@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { Map as MapIcon, Workflow } from "lucide-react";
 import { blueprintJobs, jobsAccessibleName, jobsIndicator, type JobsFilter, type JobsIndicator } from "../Jobs/jobsModel";
 import { jobsLayout, type JobsWorkspace } from "../Jobs/jobsLayout";
@@ -6,6 +6,7 @@ import { useCronJobs } from "../Jobs/useCronJobs";
 import { useWorkspaceGraphs } from "../Jobs/useWorkspaceGraphs";
 import { blueprintScenarioJobs } from "../Automation/scenarios";
 import { hostAutomationAdapter } from "../Automation/hostAdapter";
+import { lastKnownJobs, rememberJobs } from "./workspaceJobsMemory";
 
 interface WorkspaceNavigationActionsProps {
   workspaceId: string;
@@ -29,7 +30,8 @@ function Actions({ workspaceId, workspaceName, onOpenMap, onOpenJobs, jobs = NO_
     </button>}
     {onOpenJobs && <button type="button" aria-label={jobsAccessibleName(jobs)} title={`Open jobs for ${workspaceName}`} className={`${SIDEBAR_ACTION} ${buttonSize}`} onClick={() => onOpenJobs(workspaceId)}>
       <Workflow size={size} strokeWidth={1.6} aria-hidden="true" /><span>Jobs</span>
-      {jobs.count > 0 && <span aria-hidden="true" className={`tabular-nums ${jobs.running > 0 ? "text-[var(--ct-accent)]" : "text-[var(--ct-muted)]"}`}>{jobs.count}</span>}
+      {/* The slot is always there, so a count arriving or leaving never resizes the button. */}
+      <span aria-hidden="true" className={`min-w-[2ch] tabular-nums ${jobs.running > 0 ? "text-[var(--ct-accent)]" : "text-[var(--ct-muted)]"}`}>{jobs.count > 0 ? jobs.count : null}</span>
     </button>}
   </div>;
 }
@@ -49,11 +51,13 @@ export function LiveWorkspaceNavigationActions({ scope: scopeProp, workspaces = 
   const { sources, cronWorkspace } = useMemo(() => jobsLayout(scope, workspaces, []), [scope, workspaces]);
   const graphs = useWorkspaceGraphs(hostAutomationAdapter, "sidebar", sources);
   const crons = useCronJobs(cronWorkspace);
-  const jobs = useMemo(() => {
-    if (crons.jobs === null || graphs.some((graph) => graph.graph === null)) return NO_JOBS;
+  const counted = useMemo(() => {
+    if (crons.jobs === null || graphs.some((graph) => graph.graph === null)) return null;
     const sentinels = graphs.flatMap((graph) => graph.graph ? blueprintScenarioJobs(graph.graph, graph.attachment) : []);
     const blueprints = graphs.flatMap((graph) => graph.graph ? blueprintJobs(graph.graph) : []);
     return jobsIndicator({ crons: crons.jobs, sentinels, blueprints }, scope);
   }, [crons.jobs, graphs, scope]);
-  return <Actions {...props} jobs={jobs} />;
+  useEffect(() => { if (counted) rememberJobs(scope, counted); }, [counted, scope]);
+  // While a source is still being read the last count stands, so the indicator only ever changes with the data.
+  return <Actions {...props} jobs={counted ?? lastKnownJobs(scope) ?? NO_JOBS} />;
 }

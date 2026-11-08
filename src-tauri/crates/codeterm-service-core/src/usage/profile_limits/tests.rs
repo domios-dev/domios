@@ -64,7 +64,7 @@ fn shipped_acp(stored_key: Option<&str>) -> ShippedAcp {
         }
         *fixture.service.secrets.write().await = store;
     });
-    let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+    let manifest = crate::test_support::fixture_manifest_dir()
         .join("../../../plugins/provider-acp/plugin.json");
     let provider = crate::plugin::js_runtime::load_one(&manifest).unwrap();
     let host: std::sync::Arc<dyn codeterm_plugin::PluginHostCtx> =

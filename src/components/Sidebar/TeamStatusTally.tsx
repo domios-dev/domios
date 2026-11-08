@@ -5,24 +5,22 @@ import { compactTeamStatus } from "./teamStatusFit";
 export function TeamStatusTally(props: PlanStatusBreakdownProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
+  // A ResizeObserver first reports after layout and before paint, so the fit lands in the first frame
+  // without this commit forcing a layout of the whole list it just inserted.
   useLayoutEffect(() => {
     const container = containerRef.current;
     const summary = container?.firstElementChild as HTMLElement | null;
     if (!container || !summary) return;
-    let active = true;
     const measure = () => {
-      if (!active) return;
       container.removeAttribute("data-compact");
       const compact = compactTeamStatus(summary.getBoundingClientRect().width, container.getBoundingClientRect().width);
       container.toggleAttribute("data-compact", compact);
     };
-    measure();
     const observer = typeof ResizeObserver === "function" ? new ResizeObserver(measure) : null;
-    observer?.observe(container);
+    if (observer) observer.observe(container);
+    else measure();
     document.fonts?.addEventListener("loadingdone", measure);
-    void document.fonts?.ready.then(measure);
     return () => {
-      active = false;
       observer?.disconnect();
       document.fonts?.removeEventListener("loadingdone", measure);
     };

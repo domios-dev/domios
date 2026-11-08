@@ -24,7 +24,7 @@ import { publishNeighborGateways } from "./neighborGateways";
 import { listedPaused, neighborName } from "./neighborModel";
 import { neighborRuntimeClient, type NeighborRuntimeClient } from "./neighborRuntimeClient";
 import { useNeighbors } from "./useNeighbors";
-import { clearNeighborCaches, readNeighborCache, writeNeighborCache, type CachedFriend, type CachedNeighbors } from "./neighborListCache";
+import { clearNeighborCaches, lastKnownNeighborIdentity, readNeighborCache, writeNeighborCache, type CachedFriend, type CachedNeighbors } from "./neighborListCache";
 import { ActivityDots } from "../shared/ActivityDots";
 import { missingConciergeLine, useConciergeStatus } from "./useConciergeStatus";
 import { resetNeighborStatus, useNeighborStatus } from "./neighborStatusStore";
@@ -69,10 +69,15 @@ function LocalNeighborsSection({ uiFontScale, touchMode, onNavigateToTab, enable
     return ref;
   };
   // Until the fresh list arrives, draw the friends this account had last time; an empty past keeps the section away.
-  const cached = useMemo(() => readNeighborCache(identity), [identity]);
-  const loading = identity !== null && neighbors.list === null && neighbors.error === null;
+  // While the account itself is unread, the one remembered account stands in, so the header never arrives after the list.
+  const accountPending = model.kind === "pending";
+  const cached = useMemo(() => readNeighborCache(identity ?? (accountPending ? lastKnownNeighborIdentity() : null)), [identity, accountPending]);
+  const listLoading = identity !== null && neighbors.list === null && neighbors.error === null;
+  const loading = listLoading || (accountPending && cached !== null);
   const shown: CachedNeighbors | null = neighbors.error ? null : neighbors.list ?? (loading ? cached : null);
   const friends: CachedFriend[] = shown?.friends ?? [];
+  // A signed-in account with no record yet may have friends; its header holds the slot until the list answers.
+  const reserved = listLoading && cached === null;
   const paid = shown?.access === "paid";
   useEffect(() => {
     if (model.kind === "signed_out") clearNeighborCaches();
@@ -105,7 +110,7 @@ function LocalNeighborsSection({ uiFontScale, touchMode, onNavigateToTab, enable
     return () => { live = false; stop?.(); };
   }, [conciergeClient]);
 
-  if (friends.length === 0 && !neighbors.error) return null;
+  if (friends.length === 0 && !neighbors.error && !reserved) return null;
   const togglePaused = (friend: CachedFriend, paused: boolean) => setFriendPaused(conciergeClient, friend.friendship_id, !paused, paused,
     detail => publishNotice({ kind: "toast", severity: "Error", id: `neighbor-pause:${friend.friendship_id}`, title: paused ? "Could not enable" : "Could not disable", detail }));
   const text = touchMode ? pickUiFontScaleValue(uiFontScale, ["text-[13px]", "text-[14px]", "text-[15px]", "text-base"])
