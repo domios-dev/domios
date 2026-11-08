@@ -1,5 +1,5 @@
 use super::{
-    check_item_line, classify_continuation, continuation_withdraw_action,
+    check_item_line, check_lines, classify_continuation, continuation_withdraw_action,
     resolve_local_install_continuation, session_save_action, ContinuationRegistration,
     DEFAULT_LOCAL_INSTALL_CONTINUE_PROMPT,
 };
@@ -206,22 +206,147 @@ fn install_refusal_is_printed_in_human_and_json_modes() {
     }
 }
 
+fn item(state: &str, reason: &str, installed: &str, latest: &str) -> serde_json::Value {
+    serde_json::json!({
+        "id": "app", "kind": "app", "installed": installed, "latest": latest,
+        "state": state, "reason": reason,
+    })
+}
+
+#[test]
+fn an_arrow_appears_only_for_a_strictly_newer_target() {
+    for (state, words) in [
+        ("update_available", "update available"),
+        ("ready_to_apply", "ready to apply"),
+    ] {
+        assert_eq!(
+            check_item_line(&item(state, "newer_version", "1.19.0", "1.19.1")),
+            format!("app: 1.19.0 → 1.19.1 ({words})")
+        );
+    }
+    assert_eq!(
+        check_item_line(&item("up_to_date", "same_version", "1.19.1", "1.19.1")),
+        "app: 1.19.1 (up to date)"
+    );
+    assert_eq!(
+        check_item_line(&item("up_to_date", "local_ahead", "1.19.1", "1.19.0")),
+        "app: 1.19.1 (up to date)"
+    );
+    for latest in ["1.19.1", "1.19.0", "not-a-version"] {
+        let line = check_item_line(&item("update_available", "newer_version", "1.19.1", latest));
+        assert_eq!(line, "app: 1.19.1", "a same, older or unreadable target");
+    }
+}
+
+#[test]
+fn internal_codes_are_never_printed() {
+    assert_eq!(
+        check_item_line(&item("core_silent", "same_version", "1.15.3", "1.15.3")),
+        "app: 1.15.3 (updates automatically)"
+    );
+    assert_eq!(
+        check_item_line(&item("core_silent", "newer_version", "1.15.3", "1.16.0")),
+        "app: 1.15.3 (updates automatically)",
+        "a core plugin never offers a user update"
+    );
+    assert_eq!(
+        check_item_line(&item("incompatible", "incompatible", "1.0.0", "2.0.0")),
+        "app: 1.0.0 (no compatible update)"
+    );
+    assert_eq!(
+        check_item_line(&item("up_to_date", "local_install", "1.0.0", "1.0.0")),
+        "app: 1.0.0 (installed locally)"
+    );
+    for (state, reason) in [
+        ("up_to_date", "channel_unavailable"),
+        ("a_future_state", "a_future_reason"),
+    ] {
+        assert_eq!(
+            check_item_line(&item(state, reason, "1.0.0", "1.0.0")),
+            "app: 1.0.0",
+            "{state}/{reason} vouches for nothing"
+        );
+    }
+}
+
 #[test]
 fn failed_checks_never_print_unknown_up_to_date() {
-    let item = serde_json::json!({"id":"app", "kind":"app", "installed":"1.17.0", "latest":null, "state":"up_to_date"});
-    let errors = serde_json::json!({"app":"GitHub rate limit, retry at 14:30"});
+    let never_checked = serde_json::json!({"id": "app", "kind": "app", "installed": "1.17.0", "latest": null, "state": "up_to_date", "reason": "not_checked"});
+    assert_eq!(check_item_line(&never_checked), "app: 1.17.0");
     assert_eq!(
-        check_item_line(&item, &errors),
-        "app: check failed: GitHub rate limit, retry at 14:30"
-    );
-    let cached = serde_json::json!({"id":"app", "kind":"app", "installed":"1.17.0", "latest":"1.17.1", "state":"update_available", "reason":"cached_manifest"});
-    assert_eq!(
-        check_item_line(&cached, &errors),
-        "app: check failed: GitHub rate limit, retry at 14:30 (cached update usable)"
+        check_item_line(&item("up_to_date", "cached_check", "1.17.0", "1.17.0")),
+        "app: 1.17.0"
     );
     assert_eq!(
-        check_item_line(&cached, &serde_json::json!({})),
-        "app: 1.17.0 → 1.17.1 (update_available)"
+        check_item_line(&item(
+            "update_available",
+            "cached_manifest",
+            "1.17.0",
+            "1.17.1"
+        )),
+        "app: 1.17.0 → 1.17.1 (update available)",
+        "a cached update stays usable"
+    );
+}
+
+#[test]
+fn an_item_without_an_installed_version_prints_no_placeholder() {
+    let unknown = serde_json::json!({"id": "lark", "installed": null, "latest": null, "state": "up_to_date", "reason": "missing_version"});
+    assert_eq!(check_item_line(&unknown), "lark");
+}
+
+#[test]
+fn an_absent_frontend_release_prints_as_up_to_date_with_no_diagnostic() {
+    let snapshot = serde_json::json!({
+        "items": [{"id": "frontend", "kind": "frontend", "installed": "1.19.1", "latest": "1.19.1", "state": "up_to_date", "reason": "same_version"}],
+        "errors": {},
+        "served_by": {},
+    });
+    for verbose in [false, true] {
+        assert_eq!(
+            check_lines(&snapshot, verbose),
+            ["frontend: 1.19.1 (up to date)"]
+        );
+    }
+}
+
+#[test]
+fn a_failed_check_stays_quiet_until_verbose() {
+    let failure = "direct download: HTTP 504; GitHub API fallback: GitHub API returned HTTP 403";
+    let snapshot = serde_json::json!({
+        "items": [
+            {"id": "app", "kind": "app", "installed": "1.17.0", "latest": null, "state": "up_to_date", "reason": "not_checked"},
+            {"id": "lark", "kind": "plugin", "installed": "0.1.0", "latest": "0.2.0", "state": "update_available", "reason": "cached_manifest"},
+        ],
+        "errors": {"app": failure},
+        "served_by": {"frontend": "github_api"},
+    });
+    let quiet = ["app: 1.17.0", "lark: 0.1.0 → 0.2.0 (update available)"];
+    assert_eq!(check_lines(&snapshot, false), quiet);
+    let failed = format!("app: check failed: {failure}");
+    assert_eq!(
+        check_lines(&snapshot, true),
+        [
+            quiet[0],
+            quiet[1],
+            "frontend: served by the GitHub Releases API",
+            failed.as_str(),
+        ]
+    );
+}
+
+#[test]
+fn verbose_names_the_path_in_plain_words() {
+    let snapshot = serde_json::json!({
+        "items": [],
+        "served_by": {"app": "direct", "frontend": "a_future_path"},
+    });
+    assert_eq!(
+        check_lines(&snapshot, true),
+        [
+            "app: served by direct download",
+            "frontend: served by another path"
+        ]
     );
 }
 
