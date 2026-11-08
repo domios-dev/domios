@@ -8,6 +8,7 @@ import { useMultiplexer } from "../../store/multiplexer/context";
 import { describeError } from "../../lib/describeError";
 import { UpdatePanel } from "../UpdatePanel";
 import { updateIndicator } from "../../lib/updateStatusModel";
+import { unavailableUpdateSources } from "../../lib/updatePanelModel";
 
 function knownDownloadPercent(completed: number, total: number | null): number | null {
   if (total === null || !Number.isFinite(total) || total <= 0
@@ -81,7 +82,7 @@ export function UpdateTray() {
     if (open) panel.current?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
   }, [open]);
   const indicator = updateIndicator(update.rows, { busy: update.busy, checking: update.checking,
-    failed: Boolean(update.error) || update.diagnostics.some(item => item.channel !== "codeterm-core"), completed: Boolean(update.frontendRelease) });
+    failed: Boolean(update.error), completed: Boolean(update.frontendRelease), unavailableSources: unavailableUpdateSources(update.rows, update.diagnostics) });
   const { offers, active, state: activityState } = indicator;
   const failed = activityState === "failed";
   const appPhase = app.installing ? appPhaseDescription(app.phase) : null;
@@ -91,15 +92,16 @@ export function UpdateTray() {
     ? `${appPhase}${downloadPercent === null ? "" : ` ${downloadPercent}% downloaded.`}` : indicator.description;
   const triggerTone = failed ? "bg-[var(--ct-surface)] text-[var(--ct-red)]"
     : active || offers ? "bg-[var(--ct-accent)] text-[var(--ct-on-accent)]"
-      : activityState === "completed" ? "bg-[var(--ct-surface)] text-[var(--ct-green)]"
-        : "bg-[var(--ct-surface)] text-[var(--ct-muted-fg)]";
+      : activityState === "unavailable" ? "bg-[var(--ct-surface)] text-[var(--ct-yellow)]"
+        : activityState === "completed" ? "bg-[var(--ct-surface)] text-[var(--ct-green)]"
+          : "bg-[var(--ct-surface)] text-[var(--ct-muted-fg)]";
   return <>
     <button ref={trigger} type="button" data-testid="settings-update-action" aria-label="Update" aria-description={activityDescription}
       aria-haspopup="dialog" aria-expanded={open} aria-busy={active} data-activity-state={activityState}
       onClick={() => setOpen(!open)} title={offers ? "Updates available" : "Update history"}
       className={`inline-flex h-6 w-6 items-center justify-center rounded-full ${triggerTone} hover:brightness-110`}>
       {downloadPercent !== null ? <DownloadProgress value={downloadPercent} />
-        : failed ? <CircleAlert size={15} aria-hidden="true" />
+        : failed || activityState === "unavailable" ? <CircleAlert size={15} aria-hidden="true" />
           : active ? <LoaderCircle size={15} aria-hidden="true" className="motion-safe:animate-spin" />
             : activityState === "completed" ? <CheckCircle2 size={15} aria-hidden="true" />
               : <ArrowDownToLine size={15} aria-hidden="true" />}

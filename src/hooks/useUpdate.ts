@@ -234,6 +234,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<UpdateStatus>("idle");
   const [phase, setPhase] = useState<UpdatePhase>("idle");
   const [info, setInfo] = useState<UpdateInfo | null>(null);
+  const [runningVersion, setRunningVersion] = useState<string | null>(null);
   const [channel, setChannelState] = useState<UpdateChannel | null>(null);
   const channelRef = useRef<UpdateChannel | null>(null);
   channelRef.current = channel;
@@ -350,6 +351,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
       const previousNativeRevision = nativeErrorRevisionRef.current;
       nativeErrorRevisionRef.current = next.error_revision;
       setNativeStatusObserved(true);
+      setRunningVersion(next.current_version);
       if (next.phase === "idle" && installFailureRef.current) return;
       const observation = observeInstallPhase(
         next.phase,
@@ -531,7 +533,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
       status,
       phase,
       info,
-      currentVersion: info?.current_version ?? null,
+      currentVersion: info?.current_version ?? runningVersion,
       latestVersion: info?.latest_version ?? null,
       releaseNotes: info?.release_notes ?? null,
       releaseUrl: info?.release_url ?? null,
@@ -567,6 +569,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
       phase,
       progress,
       refresh,
+      runningVersion,
       setChannel,
       status,
       toastOpen,
