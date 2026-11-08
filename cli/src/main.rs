@@ -668,7 +668,7 @@ fn main_impl() {
             manifest_url,
             after_update,
         } => {
-            cmd::update::handle_update(cli.json, action, manifest_url, after_update);
+            cmd::update::handle_update(cli.json, cli.verbose, action, manifest_url, after_update);
             return;
         }
 

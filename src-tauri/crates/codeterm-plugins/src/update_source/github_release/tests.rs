@@ -173,6 +173,36 @@ fn both_failures_are_named_together() {
 }
 
 #[test]
+fn a_release_or_asset_the_api_cannot_find_after_an_outage_is_absent_not_failed() {
+    let reply_404 = || {
+        Ok(BlockingReply {
+            status: 404,
+            rate: RateHeaders::default(),
+            body: Vec::new(),
+        })
+    };
+    let no_asset = r#"{"tag_name":"channel-latest","assets":[]}"#;
+    for replies in [
+        vec![(RELEASE, reply_404())],
+        vec![(RELEASE, ok(no_asset))],
+        vec![(RELEASE, ok(RELEASE_JSON)), (ASSET, reply_404())],
+    ] {
+        let root = tempfile::tempdir().unwrap();
+        let http = Scripted::new(replies);
+        let error = fetch_after_outage(
+            &http,
+            &store(&root),
+            URL,
+            1024,
+            "server returned HTTP 504",
+            &|| NOW_MS,
+        )
+        .unwrap_err();
+        assert!(super::super::is_missing_release_asset(&error), "{error}");
+    }
+}
+
+#[test]
 fn a_rate_limited_reply_backs_off_until_the_reset_even_after_a_restart() {
     let root = tempfile::tempdir().unwrap();
     let reset_unix = NOW_MS / 1000 + 600;

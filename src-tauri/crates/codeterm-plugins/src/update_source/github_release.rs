@@ -1,6 +1,7 @@
 //! Anonymous GitHub Releases API route to a published release asset.
 //! Only the byte transport changes: callers verify what they receive exactly as before.
 
+use crate::channel_failure::ASSET_NOT_FOUND;
 use serde::Deserialize;
 
 mod budget;
@@ -112,7 +113,7 @@ impl ReleaseAsset {
             .assets
             .iter()
             .find(|asset| asset.name == self.name)
-            .ok_or_else(|| format!("release {} has no asset {}", release.tag_name, self.name))?;
+            .ok_or(ASSET_NOT_FOUND)?;
         Ok(format!(
             "{API_ORIGIN}/repos/{}/{}/releases/assets/{}",
             self.owner, self.repo, asset.id
@@ -195,6 +196,9 @@ fn api_get(
     if (200..300).contains(&reply.status) {
         return Ok(reply.body);
     }
+    if reply.status == 404 {
+        return Err(ASSET_NOT_FOUND.into());
+    }
     Err(limited.unwrap_or_else(|| format!("GitHub API returned HTTP {}", reply.status)))
 }
 
@@ -226,7 +230,14 @@ pub fn fetch_after_outage(
         let asset_url = asset.select_asset_url(&release)?;
         api_get(http, budget, &asset_url, ASSET_ACCEPT, limit, now)
     };
-    serve().map_err(|api| both_failed(direct, &api))
+    // The API's answer settles absence: the direct outage says nothing about what was published.
+    serve().map_err(|api| {
+        if super::is_missing_release_asset(&api) {
+            api
+        } else {
+            both_failed(direct, &api)
+        }
+    })
 }
 
 struct OfficialApi {
