@@ -21,7 +21,7 @@ async function main() {
     if (event === "usage-snapshot-updated") listeners.add(listener);
     return () => { listeners.delete(listener); };
   });
-  const { BalanceBubble, UnavailableLimitsBubble } = await import("./ProfileLimitsBubble");
+  const { BalanceBubble, QuotaBubble, UnavailableLimitsBubble } = await import("./ProfileLimitsBubble");
   const container = document.createElement("div");
   document.body.append(container);
   const root = createRoot(container);
@@ -29,6 +29,39 @@ async function main() {
 
   await act(async () => root.render(<UnavailableLimitsBubble reason="Opaque reason" />));
   assert.equal(button()?.getAttribute("aria-label"), "usage limits unavailable: Opaque reason");
+  assert.equal(button()?.textContent, "—", "an unavailable source shows a quiet dash");
+  await act(async () => { button()?.click(); });
+  assert.ok(document.body.textContent?.includes("Opaque reason"), "the popover explains why there is nothing to show");
+  await act(async () => { button()?.click(); });
+
+  const session = { provider: "fixture-acp", tabId: "fixture-tab", threadId: null, context: { used_tokens: 50, window_tokens: 200 }, label: "Fixture" };
+  await act(async () => root.render(<UnavailableLimitsBubble key="context" reason="Opaque reason" session={session} />));
+  assert.equal(button()?.getAttribute("aria-label"), "context 25% of window", "the session's own reported context replaces the dash");
+  await act(async () => { button()?.click(); });
+  assert.ok(document.body.textContent?.includes("Opaque reason"), "and the popover keeps the reason");
+  await act(async () => { button()?.click(); });
+
+  calls.length = 0;
+  snapshot = null;
+  await act(async () => root.render(<QuotaBubble key="quota-off" provider="fixture-acp" accountId="profile:quota" trackingEnabled={false} />));
+  assert.equal(button(), null, "a disabled Usage Tracking toggle shows no quota");
+  assert.equal(calls.some(call => call.command === "usage_refresh"), false, "and reads none");
+  await act(async () => root.render(<QuotaBubble key="quota" provider="fixture-acp" accountId="profile:quota" trackingEnabled />));
+  assert.equal(button()?.textContent, "—", "a quota not read yet claims no number");
+  assert.equal(calls.filter(call => call.command === "usage_refresh").length, 1, "and is requested once");
+  snapshot = { provider: "fixture-acp", account_id: "profile:quota", captured_at: Date.now(), parsed_ok: false, failure_reason: "Opaque quota failure" } as UsageSnapshot;
+  await act(async () => { for (const listener of listeners) listener({ payload: { provider: "fixture-acp", account_id: "profile:quota", snapshot_id: 1 } }); });
+  assert.equal(button()?.textContent, "—", "a failed read stays a dash");
+  assert.equal(button()?.getAttribute("aria-label"), "usage limits unavailable: Opaque quota failure");
+  snapshot = { provider: "fixture-acp", account_id: "profile:quota", captured_at: Date.now(), parsed_ok: true,
+    usage_details: { limits: [], dollar_credits: [], extra_usage: null, quota: { title: "Fixture quota", limits: [{ label: "fixture-pro", used_percent: 42, resets_at: null }] } } } as unknown as UsageSnapshot;
+  await act(async () => { for (const listener of listeners) listener({ payload: { provider: "fixture-acp", account_id: "profile:quota", snapshot_id: 2 } }); });
+  assert.equal(button()?.textContent, "42%", "a real reading shows its number");
+  await act(async () => { button()?.click(); });
+  assert.ok(document.body.textContent?.includes("fixture-pro"), "and the popover lists each limit");
+  await act(async () => { button()?.click(); });
+  calls.length = 0;
+  snapshot = null;
 
   await act(async () => root.render(<BalanceBubble provider="fixture-acp" accountId="profile:fixture" trackingEnabled={false} />));
   assert.equal(button(), null, "a disabled Usage Tracking toggle shows nothing");
@@ -77,7 +110,7 @@ async function main() {
   assert.equal(button()?.textContent, "balance ?", "a read request that failed does not keep waiting");
   assert.ok(button()?.getAttribute("aria-label")?.includes("Opaque request error"));
   await act(async () => unanswered.unmount());
-  console.log("PASS profile limits bubbles: unavailable reason, gated on-demand balance read and named failure states");
+  console.log("PASS profile limits bubbles: unavailable dash and reason, session context, quota readings, gated on-demand balance read and named failure states");
 }
 
 void main().catch((error) => { console.error(error); process.exit(1); });

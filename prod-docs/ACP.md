@@ -80,22 +80,39 @@ Domios-owned process folder.
   own credential `ENV`, which must be one of its `--secret-env` or `--auth-env`
   variables. The host places the key only in that request's header; it never
   appears in arguments, logs or the plugin. `deepseek-balance` is the bundled reader.
-- `unavailable:REASON` shows the one-line reason (at most 240 characters) instead
-  of an empty bubble.
+- `unavailable:REASON` shows a quiet dash, with the one-line reason (at most 240
+  characters) in its popover. If the session reports a context window, the bubble
+  shows that fill instead and keeps the reason in its popover.
 
-Copied sources can be overridden the same way.
+Plugins can also declare a `quota` source, which reads account quota with the
+credentials the plugin's manifest declares. `--limits-source` does not set it, but
+`--like gemini-cli` copies it. Copied sources can be overridden the same way.
 
 A profile installed from the ACP registry needs no flag: the plugin declares a
 default per registry id, applied whenever profiles load, so already-installed
 profiles pick it up without reinstalling. `claude-acp` and `codex-acp` show the
-Claude and Codex account limits; `gemini` states that Gemini API-key quota has no
-public endpoint. A profile's own source always wins; `domios agent acp registry
+Claude and Codex account limits; `gemini` reads Gemini quota as described below.
+A profile's own source always wins; `domios agent acp registry
 install REGISTRY_ID --limits-source unavailable:REASON` overrides the default at
 install. Other registry agents have no default.
 
-The bundled `deepseek-harness` profile reads its DeepSeek balance; `gemini-cli`
-states that Gemini API-key quota has no public endpoint. Profiles without a source
-keep the runtime's own context and cost reading.
+The bundled `deepseek-harness` profile reads its DeepSeek balance. Profiles without
+a source keep the runtime's own context and cost reading.
+
+The bundled `gemini-cli` profile follows Gemini CLI's selected sign-in mode:
+
+- Signed in with Google (`oauth-personal`), the bubble shows the percentage used on
+  the model closest to its limit, with every model and its reset time in the popover.
+  This reads Gemini Code Assist quota with the token Gemini CLI stores in
+  `~/.gemini/oauth_creds.json`. The host places the token only in that request's
+  header. Domios never renews it, so after the token expires the read waits until
+  Gemini CLI renews it. The endpoint is internal to Gemini CLI and can change.
+- With an API key or Vertex AI, no quota endpoint is read. The bubble shows the
+  context fill Gemini reports for the session, or a dash until it reports one, and
+  its popover explains why.
+
+An account that requires `GOOGLE_CLOUD_PROJECT`, or a login kept in encrypted
+storage, shows the same dash or context fill with its reason.
 
 Names contain one word of letters, digits, underscores or hyphens; Windows device
 names and existing profile names are refused. Repeat `--arg` for each argument,
@@ -318,4 +335,4 @@ It can also cancel a turn waiting for a permission response.
   the current index and refuses unsupported distributions; neither proves agent
   authentication or compatibility.
 
-<!-- revision: 10 -->
+<!-- revision: 11 -->

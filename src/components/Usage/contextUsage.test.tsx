@@ -5,6 +5,7 @@ import type { UsageSnapshot } from "../../types/usage";
 import { MuxStateStoreContext } from "../../store/multiplexer/context";
 import { createMuxStateStore } from "../../store/multiplexer/selectorStore";
 import { ComposerContextMeter } from "../Terminal/ComposerContextMeter";
+import { UnavailableLimitsBubble } from "./ProfileLimitsBubble";
 import { UsageBubble } from "./UsageBubble";
 import { contextUsage, hasQuota } from "./contextUsage";
 
@@ -69,6 +70,24 @@ describe("the usage bubble for a harness without quota", () => {
     expect(popover.textContent).toContain("84K of 200K tokens");
     expect(popover.textContent).toContain("Session cost$0.42");
     expect(popover.textContent).not.toContain("Session tokens");
+  });
+
+  it("replaces an unavailable source's dash with the reported fill, once, and keeps the reason", async () => {
+    bridge.listen.mockResolvedValue(() => undefined);
+    bridge.invoke.mockImplementation(async () => null);
+    const store = createMuxStateStore(() => ({ tabs: { acp: { id: "acp", context: fill } } } as never));
+    host = document.createElement("div");
+    document.body.append(host);
+    root = createRoot(host);
+    await act(async () => root!.render(<MuxStateStoreContext.Provider value={store}>
+      <UnavailableLimitsBubble reason="Opaque reason" session={{ provider: "acp", tabId: "acp", threadId: "t", context: fill, label: "Fixture" }} />
+      <ComposerContextMeter tabId="acp" />
+    </MuxStateStoreContext.Provider>));
+    const bubble = host.querySelector<HTMLButtonElement>('[data-testid="usage-context-bubble"] button')!;
+    expect(bubble.getAttribute("aria-label")).toBe("context 42% of window");
+    expect(host.querySelector('meter[aria-label="Context window"]')).toBeNull();
+    await act(async () => bubble.click());
+    expect(document.body.querySelector('[role="dialog"][aria-label="usage details"]')!.textContent).toContain("Opaque reason");
   });
 
   it("renders nothing when the harness reports no fill and no usage", async () => {

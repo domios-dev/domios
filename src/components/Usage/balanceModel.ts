@@ -22,9 +22,9 @@ export function balanceLabel(reading: BalanceReading): string {
 }
 
 /** Why the balance is unavailable or stopped moving: a failed row, the cause stamped on a kept reading, or a request that produced no row. */
-export function balanceFailure(snapshot: UsageSnapshot | null, requestError: string | null): string | null {
+export function balanceFailure(snapshot: UsageSnapshot | null, requestError: string | null, unnamed = "Balance unavailable"): string | null {
   if (!snapshot) return requestError;
-  return snapshot.parsed_ok ? snapshot.failure_reason ?? null : snapshot.failure_reason ?? "Balance unavailable";
+  return snapshot.parsed_ok ? snapshot.failure_reason ?? null : snapshot.failure_reason ?? unnamed;
 }
 
 /** A missing, failed or stale reading is read again when the bubble mounts or opens. */

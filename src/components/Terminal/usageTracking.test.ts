@@ -42,6 +42,8 @@ const sourceCases: [Parameters<typeof tabUsageSource>, ReturnType<typeof tabUsag
     {kind:"meter", provider:"fixture-native", trackingProvider:"fixture-native", borrowedAccount:true}],
   [["fixture-acp", true, false, {id:"balanced", limitsSource:{kind:"balance", reader:"fixture-balance", credentialEnv:"KEY"}}],
     {kind:"balance", provider:"fixture-acp", accountId:"profile:balanced", trackingProvider:"fixture-acp"}],
+  [["fixture-acp", true, false, {id:"quoted", limitsSource:{kind:"quota", reader:"fixture-quota"}}],
+    {kind:"quota", provider:"fixture-acp", accountId:"profile:quoted", trackingProvider:"fixture-acp"}],
   [["fixture-acp", true, true, {id:"opaque", limitsSource:{kind:"unavailable", reason:"Opaque reason"}}],
     {kind:"unavailable", reason:"Opaque reason", trackingProvider:"fixture-acp"}],
   [["fixture-acp", true, true, {id:"undeclared"}], {kind:"meter", provider:"fixture-acp", trackingProvider:"fixture-acp", borrowedAccount:false}],
@@ -54,4 +56,4 @@ for (const [args, expected] of sourceCases) {
     throw new Error(`usage source follows only the declared kind: ${JSON.stringify(args)}`);
   }
 }
-console.log("tabUsageSource: declared kind selects account, balance or unavailable; undeclared keeps the runtime meter");
+console.log("tabUsageSource: declared kind selects account, balance, quota or unavailable; undeclared keeps the runtime meter");
