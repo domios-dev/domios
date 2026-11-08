@@ -1,6 +1,6 @@
 pub(in crate::service::agent_runtime) use super::tests::sync_send::{
-    runtime_fixture, runtime_fixture_host_approvals, runtime_fixture_turn_scoped,
-    runtime_fixture_with,
+    runtime_fixture, runtime_fixture_host_approvals, runtime_fixture_host_approvals_with,
+    runtime_fixture_turn_scoped, runtime_fixture_with,
 };
 use super::*;
 use crate::multiplexer::types::Tab;

@@ -149,6 +149,13 @@ describe("the Permissions control", () => {
     expect(row().querySelector('button[aria-label="Mode: Default"]')).not.toBeNull();
   });
 
+  it("says so when the host gives full access while the mode row reads otherwise", async () => {
+    await open(hostProvider, withModes, { launchProfile: "approve-mode", hostApprovals: "allow_all" });
+    expect(row().querySelector('output[aria-label="Permissions"]')?.textContent).toBe("Full access (host)");
+    expect(permissions()).toBeNull();
+    expect(row().querySelector('button[aria-label="Mode: Default"]')).not.toBeNull();
+  });
+
   it("falls back to the host control when the agent does not offer its declared mode", async () => {
     await open(hostProvider, { ...modelOnly, mode: "default", modes: [{ id: "default", name: "Default" }] }, { launchProfile: "approve-mode" });
     expect(permissions()).not.toBeNull();

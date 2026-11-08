@@ -23,25 +23,37 @@ pub(super) struct AccessFacts<'a> {
     pub native_mode: Option<&'a str>,
     /// `None` before the tab has a session to report the modes it offers.
     pub native_advertised: Option<bool>,
-    pub current_mode: Option<&'a str>,
     pub selected_mode: Option<&'a str>,
     pub choice: Option<HostApprovalChoice>,
 }
 
 /// Whether the owner's effective choice is "no permission questions" for this tab.
 ///
-/// An agent can still ask in its approve-all mode, so the host answers from this result rather
-/// than trusting the mode. An unset choice is full access, the same default every launch has.
+/// Reads only what the owner or the launch policy decided. The agent's live mode is deliberately
+/// absent: an agent can still ask in its approve-all mode, and it must not lift its own Ask by
+/// changing mode. An unset choice is full access, the same default every launch has.
 pub(super) fn full_access_in_effect(facts: AccessFacts<'_>) -> bool {
     if facts.grant_bound || !facts.host_approvals {
         return facts.recorded;
     }
     if let (Some(native), Some(selected)) = (facts.native_mode, facts.selected_mode) {
         if facts.native_advertised != Some(false) {
-            return facts.current_mode.unwrap_or(selected) == native;
+            return selected == native;
         }
     }
     facts.choice != Some(HostApprovalChoice::Ask)
+}
+
+/// Mode controls decide approvals, and the host cannot recognise an approve-all mode a profile
+/// leaves undeclared, so every mode change is the owner's, whichever shape the agent exposes.
+fn owner_only_control(settings: Option<&RuntimeSettings>, mode: bool, id: &str) -> bool {
+    mode || settings
+        .and_then(|settings| settings.config_options.as_ref())
+        .is_some_and(|options| {
+            options
+                .iter()
+                .any(|option| option.id == id && option.category.as_deref() == Some("mode"))
+        })
 }
 
 /// The selected launch profile's declared approve-everything session mode.
@@ -120,7 +132,6 @@ fn resolve(
         grant_bound: policy.grant_bound,
         native_mode: native.as_deref(),
         native_advertised: native_advertised(native.as_deref(), settings),
-        current_mode: settings.and_then(|settings| settings.mode.as_deref()),
         selected_mode: policy.selected_mode.as_deref(),
         choice: policy.choice,
     })
@@ -128,8 +139,18 @@ fn resolve(
 
 fn native_advertised(native: Option<&str>, settings: Option<&RuntimeSettings>) -> Option<bool> {
     let native = native?;
-    let modes = settings?.modes.as_ref();
-    Some(modes.is_some_and(|modes| modes.iter().any(|mode| mode.id == native)))
+    let settings = settings?;
+    let as_mode = settings
+        .modes
+        .as_ref()
+        .is_some_and(|modes| modes.iter().any(|mode| mode.id == native));
+    let as_option = settings.config_options.as_ref().is_some_and(|options| {
+        options.iter().any(|option| {
+            option.category.as_deref() == Some("mode")
+                && option.options.iter().any(|value| value.value == native)
+        })
+    });
+    Some(as_mode || as_option)
 }
 
 /// A launch resolves from what the launch was granted, before any session reports its modes.
@@ -170,6 +191,13 @@ impl ServiceContext {
     ) -> bool {
         tab_policy(self, tab_id)
             .is_some_and(|policy| resolve(self, &policy, policy.recorded, settings))
+    }
+
+    /// Whether this control change is reserved for the owner; see [`owner_only_control`].
+    pub fn runtime_control_requires_owner(&self, tab_id: &str, mode: bool, id: &str) -> bool {
+        let settings =
+            engine::for_tab(tab_id).map(|session| session.context.lock().settings.clone());
+        owner_only_control(settings.as_ref(), mode, id)
     }
 
     /// The owner's live switch for agents with no approve-all mode of their own.
@@ -241,7 +269,8 @@ impl ServiceContext {
     }
 }
 
-/// A chosen session mode survives restore; the agent's load resets it to its own default.
+/// The owner's chosen mode survives restore; the agent's load resets it to its own default.
+/// Mode changes reach this only from the owner: the controls route refuses every agent caller.
 pub(super) fn record_selected_mode(svc: &ServiceContext, session: &Arc<Session>, mode: &str) {
     let tab_id = session.context.lock().tab_id.clone();
     let Some(policy) = tab_policy(svc, &tab_id) else {
@@ -249,10 +278,6 @@ pub(super) fn record_selected_mode(svc: &ServiceContext, session: &Arc<Session>,
     };
     if !declares_host_approvals(svc, &policy.provider) || policy.sandboxed || policy.grant_bound {
         return;
-    }
-    {
-        let mut context = session.context.lock();
-        context.settings.mode = Some(mode.to_owned());
     }
     let recorded = svc.record_host_policy(&tab_id, |launch| {
         launch.selected_session_mode = Some(mode.to_owned());

@@ -150,13 +150,35 @@ pub(super) async fn thread_history(
     .map_err(|reason| (StatusCode::CONFLICT, reason))
 }
 
+/// Permission choices belong to the owner and the owner's paired machines, never to an agent:
+/// one answering or widening its own questions would defeat "Ask each time".
+fn require_permission_authority(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<(), (StatusCode, String)> {
+    match crate::auth::RequestActor::authenticate(state, headers)? {
+        crate::auth::RequestActor::Owner | crate::auth::RequestActor::Peer => Ok(()),
+        _ => Err((
+            StatusCode::FORBIDDEN,
+            "Only the owner changes a tab's permissions".to_string(),
+        )),
+    }
+}
+
 async fn controls(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(tab): Path<String>,
     Json(request): Json<
         codeterm_service_core::service::agent_runtime::declared_controls::Selection,
     >,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    if state
+        .svc
+        .runtime_control_requires_owner(&tab, request.mode, &request.id)
+    {
+        require_permission_authority(&state, &headers)?;
+    }
     codeterm_service_core::service::agent_runtime::declared_controls::select(
         &state.svc, &tab, request,
     )
@@ -171,19 +193,13 @@ struct HostApprovalsRequest {
     allow_all: bool,
 }
 
-/// Owner only: an agent answering its own permission questions would defeat "Ask each time".
 async fn host_approvals(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(raw_tab): Path<String>,
     Json(request): Json<HostApprovalsRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    if crate::auth::tab_caller(&state, &headers)?.is_some() {
-        return Err((
-            StatusCode::FORBIDDEN,
-            "Only the owner changes a tab's permissions".to_string(),
-        ));
-    }
+    require_permission_authority(&state, &headers)?;
     let tab = crate::routes::resolve_tab_async(&state, &raw_tab)
         .await
         .map_err(|(status, message)| (status, message.to_string()))?;

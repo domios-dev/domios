@@ -759,11 +759,13 @@ A launch profile (or `registryDefaults` entry) may declare `fullAccessMode`, the
 approve-everything session mode id; full-access launch options carry it to the runtime config
 as `fullAccessMode`, and the plugin enters it only when the agent advertises that mode.
 
-Where the session offers that mode, the mode is the tab's single switch. The owner's choice of
-mode is persisted and reaches the plugin as `sessionMode`, which it enters on every open and
-resume ahead of `fullAccessMode`, because agents rebuild their own default on load. The host
-still answers requests in the approve-all mode, since an agent can ask anyway. A profile with
-no such mode gets the picker's Permissions row (`POST .../agent/runtime/host-approvals`).
+Where the session offers that mode, as a session mode or a `category: "mode"` config option, the
+mode is the tab's single switch. The owner's choice of mode is persisted and reaches the plugin as
+`sessionMode`, which it enters on every open and resume ahead of `fullAccessMode`, because agents
+rebuild their own default on load. The host decides from that choice and never from the agent's
+live mode: an agent can ask in its approve-all mode, and must not lift its own Ask by changing
+mode. Mode changes on the controls route are owner only. A profile with no such mode gets the
+picker's Permissions row (`POST .../agent/runtime/host-approvals`).
 
 Declare `fullAccessMode` only for a mode the session can enter and leave over the protocol. A
 process-wide setting read at session creation, such as an environment variable, cannot follow

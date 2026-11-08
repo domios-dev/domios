@@ -1030,7 +1030,14 @@ function optionRequest(state, sessionId, id, value) {
 function launchMode(ctx, state) {
   const settings = object4(ctx.providerSettings);
   const mode = settings.sessionMode ?? settings.fullAccessMode;
-  return typeof mode === "string" && mode !== state.settings?.mode && state.settings?.modes?.some((entry) => entry.id === mode) ? mode : void 0;
+  if (typeof mode !== "string") return void 0;
+  const option = state.settings?.configOptions?.find((entry) => entry.category === "mode" && entry.options.some((value) => value.value === mode));
+  if (option) return option.currentValue === mode ? void 0 : { mode, optionId: option.id };
+  return mode !== state.settings?.mode && state.settings?.modes?.some((entry) => entry.id === mode) ? { mode } : void 0;
+}
+function modeAttempt(raw) {
+  const attempted = object4(raw).attempted;
+  return Array.isArray(attempted) && attempted[attempted.length - 1] === "mode";
 }
 function loadedThread(ctx, op, state, sessionId, attempted = [], confirmAuthentication = true) {
   const selection = launchSelection(op.settings, state.settings, attempted);
@@ -1040,10 +1047,15 @@ function loadedThread(ctx, op, state, sessionId, attempted = [], confirmAuthenti
     plan.state = { ...object4(plan.state), attempted: [...attempted, selection.category], confirmAuthentication };
     return { kind: "continue", plan };
   }
-  const mode = attempted.includes("mode") ? void 0 : launchMode(ctx, state);
-  if (mode) {
-    const plan = request("session/set_mode", { sessionId, modeId: mode });
-    plan.state = { method: "session/set_mode", modeId: mode, attempted: [...attempted, "mode"], confirmAuthentication };
+  const entry = attempted.includes("mode") ? void 0 : launchMode(ctx, state);
+  if (entry?.optionId) {
+    const plan = optionRequest(state, sessionId, entry.optionId, entry.mode);
+    plan.state = { ...object4(plan.state), attempted: [...attempted, "mode"], confirmAuthentication };
+    return { kind: "continue", plan };
+  }
+  if (entry) {
+    const plan = request("session/set_mode", { sessionId, modeId: entry.mode });
+    plan.state = { method: "session/set_mode", modeId: entry.mode, attempted: [...attempted, "mode"], confirmAuthentication };
     return { kind: "continue", plan };
   }
   return {
@@ -1243,7 +1255,7 @@ function runtimeResponse(ctx, op, raw, reply) {
       plan.state = { method, mcpOffered: false };
       return { kind: "continue", plan };
     }
-    if (state2 && (op.kind === "openThread" || op.kind === "resumeThread") && method === "session/set_mode")
+    if (state2 && (op.kind === "openThread" || op.kind === "resumeThread") && (method === "session/set_mode" || method === "session/set_config_option" && modeAttempt(raw)))
       return modeContinuation(ctx, op, state2, raw);
     if ((op.kind === "openThread" || op.kind === "resumeThread") && ["session/set_config_option", "session/set_model"].includes(String(method))) {
       const state3 = negotiated(ctx);
@@ -1316,7 +1328,7 @@ function runtimeResponse(ctx, op, raw, reply) {
     if (!settings) return refuseThread(op, state, "protocol_error", "Invalid session option response");
     applySettings(state, settings, method === "session/set_config_option");
     const attempted = object4(raw).attempted;
-    if (!Array.isArray(attempted) || attempted.length > 2 || !attempted.every((value2) => value2 === "model" || value2 === "thought_level"))
+    if (!Array.isArray(attempted) || attempted.length > 3 || !attempted.every((value2) => value2 === "model" || value2 === "thought_level" || value2 === "mode"))
       return refused("protocol_error", "Invalid session selection continuation");
     return loadedThread(ctx, op, state, state.sessionId, attempted, object4(raw).confirmAuthentication === true);
   }

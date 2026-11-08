@@ -27,15 +27,40 @@ export function hostApprovalsChoice(
   config: Readonly<Record<string, unknown>> | null | undefined,
   controls: RuntimeSettings | undefined,
 ): HostApprovalsValue | undefined {
-  const runtime = descriptor?.agent_runtime;
-  if (!runtime?.hostApprovals || config?.hostApprovals === "locked") return undefined;
-  const profile = typeof config?.launchProfile === "string" ? runtime.launchProfiles?.[config.launchProfile] : undefined;
-  const native = profile?.fullAccessMode;
-  if (native && (!controls || controls.modes?.some(mode => mode.id === native))) return undefined;
+  if (!descriptor?.agent_runtime?.hostApprovals || config?.hostApprovals === "locked") return undefined;
+  const native = declaredFullAccessMode(descriptor, config);
+  if (native && (!controls || sessionOffersMode(controls, native))) return undefined;
   return config?.hostApprovals === "ask" ? "ask" : "allow_all";
 }
 
-export function pickerSections({ descriptor, controls, model, effort, runtimeMode, serviceTier, serviceTierAvailability, hostApprovals }: {
+/**
+ * True when the host gives full access while the agent's mode row reads otherwise: the agent refused its
+ * approve-all mode, or left it. The row alone would mislead, so the picker states the effective access.
+ */
+export function hostFullAccessOverride(
+  descriptor: ProviderDescriptor | undefined,
+  config: Readonly<Record<string, unknown>> | null | undefined,
+  controls: RuntimeSettings | undefined,
+): boolean {
+  const native = descriptor?.agent_runtime?.hostApprovals ? declaredFullAccessMode(descriptor, config) : undefined;
+  if (!native || !controls || config?.hostApprovals !== "allow_all" || !sessionOffersMode(controls, native)) return false;
+  return (modeOption(controls)?.currentValue ?? controls.mode) !== native;
+}
+
+function declaredFullAccessMode(descriptor: ProviderDescriptor, config: Readonly<Record<string, unknown>> | null | undefined): string | undefined {
+  const profile = typeof config?.launchProfile === "string" ? descriptor.agent_runtime?.launchProfiles?.[config.launchProfile] : undefined;
+  return profile?.fullAccessMode;
+}
+
+function modeOption(controls: RuntimeSettings) {
+  return controls.configOptions?.find(option => option.category === "mode");
+}
+
+function sessionOffersMode(controls: RuntimeSettings, mode: string): boolean {
+  return Boolean(modeOption(controls)?.options.some(option => option.value === mode) || controls.modes?.some(entry => entry.id === mode));
+}
+
+export function pickerSections({ descriptor, controls, model, effort, runtimeMode, serviceTier, serviceTierAvailability, hostApprovals, hostFullAccess }: {
   descriptor?: ProviderDescriptor;
   controls?: RuntimeSettings;
   model?: string;
@@ -44,6 +69,7 @@ export function pickerSections({ descriptor, controls, model, effort, runtimeMod
   serviceTier?: RuntimeServiceTierSelection;
   serviceTierAvailability?: Record<string, readonly RuntimeServiceTier[]>;
   hostApprovals?: HostApprovalsValue;
+  hostFullAccess?: boolean;
 }): PickerSection[] {
   const known = new Map<PickerCategory, PickerSection>();
   const extras: PickerSection[] = [];
@@ -88,6 +114,9 @@ export function pickerSections({ descriptor, controls, model, effort, runtimeMod
   const permissions: PickerSection[] = hostApprovals ? [{
     id: "host-approvals", label: "Permissions", kind: "select", current: hostApprovals,
     options: [{ value: "ask", label: "Ask each time" }, { value: "allow_all", label: "Allow all" }],
+    applyTarget: { kind: "host_approvals" },
+  }] : hostFullAccess ? [{
+    id: "host-approvals", label: "Permissions", kind: "select", current: "Full access (host)", options: [],
     applyTarget: { kind: "host_approvals" },
   }] : [];
   return [...ORDER.flatMap(category => known.has(category) ? [known.get(category)!] : []), ...permissions, ...extras];

@@ -48,7 +48,13 @@ pub(super) fn runtime_fixture_with_notifications(
 
 pub(in crate::service::agent_runtime) fn runtime_fixture_host_approvals(
 ) -> (ServiceFixture, String, tokio::io::DuplexStream, Cleanup) {
-    runtime_fixture_options(RUNTIME_FIXTURE_SOURCE, &[], false, true, false, true)
+    runtime_fixture_host_approvals_with(RUNTIME_FIXTURE_SOURCE)
+}
+
+pub(in crate::service::agent_runtime) fn runtime_fixture_host_approvals_with(
+    source: &str,
+) -> (ServiceFixture, String, tokio::io::DuplexStream, Cleanup) {
+    runtime_fixture_options(source, &[], false, true, false, true)
 }
 
 pub(super) fn runtime_fixture_with_stored_history(

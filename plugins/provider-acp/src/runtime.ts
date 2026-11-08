@@ -127,10 +127,18 @@ function optionRequest(state:Negotiation, sessionId:string, id:string, value:str
  * The owner's chosen session mode wins: agents rebuild their own default on load, so it is re-entered
  * on every open and resume. Otherwise a full-access launch enters its profile's approve-everything mode.
  */
-function launchMode(ctx:RuntimeContext, state:Negotiation):string|undefined {
+function launchMode(ctx:RuntimeContext, state:Negotiation):{mode:string;optionId?:string}|undefined {
   const settings=object(ctx.providerSettings);
   const mode=settings.sessionMode ?? settings.fullAccessMode;
-  return typeof mode === "string" && mode !== state.settings?.mode && state.settings?.modes?.some(entry=>entry.id === mode) ? mode : undefined;
+  if (typeof mode !== "string") return undefined;
+  const option=state.settings?.configOptions?.find(entry=>entry.category === "mode" && entry.options.some(value=>value.value === mode));
+  if (option) return option.currentValue === mode ? undefined : {mode,optionId:option.id};
+  return mode !== state.settings?.mode && state.settings?.modes?.some(entry=>entry.id === mode) ? {mode} : undefined;
+}
+
+function modeAttempt(raw:JsonValue):boolean {
+  const attempted=object(raw).attempted;
+  return Array.isArray(attempted) && attempted[attempted.length-1] === "mode";
 }
 
 function loadedThread(ctx:RuntimeContext, op:Extract<Operation,{kind:"openThread"|"resumeThread"}>, state:Negotiation, sessionId:string, attempted:string[]=[], confirmAuthentication=true):RuntimeStep {
@@ -141,10 +149,15 @@ function loadedThread(ctx:RuntimeContext, op:Extract<Operation,{kind:"openThread
     plan.state={...object(plan.state),attempted:[...attempted,selection.category],confirmAuthentication};
     return {kind:"continue",plan};
   }
-  const mode=attempted.includes("mode") ? undefined : launchMode(ctx,state);
-  if (mode) {
-    const plan=request("session/set_mode",{sessionId,modeId:mode});
-    plan.state={method:"session/set_mode",modeId:mode,attempted:[...attempted,"mode"],confirmAuthentication};
+  const entry=attempted.includes("mode") ? undefined : launchMode(ctx,state);
+  if (entry?.optionId) {
+    const plan=optionRequest(state,sessionId,entry.optionId,entry.mode);
+    plan.state={...object(plan.state),attempted:[...attempted,"mode"],confirmAuthentication};
+    return {kind:"continue",plan};
+  }
+  if (entry) {
+    const plan=request("session/set_mode",{sessionId,modeId:entry.mode});
+    plan.state={method:"session/set_mode",modeId:entry.mode,attempted:[...attempted,"mode"],confirmAuthentication};
     return {kind:"continue",plan};
   }
   return {kind:"complete",result:{kind:"threadLoaded",threadId:sessionId,settings:state.settings ?? {}},
@@ -351,7 +364,7 @@ export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue,
       plan.state={method,mcpOffered:false};
       return {kind:"continue",plan};
     }
-    if (state && (op.kind === "openThread" || op.kind === "resumeThread") && method === "session/set_mode")
+    if (state && (op.kind === "openThread" || op.kind === "resumeThread") && (method === "session/set_mode" || method === "session/set_config_option" && modeAttempt(raw)))
       return modeContinuation(ctx,op,state,raw);
     if ((op.kind === "openThread" || op.kind === "resumeThread") && ["session/set_config_option","session/set_model"].includes(String(method))) {
       const state=negotiated(ctx);
@@ -403,7 +416,7 @@ export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue,
     if (!settings) return refuseThread(op,state,"protocol_error","Invalid session option response");
     applySettings(state,settings,method === "session/set_config_option");
     const attempted=object(raw).attempted;
-    if (!Array.isArray(attempted) || attempted.length > 2 || !attempted.every(value=>value === "model" || value === "thought_level"))
+    if (!Array.isArray(attempted) || attempted.length > 3 || !attempted.every(value=>value === "model" || value === "thought_level" || value === "mode"))
       return refused("protocol_error","Invalid session selection continuation");
     return loadedThread(ctx,op,state,state.sessionId,attempted as string[],object(raw).confirmAuthentication === true);
   }

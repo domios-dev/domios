@@ -17,7 +17,7 @@ import { AgentIcon } from "../AgentIcon";
 import { ProviderGlyph } from "../ProviderGlyph";
 import { runtimeAgentLabel } from "../../lib/tabProvider";
 import { selectRuntimeControl, setHostApprovals } from "../../lib/runtimeDeclaredControls";
-import { hostApprovalsChoice, pickerSections, pickerDescriptor, type HostApprovalsValue, type PickerSection } from "../../lib/pickerSettings";
+import { hostApprovalsChoice, hostFullAccessOverride, pickerSections, pickerDescriptor, type HostApprovalsValue, type PickerSection } from "../../lib/pickerSettings";
 import { PickerSettingSection } from "./PickerSettingSection";
 import {
   currentModelId,
@@ -102,7 +102,8 @@ export function StatusLineModelPicker({
   pendingSelection?: { model: string; effort: string | null; confirmation_pending?: boolean };
 }) {
   const hostApprovals = tab ? hostApprovalsChoice(descriptor, tab.agent_runtime_config, runtimeControls) : undefined;
-  const settings = pickerSections({ descriptor, controls: runtimeControls, model: currentModelId(descriptor, modelCandidates), effort: currentEffort, hostApprovals });
+  const hostFullAccess = tab ? hostFullAccessOverride(descriptor, tab.agent_runtime_config, runtimeControls) : false;
+  const settings = pickerSections({ descriptor, controls: runtimeControls, model: currentModelId(descriptor, modelCandidates), effort: currentEffort, hostApprovals, hostFullAccess });
   const modelSection = settings.find(section => section.category === "model");
   const effortSection = settings.find(section => section.category === "effort");
   const declaredModels = modelSection?.applyTarget.kind === "config" || Boolean(descriptor?.agent_runtime && !descriptor.available_models.length);
@@ -240,6 +241,7 @@ export function StatusLineModelPicker({
           declaredModels={declaredModels}
           runtimeControls={runtimeControls}
           hostApprovals={hostApprovals}
+          hostFullAccess={hostFullAccess}
           onRuntimeControl={async (section, value) => {
             setApplying(true);
             try {
@@ -295,6 +297,7 @@ export function ModelPickerPopover({
   declaredModels = false,
   runtimeControls,
   hostApprovals,
+  hostFullAccess,
   onRuntimeControl,
   busy,
   failure,
@@ -314,6 +317,7 @@ export function ModelPickerPopover({
   declaredModels?: boolean;
   runtimeControls?: import("@codeterm/plugin-sdk").RuntimeSettings;
   hostApprovals?: HostApprovalsValue;
+  hostFullAccess?: boolean;
   onRuntimeControl?: (section: PickerSection, value: string) => Promise<void>;
   busy: boolean;
   failure: { message: string; selection: PickerSelection } | null;
@@ -336,7 +340,7 @@ export function ModelPickerPopover({
   const [error, setError] = useState<string | null>(failure?.message ?? null);
   const searchable = pickerNeedsSearch(descriptor);
   const groups = pickerModelGroups(descriptor, staged?.model, query, showAll, declaredModels ? "" : currentModel);
-  const sections = pickerSections({ descriptor, controls: runtimeControls, model: staged?.model ?? currentModel, effort: staged?.effort ?? currentEffort, runtimeMode: staged?.runtimeMode ?? currentRuntimeMode, serviceTier: staged?.serviceTier ?? currentServiceTier, serviceTierAvailability, hostApprovals });
+  const sections = pickerSections({ descriptor, controls: runtimeControls, model: staged?.model ?? currentModel, effort: staged?.effort ?? currentEffort, runtimeMode: staged?.runtimeMode ?? currentRuntimeMode, serviceTier: staged?.serviceTier ?? currentServiceTier, serviceTierAvailability, hostApprovals, hostFullAccess });
   const effortSetting = sections.find(section => section.category === "effort");
   const extraSettings = sections.filter(section => section.category !== "model" && section.category !== "effort");
   const stagedEffort = staged ? effortAfterModelChange(descriptor, staged.model, staged.effort) : undefined;

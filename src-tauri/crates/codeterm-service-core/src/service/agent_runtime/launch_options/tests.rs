@@ -549,6 +549,35 @@ fn a_native_mode_stays_the_single_switch_and_its_choice_is_reapplied_on_restore(
 }
 
 #[test]
+fn an_agents_own_mode_change_neither_widens_nor_narrows_the_owners_choice() {
+    let (fixture, id) = host_approval_fixture("native");
+    let svc = &fixture.service;
+    let live = |mode: &str| -> RuntimeSettings {
+        serde_json::from_value(serde_json::json!({"mode":mode,
+            "modes":[{"id":"opaque-default","name":"Default"},{"id":"opaque-approve-all","name":"Approve all"}]}))
+        .unwrap()
+    };
+    let select = |mode: &str| {
+        svc.mux
+            .write()
+            .get_tab_mut(&id)
+            .unwrap()
+            .restorable_launch
+            .selected_session_mode = Some(mode.into());
+    };
+    select("opaque-default");
+    assert!(
+        !svc.full_access_with_settings(&id, Some(&live("opaque-approve-all"))),
+        "an agent entering its approve-all mode must not lift the owner's asking mode"
+    );
+    select("opaque-approve-all");
+    assert!(
+        svc.full_access_with_settings(&id, Some(&live("opaque-default"))),
+        "the owner's approve-all choice holds when the agent leaves that mode"
+    );
+}
+
+#[test]
 fn confinement_refuses_the_host_switch_and_locks_the_picker() {
     let (fixture, id) = host_approval_fixture("plain");
     let svc = &fixture.service;

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ProviderDescriptor } from "./types";
 import type { RuntimeSettings } from "@codeterm/plugin-sdk";
-import { hostApprovalsChoice, pickerSections } from "./pickerSettings";
+import { hostApprovalsChoice, hostFullAccessOverride, pickerSections } from "./pickerSettings";
 import modelsOnlyFixture from "../../plugins/provider-acp/tests/fixtures/runtime/session-models-only.json";
 
 const native = { available_models: [{ id: "native-model", display_name: "Native model", reasoning_efforts: [{ id: "high", display_name: "High" }] }], agent_runtime: {
@@ -94,5 +94,36 @@ describe("hostApprovalsChoice", () => {
 
   it("is absent without a descriptor", () => {
     expect(hostApprovalsChoice(undefined, { launchProfile: "plain" }, undefined)).toBeUndefined();
+  });
+
+  const modeOption = (currentValue: string) => ({ configOptions: [{ id: "opaque-mode", name: "Mode", category: "mode", currentValue, options: [{ value: "default", name: "Default" }, { value: "approve-all", name: "Approve all" }] }] }) as RuntimeSettings;
+
+  it("treats an approve-all mode offered as a config option as the single switch", () => {
+    expect(hostApprovalsChoice(descriptor(true), { launchProfile: "native" }, modeOption("default"))).toBeUndefined();
+  });
+
+  it.each([
+    ["the host answers while the mode row reads otherwise", { launchProfile: "native", hostApprovals: "allow_all" }, advertised, true],
+    ["the same through a mode config option", { launchProfile: "native", hostApprovals: "allow_all" }, modeOption("default"), true],
+    ["the owner chose an asking mode", { launchProfile: "native", hostApprovals: "ask", sessionMode: "default" }, advertised, false],
+    ["the agent really is in its approve-all mode", { launchProfile: "native", hostApprovals: "allow_all" }, { ...advertised, mode: "approve-all" }, false],
+    ["the option really is approve-all", { launchProfile: "native", hostApprovals: "allow_all" }, modeOption("approve-all"), false],
+    ["confinement owns the answer", { launchProfile: "native", hostApprovals: "locked" }, advertised, false],
+    ["the Permissions row already says so", { launchProfile: "plain", hostApprovals: "allow_all" }, others, false],
+    ["no session has reported yet", { launchProfile: "native", hostApprovals: "allow_all" }, undefined, false],
+  ] as const)("hostFullAccessOverride: %s", (_name, config, controls, expected) => {
+    expect(hostFullAccessOverride(descriptor(true), config, controls)).toBe(expected);
+  });
+
+  it("hostFullAccessOverride needs host approvals", () => {
+    expect(hostFullAccessOverride(descriptor(false), { launchProfile: "native", hostApprovals: "allow_all" }, advertised)).toBe(false);
+  });
+});
+
+describe("the host full-access notice", () => {
+  it("adds a read-only Permissions row beside the mode row", () => {
+    const sections = pickerSections({ controls: { mode: "default", modes: [{ id: "default", name: "Default" }] }, hostFullAccess: true });
+    expect(sections.map(section => section.label)).toEqual(["Mode", "Permissions"]);
+    expect(sections[1]).toMatchObject({ current: "Full access (host)", options: [] });
   });
 });

@@ -187,7 +187,6 @@ const NATIVE: AccessFacts<'static> = AccessFacts {
     grant_bound: false,
     native_mode: Some("opaque-approve-all"),
     native_advertised: Some(true),
-    current_mode: Some("opaque-default"),
     selected_mode: None,
     choice: None,
 };
@@ -195,7 +194,6 @@ const NATIVE: AccessFacts<'static> = AccessFacts {
 #[test]
 fn a_chosen_approve_all_mode_answers_questions_the_agent_still_asks_on_an_interactive_tab() {
     assert!(full_access_in_effect(AccessFacts {
-        current_mode: Some("opaque-approve-all"),
         selected_mode: Some("opaque-approve-all"),
         ..NATIVE
     }));
@@ -211,19 +209,58 @@ fn a_chosen_asking_mode_still_asks_even_on_a_full_access_launch() {
 }
 
 #[test]
-fn the_live_mode_decides_once_the_owner_has_chosen_one() {
-    assert!(!full_access_in_effect(AccessFacts {
-        selected_mode: Some("opaque-approve-all"),
-        current_mode: Some("opaque-plan"),
-        ..NATIVE
-    }));
+fn mode_controls_are_owner_only_in_either_shape_and_other_controls_are_not() {
+    let settings: RuntimeSettings = serde_json::from_value(serde_json::json!({
+        "configOptions":[
+            {"id":"opaque-mode","name":"Mode","category":"mode","currentValue":"a","options":[{"value":"a","name":"A"}]},
+            {"id":"opaque-model","name":"Model","category":"model","currentValue":"a","options":[{"value":"a","name":"A"}]},
+        ],
+    }))
+    .unwrap();
+    assert!(owner_only_control(Some(&settings), true, ""));
+    assert!(owner_only_control(None, true, ""));
+    assert!(owner_only_control(Some(&settings), false, "opaque-mode"));
+    assert!(!owner_only_control(Some(&settings), false, "opaque-model"));
+    assert!(!owner_only_control(
+        Some(&settings),
+        false,
+        "opaque-unknown"
+    ));
+    assert!(!owner_only_control(None, false, "opaque-mode"));
+}
+
+#[test]
+fn a_declared_mode_counts_as_offered_in_either_shape() {
+    let settings =
+        |value: serde_json::Value| -> RuntimeSettings { serde_json::from_value(value).unwrap() };
+    let as_mode = settings(serde_json::json!({"modes":[{"id":"opaque-approve-all","name":"A"}]}));
+    let as_option = settings(
+        serde_json::json!({"configOptions":[{"id":"opaque-mode","name":"Mode",
+        "category":"mode","currentValue":"a","options":[{"value":"opaque-approve-all","name":"A"}]}]}),
+    );
+    let other_category = settings(
+        serde_json::json!({"configOptions":[{"id":"opaque-other","name":"Other",
+        "category":"model","currentValue":"a","options":[{"value":"opaque-approve-all","name":"A"}]}]}),
+    );
+    let native = Some("opaque-approve-all");
+    assert_eq!(native_advertised(native, Some(&as_mode)), Some(true));
+    assert_eq!(native_advertised(native, Some(&as_option)), Some(true));
+    assert_eq!(
+        native_advertised(native, Some(&other_category)),
+        Some(false)
+    );
+    assert_eq!(
+        native_advertised(native, Some(&RuntimeSettings::default())),
+        Some(false)
+    );
+    assert_eq!(native_advertised(native, None), None);
+    assert_eq!(native_advertised(None, Some(&as_mode)), None);
 }
 
 #[test]
 fn before_a_session_reports_modes_the_selection_decides_the_launch() {
     let launch = AccessFacts {
         native_advertised: None,
-        current_mode: None,
         ..NATIVE
     };
     assert!(full_access_in_effect(AccessFacts {
