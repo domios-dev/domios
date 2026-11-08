@@ -125,6 +125,7 @@ impl ServiceContext {
                         Err(
                             DeliveryError::TabNotFound { .. }
                             | DeliveryError::AgentUnavailable { .. }
+                            | DeliveryError::BusyRefused { .. }
                             | DeliveryError::ReadOnly { .. },
                         ) => codeterm_types::plan::CuratorMessageReceipt::NothingWritten,
                         // Opaque transport failures do not prove zero writes.

@@ -239,3 +239,60 @@ fn exported_plans_streams_every_plan_without_filling_the_cache() {
     assert_eq!(ids, expected);
     assert!(store.plan_loads_for_test().is_empty());
 }
+
+#[test]
+fn exported_plans_with_tasks_attempts_and_agent_states_deserialize_for_import() {
+    use codeterm_service_core::service::plan::load_audit::{attempt, execution_plan, start, task};
+    use codeterm_types::plan::{CuratorAgentState, Plan, TaskStatus};
+
+    let dir = tempfile::tempdir().unwrap();
+    let store = codeterm_service_core::service::plan::PlanStore::new_for_test(dir.path());
+    let mut worker = task("task-bound", TaskStatus::InProgress, Some("worker-tab"));
+    worker.name = "private task".into();
+    worker.execution_attempts = vec![attempt("attempt-bound", "worker-tab")];
+    let mut plan = execution_plan(dir.path(), "private plan", "owner-tab", vec![worker]);
+    for name in ["private-agent-a", "private-agent-b"] {
+        plan.control_loop.agent_states.insert(
+            name.into(),
+            CuratorAgentState {
+                state: "private state".into(),
+                since: 12345,
+            },
+        );
+    }
+    plan.control_loop
+        .task_states
+        .insert("private-task".into(), "private status".into());
+    plan.elements = serde_json::from_value(json!([{
+        "id":"element-bound", "kind":"private kind",
+        "content":{"state":"private content", "since":98765}
+    }]))
+    .unwrap();
+    store.save(&mut plan, 1).unwrap();
+    start(&store);
+
+    let exported = super::exported_plans(&store).unwrap();
+    let restored: Vec<Plan> = serde_json::from_value(exported.clone()).unwrap();
+    assert_eq!(restored.len(), 1);
+    let restored = &restored[0];
+    assert_eq!(restored.id, plan.id);
+    assert_eq!(restored.tasks[0].id, "task-bound");
+    assert_eq!(restored.tasks[0].execution_attempts[0].id, "attempt-bound");
+    assert_eq!(restored.control_loop.agent_states.len(), 2);
+    for (key, state) in &restored.control_loop.agent_states {
+        assert!(!key.contains("private"));
+        assert_eq!(state.state, super::sanitize::filler("private state"));
+        assert_eq!(state.since, 12345);
+    }
+    assert!(!exported.to_string().contains("private"));
+    assert!(!exported.to_string().contains("98765"));
+    assert_eq!(
+        serde_json::to_vec(&exported[0]).unwrap().len(),
+        serde_json::to_vec(&plan).unwrap().len()
+    );
+    let mut document = fixture_document();
+    document["plans"] = exported;
+    let (_, imported) = super::fixture_document(&document).unwrap();
+    assert_eq!(serde_json::to_value(imported).unwrap(), document["plans"]);
+    assert!(store.plan_loads_for_test().is_empty());
+}

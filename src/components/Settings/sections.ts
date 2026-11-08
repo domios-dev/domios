@@ -48,7 +48,7 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
   { id: "account", label: "Account", desc: "Sign in and manage your identity", icon: SECTION_ICONS.account },
   { id: "general", label: "General", desc: "Theme, fonts, messengers, keybindings", icon: SECTION_ICONS.general },
   { id: "notifications", label: "Notifications", desc: "The bell, desktop alerts, sound, and where each level may go", icon: SECTION_ICONS.notifications },
-  { id: "agents", label: "Agents", desc: "General Agent, agent access, and per-provider config", icon: SECTION_ICONS.agents },
+  { id: "agents", label: "Agents", desc: "General Agent, agent access, and per-harness config", icon: SECTION_ICONS.agents },
   { id: "jobs", label: "Jobs", desc: "Crons and Blueprints on this machine", icon: SECTION_ICONS.jobs },
   { id: "logs", label: "Logs", desc: "App diagnostics — live, filterable, scoped", icon: SECTION_ICONS.logs },
   { id: "guide", label: "Guide", desc: "What Domios is and how to work with it", icon: SECTION_ICONS.guide },

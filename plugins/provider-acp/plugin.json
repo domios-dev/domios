@@ -1,0 +1,220 @@
+{
+  "id": "acp",
+  "version": "0.1.6",
+  "minCodeterm": "1.19.1",
+  "hostApi": 2,
+  "displayName": "ACP",
+  "description": "Agent Client Protocol v1 runtime with host-owned launch profiles. See domios docs ACP for profiles, setup, registry and authentication.",
+  "entry": "plugin.js",
+  "icon": "icon.svg",
+  "capabilities": {
+    "agentProvider": true,
+    "attachments": {
+      "filePaths": false,
+      "inlineText": true,
+      "imagePaths": true
+    },
+    "agentRuntime": {
+      "runtime": "stdio-jsonrpc",
+      "envelope": "jsonrpc2",
+      "usage": true,
+      "hostApprovals": true,
+      "command": {
+        "binary": "acp-agent",
+        "args": []
+      },
+      "launchProfiles": {
+        "deepseek-harness": {
+          "binary": "npx",
+          "args": [
+            "@deepseek-ai/dsh@0.2.1-rc.5",
+            "--profile",
+            "acp"
+          ],
+          "install": {
+            "package": "@deepseek-ai/dsh@0.2.1-rc.5",
+            "registry": "https://registry.npmjs.org"
+          },
+          "secretEnv": {
+            "DEEPSEEK_API_KEY": "domios:provider:acp:deepseek-api-key"
+          },
+          "icon": "deepseek-color.svg",
+          "askScope": "outsideWorkspace",
+          "limitsSource": {
+            "kind": "balance",
+            "reader": "deepseek-balance",
+            "credentialEnv": "DEEPSEEK_API_KEY"
+          }
+        },
+        "gemini-cli": {
+          "binary": "gemini",
+          "args": [
+            "--acp"
+          ],
+          "env": {
+            "GEMINI_CLI_TRUST_WORKSPACE": "true"
+          },
+          "hostWorkingDirectory": true,
+          "authEnv": {
+            "GEMINI_API_KEY": {
+              "secret": "domios:provider:acp:gemini-api-key",
+              "methods": [
+                "gemini-api-key"
+              ]
+            }
+          },
+          "icon": "gemini-color.svg",
+          "fullAccessMode": "yolo",
+          "clientCapabilities": {
+            "fs": {
+              "readTextFile": false
+            }
+          },
+          "limitsSource": {
+            "kind": "quota",
+            "reader": "gemini-code-assist"
+          }
+        },
+        "local": {
+          "binary": "local-acp-command",
+          "args": [],
+          "ownerConfigured": true
+        }
+      },
+      "registryDefaults": {
+        "claude-acp": {
+          "fullAccessMode": "bypassPermissions",
+          "limitsSource": {
+            "kind": "account",
+            "provider": "claude"
+          }
+        },
+        "codex-acp": {
+          "fullAccessMode": "agent-full-access",
+          "limitsSource": {
+            "kind": "account",
+            "provider": "codex"
+          }
+        },
+        "gemini": {
+          "fullAccessMode": "yolo",
+          "limitsSource": {
+            "kind": "quota",
+            "reader": "gemini-code-assist"
+          }
+        }
+      },
+      "requestMethods": {
+        "initialize": [
+          "initialize"
+        ],
+        "openThread": [
+          "session/new",
+          "session/set_config_option",
+          "session/set_model",
+          "session/set_mode"
+        ],
+        "resumeThread": [
+          "session/load",
+          "session/resume",
+          "session/set_config_option",
+          "session/set_model",
+          "session/set_mode"
+        ],
+        "submitTurn": [
+          "session/prompt",
+          "_session/steering"
+        ],
+        "interrupt": [
+          "session/cancel"
+        ],
+        "control": [
+          "initialize",
+          "authenticate",
+          "session/set_mode",
+          "session/set_config_option",
+          "session/set_model"
+        ],
+        "answer": []
+      },
+      "notificationMethods": [
+        "session/update"
+      ],
+      "clientBridges": {
+        "fsRead": true,
+        "fsWrite": true,
+        "terminal": true
+      },
+      "interrupt": {
+        "beforeFirstTurn": true
+      },
+      "turnScopedRequests": [
+        "submitTurn"
+      ],
+      "hostMcp": {
+        "param": "mcpServers",
+        "methods": [
+          "session/new",
+          "session/load",
+          "session/resume"
+        ]
+      }
+    },
+    "chatBackend": {
+      "enabled": true,
+      "spawnable": true,
+      "sessionConfig": true,
+      "agentTasks": true
+    }
+  },
+  "credentials": [
+    {
+      "id": "geminiSettings",
+      "file": "~/.gemini/settings.json",
+      "public": {
+        "selectedType": "security.auth.selectedType"
+      },
+      "fileEnvironment": {
+        "variable": "GEMINI_CLI_HOME",
+        "subdir": ".gemini/settings.json"
+      }
+    },
+    {
+      "id": "geminiOauth",
+      "file": "~/.gemini/oauth_creds.json",
+      "public": {
+        "expiresAt": "expiry_date"
+      },
+      "secret": {
+        "accessToken": "access_token"
+      },
+      "fileEnvironment": {
+        "variable": "GEMINI_CLI_HOME",
+        "subdir": ".gemini/oauth_creds.json"
+      }
+    }
+  ],
+  "permissions": {
+    "subprocess": {
+      "allow": [
+        "acp-agent",
+        "npx",
+        "gemini",
+        "local-acp-command"
+      ]
+    },
+    "secrets": true,
+    "agent_commands": true,
+    "network": {
+      "allow": [
+        "cdn.agentclientprotocol.com",
+        "api.deepseek.com",
+        "cloudcode-pa.googleapis.com"
+      ]
+    }
+  },
+  "agentVerbs": [
+    "registry-search [query]",
+    "registry-refresh [query]"
+  ]
+}

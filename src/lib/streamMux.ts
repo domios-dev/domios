@@ -10,6 +10,21 @@ type Head = Extract<MuxFrame, { kind: "open" }>;
 const SESSION_BUFFER = 4 * 1024 * 1024;
 const REQUEST_BUFFER = 512 * 1024;
 
+function responseBufferLimit(head: Head): number {
+  const length = head.headers.find(([name]) => name.toLowerCase() === "content-length")?.[1];
+  if (length == null || !/^\d+$/.test(length)) return REQUEST_BUFFER;
+  const bytes = Number(length);
+  return Number.isSafeInteger(bytes) ? Math.min(SESSION_BUFFER, Math.max(REQUEST_BUFFER, bytes)) : REQUEST_BUFFER;
+}
+
+class MuxCapacityError extends SseCapacityError {
+  constructor(scope: "frame" | "session" | "per-request", bytes: number, limit: number) {
+    super(bytes);
+    this.name = "MuxCapacityError";
+    this.message = `Mux ${scope} buffer limit exceeded (${bytes} bytes; limit ${limit} bytes)`;
+  }
+}
+
 export class OutcomeUnknown extends Error {
   constructor(public method: string, public path: string, cause?: string) {
     super("The daemon request may have completed; reconcile its status before sending again" + (cause ? ` (${cause})` : ""));
@@ -19,6 +34,12 @@ export class OutcomeUnknown extends Error {
 export class RetryableMuxError extends TransportError {
   readonly retryable = true;
   constructor(path: string, message: string) { super(0, path, message); this.name = "RetryableTransportError"; }
+}
+
+export class MuxAdmissionError extends RetryableMuxError {
+  readonly dispatched = false;
+  readonly code = "client_capacity";
+  constructor(path: string) { super(path, "client_capacity: Other requests are using the available connection capacity; this request was not sent."); }
 }
 
 // Body readers rethrow the typed carrier outcome; runtimes may wrap stream errors.
@@ -40,6 +61,7 @@ interface Pending {
   stream: boolean;
   traffic: MuxTraffic;
   postTraffic: MuxTraffic;
+  foreground: boolean;
   state: MuxRequestState;
   session: string | null;
   acked: boolean;
@@ -48,6 +70,7 @@ interface Pending {
   ended: boolean;
   queue: Uint8Array[];
   buffered: number;
+  bufferLimit: number;
   tracked: boolean;
   demand: boolean;
   controller: ReadableStreamDefaultController<Uint8Array> | null;
@@ -74,7 +97,14 @@ export function createStreamMux(transport: () => TransportClient, fetcher: Fetch
   let closed = false;
 
   function kick(): void {
-    const next = muxPostStart(postState); postState = next.state;
+    const requests = [...pending.values()].filter(entry => !entry.stream && entry.state.phase !== "registered").length;
+    const next = muxPostStart(postState, (id, selected) => {
+      const entry = pending.get(id);
+      if (!entry) return false;
+      if (entry.stream) return true;
+      const reserved = selected.filter(key => !pending.get(key)?.stream).length;
+      return requests + reserved < (entry.foreground ? 64 : 48);
+    }); postState = next.state;
     for (const id of next.ids) {
       const post = posts.get(id); posts.delete(id);
       if (post) void post();
@@ -99,7 +129,7 @@ export function createStreamMux(transport: () => TransportClient, fetcher: Fetch
       const close = closeStream; current = null; closeStream = null; close?.();
     }
     // After the caller's drain, so an idle waiter sees complete bodies.
-    queueMicrotask(notifyIdle);
+    queueMicrotask(() => { kick(); notifyIdle(); });
   }
 
   const idleWaiters: Array<() => void> = [];
@@ -150,7 +180,9 @@ export function createStreamMux(transport: () => TransportClient, fetcher: Fetch
     const step = transitionMuxRequest(previous, { type: "cancel" });
     entry.state = step.state;
     if (step.action === "cancel-read" || step.action === "detach-mutation") cancelRemote(entry);
-    const rejection = step.action === "detach-mutation" ? new OutcomeUnknown(entry.method, entry.path) : reason;
+    const rejection = step.action === "detach-mutation" ? new OutcomeUnknown(entry.method, entry.path)
+      : previous.phase === "registered" && posts.has(entry.id) && reason instanceof DOMException && reason.name === "TimeoutError"
+        ? new MuxAdmissionError(entry.path) : reason;
     entry.outcome = rejection;
     cleanup(entry); releaseBuffer(entry); entry.aborter.abort(reason);
     entry.reject(rejection);
@@ -205,6 +237,7 @@ export function createStreamMux(transport: () => TransportClient, fetcher: Fetch
     if (frame.kind === "open") {
       if (entry.head) { failure(entry, new Error("Duplicate mux response head")); return; }
       entry.head = frame;
+      entry.bufferLimit = responseBufferLimit(frame);
       entry.state = transitionMuxRequest(entry.state, { type: "frame", stage: "head" }).state;
       deliverHead(entry);
     } else if (frame.kind === "chunk") {
@@ -214,8 +247,11 @@ export function createStreamMux(transport: () => TransportClient, fetcher: Fetch
         bytes = frame.enc === "utf8" ? new TextEncoder().encode(frame.chunk)
           : Uint8Array.from(atob(frame.chunk), character => character.charCodeAt(0));
       } catch (error) { failure(entry, error); return; }
-      if (bytes.byteLength > 64 * 1024 || buffered + bytes.byteLength > SESSION_BUFFER || entry.buffered + bytes.byteLength > REQUEST_BUFFER) {
-        cancelRemote(entry); failure(entry, new SseCapacityError(buffered + bytes.byteLength)); return;
+      const overflow = bytes.byteLength > 64 * 1024 ? new MuxCapacityError("frame", bytes.byteLength, 64 * 1024)
+        : buffered + bytes.byteLength > SESSION_BUFFER ? new MuxCapacityError("session", buffered + bytes.byteLength, SESSION_BUFFER)
+        : entry.buffered + bytes.byteLength > entry.bufferLimit ? new MuxCapacityError("per-request", entry.buffered + bytes.byteLength, entry.bufferLimit) : null;
+      if (overflow) {
+        cancelRemote(entry); failure(entry, overflow); return;
       }
       entry.state = transitionMuxRequest(entry.state, { type: "frame", stage: "body" }).state;
       entry.queue.push(bytes); entry.buffered += bytes.byteLength; buffered += bytes.byteLength;
@@ -307,7 +343,7 @@ export function createStreamMux(transport: () => TransportClient, fetcher: Fetch
       if (!pending.has(entry.id)) return;
       entry.session = owner;
       posts.set(entry.id, () => post(entry));
-      postState = muxPostEnqueue(postState, entry.id, entry.postTraffic); kick();
+      postState = muxPostEnqueue(postState, entry.id, entry.postTraffic, entry.foreground); kick();
     } catch (error) { failure(entry, error); }
   }
 
@@ -386,18 +422,20 @@ export function createStreamMux(transport: () => TransportClient, fetcher: Fetch
       const options: MuxRequestInit = { ...init, headers, signal: init.signal ?? (input instanceof Request ? input.signal : undefined), body: init.body ?? (input instanceof Request ? input.body : undefined) };
       const operation = muxRequestOperation(method, path, options.body);
       const policy = muxRequestPolicy(method, path, options.body);
+      const foreground = !policy.cancellable || operation.method === "POST" && /^\/api\/tabs\/[^/]+\/chat-raw\/start$/.test(operation.path.split("?")[0]);
       const postTraffic = muxPostTraffic(policy.traffic, options.body != null && (typeof options.body !== "string" || options.body.length > 64 * 1024));
       const entries = [...pending.values()];
       const streams = entries.filter(entry => entry.stream).length;
       const bulk = entries.filter(entry => !entry.stream && entry.postTraffic === "bulk").length;
-      if (closed || !muxRequestAdmission(stream, postTraffic, streams, entries.length - streams, bulk)) return Promise.reject(new RetryableMuxError(path, "Mux client capacity reached before dispatch"));
+      if (closed) return Promise.reject(new RetryableMuxError(path, "Mux connection closed before dispatch"));
+      if (!muxRequestAdmission(stream, postTraffic, streams, entries.length - streams, bulk, foreground)) return Promise.reject(new MuxAdmissionError(path));
       return new Promise<Response>((resolve, reject) => {
         const aborter = new AbortController();
         const entry: Pending = {
           id: uid(), method, path, init: options, stream, traffic: policy.traffic,
-          postTraffic,
+          postTraffic, foreground,
           state: initialMuxRequest(stream || policy.cancellable), session: null, acked: false, head: null,
-          outcome: undefined, resolved: false, ended: false, queue: [], buffered: 0, tracked: true, demand: false, controller: null,
+          outcome: undefined, resolved: false, ended: false, queue: [], buffered: 0, bufferLimit: REQUEST_BUFFER, tracked: true, demand: false, controller: null,
           aborter, post: null, detach: () => {}, resolve, reject,
         };
         const timeout = stream ? null : restRequestTimeoutMs(operation.method, operation.path, options[MUX_REQUEST_TIMEOUT]);

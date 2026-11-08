@@ -74,7 +74,8 @@ fn spawn_rejects_transport_mismatched_flags() {
         let error = fixture
             .service
             .classify_spawn_target_for_params(PROVIDER, &params)
-            .expect_err(flag);
+            .expect_err(flag)
+            .to_string();
         assert!(error.contains(flag), "{flag}: {error}");
     }
     assert!(chat_backend_only_fields(&pty_params()).is_empty());
@@ -166,7 +167,7 @@ fn chat_backend_spawn_keeps_its_fields_and_refuses_pty_launch_args() {
             }),
         )
         .expect_err("PTY launch args have no chatBackend meaning");
-    assert!(error.contains("--args"), "{error}");
+    assert!(error.to_string().contains("--args"), "{error}");
 }
 
 #[test]

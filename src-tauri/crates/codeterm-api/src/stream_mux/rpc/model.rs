@@ -53,7 +53,11 @@ fn read_post(path: &str) -> bool {
     !tab.is_empty()
         && matches!(
             operation,
-            "preview/read" | "preview/check" | "chat-raw/history" | "chat-raw/backfill"
+            "preview/read"
+                | "preview/check"
+                | "chat-raw/start"
+                | "chat-raw/history"
+                | "chat-raw/backfill"
         )
 }
 

@@ -768,7 +768,7 @@ fn resolve_creator(
     let label = mux.display_label_for_tab(&tab);
     let model = mux
         .get_tab(&tab)
-        .and_then(|p| p.agent_session_model.clone());
+        .and_then(|p| p.agent_session_model_label());
     ReminderCreator {
         tab: Some(tab),
         label: Some(label).filter(|s| !s.trim().is_empty()),

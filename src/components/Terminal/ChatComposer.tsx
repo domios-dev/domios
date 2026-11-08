@@ -16,7 +16,6 @@ import { evaluateWhen } from "../../lib/evaluateWhen";
 import { ComposerActions } from "./ComposerActions";
 import { isDuplicateSend } from "./chatSendGuard";
 import { invoke, listen } from "../../lib/bridge";
-import { ComposerContextMeter } from "./ComposerContextMeter";
 import { useComposerRecall } from "./useComposerRecall";
 import { usePersistentDraft } from "../../lib/usePersistentDraft";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
@@ -51,6 +50,7 @@ import {
 import { sendTrackedChatMessage, type ChatSendStatus } from "./chatSendStatus";
 import { failChatSendRequest, readChatSends, setChatSendDraft } from "./chatSendStore";
 import { prepareChatDelivery } from "./chatDeliveryPreparation";
+import { TranscriptionStatus, useTranscriptionStatus } from "./voice/TranscriptionStatus";
 import { composeAttachmentDraft } from "./meshAttachmentHandoff";
 import { composerAttachmentHandoff } from "./composerAttachmentHandoff";
 import { useComposerInsertions } from "./useComposerInsertions";
@@ -193,6 +193,7 @@ function ChatComposerImpl({
   showComposerError,
   onOpenTerminalFallback,
   promptDock,
+  idlePlaceholder,
   replacement,
   inlineAttachmentSink,
   pluginError,
@@ -224,6 +225,8 @@ function ChatComposerImpl({
   showComposerError: (message: string) => void;
   onOpenTerminalFallback?: () => void;
   promptDock?: ReactNode;
+  /** What the empty input says instead of "Message", e.g. while the agent waits for a sign-in. */
+  idlePlaceholder?: string;
   replacement?: ReactNode;
   /** Where pasted and dropped files land as capsules at the caret. */
   inlineAttachmentSink?: MutableRefObject<InlineAttachmentSink | null>;
@@ -241,6 +244,7 @@ function ChatComposerImpl({
   const [expandedEditor, setExpandedEditor] = useState(false);
   const recall = useComposerRecall(tabId);
   const workspaceId = useMuxSelector(useLatestCallback((state) => state.workspaces.find((workspace) => workspace.tabs.includes(tabId))?.id ?? state.tabs[tabId]?.workspace_id ?? null, [tabId]));
+  const chatOnly = useMuxSelector(useLatestCallback((state) => state.tabs[tabId]?.backing?.kind === "chat_backend", [tabId]));
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerHighlight, setPickerHighlight] = useState(0);
   const touchMode = useTouchOptimizedUi();
@@ -273,9 +277,12 @@ function ChatComposerImpl({
   const capsules = useComposerCapsules({ tabId, textareaRef, sinkRef: inlineAttachmentSink, onError: flagComposerError,
     keepTextInline: Boolean(tabProvider && !provider?.attachments?.filePaths) });
   const [composing, setComposing] = useState(false);
+  const transcription = useTranscriptionStatus();
   const capsulesActive = !composing && hasCapsuleTokens(input);
   const attachInline = async (paths: string[]) => capsules.insert(await classifyAttachmentPaths(paths));
-  const commands = useMuxSelector(useLatestCallback(state => cachedSlashCommands(state.tabs[tabId]?.provider_signals?.capabilities), [tabId]), slashCommandsEqual);
+  const commands = useMuxSelector(useLatestCallback(state => state.tabs[tabId]?.agent_runtime_state?.controls?.commands !== undefined
+    ? (state.tabs[tabId]?.agent_runtime_state?.controls?.commands ?? []).map(command => ({name:`/${command.name}`,description:command.description,argumentHint:command.argumentHint}))
+    : cachedSlashCommands(state.tabs[tabId]?.provider_signals?.capabilities ?? (state.tabs[tabId]?.backing?.kind === "chat_backend" ? {status:"unavailable",reason:"Commands not declared"} : undefined)), [tabId]), slashCommandsEqual);
   const firstLine = input.split("\n")[0] || "";
   const suggestions = useMemo(
     () => filterSlashCommands(firstLine, commands),
@@ -323,6 +330,7 @@ function ChatComposerImpl({
   }, []);
 
   useEffect(() => {
+    if (!isActive) return;
     if (delayedTabRef.current !== tabId) {
       setDelayedMessages([]);
       setSystemHeartbeats([]);
@@ -445,7 +453,8 @@ function ChatComposerImpl({
       recordDroppedUploads(tabId, optimisticId, results.filter(item => !item.path).map(item => item.upload));
       const readyDraft = { ...deliveryDraft, ...resolved };
       setChatSendDraft(tabId, optimisticId, readyDraft);
-      composed = await prepareChatDelivery(tabId, { ...send, draft: readyDraft }, expandDsTasks);
+      const delivery = prepareChatDelivery(tabId, { ...send, draft: readyDraft }, expandDsTasks);
+      composed = await (recordedVoiceAttachments.length > 0 ? transcription.track(delivery) : delivery);
       if (!composed.trim()) {
         failChatSendRequest(tabId, optimisticId);
         pendingDraftsRef.current.delete(dupKey);
@@ -487,12 +496,14 @@ function ChatComposerImpl({
     if (tabProvider && attachmentError) { flagComposerError(attachmentError); return; }
     setScheduleBusy(true);
     try {
-      const { composed, transcribeFailed } = await composeDraft(
+      const pendingDraft = composeDraft(
         body,
         draft.allAttachments,
         draft.recordedVoiceAttachments,
         draft.quoted,
       );
+      const { composed, transcribeFailed } = await (draft.recordedVoiceAttachments.length > 0
+        ? transcription.track(pendingDraft) : pendingDraft);
       if (transcribeFailed) {
         flagComposerError(VOICE_TRANSCRIBE_ERROR);
         return;
@@ -577,6 +588,7 @@ function ChatComposerImpl({
         onPicked={refocusComposer} textareaRef={textareaRef} anchorRef={shellRef} />
       {plansSink}
       {!startupSend.bound && <span role="status">Connecting to chat — sending is unavailable</span>}
+      <TranscriptionStatus since={transcription.since} />
       <ComposerCapsuleField
         tabId={tabId}
         value={input}
@@ -701,8 +713,8 @@ function ChatComposerImpl({
           onCut={(e) => capsules.handleCopy(e, true)}
           onSelect={(e) => { capsules.snapSelection(e.currentTarget); mentionPicker.current?.syncSelection(e.currentTarget); }}
           placeholder={pendingPrompt
-            ? "Agent may be waiting in the terminal."
-            : "Message"}
+            ? chatOnly ? "Answer the request above to continue." : "Agent may be waiting in the terminal."
+            : idlePlaceholder ?? "Message"}
           enterKeyHint={composerDevice === "phone" ? "enter" : "send"}
           style={{
             color: capsulesActive ? "transparent" : "var(--ct-fg, #c9d1d9)",
@@ -756,7 +768,6 @@ function ChatComposerImpl({
         );
       })()}
       <div className="mb-2 flex flex-wrap items-center gap-1 pl-8 empty:hidden">
-      <ComposerContextMeter tabId={tabId} />
       <ProviderCapabilityBadge tabId={tabId} />
       </div>
       {promptDock}
@@ -790,6 +801,7 @@ export const ChatComposer = memo(ChatComposerImpl, (a, b) =>
   && a.onOpenTerminalFallback === b.onOpenTerminalFallback
   && a.replacement === b.replacement
   && a.promptDock === b.promptDock
+  && a.idlePlaceholder === b.idlePlaceholder
   && a.inlineAttachmentSink === b.inlineAttachmentSink
   && a.pluginError === b.pluginError
   && a.sessionIntent === b.sessionIntent

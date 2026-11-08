@@ -1,5 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Bell, Bot, FolderOpen, MessagesSquare, Pause, ShieldCheck, Sparkles, UserX, X } from "lucide-react";
+import { plansAction } from "../billing/purchaseSwitch";
 import { AccountAvatar } from "../Titlebar/AccountAvatar";
 import { accountInitials } from "../Settings/accountModel";
 import { SettingsPage, SettingsPill } from "../Settings/shared";
@@ -142,7 +143,7 @@ export function NeighborFriendPage({ friend, locked, enabled, pending, section, 
           <FriendStats friend={friend} quota={quota} page={recent} />
         </div>
         <div className="neighbor-window__actions">
-          {locked ? <Button size="sm" variant="accent" onClick={onPlans}>View plans</Button>
+          {locked ? <Button size="sm" variant="accent" onClick={onPlans}>{plansAction("View plans")}</Button>
             : <Button size="sm" variant="primary" onClick={() => openNeighbor(friendship)}><MessagesSquare size={14} aria-hidden="true" />Open conversation</Button>}
           <Button size="sm" onClick={onTalkAbout}><Sparkles size={14} aria-hidden="true" />Talk about {name}</Button>
           {/* On means they can write to you and the concierge works; off is the runtime's pause. */}

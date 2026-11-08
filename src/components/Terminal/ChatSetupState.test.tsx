@@ -53,6 +53,35 @@ async function render(element: React.ReactElement): Promise<HTMLElement> {
 }
 
 async function main() {
+  for (const failureCode of ["session_load_refused", "runtime_start_unbound"] as const) {
+    await test(`typed ${failureCode} offers one fresh restart in the same tab`, async () => {
+      const requests: Array<{ command: string; args: unknown }> = [];
+      let finish: () => void = () => {};
+      const pending = new Promise<void>(resolve => { finish = resolve; });
+      __setInvokeForTest(async <T,>(command: string, args?: Record<string, unknown>): Promise<T> => {
+        requests.push({ command, args });
+        await pending;
+        return undefined as T;
+      });
+      try {
+        const p = { ...tab("spawn_failed", "opaque boot error"),
+          agent_runtime_state: { state: "degraded" as const, epoch: 1,
+            failureCode, reason: "opaque provider detail" } };
+        const host = await render(<ChatSetupState tab={p} view={{ kind: "none" }} providerName="fixture" />);
+        const start = host.querySelector<HTMLButtonElement>('button[aria-label="Start new session"]');
+        assert(start, "typed refusal exposes fresh recovery with the transcript body still active");
+        assert(host.querySelector("details pre")?.textContent === "opaque provider detail", "raw detail is preserved once");
+        await act(async () => { start.click(); start.click(); });
+        assert(start.disabled, "repeated activation is disabled while the restart is pending");
+        assert(JSON.stringify(requests) === JSON.stringify([{ command: "restart_agent_tab", args: { tabId: p.id, fresh: true } }]), "one explicit fresh restart targets the current tab");
+        await act(async () => { finish(); await pending; });
+        assert(!start.disabled, "the action settles after completion");
+        const generic = await render(<ChatSetupState tab={{ ...p, agent_runtime_state: { ...p.agent_runtime_state, failureCode: "provider_refused" } }}
+          view={chatSetupView(p)} providerName="fixture" />);
+        assert(!generic.querySelector('button[aria-label="Start new session"]'), "identical provider text cannot select fresh recovery");
+      } finally { __setInvokeForTest(null); }
+    });
+  }
   await test("unconfirmed launch offers a session-preserving restart", async () => {
     const requests: Array<{ command: string; args: unknown }> = [];
     __setInvokeForTest(async <T,>(command: string, args?: Record<string, unknown>): Promise<T> => {
@@ -71,6 +100,26 @@ async function main() {
       __setInvokeForTest(null);
     }
   });
+  for (const [name, overrides, label, args] of [
+    ["PTY launch restarts", {}, "Restart the agent", { tabId: "p-1" }],
+    ["chat launch with no session starts a new one", { backing: { kind: "chat_backend", plugin_id: "fixture", session_id: "" } }, "Start new session", { tabId: "p-1", fresh: true }],
+  ] as const) {
+    await test(`a never-ready ${name}, beside Close tab`, async () => {
+      const requests: Array<{ command: string; args: unknown }> = [];
+      __setInvokeForTest(async <T,>(command: string, args?: Record<string, unknown>): Promise<T> => {
+        requests.push({ command, args });
+        return undefined as T;
+      });
+      try {
+        const p = { ...tab("spawn_failed", "opaque launch detail"), ...overrides } as Tab;
+        const host = await render(<ChatSetupState tab={p} view={chatSetupView(p)} providerName="fixture" />);
+        const action = host.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`);
+        assert(action, "the never-ready launch offers its recovery");
+        await act(async () => action.click());
+        assert(JSON.stringify(requests) === JSON.stringify([{ command: "restart_agent_tab", args }]), "recovery targets this tab once");
+      } finally { __setInvokeForTest(null); }
+    });
+  }
   await test("view resolves ready to none and launching to starting", () => {
     assert(chatSetupView(tab("agent_ready")).kind === "none", "ready is none");
     assert(chatSetupView(tab("preparing_role_instructions")).kind === "starting", "preparing is starting");

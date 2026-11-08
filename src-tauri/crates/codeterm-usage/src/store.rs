@@ -256,6 +256,19 @@ impl UsageStore {
         Ok(Some(latest))
     }
 
+    /// The row a reader that must never wait silently draws: the latest good
+    /// reading with its stale reason, or the newest failure when none ever succeeded.
+    pub fn get_latest_or_failure(
+        &self,
+        provider: &str,
+        account_id: Option<&str>,
+    ) -> Result<Option<UsageSnapshotRow>, String> {
+        match self.get_latest_with_stale_reason(provider, account_id)? {
+            Some(latest) => Ok(Some(latest)),
+            None => self.get_latest_failure(provider, account_id),
+        }
+    }
+
     pub fn get_history(
         &self,
         provider: &str,
@@ -816,6 +829,61 @@ mod tests {
             reason.starts_with(UsageFailureKind::CapabilityDenied.as_str()),
             "the cause is carried as the kind constant, got {reason}"
         );
+    }
+
+    #[test]
+    fn an_account_with_only_failed_reads_surfaces_its_failure() {
+        let store = UsageStore::open_in_memory().unwrap();
+        store
+            .insert_failure_kind(
+                "fixture",
+                Some("profile:only-failed"),
+                None,
+                UsageFailureKind::FetchError,
+                "opaque cause",
+                None,
+            )
+            .unwrap();
+
+        assert!(store
+            .get_latest_with_stale_reason("fixture", Some("profile:only-failed"))
+            .unwrap()
+            .is_none());
+        let row = store
+            .get_latest_or_failure("fixture", Some("profile:only-failed"))
+            .unwrap()
+            .expect("a failed read is what the account has to show");
+        assert!(!row.parsed_ok);
+        assert!(row.failure_reason.unwrap().ends_with("opaque cause"));
+        assert!(store
+            .get_latest_or_failure("fixture", Some("profile:unread"))
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn a_kept_reading_outranks_a_newer_failure_and_carries_its_cause() {
+        let store = UsageStore::open_in_memory().unwrap();
+        let now = chrono::Utc::now().timestamp_millis();
+        let kept = guarded_snapshot(now - 86_400_000, 12.0, 7.0, 0, 0);
+        store.insert_snapshot(&kept).unwrap();
+        store
+            .insert_failure_kind(
+                &kept.provider,
+                None,
+                None,
+                UsageFailureKind::FetchError,
+                "opaque cause",
+                None,
+            )
+            .unwrap();
+
+        let row = store
+            .get_latest_or_failure(&kept.provider, None)
+            .unwrap()
+            .unwrap();
+        assert!(row.parsed_ok);
+        assert!(row.failure_reason.unwrap().ends_with("opaque cause"));
     }
 
     #[test]

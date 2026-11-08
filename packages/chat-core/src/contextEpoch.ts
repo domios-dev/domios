@@ -44,5 +44,12 @@ export function projectContextEpochs<T extends NormalizedChatMessage>(
     }
     projected.push(message.contextEpoch === epoch ? message : { ...message, contextEpoch: epoch });
   }
-  return projected;
+  return epoch === 0 ? projected : projected.map(message => settleArchivedTool(message, epoch));
+}
+
+/** Nothing above a context reset is still running: the session that ran it has been replaced. */
+function settleArchivedTool(message: NormalizedChatMessage, currentEpoch: number): NormalizedChatMessage {
+  return message.toolStatus === "running" && (message.contextEpoch ?? 0) < currentEpoch
+    ? { ...message, toolStatus: "interrupted", toolInterrupted: true }
+    : message;
 }

@@ -2,11 +2,14 @@ use super::{PlanError, PlanStore};
 #[cfg(test)]
 use crate::plan::{Plan, Task};
 use crate::plan::{TaskFiles, WorkerPlacement};
+mod history;
 mod inspection;
 mod report;
 pub use super::store_db::read_projections::checkout::{
     CheckoutAttemptRead, CheckoutPeerRead, CheckoutTaskRead, TaskCheckoutRead,
 };
+pub(in crate::service_plan) use history::SharedHistoryWatch;
+pub use history::{LostSharedCommit, ReportedSharedCommit, SharedHistoryPorts, LOST_COMMIT_STRIDE};
 pub(crate) use inspection::{SharedDispatchInspection, SharedReportInspection};
 pub use report::{shared_checkout_head, validate_shared_report};
 

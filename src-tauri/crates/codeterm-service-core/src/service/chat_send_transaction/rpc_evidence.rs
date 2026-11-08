@@ -1,4 +1,7 @@
-use super::{ChatSendLedger, ChatSendState, ChatSendStatus, SendLiveBinding};
+use super::{
+    rpc_refusal_note, ChatSendLedger, ChatSendState, ChatSendStatus, SendLiveBinding,
+    RPC_REFUSED_WHILE_BUSY,
+};
 
 impl ChatSendLedger {
     pub(crate) fn trace_rpc_turn(
@@ -137,6 +140,26 @@ impl ChatSendLedger {
         drop(state);
         self.wake_owner(&status.tab_id);
         Some(status)
+    }
+
+    /// The agent refused an already written prompt while busy: it stays unconfirmed, without
+    /// Retry, and says so; exact late evidence can still deliver it.
+    pub(crate) fn note_rpc_refused_while_busy(&self, send_id: &str) -> Option<ChatSendStatus> {
+        let mut state = self.state.lock();
+        if !state.rpc_by_id.contains_key(send_id) {
+            return None;
+        }
+        let status = state.by_id.get_mut(send_id)?;
+        if status.state != ChatSendState::Unknown
+            || rpc_refusal_note(status.error.clone()).is_some()
+        {
+            return None;
+        }
+        status.error = Some(format!(
+            "{RPC_REFUSED_WHILE_BUSY}: The agent refused this message while it was busy and has not recorded it. It was not resent; send it again if it is still needed."
+        ));
+        let status = status.clone();
+        Some(Self::with_retention_window(&state, status))
     }
 
     pub(crate) fn rpc_uncertain_for_launch(

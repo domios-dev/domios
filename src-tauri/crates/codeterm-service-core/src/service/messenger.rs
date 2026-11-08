@@ -10,6 +10,13 @@ use serde::{Deserialize, Serialize};
 
 pub use codeterm_agent_model::MessageKind;
 
+/// A frame names a model in words: a qualified id never reaches its `model` attribute.
+fn frame_model(model: Option<String>) -> Option<String> {
+    model
+        .filter(|model| !model.trim().is_empty())
+        .map(|model| codeterm_types::pty::plain_model_id(&model))
+}
+
 #[derive(Debug, Default, Clone)]
 pub struct MessageEnvelope {
     pub durable_delivery: Option<super::durable_delivery::DurableDelivery>,
@@ -168,7 +175,7 @@ impl MessageEnvelope {
     }
 
     pub fn model(mut self, model: Option<String>) -> Self {
-        self.from_model = model.filter(|m| !m.trim().is_empty());
+        self.from_model = frame_model(model);
         self
     }
 
@@ -277,7 +284,7 @@ impl Messenger {
     }
 
     pub fn model(mut self, model: Option<String>) -> Self {
-        self.envelope.from_model = model.filter(|m| !m.trim().is_empty());
+        self.envelope.from_model = frame_model(model);
         self
     }
 

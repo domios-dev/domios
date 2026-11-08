@@ -41,17 +41,17 @@ export interface DelayedMessage {
 }
 
 // A remote peer or an older server may answer null or another shape; callers always get an array.
-async function listOf(command: string, tabId: string): Promise<DelayedMessage[]> {
-  const answer = await invoke<unknown>(command, { tabId });
+async function listOf(command: string, tabId: string, signal?: AbortSignal): Promise<DelayedMessage[]> {
+  const answer = await invoke<unknown>(command, { tabId, signal });
   return Array.isArray(answer) ? (answer as DelayedMessage[]) : [];
 }
 
-export function listDelayedMessages(tabId: string): Promise<DelayedMessage[]> {
-  return listOf("delayed_send_list", tabId);
+export function listDelayedMessages(tabId: string, signal?: AbortSignal): Promise<DelayedMessage[]> {
+  return listOf("delayed_send_list", tabId, signal);
 }
 
-export function listSystemHeartbeats(tabId: string): Promise<DelayedMessage[]> {
-  return listOf("system_heartbeat_list", tabId);
+export function listSystemHeartbeats(tabId: string, signal?: AbortSignal): Promise<DelayedMessage[]> {
+  return listOf("system_heartbeat_list", tabId, signal);
 }
 
 export function createDelayedMessage(

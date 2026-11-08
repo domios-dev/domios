@@ -82,10 +82,11 @@ console.log("later offers remain actionable after a completed run: 1 assertion p
 {
   const unavailable = panelItems([plugin], { official: "opaque channel error" });
   const installed = [{ ...plugin, installed: plugin.latest }];
-  assert.equal(updateRunRows(unavailable, unavailable, installed, null, null, {})[0].state, "failed");
+  assert.equal(updateRunRows(unavailable, unavailable, installed, null, null, {})[0].state, "last_known");
+  assert.equal(updateRunRows(unavailable, unavailable, [plugin], null, null, { plugin: "failed" })[0].state, "failed");
 }
 
-import { summarizeUpdatePanel, type UpdateRow } from "./updatePanelModel";
+import { appIntentFinished, summarizeUpdatePanel, updateSourceLabel, type UpdateRow } from "./updatePanelModel";
 {
   const row = (id: string, state: UpdateRow["state"], channelError?: string): UpdateRow =>
     ({ id, name: id, group: "Plugins", currentVersion: "1.0.0", targetVersion: "2.0.0", state, alreadyCurrent: false, channelError });
@@ -94,14 +95,83 @@ import { summarizeUpdatePanel, type UpdateRow } from "./updatePanelModel";
     { tone: "accent", label: "Updates available", sentence: "2 updates available" });
   assert.equal(summarizeUpdatePanel([row("a", "completed"), row("b", "active"), row("c", "queued")], { busy: true, failed: false }).sentence, "Updating 2 of 3");
   assert.equal(summarizeUpdatePanel([], { busy: true, failed: false }).sentence, "Updating components");
-  const failed = summarizeUpdatePanel([row("a", "failed"), row("b", "failed", "opaque")], { busy: false, failed: true });
-  assert.deepEqual([failed.tone, failed.label, failed.sentence], ["red", "Update sources or actions failed", "1 update failed"]);
-  assert.equal(summarizeUpdatePanel([row("b", "failed", "opaque")], { busy: false, failed: true }).sentence, "An update source is unavailable");
+  const failed = summarizeUpdatePanel([row("a", "failed"), row("b", "last_known", "opaque")], { busy: false, failed: true });
+  assert.deepEqual([failed.tone, failed.label, failed.sentence], ["red", "Update failed", "1 update failed"]);
+  // A failed check reads as no update: muted, with nothing that names a failure.
+  const sourceDown = summarizeUpdatePanel([row("b", "last_known", "opaque")], { busy: false, failed: false, sourcesFailed: true });
+  assert.deepEqual([sourceDown.tone, sourceDown.label, sourceDown.sentence], ["muted", "No applicable updates", "No updates found"]);
+  assert.equal(summarizeUpdatePanel([row("a", "available"), row("b", "last_known", "opaque")], { busy: false, failed: false, sourcesFailed: true }).sentence, "1 update available");
   assert.equal(summarizeUpdatePanel([row("a", "completed")], idle).tone, "green");
   assert.equal(summarizeUpdatePanel([], idle).sentence, "Everything is up to date");
   assert.equal(summarizeUpdatePanel([row("a", "available", "opaque")], idle).label, "No applicable updates");
 }
-console.log("update panel summary: 8 assertions passed");
+console.log("update panel summary: passed");
+
+// The owner's 1.19.0 popover: cached same-version check, then the feed failed.
+{
+  const feedDown = { app: "Failed to fetch release: domios-dev/domios: manifest fetch returned HTTP 504" };
+  const release: UpdateAvailabilityItem = { id: "app", kind: "app", installed: "1.19.0", latest: "1.19.0", compatible: true, state: "up_to_date", reason: "cached_check", channel: "official" };
+
+  // Same version plus a stale marker: no target, nothing to apply, nothing to restart for.
+  assert.equal(hasUpdateBadge({ ...release, state: "update_available" }), false);
+  assert.equal(hasUpdateBadge({ ...release, kind: "frontend", state: "ready_to_apply" }), false);
+  assert.equal(hasUpdateBadge({ ...release, latest: "1.18.9", state: "update_available" }), false);
+  assert.equal(hasUpdateBadge({ ...release, latest: "1.19.0+rebuilt", state: "update_available" }), false);
+  assert.equal(panelItems([{ ...release, state: "update_available" }]).length, 0);
+  assert.equal(appIntentFinished({ appTarget: "1.19.0", stage: "app", pluginIds: [], interfaceRequested: false }, "1.19.0"), true);
+  assert.equal(appIntentFinished({ appTarget: "1.18.9", stage: "app", pluginIds: [], interfaceRequested: false }, "1.19.0"), true);
+  assert.equal(appIntentFinished({ appTarget: "1.19.1", stage: "app", pluginIds: [], interfaceRequested: false }, "1.19.0"), false);
+  assert.equal(appIntentFinished({ appTarget: "1.19.0", stage: "app", pluginIds: ["git"], interfaceRequested: false }, "1.19.0"), false);
+  assert.equal(appIntentFinished({ appTarget: "1.19.0", stage: "app", pluginIds: [], interfaceRequested: true }, "1.19.0"), false);
+  assert.equal(appIntentFinished({ appTarget: "1.19.0", stage: "app", pluginIds: [], interfaceRequested: false }, ""), false);
+
+  // Source failure with nothing staged: the row keeps only its last-known state.
+  const [row] = panelItems([release], feedDown);
+  assert.equal(row.currentVersion, "1.19.0");
+  assert.equal(row.targetVersion, null);
+  assert.equal(row.channelError, feedDown.app);
+  assert.equal(row.lastKnown, "Up to date at last check");
+  assert.equal(updateSourceLabel("app"), "App update channel");
+  assert.equal(updateSourceMessage(feedDown.app), "domios-dev/domios: manifest fetch returned HTTP 504");
+  assert.deepEqual(updateRunRows([], [row], [release], null, null, {}).map(run => run.state), ["last_known"]);
+  assert.deepEqual(updateableItems([release], feedDown), []);
+
+  // Never checked: the target is not borrowed from the running version.
+  const [unchecked] = panelItems([{ ...release, latest: null, reason: "not_checked" }], { app: "offline" });
+  assert.equal(unchecked.targetVersion, null);
+  assert.equal(unchecked.lastKnown, "Not checked yet");
+
+  // A cached manifest older than the running version never reads as a downgrade offer.
+  const [older] = panelItems([{ ...release, latest: "1.18.9", reason: "cached_check" }], feedDown);
+  assert.equal(older.targetVersion, null);
+  assert.equal(older.lastKnown, "Up to date at last check");
+
+  // A newer manifest for another platform is reported, not offered.
+  const [foreign] = panelItems([{ ...release, latest: "1.20.0", compatible: false, state: "incompatible", reason: "cached_check" }], feedDown);
+  assert.equal(foreign.targetVersion, null);
+  assert.equal(foreign.lastKnown, "1.20.0 is not compatible with this install");
+
+  // Source failure plus a staged newer update: the cached offer stays real and actionable.
+  const cachedOffer: UpdateAvailabilityItem = { ...release, latest: "1.19.1", state: "update_available", reason: "cached_manifest" };
+  const [staged] = panelItems([cachedOffer], feedDown);
+  assert.equal(staged.targetVersion, "1.19.1");
+  assert.equal(staged.channelError, undefined);
+  assert.equal(staged.lastKnown, undefined);
+  assert.deepEqual(updateableItems([cachedOffer], feedDown), [cachedOffer]);
+  assert.deepEqual(updateRunRows([], [staged], [cachedOffer], null, null, {}).map(run => run.state), ["available"]);
+
+  // A plugin channel failure keeps a real last-known offer but cannot apply it.
+  const pluginDown = { community: "Plugin channel unavailable: network unavailable (example.com/community.git). Domios will retry." };
+  const [channelRow] = panelItems([{ ...plugin, id: "lark", channel: "community" }], pluginDown);
+  assert.equal(channelRow.targetVersion, "2.0.0");
+  assert.equal(channelRow.lastKnown, "Found at last check");
+  assert.equal(updateSourceLabel("community"), "community plugin channel");
+  assert.equal(updateSourceMessage(pluginDown.community), "network unavailable (example.com/community.git).");
+
+  // A plugin with nothing to offer gets no row at all while its channel is down.
+  assert.deepEqual(panelItems([{ ...plugin, id: "lark", channel: "community", latest: "1.0.0", state: "up_to_date" }], pluginDown), []);
+}
+console.log("Same version, source failure and staged update combinations: passed");
 
 const sourceFailure = { app: "GitHub rate limit, retry at 14:30" };
 const uncheckedApp: UpdateAvailabilityItem = { ...app, latest: null, state: "up_to_date", reason: "not_checked" };
@@ -113,7 +183,6 @@ const cachedApp: UpdateAvailabilityItem = { ...app, reason: "cached_manifest" };
 assert.equal(panelItems([cachedApp], sourceFailure)[0].channelError, undefined);
 assert.deepEqual(updateableItems([cachedApp], sourceFailure), [cachedApp]);
 
-assert.equal(panelItems([cachedApp], sourceFailure)[0].sourceWarning, sourceFailure.app);
 assert.equal(updateSourceMessage("Failed to fetch release: source: GitHub rate limit, retry at 14:30; mirror: access denied"), "GitHub rate limit, retry at 14:30");
 assert.equal(updateSourceMessage("offline"), "offline");
 

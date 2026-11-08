@@ -175,7 +175,7 @@ describe("a locked tab takes no input", () => {
     await mountRows(state, <Composer onSubmit={onSubmit} />);
     expect(Array.from(document.querySelectorAll("textarea")).map((box) => box.disabled)).toEqual([true]);
     expect(buttons(/^Send$/)).toHaveLength(0);
-    await click(buttons(/View plans to unlock/)[0]);
+    await click(buttons(/ to unlock/)[0]);
     expect(modalPrompt()).toEqual(TABS);
     expect(onSubmit).not.toHaveBeenCalled();
   });
@@ -198,7 +198,7 @@ describe("a locked tab takes no input", () => {
   it("the overlay over locked content opens the plans modal", async () => {
     const view = lockedView("agent.tabs", { locked: true });
     await mountRows(seeded(), createElement(LockedOverlay, { view, onActivate: () => { openLockedPlans(view); } }));
-    await click(buttons(/View plans to unlock/)[0]);
+    await click(buttons(/ to unlock/)[0]);
     expect(modalPrompt()).toEqual(TABS);
   });
 
@@ -347,7 +347,7 @@ describe("a locked Team locks its member tab surfaces", () => {
     setLocked(state, ["team-0"], true);
     const terminal = fakeTerminal();
     const { app, selected } = await mountRows(state, <div><Composer onSubmit={() => {}} /><TerminalProbe id="tab-0" terminal={terminal} /></div>);
-    expect(buttons(/View plans to unlock/)).toHaveLength(1);
+    expect(buttons(/ to unlock/)).toHaveLength(1);
     expect(document.querySelectorAll("textarea[disabled]")).toHaveLength(1);
     await terminal.emit("x");
     expect(writes.writeTerminalInput).not.toHaveBeenCalled();

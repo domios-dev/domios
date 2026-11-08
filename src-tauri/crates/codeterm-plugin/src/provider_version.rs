@@ -1,14 +1,15 @@
 use std::collections::HashMap;
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::LazyLock;
 use std::time::{Duration, Instant, SystemTime};
 
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
-use wait_timeout::ChildExt;
+mod child;
+use child::ProbeChild;
 
 // WHY: the probe runs on its own thread; npm `.cmd` shims under startup load exceed 3 s.
 const PROBE_DEADLINE: Duration = Duration::from_secs(10);
@@ -140,6 +141,9 @@ pub fn revision() -> u64 {
 }
 
 pub fn observe(binary: &str) -> VersionObservation {
+    if binary.trim().is_empty() {
+        return VersionObservation::unknown(ProbeStatus::Missing);
+    }
     let path = match crate::js_runtime::probe_bin(binary).resolution {
         crate::js_runtime::BinResolution::Found(path) => path,
         crate::js_runtime::BinResolution::Missing => {
@@ -196,6 +200,9 @@ pub fn refresh(path: &Path) -> VersionObservation {
 }
 
 fn probe(path: &Path) -> VersionObservation {
+    if path.as_os_str().is_empty() || !path.is_file() {
+        return VersionObservation::unknown(ProbeStatus::Missing);
+    }
     let command = match crate::provider_command::command(path) {
         Ok(command) => command,
         Err(error) => {
@@ -208,41 +215,11 @@ fn probe(path: &Path) -> VersionObservation {
 
 fn probe_command(mut command: Command) -> VersionObservation {
     let deadline = Instant::now() + PROBE_DEADLINE;
-    codeterm_util::process_util::no_window_std(&mut command);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        const CREATE_SUSPENDED: u32 = 0x0000_0004;
-        command.creation_flags(CREATE_NO_WINDOW | CREATE_SUSPENDED);
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        command.process_group(0);
-    }
-    let Ok(mut child) = command
-        .arg("--version")
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-    else {
+    command.arg("--version");
+    let Ok(mut child) = ProbeChild::spawn(&mut command) else {
         return VersionObservation::unknown(ProbeStatus::Failed);
     };
-    // A `.cmd` shim's node grandchild joins the job, so a timeout kill ends the whole tree.
-    #[cfg(windows)]
-    let job = match codeterm_util::windows_job::Job::attach_std(&child) {
-        Ok(job) => job,
-        Err(_) => {
-            let _ = child.kill();
-            let _ = child.wait();
-            return VersionObservation::unknown(ProbeStatus::Failed);
-        }
-    };
     let Some(stdout) = child.stdout.take() else {
-        let _ = child.kill();
-        let _ = child.wait();
         return VersionObservation::unknown(ProbeStatus::Failed);
     };
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
@@ -261,14 +238,10 @@ fn probe_command(mut command: Command) -> VersionObservation {
     match status {
         Ok(Some(status)) if status.success() => {}
         other => {
-            #[cfg(windows)]
-            job.terminate();
-            #[cfg(unix)]
-            unsafe {
-                libc::kill(-(child.id() as i32), libc::SIGKILL);
+            child.terminate();
+            if let Ok(reader) = reader {
+                let _ = reader.join();
             }
-            let _ = child.kill();
-            let _ = child.wait();
             return VersionObservation::unknown(if matches!(other, Ok(None)) {
                 ProbeStatus::Timeout
             } else {
@@ -278,8 +251,15 @@ fn probe_command(mut command: Command) -> VersionObservation {
     }
     let Ok(Some(bytes)) = receiver.recv_timeout(deadline.saturating_duration_since(Instant::now()))
     else {
+        child.terminate();
+        if let Ok(reader) = reader {
+            let _ = reader.join();
+        }
         return VersionObservation::unknown(ProbeStatus::Timeout);
     };
+    if let Ok(reader) = reader {
+        let _ = reader.join();
+    }
     if bytes.len() as u64 > MAX_OUTPUT_BYTES {
         return VersionObservation::unknown(ProbeStatus::Invalid);
     }

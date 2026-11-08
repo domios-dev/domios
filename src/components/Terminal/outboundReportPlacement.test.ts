@@ -127,4 +127,25 @@ describe("report timestamp unit normalization", () => {
   });
 });
 
+
+describe("report source positions", () => {
+  it("interleaves three reports before untimed final text using source order before time", () => {
+    const rows = [63, 65, 70, 71].map(seq => ({ id: `row-${seq}`, at: null }));
+    const placed = placeOutboundReports(rows, timeOf, [900, 900, 900], {
+      sourceMessageIds: rows.map(row => row.id), messageId: row => row.id, reportMessageIds: ["row-63", "row-65", "row-70"],
+    });
+    expect([...placed.afterIndex]).toEqual([[0, [0]], [1, [1]], [2, [2]]]);
+    expect(placed.trailing).toEqual([]);
+  });
+});
+
+it("places a hidden issuing tool after the preceding visible source row", () => {
+  const rows = [{ id: "before", at: null }, { id: "after", at: null }];
+  const placed = placeOutboundReports(rows, timeOf, [null], {
+    sourceMessageIds: ["before", "report-tool", "after"], messageId: row => row.id, reportMessageIds: ["report-tool"],
+  });
+  expect([...placed.afterIndex]).toEqual([[0, [0]]]);
+  expect(placed.trailing).toEqual([]);
+});
+
 finish();

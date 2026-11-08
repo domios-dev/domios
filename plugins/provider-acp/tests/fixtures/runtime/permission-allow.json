@@ -1,0 +1,377 @@
+{
+  "schemaVersion": 1,
+  "context": {
+    "epoch": 1,
+    "cwd": "/work/project",
+    "hostVersion": "1.18.7",
+    "tabId": "permission-allow",
+    "bindingNonce": "nonce-fixture",
+    "settings": {},
+    "providerSettings": {},
+    "claimedSends": [],
+    "activeTurns": [],
+    "threadParents": []
+  },
+  "operations": [
+    {
+      "operation": {
+        "kind": "initialize"
+      }
+    },
+    {
+      "operation": {
+        "kind": "openThread",
+        "instructions": "",
+        "settings": {}
+      }
+    },
+    {
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/project",
+        "hostVersion": "1.18.7",
+        "tabId": "permission-allow",
+        "bindingNonce": "nonce-fixture",
+        "settings": {},
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [
+          {
+            "threadId": "session-fixture",
+            "turnId": "session-fixture:turn:1"
+          }
+        ],
+        "threadParents": [],
+        "threadId": "session-fixture",
+        "activeTurnId": "session-fixture:turn:1",
+        "pendingRequest": {
+          "requestId": "permission-fixture",
+          "method": "session/request_permission",
+          "params": {
+            "sessionId": "session-fixture",
+            "toolCall": {
+              "toolCallId": "tool-fixture",
+              "title": "Write file",
+              "kind": "edit",
+              "locations": [
+                {
+                  "path": "/work/project/file.txt"
+                }
+              ],
+              "rawInput": {
+                "path": "/work/project/file.txt",
+                "content": "opaque"
+              }
+            },
+            "options": [
+              {
+                "optionId": "allow",
+                "name": "Allow once",
+                "kind": "allow_once"
+              },
+              {
+                "optionId": "always",
+                "name": "Allow always",
+                "kind": "allow_always"
+              },
+              {
+                "optionId": "reject",
+                "name": "Reject once",
+                "kind": "reject_once"
+              },
+              {
+                "optionId": "never",
+                "name": "Reject always",
+                "kind": "reject_always"
+              }
+            ]
+          }
+        }
+      },
+      "operation": {
+        "kind": "answer",
+        "requestId": "permission-fixture",
+        "answer": {
+          "kind": "choice",
+          "values": [
+            "allow"
+          ]
+        }
+      }
+    }
+  ],
+  "rpc": [
+    {
+      "direction": "outbound",
+      "operation": 0,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "initialize",
+          "params": {
+            "protocolVersion": 1,
+            "clientCapabilities": {
+              "fs": {
+                "readTextFile": false,
+                "writeTextFile": false
+              },
+              "terminal": false
+            },
+            "clientInfo": {
+              "name": "domios",
+              "title": "Domios",
+              "version": "1.18.7"
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 0,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "protocolVersion": 1,
+          "agentCapabilities": {
+            "promptCapabilities": {
+              "image": false,
+              "audio": false,
+              "embeddedContext": false
+            }
+          },
+          "authMethods": []
+        }
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 1,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "session/new",
+          "params": {
+            "cwd": "/work/project",
+            "mcpServers": []
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 1,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "sessionId": "session-fixture"
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/project",
+        "hostVersion": "1.18.7",
+        "tabId": "permission-allow",
+        "bindingNonce": "nonce-fixture",
+        "settings": {},
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [
+          {
+            "threadId": "session-fixture",
+            "turnId": "session-fixture:turn:1"
+          }
+        ],
+        "threadParents": [],
+        "threadId": "session-fixture",
+        "activeTurnId": "session-fixture:turn:1"
+      },
+      "frame": {
+        "kind": "request",
+        "requestId": "permission-fixture",
+        "method": "session/request_permission",
+        "params": {
+          "sessionId": "session-fixture",
+          "toolCall": {
+            "toolCallId": "tool-fixture",
+            "title": "Write file",
+            "kind": "edit",
+            "locations": [
+              {
+                "path": "/work/project/file.txt"
+              }
+            ],
+            "rawInput": {
+              "path": "/work/project/file.txt",
+              "content": "opaque"
+            }
+          },
+          "options": [
+            {
+              "optionId": "allow",
+              "name": "Allow once",
+              "kind": "allow_once"
+            },
+            {
+              "optionId": "always",
+              "name": "Allow always",
+              "kind": "allow_always"
+            },
+            {
+              "optionId": "reject",
+              "name": "Reject once",
+              "kind": "reject_once"
+            },
+            {
+              "optionId": "never",
+              "name": "Reject always",
+              "kind": "reject_always"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 2,
+      "action": {
+        "kind": "reply",
+        "requestId": "permission-fixture",
+        "result": {
+          "kind": "success",
+          "value": {
+            "outcome": {
+              "outcome": "selected",
+              "optionId": "allow"
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 2,
+      "reply": {
+        "kind": "success",
+        "value": null
+      }
+    }
+  ],
+  "expected": {
+    "results": [
+      {
+        "operation": 0,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "initialized"
+          },
+          "events": [
+            {
+              "kind": "authentication",
+              "authentication": {
+                "state": "unknown",
+                "methods": []
+              }
+            }
+          ]
+        }
+      },
+      {
+        "operation": 1,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "threadLoaded",
+            "threadId": "session-fixture",
+            "settings": {
+              "commands": [],
+              "configOptions": [],
+              "modes": []
+            }
+          }
+        }
+      },
+      {
+        "operation": 2,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "done"
+          },
+          "events": [
+            {
+              "kind": "promptResolved",
+              "threadId": "session-fixture",
+              "requestId": "permission-fixture"
+            }
+          ]
+        }
+      }
+    ],
+    "events": [
+      {
+        "kind": "authentication",
+        "authentication": {
+          "state": "unknown",
+          "methods": []
+        }
+      },
+      {
+        "kind": "prompt",
+        "threadId": "session-fixture",
+        "requestId": "permission-fixture",
+        "prompt": {
+          "question": "Write file\nKind: edit\nPath: /work/project/file.txt\nAllow this tool call?",
+          "options": [
+            {
+              "label": "Allow once",
+              "value": "allow"
+            },
+            {
+              "label": "Allow always",
+              "value": "always"
+            },
+            {
+              "label": "Reject once",
+              "value": "reject"
+            },
+            {
+              "label": "Reject always",
+              "value": "never"
+            }
+          ]
+        },
+        "permission": {
+          "action": "write",
+          "options": [
+            {
+              "value": "allow",
+              "decision": "allow_once"
+            },
+            {
+              "value": "always",
+              "decision": "allow_always"
+            },
+            {
+              "value": "reject",
+              "decision": "reject_once"
+            },
+            {
+              "value": "never",
+              "decision": "reject_always"
+            }
+          ]
+        }
+      },
+      {
+        "kind": "promptResolved",
+        "threadId": "session-fixture",
+        "requestId": "permission-fixture"
+      }
+    ]
+  }
+}

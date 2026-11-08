@@ -17,6 +17,8 @@ fn plan_task_body_preserves_dash_leading_text() {
         "task".to_string(),
         "add".to_string(),
         "plan_1".to_string(),
+        "--personality".to_string(),
+        "Ada".to_string(),
         "--body".to_string(),
         "- starts with a dash".to_string(),
     ];

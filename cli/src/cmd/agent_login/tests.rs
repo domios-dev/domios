@@ -64,3 +64,59 @@ fn login_show_refuses_mutating_flags() {
         .is_err());
     }
 }
+
+#[test]
+fn declared_method_selects_the_agent_flow_and_may_take_a_stdin_key() {
+    use clap::Parser;
+    let login = |flags: &[&str]| {
+        let mut args = vec!["domios", "agent", "login", "--tab", "owned"];
+        args.extend(flags);
+        crate::args::cli::Cli::try_parse_from(args)
+    };
+    assert!(login(&["--method", "opaque-method"]).is_ok());
+    assert!(login(&["--method", "opaque-method", "--api-key-stdin"]).is_ok());
+    for conflict in ["--device", "--cancel", "--show"] {
+        assert!(login(&["--method", "opaque-method", conflict]).is_err());
+    }
+    assert_eq!(
+        request_body(false, Some("opaque-method"), false),
+        json!({"methodId":"opaque-method"})
+    );
+    assert_eq!(
+        request_body(true, None, false),
+        json!({"action":"start","method":"device"})
+    );
+    assert_eq!(
+        request_body(false, Some("opaque-method"), true),
+        json!({"action":"cancel"})
+    );
+}
+
+#[test]
+fn refusal_reports_the_daemon_reason_bounded() {
+    assert_eq!(
+        refusal(409, " Runtime sign-in is unsupported \n"),
+        "Sign-in refused: Runtime sign-in is unsupported"
+    );
+    assert_eq!(
+        refusal(409, ""),
+        "Sign-in refused (HTTP 409). Check the tab's sign-in banner."
+    );
+    assert_eq!(
+        refusal(409, &"x".repeat(2000)),
+        format!("Sign-in refused: {}", "x".repeat(512))
+    );
+}
+
+#[test]
+fn show_lists_declared_methods_and_marks_key_methods() {
+    let value = json!({"login":null,"authentication":{"state":"needs_auth","methods":[
+        {"id":"opaque-browser","name":"Browser","available":true},
+        {"id":"opaque-key","name":"Key","available":true},
+        {"id":"opaque-gone","name":"Gone","available":false}]},
+        "apiKeyMethods":["opaque-key"]});
+    assert_eq!(
+        render(&value, false),
+        "Sign-in requested\nAuthentication: needs_auth\nDeclared sign-in methods (use --method ID):\n  opaque-browser  Browser\n  opaque-key  Key (API key via --api-key-stdin)\n  opaque-gone  Gone (unavailable here)\n"
+    );
+}

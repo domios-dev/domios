@@ -11,9 +11,12 @@ pub mod tracker;
 
 pub use agent_live_state::{AgentLiveState, QuestionSubtype, TabVerdict, TimelineState};
 pub use agent_liveness::{
-    agent_bracket_label, classify_agent_liveness, AgentBacking, AgentLiveness, LivenessEvidence,
+    agent_bracket_label, agent_bracket_label_named, classify_agent_liveness, AgentBacking,
+    AgentLiveness, LivenessEvidence,
 };
-pub use agent_model_name::{short_model_name, MODEL_FAMILIES};
+pub use agent_model_name::{
+    is_qualified_model_id, plain_model_id, short_model_name, MODEL_FAMILIES,
+};
 pub use agent_role::{
     AgentRole, PendingPrompt, PromptIdentity, PromptKind, PromptOption, PromptSection,
 };

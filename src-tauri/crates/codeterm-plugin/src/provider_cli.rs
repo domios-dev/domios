@@ -14,6 +14,8 @@ pub struct ProviderCliUpdateJob {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
 pub struct ProviderCliStatus {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub launch_profiles: Option<Vec<ProviderLaunchProfileStatus>>,
     #[serde(default)]
     pub display_name: Option<String>,
     #[serde(default)]
@@ -83,6 +85,7 @@ pub fn status_from_probe(
         BinResolution::Unknown => (None, None),
     };
     ProviderCliStatus {
+        launch_profiles: None,
         display_name: None,
         update_job: None,
         latest_version: None,
@@ -106,6 +109,7 @@ pub fn status_from_probe(
 
 pub fn no_cli() -> ProviderCliStatus {
     ProviderCliStatus {
+        launch_profiles: None,
         display_name: None,
         update_job: None,
         latest_version: None,
@@ -137,6 +141,22 @@ pub fn manifest_cli_status(
     if !manifest.capabilities.agent_provider {
         return None;
     }
+    if let Some(profiles) = manifest
+        .capabilities
+        .agent_runtime
+        .as_ref()
+        .and_then(|runtime| runtime.launch_profiles.as_ref())
+    {
+        return Some(status_from_profiles(
+            profiles
+                .keys()
+                .map(|id| ProviderLaunchProfileStatus {
+                    id: id.clone(),
+                    installed: None,
+                })
+                .collect(),
+        ));
+    }
     Some(observe_cli_with_compatibility(
         manifest
             .cli_binary
@@ -149,3 +169,34 @@ pub fn manifest_cli_status(
         manifest.cli_compatibility.as_ref(),
     ))
 }
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+pub struct ProviderLaunchProfileStatus {
+    pub id: String,
+    pub installed: Option<bool>,
+}
+
+pub fn status_from_profiles(profiles: Vec<ProviderLaunchProfileStatus>) -> ProviderCliStatus {
+    let installed = if profiles
+        .iter()
+        .any(|profile| profile.installed == Some(true))
+    {
+        Some(true)
+    } else if profiles.iter().any(|profile| profile.installed.is_none()) {
+        None
+    } else {
+        Some(false)
+    };
+    let mut status = no_cli();
+    status.installed = installed;
+    status.availability = match installed {
+        Some(true) => ProviderAvailability::Available,
+        Some(false) => ProviderAvailability::Unavailable,
+        None => ProviderAvailability::Unknown,
+    };
+    status.launch_profiles = Some(profiles);
+    status
+}
+
+#[cfg(test)]
+mod tests;

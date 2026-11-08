@@ -13,9 +13,20 @@ import {
   planSelection,
   pickerSelection,
   statusLineSwitchGate,
+  pickerHarnessName,
 } from "./statusLinePickerModel";
 
 const live = { hasSession: true };
+
+test("profile-based pickers use declared runtime identity while native headers stay unchanged", () => {
+  const profileBased = provider({ id: "arbitrary", display_name: "Harness", agent_runtime: { launchProfiles: {} } });
+  for (const agentName of ["Claude Agent", "Codex", "Gemini CLI"]) {
+    assert.equal(pickerHarnessName(profileBased, { agentName }), agentName);
+  }
+  assert.equal(pickerHarnessName(profileBased, { agentName: "  " }), "Harness");
+  assert.equal(pickerHarnessName(profileBased), "Harness");
+  assert.equal(pickerHarnessName(provider(), { agentName: "Runtime name" }), "Vendor");
+});
 
 function provider(overrides: Partial<ProviderDescriptor> = {}): ProviderDescriptor {
   return {

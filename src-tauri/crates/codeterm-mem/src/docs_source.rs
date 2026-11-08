@@ -61,6 +61,7 @@ macro_rules! embedded_docs {
 }
 
 const DOCS: &[EmbeddedDoc] = embedded_docs![
+    "ACP",
     "API-LIFECYCLE",
     "SPINAL-CORD",
     "BLUEPRINTS",

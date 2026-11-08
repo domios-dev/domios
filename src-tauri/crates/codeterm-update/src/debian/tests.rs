@@ -1,5 +1,56 @@
 use super::*;
 
+#[tokio::test]
+async fn a_package_served_by_the_api_after_a_504_passes_the_same_signature_check() {
+    use crate::release_transport::test_support::{transport, ScriptedHttp, Step};
+
+    let url =
+        "https://github.com/domios-dev/domios/releases/download/v9.0.0/domios_9.0.0_amd64.deb";
+    let release = "https://api.github.com/repos/domios-dev/domios/releases/tags/v9.0.0";
+    let asset = "https://api.github.com/repos/domios-dev/domios/releases/assets/11";
+    let metadata = br#"{"tag_name":"v9.0.0","assets":[{"id":11,"name":"domios_9.0.0_amd64.deb"}]}"#;
+    let bytes =
+        include_bytes!("../../../../../scripts/frontend-release/fixtures/frontend-manifest.json");
+    let signature = include_str!(
+        "../../../../../scripts/frontend-release/fixtures/frontend-manifest.json.minisig"
+    );
+    let key =
+        "untrusted comment: fixture\nRWRmcm9udGVuZNEdQEUZEh9CtfmYUwGDKXT9+qbRXfdx90/9a+hv/8OA\n";
+    let encode = |value: &[u8]| base64::engine::general_purpose::STANDARD.encode(value);
+    let budget = tempfile::tempdir().unwrap();
+
+    let served = |payload: Vec<u8>| {
+        ScriptedHttp::new(vec![
+            (url, Step::Status(504)),
+            (release, Step::Bytes(metadata.to_vec())),
+            (asset, Step::Bytes(payload)),
+        ])
+    };
+    let genuine = served(bytes.to_vec());
+    let downloaded = download_package(&transport(&genuine, &budget), url)
+        .await
+        .unwrap();
+    verify(
+        &downloaded,
+        &encode(signature.as_bytes()),
+        &encode(key.as_bytes()),
+    )
+    .unwrap();
+
+    let mut altered = bytes.to_vec();
+    altered[0] ^= 1;
+    let tampered = served(altered);
+    let downloaded = download_package(&transport(&tampered, &budget), url)
+        .await
+        .unwrap();
+    assert!(verify(
+        &downloaded,
+        &encode(signature.as_bytes()),
+        &encode(key.as_bytes()),
+    )
+    .is_err());
+}
+
 #[test]
 fn only_signature_verified_bytes_are_staged_and_exposed_to_dpkg() {
     let bytes =

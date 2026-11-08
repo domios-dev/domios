@@ -30,6 +30,8 @@ export function useUsageSnapshot(opts: UseUsageSnapshotOptions): UseUsageSnapsho
   const [snapshot, setSnapshot] = useState<UsageSnapshot | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  // Held apart from read errors: the read that follows a failed refresh must not erase its cause.
+  const [refreshError, setRefreshError] = useState<string | null>(null);
   const [resetTick, setResetTick] = useState(0);
   const cancelledRef = useRef(false);
   const readSequence = useRef(0);
@@ -55,11 +57,12 @@ export function useUsageSnapshot(opts: UseUsageSnapshotOptions): UseUsageSnapsho
   }, [provider, accountId, enabled]);
 
   const refresh = useCallback(async () => {
+    setRefreshError(null);
     try {
       await invoke("usage_refresh", { provider, accountId: accountId ?? undefined });
     } catch (e) {
       if (DEV_BUILD) console.debug("Background provider usage refresh failed", e);
-      setError(String(e));
+      setRefreshError(String(e));
     }
   }, [provider, accountId]);
 
@@ -106,7 +109,7 @@ export function useUsageSnapshot(opts: UseUsageSnapshotOptions): UseUsageSnapsho
     return () => clearTimeout(t);
   }, [snapshotKey, enabled, refresh, resetTick]);
 
-  return { snapshot, loading, error, refetch, refresh };
+  return { snapshot, loading, error: error ?? refreshError, refetch, refresh };
 }
 
 export interface UseUsageHistoryOptions {

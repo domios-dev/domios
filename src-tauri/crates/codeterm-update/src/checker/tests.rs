@@ -63,6 +63,81 @@ async fn discovery_reads_only_the_main_repository() {
     }
 }
 
+const THROTTLE_START_MS: u64 = 1_800_000_000_000;
+
+#[tokio::test]
+async fn an_automatic_check_inside_its_interval_stays_off_the_network_even_after_a_restart() {
+    let root = tempfile::tempdir().unwrap();
+    let calls = std::sync::atomic::AtomicU32::new(0);
+    let gated = |trigger: CheckTrigger, now: u64| {
+        let root = root.path().to_path_buf();
+        let calls = &calls;
+        async move {
+            gated_manifest(
+                &InstallMethod::Unknown,
+                super::super::Channel::Stable,
+                trigger,
+                root,
+                now,
+                |_endpoint| async move {
+                    calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    Ok(resolved("9.0.0").manifest)
+                },
+            )
+            .await
+        }
+    };
+    let count = || calls.load(std::sync::atomic::Ordering::SeqCst);
+
+    gated(CheckTrigger::Automatic, THROTTLE_START_MS)
+        .await
+        .unwrap();
+    assert_eq!(count(), 1);
+
+    // Every call rebuilds its state from disk, as a restarted process does.
+    let cached = gated(CheckTrigger::Automatic, THROTTLE_START_MS + 60_000)
+        .await
+        .unwrap();
+    assert_eq!(count(), 1);
+    assert_eq!(cached.manifest.version, "9.0.0");
+
+    gated(CheckTrigger::Explicit, THROTTLE_START_MS + 120_000)
+        .await
+        .unwrap();
+    assert_eq!(count(), 2);
+
+    gated(
+        CheckTrigger::Automatic,
+        THROTTLE_START_MS + 30 * 60_000 + 120_000,
+    )
+    .await
+    .unwrap();
+    assert_eq!(count(), 3);
+}
+
+#[tokio::test]
+async fn a_failed_automatic_check_still_spends_its_slot_and_leaves_nothing_to_report() {
+    let root = tempfile::tempdir().unwrap();
+    let attempt = |now: u64| {
+        gated_manifest(
+            &InstallMethod::Unknown,
+            super::super::Channel::Stable,
+            CheckTrigger::Automatic,
+            root.path().to_path_buf(),
+            now,
+            |_endpoint| async { Err("HTTP 504".to_string()) },
+        )
+    };
+    assert!(attempt(THROTTLE_START_MS)
+        .await
+        .err()
+        .is_some_and(|error| error.contains("HTTP 504")));
+    assert_eq!(
+        attempt(THROTTLE_START_MS + 60_000).await.err().as_deref(),
+        Some(CHECK_DEFERRED)
+    );
+}
+
 #[test]
 fn failed_refresh_preserves_manifest_and_reports_failure() {
     let cached = ResolvedManifest {

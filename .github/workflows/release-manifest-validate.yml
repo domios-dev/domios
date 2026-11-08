@@ -26,8 +26,11 @@ jobs:
     name: publish and verify all platform manifests
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && ((github.event_name == 'push' && github.ref == 'refs/heads/master') || ((startsWith(github.ref, 'refs/heads/release/') || startsWith(github.head_ref, 'release/')) && (github.event_name == 'push' || github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch')) || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.path == '.github/workflows/tests.yml' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.actor.login == 'rollacode' && github.event.workflow_run.triggering_actor.login == 'rollacode' && startsWith(github.event.workflow_run.head_branch, 'release/'))) }}
     environment: release
+    concurrency:
+      group: codeterm-core-channel-publication
+      cancel-in-progress: false
     # Publication only talks to the GitHub API, so it runs where no machine of ours can stall it.
-    runs-on: ubuntu-24.04
+    runs-on: ${{ fromJSON(vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
     timeout-minutes: 30
     env:
       GH_TOKEN: ${{ github.token }}
@@ -365,6 +368,19 @@ jobs:
             --require-version "$VER" \
             --require-platform linux-x86_64 \
             --require-platform linux-aarch64
+
+      - name: Publish the verified core channel to the source repository
+        env:
+          SOURCE_SHA: ${{ steps.release.outputs.source_sha }}
+        run: node scripts/publish-core-channel.mjs publish "$SOURCE_SHA" "$SOURCE_REPO"
+
+      # 1.19 transition mirror: 1.18.x clients read the core channel here; delete after 1.19 ships.
+      - name: Publish the verified core channel to the 1.19 transition mirror
+        if: inputs.mirror
+        env:
+          GH_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
+          SOURCE_SHA: ${{ steps.release.outputs.source_sha }}
+        run: node scripts/publish-core-channel.mjs publish "$SOURCE_SHA" "$MIRROR_REPO"
 
       - name: Mint issue closure boundary
         env:

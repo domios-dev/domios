@@ -1,11 +1,12 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useUpdateAvailability } from "./useUpdateAvailability";
-import { appIntentSatisfied, appendUpdateFailure, targetInstalled, restoredAppIntentInterrupted, updateRunRows, availabilityIntent, hasUpdateBadge, nextUpdateStep, panelItems, readUpdateIntent, updateableItems, type UpdateIntent, type UpdateItem, UPDATE_INTENT_KEY } from "../lib/updatePanelModel";
+import { appIntentFinished, appIntentSatisfied, appendUpdateFailure, targetInstalled, restoredAppIntentInterrupted, updateRunRows, availabilityIntent, hasUpdateBadge, nextUpdateStep, panelItems, readUpdateIntent, updateableItems, type UpdateIntent, type UpdateItem, UPDATE_INTENT_KEY } from "../lib/updatePanelModel";
 import { acceptFrontendUpdate, setFrontendUpdateHeld, frontendUpdateOffer, subscribeFrontendUpdateOffer } from "../lib/frontendUpdate/browser";
 import { runPluginSnapshotAction } from "../lib/pluginSnapshotStore";
 import { appliedFrontendRelease, subscribeAppliedFrontendRelease } from "../lib/frontendUpdate/releaseNotes";
 import { useUpdate } from "./useUpdate";
-import { channelDiagnostics, classifyUpdateFailure, classifyUpdateStatus, type UpdateFailure } from "../lib/updateStatusModel";
+import { COULD_NOT_CHECK, classifyUpdateFailure, classifyUpdateStatus, unavailableSourceKeys, updateCheckDetails, type UpdateFailure } from "../lib/updateStatusModel";
+import { DEV_BUILD } from "../lib/devBuild";
 
 function savedIntent(): UpdateIntent | null {
   return readUpdateIntent(localStorage.getItem(UPDATE_INTENT_KEY));
@@ -36,7 +37,8 @@ function useUpdatePanelController() {
   const availableRows = useRef(items);
   availableRows.current = items;
   const updateable = panelItems(updateableItems(snapshot.items, status.errors));
-  const diagnostics = channelDiagnostics(status.errors, new Set());
+  const checkDetails = updateCheckDetails(snapshot);
+  const sourcesFailed = unavailableSourceKeys(status.errors).length > 0;
 
   useEffect(() => {
     if (app.installing || app.phase === "success") setHistory(previous => previous.length ? [] : previous);
@@ -50,6 +52,9 @@ function useUpdatePanelController() {
   }, []);
 
   const hostVersion = snapshot.items.find(item => item.kind === "app")?.installed ?? app.currentVersion ?? "";
+  useEffect(() => {
+    if (intent && restoredIntent.current && appIntentFinished(intent, hostVersion)) save(null);
+  }, [hostVersion, intent, save]);
   const restoredFailure: UpdateFailure | null = ready && intent && restoredIntent.current
     && restoredAppIntentInterrupted(intent, hostVersion, {
       observed: app.nativeStatusObserved, phase: app.phase, installing: app.installing,
@@ -101,8 +106,8 @@ function useUpdatePanelController() {
           }
         }
         if (pluginId) recordOutcome(pluginId, "failed");
-        const classified = classifyUpdateFailure("update", failure);
-        if (classified?.channelUnavailable && pluginId && pluginChannel) {
+        const classified = classifyUpdateFailure(failure);
+        if (classified.channelUnavailable && pluginId && pluginChannel) {
           setSnapshot(previous => ({
             ...previous,
             errors: { ...previous.errors, [pluginChannel]: classified.message },
@@ -144,7 +149,7 @@ function useUpdatePanelController() {
           save(null);
         }
       }
-    } catch (failure) { recordOutcome("app", "failed"); save(null); setError(classifyUpdateFailure("update", failure)); }
+    } catch (failure) { recordOutcome("app", "failed"); save(null); setError(classifyUpdateFailure(failure)); }
     finally { running.current = false; setStarting(false); }
   };
 
@@ -169,7 +174,7 @@ function useUpdatePanelController() {
           save(null);
         }
       }
-    } catch (failure) { recordOutcome(id, "failed"); save(null); setError(classifyUpdateFailure("update", failure)); }
+    } catch (failure) { recordOutcome(id, "failed"); save(null); setError(classifyUpdateFailure(failure)); }
     finally { running.current = false; setStarting(false); }
   };
 
@@ -178,32 +183,34 @@ function useUpdatePanelController() {
     const retirementBoundary = app.captureFailureBoundary();
     setChecking(true);
     setCheckResult(null);
-    const previousFailure = error ?? (app.error ? classifyUpdateFailure("update", app.error) : null) ?? restoredFailure;
+    const previousFailure = error ?? (app.error ? classifyUpdateFailure(app.error) : null) ?? restoredFailure;
     if (previousFailure) setHistory(previous => appendUpdateFailure(previous, previousFailure));
     save(null);
     setError(null);
     try {
       const fresh = await refresh(true);
-      const available = panelItems(updateableItems(fresh.items, classifyUpdateStatus(fresh).errors));
+      const freshErrors = classifyUpdateStatus(fresh).errors;
+      const available = panelItems(updateableItems(fresh.items, freshErrors));
       if (available.length) setHistory([]);
       if (app.error) await app.refresh(true, { retirementBoundary });
       setRunItems([]);
       setOutcomes({});
-      const failures = Object.keys(fresh.errors).length;
-      setCheckResult(failures
-        ? `Check finished with ${failures} unavailable update source(s).`
-        : available.length ? `Check complete: ${available.length} update(s) available.` : "Check complete: everything is up to date.");
-    } catch (failure) { setError(classifyUpdateFailure("check", failure)); }
+      setCheckResult(available.length ? `Check complete: ${available.length} update(s) available.`
+        : unavailableSourceKeys(freshErrors).length ? COULD_NOT_CHECK : "Check complete: everything is up to date.");
+    } catch (failure) {
+      if (DEV_BUILD) console.debug("Update check failed", failure);
+      setCheckResult(COULD_NOT_CHECK);
+    }
     finally { setChecking(false); }
   };
 
   const activeId = stepKind === "plugin" ? pluginId : stepKind === "interface" ? "frontend"
     : intent?.stage === "app" && !restoredFailure && !app.error && !appIntentSatisfied(intent, hostVersion) ? "app" : null;
   const rows = updateRunRows(runItems, items, snapshot.items, intent, activeId, restoredFailure || (restoredIntent.current && app.error) ? { ...outcomes, app: "failed" } : outcomes);
-  const failure = error?.message ?? (app.error ? classifyUpdateFailure("update", app.error)?.message : null) ?? restoredFailure?.message;
-  return { snapshot, items, rows, activeId, awaitingRetry: Boolean(intent && failure), appProgress: app.status === "downloading" && app.downloadTotalBytes && app.downloadTotalBytes > 0
+  const failure = error?.message ?? (app.error ? classifyUpdateFailure(app.error).message : null) ?? restoredFailure?.message;
+  return { snapshot, items, rows, activeId, appStaged: app.phase === "success", awaitingRetry: Boolean(intent && failure), appProgress: app.status === "downloading" && app.downloadTotalBytes && app.downloadTotalBytes > 0
     ? Math.min(100, Math.max(0, app.downloadedBytes / app.downloadTotalBytes * 100)) : null,
-    frontendRelease, history, checking, checkResult, information: status.information, diagnostics, busy: starting || (!failure && intent !== null) || app.installing, error: failure,
+    frontendRelease, history, checking, checkResult, information: status.information, checkDetails, sourcesFailed, busy: starting || (!failure && intent !== null) || app.installing, error: failure,
     errorDetails: error ? [error.details, app.error].filter(Boolean).join("\n") : app.error ?? restoredFailure?.details,
     updateAll, applyItem, retry, refresh, pluginHasUpdate: (id: string) => hasUpdateBadge(snapshot.items.find(item => item.kind === "plugin" && item.id === id && (!item.channel || !status.errors[item.channel]))) };
 }

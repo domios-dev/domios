@@ -11,6 +11,9 @@ struct ExecutorSource<'a> {
     task_id: &'a str,
     source_attempt: ExecutorSourceFields<'a>,
     allow_incomplete_binding: bool,
+    /// The attempt is closed or retired, or its task is terminal: no live writer
+    /// remains whose session identity must be proven before termination.
+    settled: bool,
 }
 
 impl<'a> From<&'a TaskRespawnDraft> for ExecutorSource<'a> {
@@ -20,6 +23,7 @@ impl<'a> From<&'a TaskRespawnDraft> for ExecutorSource<'a> {
             task_id: &draft.task_id,
             source_attempt: (&draft.source_attempt).into(),
             allow_incomplete_binding: false,
+            settled: false,
         }
     }
 }
@@ -76,15 +80,16 @@ impl ServiceContext {
                 [candidate] => candidate,
                 _ => return Err("executor current attempt is unavailable or ambiguous".into()),
             };
-            self.retire_executor_with(
+            self.retire_bound_executor(
+                &tab,
                 ExecutorSource {
                     plan_id: &candidate.0,
                     task_id: &candidate.1,
                     source_attempt: (&candidate.2).into(),
                     allow_incomplete_binding: true,
+                    settled: false,
                 },
                 reason,
-                |tabs| self.terminate_executor_tabs(tabs),
             )?;
             return Ok(true);
         }
@@ -92,17 +97,77 @@ impl ServiceContext {
             return Err("executor task binding is incomplete".into());
         };
         let attempt = projected.ok_or("executor attempt is unavailable")?;
-        self.retire_executor_with(
+        let settled = self.executor_attempt_settled(&plan_id, &task_id, &attempt.id)?;
+        self.retire_bound_executor(
+            &tab,
             ExecutorSource {
                 plan_id: &plan_id,
                 task_id: &task_id,
                 source_attempt: (&attempt).into(),
                 allow_incomplete_binding: false,
+                settled,
             },
             reason,
-            |tabs| self.terminate_executor_tabs(tabs),
         )?;
         Ok(true)
+    }
+
+    fn executor_attempt_settled(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        attempt_id: &str,
+    ) -> Result<bool, String> {
+        if self
+            .plan_store
+            .task_status_projection(plan_id, task_id)
+            .map_err(|error| error.to_string())?
+            .is_terminal()
+        {
+            return Ok(true);
+        }
+        Ok(self
+            .plan_store
+            .list_task_attempts(plan_id, task_id)
+            .map_err(|error| error.to_string())?
+            .iter()
+            .any(|view| {
+                view.attempt.id == attempt_id
+                    && (view.attempt.closed_at.is_some() || view.attempt.retired_at.is_some())
+            }))
+    }
+
+    /// A settled attempt closes without its writer's session proof, but never
+    /// while the plan still assigns this tab any other live attempt.
+    fn retire_bound_executor(
+        &self,
+        tab: &Tab,
+        source: ExecutorSource<'_>,
+        reason: TabCloseReason,
+    ) -> Result<(), String> {
+        if source.settled {
+            let live = self
+                .plan_store
+                .executor_sources_for_tab_projection(&tab.id)
+                .map_err(|error| error.to_string())?;
+            if let Some((_, task, attempt)) = live.iter().find(|(plan, task, attempt)| {
+                (plan.as_str(), task.as_str(), attempt.id.as_str())
+                    != (source.plan_id, source.task_id, source.source_attempt.id)
+            }) {
+                return Err(format!(
+                    "Worker Tab {} still executes live attempt {} of task {task}; settle that task before closing the tab",
+                    tab.id, attempt.id
+                ));
+            }
+        }
+        validate_source(tab, source).map_err(|_| {
+            let status = self
+                .plan_store
+                .task_status_projection(source.plan_id, source.task_id)
+                .ok();
+            executor_close_refusal(tab, source, status.as_ref())
+        })?;
+        self.retire_executor_with(source, reason, |tabs| self.terminate_executor_tabs(tabs))
     }
 
     fn close_terminal_worker_executor(
@@ -140,15 +205,16 @@ impl ServiceContext {
         let [candidate] = candidates.as_slice() else {
             return Err("executor terminal attempt is unavailable or ambiguous".into());
         };
-        self.retire_executor_with(
+        self.retire_bound_executor(
+            tab,
             ExecutorSource {
                 plan_id,
                 task_id,
                 source_attempt: (&candidate.attempt).into(),
                 allow_incomplete_binding: true,
+                settled: true,
             },
             reason,
-            |tabs| self.terminate_executor_tabs(tabs),
         )?;
         Ok(true)
     }
@@ -339,10 +405,25 @@ fn release_orphan_binding(tab: &mut Tab, cause: &str) {
 }
 
 fn validate_source(tab: &Tab, draft: ExecutorSource<'_>) -> Result<(), String> {
+    if tab.protected || executor_identity_drift(tab, draft).is_some() {
+        return Err("respawn source executor identity changed".into());
+    }
+    Ok(())
+}
+
+/// Which identity proof a tab fails for an attempt it claims to execute.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ExecutorIdentityDrift {
+    Assignment,
+    Session,
+    LaunchUnreported,
+    LaunchRotated,
+}
+
+fn executor_identity_drift(tab: &Tab, draft: ExecutorSource<'_>) -> Option<ExecutorIdentityDrift> {
     let source = draft.source_attempt;
     let binding = tab.task_binding.as_ref();
     if tab.id != source.executor_tab_id
-        || tab.protected
         || tab.role != Some(AgentRole::Worker)
         || !binding_field_matches(
             binding.and_then(|binding| binding.plan_id.as_deref()),
@@ -359,47 +440,84 @@ fn validate_source(tab: &Tab, draft: ExecutorSource<'_>) -> Result<(), String> {
             source.id,
             draft.allow_incomplete_binding,
         )
-        || source
-            .session_id
-            .is_some_and(|session| tab.agent_session_id.as_deref() != Some(session))
-        || !source_nonce_matches(tab, source)
     {
-        return Err("respawn source executor identity changed".into());
+        return Some(ExecutorIdentityDrift::Assignment);
     }
-    Ok(())
+    if draft.settled {
+        return None;
+    }
+    if source
+        .session_id
+        .is_some_and(|session| tab.agent_session_id.as_deref() != Some(session))
+    {
+        return Some(ExecutorIdentityDrift::Session);
+    }
+    source_nonce_drift(tab, source)
+}
+
+fn executor_close_refusal(
+    tab: &Tab,
+    draft: ExecutorSource<'_>,
+    task_status: Option<&crate::plan::TaskStatus>,
+) -> String {
+    let (attempt, task) = (draft.source_attempt.id, draft.task_id);
+    if tab.protected {
+        return format!("Tab {} is protected; unprotect it before closing", tab.id);
+    }
+    if draft.settled {
+        return format!("Worker Tab {} no longer holds finished attempt {attempt} of task {task}; list the tab again before closing it", tab.id);
+    }
+    let drift = executor_identity_drift(tab, draft).unwrap_or(ExecutorIdentityDrift::Assignment);
+    let cause = match drift {
+        ExecutorIdentityDrift::Assignment => "its task binding no longer names that attempt".to_string(),
+        ExecutorIdentityDrift::Session => format!(
+            "the tab is bound to session {} while the attempt recorded session {}",
+            tab.agent_session_id.as_deref().unwrap_or("(none)"),
+            draft.source_attempt.session_id.unwrap_or("(none)")
+        ),
+        ExecutorIdentityDrift::LaunchUnreported => "its current launch has not reported its binding nonce, so the tab cannot be proven to be that attempt's writer".to_string(),
+        ExecutorIdentityDrift::LaunchRotated => "its launch binding changed since the attempt recorded it and no same-session restoration links the two".to_string(),
+    };
+    if task_status == Some(&crate::plan::TaskStatus::InReview) {
+        format!("Worker Tab {} holds live attempt {attempt} of task {task}, which is in review, and {cause}; accept, bounce or cancel the task before closing the tab", tab.id)
+    } else {
+        format!("Worker Tab {} still runs live attempt {attempt} of task {task} and {cause}; settle the task (report, cancel or reassign) before closing the tab", tab.id)
+    }
 }
 
 fn binding_field_matches(actual: Option<&str>, expected: &str, allow_missing: bool) -> bool {
     actual.map_or(allow_missing, |actual| actual == expected)
 }
 
-fn source_nonce_matches<'a>(tab: &Tab, source: impl Into<ExecutorSourceFields<'a>>) -> bool {
+fn source_nonce_drift<'a>(
+    tab: &Tab,
+    source: impl Into<ExecutorSourceFields<'a>>,
+) -> Option<ExecutorIdentityDrift> {
     let source = source.into();
-    let Some(old_nonce) = source.session_binding_nonce else {
-        return true;
+    let old_nonce = source.session_binding_nonce?;
+    let Some(current_nonce) = tab
+        .session_binding_nonce
+        .as_deref()
+        .filter(|current| tab.reported_session_binding_nonce.as_deref() == Some(*current))
+    else {
+        return Some(ExecutorIdentityDrift::LaunchUnreported);
     };
-    let Some(current_nonce) = tab.session_binding_nonce.as_deref() else {
-        return false;
-    };
-    if tab.reported_session_binding_nonce.as_deref() != Some(current_nonce) {
-        return false;
-    }
     if current_nonce == old_nonce {
-        return true;
+        return None;
     }
-    let Some(session) = source.session_id else {
-        return false;
-    };
-    source.provider.is_some()
-        && source.provider == tab.agent_type.as_deref()
-        && tab.agent_session_id.as_deref() == Some(session)
-        && crate::service::worker_identity::restore_binding::prove_same_session_restoration(
-            &tab.prior_session_binding_nonces,
-            old_nonce,
-            current_nonce,
-            session,
-        )
-        .is_ok()
+    let restored = source.session_id.is_some_and(|session| {
+        source.provider.is_some()
+            && source.provider == tab.agent_type.as_deref()
+            && tab.agent_session_id.as_deref() == Some(session)
+            && crate::service::worker_identity::restore_binding::prove_same_session_restoration(
+                &tab.prior_session_binding_nonces,
+                old_nonce,
+                current_nonce,
+                session,
+            )
+            .is_ok()
+    });
+    (!restored).then_some(ExecutorIdentityDrift::LaunchRotated)
 }
 
 fn closing_tabs(mux: &MultiplexerState, tab_id: &str) -> Vec<Tab> {

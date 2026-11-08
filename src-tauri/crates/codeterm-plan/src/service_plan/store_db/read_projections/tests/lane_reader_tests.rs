@@ -17,13 +17,15 @@ fn bounded_read(consumer: &str, identity: bool, inventory: bool) {
         plan.tasks[0].lane.worktree_path = Some("/lane".into());
         plan.tasks[0].lane.branch = Some("lane/branch".into());
         plan.tasks[1].body.push_str(&"x".repeat(body));
-        plan.control_loop.rounds = (0..rounds)
-            .map(|number| crate::plan::CuratorRound {
-                number,
-                summary: "unrelated history".repeat(32),
-                ..Default::default()
-            })
-            .collect();
+        plan.strides.extend(fixtures::round_strides(
+            (0..rounds)
+                .map(|number| crate::plan::CuratorRound {
+                    number,
+                    summary: "unrelated history".repeat(32),
+                    ..Default::default()
+                })
+                .collect(),
+        ));
         let database = fixtures::database(directory.path(), &plan);
         fixtures::audit(&database);
         take_metrics();

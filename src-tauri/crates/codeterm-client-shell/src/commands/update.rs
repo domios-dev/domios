@@ -25,7 +25,8 @@ pub async fn check_for_update(
     }
 
     let method = update_state.lock().install_method.clone();
-    let info = codeterm_update::checker::check_for_update(&method).await?;
+    let trigger = codeterm_update::check_throttle::CheckTrigger::from_force(force.unwrap_or(false));
+    let info = codeterm_update::checker::check_for_update(&method, trigger).await?;
 
     let val = serde_json::to_value(&info).map_err(|e| e.to_string())?;
     let mut us = update_state.lock();

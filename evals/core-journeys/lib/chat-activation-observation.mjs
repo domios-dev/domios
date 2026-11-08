@@ -22,7 +22,7 @@ export async function recordChatActivationObservation(ctx) {
     else {
       record.before = tabEvidence(candidate);
       const observationCtx = { ...ctx, state: structuredClone(ctx.state), save: () => {} };
-      observationCtx.policy = await preparePolicy(observationCtx, { readRecord: id => readTab(ctx.api, id) });
+      observationCtx.policy = await preparePolicy(observationCtx, { readRecord: (id, signal) => readTab(ctx.api, id, signal) });
       await withEvents(observationCtx, ctx.deadlines.reply, async (events, signal) => {
         const current = await readTab(ctx.api, candidate.id, signal);
         record.before = tabEvidence(current);

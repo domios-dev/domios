@@ -2,8 +2,8 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
-import { beginChatSendRetry, addChatSend, setChatSendDraft, failChatSendRequest, removeChatSend } from "./chatSendStore";
-import type { DeliverySend } from "./chatDeliveryModel";
+import { beginChatSendRetry, addChatSend, setChatSendDraft, failChatSendRequest, removeChatSend, observeDeliveryStatus, readChatSends } from "./chatSendStore";
+import { deliveryState, type DeliverySend } from "./chatDeliveryModel";
 import type { NormalizedChatMessage } from "@codeterm/chat-core";
 import type { EnrichedChatEntry } from "./chatEnrichment";
 import { ChatTranscriptRow, type ChatTranscriptRowContext } from "./ChatTranscriptRow";
@@ -54,4 +54,66 @@ it("offers Retry for a sendable refusal but never for an empty attachment-only d
     await act(async () => retry!.click());
     expect(retrySend).toHaveBeenCalledExactlyOnceWith(send.id);
   } finally { await act(async () => root.unmount()); host.remove(); removeChatSend("empty-retry", send.id); }
+});
+
+it("a failed routed send offers no Retry and tells the owner how to resend it", async () => {
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  const send: DeliverySend = {
+    id: "routed-failure", content: "opaque", sentAtMs: 1, correlationId: "routed",
+    status: { send_id: "routed-failure", state: "failed", error: "launch_degraded_before_write", tab_id: "tab", ledger_id: "ledger",
+      sequence: 1, retained_from: 1, correlationId: "routed", system_send: { content: "opaque", sent_at_ms: 1 } },
+  };
+  const message: NormalizedChatMessage = { id: send.id, content: send.content, type: "user" };
+  const row: EnrichedChatEntry = { msg: message, item: { kind: "message", message }, origin: { kind: "system", context: "CLI" } };
+  const retrySend = vi.fn();
+  try {
+    await act(async () => root.render(<ChatTranscriptRow entry={row} reports={[]} asks={[]} ariaLabel="Routed send" selected={false}
+      joinNext={false} selecting={false} cursor={false} streaming={false} latestFailedToolCall={false} forkable={false} revertible={false}
+      context={{ ...context, retrySend }} deliverySend={send} deliveryView="failed" />));
+    expect(Array.from(host.querySelectorAll("button")).some(button => button.textContent === "Retry")).toBe(false);
+    expect(host.querySelector('.ct-delivery[data-state="failed"] .ct-delivery__label:not(.sr-only)')?.textContent).toContain("domios send");
+  } finally { await act(async () => root.unmount()); host.remove(); }
+});
+
+it("shows a refusal with an explicit Retry and removes it when delivery wins", async () => {
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  const send: DeliverySend = {
+    id: "busy-row", content: "opaque", sentAtMs: 1, correlationId: "busy-correlation",
+    draft: { text: "opaque", attachments: [], recordedVoiceAttachments: [], capsules: {}, reply: null },
+    status: { send_id: "busy-request", state: "failed", error: "launch_ended_before_write", tab_id: "tab",
+      ledger_id: "ledger", sequence: 1, retained_from: 1, correlationId: "busy-correlation" },
+  };
+  const message: NormalizedChatMessage = { id: send.id, content: send.content, type: "user" };
+  const row: EnrichedChatEntry = { msg: message, item: { kind: "message", message }, origin: undefined };
+  const retrySend = vi.fn();
+  const render = (deliveryView: "failed" | "uncertain" | "delivered", deliverySend = send) =>
+    <ChatTranscriptRow entry={row} reports={[]} asks={[]} ariaLabel="Own send" selected={false} joinNext={false}
+      selecting={false} cursor={false} streaming={false} latestFailedToolCall={false} forkable={false} revertible={false}
+      context={{ ...context, retrySend }} deliverySend={deliverySend} deliveryView={deliveryView} />;
+  try {
+    await act(async () => root.render(render("failed")));
+    expect(deliveryState(send)).toBe("failed");
+    expect(host.querySelector('[role="status"]')).not.toBeNull();
+    expect(retrySend).not.toHaveBeenCalled();
+    const retry = Array.from(host.querySelectorAll("button")).find(button => button.textContent === "Retry");
+    expect(retry).toBeDefined();
+    await act(async () => retry!.click());
+    expect(retrySend).toHaveBeenCalledExactlyOnceWith(send.id);
+    addChatSend("busy-retry", send);
+    setChatSendDraft("busy-retry", send.id, send.draft!);
+    observeDeliveryStatus({ ...send.status!, tab_id: "busy-retry" });
+    const fresh = beginChatSendRetry("busy-retry", send.id);
+    expect(fresh?.id).toBe(send.id);
+    expect(fresh?.correlationId).not.toBe(send.correlationId);
+    expect(readChatSends("busy-retry")).toHaveLength(1);
+    expect(beginChatSendRetry("busy-retry", send.id)).toBeUndefined();
+    await act(async () => root.render(render("uncertain", { ...send, status: { ...send.status!, state: "submit_unconfirmed", error: null } })));
+    expect(host.textContent).not.toContain("Retry");
+    await act(async () => root.render(render("delivered", { ...send, status: { ...send.status!, state: "delivered", error: null } })));
+    expect(host.querySelector('[role="status"]')).toBeNull();
+  } finally { await act(async () => root.unmount()); host.remove(); removeChatSend("busy-retry", send.id); }
 });

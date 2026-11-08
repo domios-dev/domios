@@ -1,6 +1,7 @@
 use axum::{
-    body::Bytes,
-    http::{HeaderMap, StatusCode},
+    body::{Bytes, HttpBody},
+    http::{header, HeaderMap, HeaderValue, StatusCode},
+    response::Response,
 };
 use base64::Engine;
 use serde::Serialize;
@@ -27,6 +28,14 @@ fn encode(value: impl Serialize) -> Bytes {
         "data: {}\n\n",
         serde_json::to_string(&value).unwrap_or_default()
     ))
+}
+
+pub(crate) fn encode_response_head(channel: &str, response: &Response) -> Bytes {
+    let mut headers = response.headers().clone();
+    if let Some(bytes) = response.body().size_hint().exact() {
+        headers.insert(header::CONTENT_LENGTH, HeaderValue::from(bytes));
+    }
+    encode_head(channel, response.status(), &headers)
 }
 
 pub(crate) fn encode_head(channel: &str, status: StatusCode, headers: &HeaderMap) -> Bytes {

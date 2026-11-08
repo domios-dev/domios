@@ -13,6 +13,11 @@ const ACTIONS: &[(&str, &[&str], Option<(&str, &str, bool)>)] = &[
         &["login", "--tab", "peer-tab", "--device"],
         Some(("POST", "/api/tabs/peer-tab/agent/runtime/login", true)),
     ),
+    (
+        "login declared method",
+        &["login", "--tab", "peer-tab", "--method", "opaque-method"],
+        Some(("POST", "/api/tabs/peer-tab/agent/runtime/login", true)),
+    ),
     ("cli status", &["cli", "status", "fixture"], None),
     ("cli install", &["cli", "install", "fixture"], None),
     ("cli update", &["cli", "update", "fixture"], None),
@@ -245,4 +250,27 @@ fn restart_without_tab_over_mesh_is_refused_even_with_local_tab_environment() {
     assert_eq!(method, crate::mesh_cli::api_map::UNSUPPORTED_OVER_MESH);
     assert!(reason.contains("--tab"), "{reason}");
     assert!(body.is_none());
+}
+
+#[test]
+fn mesh_spawn_preserves_launch_profile() {
+    use clap::Parser;
+    let parsed = crate::Cli::try_parse_from([
+        "domios",
+        "agent",
+        "spawn",
+        "acp",
+        "--profile",
+        "selected",
+        "--cwd",
+        "/work/project",
+    ])
+    .unwrap();
+    let crate::Commands::Agent { action } = parsed.command else {
+        panic!("expected spawn")
+    };
+    let (_, _, body) = super::agent_to_api(&action);
+    let body: serde_json::Value = serde_json::from_str(&body.unwrap()).unwrap();
+    assert_eq!(body["launch_profile"], "selected");
+    assert!(body.get("model").is_none());
 }

@@ -73,7 +73,7 @@ pub(crate) fn compose_observed(
         ui.clone(),
     ));
     let repo_watch: codeterm_service_core::repowatch::RepoWatchRegistryHandle = Arc::new(
-        codeterm_service_core::repowatch::RepoWatchRegistry::new(repo_sink),
+        codeterm_service_core::repowatch::RepoWatchRegistry::new(repo_sink.clone()),
     );
     let view_registry: codeterm_service_core::view_host::ViewRegistryHandle =
         Arc::new(codeterm_service_core::view_host::ViewRegistry::new());
@@ -525,6 +525,16 @@ pub(crate) fn compose_observed(
     codeterm_service_core::async_runtime::spawn_blocking(move || {
         if let Err(error) = lane_watch_service.restore_lane_watches() {
             log::error!("[lane-watch] cannot restore lane watches: {error}");
+        }
+    });
+    let head_service = service_state.clone();
+    repo_sink.bind_head_listener(Arc::new(move |identity| {
+        head_service.observe_repository_head(identity)
+    }));
+    let shared_history_service = service_state.clone();
+    codeterm_service_core::async_runtime::spawn_blocking(move || {
+        if let Err(error) = shared_history_service.restore_shared_history_watches() {
+            log::error!("[shared-history] cannot restore shared checkout watches: {error}");
         }
     });
     let search_seed_store = std::sync::Arc::clone(&service_state.plan_store);

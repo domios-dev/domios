@@ -59,6 +59,15 @@ export interface FetchOpts {
   timeoutMs?: number;
   // Templates are filled from that credential's fields (`{accessToken}`); the values themselves never enter the VM.
   credential?: CredentialRequest;
+  profileSecret?: ProfileSecretRequest;
+}
+
+// The credential a launch profile names in its `balance` limits source fills `{secret}`
+// header templates host-side; any other variable or profile is refused.
+export interface ProfileSecretRequest {
+  profile: string;
+  env: string;
+  headers: Record<string, string>;
 }
 
 // `plugin.json` -> `credentials[]` declares the file and its field paths; the

@@ -100,6 +100,7 @@ fn cron_recovery_preserves_live_prompt_and_recovers_vanished_workspace_run() {
             run_id: "fixture-run".into(),
             job_name: orphan_job.name.clone(),
             agent: orphan_job.agent.clone(),
+            launch_profile: None,
             model: orphan_job.model.clone(),
             reasoning_effort: orphan_job.reasoning_effort.clone(),
             task_text: orphan_job.task.clone(),

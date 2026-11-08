@@ -9,6 +9,7 @@ import { daemonAuthToken, daemonHttpBase } from "../../lib/webApi";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { SchemaRenderer } from "./SchemaRenderer";
 import { ProviderInstallCard } from "./ProviderInstallCard";
+import { AcpProfilesCard } from "./AcpProfilesCard";
 import { ProviderIntegrationHealthCard } from "./ProviderIntegrationHealthCard";
 import { ModelEndpointsCard } from "./model_endpoints/ModelEndpointsCard";
 import { providerPageSections, providerSummary } from "./providerPageSections";
@@ -40,9 +41,9 @@ export function AgentsOverview({
 
   return (
     <div className="flex flex-col gap-3" data-testid="settings-agents-overview">
-      <SettingsCard icon={<Server size={16} />} title="Providers" description="Installed as plugins from Extensions.">
-        {error && providers.length === 0 && <InlineErrorNotice error={error} operation="loading agent providers" />}
-        {loading && providers.length === 0 && <Loader label="Loading providers" />}
+      <SettingsCard icon={<Server size={16} />} title="Harnesses" description="Installed as plugins from Extensions.">
+        {error && providers.length === 0 && <InlineErrorNotice error={error} operation="loading harnesses" />}
+        {loading && providers.length === 0 && <Loader label="Loading harnesses" />}
         <div className="ct-rows !p-0">
           {providers.map((p) => (
             <button
@@ -80,7 +81,7 @@ export function AgentsOverview({
         icon={<FolderTree size={16} />}
         title="Skills"
         headerRight={<SettingsPill tone="green">auto-synced</SettingsPill>}
-        description={<>Drop skill folders into <code className="ct-detail__mono">~/.domios/skills/</code>; every provider sees them.</>}
+        description={<>Drop skill folders into <code className="ct-detail__mono">~/.domios/skills/</code>; every harness sees them.</>}
       >
         <button
           type="button"
@@ -124,10 +125,10 @@ export function AgentProviderScreen({
   );
 
   if (error && !provider) {
-    return <InlineErrorNotice error={error} operation="loading agent providers" />;
+    return <InlineErrorNotice error={error} operation="loading harnesses" />;
   }
   if (loading && !provider) {
-    return <Loader label="Loading provider" />;
+    return <Loader label="Loading harness" />;
   }
   if (!provider) {
     // Transient: the pop effect above will unmount us on the next tick.
@@ -150,6 +151,7 @@ export function AgentProviderScreen({
         </div>
       </div>
       <ProviderInstallCard provider={provider} />
+      {provider.agent_runtime?.launchProfiles && <AcpProfilesCard provider={provider} />}
       {sections.integration && <ProviderIntegrationHealthCard provider={provider} />}
       {sections.modelEndpoints && (
         <ModelEndpointsCard providerId={provider.id} harnessName={provider.display_name} daemonApi={fullConfig.api} />

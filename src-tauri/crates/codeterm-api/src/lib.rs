@@ -30,6 +30,7 @@ pub mod ai_helper_routes;
 pub mod bridge_routes;
 pub mod chat_history_routes;
 pub(crate) mod cli_rpc_routes;
+mod client_selection_routes;
 pub mod clipboard_routes;
 pub mod config_routes;
 pub mod cron_routes;

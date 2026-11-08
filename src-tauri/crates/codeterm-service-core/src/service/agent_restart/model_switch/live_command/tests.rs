@@ -3,12 +3,13 @@ use std::cell::Cell;
 use super::*;
 
 pub(super) fn provider_file(relative: &str) -> String {
-    std::fs::read_to_string(
-        crate::test_support::fixture_manifest_dir()
-            .join("../../../plugins/provider-claude")
-            .join(relative),
-    )
-    .unwrap()
+    std::fs::read_to_string(provider_path(relative)).unwrap()
+}
+
+pub(super) fn provider_path(relative: &str) -> std::path::PathBuf {
+    crate::test_support::fixture_manifest_dir()
+        .join("../../../plugins/provider-claude")
+        .join(relative)
 }
 
 #[test]

@@ -56,7 +56,8 @@ The daemon root serves the static web mirror through its fallback when the front
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
 | GET | `/api/mux/state` | — | Published multiplexer snapshot (workspaces/tabs + focus). Writers and rebuilds do not delay reads or cause 503. Genuine storage unavailability still returns 503. Publication sends `mux-state-changed`; callers must not poll. |
-| POST | `/api/workspaces/{id}/tabs/{tab_id}/focus` | — | Switch active tab. |
+| POST | `/api/workspaces/{id}/tabs/{tab_id}/focus` | — | Explicit focus request: every open client shows that tab. |
+| POST | `/api/workspaces/{id}/tabs/{tab_id}/select` | — | Record one client's own selection silently; no other client follows it. |
 | POST | `/api/workspaces/{id}/tabs/{tab_id}/close` | — | Close a tab. |
 | POST | `/api/tabs/{id}/chat-view` | `{enabled}` | Toggle a tab's chat view flag. |
 | GET | `/api/mesh/peers/{id}/services` | — | Peer services view (same cache+failover as the Mesh tab). |
@@ -117,7 +118,7 @@ Nothing is skipped silently. `warnings` lists, per provider, the sessions it cou
 
 Search hits contain session metadata (ID, provider, project path, title, summary, file path, creation/modification timestamps), snippets (role, text, timestamp) and match count, alongside the warnings above.
 
-**GET /api/sessions/{id}** — returns the `SessionMetadata` for whichever provider claims this id. Each provider answers from its own per-session record; session history is never enumerated, so the cost does not grow with the number of stored sessions. Returns `404` if no provider knows it (gone from disk, never existed, wrong machine).
+**GET /api/sessions/{id}** — returns the `SessionMetadata` for whichever provider claims this id. Each provider answers from its own per-session record; session history is never enumerated, so the cost does not grow with the number of stored sessions. The id may also be a closed tab id or a host-kept session id: for the owner, the tab's parent and its Team, the response adds `closed_tab` and `transcript_command`, and a session no provider lists is answered from that record. Returns `404` if no provider knows it and the caller may read no closed tab holding it (gone from disk, never existed, wrong machine).
 
 **POST /api/sessions/{id}/resume** — single call replacing the error-prone "create workspace at guessed cwd → spawn agent with `--resume <id>`" dance. Steps:
 1. Locate the session across providers and read its cwd and provider id from the session's own metadata.
@@ -176,7 +177,7 @@ the change instead — `domios notify send --offer <surface> --offer-accept <lab
 #### Updates
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
-| GET | `/api/update/check` | `?force=true` | Check the active channel; cached for one hour unless forced. |
+| GET | `/api/update/check` | `?force=true` | Check the active channel; cached for one hour, and limited to about twice an hour across restarts, unless forced. A failed check answers 502 with `{error}` and leaves the updater idle. |
 | POST | `/api/update/install` | `?method=auto&manifest_url=...&after_update=...&continue_tab=...` | Install as described below; without `auto`, requires a prior check and returns a package-manager command, browser URL, or `up_to_date`. |
 | GET | `/api/update/channel` | — | Active diagnostic channel: normally `{"channel":"stable"}`. |
 | POST | `/api/update/channel` | `{channel}` | Disabled; `409 update channel switching is disabled`. |
@@ -209,4 +210,4 @@ Responses carry `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, an
 
 Related documents — service registration, health, and activity: `domios docs API-SERVICES`. Bridge and cron integrations: `domios docs API-INTEGRATIONS`.
 
-<!-- revision: 40 -->
+<!-- revision: 43 -->

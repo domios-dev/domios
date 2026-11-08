@@ -105,12 +105,14 @@ fn spec_full_materialization_ignores_linked_plan_bodies_and_history_growth() {
         let mut plan = fixtures::fixture(directory.path(), strides, attempts);
         let spec = linked_spec(&mut plan);
         plan.tasks[1].body.push_str(&"x".repeat(body));
-        plan.control_loop.rounds = (0..rounds)
-            .map(|number| crate::plan::CuratorRound {
-                number,
-                ..Default::default()
-            })
-            .collect();
+        plan.strides.extend(fixtures::round_strides(
+            (0..rounds)
+                .map(|number| crate::plan::CuratorRound {
+                    number,
+                    ..Default::default()
+                })
+                .collect(),
+        ));
         let database = fixtures::database(directory.path(), &plan);
         database.persist_spec(&spec).unwrap();
         fixtures::audit(&database);

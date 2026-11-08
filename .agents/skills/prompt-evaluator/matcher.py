@@ -122,7 +122,7 @@ def sandbox_env() -> dict:
     """
     import os
 
-    return {k: v for k, v in os.environ.items() if not k.startswith("CODETERM_")}
+    return {k: v for k, v in os.environ.items() if k != "CODETERM" and not k.startswith("CODETERM_")}
 
 
 def _parse_verdict(text: str) -> tuple[bool | None, str]:

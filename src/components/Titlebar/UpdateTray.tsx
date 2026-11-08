@@ -81,7 +81,7 @@ export function UpdateTray() {
     if (open) panel.current?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
   }, [open]);
   const indicator = updateIndicator(update.rows, { busy: update.busy, checking: update.checking,
-    failed: Boolean(update.error) || update.diagnostics.some(item => item.channel !== "codeterm-core"), completed: Boolean(update.frontendRelease) });
+    failed: Boolean(update.error), completed: Boolean(update.frontendRelease) });
   const { offers, active, state: activityState } = indicator;
   const failed = activityState === "failed";
   const appPhase = app.installing ? appPhaseDescription(app.phase) : null;

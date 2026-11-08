@@ -388,3 +388,47 @@ fn startup_prompt_classification_requires_missing_session_binding() {
         None
     );
 }
+
+#[test]
+fn attemptless_startup_ack_is_not_required_only_for_an_unowed_runtime_launch() {
+    let (fixture, parent_tab_id, tab_id) = prompt_fixture();
+    let svc = &fixture.service;
+    assert!(svc
+        .acknowledge_attemptless_agent_startup(&tab_id, "nonce-a")
+        .unwrap_err()
+        .contains("CODETERM_STARTUP_ATTEMPT_ID"));
+    svc.mux.write().get_tab_mut(&tab_id).unwrap().pty_id = None;
+    assert_eq!(
+        svc.acknowledge_attemptless_agent_startup(&tab_id, "nonce-a")
+            .unwrap(),
+        AgentStartupAcknowledgement::NotRequired
+    );
+    assert!(svc
+        .acknowledge_attemptless_agent_startup(&tab_id, "foreign-nonce")
+        .is_err());
+    svc.worker_ack
+        .supervise_startup_for_test(&tab_id, &parent_tab_id);
+    assert!(svc
+        .acknowledge_attemptless_agent_startup(&tab_id, "nonce-a")
+        .is_err());
+}
+
+#[test]
+fn attemptless_startup_ack_refuses_a_task_bound_runtime_tab() {
+    let (fixture, _, tab_id) = prompt_fixture();
+    {
+        let mut mux = fixture.service.mux.write();
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.pty_id = None;
+        tab.task_binding = Some(crate::multiplexer::types::TaskBinding {
+            plan_id: Some("opaque-plan".into()),
+            task_id: Some("opaque-task".into()),
+            ..Default::default()
+        });
+    }
+    assert!(fixture
+        .service
+        .acknowledge_attemptless_agent_startup(&tab_id, "nonce-a")
+        .unwrap_err()
+        .contains("agent ack"));
+}

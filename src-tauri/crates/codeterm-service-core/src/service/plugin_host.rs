@@ -632,6 +632,10 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
         secret_bucket(plugin_id).delete(name).is_ok()
     }
 
+    fn launch_profile_secret(&self, plugin_id: &str, profile: &str, env: &str) -> Option<String> {
+        crate::usage::profile_limits::launch_profile_secret(self, plugin_id, profile, env)
+    }
+
     // ── Surfaces ─────────────────────────────────────────────────────────
 
     fn surface_call_json(

@@ -1,6 +1,6 @@
 use super::read_projections::{column, decode, record_query};
 use super::{db_error, PlanDatabase};
-use crate::plan::{ControlLoop, CuratorRound, TaskStatus};
+use crate::plan::{ControlLoop, TaskStatus};
 use crate::service_plan::{
     CuratorAuthorityRead, CuratorScheduleMetadata, CuratorScheduleRead, PlanError,
 };
@@ -43,10 +43,7 @@ impl PlanDatabase {
                 "SELECT json_object('id',id,'project_path',project_path,'status',status,
                 'team_id',team_id,'mode',json_extract(header_json,'$.mode'),
                 'owner',json_extract(header_json,'$.owner'),
-                'control_loop',CASE WHEN json_type(header_json,'$.control_loop.rounds') IS NULL
-                    OR json_type(header_json,'$.control_loop.rounds')='array'
-                    THEN json_remove(json_extract(header_json,'$.control_loop'),'$.rounds')
-                    ELSE json_extract(header_json,'$.control_loop') END)
+                'control_loop',json_extract(header_json,'$.control_loop'))
              FROM plans WHERE id=?1",
                 [plan_id],
                 |row| column(row, 0),
@@ -86,89 +83,26 @@ impl PlanDatabase {
 }
 
 impl CuratorScheduleRead {
-    pub fn control_loop_window(&self) -> Result<ControlLoop, PlanError> {
+    /// The stored control loop with its 7-day counts projected from round rows.
+    pub fn projected_control_loop(&self, now_ms: u64) -> Result<ControlLoop, PlanError> {
         let mut state = self.metadata.control_loop.clone();
-        record_query();
-        let mut statement = self
-            .connection
-            .prepare_cached(
-                "SELECT value FROM (SELECT CAST(r.key AS INTEGER) AS position,r.value
-             FROM plans p,json_each(p.header_json,'$.control_loop.rounds') r
-             WHERE p.id=?1 ORDER BY position DESC LIMIT 20) ORDER BY position",
-            )
-            .map_err(db_error)?;
-        let rows = statement
-            .query_map([&self.metadata.id], |row| column::<String>(row, 0))
-            .map_err(db_error)?;
-        state.rounds = rows
-            .map(|row| decode::<CuratorRound>(&self.metadata.id, &row.map_err(db_error)?))
-            .collect::<Result<_, PlanError>>()?;
+        state.counts_7d =
+            super::status_queries::control_counts(&self.connection, &self.metadata.id, now_ms)?;
         Ok(state)
     }
 
-    /// Applies scheduler metadata only if the complete original control loop still matches.
+    /// Applies scheduler metadata only if the original control loop still matches.
     /// Keep this read alive for one synchronous preparation, never across an await.
     pub fn apply_control_loop(
         &self,
         current: &mut ControlLoop,
-        mut next: ControlLoop,
+        next: ControlLoop,
     ) -> Result<bool, PlanError> {
-        if !next.rounds.is_empty() {
-            return Err(PlanError::Validation(
-                "Scheduler metadata contains round history".into(),
-            ));
-        }
-        let metadata_matches = {
-            let without_rounds = WithoutRounds::new(current);
-            *without_rounds.control == self.metadata.control_loop
-        };
-        if !metadata_matches {
+        if *current != self.metadata.control_loop {
             return Ok(false);
         }
-        record_query();
-        let mut statement = self
-            .connection
-            .prepare_cached(
-                "SELECT r.value FROM plans p,json_each(p.header_json,'$.control_loop.rounds') r
-             WHERE p.id=?1 ORDER BY r.key",
-            )
-            .map_err(db_error)?;
-        let mut rows = statement.query([&self.metadata.id]).map_err(db_error)?;
-        let mut index = 0;
-        while let Some(row) = rows.next().map_err(db_error)? {
-            let encoded: String = column(row, 0).map_err(db_error)?;
-            let round: CuratorRound = decode(&self.metadata.id, &encoded)?;
-            if current.rounds.get(index) != Some(&round) {
-                return Ok(false);
-            }
-            index += 1;
-        }
-        if index != current.rounds.len() {
-            return Ok(false);
-        }
-        next.rounds = std::mem::take(&mut current.rounds);
         *current = next;
         Ok(true)
-    }
-}
-
-struct WithoutRounds<'a> {
-    control: &'a mut ControlLoop,
-    rounds: Vec<CuratorRound>,
-}
-
-impl<'a> WithoutRounds<'a> {
-    fn new(control: &'a mut ControlLoop) -> Self {
-        Self {
-            rounds: std::mem::take(&mut control.rounds),
-            control,
-        }
-    }
-}
-
-impl Drop for WithoutRounds<'_> {
-    fn drop(&mut self) {
-        self.control.rounds = std::mem::take(&mut self.rounds);
     }
 }
 

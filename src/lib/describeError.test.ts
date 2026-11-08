@@ -44,6 +44,7 @@ const fixtures: { input: unknown; title: string; actions: ErrorAction[] }[] = [
   { input: { kind: "runtime_deadline", raw: "opaque" }, title: "The agent runtime is taking longer than usual", actions: [] },
   { input: "Deadline: opaque", title: "The agent runtime is taking longer than usual", actions: [] },
   { input: "Runtime did not respond in time: opaque", title: "The agent runtime is taking longer than usual", actions: [] },
+  { input: "opaque: Interrupt completion deadline exceeded; runtime recovery required", title: "The agent runtime needs recovery", actions: ["retry"] },
   { input: "spawn shell: os error 5", title: "Access was denied", actions: ["check-access", "retry"] },
   { input: "spawn shell: EACCES", title: "Access was denied", actions: ["check-access", "retry"] },
   { input: "spawn shell: os error 2", title: "The program could not be found", actions: ["check-executable", "retry"] },
@@ -90,14 +91,14 @@ test("model switch incidents remain failures when their details mention a deadli
 
 test("provider switch failures name auth deadlines and bound transport details", () => {
   for (const input of ["provider_switch_auth_timeout: opaque", { code: "provider_switch_auth_timeout", message: "opaque" }, new Error("provider_switch_auth_timeout: opaque")]) {
-    const view = describeError(input, { operation: "switching the provider" });
+    const view = describeError(input, { operation: "switching the harness" });
     assert.match(view.title, /authentication check timed out/);
     assert.deepEqual(view.actions, ["retry"]);
     assert.equal(view.pending, undefined);
   }
-  const unavailable = describeError("provider_switch_unavailable: Provider not installed: opaque shell", { operation: "switching the provider" });
-  assert.equal(unavailable.title, "The target provider is unavailable");
-  const failed = describeError("shell spawn failure " + "opaque".repeat(1000), { operation: "switching the provider" });
-  assert.equal(failed.title, "The provider could not be switched");
+  const unavailable = describeError("provider_switch_unavailable: Provider not installed: opaque shell", { operation: "switching the harness" });
+  assert.equal(unavailable.title, "The target harness is unavailable");
+  const failed = describeError("shell spawn failure " + "opaque".repeat(1000), { operation: "switching the harness" });
+  assert.equal(failed.title, "The harness could not be switched");
   assert.ok(failed.raw.length <= 2048);
 });

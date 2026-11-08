@@ -128,6 +128,8 @@ pub enum PlanError {
     },
     InvalidPlanSkillSlug,
     InvalidPlanText(String),
+    /// A shared Worker's reported commit fails the shared checkout contract.
+    SharedReportRejected(String),
     InvalidExecutorName(String),
     InvalidExternalRef(String),
     WorkFacetViolation(codeterm_types::plan::work_facet::WorkFacetViolation),
@@ -407,6 +409,7 @@ impl fmt::Display for PlanError {
                 write!(f, "plan skill slug is empty after normalization")
             }
             PlanError::InvalidPlanText(message) => write!(f, "invalid plan text: {message}"),
+            PlanError::SharedReportRejected(message) => write!(f, "{message}"),
             PlanError::UnauthorizedGateClaim { claimed, authorized } => write!(
                 f,
                 "worker report claims undeclared gate '{claimed}'; authorized gates: {}",
@@ -441,6 +444,7 @@ impl PlanError {
             PlanError::RespawnAttemptNotCurrent { .. } => RPC_DISPATCH_IN_FLIGHT,
             PlanError::InvalidExecutorName(_)
             | PlanError::InvalidPlanText(_)
+            | PlanError::SharedReportRejected(_)
             | PlanError::Validation(_) => -32602,
             PlanError::InvalidSplitParent { .. } => -32602,
             _ => RPC_INTERNAL_ERROR,
@@ -647,6 +651,10 @@ impl PlanError {
             }
             PlanError::InvalidPlanText(message) => serde_json::json!({
                 "type": "invalid_plan_text",
+                "message": message,
+            }),
+            PlanError::SharedReportRejected(message) => serde_json::json!({
+                "type": "shared_report_rejected",
                 "message": message,
             }),
             PlanError::UnauthorizedGateClaim {

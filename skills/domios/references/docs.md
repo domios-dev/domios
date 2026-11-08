@@ -40,6 +40,7 @@ Read one whole document with the command below. The installed CLI lists the curr
 - `domios docs CHAT-BLOCKS` — Canonical typed ds-tag chat block catalog.
 - `domios docs SKILLS` — Domios skills and agent integration.
 - `domios docs AGENT-CONTROL` — Agent hierarchy, command palette, and session integration.
+- `domios docs ACP` — Connect ACP agents: profiles, local setup, registry discovery, authentication and controls.
 - `domios docs TELEGRAM-SETUP` — Telegram bridge setup and troubleshooting.
 - `domios docs SECRETS` — Secret storage and synchronization.
 - `domios docs ROUTING` — Message routing and reply channels.
@@ -55,4 +56,4 @@ Read one whole document with the command below. The installed CLI lists the curr
 - `domios docs TEST-AUTHORING` — Focused test authoring rules.
 - `domios docs ESSENCE-MAP` — Source-backed essence map generation and validation.
 
-<!-- revision: 8 -->
+<!-- revision: 9 -->

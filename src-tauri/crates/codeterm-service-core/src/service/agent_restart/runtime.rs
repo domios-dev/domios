@@ -39,12 +39,12 @@ impl ServiceContext {
         tab_id: &str,
         force: bool,
         fresh: bool,
+        retry_refused_start: bool,
     ) -> Result<RestartOutcome, RestartAttemptError> {
         if let Some(refusal) = self.tab_write_lock(tab_id) {
             return Err(AgentRestartError::BadRequest(refusal.to_string()).into());
         }
         self.require_background_work_safe(tab_id, force)?;
-        let _claim = self.claim_restart(tab_id, false)?;
         let tab = self
             .mux
             .read()
@@ -62,7 +62,16 @@ impl ServiceContext {
         {
             return Err(AgentRestartError::BadRequest("Runtime backing changed".into()).into());
         }
-        if !fresh && tab.agent_session_id.as_deref().is_none_or(str::is_empty) {
+        let unbound_login = agent_runtime::engine::for_tab(tab_id).is_some_and(|session| {
+            agent_runtime::engine::validate_binding(self, &session).is_ok()
+                && matches!(session.state.lock().phase, agent_runtime::model::RuntimePhase::LoginPending)
+                && session.state.lock().thread_id.is_none()
+                && session.context.lock().thread_id.is_none()
+                && tab.reported_session_binding_nonce.is_none()
+                && !tab.restored_from_snapshot
+                && matches!(&tab.backing, TabBacking::ChatBackend {session_id, ..} if session_id.is_empty())
+        });
+        if !fresh && !unbound_login && tab.agent_session_id.as_deref().is_none_or(str::is_empty) {
             return Err(AgentRestartError::BadRequest(
                 "Runtime thread identity missing; an explicit --fresh action is required".into(),
             )
@@ -75,7 +84,7 @@ impl ServiceContext {
             target_provider: None,
             session_id: tab.agent_session_id.clone(),
             cwd: tab.cwd.clone(),
-            auto_approve: tab.restorable_launch.permission_bypass_requested,
+            auto_approve: self.effective_full_access(tab_id),
             role: tab.role.map(|role| format!("{role:?}")),
             role_profile: tab.role_profile.clone(),
             handoff_history: None,
@@ -83,14 +92,36 @@ impl ServiceContext {
         if fresh {
             self.require_fresh_restart_allowed(&snap, force)?;
         }
+        let failed_unbound = fresh && agent_runtime::start_failure::for_tab(&tab);
         let nonce = tab
             .session_binding_nonce
             .ok_or_else(|| AgentRestartError::BadRequest("Runtime binding nonce absent".into()))?;
-        if !agent_runtime::authority::verifies(self, tab_id, &provider, &nonce) {
+        let authorized = agent_runtime::authority::verifies(self, tab_id, &provider, &nonce);
+        if !authorized && !failed_unbound {
             return Err(AgentRestartError::BadRequest(
                 "Runtime restart authority unavailable".into(),
             )
             .into());
+        }
+        // A failed relaunch of the lost session must not rate-limit the owner's way out of it.
+        let replaces_lost_session = fresh
+            && agent_runtime::engine::for_tab(tab_id)
+                .is_some_and(|session| agent_runtime::engine::session_load_refused(self, &session));
+        let claim = self.claim_restart(tab_id, replaces_lost_session)?;
+        if snap
+            .session_id
+            .as_deref()
+            .is_some_and(|thread| fresh && !thread.is_empty())
+        {
+            // The replaced session's context is gone, so a held send ends here rather than following it.
+            self.end_held_user_sends_for_fresh_restart(tab_id)
+                .map_err(AgentRestartError::Internal)?;
+        }
+        if !authorized {
+            agent_runtime::authority::authorize_failed_start_restart(
+                self, tab_id, &provider, &nonce,
+            )
+            .map_err(AgentRestartError::BadRequest)?;
         }
         self.authorize_runtime_restart_binding(tab_id, &provider, &nonce, fresh)
             .map_err(AgentRestartError::BadRequest)?;
@@ -99,7 +130,12 @@ impl ServiceContext {
             outcome.session_id = None;
         }
         let result = crate::async_runtime::block_on(agent_runtime::restart::restart(
-            self, tab_id, &provider, &nonce, fresh,
+            self,
+            tab_id,
+            &provider,
+            &nonce,
+            fresh.then_some((&snap, force)),
+            retry_refused_start,
         ));
         if result.as_ref().is_ok_and(|session| {
             matches!(
@@ -107,6 +143,7 @@ impl ServiceContext {
                 agent_runtime::model::RuntimePhase::LoginPending
             )
         }) {
+            claim.release_cooldown();
             self.schedule_session_persist_debounced();
             self.emit_state_changed(MuxEmitCause::AgentRestart);
             return Ok(outcome);

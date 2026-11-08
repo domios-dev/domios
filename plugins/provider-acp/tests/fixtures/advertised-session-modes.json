@@ -1,0 +1,23 @@
+{
+  "codex-acp": {
+    "package": "@agentclientprotocol/codex-acp@2.5.0",
+    "source": "session/new response",
+    "currentModeId": "agent",
+    "availableModes": ["read-only", "workspace-write", "agent", "agent-full-access"],
+    "modeConfigOption": "mode"
+  },
+  "claude-acp": {
+    "package": "@agentclientprotocol/claude-agent-acp@0.101.0",
+    "source": "session/new response",
+    "currentModeId": "auto",
+    "availableModes": ["default", "acceptEdits", "plan", "auto", "bypassPermissions"],
+    "modeConfigOption": "mode"
+  },
+  "gemini": {
+    "package": "@google/gemini-cli@0.67.0",
+    "source": "buildAvailableModes in the package bundle; session/new requires an API key",
+    "currentModeId": "default",
+    "availableModes": ["default", "autoEdit", "yolo", "plan"],
+    "launchProfiles": ["gemini-cli"]
+  }
+}

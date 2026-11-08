@@ -34,6 +34,8 @@ pub struct LoginRequest {
     pub account: Option<String>,
     #[serde(default)]
     pub code: Option<String>,
+    #[serde(default)]
+    pub method_id: Option<String>,
     pub method: Option<RuntimeLoginMethod>,
     #[serde(default)]
     pub api_key: Option<String>,
@@ -101,13 +103,37 @@ pub async fn operate(
         }
     };
     engine::validate_binding(svc, &session).map_err(|error| error.to_string())?;
+    if let Some(method) = request.method_id.as_deref() {
+        if request.action.is_some() || request.method.is_some() {
+            return Err("Invalid declared sign-in request".into());
+        }
+        if let Some(key) = request.api_key.as_deref() {
+            return super::auth_env::sign_in_with_key(svc, tab, &session, method, key).await;
+        }
+        return super::declared_controls::authenticate(svc, tab, &session, method).await;
+    }
     let capability = session
         .adapter
         .lock()
         .as_ref()
         .and_then(|provider| provider.agent_runtime())
-        .and_then(|runtime| runtime.login)
-        .ok_or("Runtime sign-in is unsupported")?;
+        .and_then(|runtime| runtime.login);
+    let Some(capability) = capability else {
+        if request.method == Some(RuntimeLoginMethod::ApiKey)
+            && request
+                .action
+                .as_deref()
+                .is_none_or(|action| action == "start")
+        {
+            let methods = super::auth_env::selected_profile(svc, tab, &session)
+                .map(|profile| super::auth_env::api_key_methods(&profile))
+                .unwrap_or_default();
+            let method = super::auth_env::default_api_key_method(&methods)?;
+            let key = request.api_key.as_deref().unwrap_or_default();
+            return super::auth_env::sign_in_with_key(svc, tab, &session, method, key).await;
+        }
+        return Err("Runtime sign-in is unsupported".into());
+    };
     if request.action.as_deref() == Some("terminal") {
         return terminal::launch(svc, tab, &session, capability.terminal_command).await;
     }
@@ -319,7 +345,11 @@ pub fn show(svc: &ServiceContext, tab: &str) -> Result<Value, String> {
     let session = engine::for_tab(tab).ok_or("Runtime binding unavailable")?;
     engine::validate_binding(svc, &session).map_err(|error| error.to_string())?;
     let login = project(session.login.lock().login.as_ref(), now_ms());
-    Ok(json!({"login":login}))
+    let authentication = session.maps.lock().authentication.clone();
+    let api_key_methods = super::auth_env::selected_profile(svc, tab, &session)
+        .map(|profile| super::auth_env::api_key_methods(&profile))
+        .unwrap_or_default();
+    Ok(json!({"login":login,"authentication":authentication,"apiKeyMethods":api_key_methods}))
 }
 
 pub(super) fn now_ms() -> u64 {

@@ -62,6 +62,7 @@ pub fn start(cron_state: CronState, cron_wake: CronWake, service: ServiceState) 
 struct FireSpec {
     job_id: String,
     agent: String,
+    launch_profile: Option<String>,
     model: Option<String>,
     reasoning_effort: Option<String>,
     task: String,
@@ -79,6 +80,7 @@ fn fire_spec(job: &CronJob) -> FireSpec {
     FireSpec {
         job_id: job.id.clone(),
         agent: job.agent.clone(),
+        launch_profile: None,
         model: job.model.clone(),
         reasoning_effort: job.reasoning_effort.clone(),
         task: job.task.clone(),
@@ -237,16 +239,12 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) -> 
     };
     let now = cron_state.lock().now_ms();
     match policy.prepare_cron(service, &job, now) {
-        Ok(Some(launch)) => {
-            let mut resolved = spec.clone();
-            resolved.agent = launch.provider;
-            resolved.model = Some(launch.model);
-            resolved.reasoning_effort = launch.effort;
-            resolved.task = launch.task;
-            fire_job_with_spawn(cron_state, service, &resolved, |spec| {
-                service.spawn_tab(spec)
-            })
-        }
+        Ok(Some(launch)) => fire_job_with_spawn(
+            cron_state,
+            service,
+            &role_launch_spec(spec, launch),
+            |spec| service.spawn_tab(spec),
+        ),
         Ok(None) => FireStart::Recorded,
         Err(error) => {
             log::debug!("[cron] prepare {}: {error}", job.id);
@@ -254,6 +252,18 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) -> 
         }
     }
 }
+
+fn role_launch_spec(spec: &FireSpec, launch: crate::service::role_policy::CronLaunch) -> FireSpec {
+    FireSpec {
+        agent: launch.provider,
+        launch_profile: launch.launch_profile,
+        model: Some(launch.model),
+        reasoning_effort: launch.effort,
+        task: launch.task,
+        ..spec.clone()
+    }
+}
+
 fn fire_job_with_spawn(
     cron_state: &CronState,
     service: &ServiceState,
@@ -337,6 +347,7 @@ fn fire_job_with_spawn(
             run_id: run_id.clone(),
             job_name,
             agent: agent.to_string(),
+            launch_profile: spec.launch_profile.clone(),
             model,
             reasoning_effort: reasoning_effort.map(str::to_string),
             task_text,
@@ -756,6 +767,7 @@ mod tests {
                 run_id: "fixture-run".into(),
                 job_name: "legacy".into(),
                 agent: fire.agent,
+                launch_profile: fire.launch_profile,
                 model: fire.model,
                 reasoning_effort: fire.reasoning_effort,
                 task_text: fire.task,

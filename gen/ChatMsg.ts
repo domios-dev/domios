@@ -14,7 +14,7 @@ import type { MessageSegment } from "./MessageSegment";
  * `id` must be stable across polls so the UI merges an updated message in
  * place instead of duplicating it.
  */
-export type ChatMsg = { id: string, inheritedFromSessionId?: string | null, type: string, content: string, segments?: Array<MessageSegment> | null, 
+export type ChatMsg = { id: string, runtimeSourceItemId?: string | null, inheritedFromSessionId?: string | null, type: string, content: string, segments?: Array<MessageSegment> | null, 
 /**
  * The envelope grammar that produced `segments`; a client built for
  * another grammar refuses them instead of re-parsing `content`.

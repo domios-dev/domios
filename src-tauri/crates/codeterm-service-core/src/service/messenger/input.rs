@@ -70,6 +70,37 @@ impl FramedDelivery {
         self
     }
 
+    pub(crate) fn chat_message(&self, id: String) -> Option<crate::agent::chat_types::ChatMsg> {
+        let wire = self.to_message();
+        let parsed = codeterm_wire::domios::parse_message(&wire)?;
+        let attr = |key| parsed.attr(key).map(str::to_owned);
+        let kind = match parsed.attr("from")? {
+            "report" => super::MessageKind::Report,
+            "system" => super::MessageKind::System,
+            "reminder" => super::MessageKind::Reminder,
+            "mesh" => super::MessageKind::Mesh,
+            "telegram" => super::MessageKind::Telegram,
+            "pebble" => super::MessageKind::Pebble,
+            _ => super::MessageKind::Message,
+        };
+        let envelope = super::MessageEnvelope {
+            kind,
+            from_label: attr("label").or_else(|| attr("source")).unwrap_or_default(),
+            from_tab: attr("tab").unwrap_or_default(),
+            from_model: attr("model"),
+            purpose: attr("purpose"),
+            context: attr("context"),
+            from_mesh: attr("mesh").or_else(|| attr("peer")),
+            from_plugin: attr("plugin"),
+            from_neighbor: attr("friendship"),
+            ..Default::default()
+        };
+        let (mut row, _) = super::build_chatbackend_inbound(&envelope, self.body(), id);
+        row.inbound_kind = attr("from");
+        row.refresh_segments_from(&wire);
+        Some(row)
+    }
+
     pub fn body(&self) -> &str {
         &self.body
     }

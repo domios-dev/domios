@@ -45,8 +45,8 @@ export function packagedExecutables(extracted) {
     server: one(extracted, file => /[/\\](?:MacOS|domios-server)[/\\]domios-server(?:\.exe)?$/.test(file), 'packaged server'),
   };
 }
-function run(command, args, cwd) {
-  return execFileSync(command, args, { cwd, encoding: 'utf8', timeout: 120000, maxBuffer: 8 * 1024 * 1024 });
+function run(command, args, cwd, timeout = 120000) {
+  return execFileSync(command, args, { cwd, encoding: 'utf8', timeout, maxBuffer: 8 * 1024 * 1024 });
 }
 // The native client carries the source SHA; system plugins are embedded in the server it starts.
 export function checkContents(appBytes, serverBytes, sha) {
@@ -84,7 +84,8 @@ export function smoke(kind, directory, sha, expectedArch) {
       const app = path.join(scratch, 'Domios.app');
       run('codesign', ['--verify', '--deep', '--strict', app]);
       const dmg = one(artifacts, file => file.endsWith('.dmg'), 'notarized DMG');
-      run('xcrun', ['stapler', 'validate', dmg]);
+      // The shipped DMG must pass stapler validate; bounded retries cover Apple's dropped ticket-service connections.
+      run('bash', [path.join(root, 'scripts/staple-with-retry.sh'), dmg, 'validate'], undefined, 600000);
       const plistVersion = run('/usr/libexec/PlistBuddy', ['-c', 'Print :CFBundleShortVersionString', path.join(app, 'Contents/Info.plist')]).trim();
       if (plistVersion !== version) throw new Error(`Bundle version ${plistVersion} != ${version}`);
     } else if (kind === 'linux') {

@@ -4,7 +4,7 @@ import {invoke} from "../../lib/bridge";
 import {DEV_BUILD} from "../../lib/devBuild";
 import {resetCreditsForTab, type ResetResponse} from "./resetCreditsModel";
 import {ResetCreditsSection} from "./ResetCreditsSection";
-import { ownRuntimeUsage, latestUsageSnapshot, runtimeTokenLabel, runtimeTokenBreakdown, runtimeAccountCreditsLabel } from "./runtimeUsage";
+import { accountRuntimeUsage, accountUsageSnapshot, ownRuntimeUsage, latestUsageSnapshot, runtimeTokenLabel, runtimeTokenBreakdown, runtimeAccountCreditsLabel } from "./runtimeUsage";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useUsageSnapshot } from "../../hooks/useUsageSnapshot";
 import { useProviderModelUsageState } from "../../hooks/useProviderModelUsage";
@@ -19,6 +19,8 @@ import type {UsageSnapshot} from "../../types/usage";
 import { unreportedBillingLabel, usageMetricsAriaLabel, visibleUsageMetrics, usagePillText, type VisibleUsageMetric } from "./metrics";
 import { formatAge } from "../../lib/timeLabels";
 import { AnchoredPopover } from "../shared/AnchoredPopover";
+import { contextUsage, hasQuota, useClaimContext } from "./contextUsage";
+import { ContextUsageBubble } from "./ContextUsageBubble";
 
 interface UsageBubbleProps {
   /** Provider id — required, no default. The component is hosted by a
@@ -37,6 +39,12 @@ interface UsageBubbleProps {
   /// Provider-declared model groups, so a group-spend capsule matches by id
   /// without core knowing any vendor.
   modelGroups?: ModelGroup[];
+  /// The tab's reported context fill (`tab.context`). A harness with no quota windows shows it as the bubble value.
+  context?: unknown;
+  /// The harness name for the popover title.
+  providerLabel?: string;
+  /// The tab borrows `provider`'s account limits: show the account's view, never this tab's runtime readings.
+  borrowedAccount?: boolean;
 }
 
 const ONE_HOUR_MS = 60 * 60 * 1000;
@@ -50,6 +58,9 @@ export function UsageBubble({
   trackingEnabled = false,
   modelId = null,
   modelGroups,
+  context,
+  providerLabel,
+  borrowedAccount = false,
 }: UsageBubbleProps) {
   // The group's provider-declared spend meter takes precedence over the
   // provider-scoped polled snapshot: it is the tab's own upstream group.
@@ -67,11 +78,13 @@ export function UsageBubble({
     accountId,
     enabled: trackingEnabled,
   });
-  const runtime = ownRuntimeUsage(snapshot,tabId,threadId);
-  const active = runtime || snapshot?.runtime_usage
+  const runtime = borrowedAccount ? null : ownRuntimeUsage(snapshot,tabId,threadId);
+  const active = borrowedAccount ? accountUsageSnapshot(snapshot) : runtime || snapshot?.runtime_usage
     ? latestUsageSnapshot(snapshot, tabId, threadId)
     : groupSnapshot ?? snapshot;
-  const accountCreditsLabel = runtimeAccountCreditsLabel(runtime?.account_credits);
+  // The reading whose account rows (credits, session resets) this popover shows; a borrowing tab shows the native tab's.
+  const accountReading = borrowedAccount ? accountRuntimeUsage(snapshot) : runtime;
+  const accountCreditsLabel = runtimeAccountCreditsLabel(accountReading?.account_credits);
   const [, updateAge] = useState(0);
   const refreshAge = () => updateAge(value => value + 1);
   useEffect(() => {
@@ -99,6 +112,20 @@ export function UsageBubble({
   const [historyOpen, setHistoryOpen] = useState(false);
   const btnRef = useRef<HTMLButtonElement>(null);
   const closeDetail = useCallback(() => setOpen(false), []);
+  // A harness that reports its context fill but no quota (an ACP agent): the fill is the bubble value.
+  const contextReading = contextUsage(context, runtime);
+  const contextMode = trackingEnabled && contextReading != null && !hasQuota(active);
+  useClaimContext(tabId, contextMode);
+
+  if (contextMode && contextReading) {
+    return (
+      <ContextUsageBubble title={`${providerLabel ?? provider} usage`} usage={contextReading}
+        capturedAt={runtime?.token_usage?.captured_at ?? runtime?.captured_at ?? null}
+        onOpenHistory={active ? () => setHistoryOpen(true) : undefined}>
+        {historyOpen && <UsageHistoryModal provider={provider} accountId={accountId} onClose={() => setHistoryOpen(false)} />}
+      </ContextUsageBubble>
+    );
+  }
 
   if (!trackingEnabled || !active) return null;
   const now = Date.now();
@@ -122,6 +149,11 @@ export function UsageBubble({
       : sessionState === "warn" || weeklyState === "warn"
         ? "warn"
         : "neutral";
+
+  // A borrowing tab shows the account's resets read-only: redeeming acts on the native tab's runtime.
+  const resetSection = tabId && accountReading
+    ? <ResetCreditsSection resets={active.resets} model={borrowedAccount ? null : resetModel} />
+    : undefined;
 
   const refreshUsage = async () => {
     if (groupSnapshot) {
@@ -194,7 +226,7 @@ export function UsageBubble({
         <UsageSpendDetail
           snapshot={active}
           accountCreditsLabel={accountCreditsLabel}
-          resetSection={tabId && runtime && resetModel ? <ResetCreditsSection resets={active.resets} model={resetModel} /> : undefined}
+          resetSection={resetSection}
           onRefresh={refreshUsage}
           onOpenHistory={() => {
             setHistoryOpen(true);
@@ -207,7 +239,7 @@ export function UsageBubble({
         <UsageDetail
           snapshot={active}
           accountCreditsLabel={accountCreditsLabel}
-          resetSection={tabId && runtime && resetModel ? <ResetCreditsSection resets={active.resets} model={resetModel} /> : undefined}
+          resetSection={resetSection}
           onRefresh={refreshUsage}
           onOpenHistory={() => {
             setHistoryOpen(true);

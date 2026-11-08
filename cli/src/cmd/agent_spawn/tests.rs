@@ -2,6 +2,32 @@ use super::*;
 use crate::cmd::hints::unbound_worker_binding_hint;
 use crate::cmd::report_guard::worker_binding_resolved;
 
+#[test]
+fn spawned_profile_model_uses_its_declared_name() {
+    let model = r#"["gateway","opaque-model"]"#;
+    let result = serde_json::json!({"agent":"fixture","model":model});
+    let catalogue = serde_json::json!([
+        {"id":"other","configOptions":[{"category":"model","options":[{"value":model,"name":"Wrong profile"}]}]},
+        {"id":"chosen","configOptions":[{"category":"model","options":[{"value":model,"name":"Declared model"}]}]}
+    ]);
+    assert_eq!(
+        spawn_model_label(&result, &catalogue, Some("chosen")),
+        "fixture/Declared model"
+    );
+    assert_eq!(
+        spawn_model_label(&result, &catalogue, Some("missing")),
+        format!("fixture/{model}")
+    );
+    assert_eq!(
+        spawn_model_label(
+            &serde_json::json!({"agent":"fixture"}),
+            &catalogue,
+            Some("chosen")
+        ),
+        "fixture"
+    );
+}
+
 fn worker(execution_intent: Option<&'static str>, has_plan: bool) -> SpawnContext<'static> {
     SpawnContext {
         role: Some(&SpawnRole::Worker),

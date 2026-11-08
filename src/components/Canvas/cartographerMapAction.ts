@@ -35,7 +35,7 @@ export async function startCartographerMap(
   request: CartographerMapRequest,
   actions: CartographerMapActions,
 ): Promise<TeamMemberAttachment> {
-  if (!request.draft.providerId) throw new Error("Choose a provider for the Cartographer");
+  if (!request.draft.providerId) throw new Error("Choose a harness for the Cartographer");
   let snapshot = await actions.snapshot();
   let workspace = snapshot.workspaces.find((candidate) => candidate.id === request.workspaceId);
   if (!workspace) throw new Error("The map workspace is no longer open");

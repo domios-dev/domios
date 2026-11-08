@@ -28,6 +28,11 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
         }),
     });
     return {
+        provider_launch_profiles: (a: Args) => clientFor(a).json("GET", `/api/agents/providers/${enc(s(a, "providerId"))}/profiles`),
+        provider_setup_profile: (a: Args) => clientFor(a).json("POST", `/api/agents/providers/${enc(s(a, "providerId"))}/profiles`, a.request, {timeoutMs: null}),
+        provider_registry_search: (a: Args) => clientFor(a).json("GET", `/api/agents/providers/${enc(s(a, "providerId"))}/registry?q=${enc(s(a, "query"))}`),
+        provider_registry_install: (a: Args) => clientFor(a).json("POST", `/api/agents/providers/${enc(s(a, "providerId"))}/registry/install`, {id: s(a, "id")}, {timeoutMs: null}),
+        provider_remove_profile: (a: Args) => clientFor(a).json("DELETE", `/api/agents/providers/${enc(s(a, "providerId"))}/profiles/${enc(s(a, "name"))}`),
         wake_tab: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId"))}/wake`),
         mux_get_state: (a: Args = {}) => clientFor(a).json<MultiplexerState>("GET", "/api/mux/state"),
         agent_runtime_child_authority: async (a: Args) => {
@@ -38,6 +43,8 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
         agent_runtime_goal: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId"))}/agent/runtime/goal`, a.request),
         agent_runtime_thread_history: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId"))}/agent/runtime/thread-history`, a.request),
         agent_runtime_reset_credits: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId"))}/agent/runtime/reset-credits`, a.request),
+        agent_runtime_controls: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId"))}/agent/runtime/controls`, a.request),
+        agent_runtime_host_approvals: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId"))}/agent/runtime/host-approvals`, a.request),
         agent_runtime_login: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId"))}/agent/runtime/login`, a.request),
         agent_runtime_retry: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId"))}/agent/runtime/retry`),
         agent_runtime_child_history: (a: Args) => clientFor(a).json("GET", `/api/tabs/${enc(s(a, "tabId"))}${childHistorySuffix(s(a,"threadId"), a.request as ChildTranscriptAuthority & {cursor?:string})}`),
@@ -47,7 +54,8 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
         rebind_tab_session: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId"))}/session/rebind`, {
             session_id: s(a, "sessionId"),
         }),
-        mux_set_active_workspace: (a: Args) => clientFor(a).json("POST", `/api/workspaces/${enc(s(a, "workspaceId"))}/focus`),
+        // Selection is this client's own; `/select` records it without moving any other client.
+        mux_set_active_workspace: (a: Args) => clientFor(a).json("POST", `/api/workspaces/${enc(s(a, "workspaceId"))}/select`),
         mux_create_workspace: (a: Args) => clientFor(a).json("POST", "/api/workspaces", {
             name: a.name,
             cwd: a.cwd,
@@ -73,11 +81,8 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
             creator_tab_id: a.creatorTabId,
             cmd: a.cmd,
         }),
-        mux_set_active_tab: (a: Args) => clientFor(a).json("POST", `/api/workspaces/${enc(s(a, "workspaceId"))}/tabs/${enc(s(a, "tabId"))}/focus`),
-        mux_set_active_tab_and_workspace: async (a: Args) => {
-            await clientFor(a).json("POST", `/api/workspaces/${enc(s(a, "workspaceId"))}/focus`);
-            return clientFor(a).json("POST", `/api/workspaces/${enc(s(a, "workspaceId"))}/tabs/${enc(s(a, "tabId"))}/focus`);
-        },
+        mux_set_active_tab: (a: Args) => clientFor(a).json("POST", `/api/workspaces/${enc(s(a, "workspaceId"))}/tabs/${enc(s(a, "tabId"))}/select`),
+        mux_set_active_tab_and_workspace: (a: Args) => clientFor(a).json("POST", `/api/workspaces/${enc(s(a, "workspaceId"))}/tabs/${enc(s(a, "tabId"))}/select`),
         mux_close_tab: (a: Args) => clientFor(a).json("POST", `/api/workspaces/${enc(s(a, "workspaceId"))}/tabs/${enc(s(a, "tabId"))}/close`),
         mux_reopen_closed_tab: (a: Args) => clientFor(a).json("POST", `/api/workspaces/${enc(s(a, "workspaceId"))}/reopen-closed`, {
             index: a.index,
@@ -99,7 +104,7 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
         mux_reorder_workspace: (a: Args) => clientFor(a).json("POST", `/api/workspaces/reorder`, {
             ordered_workspace_ids: a.orderedWorkspaceIds,
         }),
-        mux_set_focused_tab: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId"))}/focus`),
+        mux_set_focused_tab: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId"))}/select`),
         mux_respond_prompt: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId"))}/prompt/respond`, a),
         mux_set_permission_auto_confirm: async (a: Args) => {
             const resp = await clientFor(a).json<{
@@ -178,7 +183,7 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
             if (!identity || identity.peerId !== peer) {
                 throw new Error("Remote tab owner mismatch");
             }
-            if (["/focus", "/agent/restart", "/close"].includes(s(a, "suffix"))) {
+            if (["/focus", "/select", "/agent/restart", "/close"].includes(s(a, "suffix"))) {
                 remotePtyIds.invalidate(ordinary);
             }
             const remoteTab = identity.remoteTabId;
@@ -340,6 +345,7 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
                 model?: string;
                 reasoningEffort?: string;
                 preset?: string;
+                launchProfile?: string;
             };
         }): Promise<AtomicSpawn> => {
             const p = a.params;
@@ -348,7 +354,7 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
                 workspace_id?: string;
             }>("POST", "/api/agents/spawn", {
                 agent: p.agentId, workspace_id: p.workspaceId, cwd: p.cwd, model: p.model,
-                reasoning_effort: p.reasoningEffort, preset: p.preset, activate: true,
+                reasoning_effort: p.reasoningEffort, preset: p.preset, launch_profile: p.launchProfile, activate: true,
             });
             const snapshot = await clientFor(a).json<AtomicSpawn["snapshot"]>("GET", "/api/mux/state");
             return { tab_id: result.tab_id, workspace_id: result.workspace_id ?? p.workspaceId, snapshot };

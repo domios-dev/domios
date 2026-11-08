@@ -28,6 +28,7 @@ fn attempt_model_fields_round_trip() {
                 .find(|attempt| attempt.id == attempt_id)
                 .unwrap();
             attempt.provider = Some("fixture-agent".into());
+            attempt.launch_profile = Some("selected".into());
             attempt.model = Some("gpt-6-luna".into());
             attempt.reasoning_effort = Some("xhigh".into());
             attempt.session_model = Some("gpt-runtime".into());
@@ -46,6 +47,7 @@ fn attempt_model_fields_round_trip() {
         .next()
         .unwrap();
     let json = serde_json::to_value(&saved).unwrap();
+    assert_eq!(json["launch_profile"], "selected");
     assert_eq!(json["provider"], "fixture-agent");
     assert_eq!(json["model"], "gpt-6-luna");
     assert_eq!(json["reasoning_effort"], "xhigh");
@@ -61,6 +63,7 @@ fn attempt_model_fields_round_trip() {
             },
         )
         .unwrap();
+    assert_eq!(draft.launch_profile.as_deref(), Some("selected"));
     assert_eq!(
         draft.execution_intent,
         crate::plan::ExecutionIntent::Mutating
@@ -1037,4 +1040,112 @@ fn competition_prompt_starts_with_same_canonical_identity() {
     assert_eq!(prompt.matches("opaque-guidance-73").count(), 1);
     let ack = prompt.find("domios agent ack").unwrap();
     assert!(ack < prompt.find("When done, run exactly:").unwrap());
+}
+
+#[test]
+fn attempt_launch_profile_optional_round_trip_and_respawn_override() {
+    let value = serde_json::to_value(crate::plan::TaskExecutionAttempt::default()).unwrap();
+    assert!(value.get("launch_profile").is_none());
+    let missing: crate::plan::TaskExecutionAttempt = serde_json::from_value(value).unwrap();
+    assert!(missing.launch_profile.is_none());
+    let (_dir, store, plan, task) = super::bound_report_store();
+    let source = store.list_task_attempts(&plan, &task).unwrap()[0]
+        .attempt_id
+        .clone();
+    let source_tab = store.list_task_attempts(&plan, &task).unwrap()[0]
+        .attempt
+        .executor_tab_id
+        .clone();
+    store
+        .update_attempt_executor_identity(
+            &plan,
+            &task,
+            &source_tab,
+            None,
+            None,
+            None,
+            Some("selected"),
+            4,
+        )
+        .unwrap();
+    store
+        .update_attempt_executor_identity(
+            &plan,
+            &task,
+            &source_tab,
+            Some("Worker"),
+            Some("session"),
+            Some("nonce"),
+            None,
+            4,
+        )
+        .unwrap();
+    let identity = store
+        .list_task_attempts(&plan, &task)
+        .unwrap()
+        .remove(0)
+        .attempt;
+    assert_eq!(identity.launch_profile.as_deref(), Some("selected"));
+    assert_eq!(identity.session_id.as_deref(), Some("session"));
+    store
+        .edit_plan_fixture(&plan, 4, |plan| {
+            plan.tasks
+                .iter_mut()
+                .find(|entry| entry.id == task)
+                .unwrap()
+                .execution_attempts
+                .last_mut()
+                .unwrap()
+                .provider = Some("source-provider".into());
+            Ok(())
+        })
+        .unwrap();
+    let changed = store
+        .build_task_respawn_draft(
+            &plan,
+            &task,
+            task_attempts::TaskRespawnRequest {
+                attempt_id: source.clone(),
+                provider: Some("target-provider".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(changed.provider, "target-provider");
+    assert!(changed.launch_profile.is_none());
+    for (requested, expected) in [
+        (None, "selected"),
+        (Some("replacement".into()), "replacement"),
+    ] {
+        let draft = store
+            .build_task_respawn_draft(
+                &plan,
+                &task,
+                task_attempts::TaskRespawnRequest {
+                    attempt_id: source.clone(),
+                    launch_profile: requested,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(draft.launch_profile.as_deref(), Some(expected));
+        assert_eq!(
+            draft.source_attempt.launch_profile.as_deref(),
+            Some("selected")
+        );
+    }
+    let draft = store
+        .build_task_respawn_draft(
+            &plan,
+            &task,
+            task_attempts::TaskRespawnRequest {
+                attempt_id: source,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let created = store
+        .record_task_respawn_attempt(&plan, &task, "replacement", &draft, Some("worker"), 5)
+        .unwrap();
+    assert_eq!(created.attempt.launch_profile.as_deref(), Some("selected"));
 }

@@ -38,7 +38,7 @@ export const GETTING_STARTED: ChecklistDefinition = {
     {
       id: "first-agent",
       label: "Start your first agent",
-      hint: "Open a new agent tab with the provider and model you want.",
+      hint: "Open a new agent tab with the harness and model you want.",
       signal: "agentSpawned",
       action: { kind: "link", label: "New agent", link: "new-agent" },
     },

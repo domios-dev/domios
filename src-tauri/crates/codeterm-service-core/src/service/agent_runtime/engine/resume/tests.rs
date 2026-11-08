@@ -17,6 +17,71 @@ module.exports = {
 "#;
 
 #[test]
+fn refused_session_load_retains_binding_and_never_opens_even_an_unused_thread() {
+    for unused_thread in [false, true] {
+        let source = PROVIDER.replace("thread_not_found", "session_load_refused");
+        let (fixture, tab, peer, _cleanup) = runtime_fixture_with(&source);
+        let session = for_tab(&tab).unwrap();
+        crate::async_runtime::block_on(async {
+            if unused_thread {
+                bind(&fixture.service, &session, "own-thread", true).unwrap();
+            }
+            let server = tokio::spawn(async move {
+                let (reader, mut writer) = tokio::io::split(peer);
+                let mut lines = BufReader::new(reader).lines();
+                let request: Value =
+                    serde_json::from_str(&lines.next_line().await.unwrap().unwrap()).unwrap();
+                assert_eq!(request["method"], "fixture/resume");
+                let reply = json!({"jsonrpc":"2.0","id":request["id"],"error":{"code":-32603,"message":"opaque refusal","data":{"details":"opaque detail"}}});
+                writer
+                    .write_all(format!("{reply}\n").as_bytes())
+                    .await
+                    .unwrap();
+            });
+            let process = session.process.lock().clone().unwrap();
+            let result = load(
+                &fixture.service,
+                &session.provider,
+                &session,
+                &process,
+                RuntimeOperation::ResumeThread {
+                    thread_id: "own-thread".into(),
+                    instructions: String::new(),
+                    settings: RuntimeSettings::default(),
+                },
+            )
+            .await;
+            server.await.unwrap();
+            let expected = RuntimeFailure::SessionLoadRefused(
+                "JSON-RPC -32603: opaque refusal; opaque detail".into(),
+            );
+            assert_eq!(result, Err(expected.clone()));
+            assert_eq!(
+                session.context.lock().thread_id.as_deref(),
+                Some("own-thread")
+            );
+            assert_eq!(
+                fixture
+                    .service
+                    .mux
+                    .read()
+                    .get_tab(&tab)
+                    .unwrap()
+                    .agent_session_id
+                    .as_deref(),
+                Some("own-thread")
+            );
+            let epoch = session.state.lock().epoch;
+            session.state.lock().degrade(epoch, &expected);
+            assert_eq!(
+                session.state.lock().snapshot().failure_code,
+                Some(RuntimeFailureCode::SessionLoadRefused)
+            );
+        });
+    }
+}
+
+#[test]
 fn missing_rollout_replaces_only_a_proven_unused_thread_without_sending_input() {
     for evidence in ["unused", "used", "unknown", "foreign"] {
         let never_used = evidence == "unused";

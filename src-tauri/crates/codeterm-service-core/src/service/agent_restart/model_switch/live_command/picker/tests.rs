@@ -47,6 +47,22 @@ const EFFORT_SCREEN: &str = include_str!(concat!(
 ));
 
 #[test]
+fn recognized_picker_without_requested_model_still_cancels() {
+    let picker = CommandPicker::new(&commands().model.picker.unwrap(), &target(), None).unwrap();
+    let mut prompt = picker.cancellation_prompt(&target()).unwrap();
+    prompt.injected();
+    let screen = MODEL_SCREEN.replace("Opus 5.5", "Unavailable");
+    let mut keys = Vec::new();
+    assert!(!prompt
+        .cancel(&screen, |key| {
+            keys.push(key.to_vec());
+            Ok(())
+        })
+        .unwrap());
+    assert_eq!(keys, [b"\x1b".to_vec()]);
+}
+
+#[test]
 fn cancellation_uses_whole_screen_selection_when_picker_footer_is_unrecognized() {
     let picker = CommandPicker::new(&commands().model.picker.unwrap(), &target(), None).unwrap();
     let mut prompt = picker.cancellation_prompt(&target()).unwrap();

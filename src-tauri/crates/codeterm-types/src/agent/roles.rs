@@ -93,6 +93,18 @@ pub enum ReportOutcomeClass {
     DeliveredUnattached,
     MissingReviewEvidence,
     BlockProposed,
+    /// An ordinary refusal the Worker can correct, such as a commit off the shared HEAD.
+    TransitionRejected,
+}
+
+impl ReportOutcomeClass {
+    /// The report reached its parent but its requested task transition was not applied.
+    pub fn rejects_task_transition(self) -> bool {
+        matches!(
+            self,
+            Self::StaleBindingConflict | Self::MissingReviewEvidence | Self::TransitionRejected
+        )
+    }
 }
 
 impl ReportStatus {

@@ -26,6 +26,7 @@ All in-binary prompt sources live in `src-tauri/prompts/`. Their loader constant
 
 | File | Const | Category | Placeholders | Injection point |
 |---|---|---|---|---|
+| `mcp_tools.json` | `DESCRIPTIONS` | MCP tool and argument descriptions | — | `cli/src/cmd/mcp/tools.rs` — `tools/list` |
 | `general_agent.md` | `GENERAL_AGENT_TEMPLATE` | GA system prompt | `{version}` `{platform}` `{hostname}` `{provider_name}` `{general_dir}` `{secrets_dir}` `{skills_dir}` `{identity}` `{soul}` `{wake_up}` `{codeterm_cli}` `{interactive_child_pty_operation}` | `service/general_agent/instructions.rs` — substituted, written to `AGENT.md` on every GA start |
 | `interactive_child_pty.md` | `INTERACTIVE_CHILD_PTY_OPERATION` | Shared child PTY recovery procedure | — | `service/general_agent/instructions.rs`, `prompts.rs`, and `service/skill_mirror.rs` — delivered to the General Agent and codeterm skill; the Orchestrator trigger refers to it by capability id |
 | `bootstrap_instructions.md` | `BOOTSTRAP_INSTRUCTIONS_TEMPLATE` | First-run onboarding | — | `service/general_agent/instructions.rs` — written to `bootstrap.md` once, deleted after GA completes onboarding |

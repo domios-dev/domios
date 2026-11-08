@@ -1,3 +1,4 @@
+use crate::service::spawn_params::SpawnTargetRefusal;
 use crate::{
     agent::registry::AgentRegistry,
     service::{ServiceContext, SpawnAgentParams},
@@ -94,7 +95,7 @@ fn mode_for_intent(
     intent: Option<&ExecutionIntent>,
     arguments: &[String],
     runtime: bool,
-) -> Result<Option<codeterm_plugin::provider::ExecutionSandboxMode>, String> {
+) -> Result<Option<codeterm_plugin::provider::ExecutionSandboxMode>, SpawnTargetRefusal> {
     let Some(intent) = intent.filter(|intent| **intent != ExecutionIntent::Unspecified) else {
         return Ok(None);
     };
@@ -108,11 +109,15 @@ fn mode_for_intent(
             crate::agent::provider::current_platform_tag(),
             runtime,
         )
-        .map_err(|reason| format!("Provider {provider}: {reason}"))?;
+        .map_err(|reason| SpawnTargetRefusal::ExecutionSandbox {
+            provider: provider.into(),
+            message: format!("Provider {provider}: {reason}"),
+        })?;
     let Some(mode) = mode else {
-        return Err(format!(
-            "Provider {provider}: requested sandbox is unsupported"
-        ));
+        return Err(SpawnTargetRefusal::ExecutionSandbox {
+            provider: provider.into(),
+            message: format!("Provider {provider}: requested sandbox is unsupported"),
+        });
     };
     capability.validate_arguments(arguments)?;
     if !arguments.is_empty() {
@@ -126,7 +131,7 @@ pub(crate) fn preflight(
     provider: &str,
     params: &SpawnAgentParams,
     runtime: bool,
-) -> Result<(), String> {
+) -> Result<(), SpawnTargetRefusal> {
     mode_for_intent(
         registry,
         provider,

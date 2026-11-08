@@ -24,8 +24,9 @@ const queue = new PtyInputWriteQueue(
       ...(raw === undefined ? {} : { raw }),
     });
   },
-  (targetId, dataLength, _error) => {
-    console.error("[terminal-input] PTY write burst failed", { targetId, dataLength });
+  (targetId, dataLength, error) => {
+    const reason = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+    console.error("[terminal-input] PTY write burst failed", { targetId, dataLength, reason });
     window.dispatchEvent(
       new CustomEvent(TERMINAL_INPUT_WRITE_FAILED_EVENT, { detail: { targetId } }),
     );

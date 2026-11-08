@@ -190,7 +190,7 @@ export function MemorySettingsTab({ config, onUpdate, onOpenAgentsSettings }: Me
     selection: WorkerSelection,
     testId: string,
   ) => (
-    <Label text="Provider">
+    <Label text="Harness">
       <select value={value || ""} onChange={(e) => onChange(e.target.value)} className={inputClass} data-testid={testId}>
         <option value="">Default: {selection.providerLabel} / {selection.defaultModelLabel}</option>
         {providers.map(p => (

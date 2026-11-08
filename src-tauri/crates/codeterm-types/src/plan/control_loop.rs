@@ -66,6 +66,7 @@ impl std::str::FromStr for CuratorAsked {
 pub enum CuratorFailure {
     ProviderUnavailable,
     MirrorUnavailable,
+    ProfileUnavailable,
     OrchestratorAbsent,
     OrchestratorUnbound,
     LaunchFailed,
@@ -76,6 +77,7 @@ impl CuratorFailure {
         match self {
             Self::ProviderUnavailable => "provider_unavailable",
             Self::MirrorUnavailable => "mirror_unavailable",
+            Self::ProfileUnavailable => "profile_unavailable",
             Self::OrchestratorAbsent => "orchestrator_absent",
             Self::OrchestratorUnbound => "orchestrator_unbound",
             Self::LaunchFailed => "launch_failed",
@@ -250,8 +252,9 @@ pub struct ControlLoop {
     pub last_round: Option<CuratorRound>,
     pub fallback_reason: Option<CuratorFailure>,
     pub suspended_reason: Option<CuratorSuspension>,
+    /// Projected from `curator_round` strides by readers; storage never supplies it.
+    #[serde(skip_deserializing)]
     pub counts_7d: CuratorCounts,
-    pub rounds: Vec<CuratorRound>,
     pub consecutive_failures: u32,
     pub last_real_round_at: Option<u64>,
     pub cron_id: Option<String>,
@@ -290,26 +293,8 @@ impl ControlLoop {
         }
     }
 
+    /// Round history lives in `curator_round` strides; the header keeps only the latest.
     pub fn record(&mut self, round: CuratorRound) {
-        let now = round.ended_at;
-        self.rounds.push(round.clone());
         self.last_round = Some(round);
-        self.refresh_counts(now);
-    }
-
-    pub fn refresh_counts(&mut self, now: u64) {
-        let cutoff = now.saturating_sub(7 * 24 * 60 * 60 * 1000);
-        self.rounds.retain(|r| r.ended_at >= cutoff);
-        self.counts_7d = CuratorCounts::default();
-        for r in &self.rounds {
-            match r.outcome {
-                CuratorOutcome::Quiet => self.counts_7d.quiet += 1,
-                CuratorOutcome::Nudged => self.counts_7d.nudged += 1,
-                CuratorOutcome::Fallback => self.counts_7d.fallbacks += 1,
-                _ => self.counts_7d.rounds += 1,
-            }
-            self.counts_7d.learnings += r.learnings;
-            self.counts_7d.saves += u64::from(r.save_id.is_some());
-        }
     }
 }

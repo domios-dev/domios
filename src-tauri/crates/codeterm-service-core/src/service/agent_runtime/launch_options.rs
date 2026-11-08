@@ -30,6 +30,47 @@ fn validate_host_directories(roots: Vec<PathBuf>) -> Result<Vec<String>, String>
     Ok(directories)
 }
 
+const FULL_ACCESS_MODE_KEY: &str = "fullAccessMode";
+
+/// The runtime config names the full-access session mode only while the prepared options carry one.
+fn apply_full_access_mode(
+    config: &mut serde_json::Map<String, serde_json::Value>,
+    options: &RestorableRuntimeLaunchOptions,
+) {
+    match &options.full_access_mode {
+        Some(mode) => {
+            config.insert(FULL_ACCESS_MODE_KEY.into(), serde_json::json!(mode));
+        }
+        None => {
+            config.remove(FULL_ACCESS_MODE_KEY);
+        }
+    }
+}
+
+/// The selected launch profile's declared approve-everything session mode, for full-access launches only.
+/// A fresh spawn names its profile in the params: the tab config only receives it once the launch starts.
+fn full_access_mode(
+    svc: &ServiceContext,
+    tab_id: &str,
+    provider: &str,
+    params: &SpawnAgentParams,
+    full_access: bool,
+) -> Option<String> {
+    if !full_access {
+        return None;
+    }
+    let profile = params.launch_profile.clone().or_else(|| {
+        svc.mux.read().get_tab(tab_id).and_then(|tab| {
+            tab.agent_runtime_config
+                .as_ref()?
+                .get("launchProfile")?
+                .as_str()
+                .map(str::to_owned)
+        })
+    })?;
+    super::permission_policy::declared_full_access_mode(svc, provider, &profile)
+}
+
 fn authorized_mode(requested: Option<bool>, authorized: bool) -> Result<&'static str, String> {
     match requested {
         Some(true) if authorized => Ok("full-access"),
@@ -91,13 +132,20 @@ impl ServiceContext {
         self.prepare_neighbor_restore_grant(tab_id, &provider, params)?;
         let policy =
             crate::service::execution_sandbox::for_launch(self, tab_id, &provider, params, true)?;
-        let skip = policy.is_none() && params.permission_bypass_requested(&provider);
+        let granted = policy.is_none() && params.permission_bypass_requested(&provider);
+        let skip =
+            policy.is_none() && super::permission_policy::launch_full_access(self, tab_id, granted);
+        let requested = if skip == granted {
+            params.skip_permissions
+        } else {
+            Some(skip)
+        };
         let mode = match &policy {
             Some(policy) => policy
                 .runtime_mode
                 .as_deref()
                 .ok_or("Execution sandbox runtime mapping absent")?,
-            None => authorized_mode(params.skip_permissions, skip)?,
+            None => authorized_mode(requested, skip)?,
         };
         let pad = self.ensure_agent_pad(tab_id)?;
         let project =
@@ -125,7 +173,23 @@ impl ServiceContext {
         let options = RestorableRuntimeLaunchOptions {
             provider_id: provider.clone(),
             binding_nonce: nonce.clone(),
-            mode: mode.into(),
+            mode: if policy.is_some()
+                || self
+                    .agent_registry
+                    .with_provider(&provider, |provider| {
+                        provider.agent_runtime().is_some_and(|runtime| {
+                            runtime
+                                .runtime_modes
+                                .iter()
+                                .any(|declared| declared.id == mode)
+                        })
+                    })
+                    .unwrap_or(false)
+            {
+                mode.into()
+            } else {
+                String::new()
+            },
             additional_directories: validate_host_directories(roots)?,
             network_access: if policy.is_some() {
                 Some(false)
@@ -137,9 +201,11 @@ impl ServiceContext {
                     crate::agent::provider::current_platform_tag(),
                 )
             },
+            full_access_mode: full_access_mode(self, tab_id, &provider, params, skip),
         };
         let settings = runtime_settings(&options);
         validate_runtime_settings(&settings).map_err(|reason| reason.to_string())?;
+        let host_approvals = super::permission_policy::host_approvals_view(self, tab_id, skip);
         {
             let mut mux = self.mux.write();
             let tab = mux.get_tab_mut(tab_id).ok_or("Runtime tab unavailable")?;
@@ -154,7 +220,11 @@ impl ServiceContext {
             let config = config
                 .as_object_mut()
                 .ok_or("Runtime configuration must be an object")?;
-            config.insert("mode".into(), serde_json::json!(options.mode));
+            if options.mode.is_empty() {
+                config.remove("mode");
+            } else {
+                config.insert("mode".into(), serde_json::json!(options.mode));
+            }
             config.insert(
                 "additionalDirectories".into(),
                 serde_json::json!(options.additional_directories),
@@ -163,6 +233,25 @@ impl ServiceContext {
                 config.insert("networkAccess".into(), serde_json::json!(access));
             } else {
                 config.remove("networkAccess");
+            }
+            apply_full_access_mode(config, &options);
+            match &tab.restorable_launch.selected_session_mode {
+                Some(mode) => {
+                    config.insert(
+                        super::permission_policy::SESSION_MODE_KEY.into(),
+                        serde_json::json!(mode),
+                    );
+                }
+                None => {
+                    config.remove(super::permission_policy::SESSION_MODE_KEY);
+                }
+            }
+            if let Some(view) = host_approvals {
+                config.insert(
+                    super::permission_policy::HOST_APPROVALS_KEY.into(),
+                    serde_json::json!(view),
+                );
+                tab.auto_approve = skip;
             }
             tab.restorable_launch.permission_bypass_requested = skip;
             tab.restorable_launch.runtime_launch_options = Some(options);
@@ -203,7 +292,7 @@ fn publish_failure(svc: &ServiceContext, tab_id: &str, scope: &(String, String),
 
 fn runtime_settings(options: &RestorableRuntimeLaunchOptions) -> RuntimeSettings {
     RuntimeSettings {
-        mode: Some(options.mode.clone()),
+        mode: (!options.mode.is_empty()).then(|| options.mode.clone()),
         additional_directories: options.additional_directories.clone(),
         network_access: options.network_access,
         ..Default::default()
@@ -263,6 +352,22 @@ pub(super) fn restore(svc: &ServiceContext, tab_id: &str) -> Result<RuntimeSetti
     restored.effort = settings.effort;
     restored.mode = structured_runtime_mode.or(settings.mode).or(restored.mode);
     Ok(restored)
+}
+
+/// Restored settings plus the provider settings of the config restore just rewrote, so a live
+/// context never keeps the pre-launch snapshot (a fresh spawn's full-access mode lands here).
+pub(super) fn restore_ctx(
+    svc: &ServiceContext,
+    tab_id: &str,
+) -> Result<(RuntimeSettings, serde_json::Value), String> {
+    let settings = restore(svc, tab_id)?;
+    let config = svc
+        .mux
+        .read()
+        .get_tab(tab_id)
+        .and_then(|tab| tab.agent_runtime_config.clone())
+        .unwrap_or(serde_json::Value::Null);
+    Ok((settings, super::model::public_provider_settings(&config)))
 }
 
 #[cfg(test)]

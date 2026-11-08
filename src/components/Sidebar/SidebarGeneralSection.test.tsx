@@ -42,7 +42,7 @@ async function mount() {
   const tabs = Object.fromEntries([main, manager, agent, ...shells, surface].map((tab) => [tab.id, tab]));
   const data: SidebarWorkspaceDetailData = {
     tabs, tabStatuses: {}, attention: {}, teams: [team], planIndex: [], plans: [], providers: [], providersLoading: false,
-    closingTabIds: new Set(), appearingTabIds: new Set(), closingTeamIds: new Set(), activeTabIds: { general: main.id },
+    closingTabIds: new Set(), closingTeamIds: new Set(), activeTabIds: { general: main.id },
     activeWorkspaceId: "general", isWorkspaceMode: true, workspaceCanvasActive: false, touchMode: true, compact: false,
     sidebarActionText: "", orchestrators: [manager], newSessionDisabled: false,
   };

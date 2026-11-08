@@ -27,7 +27,23 @@ pub(super) fn compose(
         .filter(|env| env.provider == provider && env.nonce == nonce)
         .map(|env| env.extra.clone())
         .unwrap_or_default();
-    Ok(compose_owned_environment(extra, svc.tab_env(tab)?))
+    let mut owned = svc.tab_env(tab)?;
+    owned.insert(
+        codeterm_util::tab_launch::FILE_ENV.into(),
+        svc.runtime_credential_file(tab, nonce)?,
+    );
+    Ok(compose_owned_environment(extra, owned))
+}
+
+/// Applied last, so neither owner settings nor an inherited value can claim it.
+pub(super) fn mark_runtime_agent(env: &mut HashMap<String, String>, turn_scoped: bool) {
+    env.remove(codeterm_util::tab_launch::RUNTIME_AGENT_ENV);
+    if turn_scoped {
+        env.insert(
+            codeterm_util::tab_launch::RUNTIME_AGENT_ENV.into(),
+            "1".into(),
+        );
+    }
 }
 
 fn compose_owned_environment(
@@ -48,6 +64,7 @@ fn compose_owned_environment(
         "CODETERM_API_URL",
         "CODETERM_API_PORT",
         "CODETERM_API_TOKEN",
+        "CODETERM_LAUNCH_FILE",
         "CODETERM_SOCKET_PATH",
         "CODETERM_PAD_DIR",
         "CODETERM_LANE_BASE",

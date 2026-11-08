@@ -43,7 +43,8 @@ Chat send and transcript routes: API-CHAT
 |---|---|---|---|
 | GET | `/api/workspaces` | — | List all workspaces |
 | POST | `/api/workspaces` | `{name, cwd?, provision?}` | Create workspace; `name` is required, non-empty, one line, at most 64 characters, and has no control characters (absent or invalid name: `400`). A `cwd` matching a workspace returns it with `existing: true`. `provision: true` (`400` with `cwd`) creates a new empty data-dir directory; agents started exactly there get directory trust. |
-| POST | `/api/workspaces/{id}/focus` | — | Switch to workspace and check its folder |
+| POST | `/api/workspaces/{id}/focus` | — | Explicit focus request: every open client switches to the workspace; checks its folder |
+| POST | `/api/workspaces/{id}/select` | — | Record one client's own workspace selection silently; no other client follows it. |
 | POST | `/api/workspaces/{id}/cwd` | `{cwd}` | Choose an existing absolute folder for the same workspace. Returns `workspace_id`, `cwd`, `updated_tabs`, `updated_plans` and `warnings`. Invalid folders return `422`. Identity, Teams, Plans and sessions are retained; idle tab and stored launch paths beneath the old root are rebased. Active tabs and paths outside that root are reported unchanged. |
 | POST | `/api/workspaces/{id}/rename` | `{name}` | Rename workspace with the same name limits as create. |
 | POST | `/api/workspaces/{id}/close` | `{force?, confirm?}` or no body | Close the workspace. Agent tabs require `force: true`. A request without `X-CodeTerm-Tab-Id` is Human only when it sends `{force: true, confirm: "<workspace_id>"}` after the user confirms (logged `human-attributed (headerless, confirmed)`); otherwise it is refused as Unattributed and logged. A coordinator agent cannot close its own workspace even with `force: true`. Every Team with members here is closed through Team close before remaining tabs are removed. |
@@ -229,4 +230,4 @@ Session changes retain caller and binding checks. Provider hook ingress methods:
 
 `POST /api/tabs` with `cmd` returns the created tab id and `command_submission`. `submitted` is backed by a shell command-start mark. Once bytes are queued, absent confirmation returns success with `submit_unconfirmed`, `bytes_written: true` and the exact PTY id; never replay it. Proven pre-write failure remains an error. Use `tab exec` for final completion and exit status.
 
-<!-- revision: 71 -->
+<!-- revision: 72 -->

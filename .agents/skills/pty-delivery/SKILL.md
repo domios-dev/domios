@@ -108,6 +108,40 @@ Claimed or uncertain records remain held and are never replayed.
   Persist queue removal before
   publishing Retry; late readiness cannot replay that settled original.
   Programmatic sends may also fail on a proven pre-write refusal.
+- A structured runtime whose declared `turnScopedRequests` include `submitTurn`
+  holds a user send before any write while a turn or turn request is
+  outstanding (`held_active_turn`), and the user drain writes it once, in
+  order, when the turn settles. A written prompt the agent refused while busy
+  stays `submit_unconfirmed` with an `agent_refused_while_busy` reason: no
+  Retry, no replay, late own-session evidence still delivers it.
+- Held input can still reach a busy structured agent, each path write-once and
+  owned by `agent_runtime/inbound.rs`. An agent whose initialize declared
+  `midTurnInput` takes it through a submit aimed at the running turn; the reply
+  to that exact request is the evidence, and a proven decline returns it to the
+  queue. Otherwise a durable claim rides the tab's own host tool result, or the
+  human output of a CLI command whose stdout and stdin are both terminals, so no
+  pipe, capture or redirect can swallow it. Only the writer's acknowledgement
+  after the write confirms it; that proves the write, not that the model read it.
+  Only proof that no byte went out returns a claim; a partial write or missing
+  acknowledgement settles `submit_unconfirmed` when the turn ends and never
+  replays. What remains at turn end folds into one digest prompt whose exact
+  evidence confirms every member, and whose proven zero-write returns them all.
+- A degraded runtime owns no turn: its active turn clears and held sends resolve
+  once. The owner retries readiness and writes them in order when the runtime
+  loads again. If that attempt fails on the published degraded state, each
+  never-written send settles `failed` with `launch_degraded_before_write`;
+  sign-in and a replaced launch keep them held for the launch that follows.
+- Automatic recovery owns the runtime from the moment its exit is observed until
+  it knows the outcome (`runtime_recovery_owns_sends`). Its transient degrade
+  settles nothing: only its own continuation is written, then held sends follow
+  the resumed turn once each, in order. Its completion wakes the owner, and a
+  recovery that really failed settles them as above.
+- A failed user send offers Retry. A routed CLI or agent send (`system_send`)
+  deliberately does not: its frame carries the sender's provenance, which the
+  composer cannot reissue. Its card says to resend with `domios send` instead.
+- A restart continue on a structured runtime enters the same durable owner as a
+  runtime envelope: held behind a running turn, written once, and written means
+  awaiting evidence, never a failed delivery.
 - `written/submit_unconfirmed → delivered` only happens
   when the tab's **own bound session transcript** appends a user turn whose
   normalized content equals the send's payload
@@ -201,4 +235,4 @@ Expected turn evidence and the Chat reader follow the same rule.
 | Closed-chat append-window evidence scan | `service/chat_send_evidence.rs` |
 | Live transcript deltas (evidence source) | `service/tab_chat/` sinks |
 
-<!-- revision: 8 -->
+<!-- revision: 14 -->

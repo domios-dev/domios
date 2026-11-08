@@ -139,12 +139,14 @@ fn binding_context_has_fixed_materialization_and_never_masks_decode_errors() {
             session_id: None,
             title: None,
         });
-        plan.control_loop.rounds = (0..rounds)
-            .map(|number| CuratorRound {
-                number,
-                ..Default::default()
-            })
-            .collect();
+        plan.strides.extend(fixtures::round_strides(
+            (0..rounds)
+                .map(|number| CuratorRound {
+                    number,
+                    ..Default::default()
+                })
+                .collect(),
+        ));
         let database = fixtures::database(directory.path(), &plan);
         fixtures::audit(&database);
         take_metrics();

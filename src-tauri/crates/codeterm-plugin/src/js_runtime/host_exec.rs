@@ -19,7 +19,7 @@ use super::host_api::PluginSandbox;
 
 const MAX_EXEC_JOBS_PER_PLUGIN: usize = 128;
 const EXEC_JOB_RETENTION: Duration = Duration::from_secs(5 * 60);
-const ASYNC_JOB_WAIT_BOUND: Duration = Duration::from_secs(5);
+const ASYNC_JOB_WAIT_BOUND: Duration = super::call_deadline::STANDARD;
 mod child;
 mod control;
 mod scoped;

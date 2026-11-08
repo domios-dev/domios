@@ -10,6 +10,12 @@ pub enum AgentRuntimeProtocol {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AgentRuntimeEnvelope {
+    Jsonrpc2,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AgentRuntimeCommand {
     pub binary: String,
@@ -18,11 +24,141 @@ pub struct AgentRuntimeCommand {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RuntimeLaunchProfile {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
+    #[serde(skip_deserializing, default, skip_serializing_if = "Option::is_none")]
+    pub icon_svg: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub registry_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon_url: Option<String>,
+    pub binary: String,
+    pub args: Vec<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub env: BTreeMap<String, String>,
+    /// The agent process starts in a host-owned directory under the profile's data;
+    /// its sessions still open in the tab's working directory.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub host_working_directory: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub install: Option<RuntimeProfileInstall>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub secret_env: BTreeMap<String, String>,
+    /// Optional credentials: each variable is injected only when its secret is stored,
+    /// and the listed declared sign-in methods accept an API key into that secret.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub auth_env: BTreeMap<String, RuntimeProfileAuthEnv>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub owner_configured: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detection: Option<RuntimeProfileDetection>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_capabilities: Option<RuntimeProfileClientCapabilities>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limits_source: Option<super::RuntimeProfileLimitsSource>,
+    /// The agent's own session mode that approves every action, applied to full-access launches.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub full_access_mode: Option<String>,
+    /// How far the agent's own permission questions reach; absent makes no claim about them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ask_scope: Option<RuntimeAskScope>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum RuntimeAskScope {
+    /// The agent confines its own work to the workspace and asks only to go beyond it.
+    OutsideWorkspace,
+}
+
+impl RuntimeLaunchProfile {
+    pub fn valid_session_mode(mode: &str) -> bool {
+        (1..=128).contains(&mode.chars().count()) && !mode.chars().any(char::is_control)
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RuntimeProfileClientCapabilities {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fs: Option<RuntimeProfileFileCapabilities>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub terminal: Option<bool>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RuntimeProfileFileCapabilities {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub read_text_file: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub write_text_file: Option<bool>,
+}
+
+impl RuntimeProfileClientCapabilities {
+    pub fn restrict(&self, bridges: &mut RuntimeClientBridges) {
+        if let Some(fs) = &self.fs {
+            bridges.fs_read &= fs.read_text_file.unwrap_or(true);
+            bridges.fs_write &= fs.write_text_file.unwrap_or(true);
+        }
+        bridges.terminal &= self.terminal.unwrap_or(true);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RuntimeProfileAuthEnv {
+    pub secret: String,
+    pub methods: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RuntimeProfileInstall {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub distribution: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sha256: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub executable: Option<String>,
+    pub package: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub registry: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RuntimeProfileDetection {
+    pub args: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AgentRuntimeCapability {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_mcp: Option<super::RuntimeHostMcpDeclaration>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub envelope: Option<AgentRuntimeEnvelope>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub interrupt: Option<RuntimeInterruptCapability>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_bridges: Option<RuntimeClientBridges>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub launch_profiles: Option<BTreeMap<String, RuntimeLaunchProfile>>,
+    /// Declarations a profile installed from this registry id inherits unless it declares its own.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub registry_defaults: BTreeMap<String, super::RuntimeRegistryDefaults>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub restricted_cli: Option<RestrictedCliCapability>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub runtime_modes: Vec<RuntimeModeDescriptor>,
+    /// Agent permission requests carry declared option kinds, so the host answers them from the
+    /// launch policy and a full-access launch needs no command-line flag.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub host_approvals: bool,
     #[serde(default)]
     pub service_tiers: Vec<super::RuntimeServiceTier>,
     #[serde(default)]
@@ -43,6 +179,8 @@ pub struct AgentRuntimeCapability {
     pub inherited_environment_exclusions: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub login: Option<RuntimeLoginCapability>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub turn_scoped_requests: Vec<String>,
     pub request_methods: BTreeMap<String, Vec<String>>,
     pub notification_methods: Vec<String>,
 }
@@ -138,4 +276,22 @@ pub enum RuntimeThreadHistoryAction {
 pub struct RuntimeModeDescriptor {
     pub id: String,
     pub display_name: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RuntimeClientBridges {
+    pub fs_read: bool,
+    pub fs_write: bool,
+    pub terminal: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RuntimeInterruptCapability {
+    pub before_first_turn: bool,
+}
+
+fn is_false(value: &bool) -> bool {
+    !value
 }

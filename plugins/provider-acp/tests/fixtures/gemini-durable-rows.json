@@ -1,0 +1,35 @@
+[
+  {
+    "id": "thread:turn:1:item:1",
+    "seq": 0,
+    "type": "user",
+    "content": "Reply exactly ROVER-ONE."
+  },
+  {
+    "id": "thread:turn:1:item:2",
+    "seq": 1,
+    "type": "assistant",
+    "content": "ROVER-ONE"
+  },
+  {
+    "id": "read_file__call_1833632319003099568",
+    "seq": 2,
+    "type": "tool_call",
+    "content": "",
+    "toolId": "read_file__call_1833632319003099568",
+    "toolStatus": "completed",
+    "toolResult": "ROVER-TOOL-732"
+  },
+  {
+    "id": "thread:turn:2:item:11",
+    "seq": 3,
+    "type": "assistant",
+    "content": "ROVER-TOOL-732"
+  },
+  {
+    "id": "thread:turn:3:item:3",
+    "seq": 4,
+    "type": "assistant",
+    "content": "LONG-START\n1. Beacon"
+  }
+]

@@ -276,8 +276,16 @@ button.ct-card__head {
   }
 }
 
+/* A Thinking row has no card padding; its ⋮ (compact surfaces only) lines up with the card menus. */
+.ct-thought-row > .ct-card__menu {
+  margin-inline-end: 12px;
+}
+
 .ct-card:hover .ct-card__menu,
 .ct-card:has(:focus-visible) .ct-card__menu,
+.ct-reader-row:hover > .ct-card__menu,
+.ct-reader-row:has(:focus-visible) > .ct-card__menu,
+.ct-message-controls > .ct-card__menu,
 .ct-card__menu.is-shown {
   opacity: 1;
 }

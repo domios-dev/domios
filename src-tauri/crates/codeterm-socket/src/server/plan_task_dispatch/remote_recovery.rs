@@ -123,6 +123,17 @@ pub(crate) fn respawn_remote(
     attempt: &TaskExecutionAttempt,
     now: u64,
 ) -> Result<Value, JsonRpcError> {
+    if params
+        .as_ref()
+        .and_then(|body| body.get("launch_profile"))
+        .and_then(Value::as_str)
+        .is_some()
+        || attempt.launch_profile.is_some()
+    {
+        return Err(super::invalid_dispatch(
+            "launch_profile selection is local-only for task respawn; the recorded profile cannot be dropped",
+        ));
+    }
     recover_remote_attempts(svc, plan, task, now, true)?;
     let source = svc
         .plan_store

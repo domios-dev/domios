@@ -58,7 +58,7 @@ const SOURCE: &str = r#"
 module.exports = {
   runtimePlan(ctx, op) {
     if (op.kind === 'control' && op.value.serviceTier !== undefined) return {action:{kind:'request',call:{method:'fixture/settings',params:op}},state:null};
-    const target = op.kind === 'interrupt' ? {threadId:op.threadId,turnId:op.activeTurnId} : undefined;
+    const target = op.kind === 'interrupt' ? {threadId:op.threadId,...(op.activeTurnId ? {turnId:op.activeTurnId} : {})} : undefined;
     return {action:{kind:'request',call:{method:op.kind,params:op,...(target ? {target} : {})}},state:null};
   },
   runtimeResponse(ctx, op, state, reply) {
@@ -71,10 +71,20 @@ module.exports = {
       result = {kind:'turnAccepted',threadId:op.threadId,sendId:op.sendId,turnId:'restored-turn'};
       events = [{kind:'controlsConfirmed',threadId:op.threadId,settings:reply.value.params.settings}];
     }
-    if (op.kind === 'interrupt') events = [{kind:'turnState',threadId:op.threadId,turnId:op.activeTurnId,state:'idle'}];
+    if (op.kind === 'interrupt') {
+      events = op.activeTurnId ? [{kind:'turnState',threadId:op.threadId,turnId:op.activeTurnId,state:'idle'}] : [];
+      if (ctx.providerSettings && ctx.providerSettings.interruptProbe) events.push({kind:'controlsConfirmed',threadId:op.threadId,settings:{effort:'high'}});
+    }
     if (op.kind === 'control') {
       if (op.value.model === 'refuse') return {kind:'refused',reason:{code:'provider_refused',message:'settings refused'}};
-      if (op.value.serviceTier === undefined) events = [{kind:'controlsConfirmed',threadId:op.threadId,settings:op.value}];
+      if (op.action === 'mode') events = [{kind:'controlsConfirmed',threadId:op.threadId,settings:{mode:op.value}}];
+      else if (op.action === 'config') {
+        if (op.value.value === 'refuse') return {kind:'refused',reason:{code:'provider_refused',message:'selection refused'}};
+        const options = ctx.settings.configOptions.map(option => option.id !== op.value.id || op.value.value === 'unconfirmed' ? option : {...option,currentValue:op.value.value});
+        const model = options.find(option => option.category === 'model').currentValue;
+        const effort = options.find(option => option.category === 'thought_level').currentValue;
+        events = [{kind:'controlsConfirmed',threadId:op.threadId,settings:{model,effort,configOptions:options}}];
+      } else if (op.value.serviceTier === undefined) events = [{kind:'controlsConfirmed',threadId:op.threadId,settings:op.value}];
     }
     return {kind:'complete',result,events};
   },
@@ -105,6 +115,10 @@ impl Drop for RuntimeFixture {
 }
 
 pub(super) fn runtime_fixture() -> (RuntimeFixture, String) {
+    runtime_fixture_with_interrupt(false)
+}
+
+pub(super) fn runtime_fixture_with_interrupt(before_first: bool) -> (RuntimeFixture, String) {
     let (mut mux, id) = MultiplexerState::new();
     let tab = mux.get_tab_mut(&id).unwrap();
     tab.agent_type = Some(PROVIDER.into());
@@ -149,7 +163,7 @@ pub(super) fn runtime_fixture() -> (RuntimeFixture, String) {
         "id":PROVIDER,"version":"1.0.0","displayName":"Fixture",
         "reasoningEfforts":[{"id":"low","displayName":"Low"},{"id":"high","displayName":"High"}],
         "capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},
-            "agentRuntime":{"runtimeModes":[{"id":"approval-required","displayName":"Approval required"},{"id":"auto-accept-edits","displayName":"Auto accept edits"},{"id":"auto","displayName":"Auto"},{"id":"full-access","displayName":"Full access"}],"serviceTiers":[{"id":"priority","name":"Fast","description":""}],"runtime":"stdio-jsonrpc","command":{"binary":"node","args":[format!("{}/../../../tests/fixtures/agent-runtime/fake-peer.mjs",crate::test_support::fixture_manifest_dir().display())]},"requestMethods":methods,"notificationMethods":["fixture/settings/updated"]}},
+            "agentRuntime":{"interrupt":if before_first {json!({"beforeFirstTurn":true})} else {serde_json::Value::Null},"runtimeModes":[{"id":"approval-required","displayName":"Approval required"},{"id":"auto-accept-edits","displayName":"Auto accept edits"},{"id":"auto","displayName":"Auto"},{"id":"full-access","displayName":"Full access"}],"serviceTiers":[{"id":"priority","name":"Fast","description":""}],"runtime":"stdio-jsonrpc","command":{"binary":"node","args":[format!("{}/../../../tests/fixtures/agent-runtime/fake-peer.mjs",crate::test_support::fixture_manifest_dir().display())]},"requestMethods":methods,"notificationMethods":["fixture/settings/updated"]}},
         "permissions":{"subprocess":{"allow":["node"]}}
     }).to_string()).unwrap();
     fixture
@@ -209,6 +223,14 @@ fn runtime_control_confirmation_updates_recorded_model_and_next_turn_settings() 
         );
         assert!(tab.pending_model_selection.is_none());
         assert_eq!(tab.restorable_launch.model.as_deref(), Some("target"));
+        assert_eq!(
+            tab.restorable_launch.requested_reasoning_effort.as_deref(),
+            Some("high")
+        );
+        assert_eq!(
+            tab.reasoning_effort_identity.requested.as_deref(),
+            Some("high")
+        );
         assert_eq!(
             tab.agent_runtime_config.as_ref().unwrap()["model"],
             "target"
@@ -640,3 +662,130 @@ fn unchanged_settings_confirm_without_a_new_provider_event() {
     }
     assert!(unchanged_settings(&RuntimeSettings::default(), &RuntimeSettings::default()).is_none());
 }
+
+#[test]
+fn model_switch_preserves_the_current_mode_and_clears_the_previous_notice() {
+    let (fixture, id) = runtime_fixture();
+    let session = crate::async_runtime::block_on(engine::ensure(&fixture.service, &id)).unwrap();
+    session.context.lock().settings.mode = Some("auto".into());
+    session.state.lock().notice = Some("Requested model was not applied".into());
+    let outcome = fixture
+        .service
+        .agent_switch_model_with_options(&id, "target", None, false)
+        .unwrap();
+    assert!(
+        matches!(outcome.confirmation, ModelSwitchConfirmation::Observed { model, .. } if model == "target")
+    );
+    assert_eq!(
+        session.context.lock().settings.mode.as_deref(),
+        Some("auto")
+    );
+    assert!(session.state.lock().notice.is_none());
+    let mux = fixture.service.mux.read();
+    let tab = mux.get_tab(&id).unwrap();
+    assert_eq!(tab.agent_session_model.as_deref(), Some("target"));
+    assert_eq!(tab.restorable_launch.model.as_deref(), Some("target"));
+    assert_eq!(
+        tab.restorable_launch.structured_runtime_mode.as_deref(),
+        Some("auto")
+    );
+    assert_eq!(
+        tab.agent_runtime_state.as_ref().unwrap()["notice"],
+        serde_json::Value::Null
+    );
+}
+
+#[test]
+fn control_changes_name_only_confirmed_non_model_controls_that_changed() {
+    let declared = |effort: &str| codeterm_plugin::agent_runtime::RuntimeConfigOption {
+        category: Some("thought_level".into()),
+        id: "opaque-effort".into(),
+        name: "Effort".into(),
+        current_value: effort.into(),
+        options: Vec::new(),
+    };
+    let before = RuntimeSettings {
+        model: Some("same".into()),
+        config_options: Some(vec![declared("medium")]),
+        mode: Some("auto".into()),
+        ..Default::default()
+    };
+    let after = RuntimeSettings {
+        config_options: Some(vec![declared("high")]),
+        service_tier: Some(tier_selection(true)),
+        ..before.clone()
+    };
+    let changes = control_changes(&before, &after);
+    assert_eq!(
+        changes
+            .iter()
+            .map(|change| (
+                change.control,
+                change.previous.as_deref(),
+                change.current.as_deref()
+            ))
+            .collect::<Vec<_>>(),
+        vec![
+            ("effort", Some("medium"), Some("high")),
+            ("speed", None, tier_selection(true).id.as_deref()),
+        ]
+    );
+    assert!(control_changes(&before, &before).is_empty());
+    let partial = RuntimeSettings {
+        effort: Some("high".into()),
+        ..Default::default()
+    };
+    let partial = control_changes(
+        &RuntimeSettings {
+            config_options: None,
+            ..before.clone()
+        },
+        &partial,
+    );
+    assert_eq!(partial.len(), 1);
+    assert_eq!(partial[0].control, "effort");
+}
+
+#[test]
+fn model_switch_on_a_sleeping_runtime_tab_wakes_it_and_applies_the_selection() {
+    let (fixture, id) = runtime_fixture();
+    fixture.service.mux.write().get_tab_mut(&id).unwrap().frozen = true;
+    let outcome = fixture
+        .service
+        .agent_switch_model_with_options(&id, "target", Some("high"), false)
+        .unwrap();
+    assert!(
+        matches!(outcome.confirmation, ModelSwitchConfirmation::Observed { model, .. } if model == "target")
+    );
+    let mux = fixture.service.mux.read();
+    let tab = mux.get_tab(&id).unwrap();
+    assert!(!tab.frozen);
+    assert_eq!(tab.agent_session_model.as_deref(), Some("target"));
+}
+
+#[test]
+fn confirmed_model_change_clears_a_stale_load_notice() {
+    let (fixture, id) = runtime_fixture();
+    let session = crate::async_runtime::block_on(engine::ensure(&fixture.service, &id)).unwrap();
+    session.state.lock().notice = Some("Old requested model was not applied".into());
+    super::super::projections::controls(
+        &fixture.service,
+        &session,
+        RuntimeSettings {
+            model: Some("reported-change".into()),
+            ..Default::default()
+        },
+    );
+    assert!(session.state.lock().notice.is_none());
+    let mux = fixture.service.mux.read();
+    assert_eq!(
+        mux.get_tab(&id)
+            .unwrap()
+            .agent_runtime_state
+            .as_ref()
+            .unwrap()["notice"],
+        serde_json::Value::Null
+    );
+}
+#[path = "tests/live_selections.rs"]
+mod live_selections;

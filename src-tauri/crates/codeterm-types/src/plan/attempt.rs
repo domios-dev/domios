@@ -163,6 +163,8 @@ pub struct TaskExecutionAttempt {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub requested_model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub launch_profile: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider_resolved_model: Option<String>,
     #[serde(default)]
     pub reasoning_effort: Option<String>,

@@ -10,6 +10,7 @@ mod integration;
 mod integration_rules;
 mod launch_artifacts;
 mod manifest_sessions;
+mod profile_limits;
 mod prompt_parse;
 mod reply_relay;
 mod runtime_hooks;

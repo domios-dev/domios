@@ -654,6 +654,191 @@
           "subcommands": []
         },
         {
+          "name": "acp",
+          "about": "Manage local ACP launch profiles (local owner or Orchestrator only)",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "add",
+              "about": "Add an owner-configured installed ACP command (local owner or Orchestrator only)",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "arg",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "ARGS",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "auth-env",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "AUTH_ENV",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Optional sign-in secrets as KEY=secret-name:method",
+                  "aliases": []
+                },
+                {
+                  "name": "binary",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "BINARY",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "client-capability",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "CLIENT_CAPABILITIES",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Override a declared client capability as NAME=true|false (e.g. fs.readTextFile=false)",
+                  "aliases": []
+                },
+                {
+                  "name": "env",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "ENV",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Non-secret environment entries as KEY=VALUE",
+                  "aliases": []
+                },
+                {
+                  "name": "like",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "LIKE",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Copy the icon, client capabilities and limits source declared by this profile",
+                  "aliases": []
+                },
+                {
+                  "name": "limits-source",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "LIMITS_SOURCE",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Where account limits come from: account:PROVIDER, balance:READER:ENV or unavailable:REASON",
+                  "aliases": []
+                },
+                {
+                  "name": "name",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "NAME",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "secret-env",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "SECRET_ENV",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Required secrets as KEY=secret-name; never pass secret values",
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "list",
+              "about": "List configured ACP profiles and their installation and authentication state",
+              "aliases": [],
+              "args": [],
+              "subcommands": []
+            },
+            {
+              "name": "registry",
+              "about": "Discover and install pinned agents from the ACP registry",
+              "aliases": [],
+              "args": [],
+              "subcommands": [
+                {
+                  "name": "install",
+                  "about": "Install the registry's exact declared distribution as an owner profile",
+                  "aliases": [],
+                  "args": [
+                    {
+                      "name": "id",
+                      "positional": true,
+                      "required": true,
+                      "value_name": "ID",
+                      "possible_values": [],
+                      "default": null,
+                      "help": null,
+                      "aliases": []
+                    },
+                    {
+                      "name": "limits-source",
+                      "positional": false,
+                      "required": false,
+                      "value_name": "LIMITS_SOURCE",
+                      "possible_values": [],
+                      "default": null,
+                      "help": "Override the plugin's declared default for this registry id: account:PROVIDER, balance:READER:ENV or unavailable:REASON",
+                      "aliases": []
+                    }
+                  ],
+                  "subcommands": []
+                },
+                {
+                  "name": "search",
+                  "about": "Search the ACP registry",
+                  "aliases": [],
+                  "args": [
+                    {
+                      "name": "query",
+                      "positional": true,
+                      "required": true,
+                      "value_name": "QUERY",
+                      "possible_values": [],
+                      "default": null,
+                      "help": null,
+                      "aliases": []
+                    }
+                  ],
+                  "subcommands": []
+                }
+              ]
+            },
+            {
+              "name": "remove",
+              "about": "Remove an owner-added ACP profile",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "name",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "NAME",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
+        },
+        {
           "name": "allow-spawn",
           "about": "Toggle whether a tab can spawn children",
           "aliases": [],
@@ -689,11 +874,31 @@
             {
               "name": "binding-nonce",
               "positional": false,
-              "required": true,
+              "required": false,
               "value_name": "BINDING_NONCE",
               "possible_values": [],
               "default": null,
               "help": "Current parent binding nonce",
+              "aliases": []
+            },
+            {
+              "name": "child",
+              "positional": false,
+              "required": false,
+              "value_name": "TAB",
+              "possible_values": [],
+              "default": null,
+              "help": "With --closed: read this closed child tab's transcript",
+              "aliases": []
+            },
+            {
+              "name": "closed",
+              "positional": false,
+              "required": false,
+              "value_name": "CLOSED",
+              "possible_values": [],
+              "default": null,
+              "help": "List the parent's closed child tabs instead of reading a recorded thread",
               "aliases": []
             },
             {
@@ -709,7 +914,7 @@
             {
               "name": "epoch",
               "positional": false,
-              "required": true,
+              "required": false,
               "value_name": "EPOCH",
               "possible_values": [],
               "default": null,
@@ -719,11 +924,21 @@
             {
               "name": "root-thread-id",
               "positional": false,
-              "required": true,
+              "required": false,
               "value_name": "ROOT_THREAD_ID",
               "possible_values": [],
               "default": null,
               "help": "Current parent thread id from its runtime binding",
+              "aliases": []
+            },
+            {
+              "name": "since",
+              "positional": false,
+              "required": false,
+              "value_name": "SINCE",
+              "possible_values": [],
+              "default": "0",
+              "help": "With --child: only return messages from this index onward",
               "aliases": []
             },
             {
@@ -739,7 +954,7 @@
             {
               "name": "thread",
               "positional": false,
-              "required": true,
+              "required": false,
               "value_name": "THREAD",
               "possible_values": [],
               "default": null,
@@ -929,6 +1144,16 @@
               "aliases": []
             },
             {
+              "name": "method",
+              "positional": false,
+              "required": false,
+              "value_name": "ID",
+              "possible_values": [],
+              "default": null,
+              "help": "Authenticate with a method the agent declared (listed by --show); add --api-key-stdin when that method takes an API key",
+              "aliases": []
+            },
+            {
               "name": "show",
               "positional": false,
               "required": false,
@@ -1034,6 +1259,16 @@
           "about": "List available models for a specific provider",
           "aliases": [],
           "args": [
+            {
+              "name": "profile",
+              "positional": false,
+              "required": false,
+              "value_name": "PROFILE",
+              "possible_values": [],
+              "default": null,
+              "help": "Last declared model and effort options for this launch profile",
+              "aliases": []
+            },
             {
               "name": "provider",
               "positional": true,
@@ -1590,6 +1825,16 @@
               "possible_values": [],
               "default": null,
               "help": "Select a provider-owned preset supported by the target provider",
+              "aliases": []
+            },
+            {
+              "name": "profile",
+              "positional": false,
+              "required": false,
+              "value_name": "ID",
+              "possible_values": [],
+              "default": null,
+              "help": "ACP launch profile declared by the provider",
               "aliases": []
             },
             {
@@ -4544,6 +4789,42 @@
           "about": "Stop the current keep-awake session",
           "aliases": [],
           "args": [],
+          "subcommands": []
+        }
+      ]
+    },
+    {
+      "name": "mcp",
+      "about": "Tab-scoped MCP tools using inherited launch authority",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "serve",
+          "about": "Serve tab-scoped Domios tools over MCP stdio using inherited authority",
+          "aliases": [],
+          "args": [
+            {
+              "name": "binding-nonce",
+              "positional": false,
+              "required": true,
+              "value_name": "BINDING_NONCE",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "tab",
+              "positional": false,
+              "required": true,
+              "value_name": "TAB",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
           "subcommands": []
         }
       ]
@@ -13105,11 +13386,11 @@
                 {
                   "name": "personality",
                   "positional": false,
-                  "required": false,
+                  "required": true,
                   "value_name": "ONE_WORD_PERSONA",
                   "possible_values": [],
-                  "default": "",
-                  "help": "Executor's one-word persona; defaults to the first word of the task name",
+                  "default": null,
+                  "help": "Required executor persona, for example --personality Ada; one word made only of letters",
                   "aliases": []
                 },
                 {
@@ -13645,6 +13926,16 @@
                   "aliases": []
                 },
                 {
+                  "name": "profile",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "ACP launch profile declared by the provider",
+                  "aliases": []
+                },
+                {
                   "name": "provider-reserve-pct",
                   "positional": false,
                   "required": false,
@@ -14127,6 +14418,16 @@
                   "possible_values": [],
                   "default": null,
                   "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "profile",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "ACP launch profile; inherits the source attempt when omitted and the provider stays the same",
                   "aliases": []
                 },
                 {

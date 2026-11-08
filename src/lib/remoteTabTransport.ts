@@ -88,6 +88,8 @@ export function remoteTransportCall(command: string, args: Record<string, unknow
     case "agent_runtime_goal": return call("POST", "/agent/runtime/goal", args.request);
     case "agent_runtime_thread_history": return call("POST", "/agent/runtime/thread-history", args.request);
     case "agent_runtime_reset_credits": return call("POST", "/agent/runtime/reset-credits", args.request);
+    case "agent_runtime_controls": return call("POST", "/agent/runtime/controls", args.request);
+    case "agent_runtime_host_approvals": return call("POST", "/agent/runtime/host-approvals", args.request);
     case "agent_runtime_login": return call("POST", "/agent/runtime/login", args.request);
     case "agent_runtime_retry": return call("POST", "/agent/runtime/retry");
     case "read_local_preview_file": return call("POST", "/preview/read", { path: args.path, kind: args.kind });
@@ -98,7 +100,7 @@ export function remoteTransportCall(command: string, args: Record<string, unknow
     case "wake_tab": return call("POST", "/wake");
     case "mux_close_tab": return call("POST", "/close");
     case "mux_rename_tab": return call("POST", "/rename", { title: args.title ?? args.name });
-    case "mux_set_focused_tab": return call("POST", "/focus");
+    case "mux_set_focused_tab": return call("POST", "/select");
     case "get_tab_history_raw":
     case "get_tab_output": return call("GET", "/output", null, (value) => (value as { text?: string; output?: string })?.text ?? (value as { output?: string })?.output ?? "");
     case "get_tab_text": return call("GET", `/text?formatted=${args.formatted === true}`, null, (value) => (value as { text?: string })?.text ?? "");

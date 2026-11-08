@@ -103,6 +103,8 @@ fn settlement_failure_never_publishes_a_failure_receipt_or_removes_input() {
     let record = admitted(&store);
     store.set_persistence_boundary(Some(Arc::new(|_| Err("injected durable failure".into()))));
     assert!(store.settle_ended_head(&record, false).is_err());
+    assert!(store.head("tab").is_err());
+    store.set_persistence_boundary(None);
     assert_eq!(store.head("tab").unwrap().unwrap().send_id, record.send_id);
     assert!(store.receipts("tab").unwrap().is_empty());
 }

@@ -44,6 +44,7 @@ impl ServiceContext {
             launched_model: requested.into(),
             confirmation_detail: None,
             confirmation: ModelSwitchConfirmation::Pending,
+            control_changes: Vec::new(),
         })
     }
 }

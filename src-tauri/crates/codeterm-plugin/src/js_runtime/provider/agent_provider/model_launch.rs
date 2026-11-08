@@ -6,13 +6,12 @@ impl JsProvider {
         if !self.has_js("discoverModels") {
             return None;
         }
-        let interrupt = (
-            crate::converter::ConversionCancellation::default(),
-            std::time::Instant::now() + crate::model_catalog::MODEL_DISCOVERY_DEADLINE,
-        );
         let result = crate::js_runtime::vm::with_blocking_operation_interruptible(
             self.vm.clone(),
-            interrupt,
+            (
+                crate::converter::ConversionCancellation::default(),
+                std::time::Instant::now() + crate::model_catalog::MODEL_DISCOVERY_DEADLINE,
+            ),
             |vm, context| {
                 let _catalogue = vm.catalogue_gate.enter(&context)?;
                 let fingerprint = vm.binary_fingerprint();

@@ -214,7 +214,7 @@ pub(super) async fn resync(
     let loaded = loaded?;
     let RuntimeResult::ThreadLoaded {
         thread_id,
-        settings,
+        mut settings,
     } = loaded
     else {
         return Err(RuntimeFailure::HookFailed(
@@ -224,6 +224,7 @@ pub(super) async fn resync(
     if context.thread_id.as_deref() != Some(thread_id.as_str()) {
         return Err(RuntimeFailure::Superseded);
     }
+    settings.settle_mode();
     session.context.lock().settings = settings;
     let mut cursor = None;
     let mut seen = std::collections::HashSet::new();

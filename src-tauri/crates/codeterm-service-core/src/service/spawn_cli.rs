@@ -140,7 +140,13 @@ pub(crate) fn provider_launch_preflight_for_platform(
             binary,
         });
     }
-    let status = super::provider_cli::observe_cli(binary.clone(), install_command, None);
+    let probe = codeterm_plugin::js_runtime::probe_bin(&binary);
+    let status = codeterm_plugin::provider_cli::status_from_probe(
+        binary.clone(),
+        probe,
+        install_command,
+        None,
+    );
     let observed = LaunchBinaryObservation {
         availability: status.availability,
         binary: status.binary,

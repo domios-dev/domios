@@ -1,5 +1,9 @@
+use super::super::launch_profile::ResolvedLaunch;
 use super::*;
-use codeterm_plugin::agent_runtime::{AgentRuntimeCommand, AgentRuntimeProtocol, RpcCall};
+use codeterm_plugin::agent_runtime::{
+    AgentRuntimeCapability, AgentRuntimeCommand, AgentRuntimeProtocol, RpcCall,
+};
+use std::path::Path;
 
 #[cfg(target_os = "macos")]
 struct ProcessBoundaryTestLogger;
@@ -33,8 +37,15 @@ fn init_process_boundary_test_logger() {
 
 fn capability() -> AgentRuntimeCapability {
     AgentRuntimeCapability {
+        host_mcp: None,
+        envelope: None,
+        interrupt: None,
+        client_bridges: None,
+        launch_profiles: None,
+        registry_defaults: Default::default(),
         restricted_cli: None,
         runtime_modes: Vec::new(),
+        host_approvals: false,
         service_tiers: Vec::new(),
         background_processes: false,
         goals: None,
@@ -52,6 +63,7 @@ fn capability() -> AgentRuntimeCapability {
         },
         inherited_environment_exclusions: Vec::new(),
         login: None,
+        turn_scoped_requests: Vec::new(),
         request_methods: std::collections::BTreeMap::from([(
             "control".into(),
             vec![
@@ -67,7 +79,7 @@ fn capability() -> AgentRuntimeCapability {
 #[test]
 fn stderr_tail_stays_bounded() {
     let mut output = vec![b'a'; 8192];
-    append_stderr(&mut output, b"last");
+    append_stderr(&mut output, b"last", b"", &mut Vec::new());
     assert_eq!(output.len(), 8192);
     assert!(output.ends_with(b"last"));
 }
@@ -105,8 +117,7 @@ async fn assert_tree_exit(action: &str) {
         crate::test_support::fixture_manifest_dir().display()
     )];
     let process = spawn(
-        Path::new("node"),
-        &cap,
+        &ResolvedLaunch::unprofiled("node", cap),
         dir.path().to_str().unwrap(),
         HashMap::new(),
         "fixture-owned-tree",
@@ -220,8 +231,7 @@ async fn own_tab_environment_reaches_the_child_and_its_shell_commands() {
         ),
     ]);
     let process = spawn(
-        Path::new("node"),
-        &capability(),
+        &ResolvedLaunch::unprofiled("node", capability()),
         dir.path().to_str().unwrap(),
         env.clone(),
         "fixture-tab",
@@ -240,8 +250,23 @@ async fn own_tab_environment_reaches_the_child_and_its_shell_commands() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(result["environment"], serde_json::to_value(env).unwrap());
+    assert_child_environment(&result, &env);
     process.finish().await.unwrap();
+}
+
+fn assert_child_environment(result: &serde_json::Value, expected: &HashMap<String, String>) {
+    use sha2::{Digest, Sha256};
+    let token = expected.get("CODETERM_API_TOKEN").unwrap();
+    assert_eq!(
+        result["tokenDigest"],
+        format!("{:x}", Sha256::digest(token.as_bytes()))
+    );
+    let mut redacted = expected.clone();
+    redacted.insert("CODETERM_API_TOKEN".into(), "[redacted]".into());
+    assert_eq!(
+        result["environment"],
+        serde_json::to_value(redacted).unwrap()
+    );
 }
 
 fn write_cli_probe(directory: &Path, artifact: &str) {
@@ -314,8 +339,7 @@ async fn lifecycle_cli_pin_controls_bare_aliases_in_child_and_grandchild_shells(
     .unwrap();
     env.insert("PATH".into(), inherited_path.clone());
     let process = spawn(
-        Path::new("node"),
-        &capability(),
+        &ResolvedLaunch::unprofiled("node", capability()),
         dir.path().to_str().unwrap(),
         env,
         "fixture-own-tab",
@@ -354,10 +378,7 @@ async fn lifecycle_cli_pin_controls_bare_aliases_in_child_and_grandchild_shells(
                     .unwrap(),
                 "{surface}: {alias}"
             );
-            assert_eq!(
-                probe["environment"],
-                serde_json::to_value(&identity).unwrap()
-            );
+            assert_child_environment(probe, &identity);
         }
     }
 }
@@ -365,8 +386,7 @@ async fn lifecycle_cli_pin_controls_bare_aliases_in_child_and_grandchild_shells(
 async fn child_exit_reports_status_and_stderr() {
     let dir = tempfile::tempdir().unwrap();
     let process = spawn(
-        Path::new("node"),
-        &capability(),
+        &ResolvedLaunch::unprofiled("node", capability()),
         dir.path().to_str().unwrap(),
         HashMap::new(),
         "fixture-tab",
@@ -406,8 +426,7 @@ async fn pipe_drop_from_a_live_peer_is_not_success() {
 
     let dir = tempfile::tempdir().unwrap();
     let process = spawn(
-        Path::new("node"),
-        &capability(),
+        &ResolvedLaunch::unprofiled("node", capability()),
         dir.path().to_str().unwrap(),
         HashMap::new(),
         "fixture-tab",
@@ -428,6 +447,29 @@ async fn pipe_drop_from_a_live_peer_is_not_success() {
         Err(RuntimeFailure::PipeEof)
     );
     process.finish().await.unwrap();
+}
+
+#[test]
+fn stderr_redacts_credentials_across_reads_and_tail_cuts_before_utf8_conversion() {
+    for token in ["<credential-placeholder>", "<雪🔑credential-placeholder>漂"] {
+        let credential = token.as_bytes();
+        for split in 1..credential.len() {
+            let mut output = Vec::new();
+            let mut pending = Vec::new();
+            append_stderr(&mut output, &vec![b'x'; 8192], credential, &mut pending);
+            append_stderr(&mut output, &credential[..split], credential, &mut pending);
+            let mut tail = credential[split..].to_vec();
+            tail.extend_from_slice(&vec![b'y'; 8192 - credential.len() + 1]);
+            append_stderr(&mut output, &tail, credential, &mut pending);
+            assert!(output.len() <= 8192);
+            assert!(pending.len() < credential.len());
+            assert!(!String::from_utf8_lossy(&output).contains(token));
+            for suffix in 1..credential.len() {
+                assert!(!output.starts_with(&credential[suffix..]));
+            }
+            assert!(pending.is_empty());
+        }
+    }
 }
 
 #[test]

@@ -1,0 +1,199 @@
+{
+  "schemaVersion": 1,
+  "context": {
+    "epoch": 1,
+    "cwd": "/work/project",
+    "hostVersion": "1.18.7",
+    "tabId": "cancel",
+    "bindingNonce": "nonce-fixture",
+    "settings": {},
+    "providerSettings": {},
+    "claimedSends": [],
+    "activeTurns": [],
+    "threadParents": []
+  },
+  "operations": [
+    {
+      "operation": {
+        "kind": "initialize"
+      }
+    },
+    {
+      "operation": {
+        "kind": "openThread",
+        "instructions": "",
+        "settings": {}
+      }
+    },
+    {
+      "operation": {
+        "kind": "interrupt",
+        "threadId": "session-fixture",
+        "activeTurnId": "host-turn-fixture"
+      },
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/project",
+        "hostVersion": "1.18.7",
+        "tabId": "cancel",
+        "bindingNonce": "nonce-fixture",
+        "settings": {},
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [
+          {
+            "threadId": "session-fixture",
+            "turnId": "host-turn-fixture"
+          }
+        ],
+        "threadParents": [],
+        "threadId": "session-fixture",
+        "activeTurnId": "host-turn-fixture"
+      }
+    }
+  ],
+  "rpc": [
+    {
+      "direction": "outbound",
+      "operation": 0,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "initialize",
+          "params": {
+            "protocolVersion": 1,
+            "clientCapabilities": {
+              "fs": {
+                "readTextFile": false,
+                "writeTextFile": false
+              },
+              "terminal": false
+            },
+            "clientInfo": {
+              "name": "domios",
+              "title": "Domios",
+              "version": "1.18.7"
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 0,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "protocolVersion": 1,
+          "agentCapabilities": {},
+          "authMethods": []
+        }
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 1,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "session/new",
+          "params": {
+            "cwd": "/work/project",
+            "mcpServers": []
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 1,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "sessionId": "session-fixture"
+        }
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 2,
+      "action": {
+        "kind": "notification",
+        "notification": {
+          "method": "session/cancel",
+          "params": {
+            "sessionId": "session-fixture"
+          },
+          "target": {
+            "threadId": "session-fixture",
+            "turnId": "host-turn-fixture"
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 2,
+      "reply": {
+        "kind": "success",
+        "value": {}
+      }
+    }
+  ],
+  "expected": {
+    "results": [
+      {
+        "operation": 0,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "initialized"
+          },
+          "events": [
+            {
+              "kind": "authentication",
+              "authentication": {
+                "state": "unknown",
+                "methods": []
+              }
+            }
+          ]
+        }
+      },
+      {
+        "operation": 1,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "threadLoaded",
+            "threadId": "session-fixture",
+            "settings": {
+              "commands": [],
+              "configOptions": [],
+              "modes": []
+            }
+          }
+        }
+      },
+      {
+        "operation": 2,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "done"
+          },
+          "events": []
+        }
+      }
+    ],
+    "events": [
+      {
+        "kind": "authentication",
+        "authentication": {
+          "state": "unknown",
+          "methods": []
+        }
+      }
+    ]
+  }
+}

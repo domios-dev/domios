@@ -38,6 +38,27 @@ fn captured_root_and_descendants_require_every_exact_completion() {
     );
     assert_eq!(
         target.state(&context, &RuntimePhase::Ready, |_, _| true),
+        CompletionState::Waiting
+    );
+    let mut retired = context.clone();
+    retired.active_turn_id = None;
+    assert_eq!(
+        target.state(&retired, &RuntimePhase::Ready, |_, _| true),
+        CompletionState::Waiting
+    );
+    retired.active_turns.clear();
+    assert_eq!(
+        target.state(&retired, &RuntimePhase::Ready, |_, _| true),
+        CompletionState::Complete
+    );
+    retired.active_turn_id = Some("next-root-turn".into());
+    retired.active_turns.push(RuntimeActiveTurn {
+        thread_id: "child".into(),
+        turn_id: "next-child-turn".into(),
+        parent_thread_id: Some("root".into()),
+    });
+    assert_eq!(
+        target.state(&retired, &RuntimePhase::Ready, |_, _| true),
         CompletionState::Complete
     );
 }
@@ -175,6 +196,20 @@ fn mock_runtime_interrupt_waits_for_events_and_deadline_degrades_without_idle() 
         })
         .await;
         engine::record_completed_turn(&session, "child", Some("child-turn"));
+        std::future::poll_fn(|cx| {
+            assert!(waiting.as_mut().poll(cx).is_pending());
+            std::task::Poll::Ready(())
+        })
+        .await;
+        session.context.lock().active_turn_id = None;
+        session.control_changes.send_replace(());
+        std::future::poll_fn(|cx| {
+            assert!(waiting.as_mut().poll(cx).is_pending());
+            std::task::Poll::Ready(())
+        })
+        .await;
+        session.context.lock().active_turns.clear();
+        session.control_changes.send_replace(());
         waiting.await.unwrap();
     });
     {
@@ -272,10 +307,442 @@ fn mock_runtime_interrupt_waits_for_events_and_deadline_degrades_without_idle() 
             session.state.lock().phase,
             RuntimePhase::Degraded { .. }
         ));
-        assert_eq!(
-            session.context.lock().active_turn_id.as_deref(),
-            Some("never-completes")
-        );
+        assert!(session.context.lock().active_turn_id.is_none());
     });
     engine::stop_blocking(&fixture.service, &id).unwrap();
+}
+
+#[test]
+fn stop_with_no_provider_turn_settles_at_once_without_interrupt_or_degrade() {
+    use crate::service::agent_runtime::{
+        engine::test_support::runtime_fixture_turn_scoped, turn_requests::tests as turn_fixture,
+    };
+    use std::{
+        pin::Pin,
+        task::{Context, Poll, Waker},
+    };
+    use tokio::io::{AsyncBufRead, BufReader};
+    let (fixture, tab, peer, _cleanup) = runtime_fixture_turn_scoped(turn_fixture::SOURCE);
+    let session = engine::for_tab(&tab).unwrap();
+    let (thread, epoch) = {
+        let context = session.context.lock();
+        (context.thread_id.clone().unwrap(), context.epoch)
+    };
+    crate::async_runtime::block_on(async {
+        super::super::super::subscriber::publish_events(
+            &fixture.service,
+            &session,
+            epoch,
+            vec![
+                codeterm_plugin::agent_runtime::AgentRuntimeEvent::TurnState {
+                    thread_id: thread,
+                    turn_id: Some("no-prompt-behind-this".into()),
+                    parent_thread_id: None,
+                    state: codeterm_plugin::agent_runtime::RuntimeTurnState::Working,
+                    detail: None,
+                    status_line: None,
+                    started_at: None,
+                    completed_at: None,
+                },
+            ],
+            1,
+        )
+        .await
+        .unwrap();
+        assert!(session.context.lock().active_turn_id.is_some());
+        let result =
+            crate::service::stop_execution::stop_agent_turn(fixture.service.clone(), tab.clone())
+                .await
+                .unwrap();
+        assert_eq!(
+            result,
+            serde_json::json!({"ok":true,"stopped":false,"reason":"not_working","status":"idle","route":"runtime"})
+        );
+    });
+    assert!(session.context.lock().active_turn_id.is_none());
+    assert!(session.state.lock().active_turn_started_at_ms.is_none());
+    assert!(matches!(session.state.lock().phase, RuntimePhase::Ready));
+    assert_eq!(
+        fixture
+            .service
+            .mux
+            .read()
+            .get_tab(&tab)
+            .unwrap()
+            .agent_state
+            .as_ref()
+            .unwrap()
+            .state,
+        codeterm_types::pty::TimelineState::Idle
+    );
+    let mut peer = BufReader::new(peer);
+    assert!(
+        matches!(
+            Pin::new(&mut peer).poll_fill_buf(&mut Context::from_waker(Waker::noop())),
+            Poll::Pending
+        ),
+        "no interrupt reaches a provider that has no turn"
+    );
+}
+
+#[test]
+fn before_first_update_interrupt_requires_declaration_and_exact_outstanding_submit() {
+    for (declared, outstanding, invoked) in [
+        (false, true, false),
+        (true, false, false),
+        (true, true, true),
+    ] {
+        let (fixture, id) = super::super::tests::runtime_fixture_with_interrupt(declared);
+        crate::async_runtime::block_on(async {
+            let session = engine::ensure(&fixture.service, &id).await.unwrap();
+            let context = session.context.lock().clone();
+            assert!(context.active_turn_id.is_none());
+            session.context.lock().provider_settings["interruptProbe"] = serde_json::json!(true);
+            if outstanding {
+                let status = fixture
+                    .service
+                    .chat_send_ledger
+                    .try_start_scoped_with_normalization(
+                        &id,
+                        "opaque",
+                        None,
+                        None,
+                        Default::default(),
+                    )
+                    .unwrap();
+                assert!(fixture.service.chat_send_ledger.bind_rpc_send(
+                    &status.send_id,
+                    crate::service::chat_send_transaction::SendLiveBinding {
+                        session_id: context.thread_id.clone(),
+                        binding_nonce: Some(context.binding_nonce.clone())
+                    }
+                ));
+                session.context.lock().claimed_sends.push(
+                    codeterm_plugin::agent_runtime::ClaimedSend {
+                        send_id: status.send_id,
+                        thread_id: context.thread_id.unwrap(),
+                        input: codeterm_plugin::agent_runtime::TurnInput {
+                            text: "opaque".into(),
+                            attachments: Vec::new(),
+                        },
+                    },
+                );
+            }
+            let captured = session.context.lock().clone();
+            assert!(!before_first_turn(
+                &fixture.service,
+                &session,
+                &RuntimeContext {
+                    epoch: captured.epoch + 1,
+                    ..captured.clone()
+                }
+            ));
+            assert!(!before_first_turn(
+                &fixture.service,
+                &session,
+                &RuntimeContext {
+                    binding_nonce: "foreign".into(),
+                    ..captured.clone()
+                }
+            ));
+            assert!(!before_first_turn(
+                &fixture.service,
+                &session,
+                &RuntimeContext {
+                    thread_id: Some("foreign".into()),
+                    ..captured.clone()
+                }
+            ));
+            assert_eq!(
+                before_first_turn(&fixture.service, &session, &captured),
+                declared && outstanding
+            );
+            let result = crate::service::stop_execution::stop_agent_turn(
+                fixture.service.clone(),
+                id.clone(),
+            )
+            .await
+            .unwrap();
+            assert_eq!(result["stopped"], serde_json::json!(invoked));
+            assert_eq!(
+                session.context.lock().settings.effort.as_deref() == Some("high"),
+                invoked
+            );
+        });
+    }
+}
+
+#[tokio::test]
+async fn declared_cancel_without_reply_settles_interrupted_after_one_grace() {
+    use crate::service::agent_runtime::{
+        engine::test_support::runtime_fixture_turn_scoped, turn_requests::tests as turn_fixture,
+    };
+    use tokio::io::{AsyncBufReadExt, BufReader};
+    let (fixture, tab, peer, _cleanup) = runtime_fixture_turn_scoped(turn_fixture::SOURCE);
+    let session = engine::for_tab(&tab).unwrap();
+    let process = session.process.lock().clone().unwrap();
+    let operation = turn_fixture::operation(&session.context.lock());
+    let (accepted, receipt) = tokio::sync::oneshot::channel();
+    let submit = async {
+        let (result, _) = engine::run_submit(&fixture.service, &session, &process, operation).await;
+        assert!(matches!(
+            result,
+            Ok(RuntimeResult::TurnAccepted { .. }) | Err(RuntimeFailure::WrittenAwaitingEvidence)
+        ));
+        accepted.send(()).unwrap();
+    };
+    let server = async {
+        let mut peer = BufReader::new(peer);
+        let mut line = String::new();
+        peer.read_line(&mut line).await.unwrap();
+        turn_fixture::accept(&fixture.service, &session).await;
+        receipt.await.unwrap();
+        let context = session.context.lock().clone();
+        let target = InterruptTarget::capture(&context).unwrap();
+        let mut changes = session.control_changes.subscribe();
+        let mut ended = process.ended.clone();
+        let result = engine::run(
+            &fixture.service,
+            &session.provider,
+            &session,
+            &process,
+            RuntimeOperation::Interrupt {
+                thread_id: context.thread_id.clone().unwrap(),
+                active_turn_id: context.active_turn_id.clone(),
+            },
+        )
+        .await
+        .unwrap();
+        assert!(matches!(result, RuntimeResult::Done));
+        line.clear();
+        peer.read_line(&mut line).await.unwrap();
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&line).unwrap()["method"],
+            "fixture/cancel"
+        );
+        tokio::time::pause();
+        let (result, ()) = tokio::join!(biased;
+            wait(&fixture.service,&session,&target,&mut changes,&mut ended,Duration::from_secs(30)),
+            async {tokio::time::advance(Duration::from_secs(31)).await;},
+        );
+        assert!(result.is_ok());
+        assert!(session.context.lock().active_turn_id.is_none());
+        assert!(session
+            .completions
+            .lock()
+            .contains(context.thread_id.as_deref().unwrap(), "turn"));
+        assert!(session
+            .cache
+            .lock()
+            .snapshot()
+            .iter()
+            .any(|row| row.content.contains("cancel grace expired")));
+        peer
+    };
+    let ((), _peer) = tokio::join!(submit, server);
+}
+
+#[test]
+fn an_interrupt_claim_is_exclusive_per_tab_until_released() {
+    let first = InterruptClaim::take("claim-tab").unwrap();
+    assert!(InterruptClaim::take("claim-tab").is_none());
+    assert!(InterruptClaim::take("other-claim-tab").is_some());
+    drop(first);
+    assert!(InterruptClaim::take("claim-tab").is_some());
+}
+
+#[test]
+fn a_repeated_stop_during_the_grace_gets_the_pending_outcome_and_sends_no_second_interrupt() {
+    use crate::service::agent_runtime::{
+        engine::test_support::runtime_fixture_turn_scoped, turn_requests::tests as turn_fixture,
+    };
+    use serde_json::{json, Value};
+    use std::{
+        pin::Pin,
+        task::{Context, Poll, Waker},
+    };
+    use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWriteExt, BufReader};
+    let (fixture, tab, peer, _cleanup) = runtime_fixture_turn_scoped(turn_fixture::SOURCE);
+    let session = engine::for_tab(&tab).unwrap();
+    let process = session.process.lock().clone().unwrap();
+    let (cancel_written, cancel_seen) = tokio::sync::oneshot::channel::<()>();
+    let (release, released) = tokio::sync::oneshot::channel::<()>();
+    let server = crate::async_runtime::spawn(async move {
+        let mut peer = BufReader::new(peer);
+        let mut line = String::new();
+        peer.read_line(&mut line).await.unwrap();
+        let prompt: Value = serde_json::from_str(&line).unwrap();
+        line.clear();
+        peer.read_line(&mut line).await.unwrap();
+        assert_eq!(
+            serde_json::from_str::<Value>(&line).unwrap()["method"],
+            "fixture/cancel"
+        );
+        cancel_written.send(()).unwrap();
+        released.await.unwrap();
+        let reply = json!({"id":prompt["id"],"result":{"stopReason":"cancelled"}});
+        peer.get_mut()
+            .write_all(format!("{reply}\n").as_bytes())
+            .await
+            .unwrap();
+        peer
+    });
+    let operation = turn_fixture::operation(&session.context.lock());
+    let (_, written) = crate::async_runtime::block_on(engine::run_submit(
+        &fixture.service,
+        &session,
+        &process,
+        operation,
+    ));
+    assert!(written);
+    crate::async_runtime::block_on(async {
+        let first = crate::async_runtime::spawn(crate::service::stop_execution::stop_agent_turn(
+            fixture.service.clone(),
+            tab.clone(),
+        ));
+        cancel_seen.await.unwrap();
+        let repeated =
+            crate::service::stop_execution::stop_agent_turn(fixture.service.clone(), tab.clone())
+                .await
+                .unwrap();
+        assert_eq!(
+            repeated,
+            json!({"ok":true,"stopped":false,"reason":"interrupt_unconfirmed","route":"runtime"})
+        );
+        release.send(()).unwrap();
+        assert_eq!(first.await.unwrap().unwrap()["stopped"], json!(true));
+    });
+    assert!(session.context.lock().active_turn_id.is_none());
+    assert!(matches!(session.state.lock().phase, RuntimePhase::Ready));
+    let mut peer = crate::async_runtime::block_on(server).unwrap();
+    assert!(
+        matches!(
+            Pin::new(&mut peer).poll_fill_buf(&mut Context::from_waker(Waker::noop())),
+            Poll::Pending
+        ),
+        "the repeated stop writes nothing"
+    );
+}
+
+#[test]
+fn a_late_interrupt_only_reaches_the_work_its_press_meant() {
+    let session = Some((7, "nonce".to_owned(), Some("thread".to_owned())));
+    let press = |turns: &[&str], sends: &[&str]| StopPress {
+        session: session.clone(),
+        turns: turns.iter().map(|id| (*id).to_owned()).collect(),
+        sends: sends.iter().map(|id| (*id).to_owned()).collect(),
+    };
+    let ended = Some(InterruptDropped::TurnEnded);
+    let changed = Some(InterruptDropped::TurnChanged);
+    let turn_a = press(&["a"], &[]);
+    assert_eq!(turn_a.dropped(&press(&["a"], &[]), Some("a")), None);
+    assert_eq!(turn_a.dropped(&press(&["a"], &[]), None), None);
+    assert_eq!(turn_a.dropped(&press(&[], &[]), None), ended);
+    assert_eq!(turn_a.dropped(&press(&["b"], &[]), Some("b")), changed);
+    assert_eq!(turn_a.dropped(&press(&["a", "b"], &[]), Some("b")), changed);
+    let before_first = press(&[], &["send"]);
+    assert_eq!(
+        before_first.dropped(&press(&["a"], &["send"]), Some("a")),
+        None
+    );
+    assert_eq!(before_first.dropped(&press(&[], &[]), None), ended);
+    assert_eq!(
+        before_first.dropped(&press(&["b"], &[]), Some("b")),
+        changed
+    );
+    let nothing = press(&[], &[]);
+    assert_eq!(nothing.dropped(&press(&[], &[]), None), None);
+    assert_eq!(nothing.dropped(&press(&["b"], &[]), Some("b")), changed);
+    let mut replaced = press(&["a"], &[]);
+    replaced.session = Some((8, "nonce".to_owned(), Some("thread".to_owned())));
+    assert_eq!(turn_a.dropped(&replaced, Some("a")), changed);
+}
+
+#[test]
+fn a_stop_pending_on_a_busy_gate_sends_no_cancel_to_a_turn_that_started_after_it() {
+    use crate::service::agent_runtime::{
+        engine::test_support::runtime_fixture_turn_scoped, turn_requests::tests as turn_fixture,
+    };
+    use serde_json::{json, Value};
+    use std::{
+        pin::Pin,
+        task::{Context, Poll, Waker},
+    };
+    use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWriteExt, BufReader};
+    let source = turn_fixture::SOURCE.replace("turnId:'turn'", "turnId:op.sendId");
+    let (fixture, tab, peer, _cleanup) = runtime_fixture_turn_scoped(&source);
+    let session = engine::for_tab(&tab).unwrap();
+    let process = session.process.lock().clone().unwrap();
+    let (finish_first, first_finishes) = tokio::sync::oneshot::channel::<()>();
+    let (second_written, second_seen) = tokio::sync::oneshot::channel::<()>();
+    let server = crate::async_runtime::spawn(async move {
+        let mut peer = BufReader::new(peer);
+        let mut line = String::new();
+        peer.read_line(&mut line).await.unwrap();
+        let prompt: Value = serde_json::from_str(&line).unwrap();
+        first_finishes.await.unwrap();
+        let reply = json!({"id":prompt["id"],"result":{"stopReason":"end_turn"}});
+        peer.get_mut()
+            .write_all(format!("{reply}\n").as_bytes())
+            .await
+            .unwrap();
+        line.clear();
+        peer.read_line(&mut line).await.unwrap();
+        assert_eq!(
+            serde_json::from_str::<Value>(&line).unwrap()["method"],
+            "fixture/submit"
+        );
+        second_written.send(()).unwrap();
+        peer
+    });
+    let submit = |send: &str| {
+        let mut operation = turn_fixture::operation(&session.context.lock());
+        if let RuntimeOperation::SubmitTurn { send_id, .. } = &mut operation {
+            *send_id = send.into();
+        }
+        let (_, written) = crate::async_runtime::block_on(engine::run_submit(
+            &fixture.service,
+            &session,
+            &process,
+            operation,
+        ));
+        assert!(written);
+    };
+    submit("first");
+    let press = StopPress::at_press(&fixture.service, &tab);
+    assert!(press.is_some());
+    let gate = session.gate.try_acquire().unwrap();
+    let stopping = {
+        let (svc, tab) = (fixture.service.clone(), tab.clone());
+        crate::async_runtime::spawn_blocking(move || interrupt_pressed(&svc, &tab, press))
+    };
+    let mut changes = session.control_changes.subscribe();
+    finish_first.send(()).unwrap();
+    crate::async_runtime::block_on(async {
+        while session.context.lock().active_turn_id.is_some()
+            || !session.turn_requests.lock().is_empty()
+        {
+            changes.changed().await.unwrap();
+        }
+    });
+    submit("second");
+    crate::async_runtime::block_on(second_seen).unwrap();
+    drop(gate);
+    assert_eq!(
+        crate::async_runtime::block_on(stopping).unwrap().unwrap(),
+        InterruptOutcome::Dropped(InterruptDropped::TurnChanged)
+    );
+    assert_eq!(
+        session.context.lock().active_turn_id.as_deref(),
+        Some("second")
+    );
+    assert!(matches!(session.state.lock().phase, RuntimePhase::Ready));
+    let mut peer = crate::async_runtime::block_on(server).unwrap();
+    assert!(
+        matches!(
+            Pin::new(&mut peer).poll_fill_buf(&mut Context::from_waker(Waker::noop())),
+            Poll::Pending
+        ),
+        "no cancel reaches the new turn"
+    );
 }

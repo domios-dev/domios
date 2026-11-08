@@ -159,13 +159,10 @@ ct_sccache_secret() (
     return $?
   fi
   if [ -n "${DEV_NOTIFY_PARENT_CLI:-}" ]; then
-    unset CODETERM_INSTANCE CODETERM_API_PORT CODETERM_API_URL CODETERM_SOCKET_PATH CODETERM_API_TOKEN CODETERM_DATA_DIR
-    if [ "${DEV_NOTIFY_PARENT_CODETERM_API_URL_SET:-}" = x ]; then export CODETERM_API_URL="$DEV_NOTIFY_PARENT_CODETERM_API_URL"; fi
-    if [ "${DEV_NOTIFY_PARENT_CODETERM_SOCKET_PATH_SET:-}" = x ]; then export CODETERM_SOCKET_PATH="$DEV_NOTIFY_PARENT_CODETERM_SOCKET_PATH"; fi
-    if [ "${DEV_NOTIFY_PARENT_CODETERM_API_TOKEN_SET:-}" = x ]; then export CODETERM_API_TOKEN="$DEV_NOTIFY_PARENT_CODETERM_API_TOKEN"; fi
-    if [ "${DEV_NOTIFY_PARENT_CODETERM_DATA_DIR_SET:-}" = x ]; then export CODETERM_DATA_DIR="$DEV_NOTIFY_PARENT_CODETERM_DATA_DIR"; fi
+    dev_notify_parent_cli mem secret get --name "$1" 2>/dev/null
+  else
+    codeterm mem secret get --name "$1" 2>/dev/null
   fi
-  "${DEV_NOTIFY_PARENT_CLI:-codeterm}" mem secret get --name "$1" 2>/dev/null
 )
 
 ct_sccache_storage() {

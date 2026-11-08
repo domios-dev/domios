@@ -22,6 +22,7 @@ import type { Tab, TabStatus } from "../../lib/types";
 import { anchorsTeam, isGeneralAgent as isGeneralAgentTab } from "../../lib/roleKind";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
 import { agentModelForBadge } from "../../lib/agentLabel";
+import { plainModelId } from "../../lib/agentModelName";
 import { restoreFailurePresentation } from "../../lib/restoreFailurePresentation";
 import { SidebarDisclosure } from "./SidebarDisclosure";
 import { RoleBadge } from "./RoleBadge";
@@ -283,14 +284,14 @@ function TabItemInner({
   const tabState = tabActivity(tab, status);
   const shellRunning = utilityShell && tabState.active;
   const accessibleTitle = isGeneralAgent ? "General Agent" : utilityShell ? `${shellPurposeLabel(tab.purpose)}, ${displayTitle}` : displayTitle;
-  const menuModel = restoreFailure.showIdentityBadges ? tabModel : null;
+  const menuModel = restoreFailure.showIdentityBadges && tabModel ? plainModelId(tabModel) : null;
   const menuSubtitle = utilityShell
     ? shellPurposeLabel(tab.purpose)
     : provider
       ? [providerName, menuModel].filter(Boolean).join(" · ")
       : menuModel ?? "Terminal";
   const menuIcon = provider ? (
-    <ProviderGlyph iconSvg={provider.iconSvg} iconColor={provider.iconColor} iconHint={provider.iconHint} className="leading-none text-[16px]" />
+    <ProviderGlyph iconSvg={provider.iconSvg} fallbackIconSvg={provider.fallbackIconSvg} iconColor={provider.iconColor} iconHint={provider.iconHint} className="leading-none text-[16px]" />
   ) : surfaceBacking(tab) ? (
     <SurfaceIcon backing={surfaceBacking(tab)} size={16} />
   ) : tab.tab_type === "Choice" ? (
@@ -384,8 +385,9 @@ function TabItemInner({
       data-testid="tab-item"
       data-tab-id={tab.id}
       data-tab-activity={tabState.kind}
+      data-entering={isAppearing && !isClosing ? "true" : undefined}
       data-tab-no-task-bubble="true"
-      title={description ? `${displayTitle}\n${description}` : displayTitle}
+      title={[displayTitle, provider?.displayName, description].filter(Boolean).join("\n")}
       data-variant={variant}
       style={insetPx != null ? { paddingLeft: insetPx } : undefined}
       className={`
@@ -447,7 +449,7 @@ function TabItemInner({
         <span data-testid="tab-tab-icon" className={`sidebar-tab-body__icon relative leading-none ${lockedDimClass(lock)}`}>
           {provider ? (
             <ProviderGlyph
-              iconSvg={provider.iconSvg}
+              iconSvg={provider.iconSvg} fallbackIconSvg={provider.fallbackIconSvg}
               iconColor={provider.iconColor}
               iconHint={provider.iconHint}
               className={`leading-none ${touchMode ? "text-[15px]" : isSubTab ? "text-[10px]" : "text-[12px]"}`}

@@ -1,3 +1,5 @@
+import { plainModelId } from "./agentModelName";
+
 export const MODEL_BADGE_MAX_CHARS = 18;
 
 /** A model badge is capped to roughly the width of a provider-label badge, in
@@ -22,7 +24,7 @@ export const MODEL_BADGE_SUFFIXES = [
 const SUFFIX_PATTERN = new RegExp(`-(${MODEL_BADGE_SUFFIXES.join("|")})$`, "i");
 
 export function formatModelBadge(modelId: string, maxChars = MODEL_BADGE_MAX_CHARS): string {
-  const normalized = modelId.trim();
+  const normalized = plainModelId(modelId);
   if (normalized.length <= maxChars) return normalized;
 
   const withoutVendor = normalized.replace(/^[^/]+\//, "");

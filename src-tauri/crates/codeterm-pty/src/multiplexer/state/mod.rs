@@ -27,8 +27,9 @@ mod workspace;
 
 pub use closed::{
     ArchivedTab, ClosedGroup, ClosedHistoryBatch, ClosedStructure, ClosedStructureView,
-    ClosedTabView, ClosedTabsStore, GroupKind, PreparedWorkspaceClose, StructureState,
-    TabCloseReservation, CLOSED_GROUP_CAP, RECENTLY_CLOSED_CAP, RECENTLY_CLOSED_VIEW_LIMIT,
+    ClosedTabView, ClosedTabsStore, ClosedTranscript, ClosedTranscriptReader, GroupKind,
+    PreparedWorkspaceClose, StructureState, TabCloseReservation, CLOSED_GROUP_CAP,
+    RECENTLY_CLOSED_CAP, RECENTLY_CLOSED_VIEW_LIMIT,
 };
 pub use locks::{LimitGateChange, MuxLocks};
 pub use snapshot::SnapshotMergeReport;
@@ -94,6 +95,7 @@ pub struct MultiplexerState {
     pub(super) closed_store: ClosedTabsStore,
     defer_closed_history: bool,
     pending_closed_history: Vec<closed::ClosedHistoryWrite>,
+    pending_closed_transcripts: Vec<ClosedTranscript>,
     workspace_close_reservations: HashMap<String, String>,
     tab_close_reservations: HashMap<String, (String, String)>,
     /// Entitlement admission source for lock marks; the service swaps it when the plan changes.
@@ -191,6 +193,7 @@ impl MultiplexerState {
                 closed_store,
                 defer_closed_history: false,
                 pending_closed_history: Vec::new(),
+                pending_closed_transcripts: Vec::new(),
                 workspace_close_reservations: self.workspace_close_reservations.clone(),
                 tab_close_reservations: self.tab_close_reservations.clone(),
                 limit_gate: self.limit_gate.clone(),
@@ -237,6 +240,7 @@ impl MultiplexerState {
             closed_store: ClosedTabsStore::in_memory(),
             defer_closed_history: false,
             pending_closed_history: Vec::new(),
+            pending_closed_transcripts: Vec::new(),
             workspace_close_reservations: HashMap::new(),
             tab_close_reservations: HashMap::new(),
             limit_gate: codeterm_entitlements::LimitGate::new(
@@ -487,6 +491,7 @@ impl MultiplexerState {
             closed_store: ClosedTabsStore::in_memory(),
             defer_closed_history: false,
             pending_closed_history: Vec::new(),
+            pending_closed_transcripts: Vec::new(),
             workspace_close_reservations: HashMap::new(),
             tab_close_reservations: HashMap::new(),
             limit_gate: codeterm_entitlements::LimitGate::new(

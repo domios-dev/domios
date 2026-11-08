@@ -18,6 +18,7 @@ import { SelfSessionSignOut } from "./SelfSessionSignOut";
 import { SESSION_REVOKED_MESSAGE } from "../Settings/accountModel";
 import { AccountAvatar } from "./AccountAvatar";
 import { FIRST_RUN_DISABLED_REASON } from "../../lib/firstRunGate";
+import { plansAction } from "../billing/purchaseSwitch";
 import { useMultiplexer } from "../../store/multiplexer/context";
 
 /** Who is signed in and on which plan: information, not actions, so it sits above the menu items and never takes focus. */
@@ -69,7 +70,7 @@ export function AccountTray({ onOpenPlans, locked = false }: { onOpenPlans: () =
   const signInEntry = (option: SignInOption): DropdownMenuEntry =>
     ({ label: option.label, icon: option.icon, disabled: pending, onClick: () => void startSignIn(option.hint) });
   const items: DropdownMenuEntry[] = model.kind === "signed_in" ? [
-    { label: hasPaidSubscription ? billing.pending ? "Opening subscription…" : "Manage subscription" : "Upgrade",
+    { label: hasPaidSubscription ? billing.pending ? "Opening subscription…" : "Manage subscription" : plansAction("Upgrade"),
       disabled: billing.pending, onClick: () => { if (hasPaidSubscription) void manageSubscription(); else onOpenPlans(); } },
     ...legalMenuItems(["terms", "privacy"]),
     { separator: true, key: "sign-out" },
@@ -94,13 +95,16 @@ export function AccountTray({ onOpenPlans, locked = false }: { onOpenPlans: () =
       }
     }
   }
+  const signedOutNotice = account.model.kind === "signed_out"
+    ? account.model.sessionRevoked ? SESSION_REVOKED_MESSAGE : account.model.targetMismatch
+    : undefined;
   const community = communityMenu();
   if (locked) community.items = community.items.map((item) => ({ ...item, disabled: true, title: FIRST_RUN_DISABLED_REASON }));
   items.push({separator:true,key:"community"},community);
   return <div className="flex items-center">
     {confirmSignOut && <SelfSessionSignOut onClose={() => setConfirmSignOut(false)} />}
     <DropdownMenu menuLabel={model.kind === "signed_in" ? `Account: ${model.identity}, ${model.plan}` : "Account"} items={items} onOpenChange={setOpen}
-      header={model.kind === "signed_in" ? <AccountHeader identity={model.identity} email={model.email} avatarUrl={model.avatarUrl} initial={model.initial} badge={model.badge} summary={model.plan} /> : account.model.kind === "signed_out" && account.model.sessionRevoked ? <p role="status" className="px-3 py-2 text-xs">{SESSION_REVOKED_MESSAGE}</p> : undefined} trigger={
+      header={model.kind === "signed_in" ? <AccountHeader identity={model.identity} email={model.email} avatarUrl={model.avatarUrl} initial={model.initial} badge={model.badge} summary={model.plan} /> : signedOutNotice ? <p role="status" className="px-3 py-2 text-xs">{signedOutNotice}</p> : undefined} trigger={
       <button type="button" className={UI_TRAY_BTN} aria-label={billing.pending ? "Opening subscription" : model.name}
         title={billing.pending ? "Opening subscription…" : model.name} aria-haspopup="menu" aria-expanded={open} aria-busy={pending || billing.pending}>
         {pending

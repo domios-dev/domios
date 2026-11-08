@@ -112,9 +112,9 @@ export function CartographerMapDialog(props: CartographerMapDialogProps) {
         {source.label}
       </label>)}
     </fieldset>
-    {props.loading && <BusyState inline label="Loading providers and models…" phase="work" className="text-xs text-[var(--ct-muted-fg)]" />}
+    {props.loading && <BusyState inline label="Loading harnesses and models…" phase="work" className="text-xs text-[var(--ct-muted-fg)]" />}
     {props.catalogueError && props.providers.length === 0 && (
-      <p role="status" className="text-xs text-[var(--ct-muted-fg)]">Provider choices are unavailable right now.</p>
+      <p role="status" className="text-xs text-[var(--ct-muted-fg)]">Harness choices are unavailable right now.</p>
     )}
     <fieldset disabled={form.submitting}>
       <OrchestrationRoleRow label="Cartographer" providers={props.providers} providerId={form.draft.providerId}

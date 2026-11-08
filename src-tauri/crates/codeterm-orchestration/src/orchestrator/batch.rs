@@ -1,3 +1,4 @@
+use codeterm_service_core::service::spawn_params::SpawnTargetRefusal;
 use codeterm_service_core::service::MuxEmitCause;
 use codeterm_service_core::service::{json_str, resolve_refs, ServiceContext};
 use codeterm_service_core::service::{BatchOp, SpawnAgentParams};
@@ -12,14 +13,19 @@ pub async fn batch(svc: &ServiceContext, commands: Vec<BatchOp>) -> Vec<serde_js
 
         let result = match cmd.method.as_str() {
             "spawn" => batch_spawn(svc, &params).await,
-            "send" => batch_send(svc, &params),
-            "rename" => batch_rename(svc, &params),
-            "close" => batch_close(svc, &params).await,
-            "role" => batch_role(svc, &params),
-            "notify" => batch_notify(svc, &params),
-            "can-spawn" => batch_can_spawn(svc, &params),
-            "report" => batch_report(svc, &params),
-            other => Err(format!("Unknown method: {}", other)),
+            "send" => batch_send(svc, &params).map_err(SpawnTargetRefusal::from),
+            "rename" => batch_rename(svc, &params).map_err(SpawnTargetRefusal::from),
+            "close" => batch_close(svc, &params)
+                .await
+                .map_err(SpawnTargetRefusal::from),
+            "role" => batch_role(svc, &params).map_err(SpawnTargetRefusal::from),
+            "notify" => batch_notify(svc, &params).map_err(SpawnTargetRefusal::from),
+            "can-spawn" => batch_can_spawn(svc, &params).map_err(SpawnTargetRefusal::from),
+            "report" => batch_report(svc, &params).map_err(SpawnTargetRefusal::from),
+            other => Err(SpawnTargetRefusal::Other(format!(
+                "Unknown method: {}",
+                other
+            ))),
         };
 
         match result {
@@ -33,7 +39,12 @@ pub async fn batch(svc: &ServiceContext, commands: Vec<BatchOp>) -> Vec<serde_js
             }
             Err(e) => {
                 log::warn!("[batch] {} failed: {}", cmd.method, e);
-                results.push(serde_json::json!({"error": e, "method": cmd.method}));
+                let mut refusal = serde_json::json!({"error": e.to_string(), "method": cmd.method});
+                if let Some(data) = e.data() {
+                    refusal["code"] = data["code"].clone();
+                    refusal["refusal"] = data;
+                }
+                results.push(refusal);
             }
         }
     }
@@ -45,8 +56,13 @@ pub async fn batch(svc: &ServiceContext, commands: Vec<BatchOp>) -> Vec<serde_js
 async fn batch_spawn(
     svc: &ServiceContext,
     params: &serde_json::Value,
-) -> Result<serde_json::Value, String> {
+) -> Result<serde_json::Value, SpawnTargetRefusal> {
     let p = SpawnAgentParams::from_json(params)?;
+    let provider = p
+        .agent
+        .clone()
+        .unwrap_or_else(|| svc.configuration().general_agent.agent_provider);
+    svc.validate_spawn_options(&provider, &p)?;
     let result = svc.spawn_agent(p, None).await?;
     Ok(serde_json::json!({
         "tab_id": result.tab_id,
@@ -190,3 +206,6 @@ fn batch_report(
         .map_err(|error| error.to_string())?;
     Ok(serde_json::json!({"ok": true, "report_id": result.report_id}))
 }
+
+#[cfg(test)]
+mod tests;

@@ -46,7 +46,7 @@ jobs:
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && (((startsWith(github.ref, 'refs/heads/release/') || startsWith(github.head_ref, 'release/')) && (github.event_name == 'push' || github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch')) || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.path == '.github/workflows/tests.yml' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.actor.login == 'rollacode' && github.event.workflow_run.triggering_actor.login == 'rollacode' && startsWith(github.event.workflow_run.head_branch, 'release/'))) }}
     environment: release
     # Our x64 Windows runner cross-compiles; it never receives signing credentials.
-    runs-on: [self-hosted, windows-arm64-build]
+    runs-on: ${{ fromJSON(vars.RELEASE_WINDOWS_ARM64_COMPILE_RUNNER || '"windows-2025"') }}
     timeout-minutes: 90
     outputs:
       sha256: ${{ steps.compile.outputs.sha256 }}
@@ -68,6 +68,36 @@ jobs:
       GIT_CONFIG_KEY_0: core.longpaths
       GIT_CONFIG_VALUE_0: "true"
     steps:
+      - name: Hosted Node
+        if: runner.environment == 'github-hosted'
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          node-version: 22.22.0
+          package-manager-cache: false
+      - name: Hosted pinned Rust toolchain
+        if: runner.environment == 'github-hosted'
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
+        with:
+          toolchain: 1.99.1
+          components: clippy,rustfmt
+          targets: aarch64-pc-windows-msvc
+      - name: Hosted sccache
+        if: runner.environment == 'github-hosted'
+        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba
+      - name: Select hosted cache policy
+        if: runner.environment == 'github-hosted'
+        shell: bash
+        run: |
+          echo CI_HOSTED=true >> "$GITHUB_ENV"
+          echo SCCACHE_GHA_ENABLED=true >> "$GITHUB_ENV"
+          echo CODETERM_SCCACHE_VERIFY_ONLY=0 >> "$GITHUB_ENV"
+      - name: Hosted pnpm
+        if: runner.environment == 'github-hosted'
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413
+        with:
+          version: 10.32.1
+          run_install: false
+          dest: ${{ runner.tool_cache }}/setup-pnpm
       - name: Use the runner bundled Node
         if: runner.environment == 'self-hosted'
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
@@ -125,7 +155,7 @@ jobs:
     needs: compile
     environment: release
     # The hosted arm64 runner signs, smokes and publishes the compiled stage; signing secrets live in the release environment.
-    runs-on: windows-11-arm
+    runs-on: ${{ fromJSON(vars.CI_WINDOWS_ARM64_RUNNER || '"windows-11-arm"') }}
     timeout-minutes: 45
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}

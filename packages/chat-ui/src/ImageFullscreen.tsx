@@ -28,7 +28,7 @@ export function ImageFullscreen({ image, images, anchorRef, onClose }: {
   onClose: () => void;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
-  const { gallery, active, selected, layout, focus, select, measure, navigate } = useImageCanvasGallery(image, images);
+  const { gallery, active, selected, layout, cameraKey, initialFit, focus, select, measure, navigate } = useImageCanvasGallery(image, images);
   const path = selected.path;
   return (
     <FullscreenOverlay panelRef={panelRef} closeButton={false} label={`Image ${selected.name}`} onClose={onClose} returnFocusRef={anchorRef}>
@@ -55,11 +55,12 @@ export function ImageFullscreen({ image, images, anchorRef, onClose }: {
         <span aria-live="polite">{active + 1} / {gallery.length}</span>
         <ViewerButton aria-label="Next image" onClick={() => navigate(1)}>→</ViewerButton>
       </nav>}
-      <ZoomCanvas bounds={layout.bounds} focus={focus} onNavigate={navigate} onSelect={select}>
+      <ZoomCanvas bounds={layout.bounds} cameraKey={cameraKey} initialFit={initialFit} focus={focus} onNavigate={navigate} onSelect={select}>
         {gallery.map((item, index) => <button key={index} type="button" data-zoom-target={index} aria-label={`View ${item.name}`} className="focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ct-accent)]"
           style={{ position: "absolute", left: layout.items[index].x, top: layout.items[index].y, width: layout.items[index].width, height: layout.items[index].height, padding: 0, border: 0, background: "transparent" }}
           onClick={() => select(index)}>
           {item.pending ? <DeferredLoader state="present" role="status" aria-label={`Loading ${item.name}`}>Loading…</DeferredLoader> : item.error ? <span role="status" aria-label={`${item.name} not available`} className="flex h-full w-full items-center justify-center border p-4 text-lg">Image not available</span> : <img src={item.src} alt={item.name} draggable={false} style={{ width: "100%", height: "100%", objectFit: "contain" }}
+            onError={() => measure(index, 800, 600)}
             onLoad={event => {
               const { naturalWidth: width, naturalHeight: height } = event.currentTarget;
               measure(index, width, height);

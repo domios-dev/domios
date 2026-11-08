@@ -68,12 +68,12 @@ fn credential_file(
         .mint_tab_credential(tab_id, nonce)
         .ok_or("launch changed before credential handoff")?;
     let path = service
-        .ensure_agent_pad(tab_id)?
-        .path()
-        .join(format!(".launch-credential-{}.txt", uuid::Uuid::new_v4()));
-    codeterm_util::private_file::write_atomic(&path, credential.as_bytes())
+        .ext::<crate::service::launch_credentials::Directory>()
+        .file_path(codeterm_util::tab_launch::HANDOFF_FILE_PREFIX, ".txt");
+    let file = CredentialFile(path);
+    codeterm_util::tab_launch::write_new(file.path(), credential.as_bytes())
         .map_err(|error| format!("launch credential handoff failed: {error}"))?;
-    Ok(CredentialFile(path))
+    Ok(file)
 }
 
 fn with_credential_file(command: &str, path: &Path, windows: bool) -> String {

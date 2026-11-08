@@ -22,7 +22,7 @@ pub use role_mutations::{
 mod pair_headers;
 mod remote_authority;
 pub(crate) mod spawn_ownership;
-mod spawn_rejection;
+pub(crate) mod spawn_rejection;
 mod spawn_request;
 mod worker_transfer;
 
@@ -93,6 +93,7 @@ pub struct SpawnAgentBody {
     system_prompt: Option<String>,
     preset: Option<String>,
     execution_mode: Option<String>,
+    launch_profile: Option<String>,
     charter: Option<String>,
     tick_interval_secs: Option<u64>,
     nudge_cooldown_secs: Option<u64>,
@@ -334,6 +335,7 @@ pub async fn spawn_agent(
         provider_id,
         params.model.as_deref(),
     )?;
+    spawn_rejection::validate_spawn_options(&state.svc, provider_id, &params).await?;
     let plan_task = params.plan_task.clone();
     let (ready_tx, ready_rx) = if require_delivery_ack {
         let (tx, rx) = tokio::sync::oneshot::channel();
@@ -753,18 +755,10 @@ pub async fn respond_prompt(
         .map_err(|error| (StatusCode::BAD_REQUEST, error.to_string()))?;
     let svc = state.svc.clone();
     let pid = tab_id.clone();
-    let outcome = tokio::task::spawn_blocking(move || match identity {
-        Some(identity) => svc.respond_prompt_with_identity(&pid, &value, &identity),
-        None => svc.respond_prompt(&pid, &value),
-    })
-    .await
-    .map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "respond_prompt task join failed".to_string(),
-        )
-    })?
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let outcome = svc
+        .respond_prompt_async(&pid, &value, identity.as_ref())
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(respond_prompt_response(outcome))
 }
 

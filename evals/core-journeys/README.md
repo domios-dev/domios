@@ -32,7 +32,8 @@ CODETERM_INSTANCE=curated CODETERM_API_PORT=7697 bash evals/core-journeys/run.sh
 CODETERM_INSTANCE=curated CODETERM_API_PORT=7697 bash evals/core-journeys/run.sh all --out OWNED_OUT \
   --model claude=EXACT_ADVERTISED_HAIKU_ID \
   --model opencode=deepseek/deepseek-flash \
-  --model codex=EXACT_ADVERTISED_CODEX_ID
+  --model codex=EXACT_ADVERTISED_CODEX_ID \
+  --model acp=gemini-cli
 node evals/core-journeys/lib/evidence-contract.mjs <run-dir>
 ```
 
@@ -67,7 +68,23 @@ bash evals/core-journeys/run.sh cleanup --out target-check/evals/cj-1
 ```
 
 Repeat `--model PROVIDER=ADVERTISED_ID` for **every installed provider**, including
-providers beyond the three required harnesses. Uppercase IDs above are live
+providers beyond the three required harnesses. Profile-backed providers use
+`--model acp=<profile>`, for example `--model acp=gemini-cli`. The bench validates
+the selection against `GET /api/agents/providers/acp/profiles` before configuration,
+every launch and later send. The profile must be declared, installed or detected,
+without a pending/failed setup or reported authentication requirement. An unknown
+auth state does not prove authentication; the real journey must still succeed.
+A missing selection refuses with the expected form and ready profile IDs;
+it never drops ACP from the roster.
+
+`--model acp=<profile>/<model>` selects an exact value from that profile's declared
+`configOptions` with category `model`. Model IDs may themselves contain slashes.
+`--model acp=<profile>` keeps the agent's default and passes no model override;
+`<profile>/default` also denotes that default when no model options are declared.
+The bench clears any instance-scoped model override for a profile-default launch.
+Every profile spawn and task dispatch passes `--profile`; an explicit model
+also passes `--model`. No vault key is read or copied by the bench: `gemini-cli`
+uses its existing `authEnv` injection. Uppercase IDs above are live
 preflight prerequisites, never literal IDs. The owner selects Claude Haiku only,
 OpenCode exactly `deepseek/deepseek-flash`, and an explicit normal Codex model.
 The selector is generic: exact provider-owned IDs are opaque, aliases and default
@@ -76,14 +93,19 @@ substitution are refused. Discover with the bench-scoped `dc agent providers
 Never invoke a raw CLI with inherited connection settings. For the operator
 commands, `MODELS` is a Bash array containing the same repeated `--model` pairs.
 
-Before first-run completion or any launch, the bench refreshes the catalogue,
+For providers with flat model catalogues, before first-run completion or any launch,
+the bench refreshes the catalogue,
 validates capability availability, persists instance-scoped provider defaults
 and the separate General model, and reads them back. A conflicting General
 override, missing selection, missing/unknown catalogue or unavailable model
 refuses before paid work. Static catalogues without live discovery are validated
 against their current advertised exact entries; a failed required live refresh
 never falls back to a cached entry. General, J1 spawn, both API/UI J2 pair roles
-and J3 dispatch receive explicit models. The UI checks both rendered selections
+and J3 dispatch receive explicit models. Profile-backed launches instead record
+the profile catalogue snapshot, exact launch profile and optional model separately.
+The required native harnesses remain the API/UI Team pair representatives, whose
+creation APIs do not support launch profiles. ACP still runs the complete J1 and
+restart journey. The UI checks both rendered selections
 before confirming. No global provider profile is changed.
 
 Prelaunch evidence proves what was requested and passed to the provider. It
@@ -91,9 +113,20 @@ cannot attest third-party execution. Before later sends or review bounces, exact
 requested, catalogue-resolved and actual own-session model identities must be
 known and equal. Only J1's initial input may precede runtime identity evidence;
 unknown or mismatched identity then refuses every later paid operation. A
-policy refusal is persisted and `all` exits 8 without restarting. Verify requires
+policy refusal is persisted and `all` exits 8 without restarting. An ordinary
+launch or send failure stays with that journey and does not become a global
+model-policy refusal; other correctly configured journeys continue. Verify requires
 the same explicit mapping, complete roster and persisted same-session identities;
-it refreshes catalogues again before restored sends. Historical partial Haiku
+it refreshes catalogues again before restored sends. Readiness means usable, and
+a restored tab's own session reports its model after that, so a restored identity
+whose other fields already agree waits, event-driven and for at most 30 s, for the
+actual model before any paid turn. A value that is merely not yet known persists no
+refusal; any disagreement refuses at once, and a model still unknown at the bound
+refuses as unconfirmable. Profile-default sessions
+validate their exact launch profile and own session; actual model identity is
+recorded only when reported, without claiming an explicit-model attestation.
+An explicitly selected profile model requires the same requested/resolved/actual
+evidence as a flat model. Historical partial Haiku
 or DeepSeek probes are not full-suite evidence.
 
 Flags: `--providers` may only repeat the complete installed roster; narrowing

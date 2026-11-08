@@ -19,6 +19,7 @@ pub(crate) struct EmbeddedDoc {
 }
 
 pub(crate) const DOCS: &[EmbeddedDoc] = &[
+    doc!("ACP", "Connect ACP agents: profiles, registry discovery, authentication and controls", "../../../prod-docs/ACP.md"),
     doc!("API-LIFECYCLE", "Exact local application Quit and cold update shutdown", "../../../prod-docs/API-LIFECYCLE.md"),
     doc!(
         "SPINAL-CORD",

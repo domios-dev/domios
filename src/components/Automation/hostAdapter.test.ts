@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { configureOrchestrationTransport } from "../../lib/transport/orchestrationRuntime";
 import { orchestrationTestClient } from "../../lib/transport/orchestration.testdata";
-import { hostAutomationAdapter, AUTOMATION_GRAPH_EVENT, BLUEPRINT_CHAT_CONNECTION, startPageGraphCache } from "./hostAdapter";
+import { hostAutomationAdapter, AUTOMATION_GRAPH_EVENT, BLUEPRINT_CHAT_CONNECTION, primeWorkspaceGraphs, startPageGraphCache } from "./hostAdapter";
 import { attachment, deferred, fixtureGraph, sentinelIdentity } from "./fixtures.testdata";
 import { ALL_JOBS_SCOPE, type AutomationGraph, type AutomationScope } from "./types";
 
@@ -92,9 +92,46 @@ async function main() {
     await hostAutomationAdapter.read({ ...workspace, connection_id: BLUEPRINT_CHAT_CONNECTION }, new AbortController().signal);
     assert.equal(changedAfterEvent, 1);
     assert.equal(reads.length, 3);
-    stopCache();
     console.log("✓ remounting tab surfaces share one event-refreshed workspace read; the Jobs view reads fresh");
-    console.log("7 hostAutomationAdapter cases passed");
+
+    const peek = hostAutomationAdapter.peek!;
+    assert.equal(peek({ ...attachment, connection_id: "sidebar", workspace_id: "unread" }), null);
+    assert.ok(peek({ ...workspace, connection_id: "sidebar" }), "a read workspace graph is known to a remounting surface");
+    assert.equal(peek({ ...workspace, connection_id: "jobs" }), null, "the Jobs view always starts from its own fresh read");
+    const derived = peek({ ...attachment, connection_id: "sidebar" });
+    assert.equal(derived?.team_id, attachment.team_id, "a Team surface starts from its workspace's all-Teams graph");
+    assert.equal(derived?.all_teams, false);
+    (globalThis as { window?: EventTarget }).window!.dispatchEvent(new Event("codeterm-peer-switch-reset"));
+    assert.equal(peek({ ...workspace, connection_id: "sidebar" }), null, "another machine's graph is never shown as known");
+    console.log("✓ last known graphs serve remounting surfaces, by exact scope or from the all-Teams read");
+
+    reads.length = 0;
+    const heldReads: Array<{ resolve: (graph: AutomationGraph) => void }> = [];
+    configureOrchestrationTransport(orchestrationTestClient(async <T,>(_method: string, path: string) => {
+      reads.push(path);
+      const read = deferred<AutomationGraph>();
+      heldReads.push(read);
+      return read.promise as Promise<T>;
+    }, () => () => {}));
+    const priming = primeWorkspaceGraphs(["w1", "w2"], new AbortController().signal);
+    await Promise.resolve();
+    assert.equal(reads.length, 1, "priming holds one read open at a time");
+    heldReads[0].resolve(fixtureGraph());
+    while (reads.length < 2) await new Promise<void>((resolve) => { setImmediate(resolve); });
+    assert.ok(reads[1].includes("workspace_id=w2"));
+    heldReads[1].resolve(fixtureGraph());
+    await priming;
+    assert.ok(peek({ connection_id: "sidebar", workspace_id: "w2", team_id: ALL_JOBS_SCOPE }));
+    const aborted = new AbortController();
+    aborted.abort();
+    reads.length = 0;
+    await primeWorkspaceGraphs(["w3"], aborted.signal);
+    assert.equal(reads.length, 0);
+    stopCache();
+    await primeWorkspaceGraphs(["w4"], new AbortController().signal);
+    assert.equal(reads.length, 0, "without a page cache there is nothing to prime");
+    console.log("✓ priming reads each workspace once, one at a time, and stops when asked");
+    console.log("9 hostAutomationAdapter cases passed");
   }
 }
 void main().catch((error: unknown) => { console.error(error); process.exitCode = 1; });

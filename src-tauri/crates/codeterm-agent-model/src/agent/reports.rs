@@ -117,8 +117,16 @@ impl AgentReport {
             (None, Some(task)) => lines.push(format!("task: {task}")),
             (None, None) => {}
         }
+        let transition_rejected = self
+            .report_outcome
+            .is_some_and(|outcome| outcome.rejects_task_transition());
         if let Some(status) = self.status {
-            if status == ReportStatus::Blocked {
+            if transition_rejected {
+                lines.push(format!(
+                    "status: Rejected ({} was requested; the task did not move)",
+                    status.label()
+                ));
+            } else if status == ReportStatus::Blocked {
                 lines.push(BLOCK_PROPOSAL_NOTICE.into());
             } else {
                 lines.push(format!("status: {}", status.label()));
@@ -148,7 +156,7 @@ impl AgentReport {
             &body,
             self.plan_id.as_deref(),
             self.task_id.as_deref(),
-            self.status,
+            self.status.filter(|_| !transition_rejected),
             self.timestamp,
         )
     }

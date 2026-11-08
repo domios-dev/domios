@@ -1,3 +1,5 @@
+mod profile_respawn;
+
 use super::*;
 use axum::http::HeaderMap;
 use codeterm_service_core::lock_hold::TimedRwLock;
@@ -536,6 +538,7 @@ fn lifecycle_reassignment_rest_respawn_defers_unverified_identity() {
             &plan.id,
             &task_id,
             codeterm_service_core::service::plan::task_attempts::TaskRespawnRequest {
+                launch_profile: None,
                 reasoning_effort: None,
                 attempt_id: source_attempt_id,
                 provider: None,

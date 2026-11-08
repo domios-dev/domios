@@ -1,5 +1,29 @@
 use super::*;
 
+#[test]
+fn provider_version_empty_and_unresolved_commands_are_never_probed() {
+    for binary in ["", " ", "\t", "domios-intentionally-absent-version-probe"] {
+        assert_eq!(
+            observe(binary),
+            VersionObservation::unknown(ProbeStatus::Missing)
+        );
+    }
+    assert_eq!(
+        probe(Path::new("")),
+        VersionObservation::unknown(ProbeStatus::Missing)
+    );
+    let root = tempfile::tempdir().unwrap();
+    assert_eq!(
+        probe(root.path()),
+        VersionObservation::unknown(ProbeStatus::Missing)
+    );
+    assert_eq!(
+        probe(&root.path().join("absent")),
+        VersionObservation::unknown(ProbeStatus::Missing)
+    );
+    assert!(crate::provider_command::command(Path::new("")).is_err());
+}
+
 fn identity(path: &str, revision: u64) -> BinaryIdentity {
     BinaryIdentity {
         path: path.into(),

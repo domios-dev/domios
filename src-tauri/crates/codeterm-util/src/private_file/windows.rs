@@ -33,12 +33,20 @@ pub(super) fn restrict(path: &Path) -> io::Result<()> {
 pub(super) fn mode_ok(path: &Path) -> io::Result<bool> {
     let user = CurrentUser::open()?;
     let (_descriptor, dacl) = read_dacl(path)?;
+    descriptor_mode_ok(&_descriptor, dacl, &user)
+}
+
+pub(super) fn descriptor_mode_ok(
+    descriptor: &LocalAllocation,
+    dacl: *mut ACL,
+    user: &CurrentUser,
+) -> io::Result<bool> {
     if dacl.is_null() {
         return Ok(false);
     }
 
     let (mut control, mut revision) = (0u16, 0u32);
-    let descriptor = _descriptor.0;
+    let descriptor = descriptor.0;
     if unsafe { GetSecurityDescriptorControl(descriptor, &mut control, &mut revision) } == 0 {
         return Err(io::Error::last_os_error());
     }

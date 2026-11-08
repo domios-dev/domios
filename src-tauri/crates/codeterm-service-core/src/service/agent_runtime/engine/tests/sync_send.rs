@@ -33,7 +33,7 @@ pub(in crate::service::agent_runtime) fn runtime_fixture(
     runtime_fixture_with(RUNTIME_FIXTURE_SOURCE)
 }
 
-pub(in crate::service::agent_runtime::engine) fn runtime_fixture_with(
+pub(in crate::service::agent_runtime) fn runtime_fixture_with(
     source: &str,
 ) -> (ServiceFixture, String, tokio::io::DuplexStream, Cleanup) {
     runtime_fixture_with_notifications(source, &[])
@@ -43,19 +43,45 @@ pub(super) fn runtime_fixture_with_notifications(
     source: &str,
     notifications: &[&str],
 ) -> (ServiceFixture, String, tokio::io::DuplexStream, Cleanup) {
-    runtime_fixture_options(source, notifications, false)
+    runtime_fixture_options(source, notifications, false, true, false, false)
+}
+
+pub(in crate::service::agent_runtime) fn runtime_fixture_host_approvals(
+) -> (ServiceFixture, String, tokio::io::DuplexStream, Cleanup) {
+    runtime_fixture_host_approvals_with(RUNTIME_FIXTURE_SOURCE)
+}
+
+pub(in crate::service::agent_runtime) fn runtime_fixture_host_approvals_with(
+    source: &str,
+) -> (ServiceFixture, String, tokio::io::DuplexStream, Cleanup) {
+    runtime_fixture_options(source, &[], false, true, false, true)
 }
 
 pub(super) fn runtime_fixture_with_stored_history(
     source: &str,
 ) -> (ServiceFixture, String, tokio::io::DuplexStream, Cleanup) {
-    runtime_fixture_options(source, &[], true)
+    runtime_fixture_options(source, &[], true, true, false, false)
+}
+
+pub(super) fn runtime_fixture_without_remote_history(
+    source: &str,
+) -> (ServiceFixture, String, tokio::io::DuplexStream, Cleanup) {
+    runtime_fixture_options(source, &[], true, false, false, false)
+}
+
+pub(in crate::service::agent_runtime) fn runtime_fixture_turn_scoped(
+    source: &str,
+) -> (ServiceFixture, String, tokio::io::DuplexStream, Cleanup) {
+    runtime_fixture_options(source, &[], false, true, true, false)
 }
 
 fn runtime_fixture_options(
     source: &str,
     notifications: &[&str],
     stored_history: bool,
+    remote_history: bool,
+    turn_scoped: bool,
+    host_approvals: bool,
 ) -> (ServiceFixture, String, tokio::io::DuplexStream, Cleanup) {
     const PROVIDER: &str = "sync-send-fixture";
     let (mut mux, tab_id) = MultiplexerState::new();
@@ -77,14 +103,30 @@ fn runtime_fixture_options(
     };
     let fixture = ServiceFixture::new(mux);
 
-    let manifest = PluginManifest::from_json_str(&json!({
+    let mut manifest = json!({
         "id":PROVIDER,"version":"1.0.0","displayName":"Fixture",
         "capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},
             "agentRuntime":{"runtime":"stdio-jsonrpc","storedHistory":stored_history,"command":{"binary":"fixture-cli","args":[]},
                 "login":{"methods":["browser","device","apiKey"]},
                 "requestMethods":{"control":["fixture/control"],"initialize":["fixture/initialize"],"openThread":["fixture/open"],"resumeThread":["fixture/resume"],"readHistory":["fixture/history"],"submitTurn":["fixture/submit"]},"notificationMethods":notifications}},
         "permissions":{"subprocess":{"allow":["fixture-cli"]}}
-    }).to_string()).unwrap();
+    });
+    if turn_scoped {
+        manifest["capabilities"]["agentRuntime"]["turnScopedRequests"] = json!(["submitTurn"]);
+        manifest["capabilities"]["agentRuntime"]["interrupt"] = json!({"beforeFirstTurn":true});
+        manifest["capabilities"]["agentRuntime"]["requestMethods"]["interrupt"] =
+            json!(["fixture/cancel"]);
+    }
+    if host_approvals {
+        manifest["capabilities"]["agentRuntime"]["hostApprovals"] = json!(true);
+    }
+    if !remote_history {
+        manifest["capabilities"]["agentRuntime"]["requestMethods"]
+            .as_object_mut()
+            .unwrap()
+            .remove("readHistory");
+    }
+    let manifest = PluginManifest::from_json_str(&manifest.to_string()).unwrap();
     fixture
         .service
         .agent_registry
@@ -111,7 +153,7 @@ pub(super) fn attach_runtime_peer(
         .agent_registry
         .provider_arc(&provider)
         .unwrap();
-    let (process, peer) = crate::async_runtime::block_on(async {
+    let (process, peer) = {
         let (host, peer) = tokio::io::duplex(65536);
         let (reader, writer) = tokio::io::split(host);
         (
@@ -120,7 +162,7 @@ pub(super) fn attach_runtime_peer(
             ))),
             peer,
         )
-    });
+    };
     let mut state = RuntimeState::unloaded(Some(thread.clone()));
     let epoch = state.begin();
     assert!(state.load(epoch, &thread));
@@ -150,11 +192,15 @@ pub(super) fn attach_runtime_peer(
         login: Mutex::new(Default::default()),
         auth: Mutex::new(RuntimeAuthState::SignedIn),
         thread_loaded: std::sync::atomic::AtomicBool::new(true),
+        stream_progress: tokio::sync::watch::channel(0).0,
+        turn_requests: Mutex::new(HashMap::new()),
         hook_state: Mutex::new(Value::Null),
         maps: Mutex::new(super::super::super::events::RuntimeMaps::default()),
         provider_operation_failures: std::sync::atomic::AtomicU32::new(0),
         bookkeeping_warning_emitted: std::sync::atomic::AtomicBool::new(false),
+        transcript_io: Default::default(),
         prompts: Mutex::new(HashMap::new()),
+        prompts_cancelled: std::sync::atomic::AtomicBool::new(false),
         process: crate::service::agent_runtime::process_slot::ProcessSlot::new(Some(process)),
         gate: tokio::sync::Semaphore::new(1),
         initialization: Default::default(),

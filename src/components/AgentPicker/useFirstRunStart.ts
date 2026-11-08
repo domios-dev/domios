@@ -20,7 +20,7 @@ export function useFirstRunStart(show: (target: TabRef) => Promise<void> | void,
     attempt.current = current;
     transition(install ? "install" : "start");
     setError(null);
-    setProgress(install ? "Installing provider…" : "Starting General agent…");
+    setProgress(install ? "Installing harness…" : "Starting General agent…");
     let target: TabRef | null = null;
     const stages = new Map<string, TabBootStageEvent>();
     const settle = (event: TabBootStageEvent) => {

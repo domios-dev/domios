@@ -17,8 +17,8 @@ pub use model_identity::{
     SessionModelIdentity,
 };
 pub use restorable_launch::{
-    ReasoningEffortIdentity, RestorableLaunchParameters, RestorableRuntimeLaunchOptions,
-    RestorableWorkerTurn, WorkerRestartState,
+    HostApprovalChoice, ReasoningEffortIdentity, RestorableLaunchParameters,
+    RestorableRuntimeLaunchOptions, RestorableWorkerTurn, WorkerRestartState,
 };
 pub use turn_resume::{
     observe_turn, request_continue, request_continue_for_restored_start, request_continue_from,
@@ -1049,11 +1049,15 @@ impl Tab {
 
     pub fn archive_context_epoch(&mut self, provider: &str, session_id: &str) {
         let cwd = self.cwd.clone().unwrap_or_default();
+        let transport = match self.backing {
+            TabBacking::ChatBackend { .. } => ContextEpochTransport::ChatBackend,
+            _ => ContextEpochTransport::AgentProvider,
+        };
         self.archive_provider_session(
             provider,
             &cwd,
             session_id,
-            ContextEpochTransport::AgentProvider,
+            transport,
             ContextEpochBoundary::ContextReset,
         );
     }

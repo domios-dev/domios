@@ -303,10 +303,22 @@ pub(super) fn dispatch(
 
         "agents.cli_status" => {
             let provider = get_string_param(params, "provider")?;
-            codeterm_service_core::service::provider_cli::provider_cli_status(
+            let refresh = match params.as_ref().and_then(|params| params.get("refresh")) {
+                None => false,
+                Some(Value::Bool(refresh)) => *refresh,
+                Some(_) => {
+                    return Err(JsonRpcError {
+                        code: -32602,
+                        message: "refresh must be a boolean".into(),
+                        data: None,
+                    })
+                }
+            };
+            codeterm_service_core::service::provider_cli::provider_cli_status_with_refresh(
                 &svc.provider_registry,
                 &provider,
                 codeterm_service_core::agent::provider::current_platform_tag(),
+                refresh,
             )
             .and_then(|status| serde_json::to_value(status).map_err(|e| e.to_string()))
             .map_err(|message| JsonRpcError {
@@ -387,7 +399,7 @@ pub(super) fn dispatch(
                     let source = m.get_tab(src);
                     (
                         m.display_label_for_tab(src),
-                        source.and_then(|tab| tab.agent_session_model.clone()),
+                        source.and_then(|tab| tab.agent_session_model_label()),
                         source.is_some_and(|tab| tab.agent_type.is_some() || tab.agent_booting),
                     )
                 };

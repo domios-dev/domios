@@ -305,9 +305,9 @@ it("retains byte cursors across a capacity end and decodes once for multiple sin
     expect(window.__outputStreamPerf.bytes).toBe(3);
     decode.mockRestore();
     end({ reason: "capacity", bytes: 2097153 });
-    expect(errors).toHaveBeenCalledTimes(2);
-    expect(paths).toHaveLength(1);
-    output.pokeOutputStream();
+    // A lagging client that made progress resumes at once from its delivered cursor.
+    expect(errors).not.toHaveBeenCalled();
+    expect(paths).toHaveLength(2);
     const since = new URL(paths[1], "http://daemon.test").searchParams.get("since")!;
     expect(JSON.parse(atob(since.replace(/-/g, "+").replace(/_/g, "/")))).toEqual({ boot: "boot", tabs: { t: 3 } });
     receive("message", { tab_id: "t", pty_id: "p", boot: "boot", offset: 3, b64: "AP_i" });

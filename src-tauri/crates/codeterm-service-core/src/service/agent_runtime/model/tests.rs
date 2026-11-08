@@ -646,3 +646,99 @@ fn responsiveness_first_live_item_does_not_follow_foreign_or_later_items() {
         params:serde_json::json!({"threadId":"session","turnId":"turn","itemId":"item","delta":"opaque"}) });
     assert_eq!(trace.counts(), (2, 0, false));
 }
+
+#[test]
+fn cached_backfill_completes_without_discarding_history_or_live_rows() {
+    let mut cache = ItemCache::default();
+    cache.reconcile_backfill(vec![ChatMsg {
+        id: "history".into(),
+        content: "Stored".into(),
+        ..Default::default()
+    }]);
+    cache.reconcile(ChatMsg {
+        id: "live".into(),
+        content: "Live".into(),
+        ..Default::default()
+    });
+    let before = cache.snapshot();
+    let generation = cache.begin_cached_backfill();
+    assert!(cache.finish_backfill(generation, HistoryBackfill::Complete));
+    assert_eq!(cache.snapshot(), before);
+    assert_eq!(cache.backfill(), HistoryBackfill::Complete);
+    assert_eq!(cache.history_pages(), 0);
+}
+
+#[test]
+fn deadline_failure_code_survives_snapshot_and_clears_on_new_attempt() {
+    let mut state = RuntimeState::unloaded(None);
+    let epoch = state.begin();
+    state.degrade(epoch, &RuntimeFailure::Deadline);
+    let snapshot = state.snapshot();
+    assert!(runtime_failure_pending(snapshot.failure_code));
+    assert_eq!(
+        serde_json::to_value(snapshot).unwrap()["failureCode"],
+        "deadline"
+    );
+    state.begin();
+    assert!(!runtime_failure_pending(state.snapshot().failure_code));
+    assert!(!runtime_failure_pending(Some(
+        codeterm_plugin::agent_runtime::RuntimeFailureCode::ProtocolError
+    )));
+}
+
+#[test]
+fn a_settings_reply_can_end_a_turn_but_never_open_one() {
+    use codeterm_plugin::agent_runtime::{AgentRuntimeEvent, RuntimeOperation, RuntimeTurnState};
+    let control = |action: &str| RuntimeOperation::Control {
+        thread_id: Some("own".into()),
+        action: action.into(),
+        value: serde_json::Value::Null,
+    };
+    let turn = |state| AgentRuntimeEvent::TurnState {
+        thread_id: "own".into(),
+        turn_id: Some("turn".into()),
+        parent_thread_id: None,
+        state,
+        detail: None,
+        status_line: None,
+        started_at: None,
+        completed_at: None,
+    };
+    for action in ["mode", "config", "settings"] {
+        assert!(!reply_may_report_turn(
+            &control(action),
+            &turn(RuntimeTurnState::Working)
+        ));
+        assert!(!reply_may_report_turn(
+            &control(action),
+            &turn(RuntimeTurnState::NeedsInput)
+        ));
+        assert!(reply_may_report_turn(
+            &control(action),
+            &turn(RuntimeTurnState::Idle)
+        ));
+    }
+    assert!(reply_may_report_turn(
+        &control("compact"),
+        &turn(RuntimeTurnState::Working)
+    ));
+    assert!(reply_may_report_turn(
+        &RuntimeOperation::Interrupt {
+            thread_id: "own".into(),
+            active_turn_id: None,
+        },
+        &turn(RuntimeTurnState::Working)
+    ));
+}
+
+#[test]
+fn degrading_ends_turn_timing_but_a_sign_in_wait_keeps_it() {
+    let mut state = RuntimeState::unloaded(Some("own".into()));
+    let epoch = state.begin();
+    state.working(false, 5, None);
+    assert!(state.degrade(epoch, &RuntimeFailure::SignInRequired));
+    assert_eq!(state.active_turn_started_at_ms, Some(5));
+    assert!(state.degrade(epoch, &RuntimeFailure::Deadline));
+    assert_eq!(state.active_turn_started_at_ms, None);
+    assert!(state.snapshot().active_turn_started_at_ms.is_none());
+}

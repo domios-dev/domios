@@ -3,6 +3,9 @@ use windows_sys::Win32::{
     System::{JobObjects::*, Threading::*},
 };
 
+mod probe_child;
+pub use probe_child::ProbeChild;
+
 /// A kill-on-close job: closing its last handle (even by process death) kills every member.
 pub struct Job(usize);
 impl Job {
@@ -28,6 +31,14 @@ impl Job {
     }
 
     fn contain_handle(process: HANDLE) -> Result<Self, String> {
+        let job = Self::new()?;
+        if unsafe { AssignProcessToJobObject(job.0 as HANDLE, process) } == 0 {
+            return Err(std::io::Error::last_os_error().to_string());
+        }
+        Ok(job)
+    }
+
+    fn new() -> Result<Self, String> {
         let handle = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
         if handle.is_null() {
             return Err(std::io::Error::last_os_error().to_string());
@@ -43,7 +54,6 @@ impl Job {
                 std::mem::size_of_val(&limits) as u32,
             )
         } == 0
-            || unsafe { AssignProcessToJobObject(handle, process) } == 0
         {
             return Err(std::io::Error::last_os_error().to_string());
         }

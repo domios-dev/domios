@@ -1,7 +1,8 @@
+import { createChatErrorNotice } from "./chatErrorNotice";
 import { DEV_BUILD } from "../../lib/devBuild";
 import { useProviderPromptLifecycle } from "./useProviderPromptLifecycle";
 import { tabActivity } from "../../lib/tabActivity";
-import { createNoticePublisher } from "../../lib/notices";
+
 import { useLatestCallback } from "../../hooks/useLatestCallback";
 import { useChatTabNameResolver } from "./useChatTabNameResolver";
 import { isInputBlockedTab } from "../../lib/tabInputPolicy";
@@ -10,18 +11,20 @@ import { useTabLock } from "../billing/useTabLock";
 import { ChildTranscriptScope } from "./ChildTranscriptScope";
 import { chatLayoutTokens } from "./chatLayoutTokens";
 import { RuntimeQuestionCard } from "./RuntimeQuestionCard";
+import { ChatColumn } from "./ChatColumn";
 import { heldMessagesForLaunch } from "./chatSetupModel";
 import { useComposerPresentation } from "./useComposerPresentation";
+import { RuntimeLoginActions, signInPlacement } from "./RuntimeLoginActions";
 import { ComposerIssuesProvider } from "./ComposerIssuesContext";
 import { runtimeResponseDeadlinePending, runtimeStatusPresentation } from "../../lib/agentRuntimeState";
 import { useAgentRuntimeState } from "./useAgentRuntimeState";
 import { manualPendingPrompt, promptMessagePart, promptResponseArgs } from "../../lib/promptAnswers";
-import { CHAT_ERROR_TOAST_LIFETIME_MS } from "../Notifications/toastLifetime";
+
 import { ThreadRevertConfirmation } from "./ThreadRevertConfirmation";
 import { forkableTurnEnds } from "./messageForkModel";
 import { AskRow, ChatTranscriptRow, OutboundReportRow, type ChatTranscriptRowContext, type OutboundReportEntry } from "./ChatTranscriptRow";
 import { chatWindowRows } from "./chatWindowRowsModel";
-import { projectChatTranscriptActivity } from "./chatTranscriptActivity";
+import { composerRunningTool, liveOperationSlot, projectChatTranscriptActivity } from "./chatTranscriptActivity";
 import { ChatLiveOperation } from "./ChatLiveOperation";
 import { CompactToolRowsProvider, LocalArtifactScope } from "@codeterm/chat-ui";
 import { chatMessageAccessibleName } from "./chatMessageAccessibleName";
@@ -33,6 +36,7 @@ import { invoke } from "../../lib/bridge";
 import {
   chatDaySeparators,
   chatLocalDay,
+  isUndatedTranscriptRow,
   messageRowTime,
   isSessionIntentOnlyMessage,
 } from "@codeterm/chat-ui";
@@ -56,7 +60,7 @@ import {
 import { useTabProvider, useShellSessionModel } from "../../lib/useTabProvider";
 import { getAgentDescriptor } from "../../lib/agentDescriptorCache";
 import { formatModelBadge } from "../../lib/formatModelBadge";
-import { statusLineModelName } from "./statusLinePickerModel";
+import { runtimeStatusLineIdentity, statusLineModelName } from "./statusLinePickerModel";
 import { usePlanIndexOptional } from "../Canvas/PlansProvider";
 import { usePlanTargetNavigation } from "../Canvas/teamViewNavigation";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
@@ -93,9 +97,11 @@ import { resolveTabNavigationTarget } from "./tabNavigation";
 import { useMeshPeerNameResolver } from "./useMeshPeerNameResolver";
 import { useAgentReportProjection } from "./agentReportProjection";
 import { readTranscriptWindow, transcriptWindowKey } from "./transcriptStore";
-import { chatBodyView, chatChannelLoadingRow, chatRailsVisible, placeChatRails } from "./chatBodyVisibility";
+import { chatBodyView, chatChannelLoadingRow, chatRailsVisible, chatRowsPartial, placeChatRails, setupFlowsInLog } from "./chatBodyVisibility";
 import { lazyFirstTurnComposerIsLive } from "../../lib/tabActivity";
-import { firstTurnLocalSends, isFirstTurnLocalRow } from "./firstTurnLocalRows";
+import { firstTurnLocalSends, isLocalSendRow, sendsOfCurrentAttempt } from "./firstTurnLocalRows";
+import { TabRecoveryAction } from "./TabRecoveryAction";
+import { dockedTabFailure } from "../../lib/restoreStageView";
 import { messageTimeMs, normalizeEpochMs } from "./outboundReportPlacement";
 import { useChatMessageReveal } from "./useChatMessageReveal";
 import { useSessionBindingSurface } from "./useSessionBindingSurface";
@@ -106,7 +112,7 @@ import { interruptAgentArgs } from "../../lib/agentInterrupt";
 import { useTabChoiceHost } from "./useTabChoiceHost";
 import { ChatMessageRow } from "./ChatMessageRow";
 import { HoldWhileHidden } from "./HoldWhileHidden";
-import { awaitsTranscriptEcho, deliveryPresentation, sendForRow } from "./chatDeliveryModel";
+import { awaitsTranscriptEcho, deliveryPresentation, queuedBehindTurn, sendForRow, undeliveredSends, waitsAfterTurn } from "./chatDeliveryModel";
 import { beginChatSendRetry, failChatSendRequest, useChatSendSnapshot } from "./chatSendStore";
 import { deleteTrackedChatMessage, sendTrackedChatMessage } from "./chatSendStatus";
 import { prepareChatDelivery } from "./chatDeliveryPreparation";
@@ -138,20 +144,6 @@ const NO_RAIL_INDICES: readonly number[] = [];
 const NO_REPORTS: readonly OutboundReportEntry[] = [];
 const NO_ASKS: readonly Notification[] = [];
 
-function isMicrophonePermissionError(message: string): boolean {
-  const normalized = message.toLowerCase();
-  if (normalized.includes("needs https")) return false;
-  return (
-    normalized.includes("microphone") ||
-    normalized.includes("mic api") ||
-    normalized.includes("media device") ||
-    normalized.includes("getusermedia") ||
-    normalized.includes("notallowederror") ||
-    normalized.includes("denied permission") ||
-    normalized.includes("permission denied") ||
-    normalized.includes("not allowed by the user agent")
-  );
-}
 
 function OriginProviderAvatar({ providerId }: { providerId: string | null | undefined }) {
   if (!providerId) return null;
@@ -210,7 +202,7 @@ function TabSessionChatBody({
   }
 
   const touchMode = useTouchOptimizedUi();
-  const { sends: deliverySends } = useChatSendSnapshot(tabId);
+  const { sends: deliverySends, unownedHeld } = useChatSendSnapshot(tabId);
   const { expand: expandDeliveryTasks, plansSink: deliveryPlansSink } = useDsTasksExpander(tabId);
   const tabBlockHost = useTabChatBlockHost(tabId);
   const lastStopAtRef = useRef(0);
@@ -218,7 +210,7 @@ function TabSessionChatBody({
   const floatingBottomInset = useChatLayoutInsets(chatRootRef);
   const chatFollowTailRef = useRef(true);
 
-  const { setFocusedTab, selectTabByTab, upsertToast, answerNotification } = useMultiplexer();
+  const { setFocusedTab, selectTabByTab, upsertToast, dismissToast, answerNotification } = useMultiplexer();
   const openPlanTarget = usePlanTargetNavigation();
   const tabSelector = useLatestCallback((s: Parameters<typeof selectTab>[0]) => selectTab(s, tabId), [tabId]);
   const tab = useMuxSelector(tabSelector, tabFieldsEqual);
@@ -265,18 +257,8 @@ function TabSessionChatBody({
   const resolvePeerName = useMeshPeerNameResolver(isActive);
   const resolvePluginName = usePluginDisplayNameResolver();
 
-  const showComposerError = useLatestCallback((message: string) => {
-    createNoticePublisher({ upsertToast })({ kind: "toast", tabId: tabId,
-      workspaceId: null,
-      title: isMicrophonePermissionError(message)
-        ? "Microphone unavailable"
-        : "Chat error",
-      detail: isMicrophonePermissionError(message)
-        ? `${message} Open microphone permissions in Settings if needed.`
-        : message,
-      severity: "Error",
-      lifetimeMs: CHAT_ERROR_TOAST_LIFETIME_MS });
-  }, [upsertToast, tabId]);
+  const composerErrorNotice = useMemo(() => createChatErrorNotice(tabId, { upsertToast, dismissToast }), [tabId, upsertToast, dismissToast]);
+  const showComposerError = composerErrorNotice.show;
 
   const {
     loading,
@@ -318,6 +300,10 @@ function TabSessionChatBody({
     history: runtime.state?.history,
     live: isActive || awaitsTranscriptEcho(deliverySends),
   });
+  const transcriptTailId = allMessages[allMessages.length - 1]?.id;
+  useEffect(() => {
+    if (attachmentState === "attached" && !recovering && !error) composerErrorNotice.recover();
+  }, [composerErrorNotice, attachmentState, recovering, error, transcriptTailId]);
   const retryChatDelivery = useLatestCallback(async (id: string) => {
     const send = beginChatSendRetry(tabId, id);
     if (!send) return;
@@ -364,14 +350,23 @@ function TabSessionChatBody({
     state: runtime.state, retry: runtime.retry, startupOwned: !snapshotReady || bootSetupView.kind === "starting",
     iconSvg: provider?.iconSvg, messages: allMessages });
   const runtimeReplacement = runtimeUnavailable ? runtimeBadge : undefined;
+  // Any harness that must sign in shows one card in the chat area: centred while the chat is empty, a calm notice above
+  // the composer once there is a conversation. Never inside the composer group.
+  const signIn = signInPlacement(runtime.state, hasTranscript);
+  const signInState = signIn ? runtime.state : null;
   const runtimeFailed = runtime.state?.state === "unloaded" || runtime.state?.state === "degraded";
   const remoteChatReconnecting = tab?.remote_channels?.chat === "reconnecting";
   const chatChannelLoading = !firstTurnReady && !tabLock.locked && attachmentState !== "failed" && !runtimeFailed && (loading || recovering || (!hasTranscript && remoteChatReconnecting));
   const chatLoading = chatChannelLoading;
+  const restoreLoadRefused = runtime.state?.state === "degraded" && runtime.state.failureCode === "session_load_refused";
+  const undelivered = useMemo(() => sendsOfCurrentAttempt(undeliveredSends(deliverySends), tab?.pty_id, tab?.session_binding_nonce),
+    [deliverySends, tab?.pty_id, tab?.session_binding_nonce]);
   const setupView = runtimeUnavailable && snapshotReady && !tabLock.locked && attachmentState !== "failed" && bootSetupView.kind !== "launch_failed" ? { kind: "none" as const } : chatBodyView({
+    restoreLoadRefused,
     firstTurnReady,
     hasTranscript,
     hasHeldWindow,
+    hasUndeliveredSends: undelivered.length > 0,
     snapshotReady,
     chatLoading,
     unavailable: transcriptUnavailable,
@@ -381,11 +376,12 @@ function TabSessionChatBody({
   });
 
   const renderedEnrichedMessages = useMemo(
-    () => setupView.kind !== "none" ? [] : chatWindowRows(enrichedMessages.filter(({ msg }) =>
-      !isSessionIntentOnlyMessage(msg) && (snapshotReady || !firstTurnReady || isFirstTurnLocalRow(msg, localFirstTurnSends)))),
-    [enrichedMessages, setupView.kind, snapshotReady, firstTurnReady, localFirstTurnSends],
+    () => chatWindowRows(enrichedMessages.filter(({ msg }) => setupView.kind !== "none" ? isLocalSendRow(msg, undelivered)
+      : !isSessionIntentOnlyMessage(msg) && (snapshotReady || !firstTurnReady || isLocalSendRow(msg, localFirstTurnSends)))),
+    [enrichedMessages, setupView.kind, snapshotReady, firstTurnReady, localFirstTurnSends, undelivered],
   );
-  const transcriptActivityAvailable = setupView.kind === "none" && !chatLoading;
+  const setupInLog = setupFlowsInLog(setupView, restoreLoadRefused, renderedEnrichedMessages.length > 0);
+  const transcriptActivityAvailable = setupView.kind === "none" && !chatLoading && !runtimeFailed;
   const chatTranscriptActivity = useMemo(
     () => projectChatTranscriptActivity(
       renderedEnrichedMessages,
@@ -398,6 +394,10 @@ function TabSessionChatBody({
   );
   const sharedScrollRef = useRef<HTMLDivElement | null>(null);
   const liveOperation = renderedEnrichedMessages.find(({ msg }) => msg.id === chatTranscriptActivity.liveToolId)?.msg ?? null;
+  const liveSlotId = useMemo(() => liveOperationSlot(renderedEnrichedMessages, liveOperation?.id ?? null, (msg) => {
+    const send = sendForRow(deliverySends, msg);
+    return send != null && waitsAfterTurn(send);
+  }), [renderedEnrichedMessages, liveOperation?.id, deliverySends]);
   const chatUserScrollingRef = useRef(false);
   const mountedWindow = useMountedChatWindow({ rows: renderedEnrichedMessages, scrollRef: sharedScrollRef,
     active: transcriptMounted, followTailRef: chatFollowTailRef, sessionKey: `${tabId}:${agentSessionId ?? ""}`, userScrollingRef: chatUserScrollingRef });
@@ -487,6 +487,7 @@ function TabSessionChatBody({
       try {
         await invoke("mux_respond_prompt", promptResponseArgs(tabId, value, pendingPrompt, tab?.pending_prompt_kind ?? "structured"));
         promptLifecycle.resolve(promptLifecycle.key);
+        composerErrorNotice.recover();
       } catch (error) {
         setAnsweredPromptQuestion(null);
         showComposerError(error instanceof Error ? error.message : String(error));
@@ -495,7 +496,7 @@ function TabSessionChatBody({
         promptResponseInFlight.current = false;
       }
     },
-    [pendingPrompt, structuredPrompts, tabId, tab?.pending_prompt_kind, showComposerError, promptLifecycle.key, promptLifecycle.resolve],
+    [pendingPrompt, structuredPrompts, tabId, tab?.pending_prompt_kind, showComposerError, promptLifecycle.key, promptLifecycle.resolve, composerErrorNotice],
   );
   // input path the composer uses; jump surfaces the live terminal output.
   const handleRerunShellCommand = useLatestCallback((command: string) => {
@@ -530,10 +531,10 @@ function TabSessionChatBody({
       return;
     }
     lastStopAtRef.current = now;
-    void invoke("interrupt_agent", args).catch((e) =>
+    void invoke("interrupt_agent", args).then(composerErrorNotice.recover).catch((e) =>
       showComposerError(e instanceof Error ? e.message : String(e)),
     );
-  }, [interruptTarget, showComposerError]);
+  }, [interruptTarget, showComposerError, composerErrorNotice]);
 
   const openJobs = useLatestCallback(() => {
     window.dispatchEvent(new CustomEvent("codeterm:open-panel", { detail: { panel: "settings:jobs" } }));
@@ -596,11 +597,12 @@ function TabSessionChatBody({
   // The sender's own transcript never contains the report it just sent, so the
   // outbound card comes from the accepted-report event, keyed by report_id.
   const outboundReports = useMemo<
-    Array<{ targetTabId: string; at: number | null; descriptor: OutboundReportDescriptor }>
+    Array<{ targetTabId: string; at: number | null; position: { source_session_id: string; message_id: string } | null; descriptor: OutboundReportDescriptor }>
   >(
     () => reportProjection.outbound.map((report) => ({
       targetTabId: report.targetTabId,
       at: report.timestamp,
+      position: report.senderPosition,
       descriptor: {
         reportId: report.reportId,
         recipient: tabTitleMap.get(report.targetTabId.slice(0, 8)) ?? report.targetTabId.slice(0, 8),
@@ -629,10 +631,12 @@ function TabSessionChatBody({
   };
 
   const localToday = chatLocalDay(Date.now(), CHAT_TIME_ZONE);
+  const rowsPartial = chatRowsPartial(setupView, { snapshotReady, hasHeldWindow, firstTurnReady });
   const daySeparators = useMemo(() => chatDaySeparators(renderedEnrichedMessages.map(({ msg, item, origin }) => messageRowTime(msg, item, origin)?.timestamp ?? null), {
     now: Date.now(), timeZone: CHAT_TIME_ZONE,
     labels: { today: "Today", yesterday: "Yesterday" },
-  }), [renderedEnrichedMessages, localToday]);
+  }, (index) => isUndatedTranscriptRow(renderedEnrichedMessages[index].msg, renderedEnrichedMessages[index].item), rowsPartial),
+  [renderedEnrichedMessages, localToday, rowsPartial]);
   const streamingId = streamingMessageId(renderedEnrichedMessages, agentActivity.active);
   const messageSelection = useChatMessageSelection({ tabId, rows: renderedEnrichedMessages, agent: tab?.title || provider?.displayName || "Agent", surfaceRef: scrollRef, streamingMessageId: streamingId, prepareMessage: mountedWindow.prepareMessage, contentVersion: mountedContentVersion });
   const jumpToQuoted = useLatestCallback((messageId: string) => { requestChatMessageReveal(tabId, messageId); }, [tabId]);
@@ -646,9 +650,14 @@ function TabSessionChatBody({
       messages: renderedEnrichedMessages,
       messageTimeMs: ({ msg }) => messageTimeMs(msg.timestamp),
       reportTimes: outboundReports.map((report) => report.at),
+      reportPositions: {
+        sourceMessageIds: allMessages.map(msg => msg.sourceMessageId ?? msg.id),
+        messageId: ({ msg }) => msg.sourceMessageId ?? msg.id,
+        reportMessageIds: outboundReports.map(report => report.position?.source_session_id === agentSessionId ? report.position.message_id : null),
+      },
       askTimes: asks.map((ask) => normalizeEpochMs(ask.timestamp)),
     }),
-    [asks, outboundReports, railsVisible, renderedEnrichedMessages],
+    [agentSessionId, allMessages, asks, outboundReports, railsVisible, renderedEnrichedMessages],
   );
   const deferredPlanRefMessages = useDeferredValue(enrichedMessages);
   // Record the visible tail after paint so diagnostics do not overstate progress
@@ -862,7 +871,22 @@ function TabSessionChatBody({
     onOpenTerminalFallback, handleJumpToShellCommand, resolveFocusTab, jumpToQuoted, answerNotification, deleteSend, retryChatDelivery,
     forkFrom, revertTo]);
 
-  const showEmptyState = setupView.kind === "none"
+  const setupState = (<ChatSetupState
+          visible={isActive}
+          waitingMessages={heldMessagesForLaunch(deliverySends)}
+          workspace={planNav.workspaces.find(workspace => workspace.id === workspaceId)}
+          tab={tab}
+          view={setupView}
+          providerName={provider?.displayName ?? "the agent"}
+          providerIconSvg={provider?.iconSvg}
+          providerIconColor={provider?.iconColor}
+          providerIconHint={provider?.iconHint}
+          onEscape={focusComposer}
+          onRetry={retryAttachment}
+          lock={tabLock}
+          inLog={setupInLog}
+        />);
+  const showEmptyState = !restoreLoadRefused && setupView.kind === "none"
     && !chatLoading
     && renderedEnrichedMessages.length === 0
     && outboundReports.length === 0
@@ -910,14 +934,20 @@ function TabSessionChatBody({
         </div>
       )}
       <div className="relative flex-1 min-h-0">
-      {showEmptyState && (
+      {signInState && signIn === "center" && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center overflow-y-auto p-4" data-testid="chat-sign-in">
+          <RuntimeLoginActions key={`${tabId}:${signInState.epoch}`} variant="center" tabId={tabId} state={signInState}
+            iconSvg={provider?.iconSvg} providerId={tabProvider ?? undefined} onCheck={() => { void runtime.retry(); }} />
+        </div>
+      )}
+      {showEmptyState && !signInState && (
         <div
           className="chat-empty-state pointer-events-none absolute inset-0 flex items-center justify-center select-none"
           data-testid="chat-empty-state"
           aria-hidden
         >
           <span className="chat-empty-mark" aria-hidden>
-            <AgentIcon providerId={tabProvider} className="chat-empty-glyph text-[56px]" />
+            <AgentIcon tab={tab} providerId={tabProvider} className="chat-empty-glyph text-[56px]" />
           </span>
         </div>
       )}
@@ -968,7 +998,7 @@ function TabSessionChatBody({
         {backfillNotice === "stalled_cursor"
           ? <InlineErrorNotice error="Older history could not be read." operation="loading older messages" />
           : backfillNotice && <p role="status" className="text-center text-xs text-[var(--ct-muted-fg)]">
-            {backfillNotice === "limit" ? "History scan limit reached. Load previous to continue." : "No earlier messages."}
+            No earlier messages.
           </p>}
         {isActive && (reportPlacement.afterIndex.get(-1) ?? []).map(renderOutboundReport)}
         {isActive && (askPlacement.afterIndex.get(-1) ?? []).map(renderAsk)}
@@ -988,12 +1018,14 @@ function TabSessionChatBody({
               key={msg.id}
               entry={entry}
               hideMessage={msg.id === liveOperation?.id}
+              leadingLiveOperation={msg.id === liveSlotId ? liveOperation : undefined}
               daySeparator={daySeparators.get(messageIndex)}
               originProps={originPropsById.get(msg.id)}
               reports={following.length ? following.map((index) => outboundReports[index]).filter(Boolean) : NO_REPORTS}
               asks={followingAsks.length ? followingAsks.map((index) => asks[index]).filter(Boolean) : NO_ASKS}
               deliverySend={deliverySend}
               deliveryView={deliverySend ? deliveryPresentation(deliverySend, agentActivity.kind) : undefined}
+              deliveryBehindTurn={deliverySend ? queuedBehindTurn(deliverySend, agentActivity.kind) : undefined}
               sourceOrdinal={mountedWindow.identities[messageIndex].ordinal}
               ariaLabel={chatMessageAccessibleName(msg.type, msg.content)}
               selected={messageSelection.selected.has(msg.id)}
@@ -1021,30 +1053,21 @@ function TabSessionChatBody({
           cursor={false}
           handlers={messageSelection.rowHandlers}
         >
-          <div data-message-part={promptPart.id}>
+          <ChatColumn data-message-part={promptPart.id}>
             <PendingPromptCard key={promptPart.id} pendingPrompt={promptPart.prompt} onRespond={(value) => { void handleRespondPrompt(value).catch(() => {}); }} />
-          </div>
+          </ChatColumn>
         </ChatMessageRow>}
         {isActive && reportPlacement.trailing.map(renderOutboundReport)}
         {isActive && askPlacement.trailing.map(renderAsk)}
-        <ChatLiveOperation message={liveOperation} />
+        <ChatLiveOperation message={liveSlotId ? null : liveOperation} />
+        {unownedHeld > 0 && <p role="status" data-testid="chat-unowned-held" className="py-1 text-center text-xs text-[var(--ct-muted-fg)]">
+          {unownedHeld} {unownedHeld === 1 ? "message" : "messages"} from another window queued for this agent.
+        </p>}
+        {setupInLog && setupState}
         </div>
       </div>
       </CompactToolRowsProvider>
-        <ChatSetupState
-          visible={isActive}
-          waitingMessages={heldMessagesForLaunch(deliverySends)}
-          workspace={planNav.workspaces.find(workspace => workspace.id === workspaceId)}
-          tab={tab}
-          view={setupView}
-          providerName={provider?.displayName ?? "the agent"}
-          providerIconSvg={provider?.iconSvg}
-          providerIconColor={provider?.iconColor}
-          providerIconHint={provider?.iconHint}
-          onEscape={focusComposer}
-          onRetry={retryAttachment}
-          lock={tabLock}
-        />
+        {!setupInLog && setupState}
       <MessageSelectionBar
         count={messageSelection.count}
         partial={messageSelection.partial}
@@ -1082,12 +1105,14 @@ function TabSessionChatBody({
         <AgentStateIndicator
           tab={tab}
           activity={composerActivity}
-          activeTool={allMessages.find((message) => message.type === "tool_call" && message.toolStatus === "running")}
+          activeTool={composerRunningTool(allMessages, runtime.state?.state)}
           runtimeState={runtime.state}
           showActivity={setupView.kind === "none" && !chatLoading}
           channelLoadingLabel={chatChannelLoadingRow(chatLoading, setupView, snapshotReady, hasHeldWindow) === "model"
             ? `${provider?.displayName ?? tabProvider} loading chat` : undefined}
           providerName={provider?.displayName ?? tabProvider}
+          identityLabel={descriptor?.agent_runtime && !descriptor.available_models.length
+            ? runtimeStatusLineIdentity(tab?.agent_runtime_state) || descriptor.display_name : undefined}
           model={workingModelBadge}
           reasoningEffort={tab?.reasoning_effort_identity}
           className="ct-composer-lane mx-auto w-full"
@@ -1098,6 +1123,7 @@ function TabSessionChatBody({
             ? () => setBindingRecoveryOpen(true)
             : undefined}
           renderIdentity={tab ? (label) => <TabStatusLineModelPicker tab={tab} label={label} /> : undefined}
+          recovery={readOnly || dockedTabFailure(tab) ? undefined : <TabRecoveryAction tabId={tabId} onError={showComposerError} />}
         />        {bindingRecoveryOpen && (
           <SessionBindingRecoveryForm
             tabId={tabId}
@@ -1118,7 +1144,10 @@ function TabSessionChatBody({
           void runThreadHistory("revert", turnId, true);
         }}
       />}
+        {signInState && signIn === "inline" && <RuntimeLoginActions key={`${tabId}:${signInState.epoch}`} variant="inline" tabId={tabId} state={signInState}
+          iconSvg={provider?.iconSvg} providerId={tabProvider ?? undefined} onCheck={() => { void runtime.retry(); }} />}
         {managedTabPresentation(tab?.managed).locked ? runtimeReplacement : <ChatComposer
+          idlePlaceholder={signInState ? "Sign in to start" : undefined}
           tabId={tabId}
           tabProvider={tabProvider}
           currentPtyId={currentPtyId}

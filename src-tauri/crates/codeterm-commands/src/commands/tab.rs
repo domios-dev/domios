@@ -144,10 +144,10 @@ fn chat_start_inner(
         )? {
             return Ok(snapshot);
         }
-        let (session, messages) =
-            codeterm_service_core::service::agent_runtime::transport::snapshot(svc, &tab_id)?;
-        let context = session.context.lock().clone();
-        let total = messages.len();
+        let attached = codeterm_service_core::service::agent_runtime::transport::attach_transcript(
+            svc, &tab_id,
+        )?;
+        let total = attached.messages.len();
         let start = total.saturating_sub(200);
         log::debug!(
             "[chat-attach] tab={tab_id} phase=runtime_snapshot elapsed_ms={} rows={total}",
@@ -161,11 +161,11 @@ fn chat_start_inner(
             start_offset: start as u64,
             offset: total as u64,
             pending: false,
-            messages: Some(messages.into_iter().skip(start).collect()),
+            messages: Some(attached.messages.into_iter().skip(start).collect()),
             archived_messages: None,
             cursor: None,
-            source_session_id: context.thread_id,
-            session_binding_nonce: Some(context.binding_nonce),
+            source_session_id: attached.thread_id,
+            session_binding_nonce: attached.binding_nonce,
             subscription_id: Some(subscription_id),
             source_missing: false,
         });
@@ -731,21 +731,26 @@ pub fn chat_backfill_core(
         }
     }
     if codeterm_service_core::service::agent_runtime::requested_for_tab(svc, &tab_id) {
-        let (session, messages) =
-            codeterm_service_core::service::agent_runtime::transport::snapshot(svc, &tab_id)?;
-        let context = session.context.lock().clone();
+        let attached = codeterm_service_core::service::agent_runtime::transport::attach_transcript(
+            svc, &tab_id,
+        )?;
         let end = usize::try_from(before_offset)
             .unwrap_or(usize::MAX)
-            .min(messages.len());
+            .min(attached.messages.len());
         let start = end.saturating_sub(200);
         return Ok(ChatBackfillResult {
             text: String::new(),
             offset_kind: ChatOffsetKind::Items,
             start_offset: start as u64,
             end_offset: end as u64,
-            messages: messages.into_iter().skip(start).take(end - start).collect(),
-            source_session_id: context.thread_id,
-            session_binding_nonce: Some(context.binding_nonce),
+            messages: attached
+                .messages
+                .into_iter()
+                .skip(start)
+                .take(end - start)
+                .collect(),
+            source_session_id: attached.thread_id,
+            session_binding_nonce: attached.binding_nonce,
         });
     }
     let (provider_id, cwd, session_id, session_binding_nonce) = {

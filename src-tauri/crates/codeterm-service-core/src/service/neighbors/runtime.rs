@@ -882,6 +882,7 @@ impl ServiceContext {
         self.neighbor_cell().restore_grants.lock().clear();
         self.neighbor_cell().control_cancel.notify_waiters();
         self.cancel_neighbor_restoration();
+        self.neighbor_restoration_entitlement_changed();
         self.stop_neighbor_updates();
         self.neighbor_cell().watch_states.lock().clear();
         self.neighbor_cell()

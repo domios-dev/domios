@@ -115,5 +115,15 @@ macro_rules! agent_provider_session_usage {
         fn usage_is_fetch_based(&self) -> bool {
             false
         }
+
+        /// A launch profile's declared `balance` limits source, read by the provider off
+        /// the request path as a UsageSnapshot-shaped payload. `None`: no reader.
+        fn read_profile_limits(
+            &self,
+            _profile: &str,
+            _source: &crate::agent_runtime::RuntimeProfileLimitsSource,
+        ) -> Option<Result<String, String>> {
+            None
+        }
     };
 }

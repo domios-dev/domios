@@ -1,0 +1,275 @@
+{
+  "schemaVersion": 1,
+  "context": {
+    "epoch": 1,
+    "cwd": "/work/project",
+    "hostVersion": "1.18.7",
+    "tabId": "declared-auth",
+    "bindingNonce": "nonce-fixture",
+    "settings": {},
+    "providerSettings": {},
+    "claimedSends": [],
+    "activeTurns": [],
+    "threadParents": []
+  },
+  "operations": [
+    {
+      "operation": {
+        "kind": "initialize"
+      }
+    },
+    {
+      "operation": {
+        "kind": "control",
+        "action": "login",
+        "value": {
+          "methodId": "opaque"
+        }
+      }
+    },
+    {
+      "operation": {
+        "kind": "control",
+        "action": "login",
+        "value": {
+          "methodId": "terminal"
+        }
+      }
+    }
+  ],
+  "rpc": [
+    {
+      "direction": "outbound",
+      "operation": 0,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "initialize",
+          "params": {
+            "protocolVersion": 1,
+            "clientCapabilities": {
+              "fs": {
+                "readTextFile": false,
+                "writeTextFile": false
+              },
+              "terminal": false
+            },
+            "clientInfo": {
+              "name": "domios",
+              "title": "Domios",
+              "version": "1.18.7"
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 0,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "protocolVersion": 1,
+          "agentCapabilities": {
+            "promptCapabilities": {
+              "image": false,
+              "audio": false,
+              "embeddedContext": false
+            }
+          },
+          "authMethods": [
+            {
+              "id": "opaque",
+              "name": "Agent sign-in"
+            },
+            {
+              "id": "terminal",
+              "name": "Terminal only",
+              "type": "terminal"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 1,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "authenticate",
+          "params": {
+            "methodId": "opaque"
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 1,
+      "reply": {
+        "kind": "success",
+        "value": {}
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 1,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "initialize",
+          "params": {
+            "protocolVersion": 1,
+            "clientCapabilities": {
+              "fs": {
+                "readTextFile": false,
+                "writeTextFile": false
+              },
+              "terminal": false
+            },
+            "clientInfo": {
+              "name": "domios",
+              "title": "Domios",
+              "version": "1.18.7"
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 1,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "protocolVersion": 1,
+          "agentCapabilities": {
+            "promptCapabilities": {
+              "image": false,
+              "audio": false,
+              "embeddedContext": false
+            }
+          },
+          "authMethods": [
+            {
+              "id": "opaque",
+              "name": "Agent sign-in"
+            },
+            {
+              "id": "terminal",
+              "name": "Terminal only",
+              "type": "terminal"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "expected": {
+    "results": [
+      {
+        "operation": 0,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "initialized"
+          },
+          "events": [
+            {
+              "kind": "authentication",
+              "authentication": {
+                "state": "unknown",
+                "methods": [
+                  {
+                    "id": "opaque",
+                    "name": "Agent sign-in",
+                    "available": true
+                  },
+                  {
+                    "id": "terminal",
+                    "name": "Terminal only",
+                    "available": false
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      {
+        "operation": 1,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "done"
+          },
+          "events": [
+            {
+              "kind": "authentication",
+              "authentication": {
+                "state": "authenticated",
+                "methods": [
+                  {
+                    "id": "opaque",
+                    "name": "Agent sign-in",
+                    "available": true
+                  },
+                  {
+                    "id": "terminal",
+                    "name": "Terminal only",
+                    "available": false
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "events": [
+      {
+        "kind": "authentication",
+        "authentication": {
+          "state": "unknown",
+          "methods": [
+            {
+              "id": "opaque",
+              "name": "Agent sign-in",
+              "available": true
+            },
+            {
+              "id": "terminal",
+              "name": "Terminal only",
+              "available": false
+            }
+          ]
+        }
+      },
+      {
+        "kind": "authentication",
+        "authentication": {
+          "state": "authenticated",
+          "methods": [
+            {
+              "id": "opaque",
+              "name": "Agent sign-in",
+              "available": true
+            },
+            {
+              "id": "terminal",
+              "name": "Terminal only",
+              "available": false
+            }
+          ]
+        }
+      }
+    ],
+    "planErrors": [
+      {
+        "operation": 2,
+        "code": "provider_refused"
+      }
+    ]
+  }
+}

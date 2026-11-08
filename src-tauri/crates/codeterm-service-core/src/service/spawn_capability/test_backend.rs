@@ -59,8 +59,15 @@ impl ChatBackendProvider for RuntimeTestBackend {
     fn describe(&self) -> crate::agent::provider::ProviderDescriptor {
         let mut descriptor = self.0.describe();
         descriptor.agent_runtime = Some(codeterm_plugin::agent_runtime::AgentRuntimeCapability {
+            host_mcp: None,
+            envelope: None,
+            interrupt: None,
+            client_bridges: None,
+            launch_profiles: None,
+            registry_defaults: Default::default(),
             restricted_cli: None,
             runtime_modes: Vec::new(),
+            host_approvals: false,
             service_tiers: Vec::new(),
             background_processes: false,
             goals: None,
@@ -75,6 +82,7 @@ impl ChatBackendProvider for RuntimeTestBackend {
             },
             inherited_environment_exclusions: Vec::new(),
             login: None,
+            turn_scoped_requests: Vec::new(),
             request_methods: Default::default(),
             notification_methods: Vec::new(),
         });

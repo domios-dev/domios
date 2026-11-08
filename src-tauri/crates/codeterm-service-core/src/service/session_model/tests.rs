@@ -27,6 +27,7 @@ mod startup_model_refresh_tests {
 
 mod next_turn_confirmation;
 mod restored_effort;
+mod resumed_binding;
 
 mod model_refresh_tests {
     use std::collections::{HashMap, HashSet};
@@ -541,6 +542,7 @@ mod model_refresh_tests {
                 None,
                 Some("session-known"),
                 Some("nonce-known"),
+                None,
                 4,
             )
             .unwrap();
@@ -673,6 +675,7 @@ mod model_refresh_tests {
                     None,
                     Some(session),
                     Some(nonce),
+                    None,
                     now_ms + 2,
                 )
                 .unwrap();

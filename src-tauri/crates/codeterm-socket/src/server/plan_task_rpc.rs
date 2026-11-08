@@ -616,7 +616,7 @@ pub(super) fn dispatch(
                     .map_err(plan_rpc_err)?;
             }
             super::plan_role_helpers::update_role_guidance_if_present(store, &id, &tid, p, now)?;
-            super::plan_role_helpers::update_personality_if_present(store, &id, &tid, p, now)?;
+            super::plan_role_helpers::update_personality_if_present(svc, &id, &tid, p, now)?;
             if let Some(competition) = super::plan_competition::update_field(p)? {
                 store
                     .update_task_competition(&id, &tid, competition, now)

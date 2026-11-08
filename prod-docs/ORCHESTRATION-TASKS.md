@@ -1,5 +1,7 @@
 # Orchestration task lifecycle
 
+`--profile <id>` selects a provider-declared ACP launch profile, independently of `--model` and Worker `--kind`/`--role-profile`. Unknown, missing required, and uninstalled profiles refuse before creating a tab or attempt with `unknown_launch_profile`, `launch_profile_required`, and `launch_profile_not_installed`. Respawn inherits the selected attempt's profile when the flag is omitted and the provider stays the same. Profile selection on task dispatch/respawn is local-only; `agent spawn --mesh` carries it to the peer.
+
 State transitions, group closeout, and dispatch mechanics for the Orchestrator.
 
 ## Task lifecycle
@@ -163,4 +165,4 @@ A provider access-loss incident sends a `[provider access lost]` system notice t
 
 Archive succeeds without a retrospective and reports the optional `plan.retrospective_unrecorded` advisory; record a durable note at wrap-up with `domios plan retrospective <plan> --body-file <pad-relative-path>`.
 
-<!-- revision: 20 -->
+<!-- revision: 22 -->

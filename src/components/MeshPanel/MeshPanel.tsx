@@ -292,6 +292,7 @@ export function MeshPanel({ config, onClose }: Props) {
         {activeTab === "inventory" && !meshOff && graphReady && (
           <div ref={mapRef} className="absolute inset-0">
             <AccountMeshCanvas
+              touch={touchUi}
               registryRefreshKey={registryRefreshKey}
               onAccountChanged={triggerRefresh}
               onRefresh={refreshAll}

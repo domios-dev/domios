@@ -10,6 +10,7 @@ fn prepared_store() -> (tempfile::TempDir, PlanStore, String, String, String) {
             Some("Worker"),
             Some("session"),
             Some("nonce"),
+            None,
             4,
         )
         .unwrap();

@@ -197,6 +197,71 @@ fn curator_round_rows_stay_bounded_and_commit_state_and_stride_atomically() {
 }
 
 #[test]
+fn curator_round_header_write_stays_bounded_as_round_history_grows() {
+    use crate::plan::{CuratorCounts, CuratorOutcome, CuratorRound};
+    let dir = tempfile::tempdir().unwrap();
+    let plan = Plan::new(
+        "rounds".into(),
+        dir.path().display().to_string(),
+        OrchestratorRef::default(),
+    );
+    let db = database(dir.path(), &plan);
+    let now = 30 * 24 * 60 * 60 * 1000_u64;
+    let mut writes = Vec::new();
+    for number in 100..164_u64 {
+        let ended_at = now - 1_000_000 + number;
+        let (_, receipt) = db
+            .edit_runtime_rows::<CuratorRoundRows, _>(&plan.id, ended_at, |rows| {
+                rows.append_round(CuratorRound {
+                    number,
+                    ended_at,
+                    outcome: if number % 2 == 0 {
+                        CuratorOutcome::Quiet
+                    } else {
+                        CuratorOutcome::Nudged
+                    },
+                    summary: "constant".into(),
+                    learnings: 1,
+                    ..Default::default()
+                });
+                Ok(())
+            })
+            .unwrap();
+        let header: i64 = db
+            .connection
+            .lock()
+            .query_row(
+                "SELECT length(header_json) FROM plans WHERE id=?1",
+                [&plan.id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        writes.push((receipt.strides, receipt.serialized_bytes, header));
+    }
+    // Only the alternating outcome name and `_revision` digits vary; header history
+    // would add a whole serialized round per write.
+    let spread = |value: fn(&(usize, usize, i64)) -> i64| {
+        let values = writes.iter().map(value);
+        values.clone().max().unwrap() - values.min().unwrap()
+    };
+    assert!(writes.iter().all(|write| write.0 == 1), "{writes:?}");
+    assert!(spread(|write| write.1 as i64) <= 4, "{writes:?}");
+    assert!(spread(|write| write.2) <= 4, "{writes:?}");
+    let counts =
+        super::super::super::status_queries::control_counts(&db.connection.lock(), &plan.id, now)
+            .unwrap();
+    assert_eq!(
+        counts,
+        CuratorCounts {
+            quiet: 32,
+            nudged: 32,
+            learnings: 64,
+            ..Default::default()
+        }
+    );
+}
+
+#[test]
 fn curator_state_failure_rolls_back_and_concurrent_updates_conserve_both_writes() {
     let dir = tempfile::tempdir().unwrap();
     let store = Arc::new(PlanStore::new_for_test(dir.path()));
@@ -243,4 +308,30 @@ fn curator_state_failure_rolls_back_and_concurrent_updates_conserve_both_writes(
             .consecutive_failures,
         2
     );
+}
+
+#[test]
+fn unchanged_curator_round_performs_zero_database_writes() {
+    let dir = tempfile::tempdir().unwrap();
+    let plan = Plan::new(
+        "unchanged curator".into(),
+        dir.path().display().to_string(),
+        OrchestratorRef::default(),
+    );
+    let db = database(dir.path(), &plan);
+    let before = db.load_plan(&plan.id).unwrap().unwrap();
+    let changes = db.connection.lock().total_changes();
+    let operations = db.operation_count_for_test(Some(&plan.id));
+    for now in [20, 1_020, 86_400_020] {
+        let (applied, receipt) = db
+            .edit_runtime_rows::<CuratorRoundRows, _>(&plan.id, now, |_| Ok(false))
+            .unwrap();
+        assert!(!applied);
+        assert_eq!(receipt.header_rows, 0);
+        assert_eq!(receipt.heartbeat_rows, 0);
+        assert_eq!(receipt.strides, 0);
+        assert_eq!(db.connection.lock().total_changes(), changes);
+        assert_eq!(db.operation_count_for_test(Some(&plan.id)), operations);
+    }
+    assert_eq!(db.load_plan(&plan.id).unwrap().unwrap(), before);
 }

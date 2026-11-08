@@ -469,6 +469,39 @@ impl ServiceContext {
         )
     }
 
+    /// A runtime-hosted launch has no PTY attempt to carry, so its ACK is honest
+    /// only while nothing is owed; any owed handshake still needs its attempt.
+    pub fn acknowledge_attemptless_agent_startup(
+        &self,
+        caller_tab_id: &str,
+        binding_nonce: &str,
+    ) -> Result<AgentStartupAcknowledgement, String> {
+        let (task_bound, attemptless) = {
+            let mux = self.mux.read();
+            let tab = mux
+                .get_tab(caller_tab_id)
+                .filter(|tab| tab.session_binding_nonce.as_deref() == Some(binding_nonce))
+                .ok_or_else(|| {
+                    format!("startup acknowledgement does not own Tab {caller_tab_id}")
+                })?;
+            (
+                tab.task_binding
+                    .as_ref()
+                    .is_some_and(|binding| binding.plan_id.is_some() && binding.task_id.is_some()),
+                tab.pty_id.is_none(),
+            )
+        };
+        if task_bound {
+            return Err("task-bound startup must be acknowledged with `domios agent ack`".into());
+        }
+        if !attemptless || self.worker_ack.startup_handshake_owed(caller_tab_id) {
+            return Err(format!(
+                "startup acknowledgement for Tab {caller_tab_id} requires its launch attempt; CODETERM_STARTUP_ATTEMPT_ID is not set"
+            ));
+        }
+        Ok(AgentStartupAcknowledgement::NotRequired)
+    }
+
     pub(crate) fn observe_agent_startup_launch_command_finished(
         &self,
         tab_id: &str,
@@ -734,6 +767,7 @@ impl ServiceContext {
     ) -> bool {
         let identity = self.worker_ack_identity_for_attempt(plan_id, task_id, tab_id, &attempt.id);
         let acknowledged = self.worker_ack.acknowledge(&identity);
+        self.worker_ack.clear_ack_evidence(tab_id);
         let task_identity = StartupTaskIdentity {
             plan_id: plan_id.to_string(),
             task_id: task_id.to_string(),

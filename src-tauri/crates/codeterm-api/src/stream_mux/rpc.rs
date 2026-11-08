@@ -202,7 +202,7 @@ async fn send(
 async fn pump(reservation: &Reservation, response: Response) -> bool {
     if !send(
         reservation,
-        frames::encode_head(&reservation.id, response.status(), response.headers()),
+        frames::encode_response_head(&reservation.id, &response),
         Kind::Head,
         0,
     )

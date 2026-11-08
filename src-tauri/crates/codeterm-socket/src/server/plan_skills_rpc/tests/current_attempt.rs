@@ -685,6 +685,7 @@ fn stale_ack_nonce_refuses_before_marking_the_current_attempt() {
             Some("Worker"),
             Some(CALLER_SESSION),
             Some(current_nonce),
+            None,
             7,
         )
         .unwrap();

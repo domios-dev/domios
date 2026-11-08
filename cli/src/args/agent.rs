@@ -124,6 +124,11 @@ pub struct ReportArgs {
 
 #[derive(Subcommand, Debug)]
 pub enum AgentAction {
+    /// Manage local ACP launch profiles (local owner or Orchestrator only)
+    Acp {
+        #[command(subcommand)]
+        action: super::agent_acp::AcpAction,
+    },
     /// Move an unbound running worker under a live local Team Orchestrator without restarting it
     Reparent {
         tab: String,
@@ -143,12 +148,16 @@ pub enum AgentAction {
     /// Sign in to the tab's runtime provider without a terminal
     Login {
         /// Read the pending sign-in without starting another flow
-        #[arg(long, conflicts_with_all = ["device", "api_key_stdin", "cancel"])]
+        #[arg(long, conflicts_with_all = ["device", "api_key_stdin", "cancel", "method"])]
         show: bool,
         #[arg(long, value_name = "TAB")]
         tab: String,
-        #[arg(long, conflicts_with_all = ["api_key_stdin", "cancel"])]
+        #[arg(long, conflicts_with_all = ["api_key_stdin", "cancel", "method"])]
         device: bool,
+        /// Authenticate with a method the agent declared (listed by --show); add
+        /// --api-key-stdin when that method takes an API key
+        #[arg(long, value_name = "ID", conflicts_with = "cancel")]
+        method: Option<String>,
         /// Read the API key from stdin; never supply credentials in argv
         #[arg(long, conflicts_with = "cancel")]
         api_key_stdin: bool,
@@ -318,6 +327,9 @@ pub enum AgentAction {
     Models {
         /// Provider id (e.g. "claude"). Required.
         provider: String,
+        /// Last declared model and effort options for this launch profile.
+        #[arg(long)]
+        profile: Option<String>,
     },
     /// Spawn a new agent; roleless unless --role is provided.
     ///
@@ -395,6 +407,9 @@ pub enum AgentAction {
         /// see what's available.
         #[arg(long)]
         model: Option<String>,
+        /// ACP launch profile declared by the provider.
+        #[arg(long = "profile", value_name = "ID")]
+        launch_profile: Option<String>,
         #[arg(
             long,
             value_name = "TIER",

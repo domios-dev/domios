@@ -17,7 +17,7 @@ export function resolveCanvasSpawnProvider(
   const provider = providers.find((candidate) => candidate.id === selected)
     ?? providers[0];
   if (!provider || (provider.transport !== "pty" && provider.transport !== "chat_backend")) {
-    throw new Error("No spawn-capable provider is available for the Canvas orchestrator");
+    throw new Error("No spawn-capable harness is available for the Canvas orchestrator");
   }
   return provider.id;
 }

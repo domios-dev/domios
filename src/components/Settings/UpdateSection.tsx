@@ -30,12 +30,12 @@ export function UpdateSection({ config, onUpdate }: {
 
   const hasUnifiedPanel = Boolean(unified);
   useEffect(() => {
-    if (!hasUnifiedPanel) void refresh(true, { silent: true });
+    if (!hasUnifiedPanel) void refresh(false, { silent: true });
   }, [refresh, hasUnifiedPanel]);
 
   const checking = status === "checking" && !installing;
   const updateAvailable = status === "available" && latestVersion && latestVersion !== currentVersion;
-  const providerToggle = <Toggle label="Update provider CLIs automatically"
+  const providerToggle = <Toggle label="Update harness CLIs automatically"
     checked={config.updater?.auto_update_provider_clis ?? true}
     onChange={(enabled) => onUpdate("updater", { auto_update_provider_clis: enabled })}
   />;

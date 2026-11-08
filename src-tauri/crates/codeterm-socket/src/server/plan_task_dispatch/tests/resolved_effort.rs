@@ -49,6 +49,7 @@ fn attempt_records_resolved_reasoning_effort() {
             None,
             Some("medium".into()),
             None,
+            None,
             false,
             true,
             3,

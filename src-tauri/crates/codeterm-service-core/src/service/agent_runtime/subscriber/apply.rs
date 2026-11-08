@@ -39,6 +39,8 @@ async fn publish_with_origin(
         return Err(RuntimeFailure::Superseded);
     }
     engine::validate_binding(svc, session)?;
+    super::super::turn_requests::publish_written_inputs(svc, session, epoch).await?;
+    session.maps.lock().sync_active_turn(&context);
     let evidence = super::super::model::validated_evidence(&context.claimed_sends, &events);
     let enriched = events
         .into_iter()
@@ -60,11 +62,59 @@ async fn publish_with_origin(
         {
             continue;
         }
-        let mut runtime = events::translate(&event.event);
+        if let AgentRuntimeEvent::SendEvidence {
+            send_id,
+            thread_id,
+            turn_id,
+            ..
+        } = &event.event
+        {
+            if !super::super::turn_requests::evidence(session, send_id, thread_id, turn_id) {
+                continue;
+            }
+        }
+        let append = matches!(
+            &event.event,
+            AgentRuntimeEvent::ChatItemAppend { .. } | AgentRuntimeEvent::ChatItemPatch { .. }
+        );
+        let loading = matches!(
+            session.state.lock().phase,
+            super::super::model::RuntimePhase::Loading
+        );
+        let mut runtime = if append {
+            let mut maps = session.maps.lock();
+            maps.ensure_epoch(epoch);
+            let Some(runtime) = events::translate_with_items(&event.event, &mut maps, loading)
+            else {
+                continue;
+            };
+            events::fold(&mut maps, epoch, &runtime);
+            runtime
+        } else {
+            events::translate(&event.event)
+        };
+        if let RuntimeEvent::ItemUpdated { item, .. } = &mut runtime {
+            item.runtime_source_item_id = None;
+            super::super::model::omit_user_image_data(item);
+        }
+        let written = session
+            .maps
+            .lock()
+            .project_written_item(&runtime, &evidence);
         if !super::turn_lifecycle::prepare(svc, session, at, &mut runtime) {
             continue;
         }
-        events::fold(&mut session.maps.lock(), epoch, &runtime);
+        if !append {
+            events::fold(&mut session.maps.lock(), epoch, &runtime);
+        }
+        session
+            .maps
+            .lock()
+            .project_routed_item(&mut runtime, &evidence);
+        if let Some(written) = written {
+            runtime = written;
+            events::fold(&mut session.maps.lock(), epoch, &runtime);
+        }
         if let RuntimeEvent::RequestUpdated {
             thread_id,
             item_id: Some(item_id),
@@ -211,7 +261,10 @@ async fn publish_with_origin(
         run_completed |= completed_turn
             .is_some_and(|(thread, turn)| session.completions.lock().contains(&thread, &turn));
         run_chat_item |= chat_item;
-        if let Some(status) = send_id.and_then(|id| svc.chat_send_ledger.status(&id)) {
+        if let Some(status) = send_id
+            .as_ref()
+            .and_then(|id| svc.chat_send_ledger.status(id))
+        {
             let owner = svc.clone();
             tokio::task::spawn_blocking(move || {
                 owner
@@ -224,6 +277,14 @@ async fn publish_with_origin(
             .map_err(|reason| RuntimeFailure::HookFailed(reason.to_string()))?
             .map_err(RuntimeFailure::HookFailed)?;
         }
+        if let Some(head) = &send_id {
+            super::super::inbound::confirm_digest_members(svc, session, &context, head).await;
+        }
+    }
+    if run_completed {
+        super::super::transcript::persist(session).await;
+    } else if run_chat_item {
+        super::super::transcript::archive_tick(session);
     }
     if (run_completed || run_chat_item) && svc.run_watcher.has_runtime_run(&context.tab_id) {
         let owner = svc.clone();
@@ -254,6 +315,18 @@ fn apply(
     }
     let owned = |thread: &str| context.thread_id.as_deref() == Some(thread);
     match event {
+        RuntimeEvent::AuthenticationDeclared { authentication } => {
+            use codeterm_plugin::agent_runtime::RuntimeAuthenticationState;
+            *session.auth.lock() = match authentication.state {
+                RuntimeAuthenticationState::Authenticated => RuntimeAuthState::SignedIn,
+                RuntimeAuthenticationState::NeedsAuth => RuntimeAuthState::SignedOut,
+                _ => RuntimeAuthState::Unknown,
+            };
+            engine::publish(svc, &context.tab_id, session);
+        }
+        RuntimeEvent::Notice { thread_id, message } if owned(&thread_id) => {
+            super::super::declared_controls::notice(svc, session, message);
+        }
         RuntimeEvent::SessionUpdated {
             login: Some(login), ..
         } => super::super::login::apply(svc, session, epoch, login),
@@ -295,6 +368,18 @@ fn apply(
             }
         }
         RuntimeEvent::ItemUpdated { thread_id, item } if owned(&thread_id) => {
+            super::super::turn_requests::observe_item(session, &context, &item);
+            if live {
+                if let Some(outcome) =
+                    crate::service::worker_ack::ack_failure::ack_tool_outcome(&item)
+                {
+                    let owner = svc.clone();
+                    let tab = context.tab_id.clone();
+                    crate::async_runtime::spawn_blocking(move || {
+                        owner.record_worker_ack_tool_outcome(&tab, &outcome);
+                    });
+                }
+            }
             let item = session.cache.lock().reconcile_live(item, at);
             crate::flow_trace::SourceCursor::rpc(
                 &context.tab_id,
@@ -380,8 +465,8 @@ fn apply(
                 if consumed {
                     let _ = svc.cleanup_confirmed_pending_delivery(&context.tab_id);
                 }
-                log::debug!(
-                    "[agent-runtime] tab={} turn={turn_id} send={send_id} evidence=delivered",
+                log::info!(
+                    "[runtime-send] tab={} send_id={send_id} turn={turn_id} delivered: own-session evidence confirmed",
                     context.tab_id
                 );
             }
@@ -413,12 +498,23 @@ fn apply(
                         )
                         .observe(turn);
                     }
-                    session
-                        .state
-                        .lock()
-                        .working(context.active_turn_id == turn_id, at, started_at)
+                    let request_start = super::super::turn_requests::started_at(
+                        session,
+                        &context,
+                        turn_id.as_deref(),
+                    );
+                    session.state.lock().working(
+                        context.active_turn_id == turn_id,
+                        at,
+                        request_start.or(started_at),
+                    )
                 }
                 RuntimeTurnState::Idle => {
+                    super::super::turn_requests::retire_refused_claims(
+                        session,
+                        &context,
+                        turn_id.as_deref(),
+                    );
                     engine::record_completed_turn(session, &thread_id, turn_id.as_deref());
                     session.state.lock().completed(at, completed_at);
                 }
@@ -449,12 +545,15 @@ fn apply(
                     &thread_id,
                     &context.binding_nonce,
                 );
+                // Sends held behind this turn are submitted once, in order, now that it settled.
+                svc.wake_user_owner_on_state_change(&context.tab_id);
             }
         }
         RuntimeEvent::RequestUpdated {
             thread_id,
             request_id: Some(request_id),
             prompt: Some(prompt),
+            permission,
             resolved: false,
             ..
         } if owned(&thread_id) => {
@@ -462,12 +561,21 @@ fn apply(
                 let mut prompts = session.prompts.lock();
                 if let Some(pending) = prompts.get_mut(&request_id) {
                     pending.prompt = Some(prompt.clone());
+                    pending.permission = permission.clone();
                     true
                 } else {
                     false
                 }
             };
-            if accepted {
+            if accepted
+                && !super::super::permission_policy::answer(
+                    svc,
+                    session,
+                    &request_id,
+                    &prompt,
+                    permission.as_ref(),
+                )
+            {
                 super::super::prompt_answers::publish(svc, session, request_id, prompt);
             }
         }
@@ -481,6 +589,20 @@ fn apply(
         } if owned(&thread_id) => {
             session.prompts.lock().remove(&request_id);
             super::super::prompt_answers::resolve(svc, session, &request_id);
+        }
+        RuntimeEvent::ContextUpdated {
+            thread_id,
+            used_tokens,
+            window_tokens,
+            cost_micros,
+        } if owned(&thread_id) => {
+            super::super::projections::context(
+                svc,
+                session,
+                used_tokens,
+                window_tokens,
+                cost_micros,
+            );
         }
         RuntimeEvent::UsageUpdated { thread_id, usage } if owned(&thread_id) => {
             super::super::projections::usage(svc, session, usage, at);

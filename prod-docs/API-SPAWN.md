@@ -1,4 +1,7 @@
 # Agent spawn API
+
+ACP profile setup, registry discovery and authentication: `domios docs ACP`.
+
 One-call agent creation, launch validation, placement, model routing, and response contracts.
 
 ### Agent Spawn (POST /api/agents/spawn)
@@ -9,6 +12,8 @@ Creates a new tab in the parent's workspace, assigns its role and launches the p
 ```json
 {"agent":"opencode","title":"Reviewer","cwd":"C:/project","role":"Worker","parent_tab_id":"a3f1b2c7","task":"Review the changes","preset":"demo"}
 ```
+
+Optional `launch_profile` selects an ACP launch profile declared by the provider (`domios agent spawn acp --profile <id>`). It is separate from `model` and `role_profile`. Providers declaring launch profiles require one. Before tab, Team-member or attempt creation, unknown, missing required and uninstalled profiles return HTTP 422 with `error.code` `unknown_launch_profile`, `launch_profile_required` or `launch_profile_not_installed`, plus `provider`, `requested_profile` (null when missing), and `declared_profile_ids`. The CLI prints the code and exits non-zero. Local task dispatch accepts the same `--profile`; respawn inherits the source attempt's profile unless overridden or the provider changes.
 
 The selected model's advertised reasoning levels constrain `reasoning_effort`; the provider's flat list applies when the model has none (`domios agent models <provider>` shows the sets). Provider listings may include `default_reasoning_effort` on the provider descriptor (fallback) and on each `available_models` entry (that model's live default). `domios agent models <provider>` marks the model-specific default beside its reasoning levels, falling back to the provider value only when the model has none.
 
@@ -29,4 +34,111 @@ An unknown id on an authoritative catalogue or a published free-form live list i
 
 `launch_state` is `ready` once the agent is ready, or `starting` with a `warning` when it waits on an owner prompt, holds a provisional boot stage, or is still launching at the bound; `starting` never claims readiness. A provider that exits before readiness fails the spawn: REST answers 500 with `error.code` `launch_failed`, socket `agent.spawn` returns the same fields as error `data`, and the CLI exits non-zero. Both carry `tab_id`, `reason`, `output_tail` (the provider's last printed lines), and `retry_hint`; the failed Tab stays in `spawn_failed` for inspection. `plan task dispatch` reports the same failure, output tail included, through its startup-failed event.
 
-<!-- revision: 6 -->
+### Launch profile catalogue and owner setup
+
+| Method | Path | Operation |
+|--------|------|-----------|
+| GET | `/api/agents/providers/{id}/profiles` | Read the provider's declared launch profiles and installation state. |
+| POST | `/api/agents/providers/{id}/profiles` | Confirm an installation or configure an owner-controlled local command. |
+| GET | `/api/agents/providers/acp/registry` | Search the ACP registry as the local owner. |
+| POST | `/api/agents/providers/acp/registry/install` | Accept an asynchronous pinned ACP registry installation. |
+| DELETE | `/api/agents/providers/acp/profiles/{name}` | Remove an owner-added ACP profile and its files unless its setup is active or a tab uses it. |
+
+Both routes require authenticated API access. POST additionally requires the local
+owner identity (desktop app or owner's web session); tab, relayed, peer and service
+credentials are refused with `403` before setup. A `confirmed: true` body does not
+grant owner authority.
+
+GET has no body and returns a JSON array of
+`{id, install, auth, canInstall, ownerConfigured, configOptions, setup?}`. `install` is `not_installed`,
+`installed`, `detected` or `unknown`; `auth` currently reports `unknown`.
+`canInstall` means the declaration has a supported install specification.
+`configOptions` is the profile's last declared model and `thought_level` options:
+each has `id`, `name`, `category`, `currentValue` and `options: [{value, name}]`.
+It is empty before discovery and persists across daemon restarts, bound to the
+profile's launch declaration. Cached choices are advisory. To start ACP with a
+choice, send `agent: "acp"`, `launch_profile`, `model` and `reasoning_effort` on the existing
+spawn request. Omit a choice to preserve the agent's default. After session loading,
+the runtime validates against the live declarations and confirms each requested
+option before bootstrap submission. Missing, rejected or unconfirmed choices fail
+readiness; unsupported values report the offered IDs. Such failures can occur after
+the spawn response has created a tab, and appear as runtime readiness errors.
+No runtime provider or no declared profiles returns `400` with a text reason;
+a catalogue worker failure returns `500` (`Profile catalog unavailable`).
+
+POST requires camelCase `profileId` and `confirmed`; optional `command` contains
+only `binary` and `args` (an array of strings). Unknown fields are rejected.
+For an installable profile, omit `command`:
+
+```json
+{"profileId":"deepseek-harness","confirmed":true}
+```
+
+For an `ownerConfigured` profile, supply an installed executable and its arguments:
+
+```json
+{"profileId":"local","confirmed":true,"command":{"binary":"/absolute/path/to/agent","args":[]}}
+```
+
+There is no environment field. A local command must resolve to an installed file;
+shell commands and package-fetching launchers (`npx`, `npm`, `uvx`, `uv`, `env`) are
+refused. Installation uses the profile's pinned distribution, verifies its archive
+and saves a receipt bound to the profile's binary, arguments and install spec; icons,
+limits, launch policy and settings never stale it, and receipts from earlier builds
+are rebound on first use without reinstalling. POST returns `202 Accepted` with
+`{jobId, providerId, profileId, state:"accepted"}` before installation completes.
+The `provider-profile-setup` event carries that job through `installing` to
+`installed` or `failed`; a failed job includes an `error` string. GET includes the
+latest job as `setup`, so clients can subscribe before reading and recover after
+reconnecting without polling or replaying POST. `installed` follows the saved
+receipt and readiness invalidation, not a download log. An accepted job continues
+if its original HTTP client disconnects. Active jobs are bounded and duplicate
+setups for the same profile are refused. Completed job state lasts for this daemon
+session; saved receipts remain authoritative across daemon restarts.
+
+Admission failures return `400` with a text reason: missing confirmation, unknown
+profile, invalid provider id, unsupported installer, duplicate setup or installer
+capacity. Command validation, missing binaries, download/checksum/package failures
+and unavailable receipt storage become terminal `failed` jobs. Failure to accept
+the setup worker returns `500` (`Profile setup unavailable`). Malformed JSON/schema errors use the standard
+Axum JSON rejection. Neither route creates an agent tab.
+
+### ACP registry management
+
+All three ACP management routes require the same local owner identity as POST
+profiles. Tabs (including Orchestrators), peers, relayed callers and services receive
+`403` before validation or registry access. These REST responses are raw JSON,
+without the CLI `result` wrapper.
+
+GET registry accepts optional query parameter `q` (default empty, maximum 256
+UTF-8 bytes). Success is `200` with an array of
+`{id, name, version, description, iconUrl}`; `iconUrl` is a URL or `null`. Search
+uses the CLI's bounded index fetch and 20-second deadline. Invalid queries, fetch
+failures and invalid indexes return `400` with the same bounded text cause as the CLI.
+
+POST registry/install accepts only `{"id":"registry-agent-id"}`. The owner action
+itself confirms installation; there is no additional `confirmed` field. Success
+is `202` with `{jobId, providerId:"acp", profileId:id, state:"accepted"}`. Subscribe
+to `provider-profile-setup` before POST. The same job subsequently emits
+`installing`, then `installed` or `failed` with optional `error`; GET profiles
+includes the job for reconnect/reopen recovery. Before the installed profile is
+saved, its job-only row has `install:"not_installed"`, `auth:"unknown"`,
+`canInstall:false`, `ownerConfigured:false` and `setup`. It is not yet a configured
+launch profile. A failed import retains its job-only status for this daemon session.
+
+Invalid names, existing/built-in profile names, an unavailable ACP provider,
+duplicate setup or installer capacity refuse immediately with `400`. Registry
+lookup/fetch, unknown registry ids, unsupported distributions, pinning, checksum
+and installation failures become terminal failed jobs after acceptance. Installation
+uses the same mapping, verification, receipt and profile storage as the CLI;
+`installed` is emitted only after the owner profile has been saved. Worker startup
+failure returns `500`; malformed or unknown JSON fields use Axum's JSON rejection.
+
+DELETE profiles/{name} returns `200` with `{"id":"name"}` after removing an
+owner-added profile from storage and invalidating readiness. Built-ins, missing
+owner profiles, invalid names and profiles with active setup return `400` with a
+text reason. Installed package files remain on disk. Deletion and CLI mutation
+share the same reservation. Terminal setup state is cleared on successful removal.
+These routes create no agent tab.
+
+<!-- revision: 14 -->

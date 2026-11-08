@@ -15,13 +15,13 @@ jobs:
       matrix:
         include:
           - os: Linux
-            label: light
+            runner: ${{ vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"' }}
           - os: macOS
-            label: light
+            runner: ${{ vars.CI_MACOS_RUST_RUNNER || '"macos-15"' }}
           - os: Windows
-            label: windows-light
+            runner: ${{ vars.CI_WINDOWS_RUNNER || '"windows-2025"' }}
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' }}
-    runs-on: [self-hosted, '${{ matrix.os }}', '${{ matrix.label }}']
+    runs-on: ${{ fromJSON(matrix.runner) }}
     timeout-minutes: 5
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}

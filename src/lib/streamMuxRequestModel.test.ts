@@ -78,7 +78,8 @@ describe("mux POST admission", () => {
 
   it("reserves in-flight capacity for interactive responses independently of streams", () => {
     expect(muxRequestAdmission(false, "bulk", 256, 48, 48)).toBe(false);
-    expect(muxRequestAdmission(false, "interactive", 256, 48, 48)).toBe(true);
+    expect(muxRequestAdmission(false, "interactive", 256, 48, 48)).toBe(false);
+    expect(muxRequestAdmission(false, "interactive", 256, 64, 48, true)).toBe(true);
     expect(muxRequestAdmission(false, "interactive", 0, 64, 48)).toBe(false);
     expect(muxRequestAdmission(true, "bulk", 256, 0, 0)).toBe(false);
   });
@@ -86,10 +87,10 @@ describe("mux POST admission", () => {
 
 describe("mux request authority and traffic class", () => {
   it("declares only specific read POSTs cancellable and bulk", () => {
-    for (const path of ["/api/tabs/t/preview/read", "/api/tabs/t/preview/check", "/api/tabs/t/chat-raw/history", "/api/tabs/t/chat-raw/backfill", "/api/essence-maps"]) {
+    for (const path of ["/api/tabs/t/preview/read", "/api/tabs/t/preview/check", "/api/tabs/t/chat-raw/start", "/api/tabs/t/chat-raw/history", "/api/tabs/t/chat-raw/backfill", "/api/essence-maps"]) {
       expect(muxRequestPolicy("POST", path)).toMatchObject({ traffic: "bulk", cancellable: true });
     }
-    for (const path of ["/api/tabs/t/chat-send", "/api/tabs/t/send", "/api/tabs/t/chat-raw/start", "/api/tabs/t/chat-raw/stop", "/api/workspaces/w/focus", "/api/secrets/backend"]) {
+    for (const path of ["/api/tabs/t/chat-send", "/api/tabs/t/send", "/api/tabs/t/chat-raw/stop", "/api/workspaces/w/focus", "/api/secrets/backend"]) {
       expect(muxRequestPolicy("POST", path)).toMatchObject({ traffic: "interactive", cancellable: false });
     }
     expect(muxRequestPolicy("DELETE", "/api/logs")).toMatchObject({ traffic: "interactive", cancellable: false });

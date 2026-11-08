@@ -1,7 +1,7 @@
 import { ExpandableReader } from "../ExpandableReader";
 import { attachmentPathName as fileName } from "@codeterm/chat-core";
 import { localThumbnailSource, type ThumbnailSource, type ToolEvent, type ToolRichResult } from "@codeterm/chat-core";
-import { ChevronRight } from "lucide-react";
+import { CardChevron } from "../CompactCard";
 import { useId, type ReactNode } from "react";
 import { useLocalImage } from "../localImage";
 import { ToolOutputContent } from "../ToolOutputContent";
@@ -88,9 +88,7 @@ export function RichResultCard({ event, expanded, onToggle }: { event: ToolEvent
           <span data-testid="chat-rich-result-status" role="img" aria-label={statusName} className="flex shrink-0"><StatusGlyph status={event.status} /></span>
         </button>
         {opener}
-        <button type="button" aria-label={`${expanded ? "Collapse" : "Expand"} result`} aria-expanded={expanded} aria-controls={regionId} onClick={onToggle} className="flex shrink-0 items-center pr-3">
-          <ChevronRight aria-hidden="true" size={14} className={`shrink-0 ${expanded ? "rotate-90" : ""}`} style={{ color: "var(--ct-muted-fg)" }} />
-        </button>
+        <CardChevron expanded={expanded} label={`${expanded ? "Collapse" : "Expand"} result`} controls={regionId} onToggle={onToggle} className="flex shrink-0 items-center pr-3" />
       </div>
       <div id={regionId} role="region" aria-label={`${visual.label} result details`} hidden={!expanded && !fullscreen} className="pb-2 pl-8 pr-3">
         {(expanded || fullscreen) && event.result && <ToolOutputContent text={event.result} />}

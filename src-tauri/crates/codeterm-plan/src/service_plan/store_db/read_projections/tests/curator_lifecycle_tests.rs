@@ -43,7 +43,10 @@ fn curator_lifecycle_reads_select_constant_bytes_without_writes() {
             summary: "x".repeat(body),
             ..Default::default()
         });
-        plan.control_loop.rounds = vec![CuratorRound::default(); rounds];
+        plan.strides.extend(fixtures::round_strides(vec![
+            CuratorRound::default();
+            rounds
+        ]));
         let database = fixtures::database(directory.path(), &plan);
         fixtures::audit(&database);
         take_metrics();

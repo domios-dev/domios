@@ -97,3 +97,26 @@ fn runtime_turn_input_carries_images_once_and_preserves_marker_text() {
         assert!(input.attachments.is_empty());
     }
 }
+
+#[test]
+fn runtime_image_bytes_are_complete_bounded_and_missing_files_refuse() {
+    use base64::Engine;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("image.png");
+    let bytes = [137, 80, 78, 71, 0, 255];
+    std::fs::write(&path, bytes).unwrap();
+    let text = format!(
+        "inspect <domios type=\"attachment\" kind=\"image\" path=\"{}\" />",
+        path.to_string_lossy()
+    );
+    let loaded = super::load_image_bytes(super::turn_input(&text)).unwrap();
+    assert_eq!(loaded.text, text);
+    assert_eq!(
+        loaded.attachments[0].data.as_deref(),
+        Some(base64::prelude::BASE64_STANDARD.encode(bytes).as_str())
+    );
+    std::fs::remove_file(&path).unwrap();
+    assert!(super::load_image_bytes(super::turn_input(&text)).is_err());
+    std::fs::write(&path, vec![1; super::MAX_RUNTIME_VALUE_BYTES]).unwrap();
+    assert!(super::load_image_bytes(super::turn_input(&text)).is_err());
+}

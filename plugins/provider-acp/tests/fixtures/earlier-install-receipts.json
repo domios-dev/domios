@@ -1,0 +1,20 @@
+{
+  "registryInstalls": [
+    {
+      "profileId": "claude-acp",
+      "declaration": {"registryId":"claude-acp","iconUrl":"https://cdn.agentclientprotocol.com/registry/v1/latest/claude-acp.svg","binary":"npx","args":["@agentclientprotocol/claude-agent-acp@0.101.0"],"install":{"distribution":"npx","package":"@agentclientprotocol/claude-agent-acp@0.101.0"},"ownerConfigured":true},
+      "receiptSha256": "b6739036e49f035d0494a742bc2b215448c087a30e899d463a6c4903ab2c701b",
+      "package": "@agentclientprotocol/claude-agent-acp@0.101.0",
+      "version": "0.101.0",
+      "nextPackage": "@agentclientprotocol/claude-agent-acp@0.102.0"
+    },
+    {
+      "profileId": "codex-acp",
+      "declaration": {"registryId":"codex-acp","iconUrl":"https://cdn.agentclientprotocol.com/registry/v1/latest/codex-acp.svg","binary":"npx","args":["@agentclientprotocol/codex-acp@2.5.0"],"install":{"distribution":"npx","package":"@agentclientprotocol/codex-acp@2.5.0"},"ownerConfigured":true},
+      "receiptSha256": "668f922cb398a0fc0cdca5487864caaeffea6d99d7cabdb8f7f927911298d9bc",
+      "package": "@agentclientprotocol/codex-acp@2.5.0",
+      "version": "2.5.0",
+      "nextPackage": "@agentclientprotocol/codex-acp@2.6.0"
+    }
+  ]
+}

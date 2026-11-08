@@ -1,4 +1,6 @@
 use super::*;
+use futures_util::FutureExt;
+use std::panic::AssertUnwindSafe;
 #[path = "runtime_replay/child_retention.rs"]
 mod child_retention;
 use std::collections::HashMap;
@@ -55,6 +57,8 @@ enum Record {
         #[serde(default)]
         frame: Option<RuntimeFrame>,
         #[serde(default)]
+        frames: Option<Vec<RuntimeFrame>>,
+        #[serde(default)]
         context: Option<RuntimeContext>,
     },
 }
@@ -66,7 +70,15 @@ struct ResultEntry {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct PlanError {
+    operation: usize,
+    code: RuntimeFailureCode,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct Expected {
+    #[serde(default)]
+    plan_errors: Vec<PlanError>,
     results: Vec<ResultEntry>,
     events: Vec<AgentRuntimeEvent>,
 }
@@ -162,8 +174,8 @@ fn scenario_paths(dir: &Path) -> Vec<PathBuf> {
     paths.sort();
     paths
 }
-fn fixtures(dir: &Path) -> Vec<(PathBuf, Fixture)> {
-    fixtures_with_load(dir, false)
+fn fixtures(inputs: &FixturePaths) -> Vec<(PathBuf, Fixture)> {
+    fixtures_with_load(inputs, false)
 }
 
 fn load_fixture(path: &Path) -> Fixture {
@@ -175,12 +187,31 @@ fn load_fixture(path: &Path) -> Fixture {
 }
 
 // captured/load holds rate-measurement recordings: same frame kinds at larger volume, so only benchmarks replay them.
-fn fixtures_with_load(dir: &Path, load: bool) -> Vec<(PathBuf, Fixture)> {
+fn fixtures_with_load(inputs: &FixturePaths, load: bool) -> Vec<(PathBuf, Fixture)> {
+    let dir = &inputs.dir;
     let mut paths = scenario_paths(dir);
+    let declaration: Value =
+        serde_json::from_str(&std::fs::read_to_string(&inputs.declaration).unwrap()).unwrap();
+    let mut expected: Vec<String> = serde_json::from_value(declaration["scenarios"].clone())
+        .expect("bundle must declare its root runtime scenarios");
+    assert!(
+        !expected.is_empty(),
+        "runtime replay must declare scenarios"
+    );
+    expected.sort();
+    assert!(
+        !expected.windows(2).any(|pair| pair[0] == pair[1]),
+        "runtime scenario declarations must be unique"
+    );
+    let discovered: Vec<_> = paths
+        .iter()
+        .map(|path| path.file_name().unwrap().to_str().unwrap().to_owned())
+        .collect();
     assert_eq!(
-        paths.len(),
-        12,
-        "shared runtime gate requires all twelve scenarios"
+        discovered,
+        expected,
+        "{} runtime scenario inventory",
+        inputs.declaration.display()
     );
     let captures = dir.join("captured");
     if captures.exists() {
@@ -227,7 +258,10 @@ fn fixtures_with_load(dir: &Path, load: bool) -> Vec<(PathBuf, Fixture)> {
 async fn replay(
     provider: &dyn AgentProvider,
     fixture: &Fixture,
+    fixture_path: &Path,
+    stage: &mut String,
 ) -> (Vec<ResultEntry>, Vec<AgentRuntimeEvent>) {
+    *stage = "fixture schema".into();
     assert_eq!(fixture.schema_version, 1);
     if let Some(capture) = &fixture.captured {
         assert!(
@@ -243,11 +277,12 @@ async fn replay(
     let mut binding = None;
     let mut results = Vec::new();
     let mut events = Vec::new();
-    for record in &fixture.rpc {
+    for (record_index, record) in fixture.rpc.iter().enumerate() {
         match record {
             Record::Outbound {
                 operation, action, ..
             } => {
+                *stage = format!("record {record_index} plan operation {operation}");
                 let case = fixture
                     .operations
                     .get(*operation)
@@ -280,9 +315,11 @@ async fn replay(
                 operation: Some(index),
                 reply: Some(reply),
                 frame: None,
+                frames: None,
                 context: None,
                 ..
             } => {
+                *stage = format!("record {record_index} response operation {index}");
                 let case = &fixture.operations[*index];
                 let ctx = case.context.as_ref().unwrap_or(&fixture.context);
                 let plan = plans
@@ -339,10 +376,17 @@ async fn replay(
             Record::Inbound {
                 operation: None,
                 reply: None,
-                frame: Some(frame),
+                frame,
+                frames,
                 context,
                 ..
             } => {
+                *stage = format!("record {record_index} reduce");
+                let frames = match (frame, frames) {
+                    (Some(frame), None) => std::slice::from_ref(frame),
+                    (None, Some(frames)) => frames.as_slice(),
+                    _ => panic!("exactly one frame or batch is required"),
+                };
                 let ctx = context.as_ref().unwrap_or(&fixture.context);
                 let authority = (
                     ctx.epoch,
@@ -354,41 +398,86 @@ async fn replay(
                     state = Value::Null;
                     binding = Some(authority);
                 }
-                let reduced = provider
-                    .runtime_reduce(ctx, &state, std::slice::from_ref(frame))
-                    .await
-                    .unwrap();
+                let reduced = provider.runtime_reduce(ctx, &state, frames).await.unwrap();
+                crate::agent_runtime::validate_runtime_reduction(ctx, &reduced).unwrap();
                 state = reduced.state;
                 events.extend(reduced.events);
             }
             _ => panic!("invalid replay record envelope"),
         }
     }
+    for expected in &fixture.expected.plan_errors {
+        *stage = format!("plan refusal operation {}", expected.operation);
+        let case = &fixture.operations[expected.operation];
+        let ctx = case.context.as_ref().unwrap_or(&fixture.context);
+        let failure = match provider.runtime_plan(ctx, &case.operation).await {
+            Err(failure) => failure,
+            Ok(plan) => panic!(
+                "{} operation {} must refuse planning, got {:?}",
+                fixture_path.display(),
+                expected.operation,
+                plan
+            ),
+        };
+        assert_eq!(
+            failure.code,
+            expected.code,
+            "{} operation {} plan refusal: {}",
+            fixture_path.display(),
+            expected.operation,
+            failure.message
+        );
+    }
+    *stage = "outstanding plans".into();
     assert!(plans.is_empty(), "every operation must terminate");
     (results, events)
 }
 
 #[tokio::test]
 async fn runtime_shared_provider_fixture_replay() {
+    let mut failures = Vec::new();
     for paths in paths() {
         let provider = load_provider(&paths.manifest, &paths.declaration);
-        for (path, fixture) in fixtures(&paths.dir) {
-            let (results, events) = replay(&provider, &fixture).await;
-            assert_eq!(
-                results,
-                fixture.expected.results,
-                "{} results",
-                path.display()
-            );
-            assert_eq!(events, fixture.expected.events, "{} events", path.display());
-            eprintln!(
-                "RUNTIME_REPLAY_PASS {} operations={} events={}",
-                path.display(),
-                results.len(),
-                events.len()
-            );
+        for (path, fixture) in fixtures(&paths) {
+            let mut stage = String::from("fixture setup");
+            let outcome = AssertUnwindSafe(async {
+                let (results, events) = replay(&provider, &fixture, &path, &mut stage).await;
+                stage = "result expectation".into();
+                assert_eq!(
+                    results,
+                    fixture.expected.results,
+                    "{} results",
+                    path.display()
+                );
+                stage = "event expectation".into();
+                assert_eq!(events, fixture.expected.events, "{} events", path.display());
+                eprintln!(
+                    "RUNTIME_REPLAY_PASS {} operations={} events={}",
+                    path.display(),
+                    results.len(),
+                    events.len()
+                );
+            })
+            .catch_unwind()
+            .await;
+            if let Err(error) = outcome {
+                let message = error
+                    .downcast_ref::<String>()
+                    .map(String::as_str)
+                    .or_else(|| error.downcast_ref::<&str>().copied())
+                    .unwrap_or("non-string panic");
+                let failure = format!("{} [{stage}]: {message}", path.display());
+                eprintln!("RUNTIME_REPLAY_FAIL {failure}");
+                failures.push(failure);
+            }
         }
     }
+    assert!(
+        failures.is_empty(),
+        "Shared runtime fixture failures ({}):\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
 }
 
 fn p99(samples: &mut [Duration]) -> Duration {
@@ -405,7 +494,7 @@ async fn runtime_quickjs_frame_mapping_benchmark() {
 }
 
 async fn benchmark(paths: &FixturePaths) {
-    let fixtures = fixtures_with_load(&paths.dir, true);
+    let fixtures = fixtures_with_load(paths, true);
     let (rate, peak) = observed_rates(&fixtures);
     let provider = load_provider(&paths.manifest, &paths.declaration);
     let mut batches = Vec::new();

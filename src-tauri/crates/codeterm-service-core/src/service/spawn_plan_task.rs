@@ -304,6 +304,7 @@ fn bind_worker_task_to_tab(
             model,
             reasoning_effort,
             None,
+            None,
             false,
             false,
             now_ms,

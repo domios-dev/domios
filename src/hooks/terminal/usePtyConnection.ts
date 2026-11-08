@@ -1,7 +1,7 @@
-import { useEffect, useCallback, useRef } from "react";
+import { useEffect, useCallback, useRef, useState } from "react";
 import type { Terminal } from "@xterm/xterm";
 import { invoke } from "../../lib/bridge";
-import { subscribeTabOutput, type TabOutputSink } from "../../lib/outputStream";
+import { restartOutputStream, subscribeTabOutput, type TabOutputSink } from "../../lib/outputStream";
 import { useMuxSelector } from "../../store/multiplexer/hooks";
 import { consumePendingCwd } from "../../lib/pendingCommands";
 import { uid } from "../../lib/uid";
@@ -39,8 +39,14 @@ export interface UsePtyConnectionOptions {
   onConnectionStateChange?: (ready: boolean) => void;
 }
 
+/** Failure bound only: past it a terminal without its first frame shows an error with Retry; readiness is still the frame. */
+export const TERMINAL_READINESS_FAILURE_MS = 20_000;
+
 export interface UsePtyConnectionReturn {
   writePty: (data: string) => void;
+  /** The output subscription failed, or reached the failure bound, before this attachment's first frame. */
+  readinessFailed: boolean;
+  retryConnection: () => void;
 }
 
 export function usePtyConnection({
@@ -71,6 +77,12 @@ export function usePtyConnection({
   const tabCwdRef = useRef(tabCwd);
   const hiddenViewportRef = useRef<TerminalViewport>({ followOutput: true, line: 0 });
   const viewportRestoreRequestRef = useRef(0);
+  const [readinessFailed, setReadinessFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  const retryConnection = useCallback(() => {
+    restartOutputStream();
+    setAttempt((value) => value + 1);
+  }, []);
 
   useEffect(() => {
     tabCwdRef.current = tabCwd;
@@ -107,9 +119,18 @@ export function usePtyConnection({
     const term = termRef.current;
     if (!term || !termReady || !shouldAttachTerminalOutput(ioEnabled, renderEnabled)) return;
     let disposed = false;
+    let framed = false;
     let unsubscribe: (() => void) | undefined;
     callbacks.current.onConnectionStateChange?.(false);
     callbacks.current.onHistoryReplayStateChange?.(false);
+    setReadinessFailed(false);
+    const failReadiness = () => { if (!disposed && !framed) setReadinessFailed(true); };
+    const failureDeadline = setTimeout(failReadiness, TERMINAL_READINESS_FAILURE_MS);
+    const frameReady = (id: string) => {
+      if (termRef.current !== term) return;
+      if (!framed) { framed = true; clearTimeout(failureDeadline); setReadinessFailed(false); }
+      callbacks.current.onFrameReady?.(id);
+    };
 
     const connect = async () => {
       let id = ptyId;
@@ -130,23 +151,17 @@ export function usePtyConnection({
         onReplayComplete() {
           if (disposed) return;
           callbacks.current.onConnectionStateChange?.(true);
-          return writeTerminalOutputAndWait(term, "", () => {
-            if (termRef.current === term) callbacks.current.onFrameReady?.(id);
-          });
+          return writeTerminalOutputAndWait(term, "", () => frameReady(id));
         },
         onOutput: (text) => {
           if (disposed) return;
-          const written = writeTerminalOutputAndWait(term, text, () => {
-            if (termRef.current === term) callbacks.current.onFrameReady?.(id);
-          });
+          const written = writeTerminalOutputAndWait(term, text, () => frameReady(id));
           callbacks.current.onOutputChunk(text);
           return written;
         },
         onBytes: (bytes) => {
           if (disposed) return;
-          const written = writeTerminalOutputAndWait(term, bytes, () => {
-            if (termRef.current === term) callbacks.current.onFrameReady?.(id);
-          });
+          const written = writeTerminalOutputAndWait(term, bytes, () => frameReady(id));
           callbacks.current.onOutputChunk(new TextDecoder().decode(bytes.slice(-200)));
           return written;
         },
@@ -159,7 +174,9 @@ export function usePtyConnection({
           callbacks.current.onConnectionStateChange?.(false);
         },
         onStreamError: () => {
-          if (!disposed) callbacks.current.onConnectionStateChange?.(false);
+          if (disposed) return;
+          callbacks.current.onConnectionStateChange?.(false);
+          failReadiness();
         },
       };
       unsubscribe = subscribeTabOutput(tabId, sink, term, id);
@@ -173,14 +190,16 @@ export function usePtyConnection({
       }
       console.warn("Failed to setup PTY:", error);
       callbacks.current.onConnectionStateChange?.(false);
+      failReadiness();
     });
     return () => {
       disposed = true;
+      clearTimeout(failureDeadline);
       unsubscribe?.();
       connectedPtyRef.current = null;
       callbacks.current.onConnectionStateChange?.(false);
     };
-  }, [ptyId, tabId, termReady, ioEnabled, renderEnabled, connectedPtyRef, termRef]);
+  }, [ptyId, tabId, termReady, ioEnabled, renderEnabled, connectedPtyRef, termRef, attempt]);
 
-  return { writePty };
+  return { writePty, readinessFailed, retryConnection };
 }

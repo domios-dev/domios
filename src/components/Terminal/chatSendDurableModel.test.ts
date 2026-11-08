@@ -5,6 +5,15 @@ import { chatSendDismissalIdentity, chatSendDismissalMatchesIdentity, decodeChat
   orderChatSendRecords, sameDurableSend } from "./chatSendDurableModel";
 import type { DeliverySend } from "./chatDeliveryModel";
 
+test("a send that was held keeps its place behind the turn across a reload", () => {
+  const send: DeliverySend = { id: "held-once", correlationId: "held-once", content: "opaque", sentAtMs: 1, wasHeld: true };
+  assert.equal(decodeChatSend(encodeChatSend("tab", send))?.wasHeld, true);
+  assert.equal(sameDurableSend(send, { ...send, wasHeld: undefined }), false);
+  const { wasHeld: _absent, ...neverHeld } = send;
+  assert.equal(decodeChatSend(encodeChatSend("tab", neverHeld))?.wasHeld, undefined);
+  assert.equal(mergeChatSendRecord(neverHeld, neverHeld, send).wasHeld, true);
+});
+
 test("durable sends round-trip authority, recovery fields, and only exact duplicate bodies once", () => {
   const matchedRow = {
     source: { source_session_id: "source-session", record: { kind: "structured" as const, thread_id: "source-session", item_id: "item-1" } },

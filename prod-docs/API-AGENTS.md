@@ -5,7 +5,7 @@ REST endpoints for agent restart, model switch, spawn, reports, keep-awake, and 
 
 Restart a live agent through its provider exit command, bounded shell-ready wait and PTY replacement. Resume its recorded session if present; otherwise launch fresh. Unobserved liveness allows fresh launch only with `LaunchBindingUnconfirmed`, no owning launch, a live shell prompt and no verified lineage/journal recovery session; it replaces the PTY and clears the unverified binding without sending exit. Other unobserved states refuse. An observed exited provider recovers in its surviving shell without teardown: select the newest lineage session (journal fallback), require nonce-verification evidence and exactly one owning provider, then resume through normal launch.
 
-Chat tabs with `agentRuntime` resume the tab's recorded thread with a new epoch and nonce, retaining identity and launch options without replay. After `tab rebind`, restart stops the stale runtime before loading the newly recorded thread and its own history. Explicit `fresh: true` opens a new thread under fresh guards. Readiness requires `thread_loaded`; PTY ids are null. Failures degrade and preserve the recorded thread for another `domios agent restart --tab ID`. Handoff refuses with `runtime_provider_handoff_unsupported`.
+Chat tabs with `agentRuntime` resume the tab's recorded thread with a new epoch and nonce, retaining identity and launch options without replay. After `tab rebind`, restart stops the stale runtime before loading the newly recorded thread and its own history. Explicit `fresh: true` opens a new thread under fresh guards. Readiness requires `thread_loaded`; PTY ids are null. Failures degrade and preserve the recorded thread for another `domios agent restart --tab ID`. A provider refusal blocks automatic wakes and restarts; this explicit restart relaunches, and the refusal reason is recorded once. Handoff refuses with `runtime_provider_handoff_unsupported`.
 
 ```json
 {"force": false, "grace_secs": 10, "provider": null, "handoff_history": false}
@@ -53,7 +53,7 @@ Switch one agent tab to another model. Domios never types a provider model comma
 
 An `agentRuntime` Chat provider may apply settings live to the exact bound thread, or declare `next_turn` and apply model/effort on its next turn. Runtime sessions use the live path: a confirmed settings control returns `mode_used: "live"`, `model_confirmation: "observed"`, and `evidence: "live_session_record"`. Runtime modes come from the provider's `agent_runtime.runtimeModes` capability and require the bound runtime. Settings stay per-thread. Runtime failure is visible and retryable through exact-thread resume; it never selects a terminal fallback. Providers declaring RestartResume keep their idle-only switching contract.
 
-`reasoning_effort` is checked against the selected model's published effort levels, falling back to the provider's list when the model publishes none. `runtime_mode` is checked against the declared structured-control modes. Both checks happen before runtime control, tab identity updates, or persistence; unsupported values return `400 unsupported_reasoning_effort` or `400 unsupported_runtime_mode` with a `supported` array. On restore, a saved value no longer present in the catalogue is cleared before runtime settings are built; the model's default is used and a warning is logged.
+`reasoning_effort` is checked against the selected model's published effort levels, falling back to the provider's list when the model publishes none. `runtime_mode` belongs to the owner and paired machines: a request from an agent returns `403 owner_required`. It is checked against the declared structured-control modes, or the modes the session advertises when the session declares its own controls. Both checks happen before runtime control, tab identity updates, or persistence; unsupported values return `400 unsupported_reasoning_effort` or `400 unsupported_runtime_mode` with a `supported` array. On restore, a saved value no longer present in the catalogue is cleared before runtime settings are built; the model's default is used and a warning is logged.
 
 The live session GET or, after a RestartResume fallback, the current binding's launch report or first post-relaunch assistant turn can confirm the model. A live request whose session record does not show the requested model returns pending with `confirmation_detail`; no screen output or POST status is treated as confirmation. After the bounded RestartResume confirmation deadline, a ready relaunch with no model observation still succeeds as pending; the label and `agent_session_model` follow the first turn when it arrives. A live request failure or a confirmed different RestartResume model remains an error.
 
@@ -193,6 +193,38 @@ With `background_work_guard` enabled, restarts and restart-based model switches 
 `spawn.capabilityProbe: stream_json_initialize` supports `capability_probe_enabled` (default false). `POST /api/tabs/{id}/agent/capabilities/refresh` refreshes the project/binary cache: `status` is `pending`, `ready` with typed `data`, or `unavailable` with typed `reason`. Binary/login changes invalidate and rebuild. Render/switch/send never probe. Cached commands carry argument hints; the composer badge shows subscription/modes. No user turn or usage request is sent.
 
 
+### Declared runtime controls
+
+| Method | Path | Operation |
+|--------|------|-----------|
+| POST | `/api/tabs/{id}/agent/runtime/controls` | Select an advertised configuration value or mode on the exact bound runtime session. Changing a mode, as `mode: true` or through a `category: "mode"` option, is owner only: agent callers get 403. |
+| POST | `/api/tabs/{id}/agent/runtime/host-approvals` | Owner only: set this tab's answer to agent permission requests with `{"allowAll":true}` or `{"allowAll":false}`. Applies live and persists. Refused with 409 on a confined tab, or where the agent's own approve-all mode is the switch; refused with 403 for agent callers. |
+
+Requires authenticated API access and the target runtime's current authority
+tuple. Request fields are camelCase; unknown fields are rejected:
+
+```json
+{"threadId":"session-id","bindingNonce":"current-binding","epoch":1,"id":"config-id","value":"advertised-value","mode":false}
+```
+
+`threadId`, `bindingNonce`, `epoch` (unsigned integer), `id` and `value` are required.
+`mode` defaults to `false`: `id` must identify a current configuration option whose
+advertised choices contain `value`. With `mode: true`, `value` must identify an
+advertised mode; `id` is still required but is not used for mode selection.
+Read the tuple and advertised `controls` from the current runtime snapshot; never
+reuse a tuple after rebinding or restarting. The handler validates the live tab
+binding and compares all three tuple fields before invoking the provider. It has
+no local-owner-only wrapper; general caller access restrictions still apply.
+
+Success returns `200` with `{"ok":true}` after the provider control completes.
+Read the resulting session controls to observe its current selection. Service
+refusals return `409` with a text reason: unavailable runtime/process, binding or
+tuple mismatch, a value not advertised by this session, a provider control failure,
+or the 30-second control-gate acquisition deadline. Any recorded execution sandbox
+refuses controls with `Session controls cannot override an immutable execution sandbox`.
+Malformed JSON/schema errors use the standard Axum JSON rejection. This operation
+changes a bound session setting; it does not configure launch-profile executables.
+
 ## Additional REST routes
 
 Runtime requests remain bound to the target tab's session and epoch. Provider CLI fields: API-CLI.
@@ -201,7 +233,7 @@ Runtime requests remain bound to the target tab's session and epoch. Provider CL
 |--------|------|-----------|
 | DELETE | `/api/remote-workers` | Forget a remote Worker record. |
 | GET | `/api/agents/done` | List completed agent runs. |
-| GET | `/api/agents/providers/{id}/cli` | Read provider CLI status. |
+| GET | `/api/agents/providers/{id}/cli` | Read provider CLI status; `?refresh=true` re-observes its launch profiles. |
 | GET | `/api/agents/providers/{id}/model-usage` | Read provider model-group usage. |
 | GET | `/api/tabs/{id}/agent/runtime/background-processes` | Read attributed runtime background processes. |
 | POST | `/api/agents/general/complete-first-run` | Complete General first-run setup. |
@@ -219,4 +251,4 @@ Runtime requests remain bound to the target tab's session and epoch. Provider CL
 | POST | `/api/tabs/{id}/agent/runtime/retry` | Retry initialization of the same runtime session. |
 | POST | `/api/tabs/{id}/agent/runtime/thread-history` | Read runtime-owned thread history. |
 
-<!-- revision: 76 -->
+<!-- revision: 81 -->

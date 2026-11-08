@@ -8,7 +8,7 @@ fn declarations() -> (CommandPicker, CommandPrompt) {
     let manifest: serde_json::Value = serde_json::from_str(&fixture("plugin.json")).unwrap();
     let commands: crate::agent::provider::ModelSwitchCommands =
         serde_json::from_value(manifest["commands"]["modelSwitchCommands"].clone()).unwrap();
-    let target = CommandTarget {
+    let mut target = CommandTarget {
         tab_id: "owned".into(),
         pty_id: "pty".into(),
         provider: "opaque".into(),
@@ -19,9 +19,16 @@ fn declarations() -> (CommandPicker, CommandPrompt) {
         display_name: "Sonnet 5.5".into(),
         readiness: None,
     };
+    let manifest_path = super::super::tests::provider_path("plugin.json");
+    let provider =
+        std::sync::Arc::new(crate::plugin::js_runtime::load_one(&manifest_path).unwrap());
+    target.readiness =
+        readiness::CommandReadiness::from_declaration(&commands, &target, provider).unwrap();
     (
         CommandPicker::new(commands.model.picker.as_ref().unwrap(), &target, None).unwrap(),
-        CommandPrompt::new(commands.model.prompt.as_ref().unwrap(), &target, None).unwrap(),
+        CommandPrompt::new(commands.model.prompt.as_ref().unwrap(), &target, None)
+            .unwrap()
+            .with_structural_confirmation(target.readiness.clone(), "sonnet"),
     )
 }
 
@@ -110,4 +117,97 @@ fn picker_with_normal_composer_below_it_navigates_and_cancels_structurally() {
         })
         .unwrap();
     assert_eq!(keys, [b"\x1b[A".to_vec(), b"s".to_vec()]);
+}
+
+#[test]
+fn captured_picker_waits_for_its_footer_before_navigation() {
+    let (mut picker, prompt) = declarations();
+    picker.injected();
+    let screen = fixture("tests/fixtures/model-switch/live-2.1.318-picker.txt");
+    let partial = screen.split("  Enter to set as default").next().unwrap();
+    assert_eq!(
+        screen_stage(partial, Some(&picker), Some(&prompt), true),
+        ScreenStage::AwaitingEvidence
+    );
+    picker
+        .respond(partial, |_| panic!("partial picker must not write"))
+        .unwrap();
+    assert_eq!(
+        screen_stage(&screen, Some(&picker), Some(&prompt), true),
+        ScreenStage::Picker
+    );
+    let mut keys = Vec::new();
+    picker
+        .respond(&screen, |key| {
+            keys.push(key.to_vec());
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(keys, [b"\x1b[A".to_vec()]);
+}
+
+#[test]
+fn captured_footerless_confirmation_uses_provider_structure_and_cleans_both_dialogs() {
+    let (picker, mut prompt) = declarations();
+    let confirmation = fixture("tests/fixtures/model-switch/live-2.1.318-confirmation.txt");
+    let picker_screen = fixture("tests/fixtures/model-switch/live-2.1.318-picker.txt");
+    assert_eq!(
+        screen_stage(&confirmation, Some(&picker), Some(&prompt), true),
+        ScreenStage::Confirmation
+    );
+    for foreign in [
+        confirmation.replace("Sonnet 5.5", "foreign"),
+        format!("{confirmation}\n❯ "),
+    ] {
+        assert!(!prompt.present(&foreign));
+    }
+    prompt.injected();
+    let mut keys = Vec::new();
+    prompt
+        .respond(&confirmation, |key| {
+            keys.push(key.to_vec());
+            Ok(())
+        })
+        .unwrap();
+    prompt
+        .respond(&confirmation, |_| panic!("confirmation cannot repeat"))
+        .unwrap();
+    assert_eq!(keys, [b"\r".to_vec()]);
+
+    let target = CommandTarget {
+        tab_id: "owned".into(),
+        pty_id: "pty".into(),
+        provider: "opaque".into(),
+        session_id: "session".into(),
+        binding_nonce: "nonce".into(),
+        cwd: None,
+        model: "sonnet".into(),
+        display_name: "Sonnet 5.5".into(),
+        readiness: None,
+    };
+    let mut cancel_picker = picker.cancellation_prompt(&target).unwrap();
+    cancel_picker.injected();
+    assert!(cancel_picker
+        .cancel(&confirmation, |_| panic!("confirmation is not the picker"))
+        .unwrap());
+    keys.clear();
+    assert!(!prompt
+        .cancel(&confirmation, |key| {
+            keys.push(key.to_vec());
+            Ok(())
+        })
+        .unwrap());
+    assert!(prompt
+        .cancel(&picker_screen, |_| panic!("confirmation cleared"))
+        .unwrap());
+    assert!(!cancel_picker
+        .cancel(&picker_screen, |key| {
+            keys.push(key.to_vec());
+            Ok(())
+        })
+        .unwrap());
+    assert!(cancel_picker
+        .cancel("❯ ", |_| panic!("picker cleared"))
+        .unwrap());
+    assert_eq!(keys, [b"\x1b".to_vec(), b"\x1b".to_vec()]);
 }

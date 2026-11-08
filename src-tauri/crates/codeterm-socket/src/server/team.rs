@@ -159,7 +159,7 @@ pub(super) fn dispatch(
                 .filter(|tab_id| !tab_id.trim().is_empty());
             let svc_ref = &**svc;
             let result = codeterm_service_core::async_runtime::block_on(
-                codeterm_orchestration::add_team_member(
+                codeterm_orchestration::team::add_team_member_checked(
                     svc_ref,
                     &team_id,
                     caller_tab_id.as_deref(),
@@ -180,10 +180,12 @@ pub(super) fn dispatch(
                     },
                 ),
             )
-            .map_err(|message| JsonRpcError {
-                code: -32602,
-                message,
-                data: None,
+            .map_err(|error| {
+                let mut error = super::model_errors::spawn_target_rpc_error(error);
+                if error.data.is_none() {
+                    error.code = -32602;
+                }
+                error
             })?;
             serde_json::to_value(result).map_err(|error| JsonRpcError {
                 code: -32603,

@@ -12,6 +12,7 @@ import { NeighborRuntimeFailure, type NeighborListenerEvent, type NeighborRuntim
 import { missingConciergeLine } from "./useConciergeStatus";
 import { openNeighborPage } from "./neighborFocus";
 import { createNeighborsViewFixture } from "./neighborsView.testdata";
+import { plansAction } from "../billing/purchaseSwitch";
 
 const notices = vi.hoisted(() => ({ publishNotice: vi.fn() }));
 const transport = vi.hoisted(() => ({ localFetch: vi.fn() }));
@@ -84,7 +85,7 @@ it("saves an email request once, then starts the permission interview in the Gen
 
 it("accepts a request and interviews about the new connection once it exists", async () => {
   const { client, list } = await render("locked", { canInvite: false });
-  expect(hasButton("Upgrade to add Neighbors")).toBe(true);
+  expect(hasButton(`${plansAction("Upgrade")} to add Neighbors`)).toBe(true);
   await act(async () => button("Grace, wants to connect").click());
   list.incoming = [];
   list.friends = [neighbor, { ...neighbor, uid: "requester", displayName: "Grace", friendship_id: "pair-grace" }];
@@ -147,7 +148,7 @@ it("displays the server referral status from the shared projection", async () =>
   const { client } = await render("paid", { canInvite: false, trial: {
     state: "granted", inviter_uid: "inviter", trial_end: 1700604800, friend_request_id: "a".repeat(64),
   } });
-  expect(button("Subscribe")).toBeDefined();
+  expect(button(plansAction("Subscribe"))).toBeDefined();
   expect(client.apply).not.toHaveBeenCalled();
   await act(async () => button("Refresh Neighbors").click());
   expect(client.apply).not.toHaveBeenCalled();
@@ -158,7 +159,7 @@ it("keeps a server-locked Neighbor manageable, offers plans and never unlocks th
     state: "granted", inviter_uid: "inviter", trial_end: 4102444800, friend_request_id: null,
   } });
   await act(async () => button("Ada, paused by plan").click());
-  expect(button("View plans")).toBeDefined();
+  expect(button(plansAction("View plans"))).toBeDefined();
   expect(hasButton("Open conversation")).toBe(false);
   expect(client.apply).not.toHaveBeenCalled();
 });
@@ -168,12 +169,14 @@ it("refreshes the server's channel lock when signed entitlement access changes",
     state: "granted", inviter_uid: "inviter", trial_end: 1700604800, friend_request_id: null,
   } });
   await act(async () => button("Ada, connected").click());
-  expect(hasButton("View plans")).toBe(false);
+  // The friend window's own actions: with purchase off, its plans action and the referral's share one label.
+  const friendPlans = () => Array.from(document.querySelectorAll(".neighbor-window__actions button")).some(item => item.textContent === plansAction("View plans"));
+  expect(friendPlans()).toBe(false);
   list.access = "locked";
   expect(bridge.handlers["entitlement-changed"]).toBeDefined();
   await act(async () => emit("entitlement-changed"));
-  expect(button("View plans")).toBeDefined();
-  expect(button("Subscribe")).toBeDefined();
+  expect(friendPlans()).toBe(true);
+  expect(button(plansAction("Subscribe"))).toBeDefined();
 });
 
 it("discards a snapshot with a referral receipt that completes after switching accounts", async () => {
@@ -191,7 +194,7 @@ it("discards a snapshot with a referral receipt that completes after switching a
   await act(async () => root.render(<NeighborsView client={client} runtimeClient={runtime()} />));
   await act(async () => complete({ schema_version: 1, access: "locked", friends: [], incoming: [], outgoing: [], referral_trial: { state: "granted", inviter_uid: "inviter", trial_end: 1700604800, friend_request_id: "a".repeat(64) } }));
   expect(client.list).toHaveBeenCalledTimes(2);
-  expect(hasButton("Subscribe")).toBe(false);
+  expect(hasButton(plansAction("Subscribe"))).toBe(false);
 });
 
 it("offers sign-in at the center when signed out, without making an invitation", async () => {

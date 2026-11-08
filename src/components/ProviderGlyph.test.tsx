@@ -1,6 +1,9 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
+import claudeIcon from "../../plugins/provider-claude/icon.svg?raw";
+import codexIcon from "../../plugins/provider-codex/icon.svg?raw";
+import opencodeIcon from "../../plugins/provider-opencode/icon.svg?raw";
 import { ProviderGlyph } from "./ProviderGlyph";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -14,6 +17,16 @@ function imageNamed(name: string) {
 }
 
 describe("ProviderGlyph", () => {
+  it.each([["claude", claudeIcon], ["codex", codexIcon], ["opencode", opencodeIcon]])("renders the shipped %s logo", async (provider, iconSvg) => {
+    await act(async () => root.render(<ProviderGlyph iconSvg={iconSvg} title={provider} />));
+    const descriptor = document.createElement("div");
+    descriptor.innerHTML = iconSvg;
+    const logo = imageNamed(provider)?.querySelector("svg");
+    expect(logo).not.toBeNull();
+    expect(logo?.innerHTML).toBe(descriptor.querySelector("svg")?.innerHTML);
+    expect(imageNamed(`${provider} default agent icon`)).toBeNull();
+  });
+
   it("replaces a missing descriptor logo when it arrives", async () => {
     await act(async () => root.render(<ProviderGlyph iconHint="OC" />));
     expect(imageNamed("Default agent icon")).not.toBeNull();

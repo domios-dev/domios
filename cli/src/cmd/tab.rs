@@ -24,7 +24,7 @@ mod text;
 mod workspace_topology;
 use adopt::handle_tab_adopt_agent;
 use capture::handle_tab_capture;
-use chat_view::print_tab_chat;
+pub(crate) use chat_view::print_tab_chat;
 use inspect::handle_tab_inspect;
 #[cfg(test)]
 use remote_target::remote_inspect_target;
@@ -558,6 +558,9 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                             println!("agent:   {}", at);
                             println!("title:   {}", title);
                             println!("status:  {}", status);
+                            if let Some(line) = status_failure_line(&p) {
+                                println!("{line}");
+                            }
                             for line in status_prompt_lines(&p) {
                                 println!("{line}");
                             }
@@ -790,6 +793,12 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                             "Tab {} is not working (status: {}); nothing to stop",
                             tab_id, status
                         );
+                    } else if let Some(line) = body
+                        .get("reason")
+                        .and_then(|v| v.as_str())
+                        .and_then(stop_pending_line)
+                    {
+                        println!("Tab {}: {}", tab_id, line);
                     } else {
                         println!("Tab {} has no agent to stop", tab_id);
                     }
@@ -826,8 +835,13 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
             };
             let url = format!("{}/api/tabs/{}/chat?since={}", api_url, tab_id, since);
             match api.get(url).send() {
-                // Non-JSON / empty body (e.g. tab not bound yet) -> {} so the renderer prints an honest "(no chat ...)" instead of a decode error.
                 Ok(resp) => {
+                    let status = resp.status();
+                    if !status.is_success() {
+                        let body = resp.text().unwrap_or_default();
+                        crate::cmd::print::fail_http(1, status.as_u16(), &body);
+                    }
+                    // Non-JSON / empty body (e.g. tab not bound yet) -> {} so the renderer prints an honest "(no chat ...)" instead of a decode error.
                     let v = resp
                         .json::<serde_json::Value>()
                         .unwrap_or_else(|_| serde_json::json!({}));
@@ -845,6 +859,33 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
         TabAction::Capture { action } => handle_tab_capture(client, json, action),
         TabAction::Todo { action } => crate::cmd::tab_todo::handle_tab(client, json, action),
     }
+}
+
+fn stop_pending_line(reason: &str) -> Option<&'static str> {
+    match reason {
+        "interrupt_unconfirmed" => Some("stop requested; the agent has not confirmed it yet"),
+        "turn_ended" => Some("the turn already ended; nothing to stop"),
+        "turn_changed" => Some("a new turn started; press stop again to end it"),
+        _ => None,
+    }
+}
+
+fn status_failure_line(status: &serde_json::Value) -> Option<String> {
+    let failure = status.get("failure").filter(|value| value.is_object())?;
+    let text = |key: &str| failure.get(key).and_then(|value| value.as_str());
+    let states = [text("boot_stage"), text("runtime_state")]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+        .join(", ");
+    let code = text("code")
+        .map(|code| format!(" ({code})"))
+        .unwrap_or_default();
+    Some(format!(
+        "failure: {}{code}: {}",
+        if states.is_empty() { "failed" } else { &states },
+        text("reason").unwrap_or("no reason recorded")
+    ))
 }
 
 fn status_prompt_lines(status: &serde_json::Value) -> Vec<String> {

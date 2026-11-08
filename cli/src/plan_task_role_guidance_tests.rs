@@ -12,6 +12,8 @@ fn role_guidance_add_defers_absence_to_daemon_and_update_refuses_blank() {
         "pl_1",
         "--name",
         "Unconditioned lane",
+        "--personality",
+        "Ada",
         "--executor-role",
         "dev",
     ]);

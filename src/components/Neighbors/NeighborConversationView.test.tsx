@@ -471,3 +471,12 @@ it("keeps handling lines calm: one waiting line, no raw codes, no line for no re
   expect(document.body.textContent).not.toContain("queued_for_concierge");
   expect(document.querySelector("#neighbor-msg-w3 time")?.getAttribute("title")).toContain("No reply needed");
 });
+it("explains a refused Neighbors read before opening cached conversation services", async () => {
+  localStorage.setItem("domios.neighbors.last-known:owner", JSON.stringify({ access: "paid", friends: [neighbor] }));
+  const client: NeighborClient = { list: vi.fn(async () => { throw new Error("Sign in with a hosted account to use Neighbors"); }), apply: vi.fn() };
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted.current = { root, host };
+  await act(async () => root.render(<NeighborConversationView friendship="pair" client={client} runtimeClient={runtime()} conciergeClient={concierge([])} />));
+  expect(host.querySelector('[role="status"]')?.textContent).toContain("Sign in with a hosted account to use Neighbors");
+  expect(host.querySelector("textarea")).toBeNull();
+});

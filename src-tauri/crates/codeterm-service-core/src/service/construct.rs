@@ -138,6 +138,7 @@ pub fn build_service_context(
     drop(phase);
     let phase = crate::startup::StartupStep::debug("service: extensions");
     let mut extensions = crate::service::extensions::ExtensionsBuilder::default();
+    extensions.insert(states.launch_credentials.clone());
     extensions.insert(crate::mem_ops::author::OwnerMemoryAuthor::default());
     extensions.insert_service_slots();
     extensions.insert(states.config.clone());

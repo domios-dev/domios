@@ -109,7 +109,7 @@ impl ServiceContext {
         Ok(self.mux.read().list_workspaces())
     }
 
-    fn ensure_workspace_plans_loaded(&self, cwd: Option<&str>) {
+    pub(super) fn ensure_workspace_plans_loaded(&self, cwd: Option<&str>) {
         let Some(cwd) = cwd.filter(|c| !c.is_empty()) else {
             return;
         };
@@ -200,6 +200,7 @@ impl ServiceContext {
         self.refresh_workspace_cwd_state(id)?;
         self.ensure_workspace_plans_loaded(cwd.as_deref());
         self.emit_state_changed(MuxEmitCause::Workspace);
+        self.request_workspace_focus(id);
         let _ =
             session_persist::persist_session_after_mutation(self, SessionPersistUrgency::Debounced);
         Ok(())
@@ -558,6 +559,7 @@ impl ServiceContext {
         if let Some(batch) = history_batch {
             let evicted = batch.persist_on_blocking_thread_collect_evicted();
             self.forget_evicted_tab_todos(evicted);
+            crate::service::tab_chat::closed_transcript::forget_evicted(self);
         }
         let pty_ids = close_result?;
         let post_focus = self.mux.read().get_focused_tab_id().map(str::to_string);

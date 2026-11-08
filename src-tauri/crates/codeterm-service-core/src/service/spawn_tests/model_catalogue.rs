@@ -1,6 +1,45 @@
 use super::*;
 
 #[test]
+fn profile_session_choices_are_opaque_and_never_replaced_with_provider_defaults() {
+    let mut provider = ModelProvider::new("profile-fixture", &["static-default"]);
+    provider.runtime = Some(
+        serde_json::from_value(serde_json::json!({
+            "runtime":"stdio-jsonrpc", "command":{"binary":"fixture-agent","args":[]},
+            "requestMethods":{"initialize":["initialize"]}, "notificationMethods":[],
+            "launchProfiles":{"local":{"binary":"fixture-agent","args":[]}}
+        }))
+        .unwrap(),
+    );
+    let registry = registry_with(provider);
+    let requested = "other:Opaque/Model";
+    let selected =
+        resolve_agent_model_selection(&registry, Some("profile-fixture"), Some(requested), "other")
+            .unwrap();
+    assert_eq!(selected.model.as_deref(), Some(requested));
+    assert!(
+        super::super::spawn_reasoning_effort::validate_agent_reasoning_effort(
+            &registry,
+            "profile-fixture",
+            Some(requested),
+            Some("Dynamic/Effort")
+        )
+        .is_ok()
+    );
+    for model in [None, Some(requested.to_string())] {
+        let resolved = super::super::spawn_model::resolve_fresh_agent_model_with_notice(
+            &crate::config::schema::AppConfig::default(),
+            &registry,
+            "profile-fixture",
+            model.clone(),
+            None,
+        );
+        assert_eq!(resolved.model, model);
+        assert!(resolved.fallback_notice.is_none());
+    }
+}
+
+#[test]
 fn explicit_qualified_model_is_stripped_and_catalogue_validated() {
     let registry = registry_with(
         ModelProvider::new("qualified-fixture", &["model-a"]).with_model_catalogue(

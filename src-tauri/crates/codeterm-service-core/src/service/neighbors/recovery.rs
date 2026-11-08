@@ -123,6 +123,9 @@ pub(super) fn startup_error(message: &str) -> Error {
     Error::Transport
 }
 
+#[cfg(any(test, not(feature = "test-support")))]
+pub(super) mod hold;
+
 #[cfg(test)]
 mod tests;
 

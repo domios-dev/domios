@@ -185,7 +185,15 @@ impl super::ServiceContext {
                     ))
                     .with_session_admission(Arc::new(logout::SignInAdmission(self.weak_self()))),
                 );
-                if account.refresh().await == Err(Error::Credentials) {
+                let restored = account.refresh().await;
+                if restored == Err(Error::TargetMismatch) {
+                    // The saved credential and identity record stay; only the signed-in projection ends.
+                    if let Some(cached) = self.try_ext::<startup::StartupAccount>() {
+                        cached.invalidate();
+                    }
+                    log::warn!("Account target mismatch: saved sign-in does not belong to this build's account target; sign in again");
+                }
+                if restored == Err(Error::Credentials) {
                     if let Some(cached) = self.try_ext::<startup::StartupAccount>() {
                         cached.invalidate();
                     }

@@ -94,6 +94,43 @@ pub fn update(
     true
 }
 
+pub(crate) fn apply_runtime(
+    svc: &crate::service::ServiceContext,
+    provider: &str,
+    context: &codeterm_plugin::agent_runtime::RuntimeContext,
+    incoming: TurnContext,
+) -> bool {
+    let Some(thread) = context
+        .thread_id
+        .as_deref()
+        .filter(|thread| !thread.is_empty())
+    else {
+        return false;
+    };
+    if context.binding_nonce.is_empty() || !incoming.valid() {
+        return false;
+    }
+    let mut mux = svc.mux.write();
+    let Some(tab) = mux.get_tab_mut(&context.tab_id) else {
+        return false;
+    };
+    if tab.agent_type.as_deref() != Some(provider)
+        || tab.agent_session_id.as_deref() != Some(thread)
+        || tab.session_binding_nonce.as_deref() != Some(context.binding_nonce.as_str())
+        || !tab.launch_session_authenticated()
+        || tab.cwd.as_deref().unwrap_or_default() != context.cwd
+        || !matches!(&tab.backing, crate::multiplexer::types::TabBacking::ChatBackend { plugin_id, session_id }
+            if plugin_id == provider && session_id == thread)
+        || tab.context.as_ref() == Some(&incoming)
+    {
+        return false;
+    }
+    tab.context = Some(incoming);
+    drop(mux);
+    svc.emit_state_changed(MuxEmitCause::ContextFeed);
+    true
+}
+
 pub fn apply_snapshot(
     svc: &crate::service::ServiceContext,
     tab_id: &str,

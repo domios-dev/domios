@@ -24,6 +24,7 @@ fn fixture() -> (ServiceFixture, TaskRespawnDraft) {
     });
     let fixture = ServiceFixture::new(mux);
     let draft = TaskRespawnDraft {
+        launch_profile: None,
         plan_id: "plan".into(),
         task_id: "task".into(),
         execution_intent: ExecutionIntent::Mutating,
@@ -847,37 +848,109 @@ fn terminal_worker_close_resolves_missing_attempt_after_accept_or_close() {
 }
 
 #[test]
-fn terminal_worker_close_refuses_ambiguous_or_foreign_executor_identity() {
-    for defect in ["ambiguous", "session", "nonce"] {
+fn terminal_worker_close_refuses_an_ambiguous_finished_attempt() {
+    let (fixture, draft) = fixture();
+    let svc = &fixture.service;
+    let tab_id = &draft.source_attempt.executor_tab_id;
+    svc.mux
+        .write()
+        .get_tab_mut(tab_id)
+        .unwrap()
+        .task_binding
+        .as_mut()
+        .unwrap()
+        .attempt_id = None;
+    svc.plan_store
+        .edit_plan_fixture("plan", 2, |plan| {
+            plan.tasks[0].status = crate::plan::TaskStatus::Done;
+            plan.tasks[0].execution_attempts[0].closed_at = Some(2);
+            let mut other = plan.tasks[0].execution_attempts[0].clone();
+            other.id = "other-attempt".into();
+            plan.tasks[0].execution_attempts.push(other);
+            Ok(())
+        })
+        .unwrap();
+    assert!(svc.close_tab_guarded(Some("owner"), tab_id, true).is_err());
+    assert!(svc.mux.read().get_tab(tab_id).is_some());
+    assert!(!svc
+        .plan_store
+        .task_executor_termination_confirmed("plan", "task", &draft.source_attempt)
+        .unwrap());
+}
+
+fn drift_executor_session(svc: &ServiceContext, tab_id: &str, drift: &str) {
+    let mut mux = svc.mux.write();
+    let tab = mux.get_tab_mut(tab_id).unwrap();
+    match drift {
+        "session" => tab.agent_session_id = Some("rebound-session".into()),
+        "nonce" => tab.session_binding_nonce = Some("rebound-nonce".into()),
+        "unreported" => tab.reported_session_binding_nonce = None,
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn finished_worker_close_succeeds_after_its_session_rebinds() {
+    for (settle, drift, missing_attempt) in [
+        ("done", "nonce", false),
+        ("done", "session", false),
+        ("done", "unreported", true),
+        ("closed", "session", false),
+        ("retired", "nonce", false),
+        ("closed", "nonce", true),
+    ] {
+        let case = format!("{settle}/{drift}/{missing_attempt}");
         let (fixture, draft) = fixture();
         let svc = &fixture.service;
         let tab_id = &draft.source_attempt.executor_tab_id;
-        {
+        drift_executor_session(svc, tab_id, drift);
+        if missing_attempt {
             let mut mux = svc.mux.write();
-            let tab = mux.get_tab_mut(tab_id).unwrap();
-            tab.task_binding.as_mut().unwrap().attempt_id = None;
-            if defect == "session" {
-                tab.agent_session_id = Some("foreign".into());
-            }
-            if defect == "nonce" {
-                tab.session_binding_nonce = Some("foreign".into());
-            }
+            let binding = mux.get_tab_mut(tab_id).unwrap().task_binding.as_mut();
+            binding.unwrap().attempt_id = None;
         }
         svc.plan_store
             .edit_plan_fixture("plan", 2, |plan| {
-                plan.tasks[0].status = crate::plan::TaskStatus::Done;
-                plan.tasks[0].execution_attempts[0].closed_at = Some(2);
-                if defect == "ambiguous" {
-                    let mut other = plan.tasks[0].execution_attempts[0].clone();
-                    other.id = "other-attempt".into();
-                    plan.tasks[0].execution_attempts.push(other);
+                let task = &mut plan.tasks[0];
+                match settle {
+                    "done" => {
+                        task.status = crate::plan::TaskStatus::Done;
+                        task.execution_attempts[0].closed_at = Some(2);
+                    }
+                    "closed" => task.execution_attempts[0].closed_at = Some(2),
+                    "retired" => task.execution_attempts[0].retired_at = Some(2),
+                    _ => unreachable!(),
                 }
                 Ok(())
             })
             .unwrap();
+        svc.close_tab_guarded(Some("owner"), tab_id, true)
+            .unwrap_or_else(|error| panic!("{case}: {error}"));
+        assert!(svc.mux.read().get_tab(tab_id).is_none(), "{case}");
         assert!(
-            svc.close_tab_guarded(Some("owner"), tab_id, true).is_err(),
-            "{defect}"
+            svc.plan_store
+                .task_executor_termination_confirmed("plan", "task", &draft.source_attempt)
+                .unwrap(),
+            "{case}"
+        );
+        svc.retire_respawn_executor(&draft)
+            .unwrap_or_else(|error| panic!("{case}: {error}"));
+    }
+}
+
+#[test]
+fn live_worker_close_with_a_rebound_session_names_its_live_attempt() {
+    for drift in ["session", "nonce", "unreported"] {
+        let (fixture, draft) = fixture();
+        let svc = &fixture.service;
+        let tab_id = &draft.source_attempt.executor_tab_id;
+        drift_executor_session(svc, tab_id, drift);
+        let error = svc
+            .close_tab_guarded(Some("owner"), tab_id, true)
+            .unwrap_err();
+        assert!(
+            error.contains("live attempt source of task task"),
+            "{drift}: {error}"
         );
         assert!(svc.mux.read().get_tab(tab_id).is_some());
         assert!(!svc
@@ -885,6 +958,86 @@ fn terminal_worker_close_refuses_ambiguous_or_foreign_executor_identity() {
             .task_executor_termination_confirmed("plan", "task", &draft.source_attempt)
             .unwrap());
     }
+}
+
+#[test]
+fn live_worker_close_refusal_classifies_the_failing_identity_proof() {
+    for (drift, expected) in [
+        ("session", ExecutorIdentityDrift::Session),
+        ("nonce", ExecutorIdentityDrift::LaunchUnreported),
+        ("unreported", ExecutorIdentityDrift::LaunchUnreported),
+    ] {
+        let (fixture, draft) = fixture();
+        let tab_id = &draft.source_attempt.executor_tab_id;
+        drift_executor_session(&fixture.service, tab_id, drift);
+        let mux = fixture.service.mux.read();
+        let tab = mux.get_tab(tab_id).unwrap();
+        assert_eq!(
+            executor_identity_drift(tab, (&draft).into()),
+            Some(expected),
+            "{drift}"
+        );
+    }
+    let (fixture, draft) = fixture();
+    let tab_id = &draft.source_attempt.executor_tab_id;
+    {
+        let mut mux = fixture.service.mux.write();
+        let tab = mux.get_tab_mut(tab_id).unwrap();
+        tab.session_binding_nonce = Some("rotated-nonce".into());
+        tab.reported_session_binding_nonce = Some("rotated-nonce".into());
+    }
+    let mux = fixture.service.mux.read();
+    assert_eq!(
+        executor_identity_drift(mux.get_tab(tab_id).unwrap(), (&draft).into()),
+        Some(ExecutorIdentityDrift::LaunchRotated)
+    );
+}
+
+#[test]
+fn in_review_worker_close_refusal_names_the_review_instead_of_a_session_mismatch() {
+    let (fixture, draft) = fixture();
+    let svc = &fixture.service;
+    let tab_id = &draft.source_attempt.executor_tab_id;
+    drift_executor_session(svc, tab_id, "unreported");
+    svc.plan_store
+        .edit_plan_fixture("plan", 2, |plan| {
+            plan.tasks[0].status = crate::plan::TaskStatus::InReview;
+            Ok(())
+        })
+        .unwrap();
+    let error = svc
+        .close_tab_guarded(Some("owner"), tab_id, true)
+        .unwrap_err();
+    assert!(error.contains("in review"), "{error}");
+    assert!(!error.contains("session"), "{error}");
+    assert!(svc.mux.read().get_tab(tab_id).is_some());
+}
+
+#[test]
+fn finished_worker_close_refuses_while_the_tab_runs_another_live_attempt() {
+    let (fixture, draft) = fixture();
+    let svc = &fixture.service;
+    let tab_id = &draft.source_attempt.executor_tab_id;
+    drift_executor_session(svc, tab_id, "session");
+    svc.plan_store
+        .edit_plan_fixture("plan", 2, |plan| {
+            let mut live = plan.tasks[0].clone();
+            live.id = "live-task".into();
+            live.execution_attempts[0].id = "live-attempt".into();
+            plan.tasks[0].status = crate::plan::TaskStatus::Done;
+            plan.tasks[0].execution_attempts[0].closed_at = Some(2);
+            plan.tasks.push(live);
+            Ok(())
+        })
+        .unwrap();
+    let error = svc
+        .close_tab_guarded(Some("owner"), tab_id, true)
+        .unwrap_err();
+    assert!(
+        error.contains("live attempt live-attempt of task live-task"),
+        "{error}"
+    );
+    assert!(svc.mux.read().get_tab(tab_id).is_some());
 }
 
 #[test]

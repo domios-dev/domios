@@ -23,7 +23,7 @@ export function DefaultModelPicker({ providerId, value, serviceTier, onChange }:
   return <div className="min-w-0">
     <button ref={trigger} type="button" className="ct-bar-pill max-w-full" aria-label="Choose default model"
       aria-haspopup="dialog" aria-expanded={open} disabled={!descriptor} onClick={() => setOpen((previous) => !previous)}>
-      <span className="min-w-0 truncate">{label || (descriptor ? "Provider default" : "Loading models…")}</span>
+      <span className="min-w-0 truncate">{label || (descriptor ? "Harness default" : "Loading models…")}</span>
       <ChevronDown size={13} aria-hidden="true" />
     </button>
     {open && descriptor && <ModelPickerPopover descriptor={descriptor}

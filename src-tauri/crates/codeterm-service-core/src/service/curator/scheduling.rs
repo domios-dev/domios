@@ -3,13 +3,51 @@ use super::*;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Mirror {
     pub provider: String,
+    pub launch_profile: Option<String>,
     pub model: String,
     pub effort: Option<String>,
+}
+
+const MAX_MIRROR_CAUSE_CHARS: usize = 480;
+
+/// Why a mirrored launch cannot start; `cause` is what the fallback round shows the owner.
+#[derive(Debug)]
+pub(super) struct MirrorRefusal {
+    pub(super) reason: CuratorFailure,
+    pub(super) cause: Option<String>,
+}
+impl MirrorRefusal {
+    fn profile(cause: impl std::fmt::Display) -> Self {
+        Self {
+            reason: CuratorFailure::ProfileUnavailable,
+            cause: Some(
+                cause
+                    .to_string()
+                    .chars()
+                    .take(MAX_MIRROR_CAUSE_CHARS)
+                    .collect(),
+            ),
+        }
+    }
+}
+impl From<CuratorFailure> for MirrorRefusal {
+    fn from(reason: CuratorFailure) -> Self {
+        Self {
+            reason,
+            cause: None,
+        }
+    }
+}
+impl From<MirrorRefusal> for String {
+    fn from(refusal: MirrorRefusal) -> Self {
+        refusal.cause.unwrap_or_else(|| refusal.reason.into())
+    }
 }
 
 pub(crate) struct CuratorFireError {
     pub reason: CuratorFailure,
     pub(super) read_failure: bool,
+    pub(super) cause: Option<String>,
     detail: String,
 }
 impl From<CuratorFailure> for CuratorFireError {
@@ -17,7 +55,21 @@ impl From<CuratorFailure> for CuratorFireError {
         Self {
             reason,
             read_failure: false,
+            cause: None,
             detail: reason.as_str().into(),
+        }
+    }
+}
+impl From<MirrorRefusal> for CuratorFireError {
+    fn from(refusal: MirrorRefusal) -> Self {
+        Self {
+            reason: refusal.reason,
+            read_failure: false,
+            detail: refusal
+                .cause
+                .clone()
+                .unwrap_or_else(|| refusal.reason.as_str().into()),
+            cause: refusal.cause,
         }
     }
 }
@@ -26,6 +78,7 @@ impl From<String> for CuratorFireError {
         Self {
             reason: CuratorFailure::LaunchFailed,
             read_failure: false,
+            cause: None,
             detail,
         }
     }
@@ -34,6 +87,7 @@ impl From<crate::service::plan::PlanError> for CuratorFireError {
     fn from(error: crate::service::plan::PlanError) -> Self {
         Self {
             reason: CuratorFailure::LaunchFailed,
+            cause: None,
             detail: error.to_string(),
             read_failure: true,
         }
@@ -60,6 +114,7 @@ pub fn resolve_mirror(tab: &crate::multiplexer::types::Tab) -> Result<Mirror, Cu
             .clone()
             .filter(|s| !s.is_empty())
             .ok_or(CuratorFailure::MirrorUnavailable)?,
+        launch_profile: crate::service::agent_runtime::launch_profile::of_tab(tab),
         model: tab
             .agent_session_model
             .clone()
@@ -73,6 +128,48 @@ pub fn resolve_mirror(tab: &crate::multiplexer::types::Tab) -> Result<Mirror, Cu
     })
 }
 
+fn waits_for_orchestrator(reason: Option<CuratorFailure>) -> bool {
+    matches!(
+        reason,
+        Some(CuratorFailure::OrchestratorAbsent | CuratorFailure::OrchestratorUnbound)
+    )
+}
+
+fn reconcile_idle_loop(
+    state: &mut ControlLoop,
+    mirror_failure: Option<CuratorFailure>,
+    group_close: Option<u64>,
+    now: u64,
+) {
+    match mirror_failure {
+        Some(reason) => state.fallback_reason = Some(reason),
+        None if waits_for_orchestrator(state.fallback_reason) => state.fallback_reason = None,
+        None => {}
+    }
+    if waits_for_orchestrator(state.fallback_reason) {
+        state.next_at = None;
+        return;
+    }
+    if group_close.is_some_and(|at| {
+        state
+            .last_synthesis_group_close_at
+            .is_none_or(|prior| at > prior)
+    }) {
+        let wake = now.saturating_add(1000);
+        state.next_at = Some(state.next_at.map_or(wake, |next| next.min(wake)));
+    }
+    let bound = now.saturating_add(codeterm_types::plan::CURATOR_MAX_DELAY_SECS * 1000);
+    state.next_at = Some(
+        state
+            .next_at
+            .unwrap_or_else(|| now.saturating_add(curator_delay(None) * 1000))
+            .min(bound),
+    );
+}
+
+#[cfg(test)]
+mod tests;
+
 impl ServiceContext {
     fn wake_curator_schedule(&self) {
         if let Some(wake) = self
@@ -82,7 +179,8 @@ impl ServiceContext {
             wake.notify_all();
         }
     }
-    pub(super) fn available_mirror(&self, mirror: Mirror) -> Result<Mirror, CuratorFailure> {
+    /// The cron launch skips spawn validation, so the profile and its selections are proven here.
+    pub(super) fn available_mirror(&self, mirror: Mirror) -> Result<Mirror, MirrorRefusal> {
         if self
             .agent_registry
             .with_provider(&mirror.provider, |_| ())
@@ -92,10 +190,28 @@ impl ServiceContext {
                 .get(&mirror.provider)
                 .is_some_and(|backend| backend.spawnable())
         {
-            Err(CuratorFailure::ProviderUnavailable)
-        } else {
-            Ok(mirror)
+            return Err(CuratorFailure::ProviderUnavailable.into());
         }
+        self.validate_launch_profile(&mirror.provider, mirror.launch_profile.as_deref())
+            .map_err(MirrorRefusal::profile)?;
+        let mut selection = crate::service::SpawnAgentParams {
+            launch_profile: mirror.launch_profile.clone(),
+            model: Some(mirror.model.clone()),
+            reasoning_effort: mirror.effort.clone(),
+            ..Default::default()
+        };
+        self.resolve_spawn_profile_options(&mirror.provider, &mut selection)
+            .map_err(|error| {
+                MirrorRefusal::profile(format!(
+                    "{}: {error}",
+                    mirror.launch_profile.as_deref().unwrap_or_default()
+                ))
+            })?;
+        Ok(Mirror {
+            model: selection.model.unwrap_or(mirror.model),
+            effort: selection.reasoning_effort,
+            ..mirror
+        })
     }
     pub(crate) fn curator_fire_failed(
         &self,
@@ -103,6 +219,27 @@ impl ServiceContext {
         reason: CuratorFailure,
         now: u64,
     ) -> Result<(), String> {
+        self.curator_fire_refused(plan_id, reason, None, now)
+    }
+    pub(crate) fn curator_fire_refused(
+        &self,
+        plan_id: &str,
+        reason: CuratorFailure,
+        cause: Option<&str>,
+        now: u64,
+    ) -> Result<(), String> {
+        if waits_for_orchestrator(Some(reason)) {
+            self.plan_store
+                .edit_curator_state(plan_id, now, |plan| {
+                    plan.control_loop.fallback_reason = Some(reason);
+                    plan.control_loop.next_at = None;
+                    Ok(())
+                })
+                .map_err(|error| error.to_string())?;
+            self.events
+                .publish_internal("curator-reconcile", json!({"plan_id":plan_id}));
+            return Ok(());
+        }
         let round = self
             .plan_store
             .edit_curator_round(plan_id, now, |plan| {
@@ -121,7 +258,7 @@ impl ServiceContext {
                     started_at: now,
                     ended_at: now,
                     outcome: codeterm_types::plan::CuratorOutcome::Fallback,
-                    summary: reason.as_str().into(),
+                    summary: cause.unwrap_or(reason.as_str()).into(),
                     reason: reason.as_str().into(),
                     next_delay_secs: curator_delay(None),
                     ..Default::default()
@@ -243,7 +380,29 @@ impl ServiceContext {
                 return Ok(());
             }
         }
-        if !eligible {
+        let mut mirror_cause = None;
+        if eligible && loop_state.running.is_none() {
+            let tab = plan
+                .owner
+                .tab_id
+                .as_ref()
+                .and_then(|id| self.mux.read().get_tab(id).cloned());
+            let mirror = tab
+                .as_ref()
+                .ok_or(CuratorFailure::OrchestratorAbsent)
+                .and_then(resolve_mirror)
+                .map_err(MirrorRefusal::from)
+                .and_then(|mirror| self.available_mirror(mirror));
+            let failure = match mirror {
+                Ok(_) => None,
+                Err(refusal) => {
+                    mirror_cause = refusal.cause;
+                    Some(refusal.reason)
+                }
+            };
+            reconcile_idle_loop(&mut loop_state, failure, read.group_close(), now);
+        }
+        if !eligible || waits_for_orchestrator(loop_state.fallback_reason) {
             loop_state.next_at = None;
             if let Some(id) = &loop_state.cron_id {
                 let job = { cron.lock().get(id).cloned() };
@@ -260,36 +419,7 @@ impl ServiceContext {
                 }
             }
         } else if loop_state.running.is_none() {
-            let tab = plan
-                .owner
-                .tab_id
-                .as_ref()
-                .and_then(|id| self.mux.read().get_tab(id).cloned());
-            let mirror = tab
-                .as_ref()
-                .ok_or(CuratorFailure::OrchestratorAbsent)
-                .and_then(resolve_mirror)
-                .and_then(|mirror| self.available_mirror(mirror));
-            if let Err(reason) = mirror {
-                loop_state.fallback_reason = Some(reason);
-            } else if loop_state.fallback_reason == Some(CuratorFailure::OrchestratorUnbound) {
-                loop_state.fallback_reason = None;
-            }
-            let close = read.group_close();
-            if close.is_some_and(|at| {
-                loop_state
-                    .last_synthesis_group_close_at
-                    .is_none_or(|prior| at > prior)
-            }) {
-                let wake = now.saturating_add(1000);
-                loop_state.next_at = Some(loop_state.next_at.map_or(wake, |next| next.min(wake)));
-            }
-            let bound = now.saturating_add(codeterm_types::plan::CURATOR_MAX_DELAY_SECS * 1000);
-            let next = loop_state
-                .next_at
-                .unwrap_or_else(|| now.saturating_add(curator_delay(None) * 1000))
-                .min(bound);
-            loop_state.next_at = Some(next);
+            let next = loop_state.next_at.ok_or("Curator wake time absent")?;
             let existing = loop_state
                 .cron_id
                 .as_ref()
@@ -354,9 +484,11 @@ impl ServiceContext {
             }
         }
         if loop_state != plan.control_loop {
+            // Waiting for the owner is loop state, not a round outcome; keep last_round.
             let fallback = loop_state
                 .fallback_reason
                 .as_ref()
+                .filter(|reason| !waits_for_orchestrator(Some(**reason)))
                 .filter(|reason| plan.control_loop.fallback_reason.as_ref() != Some(reason))
                 .map(|reason| CuratorRound {
                     number: loop_state
@@ -367,7 +499,7 @@ impl ServiceContext {
                     ended_at: now,
                     outcome: codeterm_types::plan::CuratorOutcome::Fallback,
                     reason: reason.as_str().into(),
-                    summary: reason.as_str().into(),
+                    summary: mirror_cause.as_deref().unwrap_or(reason.as_str()).into(),
                     next_delay_secs: curator_delay(None),
                     ..Default::default()
                 });

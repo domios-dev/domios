@@ -524,6 +524,7 @@ fn agent_models_relays_to_providers_endpoint() {
     let cmd = Commands::Agent {
         action: AgentAction::Models {
             provider: "claude".into(),
+            profile: None,
         },
     };
     let (m, p, _) = cli_command_to_api(&cmd);

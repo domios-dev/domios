@@ -157,12 +157,34 @@ pub struct AgentModelBody {
     pub restart_resume: bool,
 }
 
+/// A runtime mode decides what an agent may do, so it takes the same authority as the picker's
+/// permission controls: no agent may pick its own or another's.
+fn require_owner_for_runtime_mode(
+    state: &AppState,
+    headers: &HeaderMap,
+    body: &AgentModelBody,
+) -> Result<(), Response> {
+    if body.cancel || body.runtime_mode.is_none() {
+        return Ok(());
+    }
+    crate::runtime_login::require_permission_authority(state, headers).map_err(|(status, error)| {
+        (
+            status,
+            Json(serde_json::json!({"ok":false,"error":error,"reason":"owner_required"})),
+        )
+            .into_response()
+    })
+}
+
 pub async fn agent_model_handler(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(raw_tab_id): Path<String>,
     Json(body): Json<AgentModelBody>,
 ) -> Response {
+    if let Err(refusal) = require_owner_for_runtime_mode(&state, &headers, &body) {
+        return refusal;
+    }
     let tab_id = match crate::routes::resolve_tab_async(&state, &raw_tab_id).await {
         Ok(tab_id) => tab_id,
         Err((status, message)) => {
@@ -239,6 +261,11 @@ pub(crate) fn model_switch_success_body(outcome: &ModelSwitchOutcome) -> serde_j
         },
         "session_id": outcome.session_id,
         "staged": matches!(outcome.confirmation, ModelSwitchConfirmation::AfterTurn),
+        "control_changes": outcome.control_changes.iter().map(|change| serde_json::json!({
+            "control": change.control,
+            "previous": change.previous,
+            "current": change.current,
+        })).collect::<Vec<_>>(),
     });
     if let Some(detail) = &outcome.confirmation_detail {
         body["confirmation_detail"] = detail.clone().into();
@@ -265,9 +292,9 @@ pub(crate) fn model_switch_success_body(outcome: &ModelSwitchOutcome) -> serde_j
 
 pub(crate) fn model_switch_error_status(error: &ModelSwitchError) -> StatusCode {
     match error {
-        ModelSwitchError::BackgroundWork { .. } | ModelSwitchError::RuntimeControlRefused(_) => {
-            StatusCode::CONFLICT
-        }
+        ModelSwitchError::BackgroundWork { .. }
+        | ModelSwitchError::RuntimeControlRefused(_)
+        | ModelSwitchError::RuntimeBusy => StatusCode::CONFLICT,
         ModelSwitchError::NotFound(_) => StatusCode::NOT_FOUND,
         ModelSwitchError::InvalidModel(_) => StatusCode::BAD_REQUEST,
         ModelSwitchError::UnsupportedReasoningEffort { .. }
@@ -305,6 +332,9 @@ pub(crate) fn model_switch_error_body(error: &ModelSwitchError) -> serde_json::V
         ModelSwitchError::DuringTurnIncident { .. } => "during_turn_switch_incident",
         ModelSwitchError::InputNotReady(_) => "input_not_ready",
         ModelSwitchError::RuntimeControlRefused(_) => "runtime_control_refused",
+        ModelSwitchError::RuntimeBusy => {
+            codeterm_service_core::service::agent_runtime::declared_controls::RUNTIME_BUSY_REASON
+        }
     };
     let mut body = serde_json::json!({
         "ok": false,
@@ -376,7 +406,8 @@ pub(crate) fn model_switch_error_body(error: &ModelSwitchError) -> serde_json::V
         | ModelSwitchError::LiveSwitchFailed(_)
         | ModelSwitchError::LiveCommandFailed(_)
         | ModelSwitchError::InputNotReady(_)
-        | ModelSwitchError::RuntimeControlRefused(_) => {}
+        | ModelSwitchError::RuntimeControlRefused(_)
+        | ModelSwitchError::RuntimeBusy => {}
     }
     body
 }

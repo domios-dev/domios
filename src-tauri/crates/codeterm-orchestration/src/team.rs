@@ -107,6 +107,17 @@ pub async fn add_team_member(
     caller_tab_id: Option<&str>,
     params: AddTeamMemberParams,
 ) -> Result<AddTeamMemberResult, String> {
+    add_team_member_checked(svc, team_id, caller_tab_id, params)
+        .await
+        .map_err(Into::into)
+}
+
+pub async fn add_team_member_checked(
+    svc: &ServiceContext,
+    team_id: &str,
+    caller_tab_id: Option<&str>,
+    params: AddTeamMemberParams,
+) -> Result<AddTeamMemberResult, codeterm_service_core::service::spawn_params::SpawnTargetRefusal> {
     codeterm_service_core::service::spawn::validate_agent_model(
         &svc.agent_registry,
         &params.provider,
@@ -146,7 +157,9 @@ pub async fn add_team_member(
         (prepared, existing)
     };
     if let Some(existing) = existing {
-        return staffing::reuse_cartographer_with_brief(svc, existing, params.task).await;
+        return staffing::reuse_cartographer_with_brief(svc, existing, params.task)
+            .await
+            .map_err(Into::into);
     }
     svc.classify_spawn_target_for_params(
         classified.spawn_params.agent.as_deref().unwrap_or_default(),
@@ -168,7 +181,9 @@ pub async fn add_team_member(
         (prepared, detached, existing)
     };
     if let Some(existing) = existing {
-        return staffing::reuse_cartographer_with_brief(svc, existing, brief).await;
+        return staffing::reuse_cartographer_with_brief(svc, existing, brief)
+            .await
+            .map_err(Into::into);
     }
     if detached_failed_anchor {
         codeterm_service_core::service::publish_mux_state_changed(&svc.events);
@@ -197,7 +212,7 @@ pub async fn add_team_member(
                     codeterm_service_core::async_runtime::spawn_blocking(move || lane.cleanup())
                         .await;
             }
-            return Err(error);
+            return Err(error.into());
         }
     };
     let anchors = staffing::role_anchors_team(
@@ -242,7 +257,7 @@ pub async fn add_team_member(
                     codeterm_service_core::async_runtime::spawn_blocking(move || lane.cleanup())
                         .await;
             }
-            return Err(error);
+            return Err(error.into());
         }
     };
     result.warning = spawn_warning;

@@ -22,9 +22,17 @@ mkdir -p "$FIXTURE/home/.domios-dev/bin" "$FIXTURE/hostile"
 printf '%s\n' 'dev-token' > "$FIXTURE/home/.domios-dev/.secrets"
 printf '%s\n' '[api]' 'token = "wrong-config-token"' > "$FIXTURE/home/.domios-dev/config.toml"
 
+# Every DEV process logs any caller launch marker it inherited; the guard requires none.
+cat > "$FIXTURE/log-markers" <<'MARKERS'
+for name in ${PROBE_MARKERS:-}; do
+  [ -z "${!name+x}" ] || printf '%s %s\n' "$1" "$name" >> "$MARKER_LOG"
+done
+MARKERS
+
 # The dev CLI answers resolution, then reports the connection it was handed.
 cat > "$FIXTURE/home/.domios-dev/bin/codeterm" <<'CLI'
 #!/usr/bin/env bash
+source "$PROBE_FIXTURE/log-markers" "cli:${1:-}"
 if [ "${1:-}" = identify ] && [ "${2:-}" = --json ]; then
   printf '{"result":{"connection":{"data_dir":"%s","host":"127.0.0.1","port":7686,"socket_path":"domios-dev.sock","instance":null}}}\n' \
     "$HOME/.domios-dev"
@@ -54,6 +62,7 @@ PROD
 
 cat > "$FIXTURE/child-probe" <<'PROBE'
 #!/usr/bin/env bash
+source "$PROBE_FIXTURE/log-markers" child
 printf 'CHILD port=%s api_url=%s data_dir=%s vite=%s cdp=%s instance=%s auth=%s\n' \
   "${CODETERM_API_PORT:-unset}" "${CODETERM_API_URL:-unset}" "${CODETERM_DATA_DIR:-unset}" \
   "${CODETERM_VITE_PORT:-unset}" "${CODETERM_CDP_PORT:-unset}" \
@@ -70,7 +79,7 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 
 # This bench runs inside CodeTerm, whose own CODETERM_* variables would other-
 # wise decide the result. Every probe starts from a shell that holds none.
-SCRUB='for v in $(compgen -v | grep "^CODETERM_" || true); do unset "$v"; done; '
+SCRUB='for v in $(compgen -v | grep -E "^CODETERM(_|$)" || true); do unset "$v"; done; '
 POISON='export CODETERM_API_PORT='"$PROD_PORT"' CODETERM_API_URL=http://127.0.0.1:7685 CODETERM_DATA_DIR=/prod/data CODETERM_API_TOKEN=prod-token \
   CODETERM_SOCKET_PATH=prod.sock CODETERM_TAB_ID=prod-tab; '
 
@@ -85,7 +94,8 @@ CAPTURE='
 '
 
 probe() {
-  HOME="$FIXTURE/home" PATH="$FIXTURE/hostile:$PATH" \
+  HOME="$FIXTURE/home" PATH="$FIXTURE/hostile:$PATH" PROBE_FIXTURE="$FIXTURE" \
+    PROBE_MARKERS="${PROBE_MARKERS:-}" MARKER_LOG="${MARKER_LOG:-/dev/null}" \
     CURL_LOG="${CURL_LOG:-}" DEV_DOWN="${DEV_DOWN:-0}" HEALTH_STATE="${HEALTH_STATE:-ready}" \
     bash -c "$SCRUB$1" _ "$LIB" "$FIXTURE"
 }
@@ -122,7 +132,7 @@ fi
 # --- 3. dc targets dev and hands the CLI the dev connection ----------
 CURL_LOG="$FIXTURE/curl.log"
 dev_output="$(probe 'source "$1"; dc whoami')"
-if ! grep -Fqx "CLI_SAW port=$DEV_PORT api_url=http://127.0.0.1:$DEV_PORT data_dir=$FIXTURE/home/.domios-dev vite=1420 token=dev-token socket=domios-dev.sock tab=" <<<"$dev_output"; then
+if ! grep -Fqx "CLI_SAW port=$DEV_PORT api_url=http://127.0.0.1:$DEV_PORT data_dir=$FIXTURE/home/.domios-dev vite=1420 token=dev-token socket=domios-dev.sock tab=unset" <<<"$dev_output"; then
   fail "dc did not compose the dev connection into the CLI process: $dev_output"
 fi
 if grep -q FAKE_PROD_CLI_WON <<<"$dev_output"; then
@@ -135,7 +145,7 @@ fi
 # --- 4. A poisoned parent cannot redirect dc off dev -----------------
 CURL_LOG="$FIXTURE/poisoned-curl.log"
 poisoned_output="$(probe "$POISON"'source "$1"; dc whoami')"
-if ! grep -Fqx "CLI_SAW port=$DEV_PORT api_url=http://127.0.0.1:$DEV_PORT data_dir=$FIXTURE/home/.domios-dev vite=1420 token=dev-token socket=domios-dev.sock tab=" <<<"$poisoned_output"; then
+if ! grep -Fqx "CLI_SAW port=$DEV_PORT api_url=http://127.0.0.1:$DEV_PORT data_dir=$FIXTURE/home/.domios-dev vite=1420 token=dev-token socket=domios-dev.sock tab=unset" <<<"$poisoned_output"; then
   fail "a leaked parent CODETERM_* reached the CLI: $poisoned_output"
 fi
 if grep -q "127.0.0.1:$PROD_PORT" "$FIXTURE/poisoned-curl.log"; then
@@ -195,6 +205,25 @@ child_output="$(probe "$POISON"'source "$1"; dev_run "$2/child-probe"')"
 if ! grep -Fqx "CHILD port=$DEV_PORT api_url=http://127.0.0.1:$DEV_PORT data_dir=$FIXTURE/home/.domios-dev vite=1420 cdp=9223 instance=unset auth=Authorization: Bearer dev-token" <<<"$child_output"; then
   fail "dev_run did not compose the dev connection for its child: $child_output"
 fi
+
+# --- 8. No caller launch marker reaches any DEV process --------------
+# The parent holds every tab_launch::MARKERS entry, read from the Rust source itself.
+source "$ROOT/scripts/launch-markers.sh"
+PROBE_MARKERS="$(launch_marker_names)" || fail "tab_launch::MARKERS is unreadable"
+MARKED=''
+for name in $PROBE_MARKERS; do MARKED+="export $name=parent-marker; "; done
+MARKER_LOG="$FIXTURE/markers.log"
+: > "$MARKER_LOG"
+marked_output="$(probe "$POISON$MARKED"'source "$1"; dc whoami && dev_run "$2/child-probe"')"
+grep -q '^CLI_SAW ' <<<"$marked_output" && grep -q '^CHILD ' <<<"$marked_output" ||
+  fail "a marked parent could not reach DEV: $marked_output"
+[ ! -s "$MARKER_LOG" ] || fail "caller launch markers reached DEV: $(tr '\n' ',' < "$MARKER_LOG")"
+cp "$LAUNCH_MARKERS_SOURCE" "$FIXTURE/tab_launch.rs"
+sed -i.bak 's/^    "CODETERM_ROLE",$/    crate::ROLE,/' "$FIXTURE/tab_launch.rs"
+if LAUNCH_MARKERS_SOURCE="$FIXTURE/tab_launch.rs" launch_marker_names >/dev/null 2>&1; then
+  fail "an unresolvable MARKERS entry yielded a partial marker set"
+fi
+unset PROBE_MARKERS MARKER_LOG
 
 echo "PASS: sourcing the bench lib exports nothing and dc cannot be redirected off dev"
 

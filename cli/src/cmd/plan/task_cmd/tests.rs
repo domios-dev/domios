@@ -96,6 +96,7 @@ fn plan_task_dispatch_json_error_keeps_invalid_model_details() {
             placement: None,
             worker_kind: None,
             speed: None,
+            launch_profile: None,
             model: Some("gpt-9-bogus".into()),
             description: None,
             reasoning_effort: None,
@@ -140,6 +141,7 @@ fn dispatch_action(cwd: &str) -> PlanTaskAction {
         placement: None,
         worker_kind: None,
         speed: None,
+        launch_profile: None,
         model: None,
         description: None,
         reasoning_effort: None,
@@ -693,7 +695,19 @@ fn attempt_detail_labels_dispatched_and_session_models() {
         rendered.contains("session_model: other-model\n"),
         "{rendered}"
     );
-    assert!(rendered.contains("model_identity_mismatch: {\"actual_model\":\"other-model\",\"provider_resolved_model\":\"gpt-6-luna\",\"reason\":\"runtime_session_model_mismatch\",\"requested_model\":\"gpt-6-luna\"}\n"), "{rendered}");
+    let mismatch = rendered
+        .lines()
+        .find_map(|line| line.strip_prefix("model_identity_mismatch: "))
+        .expect("model mismatch must be rendered");
+    assert_eq!(
+        serde_json::from_str::<Value>(mismatch).unwrap(),
+        json!({
+            "actual_model": "other-model",
+            "provider_resolved_model": "gpt-6-luna",
+            "reason": "runtime_session_model_mismatch",
+            "requested_model": "gpt-6-luna",
+        })
+    );
 }
 
 #[test]
@@ -752,4 +766,25 @@ fn plan_task_dispatch_forwards_provider_speed() {
         .as_ref()
         .unwrap();
     assert_eq!(params["speed"], "opaque-tier");
+}
+
+#[test]
+fn plan_task_dispatch_forwards_launch_profile_without_changing_model() {
+    let mut client = FakeRpc::scripted([owner_epoch_task(), json!({"tab_id":"worker"})]);
+    let mut action = dispatch_action("lane");
+    let PlanTaskAction::Dispatch { launch_profile, .. } = &mut action else {
+        unreachable!()
+    };
+    *launch_profile = Some("gemini-cli".into());
+    run_dispatch(&mut client, true, action, None).unwrap();
+    let params = client
+        .calls
+        .iter()
+        .find(|(method, _)| method == "plan.task.dispatch")
+        .unwrap()
+        .1
+        .as_ref()
+        .unwrap();
+    assert_eq!(params["launch_profile"], "gemini-cli");
+    assert!(params.get("model").is_none());
 }

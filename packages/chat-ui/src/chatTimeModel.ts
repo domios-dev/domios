@@ -51,15 +51,21 @@ export function messageTimeLabels(timestamp: number, context: Pick<ChatTimeConte
   };
 }
 
-export function chatDaySeparators(timestamps: readonly (number | null)[], context: ChatTimeContext): ReadonlyMap<number, string> {
+/** After a message whose day is unknown, the first dated row opens no day: the earlier messages may share it. */
+export function chatDaySeparators(timestamps: readonly (number | null)[], context: ChatTimeContext,
+  undatedMessage: (index: number) => boolean = () => false, transcriptPartial = false): ReadonlyMap<number, string> {
   const result = new Map<number, string>();
   const today = chatLocalDay(context.now, context.timeZone);
   let previous: number | null = null;
+  // Rows known to be missing above these may be undated, so the first dated row cannot claim to open a day.
+  let unknownBefore = transcriptPartial;
   timestamps.forEach((timestamp, index) => {
-    if (timestamp == null) return;
-    const day = chatLocalDay(timestamp, context.timeZone);
-    if (day == null) return;
-    if (day !== previous) {
+    const day = timestamp == null ? null : chatLocalDay(timestamp, context.timeZone);
+    if (timestamp == null || day == null) {
+      unknownBefore ||= undatedMessage(index);
+      return;
+    }
+    if (day !== previous && !(previous == null && unknownBefore)) {
       result.set(index, day === today ? context.labels.today
         : today != null && day === today - 86_400_000 ? context.labels.yesterday
         : formatter(context.locale, context.timeZone, { dateStyle: "long" }).format(timestamp));

@@ -1,18 +1,27 @@
 use codeterm_plugin::agent_runtime::RpcId;
 use codeterm_plugin::agent_runtime::{
     AgentRuntimeEvent, RuntimeAccountCredits, RuntimeAuthState, RuntimeContext, RuntimeLoginState,
-    RuntimeQuestion, RuntimeQuestionResponse, RuntimeRateLimit, RuntimeSettings, RuntimeTurnDetail,
-    RuntimeTurnState, TokenUsage,
+    RuntimePermission, RuntimeQuestion, RuntimeQuestionResponse, RuntimeRateLimit, RuntimeSettings,
+    RuntimeTurnDetail, RuntimeTurnState, TokenUsage,
 };
 use codeterm_types::agent::chat_types::ChatMsg;
 use codeterm_types::pty::PendingPrompt;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+
+mod routed;
 
 pub const LIVE_ITEM_CAP: usize = 1000;
 pub const LIVE_ITEM_BYTES: usize = 8 * 1024 * 1024;
 
 #[derive(Clone, Debug)]
 pub enum RuntimeEvent {
+    AuthenticationDeclared {
+        authentication: codeterm_plugin::agent_runtime::RuntimeAuthentication,
+    },
+    Notice {
+        thread_id: String,
+        message: String,
+    },
     BackgroundProcessesUpdated {
         thread_id: String,
         processes: Vec<codeterm_plugin::agent_runtime::RuntimeBackgroundProcess>,
@@ -49,6 +58,7 @@ pub enum RuntimeEvent {
         questions: Option<Vec<RuntimeQuestion>>,
         response: Option<RuntimeQuestionResponse>,
         prompt: Option<PendingPrompt>,
+        permission: Option<RuntimePermission>,
         resolved: bool,
     },
     EvidenceUpdated {
@@ -56,6 +66,12 @@ pub enum RuntimeEvent {
         thread_id: String,
         send_id: String,
         turn_id: String,
+    },
+    ContextUpdated {
+        thread_id: String,
+        used_tokens: u64,
+        window_tokens: u64,
+        cost_micros: Option<u64>,
     },
     UsageUpdated {
         thread_id: String,
@@ -82,20 +98,54 @@ pub enum RuntimeEvent {
 
 #[derive(Clone, Debug)]
 struct StoredItem {
+    turn_id: Option<String>,
     thread_id: String,
     item: ChatMsg,
     closed: bool,
 }
 
+struct RestoreBinding {
+    thread: Option<String>,
+    nonce: String,
+    cwd: String,
+}
+
+impl RestoreBinding {
+    fn from_context(context: &RuntimeContext) -> Self {
+        Self {
+            thread: context.thread_id.clone(),
+            nonce: context.binding_nonce.clone(),
+            cwd: context.cwd.clone(),
+        }
+    }
+    fn matches(&self, context: &RuntimeContext) -> bool {
+        self.thread == context.thread_id
+            && self.nonce == context.binding_nonce
+            && self.cwd == context.cwd
+    }
+}
+
+struct RefusedClaim {
+    turn: String,
+    busy_turn: Option<Option<String>>,
+}
+
 #[derive(Default)]
 pub struct RuntimeMaps {
+    pub authentication: Option<codeterm_plugin::agent_runtime::RuntimeAuthentication>,
     pub background_processes:
         HashMap<String, Vec<codeterm_plugin::agent_runtime::RuntimeBackgroundProcess>>,
     epoch: u64,
+    restore_binding: Option<RestoreBinding>,
+    current_turns: HashMap<String, String>,
+    append_failures: HashSet<(String, String)>,
     items: Vec<StoredItem>,
     threads: HashMap<String, Option<String>>,
     requests: HashMap<String, bool>,
     evidence: HashMap<String, (String, String, Option<String>)>,
+    refused_claims: HashMap<String, RefusedClaim>,
+    routed_inputs: HashMap<String, (String, ChatMsg)>,
+    digest_members: HashMap<String, Vec<String>>,
     usage: HashMap<String, TokenUsage>,
     rate_limits: HashMap<String, Vec<RuntimeRateLimit>>,
     auth: Option<RuntimeAuthState>,
@@ -112,6 +162,45 @@ impl RuntimeMaps {
             .then(|| self.children.get(thread).cloned())
             .flatten()
     }
+    pub fn sync_active_turn(&mut self, context: &RuntimeContext) {
+        self.ensure_epoch(context.epoch);
+        self.routed_inputs.retain(|send, (thread, _)| {
+            context
+                .claimed_sends
+                .iter()
+                .any(|claim| &claim.send_id == send && &claim.thread_id == thread)
+        });
+        self.restore_binding = Some(RestoreBinding::from_context(context));
+        if let Some(thread) = &context.thread_id {
+            match &context.active_turn_id {
+                Some(turn) => {
+                    self.current_turns.insert(thread.clone(), turn.clone());
+                }
+                None => {
+                    self.current_turns.remove(thread);
+                }
+            }
+        }
+    }
+    pub fn prepare_restore(&mut self, context: &RuntimeContext) -> bool {
+        if self.epoch > context.epoch
+            || self.epoch == context.epoch
+                && self
+                    .restore_binding
+                    .as_ref()
+                    .is_some_and(|binding| !binding.matches(context))
+        {
+            return false;
+        }
+        self.ensure_epoch(context.epoch);
+        self.restore_binding = Some(RestoreBinding::from_context(context));
+        true
+    }
+    pub fn ensure_epoch(&mut self, epoch: u64) {
+        if self.epoch != epoch {
+            self.reset(epoch);
+        }
+    }
     pub fn reset(&mut self, epoch: u64) {
         *self = Self {
             epoch,
@@ -119,13 +208,135 @@ impl RuntimeMaps {
         };
     }
 
+    pub fn remember_refused_claim(&mut self, epoch: u64, send: &str, turn: &str) {
+        if self.epoch == epoch {
+            self.refused_claims.insert(
+                send.into(),
+                RefusedClaim {
+                    turn: turn.into(),
+                    busy_turn: None,
+                },
+            );
+        }
+    }
+
+    pub fn settle_refused_claims(&mut self, epoch: u64, turn: Option<&str>) -> Vec<String> {
+        if self.epoch != epoch {
+            return Vec::new();
+        }
+        let mut expired = Vec::new();
+        for (send, claim) in &mut self.refused_claims {
+            if Some(claim.turn.as_str()) == turn {
+                continue;
+            }
+            // A busy agent can run the refused prompt after the turn it was busy with,
+            // so its evidence stays eligible until the turn after that one settles.
+            match claim.busy_turn.as_ref().map(|busy| busy.as_deref() == turn) {
+                None => claim.busy_turn = Some(turn.map(str::to_owned)),
+                Some(true) => {}
+                Some(false) => expired.push(send.clone()),
+            }
+        }
+        for send in &expired {
+            self.refused_claims.remove(send);
+            self.routed_inputs.remove(send);
+            self.evidence.remove(send);
+        }
+        expired
+    }
+
     pub fn take_evidence(&mut self, send_id: &str) -> Option<(String, String, Option<String>)> {
+        self.refused_claims.remove(send_id);
         self.evidence.remove(send_id)
     }
 }
 
+pub fn translate_with_items(
+    event: &AgentRuntimeEvent,
+    maps: &mut RuntimeMaps,
+    loading: bool,
+) -> Option<RuntimeEvent> {
+    if let AgentRuntimeEvent::ChatItemPatch { thread_id, item } = event {
+        if let Some(stored) = maps.items.iter().find(|stored| {
+            stored.thread_id == *thread_id
+                && stored.item.id == item.id
+                && matches!(
+                    stored.item.kind.as_str(),
+                    "tool" | "tool_call" | "tool_result"
+                )
+        }) {
+            let mut merged = serde_json::to_value(&stored.item).ok()?;
+            let mut patch = serde_json::to_value(item).ok()?;
+            let fields = patch.as_object_mut()?;
+            for key in ["id", "seq", "type", "content"] {
+                fields.remove(key);
+            }
+            merged.as_object_mut()?.extend(fields.clone());
+            let mut next: ChatMsg = serde_json::from_value(merged).ok()?;
+            next.seq = stored.item.seq;
+            return Some(RuntimeEvent::ItemUpdated {
+                thread_id: thread_id.clone(),
+                item: next,
+            });
+        }
+        return row_notice(maps, thread_id, &item.id);
+    }
+    if let AgentRuntimeEvent::ChatItemAppend {
+        thread_id,
+        item_id,
+        content,
+        offset,
+    } = event
+    {
+        if let Some(stored) = maps
+            .items
+            .iter()
+            .find(|stored| stored.thread_id == *thread_id && stored.item.id == *item_id)
+        {
+            let current = stored
+                .turn_id
+                .as_ref()
+                .is_some_and(|turn| maps.current_turns.get(thread_id) == Some(turn));
+            if (loading || current)
+                && matches!(stored.item.kind.as_str(), "user" | "assistant" | "thinking")
+                && stored.item.content.len() == *offset
+            {
+                let mut next = stored.item.clone();
+                next.content.push_str(content);
+                return Some(RuntimeEvent::ItemUpdated {
+                    thread_id: thread_id.clone(),
+                    item: next,
+                });
+            }
+        }
+        return row_notice(maps, thread_id, item_id);
+    }
+    Some(translate(event))
+}
+
+fn row_notice(maps: &mut RuntimeMaps, thread: &str, item: &str) -> Option<RuntimeEvent> {
+    if maps.append_failures.len() >= LIVE_ITEM_CAP
+        || !maps.append_failures.insert((thread.into(), item.into()))
+    {
+        return None;
+    }
+    Some(RuntimeEvent::Notice {
+        thread_id:thread.into(),
+        message:"Streamed row could not be continued because its retained content or active turn is unavailable.".into(),
+    })
+}
+
 pub fn translate(event: &AgentRuntimeEvent) -> RuntimeEvent {
     match event {
+        AgentRuntimeEvent::Authentication { authentication } => {
+            RuntimeEvent::AuthenticationDeclared {
+                authentication: authentication.clone(),
+            }
+        }
+        AgentRuntimeEvent::Notice { thread_id, message } => RuntimeEvent::Notice {
+            thread_id: thread_id.clone(),
+            message: message.clone(),
+        },
         AgentRuntimeEvent::BackgroundProcesses {
             thread_id,
             processes,
@@ -161,6 +372,7 @@ pub fn translate(event: &AgentRuntimeEvent) -> RuntimeEvent {
             questions: Some(questions.clone()),
             response: Some(response.clone()),
             prompt: None,
+            permission: None,
             resolved: false,
         },
         AgentRuntimeEvent::RateLimits {
@@ -173,6 +385,11 @@ pub fn translate(event: &AgentRuntimeEvent) -> RuntimeEvent {
             rate_limits: rate_limits.clone(),
             resets: resets.clone(),
             account_credits: account_credits.clone(),
+        },
+        AgentRuntimeEvent::ChatItemAppend { thread_id, .. }
+        | AgentRuntimeEvent::ChatItemPatch { thread_id, .. } => RuntimeEvent::Notice {
+            thread_id: thread_id.clone(),
+            message: "Streamed row requires retained content.".into(),
         },
         AgentRuntimeEvent::ChatItem { thread_id, item } => RuntimeEvent::ItemUpdated {
             thread_id: thread_id.clone(),
@@ -208,6 +425,17 @@ pub fn translate(event: &AgentRuntimeEvent) -> RuntimeEvent {
             send_id: send_id.clone(),
             turn_id: turn_id.clone(),
         },
+        AgentRuntimeEvent::Context {
+            thread_id,
+            used_tokens,
+            window_tokens,
+            cost_micros,
+        } => RuntimeEvent::ContextUpdated {
+            thread_id: thread_id.clone(),
+            used_tokens: *used_tokens,
+            window_tokens: *window_tokens,
+            cost_micros: *cost_micros,
+        },
         AgentRuntimeEvent::Usage { thread_id, usage } => RuntimeEvent::UsageUpdated {
             thread_id: thread_id.clone(),
             usage: usage.clone(),
@@ -216,6 +444,7 @@ pub fn translate(event: &AgentRuntimeEvent) -> RuntimeEvent {
             thread_id,
             request_id,
             prompt,
+            permission,
         } => RuntimeEvent::RequestUpdated {
             thread_id: thread_id.clone(),
             request_id: Some(request_id.clone()),
@@ -223,6 +452,7 @@ pub fn translate(event: &AgentRuntimeEvent) -> RuntimeEvent {
             questions: None,
             response: None,
             prompt: Some(prompt.clone()),
+            permission: permission.clone(),
             resolved: false,
         },
         AgentRuntimeEvent::PromptResolved {
@@ -235,6 +465,7 @@ pub fn translate(event: &AgentRuntimeEvent) -> RuntimeEvent {
             questions: None,
             response: None,
             prompt: None,
+            permission: None,
             resolved: true,
         },
         AgentRuntimeEvent::ControlsConfirmed {
@@ -262,6 +493,10 @@ pub fn fold(maps: &mut RuntimeMaps, epoch: u64, event: &RuntimeEvent) {
         maps.reset(epoch);
     }
     match event {
+        RuntimeEvent::AuthenticationDeclared { authentication } => {
+            maps.authentication = Some(authentication.clone())
+        }
+        RuntimeEvent::Notice { .. } => {}
         RuntimeEvent::BackgroundProcessesUpdated {
             thread_id,
             processes,
@@ -285,9 +520,23 @@ pub fn fold(maps: &mut RuntimeMaps, epoch: u64, event: &RuntimeEvent) {
         RuntimeEvent::TurnUpdated {
             thread_id,
             state: RuntimeTurnState::Idle,
+            turn_id,
             ..
         } => {
             maps.background_processes.remove(thread_id);
+            if turn_id
+                .as_ref()
+                .is_none_or(|turn| maps.current_turns.get(thread_id) == Some(turn))
+            {
+                maps.current_turns.remove(thread_id);
+            }
+        }
+        RuntimeEvent::TurnUpdated {
+            thread_id,
+            turn_id: Some(turn),
+            ..
+        } => {
+            maps.current_turns.insert(thread_id.clone(), turn.clone());
         }
         RuntimeEvent::TurnUpdated { .. } => {}
         RuntimeEvent::ItemUpdated { thread_id, item } => {
@@ -323,6 +572,7 @@ pub fn fold(maps: &mut RuntimeMaps, epoch: u64, event: &RuntimeEvent) {
                 .entry(send_id.clone())
                 .or_insert_with(|| (thread_id.clone(), turn_id.clone(), item_id.clone()));
         }
+        RuntimeEvent::ContextUpdated { .. } => {}
         RuntimeEvent::UsageUpdated { thread_id, usage } => {
             maps.usage.insert(thread_id.clone(), usage.clone());
         }
@@ -359,6 +609,24 @@ pub fn reconcile_history(maps: &mut RuntimeMaps, epoch: u64, thread_id: &str, it
         maps.reset(epoch);
     }
     upsert_item(maps, thread_id, item);
+}
+
+pub fn reconcile_history_current(
+    maps: &mut RuntimeMaps,
+    context: &RuntimeContext,
+    thread_id: &str,
+    item: ChatMsg,
+) -> bool {
+    if maps.epoch != context.epoch
+        || !maps
+            .restore_binding
+            .as_ref()
+            .is_some_and(|binding| binding.matches(context))
+    {
+        return false;
+    }
+    upsert_item(maps, thread_id, item);
+    true
 }
 
 pub fn observe(context: &mut RuntimeContext, event: &RuntimeEvent) {
@@ -442,6 +710,7 @@ fn upsert_item(maps: &mut RuntimeMaps, thread_id: &str, item: ChatMsg) {
         stored.closed = closed;
     } else {
         maps.items.push(StoredItem {
+            turn_id: maps.current_turns.get(thread_id).cloned(),
             thread_id: thread_id.to_string(),
             item,
             closed,

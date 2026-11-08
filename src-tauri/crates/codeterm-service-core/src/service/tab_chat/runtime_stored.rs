@@ -279,11 +279,27 @@ fn read_stored_window(
 
 pub(super) fn archived_messages(
     svc: &ServiceContext,
-    provider_id: &str,
-    cwd: &str,
-    session: &str,
+    archive: &crate::multiplexer::types::ContextEpochArchive,
 ) -> Result<Option<Vec<ChatMsg>>, String> {
-    Ok(archived_window(svc, provider_id, cwd, session)?.map(|(messages, _)| messages))
+    if let Some(capability) = svc
+        .agent_registry
+        .with_provider(&archive.provider, |provider| provider.agent_runtime())
+        .flatten()
+    {
+        if let Some(messages) = crate::service::agent_runtime::engine::retained_transcript(
+            &archive.provider,
+            &archive.session_id,
+            &capability,
+        )
+        .map_err(|error| StoredHistoryFailure::Unavailable.error(error))?
+        {
+            return Ok(Some(messages));
+        }
+    }
+    Ok(
+        archived_window(svc, &archive.provider, &archive.cwd, &archive.session_id)?
+            .map(|(messages, _)| messages),
+    )
 }
 
 pub(super) fn archived_window(

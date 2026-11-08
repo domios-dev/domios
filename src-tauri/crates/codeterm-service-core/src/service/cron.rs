@@ -756,6 +756,7 @@ impl ServiceContext {
                 run_id: run_id.clone(),
                 job_name,
                 agent,
+                launch_profile: None,
                 model,
                 reasoning_effort,
                 task_text,

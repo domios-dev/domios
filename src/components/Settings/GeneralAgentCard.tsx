@@ -19,7 +19,7 @@ export function GeneralAgentCard({ config, onUpdate, onSwitchProvider, onOpenGui
     <SettingsCard
       icon={<Bot size={16} />}
       title="General Agent"
-      description="Always-on AI assistant in a protected workspace. Starts automatically with Domios. Changing provider asks before restarting your General Agent."
+      description="Always-on AI assistant in a protected workspace. Starts automatically with Domios. Changing harness asks before restarting your General Agent."
     >
       <Toggle
         label="Enable General Agent"

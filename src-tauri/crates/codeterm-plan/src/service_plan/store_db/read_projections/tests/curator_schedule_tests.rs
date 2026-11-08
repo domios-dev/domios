@@ -20,25 +20,25 @@ fn scheduler_preserves_complete_compare_value_eligibility_and_group_close() {
         done,
         crate::service_plan::load_audit::task("open", TaskStatus::Pending, None),
     ];
-    plan.control_loop.rounds = (0..64)
-        .map(|number| CuratorRound {
-            number,
-            ended_at: number,
-            ..Default::default()
-        })
-        .collect();
     plan.strides = serde_json::from_value(json!([
         {"id":"old","from":{"tab_id":"worker"},"kind":"group_close","text":"old","ts":9},
         {"id":"latest","from":{"tab_id":"worker"},"kind":"group_close","text":"large unrelated prose","ts":21},
         {"id":"note","from":{"tab_id":"worker"},"kind":"note","text":"ignore","ts":99}
     ]))
     .unwrap();
+    plan.strides.extend(fixtures::round_strides(
+        (0..64)
+            .map(|number| CuratorRound {
+                number,
+                ended_at: number,
+                ..Default::default()
+            })
+            .collect(),
+    ));
     let database = fixtures::database(directory.path(), &plan);
     let snapshot = database.curator_schedule_projection(&plan.id).unwrap();
     let read = snapshot.metadata();
-    let mut metadata = plan.control_loop.clone();
-    metadata.rounds.clear();
-    assert_eq!(read.control_loop, metadata);
+    assert_eq!(read.control_loop, plan.control_loop);
     assert_eq!(snapshot.group_close(), Some(21));
     assert_eq!(snapshot.group_close(), synthesis::group_close(&plan));
     for enabled in [false, true] {
@@ -68,13 +68,15 @@ fn scheduler_materialization_does_not_load_unrelated_history_or_bodies() {
         let directory = tempfile::tempdir().unwrap();
         let mut plan = fixtures::fixture(directory.path(), strides, attempts);
         plan.tasks[1].body.push_str(&"x".repeat(extra_body));
-        plan.control_loop.rounds = (0..rounds)
-            .map(|number| CuratorRound {
-                number,
-                summary: "history".repeat(128),
-                ..Default::default()
-            })
-            .collect();
+        plan.strides.extend(fixtures::round_strides(
+            (0..rounds)
+                .map(|number| CuratorRound {
+                    number,
+                    summary: "history".repeat(128),
+                    ..Default::default()
+                })
+                .collect(),
+        ));
         let database = fixtures::database(directory.path(), &plan);
         fixtures::audit(&database);
         take_metrics();
@@ -85,9 +87,7 @@ fn scheduler_materialization_does_not_load_unrelated_history_or_bodies() {
         let metrics = take_metrics();
         let decoded = super::super::super::super::store_sync::take_decoded_row_bytes();
         let serialized = super::super::super::super::store_rows::take_serialized_row_bytes();
-        let mut metadata = plan.control_loop.clone();
-        metadata.rounds.clear();
-        assert_eq!(read.control_loop, metadata);
+        assert_eq!(read.control_loop, plan.control_loop);
         assert!(!snapshot.complete());
         assert_eq!(metrics.queries, 3);
         assert!(metrics.materialized_bytes < 4096);
@@ -169,17 +169,17 @@ fn scheduler_snapshot_is_committed_and_decode_failure_is_an_error() {
 }
 
 #[test]
-fn scheduler_exact_cas_preserves_rounds_and_rejects_concurrent_append() {
+fn scheduler_exact_cas_rejects_a_concurrent_round_append() {
     let directory = tempfile::tempdir().unwrap();
     let mut plan = Plan::new(
         "CAS".into(),
         directory.path().display().to_string(),
         OrchestratorRef::default(),
     );
-    plan.control_loop.rounds = vec![CuratorRound {
+    plan.control_loop.record(CuratorRound {
         number: 1,
         ..Default::default()
-    }];
+    });
     let database = fixtures::database(directory.path(), &plan);
     let snapshot = database.curator_schedule_projection(&plan.id).unwrap();
     let mut next = snapshot.metadata().control_loop.clone();
@@ -188,7 +188,6 @@ fn scheduler_exact_cas_preserves_rounds_and_rejects_concurrent_append() {
     assert!(snapshot
         .apply_control_loop(&mut current, next.clone())
         .unwrap());
-    assert_eq!(current.rounds, plan.control_loop.rounds);
     assert_eq!(current.next_at, Some(42));
     let after = current.clone();
     assert!(!snapshot
@@ -196,8 +195,8 @@ fn scheduler_exact_cas_preserves_rounds_and_rejects_concurrent_append() {
         .unwrap());
     assert_eq!(current, after);
 
-    // The WAL commit changes only history; metadata equality alone would accept this stale CAS.
-    plan.control_loop.rounds.push(CuratorRound {
+    // A committed round moves last_round, so the stale snapshot must refuse.
+    plan.control_loop.record(CuratorRound {
         number: 2,
         ..Default::default()
     });
@@ -212,31 +211,12 @@ fn scheduler_exact_cas_preserves_rounds_and_rejects_concurrent_append() {
     assert_eq!(store.get(&plan.id).unwrap().control_loop, plan.control_loop);
     drop(snapshot);
     let fresh = database.curator_schedule_projection(&plan.id).unwrap();
+    let mut next = fresh.metadata().control_loop.clone();
+    next.next_at = Some(42);
     let mut current = plan.control_loop.clone();
     assert!(fresh.apply_control_loop(&mut current, next).unwrap());
-    assert_eq!(current.rounds, plan.control_loop.rounds);
-}
-
-#[test]
-fn scheduler_round_decode_errors_do_not_mutate_control() {
-    let directory = tempfile::tempdir().unwrap();
-    let plan = Plan::new(
-        "Malformed".into(),
-        directory.path().display().to_string(),
-        OrchestratorRef::default(),
-    );
-    let database = fixtures::database(directory.path(), &plan);
-    database.connection.lock().execute("UPDATE plans SET header_json=json_set(header_json,'$.control_loop.rounds',json('[{}]')) WHERE id=?1", [&plan.id]).unwrap();
-    let snapshot = database.curator_schedule_projection(&plan.id).unwrap();
-    let mut current = plan.control_loop.clone();
-    assert!(matches!(
-        snapshot.apply_control_loop(&mut current, plan.control_loop.clone()),
-        Err(PlanError::Quarantined { .. })
-    ));
-    assert_eq!(current, plan.control_loop);
-    drop(snapshot);
-    database.connection.lock().execute("UPDATE plans SET header_json=json_set(header_json,'$.control_loop.rounds',json('null')) WHERE id=?1", [&plan.id]).unwrap();
-    assert!(database.curator_schedule_projection(&plan.id).is_err());
+    assert_eq!(current.last_round, plan.control_loop.last_round);
+    assert_eq!(current.next_at, Some(42));
 }
 
 #[test]
@@ -252,12 +232,14 @@ fn curator_authority_is_selected_coherent_and_loud_on_malformed_run() {
             binding_nonce: Some("nonce".into()),
             ..Default::default()
         });
-        plan.control_loop.rounds = (0..rounds)
-            .map(|number| CuratorRound {
-                number,
-                ..Default::default()
-            })
-            .collect();
+        plan.strides.extend(fixtures::round_strides(
+            (0..rounds)
+                .map(|number| CuratorRound {
+                    number,
+                    ..Default::default()
+                })
+                .collect(),
+        ));
         let database = fixtures::database(directory.path(), &plan);
         fixtures::audit(&database);
         take_metrics();
@@ -348,61 +330,72 @@ fn scheduler_group_aggregate_preserves_terminal_semantics_and_unsigned_timestamp
 }
 
 #[test]
-fn control_loop_display_selects_twenty_committed_rounds_without_old_history() {
+fn control_loop_display_projects_seven_day_counts_from_round_rows() {
+    use crate::plan::{CuratorCounts, CuratorOutcome};
+    let now = 30 * 24 * 60 * 60 * 1000_u64;
     let mut previous = None;
     for old_rounds in [0, 2048] {
         let directory = tempfile::tempdir().unwrap();
         let mut plan = Plan::new(
-            "Control window".into(),
+            "Control counts".into(),
             directory.path().display().to_string(),
             Default::default(),
         );
-        plan.control_loop.rounds = (0..old_rounds)
-            .map(|number| CuratorRound {
-                number,
-                summary: "unselected".repeat(32),
-                ..Default::default()
-            })
-            .collect();
-        plan.control_loop
-            .rounds
-            .extend((0..20).map(|number| CuratorRound {
-                number,
-                summary: format!("selected-{number}"),
-                ..Default::default()
-            }));
-        let expected = plan.control_loop.rounds[plan.control_loop.rounds.len() - 20..].to_vec();
+        let old = (0..old_rounds).map(|number| CuratorRound {
+            number,
+            ended_at: 1,
+            summary: "expired".repeat(32),
+            ..Default::default()
+        });
+        let recent = (0..20).map(|number| CuratorRound {
+            number,
+            ended_at: now - 1000,
+            outcome: [
+                CuratorOutcome::Quiet,
+                CuratorOutcome::Nudged,
+                CuratorOutcome::Fallback,
+                CuratorOutcome::Done,
+            ][number as usize % 4],
+            learnings: 2,
+            save_id: (number % 2 == 0).then(|| format!("save-{number}")),
+            ..Default::default()
+        });
+        plan.strides
+            .extend(fixtures::round_strides(old.chain(recent).collect()));
         let database = fixtures::database(directory.path(), &plan);
         fixtures::audit(&database);
         let read = database.curator_schedule_projection(&plan.id).unwrap();
         take_metrics();
         crate::service_plan::store_sync::take_decoded_row_bytes();
         crate::service_plan::store_rows::take_serialized_row_bytes();
-        let display = read.control_loop_window().unwrap();
-        assert_eq!(display.rounds, expected);
+        let display = read.projected_control_loop(now).unwrap();
+        assert_eq!(
+            display.counts_7d,
+            CuratorCounts {
+                rounds: 5,
+                quiet: 5,
+                nudged: 5,
+                learnings: 40,
+                saves: 10,
+                fallbacks: 5,
+            }
+        );
         let metrics = take_metrics();
         let decoded = crate::service_plan::store_sync::take_decoded_row_bytes();
         assert_eq!(metrics.queries, 1);
-        let response = serde_json::to_vec(&display).unwrap().len();
-        assert!(metrics.materialized_bytes <= response);
-        assert!(decoded <= response);
         assert_eq!(
             crate::service_plan::store_rows::take_serialized_row_bytes(),
             0
         );
         assert!(fixtures::audit_counts(&database).is_empty());
-        let measured = (metrics, decoded, response);
+        let measured = (
+            metrics,
+            decoded,
+            serde_json::to_vec(&display).unwrap().len(),
+        );
         if let Some(previous) = &previous {
             assert_eq!(&measured, previous);
         }
         previous = Some(measured);
-        database.connection.lock().execute("UPDATE plans SET header_json=json_set(header_json,'$.control_loop.rounds[#-1].summary','later') WHERE id=?1",[&plan.id]).unwrap();
-        assert_eq!(read.control_loop_window().unwrap().rounds, expected);
-        let latest = database
-            .curator_schedule_projection(&plan.id)
-            .unwrap()
-            .control_loop_window()
-            .unwrap();
-        assert_eq!(latest.rounds.last().unwrap().summary, "later");
     }
 }

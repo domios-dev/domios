@@ -85,8 +85,14 @@ pub(super) async fn member(
     headers: HeaderMap,
     Path(id): Path<String>,
     Json(body): Json<Value>,
-) -> Result<Json<codeterm_orchestration::AddTeamMemberResult>, RouteError> {
-    let (headers, body) = attributed_body_async(&state, headers, body).await?;
+) -> Result<Json<codeterm_orchestration::AddTeamMemberResult>, crate::agent_routes::SpawnRejection>
+{
+    let (headers, body) =
+        attributed_body_async(&state, headers, body)
+            .await
+            .map_err(|(status, message)| {
+                crate::agent_routes::SpawnRejection::new(status, "bad_request", message)
+            })?;
     super::super::team_routes::add_team_member(State(state), headers, Path(id), Json(body)).await
 }
 

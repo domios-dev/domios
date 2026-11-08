@@ -4,7 +4,7 @@ import { invoke } from "../../lib/bridge";
 import { KeyRound, LogIn, FlaskConical, Settings2, Clock, RefreshCw } from "lucide-react";
 import { BusySpinner } from "../shared/BusyState";
 import type { AppConfig, SecretsConfig } from "../../lib/types";
-import { useMuxState } from "../../store/multiplexer/hooks";
+import { useMultiplexer, useMuxState } from "../../store/multiplexer/hooks";
 import { setPendingCommand } from "../../lib/pendingCommands";
 import { localFetch, daemonAuthToken, daemonHttpBase } from "../../lib/webApi";
 import { SettingsCard, SettingsPill } from "./shared";
@@ -52,6 +52,7 @@ export function SecretsTab({
   const jsonHeaders: HeadersInit = { "Content-Type": "application/json", ...apiHeaders };
 
   const muxState = useMuxState();
+  const { selectTabByTab } = useMultiplexer();
   const installBitwardenCli = useCallback(async () => {
     const platform = navigator.platform.toLowerCase();
     const cmd = platform.includes("mac")
@@ -70,14 +71,13 @@ export function SecretsTab({
         { workspaceId: ws.id, activate: true },
       );
       setPendingCommand(tabInfo.tab_id, cmd);
-      await invoke("mux_set_active_workspace", { workspaceId: ws.id });
-      await invoke("mux_set_active_tab", { workspaceId: ws.id, tabId: tabInfo.id });
+      await selectTabByTab(ws.id, tabInfo.id);
       // Tell the host UI to switch back to the workspace view (away from Settings) so the user sees the install running.
       onCloseSettings?.();
     } catch (e) {
       console.error("Failed to spawn install tab:", e);
     }
-  }, [muxState, onCloseSettings]);
+  }, [muxState, onCloseSettings, selectTabByTab]);
 
   const cfg = config.integrations?.secrets ?? {
     backend: "local",

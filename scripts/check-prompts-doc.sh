@@ -22,12 +22,12 @@ plugin_prompts_rs = root / "src-tauri/crates/codeterm-plugin/src/prompts.rs"
 
 doc_pairs = {}
 for line in docs.read_text(encoding="utf-8").splitlines():
-    m = re.match(r"\|\s*`([^`]+\.md)`\s*\|\s*`([A-Z0-9_]+)`\s*\|", line)
+    m = re.match(r"\|\s*`([^`]+\.(?:md|json))`\s*\|\s*`([A-Z0-9_]+)`\s*\|", line)
     if m:
         doc_pairs[m.group(1)] = m.group(2)
 
 documentation_files = {docs}
-prompt_files = [p for p in prompts_dir.rglob("*.md") if p not in documentation_files]
+prompt_files = [p for p in prompts_dir.rglob("*") if p.suffix in {".md", ".json"} and p not in documentation_files]
 files = {p.relative_to(prompts_dir).as_posix() for p in prompt_files}
 loader_sources = [
     prompts_rs,
@@ -36,14 +36,15 @@ loader_sources = [
     mem_prompts_rs,
     seed_rs,
     plugin_prompts_rs,
+    root / "cli/src/cmd/mcp/tools.rs",
 ]
 loaders = {}
 pattern = re.compile(
-    r'(pub\s+)?const\s+([A-Z0-9_]+)\s*:[^=]+?=\s*include_str!\("(?:\.\./)+prompts/([^\"]+\.md)"\)',
+    r'(pub\s+)?const\s+([A-Z0-9_]+)\s*:[^=]+?=\s*include_str!\("(?:\.\./)+(?:src-tauri/)?prompts/([^\"]+\.(?:md|json))"\)',
     re.S,
 )
 concat_pattern = re.compile(
-    r'(pub\s+)?const\s+([A-Z0-9_]+)\s*:[^=]+?=\s*concat!\(\s*include_str!\("(?:\.\./)+prompts/([^\"]+\.md)"\)',
+    r'(pub\s+)?const\s+([A-Z0-9_]+)\s*:[^=]+?=\s*concat!\(\s*include_str!\("(?:\.\./)+(?:src-tauri/)?prompts/([^\"]+\.(?:md|json))"\)',
     re.S,
 )
 for source in loader_sources:

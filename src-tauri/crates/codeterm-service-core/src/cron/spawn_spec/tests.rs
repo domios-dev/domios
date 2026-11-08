@@ -10,6 +10,7 @@ fn inputs(agent: &str) -> CronSpawnInputs {
         run_id: "run-7".into(),
         job_name: "nightly".into(),
         agent: agent.into(),
+        launch_profile: None,
         model: Some("some-model".into()),
         reasoning_effort: None,
         task_text: TASK.into(),
@@ -148,6 +149,34 @@ fn runtime_cron_carries_launch_identity_and_keeps_one_initial_task() {
     assert_eq!(prompt.matches(TASK).count(), 1);
     assert!(prompt.contains(crate::service::orchestrator::ROLE_AUTHORITY));
     assert_eq!(config["effort"], "opaque-effort");
+}
+
+#[test]
+fn curator_launch_profile_reaches_the_runtime_config_on_both_transports() {
+    let registry = registry_with_spawnable("gamma-shell");
+    for provider in ["pty-agent", "gamma-shell"] {
+        let mut input = inputs(provider);
+        input.role = Some("curator".into());
+        input.launch_profile = Some("opaque-profile".into());
+        let mut spec = build_cron_spawn_spec(&registry, input);
+        assert_eq!(
+            spec.chatbackend_launch
+                .as_ref()
+                .unwrap()
+                .params
+                .launch_profile
+                .as_deref(),
+            Some("opaque-profile")
+        );
+        if matches!(spec.command, TabCommand::Agent(_)) {
+            spec.route_agent_to_chatbackend().unwrap();
+        }
+        let TabCommand::ChatBackend { config, .. } = &spec.command else {
+            panic!("runtime route missing")
+        };
+        assert_eq!(config["launchProfile"], "opaque-profile");
+        assert_eq!(config["model"], "some-model");
+    }
 }
 
 #[test]

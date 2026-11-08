@@ -1,5 +1,6 @@
 pub mod account;
 pub mod agent;
+pub mod agent_acp;
 pub mod agent_runtime;
 pub mod analytics;
 pub mod blueprint;
@@ -11,6 +12,7 @@ pub mod delayed;
 pub mod effort;
 pub mod essence_map;
 pub mod integration;
+pub mod mcp;
 pub mod mem;
 pub mod misc;
 pub mod model_provider;

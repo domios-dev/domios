@@ -6,7 +6,100 @@ fn reply(status: u16, version: &str, etag: Option<&str>, retry: Option<&str>) ->
         etag: etag.map(str::to_owned),
         retry_after: retry.map(str::to_owned),
         body: format!("{{\"version\":\"{version}\"}}").into_bytes(),
+        served: ServedBy::Direct,
     }
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_explicit_check_skips_the_event_throttle_and_the_failure_backoff() {
+    let cache = Cache::default();
+    cache
+        .check("feed", |_| async { Ok(reply(200, "1.0.0", None, None)) })
+        .await
+        .unwrap();
+    cache
+        .check("feed", |_| async { panic!("the event throttle must hold") })
+        .await
+        .unwrap();
+    cache.expire("feed").await.unwrap();
+    let fresh = cache
+        .check("feed", |_| async { Ok(reply(200, "2.0.0", None, None)) })
+        .await
+        .unwrap();
+    assert_eq!(fresh.version, "2.0.0");
+
+    tokio::time::advance(EVENT_THROTTLE).await;
+    cache
+        .check("feed", |_| async { Err("offline".to_string()) })
+        .await
+        .unwrap_err();
+    assert_eq!(
+        cache
+            .check("feed", |_| async { panic!("the backoff must hold") })
+            .await
+            .unwrap_err(),
+        "offline"
+    );
+    cache.expire("feed").await.unwrap();
+    assert_eq!(
+        cache
+            .check("feed", |_| async { Ok(reply(200, "3.0.0", None, None)) })
+            .await
+            .unwrap()
+            .version,
+        "3.0.0"
+    );
+}
+
+#[tokio::test]
+async fn a_direct_504_is_served_by_the_api_and_says_so() {
+    use crate::release_transport::test_support::{transport, ScriptedHttp, Step};
+
+    let feed = "https://github.com/domios-dev/domios/releases/latest/download/domios-latest.json";
+    let root = tempfile::tempdir().unwrap();
+    let http = ScriptedHttp::new(vec![
+        (feed, Step::Status(504)),
+        (
+            "https://api.github.com/repos/domios-dev/domios/releases/latest",
+            Step::Bytes(
+                br#"{"tag_name":"v9.0.0","assets":[{"id":5,"name":"domios-latest.json"}]}"#
+                    .to_vec(),
+            ),
+        ),
+        (
+            "https://api.github.com/repos/domios-dev/domios/releases/assets/5",
+            Step::Bytes(br#"{"version":"9.0.0"}"#.to_vec()),
+        ),
+    ]);
+    let via = transport(&http, &root);
+    let mut endpoint = Endpoint::default();
+    let manifest = endpoint
+        .check(tokio::time::Instant::now, SystemTime::UNIX_EPOCH, |etag| {
+            send_through(&via, feed, etag)
+        })
+        .await
+        .unwrap();
+    assert_eq!(manifest.version, "9.0.0");
+    assert_eq!(manifest.served_by, Some(ServedBy::GithubApi));
+}
+
+#[tokio::test]
+async fn a_non_github_feed_keeps_its_own_failure_and_spends_nothing_on_the_api() {
+    use crate::release_transport::test_support::{transport, ScriptedHttp, Step};
+
+    let feed = "https://example.com/updates/latest.json";
+    let root = tempfile::tempdir().unwrap();
+    let http = ScriptedHttp::new(vec![(feed, Step::Status(504))]);
+    let via = transport(&http, &root);
+    let mut endpoint = Endpoint::default();
+    let error = endpoint
+        .check(tokio::time::Instant::now, SystemTime::UNIX_EPOCH, |etag| {
+            send_through(&via, feed, etag)
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(error, "manifest fetch returned HTTP 504");
+    assert_eq!(http.urls(), vec![feed.to_string()]);
 }
 
 #[tokio::test(start_paused = true)]

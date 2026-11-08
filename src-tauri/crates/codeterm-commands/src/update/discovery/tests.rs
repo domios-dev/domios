@@ -1,5 +1,68 @@
 use super::*;
 
+fn app_info(check_path: Option<&str>) -> codeterm_update::update_state::UpdateInfo {
+    codeterm_update::update_state::UpdateInfo {
+        availability: AvailabilityItem::release("app", UpdateKind::App, "1.0.0", "1.0.0", true),
+        current_version: "1.0.0".into(),
+        latest_version: "1.0.0".into(),
+        update_available: false,
+        install_method: codeterm_update::InstallMethod::Unknown,
+        update_command: None,
+        download_url: None,
+        release_url: String::new(),
+        release_notes: None,
+        published_at: None,
+        check_path: check_path.map(str::to_owned),
+    }
+}
+
+#[test]
+fn a_check_records_which_path_served_it() {
+    let mut snapshot = AvailabilitySnapshot::default();
+    apply_app_check(&mut snapshot, Ok((app_info(Some("github_api")), None)));
+    assert_eq!(snapshot.served_by["app"], "github_api");
+    assert!(snapshot.errors.is_empty());
+    assert!(app_checked(&snapshot));
+}
+
+#[test]
+fn both_failures_stay_in_the_snapshot_diagnostics_and_the_app_keeps_its_last_known_state() {
+    let both = "direct download: HTTP 504; GitHub API fallback: GitHub API returned HTTP 403";
+    let mut cached = AvailabilitySnapshot::default();
+    apply_app_check(&mut cached, Ok((app_info(None), Some(both.into()))));
+    assert_eq!(cached.errors["app"], both);
+    assert_eq!(cached.items[0].reason, "cached_check");
+
+    let mut unknown = AvailabilitySnapshot::default();
+    apply_app_check(&mut unknown, Err(both.into()));
+    assert_eq!(unknown.errors["app"], both);
+    assert_eq!(unknown.items[0].reason, "not_checked");
+    assert!(!app_checked(&unknown));
+}
+
+#[test]
+fn a_check_deferred_by_its_interval_is_not_a_failure() {
+    let mut snapshot = AvailabilitySnapshot::default();
+    apply_app_check(
+        &mut snapshot,
+        Err(codeterm_update::checker::CHECK_DEFERRED.into()),
+    );
+    assert!(snapshot.errors.is_empty());
+    assert_eq!(snapshot.items[0].reason, "not_checked");
+}
+
+#[test]
+fn a_frontend_release_that_was_never_published_is_no_offer() {
+    let local =
+        || AvailabilityItem::release("frontend", UpdateKind::Frontend, "1.0.0", "1.0.0", true);
+    let missing = frontend_offer(Err("release asset not found".into()), local).unwrap();
+    assert_eq!(missing.state, codeterm_plugins::AvailabilityState::UpToDate);
+    assert_eq!(
+        frontend_offer(Err("server returned HTTP 504".into()), local),
+        Err("server returned HTTP 504".to_string())
+    );
+}
+
 #[test]
 fn cached_checks_only_enable_an_app_update_when_a_newer_payload_exists() {
     let current = AvailabilityItem::release("app", UpdateKind::App, "1.0.0", "1.0.0", true);

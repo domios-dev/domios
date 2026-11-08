@@ -2,6 +2,8 @@ use super::*;
 use serde::Serialize;
 use serde_json::Value;
 
+mod context;
+
 pub fn validate_runtime_size(value: &impl Serialize, limit: usize) -> Result<(), RuntimeFailure> {
     struct Counter {
         used: usize,
@@ -79,6 +81,7 @@ fn rpc_id(id: &RpcId) -> bool {
 
 pub fn validate_runtime_settings(settings: &RuntimeSettings) -> Result<(), RuntimeFailure> {
     validate_runtime_size(settings, MAX_RUNTIME_VALUE_BYTES)?;
+    super::declarations::validate_settings(settings)?;
     let mut seen = std::collections::HashSet::new();
     if settings.additional_directories.len() > 32
         || settings.additional_directories.iter().any(|directory| {
@@ -96,6 +99,9 @@ pub fn validate_runtime_context(ctx: &RuntimeContext) -> Result<(), RuntimeFailu
     validate_runtime_size(ctx, MAX_RUNTIME_VALUE_BYTES)?;
     if ctx.epoch == 0
         || ctx.epoch > 9_007_199_254_740_991
+        || ctx
+            .restored_row_ordinal
+            .is_some_and(|ordinal| ordinal > 9_007_199_254_740_991)
         || !identifier(&ctx.tab_id)
         || !identifier(&ctx.binding_nonce)
         || !identifier(&ctx.cwd)
@@ -109,6 +115,7 @@ pub fn validate_runtime_context(ctx: &RuntimeContext) -> Result<(), RuntimeFailu
     {
         return Err(invalid("invalid runtime authority"));
     }
+    super::stream_window::validate(ctx.stream_window.as_ref(), identifier)?;
     validate_runtime_settings(&ctx.settings)?;
     if let Some(policy) = &ctx.restricted_cli {
         let hash = |value: &str| {
@@ -285,6 +292,16 @@ pub fn validate_runtime_operation(
     Ok(())
 }
 
+fn plan_refusal(reason: &str) -> Result<(), RuntimeFailure> {
+    if !identifier(reason) {
+        return Err(invalid("invalid runtime plan refusal reason"));
+    }
+    Err(RuntimeFailure::new(
+        RuntimeFailureCode::ProviderRefused,
+        reason,
+    ))
+}
+
 pub fn validate_runtime_plan(
     cap: &AgentRuntimeCapability,
     ctx: &RuntimeContext,
@@ -303,6 +320,9 @@ pub fn validate_runtime_plan(
     }
     validate_runtime_size(plan, MAX_RUNTIME_VALUE_BYTES)?;
     validate_runtime_size(&plan.state, MAX_RUNTIME_STATE_BYTES)?;
+    if let RuntimeAction::Refused { reason } = &plan.action {
+        return plan_refusal(reason);
+    }
     if matches!(op, RuntimeOperation::ForkThread { .. })
         && !cap
             .thread_history
@@ -324,6 +344,14 @@ pub fn validate_runtime_plan(
         return Err(mismatch("question answer must be local formatting"));
     }
     match &plan.action {
+        RuntimeAction::Local => {
+            if !matches!(op, RuntimeOperation::ResumeThread { thread_id, .. } if ctx.thread_id.as_ref() == Some(thread_id))
+            {
+                return Err(mismatch("local action requires the bound resume thread"));
+            }
+            Ok(())
+        }
+        RuntimeAction::Refused { reason } => plan_refusal(reason),
         RuntimeAction::QuestionAnswer { input } => {
             if !matches!(op, RuntimeOperation::AnswerQuestion { .. }) {
                 return Err(mismatch("question answer action outside answerQuestion"));
@@ -397,6 +425,20 @@ pub fn validate_runtime_call(
         {
             return Err(mismatch("background request lacks exact owned target"));
         }
+    } else if cap
+        .turn_scoped_requests
+        .iter()
+        .any(|kind| kind == op.kind())
+    {
+        let target = call
+            .target
+            .as_ref()
+            .ok_or_else(|| mismatch("turn-scoped request lacks target"))?;
+        if ctx.thread_id.as_ref() != Some(&target.thread_id)
+            || target.turn_id.as_ref().is_none_or(|turn| !identifier(turn))
+        {
+            return Err(mismatch("turn-scoped request lacks an exact owned turn"));
+        }
     } else if matches!(op, RuntimeOperation::Interrupt { .. }) {
         let target = call
             .target
@@ -405,7 +447,18 @@ pub fn validate_runtime_call(
         let active = ctx.active_turns.iter().any(|turn| {
             turn.thread_id == target.thread_id && target.turn_id.as_ref() == Some(&turn.turn_id)
         });
-        if !active {
+        let before_first = cap
+            .interrupt
+            .as_ref()
+            .is_some_and(|interrupt| interrupt.before_first_turn)
+            && ctx.active_turn_id.is_none()
+            && ctx
+                .claimed_sends
+                .iter()
+                .any(|claim| Some(&claim.thread_id) == ctx.thread_id.as_ref())
+            && Some(&target.thread_id) == ctx.thread_id.as_ref()
+            && target.turn_id.is_none();
+        if !active && !before_first {
             return Err(mismatch("interrupt targets an inactive or unowned turn"));
         }
     } else if let Some(target) = &call.target {
@@ -422,6 +475,7 @@ pub fn validate_runtime_call(
             return Err(mismatch("call target is outside operation authority"));
         }
     }
+    super::host_mcp::validate(cap, ctx, &call.method, &call.params)?;
     if !cap.permits_method(op, &call.method) {
         return Err(RuntimeFailure::new(
             RuntimeFailureCode::MethodNotAllowed,
@@ -482,11 +536,37 @@ pub fn validate_runtime_step(
                 {
                     return Err(mismatch("correlated response cannot confirm delivery"));
                 }
+                if events.len() > MAX_RUNTIME_BATCH {
+                    return Err(RuntimeFailure::new(
+                        RuntimeFailureCode::SizeLimit,
+                        "too many runtime events",
+                    ));
+                }
+                let mut remaining = events.clone();
+                if let (
+                    RuntimeOperation::OpenThread { .. },
+                    RuntimeResult::ThreadLoaded { thread_id, .. },
+                ) = (op, result)
+                {
+                    let (notices, other): (Vec<_>, Vec<_>) = remaining
+                        .into_iter()
+                        .partition(|event| matches!(event, AgentRuntimeEvent::Notice { .. }));
+                    let mut loaded_context = ctx.clone();
+                    loaded_context.thread_id = Some(thread_id.clone());
+                    validate_runtime_reduction(
+                        &loaded_context,
+                        &RuntimeReduction {
+                            state: Value::Null,
+                            events: notices,
+                        },
+                    )?;
+                    remaining = other;
+                }
                 validate_runtime_reduction(
                     ctx,
                     &RuntimeReduction {
                         state: Value::Null,
-                        events: events.clone(),
+                        events: remaining,
                     },
                 )?;
             }
@@ -498,10 +578,15 @@ pub fn validate_runtime_step(
         RuntimeStep::Refused {
             before_acceptance, ..
         } => {
-            if *before_acceptance
-                && matches!(op, RuntimeOperation::SubmitTurn { .. })
-                && !matches!(reply, RpcReply::Error { .. })
-            {
+            // Input offered to a running turn can be answered with a success that declines it.
+            let prompt = matches!(
+                op,
+                RuntimeOperation::SubmitTurn {
+                    active_turn_id: None,
+                    ..
+                }
+            );
+            if *before_acceptance && prompt && !matches!(reply, RpcReply::Error { .. }) {
                 return Err(mismatch("success cannot be pre-acceptance refusal"));
             }
             Ok(())
@@ -514,6 +599,15 @@ fn validate_runtime_result(
     op: &RuntimeOperation,
     result: &RuntimeResult,
 ) -> Result<(), RuntimeFailure> {
+    if let RuntimeResult::Initialized {
+        agent_name: Some(name),
+        ..
+    } = result
+    {
+        if name.is_empty() || name.len() > 256 || name.chars().any(char::is_control) {
+            return Err(invalid("invalid runtime agent name"));
+        }
+    }
     if let RuntimeResult::ThreadLoaded { settings, .. } = result {
         validate_runtime_settings(settings)?;
     }
@@ -723,6 +817,7 @@ pub fn validate_runtime_reduction(
         .map(|turn| turn.thread_id.clone())
         .collect();
     for event in &reduction.events {
+        context::validate(event)?;
         if let AgentRuntimeEvent::BackgroundProcesses {
             thread_id,
             processes,
@@ -733,6 +828,15 @@ pub fn validate_runtime_reduction(
             }
             validate_background_processes(processes)?;
             continue;
+        }
+        if let AgentRuntimeEvent::Authentication { authentication } = event {
+            super::declarations::validate_authentication(authentication)?;
+            continue;
+        }
+        if let AgentRuntimeEvent::Notice { message, .. } = event {
+            if message.is_empty() || message.len() > 4096 {
+                return Err(invalid("invalid runtime notice"));
+            }
         }
         if let AgentRuntimeEvent::AuthLogin { login } = event {
             if login
@@ -842,8 +946,18 @@ pub fn validate_runtime_reduction(
             AgentRuntimeEvent::BackgroundProcesses { .. }
             | AgentRuntimeEvent::RateLimits { .. }
             | AgentRuntimeEvent::Auth { .. }
-            | AgentRuntimeEvent::AuthLogin { .. } => continue,
-            AgentRuntimeEvent::ChatItem { thread_id, item } => {
+            | AgentRuntimeEvent::AuthLogin { .. }
+            | AgentRuntimeEvent::Authentication { .. } => continue,
+            AgentRuntimeEvent::ChatItemAppend {
+                thread_id, item_id, ..
+            } => {
+                if !identifier(item_id) {
+                    return Err(invalid("invalid chat item id"));
+                }
+                thread_id
+            }
+            AgentRuntimeEvent::ChatItem { thread_id, item }
+            | AgentRuntimeEvent::ChatItemPatch { thread_id, item } => {
                 if !identifier(&item.id) {
                     return Err(invalid("invalid chat item id"));
                 }
@@ -861,7 +975,9 @@ pub fn validate_runtime_reduction(
                 thread_id
             }
             AgentRuntimeEvent::TurnState { thread_id, .. }
+            | AgentRuntimeEvent::Notice { thread_id, .. }
             | AgentRuntimeEvent::Usage { thread_id, .. }
+            | AgentRuntimeEvent::Context { thread_id, .. }
             | AgentRuntimeEvent::Prompt { thread_id, .. }
             | AgentRuntimeEvent::PromptResolved { thread_id, .. }
             | AgentRuntimeEvent::ControlsConfirmed { thread_id, .. }
@@ -1079,3 +1195,6 @@ pub fn validate_active_turns(ctx: &RuntimeContext) -> Result<(), RuntimeFailure>
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;

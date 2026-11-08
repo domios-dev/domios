@@ -1,0 +1,184 @@
+{
+  "schemaVersion": 1,
+  "context": {
+    "epoch": 1,
+    "cwd": "/work/project",
+    "hostVersion": "1.18.7",
+    "tabId": "mcp-fallback",
+    "bindingNonce": "nonce-fixture",
+    "settings": {},
+    "providerSettings": {},
+    "claimedSends": [],
+    "activeTurns": [],
+    "threadParents": [],
+    "hostMcp": {
+      "name": "domios",
+      "command": "/opt/domios/bin/domios",
+      "args": [
+        "mcp",
+        "serve",
+        "--tab",
+        "mcp-fallback",
+        "--binding-nonce",
+        "nonce-fixture"
+      ],
+      "env": {
+        "CODETERM_API_TOKEN": "<credential-placeholder>",
+        "CODETERM_API_URL": "http://127.0.0.1:43210",
+        "CODETERM_SESSION_BINDING_NONCE": "nonce-fixture",
+        "CODETERM_TAB_ID": "mcp-fallback"
+      }
+    }
+  },
+  "operations": [
+    {
+      "operation": {
+        "kind": "initialize"
+      }
+    },
+    {
+      "operation": {
+        "kind": "openThread",
+        "instructions": "",
+        "settings": {}
+      }
+    }
+  ],
+  "rpc": [
+    {
+      "direction": "outbound",
+      "operation": 0,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "initialize",
+          "params": {
+            "protocolVersion": 1,
+            "clientCapabilities": {
+              "fs": {
+                "readTextFile": false,
+                "writeTextFile": false
+              },
+              "terminal": false
+            },
+            "clientInfo": {
+              "name": "domios",
+              "title": "Domios",
+              "version": "1.18.7"
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 0,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "protocolVersion": 1,
+          "agentCapabilities": {},
+          "authMethods": []
+        }
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 1,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "session/new",
+          "params": {
+            "cwd": "/work/project",
+            "mcpServers": [
+              {
+                "name": "domios",
+                "command": "/opt/domios/bin/domios",
+                "args": [
+                  "mcp",
+                  "serve",
+                  "--tab",
+                  "mcp-fallback",
+                  "--binding-nonce",
+                  "nonce-fixture"
+                ],
+                "env": [
+                  {
+                    "name": "CODETERM_API_TOKEN",
+                    "value": "<credential-placeholder>"
+                  },
+                  {
+                    "name": "CODETERM_API_URL",
+                    "value": "http://127.0.0.1:43210"
+                  },
+                  {
+                    "name": "CODETERM_SESSION_BINDING_NONCE",
+                    "value": "nonce-fixture"
+                  },
+                  {
+                    "name": "CODETERM_TAB_ID",
+                    "value": "mcp-fallback"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 1,
+      "reply": {
+        "kind": "error",
+        "error": {
+          "code": -32601,
+          "message": "Session method unavailable"
+        }
+      }
+    }
+  ],
+  "expected": {
+    "results": [
+      {
+        "operation": 0,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "initialized"
+          },
+          "events": [
+            {
+              "kind": "authentication",
+              "authentication": {
+                "state": "unknown",
+                "methods": []
+              }
+            }
+          ]
+        }
+      },
+      {
+        "operation": 1,
+        "step": {
+          "kind": "refused",
+          "reason": {
+            "code": "provider_refused",
+            "message": "Session method unavailable"
+          },
+          "beforeAcceptance": true
+        }
+      }
+    ],
+    "events": [
+      {
+        "kind": "authentication",
+        "authentication": {
+          "state": "unknown",
+          "methods": []
+        }
+      }
+    ]
+  }
+}

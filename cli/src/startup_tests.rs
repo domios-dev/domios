@@ -7,6 +7,15 @@ use std::time::Instant;
 
 #[test]
 fn local_resolution_sends_first_request_on_one_connection() {
+    assert_local_resolution(false);
+}
+
+#[test]
+fn scrubbed_tool_child_sends_its_file_credential_on_the_local_socket() {
+    assert_local_resolution(true);
+}
+
+fn assert_local_resolution(scrubbed: bool) {
     let _guard = test_env_lock().lock().unwrap();
     let name = format!("thin-{}-{}", std::process::id(), uuid::Uuid::new_v4());
     let listener = ListenerOptions::new()
@@ -19,6 +28,8 @@ fn local_resolution_sends_first_request_on_one_connection() {
         "CODETERM_API_PORT",
         "CODETERM_API_TOKEN",
         "CODETERM_TAB_ID",
+        "CODETERM_LAUNCH_FILE",
+        "CODETERM_SESSION_BINDING_NONCE",
     ];
     let previous = keys.map(|key| std::env::var(key).ok());
     std::env::set_var(keys[0], &name);
@@ -26,6 +37,23 @@ fn local_resolution_sends_first_request_on_one_connection() {
     std::env::remove_var(keys[2]);
     std::env::set_var(keys[3], "fixture-launch-token");
     std::env::set_var(keys[4], "fixture-tab");
+    let root = tempfile::tempdir().unwrap();
+    if scrubbed {
+        let path = root.path().join("launch.json");
+        codeterm_util::tab_launch::write_new(
+            &path,
+            &serde_json::to_vec(&codeterm_util::tab_launch::LaunchCredential {
+                tab_id: "fixture-tab".into(),
+                binding_nonce: "fixture-nonce".into(),
+                token: "fixture-launch-token".into(),
+            })
+            .unwrap(),
+        )
+        .unwrap();
+        std::env::remove_var(keys[3]);
+        std::env::set_var(keys[5], path);
+        std::env::set_var(keys[6], "fixture-nonce");
+    }
     let start = Instant::now();
     let server = std::thread::spawn(move || {
         let mut accepted = 0;

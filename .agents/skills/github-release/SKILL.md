@@ -24,7 +24,7 @@ each failed run. An untested proposal must not become an established recipe.
 - Use the exact reviewed committed candidate. Real-merge lanes; never reconstruct their tree
   by copying patches. Exclude unrelated dirty files. Record workflow-ref SHA separately from
   application `source_ref` SHA when they differ.
-- Use the authorized self-hosted fleet. Honor physical-machine exclusions for every job,
+- Use hosted defaults or the authorized self-hosted fleet. Honor physical-machine exclusions for every job,
   including preparation/tests and that machine's WSL/VM runners. Verify eligible labels and
   actual job runner names through the runners/jobs REST APIs. Do not change labels, repository
   variables or shared routing to evade an exclusion. An online registration never overrides a physical-machine exclusion.
@@ -62,6 +62,13 @@ Dispatch `plugin-release.yml` from a reviewed release branch with `tag=plugin-<i
 commit, and verifies the anonymous download. Every install refreshes `codeterm-core` from there.
 For 1.19 only, a marked transition step publishes the same archive to `rollacode/codeterm-releases`
 for 1.18.x clients.
+
+Application publication also publishes the verified source commit's core channel after public
+updater verification, under the same channel concurrency lock as standalone plugin releases.
+If the public channel is absent, recover it with `node scripts/release-plugin.mjs check`, then
+`node scripts/publish-core-channel.mjs publish <verified-source-sha> domios-dev/domios` from that
+source checkout with publication GO. Retain embedded plugin versions and verify the anonymous
+archive checksum, source-commit receipt and client `domios update check --force` result.
 
 ## Application train
 
@@ -111,9 +118,11 @@ for 1.18.x clients.
    artifacts expire after three days; qualify the exact SHA again if needed. Equal trees
    or ancestor receipts never qualify another SHA. Local focused fixes do not replace CI
    evidence; do not rerun identical suites in the release graph.
-4. Verify runner availability locally with `bash scripts/check-release-runners.sh` (it needs the
-   owner's gh login: GITHUB_TOKEN cannot list runners) and credential preflight through
-   `release-credentials.yml`. Confirm the intended version is unpublished.
+4. Verify configured runner selectors with `bash scripts/check-release-runners.sh` and
+   credential preflight through `release-credentials.yml`. The local check needs the owner's
+   gh login: it skips private-runner discovery for hosted images and requires one online runner
+   matching every label in each self-hosted array. It does not prove hosted capacity or signing;
+   completed Actions jobs do. Confirm the intended version is unpublished.
    Read back `domios-trusted` through the [runner policy procedure](../../../docs/release/public-repo.md#runner-isolation-is-a-publicization-prerequisite).
    Its current policy has `restricted_to_workflows=false` and `selected_workflows=[]`;
    release preparation does not edit the group or add workflow refs. If readback differs,
@@ -130,7 +139,7 @@ for 1.18.x clients.
 
 All PRs into develop, including forks and Dependabot, use tests-side.yml:
 repository guards, fmt-check, TS static/unit/Vitest, plugin bundles/tests and
-one cargo check --workspace --all-targets --locked. Every job is pinned to
+one cargo check --workspace --all-targets --locked. Every job defaults to
 ubuntu-24.04 with read-only permissions and no repository/environment secrets.
 Compilation uses hosted sccache; forks require no private store access.
 CI result requires every light job to succeed. No Rust suites, qualification
@@ -171,9 +180,10 @@ dispatch inputs pin the producing run ID, tag and source SHA for a follow-up wit
 An older run that did not retain those inputs cannot be retroactively called validated.
 
 Builds start after the frontend bundle, beside the Rust suites. There are no tier polling jobs.
-The Linux full suite runs on hosted `ubuntu-24.04` (`CI_LINUX_RUST_FULL_RUNNER=private` moves it to
-ubunta); Windows native tests use ROG, macOS and embeddings use Air sequentially. Light checks
-request `host-ubunta`. Targets remain per workspace.
+The Linux full suite defaults to hosted `ubuntu-24.04`; `CI_LINUX_RUST_FULL_RUNNER=hosted`
+explicitly selects it too. Native Windows, macOS and embeddings have hosted defaults.
+Embeddings start independently of the platform matrix because they consume no platform artifacts.
+Targets remain per workspace.
 
 Manual fallback only: the normal publication is the admin merge of the release PR. To publish a
 wholly green dry run without that merge, use `release-publish.yml`, never a rebuild. Its tooling
@@ -195,6 +205,9 @@ merge to master stay separate steps.
 The store endpoint is defined once in `scripts/ci-store.sh`. When a CI job finds it unreachable,
 `ci-artifact.sh put` spools the file with a warning and the job's `ci-artifact-spool` action uploads
 it as a run artifact; `get`/`get-prefix` read `<run-id>/...` keys back from that run's artifacts.
+`put` re-probes the store once before spooling. Once the store is back, reads return store and spooled
+objects together; a key present in both takes the newest copy (store LastModified against artifact
+`created_at`) and stops with `copy_order_ambiguous` when the two lie within the clock-skew bound.
 `manifest-local-verification.json` records `retained_via` and a per-file `location`. Rust jobs then
 compile with a job-local sccache that `build.sh cache-release` stops at job end. A reachable store
 that refuses a request, and any digest or signature mismatch, still fail.
@@ -375,25 +388,60 @@ Release workflows verify the compiled server's production analytics fingerprint 
 key variables and emits non-secret hash cfgs so sccache cannot reuse a keyless build; never
 replace the binary check with a secret-presence check or print the keys.
 
-Workflows select runners by label, never by name. Heavy lanes combine a role with `host-<machine>` to retain warm per-runner targets.
-`./build.sh runner-pause` keeps host labels and never lends them; a pinned lane stays unavailable
-until its own host is restored.
+All `runs-on` selectors use `fromJSON(variable || '<hosted image as JSON>')`, directly or
+through a matrix value. Set each runner variable to a JSON string for a hosted image or a JSON
+array for self-hosted labels. The complete array is selected; no workflow adds an outer
+`self-hosted` constraint. Empty variables use hosted defaults. For example, the literal variable
+value `"macos-15"` selects hosted ARM macOS, and `["self-hosted","macOS","host-air"]` selects
+that authorized private host. The double quotes are part of the hosted variable value.
 
-| Runner (planned name) | Machine, OS/arch | Routing labels | Role |
-|---|---|---|---|
-| `codeterm-builder-2` (`eight-macos-arm64`) | eight, macOS arm64 | `codeterm-builder`, `heavy`, `light`, `host-eight` | builds: macOS arm64 and x64, Linux arm64 Docker signing; quick checks |
-| `air-macos` (`air-macos-arm64`) | air, macOS arm64 | `macos-ci`, `rust-shard`, `light`, `host-air` | tests: macOS Rust platform, then embeddings |
-| `ROG-windows-build` (`rog-windows-x64`) | ROG, Windows x64 | `windows-build`, `windows-x64-build`, `medium`, `host-rog` | builds: Windows x64 NSIS, arm64 handoff signing; tests: native Windows |
-| `ubunta-linux-build` (`ubunta-linux-x64`) | ubunta, Linux x64 | `linux-build`, `host-ubunta` | builds: Linux x64, dry-run manifest, release evidence promotion; tests: full Rust suite. The only runner on ubunta |
+| Repository variable | Hosted value / default | Surface |
+|---|---|---|
+| `CI_LINUX_LIGHT_RUNNER` | `"ubuntu-24.04"` | Linux checks, utility and publication jobs |
+| `CI_LINUX_ARM64_RUNNER` | `"ubuntu-24.04-arm"` | Native ARM Linux builds, precheck and image baking |
+| `CI_WINDOWS_RUNNER` | `"windows-2025"` | Native Windows tests and qualification |
+| `CI_WINDOWS_ARM64_RUNNER` | `"windows-11-arm"` | Native Windows ARM signing/smoke |
+| `CI_MACOS_RUST_RUNNER` | `"macos-15"` | Native macOS tests and artifact smoke |
+| `CI_MACOS_EMBEDDINGS_RUNNER` | `"macos-15"` | Embeddings |
+| `CI_LINUX_RUST_FULL_RUNNER` | `"ubuntu-24.04"` (also accepts `hosted`) | Linux full Rust suite |
+| `CI_RELEASE_EVIDENCE_RUNNER` | `"ubuntu-24.04"` | Promotion of retained release evidence |
+| `RELEASE_MACOS_ARM64_RUNNER` | `"macos-15"` | ARM packaging, signing/cache probes and precheck |
+| `RELEASE_MACOS_X64_RUNNER` | `"macos-15-intel"` | Intel packaging, signing/cache probes and precheck |
+| `RELEASE_LINUX_X64_RUNNER` | `"ubuntu-24.04"` | Linux x64 packaging and credential/cache probes |
+| `RELEASE_WINDOWS_X64_RUNNER` | `"windows-2025"` | Windows x64 packaging and credential/cache probes |
+| `RELEASE_WINDOWS_ARM64_COMPILE_RUNNER` | `"windows-2025"` | Windows ARM cross-compilation and credential/cache probes |
 
-Publication (manifests, notes, un-drafting, issue closure) runs on hosted `ubuntu-24.04`, so a
-lost ubunta never strands a draft. If ubunta is down during promotion, set
-`CI_RELEASE_EVIDENCE_RUNNER=hosted` and re-run the failed jobs.
+`CI_STEP_RUNNERS` is a JSON object mapping the diagnostic choices `hosted-linux`,
+`hosted-windows`, `hosted-macos` to image strings or label arrays. Its default is
+`{"hosted-linux":"ubuntu-24.04","hosted-windows":"windows-2025","hosted-macos":"macos-15"}`.
+These choice names identify the diagnostic platform; actual setup follows `runner.environment`.
 
-Arm64 compiles run on GitHub-hosted arm64 runners without signing or cache credentials; the
-self-hosted rows above sign their handoff. All self-hosted runners except `ubunta-linux-build`
-(still repository-level) belong to the organization group `domios-trusted`, visible only to
-this repository, without workflow-ref restrictions (see train step 4).
+Before integrating a routing change, have the Orchestrator set the values above (or clear them
+to use defaults). Old plain image values must become JSON strings; `RELEASE_*_LABEL` variables
+are unused. Never change repository variables as a Worker. Self-hosted examples are
+`["self-hosted","Linux","linux-build","host-ubunta"]` for Linux,
+`["self-hosted","Windows","windows-build","host-rog"]` for Windows, and
+`["self-hosted","macOS","rust-shard","host-air"]` for macOS tests. Respect current exclusions.
+Keep native ARM selectors on ARM machines; Windows ARM compile intentionally uses an x64 host.
+
+Hosted compile jobs install pinned Rust/targets, Node/pnpm and sccache as needed. Cache setup
+uses the existing public store route with repository credentials when reachable and the Actions
+cache fallback otherwise. Private runners retain their installed toolchain/cache policy. Hosted
+macOS imports `APPLE_*` secrets into the existing temporary keychain and cleans it in `always()`;
+Windows retains the updater minisign key. The protected release environment remains required.
+
+Precheck runs Linux ARM/x64 and macOS ARM/x64 in native matrix jobs; it needs no Docker on a Mac.
+Image baking uses native Linux ARM/x64 jobs and verifies each resulting Docker image in that job.
+Hosted image layers are ephemeral; precheck does not depend on a previous baking run.
+
+After real-merging the reviewed commit, dispatch `release-credentials.yml` from that exact
+release branch with `notary_probe=true` and empty `macos_label`. Verify all configured Mac,
+Windows, Linux and shared-cache matrix jobs finish on the intended runners, including the Intel
+Mac notarization probe. For a single Mac diagnostic, `macos_label=macos-15` or
+`macos_label=macos-15-intel` selects that hosted image; another label explicitly selects a
+self-hosted Mac. A successful dispatch is not a probe pass: read the completed jobs and logs.
+Then use the 1.19.1 release PR CI to prove hosted packaging, notarization, updater signatures
+and retained artifact readback. Local lint cannot establish these platform results.
 
 A persistent self-hosted runner accumulates job PATH entries in its `.path` file. On Windows an
 oversized `.path` truncates PATH and Bash loses tools such as pnpm; keep it to the base toolchain
@@ -459,8 +507,6 @@ Every release-branch push restarts the full graph, so a fix must not introduce t
   from the real path (`realpathSync.native`).
 - Tauri leaves its AppImage `*.AppDir` staging tree, which contains links, under the bundle
   directory; handoffs carry only finished `.deb`, `.AppImage` and `-setup.exe` packages.
-- Repository policy (pinned by `ci-runner-routing.test.mjs`) refuses writable token permissions on
-  any job variant that can route to a hosted runner; keep such jobs read-only.
 
 ## Publication, notes and issue closure
 
@@ -534,4 +580,4 @@ never sweep caches or delete worktrees merely because the release ended.
 Implementation entry points: [release stage](../../../scripts/release-stage.mjs),
 [macOS x64 helper](../../../scripts/release-macos-x86_64.sh).
 
-<!-- revision: 21 -->
+<!-- revision: 23 -->

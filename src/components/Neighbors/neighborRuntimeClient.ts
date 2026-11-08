@@ -3,7 +3,8 @@ import { localFetch } from "../../lib/webApi";
 
 export type NeighborDeliveryStatus = "pending" | "delivered" | "not_delivered";
 export type NeighborListenerState = "connecting" | "receiving" | "reconnecting" | "stopped";
-export interface ReceiverState { receiving_here: boolean; receiver_machine_label: string | null; receiving_enabled: boolean; revision: number; is_me?: boolean }
+/** `not_receiving_reason` names why the chosen machine receives nothing now; its label then names that machine, never a receiver. */
+export interface ReceiverState { receiving_here: boolean; receiver_machine_label: string | null; receiving_enabled: boolean; revision: number; is_me?: boolean; not_receiving_reason?: "membership_expired" }
 export type NeighborListenerEvent = { friendship_id: string; status: NeighborListenerState } | (ReceiverState & { friendship_id?: string; friend_receivers_version?: number }) | { receiver_unavailable: true; friendship_id?: string; friend_receivers_version?: number };
 export type DeliveryRefusal = "receiver_moved" | "key_revoked" | "neighbor_daily_limit" | "rate_limited" | "aggregate_limited" | "aggregate_daily_limited" | "friends_locked" | "recipient_locked" | "recipient_not_receiving" | "recipient_paused";
 const DELIVERY_REFUSALS: readonly string[] = ["receiver_moved", "key_revoked", "neighbor_daily_limit", "rate_limited", "aggregate_limited", "aggregate_daily_limited", "friends_locked", "recipient_locked", "recipient_not_receiving", "recipient_paused"];
@@ -126,7 +127,8 @@ export function receiverState(value: unknown): value is ReceiverState {
   return record(value) && typeof value.receiving_here === "boolean" && typeof value.receiving_enabled === "boolean"
     && (value.receiver_machine_label === null || typeof value.receiver_machine_label === "string")
     && typeof value.revision === "number" && Number.isSafeInteger(value.revision) && value.revision >= 0
-    && (value.is_me === undefined || typeof value.is_me === "boolean");
+    && (value.is_me === undefined || typeof value.is_me === "boolean")
+    && (value.not_receiving_reason === undefined || value.not_receiving_reason === "membership_expired");
 }
 
 export const neighborRuntimeClient: NeighborRuntimeClient = {

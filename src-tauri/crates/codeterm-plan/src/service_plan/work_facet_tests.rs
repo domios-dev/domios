@@ -19,6 +19,7 @@ fn new_task(tags: &[&str]) -> NewTask {
         name: "Drafted task".into(),
         kind: "planning".into(),
         tags: tags.iter().map(|tag| (*tag).into()).collect(),
+        personality: Some("Ada".into()),
         ..Default::default()
     }
 }

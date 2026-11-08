@@ -7,6 +7,9 @@ use parking_lot::Mutex;
 use serde::Serialize;
 use std::{collections::HashMap, sync::LazyLock};
 
+mod tab_usage;
+pub use tab_usage::{for_tab, read_for_tab};
+
 #[derive(Clone, Serialize)]
 struct Reading<T> {
     captured_at: u64,
@@ -36,15 +39,30 @@ static USAGE: LazyLock<Mutex<HashMap<String, UsageProjection>>> =
 
 pub fn controls(svc: &ServiceContext, session: &Session, settings: RuntimeSettings) {
     let context = session.context.lock().clone();
+    if settings.model.is_some() && settings.model != context.settings.model {
+        session.state.lock().notice = None;
+    }
     svc.record_runtime_controls(&session.provider, &context, &settings);
     *session.controls_confirmation.lock() = Some(settings.clone());
     let settings = merge_settings(&context.settings, settings);
+    super::full_access::observe_confirmed(session, &settings);
     session.context.lock().settings = settings;
     session.control_changes.send_replace(());
+    super::engine::publish_controls(svc, &context.tab_id, session);
 }
 
 fn merge_settings(previous: &RuntimeSettings, confirmed: RuntimeSettings) -> RuntimeSettings {
-    RuntimeSettings {
+    let session_mode = confirmed
+        .config_options
+        .is_none()
+        .then(|| confirmed.mode.clone())
+        .flatten();
+    let mut merged = RuntimeSettings {
+        commands: confirmed.commands.or_else(|| previous.commands.clone()),
+        config_options: confirmed
+            .config_options
+            .or_else(|| previous.config_options.clone()),
+        modes: confirmed.modes.or_else(|| previous.modes.clone()),
         service_tier: confirmed
             .service_tier
             .or_else(|| previous.service_tier.clone()),
@@ -55,7 +73,12 @@ fn merge_settings(previous: &RuntimeSettings, confirmed: RuntimeSettings) -> Run
         effort: confirmed.effort.or_else(|| previous.effort.clone()),
         mode: confirmed.mode.or_else(|| previous.mode.clone()),
         ..previous.clone()
+    };
+    match session_mode {
+        Some(mode) => merged.follow_session_mode(mode),
+        None => merged.settle_mode(),
     }
+    merged
 }
 
 fn projection<'a>(
@@ -132,7 +155,47 @@ pub fn billing(
     svc.notify_event("usage-snapshot-updated", serde_json::json!({"provider":session.provider,"account_id":null,"tab_id":context.tab_id,"captured_at":at}));
 }
 
+pub fn context(
+    svc: &ServiceContext,
+    session: &Session,
+    used_tokens: u64,
+    window_tokens: u64,
+    cost_micros: Option<u64>,
+) {
+    if !publishes_usage(svc, session) || session.adapter.lock().is_none() {
+        return;
+    }
+    let context = {
+        let current = session.context.lock();
+        RuntimeContext {
+            tab_id: current.tab_id.clone(),
+            binding_nonce: current.binding_nonce.clone(),
+            thread_id: current.thread_id.clone(),
+            cwd: current.cwd.clone(),
+            epoch: current.epoch,
+            ..Default::default()
+        }
+    };
+    if session.state.lock().epoch != context.epoch {
+        return;
+    }
+    crate::service::context_feed::apply_runtime(
+        svc,
+        &session.provider,
+        &context,
+        codeterm_types::agent::context::TurnContext {
+            used_tokens,
+            window_tokens,
+            cost_usd: cost_micros.map(|cost| cost as f64 / 1_000_000.0),
+            source: "agent-runtime".into(),
+        },
+    );
+}
+
 pub fn usage(svc: &ServiceContext, session: &Session, usage: TokenUsage, at: u64) {
+    if let (Some(used), Some(window)) = (usage.used_tokens, usage.window_tokens) {
+        context(svc, session, used, window, usage.cost_micros);
+    }
     if !publishes_usage(svc, session) {
         return;
     }
@@ -233,13 +296,30 @@ pub fn latest(
     provider: &str,
     account: Option<&str>,
 ) -> Result<serde_json::Value, String> {
+    // A plugin-read balance has no earlier meter to fall back on, so its failure is the row.
+    if account
+        .and_then(codeterm_plugin::agent_runtime::limits_source::profile_from_balance_account_key)
+        .is_some()
+    {
+        let row = svc.usage_store.get_latest_or_failure(provider, account)?;
+        return serde_json::to_value(row).map_err(|error| error.to_string());
+    }
     let row = svc
         .usage_store
         .get_latest_with_stale_reason(provider, account)?;
-    let result = serde_json::to_value(row).map_err(|error| error.to_string())?;
     if account.is_some() {
-        return Ok(result);
+        return serde_json::to_value(row).map_err(|error| error.to_string());
     }
+    // A profile's plugin-read balance is its own reading, never the provider's account meter.
+    let row = row.filter(|row| {
+        row.account_id
+            .as_deref()
+            .and_then(
+                codeterm_plugin::agent_runtime::limits_source::profile_from_balance_account_key,
+            )
+            .is_none()
+    });
+    let result = serde_json::to_value(row).map_err(|error| error.to_string())?;
     let mux = svc.mux.read();
     let mut readings = USAGE.lock();
     readings.retain(|tab, _| mux.get_tab(tab).is_some());
@@ -269,39 +349,6 @@ pub fn latest(
     enrich_latest(result, provider, current)
 }
 
-pub fn for_tab(svc: &ServiceContext, tab_id: &str) -> Result<serde_json::Value, String> {
-    let (provider, thread_id, nonce) = {
-        let mux = svc.mux.read();
-        let tab = mux.get_tab(tab_id).ok_or("Tab not found")?;
-        let provider = tab.agent_type.clone().ok_or("Tab has no provider")?;
-        let nonce = tab
-            .session_binding_nonce
-            .clone()
-            .filter(|value| tab.reported_session_binding_nonce.as_ref() == Some(value))
-            .ok_or("Tab runtime binding is not authoritative")?;
-        (provider, tab.agent_session_id.clone(), nonce)
-    };
-    let mut result = latest(svc, &provider, None)?;
-    let readings = USAGE.lock();
-    let reading = readings.get(tab_id).filter(|reading| {
-        reading.provider == provider
-            && reading.nonce == nonce
-            && (reading.thread_id == thread_id || reading.thread_id.is_none())
-    });
-    if let Some(reading) = reading {
-        result["runtime_usage"] = serde_json::json!([reading]);
-    } else if let Some(rows) = result
-        .get_mut("runtime_usage")
-        .and_then(|rows| rows.as_array_mut())
-    {
-        rows.retain(|row| row.get("tab_id").and_then(|value| value.as_str()) == Some(tab_id));
-    }
-    if result.is_null() {
-        result = serde_json::json!({"provider":provider,"limits_reported":false});
-    }
-    Ok(result)
-}
-
 fn enrich_latest(
     mut result: serde_json::Value,
     provider: &str,
@@ -318,165 +365,4 @@ fn enrich_latest(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn window(name: &str, used: f64, minutes: u64) -> RuntimeRateLimit {
-        RuntimeRateLimit {
-            window: name.into(),
-            used_percent: used,
-            resets_at: Some(9000),
-            window_minutes: Some(minutes),
-        }
-    }
-
-    #[test]
-    fn all_windows_contribute_to_dispatch_headroom_at_host_receipt_time() {
-        let windows = vec![
-            window("short", 8.0, 300),
-            window("long", 20.0, 10080),
-            window("other", 97.0, 60),
-        ];
-        let sample = rate_sample("fixture", &windows, 1234);
-        let dir = tempfile::tempdir().unwrap();
-        let store = crate::usage::UsageStore::open(dir.path()).unwrap();
-        store.insert_runtime_snapshot(&sample).unwrap();
-        let row = store.get_latest("fixture", None).unwrap().unwrap();
-        assert_eq!(row.captured_at, 1234);
-        assert_eq!(crate::usage::allowance_remaining_pct(&row), 3.0);
-        assert_eq!(row.session_resets_at, Some(9000));
-        assert!(row.spend_cents.is_none());
-    }
-
-    #[test]
-    fn empty_rates_report_no_limits_or_tokens() {
-        let sample = rate_sample("fixture", &[], 10);
-        assert!(!sample.limits_reported);
-        assert_eq!(sample.session_pct, None);
-        assert_eq!(sample.weekly_pct, None);
-    }
-    #[test]
-    fn ordinary_two_windows_keep_the_existing_session_and_weekly_meaning() {
-        let sample = rate_sample(
-            "fixture",
-            &[window("short", 10.0, 300), window("long", 80.0, 10080)],
-            100,
-        );
-        assert_eq!(sample.session_pct, Some(10.0));
-        assert_eq!(sample.weekly_pct, Some(80.0));
-    }
-
-    #[test]
-    fn token_only_reading_is_visible_without_fabricating_allowance() {
-        let reading = UsageProjection {
-            tab_id: "own".into(),
-            thread_id: Some("thread".into()),
-            provider: "fixture".into(),
-            nonce: "nonce".into(),
-            epoch: 1,
-            billing_mode: codeterm_usage::contract::BillingMode::Api,
-            captured_at: 10,
-            token_usage: Some(Reading {
-                captured_at: 10,
-                value: TokenUsage {
-                    cost_micros: None,
-                    input_tokens: 12,
-                    output_tokens: 3,
-                    cache_read_tokens: Some(4),
-                    cache_write_tokens: None,
-                    used_tokens: Some(15),
-                    window_tokens: Some(100),
-                },
-            }),
-            rate_limits: None,
-            resets: None,
-            account_credits: None,
-        };
-        let wire = enrich_latest(serde_json::Value::Null, "fixture", vec![reading]).unwrap();
-        assert_eq!(
-            wire["runtime_usage"][0]["token_usage"]["value"]["input_tokens"],
-            12
-        );
-        assert_eq!(wire["runtime_usage"][0]["token_usage"]["captured_at"], 10);
-        assert!(wire.get("session_pct").is_none());
-        assert_eq!(wire["limits_reported"], false);
-        assert!(wire["runtime_usage"][0].get("nonce").is_none());
-        assert!(enrich_latest(serde_json::Value::Null, "fixture", vec![])
-            .unwrap()
-            .is_null());
-    }
-    #[test]
-    fn runtime_usage_binding_changes_clear_tokens_but_keep_account_limits() {
-        let mut readings = HashMap::new();
-        let mut context: RuntimeContext = serde_json::from_value(serde_json::json!({
-            "epoch":1,"tabId":"own","cwd":"/fixture","hostVersion":"1",
-            "bindingNonce":"nonce","settings":{},"providerSettings":{},
-            "activeTurns":[],"threadParents":[],"claimedSends":[]
-        }))
-        .unwrap();
-        let first = projection(&mut readings, "fixture", &context);
-        first.billing_mode = codeterm_usage::contract::BillingMode::Subscription;
-        first.rate_limits = Some(Reading {
-            captured_at: 10,
-            value: vec![window("primary", 20.0, 300)],
-        });
-        first.resets = Some(codeterm_plugin::agent_runtime::ResetCredits {
-            available_count: 3,
-            next_expiry: None,
-            credits: None,
-        });
-        first.account_credits = Some(RuntimeAccountCredits::Balance {
-            balance: "12.50".into(),
-        });
-        context.thread_id = Some("thread".into());
-        let loaded = projection(&mut readings, "fixture", &context);
-        assert_eq!(
-            loaded.billing_mode,
-            codeterm_usage::contract::BillingMode::Subscription
-        );
-        assert_eq!(
-            loaded.rate_limits.as_ref().unwrap().value[0].used_percent,
-            20.0
-        );
-        assert_eq!(loaded.resets.as_ref().unwrap().available_count, 3);
-        assert_eq!(
-            loaded.account_credits,
-            Some(RuntimeAccountCredits::Balance {
-                balance: "12.50".into()
-            })
-        );
-        context.binding_nonce = "new".into();
-        let rebound = projection(&mut readings, "fixture", &context);
-        assert_eq!(
-            rebound.billing_mode,
-            codeterm_usage::contract::BillingMode::Unknown
-        );
-        assert!(rebound.resets.is_none());
-        assert!(rebound.account_credits.is_none());
-        assert!(rebound.rate_limits.is_none());
-        assert!(rebound.token_usage.is_none());
-    }
-
-    #[test]
-    fn partial_confirmation_preserves_other_runtime_controls() {
-        let prior = RuntimeSettings {
-            model: Some("old".into()),
-            effort: Some("high".into()),
-            mode: Some("mode".into()),
-            ..Default::default()
-        };
-        assert_eq!(
-            merge_settings(
-                &prior,
-                RuntimeSettings {
-                    model: Some("new".into()),
-                    ..Default::default()
-                }
-            ),
-            RuntimeSettings {
-                model: Some("new".into()),
-                ..prior
-            }
-        );
-    }
-}
+mod tests;

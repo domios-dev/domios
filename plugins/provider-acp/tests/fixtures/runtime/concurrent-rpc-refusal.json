@@ -1,0 +1,937 @@
+{
+  "schemaVersion": 1,
+  "context": {
+    "epoch": 1,
+    "cwd": "/work/project",
+    "hostVersion": "1.19.0",
+    "tabId": "concurrent-rpc-refusal",
+    "bindingNonce": "nonce-fixture",
+    "settings": {},
+    "providerSettings": {},
+    "claimedSends": [],
+    "activeTurns": [],
+    "threadParents": []
+  },
+  "operations": [
+    {
+      "operation": {
+        "kind": "initialize"
+      }
+    },
+    {
+      "operation": {
+        "kind": "openThread",
+        "instructions": "",
+        "settings": {}
+      }
+    },
+    {
+      "operation": {
+        "kind": "submitTurn",
+        "threadId": "session-fixture",
+        "sendId": "A",
+        "input": {
+          "text": "Print 20 numbered lines, each containing only the word graph, then A_DONE. No tools.",
+          "attachments": []
+        },
+        "settings": {}
+      },
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/project",
+        "hostVersion": "1.19.0",
+        "tabId": "concurrent-rpc-refusal",
+        "bindingNonce": "nonce-fixture",
+        "settings": {},
+        "providerSettings": {},
+        "claimedSends": [
+          {
+            "sendId": "A",
+            "threadId": "session-fixture",
+            "input": {
+              "text": "Print 20 numbered lines, each containing only the word graph, then A_DONE. No tools.",
+              "attachments": []
+            }
+          }
+        ],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "session-fixture"
+      }
+    },
+    {
+      "operation": {
+        "kind": "submitTurn",
+        "threadId": "session-fixture",
+        "sendId": "B",
+        "input": {
+          "text": "Reply only B_DONE. No tools.",
+          "attachments": []
+        },
+        "settings": {},
+        "activeTurnId": "session-fixture:turn:1"
+      },
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/project",
+        "hostVersion": "1.19.0",
+        "tabId": "concurrent-rpc-refusal",
+        "bindingNonce": "nonce-fixture",
+        "settings": {},
+        "providerSettings": {},
+        "claimedSends": [
+          {
+            "sendId": "B",
+            "threadId": "session-fixture",
+            "input": {
+              "text": "Reply only B_DONE. No tools.",
+              "attachments": []
+            }
+          }
+        ],
+        "activeTurns": [
+          {
+            "threadId": "session-fixture",
+            "turnId": "session-fixture:turn:1"
+          }
+        ],
+        "threadParents": [],
+        "threadId": "session-fixture",
+        "activeTurnId": "session-fixture:turn:1"
+      }
+    },
+    {
+      "operation": {
+        "kind": "submitTurn",
+        "threadId": "session-fixture",
+        "sendId": "C",
+        "input": {
+          "text": "Use your write tool once to create probe-marker.txt in the current directory containing exactly PROBE7_MARKER and a newline. Then reply only NEXT_TOOL_DONE.",
+          "attachments": []
+        },
+        "settings": {}
+      },
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/project",
+        "hostVersion": "1.19.0",
+        "tabId": "concurrent-rpc-refusal",
+        "bindingNonce": "nonce-fixture",
+        "settings": {},
+        "providerSettings": {},
+        "claimedSends": [
+          {
+            "sendId": "C",
+            "threadId": "session-fixture",
+            "input": {
+              "text": "Use your write tool once to create probe-marker.txt in the current directory containing exactly PROBE7_MARKER and a newline. Then reply only NEXT_TOOL_DONE.",
+              "attachments": []
+            }
+          }
+        ],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "session-fixture"
+      }
+    }
+  ],
+  "rpc": [
+    {
+      "direction": "outbound",
+      "operation": 0,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "initialize",
+          "params": {
+            "protocolVersion": 1,
+            "clientCapabilities": {
+              "fs": {
+                "readTextFile": false,
+                "writeTextFile": false
+              },
+              "terminal": false
+            },
+            "clientInfo": {
+              "name": "domios",
+              "title": "Domios",
+              "version": "1.19.0"
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 0,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "protocolVersion": 1,
+          "agentInfo": {
+            "name": "deepseek-harness-acp",
+            "version": "0.0.1"
+          },
+          "agentCapabilities": {
+            "mcpCapabilities": {
+              "http": true
+            },
+            "promptCapabilities": {
+              "image": false,
+              "audio": false,
+              "embeddedContext": false
+            },
+            "sessionCapabilities": {
+              "close": {},
+              "list": {},
+              "resume": {}
+            }
+          },
+          "authMethods": []
+        }
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 1,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "session/new",
+          "params": {
+            "cwd": "/work/project",
+            "mcpServers": []
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 1,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "sessionId": "session-fixture",
+          "configOptions": [
+            {
+              "id": "model",
+              "name": "Model",
+              "category": "model",
+              "type": "select",
+              "currentValue": "[\"deepseek-official\",\"deepseek-v4-flash\"]",
+              "options": [
+                {
+                  "group": "deepseek-official",
+                  "name": "DeepSeek",
+                  "options": [
+                    {
+                      "value": "[\"deepseek-official\",\"deepseek-v4-flash\"]",
+                      "name": "deepseek-v4-flash"
+                    },
+                    {
+                      "value": "[\"deepseek-official\",\"deepseek-flash\"]",
+                      "name": "DeepSeek-V4.1-Flash"
+                    },
+                    {
+                      "value": "[\"deepseek-official\",\"deepseek-v4-pro\"]",
+                      "name": "DeepSeek-V4-Pro",
+                      "description": "Stronger agentic coding, knowledge, and difficult reasoning; suited to complex or quality-critical tasks at higher cost."
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "reasoning_effort",
+              "name": "Reasoning effort",
+              "category": "thought_level",
+              "type": "select",
+              "currentValue": "high",
+              "options": [
+                {
+                  "value": "off",
+                  "name": "Off",
+                  "description": "Use for simple tasks that do not need reasoning."
+                },
+                {
+                  "value": "low",
+                  "name": "Low",
+                  "description": "Prefer for routine or latency-sensitive tasks."
+                },
+                {
+                  "value": "high",
+                  "name": "High",
+                  "description": "The default balance for most tasks."
+                },
+                {
+                  "value": "max",
+                  "name": "Max",
+                  "description": "Reserve for the hardest quality-first tasks."
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 2,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "session/prompt",
+          "params": {
+            "sessionId": "session-fixture",
+            "prompt": [
+              {
+                "type": "text",
+                "text": "Print 20 numbered lines, each containing only the word graph, then A_DONE. No tools."
+              }
+            ]
+          },
+          "target": {
+            "threadId": "session-fixture",
+            "turnId": "session-fixture:turn:1"
+          }
+        }
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 3,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "session/prompt",
+          "params": {
+            "sessionId": "session-fixture",
+            "prompt": [
+              {
+                "type": "text",
+                "text": "Reply only B_DONE. No tools."
+              }
+            ]
+          },
+          "target": {
+            "threadId": "session-fixture",
+            "turnId": "session-fixture:turn:2"
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 3,
+      "reply": {
+        "kind": "error",
+        "error": {
+          "code": -32602,
+          "message": "Invalid params: a prompt is already in flight for this session"
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/project",
+        "hostVersion": "1.19.0",
+        "tabId": "concurrent-rpc-refusal",
+        "bindingNonce": "nonce-fixture",
+        "settings": {},
+        "providerSettings": {},
+        "claimedSends": [
+          {
+            "sendId": "A",
+            "threadId": "session-fixture",
+            "input": {
+              "text": "Print 20 numbered lines, each containing only the word graph, then A_DONE. No tools.",
+              "attachments": []
+            }
+          }
+        ],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "session-fixture"
+      },
+      "frame": {
+        "kind": "notification",
+        "method": "session/update",
+        "params": {
+          "sessionId": "session-fixture",
+          "update": {
+            "sessionUpdate": "agent_message_chunk",
+            "messageId": "9eb99e6d-7abf-4c1e-89ff-23a9319d4a9a",
+            "content": {
+              "type": "text",
+              "text": "1. graph\n2. graph\n3. graph\n4. graph\n5. graph\n6. graph\n7. graph\n8. graph\n9. graph\n10. graph\n11. graph\n12. graph\n13. graph\n14. graph\n15. graph\n16. graph\n17. graph\n18. graph\n19. graph\n20. graph\n\nA_DONE"
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/project",
+        "hostVersion": "1.19.0",
+        "tabId": "concurrent-rpc-refusal",
+        "bindingNonce": "nonce-fixture",
+        "settings": {},
+        "providerSettings": {},
+        "claimedSends": [
+          {
+            "sendId": "A",
+            "threadId": "session-fixture",
+            "input": {
+              "text": "Print 20 numbered lines, each containing only the word graph, then A_DONE. No tools.",
+              "attachments": []
+            }
+          }
+        ],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "session-fixture"
+      },
+      "frame": {
+        "kind": "notification",
+        "method": "session/update",
+        "params": {
+          "sessionId": "session-fixture",
+          "update": {
+            "sessionUpdate": "usage_update",
+            "used": 6230,
+            "size": 1000000
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 2,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "stopReason": "end_turn"
+        }
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 4,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "session/prompt",
+          "params": {
+            "sessionId": "session-fixture",
+            "prompt": [
+              {
+                "type": "text",
+                "text": "Use your write tool once to create probe-marker.txt in the current directory containing exactly PROBE7_MARKER and a newline. Then reply only NEXT_TOOL_DONE."
+              }
+            ]
+          },
+          "target": {
+            "threadId": "session-fixture",
+            "turnId": "session-fixture:turn:3"
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/project",
+        "hostVersion": "1.19.0",
+        "tabId": "concurrent-rpc-refusal",
+        "bindingNonce": "nonce-fixture",
+        "settings": {},
+        "providerSettings": {},
+        "claimedSends": [
+          {
+            "sendId": "C",
+            "threadId": "session-fixture",
+            "input": {
+              "text": "Use your write tool once to create probe-marker.txt in the current directory containing exactly PROBE7_MARKER and a newline. Then reply only NEXT_TOOL_DONE.",
+              "attachments": []
+            }
+          }
+        ],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "session-fixture"
+      },
+      "frame": {
+        "kind": "notification",
+        "method": "session/update",
+        "params": {
+          "sessionId": "session-fixture",
+          "update": {
+            "sessionUpdate": "usage_update",
+            "used": 6321,
+            "size": 1000000
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/project",
+        "hostVersion": "1.19.0",
+        "tabId": "concurrent-rpc-refusal",
+        "bindingNonce": "nonce-fixture",
+        "settings": {},
+        "providerSettings": {},
+        "claimedSends": [
+          {
+            "sendId": "C",
+            "threadId": "session-fixture",
+            "input": {
+              "text": "Use your write tool once to create probe-marker.txt in the current directory containing exactly PROBE7_MARKER and a newline. Then reply only NEXT_TOOL_DONE.",
+              "attachments": []
+            }
+          }
+        ],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "session-fixture"
+      },
+      "frame": {
+        "kind": "notification",
+        "method": "session/update",
+        "params": {
+          "sessionId": "session-fixture",
+          "update": {
+            "sessionUpdate": "tool_call",
+            "toolCallId": "call_00_7HX7JuFIbKjahcigcBAA7511",
+            "title": "write",
+            "kind": "other",
+            "status": "in_progress",
+            "rawInput": {
+              "file_path": "/work/project/probe-marker.txt",
+              "content": "PROBE7_MARKER\n"
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/project",
+        "hostVersion": "1.19.0",
+        "tabId": "concurrent-rpc-refusal",
+        "bindingNonce": "nonce-fixture",
+        "settings": {},
+        "providerSettings": {},
+        "claimedSends": [
+          {
+            "sendId": "C",
+            "threadId": "session-fixture",
+            "input": {
+              "text": "Use your write tool once to create probe-marker.txt in the current directory containing exactly PROBE7_MARKER and a newline. Then reply only NEXT_TOOL_DONE.",
+              "attachments": []
+            }
+          }
+        ],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "session-fixture"
+      },
+      "frame": {
+        "kind": "notification",
+        "method": "session/update",
+        "params": {
+          "sessionId": "session-fixture",
+          "update": {
+            "sessionUpdate": "tool_call_update",
+            "toolCallId": "call_00_7HX7JuFIbKjahcigcBAA7511",
+            "status": "completed",
+            "content": [
+              {
+                "type": "content",
+                "content": {
+                  "type": "text",
+                  "text": "<path>/work/project/probe-marker.txt</path>\n<type>file</type>\n<content>\nCreated file\n</content>"
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/project",
+        "hostVersion": "1.19.0",
+        "tabId": "concurrent-rpc-refusal",
+        "bindingNonce": "nonce-fixture",
+        "settings": {},
+        "providerSettings": {},
+        "claimedSends": [
+          {
+            "sendId": "C",
+            "threadId": "session-fixture",
+            "input": {
+              "text": "Use your write tool once to create probe-marker.txt in the current directory containing exactly PROBE7_MARKER and a newline. Then reply only NEXT_TOOL_DONE.",
+              "attachments": []
+            }
+          }
+        ],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "session-fixture"
+      },
+      "frame": {
+        "kind": "notification",
+        "method": "session/update",
+        "params": {
+          "sessionId": "session-fixture",
+          "update": {
+            "sessionUpdate": "agent_message_chunk",
+            "messageId": "a9971b03-1701-4712-a836-25e7be426b1d",
+            "content": {
+              "type": "text",
+              "text": "NEXT_TOOL_DONE"
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/project",
+        "hostVersion": "1.19.0",
+        "tabId": "concurrent-rpc-refusal",
+        "bindingNonce": "nonce-fixture",
+        "settings": {},
+        "providerSettings": {},
+        "claimedSends": [
+          {
+            "sendId": "C",
+            "threadId": "session-fixture",
+            "input": {
+              "text": "Use your write tool once to create probe-marker.txt in the current directory containing exactly PROBE7_MARKER and a newline. Then reply only NEXT_TOOL_DONE.",
+              "attachments": []
+            }
+          }
+        ],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "session-fixture"
+      },
+      "frame": {
+        "kind": "notification",
+        "method": "session/update",
+        "params": {
+          "sessionId": "session-fixture",
+          "update": {
+            "sessionUpdate": "usage_update",
+            "used": 6380,
+            "size": 1000000
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 4,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "stopReason": "end_turn"
+        }
+      }
+    }
+  ],
+  "expected": {
+    "results": [
+      {
+        "operation": 0,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "initialized",
+            "agentName": "deepseek-harness-acp",
+            "binaryVersion": "0.0.1"
+          },
+          "events": [
+            {
+              "kind": "authentication",
+              "authentication": {
+                "state": "unknown",
+                "methods": []
+              }
+            }
+          ]
+        }
+      },
+      {
+        "operation": 1,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "threadLoaded",
+            "threadId": "session-fixture",
+            "settings": {
+              "commands": [],
+              "configOptions": [
+                {
+                  "id": "model",
+                  "name": "Model",
+                  "currentValue": "[\"deepseek-official\",\"deepseek-v4-flash\"]",
+                  "options": [
+                    {
+                      "value": "[\"deepseek-official\",\"deepseek-v4-flash\"]",
+                      "name": "deepseek-v4-flash"
+                    },
+                    {
+                      "value": "[\"deepseek-official\",\"deepseek-flash\"]",
+                      "name": "DeepSeek-V4.1-Flash"
+                    },
+                    {
+                      "value": "[\"deepseek-official\",\"deepseek-v4-pro\"]",
+                      "name": "DeepSeek-V4-Pro"
+                    }
+                  ],
+                  "category": "model"
+                },
+                {
+                  "id": "reasoning_effort",
+                  "name": "Reasoning effort",
+                  "currentValue": "high",
+                  "options": [
+                    {
+                      "value": "off",
+                      "name": "Off"
+                    },
+                    {
+                      "value": "low",
+                      "name": "Low"
+                    },
+                    {
+                      "value": "high",
+                      "name": "High"
+                    },
+                    {
+                      "value": "max",
+                      "name": "Max"
+                    }
+                  ],
+                  "category": "thought_level"
+                }
+              ],
+              "modes": [],
+              "model": "[\"deepseek-official\",\"deepseek-v4-flash\"]",
+              "effort": "high"
+            }
+          }
+        }
+      },
+      {
+        "operation": 3,
+        "step": {
+          "kind": "refused",
+          "reason": {
+            "code": "provider_refused",
+            "message": "Invalid params: a prompt is already in flight for this session"
+          },
+          "beforeAcceptance": true
+        }
+      },
+      {
+        "operation": 2,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "turnAccepted",
+            "threadId": "session-fixture",
+            "sendId": "A",
+            "turnId": "session-fixture:turn:1"
+          },
+          "events": [
+            {
+              "kind": "turnState",
+              "threadId": "session-fixture",
+              "turnId": "session-fixture:turn:1",
+              "state": "idle"
+            }
+          ]
+        }
+      },
+      {
+        "operation": 4,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "turnAccepted",
+            "threadId": "session-fixture",
+            "sendId": "C",
+            "turnId": "session-fixture:turn:3"
+          },
+          "events": [
+            {
+              "kind": "turnState",
+              "threadId": "session-fixture",
+              "turnId": "session-fixture:turn:3",
+              "state": "idle"
+            }
+          ]
+        }
+      }
+    ],
+    "events": [
+      {
+        "kind": "authentication",
+        "authentication": {
+          "state": "unknown",
+          "methods": []
+        }
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "session-fixture",
+        "item": {
+          "id": "session-fixture:turn:1:item:1",
+          "seq": 1,
+          "type": "user",
+          "content": "Print 20 numbered lines, each containing only the word graph, then A_DONE. No tools."
+        }
+      },
+      {
+        "kind": "turnState",
+        "threadId": "session-fixture",
+        "turnId": "session-fixture:turn:1",
+        "state": "working"
+      },
+      {
+        "kind": "sendEvidence",
+        "threadId": "session-fixture",
+        "sendId": "A",
+        "turnId": "session-fixture:turn:1",
+        "itemId": "session-fixture:turn:1:item:1"
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "session-fixture",
+        "item": {
+          "id": "session-fixture:turn:1:message:agent_message_chunk:9eb99e6d-7abf-4c1e-89ff-23a9319d4a9a",
+          "seq": 2,
+          "type": "assistant",
+          "content": "1. graph\n2. graph\n3. graph\n4. graph\n5. graph\n6. graph\n7. graph\n8. graph\n9. graph\n10. graph\n11. graph\n12. graph\n13. graph\n14. graph\n15. graph\n16. graph\n17. graph\n18. graph\n19. graph\n20. graph\n\nA_DONE"
+        }
+      },
+      {
+        "kind": "context",
+        "threadId": "session-fixture",
+        "used_tokens": 6230,
+        "window_tokens": 1000000
+      },
+      {
+        "kind": "turnState",
+        "threadId": "session-fixture",
+        "turnId": "session-fixture:turn:1",
+        "state": "idle"
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "session-fixture",
+        "item": {
+          "id": "session-fixture:turn:3:item:1",
+          "seq": 3,
+          "type": "user",
+          "content": "Use your write tool once to create probe-marker.txt in the current directory containing exactly PROBE7_MARKER and a newline. Then reply only NEXT_TOOL_DONE."
+        }
+      },
+      {
+        "kind": "turnState",
+        "threadId": "session-fixture",
+        "turnId": "session-fixture:turn:3",
+        "state": "working"
+      },
+      {
+        "kind": "sendEvidence",
+        "threadId": "session-fixture",
+        "sendId": "C",
+        "turnId": "session-fixture:turn:3",
+        "itemId": "session-fixture:turn:3:item:1"
+      },
+      {
+        "kind": "context",
+        "threadId": "session-fixture",
+        "used_tokens": 6321,
+        "window_tokens": 1000000
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "session-fixture",
+        "item": {
+          "id": "call_00_7HX7JuFIbKjahcigcBAA7511",
+          "seq": 4,
+          "type": "tool_call",
+          "content": "",
+          "toolId": "call_00_7HX7JuFIbKjahcigcBAA7511",
+          "collapsed": true,
+          "toolTitle": "write",
+          "toolName": "write",
+          "toolKind": "generic",
+          "toolInput": {
+            "file_path": "/work/project/probe-marker.txt",
+            "content": "PROBE7_MARKER\n"
+          },
+          "toolArgs": "{\"content\":\"PROBE7_MARKER\\n\",\"file_path\":\"/work/project/probe-marker.txt\"}",
+          "toolStatus": "running",
+          "toolError": false
+        }
+      },
+      {
+        "kind": "chatItemPatch",
+        "threadId": "session-fixture",
+        "item": {
+          "id": "call_00_7HX7JuFIbKjahcigcBAA7511",
+          "seq": 4,
+          "type": "tool_call",
+          "content": "",
+          "toolId": "call_00_7HX7JuFIbKjahcigcBAA7511",
+          "toolStatus": "completed",
+          "collapsed": true,
+          "toolError": false,
+          "toolResult": "<path>/work/project/probe-marker.txt</path>\n<type>file</type>\n<content>\nCreated file\n</content>"
+        }
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "session-fixture",
+        "item": {
+          "id": "session-fixture:turn:3:message:agent_message_chunk:a9971b03-1701-4712-a836-25e7be426b1d",
+          "seq": 5,
+          "type": "assistant",
+          "content": "NEXT_TOOL_DONE"
+        }
+      },
+      {
+        "kind": "context",
+        "threadId": "session-fixture",
+        "used_tokens": 6380,
+        "window_tokens": 1000000
+      },
+      {
+        "kind": "turnState",
+        "threadId": "session-fixture",
+        "turnId": "session-fixture:turn:3",
+        "state": "idle"
+      }
+    ]
+  }
+}

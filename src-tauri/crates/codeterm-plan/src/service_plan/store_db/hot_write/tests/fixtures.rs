@@ -19,6 +19,28 @@ pub(super) fn milestone(id: &str) -> Milestone {
     }
 }
 
+/// Curator round history lives in `curator_round` strides, never in the header.
+pub(in crate::service_plan::store_db) fn round_strides(
+    rounds: Vec<crate::plan::CuratorRound>,
+) -> Vec<Milestone> {
+    rounds
+        .into_iter()
+        .enumerate()
+        .map(|(index, round)| Milestone {
+            id: format!("round-{index}"),
+            from: Default::default(),
+            kind: "curator_round".into(),
+            text: serde_json::to_string(&round).unwrap(),
+            ts: round.ended_at,
+            links: vec![],
+            loop_id: None,
+            iteration: None,
+            canvas: Default::default(),
+            attachments: vec![],
+        })
+        .collect()
+}
+
 pub(in crate::service_plan::store_db) fn fixture(
     root: &std::path::Path,
     strides: usize,

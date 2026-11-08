@@ -201,12 +201,14 @@ fn curator_notice_materialization_is_bounded_by_output_not_task_history_or_body_
                 plan.tasks[0].execution_attempts.push(attempt);
                 plan.tasks[0].milestones.push(serde_json::from_value(json!({"id":format!("history-{index}"),"from":{},"kind":"note","text":"unselected history","ts":1})).unwrap());
             }
-            plan.control_loop.rounds = (0..rounds)
-                .map(|number| crate::plan::CuratorRound {
-                    number,
-                    ..Default::default()
-                })
-                .collect();
+            plan.strides.extend(fixtures::round_strides(
+                (0..rounds)
+                    .map(|number| crate::plan::CuratorRound {
+                        number,
+                        ..Default::default()
+                    })
+                    .collect(),
+            ));
             let database = fixtures::database(directory.path(), &plan);
             let store = PlanStore::open(database.path()).unwrap();
             fixtures::audit(&database);

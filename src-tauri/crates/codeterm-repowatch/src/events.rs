@@ -77,4 +77,6 @@ impl std::error::Error for RepoWatchError {}
 pub trait RepoEventSink: Send + Sync {
     fn repository_changed(&self, identity: &str);
     fn repository_unavailable(&self, identity: &str, reason: RepoWatchUnavailable);
+    /// HEAD or a ref moved, or a rescan may have hidden such a move.
+    fn repository_head_moved(&self, _identity: &str) {}
 }

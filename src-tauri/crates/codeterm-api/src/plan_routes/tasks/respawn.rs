@@ -14,6 +14,40 @@ pub(super) fn respawn_spawn_command(
     )
 }
 
+pub(super) fn respawn_spawn_params(
+    draft: &codeterm_service_core::service::plan::task_attempts::TaskRespawnDraft,
+    task_name: &str,
+    lane_base: Option<String>,
+) -> codeterm_service_core::service::SpawnAgentParams {
+    let description = codeterm_service_core::service::task_tab_description(task_name, None);
+    codeterm_service_core::service::SpawnAgentParams {
+        agent: Some(draft.provider.clone()),
+        cwd: Some(draft.cwd.clone()),
+        title: draft.title.clone(),
+        title_provenance: Some(respawn_title_provenance(draft.explicit_title)),
+        description: Some(description),
+        task_description_managed: true,
+        role: Some("Worker".into()),
+        execution_intent: Some(draft.execution_intent.clone()),
+        parent_tab_id: draft.parent_tab_id.clone(),
+        task: Some(draft.task_prompt.clone()),
+        workspace_id: draft.workspace_id.clone(),
+        spawned_by_tab_id: draft.parent_tab_id.clone(),
+        model: draft.model.clone(),
+        launch_profile: draft.launch_profile.clone(),
+        planned_model: draft.planned_model.clone(),
+        planned_reasoning_effort: draft.reasoning_effort.clone(),
+        reasoning_effort: draft.reasoning_effort.clone(),
+        task_launch_authority: Some(codeterm_service_core::service::TaskLaunchAuthority {
+            plan_id: draft.plan_id.clone(),
+            task_id: draft.task_id.clone(),
+            attempt_id: draft.attempt_id.clone(),
+            lane_base,
+        }),
+        ..Default::default()
+    }
+}
+
 pub async fn task_respawn(
     AxumState(state): AxumState<AppState>,
     headers: crate::auth::ActorHeaders,
@@ -124,6 +158,15 @@ pub async fn task_respawn(
             )
         })?;
     draft.parent_tab_id = Some(parent_tab_id.clone());
+    let spawn_params =
+        respawn_spawn_params(&draft, &original_task.name, original_task.lane.base.clone());
+    crate::agent_routes::spawn_rejection::validate_spawn_options(
+        &state.svc,
+        &draft.provider,
+        &spawn_params,
+    )
+    .await
+    .map_err(|error| (error.status, Json(error.body)))?;
     let lane_for_commit = original_task.lane.clone();
     let canonical_cwd = if plan.canonical_project_path.trim().is_empty() {
         plan.project_path.clone()
@@ -188,38 +231,9 @@ pub async fn task_respawn(
         )
     })?
     .map_err(|error| text_err(axum::http::StatusCode::CONFLICT, error))?;
-    let description =
-        codeterm_service_core::service::task_tab_description(&original_task.name, None);
     let spawn = state
         .svc
-        .spawn_agent(
-            codeterm_service_core::service::SpawnAgentParams {
-                agent: Some(draft.provider.clone()),
-                cwd: Some(draft.cwd.clone()),
-                title: draft.title.clone(),
-                title_provenance: Some(respawn_title_provenance(draft.explicit_title)),
-                description: Some(description),
-                task_description_managed: true,
-                role: Some("Worker".into()),
-                execution_intent: Some(draft.execution_intent.clone()),
-                parent_tab_id: draft.parent_tab_id.clone(),
-                task: Some(draft.task_prompt.clone()),
-                workspace_id: draft.workspace_id.clone(),
-                spawned_by_tab_id: draft.parent_tab_id.clone(),
-                model: draft.model.clone(),
-                planned_model: draft.planned_model.clone(),
-                planned_reasoning_effort: draft.reasoning_effort.clone(),
-                reasoning_effort: draft.reasoning_effort.clone(),
-                task_launch_authority: Some(codeterm_service_core::service::TaskLaunchAuthority {
-                    plan_id: draft.plan_id.clone(),
-                    task_id: draft.task_id.clone(),
-                    attempt_id: draft.attempt_id.clone(),
-                    lane_base: original_task.lane.base.clone(),
-                }),
-                ..Default::default()
-            },
-            Some(ready_tx),
-        )
+        .spawn_agent(spawn_params, Some(ready_tx))
         .await
         .map_err(|e| text_err(axum::http::StatusCode::INTERNAL_SERVER_ERROR, e))?;
     draft.provider = spawn.agent.clone();

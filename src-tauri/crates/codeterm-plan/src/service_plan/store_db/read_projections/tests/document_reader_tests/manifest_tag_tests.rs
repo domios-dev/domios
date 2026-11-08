@@ -142,13 +142,15 @@ fn manifest_and_tags_ignore_body_growth_attempts_strides_rounds_and_unselected_m
         for number in 0..history {
             plan.tasks[0].milestones.push(serde_json::from_value(json!({"id":format!("unselected-{number}"),"kind":"note","text":"short old note","from":{},"ts":1})).unwrap());
         }
-        plan.control_loop.rounds = (0..rounds)
-            .map(|number| crate::plan::CuratorRound {
-                number,
-                ended_at: number,
-                ..Default::default()
-            })
-            .collect();
+        plan.strides.extend(fixtures::round_strides(
+            (0..rounds)
+                .map(|number| crate::plan::CuratorRound {
+                    number,
+                    ended_at: number,
+                    ..Default::default()
+                })
+                .collect(),
+        ));
         existing_sidecars(&plan);
         let expected =
             body_files::file_manifest(&body_files::FileManifestInput::from_plan(&plan).unwrap());

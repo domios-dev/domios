@@ -286,3 +286,37 @@ fn plan_task_merge_remote_lane_parses_origin_review_attempt() {
         }
     ));
 }
+
+#[test]
+fn task_dispatch_and_respawn_accept_launch_profile() {
+    use clap::Parser;
+    for (verb, extra) in [
+        ("dispatch", vec!["--execution-intent", "mutating"]),
+        ("respawn", vec!["--attempt", "attempt-source"]),
+    ] {
+        let mut args = vec![
+            "domios",
+            "plan",
+            "task",
+            verb,
+            "plan",
+            "task",
+            "--profile",
+            "gemini-cli",
+        ];
+        args.extend(extra);
+        let parsed = Cli::try_parse_from(args).unwrap();
+        let crate::Commands::Plan {
+            action: crate::PlanAction::Task { action },
+        } = parsed.command
+        else {
+            panic!("expected task command");
+        };
+        let profile = match action {
+            super::PlanTaskAction::Dispatch { launch_profile, .. }
+            | super::PlanTaskAction::Respawn { launch_profile, .. } => launch_profile,
+            _ => panic!("expected launch command"),
+        };
+        assert_eq!(profile.as_deref(), Some("gemini-cli"));
+    }
+}

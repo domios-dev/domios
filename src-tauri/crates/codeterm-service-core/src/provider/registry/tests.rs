@@ -352,3 +352,82 @@ fn remote_mode_keeps_one_provider_and_its_default_local_transport() {
         );
     }
 }
+
+#[test]
+fn plain_profile_status_reads_cache_and_explicit_recheck_only_invalidates_its_provider() {
+    use super::super::profile_readiness;
+    use crate::service::agent_runtime::launch_profile_install::profile_root;
+    use crate::service::provider_cli::{provider_cli_status, provider_cli_status_with_refresh};
+    use codeterm_plugin::js_runtime::{JsProvider, PluginManifest, PluginVm};
+
+    let agents = Arc::new(AgentRegistry::new());
+    let ids = [
+        format!("readiness-a-{}", uuid::Uuid::new_v4().simple()),
+        format!("readiness-b-{}", uuid::Uuid::new_v4().simple()),
+    ];
+    for id in &ids {
+        let manifest = PluginManifest::from_json_str(&serde_json::json!({
+            "id":id,"version":"1.0.0","displayName":"Fixture",
+            "capabilities":{"agentProvider":true,
+                "chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},
+                "agentRuntime":{
+                "runtime":"stdio-jsonrpc","command":{"binary":"fixture","args":[]},
+                "launchProfiles":{"selected":{"binary":"fixture","args":[],"ownerConfigured":true}},
+                "requestMethods":{"initialize":["initialize"]},"notificationMethods":[]}},
+            "permissions":{"subprocess":{"allow":["fixture"]}}
+        }).to_string()).unwrap();
+        agents.register_provider(Box::new(JsProvider::new(
+            manifest,
+            Arc::new(PluginVm::from_source(id, "module.exports = {};".into()).unwrap()),
+        )));
+    }
+    let registry = ProviderRegistry::new(agents.clone(), Arc::new(ChatBackendRegistry::new()));
+    let roots = ids.each_ref().map(|id| profile_root(id).unwrap());
+    let before = roots
+        .each_ref()
+        .map(|root| profile_readiness::revision(root));
+    for (index, id) in ids.iter().enumerate() {
+        let capability = agents.provider_arc(id).unwrap().agent_runtime().unwrap();
+        let profile = capability.launch_profiles.as_ref().unwrap()["selected"].clone();
+        registry.profile_readiness_cache.lock().insert(
+            format!("{id}:selected"),
+            (profile, before[index]),
+            Some(true),
+        );
+    }
+    let platform = crate::agent::provider::current_platform_tag();
+    for id in &ids {
+        assert_eq!(
+            provider_cli_status(&registry, id, platform)
+                .unwrap()
+                .installed,
+            Some(true)
+        );
+        assert_eq!(
+            provider_cli_status_with_refresh(&registry, id, platform, false)
+                .unwrap()
+                .installed,
+            Some(true)
+        );
+    }
+    assert_eq!(
+        roots
+            .each_ref()
+            .map(|root| profile_readiness::revision(root)),
+        before
+    );
+    assert_eq!(
+        provider_cli_status_with_refresh(&registry, &ids[0], platform, true)
+            .unwrap()
+            .installed,
+        Some(false)
+    );
+    assert!(profile_readiness::revision(&roots[0]) > before[0]);
+    assert_eq!(profile_readiness::revision(&roots[1]), before[1]);
+    assert_eq!(
+        provider_cli_status(&registry, &ids[1], platform)
+            .unwrap()
+            .installed,
+        Some(true)
+    );
+}

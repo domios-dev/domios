@@ -12,6 +12,15 @@ pub(super) fn dispatch(
     svc: &ServiceState,
 ) -> Result<Value, JsonRpcError> {
     match method {
+        "agent.acp" => codeterm_service_core::service::agent_runtime::acp_profiles::execute(
+            svc,
+            params.as_ref().unwrap_or(&Value::Null),
+        )
+        .map_err(|message| JsonRpcError {
+            code: -32602,
+            message,
+            data: None,
+        }),
         "agent.reparent" => super::remote_team_rpc::reparent(params, svc),
         "agent.turns" => {
             let target = get_string_param(params, "tab_id")?;
@@ -109,16 +118,18 @@ pub(super) fn dispatch(
                 spawn_params.model.as_deref(),
             )
             .map_err(super::model_errors::invalid_model_rpc_error)?;
+            let default_provider = svc.configuration().general_agent.agent_provider;
+            svc.validate_spawn_options(
+                spawn_params.agent.as_deref().unwrap_or(&default_provider),
+                &spawn_params,
+            )
+            .map_err(super::model_errors::spawn_target_rpc_error)?;
             let plan_task = spawn_params.plan_task.clone();
 
             let svc_ref = &**svc;
             let result = svc_ref
                 .spawn_agent_sync(spawn_params)
-                .map_err(|e| JsonRpcError {
-                    code: -32603,
-                    message: e,
-                    data: None,
-                })?;
+                .map_err(super::model_errors::spawn_rpc_error)?;
             svc.emit_mux_state_changed_empty();
             let ack_warning = if let Some(task_ref) = plan_task.as_deref() {
                 match svc.arm_bound_worker_ack_deadline_for_tab(
@@ -454,25 +465,35 @@ pub(super) fn dispatch(
 
         "agent.startup_ack" => {
             let caller_tab_id = get_string_param(params, "caller_tab_id")?;
-            let attempt_id = get_string_param(params, "attempt_id")?;
+            let attempt_id = params
+                .as_ref()
+                .and_then(|params| params.get("attempt_id"))
+                .and_then(Value::as_str)
+                .map(str::to_owned);
             let binding_nonce = get_string_param(params, "binding_nonce")?;
-            let acknowledgment =
-                match svc.acknowledge_agent_startup(&caller_tab_id, &attempt_id, &binding_nonce) {
-                    Ok(acknowledgment) => acknowledgment,
-                    Err(message) => {
-                        let refusal_class = if message.contains("not awaiting acknowledgement") {
-                            "startup_ack_not_awaiting"
-                        } else {
-                            "startup_ack_not_owner"
-                        };
-                        log_ack_event("startup_ack", "refused", refusal_class, None, None);
-                        return Err(JsonRpcError {
-                            code: -32603,
-                            message,
-                            data: None,
-                        });
-                    }
-                };
+            let acknowledged = match attempt_id.as_deref() {
+                Some(attempt_id) => {
+                    svc.acknowledge_agent_startup(&caller_tab_id, attempt_id, &binding_nonce)
+                }
+                None => svc.acknowledge_attemptless_agent_startup(&caller_tab_id, &binding_nonce),
+            };
+            let attempt_id = attempt_id.unwrap_or_default();
+            let acknowledgment = match acknowledged {
+                Ok(acknowledgment) => acknowledgment,
+                Err(message) => {
+                    let refusal_class = if message.contains("not awaiting acknowledgement") {
+                        "startup_ack_not_awaiting"
+                    } else {
+                        "startup_ack_not_owner"
+                    };
+                    log_ack_event("startup_ack", "refused", refusal_class, None, None);
+                    return Err(JsonRpcError {
+                        code: -32603,
+                        message,
+                        data: None,
+                    });
+                }
+            };
             let not_required = matches!(
                 acknowledgment,
                 codeterm_service_core::service::worker_ack::AgentStartupAcknowledgement::NotRequired
@@ -493,6 +514,42 @@ pub(super) fn dispatch(
                 &attempt_id,
                 acknowledgment,
             ))
+        }
+
+        "agent.inbound_claim" => {
+            let caller_tab_id = get_string_param(params, "caller_tab_id")?;
+            let binding_nonce = get_string_param(params, "session_binding_nonce")?;
+            let claim_id = get_string_param(params, "claim_id")?;
+            let text = svc
+                .claim_inbound_tool_messages(&caller_tab_id, &binding_nonce, &claim_id)
+                .map_err(|message| JsonRpcError {
+                    code: -32603,
+                    message,
+                    data: None,
+                })?;
+            Ok(serde_json::json!({ "text": text }))
+        }
+
+        "agent.inbound_settle" => {
+            let caller_tab_id = get_string_param(params, "caller_tab_id")?;
+            let binding_nonce = get_string_param(params, "session_binding_nonce")?;
+            let claim_id = get_string_param(params, "claim_id")?;
+            let written = params
+                .as_ref()
+                .and_then(|params| params.get("written"))
+                .and_then(Value::as_bool)
+                .ok_or_else(|| JsonRpcError {
+                    code: -32602,
+                    message: "written must be a boolean".into(),
+                    data: None,
+                })?;
+            svc.settle_inbound_tool_messages(&caller_tab_id, &binding_nonce, &claim_id, written)
+                .map_err(|message| JsonRpcError {
+                    code: -32603,
+                    message,
+                    data: None,
+                })?;
+            Ok(serde_json::json!({ "settled": true }))
         }
 
         "agent.startup_hold" => {

@@ -1,4 +1,5 @@
-import { useMemo, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useSyncExternalStore } from "react";
+import { primeWorkspaceGraphs } from "../Automation/hostAdapter";
 import { AutomationResource, type AutomationSnapshot } from "../Automation/resource";
 import { ALL_JOBS_SCOPE, type AutomationAttachment, type AutomationGraphAdapter } from "../Automation/types";
 
@@ -29,6 +30,16 @@ class WorkspaceGraphSet {
     if (next.length !== this.cached.length || next.some((snapshot, index) => snapshot !== this.cached[index])) this.cached = next;
     return this.cached;
   };
+}
+
+/** Keeps every listed workspace's graph known to this page, so switching to one finds its jobs already there. */
+export function usePrimedWorkspaceGraphs(workspaceIds: readonly string[]) {
+  const key = workspaceIds.join("\n");
+  useEffect(() => {
+    const controller = new AbortController();
+    void primeWorkspaceGraphs(key ? key.split("\n") : [], controller.signal);
+    return () => controller.abort();
+  }, [key]);
 }
 
 /** One all-Teams graph subscription per workspace; Team filtering happens on the merged job list. */

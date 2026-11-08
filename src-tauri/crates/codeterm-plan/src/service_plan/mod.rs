@@ -225,6 +225,7 @@ pub struct PlanStore {
         Arc<Mutex<HashMap<(String, String), task_dispatch::DispatchReservationOwner>>>,
     database: Arc<store_db::PlanDatabase>,
     retention_day: Mutex<Option<u64>>,
+    shared_history: shared_checkout::SharedHistoryWatch,
     #[cfg(test)]
     persistence_hook: RwLock<Option<Arc<dyn Fn(&str) + Send + Sync>>>,
     #[cfg(any(test, feature = "test-support"))]
@@ -318,6 +319,7 @@ impl PlanStore {
             dispatch_reservations: Arc::new(Mutex::new(HashMap::new())),
             database,
             retention_day: Mutex::new(None),
+            shared_history: Default::default(),
             #[cfg(test)]
             persistence_hook: RwLock::new(None),
             #[cfg(any(test, feature = "test-support"))]

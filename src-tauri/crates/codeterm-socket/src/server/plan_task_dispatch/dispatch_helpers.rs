@@ -1,4 +1,7 @@
-use super::{JsonRpcError, ServiceState, SpawnAgentParams};
+use super::{
+    dispatch_failed, plan_rpc_err, JsonRpcError, PlanError, ProvisionedWorkerLane, ServiceState,
+    SpawnAgentParams,
+};
 use serde_json::Value;
 
 pub(in crate::server) use codeterm_service_core::service::task_tab_description;
@@ -89,6 +92,7 @@ pub(in crate::server) fn respawn_worker_params(
         )),
         workspace_id: draft.workspace_id.clone(),
         model: draft.model.clone(),
+        launch_profile: draft.launch_profile.clone(),
         speed: draft.speed.clone(),
         planned_model: draft.planned_model.clone(),
         planned_reasoning_effort: draft.reasoning_effort.clone(),
@@ -132,6 +136,45 @@ where
     }
 }
 
+pub(super) fn finish_unreserved_dispatch<C>(
+    attempt_start: Result<codeterm_service_core::service::plan::DispatchStart, PlanError>,
+    provisioned_lane: Option<ProvisionedWorkerLane>,
+    close_tab: C,
+) -> Result<
+    (
+        codeterm_service_core::service::plan::DispatchStart,
+        Option<ProvisionedWorkerLane>,
+    ),
+    JsonRpcError,
+>
+where
+    C: FnOnce() -> Result<(), String>,
+{
+    let attempt_id = match attempt_start {
+        Ok(attempt_id) => return Ok((attempt_id, provisioned_lane)),
+        Err(error) => error,
+    };
+    let refused = matches!(&attempt_id, PlanError::DispatchInFlight { .. });
+    let cleanup = rollback_failed_dispatch(provisioned_lane, || Ok(()), close_tab);
+    if refused {
+        let mut refusal = plan_rpc_err(attempt_id);
+        if let Err(cleanup) = cleanup {
+            refusal.message = format!(
+                "{}; losing Worker cleanup failed: {cleanup}",
+                refusal.message
+            );
+        }
+        return Err(refusal);
+    }
+    Err(dispatch_failed(
+        "task_start",
+        match cleanup {
+            Ok(()) => attempt_id.to_string(),
+            Err(cleanup) => format!("{attempt_id}; {cleanup}"),
+        },
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -141,6 +184,7 @@ mod tests {
     #[test]
     fn respawn_launch_inherits_source_identity_and_task_execution_intent() {
         let draft = TaskRespawnDraft {
+            launch_profile: Some("selected".into()),
             plan_id: "pl_opaque".into(),
             task_id: "task_opaque".into(),
             execution_intent: ExecutionIntent::Mutating,
@@ -164,6 +208,7 @@ mod tests {
 
         let params = respawn_worker_params(&draft, "opaque task", None, "tab_parent");
 
+        assert_eq!(params.launch_profile.as_deref(), Some("selected"));
         assert_eq!(params.speed.as_deref(), Some("opaque-tier"));
         assert_eq!(params.execution_intent, Some(ExecutionIntent::Mutating));
         assert_eq!(params.agent.as_deref(), Some("fixture-agent"));

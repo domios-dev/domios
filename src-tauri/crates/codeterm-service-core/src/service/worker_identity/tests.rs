@@ -55,6 +55,7 @@ fn lifecycle_reassignment_respawn_identity_requires_verified_binding() {
         .execution_attempts[0]
         .clone();
     let draft = crate::service::plan::task_attempts::TaskRespawnDraft {
+        launch_profile: None,
         plan_id: plan.id.clone(),
         task_id: task_id.clone(),
         execution_intent: crate::plan::ExecutionIntent::Mutating,
@@ -81,6 +82,10 @@ fn lifecycle_reassignment_respawn_identity_requires_verified_binding() {
         .id;
     let tab_id = mux.write().create_tab(&ws).unwrap();
     mux.write().get_tab_mut(&tab_id).unwrap().agent_session_id = Some("sess-1".into());
+    mux.write()
+        .get_tab_mut(&tab_id)
+        .unwrap()
+        .agent_runtime_config = Some(serde_json::json!({"launchProfile": "selected"}));
     mux.write()
         .get_tab_mut(&tab_id)
         .unwrap()
@@ -117,6 +122,7 @@ fn lifecycle_reassignment_respawn_identity_requires_verified_binding() {
         .iter()
         .find(|attempt| attempt.executor_tab_id == tab_id)
         .unwrap();
+    assert_eq!(attempt.launch_profile.as_deref(), Some("selected"));
     assert_eq!(attempt.executor_title.as_deref(), Some("Ada"));
     assert_eq!(attempt.session_id.as_deref(), Some("sess-1"));
     assert_eq!(attempt.session_binding_nonce.as_deref(), Some("test-nonce"));

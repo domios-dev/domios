@@ -9,9 +9,12 @@ import { planSidePanelStore } from "../Canvas/planSidePanelStore";
 import { ShellPurposeIcon, ShellStatus } from "../shared/ShellStatus";
 import { isUtilityShell } from "../../lib/shellCommandState";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ChevronDown, RotateCw } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import { TabModeSwitch } from "./TabModeSwitch";
 import { UsageBubble } from "../Usage/UsageBubble";
+import { BalanceBubble, QuotaBubble, UnavailableLimitsBubble } from "../Usage/ProfileLimitsBubble";
+import type { TabUsageSource } from "./usageTracking";
+import { resolveTabProvider } from "../../lib/tabProvider";
 import { PluginBubbles } from "../Extensions/PluginBubbles";
 import type { ModelGroup, Tab } from "../../lib/types";
 import { TAB_BAR_CONTROL_H } from "./tabBarConstants";
@@ -47,8 +50,8 @@ interface TabTopBarProps {
   cwd: string | null;
   /** Show the Terminal | Chat switch (chat-capable PTY tabs only). */
   showSwitch: boolean;
-  /** Usage provider id, or null to omit the usage pill. */
-  usageProvider?: string | null;
+  /** What the usage pill shows, or null to omit it. */
+  usageSource?: TabUsageSource | null;
   usageVisible?: boolean;
   /** The tab's selected model + its provider-declared groups, so a group-spend
    *  capsule shows for the upstream the tab is actually running. */
@@ -98,7 +101,7 @@ export function TabTopBar({
   shellTab,
   cwd,
   showSwitch,
-  usageProvider,
+  usageSource,
   usageVisible,
   usageModelId,
   usageModelGroups,
@@ -237,6 +240,8 @@ export function TabTopBar({
   const bubblesRef = useRef<HTMLDivElement>(null);
   const [hiddenBubbles, setHiddenBubbles] = useState(0);
   const [bubblesOpen, setBubblesOpen] = useState(false);
+  const usageLabel = shellTab ? (shellTab.agent_runtime_state?.agentName ?? resolveTabProvider(shellTab)?.displayName) : undefined;
+  const usageContext = shellTab && "context" in shellTab ? shellTab.context : undefined;
   useLayoutEffect(() => {
     const row = bubblesRef.current;
     if (!row) return;
@@ -265,6 +270,7 @@ export function TabTopBar({
   return (
     <div
       data-testid="tab-top-bar"
+      data-toast-obstacle
       className="ct-tab-top-bar flex min-w-0 shrink-0 flex-nowrap items-start justify-between gap-1.5 px-2 sm:gap-2"
       style={{
         ["--ct-tab-pill-h" as string]: `${TAB_BAR_CONTROL_H}px`,
@@ -318,14 +324,27 @@ export function TabTopBar({
         </>}
         {isWatcherTab && <WatcherStatusBadge lastStatus={watcherLastStatus} />}
         {/* Order is priority: the first row keeps tokens, then changes, then plugins. */}
-        {usageProvider && (
+        {usageSource?.kind === "unavailable" && usageVisible && (
+          <UnavailableLimitsBubble reason={usageSource.reason} session={{ provider: usageSource.trackingProvider, tabId, threadId: shellTab?.agent_session_id, context: usageContext, label: usageLabel }} />
+        )}
+        {usageSource?.kind === "balance" && (
+          <BalanceBubble provider={usageSource.provider} accountId={usageSource.accountId} trackingEnabled={!!usageVisible} />
+        )}
+        {usageSource?.kind === "quota" && (
+          <QuotaBubble provider={usageSource.provider} accountId={usageSource.accountId} trackingEnabled={!!usageVisible}
+            session={{ provider: usageSource.trackingProvider, tabId, threadId: shellTab?.agent_session_id, context: usageContext, label: usageLabel }} />
+        )}
+        {usageSource?.kind === "meter" && (
           <UsageBubble
-            provider={usageProvider}
+            provider={usageSource.provider}
+            providerLabel={usageLabel}
             tabId={tabId}
             threadId={shellTab?.agent_session_id}
             trackingEnabled={!!usageVisible}
-            modelId={usageModelId}
-            modelGroups={usageModelGroups}
+            modelId={usageSource.borrowedAccount ? null : usageModelId}
+            modelGroups={usageSource.borrowedAccount ? undefined : usageModelGroups}
+            context={usageContext}
+            borrowedAccount={usageSource.borrowedAccount}
           />
         )}
         <ComposerContextMeter tabId={tabId} />
@@ -336,19 +355,6 @@ export function TabTopBar({
         <ReceiverTargetMarks menu={pluginTabMenu} tabId={tabId} surface="header" />
         <PluginBubbles cwd={cwd} tabId={tabId} isActive={isActive} />
       </div>
-        {(showSwitch || menuTab?.backing?.kind === "chat_backend") && (
-          <button
-            type="button"
-            aria-label="Refresh chat"
-            title="Refresh chat"
-            disabled={!canReconnect || reconnecting || restarting}
-            className="ct-bar-pill inline-flex shrink-0 items-center justify-center disabled:opacity-50"
-            style={{ height: TAB_BAR_CONTROL_H, width: TAB_BAR_CONTROL_H, borderRadius: "50%", padding: 0 }}
-            onClick={() => void reconnect()}
-          >
-            <RotateCw size={15} strokeWidth={1.75} aria-hidden />
-          </button>
-        )}
         {entries.length > 0 && (
           <TabActionsMenu
             entries={entries}

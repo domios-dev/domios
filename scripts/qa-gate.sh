@@ -31,7 +31,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # shellcheck source=scripts/qa-gates.lib.sh
 source "$ROOT/scripts/qa-gates.lib.sh"
 QA_ROOT="$ROOT"
-qa_sanitize_env
+qa_sanitize_env || exit 2
 
 qa_cmd_list() {
   echo "Available gates (run serially with: scripts/qa-gate.sh run GATE ...):"

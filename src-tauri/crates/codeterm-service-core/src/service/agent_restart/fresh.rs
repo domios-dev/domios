@@ -127,7 +127,7 @@ impl ServiceContext {
         Ok(snap)
     }
 
-    pub(super) fn require_fresh_restart_allowed(
+    pub(in crate::service) fn require_fresh_restart_allowed(
         &self,
         snap: &TabRestartSnapshot,
         force: bool,
@@ -157,10 +157,20 @@ impl ServiceContext {
         let session_exists =
             self.restart_session_exists(&tab, &snap.provider, tab.agent_session_id.as_deref());
         let liveness = crate::agent::live_state::observe_tab_liveness(self, &tab.id);
-        let active = tab.agent_booting
-            || liveness == AgentLiveness::Live
-            || (liveness == AgentLiveness::Unobserved
-                && tab.boot_stage != Some(BootStage::SpawnFailed));
+        let load_refused = matches!(
+            &tab.backing,
+            crate::multiplexer::types::TabBacking::ChatBackend { .. }
+        ) && crate::service::agent_runtime::engine::for_tab(&tab.id)
+            .is_some_and(|session| {
+                crate::service::agent_runtime::engine::session_load_refused(self, &session)
+            });
+        let failed_unbound = crate::service::agent_runtime::start_failure::for_tab(&tab);
+        let active = !load_refused
+            && !failed_unbound
+            && (tab.agent_booting
+                || liveness == AgentLiveness::Live
+                || (liveness == AgentLiveness::Unobserved
+                    && tab.boot_stage != Some(BootStage::SpawnFailed)));
         fresh_restart_guard(active, force, exact_session, session_exists)
     }
 

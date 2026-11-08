@@ -360,8 +360,9 @@ function AppInner() {
 
   const navigateToNotificationTab = useCallback(
     (tabId: string, workspaceId: string | null) => {
-      if (workspaceId) {
-        void selectTabByTab(workspaceId, tabId);
+      const owner = workspaceId ?? stateRef.current.workspaces.find((workspace) => workspace.tabs.includes(tabId))?.id;
+      if (owner) {
+        void selectTabByTab(owner, tabId);
         return;
       }
       setFocusedTab(tabId);

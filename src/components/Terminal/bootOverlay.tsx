@@ -27,6 +27,7 @@ export function tabBootOverlayView(
       bootStage: tab?.boot_stage,
       agentType: tab?.agent_type,
       protectedTab: tab?.protected === true,
+      failureCode: tab?.agent_runtime_state?.failureCode,
     },
     tab?.boot_failure_reason,
     keepShell,

@@ -1,0 +1,7 @@
+icon.svg
+plugin.js
+plugin.json
+runtime-files.txt
+gemini-color.svg
+deepseek-color.svg
+NOTICE

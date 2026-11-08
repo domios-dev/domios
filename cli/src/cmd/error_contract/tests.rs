@@ -211,3 +211,26 @@ fn nonreceiver_concierge_conflict_keeps_its_typed_reason() {
         "receiving_elsewhere"
     );
 }
+
+#[test]
+fn unsupported_sandbox_is_typed_in_cli_json_for_socket_and_rest_errors() {
+    let message = "opaque confinement refusal";
+    let socket = CliError {
+        message: message.into(),
+        code: Some(-32602),
+        data: Some(json!({"code":"execution_sandbox_unsupported"})),
+    };
+    let rest = CliError::http(
+        422,
+        &json!({"ok":false,"error":{
+            "code":"execution_sandbox_unsupported","message":message
+        }})
+        .to_string(),
+    );
+    for error in [socket, rest] {
+        let envelope = envelope_of(&error);
+        assert_eq!(envelope["ok"], false);
+        assert_eq!(envelope["error"]["code"], "execution_sandbox_unsupported");
+        assert!(envelope["result"].is_object());
+    }
+}

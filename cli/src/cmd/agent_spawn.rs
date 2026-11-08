@@ -227,6 +227,7 @@ pub(super) fn handle(
         args,
         workspace,
         model,
+        launch_profile,
         reasoning_effort,
         speed,
         system_prompt,
@@ -264,6 +265,7 @@ pub(super) fn handle(
             || model.is_some()
             || reasoning_effort.is_some()
             || speed.is_some()
+            || launch_profile.is_some()
             || system_prompt.is_some()
         {
             crate::cmd::print::fail(
@@ -351,6 +353,7 @@ pub(super) fn handle(
             ("--workspace", workspace.is_some()),
             ("--reasoning-effort", reasoning_effort.is_some()),
             ("--speed", speed.is_some()),
+            ("--profile", launch_profile.is_some()),
             ("--system", system_prompt.is_some()),
             ("--preset", preset.is_some()),
             ("--charter", charter.is_some() || charter_file.is_some()),
@@ -413,6 +416,7 @@ pub(super) fn handle(
             cwd.as_deref(),
             caller_cwd.as_deref(),
         );
+        params["launch_profile"] = serde_json::json!(launch_profile);
         if let Some(sandbox) = sandbox {
             params["sandbox"] = serde_json::json!(sandbox);
         }
@@ -551,6 +555,9 @@ pub(super) fn handle(
     if let Some(m) = model {
         body["model"] = serde_json::json!(m);
     }
+    if let Some(profile) = launch_profile {
+        body["launch_profile"] = serde_json::json!(profile);
+    }
     if let Some(speed) = speed {
         body["speed"] = serde_json::json!(speed);
     }
@@ -611,6 +618,7 @@ pub(super) fn handle(
             body["spawned_by_tab_id"] = serde_json::json!(spawner);
         }
     }
+    let display_profile = body["launch_profile"].as_str().map(str::to_owned);
     match client.call_detailed("agent.spawn", Some(body)) {
         Ok(val) => {
             if json {
@@ -619,13 +627,21 @@ pub(super) fn handle(
             }
             let pid = val.get("tab_id").and_then(|v| v.as_str());
             let title_str = val.get("title").and_then(|v| v.as_str()).unwrap_or("?");
-            let agent_str = val.get("agent").and_then(|v| v.as_str()).unwrap_or("?");
-            let resolved = val
-                .get("model")
-                .and_then(|v| v.as_str())
-                .filter(|s| !s.trim().is_empty())
-                .map(|model| format!("{agent_str}/{model}"))
-                .unwrap_or_else(|| agent_str.to_string());
+            let catalogue = display_profile
+                .as_ref()
+                .and_then(|_| {
+                    let provider = urlencoding::encode(val["agent"].as_str()?);
+                    local_http
+                        .get(format!("{base}/api/agents/providers/{provider}/profiles"))
+                        .send()
+                        .ok()?
+                        .error_for_status()
+                        .ok()?
+                        .json::<serde_json::Value>()
+                        .ok()
+                })
+                .unwrap_or_default();
+            let resolved = spawn_model_label(&val, &catalogue, display_profile.as_deref());
             let warning = val.get("warning").and_then(|v| v.as_str());
             if let Some(pid) = pid {
                 println!("Spawned {resolved}: {title_str} (Tab {pid})");
@@ -645,6 +661,36 @@ pub(super) fn handle(
             crate::cmd::model_error::exit_with_socket_error(json, e);
         }
     }
+}
+
+fn spawn_model_label(
+    result: &serde_json::Value,
+    catalogue: &serde_json::Value,
+    profile: Option<&str>,
+) -> String {
+    let agent = result["agent"].as_str().unwrap_or("?");
+    let Some(model) = result["model"]
+        .as_str()
+        .filter(|value| !value.trim().is_empty())
+    else {
+        return agent.into();
+    };
+    let name = catalogue
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|row| row["id"].as_str() == profile)
+        .and_then(|row| row["configOptions"].as_array())
+        .into_iter()
+        .flatten()
+        .filter(|option| option["category"] == "model")
+        .filter_map(|option| option["options"].as_array())
+        .flatten()
+        .find(|choice| choice["value"].as_str() == Some(model))
+        .and_then(|choice| choice["name"].as_str())
+        .filter(|name| !name.is_empty())
+        .unwrap_or(model);
+    format!("{agent}/{name}")
 }
 
 /// Hand a Team a new Orchestrator through the Team staffing verb — the same

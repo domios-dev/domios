@@ -63,3 +63,19 @@ it("releases failed starts and only permits explicit or lifecycle retries", asyn
   }
   expect(await run("tab", "retry", async () => "ready")).toBe("ready");
 });
+it("attaches every live consumer when three subscriptions queue for one tab", async () => {
+  const run = createChatStartFlight();
+  let release!: () => void;
+  const first = run("shared-tab", "first", () => new Promise<void>(resolve => { release = resolve; }));
+  await Promise.resolve();
+  const second = run("shared-tab", "second", async () => "second attached");
+  const third = run("shared-tab", "third", async () => "third attached");
+  const settled = Promise.allSettled([first, second, third]);
+  await Promise.resolve();
+  release();
+  expect(await settled).toEqual([
+    { status: "fulfilled", value: undefined },
+    { status: "fulfilled", value: "second attached" },
+    { status: "fulfilled", value: "third attached" },
+  ]);
+});

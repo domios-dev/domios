@@ -2,6 +2,7 @@ mod agent_commands;
 mod bin_resolve;
 mod blueprint_step;
 mod bubble;
+pub(crate) mod call_deadline;
 #[cfg(test)]
 mod call_gate;
 mod chatbackend;
@@ -71,6 +72,8 @@ mod parity_converter_test;
 #[cfg(test)]
 mod fetch_async;
 
+#[cfg(any(test, feature = "test-support"))]
+pub use host_net::fetch_test_port;
 pub use hot_reload::{
     pending_reload_ids, plugin_load_errors, set_watcher_service, CapabilityRegistries,
     HotReloadRegistry, PluginLoadError,

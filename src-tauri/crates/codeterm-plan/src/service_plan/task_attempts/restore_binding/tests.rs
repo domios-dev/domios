@@ -586,7 +586,7 @@ fn restoration_undo_preserves_metadata_and_refuses_a_newer_nonce_or_owner() {
 
 #[test]
 fn executor_identity_undo_preserves_other_attempt_fields_and_rejects_newer_identity() {
-    for newer in [false, true] {
+    for newer in [None, Some("nonce"), Some("profile")] {
         let f = fixture();
         let before = f
             .store
@@ -604,6 +604,7 @@ fn executor_identity_undo_preserves_other_attempt_fields_and_rejects_newer_ident
                 Some("captured executor"),
                 Some(SESSION_ID),
                 Some(CURRENT_NONCE),
+                Some("captured-profile"),
                 10,
             )
             .unwrap();
@@ -619,8 +620,11 @@ fn executor_identity_undo_preserves_other_attempt_fields_and_rejects_newer_ident
                     .find(|attempt| attempt.id == f.attempt_id)
                     .unwrap();
                 attempt.model = Some("unrelated model edit".into());
-                if newer {
+                if newer == Some("nonce") {
                     attempt.session_binding_nonce = Some("newer nonce".into());
+                }
+                if newer == Some("profile") {
+                    attempt.launch_profile = Some("newer-profile".into());
                 }
                 Ok(())
             })
@@ -634,17 +638,23 @@ fn executor_identity_undo_preserves_other_attempt_fields_and_rejects_newer_ident
             .execution_attempts[0]
             .clone();
         assert_eq!(current.model.as_deref(), Some("unrelated model edit"));
-        if newer {
+        if newer.is_some() {
             assert!(result
                 .unwrap_err()
                 .to_string()
                 .contains("rollback conflict"));
-            assert_eq!(
-                current.session_binding_nonce.as_deref(),
-                Some("newer nonce")
-            );
+            if newer == Some("nonce") {
+                assert_eq!(
+                    current.session_binding_nonce.as_deref(),
+                    Some("newer nonce")
+                );
+                assert_eq!(current.launch_profile.as_deref(), Some("captured-profile"));
+            } else {
+                assert_eq!(current.launch_profile.as_deref(), Some("newer-profile"));
+            }
         } else {
             result.unwrap();
+            assert_eq!(current.launch_profile, before.launch_profile);
             assert_eq!(current.executor_title, before.executor_title);
             assert_eq!(current.session_id, before.session_id);
             assert_eq!(current.session_binding_nonce, before.session_binding_nonce);

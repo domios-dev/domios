@@ -210,6 +210,51 @@ Acknowledge receipt and ownership of the assigned task
 - `--tab` — Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
 - `--task` — Task id (default: $CODETERM_TASK_ID)
 
+#### `domios agent acp`
+
+Manage local ACP launch profiles (local owner or Orchestrator only)
+
+#### `domios agent acp add`
+
+Add an owner-configured installed ACP command (local owner or Orchestrator only)
+
+- `--arg`
+- `--auth-env` — Optional sign-in secrets as KEY=secret-name:method
+- `--binary`
+- `--client-capability` — Override a declared client capability as NAME=true|false (e.g. fs.readTextFile=false)
+- `--env` — Non-secret environment entries as KEY=VALUE
+- `--like` — Copy the icon, client capabilities and limits source declared by this profile
+- `--limits-source` — Where account limits come from: account:PROVIDER, balance:READER:ENV or unavailable:REASON
+- `<name>`
+- `--secret-env` — Required secrets as KEY=secret-name; never pass secret values
+
+#### `domios agent acp list`
+
+List configured ACP profiles and their installation and authentication state
+
+#### `domios agent acp registry`
+
+Discover and install pinned agents from the ACP registry
+
+#### `domios agent acp registry install`
+
+Install the registry's exact declared distribution as an owner profile
+
+- `<id>`
+- `--limits-source` — Override the plugin's declared default for this registry id: account:PROVIDER, balance:READER:ENV or unavailable:REASON
+
+#### `domios agent acp registry search`
+
+Search the ACP registry
+
+- `<query>`
+
+#### `domios agent acp remove`
+
+Remove an owner-added ACP profile
+
+- `<name>`
+
 #### `domios agent allow-spawn`
 
 Toggle whether a tab can spawn children
@@ -222,9 +267,12 @@ Toggle whether a tab can spawn children
 Read one recorded child's transcript under the exact parent binding
 
 - `--binding-nonce` — Current parent binding nonce
+- `--child` — With --closed: read this closed child tab's transcript
+- `--closed` — List the parent's closed child tabs instead of reading a recorded thread
 - `--cursor` — Opaque continuation cursor from the prior response
 - `--epoch` — Current parent runtime epoch
 - `--root-thread-id` — Current parent thread id from its runtime binding
+- `--since` — With --child: only return messages from this index onward
 - `--tab` — Parent agent tab id
 - `--thread` — Recorded child thread id
 
@@ -282,6 +330,7 @@ Sign in to the tab's runtime provider without a terminal
 - `--api-key-stdin` — Read the API key from stdin; never supply credentials in argv
 - `--cancel`
 - `--device`
+- `--method` — Authenticate with a method the agent declared (listed by --show); add --api-key-stdin when that method takes an API key
 - `--show` — Read the pending sign-in without starting another flow
 - `--tab`
 
@@ -301,6 +350,7 @@ Switch one idle agent Tab to another model. Only that Tab changes: it is relaunc
 
 List available models for a specific provider
 
+- `--profile` — Last declared model and effort options for this launch profile
 - `<provider>` — Provider id (e.g. "claude"). Required
 
 #### `domios agent providers`
@@ -380,6 +430,7 @@ Spawn a new agent; roleless unless --role is provided.
 - `--plan` — Plan id to bind — required for `--role Planner` to auto-bind Plan.planner and deliver the peer prompt naming the Orchestrator
 - `--plan-task` — Plan task to bind when spawning `--role Worker` (handle, id, or prefix)
 - `--preset` — Select a provider-owned preset supported by the target provider
+- `--profile` — ACP launch profile declared by the provider
 - `--provider-reserve-pct` — Advisory provider allowance reserve for a mutating Worker: below it, or when exhausted, the receipt warns; it never blocks the spawn
 - `--reason` — Why this Worker needs an unplanned task
 - `--reasoning-effort` — Reasoning-effort level supported by the selected model. The provider's list is used when that model publishes no per-model levels; unsupported values are rejected, never silently downgraded
@@ -1058,6 +1109,17 @@ Show current keep-awake status (default)
 #### `domios keepawake stop`
 
 Stop the current keep-awake session
+
+#### `domios mcp`
+
+Tab-scoped MCP tools using inherited launch authority
+
+#### `domios mcp serve`
+
+Serve tab-scoped Domios tools over MCP stdio using inherited authority
+
+- `--binding-nonce`
+- `--tab`
 
 #### `domios mem`
 
@@ -2943,7 +3005,7 @@ Add a task to a plan (carries model/why routing + quality fields)
 - `--model` — Provider:model, model id, or bare provider resolved at dispatch
 - `--name`
 - `--parent`
-- `--personality` — Executor's one-word persona; defaults to the first word of the task name
+- `--personality` — Required executor persona, for example --personality Ada; one word made only of letters
 - `<plan_id>`
 - `--primary`
 - `--priority`
@@ -3026,6 +3088,7 @@ Spawn a worker, assign the task, and deliver its brief in one atomic call
 - `--parent-tab` — Parent tab override (defaults to the caller tab)
 - `--placement`
 - `<plan_id>`
+- `--profile` — ACP launch profile declared by the provider
 - `--provider-reserve-pct` — Advisory provider allowance reserve for mutating work: below it, or when exhausted, the receipt carries a provider_allowance_low warning; never blocks (0 = warn only when exhausted)
 - `--reasoning-effort` — Selected-model reasoning effort; provider fallback applies without per-model levels (rejected if unsupported)
 - `--sandbox` — Explicit OS confinement for this launch; Workers default to full access
@@ -3112,6 +3175,7 @@ Respawn a worker from one prior attempt, inheriting its recorded execution inten
 - `--model`
 - `--parent`
 - `<plan_id>`
+- `--profile` — ACP launch profile; inherits the source attempt when omitted and the provider stays the same
 - `--provider`
 - `--reasoning-effort`
 - `--speed` — Provider-declared service tier for this launch

@@ -15,6 +15,7 @@ mod report_diagnostics;
 mod report_event;
 mod report_persistence;
 pub mod report_plan_ctx;
+mod report_position;
 mod report_target;
 mod status;
 pub mod team_plan_creation;
@@ -446,6 +447,7 @@ impl ServiceContext {
         milestone_kind: Option<&str>,
         source_outcome: Option<ReportOutcomeClass>,
     ) -> Result<ReportResult, ReportSubmissionError> {
+        let sender_position = report_position::sender_position(self, tab_id);
         let utility_shell = self
             .mux
             .read()
@@ -563,10 +565,11 @@ impl ServiceContext {
                 task_id: eff_task_id.clone(),
                 cause,
                 report_outcome: report_outcome
-                    .filter(|outcome| *outcome == ReportOutcomeClass::StaleBindingConflict),
+                    .filter(|outcome| *outcome == ReportOutcomeClass::StaleBindingConflict)
+                    .or(Some(ReportOutcomeClass::TransitionRejected)),
             });
 
-        let (from_title, default_target_opt, model_identity, from_ref) = {
+        let (from_title, default_target_opt, model_identity, from_ref, model) = {
             let mux = self.mux.read();
             let (from_title, target_opt) = match resolve_report_target(&mux, tab_id) {
                 Ok(resolved) => resolved,
@@ -591,11 +594,9 @@ impl ServiceContext {
                     title: Some(p.title.clone()),
                 },
             );
-            (from_title, target_opt, model_identity, from_ref)
+            let model = tab.and_then(|p| p.agent_session_model_label());
+            (from_title, target_opt, model_identity, from_ref, model)
         };
-        let model = model_identity
-            .as_ref()
-            .and_then(|identity| identity.actual_model.clone());
         // Capture mesh peer before default_target_opt is consumed by .or().
         let default_mesh_peer = match &default_target_opt {
             Some(ReportTarget::Mesh { peer, .. }) => Some(peer.clone()),
@@ -784,6 +785,10 @@ impl ServiceContext {
             report_outcome = Some(ReportOutcomeClass::StructurallyNotAttachable);
         }
 
+        let rejected_outcome = rejected_task_transition
+            .as_ref()
+            .and_then(|r| r.report_outcome);
+        report_outcome = report_outcome.or(rejected_outcome);
         let storage_key = target.storage_key();
         let delivered_message = rejected_task_transition.as_ref().map_or_else(
             || message.to_string(),
@@ -837,22 +842,21 @@ impl ServiceContext {
             "agent.report",
             serde_json::json!({
                 "target_tab_id": storage_key,
+                "sender_position": sender_position,
                 "report": report.clone(),
                 "task_report": task_report.clone(),
                 "report_outcome": report_outcome,
             }),
         );
-        self.ui.emit(
-            "agent-report",
-            serde_json::to_value(report_event::agent_report_event(
-                &storage_key,
-                tab_id,
-                &from_title,
-                &report,
-                task_report,
-            ))
-            .unwrap_or_default(),
+        let mut event = report_event::agent_report_event(
+            &storage_key,
+            tab_id,
+            &from_title,
+            &report,
+            task_report,
         );
+        event["sender_position"] = sender_position;
+        self.ui.emit("agent-report", event);
 
         match target {
             ReportTarget::Mesh { peer, tab } => {

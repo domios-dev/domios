@@ -1,0 +1,424 @@
+{
+  "schemaVersion": 1,
+  "context": {
+    "epoch": 1,
+    "cwd": "/work/project",
+    "hostVersion": "1.18.7",
+    "tabId": "model-option-load-refused",
+    "bindingNonce": "nonce-fixture",
+    "settings": {},
+    "providerSettings": {},
+    "claimedSends": [],
+    "activeTurns": [],
+    "threadParents": []
+  },
+  "operations": [
+    {
+      "operation": {
+        "kind": "initialize"
+      },
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/project",
+        "hostVersion": "1.18.7",
+        "tabId": "model-openThread-refused",
+        "bindingNonce": "nonce-fixture",
+        "settings": {},
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": []
+      }
+    },
+    {
+      "operation": {
+        "kind": "openThread",
+        "instructions": "",
+        "settings": {
+          "model": "wire-two"
+        }
+      },
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/project",
+        "hostVersion": "1.18.7",
+        "tabId": "model-openThread-refused",
+        "bindingNonce": "nonce-fixture",
+        "settings": {},
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": []
+      }
+    },
+    {
+      "operation": {
+        "kind": "initialize"
+      },
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/project",
+        "hostVersion": "1.18.7",
+        "tabId": "model-resumeThread-refused",
+        "bindingNonce": "nonce-fixture",
+        "settings": {},
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": []
+      }
+    },
+    {
+      "operation": {
+        "kind": "resumeThread",
+        "instructions": "",
+        "settings": {
+          "model": "wire-two"
+        },
+        "threadId": "refused-session"
+      },
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/project",
+        "hostVersion": "1.18.7",
+        "tabId": "model-resumeThread-refused",
+        "bindingNonce": "nonce-fixture",
+        "settings": {},
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "refused-session"
+      }
+    }
+  ],
+  "rpc": [
+    {
+      "direction": "outbound",
+      "operation": 0,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "initialize",
+          "params": {
+            "protocolVersion": 1,
+            "clientCapabilities": {
+              "fs": {
+                "readTextFile": false,
+                "writeTextFile": false
+              },
+              "terminal": false
+            },
+            "clientInfo": {
+              "name": "domios",
+              "title": "Domios",
+              "version": "1.18.7"
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 0,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "protocolVersion": 1,
+          "agentCapabilities": {
+            "promptCapabilities": {
+              "image": false,
+              "audio": false,
+              "embeddedContext": false
+            },
+            "sessionCapabilities": {
+              "resume": {}
+            }
+          },
+          "authMethods": []
+        }
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 1,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "session/new",
+          "params": {
+            "cwd": "/work/project",
+            "mcpServers": []
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 1,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "sessionId": "refused-session",
+          "configOptions": [
+            {
+              "id": "engine-choice",
+              "name": "Engine",
+              "type": "select",
+              "category": "model",
+              "currentValue": "wire-one",
+              "options": [
+                {
+                  "value": "wire-one",
+                  "name": "First declared"
+                },
+                {
+                  "value": "wire-two",
+                  "name": "Second declared"
+                }
+              ]
+            }
+          ],
+          "modes": {
+            "currentModeId": "code",
+            "availableModes": [
+              {
+                "id": "code",
+                "name": "Code"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 1,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "session/set_config_option",
+          "params": {
+            "sessionId": "refused-session",
+            "configId": "engine-choice",
+            "value": "wire-two"
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 1,
+      "reply": {
+        "kind": "error",
+        "error": {
+          "code": -32000,
+          "message": "Agent declined the requested engine"
+        }
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 2,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "initialize",
+          "params": {
+            "protocolVersion": 1,
+            "clientCapabilities": {
+              "fs": {
+                "readTextFile": false,
+                "writeTextFile": false
+              },
+              "terminal": false
+            },
+            "clientInfo": {
+              "name": "domios",
+              "title": "Domios",
+              "version": "1.18.7"
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 2,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "protocolVersion": 1,
+          "agentCapabilities": {
+            "promptCapabilities": {
+              "image": false,
+              "audio": false,
+              "embeddedContext": false
+            },
+            "sessionCapabilities": {
+              "resume": {}
+            }
+          },
+          "authMethods": []
+        }
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 3,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "session/resume",
+          "params": {
+            "cwd": "/work/project",
+            "mcpServers": [],
+            "sessionId": "refused-session"
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 3,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "sessionId": "refused-session",
+          "configOptions": [
+            {
+              "id": "engine-choice",
+              "name": "Engine",
+              "type": "select",
+              "category": "model",
+              "currentValue": "wire-one",
+              "options": [
+                {
+                  "value": "wire-one",
+                  "name": "First declared"
+                },
+                {
+                  "value": "wire-two",
+                  "name": "Second declared"
+                }
+              ]
+            }
+          ],
+          "modes": {
+            "currentModeId": "code",
+            "availableModes": [
+              {
+                "id": "code",
+                "name": "Code"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 3,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "session/set_config_option",
+          "params": {
+            "sessionId": "refused-session",
+            "configId": "engine-choice",
+            "value": "wire-two"
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 3,
+      "reply": {
+        "kind": "error",
+        "error": {
+          "code": -32000,
+          "message": "Agent declined the requested engine"
+        }
+      }
+    }
+  ],
+  "expected": {
+    "results": [
+      {
+        "operation": 0,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "initialized"
+          },
+          "events": [
+            {
+              "kind": "authentication",
+              "authentication": {
+                "state": "unknown",
+                "methods": []
+              }
+            }
+          ]
+        }
+      },
+      {
+        "operation": 1,
+        "step": {
+          "kind": "refused",
+          "reason": {
+            "code": "provider_refused",
+            "message": "Requested session options were refused: Agent declined the requested engine"
+          },
+          "beforeAcceptance": true
+        }
+      },
+      {
+        "operation": 2,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "initialized"
+          },
+          "events": [
+            {
+              "kind": "authentication",
+              "authentication": {
+                "state": "unknown",
+                "methods": []
+              }
+            }
+          ]
+        }
+      },
+      {
+        "operation": 3,
+        "step": {
+          "kind": "refused",
+          "reason": {
+            "code": "provider_refused",
+            "message": "Requested session options were refused: Agent declined the requested engine"
+          },
+          "beforeAcceptance": true
+        }
+      }
+    ],
+    "events": [
+      {
+        "kind": "authentication",
+        "authentication": {
+          "state": "unknown",
+          "methods": []
+        }
+      },
+      {
+        "kind": "authentication",
+        "authentication": {
+          "state": "unknown",
+          "methods": []
+        }
+      }
+    ]
+  }
+}

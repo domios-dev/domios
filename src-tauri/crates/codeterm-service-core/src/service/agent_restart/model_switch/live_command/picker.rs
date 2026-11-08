@@ -68,6 +68,10 @@ impl CommandPicker {
         self.screen.is_match(screen)
     }
 
+    pub(super) fn rendering(&self, screen: &str) -> bool {
+        self.selected.is_match(screen) && self.target.is_match(screen)
+    }
+
     fn frame<'a>(&self, screen: &'a str) -> Option<&'a str> {
         let mut offset = 0;
         let mut latest = None;
@@ -197,17 +201,14 @@ impl CommandPicker {
     ) -> Result<CommandPrompt, String> {
         CommandPrompt::new(
             &crate::agent::provider::ModelSwitchPrompt {
-                screen_regex: format!(
-                    "(?:{})|(?:{})",
-                    self.screen.as_str(),
-                    self.selected.as_str()
-                ),
+                screen_regex: self.screen.as_str().to_owned(),
                 response_keys: vec![self.declaration.response_key.clone()],
                 cancel_keys: vec![String::from_utf8_lossy(self.cancel_key()).into_owned()],
             },
             target,
             None,
         )
+        .map(|prompt| prompt.with_partial_picker(self.selected.clone(), self.target.clone()))
     }
 }
 

@@ -457,3 +457,29 @@ fn close_inventory_timeout_and_busy_have_distinct_http_statuses() {
         assert_eq!(map_close_team_error(error).0, StatusCode::CONFLICT);
     }
 }
+
+#[tokio::test]
+async fn http_team_add_keeps_typed_spawn_target_refusals() {
+    let error = add_team_member_adapter::<()>(
+        &crate::auth::ActorHeaders::for_owner_test(HeaderMap::new()),
+        "team_x".into(),
+        AddTeamMemberBody {
+            provider: "plain".into(),
+            role: "orchestrator".into(),
+            title: None,
+            task: None,
+            model: None,
+        },
+        |_, _, _| async {
+            Err(SpawnTargetRefusal::ExecutionSandbox {
+                provider: "plain".into(),
+                message: "opaque confinement refusal".into(),
+            })
+        },
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(error.status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(error.body["error"]["code"], "execution_sandbox_unsupported");
+    assert_eq!(error.body["error"]["message"], "opaque confinement refusal");
+}

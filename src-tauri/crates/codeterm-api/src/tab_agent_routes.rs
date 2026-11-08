@@ -1,6 +1,7 @@
 use crate::blocking_json::handler as blocking_json;
 use axum::{
-    routing::{get, post},
+    middleware,
+    routing::{delete, get, post},
     Router,
 };
 
@@ -9,8 +10,32 @@ use super::{
     tab_chat_routes, tab_routes,
 };
 
+mod profiles;
+
 pub(crate) fn mount(router: Router<AppState>) -> Router<AppState> {
     router
+        .route(
+            "/api/agents/providers/{id}/profiles",
+            get(profiles::list).merge(super::plugin_host_action_routes::owner_post(
+                profiles::setup,
+            )),
+        )
+        .route(
+            "/api/agents/providers/acp/registry",
+            get(profiles::registry::search).route_layer(middleware::from_fn(
+                super::plugin_host_action_routes::require_local_owner,
+            )),
+        )
+        .route(
+            "/api/agents/providers/acp/registry/install",
+            super::plugin_host_action_routes::owner_post(profiles::registry::install),
+        )
+        .route(
+            "/api/agents/providers/acp/profiles/{name}",
+            delete(profiles::registry::remove).route_layer(middleware::from_fn(
+                super::plugin_host_action_routes::require_local_owner,
+            )),
+        )
         .route(
             "/api/tabs/{id}/agent/capabilities/refresh",
             post(super::capability_probe_routes::refresh),
@@ -19,6 +44,10 @@ pub(crate) fn mount(router: Router<AppState>) -> Router<AppState> {
         .route(
             "/api/tabs/{id}/chat",
             get(blocking_json(tab_chat_routes::snapshot)),
+        )
+        .route(
+            "/api/tabs/{id}/closed-children",
+            get(tab_chat_routes::closed::closed_children),
         )
         .route(
             "/api/tabs/{id}/chat-send",

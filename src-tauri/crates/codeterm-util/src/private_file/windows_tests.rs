@@ -99,6 +99,37 @@ fn a_new_secret_lock_is_owner_only_under_a_broad_inheritable_root() {
 }
 
 #[test]
+fn launch_file_is_owner_only_at_creation_under_a_broad_inheritable_root() {
+    use std::io::Write;
+    let root = tempfile::tempdir().unwrap();
+    grant(root.path(), WinWorldSid);
+    let before = masks(root.path(), WinWorldSid);
+    let path = root.path().join("launch.json");
+    let mut file = create_new_owner_only(&path).unwrap();
+    assert_eq!(file.metadata().unwrap().len(), 0);
+    assert!(owner_only(&path).unwrap());
+    assert!(masks(&path, WinWorldSid).is_empty());
+    assert_eq!(masks(root.path(), WinWorldSid), before);
+    file.write_all(b"tab-credential").unwrap();
+    drop(file);
+    assert!(open_owner_only(&path, 8192).is_ok());
+    grant(&path, WinWorldSid);
+    assert!(open_owner_only(&path, 8192).is_err());
+}
+
+#[test]
+fn launch_directory_is_private_at_creation_under_a_broad_inheritable_root() {
+    let root = tempfile::tempdir().unwrap();
+    grant(root.path(), WinWorldSid);
+    let before = masks(root.path(), WinWorldSid);
+    let path = root.path().join("launch-credentials");
+    create_dir_owner_only(&path).unwrap();
+    assert!(open_directory_owner_only(&path).is_ok());
+    assert!(masks(&path, WinWorldSid).is_empty());
+    assert_eq!(masks(root.path(), WinWorldSid), before);
+}
+
+#[test]
 fn private_directory_tightening_preserves_explicit_grants_and_removes_broad_access() {
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join("secrets");

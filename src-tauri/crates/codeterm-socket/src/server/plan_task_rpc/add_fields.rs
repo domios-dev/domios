@@ -23,17 +23,9 @@ pub(super) fn normalize(
         }
     }
     let name = value["name"].as_str().unwrap_or_default().to_owned();
-    let personality = value
-        .get("personality")
-        .and_then(Value::as_str)
-        .map(str::to_owned)
-        .unwrap_or_else(|| {
-            name.split(|ch: char| !ch.is_alphabetic())
-                .find(|word| !word.is_empty())
-                .unwrap_or("Worker")
-                .to_owned()
-        });
-    match codeterm_types::plan::validate_executor_name(&personality) {
+    match codeterm_types::plan::require_executor_name(
+        value.get("personality").and_then(Value::as_str),
+    ) {
         Ok(personality) => value["personality"] = json!(personality),
         Err(error) => errors.push(format!("--personality: {error}")),
     }

@@ -4,9 +4,14 @@ export function isScenarioRoot(node: AutomationNode, root: AutomationIdentity): 
   return node.identity.kind === "blueprint" && automationKey(node.identity) === automationKey(root);
 }
 
-export function scopedAutomationGraph(graph: AutomationGraph, scope: AutomationScope): AutomationGraph {
+export function assertAutomationScope(graph: Pick<AutomationGraph, "workspace_id" | "team_id" | "all_teams">, scope: AutomationScope) {
   const allTeams = scope.team_id === ALL_JOBS_SCOPE;
   if (graph.workspace_id !== scope.workspace_id || (allTeams ? graph.all_teams !== true : !sameScope(graph, scope))) throw new Error("Automation scope mismatch");
+}
+
+export function scopedAutomationGraph(graph: AutomationGraph, scope: AutomationScope): AutomationGraph {
+  assertAutomationScope(graph, scope);
+  const allTeams = scope.team_id === ALL_JOBS_SCOPE;
   const inScope = (identity: AutomationIdentity) => identity.workspace_id === scope.workspace_id && (allTeams || identity.team_id === scope.team_id);
   const scoped = graph.nodes.filter((node) => inScope(node.identity));
   const byId = new Map(scoped.map((node) => [automationKey(node.identity), node]));

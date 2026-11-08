@@ -792,6 +792,7 @@ fn recent_worker_attempt_titles_filters_workspace_session_and_limit() {
             Some("Ada"),
             Some("sess-1"),
             None,
+            None,
             4,
         )
         .unwrap();
@@ -805,6 +806,7 @@ fn recent_worker_attempt_titles_filters_workspace_session_and_limit() {
             "tab-2",
             Some("Bea"),
             Some("sess-2"),
+            None,
             None,
             6,
         )

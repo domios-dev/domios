@@ -1,0 +1,683 @@
+{
+  "schemaVersion": 1,
+  "context": {
+    "epoch": 2,
+    "cwd": "/work/project",
+    "hostVersion": "1.18.7",
+    "tabId": "resume-buffered-replay-new-turn",
+    "bindingNonce": "nonce-fixture",
+    "settings": {},
+    "providerSettings": {},
+    "threadId": "thread",
+    "restoredRowOrdinal": 7,
+    "claimedSends": [],
+    "activeTurns": [],
+    "threadParents": []
+  },
+  "operations": [
+    {
+      "operation": {
+        "kind": "initialize"
+      }
+    },
+    {
+      "operation": {
+        "kind": "resumeThread",
+        "threadId": "thread",
+        "instructions": "",
+        "settings": {}
+      }
+    },
+    {
+      "operation": {
+        "kind": "submitTurn",
+        "threadId": "thread",
+        "sendId": "after-resume",
+        "input": {
+          "text": "new opaque prompt",
+          "attachments": []
+        },
+        "settings": {}
+      },
+      "context": {
+        "epoch": 2,
+        "cwd": "/work/project",
+        "hostVersion": "1.18.7",
+        "tabId": "resume-buffered-replay-new-turn",
+        "bindingNonce": "nonce-fixture",
+        "settings": {},
+        "providerSettings": {},
+        "threadId": "thread",
+        "restoredRowOrdinal": 7,
+        "claimedSends": [
+          {
+            "sendId": "after-resume",
+            "threadId": "thread",
+            "input": {
+              "text": "new opaque prompt",
+              "attachments": []
+            }
+          }
+        ],
+        "activeTurns": [],
+        "threadParents": []
+      }
+    }
+  ],
+  "rpc": [
+    {
+      "direction": "outbound",
+      "operation": 0,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "initialize",
+          "params": {
+            "protocolVersion": 1,
+            "clientCapabilities": {
+              "fs": {
+                "readTextFile": false,
+                "writeTextFile": false
+              },
+              "terminal": false
+            },
+            "clientInfo": {
+              "name": "domios",
+              "title": "Domios",
+              "version": "1.18.7"
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 0,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "protocolVersion": 1,
+          "agentCapabilities": {
+            "loadSession": true
+          },
+          "authMethods": []
+        }
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 1,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "session/load",
+          "params": {
+            "sessionId": "thread",
+            "cwd": "/work/project",
+            "mcpServers": []
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 1,
+      "reply": {
+        "kind": "success",
+        "value": {}
+      }
+    },
+    {
+      "direction": "inbound",
+      "context": {
+        "epoch": 2,
+        "cwd": "/work/project",
+        "hostVersion": "1.18.7",
+        "tabId": "resume-buffered-replay-new-turn",
+        "bindingNonce": "nonce-fixture",
+        "settings": {},
+        "providerSettings": {},
+        "threadId": "thread",
+        "restoredRowOrdinal": 7,
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "streamWindow": {
+          "frameSequences": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13
+          ],
+          "turnRequests": []
+        }
+      },
+      "frames": [
+        {
+          "kind": "notification",
+          "method": "session/update",
+          "params": {
+            "sessionId": "thread",
+            "update": {
+              "sessionUpdate": "user_message_chunk",
+              "content": {
+                "type": "text",
+                "text": "<session_context>Internal setup</session_context>"
+              }
+            }
+          }
+        },
+        {
+          "kind": "notification",
+          "method": "session/update",
+          "params": {
+            "sessionId": "thread",
+            "update": {
+              "sessionUpdate": "agent_thought_chunk",
+              "content": {
+                "type": "text",
+                "text": "review"
+              }
+            }
+          }
+        },
+        {
+          "kind": "notification",
+          "method": "session/update",
+          "params": {
+            "sessionId": "thread",
+            "update": {
+              "sessionUpdate": "agent_message_chunk",
+              "content": {
+                "type": "text",
+                "text": "ROVER-ONE"
+              }
+            }
+          }
+        },
+        {
+          "kind": "notification",
+          "method": "session/update",
+          "params": {
+            "sessionId": "thread",
+            "update": {
+              "sessionUpdate": "user_message_chunk",
+              "content": {
+                "type": "text",
+                "text": "Use a file reading tool to read proof.txt."
+              }
+            }
+          }
+        },
+        {
+          "kind": "notification",
+          "method": "session/update",
+          "params": {
+            "sessionId": "thread",
+            "update": {
+              "sessionUpdate": "agent_message_chunk",
+              "content": {
+                "type": "text",
+                "text": "[Function Call: read_file]"
+              }
+            }
+          }
+        },
+        {
+          "kind": "notification",
+          "method": "session/update",
+          "params": {
+            "sessionId": "thread",
+            "update": {
+              "sessionUpdate": "user_message_chunk",
+              "content": {
+                "type": "text",
+                "text": "[Function Response: read_file]"
+              }
+            }
+          }
+        },
+        {
+          "kind": "notification",
+          "method": "session/update",
+          "params": {
+            "sessionId": "thread",
+            "update": {
+              "sessionUpdate": "agent_message_chunk",
+              "content": {
+                "type": "text",
+                "text": "[Function Call: grep_search]"
+              }
+            }
+          }
+        },
+        {
+          "kind": "notification",
+          "method": "session/update",
+          "params": {
+            "sessionId": "thread",
+            "update": {
+              "sessionUpdate": "user_message_chunk",
+              "content": {
+                "type": "text",
+                "text": "[Function Response: grep_search]"
+              }
+            }
+          }
+        },
+        {
+          "kind": "notification",
+          "method": "session/update",
+          "params": {
+            "sessionId": "thread",
+            "update": {
+              "sessionUpdate": "agent_message_chunk",
+              "content": {
+                "type": "text",
+                "text": "ROVER-TOOL-732"
+              }
+            }
+          }
+        },
+        {
+          "kind": "notification",
+          "method": "session/update",
+          "params": {
+            "sessionId": "thread",
+            "update": {
+              "sessionUpdate": "user_message_chunk",
+              "content": {
+                "type": "text",
+                "text": "Write a long reply."
+              }
+            }
+          }
+        },
+        {
+          "kind": "notification",
+          "method": "session/update",
+          "params": {
+            "sessionId": "thread",
+            "update": {
+              "sessionUpdate": "agent_message_chunk",
+              "content": {
+                "type": "text",
+                "text": "LONG-START"
+              }
+            }
+          }
+        },
+        {
+          "kind": "notification",
+          "method": "session/update",
+          "params": {
+            "sessionId": "thread",
+            "update": {
+              "sessionUpdate": "agent_message_chunk",
+              "content": {
+                "type": "text",
+                "text": "\n1. Beacon"
+              }
+            }
+          }
+        },
+        {
+          "kind": "notification",
+          "method": "session/update",
+          "params": {
+            "sessionId": "thread",
+            "update": {
+              "sessionUpdate": "available_commands_update",
+              "availableCommands": [
+                {
+                  "name": "inspect",
+                  "description": "Inspect"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "direction": "outbound",
+      "operation": 2,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "session/prompt",
+          "params": {
+            "sessionId": "thread",
+            "prompt": [
+              {
+                "type": "text",
+                "text": "new opaque prompt"
+              }
+            ]
+          },
+          "target": {
+            "threadId": "thread",
+            "turnId": "thread:turn:8"
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "context": {
+        "epoch": 2,
+        "cwd": "/work/project",
+        "hostVersion": "1.18.7",
+        "tabId": "resume-buffered-replay-new-turn",
+        "bindingNonce": "nonce-fixture",
+        "settings": {},
+        "providerSettings": {},
+        "threadId": "thread",
+        "restoredRowOrdinal": 7,
+        "claimedSends": [
+          {
+            "sendId": "after-resume",
+            "threadId": "thread",
+            "input": {
+              "text": "new opaque prompt",
+              "attachments": []
+            }
+          }
+        ],
+        "activeTurns": [],
+        "threadParents": [],
+        "streamWindow": {
+          "frameSequences": [
+            14
+          ],
+          "turnRequests": [
+            {
+              "sendId": "after-resume",
+              "turnId": "thread:turn:8",
+              "written": false,
+              "afterSequence": 14
+            }
+          ]
+        }
+      },
+      "frames": [
+        {
+          "kind": "notification",
+          "method": "session/update",
+          "params": {
+            "sessionId": "thread",
+            "update": {
+              "sessionUpdate": "tool_call",
+              "toolCallId": "read_file__call_1833632319003099568",
+              "title": "ReadFile",
+              "kind": "read",
+              "status": "completed",
+              "rawOutput": "ROVER-TOOL-732"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "direction": "inbound",
+      "context": {
+        "epoch": 2,
+        "cwd": "/work/project",
+        "hostVersion": "1.18.7",
+        "tabId": "resume-buffered-replay-new-turn",
+        "bindingNonce": "nonce-fixture",
+        "settings": {},
+        "providerSettings": {},
+        "threadId": "thread",
+        "restoredRowOrdinal": 7,
+        "claimedSends": [
+          {
+            "sendId": "after-resume",
+            "threadId": "thread",
+            "input": {
+              "text": "new opaque prompt",
+              "attachments": []
+            }
+          }
+        ],
+        "activeTurns": [],
+        "threadParents": [],
+        "streamWindow": {
+          "frameSequences": [
+            15,
+            16,
+            17,
+            18
+          ],
+          "turnRequests": [
+            {
+              "sendId": "after-resume",
+              "turnId": "thread:turn:8",
+              "written": true,
+              "afterSequence": 14
+            }
+          ]
+        }
+      },
+      "frames": [
+        {
+          "kind": "notification",
+          "method": "session/update",
+          "params": {
+            "sessionId": "thread",
+            "update": {
+              "sessionUpdate": "agent_thought_chunk",
+              "content": {
+                "type": "text",
+                "text": "fresh "
+              }
+            }
+          }
+        },
+        {
+          "kind": "notification",
+          "method": "session/update",
+          "params": {
+            "sessionId": "thread",
+            "update": {
+              "sessionUpdate": "agent_thought_chunk",
+              "content": {
+                "type": "text",
+                "text": "thought"
+              }
+            }
+          }
+        },
+        {
+          "kind": "notification",
+          "method": "session/update",
+          "params": {
+            "sessionId": "thread",
+            "update": {
+              "sessionUpdate": "agent_message_chunk",
+              "content": {
+                "type": "text",
+                "text": "NEW-"
+              }
+            }
+          }
+        },
+        {
+          "kind": "notification",
+          "method": "session/update",
+          "params": {
+            "sessionId": "thread",
+            "update": {
+              "sessionUpdate": "agent_message_chunk",
+              "content": {
+                "type": "text",
+                "text": "TURN-OK"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "direction": "inbound",
+      "operation": 2,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "stopReason": "end_turn"
+        }
+      }
+    }
+  ],
+  "expected": {
+    "results": [
+      {
+        "operation": 0,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "initialized"
+          },
+          "events": [
+            {
+              "kind": "authentication",
+              "authentication": {
+                "state": "unknown",
+                "methods": []
+              }
+            }
+          ]
+        }
+      },
+      {
+        "operation": 1,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "threadLoaded",
+            "threadId": "thread",
+            "settings": {
+              "commands": [],
+              "configOptions": [],
+              "modes": []
+            }
+          }
+        }
+      },
+      {
+        "operation": 2,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "turnAccepted",
+            "threadId": "thread",
+            "sendId": "after-resume",
+            "turnId": "thread:turn:8"
+          },
+          "events": [
+            {
+              "kind": "turnState",
+              "threadId": "thread",
+              "turnId": "thread:turn:8",
+              "state": "idle"
+            }
+          ]
+        }
+      }
+    ],
+    "events": [
+      {
+        "kind": "authentication",
+        "authentication": {
+          "state": "unknown",
+          "methods": []
+        }
+      },
+      {
+        "kind": "controlsConfirmed",
+        "threadId": "thread",
+        "settings": {
+          "commands": [
+            {
+              "name": "inspect",
+              "description": "Inspect"
+            }
+          ]
+        }
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "thread",
+        "item": {
+          "id": "thread:turn:8:item:1",
+          "seq": 1,
+          "type": "user",
+          "content": "new opaque prompt"
+        }
+      },
+      {
+        "kind": "turnState",
+        "threadId": "thread",
+        "turnId": "thread:turn:8",
+        "state": "working"
+      },
+      {
+        "kind": "sendEvidence",
+        "threadId": "thread",
+        "sendId": "after-resume",
+        "turnId": "thread:turn:8",
+        "itemId": "thread:turn:8:item:1"
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "thread",
+        "item": {
+          "id": "thread:turn:8:item:2",
+          "seq": 2,
+          "type": "thinking",
+          "content": "fresh ",
+          "collapsed": true
+        }
+      },
+      {
+        "kind": "chatItemAppend",
+        "threadId": "thread",
+        "itemId": "thread:turn:8:item:2",
+        "content": "thought",
+        "offset": 6
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "thread",
+        "item": {
+          "id": "thread:turn:8:item:3",
+          "seq": 3,
+          "type": "assistant",
+          "content": "NEW-"
+        }
+      },
+      {
+        "kind": "chatItemAppend",
+        "threadId": "thread",
+        "itemId": "thread:turn:8:item:3",
+        "content": "TURN-OK",
+        "offset": 4
+      },
+      {
+        "kind": "turnState",
+        "threadId": "thread",
+        "turnId": "thread:turn:8",
+        "state": "idle"
+      }
+    ]
+  }
+}

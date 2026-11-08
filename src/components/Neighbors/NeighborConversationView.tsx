@@ -37,7 +37,7 @@ import { useNeighbors } from "./useNeighbors";
 import { readNeighborCache, type CachedFriend } from "./neighborListCache";
 import { useNeighborPermission } from "./useNeighborPermission";
 import { formatBytes, neighborFilesClient, NeighborFilesFailure, type NeighborFile, type NeighborFilesClient } from "./neighborFilesClient";
-import { useReceiverState } from "./useReceiverState";
+import { notReceivingReason, useReceiverState } from "./useReceiverState";
 import { useNeighborStatus } from "./neighborStatusStore";
 import { FriendReceiveConfirm, friendReceiveItems, useFriendReceiveRequest } from "./neighborFriendReceiving";
 
@@ -54,6 +54,11 @@ export function NeighborConversationView({ friendship, enabled = true, client, r
   const cached = useMemo(() => readNeighborCache(identity), [identity]);
   const fresh = neighbors.list?.friends.find(entry => entry.friendship_id === friendship);
   const friend: ConversationFriend | undefined = fresh ?? (neighbors.list === null ? cached?.friends.find(entry => entry.friendship_id === friendship) : undefined);
+  if (neighbors.error) {
+    return <div className="neighbor-chat absolute inset-0 flex items-center justify-center bg-[var(--ct-bg)]">
+      <p role="status">Neighbors unavailable: {neighbors.error}</p>
+    </div>;
+  }
   if (!friend && neighbors.list === null) {
     return <div className="neighbor-chat absolute inset-0 flex items-center justify-center bg-[var(--ct-bg)]">
       <BusyState inline label="Loading conversation" phase="work" />
@@ -292,7 +297,7 @@ function Conversation({ friend, removed, locked, enabled, runtimeClient, concier
     </div>
     {receiver && !receiver.receiving_here && <div role="status" className="neighbor-chat__moved">
       <span>{receiver.receiving_enabled ? `${name}'s messages arrive on ${receiver.receiver_machine_label ?? "another machine"}.`
-        : `No machine is receiving ${name}'s messages.`}</span>
+        : [`No machine is receiving ${name}'s messages`, notReceivingReason(receiver)].filter(Boolean).join(": ") + "."}</span>
       {receive.request === null && <Button size="sm" variant="ghost" onClick={() => receive.open(friendship, "set")}>Receive this friend here</Button>}
     </div>}
     {receive.request && receiver && <div className="neighbor-chat__notice"><FriendReceiveConfirm request={receive.request} receiver={receiver} friendName={name}

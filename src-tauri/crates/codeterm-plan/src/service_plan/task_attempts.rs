@@ -41,6 +41,8 @@ mod compete_lane_tests;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TaskRespawnRequest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub launch_profile: Option<String>,
     pub reasoning_effort: Option<String>,
     pub attempt_id: String,
     pub provider: Option<String>,
@@ -78,6 +80,8 @@ pub struct TaskAttemptView {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct TaskRespawnDraft {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub launch_profile: Option<String>,
     pub plan_id: String,
     pub task_id: String,
     pub execution_intent: crate::plan::ExecutionIntent,
@@ -761,6 +765,11 @@ impl PlanStore {
             source.authorized_gates.as_deref().unwrap_or(&[]),
         );
         Ok(TaskRespawnDraft {
+            launch_profile: request.launch_profile.or_else(|| {
+                (source_provider.as_deref() == Some(provider.as_str()))
+                    .then(|| source.launch_profile.clone())
+                    .flatten()
+            }),
             plan_id: read.plan_id,
             task_id: task.id.clone(),
             execution_intent: task.execution_intent.clone(),

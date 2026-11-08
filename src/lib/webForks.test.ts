@@ -29,9 +29,6 @@ interface ForkSite {
 const INVENTORY: ForkSite[] = [
   {"file": "src/lib/transportParityScan.ts", "anchor": "if (!markerAssignment && ((ts.isPropertyAccessExpression(node) && [\"__TAURI_INTERNALS__\", \"__TAURI__\"].includes(node.name.text))", "ordinal": 1, "cls": "capability-gate", "note": "Audits direct native runtime access without choosing a frontend transport"},
   {"file": "src/lib/transportParityScan.ts", "anchor": "&& [\"__TAURI_INTERNALS__\", \"__TAURI__\"].includes(node.argumentExpression.text)))) {", "ordinal": 1, "cls": "capability-gate", "note": "Audits indexed native runtime access without choosing a frontend transport"},
-  {"file": "src/store/multiplexer/index.tsx", "anchor": "dispatch({ type: \"SET_STATE\", state: guarded, force, pageOwnedSelection: IS_WEB,", "ordinal": 1, "cls": "platform-adaptation", "note": "Browser page owns its selection independently of desktop focus and restores its own persisted initial selection"},
-  {"file": "src/store/multiplexer/index.tsx", "anchor": "if (!acceptsPageFocus(stateRef.current, tabId, IS_WEB)) return;", "ordinal": 1, "cls": "platform-adaptation", "note": "Browser page filters daemon focus against its local selection"},
-  {"file": "src/store/multiplexer/index.tsx", "anchor": "if (IS_WEB) dispatch({ type: \"SET_FOCUSED_TAB\", tabId });", "ordinal": 1, "cls": "platform-adaptation", "note": "Browser focus updates the page selection locally"},
 
   {"file":"src/lib/nativeBridge.ts","anchor":"export function createNativeBridge(native: boolean = typeof window !== \"undefined\" && \"__TAURI_INTERNALS__\" in window): NativeBridge {","ordinal":1,"cls":"capability-gate","note":"Native capability detection is independent of the daemon HTTP transport"},
   {"file":"src/lib/daemonBootstrap.ts","anchor":"if (\"__TAURI_INTERNALS__\" in window) return undefined;","ordinal":1,"cls":"capability-gate","note":"Native capability detection is independent of the daemon HTTP transport"},
@@ -84,7 +81,6 @@ const INVENTORY: ForkSite[] = [
   { file: "src/store/multiplexer/initialState.ts", anchor: "if (!IS_WEB) return empty;", ordinal: 1, cls: "capability-gate", note: "lazy-init hydration from the boot snapshot cache is web-only" },
   { file: "src/store/multiplexer/index.tsx", anchor: "if (!IS_WEB || !cacheReady) return;", ordinal: 1, cls: "capability-gate", note: "persist boot snapshot cache only where it can ever be read back (web)" },
   { file: "src/store/multiplexer/index.tsx", anchor: "const hydratedAtBoot = IS_WEB && stateRef.current.generation === HYDRATED_GENERATION;", ordinal: 1, cls: "capability-gate", note: "cache-hydrated-at-boot detection is web-only (native has no cache path)" },
-  { file: "src/store/multiplexer/index.tsx", anchor: "initialSelection: IS_WEB && !reconciledRef.current ? initialPageSelection(guarded, loadClientPageSelection()) : undefined });", ordinal: 1, cls: "platform-adaptation", note: "The browser restores its locally persisted workspace and tab selection on initial reconcile" },
   { file: "src/store/multiplexer/index.tsx", anchor: "} else if (IS_WEB) {", ordinal: 1, cls: "capability-gate", note: "IndexedDB fallback hydration for the boot cache is web-only" },
   { file: "src/store/multiplexer/index.tsx", anchor: "if (IS_WEB && !wasReconciled) window.dispatchEvent(new Event(\"codeterm-cache-reconciled\"));", ordinal: 1, cls: "capability-gate", note: "cache-reconciled signal only fires where the boot cache exists (web)" },
 ];

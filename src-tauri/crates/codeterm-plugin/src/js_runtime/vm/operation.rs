@@ -10,7 +10,7 @@ use super::VmError;
 use crate::converter::ConversionCancellation;
 
 pub(in crate::js_runtime) const MAX_OPERATIONS: usize = 32;
-const OPERATION_BOUND: Duration = Duration::from_secs(5);
+const OPERATION_BOUND: Duration = super::super::call_deadline::STANDARD;
 
 pub(in crate::js_runtime) struct Context {
     cancellation: ConversionCancellation,

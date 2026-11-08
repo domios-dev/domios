@@ -18,7 +18,98 @@ fn owns(tab: &Tab, provider: &str, context: &RuntimeContext) -> bool {
 }
 
 pub(super) fn for_tab(svc: &ServiceContext, tab_id: &str) -> Result<Option<Vec<ChatMsg>>, String> {
-    cached(svc, tab_id, None)
+    snapshot(svc, tab_id, None)
+}
+
+fn snapshot(
+    svc: &ServiceContext,
+    tab_id: &str,
+    expected: Option<(&str, &str, &str)>,
+) -> Result<Option<Vec<ChatMsg>>, String> {
+    if crate::service::agent_runtime::requested_for_tab(svc, tab_id)
+        && svc.mux.read().get_tab(tab_id).is_some_and(|tab| {
+            tab.agent_session_id.is_none()
+                && tab
+                    .agent_runtime_state
+                    .as_ref()
+                    .is_some_and(|state| state["state"] == "degraded")
+        })
+    {
+        return Err(super::runtime_stored::StoredHistoryFailure::Unavailable
+            .error("Runtime start failed before a conversation was bound; start a new session"));
+    }
+    let cached = cached(svc, tab_id, expected)?;
+    if cached.as_ref().is_some_and(|rows| !rows.is_empty()) {
+        return Ok(cached);
+    }
+    Ok(persisted(svc, tab_id, expected)?.or(cached))
+}
+
+fn persisted(
+    svc: &ServiceContext,
+    tab_id: &str,
+    expected: Option<(&str, &str, &str)>,
+) -> Result<Option<Vec<ChatMsg>>, String> {
+    if !crate::service::agent_runtime::requested_for_tab(svc, tab_id) {
+        return Ok(None);
+    }
+    let tab = svc
+        .mux
+        .read()
+        .get_tab(tab_id)
+        .cloned()
+        .ok_or("Tab not found")?;
+    let Some((provider, thread)) = tab
+        .agent_type
+        .as_deref()
+        .zip(tab.agent_session_id.as_deref())
+        .filter(|(_, thread)| !thread.is_empty())
+    else {
+        return Ok(None);
+    };
+    let context = RuntimeContext {
+        tab_id: tab.id.clone(),
+        cwd: tab.cwd.clone().unwrap_or_default(),
+        thread_id: Some(thread.into()),
+        binding_nonce: tab.session_binding_nonce.clone().unwrap_or_default(),
+        ..Default::default()
+    };
+    if expected
+        .is_some_and(|(id, cwd, session)| id != provider || cwd != context.cwd || session != thread)
+    {
+        return Ok(None);
+    }
+    let Some(capability) = svc
+        .agent_registry
+        .with_provider(provider, |adapter| adapter.agent_runtime())
+        .flatten()
+    else {
+        return Ok(None);
+    };
+    let Some(rows) =
+        engine::persisted_transcript(provider, thread, &capability).map_err(|error| {
+            super::runtime_stored::StoredHistoryFailure::Unavailable
+                .error(format!("Stored runtime transcript: {error}"))
+        })?
+    else {
+        return Ok(None);
+    };
+    if !owns(&tab, provider, &context) {
+        return Err("Stored runtime transcript binding is not current".into());
+    }
+    if !svc
+        .mux
+        .read()
+        .get_tab(tab_id)
+        .is_some_and(|tab| owns(tab, provider, &context))
+    {
+        return Err("Stored runtime transcript binding changed during snapshot".into());
+    }
+    log::debug!(
+        "[runtime-transcript] tab={tab_id} snapshot source=persisted provider={provider} rows={}",
+        rows.len()
+    );
+    Ok(Some(rows))
 }
 
 fn cached(
@@ -33,6 +124,15 @@ fn cached(
         return Ok(None);
     };
     let context = session.context.lock().clone();
+    if context.thread_id.is_none()
+        && matches!(
+            session.state.lock().phase,
+            crate::service::agent_runtime::model::RuntimePhase::Degraded { .. }
+        )
+    {
+        return Err(super::runtime_stored::StoredHistoryFailure::Unavailable
+            .error("Runtime start failed before a conversation was bound; start a new session"));
+    }
     if expected.is_some_and(|(provider, cwd, thread)| {
         session.provider != provider
             || context.cwd != cwd
@@ -59,9 +159,6 @@ fn cached(
                     == Some(thread)
             })
         });
-    if !session.thread_loaded.load(Ordering::Acquire) && !fresh_unused {
-        return Ok(None);
-    }
     let current = tab
         .as_ref()
         .is_some_and(|tab| owns(tab, &session.provider, &context));
@@ -69,6 +166,9 @@ fn cached(
         return Err("Runtime transcript binding is not current".into());
     }
     let messages = session.cache.lock().snapshot();
+    if !session.thread_loaded.load(Ordering::Acquire) && !fresh_unused && messages.is_empty() {
+        return Ok(None);
+    }
     let current_context = session.context.lock().clone();
     let current = svc
         .mux
@@ -113,16 +213,16 @@ pub(super) fn for_session(
         })
         .map(|tab| tab.id.clone())
         .collect::<Vec<_>>();
-    let mut snapshot = None;
+    let mut found = None;
     for tab in tabs {
-        if let Some(messages) = cached(svc, &tab, Some((provider_id, cwd, session_id)))? {
-            if snapshot.is_some() {
+        if let Some(messages) = snapshot(svc, &tab, Some((provider_id, cwd, session_id)))? {
+            if found.is_some() {
                 return Err("Runtime transcript has multiple current tab owners".into());
             }
-            snapshot = Some((messages, 0));
+            found = Some((messages, 0));
         }
     }
-    match snapshot {
+    match found {
         Some(snapshot) => Ok(Some(snapshot)),
         None => super::runtime_stored::archived_window(svc, provider_id, cwd, session_id),
     }

@@ -5,6 +5,7 @@ import type { Notification } from "../../lib/types";
 import { MultiplexerActionsContext, type MultiplexerActionsContextType } from "../../store/multiplexer/context";
 import { NotificationToastContainer } from "../Notifications/NotificationToast";
 import { desktopCatalogFixture } from "../billing/desktopBilling.testdata";
+import { PURCHASES_DEFAULT } from "../billing/purchaseSwitch";
 
 const daemon = vi.hoisted(() => {
   const state = {
@@ -94,7 +95,7 @@ import { AccountTab } from "./AccountTab";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-function Harness() {
+function Harness({ purchases }: { purchases: boolean }) {
   const [toasts, setToasts] = useState<Notification[]>([]);
   const actions = useMemo(() => ({
     upsertToast: (toast: Omit<Notification, "timestamp" | "read">) => setToasts((current) => [
@@ -102,7 +103,7 @@ function Harness() {
     ]),
   }), []);
   return <MultiplexerActionsContext.Provider value={actions as unknown as MultiplexerActionsContextType}>
-    <AccountTab />
+    <AccountTab purchases={purchases} />
     <NotificationToastContainer toasts={toasts} onDismiss={(id) => setToasts((current) => current.filter((toast) => toast.id !== id))} />
   </MultiplexerActionsContext.Provider>;
 }
@@ -125,11 +126,12 @@ afterEach(async () => {
   vi.useRealTimers();
 });
 
-async function mount() {
+/** Purchase flows mount with purchase on, so they keep working for when it returns; the shipped default has its own tests. */
+async function mount(purchases = true) {
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
-  await act(async () => root!.render(<Harness />));
+  await act(async () => root!.render(<Harness purchases={purchases} />));
 }
 
 const settle = () => act(async () => { for (let turn = 0; turn < 10; turn++) await Promise.resolve(); });
@@ -446,4 +448,28 @@ it("shows the typed no-customer fallback when a paid subscription readback has b
   expect(daemon.state.portals).toBe(1);
   expect(toast()?.textContent).toContain("There is no paid subscription to manage. Your current access is not billed through Paddle.");
   expect(button(toast() as HTMLElement, "Retry")).toBeUndefined();
+});
+
+it("while purchase is off, the Plan card offers the free-key notice and redemption instead of any purchase", async () => {
+  daemon.state.identity = { uid: "free-user", display_name: "Ada", email: "ada@example.test", provider: "fake" };
+  daemon.state.paidPlan = null;
+  await mount(PURCHASES_DEFAULT);
+  await settle();
+  expect(host.querySelector('[role="group"][aria-label="Subscription plans"]')).toBeNull();
+  expect(host.querySelector('section[aria-label$=" plan"]')).toBeNull();
+  expect(button(host, "Upgrade")).toBeUndefined();
+  expect(host.querySelector('[data-testid="community-keys-notice"]')).not.toBeNull();
+  expect(host.querySelector('form[aria-label="Redeem a gift key"]')).not.toBeNull();
+  expect(daemon.state.upgrades).toEqual([]);
+});
+
+it("while purchase is off, a paying subscriber can still manage the subscription", async () => {
+  daemon.state.identity = { uid: "paid-user", display_name: "Ada", email: "ada@example.test", provider: "fake" };
+  daemon.state.account = { plan: "pro", fullAccess: false };
+  daemon.state.paidPlan = "pro";
+  await mount(PURCHASES_DEFAULT);
+  await settle();
+  await click(host, "Manage subscription");
+  expect(daemon.state.portals).toBe(1);
+  expect(daemon.state.upgrades).toEqual([]);
 });

@@ -10,3 +10,8 @@ Third-party components retain their own licenses.
 All revisions in this repository are licensed as stated above.
 
 Terms of Service and Privacy Policy: see the legal/ directory.
+
+ACP profile marks (plugins/provider-acp/gemini-color.svg and deepseek-color.svg)
+are derived from @lobehub/icons-static-svg 1.102.0, icons/gemini-color.svg and
+icons/deepseek-color.svg: https://github.com/lobehub/lobe-icons
+Copyright (c) 2023 LobeHub. MIT License; see plugins/provider-acp/NOTICE.

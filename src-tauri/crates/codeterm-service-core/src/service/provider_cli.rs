@@ -1,9 +1,21 @@
-pub(crate) use codeterm_plugin::provider_cli::{observe_cli, ProviderCliStatus};
+pub(crate) use codeterm_plugin::provider_cli::ProviderCliStatus;
 pub fn provider_cli_status(
     registry: &crate::provider::ProviderRegistry,
     provider_id: &str,
     platform: &str,
 ) -> Result<ProviderCliStatus, String> {
+    provider_cli_status_with_refresh(registry, provider_id, platform, false)
+}
+
+pub fn provider_cli_status_with_refresh(
+    registry: &crate::provider::ProviderRegistry,
+    provider_id: &str,
+    platform: &str,
+    refresh: bool,
+) -> Result<ProviderCliStatus, String> {
+    if refresh {
+        registry.recheck_profiles(provider_id);
+    }
     registry.cli_status(provider_id, platform)
 }
 

@@ -17,6 +17,37 @@ import { MemoryChatSendDatabase, MemoryChatSendRepository } from "./chatSendRepo
 import { encodeChatSend, encodeChatSendTombstone } from "./chatSendDurableModel";
 import { createChatSendRepository, type ChatSendRepositoryPort } from "./chatSendRepository";
 
+test("the snapshot counts held sends this window has no record of, once its ledger has loaded", async () => {
+  const tabId = "unowned-held";
+  const repository = new MemoryChatSendRepository();
+  let completeHydration!: () => void;
+  repository.hydrationGate = new Promise<void>((resolve) => { completeHydration = resolve; });
+  __setChatSendRepositoryForTest(repository);
+  const status = (state: ChatSendStatus["state"], sequence: number): ChatSendStatus => ({
+    tab_id: tabId, send_id: "elsewhere", correlationId: "elsewhere-token", state, sequence,
+    ledger_id: "ledger", retained_from: 1, error: null,
+  });
+  let seen = -1;
+  function Probe() { seen = useChatSendSnapshot(tabId).unownedHeld; return null; }
+  const root = createRoot(document.createElement("div"));
+  try {
+    await act(async () => root.render(createElement(Probe)));
+    await act(async () => reconcileDeliveryStatuses(tabId, [status("held", 1)]));
+    assert.equal(seen, 0, "a ledger still loading may hold this send's record");
+    await act(async () => { completeHydration(); await ensureChatSendTabHydrated(tabId); });
+    assert.equal(seen, 1);
+    await act(async () => observeDeliveryStatus(status("failed", 2)));
+    assert.equal(seen, 0, "a live settlement ends the count");
+    await act(async () => observeDeliveryStatus(status("held", 3)));
+    assert.equal(seen, 1);
+    await act(async () => reconcileDeliveryStatuses(tabId, []));
+    assert.equal(seen, 0, "a server snapshot replaces what was known");
+  } finally {
+    await act(async () => root.unmount());
+    __setChatSendRepositoryForTest(null);
+  }
+});
+
 test("cold hydration is explicitly pending while local sends remain synchronous", async () => {
   const tabId = "cold-hydration";
   const persisted = encodeChatSend(tabId, { id: "restored", content: "stored", sentAtMs: 1 });

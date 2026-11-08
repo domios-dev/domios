@@ -87,6 +87,7 @@ fn manifest_with_version(v: &str) -> Manifest {
         notes: None,
         pub_date: None,
         platforms: HashMap::new(),
+        served_by: None,
     }
 }
 
@@ -132,6 +133,7 @@ fn manifest_for_platforms(v: &str, keys: &[&str]) -> Manifest {
         notes: None,
         pub_date: None,
         platforms,
+        served_by: None,
     }
 }
 

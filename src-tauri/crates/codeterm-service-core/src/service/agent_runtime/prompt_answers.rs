@@ -16,6 +16,7 @@ struct Entry {
     request: RpcId,
     epoch: u64,
     binding: String,
+    thread: Option<String>,
     prompt: PendingPrompt,
     claimed: bool,
 }
@@ -29,12 +30,16 @@ fn request_token(context: &RuntimeContext, request: &RpcId) -> String {
 
 pub fn publish(svc: &ServiceContext, session: &Session, request: RpcId, mut prompt: PendingPrompt) {
     let context = session.context.lock().clone();
+    super::client_bridge::approvals::remember(&context, &request);
     prompt.request_id = Some(request_token(&context, &request));
     let visible = {
         let mut prompts = PROMPTS.lock();
         let queue = prompts.entry(context.tab_id.clone()).or_default();
-        queue
-            .retain(|entry| entry.epoch == context.epoch && entry.binding == context.binding_nonce);
+        queue.retain(|entry| {
+            entry.epoch == context.epoch
+                && entry.binding == context.binding_nonce
+                && entry.thread == context.thread_id
+        });
         if let Some(entry) = queue.iter_mut().find(|entry| entry.request == request) {
             entry.prompt = prompt;
         } else {
@@ -42,6 +47,7 @@ pub fn publish(svc: &ServiceContext, session: &Session, request: RpcId, mut prom
                 request,
                 epoch: context.epoch,
                 binding: context.binding_nonce,
+                thread: context.thread_id,
                 prompt,
                 claimed: false,
             });
@@ -50,6 +56,7 @@ pub fn publish(svc: &ServiceContext, session: &Session, request: RpcId, mut prom
     };
     svc.push_structured_prompt(&context.tab_id, visible);
     svc.mark_agent_waiting(&context.tab_id);
+    auto_confirm_bridge(svc, &context.tab_id);
 }
 
 pub fn resolve(svc: &ServiceContext, session: &Session, request: &RpcId) {
@@ -62,6 +69,7 @@ pub fn clear(svc: &ServiceContext, context: &RuntimeContext) {
 }
 
 fn remove(svc: &ServiceContext, context: &RuntimeContext, request: Option<&RpcId>) {
+    super::client_bridge::approvals::forget(context, request);
     let (removed, next) = {
         let mut prompts = PROMPTS.lock();
         let Some(queue) = prompts.get_mut(&context.tab_id) else {
@@ -71,6 +79,7 @@ fn remove(svc: &ServiceContext, context: &RuntimeContext, request: Option<&RpcId
         queue.retain(|entry| {
             !(entry.epoch == context.epoch
                 && entry.binding == context.binding_nonce
+                && entry.thread == context.thread_id
                 && request.is_none_or(|request| &entry.request == request))
         });
         let next = queue.front().map(|entry| entry.prompt.clone());
@@ -92,6 +101,7 @@ fn remove(svc: &ServiceContext, context: &RuntimeContext, request: Option<&RpcId
             );
         }
         svc.push_structured_prompt(&context.tab_id, next);
+        auto_confirm_bridge(svc, &context.tab_id);
     }
 }
 
@@ -99,6 +109,7 @@ fn matching_entry(entry: &Entry, context: &RuntimeContext, expected: &PromptIden
     !entry.claimed
         && entry.epoch == context.epoch
         && entry.binding == context.binding_nonce
+        && entry.thread == context.thread_id
         && entry.prompt.request_id.as_deref()
             == Some(request_token(context, &entry.request).as_str())
         && PromptIdentity::new(PromptKind::Structured, &entry.prompt) == *expected
@@ -176,187 +187,271 @@ fn answer(prompt: &PendingPrompt, value: &str) -> Result<PromptAnswer, RuntimeFa
     Ok(answer)
 }
 
-pub fn respond(
+pub async fn respond(
     svc: &ServiceContext,
     tab: &str,
     value: &str,
     expected: Option<&PromptIdentity>,
+) -> Option<Result<RespondPromptOutcome, String>> {
+    respond_inner(svc, tab, value, expected, false).await
+}
+
+pub(crate) fn auto_confirm_bridge(svc: &ServiceContext, tab: &str) {
+    if !automatic_bridge_enabled(svc, tab) {
+        return;
+    }
+    let entry = PROMPTS
+        .lock()
+        .get(tab)
+        .and_then(|queue| queue.front())
+        .filter(|entry| !entry.claimed)
+        .cloned();
+    let Some(entry) = entry else {
+        return;
+    };
+    let Some(session) = engine::for_tab(tab) else {
+        return;
+    };
+    let context = session.context.lock().clone();
+    if !super::client_bridge::pending(&context, &entry.request) {
+        return;
+    }
+    let identity = PromptIdentity::new(PromptKind::Structured, &entry.prompt);
+    let owner = svc.clone();
+    let tab = tab.to_owned();
+    crate::async_runtime::spawn(async move {
+        let _ = respond_inner(&owner, &tab, "allow_once", Some(&identity), true).await;
+    });
+}
+
+/// Requests already waiting on the owner follow a changed permission setting.
+pub(super) fn settle_after_policy_change(svc: &ServiceContext, tab: &str) {
+    let Some(session) = engine::for_tab(tab) else {
+        return;
+    };
+    let waiting: Vec<(RpcId, PendingPrompt)> = PROMPTS
+        .lock()
+        .get(tab)
+        .map(|queue| {
+            queue
+                .iter()
+                .filter(|entry| !entry.claimed)
+                .map(|entry| (entry.request.clone(), entry.prompt.clone()))
+                .collect()
+        })
+        .unwrap_or_default();
+    for (request, prompt) in waiting {
+        let permission = session
+            .prompts
+            .lock()
+            .get(&request)
+            .and_then(|pending| pending.permission.clone());
+        super::permission_policy::answer(svc, &session, &request, &prompt, permission.as_ref());
+    }
+    auto_confirm_bridge(svc, tab);
+}
+
+fn automatic_bridge_enabled(svc: &ServiceContext, tab: &str) -> bool {
+    svc.mux
+        .read()
+        .get_tab(tab)
+        .is_some_and(|tab| tab.auto_approve || tab.permission_auto_confirm)
+}
+
+async fn respond_inner(
+    svc: &ServiceContext,
+    tab: &str,
+    value: &str,
+    expected: Option<&PromptIdentity>,
+    automatic_bridge: bool,
 ) -> Option<Result<RespondPromptOutcome, String>> {
     let runtime = super::requested_for_tab(svc, tab);
     let has_token = expected.is_some_and(|identity| identity.request_id.is_some());
     if !runtime && !has_token {
         return None;
     }
-    Some((|| {
-        let Some(session) = engine::for_tab(tab) else {
-            return Ok(RespondPromptOutcome::StalePrompt);
-        };
-        let captured = session.context.lock().clone();
-        let entry = PROMPTS
-            .lock()
-            .get(tab)
-            .and_then(|queue| queue.front().cloned());
-        let Some(entry) = entry else {
-            return Ok(RespondPromptOutcome::StalePrompt);
-        };
-        let snapshot_identity = PromptIdentity::new(PromptKind::Structured, &entry.prompt);
-        let expected = expected.unwrap_or(&snapshot_identity);
-        if !matching_entry(&entry, &captured, expected)
-            || !current_prompt_matches(svc, tab, &captured, expected)
-        {
-            return Ok(RespondPromptOutcome::StalePrompt);
-        }
-        let answer = match answer(&entry.prompt, value) {
-            Ok(answer) => answer,
-            Err(_) => return Ok(RespondPromptOutcome::InvalidOption),
-        };
-        let _permit =
-            super::blocking::deadline(std::time::Duration::from_secs(30), session.gate.acquire())
-                .map_err(|_| "Runtime approval permit deadline")?
-                .map_err(|_| "Runtime stopped")?;
-        let current = session.context.lock().clone();
-        if !matching_entry(&entry, &current, expected)
-            || !current_prompt_matches(svc, tab, &current, expected)
-            || engine::validate_binding(svc, &session).is_err()
-            || !session.prompts.lock().contains_key(&entry.request)
-        {
-            return Ok(RespondPromptOutcome::StalePrompt);
-        }
-        let process = session
-            .process
-            .lock()
-            .clone()
-            .ok_or("Runtime process unavailable")?;
-        {
-            let mut prompts = PROMPTS.lock();
-            let Some(live) = prompts.get_mut(tab).and_then(|queue| queue.front_mut()) else {
+    Some(
+        async {
+            let Some(session) = engine::for_tab(tab) else {
                 return Ok(RespondPromptOutcome::StalePrompt);
             };
-            if !matching_entry(live, &current, expected) {
+            let captured = session.context.lock().clone();
+            let entry = PROMPTS
+                .lock()
+                .get(tab)
+                .and_then(|queue| queue.front().cloned());
+            let Some(entry) = entry else {
+                return Ok(RespondPromptOutcome::StalePrompt);
+            };
+            let snapshot_identity = PromptIdentity::new(PromptKind::Structured, &entry.prompt);
+            let expected = expected.unwrap_or(&snapshot_identity);
+            if !matching_entry(&entry, &captured, expected)
+                || !current_prompt_matches(svc, tab, &captured, expected)
+            {
                 return Ok(RespondPromptOutcome::StalePrompt);
             }
-            live.claimed = true;
+            let answer = match answer(&entry.prompt, value) {
+                Ok(answer) => answer,
+                Err(_) => return Ok(RespondPromptOutcome::InvalidOption),
+            };
+            let _permit =
+                tokio::time::timeout(std::time::Duration::from_secs(30), session.gate.acquire())
+                    .await
+                    .map_err(|_| "Runtime approval permit deadline")?
+                    .map_err(|_| "Runtime stopped")?;
+            let current = session.context.lock().clone();
+            if automatic_bridge
+                && (!automatic_bridge_enabled(svc, tab)
+                    || !super::client_bridge::pending(&current, &entry.request))
+            {
+                return Ok(RespondPromptOutcome::StalePrompt);
+            }
+            if !matching_entry(&entry, &current, expected)
+                || !current_prompt_matches(svc, tab, &current, expected)
+                || engine::validate_binding(svc, &session).is_err()
+                || !session.prompts.lock().contains_key(&entry.request)
+            {
+                return Ok(RespondPromptOutcome::StalePrompt);
+            }
+            let process = session
+                .process
+                .lock()
+                .clone()
+                .ok_or("Runtime process unavailable")?;
+            {
+                let mut prompts = PROMPTS.lock();
+                let Some(live) = prompts.get_mut(tab).and_then(|queue| queue.front_mut()) else {
+                    return Ok(RespondPromptOutcome::StalePrompt);
+                };
+                if !matching_entry(live, &current, expected) {
+                    return Ok(RespondPromptOutcome::StalePrompt);
+                }
+                live.claimed = true;
+            }
+            let bridged =
+                super::client_bridge::answer(svc, &session, &process, &entry.request, &answer)
+                    .await
+                    .map_err(|error| error.to_string())?;
+            if bridged {
+                return Ok(RespondPromptOutcome::Structured);
+            }
+            let result = engine::run(
+                svc,
+                &session.provider,
+                &session,
+                &process,
+                RuntimeOperation::Answer {
+                    request_id: entry.request.clone(),
+                    answer,
+                },
+            )
+            .await;
+            if !session.prompts.lock().contains_key(&entry.request) {
+                remove(svc, &captured, Some(&entry.request));
+            }
+            if let Err(error) = result {
+                session.state.lock().degrade(captured.epoch, &error);
+                clear(svc, &captured);
+                engine::publish(svc, tab, &session);
+                return Err(error.to_string());
+            }
+            Ok(RespondPromptOutcome::Structured)
         }
-        let result = crate::async_runtime::block_on(engine::run(
-            svc,
-            &session.provider,
-            &session,
-            &process,
-            RuntimeOperation::Answer {
-                request_id: entry.request.clone(),
-                answer,
-            },
-        ));
-        if !session.prompts.lock().contains_key(&entry.request) {
-            remove(svc, &captured, Some(&entry.request));
-        }
+        .await,
+    )
+}
+
+pub fn respond_blocking(
+    svc: &ServiceContext,
+    tab: &str,
+    value: &str,
+    expected: Option<&PromptIdentity>,
+) -> Option<Result<RespondPromptOutcome, String>> {
+    if !super::requested_for_tab(svc, tab)
+        && !expected.is_some_and(|identity| identity.request_id.is_some())
+    {
+        return None;
+    }
+    let owner = svc.clone();
+    let tab = tab.to_string();
+    let value = value.to_string();
+    let expected = expected.cloned();
+    match super::blocking::task(
+        async move { respond(&owner, &tab, &value, expected.as_ref()).await },
+    ) {
+        Ok(result) => result,
+        Err(error) => Some(Err(error)),
+    }
+}
+
+pub(super) async fn cancel_pending(
+    svc: &ServiceContext,
+    session: &std::sync::Arc<Session>,
+    process: &std::sync::Arc<super::process::Process>,
+) -> Result<(), RuntimeFailure> {
+    let mut context = session.context.lock().clone();
+    let Some(adapter) = session.adapter.lock().clone() else {
+        clear(svc, &context);
+        return Ok(());
+    };
+    if context.client_bridges.is_none()
+        && adapter
+            .agent_runtime()
+            .is_none_or(|cap| cap.client_bridges.is_none())
+    {
+        return Ok(());
+    }
+    let pending = std::mem::take(&mut *session.prompts.lock());
+    let mut errors = Vec::new();
+    for (request_id, pending) in pending {
+        context.pending_request = Some(pending.request);
+        let operation = RuntimeOperation::Answer {
+            request_id: request_id.clone(),
+            answer: PromptAnswer::Cancel,
+        };
+        let plan = tokio::time::timeout(
+            codeterm_plugin::agent_runtime::RUNTIME_HOOK_DEADLINE,
+            adapter.runtime_plan(&context, &operation),
+        )
+        .await;
+        let result = match plan {
+            Ok(Ok(codeterm_plugin::agent_runtime::RuntimePlan {
+                action:
+                    codeterm_plugin::agent_runtime::RuntimeAction::Reply {
+                        request_id: id,
+                        result,
+                    },
+                ..
+            })) if id == request_id => {
+                process
+                    .client
+                    .reply(
+                        &id,
+                        match result {
+                            codeterm_plugin::agent_runtime::RpcReply::Success { value } => {
+                                Ok(value)
+                            }
+                            codeterm_plugin::agent_runtime::RpcReply::Error { error } => Err(error),
+                        },
+                    )
+                    .await
+            }
+            _ => Err(RuntimeFailure::Refused(
+                "Pending request cancellation was refused".into(),
+            )),
+        };
         if let Err(error) = result {
-            session.state.lock().degrade(captured.epoch, &error);
-            clear(svc, &captured);
-            engine::publish(svc, tab, &session);
-            return Err(error.to_string());
+            errors.push(error.to_string());
         }
-        Ok(RespondPromptOutcome::Structured)
-    })())
+        resolve(svc, session, &request_id);
+    }
+    clear(svc, &context);
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(RuntimeFailure::Refused(errors.join("; ")))
+    }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn prompt() -> PendingPrompt {
-        serde_json::from_value(serde_json::json!({"question":"opaque", "options":[{"label":"Allow", "value":"native-yes"},{"label":"Reject", "value":"native-no"}]})).unwrap()
-    }
-
-    #[test]
-    fn choices_send_native_values_and_reject_unknown_options() {
-        assert_eq!(
-            answer(&prompt(), "1").unwrap(),
-            PromptAnswer::Choice {
-                values: vec!["native-yes".into()]
-            }
-        );
-        assert_eq!(
-            answer(&prompt(), "native-no").unwrap(),
-            PromptAnswer::Choice {
-                values: vec!["native-no".into()]
-            }
-        );
-        assert!(answer(&prompt(), "foreign").is_err());
-    }
-
-    #[test]
-    fn multiselect_keeps_opaque_values_and_refuses_foreign_values() {
-        let mut prompt = prompt();
-        prompt.multi_select = Some(true);
-        assert_eq!(
-            answer(&prompt, r#"["native-yes","native-no"]"#).unwrap(),
-            PromptAnswer::Choice {
-                values: vec!["native-yes".into(), "native-no".into()]
-            }
-        );
-        assert!(answer(&prompt, r#"["other"]"#).is_err());
-        assert!(answer(&prompt, "10001").is_err());
-    }
-    #[test]
-    fn exact_request_identity_rejects_epoch_binding_and_typed_id_changes() {
-        let context = RuntimeContext {
-            restricted_cli: None,
-            epoch: 2,
-            binding_nonce: "own".into(),
-            ..Default::default()
-        };
-        let id = RpcId::Number(7);
-        let mut prompt = prompt();
-        prompt.request_id = Some(request_token(&context, &id));
-        let identity = PromptIdentity::new(PromptKind::Structured, &prompt);
-        let mut entry = Entry {
-            request: id,
-            epoch: 2,
-            binding: "own".into(),
-            prompt,
-            claimed: false,
-        };
-        assert!(matching_entry(&entry, &context, &identity));
-        assert!(!matching_entry(
-            &entry,
-            &RuntimeContext {
-                restricted_cli: None,
-                epoch: 3,
-                ..context.clone()
-            },
-            &identity
-        ));
-        assert!(!matching_entry(
-            &entry,
-            &RuntimeContext {
-                restricted_cli: None,
-                binding_nonce: "foreign".into(),
-                ..context.clone()
-            },
-            &identity
-        ));
-        entry.request = RpcId::String("7".into());
-        assert!(!matching_entry(&entry, &context, &identity));
-        entry.request = RpcId::Number(8);
-        assert!(!matching_entry(&entry, &context, &identity));
-        entry.request = RpcId::Number(7);
-        entry.claimed = true;
-        assert!(!matching_entry(&entry, &context, &identity));
-    }
-
-    #[test]
-    fn numeric_multiselect_rejects_unknown_bits_and_preserves_native_values() {
-        let mut prompt = prompt();
-        prompt.multi_select = Some(true);
-        prompt.options[0].value = "1".into();
-        prompt.options[1].value = "3".into();
-        assert_eq!(
-            answer(&prompt, "10005").unwrap(),
-            PromptAnswer::Choice {
-                values: vec!["1".into(), "3".into()]
-            }
-        );
-        assert!(answer(&prompt, "10002").is_err());
-    }
-}
+mod tests;
