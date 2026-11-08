@@ -268,6 +268,9 @@ fn available_name(
     id: &str,
 ) -> Result<codeterm_plugin::agent_runtime::AgentRuntimeCapability, String> {
     owner_profiles::valid_name(id)?;
+    if owner_profiles::names_the_store(id) {
+        return Err(format!("{id} is reserved; choose another name"));
+    }
     let capability = svc
         .agent_registry
         .with_provider(PROVIDER, |p| p.agent_runtime())
@@ -327,16 +330,73 @@ fn no_active_setup(id: &str) -> Result<(), String> {
     Ok(())
 }
 
-pub fn remove(id: &str) -> Result<Value, String> {
+fn not_in_use(svc: &ServiceContext, id: &str) -> Result<(), String> {
+    let mux = svc.mux.read();
+    let tabs: Vec<&str> = mux
+        .all_tabs()
+        .filter(|tab| {
+            tab.agent_type.as_deref() == Some(PROVIDER)
+                && super::launch_profile::of_tab(tab).as_deref() == Some(id)
+        })
+        .map(|tab| tab.id.as_str())
+        .collect();
+    if tabs.is_empty() {
+        return Ok(());
+    }
+    Err(format!(
+        "Profile {id} is in use by tab {}; close it before removing the profile",
+        tabs.join(", ")
+    ))
+}
+
+/// Names differing only by case resolve to one file on Windows and macOS.
+fn sole_owner_of_its_files(svc: &ServiceContext, id: &str) -> Result<(), String> {
+    let shipped = svc
+        .agent_registry
+        .with_provider(PROVIDER, |p| p.agent_runtime())
+        .flatten()
+        .and_then(|capability| capability.launch_profiles)
+        .unwrap_or_default();
+    let owner = owner_profiles::load(PROVIDER)?;
+    let twin = shipped
+        .keys()
+        .chain(owner.keys())
+        .find(|other| other.as_str() != id && other.eq_ignore_ascii_case(id));
+    match twin {
+        Some(other) => Err(format!(
+            "Profile {id} differs from {other} only by case and may share its files; remove it by hand"
+        )),
+        None => Ok(()),
+    }
+}
+
+pub fn remove(svc: &ServiceContext, id: &str) -> Result<Value, String> {
     let _mutation = super::launch_profile_setup::mutation()?;
     owner_profiles::valid_name(id)?;
     no_active_setup(id)?;
-    owner_profiles::update(PROVIDER, |profiles| {
+    if !owner_profiles::load(PROVIDER)?.contains_key(id) {
+        return Err("Only owner-added profiles can be removed".into());
+    }
+    sole_owner_of_its_files(svc, id)?;
+    not_in_use(svc, id)?;
+    let root = installer::profile_root(PROVIDER)?;
+    let declaration = owner_profiles::update(PROVIDER, |profiles| {
         profiles
             .remove(id)
-            .map(|_| ())
             .ok_or("Only owner-added profiles can be removed".into())
     })?;
+    // Without its declaration no new launch can bind, so this second look sees every tab that can.
+    let outcome = not_in_use(svc, id).and_then(|()| installer::remove_files(&root, id));
+    if let Err(reason) = outcome {
+        // The profile stays declared, so the owner can repeat the removal.
+        owner_profiles::update(PROVIDER, |profiles| {
+            profiles.insert(id.into(), declaration);
+            Ok(())
+        })
+        .map_err(|restore| format!("{reason}; {restore}"))?;
+        changed()?;
+        return Err(reason);
+    }
     super::launch_profile_setup::forget_finished(PROVIDER, id);
     changed()?;
     Ok(json!({"id":id}))
@@ -467,7 +527,7 @@ pub fn execute(svc: &ServiceContext, params: &Value) -> Result<Value, String> {
             )?;
             save(&id, profile)
         }
-        "remove" => remove(text("name")?),
+        "remove" => remove(svc, text("name")?),
         "registry_search" => registry_search(text("query")?),
         "registry_install" => {
             let _mutation = super::launch_profile_setup::mutation()?;

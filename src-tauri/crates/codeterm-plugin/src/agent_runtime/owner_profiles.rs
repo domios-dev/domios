@@ -38,6 +38,11 @@ pub fn valid_name(name: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// A profile's install receipt is `<name>.json` beside this store, so this name would be the store.
+pub fn names_the_store(name: &str) -> bool {
+    name.eq_ignore_ascii_case("owner-profiles")
+}
+
 pub fn read(path: &Path) -> Result<Profiles, String> {
     let file = match std::fs::File::open(path) {
         Ok(file) => file,

@@ -25,6 +25,7 @@ struct Writes {
     latest: BTreeMap<PathBuf, Snapshot>,
 }
 static WRITES: LazyLock<Mutex<Writes>> = LazyLock::new(|| Mutex::new(Writes::default()));
+static FILES: LazyLock<Mutex<()>> = LazyLock::new(Default::default);
 
 fn path(root: &Path, id: &str) -> Option<PathBuf> {
     if id.is_empty()
@@ -223,6 +224,7 @@ pub(crate) fn record(
     writes.running = true;
     drop(writes);
     crate::async_runtime::spawn_blocking(|| loop {
+        let _files = FILES.lock();
         let next = {
             let mut writes = WRITES.lock();
             match writes.pending.pop_first() {
@@ -238,6 +240,21 @@ pub(crate) fn record(
             log::debug!("Profile options could not be saved: {error}");
         }
     });
+}
+
+/// Drops this profile's remembered and queued options, then its file.
+pub(super) fn forget(root: &Path, id: &str) -> Result<(), String> {
+    let Some(path) = path(root, id) else {
+        return Ok(());
+    };
+    {
+        let mut writes = WRITES.lock();
+        writes.pending.remove(&path);
+        writes.latest.remove(&path);
+    }
+    // Waits out a write already taken from the queue, which would otherwise outlive the delete.
+    let _files = FILES.lock();
+    super::launch_profile_install::remove_file_if_present(&path)
 }
 
 #[cfg(test)]
