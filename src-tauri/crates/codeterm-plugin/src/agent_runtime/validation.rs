@@ -578,10 +578,15 @@ pub fn validate_runtime_step(
         RuntimeStep::Refused {
             before_acceptance, ..
         } => {
-            if *before_acceptance
-                && matches!(op, RuntimeOperation::SubmitTurn { .. })
-                && !matches!(reply, RpcReply::Error { .. })
-            {
+            // Input offered to a running turn can be answered with a success that declines it.
+            let prompt = matches!(
+                op,
+                RuntimeOperation::SubmitTurn {
+                    active_turn_id: None,
+                    ..
+                }
+            );
+            if *before_acceptance && prompt && !matches!(reply, RpcReply::Error { .. }) {
                 return Err(mismatch("success cannot be pre-acceptance refusal"));
             }
             Ok(())

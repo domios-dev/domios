@@ -1,5 +1,5 @@
 {
-  "revision": 1,
+  "revision": 2,
   "tools": {
     "send": "Send a pad payload as this tab to an authorized target tab",
     "agent_report": "Report as this tab using a Markdown file in its pad",
@@ -7,7 +7,8 @@
     "mem_search": "Search Domios memory",
     "mem_get": "Read one Domios memory record",
     "task_show": "Read one Domios task",
-    "notify_send": "Notify the owner from this tab using a pad payload"
+    "notify_send": "Notify the owner from this tab using a pad payload",
+    "messages_check": "Collect reports and messages that arrived for this tab while your turn is running. Call it between long steps. Results of the other Domios tools carry waiting messages too, under an Inbound messages block; each is delivered once."
   },
   "arguments": {
     "target_tab": "Authorized local target tab id.",

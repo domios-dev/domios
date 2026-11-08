@@ -63,6 +63,7 @@ var methods = {
   load: "session/load",
   resume: "session/resume",
   prompt: "session/prompt",
+  steering: "_session/steering",
   cancel: "session/cancel",
   update: "session/update"
 };
@@ -1180,6 +1181,12 @@ function runtimePlan(ctx, op) {
           return refusePlan("Image attachment bytes are unavailable. The message was not sent.");
         images.push({ type: "image", data: attachment.data, mimeType: attachment.mimeType });
       }
+      if (state.steering && state.inFlight && op.activeTurnId) {
+        const plan2 = request(methods.steering, { sessionId, prompt: [{ type: "text", text: op.input.text }, ...images], _meta: { steering: { idleBehavior: "promptRequired" } } });
+        if (plan2.action.kind === "request") plan2.action.call.target = { threadId: sessionId, turnId: op.activeTurnId };
+        plan2.state = { method: methods.steering, turnId: op.activeTurnId };
+        return plan2;
+      }
       const prompt = [];
       if (state.instructions) prompt.push({ type: "text", text: state.instructions });
       prompt.push({ type: "text", text: op.input.text });
@@ -1238,9 +1245,23 @@ function promoteQueued(ctx, state) {
   }
   return events;
 }
+function steeringResponse(ctx, op, raw, reply) {
+  const sessionId = ctx.threadId;
+  const turnId = object4(raw).turnId;
+  if (reply.kind === "error") {
+    if (reply.error.code === -32e3) return refused("authentication_required", reply.error.message);
+    return { kind: "refused", reason: { code: "provider_refused", message: reply.error.message }, beforeAcceptance: [-32601, -32602].includes(reply.error.code) };
+  }
+  const outcome = object4(reply.value).outcome;
+  if (outcome === "promptRequired") return refused("provider_refused", "The agent's turn ended before this input joined it");
+  if (outcome !== "injected" && outcome !== "startedNewTurn" || !sessionId || typeof turnId !== "string")
+    return { kind: "refused", reason: { code: "protocol_error", message: "Invalid ACP steering response" }, beforeAcceptance: false };
+  return { kind: "complete", result: { kind: "turnAccepted", threadId: sessionId, sendId: op.sendId, turnId } };
+}
 function runtimeResponse(ctx, op, raw, reply) {
   binding(ctx, op);
   const method = object4(raw).method;
+  if (op.kind === "submitTurn" && method === methods.steering) return steeringResponse(ctx, op, raw, reply);
   if (reply.kind === "error") {
     const sessionOperation = op.kind === "openThread" && method === methods.newSession || op.kind === "resumeThread" && (method === methods.load || method === methods.resume);
     const state2 = negotiated(ctx);
@@ -1302,10 +1323,12 @@ function runtimeResponse(ctx, op, raw, reply) {
     }
     const prior = negotiated(ctx);
     const authenticated = object4(raw).authenticated === true || prior?.authenticated === true;
+    const steering = object4(object4(value._meta).steering).supported === true;
     remember(ctx, {
       epoch: ctx.epoch,
       nonce: ctx.bindingNonce,
       capabilities: object4(value.agentCapabilities),
+      steering,
       authMethods,
       authenticated,
       required: authenticated ? false : prior?.required,
@@ -1323,7 +1346,7 @@ function runtimeResponse(ctx, op, raw, reply) {
     });
     return {
       kind: "complete",
-      result: op.kind === "initialize" ? { kind: "initialized", ...agentIdentity(value.agentInfo) } : { kind: "done" },
+      result: op.kind === "initialize" ? { kind: "initialized", ...agentIdentity(value.agentInfo), ...steering ? { midTurnInput: true } : {} } : { kind: "done" },
       events: [{ kind: "authentication", authentication: authentication(authMethods, authenticated, authenticated ? false : prior?.required) }]
     };
   }

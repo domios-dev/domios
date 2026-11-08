@@ -137,6 +137,7 @@ pub(crate) fn drain(svc: &ServiceContext, tab: &str) -> Result<UserDrain, String
     if owner.revoked.load(Ordering::Acquire) || owner.failed.load(Ordering::Acquire) {
         return Ok(UserDrain::Idle);
     }
+    super::inbound::settle_abandoned_tool_claims(svc, tab);
     if store.queued(tab)?.is_empty() {
         return Ok(UserDrain::Idle);
     }
@@ -202,7 +203,8 @@ pub(crate) fn drain(svc: &ServiceContext, tab: &str) -> Result<UserDrain, String
         if !is_ready(svc, &record.authority) || !store.eligible(&record) {
             return Ok(UserDrain::Idle);
         }
-        if super::turn_requests::holds_new_submit(&session) {
+        let text = store.prepared(&record)?;
+        if super::turn_requests::holds_submit(&session, &text) {
             if let Some(status) = svc.chat_send_ledger.set_user_pending_reason(
                 &record.send_id,
                 Some(super::turn_requests::ACTIVE_TURN_HOLD),
@@ -230,7 +232,6 @@ pub(crate) fn drain(svc: &ServiceContext, tab: &str) -> Result<UserDrain, String
             }
             return Ok(UserDrain::Idle);
         }
-        let text = store.prepared(&record)?;
         let thread = context
             .thread_id
             .as_deref()
@@ -247,7 +248,11 @@ pub(crate) fn drain(svc: &ServiceContext, tab: &str) -> Result<UserDrain, String
             );
         }
         let dispatch_generation = owner.dispatch_generation.load(Ordering::Acquire);
-        let input = restore_input(&record, &text)?;
+        let digest = super::inbound::begin_digest(svc, tab, &session, &record, &text, &context);
+        let input = match &digest {
+            Some(digest) => digest.input.clone(),
+            None => restore_input(&record, &text)?,
+        };
         let result = transport::send(svc, tab, &input, Some(&record.send_id));
         let zero_write = result
             .as_ref()
@@ -265,6 +270,13 @@ pub(crate) fn drain(svc: &ServiceContext, tab: &str) -> Result<UserDrain, String
         if zero_write {
             svc.chat_send_ledger
                 .zero_write_user_handoff(&record.send_id);
+        }
+        if let Some(digest) = digest {
+            let outcome = result
+                .as_ref()
+                .map(|_| ())
+                .map_err(|reason| reason.ledger_message());
+            super::inbound::finish_digest(svc, tab, &session, digest, zero_write, outcome);
         }
         if let Some(status) = svc.chat_send_ledger.finish(
             &record.send_id,

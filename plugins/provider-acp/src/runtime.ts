@@ -15,6 +15,8 @@ interface Negotiation {
   epoch:number;
   nonce:string;
   capabilities:Record<string, JsonValue>;
+  /** The agent advertised `_session/steering`: input can join its running turn. */
+  steering:boolean;
   authMethods:AuthMethod[];
   authenticated?:boolean;
   required?:boolean;
@@ -285,6 +287,13 @@ export function runtimePlan(ctx:RuntimeContext, op:Operation):RuntimePlan {
           return refusePlan("Image attachment bytes are unavailable. The message was not sent.");
         images.push({type:"image",data:attachment.data,mimeType:attachment.mimeType});
       }
+      if (state.steering && state.inFlight && op.activeTurnId) {
+        // Joins the running turn: no prompt ordinal, and first-turn instructions already went out.
+        const plan=request(methods.steering,{sessionId,prompt:[{type:"text",text:op.input.text},...images],_meta:{steering:{idleBehavior:"promptRequired"}}});
+        if (plan.action.kind === "request") plan.action.call.target={threadId:sessionId,turnId:op.activeTurnId};
+        plan.state={method:methods.steering,turnId:op.activeTurnId};
+        return plan;
+      }
       const prompt:JsonValue[] = [];
       if (state.instructions) prompt.push({type:"text", text:state.instructions});
       prompt.push({type:"text", text:op.input.text});
@@ -347,9 +356,28 @@ function promoteQueued(ctx:RuntimeContext, state:Negotiation):import("@codeterm/
   return events;
 }
 
+/**
+ * Only a declined request or an explicit promptRequired proves the input stayed with the host, which
+ * holds it for the next prompt. Any other failure may follow its injection and is never retried.
+ */
+function steeringResponse(ctx:RuntimeContext, op:Extract<Operation,{kind:"submitTurn"}>, raw:JsonValue, reply:RpcReply):RuntimeStep {
+  const sessionId=ctx.threadId;
+  const turnId=object(raw).turnId;
+  if (reply.kind === "error") {
+    if (reply.error.code === -32000) return refused("authentication_required",reply.error.message);
+    return {kind:"refused",reason:{code:"provider_refused",message:reply.error.message},beforeAcceptance:[-32601,-32602].includes(reply.error.code)};
+  }
+  const outcome=object(reply.value).outcome;
+  if (outcome === "promptRequired") return refused("provider_refused","The agent's turn ended before this input joined it");
+  if (outcome !== "injected" && outcome !== "startedNewTurn" || !sessionId || typeof turnId !== "string")
+    return {kind:"refused",reason:{code:"protocol_error",message:"Invalid ACP steering response"},beforeAcceptance:false};
+  return {kind:"complete",result:{kind:"turnAccepted",threadId:sessionId,sendId:op.sendId,turnId}};
+}
+
 export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue, reply:RpcReply):RuntimeStep {
   binding(ctx, op);
   const method = object(raw).method;
+  if (op.kind === "submitTurn" && method === methods.steering) return steeringResponse(ctx,op,raw,reply);
   if (reply.kind === "error") {
     const sessionOperation=op.kind === "openThread" && method === methods.newSession
       || op.kind === "resumeThread" && (method === methods.load || method === methods.resume);
@@ -407,12 +435,13 @@ export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue,
     try {authMethods = decodeAuthMethods(value.authMethods);} catch {return refused("protocol_error", "Invalid ACP authentication declaration");}
     const prior = negotiated(ctx);
     const authenticated = object(raw).authenticated === true || prior?.authenticated === true;
+    const steering=object(object(value._meta).steering).supported === true;
     remember(ctx, {epoch:ctx.epoch, nonce:ctx.bindingNonce,
-      capabilities:object(value.agentCapabilities), authMethods, authenticated, required:authenticated ? false : prior?.required,
+      capabilities:object(value.agentCapabilities), steering, authMethods, authenticated, required:authenticated ? false : prior?.required,
       sessionId:prior?.sessionId, sessionActive:prior?.sessionActive, instructions:prior?.instructions,
       cursor:prior?.cursor ?? {replay:0,prompt:0,loading:false},inFlight:prior?.inFlight ?? false,
       promptOrdinal:prior?.promptOrdinal, projection:prior?.projection, promptSend:prior?.promptSend, queued:prior?.queued, settings:prior?.settings, modelStateId:prior?.modelStateId});
-    return {kind:"complete",result:op.kind === "initialize" ? {kind:"initialized",...agentIdentity(value.agentInfo)} : {kind:"done"},
+    return {kind:"complete",result:op.kind === "initialize" ? {kind:"initialized",...agentIdentity(value.agentInfo),...(steering ? {midTurnInput:true} : {})} : {kind:"done"},
       events:[{kind:"authentication",authentication:authentication(authMethods,authenticated,authenticated ? false : prior?.required)}]};
   }
   const state = negotiated(ctx);

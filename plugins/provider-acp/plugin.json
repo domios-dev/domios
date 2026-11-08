@@ -1,6 +1,6 @@
 {
   "id": "acp",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "minCodeterm": "1.19.1",
   "hostApi": 2,
   "displayName": "ACP",
@@ -121,7 +121,8 @@
           "session/set_mode"
         ],
         "submitTurn": [
-          "session/prompt"
+          "session/prompt",
+          "_session/steering"
         ],
         "interrupt": [
           "session/cancel"

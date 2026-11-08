@@ -312,6 +312,13 @@ when its submit request replies at the end of the turn. Its request must carry
 an exact `call.target` with the bound `threadId` and a valid provider-owned
 `turnId`. The target is host metadata and is not added to the wire payload.
 
+An agent that takes input into its running turn reports `midTurnInput: true` in
+its `initialized` result. The host then submits during that turn with
+`activeTurnId` set; a request whose `call.target.turnId` equals it joins that turn
+and answers in its own reply. Return a `refused` step with `beforeAcceptance: true`
+only when the agent proved it did not take the input; the host holds it for the
+next prompt. Any other failure stays uncertain and is never resent.
+
 The write receipt releases the submit gate with a written/awaiting-evidence
 outcome, displayed as `submit_unconfirmed`; it does not invent delivery. The first
 validated own-session `sendEvidence` may confirm that send later. The host retains the pending RPC under that

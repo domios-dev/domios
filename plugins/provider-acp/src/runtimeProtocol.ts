@@ -5,6 +5,7 @@ export const methods = {
   load: "session/load",
   resume: "session/resume",
   prompt: "session/prompt",
+  steering: "_session/steering",
   cancel: "session/cancel",
   update: "session/update",
 } as const;

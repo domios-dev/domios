@@ -175,7 +175,9 @@ async fn run_inner(
         super::model::validate_prompt_answer(prompt, answer)?;
         context.pending_request = Some(pending.request.clone());
     }
-    if matches!(operation, RuntimeOperation::SubmitTurn { .. }) {
+    if matches!(operation, RuntimeOperation::SubmitTurn { .. })
+        && !super::super::turn_requests::submit_joins_turn(session, &operation)
+    {
         session.prompts_cancelled.store(false, Ordering::Release);
         super::super::client_bridge::begin_turn(&context);
         process.begin_turn().await?;
@@ -285,10 +287,11 @@ async fn run_inner(
                     );
                 }
                 handed_off.store(true, Ordering::Release);
-                if capability
-                    .turn_scoped_requests
-                    .iter()
-                    .any(|kind| kind == operation.kind())
+                if !super::super::turn_requests::call_joins_turn(&operation, call)
+                    && capability
+                        .turn_scoped_requests
+                        .iter()
+                        .any(|kind| kind == operation.kind())
                 {
                     return super::super::turn_requests::run(
                         svc,
@@ -397,7 +400,19 @@ async fn run_inner(
                 }
                 next = plan;
             }
-            RuntimeStep::Refused { reason, .. } => {
+            RuntimeStep::Refused {
+                reason,
+                before_acceptance,
+            } => {
+                // Declined input never entered the turn, so it stays held for the next prompt.
+                if before_acceptance
+                    && super::super::turn_requests::submit_joins_turn(session, &operation)
+                {
+                    if reason.code == RuntimeFailureCode::AuthenticationRequired {
+                        super::super::declared_controls::require_authentication(svc, session);
+                    }
+                    return Err(RuntimeFailure::PrewriteRefused(reason.to_string()));
+                }
                 if reason.code == RuntimeFailureCode::AuthenticationRequired {
                     super::super::declared_controls::require_authentication(svc, session);
                     return Err(RuntimeFailure::SignInRequired);

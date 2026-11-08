@@ -160,6 +160,9 @@ pub struct RuntimeState {
     pub access_failure: Option<String>,
     #[serde(skip)]
     pub pending_load_notice: Option<String>,
+    /// Declared by this process at initialize: input may join its running turn.
+    #[serde(skip)]
+    pub mid_turn_input: bool,
     pub thread_id: Option<String>,
     pub phase: RuntimePhase,
     pub active_turn_started_at_ms: Option<u64>,
@@ -279,6 +282,7 @@ impl RuntimeState {
             notice: None,
             access_failure: None,
             pending_load_notice: None,
+            mid_turn_input: false,
             thread_id,
             phase: RuntimePhase::Unloaded { reason: None },
             active_turn_started_at_ms: None,

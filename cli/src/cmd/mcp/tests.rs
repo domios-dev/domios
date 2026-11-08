@@ -91,7 +91,8 @@ fn mcp_serve_fixed_allowlist_and_unknown_fields() {
             "mem_search",
             "mem_get",
             "task_show",
-            "notify_send"
+            "notify_send",
+            "messages_check"
         ]
     );
     for name in ["spawn", "mem_secret", "mesh", "config"] {
@@ -289,4 +290,161 @@ fn mcp_startup_ack_runs_the_task_ack_only_for_a_task_bound_tab() {
     );
     let report = tool_args("agent_report", &json!({"from_pad":"report.md"})).unwrap();
     assert_eq!(launch_args(report.clone(), true), report);
+}
+
+#[derive(Default)]
+struct FakeInbound {
+    waiting: Option<&'static str>,
+    claims: usize,
+    settled: Vec<(String, bool)>,
+}
+
+impl Inbound for FakeInbound {
+    fn claim(&mut self) -> Option<inbound::Claim> {
+        self.claims += 1;
+        self.waiting.take().map(|text| inbound::Claim {
+            id: format!("claim-{}", self.claims),
+            text: text.into(),
+        })
+    }
+    fn settle(&mut self, id: &str, written: bool) {
+        self.settled.push((id.into(), written));
+    }
+}
+
+fn tool_frame(id: u64, name: &str, arguments: Value) -> String {
+    format!(
+        "{}\n",
+        json!({"jsonrpc":"2.0","id":id,"method":"tools/call","params":{"name":name,"arguments":arguments}})
+    )
+}
+
+fn replies(output: Vec<u8>) -> Vec<Value> {
+    String::from_utf8(output)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect()
+}
+
+#[test]
+fn a_waiting_message_rides_the_next_tool_result_once_and_settles_after_it_was_written() {
+    let input = [
+        tool_frame(1, "mem_get", json!({"id":"opaque"})),
+        tool_frame(2, "mem_get", json!({"id":"opaque"})),
+    ]
+    .concat();
+    let mut output = Vec::new();
+    let mut inbound = FakeInbound {
+        waiting: Some("opaque inbound"),
+        ..Default::default()
+    };
+    protocol_with(input.as_bytes(), &mut output, "", &mut inbound, |_| {
+        Ok("opaque-result".into())
+    })
+    .unwrap();
+    let replies = replies(output);
+    assert_eq!(
+        replies[0]["result"]["content"],
+        json!([{"type":"text","text":"opaque-result"},{"type":"text","text":"opaque inbound"}])
+    );
+    assert_eq!(
+        replies[1]["result"]["content"],
+        json!([{"type":"text","text":"opaque-result"}]),
+        "the next result does not repeat it"
+    );
+    assert_eq!(inbound.settled, [("claim-1".to_owned(), true)]);
+}
+
+#[test]
+fn a_failed_write_leaves_the_claim_unsettled_because_bytes_may_have_gone_out() {
+    struct BrokenPipe;
+    impl std::io::Write for BrokenPipe {
+        fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+            Err(std::io::ErrorKind::BrokenPipe.into())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let input = tool_frame(1, "mem_get", json!({"id":"opaque"}));
+    let mut inbound = FakeInbound {
+        waiting: Some("opaque inbound"),
+        ..Default::default()
+    };
+    assert!(
+        protocol_with(input.as_bytes(), &mut BrokenPipe, "", &mut inbound, |_| Ok(
+            "opaque-result".into()
+        ))
+        .is_err()
+    );
+    assert_eq!(inbound.claims, 1);
+    assert!(inbound.settled.is_empty(), "no delivery was proven");
+}
+
+#[test]
+fn only_a_successful_tool_result_can_carry_a_message() {
+    let input = [
+        tool_frame(1, "agent_report", json!({"from_pad":"report.md"})),
+        tool_frame(2, "mem_get", json!({"id":"opaque","extra":"refused"})),
+        format!(
+            "{}\n",
+            json!({"jsonrpc":"2.0","id":3,"method":"tools/list"})
+        ),
+    ]
+    .concat();
+    let mut output = Vec::new();
+    let mut inbound = FakeInbound {
+        waiting: Some("opaque inbound"),
+        ..Default::default()
+    };
+    protocol_with(input.as_bytes(), &mut output, "", &mut inbound, |_| {
+        Err("opaque failure")
+    })
+    .unwrap();
+    assert_eq!(inbound.claims, 0, "an agent may discard a failed call");
+    assert!(!String::from_utf8(output)
+        .unwrap()
+        .contains("opaque inbound"));
+}
+
+#[test]
+fn checking_messages_runs_no_command_and_returns_what_is_waiting() {
+    let input = tool_frame(1, "messages_check", json!({}));
+    let mut output = Vec::new();
+    let mut inbound = FakeInbound {
+        waiting: Some("opaque inbound"),
+        ..Default::default()
+    };
+    protocol_with(input.as_bytes(), &mut output, "", &mut inbound, |_| {
+        panic!("this tool has no command")
+    })
+    .unwrap();
+    assert_eq!(
+        replies(output)[0]["result"]["content"][1]["text"],
+        "opaque inbound"
+    );
+    assert_eq!(inbound.settled, [("claim-1".to_owned(), true)]);
+
+    let refused = tool_frame(1, "messages_check", json!({"tab":"foreign"}));
+    let mut output = Vec::new();
+    protocol(refused.as_bytes(), &mut output, "", |_| {
+        panic!("this tool has no command")
+    })
+    .unwrap();
+    assert_eq!(replies(output)[0]["error"]["code"], -32602);
+}
+
+#[test]
+fn a_queued_send_reaches_the_sending_agent_as_its_receipt_not_as_a_failure() {
+    let held =
+        json!({"ok":false,"error":{"code":"held"},"result":{"send_id":"opaque","status":"held"}});
+    assert!(is_held_receipt(held.to_string().as_bytes()));
+    for other in [
+        json!({"ok":false,"error":{"code":"internal"},"result":{"send_id":"opaque"}}),
+        json!({"ok":false,"error":{"code":"held"},"result":null}),
+    ] {
+        assert!(!is_held_receipt(other.to_string().as_bytes()));
+    }
+    assert!(!is_held_receipt(b"not json"));
 }

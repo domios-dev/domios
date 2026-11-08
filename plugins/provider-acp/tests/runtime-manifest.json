@@ -106,7 +106,8 @@
         "session/set_mode"
       ],
       "submitTurn": [
-        "session/prompt"
+        "session/prompt",
+        "_session/steering"
       ],
       "interrupt": [
         "session/cancel"
@@ -195,6 +196,7 @@
     "resume-buffered-replay-new-turn.json",
     "gemini-durable-replay-new-turn.json",
     "self-send-overlapping-prompts.json",
+    "steering-mid-turn.json",
     "tool-output-retention.json",
     "oversize-astral-cut.json",
     "many-turns-tool-admission.json",

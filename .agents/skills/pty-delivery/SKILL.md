@@ -114,6 +114,16 @@ Claimed or uncertain records remain held and are never replayed.
   order, when the turn settles. A written prompt the agent refused while busy
   stays `submit_unconfirmed` with an `agent_refused_while_busy` reason: no
   Retry, no replay, late own-session evidence still delivers it.
+- Held input can still reach a busy structured agent, each path write-once and
+  owned by `agent_runtime/inbound.rs`. An agent whose initialize declared
+  `midTurnInput` takes it through a submit aimed at the running turn; the reply
+  to that exact request is the evidence, and a proven decline returns it to the
+  queue. Otherwise the tab's own host tool result carries a durable claim, and
+  only the tool server's acknowledgement after writing that result confirms it.
+  Only proof that the server never received the text returns a claim; an
+  unacknowledged one settles `submit_unconfirmed` when the turn ends and never
+  replays. What remains at turn end folds into one digest prompt whose exact
+  evidence confirms every member, and whose proven zero-write returns them all.
 - A degraded runtime owns no turn: its active turn clears and held sends resolve
   once. The owner retries readiness and writes them in order when the runtime
   loads again. If that attempt fails on the published degraded state, each
@@ -215,4 +225,4 @@ Expected turn evidence and the Chat reader follow the same rule.
 | Closed-chat append-window evidence scan | `service/chat_send_evidence.rs` |
 | Live transcript deltas (evidence source) | `service/tab_chat/` sinks |
 
-<!-- revision: 11 -->
+<!-- revision: 12 -->

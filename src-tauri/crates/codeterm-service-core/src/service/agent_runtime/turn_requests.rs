@@ -673,7 +673,46 @@ pub(crate) fn holds_new_submit(session: &Session) -> bool {
     active || waiting(session, epoch)
 }
 
-fn submit_owns_turn(session: &Session) -> bool {
+/// Input joins a running turn only when this agent declared it and a prompt of ours owns that turn.
+/// A command starts its own turn, so it waits like any other submit.
+pub(crate) fn joins_running_turn(session: &Session, text: &str) -> bool {
+    let declared = session.state.lock().mid_turn_input;
+    if text.starts_with('/') || !declared || !submit_owns_turn(session) {
+        return false;
+    }
+    let (active, epoch) = {
+        let context = session.context.lock();
+        (context.active_turn_id.is_some(), context.epoch)
+    };
+    active && waiting(session, epoch)
+}
+
+pub(crate) fn holds_submit(session: &Session, text: &str) -> bool {
+    holds_new_submit(session) && !joins_running_turn(session, text)
+}
+
+/// This submit was admitted into a running turn: it opens no turn of its own.
+pub(super) fn submit_joins_turn(session: &Session, operation: &RuntimeOperation) -> bool {
+    matches!(
+        operation,
+        RuntimeOperation::SubmitTurn {
+            active_turn_id: Some(_),
+            ..
+        }
+    ) && session.state.lock().mid_turn_input
+}
+
+/// A request aimed at the turn already running reports its outcome in its reply; that turn's own
+/// prompt keeps ownership of when the turn ends.
+pub(super) fn call_joins_turn(operation: &RuntimeOperation, call: &RpcCall) -> bool {
+    matches!(
+        operation,
+        RuntimeOperation::SubmitTurn { active_turn_id: Some(active), .. }
+            if call.target.as_ref().and_then(|target| target.turn_id.as_ref()) == Some(active)
+    )
+}
+
+pub(super) fn submit_owns_turn(session: &Session) -> bool {
     session
         .adapter
         .lock()

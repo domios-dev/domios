@@ -789,6 +789,7 @@ async fn ensure_locked(
             let RuntimeResult::Initialized {
                 binary_version,
                 agent_name,
+                mid_turn_input,
             } = result
             else {
                 return Err(RuntimeFailure::HookFailed(
@@ -798,6 +799,7 @@ async fn ensure_locked(
             let mut state = session.state.lock();
             state.binary_version = binary_version;
             state.agent_name = agent_name;
+            state.mid_turn_input = mid_turn_input;
             drop(state);
             icons::start(svc, session);
             Ok(())

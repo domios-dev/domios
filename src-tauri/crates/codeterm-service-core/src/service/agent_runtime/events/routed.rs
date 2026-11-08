@@ -97,6 +97,32 @@ impl RuntimeMaps {
         Ok(())
     }
 
+    /// The row a send shows in Chat when the wire text it travels in carries more than itself.
+    pub(in crate::service::agent_runtime) fn remember_routed_row(
+        &mut self,
+        send: &str,
+        thread: &str,
+        row: ChatMsg,
+    ) -> Result<(), String> {
+        if !self.routed_inputs.contains_key(send) && self.routed_inputs.len() >= MAX_RUNTIME_BATCH {
+            return Err("Runtime routed input capacity exhausted".into());
+        }
+        self.routed_inputs.insert(send.into(), (thread.into(), row));
+        Ok(())
+    }
+
+    pub(in crate::service::agent_runtime) fn remember_digest(
+        &mut self,
+        head: &str,
+        members: Vec<String>,
+    ) {
+        self.digest_members.insert(head.into(), members);
+    }
+
+    pub(in crate::service::agent_runtime) fn take_digest(&mut self, head: &str) -> Vec<String> {
+        self.digest_members.remove(head).unwrap_or_default()
+    }
+
     pub(in crate::service::agent_runtime) fn project_routed_response_item(
         &mut self,
         send: &str,

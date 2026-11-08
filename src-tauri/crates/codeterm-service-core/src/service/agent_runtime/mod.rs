@@ -21,6 +21,7 @@ mod events;
 pub mod full_access;
 pub mod goals;
 mod host_mcp;
+mod inbound;
 mod initialize;
 mod launch_options;
 pub mod launch_profile;
