@@ -318,6 +318,17 @@ pub async fn finish_session_binding(
 
     if !claim.changed {
         if claim.nonce_verified {
+            if !claim.nonce_already_acknowledged {
+                // A resumed launch cleared its model evidence but keeps its session id, so its
+                // first verified report, not a session change, is the event that re-reads it.
+                let service = svc.clone();
+                let tab = tab_id.to_string();
+                let session = sid.to_string();
+                let _ = tokio::task::spawn_blocking(move || {
+                    service.refresh_unconfirmed_session_model(&tab, &session)
+                })
+                .await;
+            }
             svc.schedule_planner_replay(&tab_id);
         }
         return Ok(Json(serde_json::json!({"ok": true, "changed": false})));

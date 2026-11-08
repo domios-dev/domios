@@ -360,6 +360,126 @@ test("persisted policy survives JSON restart and refuses changed selection, rost
   }
 });
 
+async function restoredFixture(identity = record()) {
+  const f = fixture(); await f.prepare(); f.setTab(identity); await f.ctx.policy.identity("owned");
+  f.ctx.state = JSON.parse(JSON.stringify(f.ctx.state)); f.ctx.options.mode = "verify";
+  await f.prepare(false); f.calls.length = 0;
+  return f;
+}
+const withoutActual = (value = record()) => { const unknown = { ...value }; delete unknown.agent_session_model; return unknown; };
+// Each event models one daemon state change; an exhausted list is the wait's deadline.
+function modelEventsFrom(steps) {
+  const opened = { count: 0, closed: 0 };
+  const open = async () => {
+    opened.count++;
+    return { next: async () => { const step = steps.shift(); if (!step) throw new Error("deadline"); step(); return { event_type: "mux-state-changed" }; },
+      drain() {}, close() { opened.closed++; } };
+  };
+  return { open, opened };
+}
+
+test("a restored tab's actual model arriving after readiness is confirmed, with no persisted refusal", async () => {
+  const f = await restoredFixture();
+  f.setTab(withoutActual());
+  const { open, opened } = modelEventsFrom([() => {}, () => f.setTab(record())]);
+  f.ctx.modelEvents = open;
+  const evidence = await f.ctx.policy.identity("owned", { restored: true });
+  assert.equal(evidence.actual, model);
+  assert.equal(f.ctx.state.model_policy.refusal, undefined);
+  assert.equal(f.ctx.state.model_policy.restored_identities.owned.actual, model);
+  assert.deepEqual(opened, { count: 1, closed: 1 });
+  await sendText(f.ctx, "owned", "restored turn runs on the confirmed model");
+  assert.equal(paidCalls(f.calls).length, 1);
+});
+
+test("a restored send holds its paid call until the actual model is confirmed", async () => {
+  const f = await restoredFixture();
+  f.setTab(withoutActual());
+  let paidBeforeConfirmation = null;
+  const { open } = modelEventsFrom([() => { paidBeforeConfirmation = paidCalls(f.calls).length; f.setTab(record()); }]);
+  f.ctx.modelEvents = open;
+  await sendText(f.ctx, "owned", "must wait for confirmation");
+  assert.equal(paidBeforeConfirmation, 0);
+  assert.equal(paidCalls(f.calls).length, 1);
+});
+
+test("an actual model still unknown at the deadline refuses, persists and pays nothing", async () => {
+  const f = await restoredFixture();
+  f.setTab(withoutActual());
+  const { open, opened } = modelEventsFrom([]);
+  f.ctx.modelEvents = open;
+  await assert.rejects(f.ctx.policy.identity("owned", { restored: true }), /actual model unconfirmed/);
+  assert.match(f.ctx.state.model_policy.refusal, /actual model unconfirmed/);
+  assert.deepEqual(opened, { count: 1, closed: 1 });
+  await assert.rejects(sendText(f.ctx, "owned", "must not pay"), /persisted refusal/);
+  assert.deepEqual(paidCalls(f.calls), []);
+});
+
+test("a mismatch reported during the wait refuses at once", async () => {
+  for (const patch of [{ agent_session_model: "other" }, { model_fallback: {} }, { model_identity_mismatch: {} },
+    { agent_requested_model: "other" }, { agent_session_id: "foreign-session" }]) {
+    const f = await restoredFixture();
+    f.setTab(withoutActual());
+    const later = [() => assert.fail("a settled identity must not wait again")];
+    const { open } = modelEventsFrom([() => f.setTab({ ...withoutActual(), ...patch }), ...later]);
+    f.ctx.modelEvents = open;
+    await assert.rejects(f.ctx.policy.identity("owned", { restored: true }), /model policy refused/);
+    assert.ok(f.ctx.state.model_policy.refusal);
+    assert.doesNotMatch(f.ctx.state.model_policy.refusal, /unconfirmed/);
+    assert.deepEqual(paidCalls(f.calls), []);
+  }
+});
+
+test("only an absent actual model waits: any other disagreement refuses without subscribing", async () => {
+  for (const patch of [{ agent_session_model: "other" }, { agent_requested_model: "other" }, { agent_provider_resolved_model: "other" },
+    { model_fallback: {} }, { model_identity_mismatch: {} }, { agent_session_id: "foreign-session" }]) {
+    const f = await restoredFixture();
+    f.setTab({ ...withoutActual(), ...patch });
+    const { open, opened } = modelEventsFrom([]);
+    f.ctx.modelEvents = open;
+    await assert.rejects(f.ctx.policy.identity("owned", { restored: true }), /model policy refused/);
+    assert.equal(opened.count, 0);
+  }
+});
+
+test("a confirmed restored tab and an unrestored tab never wait", async () => {
+  const f = await restoredFixture();
+  const { open, opened } = modelEventsFrom([]);
+  f.ctx.modelEvents = open;
+  assert.equal((await f.ctx.policy.identity("owned", { restored: true })).actual, model);
+  f.setTab(withoutActual());
+  await assert.rejects(f.ctx.policy.identity("owned"), /actual model unknown/);
+  assert.equal(opened.count, 0);
+});
+
+test("restored profile sessions wait for a model they selected or already observed, and a default without one never waits", async () => {
+  const profileTab = { id: "owned", agent_type: "acp", agent_runtime_config: { launchProfile: "gemini-cli" }, agent_session_id: "acp-session" };
+  const restoredProfile = async (selection, before, after) => {
+    const f = profileFixture(selection);
+    f.profiles[0].configOptions = [{ category: "model", options: [{ value: "exact" }] }];
+    await f.prepare(); f.setTab(before); await f.ctx.policy.identity("owned");
+    f.ctx.state = JSON.parse(JSON.stringify(f.ctx.state)); f.ctx.options.mode = "verify";
+    await f.prepare(false);
+    f.setTab(after);
+    return f;
+  };
+  const explicit = { ...profileTab, agent_requested_model: "exact", agent_provider_resolved_model: "exact", agent_session_model: "exact" };
+  const observed = { ...profileTab, agent_provider_resolved_model: "auto", agent_session_model: "auto" };
+  for (const [selection, before] of [["gemini-cli/exact", explicit], ["gemini-cli", observed]]) {
+    const f = await restoredProfile(selection, before, withoutActual(before));
+    const { open, opened } = modelEventsFrom([() => f.setTab(before)]);
+    f.ctx.modelEvents = open;
+    assert.equal((await f.ctx.policy.identity("owned", { restored: true })).actual, before.agent_session_model);
+    assert.equal(opened.count, 1);
+    assert.equal(f.ctx.state.model_policy.refusal, undefined);
+  }
+  const f = await restoredProfile("gemini-cli", profileTab, profileTab);
+  const { open, opened } = modelEventsFrom([]);
+  f.ctx.modelEvents = open;
+  assert.equal((await f.ctx.policy.identity("owned", { restored: true })).actual, null);
+  assert.equal(opened.count, 0);
+});
+
 test("identity checks exact requested, catalogue-resolved and runtime identities independently", () => {
   assert.equal(modelIdentity(record(), provider, model).actual, model);
   for (const field of ["agent_requested_model", "agent_provider_resolved_model", "agent_session_model"]) {
