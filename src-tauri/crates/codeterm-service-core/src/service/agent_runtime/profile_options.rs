@@ -241,4 +241,20 @@ pub(crate) fn record(
 }
 
 #[cfg(test)]
+pub(crate) fn seed_catalogue_for_test(
+    svc: &crate::service::ServiceContext,
+    provider: &str,
+    id: &str,
+    settings: serde_json::Value,
+) {
+    let profile = super::launch_profile_install::declaration(svc, provider, id).unwrap();
+    let settings: RuntimeSettings = serde_json::from_value(settings).unwrap();
+    let root = super::launch_profile_install::profile_root(provider).unwrap();
+    WRITES.lock().latest.insert(
+        path(&root, id).unwrap(),
+        snapshot(&profile, &settings).unwrap(),
+    );
+}
+
+#[cfg(test)]
 mod tests;

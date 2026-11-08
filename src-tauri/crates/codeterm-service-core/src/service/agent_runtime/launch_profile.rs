@@ -9,6 +9,16 @@ use std::{
     path::PathBuf,
 };
 
+/// The launch profile this tab's runtime was started on; a launch derived from the tab needs it too.
+pub fn of_tab(tab: &crate::multiplexer::types::Tab) -> Option<String> {
+    tab.agent_runtime_config
+        .as_ref()?
+        .get("launchProfile")?
+        .as_str()
+        .filter(|profile| !profile.is_empty())
+        .map(str::to_owned)
+}
+
 pub(super) struct ResolvedLaunch {
     pub binary: PathBuf,
     pub capability: AgentRuntimeCapability,

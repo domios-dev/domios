@@ -53,6 +53,7 @@ fn restored_orchestrator_recovers_unbound_fallback_only_while_runtime_is_live() 
     for reason in [
         CuratorFailure::ProviderUnavailable,
         CuratorFailure::MirrorUnavailable,
+        CuratorFailure::ProfileUnavailable,
         CuratorFailure::LaunchFailed,
         CuratorFailure::ConsecutiveFailures,
     ] {
@@ -300,6 +301,126 @@ fn curator_prepare_failure_keeps_fallback_and_rearms_protected_job() {
     assert!(persisted.enabled);
     assert_eq!(persisted.next_run, state.next_at);
     assert!(state.owner_heartbeat());
+}
+
+const PROFILE: &str = "opaque-profile";
+
+fn register_profile_provider(service: &crate::service::ServiceContext, binary: &str) -> String {
+    use codeterm_plugin::js_runtime::{JsProvider, PluginManifest, PluginVm};
+    let provider = format!("curator-profile-{}", uuid::Uuid::new_v4());
+    let manifest = PluginManifest::from_json_str(
+        &serde_json::json!({
+            "id":provider,"version":"1.0.0","displayName":"Fixture",
+            "capabilities":{"agentProvider":true,
+                "chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},"agentRuntime":{
+                "runtime":"stdio-jsonrpc","command":{"binary":"fixture","args":[]},
+                "launchProfiles":{PROFILE:{"binary":binary,"args":[]}},
+                "requestMethods":{"initialize":["initialize"]},"notificationMethods":[]}},
+            "spawn":{"readinessStrategy":{"kind":"fixed_delay","durationMs":0},
+                "taskDelivery":"pty_input","verifySubmit":{"kind":"none"}},
+            "permissions":{"subprocess":{"allow":["fixture",binary]}}
+        })
+        .to_string(),
+    )
+    .unwrap();
+    service
+        .agent_registry
+        .register_provider(Box::new(JsProvider::new(
+            manifest,
+            Arc::new(PluginVm::from_source(&provider, "module.exports = {};".into()).unwrap()),
+        )));
+    provider
+}
+
+fn start_owner_on_profile(service: &crate::service::ServiceContext, plan: &str, provider: &str) {
+    let owner = service.plan_store.get(plan).unwrap().owner.tab_id.unwrap();
+    let mut mux = service.mux.write();
+    let tab = mux.get_tab_mut(&owner).unwrap();
+    tab.agent_type = Some(provider.into());
+    tab.agent_runtime_config = Some(serde_json::json!({"launchProfile":PROFILE}));
+}
+
+/// The catalogue carries a display name; the launch must use the value the agent declared.
+#[test]
+fn curator_for_a_profile_orchestrator_launches_on_its_profile_and_declared_selection() {
+    let (fixture, id, _) = fixture(false);
+    let service = &fixture.service;
+    let binary = std::env::current_exe().unwrap().display().to_string();
+    let provider = register_profile_provider(service, &binary);
+    crate::service::agent_runtime::profile_options::seed_catalogue_for_test(
+        service,
+        &provider,
+        PROFILE,
+        serde_json::json!({"configOptions":[
+            {"id":"model","name":"Model","category":"model","currentValue":"opaque-model",
+             "options":[{"value":"opaque-model","name":"Friendly"}]},
+            {"id":"effort","name":"Effort","category":"thought_level","currentValue":"low",
+             "options":[{"value":"low","name":"Low"}]}
+        ]}),
+    );
+    start_owner_on_profile(service, &id, &provider);
+    let owner = service.plan_store.get(&id).unwrap().owner.tab_id.unwrap();
+    let tab = {
+        let mut mux = service.mux.write();
+        let tab = mux.get_tab_mut(&owner).unwrap();
+        tab.agent_session_model = Some("Friendly".into());
+        tab.reasoning_effort_identity.actual = Some("low".into());
+        tab.clone()
+    };
+    let mirror = service
+        .available_mirror(super::super::scheduling::resolve_mirror(&tab).unwrap())
+        .unwrap();
+    assert_eq!(mirror.provider, provider);
+    assert_eq!(mirror.launch_profile.as_deref(), Some(PROFILE));
+    assert_eq!(mirror.model, "opaque-model");
+    assert_eq!(mirror.effort.as_deref(), Some("low"));
+}
+
+fn assert_named_profile_fallback(state: &crate::plan::ControlLoop, code: &str) {
+    assert_eq!(
+        state.fallback_reason,
+        Some(CuratorFailure::ProfileUnavailable)
+    );
+    assert!(state.owner_heartbeat());
+    let round = state.last_round.as_ref().unwrap();
+    assert_eq!(
+        round.outcome,
+        codeterm_types::plan::CuratorOutcome::Fallback
+    );
+    assert_eq!(round.reason, "profile_unavailable");
+    assert!(round.summary.contains(code), "{}", round.summary);
+    assert!(round.summary.contains(PROFILE), "{}", round.summary);
+}
+
+#[test]
+fn curator_fire_on_an_unavailable_profile_falls_back_and_names_the_cause() {
+    use crate::service::role_policy::RolePolicy;
+    let (fixture, id, cron) = fixture(false);
+    let service = &fixture.service;
+    assert!(service.set_ext(CuratorTabs::default()).is_ok());
+    let state = service.control_loop_show(&id).unwrap();
+    let job = cron.lock().get(&state.cron_id.unwrap()).unwrap().clone();
+    let provider = register_profile_provider(service, "domios-absent-profile-binary");
+    start_owner_on_profile(service, &id, &provider);
+    assert!(super::super::policy::POLICY
+        .prepare_cron(service, &job, NOW)
+        .unwrap()
+        .is_none());
+    let state = service.plan_store.get(&id).unwrap().control_loop;
+    assert_named_profile_fallback(&state, "launch_profile_not_installed");
+    assert_eq!(state.next_at, Some(NOW + curator_delay(None) * 1000));
+    assert!(cron.lock().get(&job.id).unwrap().enabled);
+}
+
+#[test]
+fn curator_reconcile_names_an_unavailable_profile_before_any_launch() {
+    let (fixture, id, _) = fixture(false);
+    let service = &fixture.service;
+    let provider = register_profile_provider(service, "domios-absent-profile-binary");
+    start_owner_on_profile(service, &id, &provider);
+    service.reconcile_curator_for_test(&id, NOW);
+    let state = service.plan_store.get(&id).unwrap().control_loop;
+    assert_named_profile_fallback(&state, "launch_profile_not_installed");
 }
 
 #[test]
