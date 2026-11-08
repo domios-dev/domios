@@ -272,8 +272,14 @@ per tab in the model picker; the choice applies at once and survives restart and
   that mode, Domios also answers any question the agent still asks, such as Gemini's
   prompt about paths outside the project. If you choose any other mode, the agent asks.
   Domios re-applies your chosen mode after every restore.
-- **Other agents** (DeepSeek, for example): a **Permissions** row offers **Ask each
-  time** and **Allow all**. A question already waiting follows the new setting.
+- **Other agents**: a **Permissions** row offers **Ask when the agent asks** and
+  **Allow all**. Domios shows you the questions the agent sends, and how often it asks
+  depends on the agent. A question already waiting follows the new setting.
+- **DeepSeek**: the row offers **Ask outside workspace** and **Allow all**, because
+  DeepSeek only asks to go beyond its workspace-write sandbox. Commands and writes
+  inside the workspace run without a question under either choice, and Domios can't
+  change that: DeepSeek sets its sandbox when a session is created and offers no
+  control for it over ACP.
 
 Only you can change these. An agent's request to change its mode or Permissions is
 refused, and a mode the agent enters by itself doesn't change what Domios answers.
@@ -385,4 +391,4 @@ an agent cannot change its own or another tab's mode this way.
   the current index and refuses unsupported distributions; neither proves agent
   authentication or compatibility.
 
-<!-- revision: 15 -->
+<!-- revision: 17 -->

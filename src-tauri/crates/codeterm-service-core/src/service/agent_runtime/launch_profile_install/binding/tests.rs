@@ -43,6 +43,7 @@ fn install_identity_ignores_presentation_policy_and_overlays_but_tracks_the_inst
             json!({"kind":"account","provider":"fixture"}),
         ),
         ("fullAccessMode", json!("fixture-approve-all")),
+        ("askScope", json!("outsideWorkspace")),
     ] {
         let profile = declared(|declaration| {
             declaration.insert(field.into(), value);

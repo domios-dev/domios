@@ -178,7 +178,11 @@ export interface RuntimeLaunchProfile {
   limitsSource?:RuntimeProfileLimitsSource;
   /** The agent's own session mode that approves every action, entered by full-access launches. */
   fullAccessMode?:string;
+  /** How far the agent's own permission questions reach; absent makes no claim about them. */
+  askScope?:RuntimeAskScope;
 }
+/** `outsideWorkspace`: the agent confines its own work to the workspace and asks only to go beyond it. */
+export type RuntimeAskScope = "outsideWorkspace";
 export interface StdioAgentRuntimeCapability {
   hostMcp?:{param:string; methods:readonly string[]};
   envelope?:"jsonrpc2";

@@ -27,6 +27,7 @@ fn bundled_base() -> Value {
         "authEnv":{"BASE_KEY":{"secret":"domios:provider:acp:base-key","methods":["base-key"]}},
         "clientCapabilities":{"fs":{"readTextFile":false}},
         "hostWorkingDirectory":true,
+        "askScope":"outsideWorkspace",
         "limitsSource":{"kind":"unavailable","reason":"Base quota has no public endpoint"}})
 }
 
@@ -43,6 +44,10 @@ fn derived_profiles_copy_declared_identity_but_never_the_launch_command_or_crede
     assert!(profile.owner_configured);
     assert_eq!(profile.icon.as_deref(), Some("base-color.svg"));
     assert!(profile.host_working_directory);
+    assert_eq!(
+        serde_json::to_value(profile.ask_scope).unwrap(),
+        json!("outsideWorkspace")
+    );
     let fs = profile
         .client_capabilities
         .as_ref()

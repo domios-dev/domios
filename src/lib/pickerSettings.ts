@@ -1,4 +1,4 @@
-import type { RuntimeSettings, RuntimeServiceTierSelection, RuntimeServiceTier } from "@codeterm/plugin-sdk";
+import type { RuntimeAskScope, RuntimeSettings, RuntimeServiceTierSelection, RuntimeServiceTier } from "@codeterm/plugin-sdk";
 import type { ProviderDescriptor } from "./types";
 import { reasoningEffortsForModel } from "./newSessionChoice";
 
@@ -17,6 +17,7 @@ export interface PickerSection {
 
 const CATEGORIES = new Map<string, PickerCategory>([["model", "model"], ["thought_level", "effort"], ["mode", "mode"]]);
 const ORDER: readonly PickerCategory[] = ["model", "effort", "mode", "speed"];
+const ASK_LABELS: Readonly<Record<RuntimeAskScope, string>> = { outsideWorkspace: "Ask outside workspace" };
 
 /**
  * The tab's host-approval choice, or `undefined` when the control does not apply: the agent's own
@@ -47,9 +48,20 @@ export function hostFullAccessOverride(
   return (modeOption(controls)?.currentValue ?? controls.mode) !== native;
 }
 
+function tabLaunchProfile(descriptor: ProviderDescriptor | undefined, config: Readonly<Record<string, unknown>> | null | undefined) {
+  return typeof config?.launchProfile === "string" ? descriptor?.agent_runtime?.launchProfiles?.[config.launchProfile] : undefined;
+}
+
 function declaredFullAccessMode(descriptor: ProviderDescriptor, config: Readonly<Record<string, unknown>> | null | undefined): string | undefined {
-  const profile = typeof config?.launchProfile === "string" ? descriptor.agent_runtime?.launchProfiles?.[config.launchProfile] : undefined;
-  return profile?.fullAccessMode;
+  return tabLaunchProfile(descriptor, config)?.fullAccessMode;
+}
+
+/** How far the tab's agent asks, so the Ask choice never promises more questions than the agent sends. */
+export function declaredAskScope(
+  descriptor: ProviderDescriptor | undefined,
+  config: Readonly<Record<string, unknown>> | null | undefined,
+): RuntimeAskScope | undefined {
+  return tabLaunchProfile(descriptor, config)?.askScope;
 }
 
 function modeOption(controls: RuntimeSettings) {
@@ -60,7 +72,7 @@ function sessionOffersMode(controls: RuntimeSettings, mode: string): boolean {
   return Boolean(modeOption(controls)?.options.some(option => option.value === mode) || controls.modes?.some(entry => entry.id === mode));
 }
 
-export function pickerSections({ descriptor, controls, model, effort, runtimeMode, serviceTier, serviceTierAvailability, hostApprovals, hostFullAccess }: {
+export function pickerSections({ descriptor, controls, model, effort, runtimeMode, serviceTier, serviceTierAvailability, hostApprovals, hostAskScope, hostFullAccess }: {
   descriptor?: ProviderDescriptor;
   controls?: RuntimeSettings;
   model?: string;
@@ -69,6 +81,7 @@ export function pickerSections({ descriptor, controls, model, effort, runtimeMod
   serviceTier?: RuntimeServiceTierSelection;
   serviceTierAvailability?: Record<string, readonly RuntimeServiceTier[]>;
   hostApprovals?: HostApprovalsValue;
+  hostAskScope?: RuntimeAskScope;
   hostFullAccess?: boolean;
 }): PickerSection[] {
   const known = new Map<PickerCategory, PickerSection>();
@@ -113,7 +126,7 @@ export function pickerSections({ descriptor, controls, model, effort, runtimeMod
   }
   const permissions: PickerSection[] = hostApprovals ? [{
     id: "host-approvals", label: "Permissions", kind: "select", current: hostApprovals,
-    options: [{ value: "ask", label: "Ask each time" }, { value: "allow_all", label: "Allow all" }],
+    options: [{ value: "ask", label: hostAskScope ? ASK_LABELS[hostAskScope] : "Ask when the agent asks" }, { value: "allow_all", label: "Allow all" }],
     applyTarget: { kind: "host_approvals" },
   }] : hostFullAccess ? [{
     id: "host-approvals", label: "Permissions", kind: "select", current: "Full access (host)", options: [],

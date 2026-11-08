@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ProviderDescriptor } from "./types";
 import type { RuntimeSettings } from "@codeterm/plugin-sdk";
-import { hostApprovalsChoice, hostFullAccessOverride, pickerSections } from "./pickerSettings";
+import { declaredAskScope, hostApprovalsChoice, hostFullAccessOverride, pickerSections } from "./pickerSettings";
 import modelsOnlyFixture from "../../plugins/provider-acp/tests/fixtures/runtime/session-models-only.json";
 
 const native = { available_models: [{ id: "native-model", display_name: "Native model", reasoning_efforts: [{ id: "high", display_name: "High" }] }], agent_runtime: {
@@ -56,12 +56,53 @@ describe("provider settings sections", () => {
     expect(sections.map(section => section.label)).toEqual(["Mode", "Permissions"]);
     const row = sections[1];
     expect(row.current).toBe("ask");
-    expect(row.options.map(option => [option.value, option.label])).toEqual([["ask", "Ask each time"], ["allow_all", "Allow all"]]);
+    expect(row.options.map(option => [option.value, option.label])).toEqual([["ask", "Ask when the agent asks"], ["allow_all", "Allow all"]]);
     expect(row.applyTarget).toEqual({ kind: "host_approvals" });
   });
 
   it("adds nothing without a host choice", () => {
     expect(pickerSections({ controls: others }).map(section => section.label)).toEqual(["Mode"]);
+  });
+
+  it("says when the agent asks if its questions reach only beyond its own confinement", () => {
+    const [row] = pickerSections({ hostApprovals: "ask", hostAskScope: "outsideWorkspace" });
+    expect(row.options.map(option => [option.value, option.label])).toEqual([["ask", "Ask outside workspace"], ["allow_all", "Allow all"]]);
+    expect(row.current).toBe("ask");
+    expect(row.applyTarget).toEqual({ kind: "host_approvals" });
+  });
+
+  it("promises no particular questions from an agent that declares no scope", () => {
+    const [row] = pickerSections({ hostApprovals: "ask" });
+    expect(row.options[0].label).toBe("Ask when the agent asks");
+  });
+
+  it("keeps Allow all unchanged whatever the agent's ask scope", () => {
+    const [row] = pickerSections({ hostApprovals: "allow_all", hostAskScope: "outsideWorkspace" });
+    expect(row.current).toBe("allow_all");
+    expect(row.options[1]).toEqual({ value: "allow_all", label: "Allow all" });
+  });
+});
+
+describe("declaredAskScope", () => {
+  const descriptor = {
+    id: "opaque", display_name: "Opaque", available_models: [],
+    agent_runtime: { hostApprovals: true, launchProfiles: {
+      plain: { binary: "opaque", args: [] },
+      confined: { binary: "opaque", args: [], askScope: "outsideWorkspace" },
+    } },
+  } as unknown as ProviderDescriptor;
+
+  it.each([
+    ["the tab's profile declares it", { launchProfile: "confined" }, "outsideWorkspace"],
+    ["the tab's profile declares nothing", { launchProfile: "plain" }, undefined],
+    ["the tab names an unknown profile", { launchProfile: "absent" }, undefined],
+    ["the tab recorded no profile", null, undefined],
+  ] as const)("%s", (_name, config, expected) => {
+    expect(declaredAskScope(descriptor, config)).toBe(expected);
+  });
+
+  it("is absent without a descriptor", () => {
+    expect(declaredAskScope(undefined, { launchProfile: "confined" })).toBeUndefined();
   });
 });
 
