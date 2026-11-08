@@ -159,6 +159,68 @@ fn partial_confirmation_preserves_other_runtime_controls() {
     );
 }
 
+fn mode_option(current: &str) -> serde_json::Value {
+    serde_json::json!({
+        "id": "opaque-mode",
+        "name": "Mode",
+        "category": "mode",
+        "currentValue": current,
+        "options": [{"value": "a", "name": "A"}, {"value": "b", "name": "B"}],
+    })
+}
+
+fn reported(value: serde_json::Value) -> RuntimeSettings {
+    serde_json::from_value(value).unwrap()
+}
+
+fn both_modes(settings: &RuntimeSettings) -> (Option<&str>, Option<&str>) {
+    (settings.mode.as_deref(), settings.effective_mode())
+}
+
+#[test]
+fn a_mode_option_change_moves_the_session_mode_with_it() {
+    let prior = reported(serde_json::json!({"mode": "a", "configOptions": [mode_option("a")]}));
+    let merged = merge_settings(
+        &prior,
+        reported(serde_json::json!({"configOptions": [mode_option("b")]})),
+    );
+    assert_eq!(both_modes(&merged), (Some("b"), Some("b")));
+}
+
+#[test]
+fn a_session_mode_report_moves_the_mode_option_with_it() {
+    let prior = reported(serde_json::json!({"mode": "a", "configOptions": [mode_option("a")]}));
+    let merged = merge_settings(&prior, reported(serde_json::json!({"mode": "b"})));
+    assert_eq!(both_modes(&merged), (Some("b"), Some("b")));
+}
+
+#[test]
+fn a_report_carrying_both_settles_on_the_option() {
+    let merged = merge_settings(
+        &RuntimeSettings::default(),
+        reported(serde_json::json!({"mode": "a", "configOptions": [mode_option("b")]})),
+    );
+    assert_eq!(both_modes(&merged), (Some("b"), Some("b")));
+}
+
+#[test]
+fn a_session_mode_the_option_cannot_express_stands_and_the_option_reads_it() {
+    let merged = merge_settings(
+        &RuntimeSettings::default(),
+        reported(serde_json::json!({"mode": "c", "configOptions": [mode_option("a")]})),
+    );
+    assert_eq!(both_modes(&merged), (Some("c"), Some("c")));
+}
+
+#[test]
+fn a_session_without_a_mode_option_keeps_its_session_mode() {
+    let merged = merge_settings(
+        &RuntimeSettings::default(),
+        reported(serde_json::json!({"mode": "a", "configOptions": []})),
+    );
+    assert_eq!(both_modes(&merged), (Some("a"), Some("a")));
+}
+
 fn declare_usage(svc: &ServiceContext, provider: &str, enabled: bool) {
     use codeterm_plugin::js_runtime::{JsProvider, PluginManifest, PluginVm};
     let manifest=PluginManifest::from_json_str(&serde_json::json!({

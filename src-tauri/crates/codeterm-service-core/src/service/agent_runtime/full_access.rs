@@ -17,22 +17,18 @@ pub(super) fn missing_full_access(
     loaded: &RuntimeSettings,
 ) -> Option<String> {
     let declared = string_setting(provider_settings, "fullAccessMode")?;
+    let current = loaded.effective_mode();
     if string_setting(
         provider_settings,
         super::permission_policy::SESSION_MODE_KEY,
     )
     .is_some_and(|chosen| chosen != declared)
-        || loaded.mode.as_deref() == Some(declared)
+        || current == Some(declared)
     {
         return None;
     }
-    let advertised = loaded
-        .modes
-        .iter()
-        .flatten()
-        .map(|mode| mode.id.as_str())
-        .collect::<Vec<_>>();
-    let current = loaded.mode.as_deref().unwrap_or("unknown");
+    let advertised = loaded.offered_modes();
+    let current = current.unwrap_or("unknown");
     Some(if advertised.contains(&declared) {
         format!("{FULL_ACCESS_UNAVAILABLE}: agent refused declared mode {declared}; running in {current} under its own sandbox")
     } else {
@@ -76,9 +72,9 @@ pub(super) fn finish_load(svc: &ServiceContext, session: &Session, load_notice: 
 }
 
 /// The owner entering the declared mode live ends the failure; any other mode they pick leaves it.
-pub(super) fn observe_confirmed(session: &Session, confirmed: &RuntimeSettings) {
+pub(super) fn observe_confirmed(session: &Session, settled: &RuntimeSettings) {
     let reached = string_setting(&session.context.lock().provider_settings, "fullAccessMode")
-        .is_some_and(|declared| confirmed.mode.as_deref() == Some(declared));
+        .is_some_and(|declared| settled.effective_mode() == Some(declared));
     if !reached {
         return;
     }

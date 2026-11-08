@@ -96,6 +96,69 @@ pub struct RuntimeSettings {
     pub network_access: Option<bool>,
 }
 
+impl RuntimeSettings {
+    fn mode_option(&self) -> Option<&RuntimeConfigOption> {
+        self.config_options
+            .iter()
+            .flatten()
+            .find(|option| option.category.as_deref() == Some("mode"))
+    }
+
+    /// The session's one mode: what its mode config option reads, otherwise its session mode.
+    pub fn effective_mode(&self) -> Option<&str> {
+        self.mode_option()
+            .map(|option| option.current_value.as_str())
+            .or(self.mode.as_deref())
+    }
+
+    /// Every mode the session can enter, through its mode config option or its session modes.
+    pub fn offered_modes(&self) -> Vec<&str> {
+        let mut offered = self
+            .mode_option()
+            .into_iter()
+            .flat_map(|option| option.options.iter().map(|value| value.value.as_str()))
+            .collect::<Vec<_>>();
+        for mode in self.modes.iter().flatten() {
+            if !offered.contains(&mode.id.as_str()) {
+                offered.push(mode.id.as_str());
+            }
+        }
+        offered
+    }
+
+    /// A session mode reported alone is news: the mode config option reads it too.
+    pub fn follow_session_mode(&mut self, mode: String) {
+        if let Some(option) = self.mode_option_mut() {
+            option.current_value.clone_from(&mode);
+        }
+        self.mode = Some(mode);
+    }
+
+    /// Makes both places read one value when a report carries both: the option decides, except
+    /// for a session mode it cannot express, which only `session/set_mode` can have entered.
+    pub fn settle_mode(&mut self) {
+        let session_mode = self.mode.clone();
+        let Some(option) = self.mode_option_mut() else {
+            return;
+        };
+        let current = match session_mode {
+            Some(mode) if !option.options.iter().any(|value| value.value == mode) => {
+                option.current_value.clone_from(&mode);
+                mode
+            }
+            _ => option.current_value.clone(),
+        };
+        self.mode = Some(current);
+    }
+
+    fn mode_option_mut(&mut self) -> Option<&mut RuntimeConfigOption> {
+        self.config_options
+            .iter_mut()
+            .flatten()
+            .find(|option| option.category.as_deref() == Some("mode"))
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RuntimeCommand {

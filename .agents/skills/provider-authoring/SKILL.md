@@ -770,6 +770,10 @@ live mode: an agent can ask in its approve-all mode, and must not lift its own A
 mode. Mode changes on the controls route are owner only. A profile with no such mode gets the
 picker's Permissions row (`POST .../agent/runtime/host-approvals`).
 
+What a session reports as its mode is one value, `RuntimeSettings::effective_mode`: a mode config
+option's `currentValue`, otherwise the session mode. Whichever place an agent reports through, the
+host's controls projection moves the other with it, so `controls.mode` and the option never differ.
+
 Declare `fullAccessMode` only for a mode the session can enter and leave over the protocol. A
 process-wide setting read at session creation, such as an environment variable, cannot follow
 the live switch or reach resumed sessions, so it does not qualify.

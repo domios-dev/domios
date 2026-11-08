@@ -39,17 +39,22 @@ pub fn controls(svc: &ServiceContext, session: &Session, settings: RuntimeSettin
     if settings.model.is_some() && settings.model != context.settings.model {
         session.state.lock().notice = None;
     }
-    super::full_access::observe_confirmed(session, &settings);
     svc.record_runtime_controls(&session.provider, &context, &settings);
     *session.controls_confirmation.lock() = Some(settings.clone());
     let settings = merge_settings(&context.settings, settings);
+    super::full_access::observe_confirmed(session, &settings);
     session.context.lock().settings = settings;
     session.control_changes.send_replace(());
     super::engine::publish_controls(svc, &context.tab_id, session);
 }
 
 fn merge_settings(previous: &RuntimeSettings, confirmed: RuntimeSettings) -> RuntimeSettings {
-    RuntimeSettings {
+    let session_mode = confirmed
+        .config_options
+        .is_none()
+        .then(|| confirmed.mode.clone())
+        .flatten();
+    let mut merged = RuntimeSettings {
         commands: confirmed.commands.or_else(|| previous.commands.clone()),
         config_options: confirmed
             .config_options
@@ -65,7 +70,12 @@ fn merge_settings(previous: &RuntimeSettings, confirmed: RuntimeSettings) -> Run
         effort: confirmed.effort.or_else(|| previous.effort.clone()),
         mode: confirmed.mode.or_else(|| previous.mode.clone()),
         ..previous.clone()
+    };
+    match session_mode {
+        Some(mode) => merged.follow_session_mode(mode),
+        None => merged.settle_mode(),
     }
+    merged
 }
 
 fn projection<'a>(
