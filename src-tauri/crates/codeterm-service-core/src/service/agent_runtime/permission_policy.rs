@@ -139,18 +139,7 @@ fn resolve(
 
 fn native_advertised(native: Option<&str>, settings: Option<&RuntimeSettings>) -> Option<bool> {
     let native = native?;
-    let settings = settings?;
-    let as_mode = settings
-        .modes
-        .as_ref()
-        .is_some_and(|modes| modes.iter().any(|mode| mode.id == native));
-    let as_option = settings.config_options.as_ref().is_some_and(|options| {
-        options.iter().any(|option| {
-            option.category.as_deref() == Some("mode")
-                && option.options.iter().any(|value| value.value == native)
-        })
-    });
-    Some(as_mode || as_option)
+    Some(settings?.offered_modes().contains(&native))
 }
 
 /// A launch resolves from what the launch was granted, before any session reports its modes.

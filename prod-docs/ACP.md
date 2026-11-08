@@ -338,8 +338,10 @@ and is never replayed. Check with `domios tab send-status <send-id>`.
 ### Full access
 
 A full-access launch enters the session mode its profile declares, chosen from the
-modes the agent advertises at session start. If the agent does not advertise that
-mode, or refuses it, the tab runs inside the agent's own sandbox and says so:
+modes the agent advertises at session start, through its mode config option when it
+has one. The tab reports one mode: that option's current value, otherwise the session
+mode. If the agent does not advertise the declared mode, or does not reach it, the tab
+runs inside the agent's own sandbox and says so:
 `domios tab status` reports `failure.code` `full_access_unavailable` with the reason,
 including the modes the agent offers. `domios tab inspect` shows it as
 `agent_runtime_state.accessFailure`, the tab shows it as a notice, and the parent
@@ -383,4 +385,4 @@ an agent cannot change its own or another tab's mode this way.
   the current index and refuses unsupported distributions; neither proves agent
   authentication or compatibility.
 
-<!-- revision: 14 -->
+<!-- revision: 15 -->

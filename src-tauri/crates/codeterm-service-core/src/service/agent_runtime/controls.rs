@@ -395,9 +395,7 @@ pub(super) fn control_changes(
     let effort = |settings: &RuntimeSettings| {
         declared_value(settings, "thought_level").or_else(|| settings.effort.clone())
     };
-    let mode = |settings: &RuntimeSettings| {
-        declared_value(settings, "mode").or_else(|| settings.mode.clone())
-    };
+    let mode = |settings: &RuntimeSettings| settings.effective_mode().map(str::to_owned);
     let speed = |settings: &RuntimeSettings| {
         settings
             .service_tier

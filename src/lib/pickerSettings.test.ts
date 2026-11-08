@@ -108,6 +108,7 @@ describe("hostApprovalsChoice", () => {
     ["the owner chose an asking mode", { launchProfile: "native", hostApprovals: "ask", sessionMode: "default" }, advertised, false],
     ["the agent really is in its approve-all mode", { launchProfile: "native", hostApprovals: "allow_all" }, { ...advertised, mode: "approve-all" }, false],
     ["the option really is approve-all", { launchProfile: "native", hostApprovals: "allow_all" }, modeOption("approve-all"), false],
+    ["the option is approve-all while the session mode lags", { launchProfile: "native", hostApprovals: "allow_all" }, { ...modeOption("approve-all"), mode: "default" }, false],
     ["confinement owns the answer", { launchProfile: "native", hostApprovals: "locked" }, advertised, false],
     ["the Permissions row already says so", { launchProfile: "plain", hostApprovals: "allow_all" }, others, false],
     ["no session has reported yet", { launchProfile: "native", hostApprovals: "allow_all" }, undefined, false],

@@ -111,20 +111,7 @@ pub(super) fn switch(
             None if model.is_none() && effort.is_none() => String::new(),
             None => return Err(refused("Runtime model confirmation absent".into())),
         };
-        let mut control_changes = super::control_changes(&before.settings, &after);
-        // An agent can leave its mode config option stale after set_mode; the session mode is the fact.
-        if mode.is_some()
-            && before.settings.mode != after.mode
-            && !control_changes
-                .iter()
-                .any(|change| change.control == "mode")
-        {
-            control_changes.push(crate::service::agent_restart::ControlChange {
-                control: "mode",
-                previous: before.settings.mode.clone(),
-                current: after.mode.clone(),
-            });
-        }
+        let control_changes = super::control_changes(&before.settings, &after);
         Ok(ModelSwitchOutcome {
             tab_id: tab.into(),
             provider: session.provider.clone(),
@@ -164,7 +151,7 @@ async fn select_mode(
     {
         return Err(refused("Runtime session changed during selection"));
     }
-    if current.settings.mode.as_deref() == Some(requested) {
+    if current.settings.effective_mode() == Some(requested) {
         return Ok(());
     }
     declared_controls::select(
@@ -189,7 +176,7 @@ async fn select_mode(
             ModelSwitchError::RuntimeControlRefused(reason)
         }
     })?;
-    if session.context.lock().settings.mode.as_deref() != Some(requested) {
+    if session.context.lock().settings.effective_mode() != Some(requested) {
         return Err(refused("Runtime did not confirm the requested mode"));
     }
     Ok(())

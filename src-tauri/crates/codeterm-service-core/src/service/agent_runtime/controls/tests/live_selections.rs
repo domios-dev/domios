@@ -135,6 +135,130 @@ fn a_runtime_mode_request_selects_the_advertised_session_mode_and_ends_a_named_a
     assert!(session.state.lock().notice.is_none());
 }
 
+fn mode_option_controls(session_mode: &str, option_current: &str) -> RuntimeSettings {
+    serde_json::from_value(json!({
+        "mode": session_mode,
+        "modes": [{"id":"opaque-default","name":"Default"},{"id":"opaque-approve","name":"Approve"}],
+        "configOptions": [{
+            "id":"opaque-mode","name":"Mode","category":"mode","currentValue":option_current,
+            "options":[{"value":"opaque-default","name":"Default"},{"value":"opaque-approve","name":"Approve"}]
+        }]
+    }))
+    .unwrap()
+}
+
+fn published_modes(fixture: &RuntimeFixture, id: &str) -> (serde_json::Value, serde_json::Value) {
+    let mux = fixture.service.mux.read();
+    let state = mux
+        .get_tab(id)
+        .unwrap()
+        .agent_runtime_state
+        .clone()
+        .unwrap();
+    (
+        state["controls"]["mode"].clone(),
+        state["controls"]["configOptions"][0]["currentValue"].clone(),
+    )
+}
+
+#[test]
+fn a_load_that_reached_the_declared_mode_through_its_option_reports_no_failure_and_one_mode() {
+    let (fixture, id) = runtime_fixture();
+    let session = crate::async_runtime::block_on(engine::ensure(&fixture.service, &id)).unwrap();
+    session.context.lock().provider_settings = json!({"fullAccessMode":"opaque-approve"});
+    super::super::super::projections::controls(
+        &fixture.service,
+        &session,
+        mode_option_controls("opaque-default", "opaque-approve"),
+    );
+
+    super::super::super::full_access::finish_load(&fixture.service, &session, None);
+    engine::publish_controls(&fixture.service, &id, &session);
+
+    assert!(fixture
+        .service
+        .get_tab_status(&id)
+        .unwrap()
+        .failure
+        .is_none());
+    assert!(session.state.lock().notice.is_none());
+    assert_eq!(
+        published_modes(&fixture, &id),
+        (json!("opaque-approve"), json!("opaque-approve"))
+    );
+}
+
+#[test]
+fn a_mode_option_left_off_the_declared_mode_is_named_until_an_update_reaches_it() {
+    let (fixture, id) = runtime_fixture();
+    let session = crate::async_runtime::block_on(engine::ensure(&fixture.service, &id)).unwrap();
+    session.context.lock().provider_settings = json!({"fullAccessMode":"opaque-approve"});
+    super::super::super::projections::controls(
+        &fixture.service,
+        &session,
+        mode_option_controls("opaque-default", "opaque-default"),
+    );
+
+    super::super::super::full_access::finish_load(&fixture.service, &session, None);
+    engine::publish_controls(&fixture.service, &id, &session);
+
+    let failure = fixture
+        .service
+        .get_tab_status(&id)
+        .unwrap()
+        .failure
+        .unwrap();
+    assert_eq!(failure.code.as_deref(), Some("full_access_unavailable"));
+    assert!(failure.reason.contains("refused"), "{}", failure.reason);
+
+    let reached = RuntimeSettings {
+        mode: None,
+        modes: None,
+        ..mode_option_controls("opaque-default", "opaque-approve")
+    };
+    super::super::super::projections::controls(&fixture.service, &session, reached);
+    engine::publish_controls(&fixture.service, &id, &session);
+
+    assert!(fixture
+        .service
+        .get_tab_status(&id)
+        .unwrap()
+        .failure
+        .is_none());
+    assert!(session.state.lock().notice.is_none());
+    assert_eq!(
+        published_modes(&fixture, &id),
+        (json!("opaque-approve"), json!("opaque-approve"))
+    );
+}
+
+#[test]
+fn a_session_mode_switch_moves_the_mode_option_and_names_one_change() {
+    let (fixture, id) = runtime_fixture();
+    let session = crate::async_runtime::block_on(engine::ensure(&fixture.service, &id)).unwrap();
+    super::super::super::projections::controls(
+        &fixture.service,
+        &session,
+        mode_option_controls("opaque-default", "opaque-default"),
+    );
+
+    let outcome = mode_switch(&fixture, &id, "opaque-approve").unwrap();
+
+    let changes = outcome
+        .control_changes
+        .iter()
+        .filter(|change| change.control == "mode")
+        .collect::<Vec<_>>();
+    assert_eq!(changes.len(), 1);
+    assert_eq!(changes[0].previous.as_deref(), Some("opaque-default"));
+    assert_eq!(changes[0].current.as_deref(), Some("opaque-approve"));
+    engine::publish_controls(&fixture.service, &id, &session);
+    assert_eq!(
+        published_modes(&fixture, &id),
+        (json!("opaque-approve"), json!("opaque-approve"))
+    );
+}
+
 #[test]
 fn a_mode_request_on_an_execution_sandbox_stays_refused() {
     let (fixture, id) = runtime_fixture();
