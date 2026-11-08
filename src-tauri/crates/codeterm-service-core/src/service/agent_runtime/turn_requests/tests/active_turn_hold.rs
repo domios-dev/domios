@@ -1,6 +1,177 @@
 use super::*;
 use crate::service::{chat_send_transaction::ChatSendState, parked_user_delivery::UserDrain};
 
+fn continue_after_restart(
+    svc: &ServiceContext,
+    tab: &str,
+    session: &Session,
+) -> Result<crate::service::messenger::Delivery, String> {
+    let (thread, nonce) = {
+        let context = session.context.lock();
+        (
+            context.thread_id.clone().unwrap(),
+            context.binding_nonce.clone(),
+        )
+    };
+    crate::service::messenger::Messenger::deliver_turn_resume(
+        svc,
+        tab,
+        None,
+        &thread,
+        &nonce,
+        None,
+        "opaque continuation",
+    )
+}
+
+#[test]
+fn a_restart_continue_written_to_a_turn_scoped_runtime_is_a_success_not_a_refusal() {
+    let (fixture, tab, peer, _cleanup) = runtime_fixture_turn_scoped(SOURCE);
+    let svc = &fixture.service;
+    svc.bind_user_send_owner();
+    let session = engine::for_tab(&tab).unwrap();
+    let server = crate::async_runtime::spawn(async move {
+        let mut peer = BufReader::new(peer);
+        let mut line = String::new();
+        peer.read_line(&mut line).await.unwrap();
+        (peer, line)
+    });
+    let delivered = continue_after_restart(svc, &tab, &session);
+    assert!(
+        delivered.is_ok(),
+        "a written continue awaits evidence: {delivered:?}"
+    );
+    let (mut peer, line) = crate::async_runtime::block_on(server).unwrap();
+    assert_eq!(
+        serde_json::from_str::<Value>(&line).unwrap()["method"],
+        "fixture/submit"
+    );
+    assert!(svc
+        .pending_delivery_payloads
+        .user_sends
+        .queued(&tab)
+        .unwrap()
+        .is_empty());
+    use std::{
+        pin::Pin,
+        task::{Context, Poll, Waker},
+    };
+    use tokio::io::AsyncBufRead;
+    assert!(matches!(
+        Pin::new(&mut peer).poll_fill_buf(&mut Context::from_waker(Waker::noop())),
+        Poll::Pending
+    ));
+}
+
+#[test]
+fn a_restart_continue_behind_a_running_turn_is_held_then_written_once() {
+    use crate::service::messenger::Delivery;
+    let source = SOURCE.replace("turnId:'turn'", "turnId:op.sendId");
+    let (fixture, tab, peer, _cleanup) = runtime_fixture_turn_scoped(&source);
+    let svc = &fixture.service;
+    svc.bind_user_send_owner();
+    let session = engine::for_tab(&tab).unwrap();
+    let process = session.process.lock().clone().unwrap();
+    let (release, released) = tokio::sync::oneshot::channel::<()>();
+    let (second_written, second) = tokio::sync::oneshot::channel::<()>();
+    let server = crate::async_runtime::spawn(async move {
+        let mut peer = BufReader::new(peer);
+        let mut line = String::new();
+        peer.read_line(&mut line).await.unwrap();
+        let first: Value = serde_json::from_str(&line).unwrap();
+        released.await.unwrap();
+        let reply = json!({"id":first["id"],"result":{"stopReason":"end_turn"}});
+        peer.get_mut()
+            .write_all(format!("{reply}\n").as_bytes())
+            .await
+            .unwrap();
+        line.clear();
+        peer.read_line(&mut line).await.unwrap();
+        second_written.send(()).unwrap();
+        peer
+    });
+    let mut busy = operation(&session.context.lock());
+    if let RuntimeOperation::SubmitTurn { send_id, .. } = &mut busy {
+        *send_id = "busy".into();
+    }
+    let (_, written) =
+        crate::async_runtime::block_on(engine::run_submit(svc, &session, &process, busy));
+    assert!(written);
+
+    let held = continue_after_restart(svc, &tab, &session).unwrap();
+    let Delivery::Pending { delivery_id } = held else {
+        panic!("a running turn holds the continue before any write");
+    };
+    assert_eq!(
+        svc.chat_send_ledger
+            .status(&delivery_id)
+            .unwrap()
+            .pending_reason
+            .as_deref(),
+        Some(ACTIVE_TURN_HOLD)
+    );
+
+    release.send(()).unwrap();
+    crate::async_runtime::block_on(async {
+        tokio::time::timeout(Duration::from_secs(5), second).await
+    })
+    .expect("the held continue is written once its blocking turn settles")
+    .unwrap();
+    let mut peer = crate::async_runtime::block_on(server).unwrap();
+    use std::{
+        pin::Pin,
+        task::{Context, Poll, Waker},
+    };
+    use tokio::io::AsyncBufRead;
+    assert!(matches!(
+        Pin::new(&mut peer).poll_fill_buf(&mut Context::from_waker(Waker::noop())),
+        Poll::Pending
+    ));
+}
+
+#[test]
+fn a_runtime_that_stopped_does_not_read_as_a_failed_turn() {
+    for reason in [
+        RuntimeFailure::PipeEof,
+        RuntimeFailure::Superseded,
+        RuntimeFailure::ProcessExited {
+            code: None,
+            signal: Some(9),
+            stderr: String::new(),
+            requested: true,
+        },
+    ] {
+        assert_eq!(
+            reply_failure_detail(&reason),
+            RuntimeTurnDetail::Interrupted
+        );
+    }
+    assert_eq!(
+        reply_failure_detail(&RuntimeFailure::Refused("opaque".into())),
+        RuntimeTurnDetail::Failed
+    );
+}
+
+#[tokio::test]
+async fn ending_a_turn_for_a_lifecycle_change_never_claims_it_failed() {
+    let (fixture, tab, _peer, _cleanup) = runtime_fixture_turn_scoped(SOURCE);
+    let session = engine::for_tab(&tab).unwrap();
+    let process = session.process.lock().clone().unwrap();
+    let operation = operation(&session.context.lock());
+    let (_, written) = engine::run_submit(&fixture.service, &session, &process, operation).await;
+    assert!(written);
+    end_for_lifecycle(&fixture.service, &session, "opaque lifecycle end").await;
+    assert!(session.context.lock().active_turn_id.is_none());
+    let mux = fixture.service.mux.read();
+    let live = mux.get_tab(&tab).unwrap().agent_state.clone().unwrap();
+    let expected = crate::agent::state_verdict::live_state_for_runtime(
+        &RuntimeTurnState::Idle,
+        Some(RuntimeTurnDetail::Interrupted),
+        None,
+    );
+    assert_eq!(live, expected);
+}
+
 fn held_behind_a_turn_with_no_prompt(
     svc: &ServiceContext,
     tab: &str,
