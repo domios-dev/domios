@@ -2,6 +2,73 @@ use super::*;
 use crate::service::test_fixture::ServiceFixture;
 
 #[test]
+fn role_launch_identity_reaches_the_spawned_agent() {
+    let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
+    let fixture = ServiceFixture::new(mux);
+    let _storage = fixture.install_seeded_storage_desk();
+    let svc = Arc::new(fixture.service.clone());
+    let cron: CronState = Arc::new(parking_lot::Mutex::new(
+        super::super::store::CronStore::new_with_path(fixture.temp.path().join("cron.json")),
+    ));
+    assert!(svc.set_ext(cron.clone()).is_ok());
+    let workspace = svc.mux.read().list_workspaces()[0].id.clone();
+    let job = cron
+        .lock()
+        .create(
+            serde_json::from_value(serde_json::json!({
+                "name":"disposable", "workspace_id":workspace, "schedule":"in 1h",
+                "task":"opaque-fixture", "agent":"mirror:fixture",
+                "cwd":fixture.temp.path(), "enabled":false, "oneshot":true, "jitter_max_ms":0
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+    let resolved = role_launch_spec(
+        &fire_spec(&job),
+        crate::service::role_policy::CronLaunch {
+            provider: "portable-cron-fixture".into(),
+            launch_profile: Some("opaque-profile".into()),
+            model: "opaque-model".into(),
+            effort: Some("opaque-effort".into()),
+            task: "opaque-digest".into(),
+        },
+    );
+    let spawned = std::sync::Mutex::new(None);
+    let outcome = fire_job_with_spawn(&cron, &svc, &resolved, |spec| {
+        let launch = spec.chatbackend_launch.as_ref().unwrap();
+        *spawned.lock().unwrap() = Some((
+            launch.params.agent.clone(),
+            launch.params.launch_profile.clone(),
+            launch.params.model.clone(),
+            launch.params.reasoning_effort.clone(),
+        ));
+        let tab_id = svc.mux.write().create_tab(&workspace)?;
+        Ok(crate::service::spawn::TabHandle {
+            command_submission: None,
+            tab_id,
+            pty_id: None,
+            workspace_id: workspace.clone(),
+            description: None,
+            worker_id: None,
+            warning: None,
+            model_fallback: None,
+            budget_notice: None,
+        })
+    });
+    assert!(matches!(outcome, FireStart::Recorded));
+    assert_eq!(
+        spawned.into_inner().unwrap().unwrap(),
+        (
+            Some("portable-cron-fixture".to_string()),
+            Some("opaque-profile".to_string()),
+            Some("opaque-model".to_string()),
+            Some("opaque-effort".to_string()),
+        )
+    );
+    crate::service::session_persist::stop_worker(&svc).unwrap();
+}
+
+#[test]
 fn process_split_contract_manual_and_scheduled_cron_publish_exact_internal_run() {
     for scheduled in [false, true] {
         let (mux, _) = crate::multiplexer::state::MultiplexerState::new();

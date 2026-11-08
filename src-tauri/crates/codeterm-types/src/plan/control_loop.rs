@@ -66,6 +66,7 @@ impl std::str::FromStr for CuratorAsked {
 pub enum CuratorFailure {
     ProviderUnavailable,
     MirrorUnavailable,
+    ProfileUnavailable,
     OrchestratorAbsent,
     OrchestratorUnbound,
     LaunchFailed,
@@ -76,6 +77,7 @@ impl CuratorFailure {
         match self {
             Self::ProviderUnavailable => "provider_unavailable",
             Self::MirrorUnavailable => "mirror_unavailable",
+            Self::ProfileUnavailable => "profile_unavailable",
             Self::OrchestratorAbsent => "orchestrator_absent",
             Self::OrchestratorUnbound => "orchestrator_unbound",
             Self::LaunchFailed => "launch_failed",

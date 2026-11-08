@@ -83,6 +83,7 @@ impl ServiceContext {
         }
         let result = self.spawn_agent_sync(SpawnAgentParams {
             agent: Some(provider.into()),
+            launch_profile: super::agent_runtime::launch_profile::of_tab(&source),
             workspace_id: workspace,
             cwd: Some(cwd.into()),
             title: Some("Fork".into()),

@@ -98,7 +98,7 @@ More than five worktrees or direct Workers is cleanup pressure. More than ten is
 
 ## Heartbeat
 
-Curator is the default plan control loop. It reviews a bounded system digest with the Orchestrator's current provider, model and effort. Its chosen next delay is clamped to 45 minutes through two hours; a quiet Team has a four-hour idle floor. It may send one short message containing up to three questions to its Orchestrator, who may answer or skip. Open human questions, paused plans and completed plans suspend rounds.
+Curator is the default plan control loop. It reviews a bounded system digest with the Orchestrator's current provider, launch profile, model and effort; a profile or selection that cannot start keeps the heartbeat fallback as `profile_unavailable`, with the cause in the round summary. Its chosen next delay is clamped to 45 minutes through two hours; a quiet Team has a four-hour idle floor. It may send one short message containing up to three questions to its Orchestrator, who may answer or skip. Open human questions, paused plans and completed plans suspend rounds.
 
 ```bash
 domios plan control-loop show <plan>
@@ -175,4 +175,4 @@ Each non-quiet Curator finish note includes `MOVE: <one highest-leverage next st
 
 Every sixth real Curator round and each newly closed group triggers synthesis. Its digest includes the goal, correctness vector, open acceptance criteria count and the newest prior MOVE, RETRO and LEARN lines, dropping oldest history within the shared 8 KiB cap. A synthesis note may include `READY: yes|no ... [ids]`. READY is advisory: it appears in the round summary and never changes plan or release state.
 
-<!-- revision: 21 -->
+<!-- revision: 22 -->
