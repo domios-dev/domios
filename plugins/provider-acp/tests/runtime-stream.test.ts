@@ -293,7 +293,7 @@ for (const priorTurn of [false,true]) {
   let projected:JsonValue=null;
   if (priorTurn) projected=runtimeReduce({...own,claimedSends:[{sendId:"one",threadId:own.threadId,input:first.input}]},null,[frame("agent_message_chunk","prior")]).state;
   const current=priorTurn ? {...first,sendId:"two",input:{text:"two",attachments:[]}} : first;
-  if (priorTurn) runtimePlan(own,current);
+  if (priorTurn) runtimePlan({...own,activeTurnId:"session-fixture:turn:1",activeTurns:[{threadId:own.threadId,turnId:"session-fixture:turn:1"}]},{...current,activeTurnId:"session-fixture:turn:1"});
   const turn=priorTurn ? 2 : 1;
   const scoped={...own,claimedSends:[{sendId:current.sendId,threadId:own.threadId,input:current.input}],streamWindow:{
     frameSequences:[10],turnRequests:[{sendId:current.sendId,turnId:`session-fixture:turn:${turn}`,afterSequence:10,written:true}],

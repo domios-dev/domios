@@ -541,3 +541,85 @@ async fn declared_cancel_without_reply_settles_interrupted_after_one_grace() {
     };
     let ((), _peer) = tokio::join!(submit, server);
 }
+
+#[test]
+fn an_interrupt_claim_is_exclusive_per_tab_until_released() {
+    let first = InterruptClaim::take("claim-tab").unwrap();
+    assert!(InterruptClaim::take("claim-tab").is_none());
+    assert!(InterruptClaim::take("other-claim-tab").is_some());
+    drop(first);
+    assert!(InterruptClaim::take("claim-tab").is_some());
+}
+
+#[test]
+fn a_repeated_stop_during_the_grace_gets_the_pending_outcome_and_sends_no_second_interrupt() {
+    use crate::service::agent_runtime::{
+        engine::test_support::runtime_fixture_turn_scoped, turn_requests::tests as turn_fixture,
+    };
+    use serde_json::{json, Value};
+    use std::{
+        pin::Pin,
+        task::{Context, Poll, Waker},
+    };
+    use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWriteExt, BufReader};
+    let (fixture, tab, peer, _cleanup) = runtime_fixture_turn_scoped(turn_fixture::SOURCE);
+    let session = engine::for_tab(&tab).unwrap();
+    let process = session.process.lock().clone().unwrap();
+    let (cancel_written, cancel_seen) = tokio::sync::oneshot::channel::<()>();
+    let (release, released) = tokio::sync::oneshot::channel::<()>();
+    let server = crate::async_runtime::spawn(async move {
+        let mut peer = BufReader::new(peer);
+        let mut line = String::new();
+        peer.read_line(&mut line).await.unwrap();
+        let prompt: Value = serde_json::from_str(&line).unwrap();
+        line.clear();
+        peer.read_line(&mut line).await.unwrap();
+        assert_eq!(
+            serde_json::from_str::<Value>(&line).unwrap()["method"],
+            "fixture/cancel"
+        );
+        cancel_written.send(()).unwrap();
+        released.await.unwrap();
+        let reply = json!({"id":prompt["id"],"result":{"stopReason":"cancelled"}});
+        peer.get_mut()
+            .write_all(format!("{reply}\n").as_bytes())
+            .await
+            .unwrap();
+        peer
+    });
+    let operation = turn_fixture::operation(&session.context.lock());
+    let (_, written) = crate::async_runtime::block_on(engine::run_submit(
+        &fixture.service,
+        &session,
+        &process,
+        operation,
+    ));
+    assert!(written);
+    crate::async_runtime::block_on(async {
+        let first = crate::async_runtime::spawn(crate::service::stop_execution::stop_agent_turn(
+            fixture.service.clone(),
+            tab.clone(),
+        ));
+        cancel_seen.await.unwrap();
+        let repeated =
+            crate::service::stop_execution::stop_agent_turn(fixture.service.clone(), tab.clone())
+                .await
+                .unwrap();
+        assert_eq!(
+            repeated,
+            json!({"ok":true,"stopped":false,"reason":"interrupt_unconfirmed","route":"runtime"})
+        );
+        release.send(()).unwrap();
+        assert_eq!(first.await.unwrap().unwrap()["stopped"], json!(true));
+    });
+    assert!(session.context.lock().active_turn_id.is_none());
+    assert!(matches!(session.state.lock().phase, RuntimePhase::Ready));
+    let mut peer = crate::async_runtime::block_on(server).unwrap();
+    assert!(
+        matches!(
+            Pin::new(&mut peer).poll_fill_buf(&mut Context::from_waker(Waker::noop())),
+            Poll::Pending
+        ),
+        "the repeated stop writes nothing"
+    );
+}

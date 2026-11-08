@@ -272,6 +272,7 @@ export function runtimePlan(ctx:RuntimeContext, op:Operation):RuntimePlan {
       if (state.instructions) prompt.push({type:"text", text:state.instructions});
       prompt.push({type:"text", text:op.input.text});
       prompt.push(...images);
+      if (state.inFlight && !ctx.activeTurnId) endAbandonedPrompts(ctx,state);
       const ordinal=Math.max(state.promptOrdinal ?? 0,state.cursor.prompt,Number(object(state.projection).turn) || 0,ctx.restoredRowOrdinal ?? 0,...(state.queued ?? []).map(value=>value.prompt))+1;
       state.promptOrdinal=ordinal;
       if (state.inFlight) {
@@ -299,6 +300,15 @@ export function runtimePlan(ctx:RuntimeContext, op:Operation):RuntimePlan {
   }
 }
 
+
+/** The host admits a submit only with no turn or request outstanding, so these prompts ended there without a reply. */
+function endAbandonedPrompts(ctx:RuntimeContext, state:Negotiation):void {
+  state.inFlight=false;
+  delete state.promptSend;
+  delete state.queued;
+  const projected=reduceStream(ctx,state.projection ?? null,[],state.cursor).state;
+  state.projection=settleStream(ctx,projected,"cancelled").state;
+}
 
 function promoteQueued(ctx:RuntimeContext, state:Negotiation):import("@codeterm/plugin-sdk").AgentEvent[] {
   const sessionId=ownSession(ctx,state);
