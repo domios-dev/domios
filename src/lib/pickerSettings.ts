@@ -3,7 +3,8 @@ import type { ProviderDescriptor } from "./types";
 import { reasoningEffortsForModel } from "./newSessionChoice";
 
 export type PickerCategory = "model" | "effort" | "mode" | "speed";
-export type PickerApplyTarget = { kind: "config"; id: string } | { kind: "session" | PickerCategory };
+export type PickerApplyTarget = { kind: "config"; id: string } | { kind: "session" | "host_approvals" | PickerCategory };
+export type HostApprovalsValue = "ask" | "allow_all";
 export interface PickerSection {
   id: string;
   label: string;
@@ -17,7 +18,49 @@ export interface PickerSection {
 const CATEGORIES = new Map<string, PickerCategory>([["model", "model"], ["thought_level", "effort"], ["mode", "mode"]]);
 const ORDER: readonly PickerCategory[] = ["model", "effort", "mode", "speed"];
 
-export function pickerSections({ descriptor, controls, model, effort, runtimeMode, serviceTier, serviceTierAvailability }: {
+/**
+ * The tab's host-approval choice, or `undefined` when the control does not apply: the agent's own
+ * approve-all mode is the single switch where it exists, and confinement owns the answer where it binds.
+ */
+export function hostApprovalsChoice(
+  descriptor: ProviderDescriptor | undefined,
+  config: Readonly<Record<string, unknown>> | null | undefined,
+  controls: RuntimeSettings | undefined,
+): HostApprovalsValue | undefined {
+  if (!descriptor?.agent_runtime?.hostApprovals || config?.hostApprovals === "locked") return undefined;
+  const native = declaredFullAccessMode(descriptor, config);
+  if (native && (!controls || sessionOffersMode(controls, native))) return undefined;
+  return config?.hostApprovals === "ask" ? "ask" : "allow_all";
+}
+
+/**
+ * True when the host gives full access while the agent's mode row reads otherwise: the agent refused its
+ * approve-all mode, or left it. The row alone would mislead, so the picker states the effective access.
+ */
+export function hostFullAccessOverride(
+  descriptor: ProviderDescriptor | undefined,
+  config: Readonly<Record<string, unknown>> | null | undefined,
+  controls: RuntimeSettings | undefined,
+): boolean {
+  const native = descriptor?.agent_runtime?.hostApprovals ? declaredFullAccessMode(descriptor, config) : undefined;
+  if (!native || !controls || config?.hostApprovals !== "allow_all" || !sessionOffersMode(controls, native)) return false;
+  return (modeOption(controls)?.currentValue ?? controls.mode) !== native;
+}
+
+function declaredFullAccessMode(descriptor: ProviderDescriptor, config: Readonly<Record<string, unknown>> | null | undefined): string | undefined {
+  const profile = typeof config?.launchProfile === "string" ? descriptor.agent_runtime?.launchProfiles?.[config.launchProfile] : undefined;
+  return profile?.fullAccessMode;
+}
+
+function modeOption(controls: RuntimeSettings) {
+  return controls.configOptions?.find(option => option.category === "mode");
+}
+
+function sessionOffersMode(controls: RuntimeSettings, mode: string): boolean {
+  return Boolean(modeOption(controls)?.options.some(option => option.value === mode) || controls.modes?.some(entry => entry.id === mode));
+}
+
+export function pickerSections({ descriptor, controls, model, effort, runtimeMode, serviceTier, serviceTierAvailability, hostApprovals, hostFullAccess }: {
   descriptor?: ProviderDescriptor;
   controls?: RuntimeSettings;
   model?: string;
@@ -25,6 +68,8 @@ export function pickerSections({ descriptor, controls, model, effort, runtimeMod
   runtimeMode?: string;
   serviceTier?: RuntimeServiceTierSelection;
   serviceTierAvailability?: Record<string, readonly RuntimeServiceTier[]>;
+  hostApprovals?: HostApprovalsValue;
+  hostFullAccess?: boolean;
 }): PickerSection[] {
   const known = new Map<PickerCategory, PickerSection>();
   const extras: PickerSection[] = [];
@@ -66,13 +111,21 @@ export function pickerSections({ descriptor, controls, model, effort, runtimeMod
       applyTarget: { kind: "speed" },
     });
   }
-  return [...ORDER.flatMap(category => known.has(category) ? [known.get(category)!] : []), ...extras];
+  const permissions: PickerSection[] = hostApprovals ? [{
+    id: "host-approvals", label: "Permissions", kind: "select", current: hostApprovals,
+    options: [{ value: "ask", label: "Ask each time" }, { value: "allow_all", label: "Allow all" }],
+    applyTarget: { kind: "host_approvals" },
+  }] : hostFullAccess ? [{
+    id: "host-approvals", label: "Permissions", kind: "select", current: "Full access (host)", options: [],
+    applyTarget: { kind: "host_approvals" },
+  }] : [];
+  return [...ORDER.flatMap(category => known.has(category) ? [known.get(category)!] : []), ...permissions, ...extras];
 }
 
 export function pickerDescriptor(descriptor: ProviderDescriptor, sections: readonly PickerSection[]): ProviderDescriptor {
   const model = sections.find(section => section.category === "model");
   const effort = sections.find(section => section.category === "effort");
-  if (model?.applyTarget.kind !== "config") return descriptor.agent_runtime && !descriptor.available_models.length && sections.some(section => section.applyTarget.kind === "config" || section.applyTarget.kind === "session")
+  if (model?.applyTarget.kind !== "config") return descriptor.agent_runtime && !descriptor.available_models.length && sections.some(section => ["config", "session", "host_approvals"].includes(section.applyTarget.kind))
     ? { ...descriptor, model_switch: "live" } : descriptor;
   return { ...descriptor, model_switch: "live", available_models: model.options.map(option => ({
     id: option.value, display_name: option.label,

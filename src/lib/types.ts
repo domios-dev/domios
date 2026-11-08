@@ -1106,6 +1106,7 @@ export interface ProviderDescriptor {
   agent_runtime?: {
     launchProfiles?: Readonly<Record<string, import("../../packages/plugin-sdk/src/agentRuntime").RuntimeLaunchProfile>>;
     runtimeModes?: readonly { id: string; displayName: string }[];
+    hostApprovals?: boolean;
     serviceTiers?: readonly import("../../packages/plugin-sdk/src/agentRuntime").RuntimeServiceTier[];
     usage?: boolean;
     backgroundProcesses?: boolean;

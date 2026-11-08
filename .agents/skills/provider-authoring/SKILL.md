@@ -754,10 +754,22 @@ fingerprints, and `agent acp add --like` copies it.
 
 `agentRuntime.hostApprovals: true` declares that the runtime's agent permission requests
 carry declared option kinds (`prompt` event `permission`), so the host answers them from the
-tab's launch policy and a full-access launch is authorized without `autoApproveFlags`.
+tab's effective choice and a full-access launch is authorized without `autoApproveFlags`.
 A launch profile (or `registryDefaults` entry) may declare `fullAccessMode`, the agent's own
 approve-everything session mode id; full-access launch options carry it to the runtime config
 as `fullAccessMode`, and the plugin enters it only when the agent advertises that mode.
+
+Where the session offers that mode, as a session mode or a `category: "mode"` config option, the
+mode is the tab's single switch. The owner's choice of mode is persisted and reaches the plugin as
+`sessionMode`, which it enters on every open and resume ahead of `fullAccessMode`, because agents
+rebuild their own default on load. The host decides from that choice and never from the agent's
+live mode: an agent can ask in its approve-all mode, and must not lift its own Ask by changing
+mode. Mode changes on the controls route are owner only. A profile with no such mode gets the
+picker's Permissions row (`POST .../agent/runtime/host-approvals`).
+
+Declare `fullAccessMode` only for a mode the session can enter and leave over the protocol. A
+process-wide setting read at session creation, such as an environment variable, cannot follow
+the live switch or reach resumed sessions, so it does not qualify.
 
 A launch profile's `limitsSource` names where its account limits come from:
 `{kind:"account",provider}` reuses that native provider's account meter,
