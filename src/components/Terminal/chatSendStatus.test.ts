@@ -72,6 +72,27 @@ test("restart reconciliation wires durable states onto each persisted held bubbl
   }
 });
 
+test("a composer send ended with its lost session retries once, and the old attempt cannot reclaim it", () => {
+  const tabId = "lost-session-retry";
+  const ended = { ...heldStatus(), tab_id: tabId, state: "failed" as const, error: "launch_ended_before_write" };
+  addChatSend(tabId, { id: "bubble", correlationId: "message-1", content: "payload", sentAtMs: 1 });
+  observeDeliveryStatus(ended);
+  assert.equal(deliveryState(readChatSends(tabId)[0]), "failed");
+  const retried = beginChatSendRetry(tabId, "bubble");
+  assert.ok(retried?.correlationId && retried.correlationId !== "message-1");
+  assert.equal(beginChatSendRetry(tabId, "bubble"), undefined);
+  observeDeliveryStatus({ ...ended, sequence: 2 });
+  assert.equal(readChatSends(tabId).length, 1);
+  assert.equal(deliveryState(readChatSends(tabId)[0]), "sending");
+});
+
+test("a routed send ended with its lost session offers no Retry", () => {
+  const tabId = "lost-session-routed";
+  addChatSend(tabId, { id: "bubble", correlationId: "message-1", content: "payload", sentAtMs: 1 });
+  observeDeliveryStatus({ ...heldStatus(), tab_id: tabId, state: "failed", system_send: { content: "payload", sent_at_ms: 1 } });
+  assert.equal(beginChatSendRetry(tabId, "bubble"), undefined);
+});
+
 test("an absent receipt preserves held input as queued without inventing Retry", async () => {
   const tabId = "missing-restart-receipt";
   addChatSend(tabId, { id: "bubble", correlationId: "message-1", content: "payload", sentAtMs: 1 });

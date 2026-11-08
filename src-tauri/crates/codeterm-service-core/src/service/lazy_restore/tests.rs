@@ -25,6 +25,25 @@ fn startup_does_not_freeze_an_already_owned_pty_with_idle_hooks() {
 }
 
 #[test]
+fn opening_a_tab_never_reloads_a_session_the_provider_lost() {
+    let (mut mux, id) = MultiplexerState::new();
+    let tab = mux.get_tab_mut(&id).unwrap();
+    tab.protected = false;
+    tab.boot_stage = Some(BootStage::SpawnFailed);
+    assert!(
+        wake_eligible(tab, true),
+        "another failed launch still retries"
+    );
+    tab.agent_runtime_state = Some(serde_json::json!({
+        "state": "degraded",
+        "failureCode": "session_load_refused",
+    }));
+    assert!(!wake_eligible(tab, true));
+    tab.frozen = true;
+    assert!(wake_eligible(tab, false), "a sleeping tab still wakes");
+}
+
+#[test]
 fn focus_wakes_failed_sleeping_chat_on_its_own_session() {
     let (mut mux, id) = MultiplexerState::new();
     let tab = mux.get_tab_mut(&id).unwrap();

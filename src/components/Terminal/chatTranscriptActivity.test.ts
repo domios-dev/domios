@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { NormalizedChatMessage } from "@codeterm/chat-core";
 import type { ProviderDescriptor } from "../../lib/types";
-import { chatLiveOperationFullLabel, chatLiveOperationLabel, liveOperationSlot, projectChatTranscriptActivity } from "./chatTranscriptActivity";
+import { chatLiveOperationFullLabel, chatLiveOperationLabel, composerRunningTool, liveOperationSlot, projectChatTranscriptActivity } from "./chatTranscriptActivity";
 
 const chatProvider = { transport: "chat_backend" } as Pick<ProviderDescriptor, "transport" | "agent_runtime">;
 const runtimeProvider = { agent_runtime: {} } as Pick<ProviderDescriptor, "transport" | "agent_runtime">;
@@ -15,6 +15,15 @@ const tool = (id: string, toolStatus: NonNullable<NormalizedChatMessage["toolSta
   toolKind: "command",
   toolSummary: "gh run view 39149606573",
   toolStatus,
+});
+
+test("the composer names no running tool once its runtime is down", () => {
+  const rows = [tool("done", "completed"), tool("cut-off", "running")];
+  assert.equal(composerRunningTool(rows, "degraded"), undefined);
+  assert.equal(composerRunningTool(rows, "unloaded"), undefined);
+  assert.equal(composerRunningTool(rows, "loaded")?.id, "cut-off");
+  assert.equal(composerRunningTool(rows, null)?.id, "cut-off");
+  assert.equal(composerRunningTool([tool("done", "interrupted")], "loaded"), undefined);
 });
 
 test("enables transcript activity from chat transport capabilities and leaves PTY providers alone", () => {

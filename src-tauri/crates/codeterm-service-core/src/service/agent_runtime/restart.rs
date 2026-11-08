@@ -146,6 +146,13 @@ async fn restart_inner(
         if let Some(process) = process {
             bridge_retired = super::client_bridge::cancel(svc, session, &process, true).await;
         }
+        if fresh {
+            // The archive is read once the thread is gone, so it must hold the settled rows now.
+            super::subscriber::settle_replaced_session(svc, session);
+            if !session.cache.lock().tail(1).is_empty() {
+                super::transcript::persist(session).await;
+            }
+        }
         let context = session.context.lock().clone();
         super::prompt_answers::clear(svc, &context);
         let epoch = session.state.lock().begin();
@@ -166,6 +173,7 @@ async fn restart_inner(
             state.phase = RuntimePhase::Unloaded { reason: None };
             if fresh {
                 state.thread_id = None;
+                state.active_turn_started_at_ms = None;
             }
         }
         session.thread_loaded.store(false, Ordering::Release);
@@ -204,6 +212,12 @@ async fn restart_inner(
             target.agent_session_id = None;
             target.agent_session_name = None;
             target.restored_from_snapshot = false;
+            target.agent_state = Some(codeterm_types::pty::AgentLiveState::from(
+                codeterm_types::pty::TabVerdict {
+                    state: codeterm_types::pty::TimelineState::Idle,
+                    subtype: None,
+                },
+            ));
             if let Some(restore) = target.close_restore.as_mut() {
                 restore.exact_session = false;
             }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ProviderDescriptor } from "./types";
 import type { RuntimeSettings } from "@codeterm/plugin-sdk";
-import { declaredAskScope, hostApprovalsChoice, hostFullAccessOverride, pickerSections } from "./pickerSettings";
+import { declaredAskScope, hostApprovalsChoice, hostFullAccessOverride, pickerSections, recoveringModeLabel, sessionModeNames } from "./pickerSettings";
 import modelsOnlyFixture from "../../plugins/provider-acp/tests/fixtures/runtime/session-models-only.json";
 
 const native = { available_models: [{ id: "native-model", display_name: "Native model", reasoning_efforts: [{ id: "high", display_name: "High" }] }], agent_runtime: {
@@ -159,6 +159,23 @@ describe("hostApprovalsChoice", () => {
 
   it("hostFullAccessOverride needs host approvals", () => {
     expect(hostFullAccessOverride(descriptor(false), { launchProfile: "native", hostApprovals: "allow_all" }, advertised)).toBe(false);
+  });
+});
+
+describe("the mode a stopped session reads", () => {
+  const names = new Map(sessionModeNames({ modes: [{ id: "chosen", name: "Chosen name" }] }));
+  it("is the owner's last choice under the name the agent gave it", () => {
+    expect(recoveringModeLabel("degraded", { sessionMode: "chosen", fullAccessMode: "declared" }, names)).toBe("Chosen name");
+    expect(recoveringModeLabel("unloaded", { fullAccessMode: "declared" }, names)).toBe("declared");
+  });
+  it("says it is unknown when a stopped session has no recorded choice", () => {
+    expect(recoveringModeLabel("degraded", {}, names)).toBe("Unknown while recovering");
+    expect(recoveringModeLabel("unloaded", null, names)).toBe("Unknown while recovering");
+  });
+  it("defers to the live session, and a first launch has nothing to recover", () => {
+    expect(recoveringModeLabel("loaded", { sessionMode: "chosen" }, names)).toBeNull();
+    expect(recoveringModeLabel("loading", {}, names)).toBeNull();
+    expect(recoveringModeLabel("loading", { sessionMode: "chosen" }, names)).toBe("Chosen name");
   });
 });
 

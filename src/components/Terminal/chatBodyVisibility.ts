@@ -47,6 +47,11 @@ export function chatRailsVisible(view: ChatBodyView): boolean {
   return view.kind === "none";
 }
 
+/** Only part of the transcript is drawn while a relaunch reattaches it: local send rows, without the rows they follow. */
+export function chatRowsPartial(view: ChatBodyView, facts: { snapshotReady: boolean; hasHeldWindow: boolean; firstTurnReady: boolean }): boolean {
+  return view.kind !== "none" || (!facts.snapshotReady && !facts.hasHeldWindow && !facts.firstTurnReady);
+}
+
 /** A setup state beside rows takes a row of the log, so it and they can never cover each other. */
 export function setupFlowsInLog(view: ChatBodyView, restoreLoadRefused: boolean, hasRows: boolean): boolean {
   return restoreLoadRefused || view.kind === "attach_failed" || view.kind === "failed"

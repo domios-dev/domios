@@ -18,7 +18,9 @@ pub(super) use apply::publish_events;
 
 #[path = "subscriber/turn_lifecycle.rs"]
 mod turn_lifecycle;
-pub(super) use turn_lifecycle::{reconcile_finished_item, release_lost_turn};
+pub(super) use turn_lifecycle::{
+    reconcile_finished_item, release_lost_turn, settle_replaced_session,
+};
 
 #[path = "subscriber/bookkeeping.rs"]
 mod bookkeeping;

@@ -5,7 +5,7 @@ import { test } from "vitest";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { TransportError } from "../../lib/transportClient";
-import type { Notification, ProviderDescriptor } from "../../lib/types";
+import type { Notification, ProviderDescriptor, Tab } from "../../lib/types";
 import { __setModelCatalogueRefreshApiForTest } from "../../lib/modelCatalogueRefresh";
 import { NotificationToastContainer } from "../Notifications/NotificationToast";
 import { __setTabModelApiForTest } from "../Sidebar/tabModelApi";
@@ -692,6 +692,28 @@ test("catalogue-free runtime keeps unclassified choices inside a neutral model b
   } finally { await view.unmount(); }
 });
 
+
+test("a runtime that is down shows the chosen mode or says it is unknown, never a live-looking Default", async () => {
+  const provider = {...descriptor("unsupported"), available_models:[], agent_runtime:{hostApprovals:true}} as unknown as ProviderDescriptor;
+  const chip = async (runtimeState: "degraded" | "unloaded" | "loaded", config: Record<string, unknown>) => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const tab = {id:"tab", agent_runtime_state:{state:runtimeState, epoch:1}, agent_runtime_config:config} as unknown as Tab;
+    await act(async () => root.render(<MultiplexerActionsContext.Provider value={toastActions}>
+      <StatusLineModelPicker tab={tab} tabId="tab" descriptor={provider} runtimeControls={{}} facts={{ hasSession: true }}
+        label="Vendor" modelCandidates={[]} currentEffort={undefined} />
+    </MultiplexerActionsContext.Provider>));
+    const text = host.querySelector(".ct-status-identity__text")?.textContent;
+    await act(async () => root.unmount());
+    host.remove();
+    return text;
+  };
+  assert.equal(await chip("degraded", {sessionMode:"opaque-chosen", fullAccessMode:"opaque-declared"}), "opaque-chosen");
+  assert.equal(await chip("unloaded", {fullAccessMode:"opaque-declared"}), "opaque-declared");
+  assert.equal(await chip("degraded", {}), "Unknown while recovering");
+  assert.equal(await chip("loaded", {}), "Default");
+});
 
 test("catalogue-free runtime stays neutral while model controls are unavailable", async () => {
   const provider = {...descriptor("unsupported"), available_models:[], agent_runtime:{}} as ProviderDescriptor;

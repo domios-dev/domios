@@ -103,7 +103,20 @@ impl ServiceContext {
             )
             .into());
         }
-        let claim = self.claim_restart(tab_id, false)?;
+        // A failed relaunch of the lost session must not rate-limit the owner's way out of it.
+        let replaces_lost_session = fresh
+            && agent_runtime::engine::for_tab(tab_id)
+                .is_some_and(|session| agent_runtime::engine::session_load_refused(self, &session));
+        let claim = self.claim_restart(tab_id, replaces_lost_session)?;
+        if snap
+            .session_id
+            .as_deref()
+            .is_some_and(|thread| fresh && !thread.is_empty())
+        {
+            // The replaced session's context is gone, so a held send ends here rather than following it.
+            self.end_held_user_sends_for_fresh_restart(tab_id)
+                .map_err(AgentRestartError::Internal)?;
+        }
         if !authorized {
             agent_runtime::authority::authorize_failed_start_restart(
                 self, tab_id, &provider, &nonce,

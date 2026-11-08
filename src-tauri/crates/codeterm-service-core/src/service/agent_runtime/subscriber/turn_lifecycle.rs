@@ -33,8 +33,8 @@ pub(in crate::service::agent_runtime) fn release_lost_turn(
     }
     if turn.is_some() {
         engine::record_completed_turn(session, &thread, turn.as_deref());
-        let at = chrono::Utc::now().timestamp_millis().max(0) as u64;
-        settle_tools(svc, session, turn.as_deref(), "interrupted", at);
+        // A provider may name no turn on its tool rows, and nothing can report any of them now.
+        settle_replaced_session(svc, session);
     }
     let detail = turn.is_some().then_some(RuntimeTurnDetail::Failed);
     let live =
@@ -120,6 +120,15 @@ pub(super) fn prepare(
         settle_tools(svc, session, turn_id.as_deref(), "interrupted", at);
     }
     true
+}
+
+/// A session being replaced can no longer report its tools, so none of them stays running.
+pub(in crate::service::agent_runtime) fn settle_replaced_session(
+    svc: &ServiceContext,
+    session: &Session,
+) {
+    let at = chrono::Utc::now().timestamp_millis().max(0) as u64;
+    settle_tools(svc, session, None, "interrupted", at);
 }
 
 pub(super) fn settle_tools(

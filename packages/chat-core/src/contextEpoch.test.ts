@@ -40,4 +40,17 @@ assert(
   "persisted reload boundary is not duplicated",
 );
 
+const replacedSession = projectContextEpochs([
+  { id: "old-tool", type: "tool_call", content: "", toolStatus: "running" },
+  { id: "boundary", type: "system", content: "boundary", systemSubtype: "context_epoch_boundary" },
+  { id: "new-tool", type: "tool_call", content: "", toolStatus: "running" },
+]);
+const oldTool = replacedSession.find((message) => message.id === "old-tool");
+assert(oldTool?.toolStatus === "interrupted" && oldTool.toolInterrupted === true, "a tool above a context reset is settled as interrupted");
+assert(replacedSession.find((message) => message.id === "new-tool")?.toolStatus === "running", "the current session's running tool stays live");
+assert(
+  projectContextEpochs([{ id: "only", type: "tool_call", content: "", toolStatus: "running" }])[0]?.toolStatus === "running",
+  "without a reset a running tool stays live",
+);
+
 console.log("contextEpoch tests passed");
