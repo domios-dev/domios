@@ -12,7 +12,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::{short_model_name, BootStage};
+use super::{is_qualified_model_id, plain_model_id, short_model_name, BootStage};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -141,6 +141,7 @@ pub fn classify_agent_liveness(evidence: LivenessEvidence) -> AgentLiveness {
 /// * no usable provider              -> no bracket at all
 /// * provider, model not recognised  -> the provider name
 /// * model recognised                -> the short model name, alone
+/// * runtime-qualified model id      -> its declared name, else its plain id
 ///
 /// Falling back to the provider is a display decision about an id no catalogue
 /// claims; it says nothing about the stored model, which this rule never reads
@@ -154,11 +155,31 @@ pub fn agent_bracket_label(
     model: Option<&str>,
     liveness: AgentLiveness,
 ) -> Option<String> {
+    agent_bracket_label_named(provider, model, None, liveness)
+}
+
+/// [`agent_bracket_label`] with the name the tab's own session declared for its
+/// model, which only a runtime-qualified id may use.
+pub fn agent_bracket_label_named(
+    provider: Option<&str>,
+    model: Option<&str>,
+    declared_name: Option<&str>,
+    liveness: AgentLiveness,
+) -> Option<String> {
     let provider = provider.map(str::trim).filter(|value| !value.is_empty())?;
+    let model = model.map(str::trim).filter(|value| !value.is_empty());
+    let qualified = model
+        .filter(|value| is_qualified_model_id(value))
+        .map(|value| {
+            declared_name
+                .map(str::trim)
+                .filter(|name| !name.is_empty())
+                .map(str::to_string)
+                .unwrap_or_else(|| plain_model_id(value))
+        });
     let identity = model
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
         .and_then(short_model_name)
+        .or(qualified)
         .unwrap_or_else(|| provider.to_string());
     Some(match liveness {
         AgentLiveness::Live => identity,
@@ -186,6 +207,36 @@ mod tests {
             provider_exit_observed: false,
             pending_prompt: false,
         }
+    }
+
+    #[test]
+    fn a_qualified_model_id_never_reaches_the_bracket_as_json() {
+        let raw = r#"["deepseek-official","deepseek-v4-pro"]"#;
+        assert_eq!(
+            agent_bracket_label(Some("acp"), Some(raw), AgentLiveness::Live).as_deref(),
+            Some("deepseek-v4-pro")
+        );
+        assert_eq!(
+            agent_bracket_label_named(
+                Some("acp"),
+                Some(raw),
+                Some("DeepSeek-V4-Pro"),
+                AgentLiveness::Absent
+            )
+            .as_deref(),
+            Some("DeepSeek-V4-Pro!")
+        );
+        // A plain id no catalogue claims keeps the provider, declared name or not.
+        assert_eq!(
+            agent_bracket_label_named(
+                Some("acp"),
+                Some("local-model"),
+                Some("Local"),
+                AgentLiveness::Live
+            )
+            .as_deref(),
+            Some("acp")
+        );
     }
 
     #[test]

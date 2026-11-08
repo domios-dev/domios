@@ -12,7 +12,7 @@ export interface AutomationSnapshot {
 }
 
 export class AutomationResource {
-  private snapshot: AutomationSnapshot = { graph: null, loading: true, failed: false, stopping: null, stopFailed: null };
+  private snapshot: AutomationSnapshot;
   private listeners = new Set<() => void>();
   private generation = 0;
   private unlisten?: () => void;
@@ -20,7 +20,20 @@ export class AutomationResource {
   private reading = false;
   private dirty = false;
 
-  constructor(private adapter: AutomationGraphAdapter, private attachment: AutomationAttachment) {}
+  constructor(private adapter: AutomationGraphAdapter, private attachment: AutomationAttachment) {
+    this.snapshot = this.unread();
+  }
+
+  private unread(): AutomationSnapshot {
+    return { graph: this.lastKnown(), loading: true, failed: false, stopping: null, stopFailed: null };
+  }
+
+  private lastKnown(): AutomationGraph | null {
+    const known = this.adapter.peek?.(this.attachment);
+    if (!known) return null;
+    try { return scopedAutomationGraph(known, this.attachment); }
+    catch { return null; }
+  }
 
   getSnapshot = () => this.snapshot;
   subscribe = (listener: () => void) => {
@@ -35,7 +48,7 @@ export class AutomationResource {
       this.unlisten = undefined;
       this.reading = false;
       this.dirty = false;
-      this.snapshot = { graph: null, loading: true, failed: false, stopping: null, stopFailed: null };
+      this.snapshot = this.unread();
     };
   };
 
@@ -69,8 +82,8 @@ export class AutomationResource {
       const graph = scopedAutomationGraph(await this.adapter.read(this.attachment, controller.signal), this.attachment);
       if (generation === this.generation && !this.dirty) {
         // Graph events outpace graph changes; an identical read keeps the published snapshot for its subscribers.
-        const same = !this.snapshot.loading && !this.snapshot.failed && sameJson(this.snapshot.graph, graph);
-        if (!same) this.publish({ graph, loading: false, failed: false });
+        const same = sameJson(this.snapshot.graph, graph);
+        if (!same || this.snapshot.loading || this.snapshot.failed) this.publish({ graph: same ? this.snapshot.graph : graph, loading: false, failed: false });
       }
     } catch (error) {
       if (generation !== this.generation || this.dirty) return;

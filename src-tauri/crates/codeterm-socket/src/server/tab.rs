@@ -399,7 +399,7 @@ pub(super) fn dispatch(
                     let source = m.get_tab(src);
                     (
                         m.display_label_for_tab(src),
-                        source.and_then(|tab| tab.agent_session_model.clone()),
+                        source.and_then(|tab| tab.agent_session_model_label()),
                         source.is_some_and(|tab| tab.agent_type.is_some() || tab.agent_booting),
                     )
                 };

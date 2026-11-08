@@ -569,7 +569,7 @@ impl ServiceContext {
                     .or(Some(ReportOutcomeClass::TransitionRejected)),
             });
 
-        let (from_title, default_target_opt, model_identity, from_ref) = {
+        let (from_title, default_target_opt, model_identity, from_ref, model) = {
             let mux = self.mux.read();
             let (from_title, target_opt) = match resolve_report_target(&mux, tab_id) {
                 Ok(resolved) => resolved,
@@ -594,11 +594,9 @@ impl ServiceContext {
                     title: Some(p.title.clone()),
                 },
             );
-            (from_title, target_opt, model_identity, from_ref)
+            let model = tab.and_then(|p| p.agent_session_model_label());
+            (from_title, target_opt, model_identity, from_ref, model)
         };
-        let model = model_identity
-            .as_ref()
-            .and_then(|identity| identity.actual_model.clone());
         // Capture mesh peer before default_target_opt is consumed by .or().
         let default_mesh_peer = match &default_target_opt {
             Some(ReportTarget::Mesh { peer, .. }) => Some(peer.clone()),

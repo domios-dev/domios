@@ -156,6 +156,7 @@ impl MultiplexerState {
             .collect();
 
         for pid in &tab_ids {
+            self.record_closed_transcript(pid);
             if let Some(tab) = self.tabs.remove(pid) {
                 if let Some(pty_id) = &tab.pty_id {
                     self.pty_to_tab.remove(pty_id);

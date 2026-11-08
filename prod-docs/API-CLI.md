@@ -55,7 +55,12 @@ The `agent cli` verbs are local-only; run them in a tab on the target peer. Stat
 domios agent usage read --tab TAB_ID [--json]
 domios agent usage reset --tab TAB_ID --confirm [--json]
 domios agent child-history --tab PARENT_TAB --thread CHILD_THREAD --root-thread-id ROOT_THREAD --binding-nonce NONCE --epoch EPOCH [--cursor CURSOR] [--json]
+domios agent child-history --tab PARENT_TAB --closed [--child CHILD_TAB] [--since N] [--json]
+domios tab chat --tab CLOSED_TAB [--since N] [--json]
+domios sessions get CLOSED_TAB_OR_SESSION [--json]
 ```
+
+A closed agent tab stays readable by id. `child-history --closed` lists the parent's closed child tabs, and `--child` reads one child's transcript. `tab chat` reads a closed tab by its full or unique short id and says that it is closed. `sessions get` also accepts a closed tab id or a host-kept session id, and adds `closed_tab` and `transcript_command`. All three answer only the owner, the tab's parent and its Team; `domios docs API-CHAT` has the response shape and retention.
 
 These commands always name the target tab. `usage read` returns session/weekly limits, account credits, reset-credit count and expiry from that tab's cached runtime projection. `usage reset` consumes a reset credit through the existing runtime route; `--confirm` is mandatory and each invocation carries a fresh idempotency UUID. Its JSON includes the provider outcome and observed before/after reset-credit counts. `child-history` passes the current parent binding authority to the existing recorded-child route; stale bindings and unrecorded descendants are refused. The cursor is opaque and may be supplied from `nextCursor` to continue.
 

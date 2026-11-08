@@ -11,6 +11,7 @@
 //! start/stop and shuttles the bytes through.
 
 pub mod chatbackend_history;
+pub mod closed_transcript;
 mod content;
 pub mod context_window;
 pub(crate) mod file_events;

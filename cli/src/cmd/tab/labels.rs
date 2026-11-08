@@ -156,6 +156,17 @@ mod tests {
         }
     }
 
+    #[test]
+    fn a_qualified_model_id_never_reaches_a_tab_row_as_json() {
+        let tab = json!({"agent_type": "acp", "agent_liveness": "live",
+                         "agent_session_model": r#"["deepseek-official","deepseek-v4-pro"]"#});
+        assert_eq!(agent_label(&tab).as_deref(), Some("deepseek-v4-pro"));
+        let named = json!({"agent_type": "acp", "agent_liveness": "live",
+                           "agent_session_model": r#"["deepseek-official","deepseek-v4-pro"]"#,
+                           "agent_label": "DeepSeek-V4-Pro"});
+        assert_eq!(agent_label(&named).as_deref(), Some("DeepSeek-V4-Pro"));
+    }
+
     /// Choosing the provider is a rendering decision. The projection keeps the
     /// model it was published with.
     #[test]

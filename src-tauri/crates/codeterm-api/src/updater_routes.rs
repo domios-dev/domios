@@ -260,7 +260,7 @@ async fn install_update_inner(
                     tab_id,
                     label: tab.title.clone(),
                     from_agent: Some(tab.agent_type.is_some()),
-                    from_model: tab.agent_session_model.clone(),
+                    from_model: tab.agent_session_model_label(),
                 }
             };
             codeterm_service_core::service::post_update::stash(&text, Some(sender)).map_err(|_| {

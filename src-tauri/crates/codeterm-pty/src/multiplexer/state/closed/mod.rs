@@ -24,7 +24,8 @@ use crate::multiplexer::types::{ClosedTab, TabBacking, TabCloseReason, TitleLeve
 use restore_plan::GroupRestorePlan;
 
 pub use store::{
-    ClosedGroup, ClosedRow, ClosedTabsStore, GroupKind, CLOSED_GROUP_CAP, RECENTLY_CLOSED_CAP,
+    ClosedGroup, ClosedRow, ClosedTabsStore, ClosedTranscript, ClosedTranscriptReader, GroupKind,
+    CLOSED_GROUP_CAP, RECENTLY_CLOSED_CAP,
 };
 
 /// Cap on newest closed tabs carried in the hot snapshot; sqlite keeps far more.
@@ -79,6 +80,13 @@ pub(super) struct ClosedHistoryWrite {
 pub struct ClosedHistoryBatch {
     store: ClosedTabsStore,
     writes: Vec<ClosedHistoryWrite>,
+    transcripts: Vec<ClosedTranscript>,
+}
+
+fn persist_transcripts(store: &ClosedTabsStore, transcripts: &[ClosedTranscript]) {
+    if let Err(error) = store.insert_transcripts(transcripts) {
+        log::error!("[closed-history] closed transcript index not recorded: {error}");
+    }
 }
 
 impl ClosedHistoryBatch {
@@ -108,6 +116,7 @@ impl ClosedHistoryBatch {
                     }
                 }
             }
+            persist_transcripts(&self.store, &self.transcripts);
             evicted
         })
         .join()
@@ -141,6 +150,7 @@ impl ClosedHistoryBatch {
                 log::error!("[closed-history] {}: {error}", write.failure_context);
             }
         }
+        persist_transcripts(&self.store, &self.transcripts);
     }
 }
 
@@ -413,10 +423,41 @@ impl MultiplexerState {
 
     pub fn take_closed_history_batch(&mut self) -> Option<ClosedHistoryBatch> {
         let writes = std::mem::take(&mut self.pending_closed_history);
-        (!writes.is_empty()).then(|| ClosedHistoryBatch {
+        let transcripts = std::mem::take(&mut self.pending_closed_transcripts);
+        (!writes.is_empty() || !transcripts.is_empty()).then(|| ClosedHistoryBatch {
             store: self.closed_store.clone(),
             writes,
+            transcripts,
         })
+    }
+
+    /// Note which session holds this agent tab's transcript, just before the tab
+    /// goes. The write joins the deferred batch, never running under the mux lock.
+    pub(super) fn record_closed_transcript(&mut self, tab_id: &str) {
+        let Some(record) = self
+            .tabs
+            .get(tab_id)
+            .and_then(|tab| ClosedTranscript::from_tab(tab, now_millis()))
+        else {
+            return;
+        };
+        if self.defer_closed_history {
+            self.pending_closed_transcripts.push(record);
+        } else {
+            persist_transcripts(&self.closed_store, std::slice::from_ref(&record));
+        }
+    }
+
+    /// A reader to use after dropping the mux lock, so sqlite never runs under it.
+    pub fn closed_transcripts(&self) -> ClosedTranscriptReader {
+        ClosedTranscriptReader {
+            store: self.closed_store.clone(),
+            pending: self.pending_closed_transcripts.clone(),
+        }
+    }
+
+    pub fn take_evicted_closed_transcripts(&self) -> Vec<ClosedTranscript> {
+        self.closed_store.take_evicted_transcripts()
     }
 
     /// Pre-order list of a tab id and its descendants; a `visited` set guards against a corrupted parent/child cycle.

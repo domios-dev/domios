@@ -1,3 +1,4 @@
+import { plainModelId } from "../../../lib/agentModelName";
 import type { PlanSectionView as Section } from "../planProjection";
 import type { PlanView as Plan, PlanTaskView as Task } from "../planProjection";
 import { RichMarkdown } from "@codeterm/chat-ui/MarkdownBody";
@@ -118,7 +119,7 @@ function resolveTab(tabId: string | null | undefined, tabs: Record<string, Tab>)
     tabId: id,
     title: tab?.title?.trim() || tab?.agent_session_name?.trim() || null,
     provider: tab?.agent_type?.trim() || null,
-    model: tab?.agent_session_model?.trim() || null,
+    model: plainModelId(tab?.agent_session_model ?? "") || null,
     alive: Boolean(tab),
   };
 }

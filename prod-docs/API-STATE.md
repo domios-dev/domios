@@ -118,7 +118,7 @@ Nothing is skipped silently. `warnings` lists, per provider, the sessions it cou
 
 Search hits contain session metadata (ID, provider, project path, title, summary, file path, creation/modification timestamps), snippets (role, text, timestamp) and match count, alongside the warnings above.
 
-**GET /api/sessions/{id}** — returns the `SessionMetadata` for whichever provider claims this id. Each provider answers from its own per-session record; session history is never enumerated, so the cost does not grow with the number of stored sessions. Returns `404` if no provider knows it (gone from disk, never existed, wrong machine).
+**GET /api/sessions/{id}** — returns the `SessionMetadata` for whichever provider claims this id. Each provider answers from its own per-session record; session history is never enumerated, so the cost does not grow with the number of stored sessions. The id may also be a closed tab id or a host-kept session id: for the owner, the tab's parent and its Team, the response adds `closed_tab` and `transcript_command`, and a session no provider lists is answered from that record. Returns `404` if no provider knows it and the caller may read no closed tab holding it (gone from disk, never existed, wrong machine).
 
 **POST /api/sessions/{id}/resume** — single call replacing the error-prone "create workspace at guessed cwd → spawn agent with `--resume <id>`" dance. Steps:
 1. Locate the session across providers and read its cwd and provider id from the session's own metadata.
@@ -210,4 +210,4 @@ Responses carry `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, an
 
 Related documents — service registration, health, and activity: `domios docs API-SERVICES`. Bridge and cron integrations: `domios docs API-INTEGRATIONS`.
 
-<!-- revision: 41 -->
+<!-- revision: 42 -->

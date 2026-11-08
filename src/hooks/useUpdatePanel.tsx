@@ -1,11 +1,11 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useUpdateAvailability } from "./useUpdateAvailability";
-import { appIntentSatisfied, appendUpdateFailure, targetInstalled, restoredAppIntentInterrupted, updateRunRows, availabilityIntent, hasUpdateBadge, nextUpdateStep, panelItems, readUpdateIntent, updateableItems, type UpdateIntent, type UpdateItem, UPDATE_INTENT_KEY } from "../lib/updatePanelModel";
+import { appIntentFinished, appIntentSatisfied, appendUpdateFailure, targetInstalled, restoredAppIntentInterrupted, unavailableSourcesSentence, updateRunRows, updateSourceLabel, availabilityIntent, hasUpdateBadge, nextUpdateStep, panelItems, readUpdateIntent, updateableItems, type UpdateIntent, type UpdateItem, UPDATE_INTENT_KEY } from "../lib/updatePanelModel";
 import { acceptFrontendUpdate, setFrontendUpdateHeld, frontendUpdateOffer, subscribeFrontendUpdateOffer } from "../lib/frontendUpdate/browser";
 import { runPluginSnapshotAction } from "../lib/pluginSnapshotStore";
 import { appliedFrontendRelease, subscribeAppliedFrontendRelease } from "../lib/frontendUpdate/releaseNotes";
 import { useUpdate } from "./useUpdate";
-import { channelDiagnostics, classifyUpdateFailure, classifyUpdateStatus, type UpdateFailure } from "../lib/updateStatusModel";
+import { channelDiagnostics, classifyUpdateFailure, classifyUpdateStatus, unavailableSourceKeys, type UpdateFailure } from "../lib/updateStatusModel";
 
 function savedIntent(): UpdateIntent | null {
   return readUpdateIntent(localStorage.getItem(UPDATE_INTENT_KEY));
@@ -50,6 +50,9 @@ function useUpdatePanelController() {
   }, []);
 
   const hostVersion = snapshot.items.find(item => item.kind === "app")?.installed ?? app.currentVersion ?? "";
+  useEffect(() => {
+    if (intent && restoredIntent.current && appIntentFinished(intent, hostVersion)) save(null);
+  }, [hostVersion, intent, save]);
   const restoredFailure: UpdateFailure | null = ready && intent && restoredIntent.current
     && restoredAppIntentInterrupted(intent, hostVersion, {
       observed: app.nativeStatusObserved, phase: app.phase, installing: app.installing,
@@ -184,14 +187,15 @@ function useUpdatePanelController() {
     setError(null);
     try {
       const fresh = await refresh(true);
-      const available = panelItems(updateableItems(fresh.items, classifyUpdateStatus(fresh).errors));
+      const freshErrors = classifyUpdateStatus(fresh).errors;
+      const available = panelItems(updateableItems(fresh.items, freshErrors));
       if (available.length) setHistory([]);
       if (app.error) await app.refresh(true, { retirementBoundary });
       setRunItems([]);
       setOutcomes({});
-      const failures = Object.keys(fresh.errors).length;
-      setCheckResult(failures
-        ? `Check finished with ${failures} unavailable update source(s).`
+      const sources = unavailableSourceKeys(freshErrors).map(updateSourceLabel);
+      setCheckResult(sources.length
+        ? `Check finished: ${unavailableSourcesSentence(sources)}.`
         : available.length ? `Check complete: ${available.length} update(s) available.` : "Check complete: everything is up to date.");
     } catch (failure) { setError(classifyUpdateFailure("check", failure)); }
     finally { setChecking(false); }
@@ -201,7 +205,7 @@ function useUpdatePanelController() {
     : intent?.stage === "app" && !restoredFailure && !app.error && !appIntentSatisfied(intent, hostVersion) ? "app" : null;
   const rows = updateRunRows(runItems, items, snapshot.items, intent, activeId, restoredFailure || (restoredIntent.current && app.error) ? { ...outcomes, app: "failed" } : outcomes);
   const failure = error?.message ?? (app.error ? classifyUpdateFailure("update", app.error)?.message : null) ?? restoredFailure?.message;
-  return { snapshot, items, rows, activeId, awaitingRetry: Boolean(intent && failure), appProgress: app.status === "downloading" && app.downloadTotalBytes && app.downloadTotalBytes > 0
+  return { snapshot, items, rows, activeId, appStaged: app.phase === "success", awaitingRetry: Boolean(intent && failure), appProgress: app.status === "downloading" && app.downloadTotalBytes && app.downloadTotalBytes > 0
     ? Math.min(100, Math.max(0, app.downloadedBytes / app.downloadTotalBytes * 100)) : null,
     frontendRelease, history, checking, checkResult, information: status.information, diagnostics, busy: starting || (!failure && intent !== null) || app.installing, error: failure,
     errorDetails: error ? [error.details, app.error].filter(Boolean).join("\n") : app.error ?? restoredFailure?.details,

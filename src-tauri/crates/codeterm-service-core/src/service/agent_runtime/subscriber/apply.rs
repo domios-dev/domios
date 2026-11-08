@@ -283,6 +283,8 @@ async fn publish_with_origin(
     }
     if run_completed {
         super::super::transcript::persist(session).await;
+    } else if run_chat_item {
+        super::super::transcript::archive_tick(session);
     }
     if (run_completed || run_chat_item) && svc.run_watcher.has_runtime_run(&context.tab_id) {
         let owner = svc.clone();
