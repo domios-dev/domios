@@ -548,14 +548,14 @@ function reduceStream(ctx, raw, frames, cursor, submitted, retainSubmitted = fal
     try {
       if (ownSubmitted && !state.loading && !state.settled) submittedRow(state, events, ownSubmitted, false);
       if (frame.kind === "request" && clientRequest(frame.method)) {
-        startTurn(ctx, state, events);
+        if (!cursor.unattributed) startTurn(ctx, state, events);
         continue;
       }
       if (frame.kind !== "notification" || frame.method !== "session/update") continue;
       const update = object(params.update);
       const kind = text(update.sessionUpdate);
       if (!kind) continue;
-      startTurn(ctx, state, events);
+      if (!cursor.unattributed) startTurn(ctx, state, events);
       if (ownSubmitted && !state.loading && !state.settled) submittedRow(state, events, ownSubmitted, true);
       if (kind === "user_message_chunk" || kind === "agent_message_chunk" || kind === "agent_thought_chunk") {
         const content = object(update.content);
@@ -596,7 +596,7 @@ function reduceStream(ctx, raw, frames, cursor, submitted, retainSubmitted = fal
         putEntry(state, "items", row.id, row);
         const key = explicit ? `${state.sessionId}:turn:${state.turn}:message:${explicit}` : void 0;
         if (key) rememberOffset(state, key, { offset: chunk.offset, chars: chunk.chars, ...chunk.echo ? { echo: chunk.echo } : {}, ...chunk.id !== key ? { row: chunk.id } : {} });
-        if (!state.loading && !state.started && kind === "agent_message_chunk") events.push({ kind: "turnState", threadId: ctx.threadId, turnId: ctx.activeTurnId ?? `${ctx.threadId}:turn:${state.turn}`, state: "working" });
+        if (!cursor.unattributed && !state.loading && !state.started && kind === "agent_message_chunk") events.push({ kind: "turnState", threadId: ctx.threadId, turnId: ctx.activeTurnId ?? `${ctx.threadId}:turn:${state.turn}`, state: "working" });
         continue;
       }
       if (kind === "tool_call" || kind === "tool_call_update") {
@@ -1409,7 +1409,8 @@ function runtimeReduce(ctx, raw, frames) {
     const cursor = attributable ? state.cursor : {
       ...state.cursor,
       prompt: Number(object4(projection).prompt) || 0,
-      loading: state.cursor.loading || object4(projection).loading === true
+      loading: state.cursor.loading || object4(projection).loading === true,
+      unattributed: true
     };
     if (!attributable && projection === null)
       projection = { ...object4(reduceStream(ctx, null, [], cursor).state), turn: 0 };
@@ -1591,11 +1592,12 @@ function snapshot(balance, nowMs) {
     usage_details: { limits: [], dollar_credits: [], extra_usage: null, balance }
   });
 }
+var unexpectedResponse = { error: "Balance response has an unexpected format" };
 function readProfileLimits(fetch, request2, nowMs) {
   const source = request2.source;
-  if (source.kind !== "balance") return null;
+  if (source.kind !== "balance") return { error: "Profile declares no balance source" };
   const reader = Object.prototype.hasOwnProperty.call(readers, source.reader) ? readers[source.reader] : void 0;
-  if (!reader) return null;
+  if (!reader) return { error: "Profile names an unknown balance reader" };
   return fetch({
     url: reader.url,
     method: "GET",
@@ -1603,12 +1605,14 @@ function readProfileLimits(fetch, request2, nowMs) {
     headers: { Accept: "application/json" },
     profileSecret: { profile: request2.profile, env: source.credentialEnv, headers: { Authorization: "Bearer {secret}" } }
   }, (result) => {
-    if (result.error || result.status !== 200 || !result.body || result.body.length > 64 * 1024) return null;
+    if (result.error) return { error: result.error };
+    if (result.status !== 200) return { error: `Balance endpoint answered HTTP ${result.status}` };
+    if (!result.body || result.body.length > 64 * 1024) return { error: "Balance response is empty or too large" };
     try {
       const balance = reader.parse(result.body);
-      return balance ? snapshot(balance, nowMs) : null;
+      return balance ? snapshot(balance, nowMs) : unexpectedResponse;
     } catch {
-      return null;
+      return unexpectedResponse;
     }
   });
 }

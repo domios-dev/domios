@@ -77,6 +77,54 @@ pub(crate) fn is_current_session(
         })
 }
 
+/// A recovery attempt failed on a degraded runtime, and nothing will retry it for these sends.
+/// Sign-in and a replaced launch each have an owner that wakes the queue again.
+fn degrade_ends_held_sends(
+    failure: &super::model::RuntimeFailure,
+    published_state: Option<&str>,
+) -> bool {
+    use super::model::RuntimeFailure;
+    published_state == Some("degraded")
+        && !matches!(
+            failure,
+            RuntimeFailure::SignInRequired | RuntimeFailure::Superseded
+        )
+}
+
+/// A sleeping tab refuses the attempt without trying, so it says nothing about the runtime.
+fn published_state(svc: &ServiceContext, tab: &str) -> Option<String> {
+    let mux = svc.mux.read();
+    let target = mux.get_tab(tab).filter(|target| !target.frozen)?;
+    target.agent_runtime_state.as_ref()?["state"]
+        .as_str()
+        .map(str::to_owned)
+}
+
+fn settle_held_sends(svc: &ServiceContext, tab: &str) -> Result<(), String> {
+    let store = &svc.pending_delivery_payloads.user_sends;
+    for record in store.queued(tab)? {
+        svc.chat_send_ledger.restore_user_record(&record);
+        if svc
+            .chat_send_ledger
+            .user_payload_may_have_been_written(&record.send_id)
+            || !store.discard_queued_for_degraded_launch(&record)?
+        {
+            continue;
+        }
+        if let Some(status) = svc
+            .chat_send_ledger
+            .expire_owned_before_write(&record.send_id, "launch_degraded_before_write")
+        {
+            svc.ui.emit(
+                "chat-send-status",
+                serde_json::to_value(status).unwrap_or_default(),
+            );
+        }
+        super::capture::retire(&record.send_id);
+    }
+    Ok(())
+}
+
 pub(crate) fn drain(svc: &ServiceContext, tab: &str) -> Result<UserDrain, String> {
     let store = &svc.pending_delivery_payloads.user_sends;
     let owner = store.tab(tab);
@@ -95,6 +143,10 @@ pub(crate) fn drain(svc: &ServiceContext, tab: &str) -> Result<UserDrain, String
     let session = match crate::async_runtime::block_on(engine::ensure(svc, tab)) {
         Ok(session) => session,
         Err(reason) => {
+            if degrade_ends_held_sends(&reason, published_state(svc, tab).as_deref()) {
+                settle_held_sends(svc, tab)?;
+                return Ok(UserDrain::Idle);
+            }
             for record in store.queued(tab)? {
                 if let Some(status) = svc
                     .chat_send_ledger

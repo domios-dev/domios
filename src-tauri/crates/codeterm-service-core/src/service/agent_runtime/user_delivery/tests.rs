@@ -118,3 +118,21 @@ fn durable_neighbor_provenance_reaches_restored_drain_submit_without_attachments
         Poll::Pending
     ));
 }
+
+#[test]
+fn only_a_failed_attempt_on_a_degraded_runtime_ends_held_sends() {
+    use crate::service::agent_runtime::model::RuntimeFailure;
+    for failure in [
+        RuntimeFailure::Refused("opaque".into()),
+        RuntimeFailure::Deadline,
+        RuntimeFailure::PipeEof,
+    ] {
+        assert!(degrade_ends_held_sends(&failure, Some("degraded")));
+        for published in [None, Some("loaded"), Some("loading"), Some("unloaded")] {
+            assert!(!degrade_ends_held_sends(&failure, published));
+        }
+    }
+    for owned in [RuntimeFailure::SignInRequired, RuntimeFailure::Superseded] {
+        assert!(!degrade_ends_held_sends(&owned, Some("degraded")));
+    }
+}

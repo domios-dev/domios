@@ -360,9 +360,12 @@ impl RuntimeState {
         };
         self.phase = match reason {
             RuntimeFailure::SignInRequired => RuntimePhase::LoginPending,
-            _ => RuntimePhase::Degraded {
-                reason: reason.to_string(),
-            },
+            _ => {
+                self.active_turn_started_at_ms = None;
+                RuntimePhase::Degraded {
+                    reason: reason.to_string(),
+                }
+            }
         };
         true
     }
@@ -565,6 +568,23 @@ pub fn accepts_response_event(
         event,
         codeterm_plugin::agent_runtime::AgentRuntimeEvent::TurnState { turn_id: None, .. }
     ) || current.active_turn_id == before.active_turn_id
+}
+
+/// Turn state follows prompt evidence, so a settings reply can end a turn but never start one.
+pub fn reply_may_report_turn(
+    operation: &codeterm_plugin::agent_runtime::RuntimeOperation,
+    event: &codeterm_plugin::agent_runtime::AgentRuntimeEvent,
+) -> bool {
+    use codeterm_plugin::agent_runtime::{AgentRuntimeEvent, RuntimeOperation, RuntimeTurnState};
+    !matches!(operation, RuntimeOperation::Control { action, .. }
+        if !matches!(action.as_str(), "restoreContext" | "compact"))
+        || !matches!(
+            event,
+            AgentRuntimeEvent::TurnState {
+                state: RuntimeTurnState::Working | RuntimeTurnState::NeedsInput,
+                ..
+            }
+        )
 }
 
 #[cfg(test)]

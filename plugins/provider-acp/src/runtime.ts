@@ -496,7 +496,7 @@ export function runtimeReduce(ctx:RuntimeContext, raw:JsonValue, frames:readonly
       && ["user_message_chunk","agent_message_chunk","agent_thought_chunk","tool_call","tool_call_update","plan",
         "compaction_update","compaction_summary_chunk"].includes(String(updateKind))) continue;
     const cursor=attributable ? state.cursor : {...state.cursor,prompt:Number(object(projection).prompt) || 0,
-      loading:state.cursor.loading || object(projection).loading === true};
+      loading:state.cursor.loading || object(projection).loading === true,unattributed:true};
     if (!attributable && projection === null)
       projection={...object(reduceStream(ctx,null,[],cursor).state),turn:0};
     const frameContext=!window ? ctx : {...ctx,claimedSends:ctx.claimedSends.filter(claim=>

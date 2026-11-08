@@ -282,6 +282,14 @@ pub fn latest(
     provider: &str,
     account: Option<&str>,
 ) -> Result<serde_json::Value, String> {
+    // A plugin-read balance has no earlier meter to fall back on, so its failure is the row.
+    if account
+        .and_then(codeterm_plugin::agent_runtime::limits_source::profile_from_balance_account_key)
+        .is_some()
+    {
+        let row = svc.usage_store.get_latest_or_failure(provider, account)?;
+        return serde_json::to_value(row).map_err(|error| error.to_string());
+    }
     let row = svc
         .usage_store
         .get_latest_with_stale_reason(provider, account)?;

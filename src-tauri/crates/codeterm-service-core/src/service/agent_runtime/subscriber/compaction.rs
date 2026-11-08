@@ -88,7 +88,7 @@ pub(super) fn schedule(
             session.compaction.lock().finish(epoch, result.is_err());
             if let Err(reason) = result {
                 session.state.lock().degrade(epoch, &reason);
-                engine::publish(&owner, &expected.tab_id, &session);
+                engine::publish_degraded(&owner, &expected.tab_id, &session);
                 owner.emit_state_changed(MuxEmitCause::RuntimeSignal);
                 log::debug!(
                     "[agent-runtime] tab={} context restore failed: {reason}; sends held",

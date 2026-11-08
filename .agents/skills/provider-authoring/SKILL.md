@@ -772,7 +772,8 @@ the live switch or reach resumed sessions, so it does not qualify.
 A launch profile's `limitsSource` names where its account limits come from:
 `{kind:"account",provider}` reuses that native provider's account meter,
 `{kind:"balance",reader,credentialEnv}` asks the plugin's `readProfileLimits({profile,source},nowMs)`
-export for a UsageSnapshot-shaped JSON string (balance under `usage_details.balance`), and
+export for a UsageSnapshot-shaped JSON string (balance under `usage_details.balance`), or
+`{error}` naming why the read failed (never a response body), which the bubble shows, and
 `{kind:"unavailable",reason}` shows a one-line reason. `agentRuntime.registryDefaults`
 maps a registry id to `{limitsSource}` for profiles whose own declaration names none;
 the host resolves it on every profile load (never persisted, outside install fingerprints),
