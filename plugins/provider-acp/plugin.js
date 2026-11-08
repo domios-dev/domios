@@ -1171,6 +1171,7 @@ function runtimePlan(ctx, op) {
       if (state.instructions) prompt.push({ type: "text", text: state.instructions });
       prompt.push({ type: "text", text: op.input.text });
       prompt.push(...images);
+      if (state.inFlight && !ctx.activeTurnId) endAbandonedPrompts(ctx, state);
       const ordinal = Math.max(state.promptOrdinal ?? 0, state.cursor.prompt, Number(object4(state.projection).turn) || 0, ctx.restoredRowOrdinal ?? 0, ...(state.queued ?? []).map((value) => value.prompt)) + 1;
       state.promptOrdinal = ordinal;
       if (state.inFlight) {
@@ -1197,6 +1198,13 @@ function runtimePlan(ctx, op) {
     default:
       return refusePlan(`ACP operation is unavailable: ${op.kind}`);
   }
+}
+function endAbandonedPrompts(ctx, state) {
+  state.inFlight = false;
+  delete state.promptSend;
+  delete state.queued;
+  const projected = reduceStream(ctx, state.projection ?? null, [], state.cursor).state;
+  state.projection = settleStream(ctx, projected, "cancelled").state;
 }
 function promoteQueued(ctx, state) {
   const sessionId = ownSession(ctx, state);

@@ -88,3 +88,48 @@ const idleWindow=(own:RuntimeContext,sequence:number):RuntimeContext=>({...own,a
   assert.deepEqual(turnStates(activity.events).map(event=>[event.turnId,event.state]),[[turn,"working"]]);
   console.log("✓ ACP written prompt opens its turn from its own updates");
 }
+
+// The host ended a turn whose reply never came (an expired cancel grace): the next prompt must run and settle normally.
+{
+  const own=openedSession("grace-expired");
+  const submit=(sendId:string):Operation=>({kind:"submitTurn",threadId:SESSION,sendId,input:{text:sendId,attachments:[]},settings:{}});
+  const claimed=(op:Operation,turn:string)=>({...own,activeTurnId:turn,activeTurns:[{threadId:SESSION,turnId:turn}],
+    claimedSends:op.kind === "submitTurn" ? [{sendId:op.sendId,threadId:SESSION,input:op.input}] : []}) as RuntimeContext;
+  const first=submit("first");
+  const firstPlan=runtimePlan(own,first);
+  const firstTurn=`${SESSION}:turn:1`;
+  runtimeReduce({...claimed(first,firstTurn),streamWindow:{frameSequences:[11],turnRequests:[{sendId:"first",turnId:firstTurn,afterSequence:10,written:true}]}} as RuntimeContext,null,[chunk("agent_message_chunk","partial")]);
+
+  const second=submit("second");
+  const secondTurn=`${SESSION}:turn:2`;
+  const secondPlan=runtimePlan(own,second);
+  assert.equal(secondPlan.action.kind === "request" && secondPlan.action.call.method,"session/prompt");
+  assert.equal(secondPlan.action.kind === "request" && secondPlan.action.call.target?.turnId,secondTurn);
+  const late=runtimeResponse(claimed(second,secondTurn),first,firstPlan.state,{kind:"success",value:{stopReason:"cancelled"}});
+  assert.deepEqual(late.kind === "complete" ? turnStates(late.events ?? []) : ["not complete"],[],"the abandoned prompt's late reply cannot settle the running turn");
+  const secondReply=runtimeResponse(claimed(second,secondTurn),second,secondPlan.state,{kind:"success",value:{stopReason:"end_turn"}});
+  assert.equal(secondReply.kind,"complete");
+  assert.deepEqual(secondReply.kind === "complete" ? turnStates(secondReply.events ?? []).map(event=>[event.turnId,event.state]) : [],[[secondTurn,"idle"]],"the next prompt settles from its own reply");
+
+  const third=submit("third");
+  const thirdTurn=`${SESSION}:turn:3`;
+  const thirdPlan=runtimePlan(own,third);
+  const thirdReply=runtimeResponse(claimed(third,thirdTurn),third,thirdPlan.state,{kind:"success",value:{stopReason:"end_turn"}});
+  assert.deepEqual(thirdReply.kind === "complete" ? turnStates(thirdReply.events ?? []).map(event=>[event.turnId,event.state]) : [],[[thirdTurn,"idle"]],"later prompts stay in step");
+  console.log("✓ ACP a host-ended turn frees the next prompt to run and settle");
+}
+
+// A prompt the host still reports as active keeps its turn: the next submit stays queued behind it.
+{
+  const own=openedSession("still-outstanding");
+  const first:Operation={kind:"submitTurn",threadId:SESSION,sendId:"first",input:{text:"first",attachments:[]},settings:{}};
+  const firstPlan=runtimePlan(own,first);
+  const turn=`${SESSION}:turn:1`;
+  const active={...own,activeTurnId:turn,activeTurns:[{threadId:SESSION,turnId:turn}]} as RuntimeContext;
+  const second:Operation={kind:"submitTurn",threadId:SESSION,activeTurnId:turn,sendId:"second",input:{text:"second",attachments:[]},settings:{}};
+  runtimePlan(active,second);
+  const reply=runtimeResponse(active,first,firstPlan.state,{kind:"success",value:{stopReason:"end_turn"}});
+  assert.deepEqual(reply.kind === "complete" ? turnStates(reply.events ?? []).map(event=>[event.turnId,event.state]) : [],
+    [[turn,"idle"],[`${SESSION}:turn:2`,"working"]],"the running prompt settles and promotes the queued one");
+  console.log("✓ ACP a prompt the host reports active keeps its turn");
+}

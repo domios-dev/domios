@@ -7,7 +7,12 @@ use crate::service::ServiceContext;
 use codeterm_plugin::agent_runtime::{
     RuntimeActiveTurn, RuntimeContext, RuntimeOperation, RuntimeResult,
 };
-use std::{collections::HashSet, sync::Arc, time::Duration};
+use parking_lot::Mutex;
+use std::{
+    collections::HashSet,
+    sync::{Arc, LazyLock},
+    time::Duration,
+};
 
 #[derive(Debug, PartialEq, Eq)]
 enum CompletionState {
@@ -107,14 +112,47 @@ impl InterruptTarget {
     }
 }
 
-pub(super) fn interrupt(svc: &ServiceContext, tab: &str) -> Result<bool, String> {
+const GATE_WAIT: Duration = Duration::from_secs(30);
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum InterruptOutcome {
+    Stopped,
+    NoTurn,
+    /// An earlier stop or runtime operation still owns the outcome; this request sent nothing.
+    Pending,
+}
+
+static IN_FLIGHT: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(|| Mutex::new(HashSet::new()));
+
+/// One interrupt per tab, so a repeated Stop never queues behind the first and hits a later turn.
+struct InterruptClaim(String);
+
+impl InterruptClaim {
+    fn take(tab: &str) -> Option<Self> {
+        IN_FLIGHT
+            .lock()
+            .insert(tab.to_owned())
+            .then(|| Self(tab.to_owned()))
+    }
+}
+
+impl Drop for InterruptClaim {
+    fn drop(&mut self) {
+        IN_FLIGHT.lock().remove(&self.0);
+    }
+}
+
+pub(super) fn interrupt(svc: &ServiceContext, tab: &str) -> Result<InterruptOutcome, String> {
+    let Some(_claim) = InterruptClaim::take(tab) else {
+        return Ok(InterruptOutcome::Pending);
+    };
     super::super::capacity_retry::cancel(svc, tab)?;
     crate::async_runtime::block_on(async {
         let session = engine::ensure(svc, tab).await?;
-        let permit = session
-            .gate
-            .try_acquire()
-            .map_err(|_| RuntimeFailure::Refused("Runtime operation already in progress".into()))?;
+        let Ok(permit) = tokio::time::timeout(GATE_WAIT, session.gate.acquire()).await else {
+            return Ok(InterruptOutcome::Pending);
+        };
+        let permit = permit.map_err(|_| RuntimeFailure::Superseded)?;
         engine::validate_binding(svc, &session)?;
         let context = session.context.lock().clone();
         let mut target = InterruptTarget::capture(&context)?;
@@ -157,7 +195,7 @@ pub(super) fn interrupt(svc: &ServiceContext, tab: &str) -> Result<bool, String>
                 session.context.lock().active_turns.clear();
             }
             if !super::super::background::supported(&session) {
-                return Ok(false);
+                return Ok(InterruptOutcome::NoTurn);
             }
             session.context.lock().clone()
         };
@@ -242,14 +280,19 @@ pub(super) fn interrupt(svc: &ServiceContext, tab: &str) -> Result<bool, String>
             }
         }
         drop(permit);
+        let outcome = if had_turn {
+            InterruptOutcome::Stopped
+        } else {
+            InterruptOutcome::NoTurn
+        };
         if background
             && process.terminated()
             && engine::validate_binding(svc, &session).is_ok()
             && session.context.lock().epoch == target.epoch
         {
-            return Ok(had_turn);
+            return Ok(outcome);
         }
-        interrupted.map(|()| had_turn)
+        interrupted.map(|()| outcome)
     })
     .map_err(|reason: RuntimeFailure| reason.to_string())
 }
