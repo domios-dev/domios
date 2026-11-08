@@ -126,7 +126,7 @@ export function pickerSections({ descriptor, controls, model, effort, runtimeMod
   }
   const permissions: PickerSection[] = hostApprovals ? [{
     id: "host-approvals", label: "Permissions", kind: "select", current: hostApprovals,
-    options: [{ value: "ask", label: hostAskScope ? ASK_LABELS[hostAskScope] : "Ask each time" }, { value: "allow_all", label: "Allow all" }],
+    options: [{ value: "ask", label: hostAskScope ? ASK_LABELS[hostAskScope] : "Ask when the agent asks" }, { value: "allow_all", label: "Allow all" }],
     applyTarget: { kind: "host_approvals" },
   }] : hostFullAccess ? [{
     id: "host-approvals", label: "Permissions", kind: "select", current: "Full access (host)", options: [],

@@ -153,7 +153,7 @@ fn a_waiting_permission_request_follows_the_switch_to_allow_all_and_ask_leaves_i
         settle_after_policy_change(svc, &tab);
         assert!(
             session.prompts.lock().contains_key(&request),
-            "Ask each time leaves the request with the owner"
+            "the Ask choice leaves the request with the owner"
         );
         assert!(svc
             .mux
