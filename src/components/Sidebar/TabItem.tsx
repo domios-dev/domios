@@ -385,6 +385,7 @@ function TabItemInner({
       data-testid="tab-item"
       data-tab-id={tab.id}
       data-tab-activity={tabState.kind}
+      data-entering={isAppearing && !isClosing ? "true" : undefined}
       data-tab-no-task-bubble="true"
       title={[displayTitle, provider?.displayName, description].filter(Boolean).join("\n")}
       data-variant={variant}

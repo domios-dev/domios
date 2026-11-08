@@ -19,6 +19,7 @@ export class AutomationResource {
   private controller?: AbortController;
   private reading = false;
   private dirty = false;
+  private released = false;
 
   constructor(private adapter: AutomationGraphAdapter, private attachment: AutomationAttachment) {
     this.snapshot = this.unread();
@@ -35,10 +36,19 @@ export class AutomationResource {
     catch { return null; }
   }
 
-  getSnapshot = () => this.snapshot;
+  getSnapshot = () => {
+    if (this.released) {
+      this.released = false;
+      this.snapshot = this.unread();
+    }
+    return this.snapshot;
+  };
   subscribe = (listener: () => void) => {
     this.listeners.add(listener);
-    if (this.listeners.size === 1) this.start();
+    if (this.listeners.size === 1) {
+      this.getSnapshot();
+      this.start();
+    }
     return () => {
       this.listeners.delete(listener);
       if (this.listeners.size) return;
@@ -48,7 +58,8 @@ export class AutomationResource {
       this.unlisten = undefined;
       this.reading = false;
       this.dirty = false;
-      this.snapshot = this.unread();
+      // Most surfaces are gone for good by now, so scoping the last known graph waits until one is read again.
+      this.released = true;
     };
   };
 
