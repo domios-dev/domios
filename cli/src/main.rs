@@ -133,7 +133,10 @@ fn main() {
         std::process::exit(7);
     }
     codeterm_build_info::install_version(env!("CARGO_PKG_VERSION"));
-    stdout::run(main_impl);
+    stdout::run(|| {
+        main_impl();
+        cmd::inbound::after_command();
+    });
 }
 
 fn restricted_cli_scope(
@@ -345,6 +348,7 @@ fn main_impl() {
             crate::cmd::print::fail(1, e.to_string());
         }
     };
+    cmd::inbound::mark_daemon_reached();
 
     if command_consumes_binding(&cli.command) {
         hydrate_tab_task_binding_env(&args, &mut client);

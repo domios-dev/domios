@@ -21,6 +21,7 @@ pub mod graph_mutate;
 pub mod hints;
 mod host_credentials;
 pub mod identify;
+pub(crate) mod inbound;
 pub mod install;
 pub mod integration;
 pub mod local_io;

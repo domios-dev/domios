@@ -118,10 +118,12 @@ Claimed or uncertain records remain held and are never replayed.
   owned by `agent_runtime/inbound.rs`. An agent whose initialize declared
   `midTurnInput` takes it through a submit aimed at the running turn; the reply
   to that exact request is the evidence, and a proven decline returns it to the
-  queue. Otherwise the tab's own host tool result carries a durable claim, and
-  only the tool server's acknowledgement after writing that result confirms it.
-  Only proof that the server never received the text returns a claim; an
-  unacknowledged one settles `submit_unconfirmed` when the turn ends and never
+  queue. Otherwise a durable claim rides the tab's own host tool result, or the
+  human output of a CLI command whose stdout and stdin are both terminals, so no
+  pipe, capture or redirect can swallow it. Only the writer's acknowledgement
+  after the write confirms it; that proves the write, not that the model read it.
+  Only proof that no byte went out returns a claim; a partial write or missing
+  acknowledgement settles `submit_unconfirmed` when the turn ends and never
   replays. What remains at turn end folds into one digest prompt whose exact
   evidence confirms every member, and whose proven zero-write returns them all.
 - A degraded runtime owns no turn: its active turn clears and held sends resolve
@@ -225,4 +227,4 @@ Expected turn evidence and the Chat reader follow the same rule.
 | Closed-chat append-window evidence scan | `service/chat_send_evidence.rs` |
 | Live transcript deltas (evidence source) | `service/tab_chat/` sinks |
 
-<!-- revision: 12 -->
+<!-- revision: 13 -->

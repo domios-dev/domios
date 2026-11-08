@@ -54,19 +54,11 @@ fn publish_turn(svc: &ServiceContext, session: &Arc<Session>, turn: &str, state:
     .unwrap();
 }
 
-fn running_turn_with_host_tools(svc: &ServiceContext, tab: &str) -> (Arc<Session>, String) {
+fn running_turn(svc: &ServiceContext, tab: &str) -> (Arc<Session>, String) {
     svc.bind_user_send_owner();
     let session = engine::for_tab(tab).unwrap();
     publish_turn(svc, &session, "running", RuntimeTurnState::Working);
-    let mut context = session.context.lock();
-    context.host_mcp = Some(RuntimeHostMcp {
-        name: "domios".into(),
-        command: "opaque".into(),
-        args: Vec::new(),
-        env: Default::default(),
-    });
-    let nonce = context.binding_nonce.clone();
-    drop(context);
+    let nonce = session.context.lock().binding_nonce.clone();
     (session, nonce)
 }
 
@@ -108,7 +100,7 @@ fn assert_nothing_written(peer: &mut BufReader<DuplexStream>) {
 fn a_tool_result_carries_held_messages_in_order_once_and_only_its_ack_delivers_them() {
     let (fixture, tab, peer, _cleanup) = runtime_fixture_turn_scoped(SOURCE);
     let svc = &fixture.service;
-    let (_session, nonce) = running_turn_with_host_tools(svc, &tab);
+    let (_session, nonce) = running_turn(svc, &tab);
     let first = admit(svc, &tab, "opaque first");
     let second = admit(svc, &tab, "opaque second");
 
@@ -154,10 +146,10 @@ fn a_tool_result_carries_held_messages_in_order_once_and_only_its_ack_delivers_t
 }
 
 #[test]
-fn tool_claims_belong_to_this_launchs_running_turn_with_host_tools() {
+fn claims_belong_to_this_launchs_running_turn() {
     let (fixture, tab, _peer, _cleanup) = runtime_fixture_turn_scoped(SOURCE);
     let svc = &fixture.service;
-    let (session, nonce) = running_turn_with_host_tools(svc, &tab);
+    let (session, nonce) = running_turn(svc, &tab);
     let record = admit(svc, &tab, "opaque");
 
     assert_eq!(
@@ -165,13 +157,6 @@ fn tool_claims_belong_to_this_launchs_running_turn_with_host_tools() {
             .unwrap(),
         None
     );
-    let descriptor = session.context.lock().host_mcp.take();
-    assert_eq!(
-        svc.claim_inbound_tool_messages(&tab, &nonce, "no-tools")
-            .unwrap(),
-        None
-    );
-    session.context.lock().host_mcp = descriptor;
     session.prompts_cancelled.store(true, Ordering::Release);
     assert_eq!(
         svc.claim_inbound_tool_messages(&tab, &nonce, "cancelling")
@@ -194,7 +179,7 @@ fn tool_claims_belong_to_this_launchs_running_turn_with_host_tools() {
 fn a_claim_stops_at_the_first_send_that_cannot_ride_a_tool_result() {
     let (fixture, tab, _peer, _cleanup) = runtime_fixture_turn_scoped(SOURCE);
     let svc = &fixture.service;
-    let (_session, nonce) = running_turn_with_host_tools(svc, &tab);
+    let (_session, nonce) = running_turn(svc, &tab);
     admit(svc, &tab, "opaque text");
     let command = admit(svc, &tab, "/opaque-command");
     let after = admit(svc, &tab, "opaque after");
@@ -216,7 +201,7 @@ fn a_claim_stops_at_the_first_send_that_cannot_ride_a_tool_result() {
 fn a_message_too_long_for_a_tool_result_stays_held_for_the_turn_end() {
     let (fixture, tab, _peer, _cleanup) = runtime_fixture_turn_scoped(SOURCE);
     let svc = &fixture.service;
-    let (_session, nonce) = running_turn_with_host_tools(svc, &tab);
+    let (_session, nonce) = running_turn(svc, &tab);
     let long = admit(svc, &tab, &"x".repeat(TOOL_BUDGET_BYTES + 1));
     assert_eq!(
         svc.claim_inbound_tool_messages(&tab, &nonce, "claim")
@@ -230,7 +215,7 @@ fn a_message_too_long_for_a_tool_result_stays_held_for_the_turn_end() {
 fn a_claim_whose_text_never_reached_the_tool_server_returns_to_the_queue_in_order() {
     let (fixture, tab, _peer, _cleanup) = runtime_fixture_turn_scoped(SOURCE);
     let svc = &fixture.service;
-    let (_session, nonce) = running_turn_with_host_tools(svc, &tab);
+    let (_session, nonce) = running_turn(svc, &tab);
     let first = admit(svc, &tab, "opaque first");
     let second = admit(svc, &tab, "opaque second");
     svc.claim_inbound_tool_messages(&tab, &nonce, "lost-reply")
@@ -258,7 +243,7 @@ fn a_claim_whose_text_never_reached_the_tool_server_returns_to_the_queue_in_orde
 fn an_unacknowledged_claim_is_uncertain_when_the_turn_ends_and_is_never_replayed() {
     let (fixture, tab, peer, _cleanup) = runtime_fixture_turn_scoped(SOURCE);
     let svc = &fixture.service;
-    let (session, nonce) = running_turn_with_host_tools(svc, &tab);
+    let (session, nonce) = running_turn(svc, &tab);
     let record = admit(svc, &tab, "opaque");
     svc.claim_inbound_tool_messages(&tab, &nonce, "unacknowledged")
         .unwrap()

@@ -5,6 +5,9 @@ use std::path::Path;
 pub const FILE_ENV: &str = "CODETERM_LAUNCH_FILE";
 pub const RUNTIME_FILE_PREFIX: &str = ".runtime-launch-";
 pub const HANDOFF_FILE_PREFIX: &str = ".launch-credential-";
+/// Set only for a runtime that holds input behind a running turn. A hint, never authority.
+/// Agent harnesses strip credential-shaped names from tool shells, so this name must not look like one.
+pub const RUNTIME_AGENT_ENV: &str = "CODETERM_RUNTIME_AGENT";
 pub const RESTART_GUIDANCE: &str = "This tab has no valid launch credential; restart the tab";
 pub const MARKERS: &[&str] = &[
     "CODETERM",

@@ -1,5 +1,5 @@
-//! Input that reaches a busy agent without a prompt of its own: inside this tab's own host tool
-//! results while a turn runs, or folded into one digest when that turn ends.
+//! Input that reaches a busy agent without a prompt of its own: inside the host tool results and
+//! terminal `domios` output of this tab while a turn runs, or folded into one digest when it ends.
 //!
 //! Each held send stays write-once. A durable claim takes it off the queue before any writer sees
 //! it, nothing replays a claim, and only proof that no writer could have seen it returns it.
@@ -205,7 +205,7 @@ pub(super) async fn publish_delivered(
 }
 
 impl ServiceContext {
-    /// The text a host tool result of this exact launch should carry, in arrival order.
+    /// The text the next output of this exact launch's agent should carry, in arrival order.
     /// The caller writes it, then settles `claim_id`; an unsettled claim is never written again.
     pub fn claim_inbound_tool_messages(
         &self,
@@ -223,7 +223,6 @@ impl ServiceContext {
             return Ok(None);
         };
         if context.binding_nonce != nonce
-            || context.host_mcp.is_none()
             || !turn_requests::holds_new_submit(&session)
             || session.prompts_cancelled.load(Ordering::Acquire)
             || session.compaction.lock().held(context.epoch)
@@ -315,8 +314,8 @@ impl ServiceContext {
         Ok(Some(text))
     }
 
-    /// `written` means the tool result holding the claim went to the agent. False means the
-    /// caller never received the text, the only case that returns a claim to the queue.
+    /// `written` means the output holding the claim went to the agent. False means no byte of it
+    /// went out, the only case that returns a claim to the queue.
     pub fn settle_inbound_tool_messages(
         &self,
         tab: &str,
