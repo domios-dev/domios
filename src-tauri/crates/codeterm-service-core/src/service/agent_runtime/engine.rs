@@ -788,21 +788,7 @@ async fn ensure_locked(
                 RuntimeOperation::Initialize,
             )
             .await?;
-            let RuntimeResult::Initialized {
-                binary_version,
-                agent_name,
-                mid_turn_input,
-            } = result
-            else {
-                return Err(RuntimeFailure::HookFailed(
-                    "Initialize result is invalid".into(),
-                ));
-            };
-            let mut state = session.state.lock();
-            state.binary_version = binary_version;
-            state.agent_name = agent_name;
-            state.mid_turn_input = mid_turn_input;
-            drop(state);
+            session.state.lock().record_initialized(result)?;
             icons::start(svc, session);
             Ok(())
         })

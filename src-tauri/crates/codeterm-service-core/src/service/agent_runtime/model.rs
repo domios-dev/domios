@@ -289,6 +289,26 @@ impl RuntimeState {
             last_turn_duration_ms: None,
         }
     }
+    pub(super) fn record_initialized(
+        &mut self,
+        result: codeterm_plugin::agent_runtime::RuntimeResult,
+    ) -> Result<(), RuntimeFailure> {
+        let codeterm_plugin::agent_runtime::RuntimeResult::Initialized {
+            binary_version,
+            agent_name,
+            mid_turn_input,
+        } = result
+        else {
+            return Err(RuntimeFailure::HookFailed(
+                "Initialize result is invalid".into(),
+            ));
+        };
+        self.binary_version = binary_version;
+        self.agent_name = agent_name;
+        self.mid_turn_input = mid_turn_input;
+        Ok(())
+    }
+
     pub fn finish_load_notice(&mut self, host_notice: Option<String>) {
         let messages = [self.pending_load_notice.take(), host_notice]
             .into_iter()
