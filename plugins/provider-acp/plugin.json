@@ -89,7 +89,7 @@
           }
         },
         "codex-acp": {
-          "fullAccessMode": "full-access",
+          "fullAccessMode": "agent-full-access",
           "limitsSource": {
             "kind": "account",
             "provider": "codex"

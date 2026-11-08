@@ -156,6 +156,8 @@ pub struct RuntimeState {
     pub icon_svg: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notice: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub access_failure: Option<String>,
     #[serde(skip)]
     pub pending_load_notice: Option<String>,
     pub thread_id: Option<String>,
@@ -186,6 +188,12 @@ pub struct RuntimeSnapshot {
     pub icon_svg: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notice: Option<String>,
+    #[serde(
+        default,
+        rename = "accessFailure",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub access_failure: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -249,6 +257,7 @@ impl RuntimeState {
             agent_name: self.agent_name.clone(),
             icon_svg: self.icon_svg.clone(),
             notice: self.notice.clone(),
+            access_failure: self.access_failure.clone(),
             history: None,
             history_pages: None,
             history_error: None,
@@ -268,6 +277,7 @@ impl RuntimeState {
             agent_name: None,
             icon_svg: None,
             notice: None,
+            access_failure: None,
             pending_load_notice: None,
             thread_id,
             phase: RuntimePhase::Unloaded { reason: None },
@@ -319,6 +329,7 @@ impl RuntimeState {
         self.failure_code = None;
         self.phase = RuntimePhase::Loading;
         self.notice = None;
+        self.access_failure = None;
         self.pending_load_notice = None;
         self.epoch
     }

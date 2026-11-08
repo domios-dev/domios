@@ -157,12 +157,34 @@ pub struct AgentModelBody {
     pub restart_resume: bool,
 }
 
+/// A runtime mode decides what an agent may do, so it takes the same authority as the picker's
+/// permission controls: no agent may pick its own or another's.
+fn require_owner_for_runtime_mode(
+    state: &AppState,
+    headers: &HeaderMap,
+    body: &AgentModelBody,
+) -> Result<(), Response> {
+    if body.cancel || body.runtime_mode.is_none() {
+        return Ok(());
+    }
+    crate::runtime_login::require_permission_authority(state, headers).map_err(|(status, error)| {
+        (
+            status,
+            Json(serde_json::json!({"ok":false,"error":error,"reason":"owner_required"})),
+        )
+            .into_response()
+    })
+}
+
 pub async fn agent_model_handler(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(raw_tab_id): Path<String>,
     Json(body): Json<AgentModelBody>,
 ) -> Response {
+    if let Err(refusal) = require_owner_for_runtime_mode(&state, &headers, &body) {
+        return refusal;
+    }
     let tab_id = match crate::routes::resolve_tab_async(&state, &raw_tab_id).await {
         Ok(tab_id) => tab_id,
         Err((status, message)) => {

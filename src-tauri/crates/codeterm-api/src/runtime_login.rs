@@ -152,7 +152,7 @@ pub(super) async fn thread_history(
 
 /// Permission choices belong to the owner and the owner's paired machines, never to an agent:
 /// one answering or widening its own questions would defeat "Ask each time".
-fn require_permission_authority(
+pub(crate) fn require_permission_authority(
     state: &AppState,
     headers: &HeaderMap,
 ) -> Result<(), (StatusCode, String)> {

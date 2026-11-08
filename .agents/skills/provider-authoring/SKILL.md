@@ -757,7 +757,10 @@ carry declared option kinds (`prompt` event `permission`), so the host answers t
 tab's effective choice and a full-access launch is authorized without `autoApproveFlags`.
 A launch profile (or `registryDefaults` entry) may declare `fullAccessMode`, the agent's own
 approve-everything session mode id; full-access launch options carry it to the runtime config
-as `fullAccessMode`, and the plugin enters it only when the agent advertises that mode.
+as `fullAccessMode`, and the plugin enters it only when the agent advertises that mode. The
+host checks the loaded session against the declaration: a mode not advertised or not reached
+is the named failure `full_access_unavailable`, never a silent sandbox. Record the agent's real
+modes in `plugins/provider-acp/tests/fixtures/advertised-session-modes.json` when declaring one.
 
 Where the session offers that mode, as a session mode or a `category: "mode"` config option, the
 mode is the tab's single switch. The owner's choice of mode is persisted and reaches the plugin as

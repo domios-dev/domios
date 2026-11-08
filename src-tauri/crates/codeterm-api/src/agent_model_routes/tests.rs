@@ -276,3 +276,91 @@ fn model_apply_preserves_default_and_paid_service_tiers() {
         serde_json::from_value::<AgentModelBody>(serde_json::json!({"service_tier":"on"})).is_err()
     );
 }
+
+mod runtime_mode_authority {
+    use super::*;
+    use crate::test_support::app_state;
+    use codeterm_service_core::multiplexer::{state::MultiplexerState, types::AgentRole};
+    use codeterm_service_core::service::test_fixture::ServiceFixture;
+
+    fn mode_body() -> AgentModelBody {
+        serde_json::from_value(serde_json::json!({"runtime_mode":"opaque-approve"})).unwrap()
+    }
+
+    fn bearer(token: &str) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert("authorization", format!("Bearer {token}").parse().unwrap());
+        headers
+    }
+
+    fn worker_fixture() -> (ServiceFixture, String, String) {
+        let (mut mux, parent) = MultiplexerState::new();
+        mux.set_orchestrator_role(&parent).unwrap();
+        let workspace = mux.find_workspace_for_tab(&parent).unwrap();
+        let worker = mux.create_tab(&workspace).unwrap();
+        mux.set_tab_role(&worker, AgentRole::Worker, Some(&parent))
+            .unwrap();
+        (ServiceFixture::new(mux), parent, worker)
+    }
+
+    #[tokio::test]
+    async fn a_tab_caller_cannot_choose_a_runtime_mode_for_itself_or_another_tab() {
+        let (fixture, parent, worker) = worker_fixture();
+        let state = app_state(&fixture);
+        let token = state
+            .svc
+            .frontend_pty_env(Some(&worker))
+            .unwrap()
+            .remove("CODETERM_API_TOKEN")
+            .unwrap();
+        for target in [&worker, &parent] {
+            let response = agent_model_handler(
+                AxumState(state.clone()),
+                bearer(&token),
+                Path(target.clone()),
+                Json(mode_body()),
+            )
+            .await;
+            assert_eq!(response.status(), StatusCode::FORBIDDEN);
+            let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap();
+            let body: Value = serde_json::from_slice(&body).unwrap();
+            assert_eq!(body["reason"], "owner_required");
+            assert_eq!(body["ok"], false);
+        }
+    }
+
+    #[tokio::test]
+    async fn the_owner_passes_the_authority_check_and_reaches_the_session() {
+        let (fixture, _, worker) = worker_fixture();
+        let state = app_state(&fixture);
+        state.config.lock().api.token = Some("owner-token".into());
+        let response = agent_model_handler(
+            AxumState(state),
+            bearer("owner-token"),
+            Path(worker),
+            Json(mode_body()),
+        )
+        .await;
+        let status = response.status();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: Value = serde_json::from_slice(&body).unwrap();
+        assert_ne!(body["reason"], "owner_required", "{status}: {body}");
+    }
+
+    #[tokio::test]
+    async fn a_model_change_without_a_mode_needs_no_owner() {
+        let (fixture, _, _) = worker_fixture();
+        let state = app_state(&fixture);
+        let body: AgentModelBody =
+            serde_json::from_value(serde_json::json!({"model":"opaque-model"})).unwrap();
+        assert!(require_owner_for_runtime_mode(&state, &HeaderMap::new(), &body).is_ok());
+        let cancel: AgentModelBody =
+            serde_json::from_value(serde_json::json!({"cancel":true,"runtime_mode":"opaque"}))
+                .unwrap();
+        assert!(require_owner_for_runtime_mode(&state, &HeaderMap::new(), &cancel).is_ok());
+    }
+}
