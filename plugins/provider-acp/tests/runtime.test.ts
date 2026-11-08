@@ -79,6 +79,10 @@ assert.deepEqual(declaration.capabilities.agentRuntime.launchProfiles["gemini-cl
 // system settings only from admin-owned paths, so its process runs from a host-owned directory.
 assert.equal(declaration.capabilities.agentRuntime.launchProfiles["gemini-cli"].hostWorkingDirectory,true);
 assert.equal(declaration.capabilities.agentRuntime.launchProfiles["gemini-cli"].settingsFiles,undefined);
+// dsh pins workspace-write + ask into each session and offers no permission control over ACP, so it
+// asks only to escalate past that sandbox. Re-read its permission model when this package moves.
+assert.equal(declaration.capabilities.agentRuntime.launchProfiles["deepseek-harness"].askScope,"outsideWorkspace");
+assert.equal(declaration.capabilities.agentRuntime.launchProfiles["gemini-cli"].askScope,undefined);
 for (const [id,profile] of Object.entries(declaration.capabilities.agentRuntime.launchProfiles)) {
   if (id !== "gemini-cli") assert.equal((profile as {clientCapabilities?:unknown}).clientCapabilities,undefined);
 }

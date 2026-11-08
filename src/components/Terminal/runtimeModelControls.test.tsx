@@ -143,6 +143,15 @@ describe("the Permissions control", () => {
     expect(permissions()?.getAttribute("aria-label")).toBe("Permissions: Ask each time");
   });
 
+  it("names when a confining agent asks and still switches live", async () => {
+    const confined = { ...hostProvider, agent_runtime: { hostApprovals: true, launchProfiles: { ...launchProfiles, confined: { binary: "opaque", args: [], askScope: "outsideWorkspace" } } } } as unknown as ProviderDescriptor;
+    await open(confined, modelOnly, { launchProfile: "confined", hostApprovals: "ask" });
+    expect(permissions()?.getAttribute("aria-label")).toBe("Permissions: Ask outside workspace");
+    await act(async () => permissions()!.dispatchEvent(new Event("pointerdown", { bubbles: true, cancelable: true })));
+    await act(async () => [...document.body.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(item => item.textContent?.trim() === "Allow all")!.click());
+    expect(bridge.invoke).toHaveBeenCalledWith("agent_runtime_host_approvals", { tabId: "acp", request: { allowAll: true } });
+  });
+
   it("leaves the agent's advertised approve-all mode as the single switch", async () => {
     await open(hostProvider, withModes, { launchProfile: "approve-mode" });
     expect(permissions()).toBeNull();
