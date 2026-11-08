@@ -703,6 +703,10 @@ async fn ensure_locked(
                 crate::service::execution_sandbox::environment(&owner, &target),
             );
             env.remove(super::cli_exception::SCOPE_ENV);
+            super::environment::mark_runtime_agent(
+                &mut env,
+                !capability.turn_scoped_requests.is_empty(),
+            );
             if restricted_cli {
                 env.insert(
                     super::cli_exception::SCOPE_ENV.into(),

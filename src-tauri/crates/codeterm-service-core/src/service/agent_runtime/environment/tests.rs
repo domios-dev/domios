@@ -1,6 +1,20 @@
 use super::*;
 
 #[test]
+fn only_a_runtime_that_holds_input_behind_its_turn_is_marked() {
+    let marker = codeterm_util::tab_launch::RUNTIME_AGENT_ENV;
+    let mut env = HashMap::new();
+    mark_runtime_agent(&mut env, true);
+    assert_eq!(env.get(marker).map(String::as_str), Some("1"));
+
+    mark_runtime_agent(&mut env, false);
+    assert!(
+        !env.contains_key(marker),
+        "an owner or inherited value is not a claim"
+    );
+}
+
+#[test]
 fn restored_chat_launch_environment_mints_current_credentials_and_rejects_the_previous_daemon_token(
 ) {
     use crate::multiplexer::{state::MultiplexerState, types::TabBacking};

@@ -69,6 +69,17 @@ fn stale_nonce_foreign_tab_and_missing_identity_are_refused() {
 }
 
 #[test]
+fn the_runtime_agent_marker_survives_a_harness_credential_scrub_and_grants_nothing() {
+    for shape in ["KEY", "PASSWORD", "SECRET", "TOKEN"] {
+        assert!(!RUNTIME_AGENT_ENV.contains(shape), "{shape}");
+    }
+    assert!(
+        !MARKERS.contains(&RUNTIME_AGENT_ENV),
+        "credential lookup never reads this hint"
+    );
+}
+
+#[test]
 fn every_remaining_launch_marker_refuses_without_authority() {
     for marker in MARKERS {
         for value in ["", "remaining-marker"] {

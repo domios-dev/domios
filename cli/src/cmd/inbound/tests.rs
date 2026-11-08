@@ -8,7 +8,32 @@ fn surface() -> Surface {
         stdin_terminal: true,
         daemon_reached: true,
         tab_identity: true,
+        runtime_agent: true,
     }
+}
+
+#[test]
+fn shells_and_pty_agents_never_ask_the_daemon() {
+    fn launch(entries: &[(&str, &str)]) -> (bool, bool) {
+        launch_identity(|key| {
+            entries
+                .iter()
+                .find(|(name, _)| *name == key)
+                .map(|(_, value)| (*value).to_owned())
+        })
+    }
+    let marker = codeterm_util::tab_launch::RUNTIME_AGENT_ENV;
+    assert_eq!(launch(&[("CODETERM_TAB_ID", "own")]), (true, false));
+    assert_eq!(launch(&[(marker, "1")]), (false, true));
+    assert_eq!(
+        launch(&[("CODETERM_TAB_ID", "own"), (marker, " ")]),
+        (true, false),
+        "a blank marker marks nothing"
+    );
+    assert_eq!(
+        launch(&[("CODETERM_TAB_ID", "own"), (marker, "1")]),
+        (true, true)
+    );
 }
 
 #[test]
@@ -47,6 +72,13 @@ fn only_human_output_in_the_agents_own_terminal_carries_messages() {
             "no tab of its own",
             Surface {
                 tab_identity: false,
+                ..surface()
+            },
+        ),
+        (
+            "a shell or PTY agent has no running turn to hold input",
+            Surface {
+                runtime_agent: false,
                 ..surface()
             },
         ),

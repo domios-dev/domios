@@ -35,6 +35,17 @@ pub(super) fn compose(
     Ok(compose_owned_environment(extra, owned))
 }
 
+/// Applied last, so neither owner settings nor an inherited value can claim it.
+pub(super) fn mark_runtime_agent(env: &mut HashMap<String, String>, turn_scoped: bool) {
+    env.remove(codeterm_util::tab_launch::RUNTIME_AGENT_ENV);
+    if turn_scoped {
+        env.insert(
+            codeterm_util::tab_launch::RUNTIME_AGENT_ENV.into(),
+            "1".into(),
+        );
+    }
+}
+
 fn compose_owned_environment(
     mut extra: HashMap<String, String>,
     owned: HashMap<String, String>,

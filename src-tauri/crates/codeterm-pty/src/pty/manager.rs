@@ -345,6 +345,7 @@ pub const INHERITED_ORCHESTRATION_ENV: &[&str] = &[
     "CODETERM_ROLE",
     "CODETERM_PARENT_TAB_ID",
     "CODETERM_WORKER_ID",
+    "CODETERM_RUNTIME_AGENT",
 ];
 
 /// The single rule for putting the CodeTerm CLI directory on a PATH: every

@@ -93,17 +93,28 @@ struct Surface {
     stdin_terminal: bool,
     daemon_reached: bool,
     tab_identity: bool,
+    runtime_agent: bool,
 }
 
 /// A terminal on stdout means no pipe, capture or file sits between this command and whoever reads
 /// the terminal, so `domios x | grep`, `$(domios pad path)` and `> file` never carry messages. A
-/// terminal on stdin rules out pipelines feeding this command and scripts reading a file.
+/// terminal on stdin rules out pipelines feeding this command and scripts reading a file. Shells and
+/// PTY agents lack the launch marker, so they never ask the daemon; the daemon still decides.
 fn carries_messages(surface: &Surface) -> bool {
     !surface.json
         && surface.stdout_terminal
         && surface.stdin_terminal
         && surface.daemon_reached
         && surface.tab_identity
+        && surface.runtime_agent
+}
+
+fn launch_identity(env: impl Fn(&str) -> Option<String>) -> (bool, bool) {
+    let set = |key: &str| env(key).is_some_and(|value| !value.trim().is_empty());
+    (
+        set("CODETERM_TAB_ID"),
+        set(codeterm_util::tab_launch::RUNTIME_AGENT_ENV),
+    )
 }
 
 static DAEMON_REACHED: AtomicBool = AtomicBool::new(false);
@@ -115,15 +126,19 @@ pub(crate) fn mark_daemon_reached() {
 
 /// Runs after a command finished normally. A command that exits with a failure carries nothing.
 pub(crate) fn after_command() {
-    let tab = crate::nonempty_env("CODETERM_TAB_ID");
+    let (tab_identity, runtime_agent) = launch_identity(|key| std::env::var(key).ok());
     let surface = Surface {
         json: crate::cmd::error_contract::json_mode(),
         stdout_terminal: std::io::stdout().is_terminal(),
         stdin_terminal: std::io::stdin().is_terminal(),
         daemon_reached: DAEMON_REACHED.load(Ordering::Relaxed),
-        tab_identity: tab.is_some(),
+        tab_identity,
+        runtime_agent,
     };
-    let Some(tab) = tab.filter(|_| carries_messages(&surface)) else {
+    if !carries_messages(&surface) {
+        return;
+    }
+    let Some(tab) = crate::nonempty_env("CODETERM_TAB_ID") else {
         return;
     };
     let nonce = crate::nonempty_env("CODETERM_SESSION_BINDING_NONCE");
