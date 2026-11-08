@@ -16,7 +16,6 @@ import { evaluateWhen } from "../../lib/evaluateWhen";
 import { ComposerActions } from "./ComposerActions";
 import { isDuplicateSend } from "./chatSendGuard";
 import { invoke, listen } from "../../lib/bridge";
-import { ComposerContextMeter } from "./ComposerContextMeter";
 import { useComposerRecall } from "./useComposerRecall";
 import { usePersistentDraft } from "../../lib/usePersistentDraft";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
@@ -769,7 +768,6 @@ function ChatComposerImpl({
         );
       })()}
       <div className="mb-2 flex flex-wrap items-center gap-1 pl-8 empty:hidden">
-      <ComposerContextMeter tabId={tabId} />
       <ProviderCapabilityBadge tabId={tabId} />
       </div>
       {promptDock}
