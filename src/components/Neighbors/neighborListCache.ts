@@ -33,6 +33,17 @@ export function readNeighborCache(identity: string | null): CachedNeighbors | nu
   } catch { return null; }
 }
 
+/** Whose friends are remembered here; sign-in keeps only that account's record, so it stands for the account until its status is read. */
+export function lastKnownNeighborIdentity(): string | null {
+  try {
+    for (let index = 0; index < localStorage.length; index++) {
+      const name = localStorage.key(index);
+      if (name?.startsWith(PREFIX)) return name.slice(PREFIX.length);
+    }
+  } catch { /* Storage can be unavailable in a private viewer. */ }
+  return null;
+}
+
 export function writeNeighborCache(identity: string, list: NeighborList) {
   const friends = list.friends.slice(0, MAX_FRIENDS).map(({ friendship_id, uid, displayName, email, photoURL, gateway_tab }) =>
     ({ friendship_id, uid, displayName, photoURL, ...(email === undefined ? {} : { email }), ...(gateway_tab === undefined ? {} : { gateway_tab }) }));

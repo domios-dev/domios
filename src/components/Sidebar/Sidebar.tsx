@@ -68,6 +68,7 @@ import {
 } from "./workspacesSectionModel";
 
 import { useSidebarScrollAnchor } from "./useSidebarScrollAnchor";
+import { usePrimedWorkspaceGraphs } from "../Jobs/useWorkspaceGraphs";
 
 const SIDEBAR_REGION_ID = "codeterm-sidebar";
 const SIDEBAR_COLLAPSED_WIDTH = 0;
@@ -644,6 +645,7 @@ export const Sidebar = memo(function Sidebar({
     }
   }, [ordinaryWorkspaces, selectedWorkspaceId, state.active_workspace_id]);
   const contentScrollRef = useSidebarScrollAnchor(state.active_workspace_id, selectedWorkspaceId);
+  usePrimedWorkspaceGraphs(useMemo(() => ordinaryWorkspaces.map((workspace) => workspace.id), [ordinaryWorkspaces]));
   const workspaceStatuses = useMemo(() => Object.fromEntries(ordinaryWorkspaces.map((workspace) => [
     workspace.id,
     aggregateTabStatuses(

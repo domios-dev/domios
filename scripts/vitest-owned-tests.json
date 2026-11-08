@@ -409,5 +409,9 @@
   "src/lib/pickerSettings.test.ts",
   "src/hooks/terminal/usePtyConnection.readiness.test.tsx",
   "src/components/Terminal/chatErrorNotice.test.ts",
-  "src/components/Notifications/toastPlacement.test.ts"
+  "src/components/Notifications/toastPlacement.test.ts",
+  "src/components/Sidebar/WorkspaceNavigationActions.live.test.tsx",
+  "src/components/Sidebar/TeamStatusTally.test.tsx",
+  "src/components/Sidebar/useSidebarScrollAnchor.test.tsx",
+  "src/components/Jobs/TeamJobsUnit.test.tsx"
 ]
