@@ -10,6 +10,8 @@ use codeterm_decision::physical;
 use futures_util::StreamExt;
 use parking_lot::Mutex;
 use serde::Deserialize;
+#[cfg(any(test, feature = "test-support"))]
+pub mod fetch_test_port;
 #[cfg(test)]
 mod observation_tests;
 
@@ -283,6 +285,10 @@ async fn run_async(opts_json: &str) -> Result<String, String> {
         .build()
         .map_err(request_build_error)?;
     physical::before_request().map_err(|_| "decision request refused".to_string())?;
+    #[cfg(any(test, feature = "test-support"))]
+    if let Some(reply) = fetch_test_port::answer(&req) {
+        return Ok(reply);
+    }
     match fetch_client()?.execute(req).await {
         Ok(resp) => {
             let status = resp.status().as_u16();
