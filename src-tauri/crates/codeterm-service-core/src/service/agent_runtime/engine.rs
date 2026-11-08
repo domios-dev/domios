@@ -1,5 +1,6 @@
 pub(crate) use super::transcript::closed_rows as closed_transcript_rows;
 pub(crate) use super::transcript::persisted as persisted_transcript;
+pub(crate) use super::transcript::retained as retained_transcript;
 #[cfg(test)]
 pub(crate) use super::transcript::{persist as persist_transcript, restore as restore_transcript};
 use super::{

@@ -129,8 +129,16 @@ Claimed or uncertain records remain held and are never replayed.
 - A degraded runtime owns no turn: its active turn clears and held sends resolve
   once. The owner retries readiness and writes them in order when the runtime
   loads again. If that attempt fails on the published degraded state, each
-  never-written send settles `failed` with `launch_degraded_before_write` and
-  Retry; sign-in and a replaced launch keep them held for the launch that follows.
+  never-written send settles `failed` with `launch_degraded_before_write`;
+  sign-in and a replaced launch keep them held for the launch that follows.
+- Automatic recovery owns the runtime from the moment its exit is observed until
+  it knows the outcome (`runtime_recovery_owns_sends`). Its transient degrade
+  settles nothing: only its own continuation is written, then held sends follow
+  the resumed turn once each, in order. Its completion wakes the owner, and a
+  recovery that really failed settles them as above.
+- A failed user send offers Retry. A routed CLI or agent send (`system_send`)
+  deliberately does not: its frame carries the sender's provenance, which the
+  composer cannot reissue. Its card says to resend with `domios send` instead.
 - A restart continue on a structured runtime enters the same durable owner as a
   runtime envelope: held behind a running turn, written once, and written means
   awaiting evidence, never a failed delivery.
@@ -227,4 +235,4 @@ Expected turn evidence and the Chat reader follow the same rule.
 | Closed-chat append-window evidence scan | `service/chat_send_evidence.rs` |
 | Live transcript deltas (evidence source) | `service/tab_chat/` sinks |
 
-<!-- revision: 13 -->
+<!-- revision: 14 -->

@@ -147,6 +147,36 @@ pub(crate) fn persisted(
     }
 }
 
+/// The rows this host retained for one thread: its restart snapshot, else the
+/// session log of a session that never settled a turn. `None` when neither exists.
+pub(crate) fn retained(
+    provider: &str,
+    thread: &str,
+    capability: &AgentRuntimeCapability,
+) -> std::io::Result<Option<Vec<ChatMsg>>> {
+    if !enabled(capability) {
+        return Ok(None);
+    }
+    if let Some(rows) = persisted(provider, thread, capability)? {
+        return Ok(Some(rows));
+    }
+    Ok(closed_rows(provider, thread)?
+        .map(|mut rows| rows.split_off(rows.len().saturating_sub(REREADABLE_CACHE_ROWS))))
+}
+
+/// A thread's kept rows when this host is the record of its history; an absent
+/// record is an empty conversation. `None` when the provider holds the history.
+pub(super) fn kept_rows(
+    provider: &str,
+    thread: &str,
+    capability: &AgentRuntimeCapability,
+) -> std::io::Result<Option<Vec<ChatMsg>>> {
+    if !enabled(capability) {
+        return Ok(None);
+    }
+    retained(provider, thread, capability).map(|rows| Some(rows.unwrap_or_default()))
+}
+
 /// The host's own durable transcript for one thread, when the runtime keeps it.
 /// `None` means the record is absent from this host's authority or unreadable.
 pub(super) fn durable_rows(

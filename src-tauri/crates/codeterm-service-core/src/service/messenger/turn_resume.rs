@@ -37,7 +37,11 @@ impl Messenger {
             ) {
                 return Err(crate::service::turn_resume::SESSION_CHANGED.into());
             }
-            let token = format!("turn-resume:{}", uuid::Uuid::new_v4().simple());
+            let token = format!(
+                "{}{}",
+                super::super::agent_runtime::user_delivery::TURN_RESUME_TOKEN,
+                uuid::Uuid::new_v4().simple()
+            );
             return super::super::agent_runtime::transport::send_envelope(
                 svc, to_tab, &frame, &token, None,
             );

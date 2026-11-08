@@ -11,7 +11,7 @@ import { ChatDeliveryState } from "./ChatDeliveryState";
 import { ChatLiveOperation } from "./ChatLiveOperation";
 import { DroppedUploadNotice } from "./DroppedUploadNotice";
 import { VoiceTranscriptionProgress } from "./voice/VoiceTranscriptionProgress";
-import { canRetryChatSend, canDeleteChatSend, type DeliverySend, type DeliveryState } from "./chatDeliveryModel";
+import { canRetryChatSend, canDeleteChatSend, resendsWithCli, type DeliverySend, type DeliveryState } from "./chatDeliveryModel";
 import type { EnrichedChatEntry } from "./chatEnrichment";
 
 type MessageBubbleProps = React.ComponentProps<typeof MessageBubble>;
@@ -134,6 +134,7 @@ export const ChatTranscriptRow = memo(function ChatTranscriptRow({ entry, daySep
   const { msg, item, origin } = entry;
   const pendingDelivery = deliverySend && deliveryView && deliveryView !== "delivered";
   const onRetry = deliverySend && canRetryChatSend(deliverySend) ? () => context.retrySend(deliverySend.id) : undefined;
+  const resendWithCli = Boolean(deliverySend && resendsWithCli(deliverySend));
   const message = useMemo(() => context.promptAnswers ? msg : { ...msg, interactive: [] }, [msg, context.promptAnswers]);
   const turnId = msg.toolFlowId;
   return (
@@ -163,11 +164,11 @@ export const ChatTranscriptRow = memo(function ChatTranscriptRow({ entry, daySep
             userProgress={deliveryView === "sending" && Boolean(deliverySend?.draft?.recordedVoiceAttachments.length)
               ? <VoiceTranscriptionProgress /> : undefined}
             userFooter={deliverySend ? <>
-              {pendingDelivery && <ChatDeliveryState state={deliveryView} error={deliverySend.status?.error} queuedBehindTurn={deliveryBehindTurn} onRetry={onRetry} />}
+              {pendingDelivery && <ChatDeliveryState state={deliveryView} error={deliverySend.status?.error} queuedBehindTurn={deliveryBehindTurn} onRetry={onRetry} resendWithCli={resendWithCli} />}
               <DroppedUploadNotice tabId={context.tabId} id={deliverySend.id} names={deliverySend.droppedUploads} />
             </> : undefined}
             noticeStatus={pendingDelivery
-              ? <ChatDeliveryState inline state={deliveryView} error={deliverySend.status?.error} queuedBehindTurn={deliveryBehindTurn} onRetry={onRetry} />
+              ? <ChatDeliveryState inline state={deliveryView} error={deliverySend.status?.error} queuedBehindTurn={deliveryBehindTurn} onRetry={onRetry} resendWithCli={resendWithCli} />
               : undefined}
             item={item.kind === "tool" ? item : undefined}
             isLatestFailedToolCall={latestFailedToolCall}

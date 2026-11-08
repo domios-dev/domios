@@ -36,7 +36,7 @@ import { invoke } from "../../lib/bridge";
 import {
   chatDaySeparators,
   chatLocalDay,
-  isTimedMessageKind,
+  isUndatedTranscriptRow,
   messageRowTime,
   isSessionIntentOnlyMessage,
 } from "@codeterm/chat-ui";
@@ -634,7 +634,7 @@ function TabSessionChatBody({
   const daySeparators = useMemo(() => chatDaySeparators(renderedEnrichedMessages.map(({ msg, item, origin }) => messageRowTime(msg, item, origin)?.timestamp ?? null), {
     now: Date.now(), timeZone: CHAT_TIME_ZONE,
     labels: { today: "Today", yesterday: "Yesterday" },
-  }, (index) => isTimedMessageKind(renderedEnrichedMessages[index].msg)),
+  }, (index) => isUndatedTranscriptRow(renderedEnrichedMessages[index].msg, renderedEnrichedMessages[index].item)),
   [renderedEnrichedMessages, localToday]);
   const streamingId = streamingMessageId(renderedEnrichedMessages, agentActivity.active);
   const messageSelection = useChatMessageSelection({ tabId, rows: renderedEnrichedMessages, agent: tab?.title || provider?.displayName || "Agent", surfaceRef: scrollRef, streamingMessageId: streamingId, prepareMessage: mountedWindow.prepareMessage, contentVersion: mountedContentVersion });

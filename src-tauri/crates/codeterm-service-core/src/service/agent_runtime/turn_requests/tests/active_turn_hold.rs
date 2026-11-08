@@ -438,3 +438,190 @@ fn a_user_send_during_an_active_turn_scoped_prompt_is_held_then_written_once_whe
         "the held prompt is written exactly once"
     );
 }
+
+fn source_with_send_ids() -> String {
+    SOURCE.replace("turnId:'turn'", "turnId:op.sendId").replace(
+        "params:{threadId:op.threadId}",
+        "params:{threadId:op.threadId,sendId:op.sendId}",
+    )
+}
+
+/// What automatic recovery publishes for a dead runtime just before it relaunches.
+fn publish_recovery_degrade(svc: &ServiceContext, tab: &str, session: &Arc<Session>) {
+    let epoch = session.state.lock().epoch;
+    session
+        .state
+        .lock()
+        .degrade(epoch, &RuntimeFailure::Refused("opaque exit".into()));
+    engine::publish(svc, tab, session);
+}
+
+fn assert_still_held(svc: &ServiceContext, tab: &str, send_id: &str) {
+    let held = svc.chat_send_ledger.status(send_id).unwrap();
+    assert_eq!(held.state, ChatSendState::Pending);
+    assert_eq!(held.error, None);
+    assert!(!svc.chat_send_ledger.has_rpc_handoff(send_id));
+    assert!(svc
+        .pending_delivery_payloads
+        .user_sends
+        .queued(tab)
+        .unwrap()
+        .iter()
+        .any(|queued| queued.send_id == send_id));
+}
+
+#[test]
+fn a_transient_recovery_degrade_holds_the_send_and_the_relaunch_writes_it_once() {
+    let source = source_with_send_ids();
+    let (fixture, tab, peer, _cleanup) = runtime_fixture_turn_scoped(&source);
+    let svc = &fixture.service;
+    let session = engine::for_tab(&tab).unwrap();
+    let record = held_behind_a_turn_with_no_prompt(svc, &tab, &session);
+    let thread = session.context.lock().thread_id.clone().unwrap();
+    let epoch = session.state.lock().epoch;
+    let exit = svc.begin_runtime_exit(&tab);
+    publish_recovery_degrade(svc, &tab, &session);
+    assert!(matches!(
+        crate::service::agent_runtime::user_delivery::drain(svc, &tab).unwrap(),
+        UserDrain::Idle
+    ));
+    assert_still_held(svc, &tab, &record.send_id);
+
+    assert!(session.state.lock().load(epoch, &thread));
+    engine::publish(svc, &tab, &session);
+    let mut peer = BufReader::new(peer);
+    let mut line = String::new();
+    crate::async_runtime::block_on(async {
+        drop(exit);
+        tokio::time::timeout(Duration::from_secs(5), peer.read_line(&mut line))
+            .await
+            .expect("recovery completing wakes the owner")
+            .unwrap();
+    });
+    let request: Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(request["method"], "fixture/submit");
+    assert_eq!(request["params"]["sendId"], record.send_id.as_str());
+    use std::{
+        pin::Pin,
+        task::{Context, Poll, Waker},
+    };
+    use tokio::io::AsyncBufRead;
+    assert!(
+        matches!(
+            Pin::new(&mut peer).poll_fill_buf(&mut Context::from_waker(Waker::noop())),
+            Poll::Pending
+        ),
+        "the held send is written exactly once"
+    );
+}
+
+#[test]
+fn a_recovery_that_really_failed_settles_the_held_send_once_its_outcome_is_known() {
+    let (fixture, tab, _peer, _cleanup) = runtime_fixture_turn_scoped(SOURCE);
+    let svc = &fixture.service;
+    let session = engine::for_tab(&tab).unwrap();
+    let record = held_behind_a_turn_with_no_prompt(svc, &tab, &session);
+    let exit = svc.begin_runtime_exit(&tab);
+    publish_recovery_degrade(svc, &tab, &session);
+    assert!(matches!(
+        crate::service::agent_runtime::user_delivery::drain(svc, &tab).unwrap(),
+        UserDrain::Idle
+    ));
+    assert_still_held(svc, &tab, &record.send_id);
+
+    drop(exit);
+    assert!(matches!(
+        crate::service::agent_runtime::user_delivery::drain(svc, &tab).unwrap(),
+        UserDrain::Idle
+    ));
+    let settled = svc.chat_send_ledger.status(&record.send_id).unwrap();
+    assert_eq!(settled.state, ChatSendState::Failed);
+    assert_eq!(
+        settled.error.as_deref(),
+        Some("launch_degraded_before_write")
+    );
+    assert!(!svc.chat_send_ledger.has_rpc_handoff(&record.send_id));
+}
+
+#[test]
+fn recovery_resumes_the_interrupted_turn_first_and_the_held_send_follows_it_once() {
+    let source = source_with_send_ids();
+    let (fixture, tab, peer, _cleanup) = runtime_fixture_turn_scoped(&source);
+    let svc = &fixture.service;
+    let session = engine::for_tab(&tab).unwrap();
+    let record = held_behind_a_turn_with_no_prompt(svc, &tab, &session);
+    let thread = session.context.lock().thread_id.clone().unwrap();
+    let epoch = session.state.lock().epoch;
+    let exit = svc.begin_runtime_exit(&tab);
+    publish_recovery_degrade(svc, &tab, &session);
+    assert!(session.state.lock().load(epoch, &thread));
+    engine::publish(svc, &tab, &session);
+
+    let (first_read, first) = tokio::sync::oneshot::channel::<Value>();
+    let (release, released) = tokio::sync::oneshot::channel::<()>();
+    let (second_read, second) = tokio::sync::oneshot::channel::<Value>();
+    let server = crate::async_runtime::spawn(async move {
+        let mut peer = BufReader::new(peer);
+        let mut line = String::new();
+        peer.read_line(&mut line).await.unwrap();
+        let request: Value = serde_json::from_str(&line).unwrap();
+        first_read.send(request.clone()).unwrap();
+        released.await.unwrap();
+        let reply = json!({"id":request["id"],"result":{"stopReason":"end_turn"}});
+        peer.get_mut()
+            .write_all(format!("{reply}\n").as_bytes())
+            .await
+            .unwrap();
+        line.clear();
+        peer.read_line(&mut line).await.unwrap();
+        second_read
+            .send(serde_json::from_str(&line).unwrap())
+            .unwrap();
+        peer
+    });
+
+    continue_after_restart(svc, &tab, &session).unwrap();
+    let first = crate::async_runtime::block_on(async {
+        tokio::time::timeout(Duration::from_secs(5), first).await
+    })
+    .expect("the continuation is written while recovery still owns the runtime")
+    .unwrap();
+    assert_ne!(first["params"]["sendId"], record.send_id.as_str());
+    assert_still_held(svc, &tab, &record.send_id);
+
+    drop(exit);
+    assert!(matches!(
+        crate::service::agent_runtime::user_delivery::drain(svc, &tab).unwrap(),
+        UserDrain::Idle
+    ));
+    assert_still_held(svc, &tab, &record.send_id);
+    assert_eq!(
+        svc.chat_send_ledger
+            .status(&record.send_id)
+            .unwrap()
+            .pending_reason
+            .as_deref(),
+        Some(ACTIVE_TURN_HOLD)
+    );
+
+    release.send(()).unwrap();
+    let second = crate::async_runtime::block_on(async {
+        tokio::time::timeout(Duration::from_secs(5), second).await
+    })
+    .expect("the held send follows the resumed turn")
+    .unwrap();
+    assert_eq!(second["params"]["sendId"], record.send_id.as_str());
+    let mut peer = crate::async_runtime::block_on(server).unwrap();
+    use std::{
+        pin::Pin,
+        task::{Context, Poll, Waker},
+    };
+    use tokio::io::AsyncBufRead;
+    assert!(
+        matches!(
+            Pin::new(&mut peer).poll_fill_buf(&mut Context::from_waker(Waker::noop())),
+            Poll::Pending
+        ),
+        "the held send is written exactly once"
+    );
+}

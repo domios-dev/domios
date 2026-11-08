@@ -6,6 +6,45 @@ use crate::service::{
 };
 use std::sync::atomic::Ordering;
 
+/// Client token of a restart continuation, inside its runtime envelope token.
+pub(crate) const TURN_RESUME_TOKEN: &str = "turn-resume:";
+const RECOVERY_HOLD: &str = "runtime_recovery_in_progress";
+
+fn resumes_interrupted_turn(
+    record: &crate::service::pending_delivery_payloads::user_sends::UserSendRecord,
+) -> bool {
+    record
+        .client_token
+        .as_deref()
+        .and_then(|token| token.strip_prefix("runtime-envelope:"))
+        .is_some_and(|token| token.starts_with(TURN_RESUME_TOKEN))
+}
+
+/// While recovery owns the runtime only its continuation may go: held sends follow the turn it resumes.
+fn next_queued(
+    records: Vec<crate::service::pending_delivery_payloads::user_sends::UserSendRecord>,
+    recovering: bool,
+) -> Option<crate::service::pending_delivery_payloads::user_sends::UserSendRecord> {
+    records
+        .into_iter()
+        .find(|record| !recovering || resumes_interrupted_turn(record))
+}
+
+fn hold_for_recovery(svc: &ServiceContext, tab: &str) -> Result<(), String> {
+    for record in svc.pending_delivery_payloads.user_sends.queued(tab)? {
+        if let Some(status) = svc
+            .chat_send_ledger
+            .set_user_pending_reason(&record.send_id, Some(RECOVERY_HOLD))
+        {
+            svc.ui.emit(
+                "chat-send-status",
+                serde_json::to_value(status).unwrap_or_default(),
+            );
+        }
+    }
+    Ok(())
+}
+
 pub(super) fn restore_input(
     record: &crate::service::pending_delivery_payloads::user_sends::UserSendRecord,
     text: &str,
@@ -138,12 +177,22 @@ pub(crate) fn drain(svc: &ServiceContext, tab: &str) -> Result<UserDrain, String
         return Ok(UserDrain::Idle);
     }
     super::inbound::settle_abandoned_tool_claims(svc, tab);
-    if store.queued(tab)?.is_empty() {
+    let queued = store.queued(tab)?;
+    if queued.is_empty() {
+        return Ok(UserDrain::Idle);
+    }
+    if next_queued(queued, svc.runtime_recovery_owns_sends(tab)).is_none() {
+        hold_for_recovery(svc, tab)?;
         return Ok(UserDrain::Idle);
     }
     let session = match crate::async_runtime::block_on(engine::ensure(svc, tab)) {
         Ok(session) => session,
         Err(reason) => {
+            // Recovery may have claimed the runtime while this attempt ran; its completion wakes the owner.
+            if svc.runtime_recovery_owns_sends(tab) {
+                hold_for_recovery(svc, tab)?;
+                return Ok(UserDrain::Idle);
+            }
             if degrade_ends_held_sends(&reason, published_state(svc, tab).as_deref()) {
                 settle_held_sends(svc, tab)?;
                 return Ok(UserDrain::Idle);
@@ -163,7 +212,8 @@ pub(crate) fn drain(svc: &ServiceContext, tab: &str) -> Result<UserDrain, String
         }
     };
     for _ in 0..MAX_UNSETTLED {
-        let Some(mut record) = store.queued(tab)?.into_iter().next() else {
+        let recovering = svc.runtime_recovery_owns_sends(tab);
+        let Some(mut record) = next_queued(store.queued(tab)?, recovering) else {
             break;
         };
         svc.chat_send_ledger.restore_user_record(&record);
@@ -248,7 +298,11 @@ pub(crate) fn drain(svc: &ServiceContext, tab: &str) -> Result<UserDrain, String
             );
         }
         let dispatch_generation = owner.dispatch_generation.load(Ordering::Acquire);
-        let digest = super::inbound::begin_digest(svc, tab, &session, &record, &text, &context);
+        let digest = if recovering {
+            None
+        } else {
+            super::inbound::begin_digest(svc, tab, &session, &record, &text, &context)
+        };
         let input = match &digest {
             Some(digest) => digest.input.clone(),
             None => restore_input(&record, &text)?,
