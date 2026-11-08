@@ -18,6 +18,7 @@
   "src/components/Sidebar/curatorIconState.test.ts",
   "src/components/Terminal/ChatWindowRow.streamingTools.test.tsx",
   "src/components/Sidebar/Sidebar.neighbors.test.tsx",
+  "src/components/Sidebar/SidebarWorkspaceSwitch.test.tsx",
   "src/lib/updatePresentation.test.ts",
   "src/components/Neighbors/neighborNotify.test.tsx",
   "src/components/Neighbors/neighborRuntimeClient.test.ts",

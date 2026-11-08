@@ -489,35 +489,7 @@ export const Sidebar = memo(function Sidebar({
   const navButtonLayout = { compact: isCompact, touchMode, labelClassName: touchMode ? sidebarNavTouchText : sidebarNavText };
   const isPeeking = isSidebarCollapsed && peeking && !touchMode;
   const peekWidth = sidebarWidth >= SIDEBAR_COMPACT_SNAP ? sidebarWidth : 240;
-  const prevTabIdsRef = useRef<Set<string>>(new Set());
-  const [appearingTabs, setAppearingTabs] = useState<Set<string>>(new Set());
   const [closingTabs, setClosingTabs] = useState<Map<string, { wsId: string }>>(new Map());
-  const allTabIds = useMemo(() => {
-    const ids = new Set<string>();
-    for (const ws of state.workspaces) {
-      for (const tabId of ws.tabs) ids.add(tabId);
-    }
-    return ids;
-  }, [state.workspaces]);
-
-  useEffect(() => {
-    const prev = prevTabIdsRef.current;
-    if (prev.size > 0) {
-      const newIds = new Set<string>();
-      for (const id of allTabIds) {
-        if (!prev.has(id)) newIds.add(id);
-      }
-      if (newIds.size > 0) {
-        setAppearingTabs(newIds);
-      }
-    }
-    prevTabIdsRef.current = allTabIds;
-  }, [allTabIds]);
-  useEffect(() => {
-    if (appearingTabs.size === 0) return;
-    const timer = setTimeout(() => setAppearingTabs(new Set()), 250);
-    return () => clearTimeout(timer);
-  }, [appearingTabs]);
   const [pendingTeamClose, setPendingTeamClose] = useState<{
     teamId: string;
     workspaceId: string;
@@ -673,7 +645,6 @@ export const Sidebar = memo(function Sidebar({
     providers: visibleProviders,
     providersLoading,
     closingTabIds,
-    appearingTabIds: appearingTabs,
     closingTeamIds,
     activeTabIds: state.activeTabIds,
     activeWorkspaceId: state.active_workspace_id,
@@ -686,7 +657,7 @@ export const Sidebar = memo(function Sidebar({
     orchestrators: orchestratorTabs,
     newSessionDisabled: false,
   }), [state.tabs, state.tabStatuses, attention, state.teams, planIndex, fullPlans.plans, visibleProviders,
-    providersLoading, closingTabIds, appearingTabs, closingTeamIds, state.activeTabIds, state.active_workspace_id,
+    providersLoading, closingTabIds, closingTeamIds, state.activeTabIds, state.active_workspace_id,
     isWorkspaceMode, workspaceCanvasActive, touchMode, uiFontScale, isCompact, sidebarActionText, orchestratorTabs]);
   const workspaceDetailActions = useMemo<SidebarWorkspaceDetailActions>(() => ({
     activateWorkspace: (workspaceId) => { setActiveWorkspace(workspaceId); onNavigateToTab?.(); },

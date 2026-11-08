@@ -103,7 +103,7 @@ export interface SidebarWorkspaceTabsProps {
   providers: ProviderDescriptor[];
   providersLoading?: boolean;
   closingTabIds: Set<string>;
-  appearingTabIds: Set<string>;
+  appearingTabIds: ReadonlySet<string>;
   isActiveVisual: boolean;
   workspaceCanvasActive: boolean;
   touchMode: boolean;
