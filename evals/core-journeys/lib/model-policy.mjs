@@ -2,6 +2,10 @@ import { Events } from "./env.mjs";
 import { installed, selectProviders } from "./oracle.mjs";
 import { fixtureProviderId } from "./fixture-control.mjs";
 import { ModelPolicyRefusal, profileBacked, profileReady, profileSelection, profileIdentity, selectionDefault } from "./profile-policy.mjs";
+import { JourneyFailure, observe, touchesTab } from "./wait.mjs";
+
+// Bounds failure only: product readiness means usable, and the session's own evidence reports the model after it.
+export const RESTORED_MODEL_DEADLINE_MS = 30_000;
 
 const refuse = (reason) => { throw new ModelPolicyRefusal(reason); };
 const nonempty = (value) => typeof value === "string" && value.trim() === value && value.length > 0;
@@ -73,6 +77,37 @@ export function modelIdentity(record, provider, selected, { first = false, previ
   if (!first && actual !== selected) refuse(`tab ${record.id} actual model unknown; no further paid turn permitted`);
   if (previous && (!previous.session || record.agent_session_id !== previous.session)) refuse(`tab ${record.id} policy session changed`);
   return { provider, selected, requested, resolved, actual: actual ?? null, session: record.agent_session_id ?? null };
+}
+
+// The one state worth waiting on: every reported identity already agrees and only the actual model is absent.
+export function restoredModelPending(record, provider, selected, catalogue, previous) {
+  if (record?.agent_type !== provider || record.agent_session_model != null || record.model_fallback || record.model_identity_mismatch
+    || !previous?.session || record.agent_session_id !== previous.session) return false;
+  const profile = catalogue.kind === "profile";
+  if (profile && record.agent_runtime_config?.launchProfile !== catalogue.launch_profile) return false;
+  if (profile && catalogue.model == null) return previous.actual != null;
+  const expected = profile ? catalogue.model : selected;
+  return record.agent_requested_model === expected && record.agent_provider_resolved_model === expected;
+}
+
+async function confirmedRestoredRecord(ctx, id, record, readRecord, pending) {
+  if (!pending(record)) return record;
+  const signal = AbortSignal.timeout(RESTORED_MODEL_DEADLINE_MS);
+  const open = ctx.modelEvents ?? ((deadline) => new Events(ctx.dev, deadline).open());
+  let events;
+  try {
+    events = await open(signal);
+    return await observe({
+      events, filter: touchesTab(id), label: `tab ${id} actual model`,
+      read: () => readRecord(id, signal),
+      judge: (current) => pending(current) ? { pending: `tab ${id} actual model` } : { done: current },
+    });
+  } catch (error) {
+    if (error instanceof JourneyFailure || signal.aborted) refuse(`tab ${id} actual model unconfirmed after ${RESTORED_MODEL_DEADLINE_MS} ms; no further paid turn permitted`);
+    throw error;
+  } finally {
+    events?.close();
+  }
 }
 
 export function generalSelection(config, provider, selected) {
@@ -244,6 +279,11 @@ export async function preparePolicy(ctx, { readRecord, configure = false, requir
       if (restored && !previousIdentity) refuse(`tab ${id} persisted identity absent`);
       const options = { first, previous: restored ? previousIdentity : null };
       const catalogue = policy.catalogues[provider];
+      if (restored && !first) {
+        record = await confirmedRestoredRecord(ctx, id, record, readRecord,
+          (current) => restoredModelPending(current, provider, selected, catalogue, previousIdentity));
+        if (record?.id !== id) refuse(`tab ${id} own identity unavailable`);
+      }
       const evidence = catalogue.kind === "profile" ? profileIdentity(record, provider, catalogue, options) : modelIdentity(record, provider, selected, options);
       policy.identities[id] = evidence;
       if (restored) { policy.restored_identities ??= {}; policy.restored_identities[id] = evidence; }

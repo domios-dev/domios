@@ -117,7 +117,12 @@ policy refusal is persisted and `all` exits 8 without restarting. An ordinary
 launch or send failure stays with that journey and does not become a global
 model-policy refusal; other correctly configured journeys continue. Verify requires
 the same explicit mapping, complete roster and persisted same-session identities;
-it refreshes catalogues again before restored sends. Profile-default sessions
+it refreshes catalogues again before restored sends. Readiness means usable, and
+a restored tab's own session reports its model after that, so a restored identity
+whose other fields already agree waits, event-driven and for at most 30 s, for the
+actual model before any paid turn. A value that is merely not yet known persists no
+refusal; any disagreement refuses at once, and a model still unknown at the bound
+refuses as unconfirmable. Profile-default sessions
 validate their exact launch profile and own session; actual model identity is
 recorded only when reported, without claiming an explicit-model attestation.
 An explicitly selected profile model requires the same requested/resolved/actual

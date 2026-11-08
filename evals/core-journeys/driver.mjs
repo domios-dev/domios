@@ -74,7 +74,7 @@ async function provisionWorkspace(ctx) {
 export async function setup(ctx) {
   ctx.state.run ??= runId();
   Object.assign(ctx.state, { tabs: ctx.state.tabs ?? [], teams: ctx.state.teams ?? [], plans: ctx.state.plans ?? [] });
-  ctx.policy = await preparePolicy(ctx, { configure: true, readRecord: (id) => readTab(ctx.api, id) });
+  ctx.policy = await preparePolicy(ctx, { configure: true, readRecord: (id, signal) => readTab(ctx.api, id, signal) });
   const selected = ctx.policy.roster;
   const pty = preferred(selected.run, false), runtime = preferred(selected.run, true);
   const access = await ctx.check("SETUP", "agent_access_chosen", ctx.state.run, async () => {
@@ -112,7 +112,7 @@ export async function setup(ctx) {
 
 async function verify(ctx) {
   if (!ctx.state.run) throw new Error("verify needs the state written by setup in the same --out directory");
-  ctx.policy = await preparePolicy(ctx, { readRecord: (id) => readTab(ctx.api, id) });
+  ctx.policy = await preparePolicy(ctx, { readRecord: (id, signal) => readTab(ctx.api, id, signal) });
   await restartCheck(ctx);
   if (process.env.CORE_JOURNEY_OBSERVE_CHAT_ACTIVATION === "1") await recordChatActivationObservation(ctx);
   await restoredTabsReady(ctx);

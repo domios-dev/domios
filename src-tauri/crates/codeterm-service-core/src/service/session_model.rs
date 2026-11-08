@@ -106,6 +106,18 @@ impl ServiceContext {
         self.refresh_session_model(tab_id, &agent_id, &cwd, false);
     }
 
+    /// A model this binding already confirmed, such as one its launch reported, stays authoritative.
+    pub(crate) fn refresh_unconfirmed_session_model(&self, tab_id: &str, session_id: &str) {
+        let confirmed = self
+            .mux
+            .read()
+            .get_tab(tab_id)
+            .is_some_and(|tab| has_current_session_model(tab, session_id));
+        if !confirmed {
+            self.refresh_session_model_for_current_tab(tab_id);
+        }
+    }
+
     pub(crate) fn schedule_session_model_refresh_for_current_tab(&self, tab_id: &str) {
         let svc = self.clone();
         let tab_id = tab_id.to_string();

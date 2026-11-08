@@ -27,6 +27,7 @@ mod startup_model_refresh_tests {
 
 mod next_turn_confirmation;
 mod restored_effort;
+mod resumed_binding;
 
 mod model_refresh_tests {
     use std::collections::{HashMap, HashSet};
