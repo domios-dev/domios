@@ -2,7 +2,7 @@ import type { Tab, TabAgentState, TabStatus } from "./types";
 import { runtimeResponseDeadlinePending } from "./agentRuntimeState";
 import { providerErrorReason } from "./providerSignals";
 import { shellStateLabel } from "./shellCommandState";
-import { tabFailure, type TabFailure } from "./tabFailure";
+import { tabFailure, tabLaunched, tabSessionBound, type TabFailure } from "./tabFailure";
 
 export interface AgentState extends Omit<TabAgentState, "state"> {
   state: TabAgentState["state"] | "quiet";
@@ -104,8 +104,7 @@ export function tabActivity(tab: TabActivityInput | null | undefined, status?: T
   const live = tab?.agent_state;
   const shell = tab?.shell_command_state;
   const declaresAgent = Boolean(tab?.agent_type) || tab?.backing?.kind === "chat_backend";
-  const sessionBound = tab?.session_bound === true || Boolean(tab?.agent_session_id?.trim())
-    || (tab?.backing?.kind === "chat_backend" && Boolean(tab.backing.session_id?.trim()));
+  const sessionBound = tabSessionBound(tab);
   const utility = tab?.tab_type === "Terminal" && !tab.agent_type && !tab.role && !tab.roleless_tracked
     && (!tab.backing || tab.backing.kind === "pty");
   const readyShell = utility && shell && tab?.boot_stage === "shell_ready";
@@ -132,7 +131,7 @@ export function tabActivity(tab: TabActivityInput | null | undefined, status?: T
   else if (sessionBound && authoritativeStatus === "Working") kind = "working";
   else kind = "idle";
   const failure = kind === "failed" ? tabFailure({ status, bootStage: tab?.boot_stage, runtime: tab?.agent_runtime_state,
-    launched: sessionBound || tab?.boot_stage === "agent_ready" }) : undefined;
+    launched: tabLaunched(tab), chatBacked: tab?.backing?.kind === "chat_backend" }) : undefined;
   const backgroundTasks = sessionBound ? Object.keys(tab?.provider_signals?.background?.running ?? {}).length : 0;
   const quiet = kind === "idle" && live?.state === "quiet";
   const state = quiet ? "quiet" : kind === "working" ? "working" : kind === "waiting-on-user" ? "question" : "idle";

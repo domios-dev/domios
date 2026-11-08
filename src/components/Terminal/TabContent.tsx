@@ -2,11 +2,11 @@ import {isRemoteTaskTab} from "../../lib/remoteExecution";
 import { BusyState } from "../shared/BusyState";
 import { transcriptWindowKey, useTranscriptWindow } from "./transcriptStore";
 import { ErrorNotice } from "../shared/ErrorNotice";
-import { tabActivity } from "../../lib/tabActivity";
-import { tabFailureDescription } from "../../lib/tabFailure";
+import { TabFailureNotice } from "./TabFailureNotice";
 import { RestoreStatePanel } from "./RestoreStatePanel";
 import { DeferredPresence } from "../shared/DeferredPresence";
-import { restoreActivityVisible, restorePanelOwnsBody, restoreStageView, transcriptLoadingStageView } from "../../lib/restoreStageView";
+import { dockedTabFailure, restoreActivityVisible, restorePanelOwnsBody, restoreStageView, transcriptLoadingStageView } from "../../lib/restoreStageView";
+import { useCurrentTabUiMode } from "../../hooks/useCurrentTabUiMode";
 import { runtimeSessionLoadRefused } from "../../lib/agentRuntimeState";
 import { useWakeOnOpen } from "./useWakeOnOpen";
 import { TerminalTab } from "./TerminalTab";
@@ -72,6 +72,7 @@ export function TabContent({
 }: TabContentProps) {
   if (tab?.remote_peer_id) configureRemoteTabTransport(api);
   const lock = useTabLock(tab);
+  const uiMode = useCurrentTabUiMode(tab?.id);
   const wake = useWakeOnOpen(tab, isVisible && !lock.locked && Boolean(tab && isTabVisible(tab)));
   const descriptor = useAgentDescriptor(tab?.agent_type ?? (tab?.backing?.kind === "chat_backend" ? tab.backing.plugin_id : null));
   const { providers, loading, error: providersError } = useAgentProviders();
@@ -108,7 +109,8 @@ export function TabContent({
   </TabWrapper>;
   const sleepingTranscript = (hasSleepingTranscript(tab) || hasCachedTranscript) && restore.phase !== "ready";
   const loadRefused = runtimeSessionLoadRefused(tab.agent_runtime_state);
-  const restoreOwnsBody = !loadRefused && !sleepingTranscript && !hasCachedTranscript && (restorePanelOwnsBody(tab, wake, restore) || initialBody.current.waiting);
+  const dockedFailure = tab.backing?.kind === "chat_backend" || uiMode === "chat" ? dockedTabFailure(tab, wake) : null;
+  const restoreOwnsBody = !loadRefused && !dockedFailure && !sleepingTranscript && !hasCachedTranscript && (restorePanelOwnsBody(tab, wake, restore) || initialBody.current.waiting);
   const showRestore = restoreOwnsBody && !bodyPainted;
   const restoreInline = restoreOwnsBody && bodyPainted;
   const restorePanel = <RestoreStatePanel view={initialBody.current.waiting && restore.phase === "ready" ? transcriptLoadingStageView(tab) : restore} />;
@@ -189,10 +191,12 @@ export function TabContent({
         />
         <div className="relative flex min-h-0 flex-1 flex-col" style={{ background: theme.background }}>
           <div data-testid="session-status-row" className="flex max-h-[40%] shrink-0 flex-col overflow-y-auto">
-            <DeferredPresence present={!loadRefused && isVisible && (sleepingTranscript || restoreInline || hasCachedTranscript) && (restoreActivityVisible(tab, wake, restore, bodyPainted) || wake.pending || (hasCachedTranscript && !bodyPainted))}>
+            <DeferredPresence present={!loadRefused && isVisible && (dockedFailure != null || ((sleepingTranscript || restoreInline || hasCachedTranscript) && (restoreActivityVisible(tab, wake, restore, bodyPainted) || wake.pending || (hasCachedTranscript && !bodyPainted))))}>
               <section aria-label="Session status" className="mx-auto flex w-full max-w-2xl justify-center px-4 py-2">
-                {restore.phase === "failed"
-                  ? <div className="w-full"><ErrorNotice error={restore.detail} description={wake.error ? undefined : tabFailureDescription(tabActivity(tab).failure, restore.detail) ?? undefined} operation="resuming this session" /></div>
+                {dockedFailure
+                  ? <TabFailureNotice tab={tab} failure={dockedFailure} detail={restore.detail} workspaceId={workspaceId} />
+                  : restore.phase === "failed"
+                  ? <div className="w-full"><ErrorNotice error={restore.detail} operation="resuming this session" /></div>
                   : <BusyState inline indicator="brand" label="Restoring…" phase="work" className="ct-bar-pill" />}
               </section>
             </DeferredPresence>

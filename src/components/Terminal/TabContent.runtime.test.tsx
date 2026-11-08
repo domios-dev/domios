@@ -88,6 +88,58 @@ it("docks a degraded session's notice in its own row above the transcript and na
   }
 });
 
+it.each([
+  ["a kept conversation", [{ id: "kept-row", type: "assistant", content: "opaque retained reply" }]],
+  ["an empty conversation", []],
+])("keeps a launched session readable with a docked Restart after its relaunch failed, with %s", async (_name, messages) => {
+  const reason = "opaque: Interrupt completion deadline exceeded; runtime recovery required";
+  const tab: Tab = {
+    id: `relaunch-failed-${messages.length}`, title: "Fixture", tab_type: "Terminal", cwd: null, pty_id: null, agent_type: "fixture",
+    agent_session_id: "kept-session", session_binding_nonce: "kept-binding", boot_stage: "spawn_failed", boot_failure_reason: reason,
+    backing: { kind: "chat_backend", plugin_id: "fixture", session_id: "kept-session" },
+    agent_runtime_state: { state: "degraded", epoch: 2, failureCode: "provider_refused", reason },
+  };
+  const state: ExtendedState = { workspaces: [], tabs: { [tab.id]: tab }, teams: [], active_workspace_id: null, focused_tab_id: tab.id,
+    notifications: [], tabStatuses: {}, toasts: [], activeTabIds: {}, generation: 1, pendingCloses: [] };
+  const restarts: unknown[] = [];
+  __setListenForTest(async () => () => {});
+  __setInvokeForTest(<T,>(command: string, args?: Record<string, unknown>): Promise<T> => {
+    if (command === "restart_agent_tab") restarts.push(args);
+    if (command === "chat_start") return Promise.resolve({ text: "", offset: messages.length, start_offset: 0, pending: false,
+      source_session_id: "kept-session", session_binding_nonce: "kept-binding", subscription_id: String(args?.subscriptionId), messages } as T);
+    const value = command === "delayed_send_list" || command === "list_agent_providers" ? []
+      : command === "plugin_manager_snapshot" ? { plugins: [], channels: [], diff: [], marketplace: [] } : {};
+    return Promise.resolve(value as T);
+  });
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  const actions = new Proxy({}, { get: () => () => {} }) as MultiplexerActionsContextType;
+  try {
+    await act(async () => root.render(<MuxStateStoreContext.Provider value={createMuxStateStore(() => state)}>
+      <MultiplexerActionsContext.Provider value={actions}>
+        <TabContent tab={tab} isFocused isVisible onFocusTab={() => {}} onPtySpawned={() => {}}
+          theme={{ name: "fixture", background: "#000", foreground: "#fff" } as ThemeConfig} />
+      </MultiplexerActionsContext.Provider>
+    </MuxStateStoreContext.Provider>));
+    expect(host.querySelector('[data-testid="chat-launch-failed"]')).toBeNull();
+    const log = host.querySelector('[role="log"][aria-label="Conversation"]');
+    expect(log).not.toBeNull();
+    expect(log!.closest("[inert]")).toBeNull();
+    expect(host.querySelectorAll('[data-testid="chat-message"]').length).toBe(messages.length);
+    expect(host.querySelector('textarea[aria-label="Message composer"]')).not.toBeNull();
+    const dock = host.querySelector('[data-testid="session-status-row"] section[aria-label="Session status"]');
+    expect(dock?.querySelector('[role="status"]')?.getAttribute("aria-label")).toBe("Runtime needs recovery");
+    const restart = host.querySelectorAll<HTMLButtonElement>('button[aria-label="Restart the agent"]');
+    expect(restart.length).toBe(1);
+    expect(dock!.contains(restart[0])).toBe(true);
+    await act(async () => restart[0].click());
+    expect(restarts).toEqual([{ tabId: tab.id }]);
+  } finally {
+    await act(async () => root.unmount()); host.remove();
+    __setInvokeForTest(null); __setListenForTest(null);
+  }
+});
+
 it.each(["agent_launching", "spawn_failed"] as const)("keeps saved chat visible beside typed load recovery at %s and starts fresh in place", async bootStage => {
   const viewportHeight = vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(1000);
   const tab: Tab = {

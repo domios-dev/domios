@@ -101,6 +101,7 @@ import { chatBodyView, chatChannelLoadingRow, chatRailsVisible, placeChatRails, 
 import { lazyFirstTurnComposerIsLive } from "../../lib/tabActivity";
 import { firstTurnLocalSends, isLocalSendRow, sendsOfCurrentAttempt } from "./firstTurnLocalRows";
 import { TabRecoveryAction } from "./TabRecoveryAction";
+import { dockedTabFailure } from "../../lib/restoreStageView";
 import { messageTimeMs, normalizeEpochMs } from "./outboundReportPlacement";
 import { useChatMessageReveal } from "./useChatMessageReveal";
 import { useSessionBindingSurface } from "./useSessionBindingSurface";
@@ -1121,7 +1122,7 @@ function TabSessionChatBody({
             ? () => setBindingRecoveryOpen(true)
             : undefined}
           renderIdentity={tab ? (label) => <TabStatusLineModelPicker tab={tab} label={label} /> : undefined}
-          recovery={readOnly ? undefined : <TabRecoveryAction tabId={tabId} onError={showComposerError} />}
+          recovery={readOnly || dockedTabFailure(tab) ? undefined : <TabRecoveryAction tabId={tabId} onError={showComposerError} />}
         />        {bindingRecoveryOpen && (
           <SessionBindingRecoveryForm
             tabId={tabId}
