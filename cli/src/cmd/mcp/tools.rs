@@ -2,14 +2,14 @@ use serde_json::{json, Value};
 
 const DESCRIPTIONS: &str = include_str!("../../../../src-tauri/prompts/mcp_tools.json");
 
-struct Tool {
-    name: &'static str,
+pub(super) struct Tool {
+    pub(super) name: &'static str,
     command: &'static [&'static str],
-    required: &'static [&'static str],
-    optional: &'static [&'static str],
+    pub(super) required: &'static [&'static str],
+    pub(super) optional: &'static [&'static str],
     positional: Option<&'static str>,
 }
-const TOOLS: &[Tool] = &[
+pub(super) const TOOLS: &[Tool] = &[
     Tool {
         name: "send",
         command: &["send"],

@@ -15,6 +15,19 @@ Cron JSON exposes `protected: true` for system jobs. System jobs refuse deletion
 
 ## CLI
 
+### Messages after command output
+
+A `domios` command run by an ACP agent with a turn in progress can end its output with an `Inbound messages` block holding reports and owner messages for that tab, oldest first. Each message is delivered once and is not repeated at the end of the turn.
+
+The block is added only when all of these hold:
+
+- The command finished normally and reached the daemon.
+- Its output is human format, not `--json`.
+- Both stdout and stdin are terminals. A pipe, `$(...)` capture, redirect or `--from-file -` pipeline never carries messages, so scripts can keep parsing output as before.
+- The caller has its own tab credential and a turn is running in that exact launch.
+
+A message counts as delivered once it was written to the terminal the agent's shell tool reads. That does not prove the model read it, for example if the tool drops or truncates the output. If no byte was written, the message returns to the queue in order. If only part was written, it stays `submit_unconfirmed` and is never resent.
+
 Use `domios <command> --help` for the installed contract. `codeterm` is a working alias; both names show `domios` help and usage.
 
 ### Startup readiness
@@ -217,4 +230,4 @@ saved sessions and notifications omit login values.
 
 Account installations connect automatically after same-account sign-in. `domios mesh peers` lists each installation once; `domios mesh status` is read-only for local agents.
 
-<!-- revision: 77 -->
+<!-- revision: 78 -->

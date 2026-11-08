@@ -278,6 +278,70 @@ fn mcp_tool_and_argument_descriptions_come_from_prompt_source() {
     }
 }
 
+/// A renamed or removed CLI flag fails here instead of breaking an agent at runtime.
+#[test]
+fn every_tool_mapping_with_every_field_still_parses_as_a_cli_command() {
+    fn sample(field: &str) -> &'static str {
+        match field {
+            "target_tab" => "own",
+            "from_pad" => "payload.md",
+            "status" => "in_review",
+            "sha" => "abc1234",
+            "query" | "area" | "id" | "title" => "opaque",
+            "kind" => "fact",
+            "level" => "verbose",
+            "severity" => "info",
+            other => panic!("add a valid sample for the MCP field {other}"),
+        }
+    }
+    for tool in tools::TOOLS {
+        let arguments: serde_json::Map<String, Value> = tool
+            .required
+            .iter()
+            .chain(tool.optional)
+            .map(|field| ((*field).to_owned(), json!(sample(field))))
+            .collect();
+        let args = tool_args(tool.name, &Value::Object(arguments))
+            .unwrap_or_else(|reason| panic!("{}: {reason}", tool.name));
+        let parsed =
+            crate::Cli::try_parse_from(std::iter::once("domios".to_owned()).chain(args.clone()));
+        if let Err(error) = parsed {
+            panic!("{} no longer parses as {args:?}: {error}", tool.name);
+        }
+    }
+    assert!(
+        tool_args(tools::MESSAGES_TOOL, &json!({})).is_err()
+            && is_messages_check(tools::MESSAGES_TOOL, &json!({})),
+        "messages_check maps to no CLI command, so it has no argv to parse"
+    );
+}
+
+#[test]
+fn every_tool_and_field_has_one_description_and_every_description_has_its_owner() {
+    use std::collections::BTreeSet;
+    let source: Value =
+        serde_json::from_str(include_str!("../../../../src-tauri/prompts/mcp_tools.json")).unwrap();
+    let keys = |section: &str| -> BTreeSet<String> {
+        source[section]
+            .as_object()
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect()
+    };
+    let listed: BTreeSet<String> = tools()
+        .iter()
+        .map(|tool| tool["name"].as_str().unwrap().to_owned())
+        .collect();
+    assert_eq!(keys("tools"), listed);
+    let fields: BTreeSet<String> = tools::TOOLS
+        .iter()
+        .flat_map(|tool| tool.required.iter().chain(tool.optional))
+        .map(|field| (*field).to_owned())
+        .collect();
+    assert_eq!(keys("arguments"), fields);
+}
+
 #[test]
 fn mcp_startup_ack_runs_the_task_ack_only_for_a_task_bound_tab() {
     let startup = tool_args("agent_startup_ack", &json!({})).unwrap();

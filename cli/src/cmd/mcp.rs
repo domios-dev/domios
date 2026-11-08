@@ -1,11 +1,10 @@
 use serde_json::{json, Value};
 use std::io::{BufRead, Read, Write};
 
-mod inbound;
 mod tools;
-use inbound::Inbound;
 #[cfg(test)]
-use inbound::NoInbound;
+use crate::cmd::inbound::NoInbound;
+use crate::cmd::inbound::{self, Inbound};
 use tools::{is_held_receipt, is_messages_check, launch_args, tool_args, tools, MESSAGES_CHECKED};
 
 const MAX_FRAME: u64 = 1024 * 1024;
@@ -67,7 +66,7 @@ pub fn serve(tab: &str, nonce: &str, mesh: Option<&str>) {
         std::io::stdin().lock(),
         &mut std::io::stdout().lock(),
         &token,
-        &mut inbound::Daemon::new(tab, nonce),
+        &mut inbound::Daemon::new(tab, Some(nonce)),
         |args| {
             let mut command = std::process::Command::new(&executable);
             command.args(launch_args(args.to_vec(), task_bound));

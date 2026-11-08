@@ -314,7 +314,7 @@ It can also cancel a turn waiting for a permission response.
 ### Messages during a turn
 
 An ACP turn takes no second prompt, so reports and owner messages reach a busy agent
-in one of three ways, in this order:
+in one of four ways, in this order:
 
 - An agent that advertises `_meta.steering.supported` at initialize, such as
   `claude-agent-acp`, takes them into the running turn right away.
@@ -322,12 +322,18 @@ in one of three ways, in this order:
   under an `Inbound messages` block. The message counts as delivered once that result
   was returned. An agent that makes no Domios tool call receives nothing this way, and
   `messages_check` lets it collect them between long steps.
+- An agent whose shell tool runs commands in a terminal, such as `deepseek-harness`,
+  also receives them after the output of its next direct `domios` command. Commands
+  run over pipes carry nothing, including those run through ACP `terminal/create`. See
+  `domios docs API-CLI` for the exact rule.
 - Anything still held when the turn ends goes out as one digest prompt, in arrival
   order, with each message identified. A command, an attachment or a recording keeps
   its own prompt and is never overtaken.
 
-Each message is delivered once. A claim the host cannot confirm stays
-`submit_unconfirmed` and is never replayed. Check with `domios tab send-status <send-id>`.
+Each message is delivered once. Delivery through a tool result or a terminal means it
+was written where the agent's tool reads, not that the model read it: a tool can still
+drop or truncate that output. A claim the host cannot confirm stays `submit_unconfirmed`
+and is never replayed. Check with `domios tab send-status <send-id>`.
 
 ### Full access
 
@@ -377,4 +383,4 @@ an agent cannot change its own or another tab's mode this way.
   the current index and refuses unsupported distributions; neither proves agent
   authentication or compatibility.
 
-<!-- revision: 13 -->
+<!-- revision: 14 -->
