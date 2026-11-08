@@ -73,7 +73,10 @@ pub(super) fn switch(
                 },
             )
             .await
-            .map_err(refused)?;
+            .map_err(|error| match error {
+                declared_controls::ControlError::Busy => ModelSwitchError::RuntimeBusy,
+                declared_controls::ControlError::Refused(reason) => refused(reason),
+            })?;
         }
         let after = session.context.lock().settings.clone();
         let requested = RuntimeSettings {

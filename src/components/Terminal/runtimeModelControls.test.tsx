@@ -121,3 +121,18 @@ it("legacy mode keeps its pinned mode request and refused settings remain visibl
   await act(async () => [...document.body.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(item => item.textContent?.trim() === "Plan")!.click());
   expect(row().textContent).toContain("The agent refused this control value.");
 });
+
+it("a busy agent shows a short notice in the picker, not a refusal", async () => {
+  const { TransportError } = await import("../../lib/transportClient");
+  await mount({ ...controls, configOptions: controls.configOptions!.filter(option => option.category !== "mode") });
+  await act(async () => trigger().click());
+  const mode = row().querySelector<HTMLButtonElement>('button[aria-label="Mode: Code"]')!;
+  bridge.invoke.mockRejectedValue(new TransportError(409, "/api/tabs/acp/agent/runtime/controls",
+    JSON.stringify({ ok: false, reason: "runtime_busy", error: "opaque busy text" })));
+  await act(async () => mode.dispatchEvent(new Event("pointerdown", { bubbles: true, cancelable: true })));
+  await act(async () => [...document.body.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(item => item.textContent?.trim() === "Plan")!.click());
+  const notice = document.body.querySelector('.ct-model-picker [role="status"]');
+  expect(notice?.textContent).toBe("opaque busy text");
+  expect(document.body.querySelector('.ct-model-picker [role="alert"]')).toBeNull();
+  expect(document.body.textContent).not.toContain("The agent refused this control value.");
+});

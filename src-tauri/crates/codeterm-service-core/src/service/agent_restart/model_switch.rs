@@ -128,6 +128,7 @@ pub enum ModelSwitchError {
     },
     LiveSwitchFailed(String),
     RuntimeControlRefused(String),
+    RuntimeBusy,
     LiveCommandFailed(String),
     DuringTurnIncident {
         stage: String,
@@ -173,6 +174,8 @@ impl std::fmt::Display for ModelSwitchError {
                 formatter,
                 "relaunched with {launched_model}, but the current session reported {observed}"
             ),
+            Self::RuntimeBusy => formatter
+                .write_str(crate::service::agent_runtime::declared_controls::RUNTIME_BUSY_MESSAGE),
             Self::RuntimeControlRefused(reason) | Self::LiveSwitchFailed(reason) | Self::LiveCommandFailed(reason) | Self::InputNotReady(reason) => {
                 write!(formatter, "live model switch failed: {reason}")
             }

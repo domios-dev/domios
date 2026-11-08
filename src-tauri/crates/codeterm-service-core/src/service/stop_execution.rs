@@ -88,8 +88,14 @@ pub async fn stop_agent_turn(
                     }))
                 }
                 StopDecision::Interrupt { .. } | StopDecision::NotWorking(_) => {
-                    use super::agent_runtime::controls::InterruptOutcome;
+                    use super::agent_runtime::controls::{InterruptDropped, InterruptOutcome};
                     match super::agent_runtime::controls::stop(&svc, &runtime_tab)? {
+                        InterruptOutcome::Dropped(InterruptDropped::TurnEnded) => Ok(
+                            serde_json::json!({"ok": true, "stopped": false, "reason": "turn_ended", "route": "runtime"}),
+                        ),
+                        InterruptOutcome::Dropped(InterruptDropped::TurnChanged) => Ok(
+                            serde_json::json!({"ok": true, "stopped": false, "reason": "turn_changed", "route": "runtime"}),
+                        ),
                         InterruptOutcome::Stopped => Ok(
                             serde_json::json!({"ok": true, "stopped": true, "reason": "stopped", "route": "runtime"}),
                         ),
