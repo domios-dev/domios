@@ -129,3 +129,76 @@ fn picker_model_and_effort_survive_desk_restore_and_reapply_without_launch_selec
     assert_eq!(context.settings.model.as_deref(), Some("target"));
     assert_eq!(context.settings.effort.as_deref(), Some("high"));
 }
+
+#[tokio::test]
+async fn a_selection_on_a_held_gate_waits_its_bound_then_reports_busy() {
+    use crate::service::agent_runtime::{
+        engine::test_support::runtime_fixture_turn_scoped, turn_requests::tests as turn_fixture,
+    };
+    let (fixture, id, _peer, _cleanup) = runtime_fixture_turn_scoped(turn_fixture::SOURCE);
+    let session = engine::for_tab(&id).unwrap();
+    let context = session.context.lock().clone();
+    let _held = session.gate.try_acquire().unwrap();
+    tokio::time::pause();
+    let outcome = declared_controls::select(
+        &fixture.service,
+        &id,
+        Selection {
+            thread_id: context.thread_id.clone().unwrap(),
+            binding_nonce: context.binding_nonce.clone(),
+            epoch: context.epoch,
+            id: "engine".into(),
+            value: "target".into(),
+            mode: false,
+        },
+    )
+    .await;
+    assert_eq!(outcome.unwrap_err(), declared_controls::ControlError::Busy);
+}
+
+#[test]
+fn a_selection_on_a_held_gate_applies_once_the_running_operation_finishes() {
+    let (fixture, id) = runtime_fixture();
+    let session = crate::async_runtime::block_on(engine::ensure(&fixture.service, &id)).unwrap();
+    let controls: RuntimeSettings = serde_json::from_value(json!({
+        "model":"prior","effort":"low","configOptions":[
+            {"id":"engine","name":"Engine","category":"model","currentValue":"prior","options":[
+                {"value":"prior","name":"Prior"},{"value":"target","name":"Target"}]}
+        ]
+    }))
+    .unwrap();
+    super::super::super::projections::controls(&fixture.service, &session, controls);
+    let context = session.context.lock().clone();
+    let held = session.gate.try_acquire().unwrap();
+    let (outcome, ()) = crate::async_runtime::block_on(async {
+        tokio::join!(
+            biased;
+            declared_controls::select(
+                &fixture.service,
+                &id,
+                Selection {
+                    thread_id: context.thread_id.clone().unwrap(),
+                    binding_nonce: context.binding_nonce.clone(),
+                    epoch: context.epoch,
+                    id: "engine".into(),
+                    value: "target".into(),
+                    mode: false,
+                },
+            ),
+            async move { drop(held) },
+        )
+    });
+    outcome.unwrap();
+    assert_eq!(
+        fixture
+            .service
+            .mux
+            .read()
+            .get_tab(&id)
+            .unwrap()
+            .agent_runtime_config
+            .as_ref()
+            .unwrap()["model"],
+        "target"
+    );
+}

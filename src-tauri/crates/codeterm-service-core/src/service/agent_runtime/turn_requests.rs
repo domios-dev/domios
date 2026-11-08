@@ -687,6 +687,21 @@ fn submit_owns_turn(session: &Session) -> bool {
         })
 }
 
+pub(super) fn open_turns(session: &Session, context: &RuntimeContext) -> Vec<String> {
+    session
+        .turn_requests
+        .lock()
+        .values()
+        .filter(|pending| {
+            pending.context.epoch == context.epoch
+                && pending.context.binding_nonce == context.binding_nonce
+                && pending.context.thread_id == context.thread_id
+                && !pending.settled.load(Ordering::Acquire)
+        })
+        .map(|pending| pending.turn.clone())
+        .collect()
+}
+
 /// With no request awaiting a reply the provider has no turn to cancel, whatever the host recorded.
 pub(super) fn no_provider_turn(session: &Session, epoch: u64) -> bool {
     submit_owns_turn(session) && !waiting(session, epoch)
