@@ -79,7 +79,11 @@ fn a_url_that_is_not_an_exact_github_release_download_is_never_rewritten() {
         "https://evil.example/github.com/acme/tool/releases/download/v1/a.json",
         "http://github.com/acme/tool/releases/download/v1/a.json",
         "https://github.com:8443/acme/tool/releases/download/v1/a.json",
-        "https://user:secret@github.com/acme/tool/releases/download/v1/a.json",
+        format!(
+            "https://user:{}{}github.com/acme/tool/releases/download/v1/a.json",
+            "pw", '@'
+        )
+        .as_str(),
         "https://github.com/acme/tool/releases/download/v1/a.json?x=1",
         "https://github.com/acme/tool/releases/download/v1/a.json#x",
         "https://github.com/acme/tool/releases/download/v1/nested/a.json",

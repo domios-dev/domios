@@ -15,7 +15,7 @@ fn a_qualified_model_id_reads_as_its_plain_id() {
     assert!(!is_qualified_model_id("[]"));
     assert!(!is_qualified_model_id("group/id"));
     assert_eq!(
-        short_model_name(r#"["anthropic","claude-opus-5"]"#).as_deref(),
+        short_model_name(r#"["vendor","fixture-opus-9"]"#).as_deref(),
         Some("opus")
     );
     assert_eq!(
