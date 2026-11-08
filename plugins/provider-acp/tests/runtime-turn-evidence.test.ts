@@ -32,6 +32,14 @@ function openedSession(tabId:string):RuntimeContext {
 
 const idleWindow=(own:RuntimeContext,sequence:number):RuntimeContext=>({...own,activeTurnId:undefined,streamWindow:{frameSequences:[sequence],turnRequests:[]}} as RuntimeContext);
 
+// Gemini CLI reports a mode change as one whole message chunk; on a fresh or restored tab it is still only the mode.
+for (const restoredRowOrdinal of [0,3]) {
+  const own=openedSession(`mode-marker-${restoredRowOrdinal}`);
+  const marker=runtimeReduce({...idleWindow(own,1),restoredRowOrdinal},null,[chunk("agent_message_chunk","[MODE_UPDATE] yolo")]);
+  assert.deepEqual(marker.events,[{kind:"controlsConfirmed",threadId:SESSION,settings:{mode:"yolo"}}],"the marker is the quiet mode update, with no row or turn");
+  console.log(`✓ ACP mode marker is a quiet mode update with ${restoredRowOrdinal} restored rows`);
+}
+
 // A switched mode is a control round trip, then the agent's own echo: neither is a turn.
 {
   const own=openedSession("control-idle");

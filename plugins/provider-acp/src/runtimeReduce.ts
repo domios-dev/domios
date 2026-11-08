@@ -149,6 +149,15 @@ function submittedRow(state:StreamState, events:AgentEvent[], submitted:{sendId:
       event.item.attachments=[...submitted.input.attachments];
   }
 }
+const MODE_MARKER=/^\[MODE_UPDATE\] ([A-Za-z][\w-]*)$/;
+/** Gemini CLI reports an approval-mode change as one whole unidentified message chunk instead of current_mode_update. */
+export function sessionUpdate(raw:JsonValue|undefined):Record<string,JsonValue> {
+  const update=object(raw);
+  const content=object(update.content);
+  if (update.sessionUpdate !== "agent_message_chunk" || update.messageId != null || content.type !== "text" || typeof content.text !== "string") return update;
+  const marker=MODE_MARKER.exec(content.text);
+  return marker ? {sessionUpdate:"current_mode_update",currentModeId:marker[1]} : update;
+}
 export function reduceStream(ctx:RuntimeContext, raw:JsonValue, frames:readonly RuntimeFrame[], cursor:StreamCursor, submitted?:{sendId:string;input:TurnInput}, retainSubmitted=false):RuntimeReduction {
   if (!ctx.threadId) return {state:raw,events:[]};
   const state=initial(ctx,raw,cursor);
@@ -163,7 +172,7 @@ export function reduceStream(ctx:RuntimeContext, raw:JsonValue, frames:readonly 
       if (ownSubmitted && !state.loading && !state.settled) submittedRow(state,events,ownSubmitted,false);
       if (frame.kind === "request" && clientRequest(frame.method)) { if (!cursor.unattributed) startTurn(ctx,state,events);continue; }
       if (frame.kind !== "notification" || frame.method !== "session/update") continue;
-      const update=object(params.update);
+      const update=sessionUpdate(params.update);
       const kind=text(update.sessionUpdate);
       if (!kind) continue;
       if (!cursor.unattributed) startTurn(ctx,state,events);

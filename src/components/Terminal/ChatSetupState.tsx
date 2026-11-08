@@ -10,11 +10,12 @@ import type { ChatUnavailableReason } from "./chatSessionAuthority";
 import type { LockedView } from "../billing/freeLimitModel";
 import { LockedOverlay } from "../billing/LockBadge";
 import { openLockedPlans } from "../billing/freeLimitGate";
-import { useRestartTab } from "./useRestartTab";
+import { useTabRecovery } from "./useTabRecovery";
 import { describeRuntimeConnectionError } from "../../lib/describeError";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { runtimeSessionLoadRefused } from "../../lib/agentRuntimeState";
-import { useStartNewSession } from "./useStartNewSession";
+import { tabActivity } from "../../lib/tabActivity";
+import { isReadOnlyTab } from "../../lib/tabInputPolicy";
 
 export { chatSetupView } from "./chatSetupModel";
 
@@ -51,8 +52,8 @@ export function ChatSetupState({
   lock,
   inLog = false,
 }: ChatSetupStateProps) {
-  const recovery = useRestartTab(tab?.id);
-  const fresh = useStartNewSession(tab?.id ?? "");
+  const { restart: recovery, fresh, actions: launchActions, error: launchActionError } = useTabRecovery(tab?.id,
+    view.kind === "launch_failed" && !isReadOnlyTab(tab) ? tabActivity(tab).failure?.recovery : null);
   const handleKeyDown = useCallback((event: React.KeyboardEvent) => {
     if (event.key !== "Escape") return;
     event.preventDefault();
@@ -81,7 +82,8 @@ export function ChatSetupState({
   }
   if (view.kind === "launch_failed") {
     return <div className={`${inLog ? "my-3" : "absolute inset-0 z-20 justify-center overflow-auto bg-[var(--ct-bg)]"} flex flex-col items-center gap-4`} data-testid="chat-launch-failed">
-      <TabLaunchFailure tabId={tab?.id} workspace={workspace} cwd={tab?.cwd} reason={view.reason} />
+      <TabLaunchFailure tabId={tab?.id} workspace={workspace} cwd={tab?.cwd} reason={view.reason} actions={launchActions} />
+      {launchActionError && <InlineErrorNotice error={launchActionError} operation="recovering this tab" />}
       {waitingMessages > 0 && <p role="status" className="text-xs text-[var(--ct-muted-fg)]">{waitingMessages} {waitingMessages === 1 ? "message is" : "messages are"} waiting for this tab to start.</p>}
     </div>;
   }

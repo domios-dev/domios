@@ -536,6 +536,14 @@ function submittedRow(state, events, submitted, evidenced) {
       event.item.attachments = [...submitted.input.attachments];
   }
 }
+var MODE_MARKER = /^\[MODE_UPDATE\] ([A-Za-z][\w-]*)$/;
+function sessionUpdate(raw) {
+  const update = object(raw);
+  const content = object(update.content);
+  if (update.sessionUpdate !== "agent_message_chunk" || update.messageId != null || content.type !== "text" || typeof content.text !== "string") return update;
+  const marker2 = MODE_MARKER.exec(content.text);
+  return marker2 ? { sessionUpdate: "current_mode_update", currentModeId: marker2[1] } : update;
+}
 function reduceStream(ctx, raw, frames, cursor, submitted, retainSubmitted = false) {
   if (!ctx.threadId) return { state: raw, events: [] };
   const state = initial(ctx, raw, cursor);
@@ -553,7 +561,7 @@ function reduceStream(ctx, raw, frames, cursor, submitted, retainSubmitted = fal
         continue;
       }
       if (frame.kind !== "notification" || frame.method !== "session/update") continue;
-      const update = object(params.update);
+      const update = sessionUpdate(params.update);
       const kind = text(update.sessionUpdate);
       if (!kind) continue;
       if (!cursor.unattributed) startTurn(ctx, state, events);
@@ -1438,7 +1446,7 @@ function runtimeReduce(ctx, raw, frames) {
     const witness = window?.turnRequests?.find((request2) => request2.sendId === state.promptSend?.sendId);
     const sequence = window?.frameSequences?.[index];
     const attributable = !window || witness?.written === true && witness.afterSequence !== void 0 && sequence !== void 0 && sequence > witness.afterSequence;
-    const updateKind = object4(object4(frame.params).update).sessionUpdate;
+    const updateKind = sessionUpdate(object4(frame.params).update).sessionUpdate;
     if ((ctx.restoredRowOrdinal ?? 0) > 0 && (state.cursor.loading || !attributable) && [
       "user_message_chunk",
       "agent_message_chunk",

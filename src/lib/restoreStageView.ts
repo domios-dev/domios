@@ -1,6 +1,7 @@
 import type { BootStage, Tab } from "./types";
 import { runtimeResponseDeadlinePending } from "./agentRuntimeState";
-import { lazyFirstTurnComposerIsLive } from "./tabActivity";
+import { lazyFirstTurnComposerIsLive, tabActivity } from "./tabActivity";
+import { tabLaunched, type TabFailure } from "./tabFailure";
 
 export interface WakeRequestView {
   requested: boolean;
@@ -28,6 +29,13 @@ export function restorePanelOwnsBody(tab: Partial<Tab>, wake: Partial<WakeReques
   if (!tab.agent_type && tab.backing?.kind !== "chat_backend") return false;
   return Boolean(tab.frozen || wake.requested) && view.phase !== "ready" && view.phase !== "attention"
     && (tab.frozen === true || tab.boot_stage !== "spawn_failed");
+}
+
+/** A launched session's failure that belongs in the Session status row, so it never takes the body from the transcript. */
+export function dockedTabFailure(tab: Partial<Tab> | null | undefined, wake?: Partial<WakeRequestView>): TabFailure | null {
+  const failure = tabActivity(tab).failure;
+  if (failure?.recovery !== "restart" || !tabLaunched(tab)) return null;
+  return restoreStageView(tab ?? {}, wake).phase === "failed" ? failure : null;
 }
 
 export function restoreActivityVisible(tab: Partial<Tab>, wake: Partial<WakeRequestView>, view: RestoreStageView, bodyPainted: boolean): boolean {

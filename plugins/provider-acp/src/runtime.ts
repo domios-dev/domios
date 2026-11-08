@@ -4,7 +4,7 @@ import type {
 } from "@codeterm/plugin-sdk";
 import {decodeAuthMethods, agentAuthMethod, type AuthMethod} from "./auth";
 import { methods, protocolVersion } from "./runtimeProtocol";
-import { clientRequest, reduceStream, settleStream, type StreamCursor } from "./runtimeReduce";
+import { clientRequest, reduceStream, sessionUpdate, settleStream, type StreamCursor } from "./runtimeReduce";
 import { usage } from "./runtimeReducePlan";
 import { fitTextReduction } from "./runtimeReduceBudget";
 import { runtimePrompt, runtimeAnswer } from "./runtimePrompts";
@@ -543,7 +543,7 @@ export function runtimeReduce(ctx:RuntimeContext, raw:JsonValue, frames:readonly
     const sequence=window?.frameSequences?.[index];
     const attributable=!window || witness?.written === true && witness.afterSequence !== undefined
       && sequence !== undefined && sequence > witness.afterSequence;
-    const updateKind=object(object(frame.params).update).sessionUpdate;
+    const updateKind=sessionUpdate(object(frame.params).update).sessionUpdate;
     if ((ctx.restoredRowOrdinal ?? 0) > 0 && (state.cursor.loading || !attributable)
       && ["user_message_chunk","agent_message_chunk","agent_thought_chunk","tool_call","tool_call_update","plan",
         "compaction_update","compaction_summary_chunk"].includes(String(updateKind))) continue;
