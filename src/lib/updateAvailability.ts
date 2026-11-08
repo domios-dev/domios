@@ -14,6 +14,8 @@ export interface UpdateAvailabilityItem {
 export interface UpdateAvailabilitySnapshot {
   items: UpdateAvailabilityItem[];
   errors: Record<string, string>;
+  /** Which path served each source that reached the network, keyed like `errors`. */
+  served_by?: Record<string, string>;
 }
 
 export function decodeUpdateAvailability(value: unknown): UpdateAvailabilitySnapshot {

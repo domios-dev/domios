@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { channelDiagnostics, classifyUpdateFailure, classifyUpdateStatus, unavailableSourceKeys, updateIndicator, updateRestartDescription } from "./updateStatusModel";
+import { classifyUpdateFailure, classifyUpdateStatus, unavailableSourceKeys, updateCheckDetails, updateIndicator, updateRestartDescription } from "./updateStatusModel";
 import type { UpdateRow } from "./updatePanelModel";
 import type { UpdateAvailabilitySnapshot } from "./updateAvailability";
 
@@ -27,23 +27,26 @@ for (const reason of ["same_version", "newer_version", "incompatible"]) {
 assert.deepEqual(classifyUpdateStatus({ items: [], errors: {} }), { errors: {}, information: [] });
 console.log("update status classification: 11 cases passed");
 
-assert.deepEqual(channelDiagnostics({ "codeterm-core": unavailable, community: "x", app: "y", frontend: "z" }, new Set(["community"])),
-  [{ channel: "codeterm-core", message: unavailable }]);
-console.log("channel diagnostics exclude shown rows and app discovery: 1 case passed");
+// The quiet record: which path served the check, or both failures, and never a stale path for a failed source.
+const both = "Failed to fetch release: domios-dev/domios: manifest fetch: direct download: HTTP 504; GitHub API fallback: GitHub API returned HTTP 403";
+assert.deepEqual(updateCheckDetails({ items: [], errors: {}, served_by: { app: "github_api" } }),
+  [{ source: "app", line: "App update channel: served by GitHub API fallback" }]);
+assert.deepEqual(updateCheckDetails({ items: [], errors: {}, served_by: { app: "direct" } }),
+  [{ source: "app", line: "App update channel: served by direct download" }]);
+assert.deepEqual(updateCheckDetails({ items: [], errors: { app: both }, served_by: { app: "direct" } }),
+  [{ source: "app", line: "App update channel: domios-dev/domios: manifest fetch: direct download: HTTP 504; GitHub API fallback: GitHub API returned HTTP 403" }]);
+assert.deepEqual(updateCheckDetails({ items: [], errors: {} }), []);
+console.log("update check details name the serving path or both failures: 4 cases passed");
 
 for (const detail of [new Error("InvalidJsonResponseError: raw daemon failure"), "channel fetch failed"]) {
-  assert.equal(classifyUpdateFailure("background", detail), null);
-  for (const origin of ["check", "update"] as const) {
-    const failure = classifyUpdateFailure(origin, detail)!;
-    assert.equal(failure.message, origin === "check" ? "Couldn't check for updates. Try again later." : "Couldn't update. Try again later.");
-    assert.equal(failure.details, String(detail));
-    assert.equal(failure.channelUnavailable, false);
-  }
+  const failure = classifyUpdateFailure(detail);
+  assert.equal(failure.message, "Couldn't update. Try again later.");
+  assert.equal(failure.details, String(detail));
+  assert.equal(failure.channelUnavailable, false);
 }
-const channelFailure = classifyUpdateFailure("update", new Error(`community: ${unavailable}`))!;
+const channelFailure = classifyUpdateFailure(new Error(`community: ${unavailable}`));
 assert.deepEqual(channelFailure, { message: unavailable, details: `Error: community: ${unavailable}`, channelUnavailable: true });
-assert.equal(classifyUpdateFailure("check", unavailable)?.message, unavailable);
-console.log("update failure classification names channel causes: 9 cases passed");
+console.log("update failure classification names channel causes: 7 cases passed");
 
 const interfaceRow: UpdateRow = { id: "frontend", name: "Interface", group: "Interface", currentVersion: "1.0.0", targetVersion: "1.0.1", state: "available", alreadyCurrent: false };
 const appRow: UpdateRow = { ...interfaceRow, id: "app", name: "Domios", group: "App" };
@@ -63,24 +66,22 @@ console.log("unified update indicator: frontend, app, both, applying, failed and
 assert.equal(updateRestartDescription(appRow, true), "Restart required");
 assert.equal(updateRestartDescription(appRow, false), "Update restarts Domios");
 assert.equal(updateRestartDescription(interfaceRow, false), "No restart required");
-assert.equal(updateRestartDescription({ ...appRow, targetVersion: null, channelError: "HTTP 504", state: "unavailable" }, true), null);
+assert.equal(updateRestartDescription({ ...appRow, targetVersion: null, channelError: "HTTP 504", state: "last_known" }, true), null);
 assert.equal(updateRestartDescription({ ...appRow, targetVersion: null }, true), null);
-assert.equal(updateRestartDescription({ ...appRow, channelError: "HTTP 504", state: "unavailable" }, true), null);
+assert.equal(updateRestartDescription({ ...appRow, channelError: "HTTP 504", state: "last_known" }, true), null);
 assert.equal(updateRestartDescription({ ...appRow, state: "completed" }, true), null);
 assert.equal(updateRestartDescription({ ...appRow, state: "failed" }, false), null);
-assert.equal(updateRestartDescription({ ...interfaceRow, targetVersion: null, channelError: "HTTP 504", state: "unavailable" }, false), null);
+assert.equal(updateRestartDescription({ ...interfaceRow, targetVersion: null, channelError: "HTTP 504", state: "last_known" }, false), null);
 assert.equal(updateRestartDescription({ ...interfaceRow, group: "Plugins" }, true), null);
 
-// A source outage is not a failed update and names its source.
-const sourceDown = { ...idle, unavailableSources: ["App update channel"] };
-const unavailableRow: UpdateRow = { ...appRow, targetVersion: null, channelError: "HTTP 504", state: "unavailable" };
-assert.equal(updateIndicator([unavailableRow], sourceDown).state, "unavailable");
-assert.equal(updateIndicator([unavailableRow], sourceDown).description, "App update channel unavailable. Open updates for details.");
-assert.equal(updateIndicator([unavailableRow], sourceDown).offers, false);
-assert.equal(updateIndicator([unavailableRow, interfaceRow], sourceDown).state, "available");
-assert.equal(updateIndicator([unavailableRow], { ...sourceDown, failed: true }).state, "failed");
-assert.equal(updateIndicator([unavailableRow], { ...sourceDown, unavailableSources: ["a", "b"] }).description, "2 update sources unavailable. Open updates for details.");
+// A source outage renders no warning state: the indicator reads as if there were simply no update.
+const lastKnownRow: UpdateRow = { ...appRow, targetVersion: null, channelError: "HTTP 504", state: "last_known" };
+assert.equal(updateIndicator([lastKnownRow], idle).state, "idle");
+assert.equal(updateIndicator([lastKnownRow], idle).description, "Open updates.");
+assert.equal(updateIndicator([lastKnownRow], idle).offers, false);
+assert.equal(updateIndicator([lastKnownRow, interfaceRow], idle).state, "available");
+assert.equal(updateIndicator([lastKnownRow], { ...idle, failed: true }).state, "failed");
 
 assert.deepEqual(unavailableSourceKeys({ app: "HTTP 504", community: "offline", "codeterm-core": unavailable }), ["app", "community"]);
 assert.deepEqual(unavailableSourceKeys({}), []);
-console.log("restart line, source outage indicator and named check result: passed");
+console.log("restart line, quiet source outage indicator and failed source keys: passed");

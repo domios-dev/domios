@@ -55,15 +55,14 @@ it("renders badge and Updates count from the installed decision across refreshes
   expect(updatesButton().textContent).toBe("Updates");
 });
 
-it("shows one channel diagnostic and failed row indicators without update offers", async () => {
-  state.panel = { snapshot: { errors: { store: "opaque channel diagnostic" } }, diagnostics: [{ channel: "store", message: "opaque channel diagnostic" }], pluginHasUpdate: () => false };
+it("renders no warning state and no offer for plugins whose channel failed its check", async () => {
+  state.panel = { snapshot: { errors: { store: "opaque channel diagnostic" } }, pluginHasUpdate: () => false };
   host = document.createElement("div"); document.body.append(host); root = createRoot(host);
   const entries = buildCatalog({ plugins: ["first", "second"].map(id => ({ id, version: "1.0.0", source: { kind: "channel" as const, channel: "store", path: id }, update: { available: true, remote_version: "2.0.0", reason: "newer_version" } })), channels: [], diff: [] });
   await act(async () => root!.render(<PluginList entries={entries} selectedId={null} onSelect={vi.fn()} query="" onQuery={vi.fn()} filter="all" onFilter={vi.fn()} updateCount={0} onRemoveChannel={vi.fn()} activities={new Map()} activityDisplayMap={new Map()} channels={[]} selectedChannel={null} channelPluginCounts={new Map()} onSelectChannel={vi.fn()} />));
-  expect(host.querySelectorAll('section[aria-label="store plugin channel unavailable"]')).toHaveLength(1);
-  expect(host.querySelectorAll("pre")).toHaveLength(1);
-  expect(host.querySelector("details")?.open).toBe(false);
+  expect(host.querySelector('section[aria-label="store plugin channel unavailable"]')).toBeNull();
+  expect(host.querySelector("pre")).toBeNull();
   expect(host.querySelector('[aria-label="Update available"]')).toBeNull();
   expect(host.querySelector('[data-plugin-id="first"]')?.textContent).toContain("1.0.0 → 2.0.0");
-  for (const id of ["first", "second"]) expect(host.querySelector(`[aria-label="${id} update check failed"]`)).not.toBeNull();
+  for (const id of ["first", "second"]) expect(host.querySelector(`[aria-label="${id} update check failed"]`)).toBeNull();
 });

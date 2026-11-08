@@ -1,5 +1,76 @@
 use std::path::{Path, PathBuf};
 
+pub mod github_release;
+
+/// A published-nothing answer, such as a release that was never cut, rather than a failed source.
+pub fn is_missing_release_asset(error: &str) -> bool {
+    error == super::channel_failure::ASSET_NOT_FOUND
+}
+
+struct DirectFailure {
+    cause: String,
+    outage: bool,
+}
+
+impl DirectFailure {
+    fn refused(cause: impl Into<String>) -> Self {
+        Self {
+            cause: cause.into(),
+            outage: false,
+        }
+    }
+
+    fn http(error: &reqwest::Error) -> Self {
+        Self {
+            cause: super::channel_failure::http_failure_cause(error),
+            outage: github_release::is_outage_error(error),
+        }
+    }
+}
+
+fn fetch_direct(url: &str, limit: usize) -> Result<Vec<u8>, DirectFailure> {
+    use std::io::Read;
+    let client = reqwest::blocking::Client::builder()
+        .user_agent("Domios-Updater")
+        .redirect(reqwest::redirect::Policy::custom(|attempt| {
+            if attempt.previous().len() >= 5 || !discovery_url_allowed(attempt.url().as_str()) {
+                attempt.error("Unsafe update redirect")
+            } else {
+                attempt.follow()
+            }
+        }))
+        .timeout(std::time::Duration::from_secs(60))
+        .build()
+        .map_err(|e| DirectFailure::refused(e.to_string()))?;
+    let response = client
+        .get(url)
+        .query(&[("codeterm_cache_bust", uuid::Uuid::new_v4().to_string())])
+        .header(reqwest::header::CACHE_CONTROL, "no-cache, no-store")
+        .send()
+        .map_err(|e| {
+            log::warn!("update discovery fetch failed: {e}");
+            DirectFailure::http(&e)
+        })?;
+    if let Some(error) = rate_limit_error(response.status().as_u16(), response.headers()) {
+        return Err(DirectFailure::refused(error));
+    }
+    let response = response
+        .error_for_status()
+        .map_err(|e| DirectFailure::http(&e))?;
+    let mut bytes = Vec::new();
+    response
+        .take(limit as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| DirectFailure {
+            cause: e.to_string(),
+            outage: true,
+        })?;
+    if bytes.len() > limit {
+        return Err(DirectFailure::refused("Update discovery exceeds limit"));
+    }
+    Ok(bytes)
+}
+
 pub trait UpdateDiscoverySource: Send + Sync {
     fn fetch(&self, url: &str, limit: usize) -> Result<Vec<u8>, String>;
     fn materialize_channel(&self, name: &str, url: &str, dest: &Path) -> Result<(), String>;
@@ -9,46 +80,16 @@ pub struct OfficialUpdateSource;
 
 impl UpdateDiscoverySource for OfficialUpdateSource {
     fn fetch(&self, url: &str, limit: usize) -> Result<Vec<u8>, String> {
-        use std::io::Read;
         if !discovery_url_allowed(url) {
             return Err("Update discovery requires HTTPS".into());
         }
-        let client = reqwest::blocking::Client::builder()
-            .user_agent("Domios-Updater")
-            .redirect(reqwest::redirect::Policy::custom(|attempt| {
-                if attempt.previous().len() >= 5 || !discovery_url_allowed(attempt.url().as_str()) {
-                    attempt.error("Unsafe update redirect")
-                } else {
-                    attempt.follow()
-                }
-            }))
-            .timeout(std::time::Duration::from_secs(60))
-            .build()
-            .map_err(|e| e.to_string())?;
-        let response = client
-            .get(url)
-            .query(&[("codeterm_cache_bust", uuid::Uuid::new_v4().to_string())])
-            .header(reqwest::header::CACHE_CONTROL, "no-cache, no-store")
-            .send()
-            .map_err(|e| {
-                log::warn!("update discovery fetch failed: {e}");
-                super::channel_failure::http_failure_cause(&e)
-            })?;
-        if let Some(error) = rate_limit_error(response.status().as_u16(), response.headers()) {
-            return Err(error);
-        }
-        let response = response
-            .error_for_status()
-            .map_err(|e| super::channel_failure::http_failure_cause(&e))?;
-        let mut bytes = Vec::new();
-        response
-            .take(limit as u64 + 1)
-            .read_to_end(&mut bytes)
-            .map_err(|e| e.to_string())?;
-        if bytes.len() > limit {
-            return Err("Update discovery exceeds limit".into());
-        }
-        Ok(bytes)
+        fetch_direct(url, limit).or_else(|failure| {
+            if failure.outage {
+                github_release::official_fallback(url, limit, &failure.cause)
+            } else {
+                Err(failure.cause)
+            }
+        })
     }
 
     fn materialize_channel(&self, _name: &str, url: &str, dest: &Path) -> Result<(), String> {

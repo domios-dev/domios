@@ -177,7 +177,7 @@ the change instead — `domios notify send --offer <surface> --offer-accept <lab
 #### Updates
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
-| GET | `/api/update/check` | `?force=true` | Check the active channel; cached for one hour unless forced. |
+| GET | `/api/update/check` | `?force=true` | Check the active channel; cached for one hour, and limited to about twice an hour across restarts, unless forced. A failed check answers 502 with `{error}` and leaves the updater idle. |
 | POST | `/api/update/install` | `?method=auto&manifest_url=...&after_update=...&continue_tab=...` | Install as described below; without `auto`, requires a prior check and returns a package-manager command, browser URL, or `up_to_date`. |
 | GET | `/api/update/channel` | — | Active diagnostic channel: normally `{"channel":"stable"}`. |
 | POST | `/api/update/channel` | `{channel}` | Disabled; `409 update channel switching is disabled`. |
@@ -210,4 +210,4 @@ Responses carry `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, an
 
 Related documents — service registration, health, and activity: `domios docs API-SERVICES`. Bridge and cron integrations: `domios docs API-INTEGRATIONS`.
 
-<!-- revision: 42 -->
+<!-- revision: 43 -->

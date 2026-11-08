@@ -1,6 +1,16 @@
 use super::{Error, ErrorCode, VerifiedManifest};
+use crate::release_transport::{Body, FetchError, Get, ReqwestHttp, Transport};
+use codeterm_plugins::update_source::github_release::is_outage_status;
 use std::{path::Path, time::Duration};
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncSeekExt, AsyncWriteExt};
+
+const FEED_TIMEOUT: Duration = Duration::from_secs(60);
+const ARCHIVE_TIMEOUT: Duration = Duration::from_secs(600);
+const MAX_FEED_BYTES: usize = 64 * 1024;
+
+fn transport_failure(cause: impl ToString) -> Error {
+    Error::new(ErrorCode::DownloadFailed, cause)
+}
 
 pub async fn fetch() -> Result<VerifiedManifest, Error> {
     let platform = super::platform()?;
@@ -18,39 +28,45 @@ pub async fn fetch() -> Result<VerifiedManifest, Error> {
     .map_err(|e| Error::new(ErrorCode::DownloadFailed, e))?;
     let tag = semver::Version::parse(latest.tag.trim_start_matches('v'))
         .map_err(|e| Error::new(ErrorCode::InvalidManifest, e))?;
+    let http = ReqwestHttp::new(super::client(FEED_TIMEOUT)?).map_err(transport_failure)?;
+    let transport = Transport::official(&http);
+    let public_key = super::release_public_key()?;
+    let verified = fetch_feed(&transport, latest.repository, &tag, platform, &public_key).await?;
+    Ok(verified)
+}
+
+pub(super) async fn fetch_feed(
+    transport: &Transport<'_>,
+    repository: &str,
+    tag: &semver::Version,
+    platform: &str,
+    public_key: &str,
+) -> Result<VerifiedManifest, Error> {
     let endpoint = format!(
-        "https://github.com/{}/releases/download/v{tag}/domios-headless-{platform}.json",
-        latest.repository
+        "https://github.com/{repository}/releases/download/v{tag}/domios-headless-{platform}.json"
     );
-    let mut response = super::client(Duration::from_secs(60))?
-        .get(&endpoint)
-        .send()
+    let fetched = transport
+        .fetch_bytes(Get::direct(&endpoint, FEED_TIMEOUT), MAX_FEED_BYTES)
         .await
-        .map_err(|e| Error::new(ErrorCode::DownloadFailed, e))?;
-    if response.status() == reqwest::StatusCode::NOT_FOUND {
+        .map_err(|error| match error {
+            FetchError::TooLarge => {
+                Error::new(ErrorCode::InvalidManifest, "Headless feed exceeds 64 KiB")
+            }
+            FetchError::Failed(cause) => transport_failure(cause),
+        })?;
+    if fetched.status == 404 {
         return Err(Error::new(
             ErrorCode::SignedHeadlessFeedMissing,
             format!("Missing signed headless feed: {endpoint}"),
         ));
     }
-    response = response
-        .error_for_status()
-        .map_err(|e| Error::new(ErrorCode::DownloadFailed, e))?;
-    let mut bytes = Vec::new();
-    while let Some(chunk) = response
-        .chunk()
-        .await
-        .map_err(|e| Error::new(ErrorCode::DownloadFailed, e))?
-    {
-        if bytes.len() + chunk.len() > 64 * 1024 {
-            return Err(Error::new(
-                ErrorCode::InvalidManifest,
-                "Headless feed exceeds 64 KiB",
-            ));
-        }
-        bytes.extend_from_slice(&chunk);
+    if !(200..300).contains(&fetched.status) {
+        return Err(transport_failure(format!(
+            "Headless feed returned HTTP {}",
+            fetched.status
+        )));
     }
-    let verified = super::verify_feed(&bytes, &super::release_public_key()?, platform)?;
+    let verified = super::verify_feed(&fetched.body, public_key, platform)?;
     if verified.manifest().version != tag.to_string() {
         return Err(Error::new(
             ErrorCode::InvalidManifest,
@@ -61,48 +77,97 @@ pub async fn fetch() -> Result<VerifiedManifest, Error> {
 }
 
 pub async fn download(offer: &VerifiedManifest, path: &Path) -> Result<(), Error> {
-    let mut response = super::client(Duration::from_secs(600))?
-        .get(&offer.manifest().url)
-        .send()
+    let http = ReqwestHttp::new(super::client(ARCHIVE_TIMEOUT)?).map_err(transport_failure)?;
+    let transport = Transport::official(&http);
+    let manifest = offer.manifest();
+    download_with(&transport, &manifest.url, manifest.size, path).await?;
+    Ok(())
+}
+
+enum CopyFailure {
+    /// The transfer broke; another route may still serve the file.
+    Transfer(String),
+    /// The bytes or the disk are wrong; another route cannot help.
+    Final(Error),
+}
+
+async fn copy_archive(
+    body: &mut dyn Body,
+    output: &mut tokio::fs::File,
+    size: u64,
+) -> Result<(), CopyFailure> {
+    let mut received = 0u64;
+    while let Some(chunk) = body.chunk().await.map_err(CopyFailure::Transfer)? {
+        received += chunk.len() as u64;
+        if received > size {
+            return Err(CopyFailure::Final(Error::new(
+                ErrorCode::ArchiveMismatch,
+                "Headless download exceeds signed size",
+            )));
+        }
+        output
+            .write_all(&chunk)
+            .await
+            .map_err(|e| CopyFailure::Final(transport_failure(e)))?;
+    }
+    output
+        .sync_all()
         .await
-        .map_err(|e| Error::new(ErrorCode::DownloadFailed, e))?
-        .error_for_status()
-        .map_err(|e| Error::new(ErrorCode::DownloadFailed, e))?;
+        .map_err(|e| CopyFailure::Final(transport_failure(e)))?;
+    if received != size {
+        return Err(CopyFailure::Final(Error::new(
+            ErrorCode::ArchiveMismatch,
+            "Headless download is truncated",
+        )));
+    }
+    Ok(())
+}
+
+/// Streams the archive to `path`; `verify_archive` judges the result, whichever route served it.
+pub(super) async fn download_with(
+    transport: &Transport<'_>,
+    url: &str,
+    size: u64,
+    path: &Path,
+) -> Result<(), Error> {
     let mut output = tokio::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(path)
         .await
-        .map_err(|e| Error::new(ErrorCode::DownloadFailed, e))?;
-    let mut received = 0u64;
-    while let Some(chunk) = response
-        .chunk()
-        .await
-        .map_err(|e| Error::new(ErrorCode::DownloadFailed, e))?
-    {
-        received += chunk.len() as u64;
-        if received > offer.manifest().size {
-            return Err(Error::new(
-                ErrorCode::ArchiveMismatch,
-                "Headless download exceeds signed size",
-            ));
+        .map_err(transport_failure)?;
+    let direct = match transport.http.get(Get::direct(url, ARCHIVE_TIMEOUT)).await {
+        Ok(reply) if is_outage_status(reply.status) => format!("HTTP {}", reply.status),
+        Ok(reply) if !reply.is_success() => {
+            return Err(transport_failure(format!(
+                "Headless download returned HTTP {}",
+                reply.status
+            )));
         }
-        output
-            .write_all(&chunk)
-            .await
-            .map_err(|e| Error::new(ErrorCode::DownloadFailed, e))?;
-    }
-    output
-        .sync_all()
+        Ok(mut reply) => match copy_archive(reply.body.as_mut(), &mut output, size).await {
+            Ok(()) => return Ok(()),
+            Err(CopyFailure::Final(error)) => return Err(error),
+            Err(CopyFailure::Transfer(cause)) => cause,
+        },
+        Err(cause) => cause,
+    };
+    let mut reply = transport
+        .fallback(url, &direct, ARCHIVE_TIMEOUT)
         .await
-        .map_err(|e| Error::new(ErrorCode::DownloadFailed, e))?;
-    if received != offer.manifest().size {
-        return Err(Error::new(
-            ErrorCode::ArchiveMismatch,
-            "Headless download is truncated",
-        ));
-    }
-    Ok(())
+        .map_err(transport_failure)?;
+    output.set_len(0).await.map_err(transport_failure)?;
+    output
+        .seek(std::io::SeekFrom::Start(0))
+        .await
+        .map_err(transport_failure)?;
+    copy_archive(reply.body.as_mut(), &mut output, size)
+        .await
+        .map_err(|failure| match failure {
+            CopyFailure::Transfer(cause) => transport_failure(
+                codeterm_plugins::update_source::github_release::both_failed(&direct, &cause),
+            ),
+            CopyFailure::Final(error) => error,
+        })
 }
 
 pub async fn wait_for_health(version: &str, build: &str) -> Result<(), Error> {

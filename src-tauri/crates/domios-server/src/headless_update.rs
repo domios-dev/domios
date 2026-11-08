@@ -86,6 +86,7 @@ impl Backend for SystemdBackend {
             release_notes: None,
             published_at: None,
             availability,
+            check_path: None,
         })
     }
 

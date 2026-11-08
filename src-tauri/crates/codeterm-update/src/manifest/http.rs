@@ -7,8 +7,10 @@ use std::{
 
 use super::Manifest;
 use crate::discovery_policy::{backoff, EVENT_THROTTLE};
+use crate::release_transport::{Get, ReqwestHttp, ServedBy, Transport};
 
 const LIMIT: usize = 1024 * 1024;
+const TIMEOUT: Duration = Duration::from_secs(60);
 type EndpointFlight = Arc<tokio::sync::Mutex<Endpoint>>;
 
 static CACHE: Cache = Cache {
@@ -34,13 +36,24 @@ struct Reply {
     etag: Option<String>,
     retry_after: Option<String>,
     body: Vec<u8>,
+    served: ServedBy,
 }
 
 pub(super) async fn fetch(url: &str) -> Result<Manifest, String> {
     CACHE.check(url, |etag| send(url, etag)).await
 }
 
+pub(super) async fn expire(url: &str) -> Result<(), String> {
+    CACHE.expire(url).await
+}
+
 impl Cache {
+    async fn expire(&self, url: &str) -> Result<(), String> {
+        let endpoint = self.endpoint(url)?;
+        endpoint.lock().await.next = None;
+        Ok(())
+    }
+
     fn endpoint(&self, url: &str) -> Result<EndpointFlight, String> {
         let mut cache = self.endpoints.lock();
         let cache = cache.get_or_insert_with(HashMap::new);
@@ -89,7 +102,8 @@ impl Endpoint {
                 .then(|| retry_after(reply.retry_after.as_deref(), wall))
                 .flatten()
         });
-        let result = reply.and_then(|reply| match reply.status {
+        let served = reply.as_ref().ok().map(|reply| reply.served);
+        let result: Result<Manifest, String> = reply.and_then(|reply| match reply.status {
             304 => self
                 .manifest
                 .clone()
@@ -102,6 +116,10 @@ impl Endpoint {
                 Ok(manifest)
             }
             status => Err(format!("manifest fetch returned HTTP {status}")),
+        });
+        let result = result.map(|mut manifest| {
+            manifest.served_by = served;
+            manifest
         });
         match &result {
             Ok(manifest) => {
@@ -151,7 +169,6 @@ async fn send(url: &str, etag: Option<String>) -> Result<Reply, String> {
     }
     let client = reqwest::Client::builder()
         .user_agent("Domios-Updater")
-        .timeout(Duration::from_secs(60))
         .redirect(reqwest::redirect::Policy::custom(|attempt| {
             if attempt.previous().len() >= 5 || !allowed(attempt.url()) {
                 attempt.error("Unsafe update redirect")
@@ -161,38 +178,33 @@ async fn send(url: &str, etag: Option<String>) -> Result<Reply, String> {
         }))
         .build()
         .map_err(|error| error.to_string())?;
-    let mut request = client
-        .get(url)
-        .header(reqwest::header::CACHE_CONTROL, "no-cache");
-    if let Some(etag) = etag {
-        request = request.header(reqwest::header::IF_NONE_MATCH, etag);
-    }
-    let mut response = request
-        .send()
+    let http = ReqwestHttp::new(client)?;
+    let transport = Transport::official(&http);
+    let reply = send_through(&transport, url, etag).await?;
+    Ok(reply)
+}
+
+async fn send_through(
+    transport: &Transport<'_>,
+    url: &str,
+    etag: Option<String>,
+) -> Result<Reply, String> {
+    let request = Get {
+        if_none_match: etag.as_deref(),
+        no_cache: true,
+        ..Get::direct(url, TIMEOUT)
+    };
+    let fetched = transport
+        .fetch_bytes(request, LIMIT)
         .await
         .map_err(|error| format!("manifest fetch: {error}"))?;
-    let header = |name: &str| {
-        response
-            .headers()
-            .get(name)
-            .and_then(|value| value.to_str().ok())
-            .map(str::to_owned)
-    };
-    let mut reply = Reply {
-        status: response.status().as_u16(),
-        etag: header("etag"),
-        retry_after: header("retry-after"),
-        body: Vec::new(),
-    };
-    if response.status().is_success() {
-        while let Some(chunk) = response.chunk().await.map_err(|error| error.to_string())? {
-            if chunk.len() > LIMIT.saturating_sub(reply.body.len()) {
-                return Err("Update discovery exceeds limit".into());
-            }
-            reply.body.extend_from_slice(&chunk);
-        }
-    }
-    Ok(reply)
+    Ok(Reply {
+        status: fetched.status,
+        etag: fetched.etag,
+        retry_after: fetched.retry_after,
+        body: fetched.body,
+        served: fetched.served,
+    })
 }
 
 #[cfg(test)]
