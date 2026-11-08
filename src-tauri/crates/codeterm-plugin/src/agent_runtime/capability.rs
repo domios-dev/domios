@@ -60,7 +60,7 @@ pub struct RuntimeLaunchProfile {
     /// The agent's own session mode that approves every action, applied to full-access launches.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub full_access_mode: Option<String>,
-    /// How far the agent's own permission questions reach; absent means each action.
+    /// How far the agent's own permission questions reach; absent makes no claim about them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ask_scope: Option<RuntimeAskScope>,
 }

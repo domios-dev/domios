@@ -56,7 +56,7 @@ describe("provider settings sections", () => {
     expect(sections.map(section => section.label)).toEqual(["Mode", "Permissions"]);
     const row = sections[1];
     expect(row.current).toBe("ask");
-    expect(row.options.map(option => [option.value, option.label])).toEqual([["ask", "Ask each time"], ["allow_all", "Allow all"]]);
+    expect(row.options.map(option => [option.value, option.label])).toEqual([["ask", "Ask when the agent asks"], ["allow_all", "Allow all"]]);
     expect(row.applyTarget).toEqual({ kind: "host_approvals" });
   });
 
@@ -71,9 +71,9 @@ describe("provider settings sections", () => {
     expect(row.applyTarget).toEqual({ kind: "host_approvals" });
   });
 
-  it("promises a question for each action only without a narrower scope", () => {
+  it("promises no particular questions from an agent that declares no scope", () => {
     const [row] = pickerSections({ hostApprovals: "ask" });
-    expect(row.options[0].label).toBe("Ask each time");
+    expect(row.options[0].label).toBe("Ask when the agent asks");
   });
 
   it("keeps Allow all unchanged whatever the agent's ask scope", () => {

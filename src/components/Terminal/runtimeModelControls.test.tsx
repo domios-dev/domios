@@ -133,14 +133,14 @@ describe("the Permissions control", () => {
     await open(hostProvider, modelOnly, { launchProfile: "host-only" });
     expect(permissions()?.getAttribute("aria-label")).toBe("Permissions: Allow all");
     await act(async () => permissions()!.dispatchEvent(new Event("pointerdown", { bubbles: true, cancelable: true })));
-    await act(async () => [...document.body.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(item => item.textContent?.trim() === "Ask each time")!.click());
+    await act(async () => [...document.body.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(item => item.textContent?.trim() === "Ask when the agent asks")!.click());
     expect(bridge.invoke).toHaveBeenCalledWith("agent_runtime_host_approvals", { tabId: "acp", request: { allowAll: false } });
     expect([...document.body.querySelectorAll("button")].some(button => button.textContent === "Apply" && !button.disabled)).toBe(false);
   });
 
   it("shows the owner's saved choice", async () => {
     await open(hostProvider, modelOnly, { launchProfile: "host-only", hostApprovals: "ask" });
-    expect(permissions()?.getAttribute("aria-label")).toBe("Permissions: Ask each time");
+    expect(permissions()?.getAttribute("aria-label")).toBe("Permissions: Ask when the agent asks");
   });
 
   it("names when a confining agent asks and still switches live", async () => {
@@ -183,7 +183,7 @@ describe("the Permissions control", () => {
     await open(hostProvider, modelOnly, { launchProfile: "host-only" });
     bridge.invoke.mockRejectedValue(new Error("Refused"));
     await act(async () => permissions()!.dispatchEvent(new Event("pointerdown", { bubbles: true, cancelable: true })));
-    await act(async () => [...document.body.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(item => item.textContent?.trim() === "Ask each time")!.click());
+    await act(async () => [...document.body.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(item => item.textContent?.trim() === "Ask when the agent asks")!.click());
     expect(row().textContent).toContain("The agent refused this control value.");
     expect(permissions()?.getAttribute("aria-label")).toBe("Permissions: Allow all");
   });

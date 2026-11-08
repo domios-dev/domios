@@ -779,7 +779,8 @@ process-wide setting read at session creation, such as an environment variable, 
 the live switch or reach resumed sessions, so it does not qualify.
 
 A launch profile's `askScope` states how far the agent's own permission questions reach, so the
-Permissions row never promises questions the agent does not send; absent means each action.
+Permissions row never promises questions the agent does not send. Absent makes no claim, and the
+row reads "Ask when the agent asks".
 `outsideWorkspace` is an agent that confines its own work to the workspace and asks only to go
 beyond it (DeepSeek Harness pins workspace-write + ask into each session at creation and offers no
 permission control over ACP). The switch stays live because the host still answers those questions.
