@@ -10,7 +10,6 @@ import {
   type ReactNode,
 } from "react";
 import { DEV_BUILD } from "../lib/devBuild";
-import { classifyUpdateFailure } from "../lib/updateStatusModel";
 import { updatePresentation, updateStatusForPhase } from "../lib/updatePresentation";
 import { listen } from "../lib/bridge";
 import { useConfig } from "./useConfig";
@@ -255,6 +254,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
   const nativeErrorRevisionRef = useRef<string | null>(null);
   const mountedRef = useRef(false);
   const checkRevisionRef = useRef(0);
+  const lastInfoRef = useRef<UpdateInfo | null>(null);
   const captureFailureBoundary = useCallback((): UpdateFailureBoundary => ({
     frontendRevision: installErrorRevisionRef.current,
     nativeRevision: nativeErrorRevisionRef.current,
@@ -271,6 +271,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
 
   const handleInfo = useCallback((next: UpdateInfo) => {
     checkRevisionRef.current++;
+    lastInfoRef.current = next;
     setInfo(next);
     if (installingRef.current || installFailureRef.current) return;
     setStatus(next.update_available ? "available" : "up-to-date");
@@ -300,13 +301,11 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
         handleInfo(data);
       } catch (e) {
         if (!mountedRef.current || checkRevision !== checkRevisionRef.current) return;
-        if (installFailureRef.current) return;
-        if (!classifyUpdateFailure(silent ? "background" : "check", e)) {
-          if (DEV_BUILD) console.debug("Background update check failed", e);
-          return;
-        }
-        setError(e instanceof Error ? e.message : String(e));
-        setStatus("error");
+        if (DEV_BUILD) console.debug("Update check failed", e);
+        if (installFailureRef.current || silent) return;
+        // A failed check is no update: the status returns to what was last known.
+        const known = lastInfoRef.current;
+        setStatus(known ? (known.update_available ? "available" : "up-to-date") : "idle");
       }
     },
     [captureFailureBoundary, handleInfo],

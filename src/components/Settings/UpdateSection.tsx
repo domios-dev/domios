@@ -30,7 +30,7 @@ export function UpdateSection({ config, onUpdate }: {
 
   const hasUnifiedPanel = Boolean(unified);
   useEffect(() => {
-    if (!hasUnifiedPanel) void refresh(true, { silent: true });
+    if (!hasUnifiedPanel) void refresh(false, { silent: true });
   }, [refresh, hasUnifiedPanel]);
 
   const checking = status === "checking" && !installing;

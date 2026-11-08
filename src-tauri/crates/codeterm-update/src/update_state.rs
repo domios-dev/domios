@@ -105,6 +105,7 @@ impl UpdateState {
             "current_version": codeterm_build_info::version(),
             "latest_known": self.last_check.as_ref().map(|i| i.latest_version.clone()),
             "update_available": self.last_check.as_ref().map(|i| i.update_available).unwrap_or(false),
+            "check_path": self.last_check.as_ref().and_then(|i| i.check_path.clone()),
             "phase_age_secs": self.phase_changed_at.map(|t| t.elapsed().as_secs()),
             "downloaded_bytes": self.downloaded_bytes,
             "download_total_bytes": self.download_total_bytes,
@@ -246,6 +247,9 @@ pub struct UpdateInfo {
     /// Release notes (markdown body)
     pub release_notes: Option<String>,
     pub published_at: Option<String>,
+    /// Which path served this check: `direct` or `github_api`; absent when none was needed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub check_path: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -254,4 +258,7 @@ pub struct AvailabilitySnapshot {
     pub checked_at_ms: Option<u64>,
     pub items: Vec<AvailabilityItem>,
     pub errors: BTreeMap<String, String>,
+    /// Which path served each source that reached the network, keyed like `errors`.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub served_by: BTreeMap<String, String>,
 }

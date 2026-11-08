@@ -1,4 +1,4 @@
-import type { ChannelDiagnostic, UpdateFailure } from "./updateStatusModel";
+import type { UpdateFailure } from "./updateStatusModel";
 import type { UpdateAvailabilityItem } from "./updateAvailability";
 
 export const UPDATE_INTENT_KEY = "codeterm.update-all.intent";
@@ -14,8 +14,8 @@ export interface UpdateItem {
   /** A version strictly newer than the current one, or null when nothing newer is known. */
   targetVersion: string | null;
   channel?: string;
+  /** The row's source failed its last check, so it cannot apply; shown only as `lastKnown`. */
   channelError?: string;
-  sourceWarning?: string;
   /** What the last successful check established, set while the row's source is unavailable. */
   lastKnown?: string;
 }
@@ -31,23 +31,6 @@ export function updateSourceLabel(key: string): string {
   if (key === "frontend") return "Interface update channel";
   if (key === "discovery") return "Update discovery";
   return `${key} plugin channel`;
-}
-
-export function rowSourceKey(row: Pick<UpdateItem, "id" | "group" | "channel">): string {
-  if (row.group === "App") return "app";
-  if (row.group === "Interface") return "frontend";
-  return row.channel ?? row.id;
-}
-
-export function unavailableUpdateSources(rows: readonly UpdateItem[], diagnostics: readonly ChannelDiagnostic[]): string[] {
-  return [...new Set([
-    ...rows.filter(row => row.channelError).map(row => updateSourceLabel(rowSourceKey(row))),
-    ...diagnostics.filter(item => item.channel !== CORE_PLUGIN_CHANNEL).map(item => updateSourceLabel(item.channel)),
-  ])];
-}
-
-export function unavailableSourcesSentence(sources: readonly string[]): string {
-  return sources.length === 1 ? `${sources[0]} unavailable` : `${sources.length} update sources unavailable`;
 }
 
 export function groupUpdates(items: readonly UpdateItem[]) {
@@ -182,8 +165,7 @@ export function panelItems(
   items: readonly UpdateAvailabilityItem[],
   channelErrors: Readonly<Record<string, string>> = {},
 ): UpdateItem[] {
-  return items.filter(item => hasUpdateBadge(item) || (item.kind !== "plugin" && Boolean(channelErrors[item.id])) || (item.kind === "plugin" && item.installed !== null && item.state !== "core_silent"
-    && item.channel !== null && Boolean(channelErrors[item.channel])))
+  return items.filter(item => hasUpdateBadge(item) || (item.kind !== "plugin" && Boolean(channelErrors[item.id])))
     .map(item => {
       const channelError = item.kind === "plugin" && item.channel ? channelErrors[item.channel]
         : item.kind !== "plugin" && item.reason !== "cached_manifest" ? channelErrors[item.id] : undefined;
@@ -195,7 +177,6 @@ export function panelItems(
         targetVersion: hasUpdateBadge(item) ? item.latest : null,
         channel: item.channel ?? undefined,
         channelError,
-        sourceWarning: item.reason === "cached_manifest" ? channelErrors[item.id] : undefined,
         lastKnown: channelError ? lastKnownUpdateState(item) : undefined,
       };
     });
@@ -212,10 +193,10 @@ export function availabilityIntent(items: readonly UpdateAvailabilityItem[]): Up
 
 
 export type UpdateOutcome = "completed" | "failed";
-export type UpdateRow = UpdateItem & { state: UpdateOutcome | "active" | "queued" | "available" | "unavailable"; alreadyCurrent: boolean };
+export type UpdateRow = UpdateItem & { state: UpdateOutcome | "active" | "queued" | "available" | "last_known"; alreadyCurrent: boolean };
 
 export interface UpdatePanelSummary {
-  tone: "red" | "warning" | "accent" | "green" | "muted";
+  tone: "red" | "accent" | "green" | "muted";
   label: string;
   sentence: string;
 }
@@ -224,7 +205,7 @@ function count(n: number, noun: string): string {
   return `${n} ${noun}${n === 1 ? "" : "s"}`;
 }
 
-export function summarizeUpdatePanel(rows: readonly UpdateRow[], { busy, failed, unavailableSources = [] }: { busy: boolean; failed: boolean; unavailableSources?: readonly string[] }): UpdatePanelSummary {
+export function summarizeUpdatePanel(rows: readonly UpdateRow[], { busy, failed, sourcesFailed = false }: { busy: boolean; failed: boolean; sourcesFailed?: boolean }): UpdatePanelSummary {
   const available = rows.filter(row => !row.channelError && row.state === "available").length;
   const completed = rows.filter(row => row.state === "completed").length;
   if (busy) {
@@ -237,9 +218,8 @@ export function summarizeUpdatePanel(rows: readonly UpdateRow[], { busy, failed,
     return { tone: "red", label: "Update failed", sentence: attempted ? `${count(attempted, "update")} failed` : "Update failed" };
   }
   if (available) return { tone: "accent", label: "Updates available", sentence: `${count(available, "update")} available` };
-  if (unavailableSources.length) return { tone: "warning", label: "Update source unavailable", sentence: unavailableSourcesSentence(unavailableSources) };
   return { tone: completed ? "green" : "muted", label: "No applicable updates",
-    sentence: completed ? "Everything is updated" : "Everything is up to date" };
+    sentence: completed ? "Everything is updated" : sourcesFailed ? "No updates found" : "Everything is up to date" };
 }
 
 export function targetInstalled(item: UpdateItem, snapshot: readonly UpdateAvailabilityItem[]): boolean {
@@ -252,7 +232,8 @@ export function updateRunRows(runItems: readonly UpdateItem[], items: readonly U
     const current = items.find(row => row.id === item.id) ?? item;
     const alreadyCurrent = targetInstalled(current, snapshot);
     const outcome = current.targetVersion === item.targetVersion ? outcomes[item.id] : undefined;
-    const state = current.channelError ? "unavailable" : alreadyCurrent ? "completed" : outcome ?? (activeId === item.id ? "active"
+    // An update the owner started and that failed stays visible; only a failed check reads as last known.
+    const state = outcome === "failed" && !alreadyCurrent ? "failed" : current.channelError ? "last_known" : alreadyCurrent ? "completed" : outcome ?? (activeId === item.id ? "active"
       : intent && (intent.pluginIds.includes(item.id) || (item.group === "Interface" && intent.interfaceRequested)) ? "queued" : "available");
     return { ...current, state, alreadyCurrent };
   });

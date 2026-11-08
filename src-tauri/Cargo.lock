@@ -2046,6 +2046,7 @@ name = "codeterm-plugins"
 version = "0.0.0"
 dependencies = [
  "chrono",
+ "codeterm-paths",
  "codeterm-util",
  "dirs 5.0.1",
  "flate2",

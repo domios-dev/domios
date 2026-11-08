@@ -2,6 +2,7 @@ use super::{
     manifest::{self},
     store::{Store, MAX_ARCHIVE_BYTES},
 };
+use codeterm_plugins::update_source::github_release;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 #[derive(Default)]
@@ -100,11 +101,17 @@ fn download(
     if codeterm_plugins::update_source::fixture_root().is_some() {
         return codeterm_plugins::update_source::discovery_source().fetch(url, limit);
     }
-    let response = client
+    let response = match client
         .get(url)
         .send()
         .and_then(|response| response.error_for_status())
-        .map_err(|e| e.to_string())?;
+    {
+        Ok(response) => response,
+        Err(error) if github_release::is_outage_error(&error) => {
+            return github_release::official_fallback(url, limit, &error.to_string());
+        }
+        Err(error) => return Err(error.to_string()),
+    };
     if response
         .content_length()
         .is_some_and(|size| size > limit as u64)
@@ -112,10 +119,9 @@ fn download(
         return Err("Download exceeds limit".into());
     }
     let mut bytes = Vec::new();
-    response
-        .take(limit as u64 + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|e| e.to_string())?;
+    if let Err(error) = response.take(limit as u64 + 1).read_to_end(&mut bytes) {
+        return github_release::official_fallback(url, limit, &error.to_string());
+    }
     if bytes.len() > limit {
         return Err("Download exceeds limit".into());
     }

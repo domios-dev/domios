@@ -29,6 +29,7 @@ async fn assert_container_api_refusal(method: axum::http::Method, path: &str) {
         release_url: String::new(),
         release_notes: None,
         published_at: None,
+        check_path: None,
     };
     let cached_json = serde_json::to_value(&cached).unwrap();
     {

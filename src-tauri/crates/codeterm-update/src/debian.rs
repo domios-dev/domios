@@ -3,6 +3,9 @@ use std::path::{Path, PathBuf};
 
 mod staging;
 pub use staging::{cleanup, failure, StageLease};
+
+const MAX_PACKAGE_BYTES: usize = 1024 * 1024 * 1024;
+
 #[cfg(any(test, target_os = "linux"))]
 pub mod handoff;
 
@@ -82,19 +85,13 @@ pub async fn stage(manifest_url: Option<&str>) -> Result<Option<StagedDebianPack
     {
         return Ok(Some(staged));
     }
-    let bytes = reqwest::Client::builder()
+    let client = reqwest::Client::builder()
         .https_only(!cfg!(feature = "dev-updater-allowlocal"))
         .build()
-        .map_err(|error| error.to_string())?
-        .get(url)
-        .send()
-        .await
-        .map_err(|error| error.to_string())?
-        .error_for_status()
-        .map_err(|error| error.to_string())?
-        .bytes()
-        .await
         .map_err(|error| error.to_string())?;
+    let http = crate::release_transport::ReqwestHttp::new(client)?;
+    let transport = crate::release_transport::Transport::official(&http);
+    let bytes = download_package(&transport, url.as_str()).await?;
     tokio::task::spawn_blocking(move || {
         verify_and_stage(
             &bytes,
@@ -107,6 +104,22 @@ pub async fn stage(manifest_url: Option<&str>) -> Result<Option<StagedDebianPack
     .await
     .map_err(|error| error.to_string())?
     .map(Some)
+}
+
+async fn download_package(
+    transport: &crate::release_transport::Transport<'_>,
+    url: &str,
+) -> Result<Vec<u8>, String> {
+    let request =
+        crate::release_transport::Get::direct(url, std::time::Duration::from_secs(30 * 60));
+    let fetched = transport
+        .fetch_bytes(request, MAX_PACKAGE_BYTES)
+        .await
+        .map_err(|error| error.to_string())?;
+    if !(200..300).contains(&fetched.status) {
+        return Err(format!("Debian download returned HTTP {}", fetched.status));
+    }
+    Ok(fetched.body)
 }
 
 fn verify_and_stage(

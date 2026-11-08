@@ -39,6 +39,10 @@ pub(super) fn publish(
     Ok(resolved)
 }
 
+pub(super) fn read_cached(root: &Path, key: &str) -> Option<ResolvedManifest> {
+    read(&root.join(key))
+}
+
 fn read(path: &Path) -> Option<ResolvedManifest> {
     let mut bytes = Vec::new();
     std::fs::File::open(path)

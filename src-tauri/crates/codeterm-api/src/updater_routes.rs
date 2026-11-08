@@ -63,18 +63,14 @@ pub async fn check_update(
         us.clear_error();
     }
 
-    let info = match codeterm_update::checker::check_for_update(&method).await {
+    let trigger = codeterm_update::check_throttle::CheckTrigger::from_force(force);
+    let info = match codeterm_update::checker::check_for_update(&method, trigger).await {
         Ok(i) => i,
         Err(e) => {
-            log::debug!("[updater] check failed: {}", e);
-            state
-                .update_state
-                .lock()
-                .set_error(format!("check failed: {}", e));
-            return Err(availability_error(
-                StatusCode::BAD_GATEWAY,
-                "Failed to check for updates".into(),
-            ));
+            // A failed check is no update, not an updater failure: the caller gets the diagnostic.
+            log::warn!("[updater] check failed: {e}");
+            state.update_state.lock().set_phase(UpdatePhase::Idle);
+            return Err(availability_error(StatusCode::BAD_GATEWAY, e));
         }
     };
 
@@ -414,11 +410,23 @@ pub async fn availability(
     .map_err(|error| availability_error(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))??;
     let Query(q) =
         query.map_err(|error| availability_error(StatusCode::BAD_REQUEST, error.to_string()))?;
+    let bundles = bundles.map(|b| b.0);
+    // An explicit check answers with its own result, never with what was known before it ran.
+    if q.force.unwrap_or(false) {
+        let result = codeterm_commands::update::discovery::check(
+            &state.svc.ui,
+            &state.update_state,
+            bundles,
+            true,
+        )
+        .await;
+        return availability_response(result);
+    }
     codeterm_commands::update::discovery::refresh_in_background(
         state.svc.ui.clone(),
         state.update_state.clone(),
-        bundles.map(|b| b.0),
-        q.force.unwrap_or(false),
+        bundles,
+        false,
     );
     availability_response(Ok(cached))
 }

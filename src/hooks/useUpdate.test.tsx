@@ -190,8 +190,11 @@ async function main() {
     nativeBridge.updater.check = async () => { throw new Error("offline"); };
     await act(async () => { await state().refresh(true, { silent: true }); });
     assert.equal(state().error, null);
+    // A failed explicit check is no update: no error, and the status returns to what was last known.
+    const known = state().status;
     await act(async () => { await state().refresh(true); });
-    assert.equal(state().error, "offline");
+    assert.equal(state().error, null);
+    assert.equal(state().status, known);
     nativeBridge.updater.check = async () => updateInfo;
     let finishCheck!: (value: UpdateInfo) => void;
     nativeBridge.updater.check = () => new Promise(resolve => { finishCheck = resolve; });
