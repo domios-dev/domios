@@ -12,8 +12,10 @@ export const ComposerContextMeter = memo(function ComposerContextMeter({ tabId }
   // The usage bubble already shows this fill for a harness without quota windows.
   const claimed = useContextClaimed(tabId);
   if (!meter || claimed) return null;
-  return <span className="ct-bar-pill ct-bar-pill--static" title={`${meter.used.toLocaleString()} / ${meter.window.toLocaleString()} tokens`}>
-    <meter className="ct-bar-meter" aria-label="Context window" min={0} max={meter.window} value={meter.used}>{Math.round(meter.percent)}%</meter>
-    {Math.round(meter.percent)}%
+  const percent = Math.round(meter.percent);
+  return <span className="ct-bar-pill ct-bar-pill--static"
+    title={`Context window: ${percent}% full — ${meter.used.toLocaleString()} of ${meter.window.toLocaleString()} tokens in this conversation. The agent compacts its history as it nears full.`}>
+    <meter className="ct-bar-meter" aria-label="Context window" min={0} max={meter.window} value={meter.used}>{percent}%</meter>
+    {percent}%
   </span>;
 });
