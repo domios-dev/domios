@@ -250,6 +250,20 @@ fn runtime_control_refusal_is_typed_and_never_offers_restart_fallback() {
 }
 
 #[test]
+fn a_busy_runtime_is_a_typed_outcome_with_no_restart_offer() {
+    let error = ModelSwitchError::RuntimeBusy;
+    assert_eq!(model_switch_error_status(&error), StatusCode::CONFLICT);
+    let body = model_switch_error_body(&error);
+    assert_eq!(body["reason"], "runtime_busy");
+    assert_eq!(body["ok"], false);
+    assert!(!body["error"]
+        .as_str()
+        .unwrap()
+        .contains("already in progress"));
+    assert!(body.get("restart_fallback_available").is_none());
+}
+
+#[test]
 fn model_apply_preserves_default_and_paid_service_tiers() {
     for value in [None, Some("priority"), Some("ultrafast")] {
         let body: AgentModelBody = serde_json::from_value(

@@ -270,9 +270,9 @@ pub(crate) fn model_switch_success_body(outcome: &ModelSwitchOutcome) -> serde_j
 
 pub(crate) fn model_switch_error_status(error: &ModelSwitchError) -> StatusCode {
     match error {
-        ModelSwitchError::BackgroundWork { .. } | ModelSwitchError::RuntimeControlRefused(_) => {
-            StatusCode::CONFLICT
-        }
+        ModelSwitchError::BackgroundWork { .. }
+        | ModelSwitchError::RuntimeControlRefused(_)
+        | ModelSwitchError::RuntimeBusy => StatusCode::CONFLICT,
         ModelSwitchError::NotFound(_) => StatusCode::NOT_FOUND,
         ModelSwitchError::InvalidModel(_) => StatusCode::BAD_REQUEST,
         ModelSwitchError::UnsupportedReasoningEffort { .. }
@@ -310,6 +310,9 @@ pub(crate) fn model_switch_error_body(error: &ModelSwitchError) -> serde_json::V
         ModelSwitchError::DuringTurnIncident { .. } => "during_turn_switch_incident",
         ModelSwitchError::InputNotReady(_) => "input_not_ready",
         ModelSwitchError::RuntimeControlRefused(_) => "runtime_control_refused",
+        ModelSwitchError::RuntimeBusy => {
+            codeterm_service_core::service::agent_runtime::declared_controls::RUNTIME_BUSY_REASON
+        }
     };
     let mut body = serde_json::json!({
         "ok": false,
@@ -381,7 +384,8 @@ pub(crate) fn model_switch_error_body(error: &ModelSwitchError) -> serde_json::V
         | ModelSwitchError::LiveSwitchFailed(_)
         | ModelSwitchError::LiveCommandFailed(_)
         | ModelSwitchError::InputNotReady(_)
-        | ModelSwitchError::RuntimeControlRefused(_) => {}
+        | ModelSwitchError::RuntimeControlRefused(_)
+        | ModelSwitchError::RuntimeBusy => {}
     }
     body
 }

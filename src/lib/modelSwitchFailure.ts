@@ -9,6 +9,11 @@ function payload(error: unknown): Record<string, unknown> | undefined {
   try { return record(JSON.parse(body)); } catch { return undefined; }
 }
 
+/** A running operation held the runtime for the whole wait: nothing changed and the same choice can simply be retried. */
+export function runtimeBusy(error: unknown): boolean {
+  return payload(error)?.reason === "runtime_busy";
+}
+
 export function modelSwitchFailure(error: unknown, runtimeTab: boolean): { message: string; restartAvailable: boolean } {
   const detail = payload(error);
   const message = typeof detail?.error === "string" ? detail.error
