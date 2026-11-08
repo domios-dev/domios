@@ -874,11 +874,31 @@
             {
               "name": "binding-nonce",
               "positional": false,
-              "required": true,
+              "required": false,
               "value_name": "BINDING_NONCE",
               "possible_values": [],
               "default": null,
               "help": "Current parent binding nonce",
+              "aliases": []
+            },
+            {
+              "name": "child",
+              "positional": false,
+              "required": false,
+              "value_name": "TAB",
+              "possible_values": [],
+              "default": null,
+              "help": "With --closed: read this closed child tab's transcript",
+              "aliases": []
+            },
+            {
+              "name": "closed",
+              "positional": false,
+              "required": false,
+              "value_name": "CLOSED",
+              "possible_values": [],
+              "default": null,
+              "help": "List the parent's closed child tabs instead of reading a recorded thread",
               "aliases": []
             },
             {
@@ -894,7 +914,7 @@
             {
               "name": "epoch",
               "positional": false,
-              "required": true,
+              "required": false,
               "value_name": "EPOCH",
               "possible_values": [],
               "default": null,
@@ -904,11 +924,21 @@
             {
               "name": "root-thread-id",
               "positional": false,
-              "required": true,
+              "required": false,
               "value_name": "ROOT_THREAD_ID",
               "possible_values": [],
               "default": null,
               "help": "Current parent thread id from its runtime binding",
+              "aliases": []
+            },
+            {
+              "name": "since",
+              "positional": false,
+              "required": false,
+              "value_name": "SINCE",
+              "possible_values": [],
+              "default": "0",
+              "help": "With --child: only return messages from this index onward",
               "aliases": []
             },
             {
@@ -924,7 +954,7 @@
             {
               "name": "thread",
               "positional": false,
-              "required": true,
+              "required": false,
               "value_name": "THREAD",
               "possible_values": [],
               "default": null,
