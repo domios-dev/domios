@@ -391,7 +391,7 @@ pub(super) async fn run(
                     &owner,
                     &runtime,
                     &pending,
-                    RuntimeTurnDetail::Failed,
+                    reply_failure_detail(reason),
                     format!("Turn completion reply failed: {reason}"),
                 )
                 .await;
@@ -727,6 +727,18 @@ pub(super) async fn cancel_timed_out(
     Ok(!pending.is_empty())
 }
 
+/// A runtime that stopped has not failed the turn: restart and recovery own what happens next,
+/// so this must not read as a provider failure that ends automatic recovery.
+fn reply_failure_detail(reason: &RuntimeFailure) -> RuntimeTurnDetail {
+    match reason {
+        RuntimeFailure::ProcessExited { .. }
+        | RuntimeFailure::PipeEof
+        | RuntimeFailure::PipeFailure { .. }
+        | RuntimeFailure::Superseded => RuntimeTurnDetail::Interrupted,
+        _ => RuntimeTurnDetail::Failed,
+    }
+}
+
 pub(super) async fn end_for_lifecycle(svc: &ServiceContext, session: &Arc<Session>, reason: &str) {
     let pending = session
         .turn_requests
@@ -739,7 +751,7 @@ pub(super) async fn end_for_lifecycle(svc: &ServiceContext, session: &Arc<Sessio
             svc,
             session,
             &turn,
-            RuntimeTurnDetail::Failed,
+            RuntimeTurnDetail::Interrupted,
             reason.into(),
         )
         .await;

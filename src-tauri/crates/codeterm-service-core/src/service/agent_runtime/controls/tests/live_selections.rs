@@ -163,7 +163,9 @@ fn a_selection_on_a_held_gate_applies_once_the_running_operation_finishes() {
     let controls: RuntimeSettings = serde_json::from_value(json!({
         "model":"prior","effort":"low","configOptions":[
             {"id":"engine","name":"Engine","category":"model","currentValue":"prior","options":[
-                {"value":"prior","name":"Prior"},{"value":"target","name":"Target"}]}
+                {"value":"prior","name":"Prior"},{"value":"target","name":"Target"}]},
+            {"id":"thinking","name":"Thinking","category":"thought_level","currentValue":"low","options":[
+                {"value":"low","name":"Low"}]}
         ]
     }))
     .unwrap();
