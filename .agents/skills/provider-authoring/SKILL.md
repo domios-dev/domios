@@ -778,6 +778,13 @@ Declare `fullAccessMode` only for a mode the session can enter and leave over th
 process-wide setting read at session creation, such as an environment variable, cannot follow
 the live switch or reach resumed sessions, so it does not qualify.
 
+A launch profile's `askScope` states how far the agent's own permission questions reach, so the
+Permissions row never promises questions the agent does not send; absent means each action.
+`outsideWorkspace` is an agent that confines its own work to the workspace and asks only to go
+beyond it (DeepSeek Harness pins workspace-write + ask into each session at creation and offers no
+permission control over ACP). The switch stays live because the host still answers those questions.
+Read the agent's permission model before declaring it, and again when its pinned package moves.
+
 A launch profile's `limitsSource` names where its account limits come from:
 `{kind:"account",provider}` reuses that native provider's account meter,
 `{kind:"balance",reader,credentialEnv}` asks the plugin's `readProfileLimits({profile,source},nowMs)`

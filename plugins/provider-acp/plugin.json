@@ -1,6 +1,6 @@
 {
   "id": "acp",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "minCodeterm": "1.19.1",
   "hostApi": 2,
   "displayName": "ACP",
@@ -39,6 +39,7 @@
             "DEEPSEEK_API_KEY": "domios:provider:acp:deepseek-api-key"
           },
           "icon": "deepseek-color.svg",
+          "askScope": "outsideWorkspace",
           "limitsSource": {
             "kind": "balance",
             "reader": "deepseek-balance",

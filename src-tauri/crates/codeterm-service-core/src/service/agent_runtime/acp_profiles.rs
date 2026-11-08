@@ -66,6 +66,7 @@ fn inherit(profile: &mut RuntimeLaunchProfile, base: RuntimeLaunchProfile) {
     profile.client_capabilities = base.client_capabilities;
     profile.limits_source = base.limits_source;
     profile.full_access_mode = base.full_access_mode;
+    profile.ask_scope = base.ask_scope;
 }
 
 fn client_capabilities(

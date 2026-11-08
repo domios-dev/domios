@@ -24,6 +24,7 @@
           "DEEPSEEK_API_KEY": "domios:provider:acp:deepseek-api-key"
         },
         "icon": "deepseek-color.svg",
+        "askScope": "outsideWorkspace",
         "limitsSource": {
           "kind": "balance",
           "reader": "deepseek-balance",
