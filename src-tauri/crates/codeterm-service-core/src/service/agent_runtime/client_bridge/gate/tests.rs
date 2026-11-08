@@ -223,6 +223,30 @@ fn permitting_launch_skips_write_prompt_but_preserves_hard_refusals() {
     BRIDGES.lock().remove(&context.tab_id);
 }
 
+#[test]
+fn host_approval_tab_prompts_a_write_only_when_the_owner_chose_ask() {
+    use crate::multiplexer::types::HostApprovalChoice;
+    let (fixture, tab, _peer, _cleanup) = engine::test_support::runtime_fixture_host_approvals();
+    let context = engine::for_tab(&tab).unwrap().context.lock().clone();
+    let grants = SessionGrants::default();
+    for (choice, expected) in [
+        (None, Decision::Allow),
+        (Some(HostApprovalChoice::AllowAll), Decision::Allow),
+        (Some(HostApprovalChoice::Ask), Decision::Prompt),
+    ] {
+        fixture
+            .service
+            .mux
+            .write()
+            .get_tab_mut(&tab)
+            .unwrap()
+            .restorable_launch
+            .host_approval_choice = choice;
+        let access = access(&fixture.service, &context).unwrap();
+        assert_eq!(grants.decide(access, Kind::Write), expected);
+    }
+}
+
 #[cfg(any(unix, windows))]
 #[test]
 fn switching_to_allow_all_answers_the_waiting_request_and_ask_prompts_again() {

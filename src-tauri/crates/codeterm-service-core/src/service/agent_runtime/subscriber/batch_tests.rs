@@ -499,7 +499,7 @@ fn native_request_reducer_failure_and_prompt_id_reuse_are_refused_before_service
     }
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[test]
 fn native_first_request_starts_provider_turn_before_approval_and_commits() {
     use crate::agent::provider::AgentProvider;
@@ -586,6 +586,16 @@ fn native_first_request_starts_provider_turn_before_approval_and_commits() {
             .provider_arc(&scene.session.provider);
         context.client_bridges = super::super::client_bridge::install(&context, declared).unwrap();
         *scene.session.context.lock() = context.clone();
+        // The real manifest declares host approvals, whose unset choice never asks.
+        scene
+            .fixture
+            .service
+            .mux
+            .write()
+            .get_tab_mut(&context.tab_id)
+            .unwrap()
+            .restorable_launch
+            .host_approval_choice = Some(crate::multiplexer::types::HostApprovalChoice::Ask);
         let process = scene.session.process.lock().clone().unwrap();
         let (submitted, request) = tokio::join!(
             super::super::turn_requests::run(
