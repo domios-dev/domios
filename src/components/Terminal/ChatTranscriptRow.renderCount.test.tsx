@@ -56,6 +56,27 @@ it("offers Retry for a sendable refusal but never for an empty attachment-only d
   } finally { await act(async () => root.unmount()); host.remove(); removeChatSend("empty-retry", send.id); }
 });
 
+it("a failed routed send offers no Retry and tells the owner how to resend it", async () => {
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  const send: DeliverySend = {
+    id: "routed-failure", content: "opaque", sentAtMs: 1, correlationId: "routed",
+    status: { send_id: "routed-failure", state: "failed", error: "launch_degraded_before_write", tab_id: "tab", ledger_id: "ledger",
+      sequence: 1, retained_from: 1, correlationId: "routed", system_send: { content: "opaque", sent_at_ms: 1 } },
+  };
+  const message: NormalizedChatMessage = { id: send.id, content: send.content, type: "user" };
+  const row: EnrichedChatEntry = { msg: message, item: { kind: "message", message }, origin: { kind: "system", context: "CLI" } };
+  const retrySend = vi.fn();
+  try {
+    await act(async () => root.render(<ChatTranscriptRow entry={row} reports={[]} asks={[]} ariaLabel="Routed send" selected={false}
+      joinNext={false} selecting={false} cursor={false} streaming={false} latestFailedToolCall={false} forkable={false} revertible={false}
+      context={{ ...context, retrySend }} deliverySend={send} deliveryView="failed" />));
+    expect(Array.from(host.querySelectorAll("button")).some(button => button.textContent === "Retry")).toBe(false);
+    expect(host.querySelector('.ct-delivery[data-state="failed"] .ct-delivery__label:not(.sr-only)')?.textContent).toContain("domios send");
+  } finally { await act(async () => root.unmount()); host.remove(); }
+});
+
 it("shows a refusal with an explicit Retry and removes it when delivery wins", async () => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   const host = document.createElement("div"); document.body.append(host);

@@ -286,7 +286,7 @@ pub(super) fn archived_messages(
         .with_provider(&archive.provider, |provider| provider.agent_runtime())
         .flatten()
     {
-        if let Some(messages) = crate::service::agent_runtime::engine::persisted_transcript(
+        if let Some(messages) = crate::service::agent_runtime::engine::retained_transcript(
             &archive.provider,
             &archive.session_id,
             &capability,

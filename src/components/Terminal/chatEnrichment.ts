@@ -25,7 +25,31 @@ export interface EnrichedChatEntry {
  *  reusing them keeps MessageBubble memo props stable across streamed chunks. */
 export type EnrichmentCache = WeakMap<ChatMessage, EnrichedChatEntry[]>;
 
+const AGENT_SETUP = /^\s*(<session_context(?:\s[^>]*)?>[\s\S]*?<\/session_context>)\s*/;
+
+/** An agent CLI's own setup block, replayed as a user message on load, reads as quiet context; prose quoting the tag stays a bubble. */
+function splitAgentSetup(raw: ChatMessage): { notice: EnrichedChatEntry; rest: ChatMessage | null } | null {
+  const match = AGENT_SETUP.exec(raw.content);
+  if (!match) return null;
+  const words = raw.content.slice(match[0].length);
+  const message: ChatMessage = { id: words ? `${raw.id}-agent-setup` : raw.id, type: "system", systemSubtype: "environment_context",
+    content: match[1], collapsed: true, timestamp: raw.timestamp };
+  const notice = { msg: message, item: { kind: "message" as const, message }, origin: undefined };
+  if (!words) return { notice, rest: null };
+  const segments = raw.segments?.flatMap((segment) => {
+    if (segment.type !== "text" || !segment.text.startsWith(match[0])) return [segment];
+    const text = segment.text.slice(match[0].length);
+    return text ? [{ ...segment, text }] : [];
+  });
+  return { notice, rest: { ...raw, content: words, segments } };
+}
+
 function enrichUserMessage(raw: ChatMessage, rawItem: TimelineItem): EnrichedChatEntry[] {
+  const setup = splitAgentSetup(raw);
+  if (setup) {
+    if (!setup.rest) return [setup.notice];
+    return [setup.notice, ...enrichUserMessage(setup.rest, { kind: "message", message: setup.rest })];
+  }
   if (raw.segments) {
     const segments = liftNeighborFrames(raw.segments) as typeof raw.segments;
     const hasFrames = segments.some((segment) => segment.type === "frame");

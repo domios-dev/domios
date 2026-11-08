@@ -10,6 +10,7 @@ pub(super) struct Recovery {
     liveness_incident_epoch: Option<String>,
     last_attempt: Option<Instant>,
     in_flight: bool,
+    exit_pending: bool,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -55,23 +56,73 @@ impl Recovery {
 struct RecoveryCompletion<'a> {
     service: &'a ServiceContext,
     tab_id: &'a str,
+    owned: bool,
 }
 
 impl Drop for RecoveryCompletion<'_> {
+    fn drop(&mut self) {
+        if self.owned {
+            if let Some(recovery) = self
+                .service
+                .ext::<Arc<TabReopenGuards>>()
+                .recoveries
+                .lock()
+                .get_mut(self.tab_id)
+            {
+                recovery.in_flight = false;
+            }
+        }
+        self.service.wake_user_owner_on_state_change(self.tab_id);
+    }
+}
+
+/// Held sends wait while a dead runtime's exit is handled, because recovery may take over the relaunch.
+pub(crate) struct RuntimeExitHandling {
+    service: ServiceContext,
+    tab_id: String,
+}
+
+impl Drop for RuntimeExitHandling {
     fn drop(&mut self) {
         if let Some(recovery) = self
             .service
             .ext::<Arc<TabReopenGuards>>()
             .recoveries
             .lock()
-            .get_mut(self.tab_id)
+            .get_mut(&self.tab_id)
         {
-            recovery.in_flight = false;
+            recovery.exit_pending = false;
         }
+        self.service.wake_user_owner_on_state_change(&self.tab_id);
     }
 }
 
 impl ServiceContext {
+    pub(crate) fn begin_runtime_exit(&self, tab_id: &str) -> RuntimeExitHandling {
+        self.ext::<Arc<TabReopenGuards>>()
+            .recoveries
+            .lock()
+            .entry(tab_id.into())
+            .or_default()
+            .exit_pending = true;
+        RuntimeExitHandling {
+            service: self.clone(),
+            tab_id: tab_id.into(),
+        }
+    }
+
+    /// True until automatic recovery knows its outcome, so a transient degrade settles no held send.
+    pub(crate) fn runtime_recovery_owns_sends(&self, tab_id: &str) -> bool {
+        self.try_ext::<Arc<TabReopenGuards>>()
+            .is_some_and(|guards| {
+                guards
+                    .recoveries
+                    .lock()
+                    .get(tab_id)
+                    .is_some_and(|recovery| recovery.in_flight || recovery.exit_pending)
+            })
+    }
+
     pub(crate) fn record_runtime_interruption_for_tab(
         &self,
         tab_id: &str,
@@ -210,10 +261,11 @@ impl ServiceContext {
         let nonce = nonce.to_owned();
         let reason = reason.to_owned();
         std::thread::spawn(move || {
-            let _completion = (decision == Decision::Restart).then(|| RecoveryCompletion {
+            let _completion = RecoveryCompletion {
                 service: &svc,
                 tab_id: &tab_id,
-            });
+                owned: decision == Decision::Restart,
+            };
             if super::super::agent_runtime::engine::for_tab(&tab_id)
                 .is_some_and(|runtime| runtime.context.lock().epoch != epoch)
             {

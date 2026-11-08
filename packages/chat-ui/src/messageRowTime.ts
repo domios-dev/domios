@@ -6,8 +6,15 @@ function firstEventMessage(event: ToolEvent): NormalizedChatMessage {
 }
 
 /** Rows of a kind that shows a time; tool flows and notices never carry one. */
-export function isTimedMessageKind(message: NormalizedChatMessage): boolean {
+function isTimedMessageKind(message: NormalizedChatMessage): boolean {
   return message.type !== "tool_flow" && (message.type !== "custom" || message.timelineMarker?.kind === "context_compaction" || message.timelineMarker?.kind === "external_edit");
+}
+
+/** A transcript row with no known day, which a later dated row may share; a plain notice is not transcript. */
+export function isUndatedTranscriptRow(message: NormalizedChatMessage, item?: TimelineItem): boolean {
+  if (message.type === "custom" && !isTimedMessageKind(message)) return false;
+  const timestamp = timestampMs((item?.kind === "tool" ? firstEventMessage(item.event) : message).timestamp);
+  return timestamp == null || !Number.isFinite(new Date(timestamp).getTime());
 }
 
 export function messageRowTime(message: NormalizedChatMessage, item?: TimelineItem, origin?: ChatOrigin): { timestamp: number; side: "left" | "right" } | null {

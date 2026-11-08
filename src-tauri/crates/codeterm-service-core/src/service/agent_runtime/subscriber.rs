@@ -104,6 +104,10 @@ pub fn start(svc: ServiceContext, _provider: String, session: Arc<Session>, proc
         if session.context.lock().epoch == epoch {
             let observed = exited.borrow().clone().or_else(|| ended.borrow().clone());
             let unexpected = unexpected_exit(observed.as_ref());
+            let _exit_handling = (unexpected && !session.gate.is_closed()).then(|| {
+                let tab = session.context.lock().tab_id.clone();
+                svc.begin_runtime_exit(&tab)
+            });
             let interrupted = session.context.lock().active_turn_id.is_some();
             if unexpected {
                 let owner = svc.clone();

@@ -90,7 +90,7 @@ export { MessageTimeFrame } from "./MessageTimeFrame";
 export { ChatHighlightBudgetProvider, ChatHighlightRow } from "./ChatHighlightBudget";
 export { ChatDaySeparator } from "./ChatDaySeparator";
 export { chatLocalDay, chatDaySeparators, messageTimeLabels, showChatTimeGutter, chatHorizontalInsets } from "./chatTimeModel";
-export { isTimedMessageKind, messageRowTime } from "./messageRowTime";
+export { isUndatedTranscriptRow, messageRowTime } from "./messageRowTime";
 export { ImageFullscreen, type FullscreenImage } from "./ImageFullscreen";
 
 export { CanvasToolbar, type CanvasToolbarProps } from "./CanvasToolbar";

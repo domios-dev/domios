@@ -612,3 +612,90 @@ fn refused_unbound_start_has_one_typed_snapshot_state_before_and_after_restore()
     );
     assert!(engine::for_tab(&tab_id).is_none());
 }
+
+fn kept_row(id: &str) -> ChatMsg {
+    ChatMsg {
+        id: id.into(),
+        kind: "user".into(),
+        content: format!("opaque {id}"),
+        ..Default::default()
+    }
+}
+
+#[test]
+fn attach_serves_the_kept_transcript_while_the_runtime_refuses_to_load() {
+    use crate::service::agent_runtime::transport;
+    let (fixture, _cwd, provider, tab_id) = fixture(false);
+    super::super::chatbackend_history::ChatBackendHistory::runtime_shared(&provider, "own-thread")
+        .lock()
+        .snapshot(vec![kept_row("kept")])
+        .unwrap();
+    fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(&tab_id)
+        .unwrap()
+        .agent_runtime_state = Some(serde_json::json!({"state":"degraded",
+        "failureCode":"provider_refused","reason":"Provider refused: opaque; recovery required"}));
+    assert!(transport::snapshot(&fixture.service, &tab_id).is_err());
+    let attached = transport::attach_transcript(&fixture.service, &tab_id).unwrap();
+    assert_eq!(attached.messages.len(), 1);
+    assert_eq!(attached.messages[0].content, "opaque kept");
+    assert_eq!(attached.thread_id.as_deref(), Some("own-thread"));
+    assert_eq!(attached.binding_nonce.as_deref(), Some("own-nonce"));
+}
+
+#[test]
+fn attach_prefers_the_degraded_sessions_own_rows() {
+    use crate::service::agent_runtime::{model::RuntimeFailure, transport};
+    let (fixture, _cwd, _provider, tab_id) = fixture(false);
+    let _runtime = attach(&fixture, &tab_id, "opaque own reply");
+    let session = engine::for_tab(&tab_id).unwrap();
+    session.thread_loaded.store(false, Ordering::Release);
+    let epoch = session.state.lock().epoch;
+    session
+        .state
+        .lock()
+        .degrade(epoch, &RuntimeFailure::Refused("opaque refusal".into()));
+    engine::publish(&fixture.service, &tab_id, &session);
+    assert!(transport::snapshot(&fixture.service, &tab_id).is_err());
+    let attached = transport::attach_transcript(&fixture.service, &tab_id).unwrap();
+    assert_eq!(attached.messages.len(), 1);
+    assert_eq!(attached.messages[0].content, "opaque own reply");
+}
+
+#[test]
+fn attach_with_no_kept_rows_is_empty_but_provider_held_history_still_refuses() {
+    use crate::service::agent_runtime::transport;
+    let (host_kept, _cwd, _provider, tab_id) = fixture(false);
+    let attached = transport::attach_transcript(&host_kept.service, &tab_id).unwrap();
+    assert!(attached.messages.is_empty());
+    assert_eq!(attached.thread_id.as_deref(), Some("own-thread"));
+    let (provider_held, _cwd, _provider, tab_id) = fixture(true);
+    assert!(transport::attach_transcript(&provider_held.service, &tab_id).is_err());
+}
+
+#[test]
+fn archived_session_that_never_settled_a_turn_reads_from_its_session_log() {
+    use super::super::chatbackend_history::{archive_path, ChatBackendHistory};
+    use crate::multiplexer::types::{
+        ContextEpochArchive, ContextEpochBoundary, ContextEpochTransport,
+    };
+    let (fixture, _cwd, provider, _tab_id) = fixture(false);
+    let archive = ContextEpochArchive {
+        provider: provider.clone(),
+        cwd: String::new(),
+        session_id: "broken-session".into(),
+        transport: ContextEpochTransport::ChatBackend,
+        boundary: ContextEpochBoundary::ContextReset,
+    };
+    ChatBackendHistory::open_at(archive_path(&provider, "broken-session"))
+        .try_upsert(&[kept_row("logged")])
+        .unwrap();
+    let rows = super::super::runtime_stored::archived_messages(&fixture.service, &archive)
+        .unwrap()
+        .unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].content, "opaque logged");
+}

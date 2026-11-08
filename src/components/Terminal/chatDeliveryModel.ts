@@ -169,6 +169,11 @@ export function visibleDeliveryRows(
   return rows.filter((row) => !sendForRow(reconciled, row)?.dismissed);
 }
 
+/** A routed send carries its sender's frame, which the composer cannot reissue, so the owner resends it with the CLI. */
+export function resendsWithCli(send: DeliverySend): boolean {
+  return !send.dismissed && Boolean(send.status?.system_send) && deliveryState(send) === "failed";
+}
+
 export function canRetryChatSend(send: DeliverySend): boolean {
   if (send.dismissed || send.status?.system_send || deliveryState(send) !== "failed") return false;
   const draft = send.draft;

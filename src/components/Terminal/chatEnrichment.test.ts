@@ -97,6 +97,28 @@ for (const name of ["fenced example", "unclosed tag", "indented tag is content",
 }
 console.log("envelope enrichment: current envelope and live command cases passed");
 {
+  // Gemini CLI replays its own setup as a user message on load: it is context, never a bubble the owner wrote.
+  const block = "<session_context>\nopaque setup\n</session_context>";
+  const whole = (id: string, content: string, segments?: MessageSegment[]): NormalizedChatMessage => ({ id, type: "user", content, segments });
+  const [notice] = enrichTimelineItems([item(whole("setup", `\n${block}\n`))], new WeakMap());
+  assert.equal(notice.msg.type, "system");
+  assert.equal(notice.msg.systemSubtype, "environment_context");
+  assert.equal(notice.msg.collapsed, true);
+  assert.ok(notice.msg.content.includes("opaque setup"), "the block stays readable behind the notice");
+  assert.equal(notice.origin, undefined);
+
+  const merged = whole("merged", `${block}\n\nopaque first prompt`, [{ type: "text", text: `${block}\n\nopaque first prompt` }] as MessageSegment[]);
+  const entries = enrichTimelineItems([item(merged)], new WeakMap());
+  assert.deepEqual(entries.map((entry) => entry.msg.type), ["system", "user"], "a merged first prompt keeps its own bubble");
+  assert.equal(entries[1].msg.content, "opaque first prompt");
+  assert.equal(new Set(entries.map((entry) => entry.msg.id)).size, 2);
+
+  for (const content of [`quoted ${block}`, "<session_context>still open"]) {
+    const [plain] = enrichTimelineItems([item(whole("plain", content))], new WeakMap());
+    assert.equal(plain.msg.type, "user", "prose that merely quotes the tag stays the owner's words");
+  }
+}
+{
   // A system or CLI notice with no words leaves no bare "System · CLI" card; one with words still shows.
   const cli = (id: string, body: string): NormalizedChatMessage => ({ id, type: "user", content: `<domios from="cli">${body}</domios>`,
     segments: [{ type: "frame", kind: "system", from: "cli", attrs: { from: "cli" }, body, tip: null }] as MessageSegment[] });

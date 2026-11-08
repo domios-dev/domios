@@ -550,6 +550,77 @@ pub fn snapshot(
     Ok((session, items))
 }
 
+/// What a tab's chat shows on attach, and the binding those rows belong to.
+pub struct AttachedTranscript {
+    pub messages: Vec<crate::agent::chat_types::ChatMsg>,
+    pub thread_id: Option<String>,
+    pub binding_nonce: Option<String>,
+}
+
+/// Reading history never needs a live runtime: when this tab's runtime cannot
+/// load, the rows come from what this host kept for the tab's bound session.
+pub fn attach_transcript(svc: &ServiceContext, tab: &str) -> Result<AttachedTranscript, String> {
+    match snapshot(svc, tab) {
+        Ok((session, messages)) => {
+            let context = session.context.lock().clone();
+            Ok(AttachedTranscript {
+                messages,
+                thread_id: context.thread_id,
+                binding_nonce: Some(context.binding_nonce),
+            })
+        }
+        Err(error) => kept_transcript(svc, tab).ok_or(error),
+    }
+}
+
+fn kept_transcript(svc: &ServiceContext, tab: &str) -> Option<AttachedTranscript> {
+    let (provider, thread, nonce) = {
+        let mux = svc.mux.read();
+        let target = mux.get_tab(tab)?;
+        (
+            target.agent_type.clone()?,
+            target
+                .agent_session_id
+                .clone()
+                .filter(|thread| !thread.is_empty())?,
+            target.session_binding_nonce.clone(),
+        )
+    };
+    let cached = engine::for_tab(tab)
+        .filter(|session| {
+            session.provider == provider
+                && session.context.lock().thread_id.as_deref() == Some(thread.as_str())
+        })
+        .map(|session| session.cache.lock().snapshot())
+        .filter(|rows| !rows.is_empty());
+    let messages = match cached {
+        Some(rows) => rows,
+        None => {
+            let capability = svc
+                .agent_registry
+                .with_provider(&provider, |adapter| adapter.agent_runtime())
+                .flatten()?;
+            match super::transcript::kept_rows(&provider, &thread, &capability) {
+                Ok(rows) => rows?,
+                Err(error) => {
+                    log::warn!("[chat-attach] tab={tab} kept transcript unreadable: {error}");
+                    return None;
+                }
+            }
+        }
+    };
+    let current = svc.mux.read().get_tab(tab).is_some_and(|target| {
+        target.agent_type.as_deref() == Some(provider.as_str())
+            && target.agent_session_id.as_deref() == Some(thread.as_str())
+            && target.session_binding_nonce == nonce
+    });
+    current.then_some(AttachedTranscript {
+        messages,
+        thread_id: Some(thread),
+        binding_nonce: nonce,
+    })
+}
+
 #[cfg(test)]
 mod tests;
 
