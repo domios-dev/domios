@@ -10,7 +10,7 @@ import type { ProviderDescriptor, Tab } from "../../lib/types";
 import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
 import { getModelCatalogueRefreshApi, refreshFailureToast } from "../../lib/modelCatalogueRefresh";
 import { getTabModelApi } from "../Sidebar/tabModelApi";
-import { modelSwitchFailure } from "../../lib/modelSwitchFailure";
+import { modelSwitchFailure, runtimeBusy } from "../../lib/modelSwitchFailure";
 import { BusySpinner } from "../shared/BusyState";
 import { UI_BUTTON } from "../shared/design";
 import { AgentIcon } from "../AgentIcon";
@@ -154,13 +154,14 @@ export function StatusLineModelPicker({
     } catch (error) {
       setApplied(previous);
       const failure = modelSwitchFailure(error, descriptor?.transport === "chat_backend");
+      const busy = runtimeBusy(error);
       actions && createNoticePublisher(actions)({ kind: "toast", id: `model-switch:${tabId}`,
         tabId: tabId,
         workspaceId: null,
-        title: "Model switch did not apply",
+        title: busy ? "Model not changed yet" : "Model switch did not apply",
         detail: failure.message,
-        severity: "Warning",
-        lifetimeMs: 15000,
+        severity: busy ? "Info" : "Warning",
+        lifetimeMs: busy ? 6000 : 15000,
         actions: restart || !failure.restartAvailable ? undefined : [{ label: "Restart and resume", run: () => void commitRef.current(selection, true) }] });
     } finally {
       setApplying(false);
@@ -338,6 +339,7 @@ export function ModelPickerPopover({
   const [restartFallback, setRestartFallback] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(failure?.message ?? null);
+  const [notice, setNotice] = useState<string | null>(null);
   const searchable = pickerNeedsSearch(descriptor);
   const groups = pickerModelGroups(descriptor, staged?.model, query, showAll, declaredModels ? "" : currentModel);
   const sections = pickerSections({ descriptor, controls: runtimeControls, model: staged?.model ?? currentModel, effort: staged?.effort ?? currentEffort, runtimeMode: staged?.runtimeMode ?? currentRuntimeMode, serviceTier: staged?.serviceTier ?? currentServiceTier, serviceTierAvailability, hostApprovals, hostFullAccess });
@@ -558,7 +560,13 @@ export function ModelPickerPopover({
                 if (busy) return;
                 if (section.applyTarget.kind === "mode") { if (staged) choose({ ...staged, runtimeMode: value }); }
                 else if (section.applyTarget.kind === "speed") { if (staged) choose({ ...staged, serviceTier: { id: JSON.parse(value) as string | null } }); }
-                else void onRuntimeControl?.(section, value).catch(() => setError("The agent refused this control value."));
+                else {
+                  setNotice(null);
+                  void onRuntimeControl?.(section, value).catch((failure: unknown) => {
+                    if (runtimeBusy(failure)) setNotice(modelSwitchFailure(failure, true).message);
+                    else setError("The agent refused this control value.");
+                  });
+                }
               }} />)}
           </div>}
         </div>
@@ -584,6 +592,7 @@ export function ModelPickerPopover({
           </div>
         </div>
       )}
+      {notice && <p className="ct-model-picker__note" role="status">{notice}</p>}
       {error && (
         <div className="ct-model-picker__recovery">
           <InlineErrorNotice error={error} operation="changing the agent model" blocking />

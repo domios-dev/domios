@@ -7,7 +7,12 @@ use crate::service::ServiceContext;
 use codeterm_plugin::agent_runtime::{
     RuntimeActiveTurn, RuntimeContext, RuntimeOperation, RuntimeResult,
 };
-use std::{collections::HashSet, sync::Arc, time::Duration};
+use parking_lot::Mutex;
+use std::{
+    collections::HashSet,
+    sync::{Arc, LazyLock},
+    time::Duration,
+};
 
 #[derive(Debug, PartialEq, Eq)]
 enum CompletionState {
@@ -107,16 +112,130 @@ impl InterruptTarget {
     }
 }
 
-pub(super) fn interrupt(svc: &ServiceContext, tab: &str) -> Result<bool, String> {
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum InterruptOutcome {
+    Stopped,
+    NoTurn,
+    /// An earlier stop or runtime operation still owns the outcome; this request sent nothing.
+    Pending,
+    Dropped(InterruptDropped),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum InterruptDropped {
+    TurnEnded,
+    TurnChanged,
+}
+
+/// The work a Stop press meant to end. The gate can free long after the press, and a late
+/// interrupt may only reach this work.
+#[derive(Debug, Default)]
+struct StopPress {
+    session: Option<(u64, String, Option<String>)>,
+    turns: HashSet<String>,
+    sends: HashSet<String>,
+}
+
+impl StopPress {
+    fn of(svc: &ServiceContext, session: &engine::Session, context: &RuntimeContext) -> Self {
+        let mut turns = super::super::turn_requests::open_turns(session, context)
+            .into_iter()
+            .collect::<HashSet<_>>();
+        turns.extend(context.active_turn_id.clone());
+        turns.extend(context.active_turns.iter().map(|turn| turn.turn_id.clone()));
+        Self {
+            session: Some((
+                context.epoch,
+                context.binding_nonce.clone(),
+                context.thread_id.clone(),
+            )),
+            turns,
+            sends: outstanding_claims(svc, context),
+        }
+    }
+
+    /// A runtime still loading has not reported its turns, so that press binds to nothing.
+    fn at_press(svc: &ServiceContext, tab: &str) -> Option<Self> {
+        let session = engine::for_tab(tab)?;
+        if !matches!(session.state.lock().phase, RuntimePhase::Ready) {
+            return None;
+        }
+        let context = session.context.lock().clone();
+        Some(Self::of(svc, &session, &context))
+    }
+
+    fn dropped(&self, now: &Self, active: Option<&str>) -> Option<InterruptDropped> {
+        let same_work = if self.turns.is_empty() && self.sends.is_empty() {
+            now.turns.is_empty() && now.sends.is_empty()
+        } else if self.turns.is_empty() {
+            !self.sends.is_disjoint(&now.sends)
+        } else {
+            match active {
+                Some(active) => self.turns.contains(active),
+                None => !self.turns.is_disjoint(&now.turns),
+            }
+        };
+        if self.session == now.session && same_work {
+            None
+        } else if now.turns.is_empty() && now.sends.is_empty() {
+            Some(InterruptDropped::TurnEnded)
+        } else {
+            Some(InterruptDropped::TurnChanged)
+        }
+    }
+}
+
+static IN_FLIGHT: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(|| Mutex::new(HashSet::new()));
+
+/// One interrupt per tab, so a repeated Stop never queues behind the first and hits a later turn.
+struct InterruptClaim(String);
+
+impl InterruptClaim {
+    fn take(tab: &str) -> Option<Self> {
+        IN_FLIGHT
+            .lock()
+            .insert(tab.to_owned())
+            .then(|| Self(tab.to_owned()))
+    }
+}
+
+impl Drop for InterruptClaim {
+    fn drop(&mut self) {
+        IN_FLIGHT.lock().remove(&self.0);
+    }
+}
+
+pub(super) fn interrupt(svc: &ServiceContext, tab: &str) -> Result<InterruptOutcome, String> {
+    let Some(_claim) = InterruptClaim::take(tab) else {
+        return Ok(InterruptOutcome::Pending);
+    };
+    interrupt_pressed(svc, tab, StopPress::at_press(svc, tab))
+}
+
+fn interrupt_pressed(
+    svc: &ServiceContext,
+    tab: &str,
+    press: Option<StopPress>,
+) -> Result<InterruptOutcome, String> {
     super::super::capacity_retry::cancel(svc, tab)?;
     crate::async_runtime::block_on(async {
         let session = engine::ensure(svc, tab).await?;
-        let permit = session
-            .gate
-            .try_acquire()
-            .map_err(|_| RuntimeFailure::Refused("Runtime operation already in progress".into()))?;
+        let Ok(permit) = tokio::time::timeout(super::GATE_WAIT, session.gate.acquire()).await
+        else {
+            return Ok(InterruptOutcome::Pending);
+        };
+        let permit = permit.map_err(|_| RuntimeFailure::Superseded)?;
         engine::validate_binding(svc, &session)?;
         let context = session.context.lock().clone();
+        if let Some(reason) = press.as_ref().and_then(|press| {
+            press.dropped(
+                &StopPress::of(svc, &session, &context),
+                context.active_turn_id.as_deref(),
+            )
+        }) {
+            log::info!("[tab-stop] interrupt dropped tab={tab} reason={reason:?}");
+            return Ok(InterruptOutcome::Dropped(reason));
+        }
         let mut target = InterruptTarget::capture(&context)?;
         let no_provider_turn =
             super::super::turn_requests::no_provider_turn(&session, context.epoch);
@@ -157,7 +276,7 @@ pub(super) fn interrupt(svc: &ServiceContext, tab: &str) -> Result<bool, String>
                 session.context.lock().active_turns.clear();
             }
             if !super::super::background::supported(&session) {
-                return Ok(false);
+                return Ok(InterruptOutcome::NoTurn);
             }
             session.context.lock().clone()
         };
@@ -242,14 +361,19 @@ pub(super) fn interrupt(svc: &ServiceContext, tab: &str) -> Result<bool, String>
             }
         }
         drop(permit);
+        let outcome = if had_turn {
+            InterruptOutcome::Stopped
+        } else {
+            InterruptOutcome::NoTurn
+        };
         if background
             && process.terminated()
             && engine::validate_binding(svc, &session).is_ok()
             && session.context.lock().epoch == target.epoch
         {
-            return Ok(had_turn);
+            return Ok(outcome);
         }
-        interrupted.map(|()| had_turn)
+        interrupted.map(|()| outcome)
     })
     .map_err(|reason: RuntimeFailure| reason.to_string())
 }
@@ -344,18 +468,27 @@ fn before_first_turn(
     declared
         && context.active_turn_id.is_none()
         && (super::super::turn_requests::written_pending(session, context)
-            || context.claimed_sends.iter().any(|claim| {
-                Some(&claim.thread_id) == context.thread_id.as_ref()
-                    && svc.chat_send_ledger.has_rpc_handoff(&claim.send_id)
-                    && svc
-                        .chat_send_ledger
-                        .status(&claim.send_id)
-                        .is_some_and(|status| {
-                            status.tab_id == context.tab_id
-                                && status.state
-                                    == crate::service::chat_send_transaction::ChatSendState::Pending
-                        })
-            }))
+            || !outstanding_claims(svc, context).is_empty())
+}
+
+fn outstanding_claims(svc: &ServiceContext, context: &RuntimeContext) -> HashSet<String> {
+    context
+        .claimed_sends
+        .iter()
+        .filter(|claim| {
+            Some(&claim.thread_id) == context.thread_id.as_ref()
+                && svc.chat_send_ledger.has_rpc_handoff(&claim.send_id)
+                && svc
+                    .chat_send_ledger
+                    .status(&claim.send_id)
+                    .is_some_and(|status| {
+                        status.tab_id == context.tab_id
+                            && status.state
+                                == crate::service::chat_send_transaction::ChatSendState::Pending
+                    })
+        })
+        .map(|claim| claim.send_id.clone())
+        .collect()
 }
 
 pub(crate) fn before_first_turn_pending(svc: &ServiceContext, tab: &str) -> bool {

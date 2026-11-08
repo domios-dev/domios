@@ -96,6 +96,16 @@ pub(crate) fn switch(
             .map_err(ModelSwitchError::RuntimeControlRefused)?;
     }
     let live = engine::for_tab(tab);
+    // `ensure` waits on the gate with no busy outcome, so a running operation is waited out here first.
+    if live.as_ref().is_some_and(|session| {
+        crate::async_runtime::block_on(async {
+            tokio::time::timeout(GATE_WAIT, session.gate.acquire())
+                .await
+                .is_err()
+        })
+    }) {
+        return Err(ModelSwitchError::RuntimeBusy);
+    }
     let declared_controls = live
         .as_ref()
         .is_some_and(|session| session.context.lock().settings.config_options.is_some())
@@ -193,26 +203,29 @@ pub(crate) fn switch(
     } else {
         None
     };
+    let refused =
+        |reason: RuntimeFailure| ModelSwitchError::RuntimeControlRefused(reason.to_string());
     crate::async_runtime::block_on(async {
-        switch_inner(svc, tab, model, effort, mode, service_tier)
+        let session = engine::ensure(svc, tab).await.map_err(refused)?;
+        let Ok(permit) = tokio::time::timeout(GATE_WAIT, session.gate.acquire()).await else {
+            return Err(ModelSwitchError::RuntimeBusy);
+        };
+        let _permit = permit.map_err(|_| refused(RuntimeFailure::Superseded))?;
+        switch_inner(svc, tab, session.clone(), model, effort, mode, service_tier)
             .await
-            .map_err(|reason| ModelSwitchError::RuntimeControlRefused(reason.to_string()))
+            .map_err(refused)
     })
 }
 
 async fn switch_inner(
     svc: &ServiceContext,
     tab: &str,
+    session: std::sync::Arc<engine::Session>,
     model: &str,
     effort: Option<&str>,
     mode: Option<RuntimeMode>,
     service_tier: Option<codeterm_plugin::agent_runtime::RuntimeServiceTierSelection>,
 ) -> Result<ModelSwitchOutcome, RuntimeFailure> {
-    let session = engine::ensure(svc, tab).await?;
-    let _permit = session
-        .gate
-        .try_acquire()
-        .map_err(|_| RuntimeFailure::Refused("Runtime operation already in progress".into()))?;
     engine::validate_binding(svc, &session)?;
     refresh_service_tiers(svc, &session).await?;
     let before = session.context.lock().clone();
@@ -520,9 +533,21 @@ pub(crate) async fn refresh_service_tiers(
 mod tests;
 
 mod interrupt;
-pub(crate) use interrupt::before_first_turn_pending;
+pub(crate) use interrupt::{before_first_turn_pending, InterruptDropped, InterruptOutcome};
+
+/// How long a control or Stop waits for a running runtime operation to release the gate.
+pub(super) const GATE_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
 
 pub fn interrupt(svc: &ServiceContext, tab: &str) -> Result<bool, String> {
+    interrupt::interrupt(svc, tab).map(|outcome| {
+        matches!(
+            outcome,
+            InterruptOutcome::Stopped | InterruptOutcome::Pending
+        )
+    })
+}
+
+pub(crate) fn stop(svc: &ServiceContext, tab: &str) -> Result<InterruptOutcome, String> {
     interrupt::interrupt(svc, tab)
 }
 

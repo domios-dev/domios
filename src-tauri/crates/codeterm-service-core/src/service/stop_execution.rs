@@ -64,6 +64,10 @@ fn stop_sequence_steps(keys: &[String], wait_for_output: bool) -> Vec<StopSequen
     steps
 }
 
+fn runtime_interrupt_unconfirmed() -> serde_json::Value {
+    serde_json::json!({"ok": true, "stopped": false, "reason": "interrupt_unconfirmed", "route": "runtime"})
+}
+
 pub async fn stop_agent_turn(
     svc: ServiceContext,
     tab_id: String,
@@ -84,15 +88,21 @@ pub async fn stop_agent_turn(
                     }))
                 }
                 StopDecision::Interrupt { .. } | StopDecision::NotWorking(_) => {
-                    let stopped = super::agent_runtime::controls::interrupt(&svc, &runtime_tab)?;
-                    if stopped {
-                        Ok(
+                    use super::agent_runtime::controls::{InterruptDropped, InterruptOutcome};
+                    match super::agent_runtime::controls::stop(&svc, &runtime_tab)? {
+                        InterruptOutcome::Dropped(InterruptDropped::TurnEnded) => Ok(
+                            serde_json::json!({"ok": true, "stopped": false, "reason": "turn_ended", "route": "runtime"}),
+                        ),
+                        InterruptOutcome::Dropped(InterruptDropped::TurnChanged) => Ok(
+                            serde_json::json!({"ok": true, "stopped": false, "reason": "turn_changed", "route": "runtime"}),
+                        ),
+                        InterruptOutcome::Stopped => Ok(
                             serde_json::json!({"ok": true, "stopped": true, "reason": "stopped", "route": "runtime"}),
-                        )
-                    } else {
-                        Ok(
+                        ),
+                        InterruptOutcome::NoTurn => Ok(
                             serde_json::json!({"ok": true, "stopped": false, "reason": "not_working", "status": crate::agent::status::TabStatus::Idle.label(), "route": "runtime"}),
-                        )
+                        ),
+                        InterruptOutcome::Pending => Ok(runtime_interrupt_unconfirmed()),
                     }
                 }
             });
@@ -106,9 +116,7 @@ pub async fn stop_agent_turn(
                     "[tab-stop] outcome tab={} stopped=false reason=interrupt_unconfirmed route=runtime",
                     tab_id
                 );
-                Ok(
-                    serde_json::json!({"ok": true, "stopped": false, "reason": "interrupt_unconfirmed", "route": "runtime"}),
-                )
+                Ok(runtime_interrupt_unconfirmed())
             }
         };
     }

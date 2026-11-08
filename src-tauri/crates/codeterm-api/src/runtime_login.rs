@@ -173,18 +173,26 @@ async fn controls(
         codeterm_service_core::service::agent_runtime::declared_controls::Selection,
     >,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    use codeterm_service_core::service::agent_runtime::declared_controls::{
+        select, ControlError, RUNTIME_BUSY_MESSAGE, RUNTIME_BUSY_REASON,
+    };
     if state
         .svc
         .runtime_control_requires_owner(&tab, request.mode, &request.id)
     {
         require_permission_authority(&state, &headers)?;
     }
-    codeterm_service_core::service::agent_runtime::declared_controls::select(
-        &state.svc, &tab, request,
-    )
-    .await
-    .map(Json)
-    .map_err(|reason| (StatusCode::CONFLICT, reason))
+    select(&state.svc, &tab, request)
+        .await
+        .map(Json)
+        .map_err(|error| match error {
+            ControlError::Busy => (
+                StatusCode::CONFLICT,
+                serde_json::json!({"ok":false,"reason":RUNTIME_BUSY_REASON,"error":RUNTIME_BUSY_MESSAGE})
+                    .to_string(),
+            ),
+            ControlError::Refused(reason) => (StatusCode::CONFLICT, reason),
+        })
 }
 
 #[derive(serde::Deserialize)]
