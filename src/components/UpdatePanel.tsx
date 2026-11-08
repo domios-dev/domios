@@ -1,7 +1,7 @@
 import { InlineErrorNotice } from "./shared/ErrorNotice";
 import { Download, RotateCw } from "lucide-react";
 import { useUpdatePanel } from "../hooks/useUpdatePanel";
-import { groupUpdates, summarizeUpdatePanel, updateSourceMessage, type UpdateRow } from "../lib/updatePanelModel";
+import { groupUpdates, rowSourceKey, summarizeUpdatePanel, unavailableUpdateSources, updateSourceLabel, updateSourceMessage, type UpdateRow } from "../lib/updatePanelModel";
 import { ComponentStatus } from "./shared/ComponentStatus";
 import { UpdateChannelNotice } from "./shared/UpdateChannelNotice";
 import { SettingsCard } from "./Settings/shared";
@@ -19,6 +19,7 @@ const STATE_TEXT: Record<UpdateRow["state"], string> = {
   queued: "Queued",
   completed: "Updated",
   failed: "Failed",
+  unavailable: "Can't check",
 };
 
 const STATE_TONE: Record<UpdateRow["state"], string> = {
@@ -27,13 +28,19 @@ const STATE_TONE: Record<UpdateRow["state"], string> = {
   queued: "text-[var(--ct-muted-fg)]",
   completed: "text-[var(--ct-green)]",
   failed: "text-[var(--ct-red)]",
+  unavailable: "text-[var(--ct-yellow)]",
+};
+
+const SUMMARY_TONE: Partial<Record<ReturnType<typeof summarizeUpdatePanel>["tone"], string>> = {
+  red: "text-[var(--ct-red)]",
+  warning: "text-[var(--ct-yellow)]",
 };
 
 function UpdatePanelSummaryLine() {
   const update = useUpdatePanel();
-  const failed = Boolean(update.error) || update.rows.some(row => row.state === "failed") || update.diagnostics.some(item => item.channel !== "codeterm-core");
-  const summary = summarizeUpdatePanel(update.rows, { busy: update.busy, failed });
-  return <span role="status" aria-label={summary.label} className={summary.tone === "red" ? "text-[var(--ct-red)]" : undefined}>{summary.sentence}</span>;
+  const failed = Boolean(update.error) || update.rows.some(row => row.state === "failed");
+  const summary = summarizeUpdatePanel(update.rows, { busy: update.busy, failed, unavailableSources: unavailableUpdateSources(update.rows, update.diagnostics) });
+  return <span role="status" aria-label={summary.label} className={SUMMARY_TONE[summary.tone]}>{summary.sentence}</span>;
 }
 
 /** The one Updates card: the titlebar popover and Settings both render it; `waves` off where the host page owns the dot stage. */
@@ -51,8 +58,8 @@ export function UpdatePanel({ children, waves = true }: { children?: ReactNode; 
 
 function RowState({ row }: { row: UpdateRow }) {
   return <span className={`inline-flex items-center gap-1.5 text-[11px] font-medium ${STATE_TONE[row.state]}`}>
-    <ComponentStatus state={row.state} label={`${row.name} update ${row.state}`} />
-    <span aria-hidden="true">{row.channelError ? "Unavailable" : STATE_TEXT[row.state]}</span>
+    <ComponentStatus state={row.state} label={row.state === "unavailable" ? `${row.name} update source unavailable` : `${row.name} update ${row.state}`} />
+    <span aria-hidden="true">{STATE_TEXT[row.state]}</span>
   </span>;
 }
 
@@ -72,22 +79,25 @@ function UpdatePanelContents({ children }: { children?: ReactNode }) {
                 const row = update.rows.find(row => row.id === item.id)!;
                 const canApply = !item.channelError && update.items.some(current => current.id === item.id)
                   && (row.state === "available" || (row.state === "failed" && !update.error && !update.awaitingRetry));
+                const restart = updateRestartDescription(row, update.appStaged);
+                const source = updateSourceLabel(rowSourceKey(row));
                 return <div key={item.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5 border-b border-[var(--ct-border)] py-2 last:border-0">
                   <div className="flex min-w-0 items-baseline gap-2">
                     <span className="min-w-0 truncate text-xs font-medium text-[var(--ct-fg)]">{item.name}</span>
-                    <span title={`${item.currentVersion} → ${item.targetVersion}`} className="shrink-0 text-[11px] tabular-nums text-[var(--ct-muted)]">
-                      {item.currentVersion} → <span className="text-[var(--ct-muted-fg)]">{item.targetVersion}</span>
+                    <span title={item.targetVersion ? `${item.currentVersion} → ${item.targetVersion}` : item.currentVersion} className="shrink-0 text-[11px] tabular-nums text-[var(--ct-muted)]">
+                      {item.currentVersion}{item.targetVersion && <> → <span className="text-[var(--ct-muted-fg)]">{item.targetVersion}</span></>}
                     </span>
                   </div>
                   <div className="flex items-center justify-end gap-2">
                     {(row.state !== "available" || !canApply) && <RowState row={row} />}
                     {canApply && <Button variant="accent" size="compact" disabled={update.busy || update.checking} aria-label={`Update ${item.name}`} onClick={() => void update.applyItem(item.id)}>Update</Button>}
                   </div>
-                  {updateRestartDescription(item.group) && row.state !== "completed" && <div className="col-span-2 text-[11px] text-[var(--ct-muted-fg)]">{updateRestartDescription(item.group)}</div>}
+                  {restart && <div className="col-span-2 text-[11px] text-[var(--ct-muted-fg)]">{restart}</div>}
+                  {row.lastKnown && <div className="col-span-2 text-[11px] text-[var(--ct-muted-fg)]">{row.lastKnown}</div>}
                   {row.state === "active" && <progress aria-label={`${item.name} update progress`} max={100} value={item.group === "App" ? update.appProgress ?? undefined : undefined} className="ct-progress col-span-2" />}
-                  {((row.channelError && !row.channel) || row.sourceWarning) && <div className="col-span-2"><InlineErrorNotice description={{
-                    title: row.sourceWarning ? "Cached update remains available" : `${item.name} updates unavailable`,
-                    cause: updateSourceMessage(row.channelError ?? row.sourceWarning!),
+                  {((row.channelError && row.group !== "Plugins") || row.sourceWarning) && <div className="col-span-2"><InlineErrorNotice description={{
+                    title: row.sourceWarning ? "Cached update remains available" : `${source} unavailable`,
+                    cause: row.sourceWarning ? `${source}: ${updateSourceMessage(row.sourceWarning)}` : updateSourceMessage(row.channelError!),
                     raw: row.channelError ?? row.sourceWarning!,
                     actions: [],
                   }} /></div>}

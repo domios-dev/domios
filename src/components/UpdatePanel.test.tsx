@@ -88,16 +88,101 @@ it("shows a channel failure once, keeps its rows non-actionable, and reports the
   const root = createRoot(host);
   try {
     await act(async () => root.render(<UpdatePanelProvider><UpdatePanel /></UpdatePanelProvider>));
-    expect(host.querySelector('[role="status"][aria-label="Update sources or actions failed"]')).not.toBeNull();
-    expect(host.querySelectorAll('section[aria-label="official updates unavailable"]')).toHaveLength(1);
+    expect(host.querySelector('[role="status"][aria-label="Update source unavailable"]')?.textContent).toBe("official plugin channel unavailable");
+    expect(host.querySelectorAll('section[aria-label="official plugin channel unavailable"]')).toHaveLength(1);
     expect([...host.querySelectorAll("pre")].filter(pre => pre.textContent === message)).toHaveLength(1);
     expect(host.querySelector("details")?.open).toBe(false);
     expect(host.querySelector('button[aria-label^="Update "]:not([aria-label="Update all"])')).toBeNull();
     expect(host.querySelector<HTMLButtonElement>('[aria-label="Update all"]')?.disabled).toBe(true);
-    for (const id of ["git", "grok"]) expect(host.querySelector(`[aria-label="${id} update failed"]`)).not.toBeNull();
+    for (const id of ["git", "grok"]) expect(host.querySelector(`[aria-label="${id} update source unavailable"]`)).not.toBeNull();
     await act(async () => host.querySelector("summary")!.click());
     expect(host.querySelector("details")?.open).toBe(true);
     expect(fake.plugin).not.toHaveBeenCalled();
+  } finally { await act(async () => root.unmount()); host.remove(); }
+});
+
+const feedDown = "Failed to fetch release: domios-dev/domios: manifest fetch returned HTTP 504";
+const runningApp: UpdateAvailabilitySnapshot["items"][number] = { id: "app", kind: "app", installed: "1.19.0", latest: "1.19.0", compatible: true, state: "up_to_date", reason: "cached_check", channel: "official" };
+
+async function renderPanel(snapshot: UpdateAvailabilitySnapshot) {
+  fake.check.mockResolvedValue(snapshot);
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  await act(async () => root.render(<UpdatePanelProvider><UpdatePanel /></UpdatePanelProvider>));
+  return { host, dispose: async () => { await act(async () => root.unmount()); host.remove(); } };
+}
+
+it.each([
+  ["a cached same-version check", runningApp],
+  ["no check at all", { ...runningApp, latest: null, reason: "not_checked" }],
+])("shows the running version, no restart and the named source when the app channel fails after %s", async (_case, item) => {
+  const { host, dispose } = await renderPanel({ errors: { app: feedDown }, items: [item] });
+  try {
+    const row = host.querySelector('section[aria-label="App updates"]')!;
+    expect(row.textContent).toContain("1.19.0");
+    expect(row.textContent).not.toContain("→");
+    expect(host.textContent).not.toContain("Restart required");
+    expect(host.querySelector('[aria-label="Domios update source unavailable"]')).not.toBeNull();
+    expect(host.querySelector('[role="status"][aria-label="Update source unavailable"]')?.textContent).toBe("App update channel unavailable");
+    const notice = row.querySelector('section[aria-label="App update channel unavailable"]')!;
+    expect(notice.textContent).toContain("domios-dev/domios: manifest fetch returned HTTP 504");
+    expect(host.querySelector('button[aria-label="Update Domios"]')).toBeNull();
+    expect(host.querySelector<HTMLButtonElement>('[aria-label="Update all"]')?.disabled).toBe(true);
+  } finally { await dispose(); }
+});
+
+it("keeps a cached newer app update actionable and names the source that failed", async () => {
+  const { host, dispose } = await renderPanel({ errors: { app: feedDown }, items: [{ ...runningApp, latest: "1.19.1", state: "update_available", reason: "cached_manifest" }] });
+  try {
+    const row = host.querySelector('section[aria-label="App updates"]')!;
+    expect(row.textContent).toContain("1.19.1");
+    expect(host.textContent).not.toContain("Restart required");
+    expect(host.querySelector<HTMLButtonElement>('button[aria-label="Update Domios"]')?.disabled).toBe(false);
+    expect(row.querySelector('section[aria-label="Cached update remains available"]')?.textContent).toContain("App update channel");
+    expect(host.querySelector('[aria-label="Domios update source unavailable"]')).toBeNull();
+  } finally { await dispose(); }
+});
+
+it("asks for a restart only while a newer version is staged", async () => {
+  const offer: UpdateAvailabilitySnapshot = { errors: {}, items: [{ ...runningApp, latest: "1.19.1", state: "update_available", reason: "newer_version" }] };
+  const current: UpdateAvailabilitySnapshot = { errors: {}, items: [{ ...runningApp, reason: "same_version" }] };
+  Object.assign(fake.app, { phase: "success" });
+  const staged = await renderPanel(offer);
+  try { expect(staged.host.textContent).toContain("Restart required"); } finally { await staged.dispose(); }
+  const installed = await renderPanel(current);
+  try { expect(installed.host.textContent).not.toContain("Restart required"); } finally { await installed.dispose(); }
+  Object.assign(fake.app, { phase: "idle" });
+  const offered = await renderPanel(offer);
+  try { expect(offered.host.textContent).not.toContain("Restart required"); } finally { await offered.dispose(); }
+});
+
+it("clears a restored marker for the installed version at startup even when discovery never answers", async () => {
+  localStorage.setItem("codeterm.update-all.intent", JSON.stringify({ stage: "app", appTarget: "1.19.0", pluginIds: [], interfaceRequested: false }));
+  Object.assign(fake.app, { currentVersion: "1.19.0", nativeStatusObserved: true });
+  fake.check.mockRejectedValue(new Error("daemon unavailable"));
+  let panel!: ReturnType<typeof useUpdatePanel>;
+  function Probe() { panel = useUpdatePanel(); return null; }
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<UpdatePanelProvider><Probe /></UpdatePanelProvider>));
+    expect(localStorage.getItem("codeterm.update-all.intent")).toBeNull();
+    expect(panel.busy).toBe(false);
+    expect(panel.activeId).toBeNull();
+    expect(panel.error).toBeFalsy();
+  } finally { await act(async () => root.unmount()); host.remove(); }
+});
+
+it("keeps a restored marker with plugin work queued after the installed app", async () => {
+  const saved = JSON.stringify({ stage: "app", appTarget: "1.19.0", pluginIds: ["git"], interfaceRequested: false });
+  localStorage.setItem("codeterm.update-all.intent", saved);
+  Object.assign(fake.app, { currentVersion: "1.19.0", nativeStatusObserved: true });
+  fake.check.mockRejectedValue(new Error("daemon unavailable"));
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<UpdatePanelProvider><UpdatePanel /></UpdatePanelProvider>));
+    expect(localStorage.getItem("codeterm.update-all.intent")).toBe(saved);
   } finally { await act(async () => root.unmount()); host.remove(); }
 });
 

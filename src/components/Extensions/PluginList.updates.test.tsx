@@ -60,7 +60,7 @@ it("shows one channel diagnostic and failed row indicators without update offers
   host = document.createElement("div"); document.body.append(host); root = createRoot(host);
   const entries = buildCatalog({ plugins: ["first", "second"].map(id => ({ id, version: "1.0.0", source: { kind: "channel" as const, channel: "store", path: id }, update: { available: true, remote_version: "2.0.0", reason: "newer_version" } })), channels: [], diff: [] });
   await act(async () => root!.render(<PluginList entries={entries} selectedId={null} onSelect={vi.fn()} query="" onQuery={vi.fn()} filter="all" onFilter={vi.fn()} updateCount={0} onRemoveChannel={vi.fn()} activities={new Map()} activityDisplayMap={new Map()} channels={[]} selectedChannel={null} channelPluginCounts={new Map()} onSelectChannel={vi.fn()} />));
-  expect(host.querySelectorAll('section[aria-label="store updates unavailable"]')).toHaveLength(1);
+  expect(host.querySelectorAll('section[aria-label="store plugin channel unavailable"]')).toHaveLength(1);
   expect(host.querySelectorAll("pre")).toHaveLength(1);
   expect(host.querySelector("details")?.open).toBe(false);
   expect(host.querySelector('[aria-label="Update available"]')).toBeNull();

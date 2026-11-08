@@ -82,6 +82,22 @@ it("keeps an unreachable core channel silent and names its cause as a diagnostic
   } finally { await act(async () => root.unmount()); host.remove(); }
 });
 
+it("names a failed app source on the trigger without claiming a failed update or an offer", async () => {
+  fake.check.mockResolvedValue({ errors: { app: "Failed to fetch release: domios-dev/domios: manifest fetch returned HTTP 504" }, items: [
+    { id: "app", kind: "app", installed: "1.19.0", latest: "1.19.0", compatible: true, state: "up_to_date", reason: "cached_check", channel: "official" },
+  ] });
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<UpdatePanelProvider><UpdateTrayWithActions /></UpdatePanelProvider>));
+    const trigger = host.querySelector<HTMLButtonElement>('button[aria-label="Update"]')!;
+    expect(trigger.getAttribute("data-activity-state")).toBe("unavailable");
+    expect(trigger.getAttribute("aria-description")).toBe("App update channel unavailable. Open updates for details.");
+    expect(trigger.title).not.toBe("Updates available");
+    expect(host.querySelector('[data-testid="notification-toast"]')).toBeNull();
+  } finally { await act(async () => root.unmount()); host.remove(); }
+});
+
 it("wires local-ahead information for a non-core plugin without a failure badge", async () => {
   const ahead: UpdateAvailabilitySnapshot = { items: [{ ...snapshot.items[1], id: "lark", installed: "2.0.0", latest: "1.0.0", state: "up_to_date", reason: "local_ahead" }], errors: {} };
   fake.check.mockResolvedValue(ahead);
@@ -195,7 +211,8 @@ it("keeps a failed channel on its own row while Update all applies the healthy c
   const root = createRoot(host);
   try {
     await act(async () => root.render(<UpdatePanelProvider><UpdateTrayWithActions /><UpdatePanel waves={false} /></UpdatePanelProvider>));
-    expect(host.querySelector('[aria-label="community updates unavailable"] pre')?.textContent).toBe(communityUnavailable);
+    expect(host.querySelector('[aria-label="community plugin channel unavailable"] pre')?.textContent).toBe(communityUnavailable);
+    expect(host.querySelector('[aria-label="community plugin channel unavailable"]')?.textContent).toContain("network unavailable (example.com/community.git)");
     const failedApply = host.querySelector<HTMLButtonElement>('button[aria-label="Update lark"]')!;
     const healthyApply = host.querySelector<HTMLButtonElement>('button[aria-label="Update teams-client"]')!;
     expect(failedApply).toBeNull();

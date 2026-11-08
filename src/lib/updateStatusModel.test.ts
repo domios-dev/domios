@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { channelDiagnostics, classifyUpdateFailure, classifyUpdateStatus, updateIndicator, updateRestartDescription } from "./updateStatusModel";
+import { channelDiagnostics, classifyUpdateFailure, classifyUpdateStatus, unavailableSourceKeys, updateIndicator, updateRestartDescription } from "./updateStatusModel";
 import type { UpdateRow } from "./updatePanelModel";
 import type { UpdateAvailabilitySnapshot } from "./updateAvailability";
 
@@ -50,13 +50,37 @@ const appRow: UpdateRow = { ...interfaceRow, id: "app", name: "Domios", group: "
 const idle = { busy: false, checking: false, failed: false };
 assert.equal(updateIndicator([interfaceRow], idle).description, "Updates available. Interface update needs no restart.");
 for (const rows of [[appRow], [interfaceRow, appRow]]) {
-  assert.equal(updateIndicator(rows, idle).description, "Updates available. App update requires a restart.");
+  assert.equal(updateIndicator(rows, idle).description, "Updates available. App update restarts Domios.");
   assert.equal(updateIndicator(rows, idle).state, "available");
 }
 assert.equal(updateIndicator([{ ...interfaceRow, state: "active" }], idle).state, "active");
 assert.equal(updateIndicator([{ ...interfaceRow, state: "failed" }], { ...idle, busy: true }).state, "failed");
 assert.equal(updateIndicator([], { ...idle, completed: true }).state, "completed");
 assert.equal(updateIndicator([], idle).state, "idle");
-assert.equal(updateRestartDescription("Interface"), "No restart required");
-assert.equal(updateRestartDescription("App"), "Restart required");
 console.log("unified update indicator: frontend, app, both, applying, failed and completed passed");
+
+// The restart line follows a staged newer version, never a row's group alone.
+assert.equal(updateRestartDescription(appRow, true), "Restart required");
+assert.equal(updateRestartDescription(appRow, false), "Update restarts Domios");
+assert.equal(updateRestartDescription(interfaceRow, false), "No restart required");
+assert.equal(updateRestartDescription({ ...appRow, targetVersion: null, channelError: "HTTP 504", state: "unavailable" }, true), null);
+assert.equal(updateRestartDescription({ ...appRow, targetVersion: null }, true), null);
+assert.equal(updateRestartDescription({ ...appRow, channelError: "HTTP 504", state: "unavailable" }, true), null);
+assert.equal(updateRestartDescription({ ...appRow, state: "completed" }, true), null);
+assert.equal(updateRestartDescription({ ...appRow, state: "failed" }, false), null);
+assert.equal(updateRestartDescription({ ...interfaceRow, targetVersion: null, channelError: "HTTP 504", state: "unavailable" }, false), null);
+assert.equal(updateRestartDescription({ ...interfaceRow, group: "Plugins" }, true), null);
+
+// A source outage is not a failed update and names its source.
+const sourceDown = { ...idle, unavailableSources: ["App update channel"] };
+const unavailableRow: UpdateRow = { ...appRow, targetVersion: null, channelError: "HTTP 504", state: "unavailable" };
+assert.equal(updateIndicator([unavailableRow], sourceDown).state, "unavailable");
+assert.equal(updateIndicator([unavailableRow], sourceDown).description, "App update channel unavailable. Open updates for details.");
+assert.equal(updateIndicator([unavailableRow], sourceDown).offers, false);
+assert.equal(updateIndicator([unavailableRow, interfaceRow], sourceDown).state, "available");
+assert.equal(updateIndicator([unavailableRow], { ...sourceDown, failed: true }).state, "failed");
+assert.equal(updateIndicator([unavailableRow], { ...sourceDown, unavailableSources: ["a", "b"] }).description, "2 update sources unavailable. Open updates for details.");
+
+assert.deepEqual(unavailableSourceKeys({ app: "HTTP 504", community: "offline", "codeterm-core": unavailable }), ["app", "community"]);
+assert.deepEqual(unavailableSourceKeys({}), []);
+console.log("restart line, source outage indicator and named check result: passed");
