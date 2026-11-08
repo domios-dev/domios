@@ -224,6 +224,33 @@ pub(crate) fn auto_confirm_bridge(svc: &ServiceContext, tab: &str) {
     });
 }
 
+/// Requests already waiting on the owner follow a changed permission setting.
+pub(super) fn settle_after_policy_change(svc: &ServiceContext, tab: &str) {
+    let Some(session) = engine::for_tab(tab) else {
+        return;
+    };
+    let waiting: Vec<(RpcId, PendingPrompt)> = PROMPTS
+        .lock()
+        .get(tab)
+        .map(|queue| {
+            queue
+                .iter()
+                .filter(|entry| !entry.claimed)
+                .map(|entry| (entry.request.clone(), entry.prompt.clone()))
+                .collect()
+        })
+        .unwrap_or_default();
+    for (request, prompt) in waiting {
+        let permission = session
+            .prompts
+            .lock()
+            .get(&request)
+            .and_then(|pending| pending.permission.clone());
+        super::permission_policy::answer(svc, &session, &request, &prompt, permission.as_ref());
+    }
+    auto_confirm_bridge(svc, tab);
+}
+
 fn automatic_bridge_enabled(svc: &ServiceContext, tab: &str) -> bool {
     svc.mux
         .read()

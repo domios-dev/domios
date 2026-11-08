@@ -393,6 +393,41 @@ assert.equal(loadedMode(openWithModes("interactive-mode",{}).step),"opaque-defau
 assert.equal(loadedMode(openWithModes("undeclared-mode",{fullAccessMode:"opaque-unadvertised"}).step),"opaque-default","an unadvertised mode is never requested");
 assert.equal(loadedMode(openWithModes("already-full",{fullAccessMode:"opaque-approve-all"},{...advertisedModes,currentModeId:"opaque-approve-all"}).step),"opaque-approve-all");
 console.log("✓ ACP full-access launches enter the profile's declared approve-everything mode only when the agent advertises it");
+const chosenMode=openWithModes("chosen-mode",{sessionMode:"opaque-approve-all"});
+if (chosenMode.step.kind !== "continue" || chosenMode.step.plan.action.kind !== "request") throw new Error("a chosen mode must be re-entered");
+assert.deepEqual(plain(chosenMode.step.plan.action.call.params),{sessionId:"chosen-mode-session",modeId:"opaque-approve-all"},"an interactive launch re-enters the owner's chosen mode");
+const chosenOverFull=openWithModes("chosen-over-full",{sessionMode:"opaque-plan",fullAccessMode:"opaque-approve-all"},{currentModeId:"opaque-approve-all",availableModes:[{id:"opaque-plan",name:"Plan"},{id:"opaque-approve-all",name:"Approve all"}]});
+if (chosenOverFull.step.kind !== "continue" || chosenOverFull.step.plan.action.kind !== "request") throw new Error("a chosen mode must win");
+assert.deepEqual(plain(chosenOverFull.step.plan.action.call.params),{sessionId:"chosen-over-full-session",modeId:"opaque-plan"},"the owner's chosen mode wins over the profile's full-access mode");
+assert.equal(loadedMode(openWithModes("chosen-unadvertised",{sessionMode:"opaque-gone"}).step),"opaque-default","a chosen mode the agent no longer offers is never requested");
+assert.equal(loadedMode(openWithModes("chosen-already",{sessionMode:"opaque-default"}).step),"opaque-default","a chosen mode already in effect sends nothing");
+console.log("✓ ACP re-enters the owner's chosen session mode on load, ahead of the profile default");
+const modeOption=(currentValue:string)=>({id:"opaque-mode-option",name:"Mode",category:"mode",type:"select",currentValue,options:[{value:"opaque-default",name:"Default"},{value:"opaque-approve-all",name:"Approve all"}]});
+function openWithModeOption(tabId:string, providerSettings:JsonValue, modes?:JsonValue) {
+  const context={...ctx,tabId,providerSettings};
+  const plan=hooks.runtimePlan(context,init);
+  hooks.runtimeResponse(context,init,plan.state,{kind:"success",value:{protocolVersion:1,agentCapabilities:{},authMethods:[]}});
+  const opened=hooks.runtimePlan(context,fresh);
+  return {context,step:hooks.runtimeResponse(context,fresh,opened.state,{kind:"success",value:{sessionId:`${tabId}-session`,configOptions:[modeOption("opaque-default")],...(modes ? {modes} : {})}})};
+}
+for (const [name,modes] of [["config-only",undefined],["config-and-modes",advertisedModes]] as const) {
+  const chosen=openWithModeOption(`option-${name}`,{sessionMode:"opaque-approve-all"},modes);
+  if (chosen.step.kind !== "continue" || chosen.step.plan.action.kind !== "request") throw new Error(`${name}: a chosen mode option must be re-entered`);
+  assert.equal(plain(chosen.step.plan.action.call.method),"session/set_config_option",name);
+  assert.deepEqual(plain(chosen.step.plan.action.call.params),{sessionId:`option-${name}-session`,configId:"opaque-mode-option",value:"opaque-approve-all"},name);
+  const loaded=hooks.runtimeResponse(chosen.context,fresh,chosen.step.plan.state,{kind:"success",value:{configOptions:[modeOption("opaque-approve-all")]}});
+  assert.ok(loaded.kind === "complete" && loaded.result.kind === "threadLoaded",`${name}: a confirmed mode option loads the thread once`);
+  assert.equal(loaded.kind === "complete" && loaded.result.kind === "threadLoaded" ? loaded.result.settings.configOptions?.find(option=>option.category === "mode")?.currentValue : undefined,"opaque-approve-all",name);
+  const refusedOption=openWithModeOption(`option-refused-${name}`,{sessionMode:"opaque-approve-all"},modes);
+  if (refusedOption.step.kind !== "continue") throw new Error(`${name}: must request the mode option`);
+  const kept=hooks.runtimeResponse(refusedOption.context,fresh,refusedOption.step.plan.state,{kind:"error",error:{code:-32602,message:"opaque refusal"}});
+  assert.ok(kept.kind === "complete" && kept.result.kind === "threadLoaded",`${name}: a refused mode option keeps the session loaded`);
+}
+const fullOption=openWithModeOption("option-full",{fullAccessMode:"opaque-approve-all"});
+assert.ok(fullOption.step.kind === "continue" && fullOption.step.plan.action.kind === "request" && plain(fullOption.step.plan.action.call.method) === "session/set_config_option","a full-access launch enters a mode offered only as an option");
+const optionCurrent=openWithModeOption("option-current",{sessionMode:"opaque-default"});
+assert.ok(optionCurrent.step.kind === "complete" && optionCurrent.step.result.kind === "threadLoaded","a mode option already in effect sends nothing");
+console.log("✓ ACP re-enters a chosen mode through the mode config option when the agent declares one");
 const selectableModels={currentModelId:"opaque-m1",availableModels:[{modelId:"opaque-m1",name:"First"},{modelId:"opaque-m2",name:"Second"}]};
 function selectedThenFullAccess(tabId:string, resumed:boolean):string[] {
   const context={...ctx,tabId,threadId:resumed ? `${tabId}-session` : undefined,providerSettings:{fullAccessMode:"opaque-approve-all"}};

@@ -101,6 +101,88 @@ fn numeric_multiselect_rejects_unknown_bits_and_preserves_native_values() {
 }
 
 #[test]
+fn a_waiting_permission_request_follows_the_switch_to_allow_all_and_ask_leaves_it_waiting() {
+    use codeterm_plugin::agent_runtime::{
+        PendingRuntimeRequest, RuntimePermission, RuntimePermissionAction,
+        RuntimePermissionDecision, RuntimePermissionOption,
+    };
+    use tokio::io::{AsyncBufReadExt, BufReader};
+    crate::async_runtime::block_on(async {
+        let source = r#"module.exports = {
+            runtimePlan(ctx, op) {
+                if (op.kind !== 'answer' || op.answer.kind !== 'choice') throw new Error('Expected a chosen answer');
+                return {action:{kind:'reply',requestId:op.requestId,result:{kind:'success',value:{selected:op.answer.values[0]}}},state:null};
+            },
+            runtimeResponse() { return {kind:'complete',result:{kind:'done'}}; },
+            runtimeReduce(ctx,state,frames) { return {state:null,events:[]}; }
+        };"#;
+        let (fixture, tab, peer, _cleanup) =
+            engine::test_support::runtime_fixture_host_approvals_with(source);
+        let _storage = fixture.install_seeded_storage_desk();
+        let svc = &fixture.service;
+        svc.set_tab_host_approvals(&tab, false).unwrap();
+        let session = engine::for_tab(&tab).unwrap();
+        let request = RpcId::Number(21);
+        let shown = prompt();
+        session.prompts.lock().insert(
+            request.clone(),
+            engine::OutstandingRequest {
+                request: PendingRuntimeRequest {
+                    request_id: request.clone(),
+                    method: "session/request_permission".into(),
+                    params: serde_json::json!({"sessionId":"own-thread"}),
+                },
+                prompt: Some(shown.clone()),
+                permission: Some(RuntimePermission {
+                    action: RuntimePermissionAction::Command,
+                    options: vec![
+                        RuntimePermissionOption {
+                            value: "native-yes".into(),
+                            decision: RuntimePermissionDecision::AllowOnce,
+                        },
+                        RuntimePermissionOption {
+                            value: "native-no".into(),
+                            decision: RuntimePermissionDecision::RejectOnce,
+                        },
+                    ],
+                }),
+            },
+        );
+        publish(svc, &session, request.clone(), shown);
+
+        settle_after_policy_change(svc, &tab);
+        assert!(
+            session.prompts.lock().contains_key(&request),
+            "Ask each time leaves the request with the owner"
+        );
+        assert!(svc
+            .mux
+            .read()
+            .get_tab(&tab)
+            .unwrap()
+            .pending_prompt
+            .is_some());
+
+        svc.set_tab_host_approvals(&tab, true).unwrap();
+        let mut reader = BufReader::new(peer);
+        let mut line = String::new();
+        tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            reader.read_line(&mut line),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        let frame: serde_json::Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(frame["id"], serde_json::json!(21));
+        assert_eq!(
+            frame["result"],
+            serde_json::json!({"selected":"native-yes"})
+        );
+    });
+}
+
+#[test]
 fn pending_requests_cancelled_before_interrupt_and_prompts_resolved() {
     use codeterm_plugin::agent_runtime::{PendingRuntimeRequest, RuntimeClientBridges};
     use tokio::io::{AsyncBufReadExt, BufReader};

@@ -328,6 +328,7 @@ fn launch_parameters() -> RestorableLaunchParameters {
         permission_bypass_requested: false,
         runtime_launch_options: None,
         structured_runtime_mode: None,
+        ..Default::default()
     }
 }
 

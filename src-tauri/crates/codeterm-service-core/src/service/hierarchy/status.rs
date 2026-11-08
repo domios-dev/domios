@@ -22,6 +22,8 @@ pub struct TabStatusInfo {
     pub pending_prompt: Option<PendingPrompt>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub failure: Option<TabFailure>,
+    /// The effective permission state, not the launch request: no questions when true.
+    pub full_access: bool,
 }
 
 /// Why a tab's agent is not running: a failed boot or a degraded runtime, with a one-line reason.
@@ -82,6 +84,7 @@ fn tab_failure(
 impl ServiceContext {
     pub fn get_tab_status(&self, tab_id: &str) -> Result<TabStatusInfo, String> {
         let ack_failure = self.worker_ack.reported_ack_failure(tab_id);
+        let full_access = self.effective_full_access(tab_id);
         let mux = self.mux.read();
         let tab = mux
             .get_tab(tab_id)
@@ -120,6 +123,7 @@ impl ServiceContext {
                     reason,
                 })
             }),
+            full_access,
         })
     }
 }
