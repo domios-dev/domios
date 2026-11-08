@@ -184,6 +184,30 @@ test("scenario roots preserve exact internal reachability and shared execution r
 });
 
 let finished = false;
+test("a remounted resource starts from the adapter's last known graph and keeps it through its read", async () => {
+  const transport = Object.assign(new FixtureTransport(), { peek: () => fixtureGraph() });
+  const resource = new AutomationResource(transport, attachment);
+  const seeded = resource.getSnapshot();
+  assert.equal(seeded.loading, true);
+  assert.equal(seeded.graph?.scenarios.length, fixtureGraph().scenarios.length);
+  const off = resource.subscribe(() => undefined);
+  await nextSnapshot(resource, (snapshot) => !snapshot.loading);
+  assert.equal(resource.getSnapshot().graph, seeded.graph, "an identical read keeps the seeded graph's identity for its subscribers");
+  off();
+  assert.equal(resource.getSnapshot().loading, true);
+  assert.ok(resource.getSnapshot().graph, "the last subscriber leaving returns to the last known graph, not to empty");
+});
+
+test("a failed read keeps the seeded graph and a foreign seed is ignored", async () => {
+  const transport = Object.assign(new FixtureTransport(), { peek: () => fixtureGraph() });
+  transport.readOverride = () => Promise.reject(new Error("offline"));
+  const resource = new AutomationResource(transport, attachment);
+  await nextSnapshot(resource, (snapshot) => snapshot.failed);
+  assert.ok(resource.getSnapshot().graph);
+  const foreign = Object.assign(new FixtureTransport(), { peek: () => ({ ...fixtureGraph(), workspace_id: "elsewhere" }) });
+  assert.equal(new AutomationResource(foreign, attachment).getSnapshot().graph, null);
+});
+
 async function main() {
   for (const [name, run] of tests) { await run(); console.log(`✓ ${name}`); }
   console.log(`${tests.length} AutomationResource cases passed`);

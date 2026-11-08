@@ -1,4 +1,4 @@
-import { it, expect, vi } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import { act } from "react";
 import { takeNeighborFocus } from "./neighborFocus";
 import { useNeighborGatewayIds } from "./neighborGateways";
@@ -141,6 +141,75 @@ it("draws last known friends at once with a quiet refresh indicator, and stays a
   await act(async () => root.render(<SidebarNeighborsSection key="empty" touchMode={false} client={pendingClient()} runtimeClient={runtime()} />));
   await expandSection();
   expect(document.querySelector('section[aria-label="Neighbors"]')).toBeNull();
+});
+
+describe("the header's slot before its data arrives", () => {
+  const signedIn = account.model;
+  const lastKnown = (friends: unknown[]) => localStorage.setItem("domios.neighbors.last-known:owner", JSON.stringify({ access: "paid", friends }));
+  const ada = { friendship_id: "pair", uid: "peer", displayName: "Ada", photoURL: null };
+  const section = () => document.querySelector('section[aria-label="Neighbors"]');
+  async function mount(client: NeighborClient) {
+    const host = document.createElement("div"); document.body.append(host);
+    const root = createRoot(host); mounted.current = { root, host };
+    await act(async () => root.render(<SidebarNeighborsSection touchMode={false} client={client} runtimeClient={runtime()} />));
+    return root;
+  }
+  afterEach(() => { account.model = signedIn; });
+
+  it("holds it from the last known friends while the account is still being read", async () => {
+    account.model = { kind: "pending" };
+    lastKnown([ada]);
+    const client = pendingClient();
+    await mount(client);
+    expect(section()).not.toBeNull();
+    expect(document.querySelector('[aria-label="Refreshing Neighbors"]')).not.toBeNull();
+    expect(client.list).not.toHaveBeenCalled();
+  });
+
+  it("stays the same header once the account and the list arrive", async () => {
+    account.model = { kind: "pending" };
+    lastKnown([ada]);
+    const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [neighbor], incoming: [], outgoing: [] };
+    const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}) };
+    const root = await mount(client);
+    const header = section();
+    account.model = signedIn;
+    await act(async () => root.render(<SidebarNeighborsSection touchMode={false} client={client} runtimeClient={runtime()} />));
+    expect(section()).toBe(header);
+    expect(document.querySelector('[aria-label="Refreshing Neighbors"]')).toBeNull();
+  });
+
+  it("reserves it for a signed-in account with no record yet, and gives it back when the list is empty", async () => {
+    const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [], incoming: [], outgoing: [] };
+    let release!: (value: NeighborList) => void;
+    const client: NeighborClient = { list: vi.fn(() => new Promise<NeighborList>(resolve => { release = resolve; })), apply: vi.fn(async () => {}) };
+    await mount(client);
+    expect(section()).not.toBeNull();
+    await act(async () => release(list));
+    expect(section()).toBeNull();
+  });
+
+  it("stays away while the account is read when the last known list was empty, and when there is no record", async () => {
+    account.model = { kind: "pending" };
+    await mount(pendingClient());
+    expect(section()).toBeNull();
+    await act(async () => mounted.current!.root.unmount());
+    mounted.current!.host.remove();
+    lastKnown([]);
+    await mount(pendingClient());
+    expect(section()).toBeNull();
+  });
+
+  it("drops it when the account turns out to be signed out", async () => {
+    account.model = { kind: "pending" };
+    lastKnown([ada]);
+    const root = await mount(pendingClient());
+    expect(section()).not.toBeNull();
+    account.model = { kind: "signed_out" };
+    await act(async () => root.render(<SidebarNeighborsSection touchMode={false} client={pendingClient()} runtimeClient={runtime()} />));
+    expect(section()).toBeNull();
+    expect(localStorage.getItem("domios.neighbors.last-known:owner")).toBeNull();
+  });
 });
 
 it("highlights an open concierge chat like an open tab, without the friend row", async () => {
