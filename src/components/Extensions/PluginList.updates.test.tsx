@@ -56,7 +56,7 @@ it("renders badge and Updates count from the installed decision across refreshes
 });
 
 it("renders no warning state and no offer for plugins whose channel failed its check", async () => {
-  state.panel = { snapshot: { errors: { store: "opaque channel diagnostic" } }, pluginHasUpdate: () => false };
+  state.panel = { snapshot: { errors: { store: "opaque channel diagnostic" } }, diagnostics: [], pluginHasUpdate: () => false };
   host = document.createElement("div"); document.body.append(host); root = createRoot(host);
   const entries = buildCatalog({ plugins: ["first", "second"].map(id => ({ id, version: "1.0.0", source: { kind: "channel" as const, channel: "store", path: id }, update: { available: true, remote_version: "2.0.0", reason: "newer_version" } })), channels: [], diff: [] });
   await act(async () => root!.render(<PluginList entries={entries} selectedId={null} onSelect={vi.fn()} query="" onQuery={vi.fn()} filter="all" onFilter={vi.fn()} updateCount={0} onRemoveChannel={vi.fn()} activities={new Map()} activityDisplayMap={new Map()} channels={[]} selectedChannel={null} channelPluginCounts={new Map()} onSelectChannel={vi.fn()} />));
