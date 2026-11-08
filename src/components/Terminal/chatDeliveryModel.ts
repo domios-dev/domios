@@ -53,8 +53,19 @@ const ACTIVE_TURN_HOLD = "held_active_turn";
 
 /** A held send waits for the running turn when the host says so, or while the agent is mid-turn. */
 export function queuedBehindTurn(send: DeliverySend, activity: TabActivity["kind"]): boolean {
-  return deliveryState(send) === "queued"
+  return deliveryState(send) === "queued" && activity !== "failed"
     && (send.status?.pending_reason === ACTIVE_TURN_HOLD || activity === "working");
+}
+
+/** Sends nothing has confirmed yet: each keeps its bubble until it is delivered or dismissed. */
+export function undeliveredSends(sends: readonly DeliverySend[]): readonly DeliverySend[] {
+  return sends.filter((send) => !send.dismissed && deliveryState(send) !== "delivered");
+}
+
+/** Held sends with no local record, such as those from another window; a status carries no text to draw a bubble from. */
+export function unownedHeldSends(sends: readonly DeliverySend[], statuses: readonly ChatSendStatus[]): number {
+  return statuses.filter((status) => status.state === "held" && !status.system_send && status.correlationId != null
+    && !sends.some((send) => send.correlationId === status.correlationId)).length;
 }
 
 /** A send that is or was held stays after the turn it was held behind. */
@@ -131,13 +142,14 @@ export function reconcileDeliveryStatusesModel(
 export function deliveryProjectionSends(
   sends: readonly DeliverySend[], resetCutoffMs: number | null = null,
 ): readonly (DeliverySend & { echoEligible: boolean })[] {
-  return sends.filter((send) => send.dismissed || resetCutoffMs == null || deliveryState(send) === "failed" || send.sentAtMs >= resetCutoffMs)
+  return sends.filter((send) => send.dismissed || resetCutoffMs == null || deliveryState(send) !== "delivered" || send.sentAtMs >= resetCutoffMs)
     .map((send) => {
       const frame = send.status?.system_send ? parseDomiosMessage(send.content) : null;
       return {
         ...send,
         segments: frame ? [{ type: "frame" as const, kind: frame.attrs.from as FrameKind, from: frame.attrs.from, attrs: frame.attrs, body: frame.body, tip: null }] : send.segments,
         echoEligible: deliveryState(send) !== "failed",
+        neverWritten: deliveryState(send) === "queued",
         flowAtMs: send.sentAtMs,
         held: deliveryState(send) === "queued" || send.wasHeld === true,
       };

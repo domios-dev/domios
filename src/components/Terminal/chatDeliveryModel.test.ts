@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { applyDeliveryStatus, deliveryState, deliveryPresentation, queuedBehindTurn, sendForRow, reconcileDeliveryStatusesModel, reconcileAdmissionEvidence, deliveryProjectionSends, type DeliverySend } from "./chatDeliveryModel";
+import { applyDeliveryStatus, deliveryState, deliveryPresentation, queuedBehindTurn, sendForRow, reconcileDeliveryStatusesModel, reconcileAdmissionEvidence, deliveryProjectionSends, undeliveredSends, unownedHeldSends, type DeliverySend } from "./chatDeliveryModel";
 import { createTranscriptState, reduceTranscript, projectTranscript } from "@codeterm/chat-core";
 import type { ChatSendStatus } from "./chatSendStatus";
 
@@ -212,6 +212,64 @@ test("a held send stays one bubble after the running turn until its exact echo r
   const rows = projectTranscript(echoed, deliveryProjectionSends([delivered])).rows;
   assert.deepEqual(rows.map((row) => row.id), ["turn", "work", "echo"]);
   assert.equal(sendForRow([delivered], rows[2])?.id, "bubble");
+});
+
+test("a never-written send is not reconciled to a row by its text, only by its own token", () => {
+  const at = 1_800_000_000_000;
+  const authority = { sourceSessionId: "own", sessionBindingNonce: "launch" };
+  const held = applyDeliveryStatus({ ...send(), sentAtMs: at, echoBoundary: { ...authority, lastRowId: "old" } }, status("held", 1));
+  const replayed = reduceTranscript(createTranscriptState(), {
+    kind: "snapshot", authority, range: null,
+    rows: [
+      { id: "old", type: "assistant", content: "earlier" },
+      { id: "replayed", type: "user", content: "opaque", sourceSessionId: "own" },
+    ],
+  }).state;
+  const pending = projectTranscript(replayed, deliveryProjectionSends([held]));
+  assert.deepEqual(pending.rows.map((row) => row.id), ["old", "replayed", "bubble"]);
+  assert.equal(pending.echoes.size, 0);
+  const owned = reduceTranscript(replayed, {
+    kind: "delta", authority, range: null,
+    rows: [{ id: "own-echo", type: "user", content: "opaque", sourceSessionId: "own", correlationId: "token" }],
+  }).state;
+  const claimed = projectTranscript(owned, deliveryProjectionSends([held]));
+  assert.deepEqual(claimed.rows.map((row) => row.id), ["old", "replayed", "own-echo"], "its token still identifies a row a missed status wrote");
+});
+
+test("a session reset hides only sends already delivered", () => {
+  const delivered = applyDeliveryStatus(send(), status("delivered", 2));
+  for (const state of ["held", "written", "submit_unconfirmed", "failed"] as const) {
+    const kept = applyDeliveryStatus(send(), status(state, 2));
+    assert.deepEqual(deliveryProjectionSends([kept, { ...delivered, id: "old" }], 2000).map((item) => item.id), ["bubble"], state);
+  }
+});
+
+test("a held send names no turn once the runtime has failed", () => {
+  const held = applyDeliveryStatus(send(), { ...status("held", 1), pending_reason: "held_active_turn" });
+  assert.equal(queuedBehindTurn(held, "working"), true);
+  assert.equal(queuedBehindTurn(held, "failed"), false);
+  assert.equal(deliveryPresentation(held, "failed"), "queued");
+});
+
+test("only live undelivered sends stay in the body while setup owns it", () => {
+  const sends = [
+    applyDeliveryStatus({ ...send(), id: "held" }, status("held", 1)),
+    applyDeliveryStatus({ ...send(), id: "failed" }, status("failed", 2)),
+    { ...applyDeliveryStatus({ ...send(), id: "unconfirmed" }, status("submit_unconfirmed", 3)) },
+    { ...send(), id: "sending" },
+    applyDeliveryStatus({ ...send(), id: "delivered" }, status("delivered", 4)),
+    { ...applyDeliveryStatus({ ...send(), id: "dismissed" }, status("failed", 5)), dismissed: true },
+  ];
+  assert.deepEqual(undeliveredSends(sends).map((item) => item.id), ["held", "failed", "unconfirmed", "sending"]);
+});
+
+test("a held status with no local send counts as queued elsewhere; settled and owned ones do not", () => {
+  const own = send();
+  const other = { ...status("held", 1), send_id: "other", correlationId: "other-token" };
+  assert.equal(unownedHeldSends([own], [status("held", 1), other]), 1);
+  assert.equal(unownedHeldSends([own], [{ ...other, state: "written" }, { ...other, send_id: "failed", state: "failed" }]), 0);
+  assert.equal(unownedHeldSends([], [{ ...other, system_send: { content: "opaque", sent_at_ms: 1 } }]), 0);
+  assert.equal(unownedHeldSends([], [{ ...other, correlationId: undefined }]), 0);
 });
 
 test("written and unconfirmed receipts keep their meaning across agent activity", () => {

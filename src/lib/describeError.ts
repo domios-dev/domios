@@ -24,7 +24,10 @@ export function isMissingRuntimeConversation(input: unknown): boolean {
   return code === "conversationMissing" || raw.startsWith("ConversationMissing:");
 }
 
+const RUNTIME_RECOVERY_REQUIRED = /runtime recovery required/i;
+
 const runtimeFailures: readonly (readonly [RegExp, string, string])[] = [
+  [RUNTIME_RECOVERY_REQUIRED, "The agent runtime needs recovery", "The runtime stopped responding. Restart it to continue."],
   [/\bSizeLimit\b|runtime(?: hook state)? size limit/i, "The agent runtime exceeded its size limit", "The runtime could not accept more data. Review the details and start a new session if needed."],
   [/^(?:SpawnFailed\b|Runtime could not start:)/, "The agent runtime could not start", "The runtime program failed to start. Check its installation before trying again."],
   [/^(?:ProcessExited\b|Runtime (?:exited|stopped)\b)/, "The agent runtime stopped", "The runtime process ended. Retry to reconnect to the agent."],
@@ -103,7 +106,7 @@ export function describeRuntimeConnectionError(input: unknown): ErrorDescription
 export function isPendingRuntimeDeadline(input: unknown): boolean {
   const { raw, code } = unpack(input);
   const kind = code.toLowerCase();
-  if (kind === "during_turn_switch_incident" || /mid-turn model switch incident/i.test(raw)) return false;
+  if (kind === "during_turn_switch_incident" || /mid-turn model switch incident/i.test(raw) || RUNTIME_RECOVERY_REQUIRED.test(raw)) return false;
   if (kind) return ["runtime_deadline", "deadline", "deadline_exceeded"].includes(kind);
   if (/^(?:SpawnFailed|ProcessExited|PipeEof|PipeFailure|InvalidFrame|HookFailed|Refused|PrewriteRefused|Superseded)\b/i.test(raw.trim())) return false;
   return /\bdeadline\b|runtime did not respond in time/i.test(raw);

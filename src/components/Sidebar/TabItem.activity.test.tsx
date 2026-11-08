@@ -1,7 +1,9 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, it } from "vitest";
+import { __setInvokeForTest } from "../../lib/bridge";
 import { AgentStateIndicator } from "../Terminal/AgentStateIndicator";
+import { TabRecoveryAction } from "../Terminal/TabRecoveryAction";
 import { StatusLineModelPicker } from "../Terminal/StatusLineModelPicker";
 import { runtimeStatusLineIdentity } from "../Terminal/statusLinePickerModel";
 import { tabActivity } from "../../lib/tabActivity";
@@ -71,6 +73,32 @@ it("projects runtime launch failure and recovery into sidebar and status-line ac
   } finally {
     await act(async () => root.unmount());
     host.remove();
+  }
+});
+
+it("names a degraded live session truthfully and offers its restart, which targets this tab once", async () => {
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  const requests: Array<[string, unknown]> = [];
+  __setInvokeForTest(async <T,>(command: string, args?: unknown) => { requests.push([command, args]); return {} as T; });
+  const tab: Tab = {
+    id: "live-runtime", title: "Live", tab_type: "Terminal", pty_id: null, cwd: null, agent_type: "fixture-runtime",
+    agent_session_id: "own", backing: {kind:"chat_backend",plugin_id:"fixture-runtime",session_id:"own"}, boot_stage: "agent_ready",
+    agent_runtime_state: {state:"degraded",epoch:1,failureCode:"provider_refused",reason:"opaque deadline exceeded; runtime recovery required"},
+  };
+  try {
+    await act(async () => root.render(<AgentStateIndicator tab={tab} activity={tabActivity(tab,"Working")} providerName="Fixture"
+      recovery={<TabRecoveryAction tabId={tab.id} onError={() => undefined} />} />));
+    expect(host.querySelector('[role="status"][aria-label="Agent Fixture · Runtime needs recovery"]')).not.toBeNull();
+    const restart = host.querySelector<HTMLButtonElement>('button[aria-label="Restart the agent"]');
+    expect(restart).not.toBeNull();
+    await act(async () => { restart!.click(); });
+    expect(requests).toEqual([["restart_agent_tab", {tabId:"live-runtime"}]]);
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    __setInvokeForTest(null);
   }
 });
 

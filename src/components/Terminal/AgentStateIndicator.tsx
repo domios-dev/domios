@@ -40,6 +40,7 @@ export function AgentStateIndicator({
   showActivity = true,
   channelLoadingLabel,
   activeTool,
+  recovery,
 }: {
   activity: TabActivity;
   runtimeState?: AgentRuntimeState | null;
@@ -57,6 +58,8 @@ export function AgentStateIndicator({
   showActivity?: boolean;
   channelLoadingLabel?: string;
   activeTool?: ActivityTool & { id?: string; sourceSessionId?: string };
+  /** Shown only while the activity's failure offers a restart. */
+  recovery?: ReactNode;
 }) {
   const isWorking = activity.canStop;
   const isQuiet = activity.quiet;
@@ -154,6 +157,7 @@ export function AgentStateIndicator({
           <span className="ct-agent-stop__label">Stop</span>
         </button>
       )}
+      {activity.failure?.recovery === "restart" && recovery}
       {onRebind && !isQuestion && (
         <button
           type="button"

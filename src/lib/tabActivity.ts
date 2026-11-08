@@ -2,6 +2,7 @@ import type { Tab, TabAgentState, TabStatus } from "./types";
 import { runtimeResponseDeadlinePending } from "./agentRuntimeState";
 import { providerErrorReason } from "./providerSignals";
 import { shellStateLabel } from "./shellCommandState";
+import { tabFailure, type TabFailure } from "./tabFailure";
 
 export interface AgentState extends Omit<TabAgentState, "state"> {
   state: TabAgentState["state"] | "quiet";
@@ -12,6 +13,8 @@ export type TabActivityInput = Omit<Partial<Tab>, "agent_state"> & { agent_state
 export interface TabActivity {
   kind: "working" | "waiting-on-user" | "idle" | "starting" | "failed";
   label: string;
+  /** Present exactly when `kind` is "failed": what failed and how to recover. */
+  failure?: TabFailure;
   /** The label is the generic work placeholder because the provider sent no status line. */
   genericWork?: boolean;
   /** How long the finished turn took, as the provider reported it on screen. */
@@ -128,6 +131,8 @@ export function tabActivity(tab: TabActivityInput | null | undefined, status?: T
   else if (utility && shell) kind = shell.activity === "running" ? "working" : "idle";
   else if (sessionBound && authoritativeStatus === "Working") kind = "working";
   else kind = "idle";
+  const failure = kind === "failed" ? tabFailure({ status, bootStage: tab?.boot_stage, runtime: tab?.agent_runtime_state,
+    launched: sessionBound || tab?.boot_stage === "agent_ready" }) : undefined;
   const backgroundTasks = sessionBound ? Object.keys(tab?.provider_signals?.background?.running ?? {}).length : 0;
   const quiet = kind === "idle" && live?.state === "quiet";
   const state = quiet ? "quiet" : kind === "working" ? "working" : kind === "waiting-on-user" ? "question" : "idle";
@@ -143,13 +148,13 @@ export function tabActivity(tab: TabActivityInput | null | undefined, status?: T
   const lastTurnMs = kind === "idle" && matchingLive && typeof live?.elapsed_ms === "number" ? live.elapsed_ms : undefined;
   const label = question || providerReason || (utility && !launching && kind !== "failed" ? shellStateLabel(shell)
     : phase === "compacting" ? "Compacting context…" : providerLine
-      || (kind === "failed" ? status === "Dead" ? "Ended" : "Launch failed" : kind === "starting" ? "Starting…"
+      || (failure ? failure.label : kind === "starting" ? "Starting…"
         : kind === "working" ? "Working"
           : kind === "idle" && matchingLive && live?.phase && idleOutcomeLabels[live.phase] ? idleOutcomeLabels[live.phase]
           : kind === "waiting-on-user" ? questionLabels[subtype ?? "unknown"]
           : quiet ? "Session quiet — rebind to continue" : ""));
   return {
-    kind, label, genericWork, lastTurnMs, backgroundTasks, state, subtype, phase, quiet, launching,
+    kind, label, failure, genericWork, lastTurnMs, backgroundTasks, state, subtype, phase, quiet, launching,
     status: kind === "failed" ? status === "Dead" ? "Dead" : "Error"
       : kind === "waiting-on-user" ? "Waiting" : kind === "working" ? "Working" : "Idle",
     active: kind === "working",

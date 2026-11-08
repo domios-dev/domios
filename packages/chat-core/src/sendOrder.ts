@@ -45,6 +45,8 @@ export interface ChatSend {
   echo?: SendEcho;
   matchedRow?: MatchedRow;
   echoEligible?: boolean;
+  /** The host holds it unwritten, so no row can be its echo by text; only its own token can name a row. */
+  neverWritten?: boolean;
   flowAtMs?: number;
   /** Held by the host until the running turn ends, so it waits after every committed row. */
   held?: boolean;
@@ -123,6 +125,16 @@ export function reconcileSends(
   for (const send of sends) {
     if (send.echoEligible === false) {
       pending.push(send);
+      continue;
+    }
+    if (send.neverWritten) {
+      const index = send.correlationId == null ? undefined
+        : users.find((candidate) => !recorded.has(candidate) && rows[candidate].correlationId === send.correlationId);
+      if (index == null) pending.push(send);
+      else {
+        recorded.add(index);
+        claim(send, index);
+      }
       continue;
     }
     if (send.matchedRow) {
