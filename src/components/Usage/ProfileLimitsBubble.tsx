@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { useUsageSnapshot } from "../../hooks/useUsageSnapshot";
 import { formatAge } from "../../lib/timeLabels";
 import { AnchoredPopover } from "../shared/AnchoredPopover";
-import { balanceLabel, balanceNeedsRead, balanceReading } from "./balanceModel";
+import { balanceFailure, balanceLabel, balanceNeedsRead, balanceReading } from "./balanceModel";
 
 function LimitsPill({ label, text, warn, children }: { label: string; text: string; warn?: boolean; children: ReactNode }) {
   const [open, setOpen] = useState(false);
@@ -34,7 +34,7 @@ export function UnavailableLimitsBubble({ reason }: { reason: string }) {
 
 /** A balance the provider plugin reads for this profile; reads are requested, never polled. */
 export function BalanceBubble({ provider, accountId, trackingEnabled }: { provider: string; accountId: string; trackingEnabled: boolean }) {
-  const { snapshot, refresh } = useUsageSnapshot({ provider, accountId, enabled: trackingEnabled });
+  const { snapshot, error, refresh } = useUsageSnapshot({ provider, accountId, enabled: trackingEnabled });
   const requested = useRef(false);
   const needsRead = balanceNeedsRead(snapshot, Date.now());
   useEffect(() => {
@@ -44,13 +44,15 @@ export function BalanceBubble({ provider, accountId, trackingEnabled }: { provid
   }, [trackingEnabled, needsRead, refresh]);
   if (!trackingEnabled) return null;
   const reading = balanceReading(snapshot);
-  const failure = snapshot && !snapshot.parsed_ok ? snapshot.failure_reason ?? "Balance unavailable" : null;
+  const failure = balanceFailure(snapshot, error);
   const text = reading ? balanceLabel(reading) : failure ? "balance ?" : "balance …";
-  const label = reading ? `balance ${text}${reading.available ? "" : ", insufficient"}` : failure ? `balance unavailable: ${failure}` : "balance not read yet";
+  const staleCause = reading && failure ? `, last read failed: ${failure}` : "";
+  const label = reading ? `balance ${text}${reading.available ? "" : ", insufficient"}${staleCause}` : failure ? `balance unavailable: ${failure}` : "balance not read yet";
   return (
     <LimitsPill label={label} text={text} warn={Boolean(failure) || reading?.available === false}>
       <div className="head"><span className="title">Account balance</span></div>
       <p className="ct-usage-detail">{reading ? `${text}${reading.available ? "" : " — insufficient for new requests"}` : failure ?? "Reading the balance…"}</p>
+      {reading && failure ? <p className="ct-usage-detail">Last read failed: {failure}</p> : null}
       <div className="ct-usage-foot">
         <span>{snapshot ? `last updated ${formatAge(snapshot.captured_at, Date.now())}` : "not read yet"}</span>
         <button type="button" className="link" onClick={() => void refresh()}>Refresh</button>
