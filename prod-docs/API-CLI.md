@@ -61,7 +61,7 @@ These commands always name the target tab. `usage read` returns session/weekly l
 
 Both read `GET /api/tabs/{id}/agent/runtime/usage` (exact-tab, binding-checked projection); a missing post-consume count stays `null`.
 
-`domios agent model --tab TAB_ID [MODEL]` switches the model; `--reasoning-effort` and `--runtime-mode` take catalogue values (omit `MODEL` to keep it); `--runtime-mode` is owner only, and a caller with a tab credential gets `owner_required`. Unsupported values exit non-zero listing the choices; `--json` keeps `mode_used`, `model_confirmation`, `evidence`. `--speed TIER|default` and `--list-speeds` manage service tiers. Worker kinds work with or without `--plan-task`:
+`domios agent model --tab TAB_ID [MODEL]` switches the model; `--reasoning-effort` and `--runtime-mode` take catalogue values (omit `MODEL` to keep it); `--runtime-mode` belongs to the owner, and an agent caller gets `owner_required`. Unsupported values exit non-zero listing the choices; `--json` keeps `mode_used`, `model_confirmation`, `evidence`. `--speed TIER|default` and `--list-speeds` manage service tiers. Worker kinds work with or without `--plan-task`:
 
 ```bash
 domios agent spawn PROVIDER --role Worker --kind qa --parent-tab TAB_ID

@@ -50,6 +50,16 @@ fn a_refused_advertised_mode_is_named_as_refused() {
 }
 
 #[test]
+fn an_owner_choice_of_the_declared_mode_that_the_session_lost_is_still_named() {
+    let failure = missing_full_access(
+        &json!({"fullAccessMode": "opaque-approve", "sessionMode": "opaque-approve"}),
+        &loaded(Some("opaque-default"), &["opaque-default"]),
+    )
+    .unwrap();
+    assert!(failure.contains("not advertised"), "{failure}");
+}
+
+#[test]
 fn reaching_the_mode_or_declaring_none_or_an_owner_choice_is_not_a_failure() {
     let settings = loaded(
         Some("opaque-default"),

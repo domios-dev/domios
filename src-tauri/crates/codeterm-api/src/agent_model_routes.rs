@@ -157,7 +157,8 @@ pub struct AgentModelBody {
     pub restart_resume: bool,
 }
 
-/// Owner only: a runtime mode decides what an agent may do, so no agent may pick its own or another's.
+/// A runtime mode decides what an agent may do, so it takes the same authority as the picker's
+/// permission controls: no agent may pick its own or another's.
 fn require_owner_for_runtime_mode(
     state: &AppState,
     headers: &HeaderMap,
@@ -166,21 +167,13 @@ fn require_owner_for_runtime_mode(
     if body.cancel || body.runtime_mode.is_none() {
         return Ok(());
     }
-    let refusal = |status: StatusCode, error: String| {
+    crate::runtime_login::require_permission_authority(state, headers).map_err(|(status, error)| {
         (
             status,
             Json(serde_json::json!({"ok":false,"error":error,"reason":"owner_required"})),
         )
             .into_response()
-    };
-    match crate::auth::tab_caller(state, headers) {
-        Ok(None) => Ok(()),
-        Ok(Some(_)) => Err(refusal(
-            StatusCode::FORBIDDEN,
-            "Only the owner changes a tab's runtime mode".into(),
-        )),
-        Err((status, error)) => Err(refusal(status, error)),
-    }
+    })
 }
 
 pub async fn agent_model_handler(

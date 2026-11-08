@@ -11,13 +11,17 @@ fn string_setting<'a>(provider_settings: &'a Value, key: &str) -> Option<&'a str
 
 /// Why a session that loaded did not reach the full-access mode its launch declared.
 ///
-/// A mode the owner chose (`sessionMode`) replaces the declared one, so it is never a failure.
+/// A different mode the owner chose replaces the declared one, so it is never a failure.
 pub(super) fn missing_full_access(
     provider_settings: &Value,
     loaded: &RuntimeSettings,
 ) -> Option<String> {
     let declared = string_setting(provider_settings, "fullAccessMode")?;
-    if string_setting(provider_settings, "sessionMode").is_some()
+    if string_setting(
+        provider_settings,
+        super::permission_policy::SESSION_MODE_KEY,
+    )
+    .is_some_and(|chosen| chosen != declared)
         || loaded.mode.as_deref() == Some(declared)
     {
         return None;
