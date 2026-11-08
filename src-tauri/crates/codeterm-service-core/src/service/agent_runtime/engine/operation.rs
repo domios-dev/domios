@@ -466,7 +466,8 @@ async fn run_inner(
                                     return false;
                                 }
                             }
-                            model::accepts_response_event(&context, &current, event)
+                            model::reply_may_report_turn(&operation, event)
+                                && model::accepts_response_event(&context, &current, event)
                         })
                         .collect();
                     let at = chrono::Utc::now().timestamp_millis().max(0) as u64;

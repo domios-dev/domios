@@ -307,12 +307,82 @@ fn mock_runtime_interrupt_waits_for_events_and_deadline_degrades_without_idle() 
             session.state.lock().phase,
             RuntimePhase::Degraded { .. }
         ));
-        assert_eq!(
-            session.context.lock().active_turn_id.as_deref(),
-            Some("never-completes")
-        );
+        assert!(session.context.lock().active_turn_id.is_none());
     });
     engine::stop_blocking(&fixture.service, &id).unwrap();
+}
+
+#[test]
+fn stop_with_no_provider_turn_settles_at_once_without_interrupt_or_degrade() {
+    use crate::service::agent_runtime::{
+        engine::test_support::runtime_fixture_turn_scoped, turn_requests::tests as turn_fixture,
+    };
+    use std::{
+        pin::Pin,
+        task::{Context, Poll, Waker},
+    };
+    use tokio::io::{AsyncBufRead, BufReader};
+    let (fixture, tab, peer, _cleanup) = runtime_fixture_turn_scoped(turn_fixture::SOURCE);
+    let session = engine::for_tab(&tab).unwrap();
+    let (thread, epoch) = {
+        let context = session.context.lock();
+        (context.thread_id.clone().unwrap(), context.epoch)
+    };
+    crate::async_runtime::block_on(async {
+        super::super::super::subscriber::publish_events(
+            &fixture.service,
+            &session,
+            epoch,
+            vec![
+                codeterm_plugin::agent_runtime::AgentRuntimeEvent::TurnState {
+                    thread_id: thread,
+                    turn_id: Some("no-prompt-behind-this".into()),
+                    parent_thread_id: None,
+                    state: codeterm_plugin::agent_runtime::RuntimeTurnState::Working,
+                    detail: None,
+                    status_line: None,
+                    started_at: None,
+                    completed_at: None,
+                },
+            ],
+            1,
+        )
+        .await
+        .unwrap();
+        assert!(session.context.lock().active_turn_id.is_some());
+        let result =
+            crate::service::stop_execution::stop_agent_turn(fixture.service.clone(), tab.clone())
+                .await
+                .unwrap();
+        assert_eq!(
+            result,
+            serde_json::json!({"ok":true,"stopped":false,"reason":"not_working","status":"idle","route":"runtime"})
+        );
+    });
+    assert!(session.context.lock().active_turn_id.is_none());
+    assert!(session.state.lock().active_turn_started_at_ms.is_none());
+    assert!(matches!(session.state.lock().phase, RuntimePhase::Ready));
+    assert_eq!(
+        fixture
+            .service
+            .mux
+            .read()
+            .get_tab(&tab)
+            .unwrap()
+            .agent_state
+            .as_ref()
+            .unwrap()
+            .state,
+        codeterm_types::pty::TimelineState::Idle
+    );
+    let mut peer = BufReader::new(peer);
+    assert!(
+        matches!(
+            Pin::new(&mut peer).poll_fill_buf(&mut Context::from_waker(Waker::noop())),
+            Poll::Pending
+        ),
+        "no interrupt reaches a provider that has no turn"
+    );
 }
 
 #[test]

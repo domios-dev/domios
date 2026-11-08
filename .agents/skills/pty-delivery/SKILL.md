@@ -114,6 +114,11 @@ Claimed or uncertain records remain held and are never replayed.
   order, when the turn settles. A written prompt the agent refused while busy
   stays `submit_unconfirmed` with an `agent_refused_while_busy` reason: no
   Retry, no replay, late own-session evidence still delivers it.
+- A degraded runtime owns no turn: its active turn clears and held sends resolve
+  once. The owner retries readiness and writes them in order when the runtime
+  loads again. If that attempt fails on the published degraded state, each
+  never-written send settles `failed` with `launch_degraded_before_write` and
+  Retry; sign-in and a replaced launch keep them held for the launch that follows.
 - `written/submit_unconfirmed → delivered` only happens
   when the tab's **own bound session transcript** appends a user turn whose
   normalized content equals the send's payload
@@ -207,4 +212,4 @@ Expected turn evidence and the Chat reader follow the same rule.
 | Closed-chat append-window evidence scan | `service/chat_send_evidence.rs` |
 | Live transcript deltas (evidence source) | `service/tab_chat/` sinks |
 
-<!-- revision: 9 -->
+<!-- revision: 10 -->

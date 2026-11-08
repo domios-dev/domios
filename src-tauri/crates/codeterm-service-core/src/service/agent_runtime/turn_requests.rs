@@ -663,7 +663,18 @@ pub(crate) const ACTIVE_TURN_HOLD: &str = "held_active_turn";
 /// A declared turn-scoped submit owns its turn until its reply, so another submit while a turn
 /// is outstanding would be a concurrent prompt the runtime never declared it accepts.
 pub(crate) fn holds_new_submit(session: &Session) -> bool {
-    let turn_scoped = session
+    if !submit_owns_turn(session) {
+        return false;
+    }
+    let (active, epoch) = {
+        let context = session.context.lock();
+        (context.active_turn_id.is_some(), context.epoch)
+    };
+    active || waiting(session, epoch)
+}
+
+fn submit_owns_turn(session: &Session) -> bool {
+    session
         .adapter
         .lock()
         .clone()
@@ -673,15 +684,12 @@ pub(crate) fn holds_new_submit(session: &Session) -> bool {
                 .turn_scoped_requests
                 .iter()
                 .any(|kind| kind == "submitTurn")
-        });
-    if !turn_scoped {
-        return false;
-    }
-    let (active, epoch) = {
-        let context = session.context.lock();
-        (context.active_turn_id.is_some(), context.epoch)
-    };
-    active || waiting(session, epoch)
+        })
+}
+
+/// With no request awaiting a reply the provider has no turn to cancel, whatever the host recorded.
+pub(super) fn no_provider_turn(session: &Session, epoch: u64) -> bool {
+    submit_owns_turn(session) && !waiting(session, epoch)
 }
 
 pub(super) async fn cancel_timed_out(
