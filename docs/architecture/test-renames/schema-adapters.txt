@@ -1,0 +1,1 @@
+session::store::tests::storage_desk_legacy_decoder_preserves_nested_layout_and_opaque_identity_values -> session::store::tests::storage_desk_current_rows_preserve_nested_layout_and_opaque_identity_values_on_reopen

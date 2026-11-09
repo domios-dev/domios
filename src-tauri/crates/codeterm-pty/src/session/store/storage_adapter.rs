@@ -1,15 +1,10 @@
-use super::legacy_decode;
 use super::{SessionSnapshot, SplitNodeSnapshot, TabSnapshot, WorkspaceSnapshot};
-#[cfg(test)]
-use codeterm_storage::StorageConfig;
 use codeterm_storage::{
     Committed, Completion, DeskAgentSessionIdentity, DeskLayoutNode, DeskLeafFields, DeskSnapshot,
     DeskState, DeskTab, DeskTeam, DeskTeamLifecycle, DeskWorkspace, Revision, Storage,
 };
 use codeterm_types::plan::task_key::WorkspaceTaskKeys;
 use std::collections::HashSet;
-#[cfg(test)]
-use std::path::Path;
 use std::time::Duration;
 
 const COMPLETION_DEADLINE: Duration = Duration::from_secs(30);
@@ -22,44 +17,13 @@ fn snapshot_workspace_ids(snapshot: &SessionSnapshot) -> HashSet<String> {
         .collect()
 }
 
-/// Blocking, dormant bridge from legacy snapshots to typed desk rows; use off the async runtime.
 pub struct StorageDeskAdapter {
     storage: Storage,
 }
 
 impl StorageDeskAdapter {
-    /// Storage open is blocking and must run off the async runtime and outside mux locks.
-    #[cfg(test)]
-    pub fn open(root: impl AsRef<Path>) -> Result<Self, String> {
-        let storage =
-            Storage::open(root, StorageConfig::default()).map_err(|error| error.to_string())?;
-        Ok(StorageDeskAdapter { storage })
-    }
-
     pub fn from_storage(storage: Storage) -> Self {
         StorageDeskAdapter { storage }
-    }
-
-    pub fn import_legacy(
-        &self,
-        snapshot_json: &str,
-        identity_catalog_json: Option<&str>,
-    ) -> Result<(), String> {
-        let decoded = legacy_decode::decode_snapshot(snapshot_json)?;
-        let identities = legacy_decode::decode_identity_catalog(identity_catalog_json)?;
-        let mut snapshot = to_desk_snapshot(&decoded.snapshot, identities)?;
-        if snapshot.workspaces.len() != decoded.layouts.len() {
-            return Err("legacy snapshot layout count does not match workspaces".to_string());
-        }
-        for (workspace, layouts) in snapshot.workspaces.iter_mut().zip(decoded.layouts) {
-            if workspace.tabs.len() != layouts.len() {
-                return Err("legacy snapshot layout count does not match tabs".to_string());
-            }
-            for (tab, layout) in workspace.tabs.iter_mut().zip(layouts) {
-                tab.layout = layout;
-            }
-        }
-        self.import_normalized(snapshot)
     }
 
     pub fn import_snapshot(
