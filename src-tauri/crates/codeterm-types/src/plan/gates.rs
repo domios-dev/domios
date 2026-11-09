@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 /// How long an open gate stays silent before it's considered stale (24 h).
 pub const STALE_GATE_MS: u64 = 24 * 60 * 60 * 1000;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum GateStatus {
     Open,
@@ -12,7 +12,7 @@ pub enum GateStatus {
 }
 
 /// An immutable audit record of a gate answer (once written, never changed).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 pub struct GateAnswer {
     pub text: String,
     pub by_tab_id: Option<String>,
@@ -20,7 +20,7 @@ pub struct GateAnswer {
 }
 
 /// Structured decision request that parks blocking tasks until answered.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 pub struct DecisionGate {
     pub id: String,
     pub question: String,

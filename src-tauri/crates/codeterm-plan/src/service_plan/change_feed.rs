@@ -6,7 +6,7 @@ const PENDING_PLAN_LIMIT: usize = 128;
 const CHANGED_TASK_LIMIT: usize = 128;
 const CHANGED_TASK_BYTES: usize = 16 * 1024;
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 pub struct CommittedPlanChange {
     pub plan_id: String,
     pub revision: String,

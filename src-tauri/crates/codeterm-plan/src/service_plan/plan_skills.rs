@@ -6,7 +6,7 @@ use sha2::{Digest, Sha256};
 use crate::service_plan::PlanError;
 use crate::service_plan::PlanStore;
 
-#[derive(Debug, Clone, Serialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, PartialEq, ts_rs::TS)]
 pub struct PlanSkillLedgerEntry {
     pub seq: u64,
     pub slug: String,
@@ -14,7 +14,7 @@ pub struct PlanSkillLedgerEntry {
     pub rationale: String,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, PartialEq, ts_rs::TS)]
 pub struct PlanSkillSummary {
     pub slug: String,
     pub title: String,
@@ -27,7 +27,7 @@ pub struct PlanSkillSummary {
     pub skill_dir: String,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, PartialEq, ts_rs::TS)]
 pub struct PlanSkillDetail {
     pub slug: String,
     pub title: String,

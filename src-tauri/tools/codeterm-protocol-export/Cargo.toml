@@ -9,6 +9,7 @@ publish = false
 workspace = true
 
 [dependencies]
+codeterm-plan = { path = "../../crates/codeterm-plan", default-features = false }
 codeterm-mem = { path = "../../crates/codeterm-mem", default-features = false }
 codeterm-agent-model = { path = "../../crates/codeterm-agent-model", default-features = false }
 codeterm-worker-services = { path = "../../crates/codeterm-worker-services", default-features = false }

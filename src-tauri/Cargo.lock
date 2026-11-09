@@ -1993,6 +1993,7 @@ dependencies = [
  "serde_yaml",
  "sha2 0.10.9",
  "tempfile",
+ "ts-rs",
  "uuid",
  "workspace-hack",
 ]
@@ -2111,6 +2112,7 @@ dependencies = [
  "codeterm-agent-model",
  "codeterm-mem",
  "codeterm-mesh",
+ "codeterm-plan",
  "codeterm-plugin",
  "codeterm-pty",
  "codeterm-storage",

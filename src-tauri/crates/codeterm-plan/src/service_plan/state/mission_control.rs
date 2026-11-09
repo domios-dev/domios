@@ -27,7 +27,7 @@ const WORKER_REPORT_KIND: &str = "worker_report";
 /// Newest collapsed lines kept in the snapshot; `recorded_events` stays exact.
 pub const EVENT_LOG_LIMIT: usize = 200;
 
-#[derive(Debug, Clone, Serialize, Default, PartialEq)]
+#[derive(Debug, Clone, Serialize, Default, PartialEq, ts_rs::TS)]
 pub struct MissionControl {
     pub held: HeldForDecision,
     pub bounces: BounceSummary,
@@ -37,7 +37,7 @@ pub struct MissionControl {
     pub spend: MissionControlSpend,
 }
 
-#[derive(Debug, Clone, Serialize, Default, PartialEq)]
+#[derive(Debug, Clone, Serialize, Default, PartialEq, ts_rs::TS)]
 pub struct HeldForDecision {
     pub held_reviews: Vec<HeldReview>,
     pub open_gates: Vec<OpenDecisionGate>,
@@ -46,7 +46,7 @@ pub struct HeldForDecision {
     pub verdicts_on_held: usize,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, PartialEq, ts_rs::TS)]
 pub struct HeldReview {
     pub task_id: String,
     pub name: String,
@@ -55,7 +55,7 @@ pub struct HeldReview {
     pub age_ms: Option<u64>,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, PartialEq, ts_rs::TS)]
 pub struct OpenDecisionGate {
     pub id: String,
     pub question: String,
@@ -67,7 +67,7 @@ pub struct OpenDecisionGate {
     pub tab_id: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Default, PartialEq)]
+#[derive(Debug, Clone, Serialize, Default, PartialEq, ts_rs::TS)]
 pub struct BounceSummary {
     pub total_attempts: usize,
     pub tasks_on_second_attempt: usize,
@@ -75,7 +75,7 @@ pub struct BounceSummary {
     pub labelled_bounced: usize,
 }
 
-#[derive(Debug, Clone, Serialize, Default, PartialEq)]
+#[derive(Debug, Clone, Serialize, Default, PartialEq, ts_rs::TS)]
 pub struct EventLog {
     /// Events before collapse and truncation; `entries` may be shorter on both counts.
     pub recorded_events: usize,
@@ -83,13 +83,13 @@ pub struct EventLog {
     pub entries: Vec<PlanEvent>,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, PartialEq, ts_rs::TS)]
 pub struct LinkedEventTask {
     pub id: String,
     pub name: String,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, PartialEq, ts_rs::TS)]
 pub struct PlanEvent {
     pub ts: u64,
     /// Last event folded into this line; equals `ts` when `count` is 1.
@@ -101,11 +101,12 @@ pub struct PlanEvent {
     pub task_id: Option<String>,
     pub task_name: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[ts(as = "Option<Vec<LinkedEventTask>>", optional)]
     pub linked_tasks: Vec<LinkedEventTask>,
     pub text: String,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, Default, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum AreaFacetState {
     Declared,
@@ -113,7 +114,7 @@ pub enum AreaFacetState {
     NoFacet,
 }
 
-#[derive(Debug, Clone, Serialize, Default, PartialEq)]
+#[derive(Debug, Clone, Serialize, Default, PartialEq, ts_rs::TS)]
 pub struct AreaGrouping {
     pub state: AreaFacetState,
     pub facet_key: Option<String>,
@@ -124,7 +125,7 @@ pub struct AreaGrouping {
     pub role_fallback: Vec<RoleGroup>,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, PartialEq, ts_rs::TS)]
 pub struct AreaGroup {
     pub value: String,
     pub label: String,
@@ -132,7 +133,7 @@ pub struct AreaGroup {
     pub task_ids: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, PartialEq, ts_rs::TS)]
 pub struct RoleGroup {
     /// `None` is the stored absence of an executor role, never a guess.
     pub executor_role: Option<String>,
@@ -140,14 +141,14 @@ pub struct RoleGroup {
     pub task_ids: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum KpiLedgerState {
     Recording,
     NotRecording,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum KpiNotRecordingReason {
     /// Someone opted out: `kpi.enabled` is false, so no ledger exists to read.
@@ -164,7 +165,7 @@ pub enum KpiNotRecordingReason {
 /// rather than a string hand-copied into the UI.
 pub use codeterm_types::config::schema::KPI_ENABLED_KEY as KPI_ENABLED_SETTING;
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, ts_rs::TS)]
 pub struct MissionControlKpi {
     pub state: KpiLedgerState,
     pub not_recording_reason: Option<KpiNotRecordingReason>,
@@ -204,7 +205,7 @@ impl MissionControlKpi {
 }
 
 /// Every figure comes from the one `aggregate_by_plan` row for this plan.
-#[derive(Debug, Clone, Copy, Serialize, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Default, PartialEq, Eq, ts_rs::TS)]
 pub struct PlanKpiSpend {
     pub events: u64,
     pub bytes: u64,
@@ -212,7 +213,7 @@ pub struct PlanKpiSpend {
     pub tokens: PlanKpiTokens,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Default, PartialEq, Eq, ts_rs::TS)]
 pub struct PlanKpiTokens {
     pub input: u64,
     pub uncached_input: u64,
@@ -223,7 +224,7 @@ pub struct PlanKpiTokens {
 /// The only scope this section can honestly claim today: plan attribution reaches
 /// task, owner and planner bindings, so a ledger-wide total is a machine total and
 /// is labelled one rather than being reported as a plan's spend.
-#[derive(Debug, Clone, Serialize, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, Default, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum SpendScope {
     #[default]
@@ -233,7 +234,7 @@ pub enum SpendScope {
 /// Measured spend on this machine, grouped by provider and model. Every figure is a
 /// sum over `token_usage` rows; the provider percentages beside them are a separate
 /// provider/window allowance reading and are never apportioned across models.
-#[derive(Debug, Clone, Serialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, PartialEq, ts_rs::TS)]
 pub struct MissionControlSpend {
     pub scope: SpendScope,
     pub state: KpiLedgerState,
@@ -288,7 +289,7 @@ impl MissionControlSpend {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Default, PartialEq)]
+#[derive(Debug, Clone, Serialize, Default, PartialEq, ts_rs::TS)]
 pub struct ProviderSpend {
     pub provider: String,
     pub label: String,
@@ -307,7 +308,8 @@ pub struct ProviderSpend {
 /// and Codex's `used_percent`, with Codex's text path converting a "left" reading to
 /// used before it is stored — so nothing here inverts a percentage. The granularity
 /// is the provider and the window; no per-model denominator exists in either source.
-#[derive(Debug, Clone, Serialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, PartialEq, ts_rs::TS)]
+#[ts(rename = "MissionControlProviderAllowance")]
 pub struct ProviderAllowance {
     pub captured_at: i64,
     pub session_used_pct: Option<f32>,
@@ -317,7 +319,7 @@ pub struct ProviderAllowance {
     pub stale_reason: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Default, PartialEq)]
+#[derive(Debug, Clone, Serialize, Default, PartialEq, ts_rs::TS)]
 pub struct ModelSpend {
     /// `None` is the ledger's unresolved model identity, carried as its own visible
     /// row. It is never guessed from the provider and never dropped.

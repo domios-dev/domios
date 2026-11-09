@@ -1,8 +1,10 @@
-// TS mirror of the Rust plan model (src-tauri/src/plan/types.rs). Field names
-// match the JSON wire shape (serde snake_case; Task.type via serde rename).
+type PlanHydrated<T, K extends keyof T, N extends keyof T = never> = Pick<{ [P in keyof T]: T[P] | (P extends N ? null : never) }, K> & Partial<Omit<{ [P in keyof T]: T[P] | (P extends N ? null : never) }, K>>;
+type NullableOptionals<T> = T extends unknown ? { [K in keyof T]: T[K] | ({} extends Pick<T, K> ? null : never) } : never;
 
-export type PlanStatus = "active" | "archived";
-export type TaskStatus = "pending" | "in_progress" | "in_review" | "blocked" | "paused" | "done" | "cancelled";
+// Canvas hydration views compose the generated Rust wire contracts.
+
+export type PlanStatus = import("../../../gen/PlanStatus").PlanStatus;
+export type TaskStatus = import("../../../gen/TaskStatus").TaskStatus;
 // instead of bare string literals (type + value namespaces merge by design).
 export const TaskStatus = {
   Pending: "pending",
@@ -13,241 +15,95 @@ export const TaskStatus = {
   Done: "done",
   Cancelled: "cancelled",
 } as const satisfies Record<string, TaskStatus>;
-export type LoopStatus = "running" | "done" | "exhausted" | "stopped";
-export type DriftKind =
-  | "in_progress_tab_gone"
-  | "stale_in_review"
-  | "stale_pending_unstaffed"
-  | "bound_to_closed_tab"
-  | "accepted_but_not_done";
+export type LoopStatus = import("../../../gen/LoopStatus").LoopStatus;
+export type DriftKind = import("../../../gen/DriftKind").DriftKind;
 
-export interface DriftItem {
-  task_id: string;
-  plan_id: string;
+export type DriftItem = Omit<PlanHydrated<Pick<import("../../../gen/DriftItem").DriftItem, Extract<keyof import("../../../gen/DriftItem").DriftItem, "task_id" | "plan_id" | "kind" | "detail" | "suggested_fix" | "not_mine">>, "task_id" | "plan_id" | "kind" | "detail" | "suggested_fix" | "not_mine", never>, "kind"> & {
   kind: DriftKind;
-  detail: string;
-  suggested_fix: string;
-  not_mine: boolean;
-}
+};
 
-export interface ElementCanvas {
-  x: number | null;
-  y: number | null;
-  collapsed: boolean;
-}
+export type ElementCanvas = PlanHydrated<Pick<import("../../../gen/ElementCanvas").ElementCanvas, Extract<keyof import("../../../gen/ElementCanvas").ElementCanvas, "x" | "y" | "collapsed">>, "x" | "y" | "collapsed", "x" | "y">;
 
-export interface OrchestratorRef {
-  tab_id: string | null;
-  session_id: string | null;
-  title: string | null;
-}
+export type OrchestratorRef = PlanHydrated<Pick<import("../../../gen/OrchestratorRef").OrchestratorRef, Extract<keyof import("../../../gen/OrchestratorRef").OrchestratorRef, "tab_id" | "session_id" | "title">>, "tab_id" | "session_id" | "title", "tab_id" | "session_id" | "title">;
 export type AgentRef = OrchestratorRef;
 
-export type PlannerRef =
-  | { kind: "tab"; tab_id: string; session_id?: string | null; title?: string | null }
-  | { kind: "waived"; note: string };
+export type PlannerRef = NullableOptionals<import("../../../gen/PlannerRef").PlannerRef>;
 
-export type PlanMode = "planning" | "approved" | "execution" | "paused" | "complete";
-export type PlanningState = "drafting" | "structure_ready" | "approved";
+export type PlanMode = import("../../../gen/PlanMode").PlanMode;
+export type PlanningState = import("../../../gen/PlanningState").PlanningState;
 
-export interface TaskLaneMetadata {
-  tab_id?: string | null;
-  workspace_id?: string | null;
-  workspace_name?: string | null;
-  worktree_path?: string | null;
-  branch?: string | null;
-  base?: string | null;
-  destination?: string | null;
-  cleanup_status?: string | null;
-  cleanup_hints?: string[];
-}
+export type TaskLaneMetadata = PlanHydrated<Pick<import("../../../gen/TaskLaneMetadata").TaskLaneMetadata, Extract<keyof import("../../../gen/TaskLaneMetadata").TaskLaneMetadata, "tab_id" | "workspace_id" | "workspace_name" | "worktree_path" | "branch" | "base" | "destination" | "cleanup_status" | "cleanup_hints">>, never, "tab_id" | "workspace_id" | "workspace_name" | "worktree_path" | "branch" | "base" | "destination" | "cleanup_status">;
 
-export interface LaneTurnChangeStats {
-  turn: number;
-  captured_at: number;
-  transcript_turn_key?: string | null;
-  numstat?: string | null;
-  staged_numstat?: string | null;
-  untracked_file_count?: number | null;
-  checkpoint_ref?: string | null;
-  checkpoint_refusal?: "lfs_repository" | "non_cone_sparse_checkout" | "git_failure" | "deadline" | null;
-}
+export type LaneTurnChangeStats = PlanHydrated<Pick<import("../../../gen/LaneTurnChangeStats").LaneTurnChangeStats, Extract<keyof import("../../../gen/LaneTurnChangeStats").LaneTurnChangeStats, "turn" | "captured_at" | "transcript_turn_key" | "numstat" | "staged_numstat" | "untracked_file_count" | "checkpoint_ref" | "checkpoint_refusal">>, "turn" | "captured_at", "transcript_turn_key" | "numstat" | "staged_numstat" | "untracked_file_count" | "checkpoint_ref" | "checkpoint_refusal">;
 
-export interface TransferRecord {
+export type TransferRecord = Omit<PlanHydrated<Pick<import("../../../gen/TransferRecord").TransferRecord, Extract<keyof import("../../../gen/TransferRecord").TransferRecord, "from" | "to" | "ts" | "reason">>, "from" | "to" | "ts" | "reason", never>, "from" | "to"> & {
   from: OrchestratorRef;
   to: OrchestratorRef;
-  ts: number;
-  reason: string;
-}
+};
 
-export interface PlanLifecycleEvent {
-  id: string;
-  kind: string;
-  at: number;
+export type PlanLifecycleEvent = Omit<PlanHydrated<Pick<import("../../../gen/PlanLifecycleEvent").PlanLifecycleEvent, Extract<keyof import("../../../gen/PlanLifecycleEvent").PlanLifecycleEvent, "id" | "kind" | "at" | "author">>, "id" | "kind" | "at" | "author", never>, "author"> & {
   author: OrchestratorRef;
-}
+};
 
-export interface MilestoneKind {
-  key: string;
-  label: string;
-  color: string | null;
-}
+export type MilestoneKind = PlanHydrated<Pick<import("../../../gen/MilestoneKind").MilestoneKind, Extract<keyof import("../../../gen/MilestoneKind").MilestoneKind, "key" | "label" | "color">>, "key" | "label" | "color", "color">;
 
-export interface TaskGroup {
-  key: string;
-  label: string;
-  color?: string | null;
-}
+export type TaskGroup = PlanHydrated<Pick<import("../../../gen/TaskGroup").TaskGroup, Extract<keyof import("../../../gen/TaskGroup").TaskGroup, "key" | "label" | "color">>, "key" | "label", "color">;
 
-export interface TagFacetValue {
-  v: string;
-  label?: string | null;
-  color?: string | null;
-}
+export type TagFacetValue = PlanHydrated<Pick<import("../../../gen/TagFacetValue").TagFacetValue, Extract<keyof import("../../../gen/TagFacetValue").TagFacetValue, "v" | "label" | "color">>, "v", "label" | "color">;
 
-export interface TagFacet {
-  key: string;
-  label?: string | null;
-  color_lane?: boolean;
+export type TagFacet = Omit<PlanHydrated<Pick<import("../../../gen/TagFacet").TagFacet, Extract<keyof import("../../../gen/TagFacet").TagFacet, "key" | "label" | "color_lane" | "values">>, "key" | "values", "label">, "values"> & {
   values: readonly TagFacetValue[];
-}
+};
 
-export interface Section {
-  id: string;
-  title: string;
-  body: string;
-  tags?: string[];
+export type Section = Omit<PlanHydrated<Pick<import("../../../gen/Section").Section, Extract<keyof import("../../../gen/Section").Section, "id" | "title" | "body" | "tags" | "subsections" | "canvas" | "attachments">>, "id" | "title" | "body" | "subsections" | "canvas", never>, "subsections" | "canvas" | "attachments"> & {
   subsections: Section[];
   canvas: ElementCanvas;
   attachments?: PlanAttachment[];
-}
+};
 
-export interface Milestone {
-  id: string;
-  from: AgentRef;
-  kind: string;
-  text: string;
-  ts: number;
-  links: string[];
-  loop_id: string | null;
-  iteration: number | null;
+export type Milestone = Omit<PlanHydrated<Pick<import("../../../gen/Milestone").Milestone, Extract<keyof import("../../../gen/Milestone").Milestone, "id" | "from" | "kind" | "text" | "ts" | "links" | "loop_id" | "iteration" | "canvas" | "attachments">>, "id" | "from" | "kind" | "text" | "ts" | "links" | "loop_id" | "iteration" | "canvas", "loop_id" | "iteration">, "canvas" | "attachments"> & {
   canvas: ElementCanvas;
   attachments?: PlanAttachment[];
-}
+};
 
-export interface PlanAttachment {
-  id: string;
-  name: string;
-  path: string;
-  media_type: string;
-  size_bytes: number;
-  created_at: number;
-}
+export type PlanAttachment = PlanHydrated<Pick<import("../../../gen/AttachmentRef").AttachmentRef, Extract<keyof import("../../../gen/AttachmentRef").AttachmentRef, "id" | "name" | "path" | "media_type" | "size_bytes" | "created_at">>, "id" | "name" | "path" | "media_type" | "size_bytes" | "created_at", never>;
 
-export type TaskPriority = "p0" | "p1" | "p2" | "p3"; // p0 = highest
+export type TaskPriority = import("../../../gen/TaskPriority").TaskPriority; // p0 = highest
 export const TaskPriority = { P0: "p0", P1: "p1", P2: "p2", P3: "p3" } as const satisfies Record<string, TaskPriority>;
-export type ReviewStage = "review" | "qa";
-export type QaState = "queued" | "running";
+export type ReviewStage = import("../../../gen/ReviewStage").ReviewStage;
+export type QaState = import("../../../gen/QaState").QaState;
 
-export interface TaskCompetitionMetadata {
-  enabled?: boolean;
-  attempts?: number | null;
-  models?: string[];
-  judge_hint?: string | null;
-}
+export type TaskCompetitionMetadata = PlanHydrated<Pick<import("../../../gen/TaskCompetitionMetadata").TaskCompetitionMetadata, Extract<keyof import("../../../gen/TaskCompetitionMetadata").TaskCompetitionMetadata, "enabled" | "attempts" | "models" | "judge_hint">>, never, "attempts" | "judge_hint">;
 
-export interface TaskExecutionReportSnapshot {
-  id?: string;
-  message?: string | null;
-  status?: string | null;
-}
+export type TaskExecutionReportSnapshot = PlanHydrated<Pick<import("../../../gen/TaskExecutionReportSnapshot").TaskExecutionReportSnapshot, Extract<keyof import("../../../gen/TaskExecutionReportSnapshot").TaskExecutionReportSnapshot, "id" | "message" | "status">>, never, "message" | "status">;
 
-export interface TaskExecutionAttempt {
-  id?: string;
+export type TaskExecutionAttempt = Omit<PlanHydrated<Pick<import("../../../gen/TaskExecutionAttempt").TaskExecutionAttempt, Extract<keyof import("../../../gen/TaskExecutionAttempt").TaskExecutionAttempt, "id" | "tab_id" | "tab_title" | "executor_tab_id" | "executor_title" | "provider" | "agent_type" | "model" | "reasoning_effort" | "actual_reasoning_effort" | "session_model" | "session_id" | "role" | "branch" | "worktree_path" | "report" | "report_status" | "assigned_at" | "reported_at" | "closed_at" | "outcome" | "competition_group_id" | "competition_lane" | "judge_verdict" | "judge_reason" | "judged_at" | "winner" | "lane_turn_stats">>, never, "executor_tab_id" | "executor_title" | "provider" | "agent_type" | "model" | "reasoning_effort" | "actual_reasoning_effort" | "session_model" | "session_id" | "role" | "branch" | "worktree_path" | "report" | "competition_group_id" | "competition_lane" | "judge_verdict" | "judge_reason">, "report" | "lane_turn_stats"> & {
+  report?: TaskExecutionReportSnapshot | null;
+  lane_turn_stats?: LaneTurnChangeStats[];
   tab_id?: string | null;
   tab_title?: string | null;
-  executor_tab_id?: string | null;
-  executor_title?: string | null;
-  provider?: string | null;
-  agent_type?: string | null;
-  model?: string | null;
-  reasoning_effort?: string | null;
-  actual_reasoning_effort?: string | null;
-  session_model?: string | null;
-  session_id?: string | null;
-  role?: string | null;
-  branch?: string | null;
-  worktree_path?: string | null;
-  report?: TaskExecutionReportSnapshot | null;
   report_status?: string | null;
-  assigned_at?: number;
-  reported_at?: number;
-  closed_at?: number;
   outcome?: string | null;
-  competition_group_id?: string | null;
-  competition_lane?: number | null;
-  judge_verdict?: string | null;
-  judge_reason?: string | null;
-  judged_at?: number;
-  winner?: boolean;
-  lane_turn_stats?: LaneTurnChangeStats[];
-}
+};
 
-export interface ExternalRef {
-  kind: "github_issue";
-  repository: string;
-  number: number;
-  canonical_url: string;
-  relationship?: "fixes" | "relates_to";
-}
+export type ExternalRef = PlanHydrated<Pick<import("../../../gen/ExternalRef").ExternalRef, Extract<keyof import("../../../gen/ExternalRef").ExternalRef, "kind" | "repository" | "number" | "canonical_url" | "relationship">>, "kind" | "repository" | "number" | "canonical_url", never>;
 
-export interface Task {
-  criteria_count?: number;
-  milestone_count?: number;
-  files?: { edit: string[]; read: string[] };
-  id: string;
-  name: string;
-  type: string; // open string: implement | research | review | ...
-  model: string | null;
-  model_rationale: string | null;
+export type Task = Omit<PlanHydrated<Pick<import("../../../gen/Task").Task, Extract<keyof import("../../../gen/Task").Task, "criteria_count" | "milestone_count" | "files" | "id" | "name" | "type" | "model" | "model_rationale" | "status" | "review_stage" | "qa_state" | "status_label" | "priority" | "created_at" | "updated_at" | "status_changed_at" | "handle" | "key" | "tags" | "group" | "section_ids" | "body" | "role_guidance" | "executor_role" | "personality" | "acceptance_criteria" | "external_refs" | "test_plan" | "correctness" | "links" | "intent" | "parent_task_id" | "assigned_tab_id" | "lane" | "taken_by_role" | "peer" | "competition" | "execution_attempts" | "pause_reason" | "canvas" | "milestones" | "attachments">>, "id" | "name" | "type" | "model" | "model_rationale" | "status" | "status_label" | "section_ids" | "body" | "intent" | "parent_task_id" | "assigned_tab_id" | "peer" | "canvas" | "milestones", "model" | "model_rationale" | "qa_state" | "status_label" | "handle" | "key" | "group" | "role_guidance" | "executor_role" | "personality" | "intent" | "parent_task_id" | "assigned_tab_id" | "taken_by_role" | "peer" | "competition" | "pause_reason">, "status" | "review_stage" | "qa_state" | "priority" | "external_refs" | "lane" | "competition" | "execution_attempts" | "canvas" | "milestones" | "attachments"> & {
   status: TaskStatus;
   review_stage?: ReviewStage;
   qa_state?: QaState | null;
-  status_label: string | null;
   priority?: TaskPriority;
-  created_at?: number;
-  updated_at?: number;
-  status_changed_at?: number;
-  handle?: string | null;
-  /** Immutable human key (`PREFIX-N`); absent on tasks created before keys existed. */
-  key?: string | null;
-  tags?: string[];
-  group?: string | null;
-  section_ids: string[];
-  body: string;
-  role_guidance?: string | null;
-  executor_role?: string | null;
-  personality?: string | null;
-  acceptance_criteria?: string[];
   external_refs?: ExternalRef[];
-  test_plan?: string;
-  /** Correctness vector — what "done right" means (rendered in the READ detail). */
-  correctness?: string;
-  /** Task-level reference links (rendered in the READ detail). */
-  links?: string[];
-  intent: string | null;
-  parent_task_id: string | null;
-  assigned_tab_id: string | null;
   lane?: TaskLaneMetadata;
-  taken_by_role?: string | null;
-  peer: string | null;
   competition?: TaskCompetitionMetadata | null;
   execution_attempts?: TaskExecutionAttempt[];
-  pause_reason?: string | null;
   canvas: ElementCanvas;
   milestones: Milestone[];
   attachments?: PlanAttachment[];
-}
+  criteria_count?: number;
+  milestone_count?: number;
+  links?: string[];
+};
 
 export interface PlanTaskBoardSummary {
   id: string;
@@ -330,7 +186,7 @@ export interface PlanTaskDetailContext {
   has_open_subtasks?: boolean;
 }
 
-export type TaskHistoryKind = "milestones" | "attempts";
+export type TaskHistoryKind = import("../../../gen/TaskHistoryKind").TaskHistoryKind;
 export interface PlanTaskHistoryPage {
   plan_id: string; task_id: string; revision: string;
   items: Array<Milestone | TaskExecutionAttempt>;
@@ -388,88 +244,46 @@ export interface LoopStage {
   prompt: string | null;
 }
 
-export interface LoopSpec {
-  id: string;
-  target: string;
-  stages?: LoopStage[];
-  budget: number;
-  count: number;
-  stop_when: string | null;
+export type LoopSpec = Omit<PlanHydrated<Pick<import("../../../gen/LoopSpec").LoopSpec, Extract<keyof import("../../../gen/LoopSpec").LoopSpec, "id" | "target" | "stages" | "budget" | "count" | "stop_when" | "status" | "stagnation" | "deviation" | "last_iteration_at">>, "id" | "target" | "budget" | "count" | "stop_when" | "status", "stop_when" | "deviation" | "last_iteration_at">, "status"> & {
   status: LoopStatus;
-  stagnation?: number;
-  deviation?: string | null;
-  last_iteration_at?: number | null;
-}
+  stages?: LoopStage[];
+};
 
-export interface CanvasElement {
-  id: string;
-  kind: string;
+export type CanvasElement = Omit<PlanHydrated<Pick<import("../../../gen/CanvasElement").CanvasElement, Extract<keyof import("../../../gen/CanvasElement").CanvasElement, "id" | "kind" | "canvas" | "content" | "links">>, "id" | "kind" | "canvas" | "content" | "links", never>, "canvas"> & {
   canvas: ElementCanvas;
-  content: unknown;
-  links: string[];
-}
+};
 
-export interface Viewport {
-  pan_x: number;
-  pan_y: number;
-  scale: number;
-}
+export type Viewport = PlanHydrated<Pick<import("../../../gen/Viewport").Viewport, Extract<keyof import("../../../gen/Viewport").Viewport, "pan_x" | "pan_y" | "scale">>, "pan_x" | "pan_y" | "scale", never>;
 
-export interface PlanCanvas {
+export type PlanCanvas = Omit<PlanHydrated<Pick<import("../../../gen/PlanCanvas").PlanCanvas, Extract<keyof import("../../../gen/PlanCanvas").PlanCanvas, "viewport">>, "viewport", "viewport">, "viewport"> & {
   viewport: Viewport | null;
-}
+};
 
-export interface Goal {
-  vector: string;
-  vision?: string;
-  constraints?: string[];
-  postulates?: string[];
-}
+export type Goal = PlanHydrated<Pick<import("../../../gen/Goal").Goal, Extract<keyof import("../../../gen/Goal").Goal, "vector" | "vision" | "constraints" | "postulates">>, "vector", never>;
 
-export interface HeartbeatLearning {
-  id: string;
-  text: string;
-  ts: number;
-  tag?: string | null;
-}
+export type HeartbeatLearning = PlanHydrated<Pick<import("../../../gen/HeartbeatLearning").HeartbeatLearning, Extract<keyof import("../../../gen/HeartbeatLearning").HeartbeatLearning, "id" | "text" | "ts" | "tag">>, "id" | "text" | "ts", "tag">;
 
-export interface OrchestratorHeartbeat {
-  current_focus?: string | null;
-  active_lanes?: string[];
-  rules?: string[];
+export type OrchestratorHeartbeat = Omit<PlanHydrated<Pick<import("../../../gen/OrchestratorHeartbeat").OrchestratorHeartbeat, Extract<keyof import("../../../gen/OrchestratorHeartbeat").OrchestratorHeartbeat, "current_focus" | "active_lanes" | "rules" | "learnings">>, never, "current_focus">, "learnings"> & {
   learnings?: HeartbeatLearning[];
-}
+};
 
-export interface SpecLink {
-  spec_id: string;
-  spec_section_id: string;
-  plan_section_id: string;
-}
+export type SpecLink = PlanHydrated<Pick<import("../../../gen/SpecLink").SpecLink, Extract<keyof import("../../../gen/SpecLink").SpecLink, "spec_id" | "spec_section_id" | "plan_section_id">>, "spec_id" | "spec_section_id" | "plan_section_id", never>;
 
-export type EffortLinkRel = "follows" | "supersedes";
+export type EffortLinkRel = import("../../../gen/EffortLinkRel").EffortLinkRel;
 
-export interface EffortLink {
-  to: string;
+export type EffortLink = Omit<PlanHydrated<Pick<import("../../../gen/EffortLink").EffortLink, Extract<keyof import("../../../gen/EffortLink").EffortLink, "to" | "rel">>, "to" | "rel", never>, "rel"> & {
   rel: EffortLinkRel;
-}
+};
 
-export interface Plan {
-  task_counts?: Partial<Record<TaskStatus, number>> & { total: number };
+export type Plan = Omit<PlanHydrated<Pick<import("../../../gen/Plan").Plan, Extract<keyof import("../../../gen/Plan").Plan, "task_counts" | "control_loop" | "pause_operations" | "id" | "title" | "sections" | "status" | "mode" | "planning_state" | "owner" | "planner" | "team_id" | "project_path" | "created_at" | "updated_at" | "milestone_kinds" | "task_groups" | "tag_facets" | "loops" | "elements" | "tasks" | "canvas" | "owner_history" | "lifecycle_events" | "goal" | "heartbeat" | "primary_spec_id" | "spec_links" | "links" | "lineage" | "strides" | "gates">>, "id" | "title" | "sections" | "status" | "owner" | "project_path" | "created_at" | "updated_at" | "milestone_kinds" | "loops" | "elements" | "tasks" | "canvas" | "owner_history", "planner" | "team_id" | "goal" | "primary_spec_id">, "control_loop" | "pause_operations" | "sections" | "status" | "mode" | "planning_state" | "owner" | "planner" | "milestone_kinds" | "task_groups" | "tag_facets" | "loops" | "elements" | "tasks" | "canvas" | "owner_history" | "lifecycle_events" | "goal" | "heartbeat" | "spec_links" | "lineage" | "strides" | "gates"> & {
   control_loop?: import("./planControlLoop").PlanControlLoop;
-  pause_operations?: Array<{ paused_at: number; reason: string; resume?: unknown }>;
-  id: string;
-  title: string;
+  pause_operations?: Array<Pick<import("../../../gen/PlanPauseOperation").PlanPauseOperation, "paused_at" | "reason"> & Partial<Omit<import("../../../gen/PlanPauseOperation").PlanPauseOperation, "paused_at" | "reason">>>;
   sections: Section[];
   status: PlanStatus;
   mode?: PlanMode;
   planning_state?: PlanningState;
   owner: OrchestratorRef;
   planner?: PlannerRef | null;
-  /** Optional 1:1 team binding; absent keeps legacy plans teamless. */
-  team_id?: string | null;
-  project_path: string;
-  created_at: number;
-  updated_at: number;
   milestone_kinds: MilestoneKind[];
   task_groups?: TaskGroup[];
   tag_facets?: TagFacet[];
@@ -481,33 +295,19 @@ export interface Plan {
   lifecycle_events?: PlanLifecycleEvent[];
   goal?: Goal | null;
   heartbeat?: OrchestratorHeartbeat;
-  primary_spec_id?: string | null;
   spec_links?: SpecLink[];
-  links?: string[];
   lineage?: EffortLink[];
   strides?: Milestone[];
   gates?: DecisionGate[];
-}
+  task_counts?: Partial<Record<TaskStatus, number>> & { total: number };
+};
 
-export type GateStatus = "open" | "answered" | "escalated";
+export type GateStatus = import("../../../gen/GateStatus").GateStatus;
 
-export interface GateAnswer {
-  text: string;
-  by_tab_id?: string | null;
-  at: number;
-}
+export type GateAnswer = PlanHydrated<Pick<import("../../../gen/GateAnswer").GateAnswer, Extract<keyof import("../../../gen/GateAnswer").GateAnswer, "text" | "by_tab_id" | "at">>, "text" | "at", "by_tab_id">;
 
 /** Structured decision request that pauses blocking tasks until answered. */
-export interface DecisionGate {
-  id: string;
-  question: string;
-  context?: string;
-  blocking_task_ids?: string[];
-  routed_to_tab_id?: string | null;
-  asked_by_tab_id?: string | null;
-  asked_at: number;
+export type DecisionGate = Omit<PlanHydrated<Pick<import("../../../gen/DecisionGate").DecisionGate, Extract<keyof import("../../../gen/DecisionGate").DecisionGate, "id" | "question" | "context" | "blocking_task_ids" | "routed_to_tab_id" | "asked_by_tab_id" | "asked_at" | "status" | "answer" | "escalated_at" | "escalation_note">>, "id" | "question" | "asked_at" | "status", "routed_to_tab_id" | "asked_by_tab_id" | "answer" | "escalated_at" | "escalation_note">, "status" | "answer"> & {
   status: GateStatus;
   answer?: GateAnswer | null;
-  escalated_at?: number | null;
-  escalation_note?: string | null;
-}
+};

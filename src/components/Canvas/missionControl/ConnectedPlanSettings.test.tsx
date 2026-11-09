@@ -120,7 +120,7 @@ it("reads persisted Curator settings, switches mode, and persists interval prese
 });
 
 it("shows suspension and fallback states without changing the chosen mode", async () => {
-  for (const suspended_reason of ["reminders_disabled", "waiting_on_human", "complete"]) {
+  for (const suspended_reason of ["reminders_disabled", "waiting_on_human", "complete"] as const) {
     stored = { ...BASE, suspended_reason };
     await render(<ConnectedPlanSettings key={suspended_reason} plan={FIXTURE_PLAN} api={API} now={NOW} />);
     expect(button("Team oversight").getAttribute("aria-label")).toBe("Team oversight: Curator · Auto");

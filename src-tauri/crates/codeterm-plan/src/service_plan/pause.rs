@@ -14,14 +14,14 @@ pub trait PlanPausePorts {
     fn set_schedule_enabled(&self, job_id: &str, enabled: bool) -> Result<(), String>;
 }
 
-#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum PlanLifecycleKind {
     Pause,
     Resume,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, PartialEq, ts_rs::TS)]
 pub struct PlanLifecyclePreviewAgent {
     pub tab_id: String,
     pub name: String,
@@ -29,14 +29,14 @@ pub struct PlanLifecyclePreviewAgent {
     pub available: bool,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, PartialEq, ts_rs::TS)]
 pub struct PlanLifecyclePreviewSchedule {
     pub job_id: String,
     pub name: String,
     pub prior_enabled: bool,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, PartialEq, ts_rs::TS)]
 pub struct PlanLifecyclePreview {
     pub kind: PlanLifecycleKind,
     pub plan_id: String,

@@ -1,40 +1,14 @@
-import type { PlanMode } from "./types";
 
-export type PlanLifecycleKind = "pause" | "resume";
-export type PlanPauseRole = "orchestrator" | "planner" | "worker";
-export type PlanPauseEffect =
-  | "plan_reminders"
-  | "heartbeat_nudges"
-  | "system_notifications"
-  | "team_schedules";
+export type PlanLifecycleKind = import("../../../gen/PlanLifecycleKind").PlanLifecycleKind;
+export type PlanPauseRole = import("../../../gen/PlanPauseRole").PlanPauseRole;
+export type PlanPauseEffect = import("../../../gen/PlanPauseEffect").PlanPauseEffect;
 
-export interface PlanLifecyclePreviewAgent {
-  tab_id: string;
-  name: string;
-  role: PlanPauseRole;
-  available: boolean;
-}
+export type PlanLifecyclePreviewAgent = import("../../../gen/PlanLifecyclePreviewAgent").PlanLifecyclePreviewAgent;
 
-export interface PlanLifecyclePreviewSchedule {
-  job_id: string;
-  name: string;
-  prior_enabled: boolean;
-}
+export type PlanLifecyclePreviewSchedule = import("../../../gen/PlanLifecyclePreviewSchedule").PlanLifecyclePreviewSchedule;
 
 /** Backend-computed preview of what one plan pause or resume operation will change. */
-export interface PlanLifecyclePreview {
-  kind: PlanLifecycleKind;
-  plan_id: string;
-  plan_title: string;
-  mode: PlanMode;
-  applicable: boolean;
-  not_applicable_reason: string | null;
-  operation_id: string | null;
-  restore_mode: PlanMode | null;
-  agents: PlanLifecyclePreviewAgent[];
-  schedules: PlanLifecyclePreviewSchedule[];
-  effects: PlanPauseEffect[];
-}
+export type PlanLifecyclePreview = import("../../../gen/PlanLifecyclePreview").PlanLifecyclePreview;
 
 export type PlanLifecyclePreviewLoader = (
   planId: string,

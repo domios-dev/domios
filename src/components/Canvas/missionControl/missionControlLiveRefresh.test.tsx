@@ -518,8 +518,8 @@ function teamState(events: TeamMissionControlEvent[], nextCursor: string | null)
   return {
     team_id: "team-1",
     team: { id: "team-1" } as TeamMissionControlState["team"],
-    active_plan: PLAN,
-    archived_plans: [{ ...PLAN, id: "pl_old", status: "archived", updated_at: 3 }],
+    active_plan: { ...PLAN, team_id: PLAN.team_id ?? null, mode: PLAN.mode ?? "planning", planning_state: PLAN.planning_state ?? "drafting", goal: PLAN.goal ?? null, task_counts: { pending: 0, in_progress: 0, in_review: 0, blocked: 0, paused: 0, done: 0, cancelled: 0, total: 0, ...PLAN.task_counts } },
+    archived_plans: [{ ...PLAN, id: "pl_old", status: "archived", updated_at: 3, team_id: PLAN.team_id ?? null, mode: PLAN.mode ?? "planning", planning_state: PLAN.planning_state ?? "drafting", goal: PLAN.goal ?? null, task_counts: { pending: 0, in_progress: 0, in_review: 0, blocked: 0, paused: 0, done: 0, cancelled: 0, total: 0, ...PLAN.task_counts } }],
     events,
     next_cursor: nextCursor,
   };

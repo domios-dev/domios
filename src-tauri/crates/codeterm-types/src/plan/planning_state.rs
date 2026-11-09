@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 /// execution dispatch: only `Approved` unlocks draft execution tasks.
 /// `PlanMode` remains the lifecycle (planning/approved/execution/complete);
 /// `planning_state` is the finer-grained planner progress that gates approval.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum PlanningState {
     #[default]
@@ -48,7 +48,7 @@ impl PlanningState {
 
 /// Who advanced the planning state. Only a planner tab or the user is a legal
 /// author — the state never advances by generic tab guessing or orchestrator.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, ts_rs::TS)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum PlanningAuthor {
     Planner { tab_id: String },
@@ -65,12 +65,13 @@ impl PlanningAuthor {
 }
 
 /// An append-only working-point record of a planning-state advance.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 pub struct PlanningTransition {
     pub from: PlanningState,
     pub to: PlanningState,
     pub by: PlanningAuthor,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub note: Option<String>,
     pub at: u64,
 }

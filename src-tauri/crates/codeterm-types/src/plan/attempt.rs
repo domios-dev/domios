@@ -2,7 +2,7 @@ use super::types::AttachmentRef;
 use super::{AttemptContinuationState, AttemptInterruptionState};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 pub struct TaskLaneMetadata {
     #[serde(default)]
     pub tab_id: Option<String>,
@@ -24,7 +24,7 @@ pub struct TaskLaneMetadata {
     pub cleanup_hints: Vec<String>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 pub struct TaskCompetitionMetadata {
     #[serde(default)]
     pub enabled: bool,
@@ -36,7 +36,7 @@ pub struct TaskCompetitionMetadata {
     pub judge_hint: Option<String>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 pub struct TaskExecutionReportSnapshot {
     pub id: String,
     #[serde(default)]
@@ -46,6 +46,7 @@ pub struct TaskExecutionReportSnapshot {
     #[serde(default)]
     pub sha: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub reporter_tab_id: Option<String>,
     #[serde(default)]
     pub changed_files: Vec<String>,
@@ -63,7 +64,7 @@ pub struct TaskExecutionReportSnapshot {
     pub loaded_plan_skills: Vec<LoadedPlanSkillEvidence>,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum LaneCheckpointRefusal {
     LfsRepository,
@@ -72,25 +73,31 @@ pub enum LaneCheckpointRefusal {
     Deadline,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq, ts_rs::TS)]
 pub struct LaneTurnChangeStats {
     pub turn: u32,
     pub captured_at: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub transcript_turn_key: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub numstat: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub staged_numstat: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub untracked_file_count: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub checkpoint_ref: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub checkpoint_refusal: Option<LaneCheckpointRefusal>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, ts_rs::TS)]
 pub struct PlanSkillManifestEntry {
     pub slug: String,
     pub title: String,
@@ -98,14 +105,14 @@ pub struct PlanSkillManifestEntry {
     pub content_digest: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, ts_rs::TS)]
 pub struct LoadedPlanSkillEvidence {
     pub slug: String,
     pub content_digest: String,
     pub loaded_at: u64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, ts_rs::TS)]
 pub struct AttemptBindingRestorationReceipt {
     pub operation_id: String,
     pub restored_at: u64,
@@ -120,7 +127,7 @@ pub struct AttemptBindingRestorationReceipt {
     pub lineage_proof_digest: String,
 }
 
-#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum WorkerPlacement {
     #[default]
@@ -137,18 +144,20 @@ impl WorkerPlacement {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, ts_rs::TS)]
 pub struct TaskExecutorTermination {
     pub attempt_id: String,
     pub executor_tab_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub session_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub session_binding_nonce: Option<String>,
     pub confirmed_at: u64,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 pub struct TaskExecutionAttempt {
     pub id: String,
     pub executor_tab_id: String,
@@ -161,10 +170,13 @@ pub struct TaskExecutionAttempt {
     #[serde(default)]
     pub model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub requested_model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub launch_profile: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub provider_resolved_model: Option<String>,
     #[serde(default)]
     pub reasoning_effort: Option<String>,
@@ -173,6 +185,7 @@ pub struct TaskExecutionAttempt {
     #[serde(default)]
     pub session_model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub model_identity_mismatch: Option<AttemptModelIdentityMismatch>,
     #[serde(default)]
     pub session_id: Option<String>,
@@ -189,20 +202,26 @@ pub struct TaskExecutionAttempt {
     #[serde(default)]
     pub mesh_peer: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub remote_dispatch_state: Option<RemoteDispatchState>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub remote_worktree_path: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub remote_lane_tip: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub remote_merge_commit: Option<String>,
     #[serde(default)]
     pub branch: Option<String>,
     #[serde(default)]
     pub worktree_path: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub checkout_path: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub shared_start_sha: Option<String>,
     #[serde(default)]
     pub base: Option<String>,
@@ -211,13 +230,16 @@ pub struct TaskExecutionAttempt {
     /// `Some` means this attempt came from the gate-aware dispatch path. An
     /// empty list is deliberate: that dispatch granted no gate permission.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub authorized_gates: Option<Vec<String>>,
     /// Reserved by dispatch; never inferred from a Worker's checkout path.
     #[serde(default, skip_serializing_if = "WorkerPlacement::is_isolated_lane")]
     pub placement: WorkerPlacement,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub execution_intent: Option<super::ExecutionIntent>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub executor_termination: Option<TaskExecutorTermination>,
     #[serde(default)]
     pub report: Option<TaskExecutionReportSnapshot>,
@@ -263,7 +285,7 @@ pub struct TaskExecutionAttempt {
     pub lane_turn_stats: Vec<LaneTurnChangeStats>,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum RemoteDispatchState {
     PeerPreflight,
@@ -279,10 +301,11 @@ pub enum RemoteDispatchState {
     Integrated,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 pub struct AttemptModelIdentityMismatch {
     pub requested_model: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub provider_resolved_model: Option<String>,
     pub actual_model: String,
     pub reason: String,

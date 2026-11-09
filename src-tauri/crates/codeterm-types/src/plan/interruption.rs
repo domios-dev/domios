@@ -10,7 +10,8 @@ pub enum ExecutionIntent {
     Mutating,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, ts_rs::TS)]
+#[ts(rename = "InterruptionProviderAllowance")]
 pub struct ProviderAllowance {
     pub remaining_pct: f32,
     pub observed_at: u64,
@@ -30,7 +31,7 @@ impl ProviderAllowance {
     }
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 pub struct InterruptionCheckpoint {
     pub task_id: String,
     pub attempt_id: String,
@@ -49,7 +50,7 @@ pub struct InterruptionCheckpoint {
     pub next_acceptance_gate: String,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 pub struct TaskInterruptionState {
     pub execution_intent: ExecutionIntent,
     pub allowance: Option<ProviderAllowance>,
@@ -60,21 +61,24 @@ pub struct TaskInterruptionState {
     pub owner_session_id: Option<String>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 pub struct AttemptInterruptionState {
     pub owner_epoch: u64,
     pub interrupted_at: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub runtime_epoch: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub runtime_nonce: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub recovered_at: Option<u64>,
     pub reason: Option<String>,
     pub checkpoint_digest: Option<String>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 pub struct AttemptContinuationState {
     pub epoch: u32,
     pub review_round: Option<u32>,

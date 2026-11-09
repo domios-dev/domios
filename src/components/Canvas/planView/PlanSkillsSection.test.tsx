@@ -28,7 +28,7 @@ const API: ApiConfig = {mesh_tailnet_host: null, cors_allow_origins: [], preview
 };
 const SKILLS: PlanSkillSummary[] = [
   {
-    slug: "deploy",
+    content_digest: "test-digest", skill_dir: "/test/skill", slug: "deploy",
     title: "Deploy",
     purpose: "Ship to staging",
     check: "echo ok",

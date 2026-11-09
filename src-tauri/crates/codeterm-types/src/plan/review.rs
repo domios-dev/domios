@@ -1,7 +1,7 @@
 use super::types::AgentRef;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum ReviewVerdict {
     Accept,
@@ -11,7 +11,7 @@ pub enum ReviewVerdict {
 
 /// Evidence attached to the owning implementation task by a read-only review
 /// pass. Never creates a task of its own; see prod-docs/ORCHESTRATION.md review section.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 pub struct ReviewEvidence {
     pub id: String,
     pub from: AgentRef,
@@ -26,7 +26,7 @@ pub struct ReviewEvidence {
 }
 
 /// A P0-exception authorization consumed on the next over-limit review round.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 pub struct ReviewOverride {
     pub owner: String,
     pub reason: String,
@@ -35,7 +35,7 @@ pub struct ReviewOverride {
 }
 
 /// Immutable, append-only record that a review-round-limit exception was used.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 pub struct ReviewAuditEntry {
     pub id: String,
     pub owner: String,
@@ -45,21 +45,21 @@ pub struct ReviewAuditEntry {
     pub at: u64,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum ReviewCapacityClass {
     Review,
     CanonicalGate,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum PlanEvidenceClass {
     Review,
     CanonicalQa,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 pub struct PlanEvidenceReporterGrant {
     pub tab_id: String,
     pub session_id: String,
@@ -69,7 +69,7 @@ pub struct PlanEvidenceReporterGrant {
     pub granted_at: u64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 pub struct ReviewCapacityGrant {
     pub task_id: String,
     pub class: ReviewCapacityClass,
@@ -80,7 +80,7 @@ pub struct ReviewCapacityGrant {
 /// Plan-level review-backpressure policy: bounded in_review WIP plus a
 /// completion/closure credit ledger (entering review spends credit, closing
 /// a review round earns it back).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 pub struct ReviewPolicy {
     pub wip_limit: u32,
     pub credit: i64,

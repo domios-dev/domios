@@ -6,7 +6,16 @@ import type { ApiConfig } from "../../lib/types";
 import type { SupporterStatus } from "../Settings/useDecisionToken";
 import { SUPPORTER_JOURNAL_EVENT } from "./useSupporterResource";
 
-export const API: ApiConfig = {mesh_tailnet_host: null, cors_allow_origins: [], preview_secret_paths: [],  enabled: true, host: "127.0.0.1", port: 7686, token: "fixture", cors: false };
+export const API: ApiConfig = {
+  mesh_tailnet_host: null,
+  cors_allow_origins: [],
+  preview_secret_paths: [],
+  enabled: true,
+  host: "127.0.0.1",
+  port: 7686,
+  token: "fixture",
+  cors: false,
+};
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 export function statusFixture(): SupporterStatus {
