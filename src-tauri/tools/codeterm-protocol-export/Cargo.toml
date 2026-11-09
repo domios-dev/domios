@@ -9,6 +9,16 @@ publish = false
 workspace = true
 
 [dependencies]
+codeterm-supporter = { path = "../../crates/codeterm-supporter", default-features = false }
+codeterm-sentinel = { path = "../../crates/codeterm-sentinel", default-features = false }
+serde_json = "1"
+codeterm-update = { path = "../../crates/codeterm-update", default-features = false }
+codeterm-browser = { path = "../../crates/codeterm-browser", default-features = false }
+codeterm-keepawake = { path = "../../crates/codeterm-keepawake", default-features = false }
+codeterm-neighbors = { path = "../../crates/codeterm-neighbors", default-features = false }
+codeterm-notification-core = { path = "../../crates/codeterm-notification-core", default-features = false }
+codeterm-account = { path = "../../crates/codeterm-account", default-features = false }
+codeterm-usage = { path = "../../crates/codeterm-usage", default-features = false }
 codeterm-wire = { path = "../../crates/codeterm-wire", default-features = false }
 codeterm-secrets = { path = "../../crates/codeterm-secrets", default-features = false }
 codeterm-provider-signals = { path = "../../crates/codeterm-provider-signals", default-features = false }

@@ -4,7 +4,7 @@ import { deliveryStatus, PERMISSION_WORKSPACES, runtimeCall, type NeighborDelive
 
 export type HistoryAuthor = "me" | "friend" | { agent: string; name: string };
 
-export type HistoryKind = "question" | "answer" | "refusal" | "tab_request";
+export type HistoryKind = import("../../../gen/NeighborHistoryKind").NeighborHistoryKind;
 
 export interface HistoryEntry {
   direction: "in" | "out";
@@ -37,10 +37,10 @@ export interface HistoryEntry {
   flags?: MessageFlag[];
 }
 
-export type FlagCategory = "suspicious_instructions" | "private_data_request" | "malicious_link" | "spam" | "other";
+export type FlagCategory = import("../../../gen/FlagCategory").FlagCategory;
 const FLAG_CATEGORIES: readonly string[] = ["suspicious_instructions", "private_data_request", "malicious_link", "spam", "other"];
 /** `at` is unix milliseconds. */
-export interface MessageFlag { category: FlagCategory; reason: string; by: "concierge" | "tab" | "owner"; at: number }
+export type MessageFlag = import("../../../gen/NeighborMessageFlag").NeighborMessageFlag;
 
 function flags(value: unknown): MessageFlag[] {
   if (!Array.isArray(value)) return [];
@@ -57,10 +57,10 @@ export async function flagNeighborMessage(friendship: string, messageId: string,
   await runtimeCall({ operation: "flag_message", friendship_id: friendship, message_id: messageId, category, reason });
 }
 
-export type HandlingState = "delivered_to_concierge" | "working" | "answered" | "refused" | "no_reply" | "failed" | "waiting" | "stopped";
+export type HandlingState = import("../../../gen/NeighborHandlingState").NeighborHandlingState;
 const HANDLING_STATES: readonly string[] = ["delivered_to_concierge", "working", "answered", "refused", "no_reply", "failed", "waiting", "stopped"];
 
-export type NeighborNotify = "off" | "in_app" | "in_app_and_bridges";
+export type NeighborNotify = import("../../../gen/NeighborNotify").NeighborNotify;
 
 export interface HistoryPage { entries: HistoryEntry[]; next_before: string | null; ended: boolean }
 

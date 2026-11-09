@@ -1,3 +1,4 @@
+mod api;
 mod sdk;
 
 use codeterm_types::{
@@ -35,6 +36,7 @@ pub fn export() -> Result<(), Box<dyn std::error::Error>> {
     }
     if let Some(directory) = std::env::var_os("DOMIOS_PROTOCOL_EXPORT_DIR") {
         let protocol = config.with_out_dir(directory);
+        api::export_api(&protocol)?;
         sdk::export_sdk(&protocol)?;
         codeterm_plugin::provider::ProviderDescriptor::export_all(&protocol)?;
         codeterm_plugin::provider::ModelGroupUsage::export_all(&protocol)?;

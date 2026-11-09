@@ -9,6 +9,7 @@ name = "blueprint_recall_eval"
 path = "../../../evals/blueprint-recall/runner/main.rs"
 
 [dependencies]
+codeterm-wire = { path = "../codeterm-wire" }
 ts-rs = { version = "12.0.1", features = ["serde-json-impl", "no-serde-warnings", "chrono-impl"] }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 codeterm-blueprint-types = { path = "../codeterm-blueprint-types" }

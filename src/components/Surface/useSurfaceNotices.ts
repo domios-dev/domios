@@ -5,7 +5,7 @@ import type { SurfaceNotice } from "./surfaceStreamTransport";
 export function useSurfaceNotices(notice: SurfaceNotice | null, needsHuman: string | null, surfaceId: string) {
   useEffect(() => {
     if (!notice) return;
-    publishNotice({ kind: "toast", severity: notice.tone === "error" ? "Error" : notice.tone === "warn" ? "Warning" : "Info",
+    publishNotice({ kind: "toast", severity: notice.tone === "error" ? "Error" : "Info",
       id: `surface-notice:${surfaceId}`, title: "Browser notice", detail: notice.text,
     });
   }, [notice, surfaceId]);

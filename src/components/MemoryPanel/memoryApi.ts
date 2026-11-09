@@ -129,14 +129,7 @@ export async function fetchItemFull(api: ApiConfig, id: string): Promise<MemItem
   return res.json();
 }
 
-export interface ItemPatch {
-  title?: string;
-  summary?: string;
-  area?: string;
-  tags?: string[];
-  body?: string;
-  importance?: number;
-}
+export type ItemPatch = {[K in "title" | "summary" | "area" | "tags" | "body" | "importance"]?: NonNullable<import("../../../gen/MemoryUpdateBody").MemoryUpdateBody[K]>};
 
 export async function patchItem(
   api: ApiConfig,

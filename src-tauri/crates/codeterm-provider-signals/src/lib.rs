@@ -43,6 +43,7 @@ pub struct SessionObservations {
     #[ts(optional)]
     pub retry_error: Option<RuntimeErrorSignal>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[ts(as = "Option<bool>", optional)]
     pub retry_succeeded: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]

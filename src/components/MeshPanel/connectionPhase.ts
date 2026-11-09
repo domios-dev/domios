@@ -1,5 +1,5 @@
-export type ConnectionPhase = "discovering" | "connecting" | "verifying" | "committing" | "ready" | "failed" | "retrying" | "auth_refused" | "membership_expired" | "peer_needs_update";
-export interface PeerConnection { installation_id: string; phase: ConnectionPhase }
+export type ConnectionPhase = import("../../../gen/ConnectionPhase").ConnectionPhase;
+export type PeerConnection = import("../../../gen/PeerConnection").PeerConnection;
 
 export function connectionPresentation(phase?: ConnectionPhase): { connecting: boolean; label: string } {
   switch (phase) {

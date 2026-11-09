@@ -27,16 +27,7 @@ pub struct TabStatusInfo {
 }
 
 /// Why a tab's agent is not running: a failed boot or a degraded runtime, with a one-line reason.
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
-pub struct TabFailure {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub boot_stage: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub runtime_state: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub code: Option<String>,
-    pub reason: String,
-}
+pub use codeterm_wire::api_contracts::TabFailure;
 
 fn first_line(text: &str) -> Option<String> {
     let line = text.lines().map(str::trim).find(|line| !line.is_empty())?;

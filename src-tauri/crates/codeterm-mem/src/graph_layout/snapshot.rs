@@ -385,7 +385,7 @@ pub fn load_labels(conn: &Connection, ids: &[String]) -> Result<Vec<(String, Str
     Ok(out)
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, ts_rs::TS)]
 pub struct EdgeRow {
     pub from: String,
     pub to: String,

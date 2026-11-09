@@ -8,7 +8,7 @@ import { localFetch, daemonAuthToken, daemonHttpBase } from "../../lib/webApi";
 import { LogsFilterBar } from "./LogsFilterBar";
 import { LogsListRow } from "./LogsListRow";
 
-export type LogLevel = "info" | "warn" | "error";
+export type LogLevel = Exclude<import("../../../gen/LogLevel").LogLevel, "debug">;
 export type RangeKey = "1h" | "24h" | "7d" | "all";
 
 export const ALL_LEVELS: LogLevel[] = ["info", "warn", "error"];
@@ -24,14 +24,7 @@ export const LEVEL_COLOR: Record<LogLevel, string> = {
   error: "var(--ct-red)",
 };
 
-export interface AppLog {
-  id: number;
-  ts: number;
-  level: string;
-  source: string;
-  message: string;
-  context_json?: string | null;
-}
+export type AppLog = import("../../../gen/AppLog").AppLog;
 
 interface LogEventPayload {
   ts: number;

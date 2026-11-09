@@ -1,15 +1,7 @@
 import type { Service, InventoryProvenance } from "./types";
 
 /** Envelope returned by the `mesh_peer_services_list` Tauri command. */
-export interface PeerServicesView {
-  services: Service[];
-  stale: boolean;
-  fetched_at: number | null;
-  peer_online: boolean;
-  error: string | null;
-  freshness: "fresh" | "stale" | "offline";
-  partial_error: string | null;
-}
+export type PeerServicesView = Omit<import("../../../gen/PeerServicesView").PeerServicesView, "services"> & {services: Service[]};
 
 export interface MeshInventoryView {
   contract_version: number;

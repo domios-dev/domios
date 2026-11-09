@@ -24,8 +24,9 @@ impl Content {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
+#[ts(rename = "EmbedderModality")]
 pub enum Modality {
     Text,
     Image,

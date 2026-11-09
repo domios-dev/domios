@@ -23,12 +23,7 @@ export interface LabelRow {
   title: string;
 }
 
-export interface SnapshotEdge {
-  from: string;
-  to: string;
-  rel: string;
-  confidence: number;
-}
+export type SnapshotEdge = import("../../../gen/EdgeRow").EdgeRow;
 
 export function isUnchanged(d: DeltaResponse): d is DeltaUnchanged {
   return (d as DeltaUnchanged).unchanged === true;

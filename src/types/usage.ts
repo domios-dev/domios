@@ -1,4 +1,4 @@
-import type {ResetCredits, RuntimeAccountCredits} from "@codeterm/plugin-sdk";
+import type {ResetCredits} from "@codeterm/plugin-sdk";
 
 export interface UsageDetails {
   limits: {kind: "session" | "weekly_all" | "weekly_scoped"; label: string; percent: number; resets_at: number | null; is_active: boolean; critical: boolean}[];
@@ -55,13 +55,4 @@ export function classify(pct: number | null | undefined): UsageState {
   return "neutral";
 }
 
-export interface RuntimeUsageProjection {
-  resets?: ResetCredits | null;
-  account_credits?: RuntimeAccountCredits | null;
-  captured_at?: number;
-  tab_id: string;
-  thread_id: string | null;
-  billing_mode: "subscription" | "api" | "unknown";
-  token_usage: {captured_at:number; value:{input_tokens:number;output_tokens:number;cache_read_tokens?:number;cache_write_tokens?:number;cost_micros?:number}} | null;
-  rate_limits: {captured_at:number; value:{window:string;usedPercent:number;resetsAt?:number;windowMinutes?:number}[]} | null;
-}
+export type RuntimeUsageProjection = Omit<import("../../gen/RuntimeUsageProjection").RuntimeUsageProjection, "resets" | "account_credits" | "captured_at"> & Partial<Pick<import("../../gen/RuntimeUsageProjection").RuntimeUsageProjection, "resets" | "account_credits" | "captured_at">>;

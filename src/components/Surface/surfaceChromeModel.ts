@@ -4,17 +4,7 @@ import type { PageRect } from "./streamModel";
 export const NEEDS_HUMAN_KINDS = ["captcha", "consent", "login", "dialog", "file_chooser"] as const;
 export type NeedsHumanKind = (typeof NEEDS_HUMAN_KINDS)[number];
 
-export interface SurfaceState {
-  viewportOwner?: string;
-  targetId?: string;
-  owner: string;
-  title?: string;
-  url?: string;
-  activity?: string | null;
-  needsHuman?: NeedsHumanKind | "none" | null;
-  profile?: string | null;
-  profiles?: string[];
-}
+export type SurfaceState = Pick<import("../../../gen/SurfaceState").SurfaceState, "owner"> & Partial<Omit<import("../../../gen/SurfaceState").SurfaceState, "owner" | "activity" | "needsHuman" | "profile">> & {activity?: import("../../../gen/SurfaceState").SurfaceState["activity"] | null; needsHuman?: NeedsHumanKind | "none" | null; profile?: import("../../../gen/SurfaceState").SurfaceState["profile"] | null};
 
 export type ToolbarWhen = "interactive" | "always";
 

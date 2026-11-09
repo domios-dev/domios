@@ -46,7 +46,7 @@ pub fn skipped_between(last_seen: u64, delivered: u64) -> u64 {
     delivered.saturating_sub(last_seen).saturating_sub(1)
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct FrameMetadata {
     #[serde(default)]

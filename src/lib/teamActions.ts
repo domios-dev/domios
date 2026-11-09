@@ -12,17 +12,9 @@ export interface TeamActions {
   onCloseTeam: (teamId: string) => Promise<TeamCloseInventory>;
 }
 
-export interface TeamCloseLaneRecord {
-  path: string | null;
-  branch: string | null;
-  reason: string | null;
-}
+export type TeamCloseLaneRecord = import("../../gen/TeamCloseLaneRecord").TeamCloseLaneRecord;
 
-export interface TeamCloseInventory {
-  removed: TeamCloseLaneRecord[];
-  kept: TeamCloseLaneRecord[];
-  orphan_branches: string[];
-}
+export type TeamCloseInventory = import("../../gen/TeamCloseInventory").TeamCloseInventory;
 
 export type TeamMemberRole = "orchestrator" | "planner" | "cartographer" | "worker";
 

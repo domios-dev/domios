@@ -8,36 +8,15 @@ use crate::service::{
     ServiceContext,
 };
 use codeterm_neighbors::wire::hex_id;
-use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 const DENIED: &str = "neighbor_forbidden: This caller cannot flag this incoming Neighbor message";
 
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum FlagCategory {
-    SuspiciousInstructions,
-    PrivateDataRequest,
-    MaliciousLink,
-    Spam,
-    Other,
-}
+pub use codeterm_wire::api_contracts::FlagCategory;
 
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub(super) enum FlagBy {
-    Concierge,
-    Tab,
-    Owner,
-}
+pub(super) use codeterm_wire::api_contracts::FlagBy;
 
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
-pub(super) struct MessageFlag {
-    pub category: FlagCategory,
-    pub reason: String,
-    pub by: FlagBy,
-    pub at: u64,
-}
+pub(super) use codeterm_wire::api_contracts::MessageFlag;
 
 pub(super) struct FlagRequest {
     pub friendship: String,

@@ -27,7 +27,7 @@ const DEFAULT_HTTPS_PORT: u16 = 443;
 const FALLBACK_HTTPS_PORT: u16 = 8443;
 const HEALTH_TIMEOUT: Duration = Duration::from_secs(10);
 
-#[derive(Debug, Clone, serde::Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, serde::Serialize, PartialEq, Eq, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum ServeReconcileState {
     Ready,
@@ -37,7 +37,7 @@ pub enum ServeReconcileState {
     Unhealthy,
 }
 
-#[derive(Debug, Clone, serde::Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, serde::Serialize, PartialEq, Eq, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum ServeRouteOwnership {
     Owned,
@@ -46,7 +46,7 @@ pub enum ServeRouteOwnership {
     Unknown,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, ts_rs::TS)]
 pub struct TailscaleBinaryInfo {
     pub installed: bool,
     pub path: Option<String>,
@@ -57,7 +57,7 @@ pub struct TailscaleBinaryInfo {
     pub error: Option<String>,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, ts_rs::TS)]
 pub struct ServeRouteSnapshot {
     pub host: Option<String>,
     pub https_port: u16,
@@ -65,7 +65,7 @@ pub struct ServeRouteSnapshot {
     pub ownership: ServeRouteOwnership,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, ts_rs::TS)]
 pub struct ServeHealthSnapshot {
     pub checked_url: Option<String>,
     pub ok: bool,
@@ -76,7 +76,7 @@ pub struct ServeHealthSnapshot {
     pub error: Option<String>,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, ts_rs::TS)]
 pub struct ServeReconcileSnapshot {
     pub state: ServeReconcileState,
     pub url: Option<String>,
@@ -95,7 +95,7 @@ pub struct ServeReconcileSnapshot {
 // ── Status (read side) ──────────────────────────────────────────────────
 
 /// Snapshot the UI uses to decide which Web Access affordance to show.
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, ts_rs::TS)]
 pub struct ServeStatus {
     /// Tailscale CLI present and responding on this machine.
     pub installed: bool,
@@ -514,7 +514,7 @@ fn proxy_targets_local_port(proxy: &str, port: u16) -> bool {
 
 /// Outcome of an enable/disable mutation. `code` is a stable machine-readable
 /// tag the UI maps to copy; `ok` is the quick success flag.
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, ts_rs::TS)]
 pub struct ServeResult {
     pub ok: bool,
     /// One of: `ok` | `already-active` | `already-off` | `tailscale-not-installed`

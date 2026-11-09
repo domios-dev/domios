@@ -75,3 +75,5 @@ impl IdentityObserver for IdentityObservers {
 
 #[cfg(test)]
 mod tests;
+
+pub mod contracts;

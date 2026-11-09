@@ -24,7 +24,7 @@ pub struct BlueprintSpec {
     pub result: BlueprintResult,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum BlueprintOwner {
     #[default]
@@ -66,14 +66,14 @@ impl Trigger {
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(deny_unknown_fields)]
 pub struct BlueprintResult {
     #[serde(default)]
     pub to: ResultTarget,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, ts_rs::TS)]
 pub enum ResultTarget {
     Owner,
     Tab(String),

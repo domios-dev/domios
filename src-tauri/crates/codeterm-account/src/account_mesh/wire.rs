@@ -42,7 +42,7 @@ pub struct InstallationProof {
     pub signature: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(deny_unknown_fields)]
 pub struct MeshTarget {
     pub installation_id: String,
@@ -51,15 +51,16 @@ pub struct MeshTarget {
     pub slot_revision: u64,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(deny_unknown_fields)]
 pub struct MeshCursor {
     pub after_installation_id: String,
     pub registry_revision: u64,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(deny_unknown_fields)]
+#[ts(rename = "AccountMeshNetworkIdentity")]
 pub struct NetworkIdentity {
     pub kind: String,
     pub network_id: String,
@@ -75,10 +76,11 @@ pub struct MeshEndpointWire {
     pub api_port: u16,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(deny_unknown_fields)]
 pub struct MeshEndpointObservation {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub transport: Option<NetworkIdentity>,
     pub tailnet_ip: String,
     pub api_port: u16,
@@ -369,24 +371,27 @@ pub struct PresenceResult {
     pub registry_revision: u64,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
+#[ts(rename = "AccountMeshRegistryPresence")]
 pub enum RegistryPresence {
     #[default]
     Present,
     SignedOut,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
+#[ts(rename = "AccountMeshPublicationState")]
 pub enum PublicationState {
     None,
     Pending,
     Complete,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "kebab-case")]
+#[ts(rename = "AccountMeshEligibility")]
 pub enum Eligibility {
     Eligible,
     MeshAllowance,
@@ -395,7 +400,7 @@ pub enum Eligibility {
 }
 
 /// `endpoint` is a published observation on eligible unexpired rows, never online status.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(deny_unknown_fields)]
 pub struct MeshManagementRow {
     pub installation_id: String,

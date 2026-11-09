@@ -38,12 +38,7 @@ const openPeerWebUi = (url: string) => { void nativeBridge.openUrl(url); };
 
 const TABS: MeshTab[] = ["inventory", "activity", "network"];
 
-interface ServeResult {
-  ok: boolean;
-  code: string;
-  https_url?: string | null;
-  warning?: string | null;
-}
+type ServeResult = import("../../../gen/ServeResult").ServeResult;
 
 interface Props {
   api: ApiConfig;

@@ -48,11 +48,7 @@ pub fn read_artifact_file(
     source.read(limit)
 }
 
-#[derive(Debug, Serialize)]
-pub struct LocalPreviewFile {
-    pub data: String,
-    pub media_type: String,
-}
+pub use codeterm_wire::api_contracts::LocalPreviewFile;
 
 fn extension(path: &std::path::Path) -> String {
     path.extension()

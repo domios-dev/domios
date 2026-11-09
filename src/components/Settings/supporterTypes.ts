@@ -16,11 +16,7 @@ export interface SupporterAdapter {
   metadata?: SupporterMetadata;
 }
 
-export interface SupporterSpendTotals {
-  input_tokens: number;
-  output_tokens: number;
-  estimated_usd: number | null;
-}
+export type SupporterSpendTotals = import("../../../gen/SupporterSpendTotals").SupporterSpendTotals;
 
 export interface SupporterSpend {
   today: SupporterSpendTotals;
@@ -68,17 +64,9 @@ export interface SupporterStatus {
   connections: SupporterConnection[];
 }
 
-export interface SupporterMetadata {
-  display_name?: string | null;
-  help_url?: string | null;
-  server_address?: string | null;
-  settings_url?: string | null;
-}
+export type SupporterMetadata = Partial<import("../../../gen/DecisionMetadata").DecisionMetadata>;
 
-export interface SupporterFailure {
-  code: string;
-  message: string;
-}
+export type SupporterFailure = import("../../../gen/SupporterFailure").SupporterFailure;
 export interface SupporterConnection {
   adapter: string;
   model: string | null;

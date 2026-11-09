@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 /// A saved sign-in issued by another account target than the one compiled into this build.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 pub struct TargetMismatch {
     pub saved: Option<String>,
     pub build: String,

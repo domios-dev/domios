@@ -25,21 +25,9 @@ pub enum ResumeCursor {
     },
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ResumeSourceKind {
-    Bytes,
-    Revision,
-    Items,
-}
+pub use codeterm_types::api_contracts::ResumeSourceKind;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ResumeResetReason {
-    EpochChanged,
-    Compacted,
-    InvalidCursor,
-}
+pub use codeterm_types::api_contracts::ResumeResetReason;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ResumePlan {

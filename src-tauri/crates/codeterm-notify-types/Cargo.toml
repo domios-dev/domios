@@ -5,6 +5,7 @@ version = "0.0.0"
 edition = "2021"
 
 [dependencies]
+ts-rs = { version = "12.0.1", features = ["serde-json-impl", "no-serde-warnings"] }
 serde = { version = "1", features = ["derive"] }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 

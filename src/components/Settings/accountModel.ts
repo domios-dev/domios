@@ -1,33 +1,9 @@
-export interface AccountIdentity {
-  uid: string;
-  email: string | null;
-  display_name: string | null;
-  provider: string;
-  photo_url?: string | null;
-}
-export type SignInStage = "preparation" | "browser" | "callback" | "redemption" | "credential_save" | "publication";
-export type SignInError = "configuration" | "invalid_callback" | "wrong_state" | "consumed" | "timeout" | "cancelled" | "pending" | "transport" | "provider" | "credentials" | "browser" | "target_mismatch";
-export interface TargetMismatch {
-  saved: string | null;
-  build: string;
-  reason: string;
-}
-export interface SignInFailure {
-  stage: SignInStage;
-  error: SignInError;
-}
-export interface AccountStatus {
-  identity: AccountIdentity | null;
-  pending: boolean;
-  session_only?: boolean;
-  session_revoked?: boolean;
-  server_stop_unconfirmed?: boolean;
-  last_sign_in_failure?: SignInFailure | null;
-  /** Signed out: the saved sign-in belongs to another account target than this build. */
-  target_mismatch?: TargetMismatch | null;
-  /** The remote purchase switch; purchase is on only when this is exactly true. */
-  purchases_enabled?: boolean;
-}
+export type AccountIdentity = Omit<import("../../../gen/AccountIdentity").AccountIdentity, "photo_url"> & Partial<Pick<import("../../../gen/AccountIdentity").AccountIdentity, "photo_url">>;
+export type SignInStage = import("../../../gen/SignInStage").SignInStage;
+export type SignInError = import("../../../gen/AccountError").AccountError;
+export type TargetMismatch = import("../../../gen/TargetMismatch").TargetMismatch;
+export type SignInFailure = import("../../../gen/SignInFailure").SignInFailure;
+export type AccountStatus = Omit<Partial<import("../../../gen/AccountStatus").AccountStatus>, "identity" | "pending" | "target_mismatch"> & {identity: AccountIdentity | null; pending: import("../../../gen/AccountStatus").AccountStatus["pending"]; target_mismatch?: import("../../../gen/AccountStatus").AccountStatus["target_mismatch"] | null};
 export type AccountModel =
   | { kind: "signed_out"; sessionRevoked?: boolean; targetMismatch?: string }
   | { kind: "pending" }
@@ -63,10 +39,7 @@ export function signInFailureMessage(failure: SignInFailure): string {
 }
 
 
-export interface LoginHint {
-  provider?: "google" | "facebook" | "email";
-  mode?: "signin" | "signup";
-}
+export type LoginHint = Partial<import("../../../gen/LoginHint").LoginHint>;
 export function accountLoginPath(hint?: LoginHint): string {
   const query = new URLSearchParams();
   if (hint?.provider) query.set("provider", hint.provider);

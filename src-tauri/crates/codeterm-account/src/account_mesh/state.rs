@@ -3,8 +3,9 @@ use super::wire::{MeshManagementRow, RegistryRefusal};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
-#[derive(Clone, Debug, PartialEq, Eq, Default, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Default, Serialize, ts_rs::TS)]
 #[serde(tag = "kind", rename_all = "snake_case")]
+#[ts(rename = "AccountMeshPresence")]
 pub enum Presence {
     #[default]
     NeverSignedIn,
@@ -21,8 +22,9 @@ pub struct SignedMembership {
     pub verified: VerifiedMembership,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
+#[ts(rename = "AccountMeshBinding")]
 pub enum Binding {
     #[default]
     None,
@@ -30,8 +32,9 @@ pub enum Binding {
     Other,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
+#[ts(rename = "AccountMeshTraffic")]
 pub enum Traffic {
     #[default]
     Open,
@@ -41,8 +44,9 @@ pub enum Traffic {
     PlanLimitLocked,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
+#[ts(rename = "AccountMeshCleanup")]
 pub enum Cleanup {
     #[default]
     None,
@@ -50,8 +54,9 @@ pub enum Cleanup {
     Confirmed,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
+#[ts(rename = "AccountMeshPublication")]
 pub enum Publication {
     #[default]
     None,
@@ -59,8 +64,9 @@ pub enum Publication {
     Published,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
+#[ts(rename = "AccountMeshEnrollment")]
 pub enum Enrollment {
     #[default]
     Idle,
@@ -70,7 +76,7 @@ pub enum Enrollment {
 }
 
 /// Server refusal reasons plus desktop ones; only `mesh.machines` opens the plans modal.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(tag = "reason")]
 pub enum AccountMeshRefusal {
     #[serde(rename = "installation_unverified")]
@@ -98,6 +104,7 @@ pub enum AccountMeshRefusal {
     #[serde(rename = "enrollment_budget")]
     EnrollmentBudget {
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
         retry_after_seconds: Option<u64>,
     },
     #[serde(rename = "proof_invalid")]
@@ -175,8 +182,9 @@ impl AccountMeshRefusal {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
+#[ts(rename = "AccountMeshEnrollTrigger")]
 pub enum EnrollTrigger {
     /// Verified sign-in or signed-in restore.
     Automatic,
@@ -187,14 +195,15 @@ pub enum EnrollTrigger {
 }
 
 /// One `mesh.machines` refusal owned by the request that hit it; the plans modal consumes it once.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, ts_rs::TS)]
+#[ts(rename = "AccountMeshLimitNotice")]
 pub struct LimitNotice {
     pub request_id: String,
     pub refusal: AccountMeshRefusal,
     pub trigger: EnrollTrigger,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 pub struct SelfInstallation {
     pub installation_id: String,
     pub key_id: String,
@@ -205,7 +214,8 @@ pub struct SelfInstallation {
 }
 
 /// A registry read is a stale observation for display, never link authority.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[ts(rename = "AccountMeshRegistryObservation")]
 pub struct RegistryObservation {
     pub observed_at: u64,
     pub registry_revision: u64,
@@ -346,7 +356,7 @@ impl LifecycleState {
 }
 
 /// Account-owned part of the `account_mesh_state` snapshot; transport joins `pairs`.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, ts_rs::TS)]
 pub struct AccountMeshView {
     pub account_epoch: u64,
     pub binding: Binding,

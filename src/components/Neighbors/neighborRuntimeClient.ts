@@ -1,7 +1,7 @@
 import { listen } from "../../lib/bridge";
 import { localFetch } from "../../lib/webApi";
 
-export type NeighborDeliveryStatus = "pending" | "delivered" | "not_delivered";
+export type NeighborDeliveryStatus = import("../../../gen/DeliveryStatus").DeliveryStatus;
 export type NeighborListenerState = "connecting" | "receiving" | "reconnecting" | "stopped";
 /** `not_receiving_reason` names why the chosen machine receives nothing now; its label then names that machine, never a receiver. */
 export interface ReceiverState { receiving_here: boolean; receiver_machine_label: string | null; receiving_enabled: boolean; revision: number; is_me?: boolean; not_receiving_reason?: "membership_expired" }
@@ -28,7 +28,7 @@ export interface ChannelStatus {
 export const PERMISSION_WORKSPACES = false as boolean;
 
 /** "none" is typed but no provider can honour it yet, so the editor never offers it; reads fall back to read only. */
-export type MachineAccess = "none" | "read_only" | "folder" | "full";
+export type MachineAccess = import("../../../gen/MachineAccess").MachineAccess;
 export interface NeighborPermission {
   allowed: boolean;
   scope: string;

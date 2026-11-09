@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use codeterm_types::update::channel::Channel;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum InstallMethod {
     Brew,
@@ -37,7 +37,7 @@ impl std::fmt::Display for InstallMethod {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum UpdatePhase {
     #[default]
@@ -231,7 +231,7 @@ pub fn detect_install_method() -> InstallMethod {
     InstallMethod::Unknown
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
 pub struct UpdateInfo {
     pub availability: codeterm_plugins::AvailabilityItem,
     pub current_version: String,
@@ -249,6 +249,7 @@ pub struct UpdateInfo {
     pub published_at: Option<String>,
     /// Which path served this check: `direct` or `github_api`; absent when none was needed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub check_path: Option<String>,
 }
 

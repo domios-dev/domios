@@ -1,20 +1,9 @@
 import type { InteractiveQuestion } from "@codeterm/chat-core";
 import type { ChatSendStatus } from "../components/Terminal/chatSendStatus";
 
-export interface RuntimeQuestionAnswer {
-  questionId: string;
-  values: string[];
-  text?: string;
-}
+export type RuntimeQuestionAnswer = import("../../gen/RuntimeQuestionAnswer").RuntimeQuestionAnswer;
 
-export interface AgentRuntimeQuestion {
-  threadId: string;
-  itemId: string;
-  questions: Array<{ id: string; text: string; options: Array<{ value: string; label: string }>; multiSelect?: boolean; allowFreeText?: boolean }>;
-  response: "message";
-  createdAt: number;
-  resolved?: { answers: RuntimeQuestionAnswer[]; sendId: string; status: ChatSendStatus } | null;
-}
+export type AgentRuntimeQuestion = Omit<import("../../gen/AgentRuntimeQuestion").AgentRuntimeQuestion, "resolved"> & {resolved?: (Omit<import("../../gen/AgentRuntimeQuestionReceipt").AgentRuntimeQuestionReceipt, "status"> & {status: ChatSendStatus}) | null};
 
 export function runtimeQuestionElement(item: AgentRuntimeQuestion, index: number): InteractiveQuestion {
   const question = item.questions[index];

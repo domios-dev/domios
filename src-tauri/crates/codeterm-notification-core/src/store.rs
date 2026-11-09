@@ -21,19 +21,23 @@ use super::deep_link::NotificationTarget;
 use super::persist::Persistence;
 use super::push::{self as push_keys, NotifyLevel};
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, ts_rs::TS)]
 pub struct Notification {
     pub id: String,
     pub tab_id: Option<String>,
     pub workspace_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub tab_title: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub peer_name: Option<String>,
     /// Navigation hint only: the tab whose chat holds the message this is about.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub target_tab_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub chat_message_id: Option<String>,
     pub title: String,
     pub body: Option<String>,
@@ -41,33 +45,42 @@ pub struct Notification {
     /// The axis a caller may name explicitly, independent of `severity`. Absent
     /// is a legal, distinct state, never defaulted from `severity` here.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub level: Option<NotifyLevel>,
     pub timestamp: u64,
     pub read: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub actions: Option<Vec<NotificationAction>>,
     /// Opened when the record offers a choice. Carries the asking tab captured
     /// at send time and the one answer it may ever hold.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub answer: Option<AnswerSlot>,
     #[serde(skip_serializing_if = "is_false")]
+    #[ts(as = "Option<bool>", optional)]
     pub resolved: bool,
     /// The surface this question offers to turn on, and the one label that
     /// turns it on. Daemon-constructed, and read only when an answer is
     /// recorded — an untapped offer changes nothing.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub surface_offer: Option<SurfaceOffer>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub sticky: Option<bool>,
     /// Set when the push sink refused the record. Never surfaced to the caller.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub push_failed: Option<bool>,
     /// Where each channel put the message that carried this record, in that
     /// channel's own terms. Written by the channel, read by the same channel.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(as = "Option<Vec<ChannelPlacement>>", optional)]
     pub placements: Vec<ChannelPlacement>,
     /// The tab condition this record announces; it resolves when that ends.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub condition: Option<TabCondition>,
 }
 
@@ -81,7 +94,7 @@ pub struct NotificationProvenance {
     pub peer_name: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, ts_rs::TS)]
 pub enum NotificationSeverity {
     Info,
     Warning,

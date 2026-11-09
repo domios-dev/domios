@@ -50,7 +50,7 @@ pub struct InteractiveOption {
     pub description: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
 pub struct MessageBlock {
     /// "text" | "thinking" | "tool_use" | "tool_result" | ...
     /// Plugin-defined string; the frontend renderer dispatches on it.
@@ -100,15 +100,22 @@ pub struct ChatSessionIntent {
     pub goal_status: Option<String>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, ts_rs::TS)]
 pub struct RichMessage {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub provider_session_id: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(
+        as = "Option<Vec<super::background_work::BackgroundWorkObservation>>",
+        optional
+    )]
     pub background_work: Vec<super::background_work::BackgroundWorkObservation>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub provider_observations: Option<codeterm_provider_signals::SessionObservations>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub context_usage: Option<super::context::TurnContext>,
     /// Free-form role string. Common values: "user", "assistant",
     /// "system". Plugin chooses; frontend renderer maps to styling.
@@ -117,10 +124,12 @@ pub struct RichMessage {
     pub blocks: Vec<MessageBlock>,
     /// Unix seconds — null if the source row lacked a timestamp.
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[ts(optional)]
     pub ts: Option<i64>,
     /// Source row uuid — the stable id base for flattened `ChatMsg`s so the
     /// streaming UI merges in place instead of duplicating across polls.
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[ts(optional)]
     pub uuid: Option<String>,
     /// Claude `isMeta` rows (skill context, command meta) render as system
     /// messages rather than user turns.
@@ -130,6 +139,7 @@ pub struct RichMessage {
         skip_serializing_if = "Option::is_none",
         default
     )]
+    #[ts(optional)]
     pub is_meta: Option<bool>,
     /// Provider source row classification preserved for normalization.
     #[serde(
@@ -138,6 +148,7 @@ pub struct RichMessage {
         skip_serializing_if = "Option::is_none",
         default
     )]
+    #[ts(optional)]
     pub source_type: Option<String>,
     #[serde(
         rename = "sourceSubtype",
@@ -145,6 +156,7 @@ pub struct RichMessage {
         skip_serializing_if = "Option::is_none",
         default
     )]
+    #[ts(optional)]
     pub source_subtype: Option<String>,
     #[serde(
         rename = "timelineMarker",
@@ -152,6 +164,7 @@ pub struct RichMessage {
         skip_serializing_if = "Option::is_none",
         default
     )]
+    #[ts(optional)]
     pub timeline_marker: Option<ChatTimelineMarker>,
     #[serde(
         rename = "sessionIntent",
@@ -159,8 +172,10 @@ pub struct RichMessage {
         skip_serializing_if = "Option::is_none",
         default
     )]
+    #[ts(optional)]
     pub session_intent: Option<ChatSessionIntent>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[ts(optional)]
     pub level: Option<String>,
     #[serde(
         rename = "isCompactSummary",
@@ -168,6 +183,7 @@ pub struct RichMessage {
         skip_serializing_if = "Option::is_none",
         default
     )]
+    #[ts(optional)]
     pub is_compact_summary: Option<bool>,
     #[serde(
         rename = "isVisibleInTranscriptOnly",
@@ -175,13 +191,16 @@ pub struct RichMessage {
         skip_serializing_if = "Option::is_none",
         default
     )]
+    #[ts(optional)]
     pub is_visible_in_transcript_only: Option<bool>,
     /// Raw ISO timestamp string passed straight through to the frontend.
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[ts(optional)]
     pub timestamp: Option<String>,
     /// Interactive prompts extracted from this message by the provider. Filled
     /// by the enrich pipeline, not by JSONL parsing.
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    #[ts(as = "Option<Vec<InteractiveElement>>", optional)]
     pub interactive: Vec<InteractiveElement>,
     /// Absolute start byte of the session record this row was parsed from.
     /// Host-assigned from the reader's byte range; never on the wire.
@@ -269,6 +288,7 @@ pub struct ChatMsg {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     #[ts(optional)]
     #[ts(type = "unknown")]
+    #[ts(optional)]
     pub tool_edits: Option<serde_json::Value>,
     /// Human description supplied by the tool call source; never inferred.
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -320,11 +340,13 @@ pub struct ChatMsg {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     #[ts(optional)]
     #[ts(type = "unknown")]
+    #[ts(optional)]
     pub file_diffs: Option<serde_json::Value>,
     /// Provider-neutral web or image result metadata (query, result count, local path), passed through verbatim.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     #[ts(optional)]
     #[ts(type = "unknown")]
+    #[ts(optional)]
     pub tool_rich_result: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     #[ts(optional)]
@@ -337,6 +359,7 @@ pub struct ChatMsg {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     #[ts(optional)]
     #[ts(type = "unknown")]
+    #[ts(optional)]
     pub tool_input: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     #[ts(optional)]
@@ -411,9 +434,11 @@ pub struct ChatMsg {
     pub tag_name: Option<String>,
     /// Default-collapsed in the UI (tool calls/results, thinking).
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    #[ts(as = "Option<bool>", optional)]
     pub collapsed: bool,
     /// Interactive prompts attached to this message (matched by tool_use id).
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    #[ts(as = "Option<Vec<InteractiveElement>>", optional)]
     pub interactive: Vec<InteractiveElement>,
 }
 

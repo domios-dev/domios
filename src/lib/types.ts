@@ -139,12 +139,7 @@ export type GraphWorkerInfo = Required<Pick<LocalGraphWorkerInfo, "worker_id" | 
 
 export type PluginActivity = Omit<import("../../gen/PluginActivity").PluginActivity, "percent" | "error" | "status"> & Partial<Pick<import("../../gen/PluginActivity").PluginActivity, "percent" | "error">> & { status: "running" | "done" | "error" };
 
-export interface SpawnWorkerReq {
-  intent: string;
-  task: string;
-  agent?: string;
-  parent?: string;
-}
+export type SpawnWorkerReq = Omit<import("../../gen/WorkerSpawnBody").WorkerSpawnBody, "agent" | "parent"> & {agent?: NonNullable<import("../../gen/WorkerSpawnBody").WorkerSpawnBody["agent"]>; parent?: NonNullable<import("../../gen/WorkerSpawnBody").WorkerSpawnBody["parent"]>};
 
 // Cron types
 

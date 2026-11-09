@@ -17,17 +17,7 @@ pub use operations::{
 #[cfg(test)]
 mod tests;
 
-#[derive(Clone, serde::Serialize)]
-pub struct ProviderSwitchOutcome {
-    pub tab_id: String,
-    pub provider: String,
-    pub session_id: String,
-    pub previous_provider: String,
-    pub previous_session_id: Option<String>,
-    pub previous_history_path: String,
-    pub binding_restored: bool,
-    pub handoff_delivered: bool,
-}
+pub use codeterm_wire::api_contracts::ProviderSwitchOutcome;
 
 struct SwitchBindingCleanup<'a> {
     service: &'a ServiceContext,

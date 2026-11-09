@@ -50,3 +50,5 @@ pub struct EmbedderStatus {
 pub fn legacy_identity() -> EmbedderIdentity {
     local::LocalProvider::new(local::default_model()).identity()
 }
+
+pub mod contracts;

@@ -7,38 +7,13 @@ export type LocalRecordingCapturePhase =
   | "transcribing"
   | "error";
 
-export type LocalRecordingInvalidationReason =
-  | "disabled"
-  | "grantRevoked"
-  | "unregistered"
-  | "deviceSelectionChanged"
-  | "deviceRemoved"
-  | "accessLost"
-  | "deviceUnavailable"
-  | "cancelled";
+export type LocalRecordingInvalidationReason = import("../../../../gen/LocalRecordingInvalidationReason").LocalRecordingInvalidationReason;
 
-export interface LocalRecordingCaptureLease {
-  lease: string;
-  pluginId: string;
-  tabId: string;
-  microphoneId: string;
-  generation: number;
-}
+export type LocalRecordingCaptureLease = import("../../../../gen/LocalRecordingCaptureLease").LocalRecordingCaptureLease;
 
-export interface LocalRecordingCaptureInvalidation {
-  pluginId: string;
-  generation: number;
-  reason: LocalRecordingInvalidationReason;
-}
+export type LocalRecordingCaptureInvalidation = import("../../../../gen/LocalRecordingCaptureInvalidation").LocalRecordingCaptureInvalidation;
 
-export interface LocalRecordingStatus {
-  pluginId: string;
-  granted: boolean;
-  enabled: boolean;
-  available: boolean;
-  generation: number;
-  devicesSelected?: boolean;
-}
+export type LocalRecordingStatus = Pick<import("../../../../gen/RecordingStatus").RecordingStatus, "pluginId" | "granted" | "enabled" | "available" | "generation"> & Partial<Pick<import("../../../../gen/RecordingStatus").RecordingStatus, "devicesSelected" | "captureActive">>;
 
 export interface LocalRecordingCaptureState {
   phase: LocalRecordingCapturePhase;

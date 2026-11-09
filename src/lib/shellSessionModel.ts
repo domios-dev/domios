@@ -1,9 +1,7 @@
 import { invoke } from "./bridge";
 import { createSessionModelResource } from "./shellSessionModelResource";
 
-interface ChatSessionInfo {
-  model?: string | null;
-}
+type ChatSessionInfo = import("../../gen/ChatSessionInfo").ChatSessionInfo;
 
 const resource = createSessionModelResource(async (pluginId, sessionId) => {
   const info = await invoke<ChatSessionInfo>("chatbackend_session_info", { pluginId, sessionId });

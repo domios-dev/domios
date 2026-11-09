@@ -1,74 +1,27 @@
 /** What one notification button does, as the daemon stores and emits it. */
-export type NotificationAction =
-  | { type: "url"; label: string; value: string }
-  | { type: "dismiss"; label: string }
-  | { type: "answer"; label: string }
-  | {
-      type: "respond_prompt_option";
-      label: string;
-      value: string;
-      identity: NotificationPromptIdentity;
-    };
+export type NotificationAction = import("../../gen/NotificationAction").NotificationAction;
 
-export type CallerNotificationAction =
-  | Extract<NotificationAction, { type: "url" }>
-  | Extract<NotificationAction, { type: "dismiss" }>
-  | Extract<NotificationAction, { type: "answer" }>;
+export type CallerNotificationAction = import("../../gen/CallerNotificationAction").CallerNotificationAction;
 
-export interface NotificationPromptIdentity {
-  request_id?: string | null;
-  kind: "provider" | "directory_trust" | "structured" | "permission" | "automatic_permission" | "manual_update";
-  options: Array<{ label: string; value: string }>;
-}
+export type NotificationPromptIdentity = import("../../gen/PromptIdentity").PromptIdentity;
 
 /** The answer slot of one notification: the tab captured when the question was
  * sent, and the single label it may ever hold. */
-export interface NotificationAnswer {
-  daemon_request?: string;
-  asked_from_tab: string | null;
-  answered: string | null;
-  answered_by?: string;
-  answered_via?: string;
-  /** Whether the standing answer reached the asking tab. Recording an answer and
-   * carrying it back are separate facts, so a refused send never reads as done. */
-  delivered: boolean;
-}
+export type NotificationAnswer = Omit<import("../../gen/AnswerSlot").AnswerSlot, "answered_via"> & Partial<Pick<import("../../gen/AnswerSlot").AnswerSlot, "answered_via">>;
 
-export interface Notification {
-  lifetime_ms?: number;
-  ephemeral?: boolean;
-  update_only?: boolean;
-  local_actions?: { label: string; run: () => void | Promise<void> }[];
-  id: string;
-  key?: string;
-  tab_id: string | null;
-  workspace_id: string | null;
-  /** Navigation hint: the tab whose chat holds the message this is about. */
-  target_tab_id?: string | null;
-  /** The exact `data-message-id` inside `target_tab_id`; never matched by text. */
-  chat_message_id?: string | null;
-  title: string;
-  body: string | null;
-  icon_svg?: string | null;
-  icon_color?: string | null;
-  icon_hint?: string | null;
-  /** Wire and dedupe axis only: it joins provenance and title in the record's
-   *  identity. No surface tones by it — `level` is the single tone axis. */
-  severity: "Info" | "Warning" | "Error";
-  /** The tone axis, named by the sender and routed on by the destination
-   *  matrix. Absent means the caller named no level — a distinct, legal state,
-   *  not a lost one — and every surface paints it the neutral tone. */
-  level?: "verbose" | "action_needed" | "failure";
-  timestamp: number;
-  read: boolean;
-  /** Actions remain available in the bell after toast expiry. */
-  actions?: NotificationAction[];
-  /** Present when the notification offers a choice */
-  answer?: NotificationAnswer;
-  answer_pending?: boolean;
-  answer_error?: string;
-  resolved?: boolean;
-  /** Sender hint; the host still caps every toast lifetime. */
-  sticky?: boolean;
-}
+export type Notification = Omit<import("../../gen/Notification").Notification, "answer" | "target_tab_id" | "chat_message_id"> & {
+target_tab_id?: string | null;
+chat_message_id?: string | null;
+answer?: NotificationAnswer;
+lifetime_ms?: number;
+ephemeral?: boolean;
+update_only?: boolean;
+local_actions?: { label: string; run: () => void | Promise<void> }[];
+key?: string;
+icon_svg?: string | null;
+icon_color?: string | null;
+icon_hint?: string | null;
+answer_pending?: boolean;
+answer_error?: string;
+};
 

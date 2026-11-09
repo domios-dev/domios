@@ -1,14 +1,7 @@
 use super::{recurrence::RecurrenceRule, DeliveryTickView, MessageOrigin};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum DelayedMessageState {
-    Queued,
-    Stashed,
-    Sending,
-    Failed,
-}
+pub use codeterm_wire::api_contracts::DelayedMessageState;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

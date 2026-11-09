@@ -355,3 +355,7 @@ mod tests;
 pub mod diagnostics;
 pub mod policy;
 pub mod privacy;
+
+pub fn export_protocol_contracts(config: &ts_rs::Config) -> Result<(), Box<dyn std::error::Error>> {
+    spend::export_protocol_contracts(config)
+}

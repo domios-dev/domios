@@ -85,6 +85,7 @@ pub enum MessageSegment {
         body: String,
         tip: Option<String>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        #[ts(as = "Option<Vec<MessageSegment>>", optional)]
         segments: Vec<MessageSegment>,
     },
     /// A complete frame whose sender kind is not registered or whose opening

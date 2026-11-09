@@ -4,20 +4,20 @@ use rand::{rngs::OsRng, RngCore};
 use sha2::{Digest, Sha256};
 use url::Url;
 
-#[derive(Clone, Copy, Default, serde::Deserialize)]
+#[derive(Clone, Copy, Default, serde::Deserialize, ts_rs::TS)]
 #[serde(default, deny_unknown_fields)]
 pub struct LoginHint {
     pub provider: Option<LoginProvider>,
     pub mode: Option<LoginMode>,
 }
-#[derive(Clone, Copy, serde::Deserialize)]
+#[derive(Clone, Copy, serde::Deserialize, ts_rs::TS)]
 #[serde(rename_all = "lowercase")]
 pub enum LoginProvider {
     Google,
     Facebook,
     Email,
 }
-#[derive(Clone, Copy, serde::Deserialize)]
+#[derive(Clone, Copy, serde::Deserialize, ts_rs::TS)]
 #[serde(rename_all = "lowercase")]
 pub enum LoginMode {
     Signin,

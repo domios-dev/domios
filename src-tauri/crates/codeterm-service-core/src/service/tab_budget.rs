@@ -3,8 +3,6 @@
 //! gets a visible cleanup nudge on the next tab-creation response. Never
 //! blocks creation, never auto-closes tabs.
 
-use serde::Serialize;
-
 use super::ServiceContext;
 
 /// Soft budget: past this the creation response carries a gentle nudge.
@@ -13,23 +11,13 @@ pub const SOFT_TAB_BUDGET: usize = 15;
 /// the exact count.
 pub const STRONG_TAB_BUDGET: usize = 20;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum TabBudgetLevel {
-    Soft,
-    Strong,
-}
+pub use codeterm_wire::api_contracts::TabBudgetLevel;
 
 /// Structured advisory attached to any tab-creation response so a future UI
 /// can render the same nudge the CLI/API text shows. `message` is the
 /// human-readable line; `workspace_tab_count` is the post-create count for
 /// THIS workspace only.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct TabBudgetNotice {
-    pub workspace_tab_count: usize,
-    pub level: TabBudgetLevel,
-    pub message: String,
-}
+pub use codeterm_wire::api_contracts::TabBudgetNotice;
 
 /// Evaluate a post-create workspace tab count against the advisory budgets.
 /// `None` when under the soft threshold — no nudge. Pure so CLI/socket/UI

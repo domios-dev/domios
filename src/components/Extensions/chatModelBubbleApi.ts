@@ -3,9 +3,7 @@
 import { invoke } from "../../lib/bridge";
 
 /** Mirror of the Rust `ChatSessionInfo` — the model the live session talks to. */
-export interface ChatSessionInfo {
-  model: string | null;
-}
+export type ChatSessionInfo = import("../../../gen/ChatSessionInfo").ChatSessionInfo;
 
 export interface ChatModelBubbleApi {
   sessionInfo(pluginId: string, sessionId: string): Promise<ChatSessionInfo>;

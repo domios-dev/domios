@@ -3,84 +3,26 @@ import { invoke, listen } from "../../lib/bridge";
 import { daemonTransportForPeer } from "../../lib/daemonBootstrap";
 
 /** Exact registry slot identity the server checks before revoke or link. */
-export interface MeshTarget {
-  installation_id: string;
-  key_id: string;
-  key_generation: number;
-  slot_revision: number;
-}
+export type MeshTarget = import("../../../gen/MeshTarget").MeshTarget;
 
-export interface MeshEndpointObservation {
-  transport?: import("./networkTransport").NetworkIdentity;
-  tailnet_ip: string;
-  api_port: number;
-  expires_at: number;
-}
+export type MeshEndpointObservation = import("../../../gen/MeshEndpointObservation").MeshEndpointObservation;
 
 /** One account registry row as the server lists it; `endpoint` is published metadata, never reachability. */
-export interface AccountMachineRow extends MeshTarget {
-  active: boolean;
-  presence: "present" | "signed_out";
-  admitted_at: number;
-  authenticated_at: number;
-  display_name: string | null;
-  metadata_revision: number;
-  publication: "none" | "pending" | "complete";
-  membership_expires_at: number | null;
-  eligibility: "eligible" | "mesh-allowance" | "revoked" | "verification-unavailable";
-  endpoint: MeshEndpointObservation | null;
-}
+export type AccountMachineRow = import("../../../gen/MeshManagementRow").MeshManagementRow;
 
-export interface SelfInstallation extends MeshTarget {
-  metadata_revision: number;
-  display_name: string | null;
-}
+export type SelfInstallation = import("../../../gen/SelfInstallation").SelfInstallation;
 
 /** A mutually authenticated connection to an account installation. */
-export interface LocalPairFact {
-  instance_id: string;
-  installation_id: string;
-  admission: "account";
-  online: boolean;
-  name: string;
-}
+export type LocalPairFact = Omit<import("../../../gen/AccountMeshPair").AccountMeshPair, "installation_id" | "admission"> & {installation_id: string; admission: "account"};
 
-export type AccountMeshFailure =
-  | { reason: "enrollment_budget"; retry_after_seconds?: number | null }
-  | { reason: "key_conflict" | "generation_mismatch" | "challenge_invalid" | "proof_invalid" }
-  | { reason: "invalid" | "unauthenticated" | "app-check" | "forbidden" | "conflict" | "authority-unavailable" | "unavailable" }
-  | { reason: "rate-limited"; retry_after_seconds: number }
-  | { reason: "mesh.machines"; limit: number; active_count: number }
-  | { reason: "offline" | "peer-unreachable" | "auth-refused" | "peer-needs-update" | "handshake-failed" | "signed-out" }
-  | { reason: "revoked" | "cancelled" | "verification-unavailable" | "plan_limit_locked" | "reauth_required" };
+export type AccountMeshFailure = import("../../../gen/AccountMeshRefusal").AccountMeshRefusal | {reason: "peer-unreachable" | "auth-refused" | "peer-needs-update" | "handshake-failed"};
 
-export type AccountMeshOutcome = { ok: true; result?: { display_name: string; metadata_revision: number } } | { ok: false; failure: AccountMeshFailure; local_signed_out?: boolean };
+export type AccountMeshOutcome = (Omit<Extract<import("../../../gen/AccountMeshOutcome").AccountMeshOutcome<{display_name: string; metadata_revision: number}>, {result: unknown}>, "ok" | "result"> & {ok: true; result?: {display_name: string; metadata_revision: number}}) | (Omit<Extract<import("../../../gen/AccountMeshOutcome").AccountMeshOutcome<unknown>, {failure: unknown}>, "ok" | "failure" | "request_id"> & {ok: false; failure: AccountMeshFailure; request_id?: string | null});
 
 /** A genuine free machine-slot refusal from automatic enrollment, held until acknowledged. */
-export interface AccountMeshLimitNotice {
-  request_id: string;
-  refusal: unknown;
-  trigger: string;
-}
+export type AccountMeshLimitNotice = Omit<import("../../../gen/AccountMeshLimitNotice").AccountMeshLimitNotice, "refusal"> & {refusal: unknown};
 
-export interface AccountMeshSnapshot {
-  local_installation_id: string;
-  account_epoch: number;
-  binding: "none" | "current" | "other";
-  traffic: "open" | "blocked_signed_out" | "plan_limit_locked";
-  cleanup: "none" | "pending" | "confirmed";
-  self: SelfInstallation | null;
-  registry: { observed_at: number; rows: AccountMachineRow[]; cursor?: { after_installation_id: string; registry_revision: number } | null } | null;
-  registry_failure: AccountMeshFailure | null;
-  enrollment: "idle" | "enrolling" | "enrolled" | "refused";
-  last_refusal: AccountMeshFailure | null;
-  publication?: "none" | "not_ready" | "published";
-  publication_failure?: AccountMeshFailure | null;
-  retry_at?: number | null;
-  pairs: LocalPairFact[];
-  connections?: import("./connectionPhase").PeerConnection[];
-  limit_notice?: AccountMeshLimitNotice | null;
-}
+export type AccountMeshSnapshot = Omit<import("../../../gen/AccountMeshView").AccountMeshView, "registry" | "registry_failure" | "last_refusal" | "limit_notice" | "publication" | "publication_failure" | "retry_at" | "membership_expires_at"> & Partial<Pick<import("../../../gen/AccountMeshView").AccountMeshView, "publication" | "retry_at" | "membership_expires_at">> & {local_installation_id: string; registry: (Omit<NonNullable<import("../../../gen/AccountMeshView").AccountMeshView["registry"]>, "rows" | "cursor" | "registry_revision"> & Partial<Pick<NonNullable<import("../../../gen/AccountMeshView").AccountMeshView["registry"]>, "cursor" | "registry_revision">> & {rows: AccountMachineRow[]}) | null; registry_failure: AccountMeshFailure | null; last_refusal: AccountMeshFailure | null; publication_failure?: AccountMeshFailure | null; limit_notice?: AccountMeshLimitNotice | null; pairs: LocalPairFact[]; connections?: import("./connectionPhase").PeerConnection[]};
 
 export interface AccountMeshClient {
   snapshot(): Promise<AccountMeshSnapshot>;

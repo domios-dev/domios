@@ -19,7 +19,7 @@ impl BillingMode {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
 pub struct UsageSnapshotRow {
     pub id: i64,
     #[serde(default)]

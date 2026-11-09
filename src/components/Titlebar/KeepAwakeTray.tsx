@@ -9,11 +9,7 @@ import { UI_TRAY_BTN } from "../shared/design";
 import { LiquidToggleTrack, useLiquidTravel } from "../shared/LiquidToggle";
 import { Segmented } from "../shared/Segmented";
 
-interface KeepAwakeStatus {
-  active: boolean;
-  display: boolean;
-  expires_at: number | null;
-}
+type KeepAwakeStatus = import("../../../gen/KeepAwakeStatus").KeepAwakeStatus;
 
 const PRESETS = [
   { value: "inf", label: "∞", title: "Indefinitely", secs: null },
@@ -43,7 +39,7 @@ function clockParts(expiresAt: number): { h: number; m: number } | null {
 }
 
 export function KeepAwakeTray() {
-  const [status, setStatus] = useState<KeepAwakeStatus>({ active: false, display: false, expires_at: null });
+  const [status, setStatus] = useState<KeepAwakeStatus>({ active: false, display: false, expires_at: null, gnome_policy: false, system_block: false });
   const [open, setOpen] = useState(false);
   const [displaySleep, setDisplaySleep] = useState<boolean>(loadDisplay);
   const [picked, setPicked] = useState<PresetValue>("inf");

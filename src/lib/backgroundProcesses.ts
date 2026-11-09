@@ -1,21 +1,8 @@
-export interface BackgroundProcessAuthority {
-  rootThreadId: string;
-  bindingNonce: string;
-  epoch: number;
-}
+export type BackgroundProcessAuthority = Pick<import("../../gen/BackgroundProcessSnapshot").BackgroundProcessSnapshot, "rootThreadId" | "bindingNonce" | "epoch">;
 
-export interface BackgroundProcessEntry {
-  threadId: string;
-  processId: string;
-  itemId: string;
-  command: string;
-  cwd: string;
-  osPid: number | null;
-}
+export type BackgroundProcessEntry = import("../../gen/BackgroundProcessEntry").BackgroundProcessEntry;
 
-export interface BackgroundProcessSnapshot extends BackgroundProcessAuthority {
-  processes: BackgroundProcessEntry[];
-}
+export type BackgroundProcessSnapshot = import("../../gen/BackgroundProcessSnapshot").BackgroundProcessSnapshot;
 
 export function backgroundProcessesSuffix(authority: BackgroundProcessAuthority): string {
   const query = new URLSearchParams({

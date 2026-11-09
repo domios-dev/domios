@@ -1,20 +1,8 @@
 import type { AgentState } from "./AgentStateIndicator";
 
-export type SessionBindingStateKind =
-  | "healthy"
-  | "deferred_pending"
-  | "refused"
-  | "never_bound"
-  | "unbound"
-  | "stale_pending";
+export type SessionBindingStateKind = import("../../../gen/SessionBindingStateKind").SessionBindingStateKind;
 
-export interface SessionBindingFact {
-  tab_id: string;
-  kind: SessionBindingStateKind;
-  current_session_id: string | null;
-  requested_session_id: string | null;
-  reason: string | null;
-}
+export type SessionBindingFact = import("../../../gen/SessionBindingState").SessionBindingState;
 
 export interface SessionBindingSurfaceState {
   agentState: AgentState | null;

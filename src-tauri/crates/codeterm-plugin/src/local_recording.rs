@@ -174,15 +174,16 @@ pub struct RecordingStatus {
     pub generation: u64,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(rename = "LocalRecordingCaptureInvalidation")]
 pub struct LocalRecordingInvalidation {
     pub plugin_id: String,
     pub generation: u64,
     pub reason: LocalRecordingInvalidationReason,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub enum LocalRecordingInvalidationReason {
     Disabled,
