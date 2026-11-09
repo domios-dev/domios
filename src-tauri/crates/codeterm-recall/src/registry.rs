@@ -6,6 +6,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use codeterm_decision::TokenMode;
+use codeterm_supporter::responses::SupporterState;
 use serde_json::{json, Value};
 
 use crate::search::{
@@ -36,25 +37,24 @@ pub fn supporter_token_dir() -> PathBuf {
     codeterm_paths::data_dir().join("supporter")
 }
 
-pub fn registered_adapters(models: &SupporterRegistry) -> Vec<Value> {
+pub fn registered_adapters(
+    models: &SupporterRegistry,
+) -> Vec<codeterm_supporter::responses::SupporterAdapter> {
     let mut ids = models.ids();
     ids.sort();
     ids.into_iter()
         .filter_map(|id| {
             let model = models.get(&id)?;
             let primitives = model.primitives();
-            Some(json!({
-                "id": id,
-                "token_mode": token_mode_name(model.token_mode()),
-                "primitives": {
-                    "choice": primitives.choice,
-                    "noul": primitives.noul,
-                    "score": primitives.score,
-                },
-                "models": model.cached_models(),
-                "pricing": model.pricing(),
-                "metadata": model.metadata(),
-            }))
+            Some(codeterm_supporter::responses::SupporterAdapter {
+                id,
+                token_mode: model.token_mode(),
+                primitives,
+                models: model.cached_models(),
+                token: None,
+                pricing: model.pricing(),
+                metadata: model.metadata(),
+            })
         })
         .collect()
 }
@@ -64,30 +64,22 @@ pub fn supporter_state(
     token: &TokenStatus,
     adapter_registered: bool,
     token_mode: TokenMode,
-) -> &'static str {
+) -> SupporterState {
     if !selected {
-        return "not_connected";
+        return SupporterState::NotConnected;
     }
     if !adapter_registered {
-        return "adapter_unavailable";
+        return SupporterState::AdapterUnavailable;
     }
     if token_mode == TokenMode::Required {
         if !token.present {
-            return "no_token";
+            return SupporterState::NoToken;
         }
         if token.mode_ok == Some(false) {
-            return "token_unusable";
+            return SupporterState::TokenUnusable;
         }
     }
-    "active"
-}
-
-pub fn token_mode_name(mode: TokenMode) -> &'static str {
-    match mode {
-        TokenMode::Required => "required",
-        TokenMode::Optional => "optional",
-        TokenMode::None => "none",
-    }
+    SupporterState::Active
 }
 
 pub fn token_store() -> TokenStore {

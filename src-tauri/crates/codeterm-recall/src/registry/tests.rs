@@ -428,23 +428,23 @@ fn supporter_status_distinguishes_not_connected_token_states_and_active() {
     };
 
     assert_eq!(
-        supporter_state(true, &missing, true, TokenMode::Required),
+        json!(supporter_state(true, &missing, true, TokenMode::Required)),
         "no_token"
     );
     assert_eq!(
-        supporter_state(true, &set, true, TokenMode::Required),
+        json!(supporter_state(true, &set, true, TokenMode::Required)),
         "active"
     );
     assert_eq!(
-        supporter_state(true, &set, true, TokenMode::Required),
+        json!(supporter_state(true, &set, true, TokenMode::Required)),
         "active"
     );
     assert_eq!(
-        supporter_state(true, &unusable, true, TokenMode::Required),
+        json!(supporter_state(true, &unusable, true, TokenMode::Required)),
         "token_unusable"
     );
     assert_eq!(
-        supporter_state(true, &set, false, TokenMode::Required),
+        json!(supporter_state(true, &set, false, TokenMode::Required)),
         "adapter_unavailable"
     );
 }
@@ -458,12 +458,12 @@ fn supporter_state_optional_and_none_ignore_missing_tokens() {
     };
     for mode in [TokenMode::Optional, TokenMode::None] {
         assert_eq!(
-            supporter_state(false, &missing, true, mode),
+            json!(supporter_state(false, &missing, true, mode)),
             "not_connected"
         );
-        assert_eq!(supporter_state(true, &missing, true, mode), "active");
+        assert_eq!(json!(supporter_state(true, &missing, true, mode)), "active");
         assert_eq!(
-            supporter_state(true, &missing, false, mode),
+            json!(supporter_state(true, &missing, false, mode)),
             "adapter_unavailable"
         );
     }
@@ -474,15 +474,15 @@ fn supporter_models_lists_registered_models() {
     let registry = registry_with(StubMode::Relevance(HashMap::new()));
 
     assert_eq!(
-        registered_adapters(&registry),
-        vec![json!({
+        json!(registered_adapters(&registry)),
+        json!([{
             "id": STUB_ID,
             "token_mode": "none",
             "pricing": null,
             "metadata": { "display_name": null, "help_url": null, "server_address": null, "settings_url": null },
             "primitives": { "choice": false, "noul": true, "score": false },
             "models": [{ "id": "stub-model", "display_name": "Stub Model" }],
-        })]
+        }])
     );
 }
 

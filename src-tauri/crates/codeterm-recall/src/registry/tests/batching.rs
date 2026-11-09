@@ -38,7 +38,10 @@ fn search_batches_ten_candidates_and_repeated_searches_each_make_one_reflex() {
         )
         .unwrap();
         assert_eq!(output["supporter"]["status"], "applied");
-        assert_eq!(backend.runtime.status(0)["calls_last_hour"], expected);
+        assert_eq!(
+            serde_json::json!(backend.runtime.status(0))["calls_last_hour"],
+            expected
+        );
         assert_eq!(
             backend.runtime.feed(100, None).unwrap().len(),
             expected as usize
@@ -86,7 +89,10 @@ fn three_candidates_preserve_first_stage_and_make_no_model_call() {
     for id in &backend.ids {
         assert_eq!(after[id] - before[id], i64::from(returned.contains(id)));
     }
-    assert_eq!(backend.runtime.status(0)["calls_last_hour"], 0);
+    assert_eq!(
+        serde_json::json!(backend.runtime.status(0))["calls_last_hour"],
+        0
+    );
     assert!(backend.runtime.feed(100, None).unwrap().is_empty());
 }
 
@@ -116,5 +122,8 @@ fn small_project_pool_preserves_user_limit_baseline_and_access_counts() {
     for id in &backend.ids {
         assert_eq!(after[id] - before[id], i64::from(returned.contains(id)));
     }
-    assert_eq!(backend.runtime.status(0)["calls_last_hour"], 0);
+    assert_eq!(
+        serde_json::json!(backend.runtime.status(0))["calls_last_hour"],
+        0
+    );
 }

@@ -21,8 +21,9 @@ export const API: ApiConfig = {
 export function statusFixture(): SupporterStatus {
   return {
     state: "active", adapter: "fixture", connected: true, token_mode: "none", model: null, deadline_ms: 3000,
-    token: { adapter: "fixture", token_mode: "none", present: false }, adapter_registered: true, adapters: [], connections: [],
+    token: { adapter: "fixture", token_mode: "none", present: false, path: "fixture.json", mode_ok: null }, adapter_registered: true, adapters: [], connections: [],
     last_activity: 1700000000, calls_last_hour: 4, calls_last_day: 12, last_verdict: {},
+    observation_scheduler: { questions_per_event: 6, global_in_flight: 4, per_tab_in_flight: 1, queue_limit: 32, active: 0, queued: 0, coalesced: 0, dropped: 0 },
     budget: { reached: false, calls_per_hour: null, free_at: null, storage_ready: true },
     pricing: { display_name: "Jev", input_usd_per_million: 0.5, output_usd_per_million: 0.5 },
     spend: {

@@ -1,5 +1,4 @@
 pub use codeterm_supporter::*;
-use serde_json::Value;
 use std::sync::Arc;
 pub mod registry;
 
@@ -37,8 +36,10 @@ pub fn runtime_with_notifications(svc: &super::ServiceContext) -> Arc<SupporterR
     runtime
 }
 
-pub fn activity_status(runtime: &SupporterRuntime, cap: usize) -> Value {
-    let mut status = runtime.status(cap);
-    status["observation_scheduler"] = super::supporter_tab_state::scheduler::status();
-    status
+pub fn activity_status(runtime: &SupporterRuntime, cap: usize) -> responses::SupporterActivity {
+    runtime.status(cap)
+}
+
+pub fn observation_scheduler_status() -> responses::SupporterObservationScheduler {
+    super::supporter_tab_state::scheduler::status()
 }

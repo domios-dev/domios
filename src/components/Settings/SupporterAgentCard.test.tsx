@@ -30,7 +30,7 @@ const price = {
 };
 const catalog: SupporterAdapter[] = ["required", "optional", "none"].map((mode) => ({
   id: mode,
-  metadata: { display_name: `${mode} provider` },
+  metadata: { display_name: `${mode} provider`, help_url: null, settings_url: null, server_address: null },
   token_mode: mode as SupporterAdapter["token_mode"],
   primitives: { choice: true, noul: true, score: true },
   models: [
@@ -46,7 +46,8 @@ function row(adapter: string, active: boolean): SupporterConnection {
     active,
     token_mode: adapter as SupporterConnection["token_mode"],
     token: { present: adapter === "required", mode_ok: true },
-    metadata: { display_name: `${adapter} provider` },
+    metadata: { display_name: `${adapter} provider`, help_url: null, settings_url: null, server_address: null },
+    error: null,
     pricing: adapter === "required" ? price : null,
   };
 }

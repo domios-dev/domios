@@ -2,6 +2,7 @@ use super::*;
 use codeterm_decision::{
     DecisionAnswer, DecisionError, DecisionModelInfo, DecisionPrimitives, DecisionRequest,
 };
+use serde_json::{json, Value};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
@@ -116,7 +117,7 @@ fn supporter_connections_connect_and_activate_by_token_mode() {
             assert_eq!(f.cfg.adapter, None);
         }
         let secret = (mode == TokenMode::Required).then_some("opaque-private-token");
-        let result = f.service().connect("b", None, secret, true).unwrap();
+        let result = json!(f.service().connect("b", None, secret, true).unwrap());
         assert_eq!(result["state"], "active");
         assert_eq!(f.cfg.active_id(), Some("b"));
         assert_eq!(f.store.status("b").unwrap().present, secret.is_some());
@@ -128,17 +129,17 @@ fn supporter_connections_partial_failure_saved_not_active() {
     let mut f = Fixture::new(TokenMode::Required);
     f.connect_a();
     f.b.unavailable.store(true, Ordering::SeqCst);
-    let result = f
+    let result = json!(f
         .service()
         .connect("b", Some("two".into()), Some("private-token"), true)
-        .unwrap();
+        .unwrap());
     assert_eq!(result["state"], "saved_not_active");
     assert_eq!(result["error"]["code"], "unavailable");
     assert_eq!(f.cfg.active_id(), Some("a"));
     assert!(f.store.status("b").unwrap().present);
     assert_eq!(f.cfg.connection("b").model.as_deref(), Some("two"));
     f.b.unavailable.store(false, Ordering::SeqCst);
-    assert_eq!(f.service().activate("b").unwrap()["state"], "active");
+    assert_eq!(json!(f.service().activate("b").unwrap())["state"], "active");
 }
 
 #[test]
@@ -282,7 +283,7 @@ fn supporter_connections_list_never_contains_token_value() {
     f.service()
         .connect("b", None, Some("secret-only-write"), true)
         .unwrap();
-    let rows = list(&f.cfg, &f.registry, &f.store).unwrap();
+    let rows = json!(list(&f.cfg, &f.registry, &f.store).unwrap());
     assert_eq!(rows[0]["token"]["present"], true);
     assert!(!serde_json::to_string(&rows)
         .unwrap()
@@ -295,8 +296,8 @@ fn supporter_connections_legacy_active_adapter_with_stored_token_is_connected_an
     f.registry.register("typesafe-jev", f.b.clone());
     f.cfg = toml::from_str("adapter = 'typesafe-jev'").unwrap();
     f.store.set("typesafe-jev", "private-secret").unwrap();
-    let rows = list(&f.cfg, &f.registry, &f.store).unwrap();
-    assert_eq!(rows.len(), 1);
+    let rows = json!(list(&f.cfg, &f.registry, &f.store).unwrap());
+    assert_eq!(rows.as_array().unwrap().len(), 1);
     assert_eq!(rows[0]["active"], true);
     assert_eq!(rows[0]["model"], "one");
     assert!(crate::supporter_connected(
@@ -311,8 +312,8 @@ fn supporter_connections_legacy_active_adapter_with_stored_token_is_connected_an
 fn supporter_connections_stored_token_without_table_entry_is_a_connection() {
     let f = Fixture::new(TokenMode::Optional);
     f.store.set("b", "private-secret").unwrap();
-    let rows = list(&f.cfg, &f.registry, &f.store).unwrap();
-    assert_eq!(rows.len(), 1);
+    let rows = json!(list(&f.cfg, &f.registry, &f.store).unwrap());
+    assert_eq!(rows.as_array().unwrap().len(), 1);
     assert_eq!(rows[0]["adapter"], "b");
     assert_eq!(rows[0]["active"], false);
 }
@@ -391,8 +392,8 @@ fn supporter_connections_use_connects_or_activates_with_per_adapter_model() {
 fn supporter_connections_unregistered_corrupt_token_is_still_saved() {
     let f = Fixture::new(TokenMode::Optional);
     std::fs::write(f.store.path("disabled"), "invalid-json").unwrap();
-    let rows = list(&f.cfg, &f.registry, &f.store).unwrap();
-    assert_eq!(rows.len(), 1);
+    let rows = json!(list(&f.cfg, &f.registry, &f.store).unwrap());
+    assert_eq!(rows.as_array().unwrap().len(), 1);
     assert_eq!(rows[0]["adapter"], "disabled");
     assert_eq!(rows[0]["token"]["present"], true);
     assert_eq!(rows[0]["token_mode"], Value::Null);
@@ -441,7 +442,7 @@ fn supporter_connections_legacy_first_catalogue_model_is_verified_before_running
     ));
     assert!(crate::configured_model(&f.cfg, &f.registry).is_none());
     assert_eq!(
-        list(&f.cfg, &f.registry, &f.store).unwrap()[0]["error"]["code"],
+        json!(list(&f.cfg, &f.registry, &f.store).unwrap())[0]["error"]["code"],
         "unavailable"
     );
     f.a.unavailable.store(false, Ordering::SeqCst);

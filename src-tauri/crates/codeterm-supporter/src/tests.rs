@@ -179,7 +179,10 @@ fn supporter_budget_gate_blocks_past_cap_and_falls_back() {
         }
     );
     assert_eq!(calls.load(Ordering::SeqCst), 1);
-    assert_eq!(runtime.status(1)["budget"]["reached"], true);
+    assert_eq!(
+        serde_json::json!(runtime.status(1))["budget"]["reached"],
+        true
+    );
 }
 
 #[test]

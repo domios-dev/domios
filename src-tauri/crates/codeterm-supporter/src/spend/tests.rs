@@ -1,4 +1,5 @@
 use super::*;
+use serde_json::Value;
 
 fn price() -> DecisionPricing {
     DecisionPricing {
@@ -30,14 +31,14 @@ fn supporter_spend_accumulates_today_and_month_across_restart() {
     .unwrap();
     drop(book);
     let book = SpendBook::new(dir.path().into());
-    let status = book.status("adapter", now + 2);
+    let status = serde_json::json!(book.status("adapter", now + 2));
     assert_eq!(status["today"]["input_tokens"], 2_000_000);
     assert_eq!(status["month"]["output_tokens"], 800);
     assert_eq!(status["today"]["estimated_usd"], 0.084);
-    let next_day = book.status("adapter", now + 86_400_000);
+    let next_day = serde_json::json!(book.status("adapter", now + 86_400_000));
     assert_eq!(next_day["today"]["input_tokens"], 0);
     assert_eq!(next_day["month"]["input_tokens"], 2_000_000);
-    let next_month = book.status("adapter", now + 32 * 86_400_000);
+    let next_month = serde_json::json!(book.status("adapter", now + 32 * 86_400_000));
     assert_eq!(next_month["month"]["input_tokens"], 0);
 }
 
@@ -111,7 +112,7 @@ fn supporter_unpriced_adapters_report_tokens_and_local_zero_price_is_free() {
     };
     book.finish("unknown", "fixture", Some(usage), None, None, 1_000)
         .unwrap();
-    let status = book.status("unknown", 1_000);
+    let status = serde_json::json!(book.status("unknown", 1_000));
     assert_eq!(status["today"]["input_tokens"], 500);
     assert_eq!(status["today"]["estimated_usd"], Value::Null);
     let free = DecisionPricing {
@@ -121,11 +122,14 @@ fn supporter_unpriced_adapters_report_tokens_and_local_zero_price_is_free() {
     };
     book.finish("free", "fixture", Some(usage), Some(&free), None, 1_000)
         .unwrap();
-    assert_eq!(book.status("free", 1_000)["today"]["estimated_usd"], 0.0);
+    assert_eq!(
+        serde_json::json!(book.status("free", 1_000))["today"]["estimated_usd"],
+        0.0
+    );
     book.finish("missing", "fixture", None, Some(&price()), None, 1_000)
         .unwrap();
     assert_eq!(
-        book.status("missing", 1_000)["today"]["estimated_usd"],
+        serde_json::json!(book.status("missing", 1_000))["today"]["estimated_usd"],
         Value::Null
     );
 }

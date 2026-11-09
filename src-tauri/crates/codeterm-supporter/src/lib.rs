@@ -20,6 +20,7 @@ mod narrative;
 mod physical;
 pub type SupporterRegistry = codeterm_plugin::capability::CapabilityRegistry<dyn DecisionModel>;
 pub mod rerank;
+pub mod responses;
 mod spend;
 mod storage;
 
@@ -357,5 +358,8 @@ pub mod policy;
 pub mod privacy;
 
 pub fn export_protocol_contracts(config: &ts_rs::Config) -> Result<(), Box<dyn std::error::Error>> {
+    use ts_rs::TS;
+    responses::SupporterStatus::export_all(config)?;
+    responses::SupporterMutation::export_all(config)?;
     spend::export_protocol_contracts(config)
 }
