@@ -4,6 +4,7 @@ import type { Tab } from "../../../lib/types";
 import { invoke, listen, type UnlistenFn } from "../../../lib/bridge";
 import { IS_WEB } from "../../../lib/webApi";
 import { addChatSend, observeDeliveryStatus, removeChatSend } from "../chatSendStore";
+import type { LocalRecordingCommitOutcome } from "../../../../gen/LocalRecordingCommitOutcome";
 import type { ChatSendStatus } from "../chatSendStatus";
 import {
   MIN_VOICE_BYTES,
@@ -46,11 +47,6 @@ export interface UseLocalRecordingCaptureOptions {
   tabs: Record<string, Tab>;
   runtime?: Partial<LocalRecordingCaptureRuntime>;
 }
-
-type LocalRecordingCommitOutcome =
-  | { kind: "tracked"; status: ChatSendStatus }
-  | { kind: "preHandoffFailure"; message: string }
-  | { kind: "possibleHandoff"; message: string };
 
 function tabBinding(tab: Tab | undefined): string | null {
   if (!tab) return null;

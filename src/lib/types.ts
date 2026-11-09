@@ -48,7 +48,7 @@ export type Workspace = Pick<import("../../gen/Workspace").Workspace, "id" | "na
 
 export type ClosedTab = Pick<import("../../gen/ClosedTab").ClosedTab, "tab_id" | "title" | "closed_at"> & Partial<import("../../gen/ClosedTab").ClosedTab>;
 
-export type ClosedTabView = Pick<import("./multiplexerWireFallbacks").ClosedTabView, "tab_id" | "title" | "closed_at" | "index" | "orphaned" | "group_id" | "group_kind"> & Partial<import("./multiplexerWireFallbacks").ClosedTabView>;
+export type ClosedTabView = Pick<import("../../gen/ClosedTabView").ClosedTabView, "tab_id" | "title" | "closed_at" | "index" | "orphaned" | "group_id" | "group_kind"> & Partial<import("../../gen/ClosedTabView").ClosedTabView>;
 
 export type { ClosedStructureView } from "../../gen/ClosedStructureView";
 

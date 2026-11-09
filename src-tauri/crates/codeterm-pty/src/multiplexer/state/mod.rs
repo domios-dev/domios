@@ -147,9 +147,6 @@ pub struct MultiplexerSnapshot {
     pub generation: u64,
     pub workspaces: Vec<Workspace>,
     #[serde(serialize_with = "wire_snapshot::tabs")]
-    #[ts(
-        type = "Record<string, Omit<import(\"./Tab\").Tab, \"agent_runtime_config\" | \"prior_session_binding_nonces\"> & { agent_runtime_config?: Exclude<import(\"./serde_json/JsonValue\").JsonValue, Record<string, unknown>> | { [key: string]: import(\"./serde_json/JsonValue\").JsonValue | undefined; systemPrompt?: never }; prior_session_binding_nonces?: [import(\"./PriorBindingNonce\").PriorBindingNonce?, import(\"./PriorBindingNonce\").PriorBindingNonce?] }>"
-    )]
     pub tabs: HashMap<String, Tab>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub teams: Vec<Team>,
@@ -159,7 +156,6 @@ pub struct MultiplexerSnapshot {
     /// workspaces) for the sidebar. Sourced live from the sqlite store, NOT the
     /// persisted session snapshot — keeps both lean.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    #[ts(type = "Array<import(\"../src/lib/multiplexerWireFallbacks\").ClosedTabView>")]
     pub recently_closed: Vec<ClosedTabView>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub closed_structures: Vec<ClosedStructureView>,

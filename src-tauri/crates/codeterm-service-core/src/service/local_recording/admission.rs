@@ -1,17 +1,9 @@
 use super::chat::CapturedChat;
 use super::leases::{Capture, FrozenTarget};
 use crate::service::agent_pad::ChatSendResult;
-use crate::service::chat_send_transaction::ChatSendStatus;
 use crate::service::ServiceContext;
-use serde::Serialize;
 
-#[derive(Serialize)]
-#[serde(tag = "kind", rename_all = "camelCase")]
-pub enum LocalRecordingCommitOutcome {
-    Tracked { status: ChatSendStatus },
-    PreHandoffFailure { message: String },
-    PossibleHandoff { message: String },
-}
+pub use codeterm_types::agent::delivery::LocalRecordingCommitOutcome;
 
 impl ServiceContext {
     pub(crate) fn freeze_recording_target(&self, tab_id: &str) -> Result<FrozenTarget, String> {
@@ -172,7 +164,9 @@ impl ServiceContext {
                     text,
                     client_token,
                 )?;
-                Ok(ChatSendResult::new(status, pad_file))
+                Ok(crate::service::agent_pad::chat_send_result(
+                    status, pad_file,
+                ))
             }
         };
         if result.is_ok() {

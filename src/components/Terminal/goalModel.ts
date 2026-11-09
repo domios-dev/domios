@@ -4,7 +4,8 @@ export function goalVisible(capability: ProviderDescriptor["agent_runtime"], int
   return capability?.goals !== undefined && Boolean(intent?.goal?.trim());
 }
 export type GoalAction = Exclude<import("../../../gen/RuntimeGoalAction").RuntimeGoalAction, "read">;
-export interface GoalBinding {threadId:string; bindingNonce:string; epoch:number}
+import type { GoalBinding } from "../../../gen/GoalBinding";
+export type { GoalBinding } from "../../../gen/GoalBinding";
 export type GoalSnapshot = {supported:false} | {supported:true; binding:GoalBinding; intent:ChatSessionIntent|null; actions:readonly string[]};
 export const goalActionLabels:Record<GoalAction,string> = {cancel:"Cancel goal",pause:"Pause goal",resume:"Resume goal",complete:"Complete goal"};
 export function goalActions(snapshot:GoalSnapshot|null):GoalAction[] {

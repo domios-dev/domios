@@ -7,29 +7,8 @@ export type DeliveryTickView = import("../../../gen/DeliveryTickView").DeliveryT
 
 export type RecurrenceRule = Pick<import("../../../gen/RecurrenceRule").RecurrenceRule, "everyMs"> & Partial<Pick<import("../../../gen/RecurrenceRule").RecurrenceRule, "untilMs" | "count">>;
 
-export interface DelayedMessage {
-  turnRetry?: { kind: "transient" | "rate_limited_until"; attempt: number; epoch: number; bindingNonce: string; threadId: string } | null;
-  id: string;
-  tabId: string;
-  workspaceId?: string | null;
-  text: string;
-  scheduledAtMs: number;
-  createdAtMs: number;
-  state: DelayedMessageState;
-  error?: string | null;
-  sessionIdAtCreate?: string | null;
-  currentSessionId?: string | null;
-  sessionChanged: boolean;
-  recurrence?: RecurrenceRule | null;
-  seriesStartAtMs?: number | null;
-  tickIndex?: number;
-  skippedTicks?: number;
-  teamId?: string | null;
-  lastTickUnconfirmed?: boolean;
-  origin?: "user" | "system";
-  reason?: string | null;
-  ticks?: DeliveryTickView[];
-}
+type WireDelayedMessage = import("../../../gen/DelayedMessageView").DelayedMessageView;
+export type DelayedMessage = Pick<WireDelayedMessage, "id" | "tabId" | "text" | "scheduledAtMs" | "createdAtMs" | "state" | "sessionChanged"> & Partial<Omit<WireDelayedMessage, "recurrence">> & { recurrence?: RecurrenceRule | null };
 
 // A remote peer or an older server may answer null or another shape; callers always get an array.
 async function listOf(command: string, tabId: string, signal?: AbortSignal): Promise<DelayedMessage[]> {

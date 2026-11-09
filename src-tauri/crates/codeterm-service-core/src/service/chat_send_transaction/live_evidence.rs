@@ -342,7 +342,7 @@ impl ChatSendLedger {
         if !still_owned || !still_current {
             return Vec::new();
         }
-        let Some(source_row) = super::SourceRowRef::jsonl(session_id, &incarnation.id, position)
+        let Some(source_row) = super::jsonl_source_row(session_id, &incarnation.id, position)
         else {
             return Vec::new();
         };

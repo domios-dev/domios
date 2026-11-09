@@ -1,5 +1,4 @@
 import { invoke } from "../../lib/bridge";
-import type { MatchedRow } from "@codeterm/chat-core";
 import { beginChatSendDeletion, chatSendTabHydrationState, endChatSendDeletion, ensureChatSendTabHydrated,
   failChatSendRequest, observeChatSendDismissal, observeDeliveryStatus,
   reconcileChatSendAdmission, reconcileDeliveryStatuses, readChatSends, recordChatSendAdmissionFailure,
@@ -12,20 +11,10 @@ const admissionKey = (tabId: string, token: string) => JSON.stringify([tabId, to
 type ReconciliationRun = { phase: "hydrating" | "reading"; dirty: boolean; promise: Promise<ChatSendStatus[]> };
 const reconciliationRuns = new Map<string, ReconciliationRun>();
 
-export type ChatSendStatus = {
-  send_id: string;
-  tab_id: string;
-  state: "held" | "written" | "submit_unconfirmed" | "delivered" | "failed";
-  error: string | null;
-  ledger_id: string;
-  sequence: number;
-  retained_from: number;
-  correlationId?: string;
-  matched_row?: MatchedRow;
-  pending_reason?: string;
-  pad_file?: string;
-  system_send?: { content: string; sent_at_ms: number };
-};
+type WireChatSendStatus = import("../../../gen/ChatSendStatus").ChatSendStatus;
+type SystemSendView = Pick<NonNullable<WireChatSendStatus["system_send"]>, "content" | "sent_at_ms">
+  & Partial<NonNullable<WireChatSendStatus["system_send"]>>;
+export type ChatSendStatus = Omit<WireChatSendStatus, "system_send"> & { system_send?: SystemSendView };
 
 export function reconcileTrackedChatMessages(tabId: string): Promise<ChatSendStatus[]> {
   const existing = reconciliationRuns.get(tabId);
@@ -85,7 +74,7 @@ export async function sendTrackedChatMessage(
   messageId: string,
   message: string,
   startupOverrideNonce?: string | null,
-): Promise<ChatSendStatus> {
+): Promise<import("../../../gen/ChatSendResult").ChatSendResult> {
   if (typeof tabId !== "string" || !tabId.trim() || tabId === "null" || tabId === "undefined") {
     throw new Error("Chat tab is not bound");
   }
@@ -93,7 +82,7 @@ export async function sendTrackedChatMessage(
   activeAdmissions.add(key);
   let deadline: ReturnType<typeof setTimeout> | undefined;
   try {
-    const request = invoke<ChatSendStatus>("chat_send_text", {
+    const request = invoke<import("../../../gen/ChatSendResult").ChatSendResult>("chat_send_text", {
       tabId,
       text: message,
       clientToken: messageId,
