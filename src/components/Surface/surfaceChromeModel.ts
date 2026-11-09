@@ -251,24 +251,11 @@ export function navigationFailureNotice(target: string | undefined, error: unkno
 
 export type AskIntent = "question" | "change" | "bug";
 
-export interface GrabAccessibility {
-  role?: string | null;
-  name?: string | null;
-}
+export type GrabAccessibility = Partial<import("../../../gen/GrabAccessibility").GrabAccessibility>;
 
-export interface GrabTarget {
-  react?: string | null;
-  selector?: string | null;
-  tagName?: string | null;
-  text?: string | null;
-  accessibility?: GrabAccessibility | null;
-}
+export type GrabTarget = Partial<Omit<Pick<import("../../../gen/GrabTarget").GrabTarget, "react" | "selector" | "tagName" | "text" | "accessibility">, "accessibility">> & { accessibility?: GrabAccessibility | null };
 
-export interface GrabSelection {
-  id: string;
-  label: string;
-  target: GrabTarget;
-}
+export type GrabSelection = Omit<import("../../../gen/GrabSelection").GrabSelection, "target"> & { target: GrabTarget };
 
 export type ElementKind = "link" | "button" | "image" | "heading" | "input" | "text";
 
@@ -363,12 +350,7 @@ export function grabSendArgs(selection: GrabSelection, comment: string, intent: 
   return { id: selection.id, comment: comment.trim(), intent };
 }
 
-export interface SnipCapture {
-  id: string;
-  width: number;
-  height: number;
-  thumbnail: string | null;
-}
+export type SnipCapture = import("../../../gen/SnipCapture").SnipCapture;
 
 export const SNIP_MIN_SIDE = 4;
 const SNIP_TITLE_MAX = 60;

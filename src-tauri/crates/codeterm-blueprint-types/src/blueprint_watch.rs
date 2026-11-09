@@ -370,7 +370,7 @@ impl Definition {
 }
 
 /// What a graph stage observes instead of running a shell probe.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(
     tag = "kind",
     content = "id",

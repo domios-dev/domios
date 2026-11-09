@@ -36,7 +36,11 @@ fn unknown_directory_stays_unknown() {
     assert!(classify_plugin(None, None, None).source.is_none());
     assert!(effective_install_source("unknown-fixture", None).is_none());
     assert_eq!(
-        installed_update_status("unknown-fixture", Some("1.0.0"), None)["reason"],
+        serde_json::json!(installed_update_status(
+            "unknown-fixture",
+            Some("1.0.0"),
+            None
+        ))["reason"],
         "unknown_source"
     );
 }
@@ -99,13 +103,17 @@ fn record_free_browser_update_compares_plugin_versions() {
         version: Some("9999.0.0".into()),
     });
     let (_, manifest) = bundled_metadata("browser").unwrap();
-    let current = installed_update_status("browser", manifest.version.as_deref(), None);
+    let current = serde_json::json!(installed_update_status(
+        "browser",
+        manifest.version.as_deref(),
+        None
+    ));
     assert_eq!(current["reason"], "same_version");
-    let old = installed_update_status("browser", Some("0.0.1"), None);
+    let old = serde_json::json!(installed_update_status("browser", Some("0.0.1"), None));
     assert_eq!(old["reason"], "newer_version");
     // Core plugins update silently, so a newer channel version is never offered.
     assert_eq!(old["available"], false);
-    let newer = installed_update_status("browser", Some("9999.0.0"), None);
+    let newer = serde_json::json!(installed_update_status("browser", Some("9999.0.0"), None));
     assert_eq!(newer["reason"], "local_ahead");
     assert_eq!(newer["available"], false);
 }

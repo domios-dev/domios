@@ -11,7 +11,11 @@ pub(crate) use detail::configured_fallback;
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
-use serde_json::{json, Value};
+use codeterm_sentinel::graph_contracts::{
+    AgentBlueprintDefinition, Availability, Conversation, DefinitionLineage, Edge, EdgeEvidence,
+    Executor, Handler as GraphHandler, HandlerResult, LastResult, Node, Outcome, SourceDescriptor,
+    Stop, TransitionHandler,
+};
 
 use super::{
     handlers::ResultRecord,
@@ -168,9 +172,9 @@ fn safe_purpose(text: &str) -> String {
 
 /// The node source shape: probe, observe kind, or input metadata without inline text,
 /// path directories or the URL query.
-pub(crate) fn source_descriptor(job: &Sentinel) -> Value {
+pub(crate) fn source_descriptor(job: &Sentinel) -> SourceDescriptor {
     if job.pipeline().is_some() {
-        return json!({"type":"pipeline"});
+        return SourceDescriptor::Pipeline;
     }
     if let Some(input) = &job.input().cloned() {
         use codeterm_blueprint_types::sentinel_input::DataRef;
@@ -179,41 +183,61 @@ pub(crate) fn source_descriptor(job: &Sentinel) -> Value {
             DataRef::File(_) => "file",
             DataRef::Url(_) => "url",
         };
-        return json!({
-            "type": "input",
-            "kind": input.kind.as_str(),
-            "ref_type": ref_type,
-            "display_name": codeterm_blueprint_types::sentinel_input::display_name(&input.data),
-            "convert_to": input.convert_to.map(|kind| kind.as_str()),
-        });
+        return SourceDescriptor::Input {
+            kind: input.kind.as_str().into(),
+            ref_type: ref_type.into(),
+            display_name: codeterm_blueprint_types::sentinel_input::display_name(&input.data),
+            convert_to: input.convert_to.map(|kind| kind.as_str().into()),
+        };
     }
     if let Some(binding) = &job.observe().cloned() {
         if let Some(terminal) = &job.terminal().cloned() {
-            return json!({"type":"terminal","kind":"tab","pattern":terminal.pattern,"idle_ms":terminal.idle_ms,"max_payload_bytes":codeterm_blueprint_types::blueprint_terminal::MAX_PAYLOAD_BYTES});
+            return SourceDescriptor::Terminal {
+                kind: "tab".into(),
+                pattern: terminal.pattern.clone(),
+                idle_ms: terminal.idle_ms,
+                max_payload_bytes: codeterm_blueprint_types::blueprint_terminal::MAX_PAYLOAD_BYTES,
+            };
         }
         let kind = match binding {
             TabBinding::Tab(_) => "tab",
             TabBinding::CronRun(_) => "cron_run",
         };
-        return json!({"type": "observe", "kind": kind});
+        return SourceDescriptor::Observe { kind: kind.into() };
     }
-    json!({"type": "probe"})
+    SourceDescriptor::Probe
 }
 
-fn record(result: &ResultRecord) -> Value {
-    let mut value = json!({"status": result.status, "execution_id":result.execution_id,"accepted_at":result.accepted_at});
-    if let Some(command) = &result.command_result {
-        value["command_result"] = json!(command);
+fn record(result: &ResultRecord) -> HandlerResult {
+    HandlerResult {
+        status: Some(
+            match result.status {
+                crate::handlers::Status::Unconfirmed => "unconfirmed",
+                crate::handlers::Status::Completed => "completed",
+                crate::handlers::Status::Failed => "failed",
+                crate::handlers::Status::Noop => "noop",
+                crate::handlers::Status::Skipped => "skipped",
+            }
+            .into(),
+        ),
+        execution_id: result.execution_id.clone(),
+        accepted_at: result.accepted_at,
+        command_result: result.command_result.clone(),
     }
-    value
 }
 
-fn placeholder(identity: &Identity) -> Value {
-    let mut node = json!({"identity":identity,"name":format!("Missing {}", identity.kind),"purpose":null,"state":null,"availability":"missing","hidden":null,"schedule":null,"cadence_ms":null,"expires_at":null,"outcomes":[],"last_result":null,"stop":{"allowed":false,"reason":"exact target unavailable"},"executor":null});
-    if identity.kind == "blueprint" {
-        node["detail"] = detail::missing(identity);
+fn placeholder(identity: &Identity) -> Node {
+    Node {
+        identity: identity.clone(),
+        name: format!("Missing {}", identity.kind),
+        availability: Availability::Missing,
+        stop: Stop {
+            allowed: false,
+            reason: Some("exact target unavailable".into()),
+        },
+        detail: (identity.kind == "blueprint").then(|| detail::missing(identity)),
+        ..Node::default()
     }
-    node
 }
 
 pub fn tab_identity(tab: &Tab, workspace: &str) -> Identity {
@@ -226,10 +250,38 @@ pub fn tab_identity(tab: &Tab, workspace: &str) -> Identity {
     }
 }
 
-fn worker(tab: &Tab, identity: &Identity) -> Value {
+fn worker(tab: &Tab, identity: &Identity) -> Node {
     let configured = tab.agent_requested_model.clone();
     let reported = tab.agent_session_model.clone();
-    json!({"identity":identity,"name":safe_name(&tab.title),"purpose":tab.description.as_deref().map(safe_purpose),"state":if tab.agent_booting{Some("launching")}else{None},"state_source":"tab_lifecycle","availability":"available","hidden":tab.hidden,"schedule":null,"cadence_ms":null,"expires_at":null,"outcomes":[],"last_result":null,"stop":{"allowed":false,"reason":"graph stop applies only to Blueprints"},"executor":{"kind":"agent","selection":if configured.is_some(){"explicit"}else{"unknown"},"provider_id":tab.agent_type,"adapter_id":null,"model":reported.as_ref().or(configured.as_ref()),"configured_model":configured,"reported_model":reported,"capabilities":null}})
+    Node {
+        identity: identity.clone(),
+        name: safe_name(&tab.title),
+        purpose: tab.description.as_deref().map(safe_purpose),
+        state: tab.agent_booting.then(|| "launching".into()),
+        state_source: Some("tab_lifecycle".into()),
+        availability: Availability::Available,
+        hidden: Some(tab.hidden),
+        stop: Stop {
+            allowed: false,
+            reason: Some("graph stop applies only to Blueprints".into()),
+        },
+        executor: Some(Executor {
+            kind: Some("agent".into()),
+            selection: if configured.is_some() {
+                "explicit"
+            } else {
+                "unknown"
+            }
+            .into(),
+            provider_id: tab.agent_type.clone(),
+            adapter_id: None,
+            model: reported.clone().or(configured.clone()),
+            configured_model: configured,
+            reported_model: reported,
+            capabilities: None,
+        }),
+        ..Node::default()
+    }
 }
 
 pub fn project_worker_states(
@@ -238,30 +290,30 @@ pub fn project_worker_states(
     resolve: impl Fn(&Tab) -> Option<codeterm_service_core::agent::status::TabStatus>,
 ) {
     for node in &mut snapshot.nodes {
-        if node["identity"]["kind"] != "worker" || node["availability"] != "available" {
+        if node.identity.kind != "worker" || node.availability != Availability::Available {
             continue;
         }
-        let Ok(exact) = serde_json::from_value::<Identity>(node["identity"].clone()) else {
-            continue;
-        };
+        let exact = &node.identity;
         let Some(tab) = mux.get_tab(&exact.id).filter(|tab| {
-            tab_identity(tab, &exact.workspace_id) == exact
+            tab_identity(tab, &exact.workspace_id) == *exact
                 && mux.find_workspace_for_tab(&exact.id).as_deref()
                     == Some(exact.workspace_id.as_str())
         }) else {
             continue;
         };
         if let Some(status) = resolve(tab) {
-            if node["state_source"] == "cron_run" {
-                node["cron_run_state"] = node["state"].clone();
+            if node.state_source.as_deref() == Some("cron_run") {
+                node.cron_run_state = Some(node.state.clone());
             }
-            node["state"] = json!(status.label());
-            node["state_source"] = json!("tab_status");
+            node.state = Some(status.label().into());
+            node.state_source = Some("tab_status".into());
         } else if tab.agent_state.is_some() {
-            node["state"] = json!(
-                codeterm_service_core::multiplexer::state::effective_tab_status(tab, None).label()
+            node.state = Some(
+                codeterm_service_core::multiplexer::state::effective_tab_status(tab, None)
+                    .label()
+                    .into(),
             );
-            node["state_source"] = json!("provider_state");
+            node.state_source = Some("provider_state".into());
         }
     }
 }
@@ -326,15 +378,29 @@ fn add_cron(
     exact: &Identity,
     cron: &ConnectedCron,
     mux: &dyn MuxView,
-    nodes: &mut BTreeMap<Identity, Value>,
-    edges: &mut Vec<Value>,
+    nodes: &mut BTreeMap<Identity, Node>,
+    edges: &mut Vec<Edge>,
     worker_statuses: &mut BTreeMap<Identity, u64>,
     truncated: &mut bool,
 ) {
-    nodes.entry(exact.clone()).or_insert_with(|| match &cron.job {
-        Some(job) => json!({"identity":exact,"name":safe_name(&job.name),"purpose":job.description.as_deref().map(safe_purpose),"state":if job.enabled{"enabled"}else{"disabled"},"availability":"available","hidden":null,"schedule":safe_purpose(&job.schedule),"cadence_ms":null,"expires_at":null,"outcomes":[],"last_result":null,"stop":{"allowed":false,"reason":"graph stop applies only to Blueprints"},"executor":null}),
-        None => placeholder(exact),
-    });
+    nodes
+        .entry(exact.clone())
+        .or_insert_with(|| match &cron.job {
+            Some(job) => Node {
+                identity: exact.clone(),
+                name: safe_name(&job.name),
+                purpose: job.description.as_deref().map(safe_purpose),
+                state: Some(if job.enabled { "enabled" } else { "disabled" }.into()),
+                availability: Availability::Available,
+                schedule: Some(safe_purpose(&job.schedule)),
+                stop: Stop {
+                    allowed: false,
+                    reason: Some("graph stop applies only to Blueprints".into()),
+                },
+                ..Node::default()
+            },
+            None => placeholder(exact),
+        });
     for run in cron.runs.iter().take(MAX_RUNS_PER_CRON) {
         let Some(tab_id) = &run.tab_id else { continue };
         if edges.len() >= MAX_EDGES {
@@ -369,13 +435,29 @@ fn add_cron(
             .get(&worker_id)
             .is_none_or(|started| *started < run.started_at)
         {
-            node["state"] = json!(format!("{:?}", run.status).to_lowercase());
-            node["state_source"] = json!("cron_run");
+            node.state = Some(format!("{:?}", run.status).to_lowercase());
+            node.state_source = Some("cron_run".into());
             worker_statuses.insert(worker_id.clone(), run.started_at);
         }
         let edge_id = format!("{}:{}:{}", exact.id, run.run_id, tab_id);
-        if !edges.iter().any(|edge| edge["id"] == edge_id) {
-            edges.push(json!({"id":edge_id,"source":exact,"target":worker_id,"bucket":"run","handler_id":run.run_id,"handler_type":"cron","result":{"status":format!("{:?}",run.status).to_lowercase(),"execution_id":run.run_id,"accepted_at":run.started_at},"evidence":{"kind":"observed","execution_id":run.run_id}}));
+        if !edges.iter().any(|edge| edge.id == edge_id) {
+            edges.push(Edge {
+                id: edge_id,
+                source: exact.clone(),
+                target: worker_id,
+                bucket: "run".into(),
+                handler_id: run.run_id.clone(),
+                handler_type: "cron".into(),
+                result: Some(HandlerResult {
+                    status: Some(format!("{:?}", run.status).to_lowercase()),
+                    execution_id: Some(run.run_id.clone()),
+                    accepted_at: Some(run.started_at),
+                    command_result: None,
+                }),
+                evidence: EdgeEvidence::Observed {
+                    execution_id: run.run_id.clone(),
+                },
+            });
         }
     }
     *truncated |= cron.runs.len() > MAX_RUNS_PER_CRON;
@@ -387,7 +469,7 @@ pub fn project(
     jobs: &[Sentinel],
     mux: &dyn MuxView,
     crons: &BTreeMap<String, ConnectedCron>,
-    configured_fallback: Value,
+    configured_fallback: Option<codeterm_sentinel::graph_contracts::ConfiguredFallback>,
     now_ms: u64,
     live_leases: &BTreeSet<String>,
 ) -> Result<Snapshot, String> {
@@ -454,18 +536,42 @@ pub fn project(
                     mux,
                     crons,
                 );
-                let mut projected = json!({"id":handler.id,"type":super::routes::action_name(&handler.action),"target":target.as_ref().map(|t| &t.0),"availability":if target.as_ref().is_none_or(|t| t.1){"available"}else{"missing"},"last_result":result});
-                if let Route::Command(parameters) = &handler.action {
-                    projected["label"] = json!(parameters.label);
-                    projected["timeout_ms"] = json!(parameters.timeout_ms);
-                }
-                handlers.push(projected);
+                let (label, timeout_ms) = match &handler.action {
+                    Route::Command(parameters) => {
+                        (Some(parameters.label.clone()), Some(parameters.timeout_ms))
+                    }
+                    _ => (None, None),
+                };
+                handlers.push(GraphHandler {
+                    id: handler.id.clone(),
+                    r#type: super::routes::action_name(&handler.action).into(),
+                    target: target.as_ref().map(|target| target.0.clone()),
+                    availability: if target.as_ref().is_none_or(|target| target.1) {
+                        Availability::Available
+                    } else {
+                        Availability::Missing
+                    },
+                    last_result: result.clone(),
+                    label,
+                    timeout_ms,
+                });
                 if let Some((target, available)) = target {
                     if edges.len() >= MAX_EDGES {
                         truncated = true;
                         continue;
                     }
-                    edges.push(json!({"id":format!("{}:{}:{}",job.id,bucket,handler.id),"source":exact,"target":target,"bucket":bucket,"handler_id":handler.id,"handler_type":super::routes::action_name(&handler.action),"result":result,"evidence":{"kind":"configured","route_id":handler.id}}));
+                    edges.push(Edge {
+                        id: format!("{}:{}:{}", job.id, bucket, handler.id),
+                        source: exact.clone(),
+                        target: target.clone(),
+                        bucket: bucket.clone(),
+                        handler_id: handler.id.clone(),
+                        handler_type: super::routes::action_name(&handler.action).into(),
+                        result,
+                        evidence: EdgeEvidence::Configured {
+                            route_id: handler.id.clone(),
+                        },
+                    });
                     if nodes.len() >= MAX_NODES && !nodes.contains_key(&target) {
                         truncated = true;
                         continue;
@@ -515,9 +621,24 @@ pub fn project(
                     }
                 }
             }
-            outcomes.push(json!({"bucket":bucket,"handlers":handlers}));
+            outcomes.push(Outcome {
+                bucket: bucket.clone(),
+                handlers,
+            });
         }
-        let last_result = last.map(|t| { let mut result = json!({"bucket":t.bucket,"accepted_at":t.accepted_at,"handlers":t.handlers.iter().map(|r| { let mut value=record(r); value["handler_id"]=json!(r.handler_id); value }).collect::<Vec<_>>()}); detail::project_decision(&mut result, t.decision.as_ref()); result });
+        let last_result = last.map(|transition| LastResult {
+            bucket: transition.bucket.clone(),
+            accepted_at: transition.accepted_at,
+            handlers: transition
+                .handlers
+                .iter()
+                .map(|handler| TransitionHandler {
+                    handler_id: handler.handler_id.clone(),
+                    result: record(handler),
+                })
+                .collect(),
+            decision: detail::decision_projection(transition.decision.as_ref()),
+        });
         let history = history::project(job, &mut history_budget);
         let history_truncated = history.len() < job.transitions.len();
         let solution_success = job.transitions.iter().any(|transition| {
@@ -528,7 +649,88 @@ pub fn project(
                         .iter()
                         .any(|handler| handler.status == super::handlers::Status::Completed))
         });
-        nodes.insert(exact.clone(),json!({"identity":exact,"name":safe_name(job.name.as_deref().unwrap_or(&job.id)),"purpose":safe_purpose(&job.question),"state":if job.machine.stopped && executing{"finishing"}else if job.machine.stopped{"stopped"}else if expired{"expired"}else if job.admission.held_reason.is_some() || (held_reason(job).is_some() && !job.machine.paused) || job.machine.held.is_some(){"held"}else if job.machine.paused{"paused"}else{"active"},"held_reason":held_reason(job),"availability":"available","hidden":false,"schedule":null,"cadence_ms":job.interval_ms,"conversation":{"enabled":job.session,"exchanges":super::session::usage(jobs,job,now_ms).exchanges,"actions":super::session::usage(jobs,job,now_ms).actions,"safety_limit":codeterm_blueprint_types::blueprint_terminal::SESSION_SAFETY_LIMIT,"rate_limit_per_minute":codeterm_blueprint_types::blueprint_terminal::SESSION_RATE_LIMIT},"expires_at":job.expires_at,"stopped_at":job.cleanup.stopped_at,"deletes_at":job.cleanup.deletes_at,"note":job.note,"solution_success":solution_success,"outcomes":outcomes,"last_result":last_result,"history":history,"history_truncated":history_truncated,"stop":{"allowed":executing || (!job.machine.stopped && !expired),"reason":if executing{None}else if job.machine.stopped{job.last_reason.as_deref().map(safe_purpose)}else if expired{Some("deadline elapsed".into())}else{None}},"executor":null,"detail":detail::project(job, mux, workspace, team, now_ms, executing),"source":source_descriptor(job),"blueprint_definition":{"source":"stored_agent_definition","definition_id":job.id,"creator_tab_id":job.creator_tab_id,"definition_version":job.definition_version,"lineage":job.amendments.iter().map(|amendment| json!({"version":amendment.version,"replaced_version":amendment.replaced_version,"author_tab_id":amendment.author_tab_id,"cause_transition_id":amendment.cause_transition_id,"at":amendment.at})).collect::<Vec<_>>()}}));
+        let state = if job.machine.stopped && executing {
+            "finishing"
+        } else if job.machine.stopped {
+            "stopped"
+        } else if expired {
+            "expired"
+        } else if job.admission.held_reason.is_some()
+            || (held_reason(job).is_some() && !job.machine.paused)
+            || job.machine.held.is_some()
+        {
+            "held"
+        } else if job.machine.paused {
+            "paused"
+        } else {
+            "active"
+        };
+        let usage = super::session::usage(jobs, job, now_ms);
+        nodes.insert(
+            exact.clone(),
+            Node {
+                identity: exact.clone(),
+                name: safe_name(job.name.as_deref().unwrap_or(&job.id)),
+                purpose: Some(safe_purpose(&job.question)),
+                state: Some(state.into()),
+                held_reason: Some(held_reason(job).map(str::to_owned)),
+                availability: Availability::Available,
+                hidden: Some(false),
+                cadence_ms: Some(job.interval_ms),
+                conversation: Some(Conversation {
+                    enabled: job.session,
+                    exchanges: usage.exchanges,
+                    actions: usage.actions,
+                    safety_limit:
+                        codeterm_blueprint_types::blueprint_terminal::SESSION_SAFETY_LIMIT,
+                    rate_limit_per_minute:
+                        codeterm_blueprint_types::blueprint_terminal::SESSION_RATE_LIMIT,
+                }),
+                expires_at: job.expires_at,
+                stopped_at: Some(job.cleanup.stopped_at),
+                deletes_at: Some(job.cleanup.deletes_at),
+                note: Some(job.note.clone()),
+                solution_success: Some(solution_success),
+                outcomes,
+                last_result,
+                history: Some(history),
+                history_truncated: Some(history_truncated),
+                stop: Stop {
+                    allowed: executing || (!job.machine.stopped && !expired),
+                    reason: if executing {
+                        None
+                    } else if job.machine.stopped {
+                        job.last_reason.as_deref().map(safe_purpose)
+                    } else if expired {
+                        Some("deadline elapsed".into())
+                    } else {
+                        None
+                    },
+                },
+                detail: Some(detail::project(
+                    job, mux, workspace, team, now_ms, executing,
+                )),
+                source: Some(source_descriptor(job)),
+                blueprint_definition: Some(AgentBlueprintDefinition {
+                    source: "stored_agent_definition".into(),
+                    definition_id: job.id.clone(),
+                    creator_tab_id: job.creator_tab_id.clone(),
+                    definition_version: job.definition_version,
+                    lineage: job
+                        .amendments
+                        .iter()
+                        .map(|amendment| DefinitionLineage {
+                            version: amendment.version,
+                            replaced_version: amendment.replaced_version,
+                            author_tab_id: amendment.author_tab_id.clone(),
+                            cause_transition_id: amendment.cause_transition_id.clone(),
+                            at: amendment.at,
+                        })
+                        .collect(),
+                }),
+                ..Node::default()
+            },
+        );
     }
     let nodes: Vec<_> = nodes.into_values().collect();
     let runs = runs::project(&nodes, jobs, now_ms, live_leases);

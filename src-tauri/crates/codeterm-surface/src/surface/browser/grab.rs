@@ -1,4 +1,3 @@
-use serde::Deserialize;
 use serde_json::{json, Value};
 
 /// Runs on the picked node via `Runtime.callFunctionOn`; returns the element facts as JSON text.
@@ -55,88 +54,7 @@ pub fn highlight_config() -> Value {
     })
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Rect {
-    pub x: f64,
-    pub y: f64,
-    pub width: f64,
-    pub height: f64,
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
-pub struct PageFacts {
-    #[serde(default)]
-    pub url: String,
-    #[serde(default)]
-    pub title: String,
-    #[serde(default)]
-    pub viewport: String,
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
-pub struct Accessibility {
-    pub role: Option<String>,
-    pub name: Option<String>,
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct GrabTarget {
-    pub tag_name: String,
-    #[serde(default)]
-    pub selector: String,
-    #[serde(default)]
-    pub text: String,
-    #[serde(default)]
-    pub classes: String,
-    #[serde(default)]
-    pub attributes: Vec<(String, String)>,
-    #[serde(default)]
-    pub styles: Vec<(String, String)>,
-    #[serde(default)]
-    pub react: Option<String>,
-    #[serde(default)]
-    pub source: Option<String>,
-    #[serde(default)]
-    pub nearby_text: Vec<String>,
-    #[serde(default)]
-    pub ancestor_path: Vec<String>,
-    #[serde(default)]
-    pub rect_page: Rect,
-    #[serde(default)]
-    pub page: PageFacts,
-    #[serde(skip)]
-    pub accessibility: Accessibility,
-}
-
-impl GrabTarget {
-    /// The frontend card shape: the collected facts plus the accessibility role and name.
-    pub fn to_json(&self) -> Value {
-        let pairs = |items: &[(String, String)]| -> Value {
-            items
-                .iter()
-                .map(|(key, value)| (key.clone(), Value::String(value.clone())))
-                .collect::<serde_json::Map<String, Value>>()
-                .into()
-        };
-        json!({
-            "tagName": self.tag_name,
-            "selector": self.selector,
-            "text": self.text,
-            "classes": self.classes,
-            "attributes": pairs(&self.attributes),
-            "styles": pairs(&self.styles),
-            "react": self.react,
-            "source": self.source,
-            "nearbyText": self.nearby_text,
-            "ancestorPath": self.ancestor_path,
-            "rectPage": { "x": self.rect_page.x, "y": self.rect_page.y, "width": self.rect_page.width, "height": self.rect_page.height },
-            "page": { "url": self.page.url, "title": self.page.title, "viewport": self.page.viewport },
-            "accessibility": { "role": self.accessibility.role, "name": self.accessibility.name },
-        })
-    }
-}
+pub use codeterm_browser::surface_contracts::{Accessibility, GrabTarget, Rect};
 
 /// `Accessibility.getPartialAXTree` → the first non-ignored node's role and name.
 pub fn accessibility_of(tree: &Value) -> Accessibility {

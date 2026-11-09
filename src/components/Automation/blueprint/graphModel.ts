@@ -200,7 +200,7 @@ function namedInputType(input: BlueprintPort | undefined, port: string): string 
 
 /** A callee is named by its own document; raw memory ids stay in the details. */
 export function calleeName(call: NonNullable<BlueprintIrNode["call"]>, expanded?: BlueprintExpandedCall): string {
-  if (expanded?.graph.name) return expanded.graph.name;
+  if (expanded?.graph?.name) return expanded.graph.name;
   const ref = call.pin?.id ?? call.ref;
   return ref.startsWith("mem:skill_blueprint_solution_") ? "Saved solution" : ref.replace(/^mem:/, "");
 }
@@ -227,7 +227,7 @@ function journalEvents(pipeline: PipelineView): BlueprintRunEvent[] {
     const parent = byMarker.get(row.parent_step_index);
     const parentScope = parent ? scope(parent, seen) : null;
     const call = parentScope?.calls.find((entry) => entry.node === parent!.step_name);
-    return call && parentScope ? { document: call.graph, calls: call.children, path: [...parentScope.path, parent!.step_name] } : null;
+    return call?.graph && parentScope ? { document: call.graph, calls: call.children, path: [...parentScope.path, parent!.step_name] } : null;
   };
   const rootSteps = [...root.steps, ...(root.other ?? [])];
   for (const row of rows) {
@@ -320,7 +320,7 @@ export function* buildBlueprintGraph(pipeline: PipelineView, expanded: Blueprint
 
   function* graph(document: BlueprintDocument, calls: readonly BlueprintExpandedCall[], path: readonly string[], call: BlueprintExpandedCall | null): Generator<void> {
     const scope = scopeKey(path);
-    scopes.push({ key: scope, path, title: call ? call.graph.name || call.pin.id : document.name, detail: call ? `@${call.pin.hash.slice(0, 12)}` : null, call: call ? blueprintNodeKey(path.slice(0, -1), call.node) : null });
+    scopes.push({ key: scope, path, title: call ? call.graph?.name || call.pin.id : document.name, detail: call ? `@${call.pin.hash.slice(0, 12)}` : null, call: call ? blueprintNodeKey(path.slice(0, -1), call.node) : null });
     const steps = [...document.steps, ...(document.other ?? [])];
     const local = new Map<string, BlueprintGraphNode>();
     const order: string[] = [];
@@ -382,7 +382,7 @@ export function* buildBlueprintGraph(pipeline: PipelineView, expanded: Blueprint
       const callee = calls.find((entry) => entry.node === definition.id);
       if (callee && expanded.has(key)) {
         node.outputs.push(pin("callee", "exec", "out", "callee", callee.pin.id));
-        yield* graph(callee.graph, callee.children, [...path, definition.id], callee);
+        if (callee.graph) yield* graph(callee.graph, callee.children, [...path, definition.id], callee);
       }
     }
     const result = control("$result", "Result", "result", "result", blueprintNodeKinds.result.icon);

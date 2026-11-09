@@ -5,22 +5,23 @@ use std::collections::{BTreeMap, BTreeSet};
 #[cfg(test)]
 mod tests;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, ts_rs::TS)]
 pub struct ExpandedCall {
     pub node: String,
     pub pin: CallPin,
     pub graph: Value,
     pub children: Vec<ExpandedCall>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub unavailable: Option<UnavailableCall>,
 }
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum UnavailableCall {
     PinnedRevisionUnavailable,
     BudgetExhausted,
 }
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, ts_rs::TS)]
 pub struct ExpandedGraph {
     pub root: Value,
     pub calls: Vec<ExpandedCall>,
@@ -185,13 +186,7 @@ pub fn bounded(value: &Value, depth: usize) -> Value {
         return json!({"redacted":"depth_bound"});
     }
     match value {
-        Value::String(text) if crate::blueprint_memory::contains_credentials(text) => {
-            json!("[redacted]")
-        }
-        Value::String(text) if text.chars().count() > 4096 => json!(format!(
-            "{} [truncated]",
-            text.chars().take(4096).collect::<String>()
-        )),
+        Value::String(text) => json!(bounded_text(text)),
         Value::Object(fields) => Value::Object(
             fields
                 .iter()
@@ -207,5 +202,18 @@ pub fn bounded(value: &Value, depth: usize) -> Value {
                 .collect(),
         ),
         value => value.clone(),
+    }
+}
+
+pub fn bounded_text(text: &str) -> String {
+    if crate::blueprint_memory::contains_credentials(text) {
+        "[redacted]".into()
+    } else if text.chars().count() > 4096 {
+        format!(
+            "{} [truncated]",
+            text.chars().take(4096).collect::<String>()
+        )
+    } else {
+        text.into()
     }
 }

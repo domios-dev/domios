@@ -40,6 +40,8 @@ mod retirement;
 mod staging;
 mod state;
 mod types;
+pub use types::{ChannelDiffRow, ChannelKind, ChannelListRow, InstallSource, InstalledPluginRow};
+pub mod snapshot_contracts;
 mod update;
 mod user_config;
 mod util;

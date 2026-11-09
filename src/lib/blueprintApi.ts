@@ -42,51 +42,31 @@ export interface BlueprintDocument {
   imports?: BlueprintValue;
   [key: string]: unknown;
 }
-export interface BlueprintCallPin { id: string; hash: string }
-export interface BlueprintExpandedCall {
-  node: string;
-  pin: BlueprintCallPin;
-  graph: BlueprintDocument;
+export type BlueprintCallPin = import("../../gen/CallPin").CallPin;
+export type BlueprintExpandedCall = Omit<import("../../gen/ExpandedCall").ExpandedCall, "graph" | "children"> & {
+  graph: BlueprintDocument | null;
   children: readonly BlueprintExpandedCall[];
-}
-export interface BlueprintCallFrame extends BlueprintCallPin { node: string }
-export interface BlueprintJournalNode {
-  entry_id?: number;
-  run_id?: string;
-  step_index?: number;
-  definition_version?: number | null;
-  parent_step_index?: number | null;
-  step_name: string;
-  state: string;
-  reason?: string | null;
-  outcome?: string | null;
-  result_summary?: string | null;
-  started_at_ms?: number;
-  ended_at_ms?: number | null;
+};
+
+export type BlueprintCallFrame = import("../../gen/CallFrame").CallFrame;
+type WireJournal = import("../../gen/BlueprintJournalPreview").BlueprintJournalPreview;
+export type BlueprintJournalNode = Pick<WireJournal, "entry_id" | "run_id" | "step_index" | "reason" | "outcome" | "result_summary" | "started_at_ms" | "ended_at_ms"> & Required<Pick<WireJournal, "step_name" | "state">> & {
+  definition_version?: WireJournal["definition_version"] | null;
+  parent_step_index?: WireJournal["parent_step_index"] | null;
   call_stack?: readonly BlueprintCallFrame[];
   [key: string]: unknown;
-}
-export type BlueprintPluginPortKind = "text" | "json" | "file" | "image" | "audio" | "video";
-export interface BlueprintPluginPort { kind: BlueprintPluginPortKind; minItems: number; maxItems: number }
-/** The installed descriptor of a plugin step a shown Blueprint uses; `available: false` when its plugin is gone or disabled. */
-export interface BlueprintPluginNode {
-  available: boolean;
-  title?: string;
-  plugin?: string;
-  description?: string;
-  inputs?: Readonly<Record<string, BlueprintPluginPort>>;
-  outputs?: Readonly<Record<string, BlueprintPluginPort>>;
-  outcomes?: readonly string[];
-}
-export interface BlueprintProjection {
-  plugin_nodes?: Readonly<Record<string, BlueprintPluginNode>>;
-  historical_graph_available?: boolean;
-  graph_definition_version?: number | null;
+};
+export type BlueprintExpandedGraph = import("../../gen/ExpandedGraph").ExpandedGraph;
+export type BlueprintPluginPortKind = import("../../gen/PortKind").PortKind;
+export type BlueprintPluginPort = import("../../gen/StepPort").StepPort;
+export type BlueprintPluginNode = Pick<import("../../gen/AvailablePluginNode").AvailablePluginNode, "available"> & Partial<Omit<import("../../gen/AvailablePluginNode").AvailablePluginNode, "available">>;
+export type BlueprintProjection = Omit<import("../../gen/BlueprintRetainedProjection").BlueprintRetainedProjection, "call_graph" | "expanded_calls" | "nested_run" | "plugin_nodes"> & {
   call_graph?: BlueprintDocument | null;
   expanded_calls?: readonly BlueprintExpandedCall[];
-  nested_run?: { id: string | null; definition_version?: number | null; nodes: readonly BlueprintJournalNode[] } | null;
-  projection_error?: string | null;
-}
+  nested_run?: Omit<NonNullable<import("../../gen/BlueprintRetainedProjection").BlueprintRetainedProjection["nested_run"]>, "nodes" | "definition_version"> & Partial<Pick<NonNullable<import("../../gen/BlueprintRetainedProjection").BlueprintRetainedProjection["nested_run"]>, "definition_version">> & { nodes: readonly BlueprintJournalNode[] } | null;
+  plugin_nodes?: Readonly<Record<string, BlueprintPluginNode>>;
+};
+
 export interface BlueprintSemanticDiff {
   added: readonly string[];
   removed: readonly string[];
@@ -101,7 +81,7 @@ export interface BlueprintViewerHistory {
   current_version: number;
   history_truncated: boolean;
   plugin_nodes?: Readonly<Record<string, BlueprintPluginNode>>;
-  versions: readonly { version: number; replaces: number | null; diff: BlueprintClosureDiff | null; before?: { root: BlueprintDocument; calls: readonly BlueprintExpandedCall[] } | null; after?: { root: BlueprintDocument; calls: readonly BlueprintExpandedCall[] } }[];
+  versions: readonly { version: number; replaces: number | null; diff: BlueprintClosureDiff | null; before?: BlueprintExpandedGraph | null; after?: BlueprintExpandedGraph }[];
 }
 export interface BlueprintProjectEntry { path: string; name: string | null; intent: string | null; error: string | null }
 export interface BlueprintProjectView { path: string; document: BlueprintDocument }

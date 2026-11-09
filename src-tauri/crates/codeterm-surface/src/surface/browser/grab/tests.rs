@@ -134,7 +134,7 @@ fn browser_grab_intent_and_clip_are_bounded() {
     .unwrap();
     assert_eq!(clip["width"], json!(1600.0));
     assert!(screenshot_clip(&Rect::default()).is_none());
-    let card = collected().to_json();
+    let card = json!(collected());
     assert_eq!(card["attributes"]["type"], "submit");
     assert_eq!(card["accessibility"]["role"], "button");
 }

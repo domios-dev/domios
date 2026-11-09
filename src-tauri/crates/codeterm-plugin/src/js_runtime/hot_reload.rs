@@ -38,15 +38,7 @@ struct LoadFingerprint {
     config_mtime: SystemTime,
 }
 
-/// The last failed load attempt for a plugin, surfaced to Settings > Plugins.
-#[derive(Clone, Debug, serde::Serialize, ts_rs::TS)]
-pub struct PluginLoadError {
-    pub id: String,
-    pub path: PathBuf,
-    pub message: String,
-    pub at_ms: u64,
-    pub kept_previous: bool,
-}
+pub use codeterm_plugins::snapshot_contracts::PluginLoadError;
 
 #[derive(Clone)]
 pub struct CapabilityRegistries {

@@ -20,7 +20,7 @@ fn workspace_graph_projection_releases_mux_before_building() {
             &[],
             mux,
             &BTreeMap::new(),
-            Value::Null,
+            None,
             1000,
             &BTreeSet::new(),
         )?;
@@ -70,7 +70,7 @@ fn graph_mux_snapshot_preserves_referenced_tabs_and_team_scope() {
             &jobs,
             view,
             &crons,
-            Value::Null,
+            None,
             1000,
             &BTreeSet::new(),
         )
@@ -106,7 +106,11 @@ fn graph_mux_snapshot_preserves_referenced_tabs_and_team_scope() {
             let node = snapshot
                 .nodes
                 .iter()
+                .map(|record| json!(record))
+                .collect::<Vec<_>>()
+                .iter()
                 .find(|node| node["identity"]["id"] == worker)
+                .cloned()
                 .unwrap();
             assert_eq!(node["state_source"], "tab_status");
             assert_eq!(node["name"], "Captured worker");
