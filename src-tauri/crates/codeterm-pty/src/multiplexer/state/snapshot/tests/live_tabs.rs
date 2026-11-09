@@ -26,3 +26,13 @@ fn snapshots_exclude_orphaned_and_duplicate_live_tabs() {
     assert_eq!(persisted.workspaces[0].tabs.len(), 1);
     assert_eq!(persisted.workspaces[0].tabs[0].id, tab_id);
 }
+
+#[test]
+fn current_desk_snapshot_empty_title_restores_its_display_label() {
+    let (mut mux, id) = MultiplexerState::new();
+    mux.get_tab_mut(&id).unwrap().title.clear();
+    let snapshot = mux.to_session_snapshot();
+    let label = mux.display_label_for_tab(&id);
+    let restored = MultiplexerState::from_session_snapshot(&snapshot);
+    assert_eq!(restored.get_tab(&id).unwrap().title, label);
+}

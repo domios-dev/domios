@@ -622,11 +622,10 @@ fn desk_backup_retention_policy() {
 }
 
 #[test]
-fn storage_desk_legacy_decoder_preserves_nested_layout_and_opaque_identity_values() {
+fn storage_desk_current_rows_preserve_nested_layout_and_opaque_identity_values_on_reopen() {
     let root = tempfile::tempdir().unwrap();
-    let adapter = super::StorageDeskAdapter::open(root.path().join("state")).unwrap();
     let snapshot = r#"{
-        "version":"legacy",
+        "version":"current",
         "timestamp":91,
         "active_workspace_id":"ws-a",
         "teams":[],
@@ -676,9 +675,43 @@ fn storage_desk_legacy_decoder_preserves_nested_layout_and_opaque_identity_value
             "sort_order":5
         }]
     }"#;
-    let identities = r#"{"sessions":{"5:codexsession-a":{"provider":"stored-provider-value","role":"Worker","can_spawn":false,"parent_tab_id":"missing-parent"}}}"#;
-
-    adapter.import_legacy(snapshot, Some(identities)).unwrap();
+    let identities = vec![codeterm_storage::DeskAgentSessionIdentity {
+        provider: "codex".into(),
+        session_id: "session-a".into(),
+        record_provider: "stored-provider-value".into(),
+        role: "Worker".into(),
+        role_profile: None,
+        parent_tab_id: Some("missing-parent".into()),
+        can_spawn: false,
+    }];
+    let snapshot: SessionSnapshot = serde_json::from_str(snapshot).unwrap();
+    let mut current = project_snapshot(&snapshot, identities).unwrap();
+    let codeterm_storage::DeskLayoutNode::Split { children, .. } =
+        &mut current.workspaces[0].tabs[0].layout
+    else {
+        panic!("root must stay a split");
+    };
+    let codeterm_storage::DeskLayoutNode::Leaf { fields, .. } = &mut children[0] else {
+        panic!("first node must stay a leaf");
+    };
+    fields.values["role_profile"] = serde_json::Value::Null;
+    fields.values["agent_session_model"] = serde_json::Value::Null;
+    fields.values["auto_approve"] = serde_json::json!(false);
+    let storage =
+        codeterm_storage::Storage::open(root.path(), codeterm_storage::StorageConfig::default())
+            .unwrap();
+    let deadline = std::time::Duration::from_secs(30);
+    storage
+        .desk()
+        .import(current.clone())
+        .wait(deadline)
+        .unwrap();
+    storage.shutdown().wait(deadline).unwrap();
+    let reopened =
+        codeterm_storage::Storage::open(root.path(), codeterm_storage::StorageConfig::default())
+            .unwrap();
+    let adapter = StorageDeskAdapter::from_storage(reopened.clone());
+    assert_eq!(adapter.normalized_snapshot().unwrap(), current);
     let restored = adapter.snapshot().unwrap();
     let normalized = adapter.normalized_snapshot().unwrap();
     let identity = adapter.identity_catalog().unwrap();
@@ -740,6 +773,8 @@ fn storage_desk_legacy_decoder_preserves_nested_layout_and_opaque_identity_value
     assert_eq!(identity[0].record_provider, "stored-provider-value");
     assert_eq!(identity[0].session_id, "session-a");
     assert_eq!(identity[0].parent_tab_id.as_deref(), Some("missing-parent"));
+    drop(adapter);
+    reopened.shutdown().wait(deadline).unwrap();
 }
 
 #[test]
@@ -816,12 +851,12 @@ fn runtime_login_values_never_enter_saved_identity() {
 
 #[test]
 fn legacy_desk_session_field_is_refused_without_adoption() {
-    use super::legacy_decode::LEGACY_SESSION_ID_FIELD;
+    use super::format_validation::LEGACY_SESSION_ID_FIELD;
 
     let snapshot = desk(&[("ws", &["tab-a"])]);
     let mut tab = serde_json::to_value(&snapshot.workspaces[0].tabs[0]).unwrap();
     tab["split_tree"][LEGACY_SESSION_ID_FIELD] = serde_json::json!("old-session");
-    assert!(super::legacy_decode::reject_legacy_session_id(&tab)
+    assert!(super::format_validation::reject_legacy_session_id(&tab)
         .unwrap_err()
         .contains(LEGACY_SESSION_ID_FIELD));
     assert!(parse_tab_record(std::path::Path::new("isolated/last.json"), "ws", 0, tab).is_none());

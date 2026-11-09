@@ -4,6 +4,9 @@ name = "codeterm-pty"
 version = "0.0.0"
 edition = "2021"
 
+[features]
+test-support = []
+
 [dependencies]
 arc-swap = "1"
 codeterm-types = { path = "../codeterm-types" }
