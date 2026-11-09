@@ -6,7 +6,6 @@
 use std::sync::Arc;
 
 use serde::Deserialize;
-use serde_json::json;
 
 use super::vm::{call_json, PluginVm};
 use crate::chatpreprocessor::{ChatPreprocessorProvider, PreprocessCtx};
@@ -32,6 +31,13 @@ impl JsChatPreprocessor {
     }
 }
 
+#[derive(serde::Serialize, ts_rs::TS)]
+struct PreprocessRequest<'a> {
+    #[serde(flatten)]
+    context: &'a PreprocessCtx,
+    text: &'a str,
+}
+
 #[derive(Deserialize, ts_rs::TS)]
 struct PreprocessOut {
     #[serde(default)]
@@ -48,11 +54,7 @@ impl ChatPreprocessorProvider for JsChatPreprocessor {
     }
 
     fn preprocess(&self, ctx: &PreprocessCtx, text: &str) -> Option<String> {
-        // Merge the live `text` into the SDK ctx object.
-        let mut ctx_json = serde_json::to_value(ctx).ok()?;
-        if let Some(obj) = ctx_json.as_object_mut() {
-            obj.insert("text".into(), json!(text));
-        }
+        let ctx_json = serde_json::to_value(PreprocessRequest { context: ctx, text }).ok()?;
         // `null` return ⇒ Ok(None) ⇒ passthrough; an error fails safe to None.
         match call_json::<Option<PreprocessOut>>(&self.vm, "chatPreprocess", &[ctx_json]) {
             Ok(out) => out.and_then(|o| o.text),
@@ -252,5 +254,6 @@ pub(super) fn export_protocol_contracts(
 ) -> Result<(), Box<dyn std::error::Error>> {
     use ts_rs::TS;
     PreprocessOut::export_all(config)?;
+    PreprocessRequest::export_all(config)?;
     Ok(())
 }

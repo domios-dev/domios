@@ -1,19 +1,10 @@
-type SchemaNotes = { description?: string; default?: unknown };
-export type BlueprintParameterSchema = SchemaNotes & (
-  | { type: "object" | ["object", "null"]; properties: Record<string, BlueprintParameterSchema>; required?: string[]; additionalProperties?: false }
-  | { type: "array" | ["array", "null"]; items: BlueprintParameterSchema; minItems?: number; maxItems: number }
-  | { type: "string" | ["string", "null"]; maxLength?: number; enum?: (string | null)[]; const?: string | null }
-  | { type: "number" | "integer" | ["number", "null"] | ["integer", "null"]; minimum?: number; maximum?: number; enum?: (number | null)[]; const?: number | null }
-  | { type: "boolean" | ["boolean", "null"]; enum?: (boolean | null)[]; const?: boolean | null }
-  | { type: "null" }
-  | { oneOf: BlueprintParameterSchema[] }
-);
+export type BlueprintParameterSchema = import("./gen/AuthoredSchema").AuthoredSchema;
 
 export type BlueprintPortKind = import("./gen/PortKind").PortKind;
 
-export type BlueprintStepPort = Omit<import("./gen/StepPort").StepPort, "schema"> & {schema?: BlueprintParameterSchema};
+export type BlueprintStepPort = import("./gen/StepPort").StepPort;
 
-export type BlueprintStepDescriptor = Omit<import("./gen/StepDescriptor").StepDescriptor, "contractVersion" | "params" | "inputs" | "outputs"> & {contractVersion: 1; params: BlueprintParameterSchema; inputs: Record<string, BlueprintStepPort>; outputs: Record<string, BlueprintStepPort>};
+export type BlueprintStepDescriptor = import("./gen/StepDescriptor").StepDescriptor;
 
 export type BlueprintRunScope = import("./gen/RunScope").RunScope;
 
@@ -27,7 +18,7 @@ export type BlueprintOutputValue = Exclude<import("./gen/PortValue").PortValue, 
 
 export type BlueprintPortValues = Record<string, BlueprintPortValue[]>;
 
-export type BlueprintStepRequest = Omit<import("./gen/StepRequest").StepRequest, "params" | "inputs"> & {params: Record<string, unknown>; inputs: BlueprintPortValues; job: string | null; deadlineMs: number};
+export type BlueprintStepRequest = Omit<import("./gen/BlueprintStepRequest").BlueprintStepRequest, "params" | "inputs"> & {params: Record<string, unknown>; inputs: BlueprintPortValues};
 
 export type BlueprintOperationState = import("./gen/OperationState").OperationState;
 export type BlueprintJobUpdate = Omit<import("./gen/JobUpdate").JobUpdate, "state" | "outputs"> & {state: Extract<BlueprintOperationState, "queued" | "running" | "succeeded" | "failed" | "canceled" | "unknown">; outputs: Record<string, BlueprintOutputValue[]>};

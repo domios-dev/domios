@@ -362,7 +362,8 @@ async fn subscribe_local_input(
 pub(crate) fn host_json<T: serde::Serialize>(result: Result<T, String>) -> String {
     match result {
         Ok(value) => serde_json::to_string(&value).unwrap_or_else(|_| "null".into()),
-        Err(error) => serde_json::json!({ "error": error }).to_string(),
+        Err(error) => serde_json::to_string(&codeterm_wire::plugin_host::HostError { error })
+            .unwrap_or_else(|_| "null".into()),
     }
 }
 

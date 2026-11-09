@@ -37,7 +37,7 @@ function* existingBindingPluginIsUnowned(pluginPath: string): HostIoSteps<boolea
   return !ownsOpencodeBindingPluginSource(String((yield* host.io.fs.readFile(pluginPath)) || ""));
 }
 
-function starterPrompt(params: LaunchParams): string | undefined {
+function starterPrompt(params: Pick<LaunchParams, "starterPrompt"> & Partial<Pick<LaunchParams, "starterPromptText">>): string | undefined {
   if (params.starterPromptText) return params.starterPromptText;
   if (params.starterPrompt === "no_starter") return undefined;
   if (params.starterPrompt === "idle_wakeup") return IDLE_WAKEUP_START_PROMPT;
@@ -52,7 +52,7 @@ function hostOwnedPermissions(hostOwned?: HostOwnedCapabilities): Record<string,
   };
 }
 
-function withPadPermissionConfig(command: string, instructions?: string[], cleanup?: string, launchConfig: Record<string, unknown> = {}, resumeSession?: string, hostOwned?: HostOwnedCapabilities): string {
+function withPadPermissionConfig(command: string, instructions?: string[], cleanup?: string, launchConfig: Record<string, unknown> = {}, resumeSession?: string | null, hostOwned?: HostOwnedCapabilities): string {
   const platform = host.platform();
   const config = {
     ...launchConfig,

@@ -338,7 +338,10 @@ pub(in crate::js_runtime) fn install(
                 "[plugin:{}] denied exec({bin}) — not in subprocess.allow",
                 sb.plugin_id()
             );
-            return serde_json::json!({ "error": format!("exec denied: {bin}") }).to_string();
+            return serde_json::to_string(&codeterm_wire::plugin_host::HostError {
+                error: format!("exec denied: {bin}"),
+            })
+            .unwrap_or_else(|_| "null".into());
         }
         crate::js_runtime::host_exec::run_with_host_env(
             &opts_json,
@@ -356,7 +359,10 @@ pub(in crate::js_runtime) fn install(
                 "[plugin:{}] denied exec.start({bin}) — not in subprocess.allow",
                 sb.plugin_id()
             );
-            return serde_json::json!({ "error": format!("exec denied: {bin}") }).to_string();
+            return serde_json::to_string(&codeterm_wire::plugin_host::HostError {
+                error: format!("exec denied: {bin}"),
+            })
+            .unwrap_or_else(|_| "null".into());
         }
         crate::js_runtime::host_exec::start_with_host_env(
             sb.plugin_id(),
@@ -386,11 +392,15 @@ pub(in crate::js_runtime) fn install(
         let host = crate::js_runtime::host_net::host_of(&opts_json).unwrap_or_default();
         if !sb.can_reach(&host) {
             log::warn!("[plugin] denied fetch({host}) — not in network.allow");
-            return serde_json::json!({ "error": format!("fetch denied: {host}") }).to_string();
+            return serde_json::to_string(&codeterm_wire::plugin_host::HostError {
+                error: format!("fetch denied: {host}"),
+            })
+            .unwrap_or_else(|_| "null".into());
         }
         match prepare_fetch(&sb, &opts_json) {
             Ok(prepared) => crate::js_runtime::host_net::run(&prepared),
-            Err(e) => serde_json::json!({ "error": e }).to_string(),
+            Err(e) => serde_json::to_string(&codeterm_wire::plugin_host::HostError { error: e })
+                .unwrap_or_else(|_| "null".into()),
         }
     });
     let sb = sandbox.clone();
@@ -398,11 +408,15 @@ pub(in crate::js_runtime) fn install(
         let host = crate::js_runtime::host_net::host_of(&opts_json).unwrap_or_default();
         if !sb.can_reach(&host) {
             log::warn!("[plugin] denied fetch.async({host}) — not in network.allow");
-            return serde_json::json!({ "error": format!("fetch denied: {host}") }).to_string();
+            return serde_json::to_string(&codeterm_wire::plugin_host::HostError {
+                error: format!("fetch denied: {host}"),
+            })
+            .unwrap_or_else(|_| "null".into());
         }
         match prepare_fetch(&sb, &opts_json) {
             Ok(prepared) => crate::js_runtime::host_net::start(sb.plugin_id(), &prepared),
-            Err(e) => serde_json::json!({ "error": e }).to_string(),
+            Err(e) => serde_json::to_string(&codeterm_wire::plugin_host::HostError { error: e })
+                .unwrap_or_else(|_| "null".into()),
         }
     });
     let sb = sandbox.clone();
@@ -411,11 +425,15 @@ pub(in crate::js_runtime) fn install(
         // Egress-equivalent to host.fetch: use the exact same network.allow gate.
         if !sb.can_reach(&host) {
             log::warn!("[plugin] denied fetch.stream({host}) — not in network.allow");
-            return serde_json::json!({ "error": format!("fetch denied: {host}") }).to_string();
+            return serde_json::to_string(&codeterm_wire::plugin_host::HostError {
+                error: format!("fetch denied: {host}"),
+            })
+            .unwrap_or_else(|_| "null".into());
         }
         match prepare_fetch(&sb, &opts_json) {
             Ok(prepared) => crate::js_runtime::host_net::stream(sb.plugin_id(), &prepared),
-            Err(e) => serde_json::json!({ "error": e }).to_string(),
+            Err(e) => serde_json::to_string(&codeterm_wire::plugin_host::HostError { error: e })
+                .unwrap_or_else(|_| "null".into()),
         }
     });
     let sb = sandbox.clone();

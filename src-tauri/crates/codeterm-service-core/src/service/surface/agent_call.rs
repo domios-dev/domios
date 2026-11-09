@@ -16,17 +16,17 @@ const OF_USAGE: &str = "--of needs an agent name or tab id";
 /// `host.surface.call(verb, argsJson)` → `{ result }` or `{ error }`, as one JSON string.
 pub(crate) fn reply(outcome: Result<String, String>) -> String {
     match outcome {
-        Ok(result) => json!({ "result": result }).to_string(),
-        Err(error) => json!({ "error": error }).to_string(),
+        Ok(result) => {
+            serde_json::to_string(&codeterm_wire::plugin_host::HostSurfaceResult { result })
+                .unwrap_or_else(|_| "null".into())
+        }
+        Err(error) => serde_json::to_string(&codeterm_wire::plugin_host::HostError { error })
+            .unwrap_or_else(|_| "null".into()),
     }
 }
 
 /// The verb's words and, with `--of`, the agent whose surface it targets.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub(crate) struct VerbCall {
-    pub args: Vec<String>,
-    pub of: Option<String>,
-}
+pub(crate) use codeterm_wire::plugin_host::HostSurfaceArguments as VerbCall;
 
 fn words(items: Vec<Value>) -> Vec<String> {
     items
@@ -296,7 +296,9 @@ impl ServiceContext {
         let surface = plugin_agent_surface(&declared)
             .ok_or_else(|| format!("plugin {plugin_id} declares no agent-callable surface"))?;
         if verb == "help" {
-            return Ok(json!({"result": self.surface_agent_guide(plugin_id)}));
+            return Ok(json!(codeterm_wire::plugin_host::HostSurfaceResult {
+                result: self.surface_agent_guide(plugin_id)
+            }));
         }
         let is_view = surface.renderer == codeterm_plugin::surfaces::SurfaceRenderer::View;
         if is_view
@@ -329,12 +331,18 @@ impl ServiceContext {
         let is_view = surface.renderer == codeterm_plugin::surfaces::SurfaceRenderer::View;
         let noun = surface.title.to_lowercase();
         let (tab_id, actor) = match plan {
-            CallPlan::Answer(text) => return Ok(json!({"result":text})),
+            CallPlan::Answer(text) => {
+                return Ok(json!(codeterm_wire::plugin_host::HostSurfaceResult {
+                    result: text
+                }))
+            }
             CallPlan::Close { tab_id } => {
                 self.note_surface_activity(&tab_id, verb, None);
                 self.close_surface(Some(caller_tab.as_str()), &tab_id)
                     .map_err(|error| error.message())?;
-                return Ok(json!({"result":format!("closed {noun} {tab_id}")}));
+                return Ok(json!(codeterm_wire::plugin_host::HostSurfaceResult {
+                    result: format!("closed {noun} {tab_id}")
+                }));
             }
             CallPlan::Open => {
                 let opened = self
@@ -356,7 +364,9 @@ impl ServiceContext {
             };
             self.note_surface_activity(&tab_id, verb, actor.as_deref());
             if !surface.agent_verbs.iter().any(|v| v == verb) {
-                return Ok(json!({"result":format!("opened {noun} {tab_id}")}));
+                return Ok(json!(codeterm_wire::plugin_host::HostSurfaceResult {
+                    result: format!("opened {noun} {tab_id}")
+                }));
             }
             return Ok(json!({"view_dispatch":{"context":context,"verb":verb,"args":args}}));
         }
@@ -370,13 +380,13 @@ impl ServiceContext {
         if verb == "annotate" {
             let annotating = runtime.clone();
             let outcome = block_on_runtime(async move { annotating.annotate(&ctx, &args).await })?;
-            return Ok(
-                json!({"result":self.deliver_agent_annotation(runtime.as_ref(), &binding, outcome)}),
-            );
+            return Ok(json!(codeterm_wire::plugin_host::HostSurfaceResult {
+                result: self.deliver_agent_annotation(runtime.as_ref(), &binding, outcome)
+            }));
         }
         let verb = verb.to_string();
         block_on_runtime(async move { runtime.agent_verb(&ctx, &verb, &args).await })
-            .map(|result| json!({"result":result}))
+            .map(|result| json!(codeterm_wire::plugin_host::HostSurfaceResult { result }))
     }
 
     fn deliver_agent_annotation(

@@ -49,8 +49,10 @@ impl ServiceContext {
             })
         };
         match start() {
-            Ok(run) => serde_json::json!({"run":run}).to_string(),
-            Err(error) => serde_json::json!({"error":error}).to_string(),
+            Ok(run) => serde_json::to_string(&codeterm_wire::plugin_host::HostRunStart { run })
+                .unwrap_or_else(|_| "null".into()),
+            Err(error) => serde_json::to_string(&codeterm_wire::plugin_host::HostError { error })
+                .unwrap_or_else(|_| "null".into()),
         }
     }
 }

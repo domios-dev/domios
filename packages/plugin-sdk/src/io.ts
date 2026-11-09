@@ -1,29 +1,8 @@
 import type { DirEntry, ExecOpts, ExecPollResult, FetchOpts, FetchResult } from "./host";
 
-export type HostIoRequest =
-  | { op: "fileExists" | "isSymlink" | "readFile" | "canonicalPath" | "lockFile" | "removeFile" | "makeDirs" | "readDir" | "listChildDirs"; path: string }
-  | { op: "readFileHead" | "readFileTail"; path: string; maxBytes: number }
-  | { op: "writeFile" | "writeFileAtomic"; path: string; contents: string }
-  | { op: "unlockFile"; id: string }
-  | { op: "writeTempFile"; contents: string; suffix?: string | null }
-  | { op: "projectWriteAllowed"; root: string }
-  | { op: "walkDir"; path: string; maxDepth: number }
-  | { op: "sqliteQuery"; db: string; sql: string; params?: unknown[] | null; nullable?: boolean }
-  | { op: "jsonBooleanRecord"; path: string; keys: string[]; grant: boolean }
-  | { op: "providerVersion" | "receiverTarget" | "receiverTargetClear" }
-  | { op: "credentialPublic"; id: string }
-  | { op: "secretGet" | "secretDelete"; name: string }
-  | { op: "secretSet"; name: string; value: string }
-  | { op: "memSearch" | "workspaceEnsure" | "workerStart"; options: unknown }
-  | { op: "execStart"; options: ExecOpts }
-  | { op: "fetchStart"; options: FetchOpts }
-  | { op: "analyticsQuery"; query: unknown }
-  | { op: "workspaceTabs"; workspace: string }
-  | { op: "workerPoll"; job: string }
-  | { op: "agentSpawn"; workspace: string; options: unknown }
-  | { op: "agentSend"; session: string; text: string }
-  | { op: "agentPoll" | "agentReap"; session: string }
-  | { op: "awaitJob"; job: string };
+type IoAuthoring<T> = T extends {op: "sqliteQuery"} ? Omit<T, "params"> & {params?: unknown[] | null} : T;
+
+export type HostIoRequest = IoAuthoring<import("./wireViews").OptionalWireCases<import("./gen/HostIoRequest").HostIoRequest, "suffix" | "params" | "nullable">> | {op: "awaitJob"; job: string};
 
 export type HostIoSteps<T> = Generator<HostIoRequest, T, unknown>;
 

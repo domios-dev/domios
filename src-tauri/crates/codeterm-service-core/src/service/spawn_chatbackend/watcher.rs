@@ -157,11 +157,11 @@ pub(super) fn tick_input_json(
     state: serde_json::Value,
     observations: serde_json::Value,
 ) -> serde_json::Value {
-    serde_json::json!({
-        "tick": tick,
-        "nowMs": now_ms,
-        "state": state,
-        "observations": observations,
+    serde_json::json!(codeterm_wire::plugin_host::WatcherTickInput {
+        tick,
+        now_ms,
+        state,
+        observations
     })
 }
 

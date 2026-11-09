@@ -64,7 +64,7 @@ const TUI_FRAGMENTS = ["openai codex", "ctrl+c to cancel"];
 const ASSIGNED_TASK_START_PROMPT = "Execute the assigned task. Follow the provided developer instructions.";
 const IDLE_WAKEUP_START_PROMPT = "You are a newly started agent. Wait for instructions from the user or your orchestration parent.";
 
-function starterPrompt(params: LaunchParams): string | undefined {
+function starterPrompt(params: Pick<LaunchParams, "starterPrompt"> & Partial<Pick<LaunchParams, "starterPromptText">>): string | undefined {
   if (params.starterPromptText) return params.starterPromptText;
   if (params.starterPrompt === "no_starter") return undefined;
   if (params.starterPrompt === "idle_wakeup") return IDLE_WAKEUP_START_PROMPT;

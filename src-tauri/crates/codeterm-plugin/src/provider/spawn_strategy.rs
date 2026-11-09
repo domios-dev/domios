@@ -270,7 +270,7 @@ pub enum TaskDelivery {
 }
 
 /// The single visible turn that starts an interactive provider session.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum StarterPrompt {
     #[default]

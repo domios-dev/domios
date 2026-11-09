@@ -287,37 +287,43 @@ void typeCheckAsyncFetch;
 async function exercise() {
   // worker: non-blocking start → poll (F4), not blocking run.
   const { jobId } = await host.worker.start({ task: "do it" });
+  if (!jobId) throw new Error("worker start failed");
   const w = await host.worker.poll(jobId);
-  if (w.done) void w.report;
+  if ("done" in w && w.done) void w.report;
   void w.error;
 
   // workspace: ensure + tabs — SYNCHRONOUS (cheap mux ops, no agent turn).
   const { workspaceId } = host.workspace.ensure({ name: "ws" });
+  if (!workspaceId) throw new Error("workspace unavailable");
   const tabs: TabRef[] = host.workspace.tabs(workspaceId);
   void tabs;
 
   // agent: spawn (fresh) / resume (specific) / get (key→session) / send (ticket) / poll / reap / usage.
   const backendSpec: Backend = { provider: "claude", model: "opus" };
   const { sessionId } = await host.agent.spawn(workspaceId, {
-    backend: backendSpec,
+    ...backendSpec,
     task: "play npc",
     key: "npc_1",
     commands: ["say", "move"],
   });
+  if (!sessionId) throw new Error("agent spawn failed");
   const resumed = await host.agent.resume(workspaceId, sessionId);
   void resumed;
   const found = await host.agent.get(workspaceId, "npc_1");
   void found;
   const { ticket } = await host.agent.send(sessionId, "hello");
+  if (!ticket) throw new Error("agent send failed");
   const reply = await host.agent.poll(ticket);
-  if (reply.done) void reply.reply;
+  if ("done" in reply && reply.done) void reply.reply;
   void reply.error;
   const usage: UsageSnapshot | null = host.agent.usage ? await host.agent.usage(sessionId) : null;
   void usage;
   await host.agent.reap(sessionId);
 
   // mem: SYNCHRONOUS search (callable mid-turn by a sync stage), scored hits.
-  const { hits } = host.mem.search({ query: "q", k: 5 });
+  const search = host.mem.search({ query: "q", k: 5 });
+  if ("error" in search) throw new Error(search.error);
+  const { hits } = search;
   void hits.map((h) => `${h.id}:${h.text}:${h.score}`);
 
   // fetch streaming: same sync job-id + poll shape as worker/agent.

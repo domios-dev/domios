@@ -291,7 +291,7 @@ const plugin = {
     return claudeOnboardingPrompt(screen)?.safeChoice ?? null;
   },
 
-  permissionPromptResponse(toolName: string, prompt: ParsedPrompt, screen?: string) {
+  permissionPromptResponse(toolName: string, prompt: import("@codeterm/plugin-sdk").PendingPrompt, screen?: string) {
     return claudePermissionPromptResponse(toolName, prompt, screen);
   },
 

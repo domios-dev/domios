@@ -2,6 +2,23 @@ use super::vm::{call_json_interruptible, PluginVm};
 use crate::blueprint_step::{valid_job_identity, BlueprintStep, JobUpdate, StepCall};
 use std::sync::Arc;
 
+#[derive(serde::Serialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+struct BlueprintStepRequest<'a> {
+    #[serde(flatten)]
+    request: &'a crate::blueprint_step::StepRequest,
+    job: Option<&'a str>,
+    deadline_ms: u64,
+}
+
+pub(super) fn export_protocol_contracts(
+    config: &ts_rs::Config,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use ts_rs::TS;
+    BlueprintStepRequest::export_all(config)?;
+    Ok(())
+}
+
 pub struct JsBlueprintStep {
     vm: Arc<PluginVm>,
 }
@@ -25,14 +42,16 @@ impl JsBlueprintStep {
         // The host-stamped run owner acts for the submit; the plugin can never name it.
         let _caller = submitting
             .then(|| super::host_surface::AgentCallerScope::enter(&call.request.context.owner));
-        let mut value =
-            serde_json::to_value(call.request).map_err(|_| "invalid plugin step request")?;
-        value["job"] = serde_json::json!(call.job);
-        value["deadlineMs"] = serde_json::json!(call
-            .deadline
-            .saturating_duration_since(std::time::Instant::now())
-            .as_millis()
-            .min(u64::MAX as u128) as u64);
+        let value = serde_json::to_value(BlueprintStepRequest {
+            request: call.request,
+            job: call.job,
+            deadline_ms: call
+                .deadline
+                .saturating_duration_since(std::time::Instant::now())
+                .as_millis()
+                .min(u64::MAX as u128) as u64,
+        })
+        .map_err(|_| "invalid plugin step request")?;
         let result = call_json_interruptible(
             &self.vm,
             method,

@@ -23,6 +23,16 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+pub(super) fn export_protocol_contracts(
+    config: &ts_rs::Config,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use ts_rs::TS;
+    capabilities::DecisionModelManifestCapability::export_all(config)?;
+    capabilities::ChatBackendCapability::export_all(config)?;
+    graph_nodes::export_protocol_contracts(config)?;
+    Ok(())
+}
+
 pub use agent_runtime::RuntimeManifestError;
 pub use capabilities::{
     Capabilities, ChatBackendCap, ChatPreprocessorCap, DecisionModelCap, SecretBackendCap,

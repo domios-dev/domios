@@ -713,6 +713,27 @@ fn walk_recursive(
     }
 }
 
+#[derive(serde::Serialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+struct DirEntry {
+    name: String,
+    path: String,
+    is_file: bool,
+    is_dir: bool,
+    size: i64,
+    modified_ms: Option<i64>,
+    created_ms: Option<i64>,
+}
+
+pub(super) fn export_protocol_contracts(
+    config: &ts_rs::Config,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use ts_rs::TS;
+    DirEntry::export_all(config)?;
+    io::export_protocol_contracts(config)?;
+    Ok(())
+}
+
 /// `meta` is the caller's already-read metadata where it had one; `None` costs
 /// a fresh lookup, which is why the walk passes what the scan gave it.
 fn dir_entry_to_json(p: &Path, name: &str, meta: Option<std::fs::Metadata>) -> serde_json::Value {
@@ -730,14 +751,14 @@ fn dir_entry_to_json(p: &Path, name: &str, meta: Option<std::fs::Metadata>) -> s
         .and_then(|m| m.created().ok())
         .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
         .map(|d| d.as_millis() as i64);
-    serde_json::json!({
-        "name": name,
-        "path": p.to_string_lossy(),
-        "isFile": is_file,
-        "isDir": is_dir,
-        "size": size,
-        "modifiedMs": modified_ms,
-        "createdMs": created_ms,
+    serde_json::json!(DirEntry {
+        name: name.into(),
+        path: p.to_string_lossy().into_owned(),
+        is_file,
+        is_dir,
+        size,
+        modified_ms,
+        created_ms,
     })
 }
 

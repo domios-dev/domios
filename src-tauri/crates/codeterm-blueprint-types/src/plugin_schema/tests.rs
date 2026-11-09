@@ -79,3 +79,35 @@ fn plugin_schema_number_and_default_contracts_are_shared_with_js_safe_integer_va
     );
     assert!(PluginSchema::from_value(&json!({"type":"integer","enum":["wrong"]})).is_err());
 }
+
+#[test]
+fn authored_schema_preserves_official_steps_and_explicit_null_defaults() {
+    let fixtures: Vec<Value> =
+        serde_json::from_str(include_str!("fixtures/official_steps.json")).unwrap();
+    assert!(!fixtures.is_empty());
+    for fixture in fixtures {
+        let schema = PluginSchema::from_value(&fixture["schema"]).unwrap();
+        let authored: AuthoredSchema = serde_json::from_value(fixture["schema"].clone()).unwrap();
+        assert_eq!(
+            serde_json::json!(authored),
+            fixture["schema"],
+            "{}",
+            fixture["source"]
+        );
+        let mut normalized = fixture["schema"].clone();
+        let mut nodes = 0;
+        parse(&mut normalized, 0, &mut nodes).unwrap();
+        assert_eq!(schema.to_value(), normalized);
+    }
+    for value in [
+        json!({"type":["string","null"],"default":null,"const":null,"description":"opaque"}),
+        json!({"type":"null","default":null,"enum":[null]}),
+    ] {
+        assert_eq!(PluginSchema::from_value(&value).unwrap().to_value(), value);
+    }
+    for key in ["examples", "vendorKey"] {
+        let mut value = json!({"type":"string"});
+        value[key] = json!([]);
+        assert!(PluginSchema::from_value(&value).is_err());
+    }
+}

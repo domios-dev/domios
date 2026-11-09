@@ -34,3 +34,5 @@ pub struct ViewIdentity {
     pub instance: String,
     pub tab: String,
 }
+mod compute;
+pub use compute::*;

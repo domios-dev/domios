@@ -2,7 +2,63 @@ use serde_json::Value;
 
 use codeterm_types::pty::{PendingPrompt, PromptOption, PromptSection};
 
+#[derive(Default, serde::Serialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+struct ParsedPrompt {
+    question: String,
+    options: Vec<(String, String)>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    sections: Option<Vec<ParsedPromptSection>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    multi_select: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    submit_available: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    selected_values: Option<Vec<String>>,
+}
+
+#[derive(serde::Serialize, ts_rs::TS)]
+struct ParsedPromptSection {
+    label: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    active: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    completed: Option<bool>,
+}
+
 pub(super) fn parsed_prompt_from_js(obj: Value) -> Option<PendingPrompt> {
+    let wire = parse_authored_prompt(obj)?;
+    Some(PendingPrompt {
+        request_id: None,
+        question: wire.question,
+        options: wire
+            .options
+            .into_iter()
+            .map(|(label, value)| PromptOption { label, value })
+            .collect(),
+        sections: wire.sections.map(|sections| {
+            sections
+                .into_iter()
+                .map(|s| PromptSection {
+                    label: s.label,
+                    active: s.active.unwrap_or(false),
+                    completed: s.completed.unwrap_or(false),
+                })
+                .collect()
+        }),
+        multi_select: wire.multi_select,
+        submit_available: wire.submit_available,
+        selected_values: wire.selected_values,
+    })
+}
+
+fn parse_authored_prompt(obj: Value) -> Option<ParsedPrompt> {
     let question = obj.get("question").and_then(|q| q.as_str())?.to_string();
     let options = obj.get("options").and_then(|o| o.as_array())?;
     let mut parsed = Vec::new();
@@ -11,29 +67,19 @@ pub(super) fn parsed_prompt_from_js(obj: Value) -> Option<PendingPrompt> {
         if pair.len() != 2 {
             return None;
         }
-        parsed.push(PromptOption {
-            label: pair[0].as_str()?.to_string(),
-            value: pair[1].as_str()?.to_string(),
-        });
+        parsed.push((pair[0].as_str()?.to_string(), pair[1].as_str()?.to_string()));
     }
-    Some(PendingPrompt {
-        request_id: None,
+    Some(ParsedPrompt {
         question,
         options: parsed,
         sections: obj.get("sections").and_then(|s| s.as_array()).map(|items| {
             items
                 .iter()
                 .filter_map(|item| {
-                    Some(PromptSection {
+                    Some(ParsedPromptSection {
                         label: item.get("label")?.as_str()?.to_string(),
-                        active: item
-                            .get("active")
-                            .and_then(|v| v.as_bool())
-                            .unwrap_or(false),
-                        completed: item
-                            .get("completed")
-                            .and_then(|v| v.as_bool())
-                            .unwrap_or(false),
+                        active: item.get("active").and_then(|v| v.as_bool()),
+                        completed: item.get("completed").and_then(|v| v.as_bool()),
                     })
                 })
                 .collect()
@@ -131,9 +177,14 @@ impl super::JsProvider {
         &self,
         prompt: &PendingPrompt,
     ) -> Option<String> {
-        let parsed = serde_json::json!({
-            "question": prompt.question,
-            "options": prompt.options.iter().map(|option| [&option.label, &option.value]).collect::<Vec<_>>(),
+        let parsed = serde_json::json!(ParsedPrompt {
+            question: prompt.question.clone(),
+            options: prompt
+                .options
+                .iter()
+                .map(|o| (o.label.clone(), o.value.clone()))
+                .collect(),
+            ..Default::default()
         });
         if let Some(value) = self.try_call::<Option<String>>("updatePromptSafeChoice", &[parsed]) {
             return value.filter(|value| {
@@ -162,5 +213,6 @@ pub(super) fn export_protocol_contracts(
 ) -> Result<(), Box<dyn std::error::Error>> {
     use ts_rs::TS;
     LaunchOnboardingResponse::export_all(config)?;
+    ParsedPrompt::export_all(config)?;
     Ok(())
 }

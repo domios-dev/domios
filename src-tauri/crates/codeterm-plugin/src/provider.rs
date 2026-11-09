@@ -114,7 +114,7 @@ pub struct ProviderPromptKeyStep {
 }
 
 /// Bind address for a provider's structured-prompt server (opencode SSE bus).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct StructuredPromptServer {
     pub hostname: String,

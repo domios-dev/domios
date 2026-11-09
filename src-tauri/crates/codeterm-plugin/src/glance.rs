@@ -32,7 +32,7 @@ pub trait GlanceProvider: Send + Sync {
     fn id(&self) -> &str;
 
     /// Render the current glance. `ctx` carries optional tab context
-    /// (`{ cwd?, tabId?, provider? }`) — most plugins ignore it.
+    /// (`{ cwd?, tabId?, refresh? }`) — most plugins ignore it.
     async fn render(&self, ctx: Value) -> Result<GlanceView, GlanceError>;
 
     /// Handle a `Button` action id (anything not reserved by the host). Returns

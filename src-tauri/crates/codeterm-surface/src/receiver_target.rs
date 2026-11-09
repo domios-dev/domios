@@ -190,9 +190,13 @@ impl ReceiverTargetError {
 pub fn host_json(result: Result<ReceiverTargetView, ReceiverTargetError>) -> String {
     match result {
         Ok(view) => serde_json::to_string(&view).unwrap_or_else(|_| "null".to_string()),
-        Err(error) => {
-            serde_json::json!({ "error": error.code(), "message": error.message() }).to_string()
-        }
+        Err(error) => serde_json::to_string(&codeterm_wire::plugin_host::HostRefusal {
+            error: codeterm_wire::plugin_host::HostError {
+                error: error.code().into(),
+            },
+            message: Some(error.message().into()),
+        })
+        .unwrap_or_else(|_| "null".into()),
     }
 }
 
