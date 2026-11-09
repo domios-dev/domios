@@ -913,7 +913,7 @@ fn parse_tab_record(
         .and_then(serde_json::Value::as_str)
         .unwrap_or("<unknown>")
         .to_string();
-    if let Err(error) = legacy_decode::reject_legacy_session_id(&tab) {
+    if let Err(error) = format_validation::reject_legacy_session_id(&tab) {
         log::error!(
             "[session] quarantined tab {workspace_id}/{tab_id}: {error}; source left unchanged"
         );
@@ -960,8 +960,8 @@ fn parse_tab_record(
     }
 }
 
+mod format_validation;
 mod leaf_bound;
-pub mod legacy_decode;
 #[cfg(test)]
 mod retention;
 mod storage_adapter;

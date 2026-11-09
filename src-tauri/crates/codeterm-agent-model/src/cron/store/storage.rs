@@ -1,10 +1,3 @@
-//! Persistence boundary of the cron cache. The legacy JSON file stays the authority until
-//! the all-domain cutover; only `open_storage` builds a Storage-backed store. Record
-//! conversions and the legacy decoder live in `codec`, the scheduler-port draft in `port`.
-//!
-//! Storage changes are prepared under the cron lock, committed with the lock released,
-//! and published into the cache only after COMMIT, fenced by each job identity's revision.
-
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::future::Future;
@@ -28,10 +21,13 @@ use crate::storage::{
 mod codec;
 mod port;
 
-pub use codec::{decode_legacy_cron_file, read_legacy_cron_file, LegacyCronError};
+#[cfg(any(test, feature = "test-support"))]
+mod test_support;
 use codec::{definition_of, job_info, job_record, run_info, run_record, stored_scope};
 use port::PortDraft;
 pub use port::{settle_port, PortSettlement};
+#[cfg(any(test, feature = "test-support"))]
+pub use test_support::{decode_legacy_cron_file, read_legacy_cron_file, LegacyCronError};
 
 const STAGED_ONLY: &str = "cron storage commits only through the staged cron boundary";
 const MAX_ATTEMPTS: usize = 4;

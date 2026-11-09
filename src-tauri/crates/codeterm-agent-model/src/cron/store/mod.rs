@@ -38,9 +38,10 @@ pub use crud::{Prepared, RunSession};
 pub use storage::commit;
 pub use storage::finish_run;
 pub use storage::finish_run_with_summary;
+#[cfg(any(test, feature = "test-support"))]
+pub use storage::{decode_legacy_cron_file, read_legacy_cron_file, LegacyCronError};
 pub use storage::{
-    decode_legacy_cron_file, read_legacy_cron_file, settle_port, CronCommitError, CronCommitted,
-    CronStorageOptions, LegacyCronError, PortSettlement,
+    settle_port, CronCommitError, CronCommitted, CronStorageOptions, PortSettlement,
 };
 pub use tabs::write_log;
 
