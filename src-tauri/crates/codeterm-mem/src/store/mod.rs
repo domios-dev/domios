@@ -424,7 +424,7 @@ pub struct GraphNode {
     pub recurrence_count: i64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
 pub struct GraphEdge {
     pub from: String,
     pub to: String,
@@ -441,7 +441,7 @@ pub struct GraphDump {
     pub stats: GraphDumpStats,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
 pub struct GraphDumpStats {
     pub node_count: usize,
     pub edge_count: usize,

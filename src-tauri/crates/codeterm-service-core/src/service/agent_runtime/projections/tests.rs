@@ -71,7 +71,7 @@ fn token_only_reading_is_visible_without_fabricating_allowance() {
         resets: None,
         account_credits: None,
     };
-    let wire = enrich_latest(serde_json::Value::Null, "fixture", vec![reading]).unwrap();
+    let wire = enrich_latest(None, "fixture", vec![reading]).unwrap();
     assert_eq!(
         wire["runtime_usage"][0]["token_usage"]["value"]["input_tokens"],
         12
@@ -80,9 +80,7 @@ fn token_only_reading_is_visible_without_fabricating_allowance() {
     assert!(wire.get("session_pct").is_none());
     assert_eq!(wire["limits_reported"], false);
     assert!(wire["runtime_usage"][0].get("nonce").is_none());
-    assert!(enrich_latest(serde_json::Value::Null, "fixture", vec![])
-        .unwrap()
-        .is_null());
+    assert!(enrich_latest(None, "fixture", vec![]).unwrap().is_null());
 }
 #[test]
 fn runtime_usage_binding_changes_clear_tokens_but_keep_account_limits() {

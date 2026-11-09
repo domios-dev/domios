@@ -495,3 +495,37 @@ pub struct TransferBody {
     pub path: String,
     pub kind: AttachmentKind,
 }
+
+#[derive(Debug, Clone, Serialize, ts_rs::TS)]
+pub struct LogEventPayload {
+    pub ts: i64,
+    pub level: String,
+    pub source: String,
+    pub message: String,
+    pub context: Option<serde_json::Value>,
+}
+
+#[derive(Serialize, ts_rs::TS)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum CaptureEvent {
+    Start { capture: CaptureLeaseView },
+    Stop { lease: String },
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ts_rs::TS)]
+pub struct ActivityEvent {
+    pub id: Option<i64>,
+    pub occurred_at: i64,
+    pub source: ActivitySource,
+    pub source_id: Option<String>,
+    pub target: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub source_peer: Option<String>,
+    pub level: ActivityLevel,
+    pub message: String,
+    pub meta: serde_json::Value,
+}
+
+#[cfg(test)]
+mod tests;

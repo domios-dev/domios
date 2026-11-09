@@ -69,14 +69,7 @@ export function knownWindowForAuthority(
 
 export type ChatBackfillResult = Omit<import("../../../gen/ChatBackfillResult").ChatBackfillResult, "messages" | "offset_kind"> & Partial<Pick<import("../../../gen/ChatBackfillResult").ChatBackfillResult, "offset_kind">> & {messages?: ChatMessage[]};
 
-export interface ChatMsgEvent extends TranscriptAuthority {
-  tab_id: string;
-  messages: ChatMessage[];
-  cursor?: string;
-  offset_kind?: "bytes" | "items";
-  start_offset?: number;
-  offset?: number;
-}
+export type ChatMsgEvent = Omit<import("../../../gen/ChatMsgEvent").ChatMsgEvent, "messages" | "cursor"> & Partial<Pick<import("../../../gen/ChatMsgEvent").ChatMsgEvent, "cursor">> & { messages: ChatMessage[] } & Partial<Pick<import("../../../gen/ChatStartResult").ChatStartResult, "offset_kind">>;
 
 export function canAdoptTranscriptAuthority(
   incoming: TranscriptAuthority,

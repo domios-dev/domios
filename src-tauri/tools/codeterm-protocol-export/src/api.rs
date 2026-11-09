@@ -141,5 +141,21 @@ pub(super) fn export_api(config: &Config) -> Result<(), Box<dyn std::error::Erro
     codeterm_mesh::account_mesh::protocol::AccountMeshPair::export_all(config)?;
     codeterm_supporter::connections::ConnectionError::export_all(config)?;
     codeterm_supporter::export_protocol_contracts(config)?;
+    codeterm_mem::graph_view::GraphFullResponse::export_all(config)?;
+    codeterm_mem::graph_view::LabelRow::export_all(config)?;
+    codeterm_wire::api_contracts::LogEventPayload::export_all(config)?;
+    codeterm_wire::api_contracts::CaptureEvent::export_all(config)?;
+    codeterm_wire::api_contracts::ActivityEvent::export_all(config)?;
+    codeterm_mesh::contract::inventory::MeshInventoryView::<
+        codeterm_worker_services::store::Service,
+    >::export_all(config)?;
+    codeterm_secrets::model_provider_request::ModelProviderRequest::export_all(config)?;
+    codeterm_types::team::staffing::AddTeamMemberResult::export_all(config)?;
+    codeterm_plugin::api_contracts::GoalSnapshot::export_all(config)?;
+    codeterm_types::api_contracts::ChatMsgEvent::export_all(config)?;
+    codeterm_update::contracts::RuntimeStatus::export_all(config)?;
+    codeterm_update::contracts::InstallResponse::export_all(config)?;
+    codeterm_plugin::api_contracts::UsageLatestResponse::export_all(config)?;
+    codeterm_usage::contract::UsageSnapshotEvent::export_all(config)?;
     Ok(())
 }

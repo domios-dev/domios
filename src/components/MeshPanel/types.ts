@@ -25,17 +25,7 @@ provenance?: InventoryProvenance;
 capabilities?: Partial<Record<InventoryOperation, InventoryCapability>>;
 };
 
-export interface ActivityEvent {
-  id?: number;
-  occurred_at: number;
-  source: ActivitySource;
-  source_id?: string;
-  target?: string;
-  source_peer?: string;
-  level: ActivityLevel;
-  message: string;
-  meta: Record<string, unknown>;
-}
+export type ActivityEvent = import("../../../gen/ActivityEvent").ActivityEvent;
 
 export type MeshTab = "inventory" | "activity" | "network";
 

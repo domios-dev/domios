@@ -117,3 +117,30 @@ pub enum ResumeResetReason {
     Compacted,
     InvalidCursor,
 }
+
+#[derive(serde::Serialize, ts_rs::TS)]
+pub struct ChatMsgEvent<'a> {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub diagnostic_epoch: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub diagnostic_live: Option<&'a LiveRuntimeOrigin>,
+    pub tab_id: &'a str,
+    pub messages: &'a [ChatMsg],
+    pub cursor: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub start_offset: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub offset: Option<u64>,
+    pub source_session_id: Option<&'a str>,
+    pub session_binding_nonce: Option<&'a str>,
+}
+
+#[derive(serde::Serialize, ts_rs::TS)]
+pub struct LiveRuntimeOrigin {
+    pub kind: &'static str,
+    pub turn: String,
+}

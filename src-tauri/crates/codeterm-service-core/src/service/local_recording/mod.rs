@@ -129,7 +129,7 @@ impl ServiceContext {
             return Err("subscription_stale".into());
         }
         let event = match self.local_recordings.request_stop(plugin_id) {
-            Some(Ok(lease)) => serde_json::json!({ "kind": "stop", "lease": lease }),
+            Some(Ok(lease)) => codeterm_wire::api_contracts::CaptureEvent::Stop { lease },
             Some(Err(())) => return Ok(()),
             None => {
                 let (devices, selected_generation) = self
@@ -140,10 +140,11 @@ impl ServiceContext {
                     return Err("subscription_stale".into());
                 }
                 let lease = self.local_recording_start(plugin_id, &devices, generation)?;
-                serde_json::json!({ "kind": "start", "capture": lease })
+                codeterm_wire::api_contracts::CaptureEvent::Start { capture: lease }
             }
         };
-        self.ui.emit("local-recording-capture", event);
+        self.ui
+            .emit("local-recording-capture", serde_json::json!(event));
         Ok(())
     }
     pub fn local_recording_status(&self, plugin_id: &str) -> Result<RecordingStatus, String> {

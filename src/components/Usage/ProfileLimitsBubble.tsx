@@ -76,7 +76,7 @@ export function QuotaBubble({ provider, accountId, trackingEnabled, session }: {
       ))}
       {failure ? <p className="ct-usage-detail">Last read failed: {failure}</p> : null}
       <div className="ct-usage-foot">
-        <span>{snapshot ? `last updated ${formatAge(snapshot.captured_at, now)}` : "not read yet"}</span>
+        <span>{snapshot?.captured_at !== undefined ? `last updated ${formatAge(snapshot.captured_at, now)}` : "not read yet"}</span>
         <button type="button" className="link" onClick={() => void refresh()}>Refresh</button>
       </div>
     </LimitsPill>
@@ -105,7 +105,7 @@ export function BalanceBubble({ provider, accountId, trackingEnabled }: { provid
       <p className="ct-usage-detail">{reading ? `${text}${reading.available ? "" : " — insufficient for new requests"}` : failure ?? "Reading the balance…"}</p>
       {reading && failure ? <p className="ct-usage-detail">Last read failed: {failure}</p> : null}
       <div className="ct-usage-foot">
-        <span>{snapshot ? `last updated ${formatAge(snapshot.captured_at, Date.now())}` : "not read yet"}</span>
+        <span>{snapshot?.captured_at !== undefined ? `last updated ${formatAge(snapshot.captured_at, Date.now())}` : "not read yet"}</span>
         <button type="button" className="link" onClick={() => void refresh()}>Refresh</button>
       </div>
     </LimitsPill>

@@ -96,20 +96,24 @@ impl UpdateState {
                 Some((self.downloaded_bytes as f64 / total as f64).min(1.0))
             }
         });
-        serde_json::json!({
-            "phase": self.phase.to_string(),
-            "last_error": self.last_error,
-            "error_revision": self.error_revision(),
-            "channel": self.channel.to_string(),
-            "install_method": self.install_method.to_string(),
-            "current_version": codeterm_build_info::version(),
-            "latest_known": self.last_check.as_ref().map(|i| i.latest_version.clone()),
-            "update_available": self.last_check.as_ref().map(|i| i.update_available).unwrap_or(false),
-            "check_path": self.last_check.as_ref().and_then(|i| i.check_path.clone()),
-            "phase_age_secs": self.phase_changed_at.map(|t| t.elapsed().as_secs()),
-            "downloaded_bytes": self.downloaded_bytes,
-            "download_total_bytes": self.download_total_bytes,
-            "download_progress": download_progress,
+        serde_json::json!(crate::contracts::RuntimeStatus {
+            phase: self.phase,
+            last_error: self.last_error.clone(),
+            error_revision: self.error_revision(),
+            channel: self.channel,
+            install_method: self.install_method.to_string(),
+            current_version: codeterm_build_info::version().to_owned(),
+            latest_known: self.last_check.as_ref().map(|i| i.latest_version.clone()),
+            update_available: self
+                .last_check
+                .as_ref()
+                .map(|i| i.update_available)
+                .unwrap_or(false),
+            check_path: self.last_check.as_ref().and_then(|i| i.check_path.clone()),
+            phase_age_secs: self.phase_changed_at.map(|t| t.elapsed().as_secs()),
+            downloaded_bytes: self.downloaded_bytes,
+            download_total_bytes: self.download_total_bytes,
+            download_progress,
         })
     }
 

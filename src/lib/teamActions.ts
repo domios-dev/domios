@@ -30,11 +30,7 @@ export interface TeamMemberRequest {
   sessionBindingNonce?: string;
 }
 
-export interface TeamMemberAttachment {
-  tab_id: string;
-  team: Team;
-  reused: boolean;
-}
+export type TeamMemberAttachment = Pick<import("../../gen/AddTeamMemberResult").AddTeamMemberResult, "tab_id" | "reused"> & { team: Team };
 
 export function selectTeamStaffingManager(tabs: readonly Pick<Tab, "id" | "can_spawn" | "role">[]): string | null {
   return tabs.find((tab) => tab.can_spawn === true && tab.role === "Manager")?.id ?? null;

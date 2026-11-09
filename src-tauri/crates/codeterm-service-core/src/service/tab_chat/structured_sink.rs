@@ -21,28 +21,8 @@ pub trait StructuredSink: Send + Sync {
     fn emit(&self, tab_id: &str, messages: Vec<ChatMsg>, cursor: Option<String>);
 }
 
-#[derive(serde::Serialize)]
-struct ChatMsgEvent<'a> {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    diagnostic_epoch: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    diagnostic_live: Option<&'a LiveRuntimeOrigin>,
-    tab_id: &'a str,
-    messages: &'a [ChatMsg],
-    cursor: Option<&'a str>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    start_offset: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    offset: Option<u64>,
-    source_session_id: Option<&'a str>,
-    session_binding_nonce: Option<&'a str>,
-}
-
-#[derive(serde::Serialize)]
-pub(crate) struct LiveRuntimeOrigin {
-    kind: &'static str,
-    turn: String,
-}
+use codeterm_types::api_contracts::ChatMsgEvent;
+pub(crate) use codeterm_types::api_contracts::LiveRuntimeOrigin;
 
 pub(crate) fn live_runtime_origin(
     live: bool,

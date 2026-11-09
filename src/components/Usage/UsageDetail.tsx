@@ -1,3 +1,4 @@
+import {usageLimits} from "./usageDetailsModel";
 import {UsageAllowanceRows, UsageScopedLimits} from "./UsageAllowanceRows";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { RefreshCw, ArrowRight } from "lucide-react";
@@ -145,11 +146,11 @@ export function UsageDetail({ snapshot, accountCreditsLabel, onRefresh, onOpenHi
       {metrics.map((metric) => (
         <UsageGauge
           key={metric.key}
-          label={`${metric.label}${snapshot.usage_details?.limits.find(limit => limit.kind === (metric.key === "session" ? "session" : "weekly_all"))?.is_active ? " · active" : ""}`}
+          label={`${metric.label}${usageLimits(snapshot.usage_details).find(limit => limit.kind === (metric.key === "session" ? "session" : "weekly_all"))?.is_active ? " · active" : ""}`}
           variant={metric.key}
           pct={metric.pct}
           resetsAt={metric.resetsAt}
-          state={snapshot.usage_details?.limits.find(limit => limit.kind === (metric.key === "session" ? "session" : "weekly_all"))?.critical ? "danger" : metric.key === "session" ? sessionState : weeklyState}
+          state={usageLimits(snapshot.usage_details).find(limit => limit.kind === (metric.key === "session" ? "session" : "weekly_all"))?.critical ? "danger" : metric.key === "session" ? sessionState : weeklyState}
           markers={metric.key === "session" ? sessionMarkers : weeklyMarkers}
           now={now}
           showIntroHint={showIntroHints}

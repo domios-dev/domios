@@ -15,6 +15,7 @@ pub mod factory;
 pub mod js_backend;
 pub mod local;
 pub mod mock;
+pub mod model_provider_request;
 mod readiness;
 pub mod redact;
 mod registry;
