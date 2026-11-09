@@ -76,8 +76,14 @@ fn record_free_browser_inventory_uses_bundled_version_and_update_source() {
     assert_eq!(row["update"]["reason"], "same_version");
     assert_eq!(row["update"]["basis"], "bundled_manifest");
     let virtual_row = virtual_system_row("browser");
-    assert_eq!(virtual_row.version, manifest.version);
-    assert_eq!(virtual_row.update["reason"], "same_version");
+    assert_eq!(virtual_row.metadata.version, manifest.version);
+    assert_eq!(
+        virtual_row
+            .update
+            .as_ref()
+            .map(|update| update.reason.as_str()),
+        Some("same_version")
+    );
 }
 
 #[test]
