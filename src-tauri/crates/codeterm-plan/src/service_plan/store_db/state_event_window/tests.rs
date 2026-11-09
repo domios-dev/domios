@@ -90,13 +90,7 @@ fn sql_hot_board_window_visits_only_the_tail_as_history_grows() {
         let metrics = read_projections::take_metrics();
         assert_eq!(visited, 51);
         assert!(metrics.queries <= 16, "queries={}", metrics.queries);
-        assert_eq!(
-            board.value["mission_control"]["event_log"]["entries"]
-                .as_array()
-                .unwrap()
-                .len(),
-            50
-        );
+        assert_eq!(board.value.mission_control.event_log.entries.len(), 50);
         assert!(fixtures::audit_counts(&database).is_empty());
         let connection = database.connection.lock();
         for (sql, index) in [
