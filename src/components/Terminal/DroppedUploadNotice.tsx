@@ -38,12 +38,12 @@ export function DroppedUploadNotice({ tabId, id, names }: { tabId: string; id: s
       }
       const sendId = uid();
       const content = formatAttachmentMarker(path, attachmentKindForUpload({ name: upload.name, mime: upload.blob.type }));
-      addChatSend(tabId, { id: sendId, content, sentAtMs: Date.now() });
+      addChatSend(tabId, { id: sendId, correlationId: sendId, content, sentAtMs: Date.now() });
       try {
         const prepared = await composeAttachmentDraft(tabId, "", [path], [], composerAttachmentHandoff);
         updateChatSendContent(tabId, sendId, prepared.composed);
         await sendTrackedChatMessage(tabId, sendId, prepared.composed).catch(() => {});
-      } catch { failChatSendRequest(tabId, sendId); }
+      } catch (error) { failChatSendRequest(tabId, sendId, error); }
     }
     if (remaining.some(canRetryUpload)) captures.set(key(tabId, id), remaining.filter(canRetryUpload));
     else captures.delete(key(tabId, id));

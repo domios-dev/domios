@@ -8,6 +8,11 @@ const registry: CapsuleRegistry = {
   failed: { label: "failed", kind: "image", path: "", uploadId: 2 },
   ready: { label: "ready", kind: "image", path: "/ready.png" },
 };
+
+test("missing capsule identities and upload results refuse instead of sending a label", () => {
+  assert.throws(() => resolveComposerSend(capsuleToken("image1"), {}, new Map()), /Attachment "image1" is unavailable/);
+  assert.throws(() => resolveComposerSend(capsuleToken("pending"), registry, new Map()), /Upload result.*unavailable/);
+});
 test("pending uploads belong to the send while the composer clears immediately", () => {
   assert.deepEqual(composerSendPlan(capsuleToken("pending"), registry, [{ id: 1, state: "uploading" }]), { clearComposer: true, uploadIds: [1], waitForUploadIds: [1], dropUploadIds: [] });
 });

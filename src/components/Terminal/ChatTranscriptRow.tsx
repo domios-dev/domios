@@ -11,7 +11,8 @@ import { ChatDeliveryState } from "./ChatDeliveryState";
 import { ChatLiveOperation } from "./ChatLiveOperation";
 import { DroppedUploadNotice } from "./DroppedUploadNotice";
 import { VoiceTranscriptionProgress } from "./voice/VoiceTranscriptionProgress";
-import { canRetryChatSend, canDeleteChatSend, resendsWithCli, type DeliverySend, type DeliveryState } from "./chatDeliveryModel";
+import { canRetryChatSend, canDeleteChatSend, canEditChatSend, deliveryError, resendsWithCli, type DeliverySend, type DeliveryState } from "./chatDeliveryModel";
+import { editChatDelivery } from "./chatDeliveryComposer";
 import type { EnrichedChatEntry } from "./chatEnrichment";
 
 type MessageBubbleProps = React.ComponentProps<typeof MessageBubble>;
@@ -134,6 +135,8 @@ export const ChatTranscriptRow = memo(function ChatTranscriptRow({ entry, daySep
   const { msg, item, origin } = entry;
   const pendingDelivery = deliverySend && deliveryView && deliveryView !== "delivered";
   const onRetry = deliverySend && canRetryChatSend(deliverySend) ? () => context.retrySend(deliverySend.id) : undefined;
+  const onRemove = deliverySend && canDeleteChatSend(deliverySend) ? () => context.deleteSend(deliverySend.id) : undefined;
+  const onEdit = deliverySend && canEditChatSend(deliverySend) ? () => editChatDelivery(context.tabId, deliverySend) : undefined;
   const resendWithCli = Boolean(deliverySend && resendsWithCli(deliverySend));
   const message = useMemo(() => context.promptAnswers ? msg : { ...msg, interactive: [] }, [msg, context.promptAnswers]);
   const turnId = msg.toolFlowId;
@@ -148,7 +151,7 @@ export const ChatTranscriptRow = memo(function ChatTranscriptRow({ entry, daySep
           deliveryState={deliveryView}
           sourceOrdinal={sourceOrdinal}
           ariaLabel={ariaLabel}
-          onDelete={deliverySend && canDeleteChatSend(deliverySend) ? () => context.deleteSend(deliverySend.id) : undefined}
+          onDelete={onRemove}
           onForkFromHere={turnId && forkable ? () => context.forkFrom(turnId) : undefined}
           onRevertToHere={turnId && revertible ? () => context.revertTo(turnId) : undefined}
           selected={selected}
@@ -164,11 +167,11 @@ export const ChatTranscriptRow = memo(function ChatTranscriptRow({ entry, daySep
             userProgress={deliveryView === "sending" && Boolean(deliverySend?.draft?.recordedVoiceAttachments.length)
               ? <VoiceTranscriptionProgress /> : undefined}
             userFooter={deliverySend ? <>
-              {pendingDelivery && <ChatDeliveryState state={deliveryView} error={deliverySend.status?.error} queuedBehindTurn={deliveryBehindTurn} onRetry={onRetry} resendWithCli={resendWithCli} />}
+              {pendingDelivery && <ChatDeliveryState state={deliveryView} error={deliveryError(deliverySend)} queuedBehindTurn={deliveryBehindTurn} onRetry={onRetry} onRemove={onRemove} onEdit={onEdit} resendWithCli={resendWithCli} />}
               <DroppedUploadNotice tabId={context.tabId} id={deliverySend.id} names={deliverySend.droppedUploads} />
             </> : undefined}
             noticeStatus={pendingDelivery
-              ? <ChatDeliveryState inline state={deliveryView} error={deliverySend.status?.error} queuedBehindTurn={deliveryBehindTurn} onRetry={onRetry} resendWithCli={resendWithCli} />
+              ? <ChatDeliveryState inline state={deliveryView} error={deliveryError(deliverySend)} queuedBehindTurn={deliveryBehindTurn} onRetry={onRetry} onRemove={onRemove} onEdit={onEdit} resendWithCli={resendWithCli} />
               : undefined}
             item={item.kind === "tool" ? item : undefined}
             isLatestFailedToolCall={latestFailedToolCall}

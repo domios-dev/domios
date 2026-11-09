@@ -7,6 +7,7 @@ import {
   capsulesInDraft,
   EMPTY_CAPSULES,
   serializeCapsuleDraft,
+  requireCapsulePaths,
   type CapsuleRegistry,
   type ComposerCapsule,
 } from "./composerCapsules";
@@ -96,6 +97,7 @@ export async function composeAttachmentDraft(
   capsules: CapsuleRegistry = EMPTY_CAPSULES,
   reply: ComposerReply | null = null,
 ): Promise<AttachmentDraft> {
+  requireCapsulePaths(text, capsules);
   const target = attachmentHostTarget(tabId, deps.relayPeerId());
   const inline = capsulesInDraft(text, capsules);
   const markers = await resolveCapsuleMarkers(target, inline, deps);

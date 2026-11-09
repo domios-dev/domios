@@ -13,8 +13,8 @@
     {
       "id": "codex",
       "path": "provider-codex",
-      "version": "1.14.71",
-      "minCodeterm": "1.19.0"
+      "version": "1.14.72",
+      "minCodeterm": "1.19.2"
     },
     {
       "id": "opencode",

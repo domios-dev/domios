@@ -14,7 +14,7 @@ import type { RuntimeRegistryDefaults } from "./RuntimeRegistryDefaults";
 import type { RuntimeServiceTier } from "./RuntimeServiceTier";
 import type { RuntimeThreadHistoryCapability } from "./RuntimeThreadHistoryCapability";
 
-export type AgentRuntimeCapability = { hostMcp?: RuntimeHostMcpDeclaration, envelope?: AgentRuntimeEnvelope, interrupt?: RuntimeInterruptCapability, clientBridges?: RuntimeClientBridges, launchProfiles?: { [key in string]: RuntimeLaunchProfile }, 
+export type AgentRuntimeCapability = { localImagePaths?: boolean, hostMcp?: RuntimeHostMcpDeclaration, envelope?: AgentRuntimeEnvelope, interrupt?: RuntimeInterruptCapability, clientBridges?: RuntimeClientBridges, launchProfiles?: { [key in string]: RuntimeLaunchProfile }, 
 /**
  * Declarations a profile installed from this registry id inherits unless it declares its own.
  */

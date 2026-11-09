@@ -675,8 +675,9 @@ fn storage_desk_current_rows_preserve_nested_layout_and_opaque_identity_values_o
             "sort_order":5
         }]
     }"#;
+    let provider = "codex";
     let identities = vec![codeterm_storage::DeskAgentSessionIdentity {
-        provider: "codex".into(),
+        provider: provider.into(),
         session_id: "session-a".into(),
         record_provider: "stored-provider-value".into(),
         role: "Worker".into(),
@@ -769,7 +770,7 @@ fn storage_desk_current_rows_preserve_nested_layout_and_opaque_identity_values_o
         SplitNodeSnapshot::Leaf { .. } => panic!("root split must not be flattened"),
     }
     assert_eq!(identity.len(), 1);
-    assert_eq!(identity[0].provider, "codex");
+    assert_eq!(identity[0].provider, provider);
     assert_eq!(identity[0].record_provider, "stored-provider-value");
     assert_eq!(identity[0].session_id, "session-a");
     assert_eq!(identity[0].parent_tab_id.as_deref(), Some("missing-parent"));

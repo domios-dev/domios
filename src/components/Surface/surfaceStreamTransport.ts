@@ -6,7 +6,7 @@ export interface StreamFrame {
   metadata: FrameMetadata;
 }
 
-export const NOTICE_KIND = { previewPaused: "preview_paused" } as const;
+export const NOTICE_KIND = { previewPaused: "preview_paused", unavailable: "unavailable" } as const;
 
 export type SurfaceNoticeKind = import("../../../gen/SurfaceNoticeKind").SurfaceNoticeKind;
 

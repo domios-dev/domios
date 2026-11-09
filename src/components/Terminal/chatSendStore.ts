@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useSyncExternalStore } from "react";
 import type { ChatSend, NormalizedChatMessage, SendEcho } from "@codeterm/chat-core";
-import { applyDeliveryStatus, canRetryChatSend, canDeleteChatSend, deliveryState, reconcileDeliveryStatusesModel, reconcileAdmissionEvidence, unownedHeldSends, type AdmissionEvidence, type DeliveryDraft, type DeliverySend } from "./chatDeliveryModel";
+import { applyDeliveryStatus, canRetryChatSend, canDeleteChatSend, canDismissSettledChatSend, chatSendFailureReason, deliveryState, reconcileDeliveryStatusesModel, reconcileAdmissionEvidence, unownedHeldSends, type AdmissionEvidence, type DeliveryDraft, type DeliverySend } from "./chatDeliveryModel";
 import type { ChatSendStatus } from "./chatSendStatus";
 import { uid } from "../../lib/uid";
 import {
@@ -421,13 +421,9 @@ export function removeChatSend(tabId: string, id: string): void {
   if (next.length !== current.length) publish(tabId, next);
 }
 
-export function observeDeliveryStatus(status: ChatSendStatus): void {
-  if (status.system_send && status.correlationId) {
-    addChatSend(status.tab_id, {
-      id: status.send_id, correlationId: status.correlationId,
-      content: status.system_send.content, sentAtMs: status.system_send.sent_at_ms,
-    });
-  }
+export function observeDeliveryStatus(status: ChatSendStatus): void | Promise<void> {
+  if (status.system_send && status.correlationId && !readChatSends(status.tab_id)
+    .some(send => send.id === status.send_id || send.correlationId === status.correlationId)) return restoreSystemChatSend(status);
   const current = readChatSends(status.tab_id);
   const next = current.map((send) => applyDeliveryStatus(send, status));
   if (next.some((send, index) => send !== current[index])) publish(status.tab_id, next);
@@ -435,10 +431,28 @@ export function observeDeliveryStatus(status: ChatSendStatus): void {
   notifyIfLoadedSnapshotChanged(status.tab_id);
 }
 
-export function failChatSendRequest(tabId: string, id: string): void {
+async function restoreSystemChatSend(status: ChatSendStatus): Promise<void> {
+  const sourceRepository = activeRepository;
+  await ensureTabHydrated(status.tab_id);
+  const marker = await sourceRepository.readDismissal(status.tab_id, status.send_id);
+  if (sourceRepository !== activeRepository) return;
+  if (marker) {
+    if (rememberDismissalMarker(status.tab_id, marker)) notify(status.tab_id);
+    return;
+  }
+  if (!readChatSends(status.tab_id).some(send => send.id === status.send_id || send.correlationId === status.correlationId)) {
+    addChatSend(status.tab_id, {
+      id: status.send_id, correlationId: status.correlationId,
+      content: status.system_send!.content, sentAtMs: status.system_send!.sent_at_ms,
+    });
+  }
+  await observeDeliveryStatus(status);
+}
+
+export function failChatSendRequest(tabId: string, id: string, reason?: unknown): void {
   const current = readChatSends(tabId);
   const next = current.map((send) => (send.id === id || send.correlationId === id) && deliveryState(send) !== "delivered"
-    ? { ...send, requestFailed: true } : send);
+    ? { ...send, requestFailed: true, requestError: chatSendFailureReason(reason ?? send.requestError) } : send);
   if (next.some((send, index) => send !== current[index])) publish(tabId, next);
 }
 
@@ -449,13 +463,14 @@ export function reconcileChatSendAdmission(tabId: string, correlationId: string,
   if (next.some((send, index) => send !== current[index])) publish(tabId, next);
 }
 
-export function recordChatSendAdmissionFailure(tabId: string, correlationId: string, hadResponse: boolean): void {
+export function recordChatSendAdmissionFailure(tabId: string, correlationId: string, hadResponse: boolean, reason?: unknown): void {
   const current = readChatSends(tabId);
   const next = current.map((send) => {
     if (send.correlationId !== correlationId) return send;
-    const withResponse = send.requestHadResponse === hadResponse
+    const requestError = chatSendFailureReason(reason);
+    const withResponse = send.requestHadResponse === hadResponse && send.requestError === requestError
       ? send
-      : { ...send, requestHadResponse: hadResponse };
+      : { ...send, requestHadResponse: hadResponse, requestError };
     return reconcileAdmissionEvidence(withResponse, "unknown");
   });
   if (next.some((send, index) => send !== current[index])) publish(tabId, next);
@@ -478,7 +493,7 @@ export function beginChatSendRetry(tabId: string, id: string): DeliverySend | un
   const current = readChatSends(tabId);
   const send = current.find((item) => item.id === id);
   if (!send || deleting.has(deletionKey(tabId, id)) || !canRetryChatSend(send)) return;
-  const next = { ...send, requestFailed: false, requestUncertain: false, requestHadResponse: undefined, admissionSettled: undefined, status: undefined,
+  const next = { ...send, requestFailed: false, requestError: undefined, requestUncertain: false, requestHadResponse: undefined, admissionSettled: undefined, status: undefined,
     matchedRow: undefined, correlationId: uid() };
   publish(tabId, current.map((item) => item.id === id ? next : item));
   return next;
@@ -631,6 +646,14 @@ export function beginChatSendDeletion(tabId: string, id: string): DeliverySend |
   if (!send || !canDeleteChatSend(send) || deleting.has(key)) return;
   deleting.add(key);
   return send;
+}
+
+export async function persistLocalChatSendDismissal(tabId: string, send: DeliverySend): Promise<void> {
+  if (!canDismissSettledChatSend(send)) return;
+  const dismissed = { ...send, dismissed: true };
+  await activeRepository.persistDismissal(tabId, dismissed);
+  if (activeRepository.state() !== "ready") throw new Error("Message could not be removed. Try again.");
+  observeChatSendDismissal(tabId, { send_id: send.status?.send_id ?? send.id, send: dismissed });
 }
 
 export function endChatSendDeletion(tabId: string, id: string): void {

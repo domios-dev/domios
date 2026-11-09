@@ -40,6 +40,7 @@ interface DurableSend {
   dismissed?: boolean;
   status?: DurableStatus;
   requestFailed?: boolean;
+  requestError?: string;
   requestUncertain?: boolean;
   requestHadResponse?: boolean;
   admissionSettled?: boolean;
@@ -114,6 +115,7 @@ export function encodeChatSend(tabId: string, send: DeliverySend, revision = 0, 
     ...(send.dismissed !== undefined ? { dismissed: send.dismissed } : {}),
     ...(status !== undefined ? { status } : {}),
     ...(send.requestFailed !== undefined ? { requestFailed: send.requestFailed } : {}),
+    ...(send.requestError !== undefined ? { requestError: send.requestError } : {}),
     ...(send.requestUncertain !== undefined ? { requestUncertain: send.requestUncertain } : {}),
     ...(send.requestHadResponse !== undefined ? { requestHadResponse: send.requestHadResponse } : {}),
     ...(send.admissionSettled !== undefined ? { admissionSettled: send.admissionSettled } : {}),
@@ -285,6 +287,7 @@ export function decodeChatSend(record: ChatSendDurableRecord): DeliverySend | nu
       ...(value.dismissed !== undefined ? { dismissed: value.dismissed } : {}),
       ...(status !== undefined ? { status } : {}),
       ...(value.requestFailed !== undefined ? { requestFailed: value.requestFailed } : {}),
+      ...(value.requestError !== undefined ? { requestError: value.requestError } : {}),
       ...(value.requestUncertain !== undefined ? { requestUncertain: value.requestUncertain } : {}),
       ...(value.requestHadResponse !== undefined ? { requestHadResponse: value.requestHadResponse } : {}),
       ...(value.admissionSettled !== undefined ? { admissionSettled: value.admissionSettled } : {}),
@@ -321,18 +324,19 @@ export function mergeChatSendRecord(
       status: next.status,
       matchedRow: next.matchedRow,
       requestFailed: next.requestFailed,
+      requestError: next.requestError,
       requestUncertain: next.requestUncertain,
       requestHadResponse: next.requestHadResponse,
       admissionSettled: next.admissionSettled,
     };
   }
   const patch = <K extends keyof DeliverySend>(key: K) => {
-    if (retry && ["correlationId", "status", "matchedRow", "requestFailed", "requestUncertain", "requestHadResponse", "admissionSettled"].includes(key)) return;
+    if (retry && ["correlationId", "status", "matchedRow", "requestFailed", "requestError", "requestUncertain", "requestHadResponse", "admissionSettled"].includes(key)) return;
     if (previous && sameValue(previous[key], next[key])) return;
     if (previous && !sameValue(current[key], previous[key])) return;
     (merged as DeliverySend)[key] = next[key] as DeliverySend[K];
   };
-  for (const key of ["content", "sentAtMs", "echoBoundary", "localAttempt", "droppedUploads", "requestFailed", "requestUncertain", "requestHadResponse", "admissionSettled", "wasHeld", "draft"] as const) patch(key);
+  for (const key of ["content", "sentAtMs", "echoBoundary", "localAttempt", "droppedUploads", "requestFailed", "requestError", "requestUncertain", "requestHadResponse", "admissionSettled", "wasHeld", "draft"] as const) patch(key);
   if (!retry) patch("correlationId");
   if (!retry) patch("matchedRow");
   if (current.echo == null && next.echo != null && deliveryState(current) !== "failed"

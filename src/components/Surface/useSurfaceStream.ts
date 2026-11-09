@@ -6,13 +6,14 @@ import { createFrameFeed, type FrameFeed } from "./frameFeed";
 import { type StreamViewport } from "./streamModel";
 import { streamLifecycleAction } from "./streamLifecycle";
 import type { SurfaceState } from "./surfaceChromeModel";
-import { isPreviewPaused, resizeArgs, SURFACE_METHOD, type Disconnect, type StreamFrame, type SurfaceNotice, type SurfaceStreamTransport } from "./surfaceStreamTransport";
+import { isPreviewPaused, NOTICE_KIND, resizeArgs, SURFACE_METHOD, type Disconnect, type StreamFrame, type SurfaceNotice, type SurfaceStreamTransport } from "./surfaceStreamTransport";
 
 export interface SurfaceStream {
   state: SurfaceState;
   notice: SurfaceNotice | null;
   /** Set by a preview_paused notice and cleared by the next frame. */
   paused: SurfaceNotice | null;
+  unavailable: SurfaceNotice | null;
   frames: FrameFeed;
   setNotice(notice: SurfaceNotice | null): void;
   onViewport(viewport: StreamViewport): void;
@@ -30,6 +31,8 @@ export function useSurfaceStream(transport: SurfaceStreamTransport, initialState
   const [state, setState] = useState<SurfaceState>(initialState);
   const [notice, setNotice] = useState<SurfaceNotice | null>(null);
   const [paused, setPaused] = useState<SurfaceNotice | null>(null);
+  const [unavailable, setUnavailable] = useState<SurfaceNotice | null>(null);
+  const unavailableRef = useRef(false);
   const pausedRef = useRef(false);
   const connection = useRef<Connection>({ disconnect: null, sent: null, latest: null });
   const [viewer] = useState(() => crypto.randomUUID());
@@ -57,6 +60,10 @@ export function useSurfaceStream(transport: SurfaceStreamTransport, initialState
     current.disconnect = transport.connect(viewport, {
       frame: (frame: StreamFrame) => {
         feed.publish(frame);
+        if (unavailableRef.current) {
+          unavailableRef.current = false;
+          setUnavailable(null);
+        }
         if (pausedRef.current) {
           pausedRef.current = false;
           setPaused(null);
@@ -64,6 +71,10 @@ export function useSurfaceStream(transport: SurfaceStreamTransport, initialState
       },
       state: setState,
       notice: (next: SurfaceNotice) => {
+        if (next.kind === NOTICE_KIND.unavailable) {
+          unavailableRef.current = true;
+          setUnavailable(next);
+        }
         if (!isPreviewPaused(next)) {
           setNotice(next);
           return;
@@ -135,5 +146,5 @@ export function useSurfaceStream(transport: SurfaceStreamTransport, initialState
       .catch((error: unknown) => publishNotice({ kind: "debug", severity: "Warning", title: "Surface viewport claim failed", detail: String(error) }));
   }, [transport, viewer, visible]);
 
-  return { state, notice, paused, frames: feed, setNotice, onViewport, onHidden, onInteraction };
+  return { state, notice, paused, unavailable, frames: feed, setNotice, onViewport, onHidden, onInteraction };
 }

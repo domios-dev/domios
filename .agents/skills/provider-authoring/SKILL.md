@@ -15,6 +15,12 @@ never edit generated bundles or downgrade a newer installed channel release.
 Legacy synchronous APIs remain explicitly non-cancellable for external plugins
 in 1.19; their separate migration precedes removal.
 
+`agentRuntime.localImagePaths: true` lets a native runtime read host image paths.
+The host checks complete files within the chat attachment byte budget without
+base64-inlining them into runtime claims and hook arguments. Omission keeps
+inline bytes for protocols that require them. Declare this only when the runtime
+shares the host filesystem; native/JS capability declarations must agree.
+
 
 `spawn.launchPermissions.scopedFilesystem` declares session-local tool preapproval:
 `noPromptArgs`, `readAllRules`, `readRootRule`, `writeRootRule`, and

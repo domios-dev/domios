@@ -157,6 +157,8 @@ pub struct RuntimeProfileDetection {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AgentRuntimeCapability {
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub local_image_paths: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub host_mcp: Option<super::RuntimeHostMcpDeclaration>,

@@ -1,5 +1,6 @@
 {
   "agentRuntime": {
+    "localImagePaths": true,
     "restrictedCli": {
       "kind": "execpolicy-service-operations",
       "metadataDirectory": ".codex"
