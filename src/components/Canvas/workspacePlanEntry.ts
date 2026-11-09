@@ -1,8 +1,9 @@
+import type { PlanView as Plan } from "./planProjection";
 import type { Tab, Workspace } from "../../lib/types";
 import type { PlanIndexEntry } from "./plansApi";
 import { assignedTaskIdsForTab } from "./planOpenFocus";
 import { canvasFocusStore, type CanvasWorkspaceTarget } from "./canvasFocusStore";
-import type { Plan } from "./types";
+
 
 export function workspaceTabIds(workspace: Workspace, tabs: Record<string, Tab>): Set<string> {
   return new Set(workspace.tabs.filter((tabId) => tabs[tabId]?.hidden !== true));

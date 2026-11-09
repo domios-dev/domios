@@ -5,7 +5,7 @@ use serde_json::Value;
 
 use crate::multiplexer::commands::MuxState;
 use crate::notification::NotifState;
-use crate::plan::{PlanMode, Task, TaskExecutionAttempt, TaskLaneMetadata};
+use crate::plan::{TaskExecutionAttempt, TaskLaneMetadata};
 use crate::service::{LaneProtection, ProvisionedWorkerLane, ServiceState, WorkerLaneProvenance};
 use crate::{OutputBufferState, PtyState};
 
@@ -26,8 +26,7 @@ pub struct DispatchStartup {
     pub attempt_id: String,
     pub parent_tab_id: String,
     pub worker_title: String,
-    pub original_task: Task,
-    pub original_plan_mode: PlanMode,
+    pub rollback: crate::service::plan::DispatchUndo,
     pub lane_for_commit: TaskLaneMetadata,
     pub canonical_project_path: String,
     pub provenance: Option<WorkerLaneProvenance>,

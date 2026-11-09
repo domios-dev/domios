@@ -133,7 +133,7 @@ async fn slow_status_returns_cached_value_and_releases_vm_until_completion() {
     );
     let (last, worker) = provider.request(json!({ "cwd": "repo", "refresh": true }));
     assert_eq!(last.unwrap().label, "last known");
-    tokio::task::spawn_blocking(move || {
+    crate::js_runtime::vm::spawn_blocking(move || {
         assert!(call_gate::wait_opened(entered, Duration::from_secs(30)));
     })
     .await
@@ -144,7 +144,7 @@ async fn slow_status_returns_cached_value_and_releases_vm_until_completion() {
         .unwrap()
         .unwrap();
     assert_eq!(last.label, "last known");
-    let fast = tokio::task::spawn_blocking(move || call_json::<u32>(&vm, "fast", &[]));
+    let fast = crate::js_runtime::vm::spawn_blocking(move || call_json::<u32>(&vm, "fast", &[]));
     assert_eq!(
         tokio::time::timeout(Duration::from_secs(30), fast)
             .await

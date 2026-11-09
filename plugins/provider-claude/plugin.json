@@ -1,7 +1,7 @@
 {
   "id": "claude",
-  "version": "1.14.27",
-  "minCodeterm": "1.18.5",
+  "version": "1.14.28",
+  "minCodeterm": "1.19.0",
   "hostApi": 2,
   "generalAgentOfferWhenAbsent": true,
   "displayName": "Claude Code",
@@ -447,5 +447,6 @@
         }
       ]
     }
-  }
+  },
+  "hostIoJobs": true
 }

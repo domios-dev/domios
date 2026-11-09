@@ -39,6 +39,7 @@ pub(crate) const fn error_kind(error: Error) -> &'static str {
         Error::Provider => "provider",
         Error::Credentials => "credentials",
         Error::Browser => "browser",
+        Error::TargetMismatch => "target_mismatch",
     }
 }
 

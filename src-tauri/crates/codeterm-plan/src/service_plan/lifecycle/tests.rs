@@ -29,7 +29,7 @@ fn store_with_task() -> (tempfile::TempDir, PlanStore, String, String) {
 fn resume_non_paused_plan_preserves_paused_from_mode() {
     let (_dir, store, plan_id, _task_id) = store_with_task();
     store
-        .with_plan(&plan_id, 3, |plan| {
+        .edit_plan_fixture(&plan_id, 3, |plan| {
             plan.team_id = Some("team-1".into());
             plan.mode = PlanMode::Approved;
             plan.paused_from_mode = Some(PlanMode::Planning);

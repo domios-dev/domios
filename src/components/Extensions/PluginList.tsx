@@ -1,4 +1,3 @@
-import { UpdateChannelNotice } from "../shared/UpdateChannelNotice";
 import { ComponentStatus } from "../shared/ComponentStatus";
 // plugin rows (installed + marketplace) with status/update/installed badges.
 import { useOptionalUpdatePanel } from "../../hooks/useUpdatePanel";
@@ -60,7 +59,6 @@ export function PluginList({
   channelPluginCounts: Map<string, number>;
   onSelectChannel: (name: string) => void;
 }) {
-  const updatePanel = useOptionalUpdatePanel();
   const sections = groupBySource(entries);
   const channelRows = filterChannels(channels, query);
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
@@ -90,7 +88,8 @@ export function PluginList({
           marginBottom: 10,
         }}
       />
-      <div style={{ display: "flex", gap: 4, marginBottom: 12, flexWrap: "nowrap", overflowX: "auto" }}>
+      {/* The tabs wrap rather than scroll: a narrow list pane hides an overlay scrollbar and clipped the last tab. */}
+      <div role="group" aria-label="Plugin filters" style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 12 }}>
         {FILTERS.map((f) => {
           const active = filter === f.key;
           const badge = f.key === "updates" && updateCount > 0 ? ` ${updateCount}` : "";
@@ -107,7 +106,8 @@ export function PluginList({
                 cursor: "pointer",
                 border: "1px solid transparent",
                 background: active ? "var(--ct-accent, #6366f1)" : "transparent",
-                color: active ? "#fff" : "var(--ct-muted)",
+                color: active ? "#fff" : "var(--ct-muted-fg)",
+                whiteSpace: "nowrap",
               }}
             >
               {f.label}
@@ -192,7 +192,6 @@ export function PluginList({
                     />
                   )}
                 </div>
-                {section.channel && updatePanel?.diagnostics.filter(item => item.channel === section.channel).map(item => <div key={item.channel} className="px-2 py-1"><UpdateChannelNotice channel={item.channel} message={item.message} /></div>)}
                 {!collapsed.has(section.key) && (
                   <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                     {section.entries.map((e) => (
@@ -348,12 +347,12 @@ function PluginRow({
   const updates = useOptionalUpdatePanel();
   const updateAvailable = updates ? updates.pluginHasUpdate(entry.id) : entry.updateAvailable;
   const loadFailure = entry.loadError && !entry.loadError.keptPrevious ? entry.loadError : null;
-  const channelFailed = entry.channel !== CORE_CHANNEL && Boolean(entry.channel && updates?.snapshot.errors[entry.channel]);
   const running = activity?.status === "running";
-  const state = running ? "active" : loadFailure || channelFailed ? "failed" : updateAvailable ? "available" : entry.installed ? "installed" : "marketplace";
-  const label = running ? activity.label : loadFailure ? `${entry.displayName} failed to load; select for details` : channelFailed ? `${entry.displayName} update check failed` : updateAvailable ? "Update available" : entry.installed ? `${entry.displayName} installed` : `${entry.displayName} available to install`;
+  const state = running ? "active" : loadFailure ? "failed" : updateAvailable ? "available" : entry.installed ? "installed" : "marketplace";
+  const label = running ? activity.label : loadFailure ? `${entry.displayName} failed to load; select for details` : updateAvailable ? "Update available" : entry.installed ? `${entry.displayName} installed` : `${entry.displayName} available to install`;
   const description = entry.pitch || entry.description || catalogKindLabel(entry);
-  const versionLabel = entry.version && entry.remoteVersion && entry.version !== entry.remoteVersion
+  // The arrow means the channel has a newer build; a build newer than its channel shows only what is installed.
+  const versionLabel = (entry.updateAvailable || updateAvailable) && entry.version && entry.remoteVersion && entry.version !== entry.remoteVersion
     ? `${entry.version} → ${entry.remoteVersion}` : entry.version ?? entry.remoteVersion ?? "";
   return (
     <div>

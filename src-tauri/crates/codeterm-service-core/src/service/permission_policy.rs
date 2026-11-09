@@ -25,6 +25,9 @@ pub(crate) fn authorize_permission_bypass(
         && registry
             .with_provider(provider_id, |provider| {
                 !provider.auto_approve_flags().is_empty()
+                    || provider
+                        .agent_runtime()
+                        .is_some_and(|runtime| runtime.host_approvals)
             })
             .unwrap_or(false))
     .then(|| PermissionBypassAuthorization {
@@ -32,46 +35,43 @@ pub(crate) fn authorize_permission_bypass(
     })
 }
 
-pub(crate) fn configured_full_access_for(svc: &super::ServiceContext) -> Result<bool, String> {
-    let choice = svc
-        .try_ext::<crate::config::ConfigState>()
-        .map(|config| config.lock().agent.full_access)
-        .ok_or_else(|| "Agent configuration state is unavailable".to_string())?;
-    require_full_access_choice(choice)
-}
-
-pub(crate) fn require_full_access_choice(choice: Option<bool>) -> Result<bool, String> {
-    choice.ok_or_else(|| {
-        "Choose agent access before starting the first agent Tab: Settings > Agents > Full access for agents"
-            .to_string()
-    })
-}
-
 pub fn configured_permission_bypass_for(
-    svc: &super::ServiceContext,
+    _svc: &super::ServiceContext,
     registry: &AgentRegistry,
     provider_id: &str,
 ) -> Result<Option<PermissionBypassAuthorization>, String> {
-    Ok(authorize_permission_bypass(
-        registry,
-        provider_id,
-        configured_full_access_for(svc)?,
-    ))
+    Ok(authorize_permission_bypass(registry, provider_id, true))
+}
+
+pub(crate) fn permission_bypass_for_tab(
+    svc: &super::ServiceContext,
+    provider: &str,
+    tab_id: &str,
+) -> Result<Option<PermissionBypassAuthorization>, String> {
+    let launch = svc
+        .mux
+        .read()
+        .get_tab(tab_id)
+        .ok_or("Agent tab unavailable")?
+        .restorable_launch
+        .clone();
+    super::restored_launch::restore_permission_bypass_authorization(
+        svc,
+        &svc.agent_registry,
+        tab_id,
+        provider,
+        &launch,
+    )
 }
 
 pub(crate) fn spawn_permission_bypass_for(
-    svc: &super::ServiceContext,
+    _svc: &super::ServiceContext,
     registry: &AgentRegistry,
     provider: &str,
-    worker: bool,
+    _worker: bool,
     confined: bool,
 ) -> Result<Option<PermissionBypassAuthorization>, String> {
-    let requested = if worker {
-        !confined
-    } else {
-        configured_full_access_for(svc)? && !confined
-    };
-    Ok(authorize_permission_bypass(registry, provider, requested))
+    Ok(authorize_permission_bypass(registry, provider, !confined))
 }
 
 pub(crate) fn spawn_permission_bypass_for_params(
@@ -109,76 +109,4 @@ pub(crate) fn spawn_permission_bypass_for_launch(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn registry_with_capable_provider() -> AgentRegistry {
-        let registry = AgentRegistry::new();
-        registry.register_provider(Box::new(crate::plugin::agent_claude::ClaudeProvider::new()));
-        registry
-    }
-
-    #[test]
-    fn permission_bypass_requires_request_and_provider_capability() {
-        let registry = registry_with_capable_provider();
-        assert!(authorize_permission_bypass(&registry, "claude", true).is_some());
-        assert!(authorize_permission_bypass(&registry, "claude", false).is_none());
-        assert!(authorize_permission_bypass(&registry, "missing-provider", true).is_none());
-    }
-
-    #[test]
-    fn authorization_is_provider_bound() {
-        let registry = registry_with_capable_provider();
-        let authorization = authorize_permission_bypass(&registry, "claude", true)
-            .expect("capable provider is authorized");
-        assert!(authorization.authorizes("claude"));
-        assert!(!authorization.authorizes("different-provider"));
-    }
-
-    #[test]
-    fn first_agent_requires_one_global_access_choice() {
-        assert!(require_full_access_choice(None).is_err());
-        assert!(require_full_access_choice(Some(true)).unwrap());
-        assert!(!require_full_access_choice(Some(false)).unwrap());
-    }
-
-    #[test]
-    fn configured_access_uses_injected_choices_and_refuses_unset() {
-        let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
-        let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
-        assert!(!configured_full_access_for(&fixture.service).unwrap());
-        fixture.set_agent_full_access(true);
-        assert!(configured_full_access_for(&fixture.service).unwrap());
-        fixture
-            .service
-            .ext::<crate::config::ConfigState>()
-            .lock()
-            .agent
-            .full_access = None;
-        assert!(configured_full_access_for(&fixture.service).is_err());
-    }
-
-    #[test]
-    fn worker_launch_defaults_to_full_access_and_explicit_sandbox_lowers_it() {
-        let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
-        let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
-        fixture.set_agent_full_access(false);
-        let registry = registry_with_capable_provider();
-        let provider = registry.provider_ids().pop().unwrap();
-        assert!(
-            spawn_permission_bypass_for(&fixture.service, &registry, &provider, true, false)
-                .unwrap()
-                .is_some()
-        );
-        assert!(
-            spawn_permission_bypass_for(&fixture.service, &registry, &provider, true, true)
-                .unwrap()
-                .is_none()
-        );
-        assert!(
-            spawn_permission_bypass_for(&fixture.service, &registry, &provider, false, false)
-                .unwrap()
-                .is_none()
-        );
-    }
-}
+mod tests;

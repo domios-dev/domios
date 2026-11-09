@@ -1,3 +1,4 @@
+import type { PlanView as Plan } from "../Canvas/planProjection";
 import { tabActivity } from "../../lib/tabActivity";
 import { useMemo, type ReactNode } from "react";
 import { MonitorUp, Plus } from "lucide-react";
@@ -10,7 +11,6 @@ import type {
 } from "../../lib/types";
 import { selectTeamStaffingManager, type TeamMemberRole } from "../../lib/teamActions";
 import type { PlanIndexEntry } from "../Canvas/plansApi";
-import type { Plan } from "../Canvas/types";
 import { resolveTabTabActivity } from "../Canvas/tabTabActivity";
 import { openTeamPlanCanvas } from "../Canvas/workspacePlanEntry";
 import { SortableContext, SortableRow, verticalListSortingStrategy, TAB_PREFIX, TEAM_PREFIX } from "./sortable";
@@ -103,7 +103,7 @@ export interface SidebarWorkspaceTabsProps {
   providers: ProviderDescriptor[];
   providersLoading?: boolean;
   closingTabIds: Set<string>;
-  appearingTabIds: Set<string>;
+  appearingTabIds: ReadonlySet<string>;
   isActiveVisual: boolean;
   workspaceCanvasActive: boolean;
   touchMode: boolean;

@@ -1,12 +1,10 @@
-use crate::plan::ids::mint_id;
+use super::store_db::hot_write::TaskHistory;
+use super::{task_attempts, PlanError, PlanStore, ReconcileFixResult};
 use crate::plan::reconcile::{
     DriftItem, DriftKind, LaneDemotion, NEEDS_REASSIGN_LABEL, STALE_REVIEW_LABEL,
     STALE_UNSTAFFED_LABEL, TAB_GONE_LABEL,
 };
 use crate::plan::{AgentRef, Milestone, TaskStatus};
-
-use super::mutations::plan_contains_id;
-use super::{task_attempts, PlanError, PlanStore, ReconcileFixResult};
 
 impl PlanStore {
     pub fn apply_reconcile_fixes(
@@ -15,26 +13,30 @@ impl PlanStore {
         items: &[DriftItem],
         now_ms: u64,
     ) -> Result<Vec<ReconcileFixResult>, PlanError> {
-        self.with_plan(plan_id, now_ms, |plan| {
-            let mut changed = Vec::new();
-            for item in items.iter().filter(|item| !item.not_mine) {
-                let Some(task_index) = plan.tasks.iter().position(|task| task.id == item.task_id)
-                else {
-                    continue;
-                };
-                if matches!(item.kind, DriftKind::AcceptedButNotDone) {
-                    let task_id = plan.tasks[task_index].id.clone();
-                    let was_in_review = plan.tasks[task_index].status == TaskStatus::InReview;
-                    super::mutations::finalize_task_done(plan, task_index, now_ms)?;
-                    if was_in_review {
-                        super::review_gate::earn_review_credit(&mut plan.review_policy);
+        let items: Vec<_> = items.iter().filter(|item| !item.not_mine).collect();
+        let ids: Vec<_> = items.iter().map(|item| item.task_id.clone()).collect();
+        self.with_task_rows_batch(
+            plan_id,
+            &ids,
+            TaskHistory::LiveAndReported,
+            now_ms,
+            |index, edit| {
+                let item = items[index];
+                let task = &mut edit.task;
+                let action = match item.kind {
+                    DriftKind::AcceptedButNotDone => {
+                        edit.terminal_check = true;
+                        edit.close_all_live = true;
+                        edit.review_credit = i64::from(task.status == TaskStatus::InReview);
+                        if task.status != TaskStatus::Done {
+                            task.status_changed_at = now_ms;
+                        }
+                        task.status = TaskStatus::Done;
+                        super::qa::normalize_task_review_fields(task);
+                        super::mutations::clear_task_assignment(task);
+                        "set_done"
                     }
-                    changed.push(fix_result(plan_id, item, &task_id, "set_done"));
-                    continue;
-                }
-                let task = &mut plan.tasks[task_index];
-                match item.kind {
-                    DriftKind::InProgressTabGone => {
+                    DriftKind::InProgressTabGone | DriftKind::BoundToClosedTab => {
                         let assigned = task.assigned_tab_id.clone();
                         task_attempts::mark_task_assignment_closed(
                             task,
@@ -43,83 +45,48 @@ impl PlanStore {
                         );
                         task.assigned_tab_id = None;
                         task.lane.tab_id = None;
-                        task.status_label = Some(NEEDS_REASSIGN_LABEL.into());
-                        task.updated_at = now_ms;
-                        changed.push(fix_result(
-                            plan_id,
-                            item,
-                            &task.id,
-                            "cleared_assignment_set_needs_reassign",
-                        ));
+                        if item.kind == DriftKind::InProgressTabGone {
+                            task.status_label = Some(NEEDS_REASSIGN_LABEL.into());
+                            "cleared_assignment_set_needs_reassign"
+                        } else {
+                            "cleared_dead_assignment"
+                        }
                     }
                     DriftKind::StaleInReview => {
                         task.status_label = Some(STALE_REVIEW_LABEL.into());
-                        task.updated_at = now_ms;
-                        changed.push(fix_result(
-                            plan_id,
-                            item,
-                            &task.id,
-                            "set_stale_review_label",
-                        ));
+                        "set_stale_review_label"
                     }
-                    DriftKind::ReportTargetWriteMissing => {}
                     DriftKind::StalePendingUnstaffed => {
                         task.status_label = Some(STALE_UNSTAFFED_LABEL.into());
-                        task.updated_at = now_ms;
-                        changed.push(fix_result(
-                            plan_id,
-                            item,
-                            &task.id,
-                            "set_stale_unstaffed_label",
-                        ));
+                        "set_stale_unstaffed_label"
                     }
-                    DriftKind::BoundToClosedTab => {
-                        let assigned = task.assigned_tab_id.clone();
-                        task_attempts::mark_task_assignment_closed(
-                            task,
-                            assigned.as_deref(),
-                            now_ms,
-                        );
-                        task.assigned_tab_id = None;
-                        task.lane.tab_id = None;
-                        task.updated_at = now_ms;
-                        changed.push(fix_result(
-                            plan_id,
-                            item,
-                            &task.id,
-                            "cleared_dead_assignment",
-                        ));
-                    }
-                    DriftKind::AcceptedButNotDone => unreachable!(),
-                }
-            }
-            Ok(changed)
-        })
+                    DriftKind::ReportTargetWriteMissing => return Ok(None),
+                };
+                task.updated_at = now_ms;
+                Ok(Some(fix_result(plan_id, item, &task.id, action)))
+            },
+        )
     }
 
-    /// Apply watchdog demotions: an in_progress lane whose tab is gone past the
-    /// grace window is unassigned, marked needs-reassign, and given ONE stride.
-    /// Idempotent — a lane already off in_progress is skipped, so re-running the
-    /// tick never duplicates the stride or silently drifts the status to pending.
     pub fn apply_lane_demotions(
         &self,
         plan_id: &str,
         demotions: &[LaneDemotion],
         now_ms: u64,
     ) -> Result<Vec<ReconcileFixResult>, PlanError> {
-        self.with_plan(plan_id, now_ms, |plan| {
-            let mut changed = Vec::new();
-            for demotion in demotions {
-                let mid = mint_id("ms", |candidate| plan_contains_id(plan, candidate));
-                let Some(task) = plan
-                    .tasks
-                    .iter_mut()
-                    .find(|task| task.id == demotion.task_id)
-                else {
-                    continue;
-                };
+        let ids: Vec<_> = demotions
+            .iter()
+            .map(|demotion| demotion.task_id.clone())
+            .collect();
+        self.with_task_rows_batch(
+            plan_id,
+            &ids,
+            TaskHistory::LiveAndReported,
+            now_ms,
+            |index, edit| {
+                let task = &mut edit.task;
                 if task.status != TaskStatus::InProgress {
-                    continue;
+                    return Ok(None);
                 }
                 let assigned = task.assigned_tab_id.clone();
                 task_attempts::mark_task_assignment_closed(task, assigned.as_deref(), now_ms);
@@ -128,10 +95,10 @@ impl PlanStore {
                 task.status_label = Some(NEEDS_REASSIGN_LABEL.into());
                 task.updated_at = now_ms;
                 task.milestones.push(Milestone {
-                    id: mid,
+                    id: crate::plan::ids::short_id("ms"),
                     from: AgentRef::from_tab("watchdog"),
                     kind: "decision".into(),
-                    text: demotion.reason.clone(),
+                    text: demotions[index].reason.clone(),
                     ts: now_ms,
                     links: vec![],
                     loop_id: None,
@@ -139,15 +106,14 @@ impl PlanStore {
                     canvas: Default::default(),
                     attachments: vec![],
                 });
-                changed.push(fix_result_action(
+                Ok(Some(fix_result_action(
                     plan_id,
                     &task.id,
                     DriftKind::InProgressTabGone,
                     "cleared_assignment_set_needs_reassign",
-                ));
-            }
-            Ok(changed)
-        })
+                )))
+            },
+        )
     }
 
     pub fn flag_tab_gone(
@@ -157,12 +123,11 @@ impl PlanStore {
         tab_id: &str,
         now_ms: u64,
     ) -> Result<bool, PlanError> {
-        self.with_plan(plan_id, now_ms, |plan| {
-            let Some(task) = plan.tasks.iter_mut().find(|task| task.id == task_id) else {
+        self.with_task_rows(plan_id, task_id, TaskHistory::Attempts, now_ms, |edit| {
+            let task = &mut edit.task;
+            if task.id != task_id {
                 return Ok(false);
-            };
-            // Retire before closing: retirement fences the late commit, closing
-            // alone does not, and both land in this one write.
+            }
             let retired = super::task_recovery::retire_attempts_for_tab(task, tab_id, now_ms);
             let closed = task_attempts::mark_task_assignment_closed(task, Some(tab_id), now_ms) > 0
                 || !retired.is_empty();
@@ -175,6 +140,10 @@ impl PlanStore {
             }
             Ok(closed)
         })
+        .or_else(|error| match error {
+            PlanError::TaskNotFound => Ok(false),
+            error => Err(error),
+        })
     }
 
     pub fn close_gone_task_attempts(
@@ -183,27 +152,29 @@ impl PlanStore {
         gone: &[(String, String)],
         now_ms: u64,
     ) -> Result<Vec<ReconcileFixResult>, PlanError> {
-        self.with_plan(plan_id, now_ms, |plan| {
-            let mut changed = Vec::new();
-            for (task_id, tab_id) in gone {
-                let Some(task) = plan.tasks.iter_mut().find(|task| task.id == *task_id) else {
-                    continue;
-                };
+        let ids: Vec<_> = gone.iter().map(|(id, _)| id.clone()).collect();
+        self.with_task_rows_batch(
+            plan_id,
+            &ids,
+            TaskHistory::Attempts,
+            now_ms,
+            |index, edit| {
+                let task = &mut edit.task;
+                let tab_id = &gone[index].1;
                 let retired = super::task_recovery::retire_attempts_for_tab(task, tab_id, now_ms);
                 if task_attempts::mark_task_assignment_closed(task, Some(tab_id), now_ms) == 0
                     && retired.is_empty()
                 {
-                    continue;
+                    return Ok(None);
                 }
-                changed.push(fix_result_action(
+                Ok(Some(fix_result_action(
                     plan_id,
-                    task_id,
+                    &task.id,
                     DriftKind::BoundToClosedTab,
                     "closed_dead_attempt",
-                ));
-            }
-            Ok(changed)
-        })
+                )))
+            },
+        )
     }
 }
 

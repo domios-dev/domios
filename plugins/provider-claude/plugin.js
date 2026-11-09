@@ -24,6 +24,139 @@ __export(plugin_exports, {
 });
 module.exports = __toCommonJS(plugin_exports);
 
+// plugins/provider-claude/src/hookOwnership.ts
+var CODETERM_HOOK_MARKER = "codeterm-hook-v3";
+var CODETERM_HOOK_TIMEOUT_SECONDS = 5;
+var CODETERM_HOOK_MARKER_HEADER = "X-CodeTerm-Hook: codeterm-hook-v3";
+var CODETERM_HOOK_MARKER_ARG = '-H "' + CODETERM_HOOK_MARKER_HEADER + '"';
+var INTEGRATION_HOOK_KEYS = ["PermissionRequest", "Notification", "Stop", "PreCompact", "SessionStart"];
+var CODETERM_CURRENT_ROUTES = [
+  "/api/tabs/$CODETERM_TAB_ID/hook/permission",
+  "/api/tabs/$CODETERM_TAB_ID/hook/stop",
+  "/api/tabs/$CODETERM_TAB_ID/hook/session_start",
+  "$CODETERM_API_URL/api/mem/flush"
+];
+var LEGACY_V2_SESSION_START = "curl -s -X POST http://localhost:${CODETERM_API_PORT:-7685}/api/panes/$CODETERM_PANE_ID/hook/session_start -H 'Content-Type: application/json' -H \"X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}\" -d '{}' > /dev/null 2>&1 || true";
+var LEGACY_V2_STOP = "curl -s -X POST http://localhost:${CODETERM_API_PORT:-7685}/api/panes/$CODETERM_PANE_ID/hook/stop -H 'Content-Type: application/json' -d '{}' > /dev/null 2>&1 || true";
+var LEGACY_V2_COMMANDS = /* @__PURE__ */ new Set([LEGACY_V2_SESSION_START, LEGACY_V2_STOP]);
+function commandCarriesMarker(command) {
+  return command.indexOf(CODETERM_HOOK_MARKER_HEADER) !== -1;
+}
+function entryCarriesMarker(entry) {
+  const hooks = entry && entry.hooks;
+  return Array.isArray(hooks) && hooks.some((hook) => {
+    return typeof hook.command === "string" && commandCarriesMarker(hook.command);
+  });
+}
+function entryIsLegacyPaneCodetermHook(entry) {
+  const hooks = entry && entry.hooks;
+  return Array.isArray(hooks) && hooks.some((hook) => {
+    return typeof hook.command === "string" && LEGACY_V2_COMMANDS.has(hook.command);
+  });
+}
+function isCurrentHookCommand(command, platform) {
+  const executable = platform === "windows" ? "curl.exe " : "curl ";
+  return command.indexOf(executable) === 0 && command.indexOf(" --request POST ") !== -1 && command.indexOf(" --data-binary ") !== -1 && command.indexOf("if [") === -1 && command.indexOf("|| true") === -1;
+}
+function commandIsCurrentUnmarked(command) {
+  if (command.indexOf("$CODETERM_API_URL") === -1) return false;
+  if (command.indexOf("$CODETERM_TAB_ID") === -1) return false;
+  if (command.indexOf("$CODETERM_API_TOKEN") === -1) return false;
+  return CODETERM_CURRENT_ROUTES.some((route) => command.indexOf(route) !== -1);
+}
+function isCodetermHook(entry) {
+  const hooks = entry && entry.hooks;
+  if (!Array.isArray(hooks)) return false;
+  return hooks.some((hook) => {
+    if (!hook) return false;
+    if (typeof hook._source === "string" && (hook._source.indexOf("codeterm-hook") === 0 || hook._source === "codeterm")) {
+      return true;
+    }
+    const command = hook.command;
+    return typeof command === "string" && (commandCarriesMarker(command) || commandIsCurrentUnmarked(command) || LEGACY_V2_COMMANDS.has(command));
+  });
+}
+function entriesCarryMarker(entries) {
+  return entries.every((entry) => {
+    if (!isCodetermHook(entry)) return true;
+    const hooks = entry && entry.hooks || [];
+    return hooks.some((hook) => {
+      return typeof hook.command === "string" && commandCarriesMarker(hook.command);
+    });
+  });
+}
+function entriesHaveBoundedTimeout(entries) {
+  return entries.every((entry) => (entry.hooks || []).every((hook) => {
+    return !isCodetermHook({ hooks: [hook] }) || hook.timeout === CODETERM_HOOK_TIMEOUT_SECONDS;
+  }));
+}
+
+// plugins/provider-claude/src/integrationSettings.ts
+function* readIntegrationSettings(path) {
+  const original = yield* host.io.fs.readFile(path);
+  if (typeof original !== "string") return { ok: false, error: "could not safely read settings JSON at " + path };
+  let parsed;
+  try {
+    parsed = JSON.parse(original);
+  } catch (_) {
+    return { ok: false, error: "existing settings JSON is malformed at " + path };
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return { ok: false, error: "existing settings JSON must contain an object at " + path };
+  }
+  const settings = parsed;
+  if (settings.hooks !== void 0) {
+    if (!settings.hooks || typeof settings.hooks !== "object" || Array.isArray(settings.hooks)) {
+      return { ok: false, error: "hooks is not an object" };
+    }
+    for (const key of INTEGRATION_HOOK_KEYS) {
+      if (settings.hooks[key] !== void 0 && !Array.isArray(settings.hooks[key])) {
+        return { ok: false, error: "hooks." + key + " is not an array" };
+      }
+    }
+  }
+  return { ok: true, settings };
+}
+
+// packages/plugin-sdk/src/ioPrograms.ts
+function* ioValue(request) {
+  return yield request;
+}
+function defineProviderIo(source, io) {
+  const exports = { ...source };
+  for (const key of Object.keys(source)) {
+    const value = source[key];
+    if (typeof value !== "function") continue;
+    exports[key] = function(...args) {
+      const result = value.apply(source, args);
+      return result && typeof result.next === "function" ? io().run(result) : result;
+    };
+  }
+  return exports;
+}
+function* ioEncoded(steps) {
+  return JSON.stringify(yield* steps);
+}
+function* ioJson(request, nullable = false) {
+  const value = yield* ioValue(request);
+  return nullable && value == null ? null : JSON.stringify(value);
+}
+function* ioFileTransaction(fs, paths, work) {
+  const locks = [];
+  try {
+    for (const path of [...new Set(paths)].sort()) {
+      const parent = path.slice(0, Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\")));
+      if (parent && !(yield* fs.makeDirs(parent))) return { ok: false, error: "integration directory is unavailable" };
+      const lock = yield* fs.lockFile(path);
+      if (!lock) return { ok: false, error: "integration files are busy" };
+      locks.push(lock);
+    }
+    return yield* work();
+  } finally {
+    for (const lock of locks.reverse()) yield* fs.unlockFile(lock);
+  }
+}
+
 // plugins/provider-shared/runPromptStep.ts
 function bytes(text2) {
   let count3 = 0;
@@ -235,7 +368,7 @@ function sortedJson(value) {
     return Object.fromEntries(Object.entries(item).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0));
   });
 }
-function composeSettingsArgs(args) {
+function* composeSettingsArgs(args) {
   const model = modelSettings(args);
   args = model.args;
   const enabled = args.includes(STATUSLINE_FLAG);
@@ -250,13 +383,13 @@ function composeSettingsArgs(args) {
     }
     const raw = arg === "--settings" ? args[++index] : arg.slice("--settings=".length);
     if (typeof raw !== "string") return null;
-    const value = settingsObject(raw) ?? settingsObject(host.fs.readFileHead(raw, 65537));
+    const value = settingsObject(raw) ?? settingsObject(yield* host.io.fs.readFileHead(raw, 65537));
     if (!value) return null;
     overlay = { ...overlay, ...value };
   }
   if (enabled) {
     const path = host.expandHome("~/.claude/settings.json");
-    const user = path ? settingsObject(host.fs.fileExists(path) ? host.fs.readFileHead(path, 65537) : "{}") : null;
+    const user = path ? settingsObject((yield* host.io.fs.fileExists(path)) ? yield* host.io.fs.readFileHead(path, 65537) : "{}") : null;
     const composed = user ? statuslineSettings({ ...user, ...overlay }) : null;
     if (composed) overlay = { ...overlay, ...JSON.parse(composed) };
   }
@@ -268,10 +401,10 @@ function composeSettingsArgs(args) {
   }
   return [...rest, "--settings", sortedJson(overlay)];
 }
-function statuslineLaunchArgs(args) {
-  const composed = composeSettingsArgs(args);
+function* statuslineLaunchArgs(args) {
+  const composed = yield* composeSettingsArgs(args);
   if (!composed) return null;
-  const path = host.fs.writeTempFile(composed[composed.length - 1], ".ct-settings.json");
+  const path = yield* host.io.fs.writeTempFile(composed[composed.length - 1], ".ct-settings.json");
   if (!path) return null;
   return [...composed.slice(0, -1), path];
 }
@@ -280,11 +413,11 @@ function statuslineLaunchArgs(args) {
 var launchPromptRule_default = "Ask every question through codeterm notify send --choice; never use your own question tool or menus.";
 
 // plugins/provider-claude/src/launchPrompt.ts
-function writeClaudeLaunchPrompt(task) {
+function* writeClaudeLaunchPrompt(task) {
   const suffix = ".ct-task-" + Math.random().toString(16).slice(2, 10);
   const fragment = task + "\n\n" + launchPromptRule_default;
   const body = host.platform() === "windows" ? "\uFEFF" + fragment : fragment;
-  return host.fs.writeTempFile(body, suffix);
+  return yield* host.io.fs.writeTempFile(body, suffix);
 }
 
 // plugins/provider-claude/src/launchSpec.ts
@@ -308,7 +441,7 @@ function hasResume(input) {
   const resume = input.resume;
   return typeof resume === "object" && resume !== null && "sessionId" in resume && typeof resume.sessionId === "string";
 }
-function buildClaudeLaunchSpec(input) {
+function* buildClaudeLaunchSpec(input) {
   if ("resume" in input && !hasResume(input)) return null;
   const params = hasResume(input) ? {
     args: ["--resume", input.resume.sessionId, ...input.resume.args || []],
@@ -321,11 +454,11 @@ function buildClaudeLaunchSpec(input) {
   if (params.skipPermissions) args.push("--dangerously-skip-permissions");
   if (params.agentName) args.push("--agent", params.agentName);
   if (params.sessionId) args.push("--session-id", params.sessionId);
-  const extra = statuslineLaunchArgs(params.args || []);
+  const extra = yield* statuslineLaunchArgs(params.args || []);
   if (!extra) return null;
   args.push(...extra);
   args.push(...hostOwnedLaunchArgs(params.hostOwned));
-  const path = writeClaudeLaunchPrompt(params.task || "");
+  const path = yield* writeClaudeLaunchPrompt(params.task || "");
   if (!path) return null;
   args.push("--append-system-prompt-file", path);
   const prompt = params.task ? starterPrompt(params.starterPrompt, params.starterPromptText) : void 0;
@@ -335,8 +468,8 @@ function buildClaudeLaunchSpec(input) {
   }
   return { program: "claude", args, envSet: {}, envUnset: ["CLAUDECODE"] };
 }
-function buildClaudeLaunchCommand(params) {
-  const spec = buildClaudeLaunchSpec(params);
+function* buildClaudeLaunchCommand(params) {
+  const spec = yield* buildClaudeLaunchSpec(params);
   if (!spec) return "";
   const unset = host.platform() === "windows" ? "Remove-Item Env:CLAUDECODE -ErrorAction SilentlyContinue; $OutputEncoding = [Console]::OutputEncoding = [Console]::InputEncoding = [System.Text.Encoding]::UTF8; $PSNativeCommandArgumentPassing = 'Standard';" : "unset CLAUDECODE &&";
   const parts = [unset, spec.program];
@@ -351,31 +484,6 @@ function buildClaudeLaunchCommand(params) {
     previous = arg;
   }
   return parts.join(" ");
-}
-
-// plugins/provider-claude/src/switchConfirmation.ts
-function parseSwitchConfirmationPrompt(screen, selection) {
-  if (!selection || /\s|[\x00-\x1f]/.test(selection)) return null;
-  const lines = screen.replace(/\r\n?/g, "\n").trimEnd().split("\n");
-  const row = /^\s*(❯\s*)?([12])\.\s+(.+?)\s*$/;
-  const second = row.exec(lines[lines.length - 1] ?? "");
-  const first = row.exec(lines[lines.length - 2] ?? "");
-  if (!first || !second || first[2] !== "1" || second[2] !== "2") return null;
-  if (!first[1] || second[1]) return null;
-  const before = lines.slice(0, -2);
-  let questionIndex = -1;
-  for (let index = before.length - 1; index >= 0; index--) {
-    if (before[index].trim().endsWith("?")) {
-      questionIndex = index;
-      break;
-    }
-  }
-  if (questionIndex < 0 || before.slice(questionIndex + 1).filter((line) => line.trim()).length < 1) return null;
-  if (before.slice(questionIndex).some((line) => /[│┃┌└☐☑]|^\s*[❯>]\s*\d+\./.test(line))) return null;
-  const escaped = selection.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const token = new RegExp(`(?:^|[^a-z0-9_-])${escaped}(?:$|[^a-z0-9_-])`, "i");
-  if (!token.test(first[3]) || token.test(second[3])) return null;
-  return { question: before[questionIndex].trim(), options: [[first[3], "1"], [second[3], "2"]] };
 }
 
 // plugins/provider-claude/src/imageMetadata.ts
@@ -471,30 +579,32 @@ function availableUpdate(currentVersion, result, compatibility) {
   }
   return latestVersion && compare(latestVersion, currentVersion) === 1 ? { currentVersion, latestVersion } : { currentVersion, latestVersion: currentVersion };
 }
-function startedJob(raw) {
-  const job = record(raw)?.jobId;
-  return typeof job === "string" && job !== "" ? job : null;
-}
-function checkProviderUpdate(host2, binary, metadataUrl, compatibility, parseInstalled = installedVersion) {
-  const probe = startedJob(host2.execStart(JSON.stringify({ bin: binary, args: ["--version"], timeoutMs: 5e3 })));
-  if (!probe) return null;
-  return host2.awaitJob(probe, (installed) => {
-    const currentVersion = parseInstalled(installed);
-    if (!currentVersion) return null;
-    const metadata = startedJob(host2.fetchStart(JSON.stringify({
+function* checkProviderUpdate(host2, binary, metadataUrl, compatibility, parseInstalled = installedVersion) {
+  let installed;
+  try {
+    installed = yield* host2.io.exec({ bin: binary, args: ["--version"], timeoutMs: 5e3 });
+  } catch {
+    return null;
+  }
+  const currentVersion = parseInstalled(installed);
+  if (!currentVersion) return null;
+  let metadata;
+  try {
+    metadata = yield* host2.io.fetch({
       url: metadataUrl,
       method: "GET",
       timeoutMs: 6e3,
       headers: { Accept: compatibility ? "application/vnd.npm.install-v1+json" : "application/json" }
-    })));
-    if (!metadata) return null;
-    return host2.awaitJob(metadata, (response) => availableUpdate(currentVersion, response, compatibility));
-  });
+    });
+  } catch {
+    return null;
+  }
+  return availableUpdate(currentVersion, metadata, compatibility);
 }
 
 // plugins/provider-claude/src/update.ts
-function checkClaudeUpdate() {
-  return checkProviderUpdate(host, "claude", "https://registry.npmjs.org/@anthropic-ai%2Fclaude-code/latest");
+function* checkClaudeUpdate() {
+  return yield* checkProviderUpdate(host, "claude", "https://registry.npmjs.org/@anthropic-ai%2Fclaude-code/latest");
 }
 
 // plugins/provider-claude/src/preTrust.ts
@@ -502,9 +612,9 @@ function claudeProjectKey(canonical, windows) {
   if (!windows) return canonical;
   return canonical.replace(/\\/g, "/").replace(/^\/\/\?\/UNC\//, "//").replace(/^\/\/\?\//, "").replace(/^[a-z]:/, (drive) => drive.toUpperCase());
 }
-function claudeTrustRecord(host2, cwd, grant) {
+function* claudeTrustRecord(host2, cwd, grant) {
   const root = host2.envGet("CLAUDE_CONFIG_DIR") || host2.homeDir();
-  const canonical = host2.canonicalPath(cwd);
+  const canonical = yield* ioValue({ op: "canonicalPath", path: cwd });
   if (!root) return { status: "skipped", reason: "configuration root unavailable" };
   if (!canonical) return { status: "skipped", reason: "launch cwd cannot be resolved" };
   const windows = host2.platform() === "windows";
@@ -513,7 +623,7 @@ function claudeTrustRecord(host2, cwd, grant) {
   const key = claudeProjectKey(canonical, windows);
   const path = root.replace(/[\\/]$/, "") + "/.claude.json";
   try {
-    return JSON.parse(host2.jsonBooleanRecord(path, JSON.stringify(["projects", key, "hasTrustDialogAccepted"]), grant));
+    return JSON.parse(yield* ioJson({ op: "jsonBooleanRecord", path, keys: ["projects", key, "hasTrustDialogAccepted"], grant }));
   } catch {
     return { status: "failed", reason: "record capability failed" };
   }
@@ -534,13 +644,29 @@ function updatePromptSafeChoice(prompt) {
   return value;
 }
 
-// plugins/provider-claude/src/shared.ts
-function manifest() {
-  try {
-    return JSON.parse(host.manifestJson() || "null");
-  } catch (e) {
-    return null;
+// plugins/provider-claude/src/switchConfirmation.ts
+function parseSwitchConfirmationPrompt(screen, selection) {
+  if (!selection || /\s|[\x00-\x1f]/.test(selection)) return null;
+  const lines = screen.replace(/\r\n?/g, "\n").trimEnd().split("\n");
+  const row = /^\s*(❯\s*)?([12])\.\s+(.+?)\s*$/;
+  const second = row.exec(lines[lines.length - 1] ?? "");
+  const first = row.exec(lines[lines.length - 2] ?? "");
+  if (!first || !second || first[2] !== "1" || second[2] !== "2") return null;
+  if (!first[1] || second[1]) return null;
+  const before = lines.slice(0, -2);
+  let questionIndex = -1;
+  for (let index = before.length - 1; index >= 0; index--) {
+    if (before[index].trim().endsWith("?")) {
+      questionIndex = index;
+      break;
+    }
   }
+  if (questionIndex < 0 || before.slice(questionIndex + 1).filter((line) => line.trim()).length < 1) return null;
+  if (before.slice(questionIndex).some((line) => /[│┃┌└☐☑]|^\s*[❯>]\s*\d+\./.test(line))) return null;
+  const escaped = selection.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const token = new RegExp(`(?:^|[^a-z0-9_-])${escaped}(?:$|[^a-z0-9_-])`, "i");
+  if (!token.test(first[3]) || token.test(second[3])) return null;
+  return { question: before[questionIndex].trim(), options: [[first[3], "1"], [second[3], "2"]] };
 }
 
 // plugins/provider-claude/src/permissionHook.ts
@@ -552,6 +678,223 @@ function permissionHookCapability() {
       { label: "Deny", value: "deny" }
     ]
   };
+}
+
+// plugins/provider-claude/src/shared.ts
+function manifest() {
+  try {
+    return JSON.parse(host.manifestJson() || "null");
+  } catch (e) {
+    return null;
+  }
+}
+
+// plugins/provider-shared/readHome.ts
+function effectiveReadPath(inheritedHome, fallback, subpath, separator) {
+  if (!inheritedHome) return fallback;
+  if (!subpath) return inheritedHome;
+  return inheritedHome + (/[\\/]$/.test(inheritedHome) ? "" : separator) + subpath;
+}
+
+// plugins/provider-claude/src/session.ts
+var CLAUDE_SESSION_DELTA_TYPES = {
+  system: true,
+  user: true,
+  assistant: true,
+  attachment: true,
+  "ai-title": true,
+  edited_text_file: true
+};
+function cleanMetadataValue(value) {
+  if (typeof value !== "string") return null;
+  const cleaned = value.trim();
+  return cleaned && !/[\u0000-\u001f\u007f]/.test(cleaned) ? cleaned : null;
+}
+function aiTitleFromEntry(entry) {
+  return cleanMetadataValue(entry.aiTitle);
+}
+function editedTextFilePath(entry) {
+  const attachment = entry.attachment;
+  return cleanMetadataValue(entry.filename) || cleanMetadataValue(entry.path) || cleanMetadataValue(attachment?.filename) || cleanMetadataValue(attachment?.path);
+}
+function claudeSessionFilePath(cwd, sessionId) {
+  const m = manifest();
+  const root = m && m.sessions && m.sessions.rootDir || "~/.claude/projects";
+  const ext = m && m.sessions && m.sessions.fileExtension || "jsonl";
+  const sep = host.platform() === "windows" ? "\\" : "/";
+  const expanded = effectiveReadPath(host.envGet("CLAUDE_CONFIG_DIR"), host.expandHome(root), "projects", sep);
+  if (!expanded) return null;
+  const encoded = encodeCwdDashed(cwd);
+  return expanded + sep + encoded + sep + sessionId + "." + ext;
+}
+function* sessionModelTranscriptBoundary(cwd, sessionId) {
+  const path = claudeSessionFilePath(cwd, sessionId);
+  if (!path || !(yield* host.io.fs.fileExists(path))) return null;
+  const contents = yield* host.io.fs.readFileTail(path, 4 * 1024 * 1024);
+  if (contents === null) return null;
+  if (!contents) {
+    return {
+      lastEntryUuid: null,
+      lastEntryTimestamp: null,
+      lastEntryType: null,
+      boundaryFound: true
+    };
+  }
+  const lines = contents.split("\n");
+  for (let index = lines.length - 1; index >= 0; index--) {
+    const line = lines[index].trim();
+    if (!line) continue;
+    let entry;
+    try {
+      entry = JSON.parse(line);
+    } catch (_) {
+      continue;
+    }
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+    if (typeof entry.uuid === "string" && entry.uuid) {
+      return {
+        lastEntryUuid: entry.uuid,
+        lastEntryTimestamp: null,
+        lastEntryType: null,
+        boundaryFound: true
+      };
+    }
+    if (entry.type === "user" || entry.type === "assistant") {
+      const timestamp = cleanMetadataValue(entry.timestamp);
+      return timestamp ? {
+        lastEntryUuid: null,
+        lastEntryTimestamp: timestamp,
+        lastEntryType: entry.type,
+        boundaryFound: true
+      } : null;
+    }
+  }
+  return lines.some((line) => line.trim()) ? null : {
+    lastEntryUuid: null,
+    lastEntryTimestamp: null,
+    lastEntryType: null,
+    boundaryFound: true
+  };
+}
+function* detectSessionModelAfterBoundary(cwd, sessionId, boundary) {
+  const path = claudeSessionFilePath(cwd, sessionId);
+  if (!path || !(yield* host.io.fs.fileExists(path))) return null;
+  const contents = yield* host.io.fs.readFileTail(path, 4 * 1024 * 1024);
+  if (!contents) return null;
+  if (!boundary.boundaryFound) return null;
+  const entries = [];
+  for (const line of contents.split("\n")) {
+    if (!line) continue;
+    try {
+      const entry = JSON.parse(line);
+      if (entry && typeof entry === "object" && !Array.isArray(entry)) entries.push(entry);
+    } catch (_) {
+      continue;
+    }
+  }
+  let boundaryIndex = -1;
+  if (boundary.lastEntryUuid !== null) {
+    for (let index = entries.length - 1; index >= 0; index--) {
+      if (entries[index].uuid === boundary.lastEntryUuid) {
+        boundaryIndex = index;
+        break;
+      }
+    }
+    if (boundaryIndex < 0) return null;
+  } else if (boundary.lastEntryTimestamp !== null && boundary.lastEntryType !== null) {
+    for (let index = entries.length - 1; index >= 0; index--) {
+      const entry = entries[index];
+      if (entry.type === boundary.lastEntryType && cleanMetadataValue(entry.timestamp) === boundary.lastEntryTimestamp) {
+        boundaryIndex = index;
+        break;
+      }
+    }
+    if (boundaryIndex < 0) return null;
+  }
+  for (let index = entries.length - 1; index > boundaryIndex; index--) {
+    const entry = entries[index];
+    if (entry.type !== "assistant") continue;
+    const model = entry.message?.model;
+    if (typeof model === "string" && model && model !== "<synthetic>") {
+      return familyFromModelId(model);
+    }
+  }
+  return null;
+}
+function encodeCwdDashed(cwd) {
+  return String(cwd || "").replace(/[^a-zA-Z0-9]/g, "-");
+}
+function isValidClaudeSessionMessage(v) {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return false;
+  if (v.type !== "user" && v.type !== "assistant") return false;
+  if (!v.message || typeof v.message !== "object" || Array.isArray(v.message)) return false;
+  const content = v.message.content;
+  if (typeof content !== "string" && !Array.isArray(content)) return false;
+  return true;
+}
+function validateEntry(v) {
+  return isValidClaudeSessionDelta(v);
+}
+function isValidClaudeSessionDelta(v) {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return false;
+  if (v.type === "ai-title") return aiTitleFromEntry(v) !== null;
+  if (v.type === "edited_text_file") return editedTextFilePath(v) !== null;
+  if (!CLAUDE_SESSION_DELTA_TYPES[v.type]) return false;
+  if (v.type === "system") {
+    const sc = v.content;
+    if (typeof sc === "string" || Array.isArray(sc)) return true;
+    return typeof v.subtype === "string" && v.subtype.length > 0;
+  }
+  if (v.type === "attachment") {
+    const a = v.attachment;
+    return !!a && typeof a === "object" && (a.type === "queued_command" && typeof a.prompt === "string" && a.prompt.length > 0 || a.type === "edited_text_file" && editedTextFilePath(v) !== null);
+  }
+  const msg = v.message;
+  if (!msg || typeof msg !== "object" || Array.isArray(msg)) return false;
+  if (typeof msg.content !== "string" && !Array.isArray(msg.content)) return false;
+  return true;
+}
+function extractSetModelFamily(raw) {
+  const prefix = "Set model to ";
+  if (!raw.startsWith(prefix)) return null;
+  const after = raw.slice(prefix.length);
+  const cleaned = stripAnsi(after).replace(/^[\s`]+/, "");
+  let fam = "";
+  for (let i = 0; i < cleaned.length; i++) {
+    const c = cleaned.charAt(i);
+    if (!/[a-zA-Z]/.test(c)) break;
+    fam += c;
+  }
+  return fam ? capitalize(fam) : null;
+}
+function stripAnsi(s) {
+  let out = "";
+  let i = 0;
+  while (i < s.length) {
+    if (s.charCodeAt(i) === 27 && s.charAt(i + 1) === "[") {
+      i += 2;
+      while (i < s.length && !/[a-zA-Z]/.test(s.charAt(i))) i++;
+      if (i < s.length) i++;
+    } else {
+      out += s.charAt(i);
+      i++;
+    }
+  }
+  return out;
+}
+function familyFromModelId(id) {
+  const m = String(id || "").toLowerCase();
+  const fams = ["opus", "sonnet", "haiku"];
+  for (let i = 0; i < fams.length; i++) {
+    if (m.indexOf(fams[i]) !== -1) return capitalize(fams[i]);
+  }
+  const body = m.indexOf("claude-") === 0 ? m.substring(7) : m;
+  const head = body.split("-")[0] || body;
+  return capitalize(head);
+}
+function capitalize(s) {
+  if (!s) return "";
+  return s.charAt(0).toUpperCase() + s.substring(1).toLowerCase();
 }
 
 // plugins/provider-shared/accessError.ts
@@ -766,13 +1109,6 @@ function parseBackgroundWork(value) {
   return events;
 }
 
-// plugins/provider-shared/readHome.ts
-function effectiveReadPath(inheritedHome, fallback, subpath, separator) {
-  if (!inheritedHome) return fallback;
-  if (!subpath) return inheritedHome;
-  return inheritedHome + (/[\\/]$/.test(inheritedHome) ? "" : separator) + subpath;
-}
-
 // plugins/provider-claude/src/launchSession.ts
 var PROCESS_REGISTRY_DIR_ENV = "CODETERM_CLAUDE_PROCESS_REGISTRY_DIR";
 function registryDir() {
@@ -796,14 +1132,14 @@ function registrySessionId(raw, pid, startToken) {
   const sessionId = typeof record3.sessionId === "string" ? record3.sessionId.trim() : "";
   return sessionId || null;
 }
-function detectClaudeLaunchSession(evidence) {
+function* detectClaudeLaunchSession(evidence) {
   const dir = registryDir();
   if (!dir || !evidence || !Array.isArray(evidence.processes)) return null;
   const sep = host.platform() === "windows" ? "\\" : "/";
   const processes = evidence.processes.slice().sort((a, b) => a.depth - b.depth || a.pid - b.pid);
   for (let i = 0; i < processes.length; i++) {
     const proc = processes[i];
-    const raw = host.fs.readFile(dir + sep + proc.pid + ".json");
+    const raw = yield* host.io.fs.readFile(dir + sep + proc.pid + ".json");
     if (typeof raw !== "string") continue;
     const sessionId = registrySessionId(raw, proc.pid, String(proc.startToken || ""));
     if (sessionId) return { sessionId, source: "pid_registry" };
@@ -826,15 +1162,15 @@ function usageNormalize(raw) {
   return out;
 }
 var CLAUDE_USAGE_KIND = "codeterm_usage_v1";
-function fetchClaudeUsage(host2) {
+function* fetchClaudeUsage(host2) {
   const inheritedHome = host2.envGet("CLAUDE_CONFIG_DIR");
   const credentialsPath = effectiveReadPath(inheritedHome, host2.expandHome("~/.claude/.credentials.json"), ".credentials.json", host2.platform() === "windows" ? "\\" : "/");
-  const fileCredentials = credentialsPath ? safeJson(host2.fs.readFile(credentialsPath)) : null;
-  const credentials = (inheritedHome ? null : readMacOsCredentials(host2)) ?? fileCredentials;
+  const fileCredentials = credentialsPath ? safeJson(yield* host2.io.fs.readFile(credentialsPath)) : null;
+  const credentials = (inheritedHome ? null : yield* readMacOsCredentials(host2)) ?? fileCredentials;
   const oauth = objectAt(credentials, "claudeAiOauth");
   const accessToken = stringAt(oauth, "accessToken");
   if (!accessToken) throw new Error("usage credentials unavailable");
-  const response = safeJson(host2.fetch(JSON.stringify({
+  const response = safeJson(yield* ioEncoded(host2.io.fetch({
     url: "https://api.anthropic.com/api/oauth/usage",
     method: "GET",
     timeoutMs: 6e3,
@@ -907,13 +1243,13 @@ function normalizeClaudeUsage(body) {
 function objectAtValue(value, key) {
   return value && typeof value === "object" ? value[key] : void 0;
 }
-function readMacOsCredentials(host2) {
+function* readMacOsCredentials(host2) {
   if (host2.platform() !== "macos") return null;
   const user = host2.envGet("USER");
   const args = ["find-generic-password"];
   if (user) args.push("-a", user);
   args.push("-w", "-s", "Claude Code-credentials");
-  const result = safeJson(host2.exec(JSON.stringify({ bin: "security", args, timeoutMs: 5e3 })));
+  const result = safeJson(yield* ioEncoded(host2.io.exec({ bin: "security", args, timeoutMs: 5e3 })));
   if (numberAt(result, "code") !== 0) return null;
   return safeJson(stringAt(result, "stdout"));
 }
@@ -1098,207 +1434,6 @@ function usageIsWeekday(s) {
   return /^(mon|monday|tue|tues|tuesday|wed|wednesday|thu|thur|thurs|thursday|fri|friday|sat|saturday|sun|sunday)$/.test(s);
 }
 
-// plugins/provider-claude/src/session.ts
-var CLAUDE_SESSION_DELTA_TYPES = {
-  system: true,
-  user: true,
-  assistant: true,
-  attachment: true,
-  "ai-title": true,
-  edited_text_file: true
-};
-function cleanMetadataValue(value) {
-  if (typeof value !== "string") return null;
-  const cleaned = value.trim();
-  return cleaned && !/[\u0000-\u001f\u007f]/.test(cleaned) ? cleaned : null;
-}
-function aiTitleFromEntry(entry) {
-  return cleanMetadataValue(entry.aiTitle);
-}
-function editedTextFilePath(entry) {
-  const attachment = entry.attachment;
-  return cleanMetadataValue(entry.filename) || cleanMetadataValue(entry.path) || cleanMetadataValue(attachment?.filename) || cleanMetadataValue(attachment?.path);
-}
-function claudeSessionFilePath(cwd, sessionId) {
-  const m = manifest();
-  const root = m && m.sessions && m.sessions.rootDir || "~/.claude/projects";
-  const ext = m && m.sessions && m.sessions.fileExtension || "jsonl";
-  const sep = host.platform() === "windows" ? "\\" : "/";
-  const expanded = effectiveReadPath(host.envGet("CLAUDE_CONFIG_DIR"), host.expandHome(root), "projects", sep);
-  if (!expanded) return null;
-  const encoded = encodeCwdDashed(cwd);
-  return expanded + sep + encoded + sep + sessionId + "." + ext;
-}
-function sessionModelTranscriptBoundary(cwd, sessionId) {
-  const path = claudeSessionFilePath(cwd, sessionId);
-  if (!path || !host.fs.fileExists(path)) return null;
-  const contents = host.fs.readFileTail(path, 4 * 1024 * 1024);
-  if (contents === null) return null;
-  if (!contents) {
-    return {
-      lastEntryUuid: null,
-      lastEntryTimestamp: null,
-      lastEntryType: null,
-      boundaryFound: true
-    };
-  }
-  const lines = contents.split("\n");
-  for (let index = lines.length - 1; index >= 0; index--) {
-    const line = lines[index].trim();
-    if (!line) continue;
-    let entry;
-    try {
-      entry = JSON.parse(line);
-    } catch (_) {
-      continue;
-    }
-    if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
-    if (typeof entry.uuid === "string" && entry.uuid) {
-      return {
-        lastEntryUuid: entry.uuid,
-        lastEntryTimestamp: null,
-        lastEntryType: null,
-        boundaryFound: true
-      };
-    }
-    if (entry.type === "user" || entry.type === "assistant") {
-      const timestamp = cleanMetadataValue(entry.timestamp);
-      return timestamp ? {
-        lastEntryUuid: null,
-        lastEntryTimestamp: timestamp,
-        lastEntryType: entry.type,
-        boundaryFound: true
-      } : null;
-    }
-  }
-  return lines.some((line) => line.trim()) ? null : {
-    lastEntryUuid: null,
-    lastEntryTimestamp: null,
-    lastEntryType: null,
-    boundaryFound: true
-  };
-}
-function detectSessionModelAfterBoundary(cwd, sessionId, boundary) {
-  const path = claudeSessionFilePath(cwd, sessionId);
-  if (!path || !host.fs.fileExists(path)) return null;
-  const contents = host.fs.readFileTail(path, 4 * 1024 * 1024);
-  if (!contents) return null;
-  if (!boundary.boundaryFound) return null;
-  const entries = [];
-  for (const line of contents.split("\n")) {
-    if (!line) continue;
-    try {
-      const entry = JSON.parse(line);
-      if (entry && typeof entry === "object" && !Array.isArray(entry)) entries.push(entry);
-    } catch (_) {
-      continue;
-    }
-  }
-  let boundaryIndex = -1;
-  if (boundary.lastEntryUuid !== null) {
-    for (let index = entries.length - 1; index >= 0; index--) {
-      if (entries[index].uuid === boundary.lastEntryUuid) {
-        boundaryIndex = index;
-        break;
-      }
-    }
-    if (boundaryIndex < 0) return null;
-  } else if (boundary.lastEntryTimestamp !== null && boundary.lastEntryType !== null) {
-    for (let index = entries.length - 1; index >= 0; index--) {
-      const entry = entries[index];
-      if (entry.type === boundary.lastEntryType && cleanMetadataValue(entry.timestamp) === boundary.lastEntryTimestamp) {
-        boundaryIndex = index;
-        break;
-      }
-    }
-    if (boundaryIndex < 0) return null;
-  }
-  for (let index = entries.length - 1; index > boundaryIndex; index--) {
-    const entry = entries[index];
-    if (entry.type !== "assistant") continue;
-    const model = entry.message?.model;
-    if (typeof model === "string" && model && model !== "<synthetic>") {
-      return familyFromModelId(model);
-    }
-  }
-  return null;
-}
-function encodeCwdDashed(cwd) {
-  return String(cwd || "").replace(/[^a-zA-Z0-9]/g, "-");
-}
-function isValidClaudeSessionMessage(v) {
-  if (!v || typeof v !== "object" || Array.isArray(v)) return false;
-  if (v.type !== "user" && v.type !== "assistant") return false;
-  if (!v.message || typeof v.message !== "object" || Array.isArray(v.message)) return false;
-  const content = v.message.content;
-  if (typeof content !== "string" && !Array.isArray(content)) return false;
-  return true;
-}
-function validateEntry(v) {
-  return isValidClaudeSessionDelta(v);
-}
-function isValidClaudeSessionDelta(v) {
-  if (!v || typeof v !== "object" || Array.isArray(v)) return false;
-  if (v.type === "ai-title") return aiTitleFromEntry(v) !== null;
-  if (v.type === "edited_text_file") return editedTextFilePath(v) !== null;
-  if (!CLAUDE_SESSION_DELTA_TYPES[v.type]) return false;
-  if (v.type === "system") {
-    const sc = v.content;
-    if (typeof sc === "string" || Array.isArray(sc)) return true;
-    return typeof v.subtype === "string" && v.subtype.length > 0;
-  }
-  if (v.type === "attachment") {
-    const a = v.attachment;
-    return !!a && typeof a === "object" && (a.type === "queued_command" && typeof a.prompt === "string" && a.prompt.length > 0 || a.type === "edited_text_file" && editedTextFilePath(v) !== null);
-  }
-  const msg = v.message;
-  if (!msg || typeof msg !== "object" || Array.isArray(msg)) return false;
-  if (typeof msg.content !== "string" && !Array.isArray(msg.content)) return false;
-  return true;
-}
-function extractSetModelFamily(raw) {
-  const prefix = "Set model to ";
-  if (!raw.startsWith(prefix)) return null;
-  const after = raw.slice(prefix.length);
-  const cleaned = stripAnsi(after).replace(/^[\s`]+/, "");
-  let fam = "";
-  for (let i = 0; i < cleaned.length; i++) {
-    const c = cleaned.charAt(i);
-    if (!/[a-zA-Z]/.test(c)) break;
-    fam += c;
-  }
-  return fam ? capitalize(fam) : null;
-}
-function stripAnsi(s) {
-  let out = "";
-  let i = 0;
-  while (i < s.length) {
-    if (s.charCodeAt(i) === 27 && s.charAt(i + 1) === "[") {
-      i += 2;
-      while (i < s.length && !/[a-zA-Z]/.test(s.charAt(i))) i++;
-      if (i < s.length) i++;
-    } else {
-      out += s.charAt(i);
-      i++;
-    }
-  }
-  return out;
-}
-function familyFromModelId(id) {
-  const m = String(id || "").toLowerCase();
-  const fams = ["opus", "sonnet", "haiku"];
-  for (let i = 0; i < fams.length; i++) {
-    if (m.indexOf(fams[i]) !== -1) return capitalize(fams[i]);
-  }
-  const body = m.indexOf("claude-") === 0 ? m.substring(7) : m;
-  const head = body.split("-")[0] || body;
-  return capitalize(head);
-}
-function capitalize(s) {
-  if (!s) return "";
-  return s.charAt(0).toUpperCase() + s.substring(1).toLowerCase();
-}
-
 // plugins/provider-claude/src/models.ts
 var FAMILIES = ["opus", "sonnet", "haiku", "fable"];
 function decideAvailability(probe, minimum, declared) {
@@ -1306,11 +1441,11 @@ function decideAvailability(probe, minimum, declared) {
   if (probe.kind !== "version") return "unknown";
   return atLeast(probe.version, minimum) ? "available" : "unavailable";
 }
-function discoverAnthropicModels() {
-  const installed = probeInstalledCli();
+function* discoverAnthropicModels() {
+  const installed = yield* probeInstalledCli();
   const key = host.envGet("ANTHROPIC_API_KEY") || host.envGet("CLAUDE_API_KEY");
   if (!key) return applyInstalledCapabilities(manifestModels(), installed);
-  const live = fetchLiveModels(key);
+  const live = yield* fetchLiveModels(key);
   if (!live) return applyInstalledCapabilities(manifestModels(), installed);
   const mapped = mapAliasesToLive(manifestModels(), live);
   return mapped.length ? applyInstalledCapabilities(mapped, installed, true) : null;
@@ -1325,10 +1460,10 @@ function manifestModels() {
     ...model.description ? { description: model.description } : {}
   }));
 }
-function fetchLiveModels(key) {
+function* fetchLiveModels(key) {
   let raw;
   try {
-    raw = host.fetch(JSON.stringify({
+    raw = yield* ioEncoded(host.io.fetch({
       url: "https://api.anthropic.com/v1/models",
       method: "GET",
       timeoutMs: 3e3,
@@ -1352,10 +1487,10 @@ function fetchLiveModels(key) {
   }
   return out.length ? out : null;
 }
-function probeInstalledCli() {
+function* probeInstalledCli() {
   let raw;
   try {
-    raw = host.providerVersionJson();
+    raw = yield* ioJson({ op: "providerVersion" });
   } catch (_) {
     return { kind: "unreachable" };
   }
@@ -1686,22 +1821,22 @@ function subAgentNotification(content) {
     } : {}
   };
 }
-function readTail(path) {
+function* readTail(path) {
   try {
-    const raw = host.fs.readFileTail(path, SIDECHAIN_TAIL_BYTES);
+    const raw = yield* host.io.fs.readFileTail(path, SIDECHAIN_TAIL_BYTES);
     return typeof raw === "string" ? raw : null;
   } catch (_) {
     return null;
   }
 }
-function subAgentSidechain(entry, agentId) {
+function* subAgentSidechain(entry, agentId) {
   const cwd = text(entry.cwd);
   const sessionId = text(entry.sessionId);
   if (!cwd || !PLAIN_ID_RE.test(sessionId) || !PLAIN_ID_RE.test(agentId)) return null;
   const mainPath = claudeSessionFilePath(cwd, sessionId);
   if (!mainPath || !mainPath.endsWith(`${sessionId}.jsonl`)) return null;
   const sep = mainPath.lastIndexOf("\\") > mainPath.lastIndexOf("/") ? "\\" : "/";
-  const raw = readTail(`${mainPath.slice(0, -".jsonl".length)}${sep}subagents${sep}agent-${agentId}.jsonl`);
+  const raw = yield* readTail(`${mainPath.slice(0, -".jsonl".length)}${sep}subagents${sep}agent-${agentId}.jsonl`);
   if (raw === null) return null;
   const actions = [];
   const byId = {};
@@ -1736,10 +1871,10 @@ function subAgentSidechain(entry, agentId) {
   }
   return { actions: actions.slice(-MAX_ACTIONS), ...model ? { model } : {} };
 }
-function subAgentNotificationBlock(content, entry) {
+function* subAgentNotificationBlock(content, entry) {
   const notice = subAgentNotification(content);
   if (!notice) return null;
-  const sidechain = subAgentSidechain(entry, notice.agentId);
+  const sidechain = yield* subAgentSidechain(entry, notice.agentId);
   return agentBlock(notice.callId, {
     agent_id: notice.agentId,
     agent_state: notice.state,
@@ -1751,7 +1886,7 @@ function subAgentNotificationBlock(content, entry) {
     agent_actions: sidechain && sidechain.actions.length > 0 ? sidechain.actions : void 0
   }, notice.agentId);
 }
-function subAgentUsageSources(sessionFilePath, sessionId) {
+function* subAgentUsageSources(sessionFilePath, sessionId) {
   const file = text(sessionFilePath);
   const id = text(sessionId);
   if (!file || !PLAIN_ID_RE.test(id)) return [];
@@ -1760,7 +1895,7 @@ function subAgentUsageSources(sessionFilePath, sessionId) {
   const sep = cut >= 0 ? file.charAt(cut) : "/";
   let entries = [];
   try {
-    entries = host.fs.readDir(`${file.slice(0, cut + 1)}${id}${sep}subagents`) || [];
+    entries = (yield* host.io.fs.readDir(`${file.slice(0, cut + 1)}${id}${sep}subagents`)) || [];
   } catch (_) {
     return [];
   }
@@ -2576,73 +2711,6 @@ function claudePermissionPromptResponse(toolName, prompt, screen) {
   };
 }
 
-// plugins/provider-claude/src/hookOwnership.ts
-var CODETERM_HOOK_MARKER = "codeterm-hook-v3";
-var CODETERM_HOOK_TIMEOUT_SECONDS = 5;
-var CODETERM_HOOK_MARKER_HEADER = "X-CodeTerm-Hook: codeterm-hook-v3";
-var CODETERM_HOOK_MARKER_ARG = '-H "' + CODETERM_HOOK_MARKER_HEADER + '"';
-var INTEGRATION_HOOK_KEYS = ["PermissionRequest", "Notification", "Stop", "PreCompact", "SessionStart"];
-var CODETERM_CURRENT_ROUTES = [
-  "/api/tabs/$CODETERM_TAB_ID/hook/permission",
-  "/api/tabs/$CODETERM_TAB_ID/hook/stop",
-  "/api/tabs/$CODETERM_TAB_ID/hook/session_start",
-  "$CODETERM_API_URL/api/mem/flush"
-];
-var LEGACY_V2_SESSION_START = "curl -s -X POST http://localhost:${CODETERM_API_PORT:-7685}/api/panes/$CODETERM_PANE_ID/hook/session_start -H 'Content-Type: application/json' -H \"X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}\" -d '{}' > /dev/null 2>&1 || true";
-var LEGACY_V2_STOP = "curl -s -X POST http://localhost:${CODETERM_API_PORT:-7685}/api/panes/$CODETERM_PANE_ID/hook/stop -H 'Content-Type: application/json' -d '{}' > /dev/null 2>&1 || true";
-var LEGACY_V2_COMMANDS = /* @__PURE__ */ new Set([LEGACY_V2_SESSION_START, LEGACY_V2_STOP]);
-function commandCarriesMarker(command) {
-  return command.indexOf(CODETERM_HOOK_MARKER_HEADER) !== -1;
-}
-function entryCarriesMarker(entry) {
-  const hooks = entry && entry.hooks;
-  return Array.isArray(hooks) && hooks.some((hook) => {
-    return typeof hook.command === "string" && commandCarriesMarker(hook.command);
-  });
-}
-function entryIsLegacyPaneCodetermHook(entry) {
-  const hooks = entry && entry.hooks;
-  return Array.isArray(hooks) && hooks.some((hook) => {
-    return typeof hook.command === "string" && LEGACY_V2_COMMANDS.has(hook.command);
-  });
-}
-function isCurrentHookCommand(command, platform) {
-  const executable = platform === "windows" ? "curl.exe " : "curl ";
-  return command.indexOf(executable) === 0 && command.indexOf(" --request POST ") !== -1 && command.indexOf(" --data-binary ") !== -1 && command.indexOf("if [") === -1 && command.indexOf("|| true") === -1;
-}
-function commandIsCurrentUnmarked(command) {
-  if (command.indexOf("$CODETERM_API_URL") === -1) return false;
-  if (command.indexOf("$CODETERM_TAB_ID") === -1) return false;
-  if (command.indexOf("$CODETERM_API_TOKEN") === -1) return false;
-  return CODETERM_CURRENT_ROUTES.some((route) => command.indexOf(route) !== -1);
-}
-function isCodetermHook(entry) {
-  const hooks = entry && entry.hooks;
-  if (!Array.isArray(hooks)) return false;
-  return hooks.some((hook) => {
-    if (!hook) return false;
-    if (typeof hook._source === "string" && (hook._source.indexOf("codeterm-hook") === 0 || hook._source === "codeterm")) {
-      return true;
-    }
-    const command = hook.command;
-    return typeof command === "string" && (commandCarriesMarker(command) || commandIsCurrentUnmarked(command) || LEGACY_V2_COMMANDS.has(command));
-  });
-}
-function entriesCarryMarker(entries) {
-  return entries.every((entry) => {
-    if (!isCodetermHook(entry)) return true;
-    const hooks = entry && entry.hooks || [];
-    return hooks.some((hook) => {
-      return typeof hook.command === "string" && commandCarriesMarker(hook.command);
-    });
-  });
-}
-function entriesHaveBoundedTimeout(entries) {
-  return entries.every((entry) => (entry.hooks || []).every((hook) => {
-    return !isCodetermHook({ hooks: [hook] }) || hook.timeout === CODETERM_HOOK_TIMEOUT_SECONDS;
-  }));
-}
-
 // plugins/provider-claude/src/plugin.ts
 var TITLE_RE = /claude/i;
 var BRAILLE_LO = 10241;
@@ -2837,11 +2905,11 @@ var plugin = {
   buildPromptResponse(optionIndex, screen) {
     return buildClaudePromptResponse(optionIndex, String(screen || ""));
   },
-  preTrustDirectory(path) {
-    return claudeTrustRecord(host, path, true);
+  *preTrustDirectory(path) {
+    return yield* claudeTrustRecord(host, path, true);
   },
-  isDirectoryTrusted(path) {
-    return claudeTrustRecord(host, path, false).status === "already_trusted";
+  *isDirectoryTrusted(path) {
+    return (yield* claudeTrustRecord(host, path, false)).status === "already_trusted";
   },
   directoryTrustPromptResponse(screen) {
     return claudeFolderTrustResponse(screen);
@@ -2856,18 +2924,18 @@ var plugin = {
     return claudePermissionPromptResponse(toolName, prompt, screen);
   },
   buildLaunchCommand: buildClaudeLaunchCommand,
-  buildLaunchSpec(params) {
-    return manifest()?.commands?.launchSpec ? buildClaudeLaunchSpec(params) : null;
+  *buildLaunchSpec(params) {
+    return manifest()?.commands?.launchSpec ? yield* buildClaudeLaunchSpec(params) : null;
   },
-  buildResumeCommand(sessionId, skipPermissions) {
-    const args = statuslineLaunchArgs([]);
+  *buildResumeCommand(sessionId, skipPermissions) {
+    const args = yield* statuslineLaunchArgs([]);
     return args ? [resumeBase(sessionId, skipPermissions), ...args.map(quoteArg)].join(" ") : null;
   },
   // `--resume` restores the transcript but not the launch-time system prompt,
   // so it is re-applied through the same declared flag buildLaunchCommand uses.
-  buildResumeCommandWithContext(params) {
+  *buildResumeCommandWithContext(params) {
     const p = params || {};
-    const resumeArgs = statuslineLaunchArgs(p.args || []);
+    const resumeArgs = yield* statuslineLaunchArgs(p.args || []);
     if (!resumeArgs) return null;
     const parts = [resumeBase(p.sessionId, p.skipPermissions)];
     if (resumeArgs.length > 0) {
@@ -2876,7 +2944,7 @@ var plugin = {
     parts.push(...hostOwnedLaunchArgs(p.hostOwned).map(quoteArg));
     const systemPrompt = p.systemPrompt;
     {
-      const visiblePath = writeClaudeLaunchPrompt(systemPrompt || "");
+      const visiblePath = yield* writeClaudeLaunchPrompt(systemPrompt || "");
       if (!visiblePath) return null;
       parts.push("--append-system-prompt-file");
       parts.push(host.shell.quoteFor(String(visiblePath), host.platform()));
@@ -2884,10 +2952,10 @@ var plugin = {
     return parts.join(" ");
   },
   // Tail session JSONL to find latest model (`message.model` or `Set model to ...`).
-  detectSessionModel(cwd, sessionId) {
+  *detectSessionModel(cwd, sessionId) {
     const path = claudeSessionFilePath(cwd, sessionId);
-    if (!path || !host.fs.fileExists(path)) return null;
-    const contents = host.fs.readFileTail(path, 4 * 1024 * 1024);
+    if (!path || !(yield* host.io.fs.fileExists(path))) return null;
+    const contents = yield* host.io.fs.readFileTail(path, 4 * 1024 * 1024);
     if (!contents) return null;
     const lines = contents.split("\n");
     const declaration = manifest()?.commands?.modelSwitchCommands?.transcript;
@@ -2914,10 +2982,10 @@ var plugin = {
   },
   sessionModelTranscriptBoundary,
   detectSessionModelAfterBoundary,
-  detectSessionReasoningEffort(cwd, sessionId) {
+  *detectSessionReasoningEffort(cwd, sessionId) {
     const path = claudeSessionFilePath(cwd, sessionId);
-    if (!path || !host.fs.fileExists(path)) return null;
-    const contents = host.fs.readFileTail(path, 4 * 1024 * 1024);
+    if (!path || !(yield* host.io.fs.fileExists(path))) return null;
+    const contents = yield* host.io.fs.readFileTail(path, 4 * 1024 * 1024);
     if (!contents) return null;
     const supported = { low: true, medium: true, high: true, xhigh: true, max: true };
     const commands = manifest()?.commands?.modelSwitchCommands;
@@ -2952,8 +3020,8 @@ var plugin = {
   },
   // Discovery is genuine-only: null (no keys / failed fetch) keeps the host on
   // the registered manifest seed and must never be persisted as a live snapshot.
-  discoverModels() {
-    return discoverAnthropicModels();
+  *discoverModels() {
+    return yield* discoverAnthropicModels();
   },
   // Parse the `/usage` TUI screen into a UsageSnapshot; null when nothing recognizable was found.
   parseUsage(rawText, nowMs) {
@@ -2977,8 +3045,8 @@ var plugin = {
       raw_text: raw
     };
   },
-  fetchUsage() {
-    return fetchClaudeUsage(host);
+  *fetchUsage() {
+    return yield* fetchClaudeUsage(host);
   },
   // Duplicated by design across provider bundles (QuickJS, no imports) — parity guarded by provider-helper-parity.test.ts. Change both or the test fails.
   // Parse `user`/`assistant` lines and map content blocks to SessionMessage.
@@ -2988,37 +3056,37 @@ var plugin = {
   },
   // Rust provides complete lines; plugin parses JSON into RichMessage[]. Byte offsets stay in Rust.
   parseSessionDelta,
-  parseSessionRecords(records, meta) {
-    return { ...parseSessionDelta(records), new_offset: meta.newOffset };
+  *parseSessionRecords(records, meta) {
+    return { ...yield* parseSessionDelta(records), new_offset: meta.newOffset };
   },
   // Keep JSONL path encoding aligned with `claudeSessionFilePath`.
   sessionJsonlPath(_cwd, sessionId) {
     if (!sessionId) return null;
     return claudeSessionFilePath(_cwd, sessionId);
   },
-  sessionUsageSources(sessionFilePath, sessionId) {
-    return subAgentUsageSources(sessionFilePath, sessionId);
+  *sessionUsageSources(sessionFilePath, sessionId) {
+    return yield* subAgentUsageSources(sessionFilePath, sessionId);
   },
   // Write bridge rule to `~/.claude/rules/codeterm.md` via host APIs.
-  installBridgeRule(payload) {
+  *installBridgeRule(payload) {
     const m = manifest();
     const rulePath = m && m.rule && m.rule.path || "~/.claude/rules/codeterm.md";
     const expanded = host.expandHome(rulePath);
     if (!expanded) return { ok: false, error: "could not expand " + rulePath };
-    const ok = host.writeFile(expanded, payload);
+    const ok = yield* ioValue({ op: "writeFile", path: expanded, contents: payload });
     if (ok) {
       host.log("info", "[claude-plugin] bridge rule installed to " + expanded);
       return { ok: true };
     }
     return { ok: false, error: "writeFile failed for " + expanded };
   },
-  uninstallBridgeRule() {
+  *uninstallBridgeRule() {
     const m = manifest();
     const rulePath = m && m.rule && m.rule.path || "~/.claude/rules/codeterm.md";
     const expanded = host.expandHome(rulePath);
     if (!expanded) return { ok: true };
-    if (!host.fileExists(expanded)) return { ok: true };
-    const ok = host.removeFile(expanded);
+    if (!(yield* ioValue({ op: "fileExists", path: expanded }))) return { ok: true };
+    const ok = yield* host.io.fs.removeFile(expanded);
     if (ok) {
       host.log("info", "[claude-plugin] bridge rule removed from " + expanded);
       return { ok: true };
@@ -3027,10 +3095,10 @@ var plugin = {
   },
   // Manage Claude settings hooks for Notification, Stop, SessionStart.
   // Hooks use a versioned source marker and runtime callback identity.
-  checkIntegration() {
+  *checkIntegration() {
     const m = manifest();
     const path = host.expandHome(m && m.integration && m.integration.settingsPath || "~/.claude/settings.json");
-    if (!path || !host.fileExists(path)) {
+    if (!path || !(yield* ioValue({ op: "fileExists", path }))) {
       return {
         settings_exists: false,
         hooks_installed: false,
@@ -3040,11 +3108,11 @@ var plugin = {
         stop_hook: false,
         session_start_hook: false,
         target: path || "~/.claude/settings.json",
-        backup_exists: !!path && host.fileExists(path + ".codeterm-backup"),
+        backup_exists: !!path && (yield* ioValue({ op: "fileExists", path: path + ".codeterm-backup" })),
         proposed_changes: ["PermissionRequest", "Notification", "Stop", "SessionStart"]
       };
     }
-    const json = host.fs.readJson(path);
+    const json = yield* host.io.fs.readJson(path);
     if (!json) {
       return {
         settings_exists: true,
@@ -3112,162 +3180,153 @@ var plugin = {
       stop_hook: s,
       session_start_hook: ss,
       target: path,
-      backup_exists: host.fileExists(path + ".codeterm-backup"),
+      backup_exists: yield* ioValue({ op: "fileExists", path: path + ".codeterm-backup" }),
       proposed_changes: ["PermissionRequest", "Notification", "Stop", "SessionStart"]
     };
   },
-  installIntegration(_apiPort, options) {
+  *installIntegration(_apiPort, options) {
     if (!options || options.consent !== true) {
       return { ok: false, error: "provider integration installation requires explicit local-user consent" };
     }
     const m = manifest();
     const path = host.expandHome(m && m.integration && m.integration.settingsPath || "~/.claude/settings.json");
     if (!path) return { ok: false, error: "could not expand settingsPath" };
-    const existed = host.fileExists(path);
-    const originalValue = existed ? host.fs.readFile(path) : null;
-    if (existed && typeof originalValue !== "string") {
-      return { ok: false, error: "could not read existing settings JSON at " + path };
-    }
-    const original = typeof originalValue === "string" ? originalValue : "";
-    let parsed = {};
-    if (existed) {
-      try {
-        parsed = JSON.parse(original);
-      } catch (_) {
-        return { ok: false, error: "existing settings JSON is malformed at " + path };
+    return yield* ioFileTransaction(host.io.fs, [path + ".codeterm-integration.lock"], function* () {
+      const existed = yield* ioValue({ op: "fileExists", path });
+      const originalValue = existed ? yield* host.io.fs.readFile(path) : null;
+      if (existed && typeof originalValue !== "string") {
+        return { ok: false, error: "could not read existing settings JSON at " + path };
       }
-    }
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return { ok: false, error: "existing settings JSON must contain an object at " + path };
-    }
-    const json = parsed;
-    if (json.hooks !== void 0 && (typeof json.hooks !== "object" || Array.isArray(json.hooks))) {
-      return { ok: false, error: "hooks is not an object" };
-    }
-    if (!json.hooks) json.hooks = {};
-    const executable = host.platform() === "windows" ? "curl.exe" : "curl";
-    const hookCommand = (path2, body, extraHeaders, stdin) => {
-      const payload = stdin ? '--data-binary "@-"' : `--data-binary "${body}"`;
-      return `${executable} --silent --request POST "$CODETERM_API_URL${path2}" --header "Content-Type: application/json" --header "Authorization: Bearer $CODETERM_API_TOKEN" ${CODETERM_HOOK_MARKER_ARG} ${extraHeaders} ${payload}`;
-    };
-    const nonceHeader = '--header "X-CodeTerm-Binding-Nonce: $CODETERM_SESSION_BINDING_NONCE"';
-    const notifyCmd = hookCommand("/api/tabs/$CODETERM_TAB_ID/hook/permission", "", nonceHeader, true);
-    const stopCmd = hookCommand("/api/tabs/$CODETERM_TAB_ID/hook/stop", "", nonceHeader, true);
-    const sessionStartCmd = hookCommand(
-      "/api/tabs/$CODETERM_TAB_ID/hook/session_start",
-      "",
-      nonceHeader,
-      true
-    );
-    function newEntry(matcher, cmd, timeout) {
-      return {
-        matcher,
-        hooks: [{
-          type: "command",
-          command: cmd,
-          timeout,
-          _source: CODETERM_HOOK_MARKER
-        }]
+      const original = typeof originalValue === "string" ? originalValue : "";
+      let parsed = {};
+      if (existed) {
+        try {
+          parsed = JSON.parse(original);
+        } catch (_) {
+          return { ok: false, error: "existing settings JSON is malformed at " + path };
+        }
+      }
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        return { ok: false, error: "existing settings JSON must contain an object at " + path };
+      }
+      const json = parsed;
+      if (json.hooks !== void 0 && (typeof json.hooks !== "object" || Array.isArray(json.hooks))) {
+        return { ok: false, error: "hooks is not an object" };
+      }
+      if (!json.hooks) json.hooks = {};
+      const executable = host.platform() === "windows" ? "curl.exe" : "curl";
+      const hookCommand = (path2, body, extraHeaders, stdin) => {
+        const payload = stdin ? '--data-binary "@-"' : `--data-binary "${body}"`;
+        return `${executable} --silent --request POST "$CODETERM_API_URL${path2}" --header "Content-Type: application/json" --header "Authorization: Bearer $CODETERM_API_TOKEN" ${CODETERM_HOOK_MARKER_ARG} ${extraHeaders} ${payload}`;
       };
-    }
-    const newHooks = {
-      PermissionRequest: newEntry("*", notifyCmd, CODETERM_HOOK_TIMEOUT_SECONDS),
-      Notification: newEntry("permission_prompt", notifyCmd, CODETERM_HOOK_TIMEOUT_SECONDS),
-      Stop: newEntry("", stopCmd, CODETERM_HOOK_TIMEOUT_SECONDS),
-      SessionStart: newEntry("", sessionStartCmd, CODETERM_HOOK_TIMEOUT_SECONDS)
-    };
-    const keys = INTEGRATION_HOOK_KEYS;
-    let preservedUnclassified = 0;
-    for (let i = 0; i < keys.length; i++) {
-      const k = keys[i];
-      if (json.hooks[k] !== void 0 && !Array.isArray(json.hooks[k])) {
-        return { ok: false, error: "hooks." + k + " is not an array" };
+      const nonceHeader = '--header "X-CodeTerm-Binding-Nonce: $CODETERM_SESSION_BINDING_NONCE"';
+      const notifyCmd = hookCommand("/api/tabs/$CODETERM_TAB_ID/hook/permission", "", nonceHeader, true);
+      const stopCmd = hookCommand("/api/tabs/$CODETERM_TAB_ID/hook/stop", "", nonceHeader, true);
+      const sessionStartCmd = hookCommand(
+        "/api/tabs/$CODETERM_TAB_ID/hook/session_start",
+        "",
+        nonceHeader,
+        true
+      );
+      function newEntry(matcher, cmd, timeout) {
+        return {
+          matcher,
+          hooks: [{
+            type: "command",
+            command: cmd,
+            timeout,
+            _source: CODETERM_HOOK_MARKER
+          }]
+        };
       }
-      const existing = Array.isArray(json.hooks[k]) ? json.hooks[k].filter((entry) => {
-        const retained = k === "PreCompact" ? retainForeignPrecompactEntry(entry) : !isCodetermHook(entry);
-        if (retained) preservedUnclassified++;
-        return retained;
-      }) : [];
-      if (newHooks[k]) {
-        existing.push(newHooks[k]);
-        json.hooks[k] = existing;
-      } else if (Array.isArray(json.hooks[k])) {
-        json.hooks[k] = existing;
+      const newHooks = {
+        PermissionRequest: newEntry("*", notifyCmd, CODETERM_HOOK_TIMEOUT_SECONDS),
+        Notification: newEntry("permission_prompt", notifyCmd, CODETERM_HOOK_TIMEOUT_SECONDS),
+        Stop: newEntry("", stopCmd, CODETERM_HOOK_TIMEOUT_SECONDS),
+        SessionStart: newEntry("", sessionStartCmd, CODETERM_HOOK_TIMEOUT_SECONDS)
+      };
+      const keys = INTEGRATION_HOOK_KEYS;
+      let preservedUnclassified = 0;
+      for (let i = 0; i < keys.length; i++) {
+        const k = keys[i];
+        if (json.hooks[k] !== void 0 && !Array.isArray(json.hooks[k])) {
+          return { ok: false, error: "hooks." + k + " is not an array" };
+        }
+        const existing = Array.isArray(json.hooks[k]) ? json.hooks[k].filter((entry) => {
+          const retained = k === "PreCompact" ? retainForeignPrecompactEntry(entry) : !isCodetermHook(entry);
+          if (retained) preservedUnclassified++;
+          return retained;
+        }) : [];
+        if (newHooks[k]) {
+          existing.push(newHooks[k]);
+          json.hooks[k] = existing;
+        } else if (Array.isArray(json.hooks[k])) {
+          json.hooks[k] = existing;
+        }
       }
-    }
-    if (!host.fs.writeFile(path + ".codeterm-backup", original) || !host.fs.writeFile(path + ".codeterm-backup-state", existed ? "present" : "absent")) {
-      return { ok: false, error: "could not write recoverable backup for " + path };
-    }
-    const ok = host.fs.writeJson(path, json);
-    if (ok) {
-      if (options.repair === true && preservedUnclassified > 0) {
-        host.log("warn", "[claude-plugin] repair preserved " + preservedUnclassified + " foreign or unclassifiable hook entries at " + path);
+      if (!(yield* host.io.fs.writeFile(path + ".codeterm-backup", original)) || !(yield* host.io.fs.writeFile(path + ".codeterm-backup-state", existed ? "present" : "absent"))) {
+        return { ok: false, error: "could not write recoverable backup for " + path };
       }
-      host.log("info", "[claude-plugin] hooks installed at " + path);
-      return { ok: true };
-    }
-    return { ok: false, error: "writeJson failed for " + path };
+      const ok = yield* host.io.fs.writeJson(path, json);
+      if (ok) {
+        if (options.repair === true && preservedUnclassified > 0) {
+          host.log("warn", "[claude-plugin] repair preserved " + preservedUnclassified + " foreign or unclassifiable hook entries at " + path);
+        }
+        host.log("info", "[claude-plugin] hooks installed at " + path);
+        return { ok: true };
+      }
+      return { ok: false, error: "writeJson failed for " + path };
+    });
   },
-  uninstallIntegration() {
+  *uninstallIntegration() {
     const m = manifest();
     const path = host.expandHome(m && m.integration && m.integration.settingsPath || "~/.claude/settings.json");
-    if (!path || !host.fileExists(path)) return { ok: true };
-    const original = host.fs.readFile(path);
-    if (typeof original !== "string") return { ok: false, error: "could not safely read settings JSON at " + path };
-    let parsed;
-    try {
-      parsed = JSON.parse(original);
-    } catch (_) {
-      return { ok: false, error: "existing settings JSON is malformed at " + path };
-    }
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return { ok: false, error: "existing settings JSON must contain an object at " + path };
-    }
-    const json = parsed;
-    if (json.hooks === void 0) return { ok: true };
-    if (!json.hooks || typeof json.hooks !== "object" || Array.isArray(json.hooks)) {
-      return { ok: false, error: "hooks is not an object" };
-    }
-    const keys = INTEGRATION_HOOK_KEYS;
-    for (let i = 0; i < keys.length; i++) {
-      const k = keys[i];
-      if (json.hooks[k] !== void 0 && !Array.isArray(json.hooks[k])) {
-        return { ok: false, error: "hooks." + k + " is not an array" };
+    if (!path || !(yield* ioValue({ op: "fileExists", path }))) return { ok: true };
+    const preflight = yield* readIntegrationSettings(path);
+    if (!preflight.ok) return preflight;
+    if (preflight.settings.hooks === void 0) return { ok: true };
+    return yield* ioFileTransaction(host.io.fs, [path + ".codeterm-integration.lock"], function* () {
+      const current = yield* readIntegrationSettings(path);
+      if (!current.ok) return current;
+      const json = current.settings;
+      if (json.hooks === void 0) return { ok: true };
+      const keys = INTEGRATION_HOOK_KEYS;
+      for (let i = 0; i < keys.length; i++) {
+        const k = keys[i];
+        if (Array.isArray(json.hooks[k])) {
+          json.hooks[k] = json.hooks[k].filter((entry) => k === "PreCompact" ? retainForeignPrecompactEntry(entry) : !isCodetermHook(entry));
+        }
       }
-    }
-    for (let i = 0; i < keys.length; i++) {
-      const k = keys[i];
-      if (Array.isArray(json.hooks[k])) {
-        json.hooks[k] = json.hooks[k].filter((entry) => k === "PreCompact" ? retainForeignPrecompactEntry(entry) : !isCodetermHook(entry));
+      const ok = yield* host.io.fs.writeJson(path, json);
+      if (ok) {
+        host.log("info", "[claude-plugin] hooks removed from " + path);
+        return { ok: true };
       }
-    }
-    const ok = host.fs.writeJson(path, json);
-    if (ok) {
-      host.log("info", "[claude-plugin] hooks removed from " + path);
-      return { ok: true };
-    }
-    return { ok: false, error: "writeJson failed for " + path };
+      return { ok: false, error: "writeJson failed for " + path };
+    });
   },
-  restoreIntegration() {
+  *restoreIntegration() {
     const m = manifest();
     const path = host.expandHome(m && m.integration && m.integration.settingsPath || "~/.claude/settings.json");
     if (!path) return { ok: false, error: "could not expand settingsPath" };
     const backup = path + ".codeterm-backup";
-    if (!host.fileExists(backup)) return { ok: false, error: "no recoverable backup at " + backup };
-    const original = host.fs.readFile(backup);
-    if (typeof original !== "string") return { ok: false, error: "restore failed for " + path };
-    const state = host.fs.readFile(path + ".codeterm-backup-state");
-    const wasAbsent = state === "absent" || typeof state !== "string" && original === "";
-    if (wasAbsent) return !host.fileExists(path) || host.removeFile(path) ? { ok: true } : { ok: false, error: "restore failed for " + path };
-    return host.fs.writeFile(path, original) ? { ok: true } : { ok: false, error: "restore failed for " + path };
+    if (!(yield* ioValue({ op: "fileExists", path: backup }))) return { ok: false, error: "no recoverable backup at " + backup };
+    return yield* ioFileTransaction(host.io.fs, [path + ".codeterm-integration.lock"], function* () {
+      const original = yield* host.io.fs.readFile(backup);
+      if (typeof original !== "string") return { ok: false, error: "restore failed for " + path };
+      const state = yield* host.io.fs.readFile(path + ".codeterm-backup-state");
+      const wasAbsent = state === "absent" || typeof state !== "string" && original === "";
+      if (wasAbsent) return !(yield* ioValue({ op: "fileExists", path })) || (yield* host.io.fs.removeFile(path)) ? { ok: true } : { ok: false, error: "restore failed for " + path };
+      return (yield* host.io.fs.writeFile(path, original)) ? { ok: true } : { ok: false, error: "restore failed for " + path };
+    });
   },
   // AS3/AS4 tab-state classification lives in ./classify; the facade delegates.
   // See that module for the auth/rate-limit/clarifying ensemble and its guarantees.
   classifyTabState(snapshot) {
     return classifyClaudeTabState(snapshot);
   },
-  detectLaunchSession(evidence) {
-    return detectClaudeLaunchSession(evidence);
+  *detectLaunchSession(evidence) {
+    return yield* detectClaudeLaunchSession(evidence);
   }
 };
 function exactSourceIdentity(value) {
@@ -3304,7 +3363,7 @@ function resumeBase(sessionId, skipPermissions) {
   parts.push(host.shell.quoteFor(sessionId, host.platform()));
   return parts.join(" ");
 }
-function parseSessionDelta(chunk) {
+function* parseSessionDelta(chunk) {
   const out = [];
   let stamped = 0;
   const stampRows = (row) => {
@@ -3388,7 +3447,7 @@ function parseSessionDelta(chunk) {
       if (!msg) continue;
       const content = msg.content;
       if (typeof content === "string") {
-        const agentNotice = t === "user" ? subAgentNotificationBlock(content, v) : null;
+        const agentNotice = t === "user" ? yield* subAgentNotificationBlock(content, v) : null;
         const taskStatus = t === "user" && !agentNotice ? taskNotificationStatus(content) : null;
         if (agentNotice) {
           blocks.push(agentNotice);
@@ -3467,7 +3526,7 @@ function parseSessionDelta(chunk) {
         emitObservations();
         continue;
       }
-      const agentNotice = subAgentNotificationBlock(att.prompt, v);
+      const agentNotice = yield* subAgentNotificationBlock(att.prompt, v);
       const taskStatus = agentNotice ? null : att.commandMode === "task-notification" ? taskNotificationStatus(att.prompt) ?? "Task notification" : taskNotificationStatus(att.prompt);
       if (agentNotice) {
         role = "assistant";
@@ -3557,4 +3616,4 @@ function parseSessionMessages(text2) {
   }
   return out;
 }
-var plugin_default = plugin;
+var plugin_default = defineProviderIo(plugin, () => host.io);

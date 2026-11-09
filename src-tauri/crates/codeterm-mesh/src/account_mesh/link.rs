@@ -1,7 +1,7 @@
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
-use super::ports::{AdmissionRefusal, BoxFuture, LinkAuthorizationRequest, LinkPermitExpectation};
+use super::ports::{AdmissionRefusal, BoxFuture};
 use super::protocol::{
     AccountMeshPair, LinkCommit, LinkCommitReply, LinkConfirm, LinkConfirmReply, LinkHello,
     LinkHelloReply, PartyDescriptor, LINK_COMMIT_PATH, LINK_CONFIRM_PATH, LINK_HELLO_PATH,
@@ -96,7 +96,7 @@ pub async fn link_installation(
     link_installation_with(mesh, &HttpLinkTransport, installation_id).await
 }
 
-/// Initiator of a NEW link: registry target, mutual nonce, both online permits, then persist.
+/// Initiates a link using local membership and signed registry authority.
 pub async fn link_installation_with(
     mesh: &MeshState,
     transport: &dyn LinkTransport,
@@ -195,6 +195,8 @@ async fn connect_target_inner(
     let link_id = uuid::Uuid::new_v4().to_string();
     let nonce = transcript::fresh_nonce();
     let hello = LinkHello {
+        protocol_version: super::protocol::LINK_PROTOCOL_VERSION,
+        signed_registry: mesh.lock().signed_registry.clone(),
         link_id: link_id.clone(),
         initiator: local,
         membership: context.membership.token.clone(),
@@ -210,6 +212,15 @@ async fn connect_target_inner(
             )
             .await?,
     )?;
+    if reply.protocol_version != super::protocol::LINK_PROTOCOL_VERSION {
+        return Err(AdmissionRefusal::PeerNeedsUpdate);
+    }
+    if let Some(snapshot) = reply.signed_registry.as_ref() {
+        context
+            .authority
+            .receive_registry_snapshot(snapshot)
+            .await?;
+    }
     fence(mesh, &context)?;
     if reply.link_id != link_id || reply.responder.party.installation_id != installation_id {
         return Err(AdmissionRefusal::handshake(
@@ -222,12 +233,14 @@ async fn connect_target_inner(
     let remote = {
         let manager = mesh.lock();
         manager.check_link_identity(&responder.instance_id, &responder.mesh_public_key)?;
-        verify_membership(
+        let membership = verify_membership(
             &context,
             &reply.membership,
             &responder.installation_id,
             manager.now(),
-        )?
+        )?;
+        manager.check_registry_membership(&membership.verified)?;
+        membership
     };
     let digest = transcript::transcript(
         Purpose::Link,
@@ -246,17 +259,6 @@ async fn connect_target_inner(
         &reply.mesh_signature,
     )?;
 
-    let permit = context
-        .authority
-        .authorize_link(LinkAuthorizationRequest {
-            transcript: digest,
-            local_installation_id: context.party.installation_id.clone(),
-            peer_installation_id: responder.installation_id.clone(),
-            account_id: context.account_id.clone(),
-            link_nonce: link_id.clone(),
-        })
-        .await?;
-    fence(mesh, &context)?;
     let confirm = LinkConfirm {
         link_id: link_id.clone(),
         installation_signature: context
@@ -264,7 +266,6 @@ async fn connect_target_inner(
             .sign_possession(&possession_digest(&digest, INITIATOR_ROLE))?,
         mesh_signature: transcript::sign_mesh(&context.private_key, &digest, INITIATOR_ROLE)
             .map_err(AdmissionRefusal::handshake)?,
-        permit,
     };
     let confirmed: LinkConfirmReply = decode(
         transport
@@ -277,20 +278,10 @@ async fn connect_target_inner(
             .await?,
     )?;
 
-    {
-        let manager = mesh.lock();
-        manager.fence_admission(&context)?;
-        context.authority.verify_link_permit(
-            &confirmed.permit,
-            &LinkPermitExpectation {
-                transcript: digest,
-                holder_installation_id: responder.installation_id.clone(),
-                peer_installation_id: context.party.installation_id.clone(),
-                account_id: context.account_id.clone(),
-            },
-            manager.now(),
-        )?;
+    if !confirmed.confirmed {
+        return Err(AdmissionRefusal::handshake("peer did not confirm the link"));
     }
+    fence(mesh, &context)?;
     mesh.lock()
         .set_connection_phase(installation_id, ConnectionPhase::Committing);
     let commit = LinkCommit {
@@ -313,6 +304,12 @@ async fn connect_target_inner(
         return Err(AdmissionRefusal::handshake("peer did not commit the link"));
     }
 
+    if let Some(snapshot) = committed.signed_registry.as_ref() {
+        context
+            .authority
+            .receive_registry_snapshot(snapshot)
+            .await?;
+    }
     let pair = {
         let mut manager = mesh.lock();
         manager.fence_admission(&context)?;
@@ -334,12 +331,6 @@ async fn connect_target_inner(
             .find(|pair| pair.instance_id == responder.instance_id)
             .ok_or_else(|| AdmissionRefusal::handshake("link not recorded"))?
     };
-    if let Some(snapshot) = committed.signed_registry.as_ref() {
-        context
-            .authority
-            .receive_registry_snapshot(snapshot)
-            .await?;
-    }
     if !mesh.lock().traffic_open(&pair.instance_id) {
         return Err(AdmissionRefusal::Revoked);
     }

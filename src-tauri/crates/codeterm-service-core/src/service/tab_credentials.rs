@@ -120,6 +120,7 @@ struct Credential {
     token: String,
     caller: TabCaller,
     session: Option<String>,
+    file: Option<CredentialFile>,
 }
 
 #[derive(Default)]
@@ -129,7 +130,7 @@ pub(crate) struct TabCredentials(
 );
 
 impl TabCredentials {
-    fn mint(&self, caller: TabCaller) -> String {
+    fn mint(&self, caller: TabCaller, current_session: Option<&str>, attested: bool) -> String {
         let mut credentials = self.0.lock();
         let entry = credentials
             .entry(caller.tab_id.clone())
@@ -137,14 +138,23 @@ impl TabCredentials {
                 token: uuid::Uuid::new_v4().to_string(),
                 caller: caller.clone(),
                 session: None,
+                file: None,
             });
-        if entry.caller != caller {
+        let session_changed = entry
+            .session
+            .as_deref()
+            .is_some_and(|session| Some(session) != current_session);
+        if entry.caller != caller || session_changed {
             self.1.lock().remove(&caller.tab_id);
             *entry = Credential {
                 token: uuid::Uuid::new_v4().to_string(),
                 caller,
                 session: None,
+                file: None,
             };
+        }
+        if entry.session.is_none() && attested {
+            entry.session = current_session.map(str::to_owned);
         }
         entry.token.clone()
     }
@@ -213,6 +223,56 @@ impl TabCredentials {
 }
 
 impl super::ServiceContext {
+    pub(crate) fn runtime_credential_file(
+        &self,
+        tab_id: &str,
+        nonce: &str,
+    ) -> Result<String, String> {
+        let token = {
+            let credentials = self.tab_credentials.0.lock();
+            let credential = credentials
+                .get(tab_id)
+                .filter(|credential| credential.caller.binding_nonce == nonce)
+                .ok_or("Runtime credential unavailable")?;
+            if let Some(file) = &credential.file {
+                return Ok(file.path().to_string_lossy().into_owned());
+            }
+            credential.token.clone()
+        };
+        let file = CredentialFile(
+            self.ext::<super::launch_credentials::Directory>()
+                .file_path(codeterm_util::tab_launch::RUNTIME_FILE_PREFIX, ".json"),
+        );
+        let bytes = serde_json::to_vec(&codeterm_util::tab_launch::LaunchCredential {
+            tab_id: tab_id.into(),
+            binding_nonce: nonce.into(),
+            token: token.clone(),
+        })
+        .map_err(|error| error.to_string())?;
+        codeterm_util::tab_launch::write_new(file.path(), &bytes)
+            .map_err(|error| format!("Runtime credential handoff failed: {error}"))?;
+        let mux = self.mux.read();
+        let tab = mux.get_tab(tab_id).ok_or("Runtime tab unavailable")?;
+        if tab.session_binding_nonce.as_deref() != Some(nonce) {
+            return Err("Runtime launch changed before credential handoff".into());
+        }
+        let mut credentials = self.tab_credentials.0.lock();
+        let credential = credentials
+            .get_mut(tab_id)
+            .ok_or("Runtime credential unavailable")?;
+        if credential.caller.binding_nonce != nonce || credential.token != token {
+            return Err("Runtime credential belongs to another launch".into());
+        }
+        if credential.file.is_none() {
+            credential.file = Some(file);
+        }
+        credential
+            .file
+            .as_ref()
+            .map(|file| file.path().to_string_lossy().into_owned())
+            .ok_or_else(|| "Runtime credential file unavailable".into())
+    }
+
     pub(crate) fn retain_launch_credential_file(
         &self,
         tab_id: &str,
@@ -279,6 +339,9 @@ impl super::ServiceContext {
         method: &str,
         params: &mut Option<serde_json::Value>,
     ) -> Result<(), String> {
+        if method == "agent.acp" {
+            super::agent_runtime::acp_profiles::authorize(self, token)?;
+        }
         match self.authenticate_local_credential(token)? {
             Some(caller) => {
                 self.authorize_neighbor_secret_rpc(&caller, method, params.as_ref())?;
@@ -437,17 +500,14 @@ impl super::ServiceContext {
         if binding_nonce.as_str() != expected_nonce {
             return None;
         }
-        let token = self.tab_credentials.mint(TabCaller {
-            tab_id: tab.id.clone(),
-            binding_nonce: binding_nonce.clone(),
-        });
-        self.tab_credentials
-            .verify_session(
-                &token,
-                tab.agent_session_id.as_deref(),
-                tab.reported_session_binding_nonce.as_deref() == Some(binding_nonce.as_str()),
-            )
-            .then_some(token)
+        Some(self.tab_credentials.mint(
+            TabCaller {
+                tab_id: tab.id.clone(),
+                binding_nonce: binding_nonce.clone(),
+            },
+            tab.agent_session_id.as_deref(),
+            tab.reported_session_binding_nonce.as_deref() == Some(binding_nonce.as_str()),
+        ))
     }
 
     pub fn identify_tab_credential(&self, token: &str) -> Option<TabCaller> {

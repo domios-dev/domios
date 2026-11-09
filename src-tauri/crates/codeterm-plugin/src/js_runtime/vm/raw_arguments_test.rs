@@ -41,8 +41,14 @@ fn session_parser_argument_channels_preserve_rows() {
                 };
                 let raw = Arguments::prepare(method, &args).unwrap();
                 assert!(raw.raw.is_some());
-                let expected = enter_call(&vm, method, &json, false, None, None).unwrap();
-                let actual = enter_call(&vm, method, &raw, false, None, None).unwrap();
+                let operation = vm
+                    .admission
+                    .enter(Some(default_call_interrupt(&vm)))
+                    .unwrap();
+                let expected =
+                    enter_call(&vm, method, &json, false, operation.context.clone(), None).unwrap();
+                let actual =
+                    enter_call(&vm, method, &raw, false, operation.context.clone(), None).unwrap();
                 assert_eq!(actual, expected, "{} {method}", path.display());
                 cases += 1;
             }
@@ -83,8 +89,19 @@ fn stored_history_argument_measurement() {
             };
             prepare += start.elapsed();
             let start = std::time::Instant::now();
-            let output =
-                enter_call(&vm, "runtimeStoredHistory", &prepared, false, None, None).unwrap();
+            let operation = vm
+                .admission
+                .enter(Some(default_call_interrupt(&vm)))
+                .unwrap();
+            let output = enter_call(
+                &vm,
+                "runtimeStoredHistory",
+                &prepared,
+                false,
+                operation.context.clone(),
+                None,
+            )
+            .unwrap();
             execute += start.elapsed();
             assert_eq!(output.parse::<usize>().unwrap(), records.len());
         }

@@ -113,7 +113,7 @@ fn provider_exhaustion_pause_preserves_worker_and_seals_checkpoint() {
         .finish_provider_exhaustion_pause(&plan_id, &task_id, &attempt_id, 1, sealed.clone(), 6)
         .unwrap();
 
-    let task = store.show_task(&task_id).unwrap().task;
+    let task = store.inspect_task_for_test(&task_id).unwrap().task;
     // Not destroyed / not handed off: attempt open, owner preserved.
     assert!(
         task.execution_attempts[0].closed_at.is_none(),
@@ -159,7 +159,7 @@ fn provider_exhaustion_pause_is_resumable_without_epoch_churn() {
     store
         .resume_from_provider_exhaustion(&plan_id, &task_id, "old-tab", "old-session", 1, 7)
         .unwrap();
-    let task = store.show_task(&task_id).unwrap().task;
+    let task = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(task.status, TaskStatus::InProgress);
     assert_eq!(task.status_label, None);
     // Same epoch, same owner: no new epoch-deadlock introduced.
@@ -185,7 +185,7 @@ fn non_exhaustion_interruption_path_still_hands_off() {
             5,
         )
         .unwrap();
-    let task = store.show_task(&task_id).unwrap().task;
+    let task = store.inspect_task_for_test(&task_id).unwrap().task;
     assert!(task.interruption.handoff_required);
     assert_eq!(task.status_label.as_deref(), Some("handoff_required"));
     assert!(task.execution_attempts[0].closed_at.is_some());
@@ -438,7 +438,12 @@ fn production_adoption_binds_exact_authenticated_session_and_epoch() {
             .get_tab_mut(&tab_id)
             .unwrap()
             .task_binding = Some(conflicting.clone());
-        let before = fixture.service.plan_store.show_task(&task_id).unwrap().task;
+        let before = fixture
+            .service
+            .plan_store
+            .inspect_task_for_test(&task_id)
+            .unwrap()
+            .task;
         assert!(fixture
             .service
             .adopt_worker_checkpoint_sync(&task_id, &tab_id, "new-session", 6)
@@ -455,7 +460,12 @@ fn production_adoption_binds_exact_authenticated_session_and_epoch() {
                 .as_ref(),
             Some(&conflicting)
         );
-        let after = fixture.service.plan_store.show_task(&task_id).unwrap().task;
+        let after = fixture
+            .service
+            .plan_store
+            .inspect_task_for_test(&task_id)
+            .unwrap()
+            .task;
         assert_eq!(
             after.execution_attempts.len(),
             before.execution_attempts.len()
@@ -474,7 +484,12 @@ fn production_adoption_binds_exact_authenticated_session_and_epoch() {
         .adopt_worker_checkpoint_sync(&task_id, &tab_id, "new-session", 6)
         .unwrap();
     assert_eq!(epoch, 2);
-    let adopted = fixture.service.plan_store.show_task(&task_id).unwrap().task;
+    let adopted = fixture
+        .service
+        .plan_store
+        .inspect_task_for_test(&task_id)
+        .unwrap()
+        .task;
     let latest = adopted.execution_attempts.last().unwrap();
     assert_eq!(latest.provider.as_deref(), Some("target-provider"));
     assert_eq!(

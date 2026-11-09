@@ -22,6 +22,9 @@ pub struct MeshManager {
     pub ident: identity::IdentityManager,
     pub paired_peers: HashMap<String, PairedPeer>,
     pub account_installations: Vec<types::AccountInstallation>,
+    pub(crate) announce_slots: Arc<tokio::sync::Semaphore>,
+    pub(crate) address_refresh: crate::broadcast::refresh::RefreshState,
+    pub(crate) address_announcements: Arc<crate::broadcast::coalesce::AddressAnnouncements>,
     pub tailscale_ip: Option<String>,
     pub network_transport: Option<crate::network_transport::TransportStatus>,
     pub local_ip: Option<String>,
@@ -46,10 +49,11 @@ pub struct MeshManager {
     links: LinkLedger,
     account: account_mesh::AccountMeshState,
     account_authority: Option<Arc<dyn account_mesh::AccountMeshAuthority>>,
-    pub registry_revision: Option<types::RegistryRevision>,
+    pub(crate) endpoint_records: crate::endpoint_gossip::EndpointRecords,
     pub signed_registry: Option<codeterm_entitlements::DetachedGrant>,
     clock: Arc<dyn Fn() -> u64 + Send + Sync>,
     gate_generation: tokio::sync::watch::Sender<u64>,
+    transport_generation: tokio::sync::watch::Sender<u64>,
     pending_links: HashMap<String, account_admission::PendingLink>,
     account_ready: bool,
     remote_access_epoch: u64,
@@ -96,6 +100,9 @@ impl MeshManager {
             ident,
             paired_peers: HashMap::new(),
             account_installations: Vec::new(),
+            announce_slots: Arc::new(tokio::sync::Semaphore::new(8)),
+            address_refresh: Default::default(),
+            address_announcements: Default::default(),
             tailscale_ip: None,
             network_transport: None,
             local_ip: None,
@@ -119,10 +126,11 @@ impl MeshManager {
             links: LinkLedger::default(),
             account: account_mesh::AccountMeshState::default(),
             account_authority: None,
-            registry_revision: None,
             signed_registry: None,
+            endpoint_records: Default::default(),
             clock: Arc::new(account_gate::system_now),
             gate_generation: tokio::sync::watch::channel(0).0,
+            transport_generation: tokio::sync::watch::channel(0).0,
             pending_links: HashMap::new(),
             account_ready: true,
             remote_access_epoch: 0,
@@ -335,6 +343,7 @@ impl MeshManager {
         types::MeshSyncPayload {
             peers,
             generation: self.local_gossip_generation,
+            endpoints: self.endpoint_records(),
         }
     }
 
@@ -359,8 +368,18 @@ impl MeshManager {
         }
         let peer = self.paired_peers.get(peer_id)?;
         let token = self.sign_request().ok()?;
-        if let Some(url) = crate::web_ui_endpoints::preferred_https_url(peer.web_ui.as_ref()) {
-            return Some(transport::PeerClient::new_signed_url(url, &token));
+        if let Some(installation) = self
+            .link_record(peer_id)
+            .and_then(|link| link.installation_id())
+        {
+            if self.has_endpoint_record(installation) {
+                let endpoint = self.endpoint_target(installation)?;
+                return Some(transport::PeerClient::new_signed(
+                    &endpoint.ip,
+                    endpoint.api_port,
+                    &token,
+                ));
+            }
         }
         let addr = peer
             .addresses

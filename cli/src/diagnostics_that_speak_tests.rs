@@ -14,6 +14,8 @@ fn diagnostics_that_speak_cross_subcommand_execution_intent_names_both_commands(
         "task",
         "--executor-role",
         "worker",
+        "--personality",
+        "Ada",
         "--execution-intent",
         "read_only",
     ]);

@@ -1,3 +1,4 @@
+import { muxMockFetch, settleDaemon } from "../../lib/muxMockFetch.testdata";
 // Run: npx tsx src/components/Canvas/PlansProvider.test.tsx
 
 import { act, useEffect, type ComponentProps, type ReactElement } from "react";
@@ -72,7 +73,7 @@ function setupDom() {
   Object.defineProperty(globalThis, "Node", { value: window.Node, configurable: true });
   Object.defineProperty(globalThis, "fetch", {
     configurable: true,
-    value: async (input: RequestInfo | URL) => {
+    value: muxMockFetch(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("/api/plans?") && url.includes("view=summary")) {
         fullCalls++;
@@ -97,7 +98,7 @@ function setupDom() {
         return new Response(JSON.stringify(FIXTURE_PLAN), { status: 200 });
       }
       return new Response("not found", { status: 404 });
-    },
+    }),
   });
 }
 
@@ -133,9 +134,9 @@ function SidebarProbe() {
   return <output data-testid="sidebar-plan-count">{plans.length}</output>;
 }
 
+// Carrier responses arrive as mux frames; settle on the carrier's own idle acknowledgement.
 async function flushAsyncWork() {
-  await Promise.resolve();
-  await Promise.resolve();
+  await settleDaemon();
 }
 
 async function renderTree(ui: ReactElement): Promise<{ host: HTMLDivElement; root: Root }> {
@@ -262,6 +263,7 @@ test("desktop plan queries wait for config and bypass REST", async () => {
   fullCalls = 0;
   let restCalls = 0;
   const prevFetch = globalThis.fetch;
+  // The installed fetch is already the mux fake daemon; this spy counts carrier HTTP calls.
   globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     restCalls++;
     return prevFetch(input, init);

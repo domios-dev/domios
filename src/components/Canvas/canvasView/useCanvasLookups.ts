@@ -1,3 +1,4 @@
+import type { PlanView as Plan, PlanSectionView as Section, PlanTaskView as Task } from "../planProjection";
 import { useMemo } from "react";
 import type { Tab } from "../../../lib/types";
 import type { LaidOutNode, WorkspaceLayout } from "../layout";
@@ -6,7 +7,7 @@ import { zoneColor } from "../layout/sectionZones";
 import { resolvePlanExclusiveTabTasks } from "../tabCurrentTask";
 import { buildTaskPresence } from "../taskPresence";
 import { historicalExecutorForTask } from "../taskExecutorHistory";
-import type { CanvasElement, DriftItem, Plan, Section, Task } from "../types";
+import type { CanvasElement, DriftItem } from "../types";
 export { buildTaskPresenceFingerprint } from "./presenceFingerprint";
 import { collectSections, type CanvasLookups, type TaskCardModel } from "./models";
 
@@ -70,9 +71,9 @@ export function useCanvasLookups(
           historicalExecutor: historicalExecutorForTask(task, tabs, presence != null),
           regionColor: (() => { const sid = regionSectionOf(task); return sid ? zoneColor(sid) : undefined; })(),
         });
-        for (const m of task.milestones) milestoneTaskById.set(m.id, task.id);
+        for (const m of task.milestones ?? []) milestoneTaskById.set(m.id, task.id);
       }
-      for (const el of plan.elements) elementById.set(el.id, el);
+      for (const el of plan.elements ?? []) elementById.set(el.id, el);
     }
     return { nodeById, taskById, taskModelById, sectionById, milestoneTaskById, elementById };
     // `tabs` is read inside but intentionally NOT a dep — tabsContentKey is its

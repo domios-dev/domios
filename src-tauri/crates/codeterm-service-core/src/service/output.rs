@@ -66,19 +66,14 @@ const AGENT_STOP_SUPPRESS_MS: u64 = 1_500;
 
 fn store_agent_state_and_record_turn_resume_edge(
     tab: &mut crate::multiplexer::types::Tab,
-    registry: &crate::agent::registry::AgentRegistry,
+    providers: &crate::agent::registry::ProviderStateSnapshot,
     new_state: crate::agent::offline_state_classifier::AgentLiveState,
     start_epoch: Option<&str>,
     shutting_down: bool,
 ) -> (bool, bool) {
     let structured_state_owned = tab.agent_session_id.is_some()
         && tab.agent_state.is_some()
-        && tab.agent_type.as_deref().is_some_and(|provider| {
-            registry.with_provider(provider, |provider| {
-                provider.needs_structured_prompt_server()
-                    && provider.supports_agent_state_status_reconciliation()
-            }) == Some(true)
-        });
+        && providers.owns_structured_state(tab.agent_type.as_deref());
     let mut new_state = new_state;
     finished_turn::carry_summary(tab.agent_state.as_ref(), &mut new_state);
     if matches!(
@@ -743,12 +738,13 @@ impl ServiceContext {
             }
         }
 
+        let providers = self.agent_registry.state_snapshot();
         let (changed, resume_mark_changed) = {
             let mut mux = self.mux.write();
             match mux.get_tab_mut(&tab_id) {
                 Some(tab) => store_agent_state_and_record_turn_resume_edge(
                     tab,
-                    &self.agent_registry,
+                    &providers,
                     new_state,
                     crate::crash::lifecycle::current_start_epoch(),
                     crate::crash::shutdown::is_shutting_down(),

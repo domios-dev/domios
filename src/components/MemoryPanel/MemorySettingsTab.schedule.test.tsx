@@ -1,3 +1,4 @@
+import { baseDaemonTransport } from "../../lib/daemonBootstrap";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
@@ -66,15 +67,27 @@ async function main() {
   __setListenForTest(async () => () => {});
 
   let cronFetched = false;
-  globalThis.fetch = (async (url: string | URL) => {
-    const u = String(url);
+  const calls: Array<{ path: string; init?: RequestInit }> = [];
+  globalThis.fetch = (() => { throw new Error("Raw daemon fetch bypass"); }) as typeof fetch;
+  baseDaemonTransport().request = async (u, init, local) => {
+    assert(local === true, "memory settings must target the local daemon");
+    calls.push({ path: u, init });
+    if (init?.method === "PUT") {
+      ENABLED_CRON[0].schedule = JSON.parse(String(init.body)).schedule;
+      return Response.json(ENABLED_CRON[0]);
+    }
+    if (u.endsWith("/disable") || u.endsWith("/enable")) {
+      ENABLED_CRON[0].enabled = u.endsWith("/enable");
+      return Response.json(ENABLED_CRON[0]);
+    }
+    if (u === "/api/mem/sync") return Response.json({ total_tracked: 7, source_missing: 2 });
     if (u.includes("/api/crons")) {
       cronFetched = true;
       return { ok: true, json: async () => ENABLED_CRON } as Response;
     }
     if (u.includes("/api/mem/sync/status")) return { ok: true, json: async () => ({ tracked_files: 0, stale_files: 0 }) } as Response;
     return { ok: true, json: async () => ({}) } as Response;
-  }) as typeof fetch;
+  };
 
   const host = document.createElement("div");
   document.body.appendChild(host);
@@ -103,6 +116,27 @@ async function main() {
   const time = host.querySelector('[data-testid="memory-settings-dream-time"]') as HTMLInputElement | null;
   assert(time && time.value === "06:00", `time must be 06:00, got '${time?.value}'`);
 
+  await act(async () => {
+    schedule.value = "off";
+    schedule.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  assert(String(schedule.value) === "off", "successful disable is reflected in the schedule");
+  await act(async () => {
+    schedule.value = "weekly";
+    schedule.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  assert(String(schedule.value) === "weekly", "updating a disabled schedule enables its new frequency");
+  assert(calls.some(call => call.path === "/api/crons/cid/disable" && call.init?.method === "POST"), "disable remains a POST");
+  const update = calls.find(call => call.init?.method === "PUT");
+  assert(update?.path === "/api/crons/cid" && JSON.parse(String(update.init?.body)).schedule === "0 6 * * 0", "schedule update preserves the cron payload");
+  assert(calls.some(call => call.path === "/api/crons/cid/enable" && call.init?.method === "POST"), "disabled cron is enabled after its update");
+  await act(async () => host.querySelector<HTMLButtonElement>('[data-testid="memory-settings-sync-now"]')!.click());
+  assert(host.textContent?.includes("Tracked: 7 (2 stale)"), "sync result is projected into tracked and stale counts");
+  await act(async () => host.querySelector<HTMLButtonElement>('[data-testid="memory-settings-run-dream"]')!.click());
+  for (const path of ["/api/mem/sync", "/api/mem/dream"]) {
+    const call = calls.find(call => call.path === path);
+    assert(call?.init?.method === "POST" && call.init.body === "{}", `${path} preserves its empty JSON POST`);
+  }
   await act(async () => root.unmount());
   __setInvokeForTest(null);
   __setListenForTest(null);

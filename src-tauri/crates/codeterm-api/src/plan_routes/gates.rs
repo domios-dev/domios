@@ -7,11 +7,11 @@ use serde::Deserialize;
 
 use crate::routes::AppState;
 use codeterm_service_core::plan::peer::{resolve_planner_ref, PeerResolution};
+use codeterm_service_core::service::plan::PlannerGateRead;
 
 use super::{emit_plan_changed, epoch_ms, plan_err, text_err, PlanRouteResult};
 
-fn resolve_routed_tab(state: &AppState, plan_id: &str) -> Option<String> {
-    let plan = state.svc.plan_store.get(plan_id)?;
+fn resolve_routed_tab(state: &AppState, plan: &PlannerGateRead) -> Option<String> {
     let resolution =
         resolve_planner_ref(&plan.planner, &plan.owner, |pid| state.svc.tab_probe(pid));
     match resolution {
@@ -43,9 +43,15 @@ pub async fn gate_ask(
         body.asked_by_tab_id =
             crate::auth::caller_claim(&state, &headers, body.asked_by_tab_id.as_deref())
                 .map_err(|(status, message)| text_err(status, message))?;
-        if let Some(owner) = state
+        let gate_context = state
             .svc
-            .planner_gate_owner_answerer(&id, body.asked_by_tab_id.as_deref())
+            .plan_store
+            .planner_gate_context(&id, None)
+            .map_err(plan_err)?;
+        if let Some(owner) = gate_context
+            .as_ref()
+            .and_then(|read| read.owner_for_gate(body.asked_by_tab_id.as_deref()))
+            .map(str::to_string)
         {
             let gate = state
                 .svc
@@ -74,7 +80,9 @@ pub async fn gate_ask(
             }
             return Ok(Json(serde_json::to_value(&gate).unwrap_or_default()));
         }
-        let routed_to = resolve_routed_tab(&state, &id);
+        let routed_to = gate_context
+            .as_ref()
+            .and_then(|read| resolve_routed_tab(&state, read));
         let caller_session_id = body.asked_by_tab_id.as_deref().and_then(|tab_id| {
             state
                 .svc
@@ -101,32 +109,28 @@ pub async fn gate_ask(
         if let Some(tab_id) = routed_to.as_deref() {
             let _ = state.svc.replay_planner_requests_if_routable(tab_id);
         }
-        let request = state
+        let gate_context = state
             .svc
             .plan_store
-            .get(&id)
-            .and_then(|plan| {
-                plan.planner_requests
-                    .into_iter()
-                    .find(|item| item.request_id == request_id)
-            })
+            .planner_gate_context(&id, Some(&request_id))
+            .map_err(plan_err)?;
+        let request = gate_context
+            .as_ref()
+            .and_then(|read| read.request.clone())
             .unwrap_or(request);
         if !matches!(
             request.state,
             codeterm_service_core::plan::PlannerRequestState::Accepted
                 | codeterm_service_core::plan::PlannerRequestState::Completed
         ) {
-            let plan = state.svc.plan_store.get(&id);
-            let resolution = plan.as_ref().map(|plan| {
+            let resolution = gate_context.as_ref().map(|plan| {
                 resolve_planner_ref(&plan.planner, &plan.owner, |tab_id| {
                     state.svc.tab_probe(tab_id)
                 })
             });
-            let delivery = plan.as_ref().and_then(|plan| {
-                plan.planner_inbox
-                    .iter()
-                    .find(|entry| entry.request_id == request.request_id)
-            });
+            let delivery = gate_context
+                .as_ref()
+                .and_then(|read| read.delivery.as_ref());
             let planner_dead = matches!(
                 resolution,
                 Some(PeerResolution::OrchestratorFallback { .. })

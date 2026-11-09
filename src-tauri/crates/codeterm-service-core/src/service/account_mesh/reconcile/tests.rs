@@ -26,60 +26,6 @@ fn row(id: &str) -> MeshManagementRow {
 }
 
 #[test]
-fn renewed_membership_reuses_registry_and_only_missing_registry_or_retry_reads() {
-    use codeterm_account::account_mesh::{
-        Enrollment, LifecycleState, Presence, RegistryObservation, SignedMembership,
-        VerifiedMembership,
-    };
-    let mut state = LifecycleState {
-        presence: Presence::SignedIn {
-            account_id: "account".into(),
-        },
-        enrollment: Enrollment::Enrolled,
-        membership: Some(SignedMembership {
-            token: "first".into(),
-            verified: VerifiedMembership {
-                account_id: "account".into(),
-                installation_id: "own".into(),
-                key_id: "key".into(),
-                key_generation: 1,
-                slot_revision: 1,
-                issued_at: 0,
-                expires_at: 1000,
-            },
-        }),
-        registry: Some(RegistryObservation {
-            observed_at: 0,
-            registry_revision: 1,
-            rows: vec![row("own"), row("peer")],
-            cursor: None,
-        }),
-        ..LifecycleState::default()
-    };
-    assert!(!registry_read_needed(&state, 100, false));
-    let membership = state.membership.as_mut().unwrap();
-    membership.token = "renewed".into();
-    membership.verified.expires_at = 2000;
-    state.membership_epoch += 1;
-    assert!(!registry_read_needed(&state, 100, false));
-    assert!(registry_read_needed(&state, 100, true));
-    state
-        .registry
-        .as_mut()
-        .unwrap()
-        .rows
-        .retain(|row| row.installation_id != "own");
-    assert!(registry_read_needed(&state, 100, false));
-    state.registry = None;
-    assert!(registry_read_needed(&state, 100, false));
-    state.enrollment = Enrollment::Enrolling;
-    assert!(!registry_read_needed(&state, 100, false));
-    assert!(registry_read_needed(&state, 100, true));
-    state.enrollment = Enrollment::Enrolled;
-    assert!(!registry_read_needed(&state, 2000, true));
-}
-
-#[test]
 fn registry_targets_require_active_current_present_membership_and_endpoint() {
     let valid = row("peer");
     assert!(target(&valid, "self", 100).is_some());
@@ -172,7 +118,7 @@ fn partition_beyond_five_attempts_recovers_without_registry_changes_or_lists() {
     let mut now = 100;
     let restored_at = 1900;
     let mut attempts = 0;
-    let mut list_calls = 1;
+    let list_calls = 0;
     let mut linked_at = None;
     while now <= restored_at + 300 {
         assert!(target(&peer, "own", now).is_some());
@@ -193,13 +139,10 @@ fn partition_beyond_five_attempts_recovers_without_registry_changes_or_lists() {
             .expect("transport retries remain armed");
         assert!(deadline > now && deadline <= now + 300);
         now = deadline;
-        if state.registry_refresh_due(now) {
-            list_calls += 1;
-        }
     }
     assert!(attempts > 5);
     assert!(linked_at.is_some_and(|at| at <= restored_at + 300));
-    assert_eq!(list_calls, 1);
+    assert_eq!(list_calls, 0);
     assert_eq!(state.deadline(0, true), None);
 }
 
@@ -223,7 +166,6 @@ fn network_recovery_rearms_peers_without_bypassing_server_retry_after() {
     assert_eq!(state.deadline(499, true), Some(500));
     assert!(state.dial_due("own", "peer", 500));
     assert_eq!(state.deadline(500, true), None);
-    assert!(!state.registry_refresh_due(500));
 }
 
 #[test]
@@ -277,6 +219,21 @@ fn higher_installation_falls_back_only_after_one_interval() {
 }
 
 #[test]
+fn connectivity_events_never_postpone_the_fallback_dial() {
+    let mut state = Reconciliation::default();
+    state.observe(1, &[row("a")]);
+    assert!(!state.dial_due("z", "a", 100));
+    for now in (101..130).step_by(2) {
+        state.network_changed();
+        state.observe(1, &[row("a")]);
+        assert!(!state.dial_due("z", "a", now));
+        assert_eq!(state.deadline(now, true), Some(130));
+    }
+    state.network_changed();
+    assert!(state.dial_due("z", "a", 130));
+}
+
+#[test]
 fn publication_emits_only_changed_pairs_or_registry_content() {
     use codeterm_account::account_mesh::RegistryObservation;
     use codeterm_mesh::account_mesh::protocol::AccountMeshPair;
@@ -323,30 +280,6 @@ fn publication_emits_only_changed_pairs_or_registry_content() {
 }
 
 #[test]
-fn registry_outage_uses_one_retry_deadline_and_blocks_past_peer_deadlines() {
-    let mut state = Reconciliation::default();
-    state.observe(1, &[row("one")]);
-    let mut peer = Retry::default();
-    peer.failed(100, &AdmissionRefusal::PeerUnreachable);
-    state.retries.insert("one".into(), peer);
-    let mut registry = Retry::default();
-    registry.failed(
-        130,
-        &AdmissionRefusal::RateLimited {
-            retry_after_seconds: 120,
-        },
-    );
-    state.registry_retry = Some(registry);
-    assert_eq!(state.deadline(0, true), Some(250));
-    assert!(!state.registry_refresh_due(249));
-    assert!(state.registry_refresh_due(250));
-    state.observe(1, &[row("one")]);
-    assert_eq!(state.deadline(0, true), Some(250));
-    state.registry_retry = None;
-    assert_eq!(state.deadline(0, true), Some(130));
-}
-
-#[test]
 fn incomplete_registry_or_transport_gate_suspends_overdue_peer_timers() {
     let mut state = Reconciliation::default();
     state.observe(1, &[row("peer")]);
@@ -358,11 +291,6 @@ fn incomplete_registry_or_transport_gate_suspends_overdue_peer_timers() {
     assert_eq!(state.deadline(200, false), None);
     assert_eq!(state.deadline(200, true), Some(130));
     assert!(state.dial_due("own", "peer", 200));
-    let mut registry = Retry::default();
-    registry.failed(200, &AdmissionRefusal::Offline);
-    state.registry_retry = Some(registry);
-    assert_eq!(state.deadline(200, false), Some(230));
-    assert!(state.registry_refresh_due(230));
 }
 
 #[test]

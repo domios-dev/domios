@@ -90,7 +90,10 @@ pub(super) fn refuse_live_dispatch_startup_owner(
     plan_id: &str,
     task_id: &str,
 ) -> Result<(), JsonRpcError> {
-    let Some(owner) = store.dispatch_startup_owner_candidate(plan_id, task_id) else {
+    let Some(owner) = store
+        .dispatch_startup_owner_candidate(plan_id, task_id)
+        .map_err(plan_rpc_err)?
+    else {
         return Ok(());
     };
     if !dispatch_startup_owner_is_live(svc, plan_id, task_id, &owner.tab_id) {

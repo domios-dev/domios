@@ -15,6 +15,7 @@ fn fixture() -> (ServiceFixture, String, String) {
 
 fn token(svc: &super::super::ServiceContext, tab: &str) -> String {
     svc.frontend_pty_env(Some(tab))
+        .unwrap()
         .remove("CODETERM_API_TOKEN")
         .unwrap()
 }
@@ -42,6 +43,7 @@ fn credentials_are_distinct_per_tab_and_never_the_host_secret() {
     );
     assert!(!svc
         .frontend_pty_env(None)
+        .unwrap()
         .contains_key("CODETERM_API_TOKEN"));
     assert!(svc.mint_tab_credential("missing-tab", "nonce").is_none());
     assert!(svc.identify_tab_credential("").is_none());
@@ -75,9 +77,10 @@ fn plugin_children_use_the_pty_launch_credential_with_agent_rpc_authority() {
                     ? { bin: "powershell", args: ["-NoProfile", "-Command", "[Console]::Out.Write($env:CODETERM_API_TOKEN)"] }
                     : { bin: "sh", args: ["-c", "printf %s \"$CODETERM_API_TOKEN\""] };
                 opts.env = { CODETERM_API_TOKEN: "owner-secret" };
-                const out = JSON.parse(host.exec(JSON.stringify(opts)));
-                if (out.code !== 0) throw new Error(JSON.stringify(out));
-                return { sessionId: out.stdout };
+                return host.exec.async(opts, function (out) {
+                    if (out.code !== 0) throw new Error(JSON.stringify(out));
+                    return { sessionId: out.stdout };
+                });
             }
         };
     "#.into()).unwrap());
@@ -107,7 +110,7 @@ fn plugin_children_use_the_pty_launch_credential_with_agent_rpc_authority() {
     );
     assert!(svc.authenticate_local_credential(&previous).is_err());
     assert_eq!(credential, token(svc, &tab));
-    let env = svc.tab_process_env(&tab, &launch_nonce);
+    let env = svc.tab_process_env(&tab, &launch_nonce).unwrap();
     assert_eq!(env["CODETERM_API_TOKEN"], credential);
     assert_ne!(credential, "owner-secret");
     let caller = svc
@@ -118,6 +121,7 @@ fn plugin_children_use_the_pty_launch_credential_with_agent_rpc_authority() {
     assert_eq!(caller.binding_nonce, env["CODETERM_SESSION_BINDING_NONCE"]);
     assert!(!svc
         .tab_process_env("missing-tab", "missing-nonce")
+        .unwrap()
         .contains_key("CODETERM_API_TOKEN"));
     for method in [
         "agent.ack",
@@ -152,10 +156,10 @@ fn plugin_children_use_the_pty_launch_credential_with_agent_rpc_authority() {
         .bind_in_process_chatbackend_session(&tab, "credential-probe", &reopened)
         .unwrap();
     assert_ne!(reopened_nonce, launch_nonce);
-    assert!(svc.tab_process_env(&tab, &launch_nonce).is_empty());
+    assert!(svc.tab_process_env(&tab, &launch_nonce).unwrap().is_empty());
     assert!(svc.authenticate_local_credential(&credential).is_err());
     assert_eq!(
-        svc.tab_process_env(&tab, &reopened_nonce)["CODETERM_API_TOKEN"],
+        svc.tab_process_env(&tab, &reopened_nonce).unwrap()["CODETERM_API_TOKEN"],
         reopened
     );
     let mut ack = None;
@@ -193,17 +197,74 @@ fn first_session_binding_preserves_launch_but_session_replacement_revokes_it() {
 }
 
 #[test]
+fn materialized_rebind_issues_current_launch_credentials_without_a_retry() {
+    let (mut mux, tab_id) = MultiplexerState::new();
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.agent_type = Some("fixture-runtime".into());
+    tab.agent_session_id = Some("previous-thread".into());
+    tab.session_binding_nonce = Some("own-nonce".into());
+    tab.reported_session_binding_nonce = Some("own-nonce".into());
+    let fixture = ServiceFixture::new(mux);
+    let svc = &fixture.service;
+    let previous = token(svc, &tab_id);
+    let previous_file =
+        std::path::PathBuf::from(svc.runtime_credential_file(&tab_id, "own-nonce").unwrap());
+    {
+        let mut mux = svc.mux.write();
+        let evidence = crate::agent::provider_identity::ProviderIdentityEvidence::capture(
+            mux.get_tab(&tab_id).unwrap(),
+        );
+        let claim = crate::service::hook_session_binding::commit_materialized_rebind_session(
+            &mut mux,
+            &tab_id,
+            "fixture-runtime",
+            "rebound-thread",
+            None,
+            &evidence,
+        )
+        .unwrap();
+        assert!(claim.changed);
+    }
+    let current = svc.mint_tab_credential(&tab_id, "own-nonce").unwrap();
+    assert_ne!(current, previous);
+    assert!(!previous_file.exists());
+    assert!(svc.identify_tab_credential(&previous).is_none());
+    let caller = svc.identify_tab_credential(&current).unwrap();
+    assert_eq!(caller.tab_id, tab_id);
+    assert_eq!(caller.binding_nonce, "own-nonce");
+    assert_eq!(token(svc, &tab_id), current);
+    let current_file =
+        std::path::PathBuf::from(svc.runtime_credential_file(&tab_id, "own-nonce").unwrap());
+    assert_eq!(
+        codeterm_util::tab_launch::resolve(
+            None,
+            Some(&current_file),
+            Some(&tab_id),
+            Some("own-nonce")
+        )
+        .unwrap(),
+        current
+    );
+    assert!(svc.mint_tab_credential(&tab_id, "foreign-nonce").is_none());
+    assert!(svc.identify_tab_credential(&current).is_some());
+    svc.rotate_session_binding_nonce(&tab_id);
+    assert!(!current_file.exists());
+    assert!(svc.identify_tab_credential(&current).is_none());
+    assert!(svc.mint_tab_credential(&tab_id, "own-nonce").is_none());
+}
+
+#[test]
 fn daemon_restart_does_not_restore_a_launch_credential() {
     let registry = TabCredentials::default();
     let identity = TabCaller {
         tab_id: "tab".into(),
         binding_nonce: "persisted-nonce".into(),
     };
-    let previous = registry.mint(identity.clone());
+    let previous = registry.mint(identity.clone(), None, false);
     assert_eq!(registry.identify(&previous), Some(identity.clone()));
     let restarted = TabCredentials::default();
     assert!(restarted.identify(&previous).is_none());
-    let current = restarted.mint(identity);
+    let current = restarted.mint(identity, None, false);
     assert_ne!(previous, current);
     assert!(restarted.identify(&previous).is_none());
 }

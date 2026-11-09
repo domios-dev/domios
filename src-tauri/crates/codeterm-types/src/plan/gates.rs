@@ -44,9 +44,15 @@ pub struct DecisionGate {
     pub escalation_note: Option<String>,
 }
 
+impl GateStatus {
+    pub fn is_open(&self) -> bool {
+        matches!(self, Self::Open | Self::Escalated)
+    }
+}
+
 impl DecisionGate {
     pub fn is_open(&self) -> bool {
-        matches!(self.status, GateStatus::Open | GateStatus::Escalated)
+        self.status.is_open()
     }
 
     pub fn is_stale(&self, now_ms: u64) -> bool {

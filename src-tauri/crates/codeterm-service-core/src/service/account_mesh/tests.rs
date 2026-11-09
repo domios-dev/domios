@@ -15,6 +15,7 @@ use std::time::Duration;
 use tokio::sync::Notify;
 
 mod listener;
+mod ownership;
 
 fn signed_in(epoch: u64) -> LifecycleState {
     LifecycleState {
@@ -142,8 +143,8 @@ fn account_mesh_only_the_machine_limit_reaches_the_gate_as_mesh_machines() {
         mesh::AdmissionRefusal::Revoked
     );
     assert_eq!(
-        membership_refusal(MembershipRefusal::Duration),
-        mesh::AdmissionRefusal::handshake("membership-duration")
+        membership_refusal(MembershipRefusal::Window),
+        mesh::AdmissionRefusal::handshake("membership-window")
     );
     assert_eq!(
         membership_refusal(MembershipRefusal::Signature),
@@ -412,6 +413,14 @@ fn listener_account_mesh(
     service: &Arc<ServiceContext>,
     store: Arc<dyn AccountMeshStore>,
 ) -> Arc<AccountMesh> {
+    account_mesh_with_sessions(service, store, Arc::new(NoSession))
+}
+
+fn account_mesh_with_sessions(
+    service: &Arc<ServiceContext>,
+    store: Arc<dyn AccountMeshStore>,
+    sessions: Arc<dyn SessionSource>,
+) -> Arc<AccountMesh> {
     let transport = Arc::new(TransportBridge {
         installation_id: "installation-a".into(),
         service: Arc::downgrade(service),
@@ -429,7 +438,7 @@ fn listener_account_mesh(
         },
         AccountMeshPorts {
             registry: Arc::new(UnavailableRegistry),
-            sessions: Arc::new(NoSession),
+            sessions,
             keys: Arc::new(NoKeys),
             store,
             endpoint: Arc::new(NoEndpoint),

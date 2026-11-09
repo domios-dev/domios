@@ -16,6 +16,8 @@ use std::{io, mem, ptr};
 
 pub use std::os::unix::io::RawFd;
 
+mod cancellable;
+
 #[derive(Default)]
 pub struct UnixPtySystem {}
 
@@ -90,13 +92,18 @@ impl std::ops::DerefMut for PtyFd {
 
 impl Read for PtyFd {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, io::Error> {
-        match self.0.read(buf) {
-            Err(ref e) if e.raw_os_error() == Some(libc::EIO) => {
-                // EIO indicates that the slave pty has been closed. Treat this as EOF so that std::io::Read::read_to_string and similar functions gracefully
-                // terminate when they encounter this condition
-                Ok(0)
+        loop {
+            match self.0.read(buf) {
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
+                    cancellable::wait_readable(self.0.as_raw_fd())?;
+                }
+                Err(ref e) if e.raw_os_error() == Some(libc::EIO) => {
+                    // EIO indicates that the slave pty has been closed. Treat this as EOF so that std::io::Read::read_to_string and similar functions gracefully
+                    // terminate when they encounter this condition
+                    return Ok(0);
+                }
+                x => return x,
             }
-            x => x,
         }
     }
 }
@@ -344,6 +351,15 @@ impl MasterPty for UnixMasterPty {
         *self.took_writer.borrow_mut() = true;
         let fd = PtyFd(self.fd.try_clone()?);
         Ok(Box::new(UnixMasterWriter { fd }))
+    }
+
+    fn take_cancellable_writer(&self) -> Result<crate::CancellableWriter, Error> {
+        if *self.took_writer.borrow() {
+            anyhow::bail!("cannot take writer more than once");
+        }
+        let writer = cancellable::new(self.fd.try_clone()?)?;
+        *self.took_writer.borrow_mut() = true;
+        Ok(writer)
     }
 
     fn as_raw_fd(&self) -> Option<RawFd> {

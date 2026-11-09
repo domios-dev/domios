@@ -52,7 +52,6 @@ struct Reconciliation {
     retries: BTreeMap<String, Retry>,
     fallback_at: BTreeMap<String, u64>,
     server_retry_at: u64,
-    registry_retry: Option<Retry>,
 }
 
 impl Reconciliation {
@@ -113,22 +112,13 @@ impl Reconciliation {
         self.fallback_at.remove(installation);
     }
 
+    /// Pending fallback deadlines survive: re-arming them on every event starves the
+    /// non-preferred side, which is the only one that knows a newly enrolled peer.
     fn network_changed(&mut self) {
         self.retries.retain(|_, retry| !retry.transport_failure);
-        self.fallback_at.clear();
-    }
-
-    fn registry_refresh_due(&self, now: u64) -> bool {
-        self.registry_retry
-            .as_ref()
-            .and_then(|retry| retry.retry_at)
-            .is_some_and(|at| at <= now)
     }
 
     fn deadline(&self, now: u64, peers_ready: bool) -> Option<u64> {
-        if let Some(retry) = &self.registry_retry {
-            return retry.retry_at;
-        }
         if !peers_ready {
             return None;
         }
@@ -214,7 +204,6 @@ pub(super) async fn run(
     let mut network = service.events.subscribe();
     let mut publication = Publication::default();
     let mut reconciliation = Reconciliation::default();
-    let mut refresh = false;
     loop {
         connections.borrow_and_update();
         let enabled = service.configuration().mesh.enabled;
@@ -222,35 +211,11 @@ pub(super) async fn run(
         mesh.lock().expire_pending_connections();
         let now = mesh.lock().now();
         reconciliation.enter_epoch(state.account_epoch);
-        if enabled
-            && (refresh || reconciliation.registry_retry.is_none())
-            && registry_read_needed(&state, now, refresh)
-        {
-            refresh = false;
-            match account.mesh.list_fresh().await {
-                Ok(_) => {
-                    reconciliation.registry_retry = None;
-                }
-                Err(refusal) => {
-                    let refusal = super::authority::admission_refusal(refusal);
-                    reconciliation
-                        .registry_retry
-                        .get_or_insert_with(Retry::default)
-                        .failed(now, &refusal);
-                    log::debug!("[mesh/account] Registry reconciliation deferred: {refusal:?}");
-                }
-            }
-        }
-        let state = account.mesh.state();
-        if state.registry_failure.is_none() {
-            reconciliation.registry_retry = None;
-        }
         let mut peers_ready = false;
-        if let Some(own) = state.current_membership(now).filter(|_| {
-            enabled
-                && reconciliation.registry_retry.is_none()
-                && mesh.lock().account_state() == &super::mesh_state(&state)
-        }) {
+        if let Some(own) = state
+            .current_membership(now)
+            .filter(|_| enabled && mesh.lock().account_state() == &super::mesh_state(&state))
+        {
             if let Some(registry) = state
                 .registry
                 .as_ref()
@@ -287,7 +252,17 @@ pub(super) async fn run(
                         break;
                     }
                     let now = mesh.lock().now();
-                    let Some(target) = target(row, &own.verified.installation_id, now) else {
+                    let candidate = {
+                        let manager = mesh.lock();
+                        if row.installation_id == own.verified.installation_id {
+                            None
+                        } else if manager.has_endpoint_record(&row.installation_id) {
+                            manager.endpoint_target(&row.installation_id)
+                        } else {
+                            target(row, &own.verified.installation_id, now)
+                        }
+                    };
+                    let Some(target) = candidate else {
                         reconciliation.clear_peer(&row.installation_id);
                         continue;
                     };
@@ -372,28 +347,9 @@ pub(super) async fn run(
                     },
                     None => std::future::pending::<()>().await,
                 }
-            } => { refresh = reconciliation.registry_refresh_due(mesh.lock().now()); }
+            } => {}
         }
     }
-}
-
-fn registry_read_needed(
-    state: &codeterm_account::account_mesh::LifecycleState,
-    now: u64,
-    retry_due: bool,
-) -> bool {
-    let Some(membership) = state.current_membership(now) else {
-        return false;
-    };
-    retry_due
-        || (state.enrollment != codeterm_account::account_mesh::Enrollment::Enrolling
-            && state.registry.as_ref().is_none_or(|registry| {
-                registry.cursor.is_some()
-                    || !registry
-                        .rows
-                        .iter()
-                        .any(|row| row.installation_id == membership.verified.installation_id)
-            }))
 }
 
 async fn connectivity_changed(

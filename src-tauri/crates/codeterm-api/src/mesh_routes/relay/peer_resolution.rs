@@ -22,6 +22,35 @@ pub(super) fn peer_not_paired_error(target: &str) -> (StatusCode, String) {
     )
 }
 
+fn registry_peer_unreachable_error(target: &str) -> (StatusCode, String) {
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        serde_json::json!({
+            "code": codeterm_service_core::mesh::contract::delivery::PEER_UNREACHABLE,
+            "message": format!("Peer {target} is paired but not currently connected"),
+            "bytes_written": false,
+            "hint": "Check `domios mesh peers` for connection progress.",
+        })
+        .to_string(),
+    )
+}
+
+fn registry_contains_target(mesh: &codeterm_service_core::mesh::MeshManager, target: &str) -> bool {
+    let is_short_id =
+        target.len() >= 6 && target.chars().all(|c| c.is_ascii_hexdigit() || c == '-');
+    mesh.account_installations.iter().any(|row| {
+        row.active
+            && (row.installation_id == target
+                || row.instance_id.as_deref() == Some(target)
+                || row.name.eq_ignore_ascii_case(target)
+                || (is_short_id
+                    && row
+                        .installation_id
+                        .to_ascii_lowercase()
+                        .starts_with(&target.to_ascii_lowercase())))
+    })
+}
+
 pub(super) fn peer_unroutable_error(peer_name: &str) -> (StatusCode, String) {
     (
         StatusCode::SERVICE_UNAVAILABLE,
@@ -120,7 +149,11 @@ pub(super) fn resolve_relay_peer(
     )
     .map_err(|error| match error {
         codeterm_service_core::mesh::paired_resolve::ResolvePairedError::NotFound => {
-            peer_not_paired_error(target)
+            if registry_contains_target(mesh, target) {
+                registry_peer_unreachable_error(target)
+            } else {
+                peer_not_paired_error(target)
+            }
         }
         codeterm_service_core::mesh::paired_resolve::ResolvePairedError::NoOnlineCandidate {
             name,

@@ -39,7 +39,7 @@ impl JsBubbleProvider {
             let vm = self.vm.clone();
             let cache = self.cache.clone();
             let id = self.id.clone();
-            Some(tokio::task::spawn_blocking(move || loop {
+            Some(crate::js_runtime::vm::spawn_blocking(move || loop {
                 super::vm::grant_ctx_cwd(&vm, &ctx);
                 let result = call_json::<Option<BubbleData>>(&vm, "statusBubble", &[ctx.clone()]);
                 let succeeded = result.is_ok();

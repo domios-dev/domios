@@ -744,11 +744,12 @@ pub fn build_tab_summary_json(
                 "agent_state": tab.agent_state,
                 // A session model is observed at runtime and only some providers
                 // report one; the requested model is still the tab's identity.
-                "agent_label": codeterm_types::pty::agent_bracket_label(
+                "agent_label": codeterm_types::pty::agent_bracket_label_named(
                     tab.agent_type.as_deref(),
                     tab.agent_session_model
                         .as_deref()
                         .or(tab.agent_provider_resolved_model.as_deref()),
+                    tab.declared_model_name().as_deref(),
                     liveness,
                 ),
                 "focused": focused_id == Some(tab.id.as_str()),

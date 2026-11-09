@@ -1,11 +1,11 @@
 import type { RuntimeServiceTierSelection as ServiceTierSelection } from "../../../packages/plugin-sdk/src/agentRuntime";
 import "./ChatComposer.composition.harness";
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test } from "vitest";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { TransportError } from "../../lib/transportClient";
-import type { Notification, ProviderDescriptor } from "../../lib/types";
+import type { Notification, ProviderDescriptor, Tab } from "../../lib/types";
 import { __setModelCatalogueRefreshApiForTest } from "../../lib/modelCatalogueRefresh";
 import { NotificationToastContainer } from "../Notifications/NotificationToast";
 import { __setTabModelApiForTest } from "../Sidebar/tabModelApi";
@@ -34,7 +34,7 @@ function descriptor(model_switch: ProviderDescriptor["model_switch"]): ProviderD
   } as ProviderDescriptor;
 }
 
-async function mount(provider: ProviderDescriptor | undefined, currentServiceTier?: ServiceTierSelection, serviceTierAvailability?: Record<string, readonly import("../../../packages/plugin-sdk/src/agentRuntime").RuntimeServiceTier[]>, currentRuntimeMode?: string) {
+async function mount(provider: ProviderDescriptor | undefined, currentServiceTier?: ServiceTierSelection, serviceTierAvailability?: Record<string, readonly import("../../../packages/plugin-sdk/src/agentRuntime").RuntimeServiceTier[]>, currentRuntimeMode?: string, runtimeControls?: import("@codeterm/plugin-sdk").RuntimeSettings) {
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);
@@ -44,6 +44,8 @@ async function mount(provider: ProviderDescriptor | undefined, currentServiceTie
     <StatusLineModelPicker
       tabId="tab"
       descriptor={provider}
+      runtimeControls={runtimeControls}
+      runtimeIdentity={runtimeControls ? {agentName:"Wire Agent",binaryVersion:"0.0.1"} : undefined}
       facts={{ hasSession: true }}
       label="Vendor · deep · high"
       modelCandidates={["deep"]}
@@ -81,11 +83,19 @@ function button(name: string): HTMLButtonElement {
   return found;
 }
 
-function getByRole(role: string, name: string): HTMLElement {
-  const found = Array.from(document.body.querySelectorAll<HTMLElement>("[role]"))
-    .find((entry) => entry.getAttribute("role") === role && entry.getAttribute("aria-label") === name);
-  assert.ok(found, `missing ${role} named ${name}`);
-  return found;
+async function openSetting(label: string) {
+  const trigger = document.body.querySelector<HTMLButtonElement>(`button[aria-label^="${label}:"]`)!;
+  assert.ok(trigger);
+  await act(async () => trigger.dispatchEvent(new Event("pointerdown", { bubbles: true, cancelable: true })));
+}
+function settingOption(label: string) {
+  return Array.from(document.body.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')).find(item => item.textContent?.trim() === label);
+}
+async function chooseSetting(label: string, value: string) {
+  await openSetting(label);
+  const item = settingOption(value);
+  assert.ok(item);
+  await act(async () => item.click());
 }
 
 function recordSwitches() {
@@ -218,13 +228,9 @@ test("declared runtime modes show the bound value and apply with other staged ch
   const view = await mount(provider, undefined, undefined, "auto");
   try {
     await act(async () => view.trigger()!.click());
-    const mode = getByRole("combobox", "Runtime mode") as HTMLSelectElement;
-    assert.equal(mode.value, "auto");
+    assert.ok(document.body.querySelector('button[aria-label="Runtime mode: Auto"]'));
     await act(async () => view.option("Fast").click());
-    await act(async () => {
-      mode.value = "full-access";
-      mode.dispatchEvent(new Event("change", { bubbles: true }));
-    });
+    await chooseSetting("Runtime mode", "Full access");
     assert.deepEqual(calls, []);
     await act(async () => button("Apply").click());
     assert.deepEqual(calls, [["tab", "fast", undefined, "full-access", undefined]]);
@@ -238,7 +244,7 @@ test("runtime mode control is absent without declared capability modes", async (
   const view = await mount(descriptor("live"));
   try {
     await act(async () => view.trigger()!.click());
-    assert.throws(() => getByRole("combobox", "Runtime mode"));
+    assert.equal(document.body.querySelector('button[aria-label^="Runtime mode:"]'), null);
   } finally {
     await view.unmount();
   }
@@ -588,16 +594,16 @@ test("the protected General Agent exposes the shared model picker and switch han
 });
 
 
-test("speed segments apply once and unavailable tiers are omitted", async () => {
+test("speed selections apply once and unavailable tiers are disabled", async () => {
   const calls = recordSwitches();
   const provider = {...descriptor("next_turn"),agent_runtime:{serviceTiers:[{id:"priority",name:"Fast",description:""},{id:"ultrafast",name:"Ultrafast",description:"",unavailableReason:"Not available on your plan"}]}};
   const view = await mount(provider,{id:null});
   try {
     await act(async () => view.trigger()!.click());
-    const segment = (name:string) => Array.from(document.body.querySelectorAll<HTMLButtonElement>('[role="tab"]')).find(item => item.textContent === name)!;
-    assert.ok(segment("Default"));
-    assert.equal(segment("Ultrafast"),undefined);
-    await act(async () => segment("Fast").click());
+    await openSetting("Speed");
+    assert.ok(settingOption("Default"));
+    assert.equal(settingOption("Ultrafast")?.disabled, true);
+    await act(async () => settingOption("Fast")!.click());
     assert.equal(calls.length,0);
     await act(async () => button("Apply").click());
     assert.deepEqual(calls,[["tab","deep","high",undefined,{id:"priority"}]]);
@@ -608,7 +614,7 @@ test("providers without service tiers have no speed control", async () => {
   const view = await mount(descriptor("next_turn"));
   try {
     await act(async () => view.trigger()!.click());
-    assert.equal(document.body.querySelector('[role="tablist"][aria-label="Speed"]'),null);
+    assert.equal(document.body.querySelector('button[aria-label^="Speed:"]'),null);
   } finally { await view.unmount(); }
 });
 
@@ -618,9 +624,9 @@ test("an account catalogue can enable Ultrafast for its selected model", async (
   const view = await mount(provider,{id:null},{deep:[{id:"ultrafast",name:"Ultrafast",description:""}]});
   try {
     await act(async () => view.trigger()!.click());
-    const ultra = Array.from(document.body.querySelectorAll<HTMLButtonElement>('[role="tab"]')).find(item => item.textContent === "Ultrafast")!;
-    assert.equal(ultra.disabled,false);
-    await act(async () => ultra.click());
+    await openSetting("Speed");
+    assert.equal(settingOption("Ultrafast")?.disabled,false);
+    await act(async () => settingOption("Ultrafast")!.click());
     await act(async () => button("Apply").click());
     assert.deepEqual(calls,[["tab","deep","high",undefined,{id:"ultrafast"}]]);
   } finally { await view.unmount(); __setTabModelApiForTest(null); }
@@ -649,4 +655,75 @@ test("sent switches expose pending confirmation and cannot cancel an already wri
   await act(async () => button("Cancel").click());
   assert.deepEqual(calls,[]);
  } finally {await view.unmount();__setTabModelApiForTest(null);}
+});
+
+
+test("catalogue-free runtime lists only the bound agent model declaration", async () => {
+  const calls = recordSwitches();
+  const provider = {...descriptor("unsupported"), available_models:[], agent_runtime:{}, transport:"chat_backend"} as ProviderDescriptor;
+  const view = await mount(provider, undefined, undefined, undefined, {configOptions:[
+    {id:"choice",name:"Engine",category:"model",currentValue:"wire-one",options:[{value:"wire-one",name:"First declared"},{value:"wire-two",name:"Second declared"}]},
+    {id:"other",name:"Other",currentValue:"unrelated",options:[{value:"unrelated",name:"Unrelated"}]},
+  ]});
+  try {
+    assert.equal(view.trigger()!.textContent, "First declared");
+    await act(async () => view.trigger()!.click());
+    assert.deepEqual(Array.from(document.body.querySelectorAll('[role="option"]')).map(row => row.textContent?.includes("declared")), [true,true]);
+    assert.equal(document.body.querySelector('[aria-label="Refresh models"]'), null);
+    assert.equal(view.option("Deep"), undefined);
+    assert.equal(view.option("Unrelated"), undefined);
+    // Applying a declared model goes through the runtime controls API, never the catalogue switch
+    // (runtimeModelControls.test.tsx covers that path).
+    assert.deepEqual(calls, []);
+  } finally { await view.unmount(); __setTabModelApiForTest(null); }
+});
+
+test("catalogue-free runtime keeps unclassified choices inside a neutral model bubble", async () => {
+  const provider = {...descriptor("unsupported"), available_models:[], agent_runtime:{}} as ProviderDescriptor;
+  const view = await mount(provider, undefined, undefined, undefined, {configOptions:[
+    {id:"model",name:"Model",currentValue:"undeclared",options:[{value:"undeclared",name:"Undeclared"}]},
+  ]});
+  try {
+    assert.equal(view.trigger()?.textContent, "Default");
+    assert.doesNotMatch(view.host.textContent!, /Undeclared|deep/);
+    await act(async () => view.trigger()!.click());
+    assert.ok(document.body.querySelector('button[aria-label="Model: Undeclared"]'));
+    assert.equal(view.option("Undeclared"), undefined);
+  } finally { await view.unmount(); }
+});
+
+
+test("a runtime that is down shows the chosen mode or says it is unknown, never a live-looking Default", async () => {
+  const provider = {...descriptor("unsupported"), available_models:[], agent_runtime:{hostApprovals:true}} as unknown as ProviderDescriptor;
+  const chip = async (runtimeState: "degraded" | "unloaded" | "loaded", config: Record<string, unknown>) => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const tab = {id:"tab", agent_runtime_state:{state:runtimeState, epoch:1}, agent_runtime_config:config} as unknown as Tab;
+    await act(async () => root.render(<MultiplexerActionsContext.Provider value={toastActions}>
+      <StatusLineModelPicker tab={tab} tabId="tab" descriptor={provider} runtimeControls={{}} facts={{ hasSession: true }}
+        label="Vendor" modelCandidates={[]} currentEffort={undefined} />
+    </MultiplexerActionsContext.Provider>));
+    const text = host.querySelector(".ct-status-identity__text")?.textContent;
+    await act(async () => root.unmount());
+    host.remove();
+    return text;
+  };
+  assert.equal(await chip("degraded", {sessionMode:"opaque-chosen", fullAccessMode:"opaque-declared"}), "opaque-chosen");
+  assert.equal(await chip("unloaded", {fullAccessMode:"opaque-declared"}), "opaque-declared");
+  assert.equal(await chip("degraded", {}), "Unknown while recovering");
+  assert.equal(await chip("loaded", {}), "Default");
+});
+
+test("catalogue-free runtime stays neutral while model controls are unavailable", async () => {
+  const provider = {...descriptor("unsupported"), available_models:[], agent_runtime:{}} as ProviderDescriptor;
+  for (const controls of [undefined, {model:"launch-only"}]) {
+    const view = await mount(provider, undefined, undefined, undefined, controls);
+    try {
+      assert.equal(view.trigger(), null);
+      assert.equal(view.host.textContent, "Vendor");
+      assert.doesNotMatch(view.host.textContent!, /declared no model|deep|high|launch-only/);
+      assert.equal(view.picker(), null);
+    } finally { await view.unmount(); }
+  }
 });

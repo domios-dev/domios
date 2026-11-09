@@ -613,6 +613,7 @@ fn install_client_selector(selector: &InstanceSelector) {
         "CODETERM_API_URL",
         "CODETERM_API_PORT",
         "CODETERM_API_TOKEN",
+        "CODETERM_LAUNCH_FILE",
         "CODETERM_SOCKET_PATH",
         "CODETERM_INSTANCE",
         "CODETERM_DATA_DIR",

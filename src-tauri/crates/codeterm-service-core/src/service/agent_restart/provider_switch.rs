@@ -39,10 +39,12 @@ impl Drop for SwitchBindingCleanup<'_> {
     fn drop(&mut self) {
         self.service.clear_runtime_restart_binding(self.tab_id);
         if self.interrupt_on_failure {
-            self.service.signal_worker_interruption(
+            if let Err(error) = self.service.signal_worker_interruption(
                 self.tab_id,
                 crate::service::worker_interruption::WorkerInterruptionEvent::ForcedContextReset,
-            );
+            ) {
+                log::error!("[worker-interruption] signal failed: {error}");
+            }
         }
     }
 }
@@ -240,7 +242,7 @@ impl ServiceContext {
                 );
             }
             TargetRoute::Pty => {
-                let _pty_claim = self.pty_ownership.acquire(&tab.id);
+                let _pty_claim = self.pty_ownership.acquire(&tab.id)?;
                 self.request_graceful_exit(
                     &snap,
                     force,

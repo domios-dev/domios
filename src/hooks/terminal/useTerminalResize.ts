@@ -6,6 +6,7 @@ import { nativeBridge } from "../../lib/nativeBridge";
 import { resizeOwnerChangedEvent, type ResizeOwner } from "../../lib/resizeOwner";
 import { tabResizeChanged } from "./tabResize";
 import { completeResize, createResizeModel, ptyResizeGeometry, requestResize, setResizeAuthority, terminalGeometryPolicy, type ResizeRequest } from "./resizeModel";
+import { authorityAfterClaim, authorityAfterOwnerChanged, unclaimedAuthority, type ViewerAuthority } from "./resizeAuthority";
 import { DEV_BUILD } from "../../lib/devBuild";
 
 export interface UseTerminalResizeOptions {
@@ -54,8 +55,8 @@ export function useTerminalResize({
   const lastContainerSizeRef = useRef({ w: 0, h: 0 });
   const pendingSizeRef = useRef<{ cols: number; rows: number } | null>(null);
   const resizeModelRef = useRef(createResizeModel());
+  const authorityRef = useRef<ViewerAuthority>(unclaimedAuthority());
   const nativeResizeActiveRef = useRef(false);
-  const ownsResizeRef = useRef(false);
   const suppressCommitRef = useRef(false);
 
   const sendResize = useCallback(function send(request: ResizeRequest) {
@@ -78,7 +79,7 @@ export function useTerminalResize({
   const commitResize = useCallback((force = false) => {
     const policy = terminalGeometryPolicy(isRemote);
     if (policy === "viewer-local") return;
-    if (!ownsResizeRef.current || suppressCommitRef.current) return;
+    if (authorityRef.current.role !== "owner" || suppressCommitRef.current) return;
     if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
     const term = termRef.current;
     const currentPtyId = connectedPtyRef.current ?? ptyId ?? null;
@@ -94,86 +95,99 @@ export function useTerminalResize({
     if (request && request !== state.inFlight) sendResize(request);
   }, [connectedPtyRef, isRemote, ptyId, resizeClientId, sendResize, termRef]);
 
-  const loseResizeOwnership = useCallback(() => {
-    ownsResizeRef.current = false;
+  // Owner geometry is this view's fit; a follower renders the owner's size and
+  // scrolls whatever does not fit its own box instead of refitting the PTY.
+  const applyGeometry = useCallback((force: boolean) => {
+    const el = containerRef.current;
+    const term = termRef.current;
+    if (!el || !term || el.clientWidth < 20 || el.clientHeight < 20) return;
+    const w = el.clientWidth;
+    const h = el.clientHeight;
+    const authority = authorityRef.current;
+    const followed = authority.role === "follower" ? authority.followed : null;
+    if (!force && !followed && !tabResizeChanged(lastContainerSizeRef.current, w, h)) return;
+    lastContainerSizeRef.current = { w, h };
+    try {
+      if (followed) {
+        if (term.cols !== followed.cols || term.rows !== followed.rows) term.resize(followed.cols, followed.rows);
+      } else {
+        fitAddonRef.current?.fit();
+      }
+      if (force) term.refresh(0, term.rows - 1);
+      pendingSizeRef.current = { cols: term.cols, rows: term.rows };
+    } catch { /* teardown */ }
+    el.dataset.geometry = followed ? "follow" : "fit";
+  }, [containerRef, fitAddonRef, termRef]);
+
+  const resetAuthority = useCallback(() => {
+    authorityRef.current = unclaimedAuthority();
     pendingSizeRef.current = null;
     resizeModelRef.current = setResizeAuthority(resizeModelRef.current, null);
   }, []);
 
-  const hasResizeOwnership = useCallback(() => ownsResizeRef.current, []);
+  // A follower keeps the owner's geometry it already knows; only an owner steps down.
+  const loseResizeOwnership = useCallback(() => {
+    if (authorityRef.current.role !== "owner") return;
+    resetAuthority();
+  }, [resetAuthority]);
+
+  const hasResizeOwnership = useCallback(() => authorityRef.current.role === "owner", []);
 
   const setResizeOwner = useCallback((
     owner: ResizeOwner,
     ownerPtyId: string,
     currentSize: { cols: number; rows: number } | null,
   ) => {
-    const isOwner = owner.client_id === resizeClientId
-      && owner.pty_id === ownerPtyId
-      && (connectedPtyRef.current ?? ptyId ?? null) === ownerPtyId;
-    ownsResizeRef.current = isOwner;
+    const self = { clientId: resizeClientId ?? "", ptyId: connectedPtyRef.current ?? ptyId ?? "" };
+    const authority = self.ptyId === ownerPtyId
+      ? authorityAfterClaim({
+        ownerClientId: owner.client_id,
+        ptyId: owner.pty_id,
+        ownerSize: { cols: owner.cols, rows: owner.rows },
+        currentSize,
+      }, self)
+      : unclaimedAuthority();
+    authorityRef.current = authority;
     pendingSizeRef.current = null;
     resizeModelRef.current = setResizeAuthority(
       resizeModelRef.current,
-      isOwner && resizeClientId ? { ptyId: ownerPtyId, clientId: resizeClientId } : null,
+      authority.role === "owner" && resizeClientId ? { ptyId: ownerPtyId, clientId: resizeClientId } : null,
       currentSize,
     );
-  }, [connectedPtyRef, ptyId, resizeClientId]);
-
-  const fitMeasuredContainer = useCallback(() => {
-    const el = containerRef.current;
-    if (!el || el.clientWidth < 20 || el.clientHeight < 20) return;
-    const w = el.clientWidth;
-    const h = el.clientHeight;
-    if (!tabResizeChanged(lastContainerSizeRef.current, w, h)) return;
-    lastContainerSizeRef.current = { w, h };
-    try {
-      fitAddonRef.current?.fit();
-      const term = termRef.current;
-      if (term) pendingSizeRef.current = { cols: term.cols, rows: term.rows };
-    } catch { /* teardown */ }
-  }, [containerRef, fitAddonRef, termRef]);
-
-  const forceFitMeasuredContainer = useCallback(() => {
-    const el = containerRef.current;
-    const term = termRef.current;
-    if (!el || !term || el.clientWidth < 20 || el.clientHeight < 20) return;
-    lastContainerSizeRef.current = { w: el.clientWidth, h: el.clientHeight };
-    try {
-      fitAddonRef.current?.fit();
-      term.refresh(0, term.rows - 1);
-      pendingSizeRef.current = { cols: term.cols, rows: term.rows };
-    } catch { /* teardown */ }
-  }, [containerRef, fitAddonRef, termRef]);
+    if (authority.role === "follower") applyGeometry(true);
+  }, [applyGeometry, connectedPtyRef, ptyId, resizeClientId]);
 
   const refitAndCommitResize = useCallback(() => {
-    const el = containerRef.current;
-    if (!el || el.clientWidth < 20 || el.clientHeight < 20) return;
     suppressCommitRef.current = true;
     try {
-      forceFitMeasuredContainer();
+      applyGeometry(true);
     } finally {
       suppressCommitRef.current = false;
     }
-    const term = termRef.current;
-    if (!term) return;
-    pendingSizeRef.current = { cols: term.cols, rows: term.rows };
+    if (!pendingSizeRef.current) return;
     commitResize();
-  }, [commitResize, containerRef, forceFitMeasuredContainer, termRef]);
+  }, [applyGeometry, commitResize]);
 
   useEffect(() => {
-    loseResizeOwnership();
-    return loseResizeOwnership;
-  }, [loseResizeOwnership, ptyId, resizeClientId, resizeEnabled, tabId]);
+    resetAuthority();
+    return resetAuthority;
+  }, [resetAuthority, ptyId, resizeClientId, resizeEnabled, tabId]);
 
   useEffect(() => {
-    if (!resizeEnabled) return;
+    // Mesh viewers reflow locally and never follow or hold the shared PTY size.
+    if (!resizeEnabled || terminalGeometryPolicy(isRemote) === "viewer-local") return;
     let disposed = false;
     let unlisten: (() => void) | null = null;
     void listen<ResizeOwner>(resizeOwnerChangedEvent(tabId), (event) => {
       const owner = event.payload;
-      const currentPtyId = connectedPtyRef.current ?? ptyId;
-      if (owner?.pty_id !== currentPtyId || owner.client_id === resizeClientId) return;
-      loseResizeOwnership();
+      if (!owner) return;
+      const self = { clientId: resizeClientId ?? "", ptyId: connectedPtyRef.current ?? ptyId ?? "" };
+      const next = authorityAfterOwnerChanged(authorityRef.current, owner, self);
+      if (next === authorityRef.current) return;
+      authorityRef.current = next;
+      pendingSizeRef.current = null;
+      resizeModelRef.current = setResizeAuthority(resizeModelRef.current, null);
+      applyGeometry(true);
     }).then((cleanup) => {
       if (disposed) cleanup();
       else unlisten = cleanup;
@@ -182,7 +196,7 @@ export function useTerminalResize({
       disposed = true;
       unlisten?.();
     };
-  }, [connectedPtyRef, loseResizeOwnership, ptyId, resizeClientId, resizeEnabled, tabId]);
+  }, [applyGeometry, connectedPtyRef, isRemote, ptyId, resizeClientId, resizeEnabled, tabId]);
 
   useEffect(() => {
     const term = termRef.current;
@@ -202,7 +216,7 @@ export function useTerminalResize({
       if (animationFrame !== null) return;
       animationFrame = requestAnimationFrame(() => {
         animationFrame = null;
-        fitMeasuredContainer();
+        applyGeometry(false);
         commitResize();
       });
     };
@@ -211,7 +225,7 @@ export function useTerminalResize({
     scheduleFit();
 
     const handleTabResize = () => {
-      forceFitMeasuredContainer();
+      applyGeometry(true);
       commitResize();
     };
     window.addEventListener("codeterm-tab-resize", handleTabResize);
@@ -220,7 +234,7 @@ export function useTerminalResize({
       if (animationFrame !== null) cancelAnimationFrame(animationFrame);
       window.removeEventListener("codeterm-tab-resize", handleTabResize);
     };
-  }, [commitResize, containerRef, fitMeasuredContainer, forceFitMeasuredContainer, resizeEnabled, termReady]);
+  }, [applyGeometry, commitResize, containerRef, resizeEnabled, termReady]);
 
   useEffect(() => {
     if (!nativeResizeCommit || !termReady || !resizeEnabled) return;
@@ -235,7 +249,7 @@ export function useTerminalResize({
       if (commitFrame !== null) cancelAnimationFrame(commitFrame);
       commitFrame = requestAnimationFrame(() => {
         commitFrame = null;
-        fitMeasuredContainer();
+        applyGeometry(false);
         commitResize();
       });
     }) ?? null;
@@ -244,7 +258,7 @@ export function useTerminalResize({
       unlistenStart?.();
       unlistenCommit?.();
     };
-  }, [commitResize, fitMeasuredContainer, resizeEnabled, termReady]);
+  }, [applyGeometry, commitResize, resizeEnabled, termReady]);
 
   useEffect(() => {
     if (!isFocused || !termReady || !resizeEnabled) return;

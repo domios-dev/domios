@@ -4,7 +4,7 @@ import { listen } from "../../lib/bridge";
 import { RefreshCw, Trash2 } from "lucide-react";
 import { BusySpinner } from "../shared/BusyState";
 import type { AppConfig } from "../../lib/types";
-import { daemonAuthToken, daemonHttpBase } from "../../lib/webApi";
+import { localFetch, daemonAuthToken, daemonHttpBase } from "../../lib/webApi";
 import { LogsFilterBar } from "./LogsFilterBar";
 import { LogsListRow } from "./LogsListRow";
 
@@ -74,7 +74,7 @@ export function LogsTab({ config }: { config: AppConfig }) {
       const params = new URLSearchParams();
       params.set("limit", "500");
       if (rangeMs !== null) params.set("since", String(Date.now() - rangeMs));
-      const r = await fetch(`${apiBase}/api/logs?${params.toString()}`, { headers: authHeaders });
+      const r = await localFetch(`/api/logs?${params.toString()}`, { headers: authHeaders });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const rows = (await r.json()) as AppLog[];
       setLogs(Array.isArray(rows) ? rows : []);
@@ -162,7 +162,7 @@ export function LogsTab({ config }: { config: AppConfig }) {
     const cutoff = Date.now() - 7 * 86_400_000;
     if (!window.confirm("Delete all logs older than 7 days?")) return;
     try {
-      const r = await fetch(`${apiBase}/api/logs?before=${cutoff}`, {
+      const r = await localFetch(`/api/logs?before=${cutoff}`, {
         method: "DELETE",
         headers: authHeaders,
       });

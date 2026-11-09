@@ -139,7 +139,7 @@ export function NotificationDestinations({
                   <span className="min-w-0 text-[11px] text-[var(--ct-muted-fg)]">{meaning}</span>
                 )}
                 {reachesNothing(choice, columns) && (
-                  <span className="shrink-0 text-[10px] text-[var(--ct-muted)]">panel only</span>
+                  <span className="shrink-0 text-[10px] text-[var(--ct-muted-fg)]">panel only</span>
                 )}
               </div>
               <div className="ct-level-card__switches">
@@ -180,7 +180,7 @@ export function NotificationDestinations({
           );
         })}
       </div>
-      <p className="text-[10px] text-[var(--ct-muted)] leading-relaxed">
+      <p className="text-[11px] text-[var(--ct-muted-fg)] leading-relaxed">
         Every level is kept in the panel; these choose what else it reaches, and which of them
         chime. A message that names no level is kept too, and never reaches the system, any push
         channel, or the speakers — there is no fallback level and no way to widen this set from

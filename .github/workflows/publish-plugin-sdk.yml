@@ -13,7 +13,7 @@ jobs:
   publish:
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && (startsWith(github.ref, 'refs/heads/release/') || startsWith(github.head_ref, 'release/')) && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
     environment: release
-    runs-on: [self-hosted, linux-build]
+    runs-on: ${{ fromJSON(vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
     permissions:
       id-token: write # required for OIDC trusted publishing
       contents: read

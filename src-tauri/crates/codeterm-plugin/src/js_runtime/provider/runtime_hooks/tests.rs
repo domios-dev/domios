@@ -540,3 +540,204 @@ fn runtime_network_access_preserves_false_and_refuses_non_boolean_values() {
         );
     }
 }
+
+#[tokio::test(flavor = "current_thread")]
+async fn declared_plan_refusal_preserves_cached_globals_for_other_tabs() {
+    let js = provider("const tabs=new Set();module.exports={runtimePlan(ctx,op){if(op.kind==='control')return {action:{kind:'refused',reason:'operation unavailable'},state:null};const existing=tabs.has(ctx.tabId);tabs.add(ctx.tabId);return {action:{kind:'request',call:{method:'handshake',params:{existing}}},state:null};}}");
+    let first = context();
+    let mut second = context();
+    second.tab_id = "other-tab".into();
+    second.binding_nonce = "other-nonce".into();
+    for ctx in [&first, &second] {
+        let plan = js
+            .runtime_plan(ctx, &RuntimeOperation::Initialize)
+            .await
+            .unwrap();
+        let RuntimeAction::Request { call } = plan.action else {
+            panic!("expected initialization plan")
+        };
+        assert_eq!(call.params["existing"], false);
+    }
+    let failure = js
+        .runtime_plan(
+            &first,
+            &RuntimeOperation::Control {
+                thread_id: None,
+                action: "refuse".into(),
+                value: Value::Null,
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(failure.code, RuntimeFailureCode::ProviderRefused);
+    assert_eq!(failure.message, "operation unavailable");
+    let plan = js
+        .runtime_plan(&second, &RuntimeOperation::Initialize)
+        .await
+        .unwrap();
+    let RuntimeAction::Request { call } = plan.action else {
+        panic!("expected retained initialization plan")
+    };
+    assert_eq!(call.params["existing"], true);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn local_runtime_action_only_resumes_the_exact_bound_thread() {
+    let js = provider("module.exports={runtimePlan(){return {action:{kind:'local'},state:null}}}");
+    let mut ctx = context();
+    ctx.thread_id = Some("own-thread".into());
+    let resume = RuntimeOperation::ResumeThread {
+        thread_id: "own-thread".into(),
+        instructions: String::new(),
+        settings: Default::default(),
+    };
+    let plan = js.runtime_plan(&ctx, &resume).await.unwrap();
+    assert_eq!(
+        serde_json::to_value(plan.action).unwrap(),
+        json!({"kind":"local"})
+    );
+    for operation in [
+        RuntimeOperation::Initialize,
+        RuntimeOperation::OpenThread {
+            instructions: String::new(),
+            settings: Default::default(),
+        },
+        RuntimeOperation::ReadHistory {
+            thread_id: "own-thread".into(),
+            cursor: None,
+            order: None,
+        },
+        RuntimeOperation::Control {
+            thread_id: Some("own-thread".into()),
+            action: "auth".into(),
+            value: Value::Null,
+        },
+    ] {
+        assert_eq!(
+            js.runtime_plan(&ctx, &operation).await.unwrap_err().code,
+            RuntimeFailureCode::BindingMismatch
+        );
+    }
+    ctx.thread_id = Some("foreign".into());
+    assert!(js.runtime_plan(&ctx, &resume).await.is_err());
+    ctx.thread_id = None;
+    assert!(js.runtime_plan(&ctx, &resume).await.is_err());
+    ctx.thread_id = Some("own-thread".into());
+    ctx.epoch = 0;
+    assert!(js.runtime_plan(&ctx, &resume).await.is_err());
+}
+
+#[test]
+fn open_thread_notice_must_name_the_exact_loaded_thread() {
+    let ctx = context();
+    let cap = provider("module.exports={}").agent_runtime().unwrap();
+    let op: RuntimeOperation =
+        serde_json::from_value(json!({"kind":"openThread","instructions":"","settings":{}}))
+            .unwrap();
+    let reply: RpcReply = serde_json::from_value(json!({"kind":"success","value":null})).unwrap();
+    let step = |thread: &str| -> RuntimeStep {
+        serde_json::from_value(json!({"kind":"complete","result":{"kind":"threadLoaded","threadId":"loaded-thread","settings":{}},"events":[{"kind":"notice","threadId":thread,"message":"Requested model was not applied"}]})).unwrap()
+    };
+    assert!(validate_runtime_step(&cap, &ctx, &op, &reply, &step("loaded-thread")).is_ok());
+    let failure =
+        validate_runtime_step(&cap, &ctx, &op, &reply, &step("foreign-thread")).unwrap_err();
+    assert_eq!(failure.code, RuntimeFailureCode::BindingMismatch);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn host_mcp_context_absent_for_undeclared_plugin_across_all_hooks() {
+    let mut ctx = context();
+    ctx.host_mcp = Some(RuntimeHostMcp {
+        env: std::collections::BTreeMap::from([("CODETERM_TAB_ID".into(), "own".into())]),
+        name: "domios".into(),
+        command: "/trusted/domios".into(),
+        args: vec!["mcp".into(), "serve".into()],
+    });
+    let mut js = provider("function plan(ctx){return {action:{kind:'request',call:{method:'handshake',params:{descriptor:ctx.hostMcp || null}}},state:null}}; module.exports={runtimePlan:plan,runtimeResponse(ctx){return {kind:'continue',plan:plan(ctx)}},runtimeReduce(ctx){return {state:{descriptor:ctx.hostMcp || null},events:[]}}}");
+    for declared in [false, true] {
+        if declared {
+            js.manifest
+                .capabilities
+                .agent_runtime
+                .as_mut()
+                .unwrap()
+                .host_mcp = Some(RuntimeHostMcpDeclaration {
+                param: "mcpServers".into(),
+                methods: vec!["submit".into()],
+            });
+        }
+        let expected = if declared {
+            json!(ctx.host_mcp)
+        } else {
+            Value::Null
+        };
+        let plan = js
+            .runtime_plan(&ctx, &RuntimeOperation::Initialize)
+            .await
+            .unwrap();
+        let RuntimeAction::Request { call } = plan.action else {
+            panic!("expected request")
+        };
+        assert_eq!(call.params["descriptor"], expected);
+        let response = js
+            .runtime_response(
+                &ctx,
+                &RuntimeOperation::Initialize,
+                &Value::Null,
+                &RpcReply::Success { value: json!({}) },
+            )
+            .await
+            .unwrap();
+        let RuntimeStep::Continue { plan, .. } = response else {
+            panic!("expected continuation")
+        };
+        let RuntimeAction::Request { call } = plan.action else {
+            panic!("expected request")
+        };
+        assert_eq!(call.params["descriptor"], expected);
+        let reduction = js.runtime_reduce(&ctx, &Value::Null, &[]).await.unwrap();
+        assert_eq!(reduction.state["descriptor"], expected);
+    }
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn stream_window_native_value_survives_quickjs_only_for_declared_turn_requests() {
+    let source =
+        "module.exports={runtimeReduce(ctx){return {state:ctx.streamWindow ?? null,events:[]}}}";
+    let mut ctx = context();
+    ctx.thread_id = Some("own-thread".into());
+    ctx.stream_window=Some(serde_json::from_value(json!({"frameSequences":[11],"turnRequests":[{"sendId":"send","turnId":"turn","afterSequence":10,"written":true}]})).unwrap());
+    let native = serde_json::to_value(&ctx.stream_window).unwrap();
+    let frames: Vec<RuntimeFrame> =
+        serde_json::from_value(json!([{"kind":"notification","method":"changed","params":{}}]))
+            .unwrap();
+    for declared in [false, true] {
+        let mut raw = json!({"id":"stream-window-fixture","version":"1.0.0","displayName":"Fixture",
+            "capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},
+            "agentRuntime":{"runtime":"stdio-jsonrpc","command":{"binary":"fixture-engine","args":[]},"requestMethods":{"initialize":["handshake"],"submitTurn":["submit"]},"notificationMethods":["changed"]}},
+            "permissions":{"subprocess":{"allow":["fixture-engine"]}}});
+        if declared {
+            raw["capabilities"]["agentRuntime"]["turnScopedRequests"] = json!(["submitTurn"]);
+        }
+        let manifest = PluginManifest::from_json_str(&raw.to_string()).unwrap();
+        let js = JsProvider::new(
+            manifest,
+            Arc::new(PluginVm::from_source("stream-window-fixture", source.into()).unwrap()),
+        );
+        let reduced = js
+            .runtime_reduce(&ctx, &Value::Null, &frames)
+            .await
+            .unwrap();
+        assert_eq!(
+            reduced.state,
+            if declared {
+                native.clone()
+            } else {
+                Value::Null
+            }
+        );
+        if declared {
+            assert!(js.runtime_reduce(&ctx, &Value::Null, &[]).await.is_err());
+        }
+    }
+}

@@ -9,7 +9,7 @@ export function useRuntimeLogin(tabId:string, providerId?:string) {
   const pending=useRef(false);
   const current=useRef(false);
   useEffect(()=>{current.current=true;return ()=>{current.current=false;};},[]);
-  async function operate(request:{action?:string;method?:string;apiKey?:string;account?:string;code?:string}) {
+  async function operate(request:{action?:string;method?:string;methodId?:string;apiKey?:string;account?:string;code?:string}) {
     if (pending.current) return false;
     pending.current=true;setBusy(true);setError(null);
     try {

@@ -48,12 +48,33 @@ pub fn drain_ready<T>(first: Poll<T>, mut poll: impl FnMut() -> Poll<T>, cap: us
     }
 }
 
+pub(super) async fn handle_stamped(
+    svc: &ServiceContext,
+    session: &Arc<Session>,
+    process: &Arc<Process>,
+    epoch: u64,
+    frames: Vec<super::super::rpc::Ingress>,
+    lagged: bool,
+) -> Step {
+    let through = frames.last().map_or(0, |frame| frame.sequence);
+    let sequences = frames.iter().map(|frame| frame.sequence).collect();
+    let frames = frames.into_iter().map(|frame| frame.frame).collect();
+    let result = handle(svc, session, process, epoch, frames, sequences, lagged).await;
+    let context = session.context.lock();
+    if context.epoch == epoch {
+        let previous = *session.stream_progress.borrow();
+        session.stream_progress.send_replace(previous.max(through));
+    }
+    result
+}
+
 pub(super) async fn handle(
     svc: &ServiceContext,
     session: &Arc<Session>,
     process: &Arc<Process>,
     epoch: u64,
     frames: Vec<RuntimeFrame>,
+    sequences: Vec<u64>,
     lagged: bool,
 ) -> Step {
     if session.context.lock().epoch != epoch || engine::validate_binding(svc, session).is_err() {
@@ -61,12 +82,21 @@ pub(super) async fn handle(
     }
     process.client.trace_binding(&session.context.lock());
     let mut reducible = Vec::new();
+    let mut reducible_sequences = Vec::new();
     let mut accepted = Vec::new();
-    for frame in frames {
+    let mut native = Vec::new();
+    let bridges_declared = session
+        .adapter
+        .lock()
+        .as_ref()
+        .and_then(|adapter| adapter.agent_runtime())
+        .is_some_and(|cap| cap.client_bridges.is_some());
+    for (frame, sequence) in frames.into_iter().zip(sequences) {
         match frame {
             RuntimeFrame::Notification { method, params } => {
                 if notification_allowed(session, &method) {
                     reducible.push(RuntimeFrame::Notification { method, params });
+                    reducible_sequences.push(sequence);
                 }
             }
             RuntimeFrame::Request {
@@ -90,6 +120,7 @@ pub(super) async fn handle(
                                     params: params.clone(),
                                 },
                                 prompt: None,
+                                permission: None,
                             },
                         );
                         false
@@ -104,6 +135,10 @@ pub(super) async fn handle(
                     continue;
                 }
                 accepted.push(request_id.clone());
+                if bridges_declared && super::super::client_bridge::method_supported(&method) {
+                    native.push((request_id.clone(), method.clone(), params.clone()));
+                }
+                reducible_sequences.push(sequence);
                 reducible.push(RuntimeFrame::Request {
                     request_id,
                     method,
@@ -129,7 +164,14 @@ pub(super) async fn handle(
         }
         return Step::Break;
     };
-    let context = session.context.lock().clone();
+    let mut context = session.context.lock().clone();
+    if adapter
+        .agent_runtime()
+        .is_some_and(|cap| !cap.turn_scoped_requests.is_empty())
+    {
+        context.stream_window =
+            Some(super::super::turn_requests::stream_window(session, reducible_sequences).await);
+    }
     let trace = super::super::model::responsiveness::context(&context);
     if let Some(trace) = trace {
         trace.mark("reducer_prepare_begin", None, serde_json::json!({}));
@@ -200,7 +242,15 @@ pub(super) async fn handle(
     if let Some(trace) = trace {
         trace.mark("reducer_validated", None, serde_json::json!({"state_bytes":state_bytes.as_ref().ok(),"events":reduced.events.len()}));
     }
-    if state_bytes.is_err()
+    let native_prompt = reduced.events.iter().any(|event| match event {
+        AgentRuntimeEvent::Prompt { request_id, .. }
+        | AgentRuntimeEvent::PromptResolved { request_id, .. } => {
+            native.iter().any(|(id, _, _)| id == request_id)
+        }
+        _ => false,
+    });
+    if native_prompt
+        || state_bytes.is_err()
         || reduced.events.len() > MAX_RUNTIME_BATCH
         || validate_host_runtime_events(&context, &valid_events).is_err()
     {
@@ -215,6 +265,9 @@ pub(super) async fn handle(
         .await;
     }
     for id in &accepted {
+        if native.iter().any(|(native_id, _, _)| native_id == id) {
+            continue;
+        }
         if let Some(error) = super::unmapped_request_error(&context, id, &reduced.events) {
             session.prompts.lock().remove(id);
             if let Err(reason) = process.client.reply(id, Err(error)).await {
@@ -226,6 +279,23 @@ pub(super) async fn handle(
     if let Err(reason) =
         super::apply::publish_live_events(svc, session, epoch, reduced.events, received_at).await
     {
+        for (id, _, _) in &native {
+            session.prompts.lock().remove(id);
+            if let Err(reason) = process
+                .client
+                .reply(
+                    id,
+                    Err(RpcFailure {
+                        code: -32602,
+                        message: "Native client turn publication failed".into(),
+                        data: None,
+                    }),
+                )
+                .await
+            {
+                return Step::Close(reason);
+            }
+        }
         return match reason {
             RuntimeFailure::Superseded => Step::Break,
             reason if bookkeeping_protocol(&reason) => Step::Close(reason),
@@ -234,6 +304,42 @@ pub(super) async fn handle(
                     .await
             }
         };
+    }
+    for (id, method, params) in native {
+        session.prompts.lock().remove(&id);
+        let current = session.context.lock().clone();
+        if current.epoch != epoch || current.active_turn_id.is_none() {
+            if let Err(reason) = process
+                .client
+                .reply(
+                    &id,
+                    Err(RpcFailure {
+                        code: -32602,
+                        message: "Native client request requires a published active turn".into(),
+                        data: None,
+                    }),
+                )
+                .await
+            {
+                return Step::Close(reason);
+            }
+            continue;
+        }
+        if let Err(reason) =
+            super::super::client_bridge::handle(svc, session, process, &id, &method, &params).await
+        {
+            return Step::Close(reason);
+        }
+    }
+    if session
+        .prompts_cancelled
+        .load(std::sync::atomic::Ordering::Acquire)
+    {
+        if let Err(reason) =
+            super::super::prompt_answers::cancel_pending(svc, session, process).await
+        {
+            return Step::Close(reason);
+        }
     }
     if lagged {
         bookkeeping::account(svc, session, process, epoch, bookkeeping::Reason::Lag).await

@@ -3,6 +3,15 @@ macro_rules! agent_provider_session_usage {
         /// Build the path to the session file for this agent.
         fn session_file_path(&self, cwd: &str, session_id: &str) -> Option<PathBuf>;
 
+        /// Keep dispatch failures distinct from an absent session path in transcript reads.
+        fn session_file_path_checked(
+            &self,
+            cwd: &str,
+            session_id: &str,
+        ) -> Result<Option<PathBuf>, String> {
+            Ok(self.session_file_path(cwd, session_id))
+        }
+
         fn session_model_identity_path(&self, _cwd: &str, _session_id: &str) -> Option<PathBuf> {
             None
         }
@@ -105,6 +114,16 @@ macro_rules! agent_provider_session_usage {
         /// there's no terminal to gate on. Default `false` (TUI-probe providers).
         fn usage_is_fetch_based(&self) -> bool {
             false
+        }
+
+        /// A launch profile's declared `balance` limits source, read by the provider off
+        /// the request path as a UsageSnapshot-shaped payload. `None`: no reader.
+        fn read_profile_limits(
+            &self,
+            _profile: &str,
+            _source: &crate::agent_runtime::RuntimeProfileLimitsSource,
+        ) -> Option<Result<String, String>> {
+            None
         }
     };
 }

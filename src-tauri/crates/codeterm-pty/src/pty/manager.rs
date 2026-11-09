@@ -331,6 +331,7 @@ pub const STRIPPED_PTY_ENV: &[&str] = &[
 
 pub const INHERITED_ORCHESTRATION_ENV: &[&str] = &[
     "CODETERM_API_TOKEN",
+    "CODETERM_LAUNCH_FILE",
     "CODETERM_TAB_ID",
     "CODETERM_SESSION_ID",
     "CODETERM_SESSION_BINDING_NONCE",
@@ -344,6 +345,7 @@ pub const INHERITED_ORCHESTRATION_ENV: &[&str] = &[
     "CODETERM_ROLE",
     "CODETERM_PARENT_TAB_ID",
     "CODETERM_WORKER_ID",
+    "CODETERM_RUNTIME_AGENT",
 ];
 
 /// The single rule for putting the CodeTerm CLI directory on a PATH: every
@@ -534,7 +536,10 @@ fn build_session_for_launch(
     let open_us = open_started.elapsed().as_micros();
     let env_started = std::time::Instant::now();
 
-    let writer = pair.master.take_writer().map_err(|e| e.to_string())?;
+    let writer = pair
+        .master
+        .take_cancellable_writer()
+        .map_err(|e| e.to_string())?;
     let reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
 
     let (shell, mut cmd) = if let Some(launch) = &launch {
@@ -620,7 +625,7 @@ fn build_session_for_launch(
     let spawn_us = spawn_started.elapsed().as_micros();
     let observer_started = std::time::Instant::now();
 
-    let write_queue = WriteQueue::new(writer);
+    let write_queue = WriteQueue::new_cancellable(writer);
     let session = Arc::new(PtySession {
         generation: next_session_generation(),
         pair: StdMutex::new(Some(pair)),
@@ -773,10 +778,10 @@ impl PtyManager {
         Ok(())
     }
 
-    pub fn invalidate_guarded_input(&self, pty_id: &str) {
-        if let Some(session) = self.sessions.get(pty_id) {
-            session.guarded_input.invalidate();
-        }
+    pub fn guarded_input_gate(&self, pty_id: &str) -> Option<GuardedInputGate> {
+        self.sessions
+            .get(pty_id)
+            .map(|session| session.guarded_input.clone())
     }
 
     pub fn issue_guarded_input_permit(&self, pty_id: &str) -> Result<GuardedInputPermit, String> {
@@ -840,75 +845,11 @@ impl PtyManager {
     }
 
     fn begin_kill_with(&mut self, pty_id: &str, entire_tree: bool) -> Result<PtyReaper, String> {
-        let tree_killer = self
-            .sessions
-            .get(pty_id)
-            .ok_or_else(|| format!("PTY {} not found", pty_id))?
-            .child
-            .lock()
-            .map_err(|error| format!("pty_tree_termination_failed: PTY {pty_id}: {error}"))?
-            .clone_killer();
         let session = self
             .sessions
             .remove(pty_id)
-            .ok_or_else(|| format!("PTY {} not found", pty_id))?;
-        session.guarded_input.invalidate();
-        let (kill_error, exit_pending_error) = match session.child.lock() {
-            Ok(mut child) => {
-                let leader_pid = child.process_id();
-                let result = if entire_tree {
-                    child.kill_tree()
-                } else {
-                    child.kill()
-                };
-                let group_errno = entire_tree
-                    .then(super::teardown::exited_group_errno)
-                    .flatten();
-                match super::teardown::classify_tree_kill(result, group_errno, || {
-                    matches!(child.try_wait(), Ok(Some(_)))
-                        || super::teardown::leader_exited_natively(leader_pid)
-                }) {
-                    Ok(()) => (None, None),
-                    Err(error) if group_errno.is_some() && error.raw_os_error() == group_errno => {
-                        (None, Some(error.to_string()))
-                    }
-                    Err(error) => (
-                        Some(error)
-                            .filter(kill_failure_blocks_teardown)
-                            .map(|error| error.to_string()),
-                        None,
-                    ),
-                }
-            }
-            Err(error) => (Some(format!("child mutex poisoned: {error}")), None),
-        };
-        session.write_queue.close();
-        #[cfg(not(windows))]
-        if let Ok(mut reader) = session.reader.lock() {
-            let _ = reader.take();
-        }
-        if let Ok(mut tx) = session.backend_reader_tx.lock() {
-            let _ = tx.take();
-        }
-        session.backend_output.close();
-        // ConPTY handle is closed by the reaper's background thread, not here —
-        // ClosePseudoConsole can block (see teardown.rs) and must not stall the caller.
-        log::info!("Killed PTY {} process tree; ConPTY teardown queued", pty_id);
-        #[cfg(target_os = "macos")]
-        let child_pid = session
-            .child
-            .lock()
-            .ok()
-            .and_then(|child| child.process_id());
-        Ok(PtyReaper {
-            pty_id: pty_id.to_string(),
-            session,
-            kill_error,
-            exit_pending_error,
-            tree_killer,
-            #[cfg(target_os = "macos")]
-            child_pid,
-        })
+            .ok_or_else(|| format!("PTY {pty_id} not found"))?;
+        Ok(PtyReaper::new(pty_id.to_string(), session, entire_tree))
     }
 
     #[cfg(windows)]
@@ -977,12 +918,12 @@ fn detect_default_shell() -> String {
 
 /// ESRCH means the tree is already gone, which is what teardown asked for.
 #[cfg(unix)]
-fn kill_failure_blocks_teardown(error: &std::io::Error) -> bool {
+pub(super) fn kill_failure_blocks_teardown(error: &std::io::Error) -> bool {
     error.raw_os_error() != Some(libc::ESRCH)
 }
 
 #[cfg(not(unix))]
-fn kill_failure_blocks_teardown(_error: &std::io::Error) -> bool {
+pub(super) fn kill_failure_blocks_teardown(_error: &std::io::Error) -> bool {
     true
 }
 

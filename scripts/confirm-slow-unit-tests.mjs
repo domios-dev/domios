@@ -19,7 +19,7 @@ export function confirmCandidates(entries, options, run = spawnSync) {
   let exitCode = 0;
   for (const entry of entries) {
     const reuse = options.archive ? ['--archive-file', options.archive, '--workspace-remap', resolve('src-tauri')] : ['--binaries-metadata', options.binaries, '--cargo-metadata', options.cargo];
-    const measure = filter => run(bashInterpreter(), ['scripts/test-capped.sh', ...reuse,
+    const measure = filter => run(bashInterpreter(), ['scripts/test-capped.sh', '--config-file', resolve('.config/nextest.toml'), ...reuse,
       '--filter-expr', filter, '--test-threads', '1', '--status-level', 'pass',
       '--no-fail-fast', '--no-tests=fail'], {
       encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,

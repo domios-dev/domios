@@ -41,51 +41,53 @@ fn completed_current_session_generation_is_exact_for_the_own_pty_tab() {
 
 #[test]
 fn completed_history_requires_exact_authenticated_terminal_attempt() {
-    use crate::plan::TaskExecutionAttempt;
+    use crate::service::plan::RestartAttemptRead;
     let (mut mux, id) = MultiplexerState::new();
     let tab = mux.get_tab_mut(&id).unwrap();
     tab.agent_type = Some("source".into());
     tab.agent_session_id = Some("session".into());
     tab.session_binding_nonce = Some("nonce".into());
     tab.reported_session_binding_nonce = Some("nonce".into());
-    let exact = TaskExecutionAttempt {
+    let exact = RestartAttemptRead {
         executor_tab_id: id,
         provider: Some("source".into()),
         session_id: Some("session".into()),
         session_binding_nonce: Some("nonce".into()),
         acknowledged_at: Some(1),
         closed_at: Some(2),
-        ..Default::default()
+        id: "attempt".into(),
+        owner_epoch: 0,
+        retired_at: None,
     };
     assert!(super::completed_attempt_matches(
         tab, &exact, "source", "nonce"
     ));
     for invalid in [
-        TaskExecutionAttempt {
+        RestartAttemptRead {
             executor_tab_id: "foreign".into(),
             ..exact.clone()
         },
-        TaskExecutionAttempt {
+        RestartAttemptRead {
             provider: Some("foreign".into()),
             ..exact.clone()
         },
-        TaskExecutionAttempt {
+        RestartAttemptRead {
             session_id: Some("foreign".into()),
             ..exact.clone()
         },
-        TaskExecutionAttempt {
+        RestartAttemptRead {
             session_binding_nonce: Some("foreign".into()),
             ..exact.clone()
         },
-        TaskExecutionAttempt {
+        RestartAttemptRead {
             acknowledged_at: None,
             ..exact.clone()
         },
-        TaskExecutionAttempt {
+        RestartAttemptRead {
             closed_at: None,
             ..exact.clone()
         },
-        TaskExecutionAttempt {
+        RestartAttemptRead {
             retired_at: Some(3),
             ..exact.clone()
         },
@@ -251,7 +253,11 @@ fn worker_attempt_carry(target: Option<&str>, omit_attempt: bool, case: CarryCas
             3,
         )
         .unwrap();
-    let attempt_id = store.show_task(&task_id).unwrap().task.execution_attempts[0]
+    let attempt_id = store
+        .inspect_task_for_test(&task_id)
+        .unwrap()
+        .task
+        .execution_attempts[0]
         .id
         .clone();
     fixture
@@ -279,13 +285,17 @@ fn worker_attempt_carry(target: Option<&str>, omit_attempt: bool, case: CarryCas
             )
             .unwrap();
     }
-    let source_acknowledged_at =
-        store.show_task(&task_id).unwrap().task.execution_attempts[0].acknowledged_at;
+    let source_acknowledged_at = store
+        .inspect_task_for_test(&task_id)
+        .unwrap()
+        .task
+        .execution_attempts[0]
+        .acknowledged_at;
     assert_eq!(source_acknowledged_at.is_some(), omit_attempt);
 
     if matches!(case, CarryCase::Closed(_)) {
         store
-            .with_plan(&plan.id, 4, |plan| {
+            .edit_plan_fixture(&plan.id, 4, |plan| {
                 let attempt = &mut plan
                     .tasks
                     .iter_mut()
@@ -334,7 +344,7 @@ fn worker_attempt_carry(target: Option<&str>, omit_attempt: bool, case: CarryCas
         Some("opaque-spawn-metadata")
     );
     store
-        .with_plan(&plan.id, 4, |plan| {
+        .edit_plan_fixture(&plan.id, 4, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()
@@ -353,8 +363,11 @@ fn worker_attempt_carry(target: Option<&str>, omit_attempt: bool, case: CarryCas
         crate::service::worker_interruption::WorkerInterruptionEvent::ForcedContextReset,
         crate::service::worker_interruption::WorkerInterruptionEvent::ProcessExited,
     ] {
-        assert!(!fixture.service.signal_worker_interruption(&tab_id, event));
-        let source = store.show_task(&task_id).unwrap().task;
+        assert!(!fixture
+            .service
+            .signal_worker_interruption(&tab_id, event)
+            .unwrap());
+        let source = store.inspect_task_for_test(&task_id).unwrap().task;
         assert_eq!(
             source.execution_attempts[0].closed_at.is_some(),
             matches!(case, CarryCase::Closed(_))
@@ -388,7 +401,11 @@ fn worker_attempt_carry(target: Option<&str>, omit_attempt: bool, case: CarryCas
             .lock()
             .contains_key(&super::key(&fixture.service, &tab_id)));
         assert_eq!(
-            store.show_task(&task_id).unwrap().task.execution_attempts[0]
+            store
+                .inspect_task_for_test(&task_id)
+                .unwrap()
+                .task
+                .execution_attempts[0]
                 .session_id
                 .as_deref(),
             Some("thread")
@@ -434,7 +451,7 @@ fn worker_attempt_carry(target: Option<&str>, omit_attempt: bool, case: CarryCas
             .service
             .finalize_authorized_runtime_restart_binding(&tab_id, thread, "new-nonce")
             .unwrap());
-        let persisted = store.show_task(&task_id).unwrap().task;
+        let persisted = store.inspect_task_for_test(&task_id).unwrap().task;
         assert_eq!(persisted.execution_attempts.len(), 1);
         assert_eq!(persisted.execution_attempts[0].closed_at, Some(4));
         assert_eq!(
@@ -459,7 +476,7 @@ fn worker_attempt_carry(target: Option<&str>, omit_attempt: bool, case: CarryCas
         .finalize_authorized_runtime_restart_binding(&tab_id, thread, "new-nonce")
         .unwrap());
 
-    let rebound = store.show_task(&task_id).unwrap().task;
+    let rebound = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(rebound.execution_attempts.len(), 1);
     assert_eq!(rebound.execution_attempts[0].id, attempt_id);
     assert_eq!(
@@ -511,7 +528,7 @@ fn worker_attempt_carry(target: Option<&str>, omit_attempt: bool, case: CarryCas
         acknowledged.attempt.acknowledged_at,
         expected_acknowledged_at
     );
-    let persisted = store.show_task(&task_id).unwrap().task;
+    let persisted = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(persisted.execution_attempts.len(), 1);
     assert_eq!(persisted.execution_attempts[0].id, attempt_id);
     assert_eq!(

@@ -1,6 +1,6 @@
 import { DEV_BUILD } from "../../lib/devBuild";
 import { chatResponsivenessTrace } from "./chatProjectionDiagnostics";
-import { canRetryChatStart, runChatStart } from "./chatStartFlight";
+import { canRetryChatStart, isInterruptedChatRead, runChatStart } from "./chatStartFlight";
 import {
   type MutableRefObject,
   useCallback,
@@ -204,6 +204,8 @@ export function useChatSession({
   }, [emitDiagnostic, tabId]);
 
   const attachment = useChatAttachment(tabId, observeSubscription);
+  const interruptedStartRecoveryRef = useRef(false);
+  const abortedListenerRecoveryRef = useRef(false);
   const failedStartRef = useRef<string | null>(null);
   const { begin: beginAttach, generation } = attachment;
   const attachmentRef = useRef(attachment);
@@ -239,6 +241,7 @@ export function useChatSession({
 
   const requestAttach = useCallback((cause = "attachment") => {
     if (!canRetryChatStart(attachmentStateRef.current, cause)) return;
+    if (cause !== "read_interrupted") interruptedStartRecoveryRef.current = false;
     const requested = requestedAuthorityRef.current;
     if (attachmentStateRef.current === "attaching"
       && requested?.source_session_id === agentSessionIdRef.current
@@ -271,6 +274,7 @@ export function useChatSession({
   }, [beginAttach, reconcileSendStatuses, tabId]);
 
   const markAttached = useCallback(() => {
+    interruptedStartRecoveryRef.current = false;
     markTranscriptSnapshotReady(windowKeyRef.current, sessionBindingNonceRef.current);
     adoptChatStartTiming(tabId);
     attachmentStateRef.current = "attached";
@@ -550,6 +554,7 @@ export function useChatSession({
           unlisten();
           return;
         }
+        abortedListenerRecoveryRef.current = false;
         const elapsedMs = Math.round(performance.now() - listenerStartedAt);
         if (elapsedMs >= 2_000) recordClientHealth({ event: "chat-connect-slow", tabId, elapsedMs, listenerMs: elapsedMs });
         emitDiagnostic({ edge: "listener_owned", tabId });
@@ -558,6 +563,17 @@ export function useChatSession({
         setListenerReady(true);
       } catch (e) {
         if (cancelled) return;
+        if (e instanceof DOMException && e.name === "AbortError") {
+          attachmentStateRef.current = "idle";
+          setAttachmentState("idle");
+          setError(null);
+          setLoading(false);
+          if (!abortedListenerRecoveryRef.current) {
+            abortedListenerRecoveryRef.current = true;
+            setListenerGeneration(previous => previous + 1);
+          }
+          return;
+        }
         const msg = e instanceof Error ? e.message : String(e);
         attachmentStateRef.current = "failed";
         setAttachmentState("failed");
@@ -756,6 +772,18 @@ export function useChatSession({
         if (recover) requestRecoveryAttach(true, "pending_recover_gap");
       } catch (e) {
         if (cancelled || !owner.isCurrent(generationAtRequest)) return;
+        if (isInterruptedChatRead(e)) {
+          attachmentStateRef.current = "idle";
+          requestedAuthorityRef.current = null;
+          setAttachmentState("idle");
+          setError(null);
+          setLoading(false);
+          if (!interruptedStartRecoveryRef.current) {
+            interruptedStartRecoveryRef.current = true;
+            requestAttach("read_interrupted");
+          }
+          return;
+        }
         failedStartRef.current = requestedSubscriptionId;
         const msg = e instanceof Error ? e.message : String(e);
         attachmentStateRef.current = "failed";
@@ -778,6 +806,7 @@ export function useChatSession({
     listenerReady,
     markAttached,
     rememberCursor,
+    requestAttach,
     requestRecoveryAttach,
     tabId,
   ]);
@@ -788,9 +817,9 @@ export function useChatSession({
   }, [listenerReady, requestRecoveryAttach]);
 
   const reconcileActivation = useCallback((cause: string) => {
-    if (attachmentStateRef.current === "failed" && !listenerReady) {
+    if (["failed", "idle"].includes(attachmentStateRef.current) && !listenerReady) {
       setListenerGeneration(previous => previous + 1);
-    } else if (["attached", "failed"].includes(attachmentStateRef.current)) requestRecoveryAttach(false, cause);
+    } else if (["attached", "failed", "idle"].includes(attachmentStateRef.current)) requestRecoveryAttach(false, cause);
   }, [listenerReady, requestRecoveryAttach]);
   useChatActivationReconcile(active, reconcileActivation);
 

@@ -43,7 +43,7 @@ pub fn is_preview_read(method: &Method, path: &str) -> bool {
     let Some((tab, suffix)) = rest.split_once('/') else {
         return false;
     };
-    !tab.is_empty() && matches!(suffix, "preview/read" | "preview/check")
+    !tab.is_empty() && matches!(suffix, "preview/read" | "preview/check" | "preview/prepare")
 }
 
 pub fn is_local_only_path(path: &str) -> bool {

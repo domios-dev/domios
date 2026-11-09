@@ -118,8 +118,8 @@ pub(super) struct Inner {
     pub(super) metadata_revision: Option<u64>,
     pub(super) registry_presence: Option<RegistryPresence>,
     pub(super) registry_notices: super::notice::RegistryNotices,
-    pub(super) registry_hints: super::registry_hint::RegistryHints,
     pub(super) registry_flight: Option<super::registry_read::RegistryFlight>,
+    pub(super) gossiped_endpoint: Option<(Option<super::wire::MeshEndpoint>, String)>,
     pub(super) published_endpoint: Option<super::wire::MeshEndpoint>,
     pub(super) published_until: u64,
     pub(super) publication_refresh_after: u64,
@@ -133,8 +133,10 @@ pub(super) struct Inner {
     notice_epoch: Option<u64>,
     pub(super) lease: u64,
     pub(super) launch_renewal_pending: bool,
+    /// The first ready publication after launch is a cold start even for an unchanged endpoint.
+    pub(super) launch_publication_pending: bool,
     pub(super) retry: super::retry::Retry,
-    store_unreadable: bool,
+    pub(super) store_unreadable: bool,
 }
 
 impl Inner {
@@ -224,6 +226,7 @@ impl Inner {
         self.registry_presence = None;
         self.resolved.clear();
         self.published_endpoint = None;
+        self.gossiped_endpoint = None;
         self.published_until = 0;
         self.publication_refresh_after = 0;
         self.sync_pending = false;
@@ -236,7 +239,8 @@ pub struct AccountMesh {
     pub(super) ports: AccountMeshPorts,
     pub(super) inner: Mutex<Inner>,
     pub(super) watch: watch::Sender<Arc<LifecycleState>>,
-    persist_lock: tokio::sync::Mutex<()>,
+    pub(super) closed: watch::Sender<()>,
+    pub(super) persist_lock: tokio::sync::Mutex<()>,
     push_lock: tokio::sync::Mutex<()>,
     pub(super) key_lock: tokio::sync::Mutex<()>,
     pub(super) admission_lock: tokio::sync::Mutex<()>,
@@ -274,10 +278,10 @@ impl AccountMesh {
                 metadata_revision: None,
                 registry_presence: None,
                 registry_notices: Default::default(),
-                registry_hints: Default::default(),
                 registry_flight: None,
                 resolved: HashMap::new(),
                 published_endpoint: None,
+                gossiped_endpoint: None,
                 published_until: 0,
                 publication_refresh_after: 0,
                 sync_pending: false,
@@ -289,10 +293,12 @@ impl AccountMesh {
                 notice_epoch: None,
                 lease: 0,
                 launch_renewal_pending: true,
+                launch_publication_pending: true,
                 retry: Default::default(),
                 store_unreadable: false,
             }),
             watch: watch::channel(state).0,
+            closed: watch::channel(()).0,
             persist_lock: tokio::sync::Mutex::new(()),
             push_lock: tokio::sync::Mutex::new(()),
             key_lock: tokio::sync::Mutex::new(()),
@@ -334,7 +340,7 @@ impl AccountMesh {
         }
     }
 
-    async fn persist_checked(&self) -> Result<(), String> {
+    pub(super) async fn persist_checked(&self) -> Result<(), String> {
         let _guard = self.persist_lock.lock().await;
         let record = self
             .with(|inner| (!inner.store_unreadable).then(|| inner.record.clone()))
@@ -436,7 +442,10 @@ impl AccountMesh {
                     inner.record.admission_cache = None;
                 }
                 inner.rejoin_required = terminal == Some(AccountMeshRefusal::Revoked);
+                inner.select_fences(&account, None, &self.installation());
+                let revoked = inner.record.revoked_installations.clone();
                 inner.update(&self.watch, |state| {
+                    state.revoked_installations = revoked;
                     state.account_epoch += 1;
                     state.presence = Presence::SignedIn {
                         account_id: account,
@@ -613,6 +622,7 @@ impl AccountMesh {
                 )
             });
             inner.begin_epoch();
+            inner.launch_renewal_pending = true;
             if let Some((metadata, presence, endpoint, until, refresh_after, sync_pending)) =
                 retained
             {
@@ -893,6 +903,27 @@ impl AccountMesh {
                             .is_some_and(|window| window.live(epoch, self.now()))))
             {
                 inner.retry.keep_recovering(self.now());
+            }
+            if matches!(
+                result,
+                Err(AccountMeshRefusal::Offline
+                    | AccountMeshRefusal::Unavailable
+                    | AccountMeshRefusal::AuthorityUnavailable)
+            ) {
+                if let Some(membership) = inner.state.current_membership(self.now()) {
+                    let remaining = membership.verified.expires_at.saturating_sub(self.now());
+                    let limit = (remaining / 2).max(1);
+                    let delay = inner
+                        .retry
+                        .deadline
+                        .unwrap_or(self.now().saturating_add(300))
+                        .saturating_sub(self.now())
+                        .max(1);
+                    let jittered =
+                        delay.saturating_mul(3) / 4 + rand::random::<u64>() % (delay / 4 + 1);
+                    inner.retry.deadline =
+                        Some(self.now().saturating_add(jittered.max(1).min(limit)));
+                }
             }
             let retry_at = inner.retry.deadline;
             let rerun = if owned

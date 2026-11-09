@@ -15,6 +15,8 @@ pub enum EmbedderEvent {
     Progress(ReembedProgress),
 }
 
+mod query;
+
 pub type Observer = Arc<dyn Fn(&EmbedderEvent) + Send + Sync>;
 
 /// The single active embedder for all of mem. Swapping the provider is the
@@ -23,7 +25,7 @@ pub struct ActiveEmbedder {
     provider: RwLock<SharedProvider>,
     available: AtomicBool,
     probing: Arc<AtomicBool>,
-    querying: Arc<AtomicBool>,
+    queries: query::QueryCache,
     observers: Mutex<Vec<Observer>>,
 }
 
@@ -33,7 +35,7 @@ impl ActiveEmbedder {
             provider: RwLock::new(provider),
             available: AtomicBool::new(true),
             probing: Arc::new(AtomicBool::new(false)),
-            querying: Arc::new(AtomicBool::new(false)),
+            queries: query::QueryCache::default(),
             observers: Mutex::new(Vec::new()),
         })
     }
@@ -64,7 +66,9 @@ impl ActiveEmbedder {
 
     pub fn replace_silent(&self, provider: SharedProvider) -> EmbedderIdentity {
         let identity = provider.identity();
-        *self.provider.write() = provider;
+        let mut current = self.provider.write();
+        self.queries.invalidate();
+        *current = provider;
         self.available.store(true, Ordering::SeqCst);
         identity
     }
@@ -84,7 +88,7 @@ impl ActiveEmbedder {
         let provider = self.provider();
         let content = Content::Text(crate::embeddings::preprocess(text));
         let result = guard(&provider, &content).and_then(|()| provider.embed_passage(&content));
-        self.observe(&result);
+        self.observe(&provider, &result);
         stamp(&provider, result)
     }
 
@@ -116,7 +120,7 @@ impl ActiveEmbedder {
             .into_iter()
             .flatten()
             .map(|result| {
-                self.observe(&result);
+                self.observe(&provider, &result);
                 stamp(&provider, result)
             })
             .collect()
@@ -130,44 +134,57 @@ impl ActiveEmbedder {
     }
 
     fn bounded_query(self: &Arc<Self>, text: &str) -> Option<StampedVector> {
+        let started = std::time::Instant::now();
         let budget = super::recall_priority::remaining();
-        if budget.is_zero() {
-            return None;
-        }
-        let provider = self.provider();
         let content = Content::Text(crate::embeddings::preprocess(text));
+        let current = self.provider.read();
+        let provider = current.clone();
         if guard(&provider, &content).is_err() {
             return None;
         }
         if !self.is_available() {
-            self.probe(provider, content);
+            drop(current);
+            if !budget.is_zero() {
+                self.probe(provider, content);
+            }
             return None;
         }
-        if self.querying.swap(true, Ordering::SeqCst) {
-            return None;
+        let Content::Text(text) = &content else {
+            unreachable!()
+        };
+        let admission = self.queries.admit(text, budget);
+        drop(current);
+        let admission = admission?;
+        let (key, flight, start) = match admission {
+            query::Admission::Cached(vector) => return Some(vector),
+            query::Admission::Pending { key, flight, start } => (key, flight, start),
+        };
+        if start {
+            let embedder = self.clone();
+            let completed = flight.clone();
+            let spawned = std::thread::Builder::new()
+                .name("mem-recall-query".into())
+                .spawn(move || {
+                    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        provider.embed_query(&content)
+                    }))
+                    .unwrap_or_else(|_| {
+                        Err(EmbedError::Unavailable("embedding query panicked".into()))
+                    });
+                    embedder.observe(&provider, &result);
+                    embedder
+                        .queries
+                        .finish(key, &completed, stamp(&provider, result));
+                });
+            if let Err(error) = spawned {
+                self.queries.finish(
+                    key,
+                    &flight,
+                    Err(EmbedError::Unavailable(error.to_string())),
+                );
+            }
         }
-        let (reply, response) = std::sync::mpsc::sync_channel(1);
-        let embedder = self.clone();
-        let spawned = std::thread::Builder::new()
-            .name("mem-recall-query".into())
-            .spawn(move || {
-                struct Release(Arc<AtomicBool>);
-                impl Drop for Release {
-                    fn drop(&mut self) {
-                        self.0.store(false, Ordering::SeqCst);
-                    }
-                }
-                let release = Release(embedder.querying.clone());
-                let result = provider.embed_query(&content);
-                embedder.observe(&result);
-                drop(release);
-                let _ = reply.send(stamp(&provider, result).ok());
-            });
-        if spawned.is_err() {
-            self.querying.store(false, Ordering::SeqCst);
-            return None;
-        }
-        super::recall_priority::wait(budget, |budget| response.recv_timeout(budget).ok()).flatten()
+        flight.wait(budget.saturating_sub(started.elapsed()))
     }
 
     fn probe(self: &Arc<Self>, provider: SharedProvider, content: Content) {
@@ -180,34 +197,41 @@ impl ActiveEmbedder {
             .spawn(move || {
                 let result = provider.embed_query(&content);
                 embedder.probing.store(false, Ordering::SeqCst);
-                embedder.observe(&result);
+                embedder.observe(&provider, &result);
             });
         if spawned.is_err() {
             self.probing.store(false, Ordering::SeqCst);
         }
     }
 
-    fn observe<T>(&self, result: &Result<T, EmbedError>) {
-        match result {
-            Ok(_) => {
-                if !self.available.swap(true, Ordering::SeqCst) {
-                    log::info!(
-                        "[mem.embedder] provider available again: {}",
-                        self.identity()
-                    );
-                    self.emit(&EmbedderEvent::Recovered);
-                }
+    fn observe<T>(&self, provider: &SharedProvider, result: &Result<T, EmbedError>) {
+        let current = self.provider.read();
+        if !Arc::ptr_eq(&current, provider) {
+            return;
+        }
+        let event = match result {
+            Ok(_) if !self.available.swap(true, Ordering::SeqCst) => Some(EmbedderEvent::Recovered),
+            Err(EmbedError::Unavailable(reason) | EmbedError::NotBuilt(reason))
+                if self.available.swap(false, Ordering::SeqCst) =>
+            {
+                Some(EmbedderEvent::Unavailable(reason.clone()))
             }
-            Err(EmbedError::Unavailable(reason) | EmbedError::NotBuilt(reason)) => {
-                if self.available.swap(false, Ordering::SeqCst) {
-                    log::warn!(
-                        "[mem.embedder] provider unavailable: {}: {reason}",
-                        self.identity()
-                    );
-                    self.emit(&EmbedderEvent::Unavailable(reason.clone()));
-                }
-            }
-            Err(_) => {}
+            _ => None,
+        };
+        drop(current);
+        match &event {
+            Some(EmbedderEvent::Recovered) => log::info!(
+                "[mem.embedder] provider available again: {}",
+                provider.identity()
+            ),
+            Some(EmbedderEvent::Unavailable(reason)) => log::warn!(
+                "[mem.embedder] provider unavailable: {}: {reason}",
+                provider.identity()
+            ),
+            _ => {}
+        }
+        if let Some(event) = event {
+            self.emit(&event);
         }
     }
 }

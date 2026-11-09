@@ -1,8 +1,7 @@
-use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use super::{paths, PlanError, PlanStore};
-use crate::plan::{AttachmentRef, Plan, Section};
+use crate::plan::{AttachmentRef, Plan};
 
 pub const MAX_ATTACHMENTS_PER_RECORD: usize = 12;
 pub const MAX_ATTACHMENT_BYTES: u64 = 25 * 1024 * 1024;
@@ -118,37 +117,6 @@ fn copy_attachment(
     })
 }
 
-fn section_mut<'a>(sections: &'a mut [Section], id: &str) -> Option<&'a mut Section> {
-    for section in sections {
-        if section.id == id || section.handle.as_deref() == Some(id) {
-            return Some(section);
-        }
-        if let Some(found) = section_mut(&mut section.subsections, id) {
-            return Some(found);
-        }
-    }
-    None
-}
-
-fn section_ref<'a>(sections: &'a [Section], id: &str) -> Option<&'a Section> {
-    for section in sections {
-        if section.id == id || section.handle.as_deref() == Some(id) {
-            return Some(section);
-        }
-        if let Some(found) = section_ref(&section.subsections, id) {
-            return Some(found);
-        }
-    }
-    None
-}
-
-fn collect_section_ids(sections: &[Section], out: &mut HashSet<String>) {
-    for section in sections {
-        out.insert(section.id.clone());
-        collect_section_ids(&section.subsections, out);
-    }
-}
-
 pub(super) fn remove_dir_if_exists(path: PathBuf) -> Result<(), PlanError> {
     match std::fs::remove_dir_all(&path) {
         Ok(()) => Ok(()),
@@ -183,29 +151,33 @@ impl PlanStore {
     ) -> Result<AttachmentRef, PlanError> {
         let mut attached = None;
         let plan_root = self.plan_data_dir(plan_id);
-        self.with_plan(plan_id, now_ms, |plan| {
-            let pos = crate::plan::task_key::find_task_index(&plan.tasks, task_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            if plan.tasks[pos].attachments.len() >= MAX_ATTACHMENTS_PER_RECORD {
-                return Err(PlanError::Io(format!(
-                    "task attachment cap is {}",
-                    MAX_ATTACHMENTS_PER_RECORD
-                )));
-            }
-            let canonical_task_id = plan.tasks[pos].id.clone();
-            let attachment = copy_attachment(
-                &plan_root,
-                AttachmentTarget::Task,
-                &canonical_task_id,
-                source,
-                now_ms,
-            )?;
-            let task = plan.tasks.get_mut(pos).ok_or(PlanError::TaskNotFound)?;
-            task.attachments.push(attachment.clone());
-            task.updated_at = now_ms;
-            attached = Some(attachment);
-            Ok(())
-        })?;
+        self.with_task_rows(
+            plan_id,
+            task_id,
+            super::store_db::hot_write::TaskHistory::Core,
+            now_ms,
+            |edit| {
+                let task = &mut edit.task;
+                if task.attachments.len() >= MAX_ATTACHMENTS_PER_RECORD {
+                    return Err(PlanError::Io(format!(
+                        "task attachment cap is {}",
+                        MAX_ATTACHMENTS_PER_RECORD
+                    )));
+                }
+                let canonical_task_id = task.id.clone();
+                let attachment = copy_attachment(
+                    &plan_root,
+                    AttachmentTarget::Task,
+                    &canonical_task_id,
+                    source,
+                    now_ms,
+                )?;
+                task.attachments.push(attachment.clone());
+                task.updated_at = now_ms;
+                attached = Some(attachment);
+                Ok(())
+            },
+        )?;
         attached.ok_or_else(|| PlanError::Io("attachment was not recorded".into()))
     }
 
@@ -218,24 +190,36 @@ impl PlanStore {
     ) -> Result<AttachmentRef, PlanError> {
         let mut attached = None;
         let plan_root = self.plan_data_dir(plan_id);
-        self.with_plan(plan_id, now_ms, |plan| {
-            let section =
-                section_ref(&plan.sections, section_id).ok_or(PlanError::ElementNotFound)?;
-            if section.attachments.len() >= MAX_ATTACHMENTS_PER_RECORD {
-                return Err(PlanError::Io(format!(
-                    "section attachment cap is {}",
-                    MAX_ATTACHMENTS_PER_RECORD
-                )));
+        let turn = self.mutation_writer.enter();
+        let result = self
+            .database
+            .edit_section_rows(plan_id, section_id, now_ms, |section| {
+                if section.attachments.len() >= MAX_ATTACHMENTS_PER_RECORD {
+                    return Err(PlanError::Io(format!(
+                        "section attachment cap is {}",
+                        MAX_ATTACHMENTS_PER_RECORD
+                    )));
+                }
+                let attachment = copy_attachment(
+                    &plan_root,
+                    AttachmentTarget::Section,
+                    &section.id,
+                    source,
+                    now_ms,
+                )?;
+                section.attachments.push(attachment.clone());
+                attached = Some(attachment);
+                Ok(())
+            });
+        match result {
+            Ok(((), receipt)) => self.publish_hot_receipt(&turn, receipt),
+            Err(error) => {
+                if let Some(attachment) = attached {
+                    let _ = std::fs::remove_file(plan_root.join(attachment.path));
+                }
+                return Err(error);
             }
-            let sid = section.id.clone();
-            let attachment =
-                copy_attachment(&plan_root, AttachmentTarget::Section, &sid, source, now_ms)?;
-            let section =
-                section_mut(&mut plan.sections, &sid).ok_or(PlanError::ElementNotFound)?;
-            section.attachments.push(attachment.clone());
-            attached = Some(attachment);
-            Ok(())
-        })?;
+        }
         attached.ok_or_else(|| PlanError::Io("attachment was not recorded".into()))
     }
 
@@ -247,52 +231,42 @@ impl PlanStore {
         source: &Path,
         now_ms: u64,
     ) -> Result<AttachmentRef, PlanError> {
-        let mut attached = None;
         let plan_root = self.plan_data_dir(plan_id);
-        self.with_plan(plan_id, now_ms, |plan| {
-            let task_pos = crate::plan::task_key::find_task_index(&plan.tasks, task_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            let milestone_pos = plan.tasks[task_pos]
-                .milestones
-                .iter()
-                .position(|milestone| milestone.id == milestone_id)
-                .ok_or(PlanError::ElementNotFound)?;
-            if plan.tasks[task_pos].milestones[milestone_pos]
-                .attachments
-                .len()
-                >= MAX_ATTACHMENTS_PER_RECORD
-            {
-                return Err(PlanError::Io(format!(
-                    "milestone attachment cap is {}",
-                    MAX_ATTACHMENTS_PER_RECORD
-                )));
-            }
-            let attachment = copy_attachment(
-                &plan_root,
-                AttachmentTarget::Milestone,
-                milestone_id,
-                source,
-                now_ms,
-            )?;
-            let task = plan
-                .tasks
-                .get_mut(task_pos)
-                .ok_or(PlanError::TaskNotFound)?;
-            let milestone = task
-                .milestones
-                .get_mut(milestone_pos)
-                .ok_or(PlanError::ElementNotFound)?;
-            milestone.attachments.push(attachment.clone());
-            task.updated_at = now_ms;
-            attached = Some(attachment);
-            Ok(())
-        })?;
-        attached.ok_or_else(|| PlanError::Io("attachment was not recorded".into()))
+        let turn = self.mutation_writer.enter();
+        let (attachment, receipt) = self.database.with_milestone_rows(
+            plan_id,
+            task_id,
+            milestone_id,
+            now_ms,
+            |milestone| {
+                if milestone.attachments.len() >= MAX_ATTACHMENTS_PER_RECORD {
+                    return Err(PlanError::Io(format!(
+                        "milestone attachment cap is {}",
+                        MAX_ATTACHMENTS_PER_RECORD
+                    )));
+                }
+                let attachment = copy_attachment(
+                    &plan_root,
+                    AttachmentTarget::Milestone,
+                    &milestone.id,
+                    source,
+                    now_ms,
+                )?;
+                milestone.attachments.push(attachment.clone());
+                Ok(attachment)
+            },
+        )?;
+        self.publish_hot_receipt(&turn, receipt);
+        Ok(attachment)
     }
 
-    pub fn remove_task_attachment_dir(&self, plan: &Plan, task_id: &str) -> Result<(), PlanError> {
+    pub fn remove_task_attachment_dir(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+    ) -> Result<(), PlanError> {
         remove_dir_if_exists(attachment_dir(
-            &self.plan_data_dir(&plan.id),
+            &self.plan_data_dir(plan_id),
             AttachmentTarget::Task,
             task_id,
         ))
@@ -300,79 +274,61 @@ impl PlanStore {
 
     pub fn remove_section_attachment_dir(
         &self,
-        plan: &Plan,
+        plan_id: &str,
         section_id: &str,
     ) -> Result<(), PlanError> {
         remove_dir_if_exists(attachment_dir(
-            &self.plan_data_dir(&plan.id),
+            &self.plan_data_dir(plan_id),
             AttachmentTarget::Section,
             section_id,
         ))
     }
 
-    pub fn orphan_attachment_dirs(&self, project_path: &Path) -> Vec<OrphanAttachmentDir> {
-        let mut out = vec![];
+    pub fn orphan_attachment_dirs(
+        &self,
+        project_path: &Path,
+    ) -> Result<Vec<OrphanAttachmentDir>, PlanError> {
         let project_root = paths::project_root(project_path);
-        let ids: Vec<String> = self
-            .plan_roots()
-            .into_iter()
-            .filter(|(_, root)| Path::new(root) == project_root.as_path())
-            .map(|(id, _)| id)
-            .collect();
-        for plan in self.plans_matching(&super::PlanMatch::Ids(ids)) {
-            if paths::plan_sidecar_root(&plan) != project_root.as_path() {
-                continue;
+        let read = self.database.attachment_reference_read()?;
+        let mut out = Vec::new();
+        for id in read.project_plan_ids(&project_root)? {
+            let plan_root = self.plan_data_dir(&id);
+            let mut directories = Vec::new();
+            for target in [
+                AttachmentTarget::Task,
+                AttachmentTarget::Section,
+                AttachmentTarget::Milestone,
+            ] {
+                collect_attachment_dirs(&plan_root, target, &mut directories);
             }
-            let mut task_ids = HashSet::new();
-            let mut milestone_ids = HashSet::new();
-            for task in &plan.tasks {
-                task_ids.insert(task.id.clone());
-                for milestone in &task.milestones {
-                    milestone_ids.insert(milestone.id.clone());
+            let candidates = directories
+                .iter()
+                .map(|(target, id, _)| (target_dir(*target), id.as_str()))
+                .collect::<Vec<_>>();
+            let known = read.known_directories(&id, &candidates)?;
+            for ((_, _, path), live) in directories.into_iter().zip(known) {
+                if !live {
+                    out.push(OrphanAttachmentDir {
+                        plan_id: id.clone(),
+                        path,
+                    })
                 }
             }
-            let mut section_ids = HashSet::new();
-            collect_section_ids(&plan.sections, &mut section_ids);
-            let plan_root = self.plan_data_dir(&plan.id);
-            collect_orphans(
-                &plan_root,
-                &plan.id,
-                AttachmentTarget::Task,
-                &task_ids,
-                &mut out,
-            );
-            collect_orphans(
-                &plan_root,
-                &plan.id,
-                AttachmentTarget::Section,
-                &section_ids,
-                &mut out,
-            );
-            collect_orphans(
-                &plan_root,
-                &plan.id,
-                AttachmentTarget::Milestone,
-                &milestone_ids,
-                &mut out,
-            );
         }
-        out
+        read.finish()?;
+        Ok(out)
     }
 }
 
-fn collect_orphans(
+fn collect_attachment_dirs(
     plan_root: &Path,
-    plan_id: &str,
     target: AttachmentTarget,
-    live_ids: &HashSet<String>,
-    out: &mut Vec<OrphanAttachmentDir>,
+    out: &mut Vec<(AttachmentTarget, String, PathBuf)>,
 ) {
     let root = attachment_dir(plan_root, target, "_")
         .parent()
         .map(Path::to_path_buf);
-    let Some(root) = root else {
-        return;
-    };
+    let Some(root) = root else { return };
     let Ok(entries) = std::fs::read_dir(root) else {
         return;
     };
@@ -380,15 +336,12 @@ fn collect_orphans(
         let Ok(file_type) = entry.file_type() else {
             continue;
         };
-        if !file_type.is_dir() {
-            continue;
-        }
-        let id = entry.file_name().to_string_lossy().to_string();
-        if !live_ids.contains(&id) {
-            out.push(OrphanAttachmentDir {
-                plan_id: plan_id.to_string(),
-                path: entry.path(),
-            });
+        if file_type.is_dir() {
+            out.push((
+                target,
+                entry.file_name().to_string_lossy().to_string(),
+                entry.path(),
+            ))
         }
     }
 }

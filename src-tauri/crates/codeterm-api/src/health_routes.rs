@@ -135,3 +135,6 @@ pub async fn identify(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod provider_io_tests;

@@ -2,13 +2,14 @@ use serde_json::{json, Value};
 
 use crate::server::JsonRpcError;
 use codeterm_service_core::plan::TaskExecutionAttempt;
+use codeterm_service_core::service::plan::{RemoteRecoveryAttemptRead, RemoteWorkerBindingRead};
 use codeterm_service_core::service::ServiceState;
 
 pub(crate) fn observe_worker(
     svc: &ServiceState,
     plan: &str,
     task: &str,
-    attempt: &TaskExecutionAttempt,
+    attempt: &RemoteWorkerBindingRead,
     presented_nonce: Option<&str>,
     close: bool,
 ) -> Result<Value, String> {
@@ -34,7 +35,7 @@ pub(crate) fn observe_worker(
 }
 
 fn remote_recovery_decision(
-    attempt: &TaskExecutionAttempt,
+    attempt: &RemoteRecoveryAttemptRead,
     now: u64,
     replace_unacked: bool,
 ) -> (bool, bool) {
@@ -57,19 +58,20 @@ pub(crate) fn recover_remote_attempts(
     now: u64,
     replace_unacked: bool,
 ) -> Result<(), JsonRpcError> {
-    let detail = svc.plan_store.show_task(task).ok_or_else(|| {
-        super::super::plan::plan_rpc_err(
-            codeterm_service_core::service::plan::PlanError::TaskNotFound,
-        )
-    })?;
-    for attempt in detail.task.execution_attempts.iter().filter(|attempt| {
-        attempt.mesh_peer.is_some()
-            && attempt.closed_at.is_none()
-            && attempt.retired_at.is_none()
-            && attempt.report.is_none()
-    }) {
+    let attempts = svc
+        .plan_store
+        .remote_recovery_attempts_projection(plan, task)
+        .map_err(super::super::plan::plan_rpc_err)?;
+    for attempt in &attempts {
         let (expired, replacing) = remote_recovery_decision(attempt, now, replace_unacked);
-        let observed = observe_worker(svc, plan, task, attempt, None, expired || replacing);
+        let observed = observe_worker(
+            svc,
+            plan,
+            task,
+            &attempt.binding,
+            None,
+            expired || replacing,
+        );
         if replacing && !expired {
             if let Err(error) = &observed {
                 return Err(super::invalid_dispatch(format!(
@@ -89,16 +91,16 @@ pub(crate) fn recover_remote_attempts(
             }
             log::debug!(
                 "[remote-recovery] expired attempt {} peer observation failed: {error}",
-                attempt.id
+                attempt.binding.id
             );
         }
         svc.plan_store
             .retire_remote_task_attempt(
                 plan,
                 task,
-                &attempt.id,
-                attempt.mesh_peer.as_deref().unwrap_or_default(),
-                &attempt.executor_tab_id,
+                &attempt.binding.id,
+                attempt.binding.mesh_peer.as_deref().unwrap_or_default(),
+                &attempt.binding.executor_tab_id,
                 if replacing {
                     "remote_unacked_replaced"
                 } else if expired {
@@ -121,6 +123,17 @@ pub(crate) fn respawn_remote(
     attempt: &TaskExecutionAttempt,
     now: u64,
 ) -> Result<Value, JsonRpcError> {
+    if params
+        .as_ref()
+        .and_then(|body| body.get("launch_profile"))
+        .and_then(Value::as_str)
+        .is_some()
+        || attempt.launch_profile.is_some()
+    {
+        return Err(super::invalid_dispatch(
+            "launch_profile selection is local-only for task respawn; the recorded profile cannot be dropped",
+        ));
+    }
     recover_remote_attempts(svc, plan, task, now, true)?;
     let source = svc
         .plan_store
@@ -164,61 +177,4 @@ fn remote_respawn_params(params: &Option<Value>, attempt: &TaskExecutionAttempt)
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn remote_recovery_requires_ack_deadline_or_explicit_replacement() {
-        let mut attempt = TaskExecutionAttempt {
-            assigned_at: Some(1),
-            remote_dispatch_state: Some(
-                codeterm_service_core::plan::RemoteDispatchState::AwaitingWorkerAck,
-            ),
-            ..Default::default()
-        };
-        let deadline = codeterm_service_core::service::worker_ack::REMOTE_WORKER_ACK_DEADLINE
-            .as_millis() as u64
-            + 1;
-        assert_eq!(
-            remote_recovery_decision(&attempt, deadline - 1, false),
-            (false, false)
-        );
-        assert_eq!(
-            remote_recovery_decision(&attempt, deadline, false),
-            (true, false)
-        );
-        assert_eq!(remote_recovery_decision(&attempt, 2, true), (false, true));
-        attempt.acknowledged_at = Some(2);
-        assert_eq!(
-            remote_recovery_decision(&attempt, deadline, true),
-            (false, false)
-        );
-    }
-
-    #[test]
-    fn remote_respawn_keeps_peer_gates_and_respects_model_override() {
-        let attempt = TaskExecutionAttempt {
-            mesh_peer: Some("paired-peer-id".into()),
-            provider: Some("provider".into()),
-            model: Some("original-model".into()),
-            reasoning_effort: Some("high".into()),
-            authorized_gates: Some(vec!["gate".into()]),
-            ..Default::default()
-        };
-        let params = remote_respawn_params(
-            &Some(json!({"plan_id": "plan", "task_id": "task", "model": "replacement-model"})),
-            &attempt,
-        );
-        assert_eq!(params["mesh_peer"], "paired-peer-id");
-        assert_eq!(params["execution_intent"], "mutating");
-        assert_eq!(params["agent"], "provider");
-        assert_eq!(params["model"], "replacement-model");
-        assert_eq!(params["reasoning_effort"], "high");
-        assert_eq!(params["authorized_gates"], json!(["gate"]));
-        assert_eq!(params["plan_id"], "plan");
-        let rest_params =
-            remote_respawn_params(&Some(json!({"provider": null, "model": null})), &attempt);
-        assert_eq!(rest_params["agent"], "provider");
-        assert_eq!(rest_params["model"], "original-model");
-    }
-}
+mod tests;

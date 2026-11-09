@@ -15,7 +15,7 @@ Both routes exist as distinct handlers; choosing is route selection.
 
 `POST .../send` carries user text, mesh relays, service push-token writes, and low-level `actions` / `raw` / `batch` input. User text sent while a provider dialog is classified waits in the durable user-send queue until a PTY state change makes delivery safe; agent and programmatic text use the delivery outbox the same way. A failure serializes the delivery taxonomy (`tab_not_reachable_on_peer`, `tab_busy_refused`, `pty_unavailable`, `submit_unconfirmed`).
 
-Local `domios send` uses socket `tab.send_text`: `OK (sent)` after a confirmed write, `OK (pending)` when the route accepted background work or wrote bytes without submit confirmation, a refusal when no bytes were written. A substituted send names its recipient inbox file as `pad_file`; human output prints the path and multi-target JSON reports `pad_files`. With `--json`, `delivery` and any `bytes_written` field carry the same distinction for one target; multi-target JSON includes `pending_written` for accepted writes that still lack submit confirmation. The resolved payload echo is emitted for confirmed delivery or a pending write.
+Local `domios send` uses socket `tab.send_text`: `OK (sent)` after a confirmed write, `OK (pending)` when the route accepted background work, `OK (written; submit unconfirmed)` when it wrote bytes without submit confirmation, a refusal when no bytes were written. A substituted send names its recipient inbox file as `pad_file`; human output prints the path and multi-target JSON reports `pad_files`. With `--json`, `delivery` and any `bytes_written` field carry the same distinction for one target; multi-target JSON includes `pending_written` for accepted writes that still lack submit confirmation. The resolved payload echo is emitted for confirmed delivery or a pending write.
 
 `POST .../chat-send` is the Chat UI user turn. A PTY tab without agent identity is refused before the send transaction so prose never reaches a bare shell. Accepted sends open a ledger entry for later reconciliation; `GET .../chat-send` reads it, `state` one of `accepted`, `unknown`, `confirmed`, `failed`.
 
@@ -23,6 +23,9 @@ Runtime-tab sends retain a Chat send ledger entry. A possible handoff returns
 `delivery:"pending"`, `bytes_written:true`, and `send_id`; this is uncertainty,
 not permission to replay. `GET .../chat-send` reconciles the receipt against exact
 own-session evidence. Other programmatic transports do not open this ledger entry.
+A runtime whose submit spans its turn holds a send that arrives during an active
+turn: it returns `delivery:"pending"`, `bytes_written:false` and `send_id`, stays
+queued, and is written once when that turn settles. Do not resend it.
 
 Neither route promises the recipient *answered*. Replies come through the sender's return-address channel (`domios send --tab ID [--mesh PEER]`, or `domios agent report` for a Worker). The recipient's visible terminal text is never a delivery signal.
 
@@ -35,6 +38,15 @@ Neither route promises the recipient *answered*. Replies come through the sender
 | GET | `/api/tabs/{id}/chat-send/dismissals` | — | Durable dismissal receipts `{send_id, send}[]`. Clients keep hidden send correlations to consume later echoes without restoring dismissed rows. |
 | POST | `/api/tabs/{id}/chat-send/dismissals` | `{send_id, send:{id, correlationId, content, sentAtMs, echo?}}` | Delete a retained undelivered user bubble. Cancels queued input atomically against claim; a claimed or written send is only dismissed. Returns the durable receipt. Delivered and system sends are refused; never replays input. |
 | GET | `/api/tabs/{id}/chat` | `?since=N` | Stateless transcript read, resolved from the tab's own session record. `{messages, count, pending}`. A tab with no bound session answers `pending: true` with an empty list — never another tab's transcript. Unknown tab → 404 |
+| GET | `/api/tabs/{id}/closed-children` | `?child=TAB&since=N` | A parent's closed child tabs, newest first, as `{parent_tab_id, count, children}`. With `child`, that child's transcript in the closed shape below; a child of another parent is `404`. Answers the owner, the parent itself and the parent's Team. |
+
+#### Closed tabs
+
+Domios keeps which session held each agent tab, including hidden and ACP runtime tabs, after the tab closes. `GET /api/tabs/{id}/chat` falls back to this record only when no live tab answers to the id, so a full id or a unique short id of a closed tab reads its transcript: `{messages, count, pending:false, state:"closed", closed:true, truncated, tab}`. `tab` carries the tab id, provider, session id, cwd, parent, Team, title, role, model label and `closed_at`. `truncated: true` means the source held older records than the read returned.
+
+Authority is unchanged by closing: the owner, the tab's parent and its Team read it. Any other caller, including a mesh peer or remote agent, gets `403` with code `closed_tab_read_refused` and no tab details. An unknown id stays `404` with `chat_snapshot_refused`. A session with no retained transcript returns `404` with `chat_history_missing`.
+
+Runtime tabs with no provider store keep an append-only session log, written off the event path when a turn settles, at most every five seconds during a turn, and when the runtime stops. A daemon crash can lose only the rows since the last append. Each session log rotates once past 32 MiB and keeps its older half, so one session holds about twice that at most. The newest 1000 closed tabs stay indexed; an evicted session's log is removed unless a live tab resumed that session. Providers with their own store, such as PTY agents, keep it there, and a closed tab reads it under that provider's retention.
 
 Sleeping tabs read their own persisted transcript without waking or starting a runtime. A runtime tab awaiting its first session returns `200` with `pending: true` and `state: "waking"`; opening or addressing the tab owns waking it. A newly created, authenticated runtime thread with no turns returns an empty history even before its rollout is materialized. Stored runtime history errors use HTTP 404 with code `chat_history_missing`, HTTP 422 with `chat_history_corrupt`, or HTTP 503 with `chat_history_unavailable`; their states are `missing`, `corrupt`, and `unavailable`. Snapshot failures return JSON `{code, state, error}` with the original reason in `error`; unknown failures use HTTP 500, code `chat_snapshot_failed` and state `failed`. Request refusals preserve their HTTP status with code `chat_snapshot_refused` and state `refused`.
 
@@ -91,4 +103,4 @@ Chat requests use the target tab's owned session. Bridge thread changes require 
 | POST | `/api/tabs/{id}/chat-raw/resume` | Resume raw chat streaming. |
 | POST | `/api/tabs/{id}/chat-send/admissions` | Read admission results for submitted chat sends. |
 
-<!-- revision: 11 -->
+<!-- revision: 13 -->

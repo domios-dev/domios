@@ -2,8 +2,13 @@ import { uid } from "./uid";
 import { withRestRequestSignal } from "./restTimeoutPolicy";
 import { createStartupLoading, startingSubsystem } from "./startupLoading";
 import { createStartupMutations, startupMutationKey } from "./startupMutations";
+import { MUX_REQUEST_TIMEOUT, type MuxRequestInit } from "./streamMuxRequestModel";
 
 export const streamClientId = uid();
+export const browserFetch: NonNullable<TransportOptions["fetch"]> = (input, init) => {
+  // biome-ignore lint/nursery/noJsRestrictedProperties: Real browser carrier seam, including its control traffic.
+  return globalThis.fetch(input, init);
+};
 
 export type Unsubscribe = () => void;
 export type TokenSource = string | (() => string | null);
@@ -11,7 +16,7 @@ export type TokenSource = string | (() => string | null);
 export interface TransportOptions {
   origin: string;
   token: TokenSource;
-  fetch?: typeof fetch;
+  fetch?: typeof globalThis.fetch;
   relayPeerId?: string;
   headers?: HeadersInit;
   onGatewayState?: (available: boolean) => void;
@@ -78,7 +83,7 @@ export const MAX_SSE_FRAME_BYTES = 2 * 1024 * 1024;
 const MAX_JSON_DEPTH = 32;
 const MAX_JSON_STRUCTURAL_TOKENS = 256 * 1024;
 
-class SseCapacityError extends Error {
+export class SseCapacityError extends Error {
   constructor(public bytes: number) { super(`SSE capacity exceeded (${bytes} bytes)`); }
 }
 
@@ -170,7 +175,7 @@ export function createTransportClient(options: TransportOptions): TransportClien
   if (!["http:", "https:"].includes(url.protocol) || url.username || url.password
     || url.pathname !== "/" || url.search || url.hash) throw new Error("Explicit daemon HTTP origin required");
   const origin = url.origin;
-  const fetcher: typeof fetch = (input, init) => (options.fetch ?? globalThis.fetch)(input, init);
+  const fetcher: NonNullable<TransportOptions["fetch"]> = (input, init) => (options.fetch ?? browserFetch)(input, init);
   const resolvePath = (path: string) => {
     if (!path.startsWith("/") || path.startsWith("//") || path.includes("\\")) {
       throw new Error("Daemon path must be origin-relative");
@@ -191,7 +196,8 @@ export function createTransportClient(options: TransportOptions): TransportClien
       options.onGatewayState?.(true);
       return response;
     } catch (error) {
-      if (!init.signal?.aborted) options.onGatewayState?.(false);
+      const notDispatched = error instanceof TransportError && "dispatched" in error && error.dispatched === false;
+      if (!init.signal?.aborted && !notDispatched) options.onGatewayState?.(false);
       throw error;
     }
   };
@@ -202,6 +208,7 @@ export function createTransportClient(options: TransportOptions): TransportClien
     else {
       const body = typeof init.body === "string" && init.body.length ? JSON.parse(init.body) : null;
       response = await localFetch("/api/mesh/relay-to", {
+        ...init,
         method: "POST", signal: init.signal, headers: init.headers,
         body: JSON.stringify({ target_peer_id: options.relayPeerId, method: (init.method ?? "GET").toUpperCase(), path, body }),
       });
@@ -240,7 +247,7 @@ export function createTransportClient(options: TransportOptions): TransportClien
     init.signal,
   );
 
-  const json = async <T>(method: string, path: string, body: unknown, init: RequestInit = {}, local = false) => {
+  const json = async <T>(method: string, path: string, body: unknown, init: MuxRequestInit = {}, local = false) => {
     const response = await tracked(path, { ...init, method, body: body === undefined ? undefined : JSON.stringify(body) }, local);
     const text = await response.text();
     return decodeTransportResponse<T>(response.status, path, text, response.headers.get("content-type"), !local);
@@ -250,10 +257,10 @@ export function createTransportClient(options: TransportOptions): TransportClien
     origin: () => origin,
     currentToken: () => typeof options.token === "function" ? options.token() : options.token,
     json: (method, path, body, opts) => withRestRequestSignal(method, path, opts, (signal) => json(method, path, body, {
-      signal, headers: opts?.callerTabId ? { "X-CodeTerm-Tab-Id": opts.callerTabId } : undefined,
+      signal, [MUX_REQUEST_TIMEOUT]: opts?.timeoutMs, headers: opts?.callerTabId ? { "X-CodeTerm-Tab-Id": opts.callerTabId } : undefined,
     })),
     localJson: (method, path, body, opts) => withRestRequestSignal(method, path, opts, (signal) => json(method, path, body, {
-      signal, headers: opts?.callerTabId ? { "X-CodeTerm-Tab-Id": opts.callerTabId } : undefined,
+      signal, [MUX_REQUEST_TIMEOUT]: opts?.timeoutMs, headers: opts?.callerTabId ? { "X-CodeTerm-Tab-Id": opts.callerTabId } : undefined,
     }, true)),
     async upload<T>(path: string, form: FormData, opts?: { signal?: AbortSignal }): Promise<T> {
       const response = await tracked(path, { method: "POST", body: form, signal: opts?.signal }, true);
@@ -317,7 +324,7 @@ export function createTransportClient(options: TransportOptions): TransportClien
           if (controller.signal.aborted) end = { reason: "abort", error: controller.signal.reason };
           else {
             end = error instanceof SseCapacityError ? { reason: "capacity", bytes: error.bytes }
-              : error instanceof TransportError
+              : error instanceof TransportError && !("retryable" in error && error.retryable === true)
               ? { reason: "http", status: error.status, error }
               : { reason: "error", error };
             if (error instanceof SseCapacityError && !init.onEnd) {

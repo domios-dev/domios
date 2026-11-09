@@ -101,3 +101,20 @@ pub(crate) fn rotate_restart(
     record_spawn(svc, tab, provider, &nonce)?;
     Ok(nonce)
 }
+
+pub(crate) fn authorize_failed_start_restart(
+    svc: &ServiceContext,
+    tab: &str,
+    provider: &str,
+    nonce: &str,
+) -> Result<(), String> {
+    let failed = svc.mux.read().get_tab(tab).is_some_and(|target| {
+        target.agent_type.as_deref() == Some(provider)
+            && target.session_binding_nonce.as_deref() == Some(nonce)
+            && super::start_failure::for_tab(target)
+    });
+    if !failed {
+        return Err("Runtime refused-start binding changed".into());
+    }
+    record_spawn(svc, tab, provider, nonce)
+}

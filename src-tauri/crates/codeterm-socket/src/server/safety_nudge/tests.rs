@@ -155,7 +155,5 @@ fn a_recorded_retrospective_raises_no_advisory() {
         .add_retrospective(&plan_id, "what worked", AgentRef::from_tab("orch"), 2)
         .unwrap();
 
-    assert!(
-        super::super::plan_archive::retrospective_nudge(&store.get(&plan_id).unwrap()).is_none()
-    );
+    assert!(super::super::plan_archive::retrospective_nudge(&plan_id, true).is_none());
 }

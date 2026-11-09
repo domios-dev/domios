@@ -106,8 +106,8 @@ pub trait PluginHostCtx: Send + Sync {
         &self,
         _tab_id: &str,
         _binding_nonce: &str,
-    ) -> std::collections::HashMap<String, String> {
-        std::collections::HashMap::new()
+    ) -> Result<std::collections::HashMap<String, String>, String> {
+        Ok(std::collections::HashMap::new())
     }
 
     /// Host-only decision credential lookup; its value never crosses the VM boundary.
@@ -149,6 +149,16 @@ pub trait PluginHostCtx: Send + Sync {
     fn secret_get(&self, plugin_id: &str, name: &str) -> Option<String>;
     fn secret_set(&self, plugin_id: &str, name: &str, value: &str) -> bool;
     fn secret_delete(&self, plugin_id: &str, name: &str) -> bool;
+    /// The credential a plugin's own launch profile declares for its balance limits source;
+    /// it only ever fills an outbound request header and never enters the VM.
+    fn launch_profile_secret(
+        &self,
+        _plugin_id: &str,
+        _profile: &str,
+        _env: &str,
+    ) -> Option<String> {
+        None
+    }
 
     // ── Surfaces ────────────────────────────────────────────────────────
     /// Runs one verb on `caller`'s authorized surface of `plugin_id`; `{ result }` or `{ error }`.

@@ -244,8 +244,11 @@ impl AgentProvider for ClaudeProvider {
         sessions::find_session(session_id)
     }
 
-    fn parse_session_messages(&self, file_path: &std::path::Path) -> Vec<SessionMessage> {
-        sessions::parse_session_messages(file_path)
+    fn parse_session_messages(
+        &self,
+        file_path: &std::path::Path,
+    ) -> Result<Vec<SessionMessage>, String> {
+        Ok(sessions::parse_session_messages(file_path))
     }
 
     fn session_content_source(&self) -> SessionContentSource {

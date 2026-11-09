@@ -8,12 +8,17 @@ impl PlanStore {
         speed: Option<&str>,
         now_ms: u64,
     ) -> Result<(), PlanError> {
-        self.with_plan(plan_id, now_ms, |plan| {
-            let task = crate::plan::task_key::find_task_mut(&mut plan.tasks, task_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            task.speed = speed.map(str::to_owned);
-            task.updated_at = now_ms;
-            Ok(())
-        })
+        self.with_task_rows(
+            plan_id,
+            task_id,
+            super::store_db::hot_write::TaskHistory::Core,
+            now_ms,
+            |edit| {
+                let task = &mut edit.task;
+                task.speed = speed.map(str::to_owned);
+                task.updated_at = now_ms;
+                Ok(())
+            },
+        )
     }
 }

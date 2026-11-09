@@ -1,3 +1,4 @@
+import { ioTestContext } from "../../provider-shared/tests/hostIo";
 /**
  * Cursor plugin contract + detection tests.
  * Run: npx tsx plugins/provider-cursor/tests/plugin.test.ts
@@ -13,6 +14,8 @@ import { fileURLToPath } from "node:url";
 import plugin from "../src/index";
 import { wellFormedFileDiffs } from "../../../packages/chat-core/src/fileDiffs";
 import { sessionChanges } from "../../../packages/chat-core/src/sessionChanges";
+
+
 
 const fixturesDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures");
 const readFixture = (name: string) => fs.readFileSync(path.join(fixturesDir, name), "utf8");
@@ -44,7 +47,7 @@ function loadCursorWithHost(host: unknown) {
   const pluginPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "plugin.js");
   const source = fs.readFileSync(pluginPath, "utf8");
   const context = { host, console, module: { exports: {} as { default?: any } }, exports: {} };
-  new vm.Script(source, { filename: pluginPath }).runInNewContext(context);
+  new vm.Script(source, { filename: pluginPath }).runInNewContext(ioTestContext(context));
   return context.module.exports.default;
 }
 

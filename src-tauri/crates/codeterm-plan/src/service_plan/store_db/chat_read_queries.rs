@@ -1,11 +1,11 @@
 use super::read_projections::{column, decode, record_query};
 use super::{db_error, PlanDatabase};
-use crate::plan::{Plan, Task};
+use crate::service_plan::chat_snapshot::read::{ChatPlanRead, ChatTaskRead};
 use crate::service_plan::PlanError;
 use rusqlite::{params, Connection};
 use serde_json::Value;
 
-const CHAT_HEADER: &str = "SELECT p.id, json_object(
+const CHAT_FIELDS: &str = "p.id, json_object(
     'id',p.id,'title',p.title,'status',p.status,'mode',json_extract(p.header_json,'$.mode'),
     'project_path',p.project_path,'owner',json_extract(p.header_json,'$.owner'),
     'planner',json_extract(p.header_json,'$.planner'),'team_id',p.team_id,
@@ -14,13 +14,35 @@ const CHAT_HEADER: &str = "SELECT p.id, json_object(
     CASE WHEN h.row_json IS NOT NULL THEN json_set(h.row_json, '$.learnings',json((
         SELECT json_group_array(json(value)) FROM (
             SELECT key,value FROM (SELECT key,value FROM json_each(h.row_json,'$.learnings') ORDER BY key DESC LIMIT 10) ORDER BY key
-        )))) END
-    FROM plans p LEFT JOIN plan_heartbeat h ON h.plan_id=p.id
-    WHERE (?1 IS NULL OR p.project_path=?1) AND (?2 IS NULL OR coalesce(p.team_id,'')=?2)
+        )))) END";
+
+const CHAT_FILTERS: &str = "(?1 IS NULL OR p.project_path=?1) AND (?2 IS NULL OR coalesce(p.team_id,'')=?2)
       AND (?4 IS NULL OR p.id=?4)
-      AND (?5 IS NULL OR p.owner_tab_id=?5 OR json_extract(p.header_json,'$.planner.tab_id')=?5 OR EXISTS(SELECT 1 FROM plan_tasks t WHERE t.plan_id=p.id AND (t.assigned_tab_id=?5 OR json_extract(t.row_json,'$.lane.tab_id')=?5)))
-      AND (?3 IS NULL OR (p.status='active' AND coalesce(json_extract(p.header_json,'$.mode'),'planning') <> 'complete'))
-    ORDER BY p.updated_at DESC,p.id";
+      AND (?3 IS NULL OR (p.status='active' AND coalesce(json_extract(p.header_json,'$.mode'),'planning') <> 'complete'))";
+
+const CHAT_ORDER: &str = "ORDER BY p.updated_at DESC,p.id";
+
+const BOUND_PLAN_IDS: &str = "SELECT id FROM plans INDEXED BY plans_owner_tab_id WHERE owner_tab_id=?5
+    UNION SELECT id FROM plans INDEXED BY plans_planner_tab_id WHERE json_extract(header_json,'$.planner.tab_id')=?5
+    UNION SELECT plan_id FROM plan_tasks INDEXED BY plan_tasks_assigned_tab_id WHERE assigned_tab_id=?5
+    UNION SELECT plan_id FROM plan_tasks INDEXED BY plan_tasks_lane_tab_id WHERE json_extract(row_json,'$.lane.tab_id')=?5";
+
+pub(super) fn header_sql(tab_scoped: bool) -> String {
+    if tab_scoped {
+        // Keep membership outermost so an unrelated tab never visits plan rows.
+        format!(
+            "WITH bound_plan_ids(plan_id) AS ({BOUND_PLAN_IDS}) SELECT {CHAT_FIELDS}
+            FROM bound_plan_ids b CROSS JOIN plans p
+            LEFT JOIN plan_heartbeat h ON h.plan_id=p.id
+            WHERE p.id=b.plan_id AND {CHAT_FILTERS} {CHAT_ORDER}"
+        )
+    } else {
+        format!(
+            "SELECT {CHAT_FIELDS} FROM plans p LEFT JOIN plan_heartbeat h ON h.plan_id=p.id
+            WHERE ?5 IS NULL AND {CHAT_FILTERS} {CHAT_ORDER}"
+        )
+    }
+}
 
 impl PlanDatabase {
     pub(in crate::service_plan) fn chat_projection(
@@ -35,7 +57,8 @@ impl PlanDatabase {
         let transaction = connection.transaction().map_err(db_error)?;
         record_query();
         let headers = {
-            let mut statement = transaction.prepare_cached(CHAT_HEADER).map_err(db_error)?;
+            let sql = header_sql(tab_id.is_some());
+            let mut statement = transaction.prepare_cached(&sql).map_err(db_error)?;
             let rows = statement
                 .query_map(params![project, team, query, plan_id, tab_id], |row| {
                     Ok((
@@ -50,11 +73,11 @@ impl PlanDatabase {
         let mut remaining = 50;
         let mut result = Vec::new();
         for (id, header, heartbeat) in headers {
-            let mut plan: Plan = decode(&id, &header)?;
+            let mut plan: ChatPlanRead = decode(&id, &header)?;
             if let Some(heartbeat) = heartbeat {
                 plan.heartbeat = decode(&id, &heartbeat)?;
             }
-            plan.tasks = chat_tasks(
+            let tasks = chat_tasks(
                 &transaction,
                 &id,
                 query,
@@ -70,9 +93,10 @@ impl PlanDatabase {
             if query.is_none_or(|query| {
                 plan.title.to_lowercase().contains(query)
                     || plan.id.contains(query)
-                    || !plan.tasks.is_empty()
+                    || !tasks.is_empty()
             }) {
-                let mut value = super::super::chat_snapshot::snapshot(&plan, None, &mut remaining);
+                let mut value =
+                    super::super::chat_snapshot::read::snapshot(&plan, &tasks, &mut remaining);
                 value["revision"] =
                     serde_json::json!(super::change_feed::revision(&transaction, &id)?.to_string());
                 value["task_counts"] =
@@ -95,7 +119,7 @@ fn chat_tasks(
     query: Option<&str>,
     limit: usize,
     tab_id: Option<&str>,
-) -> Result<Vec<Task>, PlanError> {
+) -> Result<Vec<ChatTaskRead>, PlanError> {
     if limit == 0 {
         return Ok(Vec::new());
     }

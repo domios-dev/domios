@@ -208,9 +208,11 @@ async function terminateTree(child, signal, platform, spawnProcess) {
 
 // Node 25 ships a global localStorage whose methods are missing without --localstorage-file;
 // tests must see the same no-storage global as CI's Node 22 so happy-dom setups decide alone.
-const nodeIsolationFlags = process.allowedNodeEnvironmentFlags.has("--no-experimental-webstorage")
-  ? ["--no-experimental-webstorage"]
-  : [];
+// Memory-release tests call gc() in-process instead of spawning their own deadline-bound child.
+const nodeIsolationFlags = [
+  "--expose-gc",
+  ...(process.allowedNodeEnvironmentFlags.has("--no-experimental-webstorage") ? ["--no-experimental-webstorage"] : []),
+];
 
 function startWorker({
   index,

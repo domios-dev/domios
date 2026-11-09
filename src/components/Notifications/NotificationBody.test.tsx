@@ -5,6 +5,8 @@ import { expect, test, vi } from "vitest";
 import { configureLocalArtifactLoader, LocalArtifactScope } from "@codeterm/chat-ui";
 import { InlineAttachmentText } from "../../../packages/chat-ui/src/AttachmentCapsule";
 import { NotificationBody } from "./NotificationBody";
+import { createChatErrorNotice } from "../Terminal/chatErrorNotice";
+import { planFileDrop } from "../Terminal/composerTransferModel";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -105,4 +107,43 @@ test("notification text preserves native paths and markup literally in previews 
   } finally {
     await act(async () => root.unmount());
   }
+});
+
+
+test("a chat toast shows an app-authored cause as its body while a raw transport error keeps generic text with Details", async () => {
+  const upsertToast = vi.fn();
+  const publish = (error: string) => {
+    createChatErrorNotice("t", { upsertToast, dismissToast: () => {} }).show(error);
+    return upsertToast.mock.lastCall![0] as { title: string; body: string };
+  };
+  const cause = "This drop contains no readable file. Use the file picker to attach the image.";
+  const drop = publish(planFileDrop({ types: ["text/uri-list"] }).error!);
+  const raw = "/api/tabs/t/send → HTTP 502: upstream connection reset";
+  const transport = publish(raw);
+  const host = document.createElement("div"); const root = createRoot(host);
+  const render = async (toast: { title: string; body: string }, preview: boolean) =>
+    act(async () => root.render(<NotificationBody text={toast.body} tabId="t" failure operation={toast.title} preview={preview} />));
+  try {
+    await render(drop, true);
+    expect(host.textContent).toBe(cause);
+    await render(drop, false);
+    expect(host.textContent).toBe(cause);
+    expect(host.querySelector("details")).toBeNull();
+    await render(transport, true);
+    expect(host.textContent).toBe("Something went wrong while completing this operation");
+    await render(transport, false);
+    expect(host.textContent).not.toContain(cause);
+    expect(host.querySelector("details pre")?.textContent).toBe(raw);
+  } finally { await act(async () => root.unmount()); }
+});
+
+test("capacity notices are accurate and an unknown chat error never uses its heading as an operation", async () => {
+  const host = document.createElement("div"); const root = createRoot(host);
+  try {
+    await act(async () => root.render(<NotificationBody text="/api/tabs/t/stop → HTTP 0: Mux client capacity reached before dispatch" tabId="t" failure operation="Chat error" />));
+    expect(host.textContent).toContain("The connection is busy");
+    expect(host.textContent).not.toContain("handling Chat error");
+    await act(async () => root.render(<NotificationBody text="opaque failure" tabId="t" failure operation="Chat error" />));
+    expect(host.textContent).not.toContain("handling Chat error");
+  } finally { await act(async () => root.unmount()); }
 });

@@ -328,6 +328,7 @@ fn launch_parameters() -> RestorableLaunchParameters {
         permission_bypass_requested: false,
         runtime_launch_options: None,
         structured_runtime_mode: None,
+        ..Default::default()
     }
 }
 
@@ -802,7 +803,7 @@ fn restored_snapshot_service_builder_keeps_direct_spec_and_owned_session() {
     let spec = command.direct.as_ref().unwrap();
     assert_eq!(spec.program, "fixture");
     assert_eq!(spec.args, ["--resume", "exact-own-session"]);
-    let claim = fixture.service.pty_ownership.acquire(&tab_id);
+    let claim = fixture.service.pty_ownership.acquire(&tab_id).unwrap();
     fixture
         .service
         .ensure_restored_launch_host_with_claim(&claim, &command, None)

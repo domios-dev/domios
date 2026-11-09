@@ -21,7 +21,11 @@ fn store_saves_loads_indexes() {
     assert!(path.exists());
     let loaded = store.get(&p.id).unwrap();
     assert_eq!(loaded.title, "T");
-    assert!(store.list_index().iter().any(|e| e.plan_id == p.id));
+    assert!(store
+        .list_index()
+        .unwrap()
+        .iter()
+        .any(|e| e.plan_id == p.id));
     assert_eq!(loaded.updated_at, 1000);
 }
 
@@ -47,6 +51,7 @@ fn reload_from_disk_replaces_memory_and_index() {
     assert_eq!(store.get(&p.id).unwrap().title, "Edited");
     let entry = store
         .list_index()
+        .unwrap()
         .into_iter()
         .find(|e| e.plan_id == p.id)
         .unwrap();
@@ -220,7 +225,7 @@ fn task_qa_plan_updates_and_clears_independently() {
 }
 
 #[test]
-fn reload_from_disk_preserves_plan_arc_for_concurrent_holders() {
+fn reload_from_disk_preserves_prior_read_and_publishes_imported_state() {
     let dir = tempfile::tempdir().unwrap();
     let store = PlanStore::new_for_test(dir.path());
     let mut p = Plan::new(
@@ -229,7 +234,7 @@ fn reload_from_disk_preserves_plan_arc_for_concurrent_holders() {
         OrchestratorRef::from_tab("abc"),
     );
     store.save(&mut p, 1000).unwrap();
-    let held = store.plan_arc_for_test(&p.id);
+    let held = store.get(&p.id).unwrap();
 
     let path = plan_path(dir.path(), &p);
     let mut edited: Plan = serde_yaml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
@@ -239,9 +244,9 @@ fn reload_from_disk_preserves_plan_arc_for_concurrent_holders() {
 
     store.reload_from_disk(&p.id).unwrap();
 
-    let current = store.plan_arc_for_test(&p.id);
-    assert!(std::sync::Arc::ptr_eq(&held, &current));
-    assert_eq!(held.lock().title, "Edited");
+    let current = store.get(&p.id).unwrap();
+    assert_eq!(held.title, "Original");
+    assert_eq!(current.title, "Edited");
 }
 
 #[test]
@@ -260,7 +265,7 @@ fn reload_from_disk_does_not_overwrite_newer_in_flight_plan_mutation() {
     let mutation_store = store.clone();
     let plan_id = p.id.clone();
     let mutation = std::thread::spawn(move || {
-        mutation_store.with_plan(&plan_id, 3000, |plan| {
+        mutation_store.edit_plan_fixture(&plan_id, 3000, |plan| {
             entered_tx.send(()).unwrap();
             release_rx.recv().unwrap();
             plan.title = "Newer in-flight mutation".into();
@@ -278,6 +283,7 @@ fn reload_from_disk_does_not_overwrite_newer_in_flight_plan_mutation() {
     assert_eq!(current.updated_at, 3000);
     let entry = store
         .list_index()
+        .unwrap()
         .into_iter()
         .find(|entry| entry.plan_id == p.id)
         .unwrap();
@@ -304,6 +310,7 @@ fn scan_project_does_not_import_a_plan_written_directly_to_disk() {
     let loaded_project = store.scan_project(dir.path()).unwrap();
     let plans: Vec<_> = store
         .list_index()
+        .unwrap()
         .into_iter()
         .filter_map(|e| store.get(&e.plan_id))
         .filter(|p| p.project_path == loaded_project.display().to_string())

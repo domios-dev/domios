@@ -21,3 +21,13 @@ assert.equal(sameRowTab(base, variant({ title: "Chef" })), false, "a new title r
 assert.equal(sameRowTab(base, variant({ agent_state: { ...base.agent_state, state: "idle" } })), false, "a new agent state re-renders the row");
 assert.equal(sameRowTab(base, variant({ backing: { kind: "chat_backend", plugin_id: "codex", session_id: "s2" } })), false, "a rebound chat session re-renders the row");
 assert.equal(sameRowTab(base, variant({ connected_services: ["telegram"] })), false, "connected services re-render the row");
+
+const runtimeTab = variant({
+  agent_runtime_config: { launchProfile: "first" },
+  agent_runtime_state: { state: "loaded", epoch: 1, agentName: "Declared Agent", binaryVersion: "1", iconSvg: "<svg id='first'/>" },
+});
+for (const patch of [{ iconSvg: "<svg id='registry'/>" }, { agentName: "Updated Agent" }, { binaryVersion: "2" }]) {
+  assert.equal(sameRowTab(runtimeTab, { ...runtimeTab, agent_runtime_state: { ...runtimeTab.agent_runtime_state!, ...patch } }), false, "runtime presentation updates reach the sidebar");
+}
+assert.equal(sameRowTab(runtimeTab, { ...runtimeTab, agent_runtime_config: { launchProfile: "second" } }), false, "profile icon changes reach the sidebar");
+assert.equal(sameRowTab(runtimeTab, { ...runtimeTab, agent_runtime_state: { ...runtimeTab.agent_runtime_state!, epoch: 2 } }), true, "runtime epochs alone do not change row presentation");

@@ -10,7 +10,8 @@ pub(crate) fn runtime_ended_cause(reason: &impl std::fmt::Display) -> String {
 }
 
 /// Rows that make a turn cut short by a lost runtime process visible in Chat, with its cause.
-/// An idle process exit produces no rows.
+/// An idle process exit produces no rows. A dead process runs nothing, so every running tool
+/// settles, including rows of a provider that names no turn on them.
 pub(crate) fn runtime_ended_rows(
     items: &[ChatMsg],
     turn: Option<&str>,
@@ -21,7 +22,6 @@ pub(crate) fn runtime_ended_rows(
     let mut rows: Vec<ChatMsg> = items
         .iter()
         .filter(|row| row.tool_status.as_deref() == Some("running"))
-        .filter(|row| turn.is_none() || row.tool_flow_id.as_deref() == turn)
         .map(|row| ChatMsg {
             tool_status: Some("interrupted".into()),
             tool_interrupted: Some(true),

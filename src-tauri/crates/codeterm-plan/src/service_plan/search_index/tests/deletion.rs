@@ -17,7 +17,7 @@ fn busy_project_accepts_deletion_without_executing_index_work() {
         .lock()
         .in_flight_projects
         .insert(project.clone());
-    queue.enqueue(IndexJob::PurgePlan(plan.clone(), vec![]));
+    queue.enqueue(IndexJob::PurgePlan(plan.clone().into(), vec![]));
     let state = queue.state.lock();
     assert_eq!(state.in_flight, 0);
     assert_eq!(state.order.len(), 1);

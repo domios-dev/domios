@@ -305,7 +305,7 @@ it("Welcome offers Codex's runtime and confirms the selected provider once", asy
     expect(confirm?.disabled).toBe(false);
     await act(async () => confirm!.click());
     expect(invoke).toHaveBeenCalledWith("complete_general_agent_first_run", {
-      providerId: "codex", fullAccess: true,
+      providerId: "codex",
     });
     expect(vi.mocked(invoke).mock.calls.filter(([command]) => command === "complete_general_agent_first_run")).toHaveLength(1);
     expect(navigation.show).toHaveBeenCalledExactlyOnceWith({ workspaceId: "welcome", tabId: "general" });
@@ -356,7 +356,7 @@ for (const success of [true, false]) {
       expect(invoke).not.toHaveBeenCalledWith("complete_general_agent_first_run", expect.anything());
       await act(async () => events.get("provider-cli-completed")!({ payload: { ...completion, tab_id: "own-install", success, summary: "opaque installer failure" } }));
       if (success) {
-        expect(invoke).toHaveBeenCalledWith("complete_general_agent_first_run", { providerId: "fixture", fullAccess: true });
+        expect(invoke).toHaveBeenCalledWith("complete_general_agent_first_run", { providerId: "fixture" });
         expect(navigation.show).toHaveBeenCalledExactlyOnceWith({ workspaceId: "welcome", tabId: "general" });
       } else {
         expect(invoke).not.toHaveBeenCalledWith("complete_general_agent_first_run", expect.anything());
@@ -393,7 +393,7 @@ it("keeps multi-method sign-in on Get started and continues only authenticated c
     await act(async () => events.get("agent-runtime-state")!({ payload: { ...completed, tab_id: "home", session_binding_nonce: "foreign-nonce" } }));
     expect(invoke).not.toHaveBeenCalledWith("complete_general_agent_first_run", expect.anything());
     await act(async () => events.get("agent-runtime-state")!({ payload: { ...completed, tab_id: "home" } }));
-    expect(invoke).toHaveBeenCalledWith("complete_general_agent_first_run", { providerId: "fixture", fullAccess: true });
+    expect(invoke).toHaveBeenCalledWith("complete_general_agent_first_run", { providerId: "fixture" });
     expect(navigation.show).toHaveBeenCalledExactlyOnceWith({ workspaceId: "welcome", tabId: "general" });
   } finally {
     await act(async () => root.unmount());

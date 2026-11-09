@@ -35,7 +35,7 @@ fn owner_chat_keeps_questions_open_until_explicit_resolution_resumes_curator() {
             .agent_session_model = Some("fixture-model".into());
         service
             .plan_store
-            .with_plan(&id, now, |plan| {
+            .edit_plan_fixture(&id, now, |plan| {
                 plan.mode = PlanMode::Execution;
                 Ok(())
             })
@@ -155,7 +155,7 @@ fn owner_chat_keeps_questions_open_until_explicit_resolution_resumes_curator() {
         if action == "resolve" {
             service
                 .plan_store
-                .with_plan(&id, now, |plan| {
+                .edit_plan_fixture(&id, now, |plan| {
                     plan.control_loop.next_at = None;
                     Ok(())
                 })

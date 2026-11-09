@@ -1,0 +1,8 @@
+{
+  "version": "1.0.0",
+  "agents": [
+    {"id":"fixture-npm","name":"Fixture npm","version":"1.2.3","description":"Opaque fixture","icon":"https://example.test/icon.svg","distribution":{"npx":{"package":"@fixture/agent","args":["--stdio"],"env":{"MODE":"fixture"}}}},
+    {"id":"fixture-python","name":"Fixture Python","version":"2.3.4","description":"Opaque fixture","distribution":{"uvx":{"package":"fixture-agent","args":["--acp"]}}},
+    {"id":"fixture-binary","name":"Fixture binary","version":"3.4.5","description":"Opaque fixture","distribution":{"binary":{"windows-x86_64":{"archive":"https://example.test/agent.zip","cmd":"bin/agent.exe","args":["--stdio"],"sha256":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}}}}
+  ]
+}

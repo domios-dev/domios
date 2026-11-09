@@ -1,4 +1,8 @@
 use super::*;
+mod handoff;
+mod plan;
+mod specs;
+mod tasks;
 use crate::plan::{AgentRef, TaskStatus};
 use crate::service_plan::batch::{BatchOp, BatchRequest, BatchResult};
 
@@ -7,9 +11,11 @@ impl PlanDatabase {
         &self,
         plan_id: &str,
         request: BatchRequest,
+        keys: Vec<String>,
         now_ms: u64,
     ) -> Result<(BatchResult, CommittedRows), PlanError> {
         let mut result = BatchResult::default();
+        let mut keys = keys.into_iter();
         let receipt = self.hot_transaction(plan_id, now_ms, |tx, receipt| {
             for op in request.ops {
                 match op {
@@ -83,11 +89,17 @@ impl PlanDatabase {
                         if let Some(client_id) = client_id { result.ids.insert(client_id, milestone_id.clone()); }
                         push_once(&mut result.milestone_ids, milestone_id);
                     }
-                    _ => return Err(PlanError::Io("unsupported operation in a row transaction".into())),
+                    op @ BatchOp::UpsertTask { .. } => tasks::upsert(tx, plan_id, op, &mut result, &mut keys, now_ms, receipt)?,
+                    op @ (BatchOp::SetGoal { .. } | BatchOp::Link { .. } | BatchOp::IngestSections { .. } | BatchOp::AddElement { .. }) => plan::apply(tx, plan_id, op, &mut result, now_ms, receipt)?,
+                    op @ BatchOp::AddHandoff { .. } => handoff::apply(tx, plan_id, op, &mut result, now_ms, receipt)?,
+                    op @ (BatchOp::UpsertSpec { .. } | BatchOp::UpsertSpecSection { .. } | BatchOp::SetSpecSectionBody { .. } | BatchOp::LinkSpecSection { .. } | BatchOp::UnlinkSpecSection { .. } | BatchOp::CreatePlanFromSpec { .. }) => specs::apply(tx, plan_id, op, &mut result, now_ms, receipt)?,
                 }
             }
             Ok(())
         })?;
+        if let Some(hint) = crate::service_plan::hints::maybe_orchestration_reminder() {
+            result.hints.push(hint);
+        }
         Ok((result, receipt))
     }
 }
@@ -117,3 +129,6 @@ fn push_once(values: &mut Vec<String>, value: String) {
         values.push(value);
     }
 }
+
+#[cfg(test)]
+mod tests;

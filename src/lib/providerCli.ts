@@ -1,4 +1,5 @@
 export interface ProviderCliStatus {
+  launch_profiles?: { id: string; installed: boolean | null }[];
   display_name?: string | null;
   latest_version?: string | null;
   update_refusal?: string | null;
@@ -44,6 +45,13 @@ export function installerShellLanguage(command: string): string {
 
 export function providerCliPresentation(status: ProviderCliStatus | null): { state: ProviderCliState; label: string; canInstall: boolean } {
   if (!status) return { state: "checking", label: "Checking CLI", canInstall: false };
+  if (status.launch_profiles) {
+    const ready = status.launch_profiles.filter(profile => profile.installed === true).length;
+    const state = status.installed === true ? "installed" : status.installed === false ? "missing" : "unknown";
+    const label = ready ? `${ready} of ${status.launch_profiles.length} launch profiles ready`
+      : state === "unknown" ? "Launch profile readiness unknown" : "No launch profiles ready";
+    return { state, label, canInstall: false };
+  }
   if (!status.required) return { state: "none", label: "No CLI required", canInstall: false };
   const state: ProviderCliState = status.installed === true ? "installed" : status.installed === false ? "missing" : "unknown";
   const label = state === "installed" ? "CLI installed" : state === "missing" ? "CLI not installed" : "CLI status unknown";
@@ -69,11 +77,11 @@ export function providerCliView(status: ProviderCliStatus | null, error: string 
   return {
     state,
     compatibilityHint: providerCompatibilityHint(status),
-    label: state === "unknown" ? "CLI status unknown" : base.label,
+    label: state === "unknown" && !status?.launch_profiles ? "CLI status unknown" : base.label,
     version: state === "installed" ? status?.detected_version?.trim() || null : null,
     pathHint: state === "installed" ? status?.resolved_path ?? null : null,
     canInstall: base.canInstall,
-    canRecheck: state === "unknown",
+    canRecheck: Boolean(status?.launch_profiles) || state === "unknown",
     installCommand: missing ? installer : null,
     installLanguage: installer ? installerShellLanguage(installer) : "bash",
     prerequisites: missing ? missingInstallerPrerequisites(status).map(({ binary, hint }) => ({ binary, hint })) : [],

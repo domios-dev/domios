@@ -1,3 +1,4 @@
+import { ioResolve, type HostIoSteps } from "./ioPrograms";
 export interface RemoteTaskCapability {
   backend: string;
   mode: string;
@@ -43,21 +44,22 @@ export interface RemoteTaskBinding {
 }
 
 export interface RemoteTaskStorage {
-  read(tabId: string): RemoteTaskBinding | null;
-  compareExchange(tabId: string, revision: number | null, next: RemoteTaskBinding): boolean;
+  read(tabId: string): RemoteTaskBinding | null | HostIoSteps<RemoteTaskBinding | null>;
+  compareExchange(tabId: string, revision: number | null, next: RemoteTaskBinding): boolean | HostIoSteps<boolean>;
 }
 
 export interface RemoteTaskBackend {
   capability: RemoteTaskCapability;
   environments(): RemoteEnvironment[];
-  create(input: {environmentId: string; accountRef: string; branch: string; prompt: string}): {taskId: string};
-  read(binding: RemoteTaskBinding): RemoteTaskSnapshot;
+  create(input: {environmentId: string; accountRef: string; branch: string; prompt: string}): {taskId: string} | HostIoSteps<{taskId: string}>;
+  read(binding: RemoteTaskBinding): RemoteTaskSnapshot | HostIoSteps<RemoteTaskSnapshot>;
 }
 
 export class RemoteTaskController {
-  constructor(private readonly storage: RemoteTaskStorage, private readonly backend: RemoteTaskBackend) {}
+  constructor(private readonly storage: RemoteTaskStorage, private readonly backend: RemoteTaskBackend, private readonly assertCurrent: () => void = () => {}) {}
 
-  create(tabId: string, providerId: string, environment: RemoteEnvironment, branch: string, prompt: string): RemoteTaskBinding {
+  *create(tabId: string, providerId: string, environment: RemoteEnvironment, branch: string, prompt: string): HostIoSteps<RemoteTaskBinding> {
+    this.assertCurrent();
     if (this.backend.capability.availability.status !== "available") {
       throw new Error(this.backend.capability.availability.reason);
     }
@@ -71,43 +73,49 @@ export class RemoteTaskController {
       environmentId: environment.id, accountRef: environment.accountRef, branch,
       phase: "creating", snapshot: null,
     };
-    if (!this.storage.compareExchange(tabId, null, claim)) {
+    if (!(yield* ioResolve(this.storage.compareExchange(tabId, null, claim)))) {
       throw new Error("This tab already has a remote task; creation was not repeated");
     }
     let acknowledgement: {taskId: string};
+    this.assertCurrent();
     try {
-      acknowledgement = this.backend.create({environmentId: environment.id, accountRef: environment.accountRef, branch, prompt});
+      acknowledgement = (yield* ioResolve(this.backend.create({environmentId: environment.id, accountRef: environment.accountRef, branch, prompt})));
       if (!acknowledgement.taskId) throw new Error("Missing remote task acknowledgement");
     } catch {
+      this.assertCurrent();
       const uncertain: RemoteTaskBinding = {...claim, revision: 1, phase: "create_uncertain"};
-      this.storage.compareExchange(tabId, claim.revision, uncertain);
+      (yield* ioResolve(this.storage.compareExchange(tabId, claim.revision, uncertain)));
       return uncertain;
     }
     const bound: RemoteTaskBinding = {
       ...claim, revision: 1, phase: "bound",
       snapshot: {taskId: acknowledgement.taskId, attempt: null, status: "pending", result: "", diff: null, cursor: null, error: null},
     };
-    if (!this.storage.compareExchange(tabId, claim.revision, bound)) {
+    this.assertCurrent();
+    if (!(yield* ioResolve(this.storage.compareExchange(tabId, claim.revision, bound)))) {
       throw new Error("Remote creation was acknowledged but its binding could not be saved; do not submit again");
     }
     return bound;
   }
 
-  restore(tabId: string): RemoteTaskBinding | null {
-    const binding = this.storage.read(tabId);
+  *restore(tabId: string): HostIoSteps<RemoteTaskBinding | null> {
+    this.assertCurrent();
+    const binding = (yield* ioResolve(this.storage.read(tabId)));
+    this.assertCurrent();
     if (!binding) return null;
     if (binding.executionMode !== this.backend.capability.mode) throw new Error("Remote execution mode does not match the stored tab");
     if (binding.backend !== this.backend.capability.backend) throw new Error("Remote backend does not match the stored tab");
     if (binding.phase !== "bound" || !binding.snapshot) {
       if (binding.phase === "create_uncertain") return binding;
       const uncertain: RemoteTaskBinding = {...binding, revision: binding.revision + 1, phase: "create_uncertain"};
-      if (!this.storage.compareExchange(tabId, binding.revision, uncertain)) return this.storage.read(tabId);
+      if (!(yield* ioResolve(this.storage.compareExchange(tabId, binding.revision, uncertain)))) return (yield* ioResolve(this.storage.read(tabId)));
       return uncertain;
     }
-    const snapshot = this.backend.read(binding);
+    const snapshot = (yield* ioResolve(this.backend.read(binding)));
+    this.assertCurrent();
     if (snapshot.taskId !== binding.snapshot.taskId) throw new Error("Remote response belongs to a different task");
     const updated: RemoteTaskBinding = {...binding, revision: binding.revision + 1, snapshot};
-    if (!this.storage.compareExchange(tabId, binding.revision, updated)) return this.storage.read(tabId);
+    if (!(yield* ioResolve(this.storage.compareExchange(tabId, binding.revision, updated)))) return (yield* ioResolve(this.storage.read(tabId)));
     return updated;
   }
 }

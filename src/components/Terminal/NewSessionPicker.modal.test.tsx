@@ -1,7 +1,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AppConfig, Workspace } from "../../lib/types";
+import type { Workspace } from "../../lib/types";
 
 const fixture = vi.hoisted(() => {
   const workspace = {
@@ -96,14 +96,13 @@ afterEach(async () => {
   host.remove();
 });
 
-async function renderPicker(props: { onClose?: () => void; fullAccess?: boolean; section?: "general" | "workspace" } = {}) {
+async function renderPicker(props: { onClose?: () => void; section?: "general" | "workspace" } = {}) {
   await act(async () => {
     root!.render(
       <NewSessionPicker
         workspaceId={workspace.id}
         section={props.section}
         workspaceCwd={workspace.cwd}
-        agentConfig={props.fullAccess === undefined ? undefined : { full_access: props.fullAccess } as AppConfig["agent"]}
         onClose={props.onClose ?? (() => undefined)}
       />,
     );
@@ -141,7 +140,7 @@ describe("NewSessionPicker modal", () => {
     fixture.providers.providers = [{ id: "opencode", display_name: "OpenCode",
       available_models: [{ id: "model", display_name: "Model value" }], default_model: "model",
       reasoning_efforts: [{ id: "high", display_name: "High" }] }] as never[];
-    await renderPicker({ fullAccess: false });
+    await renderPicker();
     expect(buttonNamed("Workspace")).toBeNull();
     expect(buttonNamed("Agent provider")).not.toBeNull();
     expect(buttonNamed("Agent model")).not.toBeNull();
@@ -164,7 +163,7 @@ describe("NewSessionPicker modal", () => {
 
   it("restores a remembered Team as an agent when opened in General", async () => {
     localStorage.setItem("codeterm:new-session-choice", JSON.stringify({ mode: "pair", orchestratorProviderId: "opencode", plannerProviderId: "opencode" }));
-    await renderPicker({ fullAccess: false, section: "general" });
+    await renderPicker({ section: "general" });
     expect(buttonNamed("Team")).toBeNull();
     expect(buttonNamed("Orchestrator provider")).toBeNull();
     expect(buttonNamed("Planner provider")).toBeNull();
@@ -182,7 +181,7 @@ describe("NewSessionPicker modal", () => {
     localStorage.setItem("codeterm:new-session-choice", JSON.stringify({ mode: "pair",
       orchestratorProviderId: "opencode", orchestratorModelId: "lead", orchestratorEffortId: "high",
       plannerProviderId: "peer", plannerModelId: "plan", plannerEffortId: "low" }));
-    await renderPicker({ fullAccess: false });
+    await renderPicker();
     expect(buttonNamed("Team")?.getAttribute("aria-pressed")).toBe("true");
     expect(buttonNamed("Orchestrator model")).not.toBeNull();
     expect(buttonNamed("Planner effort")).not.toBeNull();
@@ -205,7 +204,7 @@ describe("NewSessionPicker modal", () => {
     fixture.providers.providers = [{ id: "opencode", display_name: "OpenCode",
       available_models: [{ id: "first", display_name: "First" }, { id: "chosen", display_name: "Chosen" }],
       default_model: "first", reasoning_efforts: [{ id: "low", display_name: "Low" }, { id: "high", display_name: "High" }] }] as never[];
-    await renderPicker({ fullAccess: false });
+    await renderPicker();
     await choose("Agent model", "Chosen");
     await choose("Agent effort", "High");
     await act(async () => dialog().querySelector<HTMLButtonElement>('[data-testid="picker-confirm"]')!.click());
@@ -217,7 +216,7 @@ describe("NewSessionPicker modal", () => {
     fixture.providers.providers = [{ id: "opencode", display_name: "OpenCode",
       available_models: [{ id: "live-model", display_name: "Live model" }], default_model: "live-model", reasoning_efforts: [] }] as never[];
     localStorage.setItem("codeterm:new-session-choice", JSON.stringify({ mode: "single", providerId: "opencode", modelId: "live-model" }));
-    await renderPicker({ fullAccess: false });
+    await renderPicker();
     const preset = dialog().querySelector<HTMLSelectElement>('select[aria-label="Preset"]');
     expect(preset).not.toBeNull();
     await act(async () => { preset!.value = "demo"; preset!.dispatchEvent(new Event("change", { bubbles: true })); });
@@ -252,14 +251,10 @@ describe("NewSessionPicker modal", () => {
     expect(onClose).toHaveBeenCalledTimes(2);
   });
 
-  it("asks for agent access inline only until the user has decided", async () => {
+  it("starts without an agent access question", async () => {
     await renderPicker();
-    expect(dialog().querySelector('input[type="checkbox"]')).not.toBeNull();
-
-    await act(async () => root!.unmount());
-    root = createRoot(host);
-    await renderPicker({ fullAccess: false });
     expect(dialog().querySelector('input[type="checkbox"]')).toBeNull();
+
     expect(document.body.querySelectorAll('[role="dialog"]')).toHaveLength(1);
   });
 
@@ -285,7 +280,7 @@ it("dismisses a team request before it resolves and preserves its eventual error
   const onClose = vi.fn();
   let reject!: (error: unknown) => void;
   fixture.actions.createOrchestrationPair.mockImplementationOnce(() => new Promise((_, fail) => { reject = fail; }));
-  await renderPicker({ fullAccess: false, onClose });
+  await renderPicker({ onClose });
   await act(async () => buttonNamed("Team")!.click());
   const start = dialog().querySelector<HTMLButtonElement>('[data-testid="picker-confirm"]')!;
   await act(async () => start.click());
@@ -308,7 +303,7 @@ it("preserves a single-agent failure after dismissal", async () => {
   fixture.actions.spawnAgentTab.mockRejectedValueOnce(new TransportError(422, "/api/agents/spawn",
     JSON.stringify({ error: { message } })));
   const onClose = vi.fn();
-  await renderPicker({ fullAccess: false, onClose });
+  await renderPicker({ onClose });
   await act(async () => dialog().querySelector<HTMLButtonElement>('[data-testid="picker-confirm"]')!.click());
   expect(fixture.actions.upsertToast).toHaveBeenCalledTimes(1);
   expect(fixture.actions.upsertToast.mock.calls[0][0].body).toContain(message);
@@ -320,14 +315,14 @@ it("offers folder relocation instead of session or team start for a missing work
     fixture.workspace.cwd_missing = false;
     return { warnings: [] };
   });
-  await renderPicker({ fullAccess: false });
+  await renderPicker();
   expect(dialog().querySelector('[data-testid="picker-confirm"]')).toBeNull();
   expect(buttonNamed("Team")).toBeNull();
   const choose = Array.from(dialog().querySelectorAll("button")).find((button) => button.textContent === "Choose folder");
   expect(choose).toBeDefined();
   await act(async () => choose!.click());
   expect(fixture.actions.setWorkspaceCwd).toHaveBeenCalledExactlyOnceWith("workspace", "/relocated");
-  await renderPicker({ fullAccess: false });
+  await renderPicker();
   expect(dialog().querySelector('[data-testid="picker-confirm"]')).not.toBeNull();
   expect(fixture.actions.spawnAgentTab).not.toHaveBeenCalled();
   expect(fixture.actions.createOrchestrationPair).not.toHaveBeenCalled();
@@ -339,7 +334,7 @@ it("hides Cloud execution while it is disabled, without refreshing remote provid
     backend: "fixture", mode: "cloud", displayName: "Cloud", availability: {status: "available"},
     environments: [{id: "env-fixture", label: "Fixture environment", accountRef: "account-fixture"}], followUp: false, cancel: false, applyDiff: false,
   }} as never);
-  await renderPicker({fullAccess: false});
+  await renderPicker();
   expect(dialog().querySelector('input[name="execution-location"]')).toBeNull();
   expect(vi.mocked(invoke)).not.toHaveBeenCalledWith("refresh_provider_models", {providerId: "opencode"});
 });
@@ -350,7 +345,7 @@ it("offers Remote only through declared capability and spawns the selected envir
     backend: "fixture", mode: "cloud", displayName: "Cloud", availability: {status: "available"},
     environments: [{id: "env-fixture", label: "Fixture environment", accountRef: "account-fixture"}], followUp: false, cancel: false, applyDiff: false,
   }} as never);
-  await renderPicker({fullAccess: false});
+  await renderPicker();
   expect(vi.mocked(invoke)).toHaveBeenCalledWith("refresh_provider_models", {providerId: "opencode"});
   expect(fixture.providers.refetch).toHaveBeenCalledExactlyOnceWith();
   await act(async () => dialog().querySelector<HTMLInputElement>('input[value="cloud"]')!.click());
@@ -367,9 +362,9 @@ it("keeps an empty remote environment list actionable and refuses spawn", async 
   Object.assign(fixture.providers.providers.find((provider: {id: string}) => provider.id === "opencode")!, {remote_task: {
     backend: "fixture", mode: "cloud", displayName: "Cloud", availability: {status: "available"}, environments: [], followUp: false, cancel: false, applyDiff: false,
   }} as never);
-  await renderPicker({fullAccess: false});
+  await renderPicker();
   await act(async () => dialog().querySelector<HTMLInputElement>('input[value="cloud"]')!.click());
-  expect(Array.from(dialog().querySelectorAll("button")).find(button => button.textContent === "Refresh providers")).toBeDefined();
+  expect(Array.from(dialog().querySelectorAll("button")).find(button => button.textContent === "Refresh harnesses")).toBeDefined();
   expect(dialog().querySelector<HTMLButtonElement>('[data-testid="picker-confirm"]')?.disabled).toBe(true);
   expect(fixture.actions.spawnAgentTab).not.toHaveBeenCalled();
 });
@@ -382,7 +377,7 @@ it("shows Cloud only under Codex and explains its unavailable environment state"
       availability: { status: "unavailable", reason }, environments: [], followUp: false, cancel: false, applyDiff: false } }] as never[];
   localStorage.setItem("codeterm:new-session-choice", JSON.stringify({ mode: "single", providerId: "codex" }));
 
-  await renderPicker({fullAccess: false});
+  await renderPicker();
 
   const providerButton = buttonNamed("Agent provider");
   expect(providerButton?.textContent).toContain("Codex");
@@ -399,4 +394,71 @@ it("shows Cloud only under Codex and explains its unavailable environment state"
   expect(dialog().querySelector('select[aria-label="Cloud environment"]')).toBeNull();
   expect(dialog().querySelector<HTMLButtonElement>('[data-testid="picker-confirm"]')?.disabled).toBe(true);
   expect(fixture.actions.spawnAgentTab).not.toHaveBeenCalled();
+});
+
+describe("NewSessionPicker launch profiles", () => {
+  it("offers one ACP provider with a labelled nested choice and passes the chosen profile once", async () => {
+    fixture.providers.providers = [
+      {id:"opencode",display_name:"OpenCode",available_models:[],reasoning_efforts:[]},
+      {id:"opaque-acp",display_name:"ACP",transport:"chat_backend",available_models:[],agent_runtime:{launchProfiles:{
+        "deepseek-harness":{binary:"npx",args:["@deepseek-ai/dsh@0.2.1-rc.5","--profile","acp"]},
+        "gemini-cli":{binary:"gemini",args:["--acp"]},
+      }}},
+    ] as never[];
+    vi.mocked(invoke).mockImplementation(async command => command === "provider_launch_profiles" ? [
+      {id:"deepseek-harness",install:"installed",auth:"unknown",canInstall:true,ownerConfigured:false},
+      {id:"gemini-cli",install:"detected",auth:"unknown",canInstall:false,ownerConfigured:false},
+    ] : undefined);
+    await renderPicker();
+    await choose("Agent provider","ACP");
+    // The profile is a pill in the model's place in the Agent row, listing each profile with its state word.
+    const pill = dialog().querySelector<HTMLButtonElement>('[data-testid="picker-profile-single"]');
+    expect(pill?.getAttribute("aria-label")).toBe("Agent profile: Choose a profile");
+    expect(dialog().querySelector('[role="radiogroup"]')).toBeNull();
+    await act(async () => { pill!.dispatchEvent(new window.Event("pointerdown", { bubbles: true, cancelable: true })); });
+    const options = [...document.body.querySelectorAll<HTMLElement>('[data-testid^="picker-profile-single-option-"]')];
+    expect(options.map(option => option.textContent?.trim())).toEqual(["deepseek-harnessInstalled", "gemini-cliInstalled"]);
+    expect(fixture.actions.spawnAgentTab).not.toHaveBeenCalled();
+    await act(async () => options[1].click());
+    expect(dialog().querySelector('[data-testid="picker-profile-single"]')?.getAttribute("aria-label")).toBe("Agent profile: gemini-cli");
+    const start = dialog().querySelector<HTMLButtonElement>('[data-testid="picker-confirm"]');
+    expect(start).not.toBeNull();
+    await act(async () => start!.click());
+    expect(fixture.actions.spawnAgentTab).toHaveBeenCalledTimes(1);
+    expect(fixture.actions.spawnAgentTab).toHaveBeenCalledWith("workspace","opaque-acp","/workspace",undefined,undefined,undefined,undefined,undefined,"gemini-cli");
+  });
+
+  it("after a ready ACP profile, offers the model and effort it last declared (none when it declares none), defaulting to the agent's own, and spawns with the choice", async () => {
+    fixture.providers.providers = [
+      {id:"opaque-acp",display_name:"ACP",transport:"chat_backend",available_models:[],agent_runtime:{launchProfiles:{
+        "deepseek-harness":{binary:"npx",args:[]},
+        "gemini-cli":{binary:"gemini",args:["--acp"]},
+      }}},
+    ] as never[];
+    vi.mocked(invoke).mockImplementation(async command => command === "provider_launch_profiles" ? [
+      {id:"deepseek-harness",install:"installed",auth:"unknown",canInstall:true,ownerConfigured:false,configOptions:[
+        {id:"model",name:"Model",category:"model",currentValue:"flash",options:[{value:"flash",name:"deepseek-v4-flash"},{value:"pro",name:"DeepSeek-V4-Pro"}]},
+        {id:"reasoning_effort",name:"Reasoning effort",category:"thought_level",currentValue:"high",options:[{value:"low",name:"Low"},{value:"high",name:"High"}]},
+      ]},
+      {id:"gemini-cli",install:"detected",auth:"unknown",canInstall:false,ownerConfigured:false,configOptions:[]},
+    ] : undefined);
+    await renderPicker();
+    const pick = async (testId: string, option: string) => {
+      const trigger = dialog().querySelector<HTMLButtonElement>(`[data-testid="${testId}"]`)!;
+      await act(async () => { trigger.dispatchEvent(new window.Event("pointerdown", { bubbles: true, cancelable: true })); });
+      await act(async () => document.body.querySelector<HTMLElement>(`[data-testid="${testId}-option-${option}"]`)!.click());
+    };
+    await pick("picker-profile-single", "gemini-cli");
+    const model = () => dialog().querySelector<HTMLButtonElement>('[data-testid="picker-profile-model"]');
+    // A profile that declares no model or effort offers no pills; the agent keeps its own default.
+    expect(dialog().querySelector('[data-testid="launch-profile-model-row"]')).toBeNull();
+
+    await pick("picker-profile-single", "deepseek-harness");
+    expect(model()?.disabled).toBe(false);
+    expect(model()?.textContent).toContain("Default");
+    await pick("picker-profile-model", "pro");
+    await pick("picker-profile-effort", "low");
+    await act(async () => dialog().querySelector<HTMLButtonElement>('[data-testid="picker-confirm"]')!.click());
+    expect(fixture.actions.spawnAgentTab).toHaveBeenCalledWith("workspace","opaque-acp","/workspace","pro","low",undefined,undefined,undefined,"deepseek-harness");
+  });
 });

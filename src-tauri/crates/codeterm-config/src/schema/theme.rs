@@ -1,4 +1,7 @@
 use super::ThemeConfig;
+use std::io::Read;
+
+pub const MAX_THEME_BYTES: usize = 64 * 1024;
 
 /// Built-in theme definitions loaded at compile time.
 pub struct BuiltinTheme {
@@ -68,12 +71,15 @@ pub fn user_themes_dir() -> Option<std::path::PathBuf> {
 pub fn get_custom_theme(name: &str) -> Option<ThemeConfig> {
     let dir = user_themes_dir()?;
     let path = dir.join(format!("{}.toml", name));
-    if path.exists() {
-        let content = std::fs::read_to_string(&path).ok()?;
-        parse_builtin_theme(&content).ok()
-    } else {
-        None
+    let file = std::fs::File::open(path).ok()?;
+    let mut content = String::new();
+    file.take((MAX_THEME_BYTES + 1) as u64)
+        .read_to_string(&mut content)
+        .ok()?;
+    if content.len() > MAX_THEME_BYTES {
+        return None;
     }
+    parse_builtin_theme(&content).ok()
 }
 
 /// List all custom theme IDs from the user themes directory.

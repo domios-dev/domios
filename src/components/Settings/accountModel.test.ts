@@ -31,3 +31,9 @@ for (const stage of ["preparation", "browser", "callback", "redemption", "creden
 console.log("24 retained sign-in failure assertions passed");
 
 assert.deepEqual(accountModel({ identity: null, pending: false, session_revoked: true }), { kind: "signed_out", sessionRevoked: true });
+
+const mismatch = { saved: "fixture-target-a", build: "fixture-target-b", reason: "opaque-mismatch-reason" };
+assert.deepEqual(accountModel({ identity: null, pending: false, target_mismatch: mismatch }), { kind: "signed_out", targetMismatch: "opaque-mismatch-reason" });
+assert.deepEqual(accountModel({ identity: null, pending: false, target_mismatch: null }), { kind: "signed_out" });
+assert.deepEqual(accountModel({ identity: null, pending: true, target_mismatch: mismatch }), { kind: "pending" });
+console.log("3 account target mismatch assertions passed");

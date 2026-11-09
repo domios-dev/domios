@@ -1,3 +1,4 @@
+import { muxMockFetch } from "../../../lib/muxMockFetch.testdata";
 import { beforeEach as beforeDaemonCase } from "vitest";
 import { configureDaemonFixture } from "../../../test/daemonTransport.testdata";
 beforeDaemonCase(() => configureDaemonFixture());
@@ -99,12 +100,13 @@ function installDaemon(daemon: Daemon) {
     if (url.includes(`/api/plans/${PLAN_ID}/board-state`)) return ok(daemon.board);
     return missing();
   });
-  vi.stubGlobal("fetch", fetchMock);
+  vi.stubGlobal("fetch", muxMockFetch(fetchMock));
   return fetchMock;
 }
 
 async function flush() {
-  for (let i = 0; i < 30; i++) await Promise.resolve();
+  // Daemon responses ride the mux stream, which settles across event-loop turns.
+  for (let i = 0; i < 30; i++) await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 async function render(ui: ReactElement) {

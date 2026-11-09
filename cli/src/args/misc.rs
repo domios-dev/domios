@@ -82,6 +82,8 @@ pub enum WorkspaceAction {
 pub enum TabAction {
     /// Inspect one retained send without resending its payload.
     SendStatus { send_id: String },
+    /// Cancel a held agent send before its payload is claimed for writing.
+    SendCancel { send_id: String },
     /// Manage a tab-owned bounded checklist through the daemon service.
     Todo {
         #[command(subcommand)]

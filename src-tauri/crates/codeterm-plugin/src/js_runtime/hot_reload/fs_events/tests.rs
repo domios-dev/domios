@@ -137,9 +137,10 @@ fn plugin_reads_and_unrelated_files_do_not_schedule_reloads() {
 #[test]
 fn filesystem_changes_wake_the_reconciler_without_a_polling_tick() {
     let directory = tempfile::tempdir().unwrap();
-    let events = FileEvents::new(vec![directory.path().to_path_buf()]).unwrap();
+    let root = aliased_root(&directory);
+    let events = FileEvents::new(vec![root.clone()]).unwrap();
     let started = std::time::Instant::now();
-    std::fs::write(directory.path().join("plugin.json"), "{}").unwrap();
+    std::fs::write(root.join("plugin.json"), "{}").unwrap();
     events
         .receiver
         .recv_timeout(Duration::from_secs(5))
@@ -150,20 +151,49 @@ fn filesystem_changes_wake_the_reconciler_without_a_polling_tick() {
 #[test]
 fn a_missing_plugin_root_is_observed_through_its_existing_parent() {
     let directory = tempfile::tempdir().unwrap();
-    let root = directory.path().join("plugins");
+    let root = aliased_root(&directory).join("plugins");
     let mut events = FileEvents::new(vec![root.clone()]).unwrap();
     std::fs::create_dir(&root).unwrap();
+    let canonical = root.canonicalize().unwrap();
     events
         .receiver
         .recv_timeout(Duration::from_secs(5))
         .unwrap();
     events.refresh().unwrap();
-    assert_eq!(events.watched.get(&root), Some(&RecursiveMode::Recursive));
+    assert_eq!(
+        events.watched.get(&canonical),
+        Some(&RecursiveMode::Recursive)
+    );
     std::fs::remove_dir(&root).unwrap();
     events
         .receiver
         .recv_timeout(Duration::from_secs(5))
         .unwrap();
     events.refresh().unwrap();
-    assert!(!events.watched.contains_key(&root));
+    assert!(!events.watched.contains_key(&canonical));
+}
+
+fn aliased_root(directory: &tempfile::TempDir) -> PathBuf {
+    let target = directory.path().join("target");
+    std::fs::create_dir(&target).unwrap();
+    #[cfg(unix)]
+    {
+        let alias = directory.path().join("alias");
+        std::os::unix::fs::symlink(&target, &alias).unwrap();
+        alias
+    }
+    #[cfg(not(unix))]
+    {
+        target
+    }
+}
+
+#[test]
+fn missing_descendants_keep_the_canonical_existing_ancestor() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = aliased_root(&directory);
+    assert_eq!(
+        canonical_root(&root.join("missing/nested/plugins")).unwrap(),
+        root.canonicalize().unwrap().join("missing/nested/plugins")
+    );
 }

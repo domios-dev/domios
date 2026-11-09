@@ -66,8 +66,8 @@ async fn inventory_failures_preserve_health_without_relinks_or_cloud_permits() {
     assert_eq!(relinks, 0);
     assert_eq!(transport.posts.load(Ordering::SeqCst), 3);
     assert!(phases.lock().is_empty());
-    assert_eq!(a.authority.authorize_calls.load(Ordering::SeqCst), 1);
-    assert_eq!(b.authority.authorize_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(a.authority.authorize_calls.load(Ordering::SeqCst), 0);
+    assert_eq!(b.authority.authorize_calls.load(Ordering::SeqCst), 0);
 }
 
 #[tokio::test]
@@ -120,8 +120,8 @@ async fn inventory_refusals_keep_typed_suppression_without_liveness_events() {
             Some(true)
         );
         assert!(a.mesh.lock().account_mesh_pairs()[0].online);
-        assert_eq!(a.authority.authorize_calls.load(Ordering::SeqCst), 1);
-        assert_eq!(b.authority.authorize_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(a.authority.authorize_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(b.authority.authorize_calls.load(Ordering::SeqCst), 0);
     }
 }
 
@@ -284,9 +284,11 @@ async fn connection_phases_publish_failed_identity_authorization_without_ready()
     a.sign_in(1, ACCOUNT, START + MEMBERSHIP_TTL);
     b.sign_in(1, ACCOUNT, START + MEMBERSHIP_TTL);
     let phases = record(&a);
-    let authority = a.authority.clone();
+    let local = a.mesh.clone();
     let transport = Loopback::new(&[&a, &b]).after_each(Arc::new(move |_| {
-        authority.online.store(false, Ordering::SeqCst);
+        let mut state = local.lock().account_state().clone();
+        state.registry_members = Some(Default::default());
+        local.lock().apply_account_state(state);
     }));
     assert!(
         link_installation_with(&a.mesh, &transport, &b.installation_id)

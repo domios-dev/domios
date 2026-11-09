@@ -10,6 +10,7 @@ use winapi::um::processthreadsapi::*;
 use winapi::um::synchapi::WaitForSingleObject;
 use winapi::um::winbase::{INFINITE, WAIT_OBJECT_0};
 
+mod cancellable;
 pub mod conpty;
 mod job_exit;
 mod procthreadattr;

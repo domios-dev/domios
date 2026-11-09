@@ -1,3 +1,4 @@
+import { type HostIoSteps } from "@codeterm/plugin-sdk";
 import type { HostOwnedCapabilities, LaunchParams, ResumeParams } from "@codeterm/plugin-sdk";
 import { quoteNativeArgument } from "../../provider-shared/nativeArgument";
 import { statuslineLaunchArgs } from "./context";
@@ -28,7 +29,7 @@ function hasResume(input: LaunchParams | { resume: ResumeParams }): input is { r
   return typeof resume === "object" && resume !== null && "sessionId" in resume && typeof resume.sessionId === "string";
 }
 
-export function buildClaudeLaunchSpec(input: LaunchParams | { resume: ResumeParams }) {
+export function* buildClaudeLaunchSpec(input: LaunchParams | { resume: ResumeParams }) {
   if ("resume" in input && !hasResume(input)) return null;
   const params: LaunchParams = hasResume(input) ? {
     args: ["--resume", input.resume.sessionId, ...(input.resume.args || [])],
@@ -41,11 +42,11 @@ export function buildClaudeLaunchSpec(input: LaunchParams | { resume: ResumePara
   if (params.skipPermissions) args.push("--dangerously-skip-permissions");
   if (params.agentName) args.push("--agent", params.agentName);
   if (params.sessionId) args.push("--session-id", params.sessionId);
-  const extra = statuslineLaunchArgs(params.args || []);
+  const extra = (yield* statuslineLaunchArgs(params.args || []));
   if (!extra) return null;
   args.push(...extra);
   args.push(...hostOwnedLaunchArgs(params.hostOwned));
-  const path = writeClaudeLaunchPrompt(params.task || "");
+  const path = (yield* writeClaudeLaunchPrompt(params.task || ""));
   if (!path) return null;
   args.push("--append-system-prompt-file", path);
   const prompt = params.task ? starterPrompt(params.starterPrompt, params.starterPromptText) : undefined;
@@ -56,8 +57,8 @@ export function buildClaudeLaunchSpec(input: LaunchParams | { resume: ResumePara
   return { program: "claude", args, envSet: {}, envUnset: ["CLAUDECODE"] };
 }
 
-export function buildClaudeLaunchCommand(params: LaunchParams): string {
-  const spec = buildClaudeLaunchSpec(params);
+export function* buildClaudeLaunchCommand(params: LaunchParams): HostIoSteps<string> {
+  const spec = (yield* buildClaudeLaunchSpec(params));
   if (!spec) return "";
   const unset = host.platform() === "windows"
     ? "Remove-Item Env:CLAUDECODE -ErrorAction SilentlyContinue; "

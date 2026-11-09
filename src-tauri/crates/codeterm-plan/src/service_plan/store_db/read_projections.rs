@@ -1,8 +1,37 @@
+mod agent_transition;
+pub(in crate::service_plan) mod close_inventory;
+mod curator_lifecycle;
+pub(in crate::service_plan) mod hierarchy;
+pub(in crate::service_plan) mod hierarchy_routing;
+pub(in crate::service_plan) mod launch_restore;
+pub(in crate::service_plan) mod reminder;
+pub(in crate::service_plan::store_db) mod reminder_digests;
+pub(in crate::service_plan) mod runtime_identity;
+mod tab;
+pub(in crate::service_plan) mod team_close;
+pub(in crate::service_plan) mod team_mutation;
+pub(in crate::service_plan) mod transfer_authority;
 use super::{db_error, PlanDatabase};
 use crate::plan::Section;
 use crate::service_plan::PlanError;
 use rusqlite::{params, OptionalExtension};
 use serde_json::{json, Value};
+
+pub(in crate::service_plan) mod checkout;
+mod compete_preflight;
+pub(in crate::service_plan) mod competition_lane;
+mod executor_source;
+pub(in crate::service_plan) mod lane_clean;
+pub(in crate::service_plan) mod lane_readers;
+pub(in crate::service_plan) mod lane_settlement;
+pub(in crate::service_plan) mod lane_stats;
+pub(in crate::service_plan) mod lane_watchdog;
+pub(in crate::service_plan) mod lifecycle;
+pub(in crate::service_plan) mod provider_switch;
+mod respawn_remote_source;
+mod section_removal;
+pub(in crate::service_plan) mod task_drafts;
+pub(in crate::service_plan) mod team_readers;
 
 pub(super) const SECTION_ROWS: &str = "SELECT s.position, j.id AS traversal,
     json_extract(j.value, '$.id') AS id,
@@ -43,31 +72,6 @@ impl PlanDatabase {
             params![plan_id, selector], |row| column(row, 0),
         ).optional().map_err(db_error)?.ok_or(PlanError::NotFound)?;
         decode(plan_id, &document)
-    }
-
-    pub(in crate::service_plan) fn scoped_task_references(
-        &self,
-        plan_id: &str,
-    ) -> Result<Vec<super::match_queries::TaskRefRow>, PlanError> {
-        let connection = self.connection.lock();
-        record_query();
-        let mut statement = connection.prepare_cached(
-            "SELECT task_id, json_extract(row_json, '$.key'), json_extract(row_json, '$.handle'),
-                    coalesce(json_extract(row_json, '$.name'), '')
-             FROM plan_tasks WHERE plan_id = ?1 ORDER BY position"
-        ).map_err(db_error)?;
-        let rows = statement
-            .query_map([plan_id], |row| {
-                Ok(super::match_queries::TaskRefRow {
-                    plan_id: plan_id.into(),
-                    task_id: column(row, 0)?,
-                    key: column(row, 1)?,
-                    handle: column(row, 2)?,
-                    name: column(row, 3)?,
-                })
-            })
-            .map_err(db_error)?;
-        rows.collect::<Result<_, _>>().map_err(db_error)
     }
 
     pub(in crate::service_plan) fn scoped_section_references(

@@ -56,6 +56,20 @@ pub fn write_liveness_report_with(
     pid: u32,
     snapshots: &[(String, String)],
 ) -> Result<PathBuf, String> {
+    write_report(
+        crashes_dir,
+        pid,
+        snapshots,
+        &crate::crash::request_activity::snapshot(),
+    )
+}
+
+fn write_report(
+    crashes_dir: &Path,
+    pid: u32,
+    snapshots: &[(String, String)],
+    activity: &str,
+) -> Result<PathBuf, String> {
     std::fs::create_dir_all(crashes_dir).map_err(|e| e.to_string())?;
     let path = crashes_dir.join(format!(
         "crash-{}-liveness.txt",
@@ -65,6 +79,9 @@ pub fn write_liveness_report_with(
     let _ = writeln!(s);
     let _ = writeln!(s, "Local REST API failed repeated self-health probes.");
     let _ = writeln!(s, "Probe PID: {}", pid);
+    let _ = writeln!(s);
+    let _ = writeln!(s, "== REST request activity ==");
+    let _ = writeln!(s, "{}", activity);
     let _ = writeln!(s);
     for (name, body) in snapshots {
         let _ = writeln!(s, "== {} ==", name);
@@ -81,10 +98,12 @@ pub fn write_liveness_report_with(
 
 pub fn write_liveness_report() -> Result<PathBuf, String> {
     let pid = std::process::id();
-    write_liveness_report_with(
+    let activity = crate::crash::request_activity::snapshot();
+    write_report(
         &crate::crash::report::crashes_dir(),
         pid,
         &capture_process_snapshots(pid),
+        &activity,
     )
 }
 

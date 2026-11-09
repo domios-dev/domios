@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import {ownRuntimeUsage,latestUsageSnapshot,runtimeLimitsSnapshot,runtimeTokenLabel,runtimeTokenBreakdown,runtimeAccountCreditsLabel,formatAccountCredits} from "./runtimeUsage";
+import {accountUsageSnapshot,ownRuntimeUsage,latestUsageSnapshot,runtimeLimitsSnapshot,runtimeTokenLabel,runtimeTokenBreakdown,runtimeAccountCreditsLabel,formatAccountCredits} from "./runtimeUsage";
 import type {UsageSnapshot,RuntimeUsageProjection} from "../../types/usage";
 const reading:RuntimeUsageProjection={tab_id:"own",thread_id:"thread",billing_mode:"subscription",token_usage:null,rate_limits:{captured_at:100,value:[{window:"primary",usedPercent:2,resetsAt:1000},{window:"secondary",usedPercent:0,resetsAt:2000}]}};
 const snapshot={provider:"fixture",captured_at:100,runtime_usage:[reading]} as UsageSnapshot;
@@ -37,3 +37,12 @@ assert.equal(formatAccountCredits("999.999"), "1,000");
 assert.equal(formatAccountCredits("9007199254740993.125"), "9,007,199,254,740,993.13");
 assert.equal(formatAccountCredits("0.0000000001"), "0");
 assert.equal(formatAccountCredits("invalid"), "—");
+
+const accountRow={provider:"fixture",captured_at:50,parsed_ok:true,session_pct:9,weekly_pct:4} as UsageSnapshot;
+assert.equal(accountUsageSnapshot(accountRow),accountRow,"an account with no runtime readings shows its own row");
+const older={...reading,tab_id:"older",rate_limits:{captured_at:90,value:[{window:"primary",usedPercent:1}]}};
+const borrowed=accountUsageSnapshot({...accountRow,runtime_usage:[older,reading]});
+assert.equal(borrowed?.session_pct,2,"the freshest subscription reading of the account wins, as on its own tabs");
+const apiOnly={...reading,billing_mode:"api" as const};
+assert.equal(accountUsageSnapshot({...accountRow,runtime_usage:[apiOnly]})?.session_pct,9,"another tab's API-billed tokens never stand in for account limits");
+assert.equal(accountUsageSnapshot({...accountRow,parsed_ok:false,runtime_usage:[apiOnly]}),null);

@@ -1,0 +1,7 @@
+{
+  "runtime": "stdio-jsonrpc",
+  "command": {"binary": "fixture-engine", "args": []},
+  "requestMethods": {"initialize": ["initialize"], "submitTurn": ["opaque/prompt"]},
+  "notificationMethods": ["opaque/update"],
+  "turnScopedRequests": ["submitTurn"]
+}

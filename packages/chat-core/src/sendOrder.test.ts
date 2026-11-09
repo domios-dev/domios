@@ -1,6 +1,7 @@
 // Replays a Claude session whose queued-command echoes are written after the output that followed their sends.
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { installTestIo } from "../../../plugins/provider-shared/tests/hostIo";
 import type { ChatSend } from "./sendOrder";
 import {
   createTranscriptState,
@@ -103,7 +104,7 @@ function projectedRows(state: TranscriptState, sends: readonly ChatSend[]) {
 }
 
 async function main(): Promise<void> {
-  (globalThis as { host?: unknown }).host ??= { manifestJson: () => "null", log: () => undefined };
+  (globalThis as { host?: unknown }).host = installTestIo({ manifestJson: () => "null", log: () => undefined });
   const plugin = await import("../../../plugins/provider-claude/src/plugin");
   const parser = plugin.default as unknown as SessionParser;
   const raw = readFileSync(FIXTURE, "utf8");

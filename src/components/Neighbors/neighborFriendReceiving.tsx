@@ -2,12 +2,15 @@ import { useState } from "react";
 import type { DropdownMenuItem } from "../shared/DropdownMenu";
 import { NeighborReceiveHere } from "./NeighborReceiveHere";
 import type { NeighborRuntimeClient, ReceiverState } from "./neighborRuntimeClient";
+import { notReceivingReason } from "./useReceiverState";
 
 export type FriendReceiveOperation = "set" | "reset";
 
 /** Where one friend's messages arrive, in the few words a row or a header has room for. */
 export function friendReceivingLine(receiver: ReceiverState): string {
   if (receiver.receiving_here) return "receiving here";
+  const reason = notReceivingReason(receiver);
+  if (reason) return `not receiving · ${reason}`;
   if (receiver.receiving_enabled) return `receiving on ${receiver.receiver_machine_label ?? "another machine"}`;
   return "not receiving";
 }

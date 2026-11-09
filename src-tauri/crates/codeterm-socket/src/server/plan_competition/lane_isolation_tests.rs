@@ -11,6 +11,39 @@ use super::{
     provision_all_competitor_lanes, provision_competitor_lane, CompetitorCompensation,
 };
 
+fn lane_facts(
+    plan: &Plan,
+    task_id: &str,
+) -> codeterm_service_core::service::plan::CompetitionLaneRead {
+    codeterm_service_core::service::plan::CompetitionLaneRead {
+        id: plan.id.clone(),
+        task_id: task_id.into(),
+        canonical_path: codeterm_service_core::service::canonical_path_of(plan).into(),
+        dispatch_intent: plan
+            .tasks
+            .iter()
+            .find(|task| task.id == task_id)
+            .unwrap()
+            .interruption
+            .execution_intent
+            .clone(),
+        owner_tab_id: plan.owner.tab_id.clone(),
+        foreign_lanes: plan
+            .tasks
+            .iter()
+            .filter(|task| task.id != task_id && task.handle.as_deref() != Some(task_id))
+            .filter_map(|task| {
+                task.lane.worktree_path.as_ref().map(|path| {
+                    codeterm_service_core::service::plan::TaskLaneOwnerRead {
+                        task_id: task.id.clone(),
+                        worktree_path: path.clone(),
+                    }
+                })
+            })
+            .collect(),
+    }
+}
+
 fn git(dir: &Path, args: &[&str]) {
     let mut command = Command::new("git");
     codeterm_service_core::process_util::no_window_std(&mut command);
@@ -91,13 +124,15 @@ fn draft(plan: &Plan, task_id: &str, lane: u32) -> TaskCompeteDraft {
 #[test]
 fn mutating_competition_gives_each_attempt_its_own_lane() {
     let (_root, _store, plan, task_id) = repo_plan(ExecutionIntent::Mutating);
-    assert!(mutating_competition(&plan, &task_id));
+    assert!(mutating_competition(&lane_facts(&plan, &task_id), &task_id));
 
     let mut drafts: Vec<TaskCompeteDraft> =
         (1..=3).map(|lane| draft(&plan, &task_id, lane)).collect();
     let lanes: Vec<_> = drafts
         .iter_mut()
-        .map(|draft| provision_competitor_lane(&plan, &task_id, draft, &[]).unwrap())
+        .map(|draft| {
+            provision_competitor_lane(&lane_facts(&plan, &task_id), &task_id, draft, &[]).unwrap()
+        })
         .collect();
 
     let worktrees: HashSet<String> = drafts
@@ -138,8 +173,11 @@ fn mutating_competition_never_uses_canonical_or_a_shared_lane() {
 
     let mut first = draft(&plan, &task_id, 1);
     let mut second = draft(&plan, &task_id, 2);
-    let lane_a = provision_competitor_lane(&plan, &task_id, &mut first, &[]).unwrap();
-    let lane_b = provision_competitor_lane(&plan, &task_id, &mut second, &[]).unwrap();
+    let lane_a =
+        provision_competitor_lane(&lane_facts(&plan, &task_id), &task_id, &mut first, &[]).unwrap();
+    let lane_b =
+        provision_competitor_lane(&lane_facts(&plan, &task_id), &task_id, &mut second, &[])
+            .unwrap();
 
     for draft in [&first, &second] {
         let resolved = codeterm_paths::normalize_cwd(&draft.cwd);
@@ -160,7 +198,10 @@ fn read_only_competition_is_unchanged() {
         let (_root, _store, plan, task_id) = repo_plan(intent);
         // Negative control: no provisioning is even attempted, so the draft keeps
         // the shared cwd it has today and records no lane provenance.
-        assert!(!mutating_competition(&plan, &task_id));
+        assert!(!mutating_competition(
+            &lane_facts(&plan, &task_id),
+            &task_id
+        ));
         let draft = draft(&plan, &task_id, 1);
         assert_eq!(draft.cwd, plan.canonical_project_path);
         assert!(draft.branch.is_none());
@@ -213,7 +254,8 @@ fn provisioning_failure_before_spawn_leaves_zero_tabs_attempts_and_worktrees() {
         .execution_intent = ExecutionIntent::Mutating;
     let drafts: Vec<TaskCompeteDraft> = (1..=2).map(|lane| draft(&plan, &task_id, lane)).collect();
 
-    let error = provision_all_competitor_lanes(&plan, &task_id, drafts, &[]).unwrap_err();
+    let error = provision_all_competitor_lanes(&lane_facts(&plan, &task_id), &task_id, drafts, &[])
+        .unwrap_err();
 
     assert_eq!(error.data.unwrap()["stage"], "lane_provision");
     let container = root.path().join("project-worktrees");
@@ -320,7 +362,9 @@ fn successful_competitors_retain_their_lanes() {
     let (_root, _store, plan, task_id) = repo_plan(ExecutionIntent::Mutating);
     let drafts: Vec<TaskCompeteDraft> = (1..=3).map(|lane| draft(&plan, &task_id, lane)).collect();
 
-    let (drafts, lanes) = provision_all_competitor_lanes(&plan, &task_id, drafts, &[]).unwrap();
+    let (drafts, lanes) =
+        provision_all_competitor_lanes(&lane_facts(&plan, &task_id), &task_id, drafts, &[])
+            .unwrap();
 
     assert_eq!(lanes.iter().filter(|lane| lane.is_some()).count(), 3);
     for draft in &drafts {

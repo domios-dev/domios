@@ -270,7 +270,7 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
             ),
         },
         Commands::Tab { action } => match action {
-            crate::TabAction::SendStatus { .. } => unsupported("retained send status is local to the owning daemon"),
+            crate::TabAction::SendStatus { .. } | crate::TabAction::SendCancel { .. } => unsupported("retained send inspection and cancellation are local to the owning daemon"),
             crate::TabAction::Todo { .. } => {
                 return unsupported("tab todo checklists must run on the owning daemon")
             }
@@ -947,6 +947,7 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
         | Commands::Task { .. }
         | Commands::Radar { .. }
         | Commands::Canvas { .. }
+        | Commands::Mcp { .. }
         | Commands::CliManifest { .. }
         | Commands::Capabilities
         | Commands::Pad { .. }

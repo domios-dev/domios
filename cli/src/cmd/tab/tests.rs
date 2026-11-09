@@ -68,6 +68,29 @@ fn tab_status_renders_provider_prompt_options_as_numbered_choices() {
 }
 
 #[test]
+fn tab_status_renders_failure_state_and_reason_on_one_line() {
+    let status = json!({
+        "status": "idle",
+        "failure": {
+            "boot_stage": "spawn_failed",
+            "runtime_state": "degraded",
+            "code": "opaque-code",
+            "reason": "opaque-reason"
+        }
+    });
+    assert_eq!(
+        status_failure_line(&status).as_deref(),
+        Some("failure: spawn_failed, degraded (opaque-code): opaque-reason")
+    );
+    let runtime_only = json!({"failure": {"runtime_state": "degraded", "reason": "opaque-reason"}});
+    assert_eq!(
+        status_failure_line(&runtime_only).as_deref(),
+        Some("failure: degraded: opaque-reason")
+    );
+    assert_eq!(status_failure_line(&json!({"status": "idle"})), None);
+}
+
+#[test]
 fn explicit_address_scope_tab_search_sees_foreign_workspace_titles_and_ids() {
     let foreign = json!({
         "id": "deadbeef1234",

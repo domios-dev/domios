@@ -10,7 +10,8 @@ import {
   classifyAgentLiveness,
   type AgentLiveness,
 } from "./agentLabel";
-import { shortModelName } from "./agentModelName";
+import { plainModelId, shortModelName } from "./agentModelName";
+import { formatModelBadge } from "./formatModelBadge";
 
 interface LabelRow {
   row: string;
@@ -275,6 +276,18 @@ describe("agentModelBadgeLabel", () => {
 
   it("writes nothing without a provider", () => {
     expect(agentModelBadgeLabel(null, { sessionModel: "opus" }, "live")).toBe(null);
+  });
+
+  it("shows a runtime-qualified id as its plain id, never as JSON", () => {
+    const raw = '["deepseek-official","deepseek-v4-pro"]';
+    expect(agentModelBadgeLabel("acp", { sessionModel: raw }, "live")).toBe("deeps...");
+    expect(agentModelBadgeLabel("long-provider-name", { sessionModel: raw }, "live")).toBe("deepseek-v4-pro");
+    expect(formatModelBadge(raw)).toBe("deepseek-v4-pro");
+    expect(agentBracketLabel("acp", raw, "absent")).toBe("deepseek-v4-pro!");
+    expect(agentBracketLabel("acp", "some-local-model", "live")).toBe("acp");
+    expect(plainModelId(raw)).toBe("deepseek-v4-pro");
+    expect(plainModelId('["unterminated')).toBe('["unterminated');
+    expect(shortModelName('["anthropic","claude-opus-5"]')).toBe("opus");
   });
 });
 

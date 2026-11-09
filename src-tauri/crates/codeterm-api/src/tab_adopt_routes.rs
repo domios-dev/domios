@@ -49,6 +49,7 @@ impl ApiAdoptError {
 impl From<TabAdoptError> for ApiAdoptError {
     fn from(error: TabAdoptError) -> Self {
         let status = match error.kind {
+            TabAdoptErrorKind::Storage => StatusCode::INTERNAL_SERVER_ERROR,
             TabAdoptErrorKind::NotFound => StatusCode::NOT_FOUND,
             TabAdoptErrorKind::NotAuthorized => StatusCode::FORBIDDEN,
             TabAdoptErrorKind::LivePtyRequired

@@ -1,5 +1,6 @@
 import { beforeEach as beforeDaemonCase } from "vitest";
 import { configureDaemonFixture } from "../../test/daemonTransport.testdata";
+import { baseDaemonTransport } from "../../lib/daemonBootstrap";
 beforeDaemonCase(() => configureDaemonFixture());
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -26,6 +27,13 @@ let urls: string[];
 let originalFetch: typeof fetch;
 let testWindow: InstanceType<typeof HappyWindow>;
 
+function respond(body: (path: string) => unknown) {
+  baseDaemonTransport().request = async (path) => {
+    urls.push(path);
+    return Response.json(body(path));
+  };
+}
+
 beforeEach(() => {
   testWindow = new HappyWindow({ url: "http://localhost/" });
   for (const key of [
@@ -49,10 +57,9 @@ beforeEach(() => {
   vi.useFakeTimers();
   originalFetch = globalThis.fetch;
   urls = [];
-  globalThis.fetch = (async (input: RequestInfo | URL) => {
-    urls.push(String(input));
-    return { ok: true, json: async () => ({ hits: [] }) } as Response;
-  }) as typeof fetch;
+  // Memory requests go through the daemon transport; a raw fetch would be a bypass.
+  globalThis.fetch = (() => { throw new Error("Raw daemon fetch bypass"); }) as typeof fetch;
+  respond(() => ({ hits: [] }));
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
@@ -68,7 +75,7 @@ afterEach(async () => {
 describe("MemoryListTab", () => {
   it("opens the named item and Back restores the originating list", async () => {
     const item = { id: "fixture-id", title: "Fixture name", kind: "note", body: "Body", tags: [], summary: null, area: null, importance: null, has_vector: false, has_body: true };
-    globalThis.fetch = (async () => ({ ok: true, json: async () => item } as Response)) as typeof fetch;
+    respond(() => item);
     const onDetailOpenChange = vi.fn();
     await act(async () => root.render(<MemoryListTab api={api} nodes={new Map([[item.id, item]])} selectedId={null} onSelectItem={() => {}} onViewInGraph={() => {}} updateNode={() => {}} removeNode={() => {}} onDetailOpenChange={onDetailOpenChange} />));
     await act(async () => host.querySelector<HTMLElement>('[data-testid="memory-list-item"] > div')!.click());
@@ -113,7 +120,8 @@ describe("MemoryListTab", () => {
     });
 
     expect(urls).toHaveLength(1);
-    const request = new URL(urls[0]);
+    const request = new URL(urls[0], "http://daemon.test");
+    expect(request.pathname).toBe("/api/mem/search");
     expect(request.searchParams.get("q")).toBe("supporter browse");
     expect(request.searchParams.get("limit")).toBe("50");
     expect(request.searchParams.get("supporter")).toBe("false");

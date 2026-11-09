@@ -12,6 +12,8 @@ import { scheduledPlanCopy, tierName } from "../billing/desktopBilling";
 import { PlanChangeDialog, type SelectedPlanChange } from "../billing/PlanChangeDialog";
 import { usePlanCatalog } from "../billing/planCatalogContext";
 import { usePurchaseIntent } from "../billing/usePurchaseIntent";
+import { usePurchasesEnabled } from "../billing/purchaseSwitch";
+import { CommunityKeysNotice } from "../shared/CommunityLinks";
 import { ACCOUNT_ENTRY_OPTIONS, SIGN_IN_PROVIDER_OPTIONS } from "./accountSignInOptions";
 import { CopyRow, SettingsCard, SettingsPage, SettingsPill } from "./shared";
 import { useAccountPlan } from "./useAccountPlan";
@@ -26,7 +28,9 @@ import { SESSION_REVOKED_MESSAGE, accountInitials, type LoginHint } from "./acco
 
 const MUTED = "m-0 text-xs text-[var(--ct-muted-fg)]";
 
-export function AccountTab({ focusCard }: { focusCard?: SettingsCardAnchorId }) {
+export function AccountTab({ focusCard, purchases: explicitPurchases }: { focusCard?: SettingsCardAnchorId; purchases?: boolean }) {
+  const remotePurchases = usePurchasesEnabled();
+  const purchases = explicitPurchases ?? remotePurchases;
   const { upsertToast } = useMultiplexer();
   const notify = createNoticePublisher({ upsertToast });
   const { model, signIn, signOut } = useAccount((message) => notify({
@@ -92,6 +96,7 @@ export function AccountTab({ focusCard }: { focusCard?: SettingsCardAnchorId }) 
         </div>;
       })() : <div className="flex flex-col items-start gap-3 text-xs">
         {model.kind === "signed_out" && model.sessionRevoked && <p role="status" className={MUTED}>{SESSION_REVOKED_MESSAGE}</p>}
+        {model.kind === "signed_out" && !model.sessionRevoked && model.targetMismatch && <p role="status" className={MUTED}>{model.targetMismatch}</p>}
         {model.kind === "pending"
           ? <p role="status" className={MUTED}>Finish signing in in your browser.</p>
           : <p className={MUTED}>Sign in to keep your plan and settings with your account.</p>}
@@ -115,7 +120,7 @@ export function AccountTab({ focusCard }: { focusCard?: SettingsCardAnchorId }) 
           {staff ? <SettingsPill tone="accent">team access</SettingsPill>
             : billing.plan && <SettingsPill tone={billing.plan.status === "active" ? "green" : "muted"}>{billing.plan.status}</SettingsPill>}
           {billing.plan?.verifying && <SettingsPill tone="muted">Verifying</SettingsPill>}
-          {signedIn && <Button size="sm" variant="ghost" className="ml-auto text-xs" disabled={billing.pending} aria-busy={billing.pending}
+          {signedIn && (purchases || paidSubscription || refusedAsSubscribed) && <Button size="sm" variant="ghost" className="ml-auto text-xs" disabled={billing.pending} aria-busy={billing.pending}
             onClick={() => void manageSubscription()}>{paidSubscription || refusedAsSubscribed
               ? billing.pending ? "Opening subscription…" : "Manage subscription" : "Upgrade"}</Button>}
         </div>
@@ -123,13 +128,19 @@ export function AccountTab({ focusCard }: { focusCard?: SettingsCardAnchorId }) 
           {subscriptionPlan === null ? "Access ends" : billing.plan.cancelAtPeriodEnd ? "Ends" : "Renews"} {new Date(billing.plan.periodEnd * 1000).toLocaleDateString()}
         </p>}
         <AccountLimits limits={billing.plan?.limits ?? null} usage={usage} />
+        {!purchases && <div className="mt-1 w-full">
+          <SettingsCardAnchor id="subscription-plans" focused={focusCard === "subscription-plans"} focusRequest={plansRequest}>
+            <CommunityKeysNotice />
+          </SettingsCardAnchor>
+        </div>}
         {identity && <GiftRedemption key={identity} identity={identity} verifiedPlan={billing.plan?.stale || billing.plan?.verifying ? null : billing.plan?.plan ?? null} />}
+        {!purchases && !signedIn && <p className={MUTED}>Sign in to redeem a key.</p>}
         {desktopBilling.subscription && <p role="status">{scheduledPlanCopy(desktopBilling.subscription, seconds => new Date(seconds * 1000).toLocaleDateString())}</p>}
-        {signedIn && !desktopBilling.subscription && <p role="status" className={MUTED}>Verifying your subscription status. Refresh plan offers to check again.</p>}
+        {purchases && signedIn && !desktopBilling.subscription && <p role="status" className={MUTED}>Verifying your subscription status. Refresh plan offers to check again.</p>}
         {offersReady && desktopBilling.error && <InlineErrorNotice error={desktopBilling.error} operation="managing your plan" />}
-        {signedIn && <Button type="button" size="sm" variant="ghost" onClick={desktopBilling.refresh}>Refresh plan offers</Button>}
-        {!signedIn && <p className={MUTED}>You’ll sign in when you choose a plan.</p>}
-        <div className="mt-3 w-full">
+        {purchases && signedIn && <Button type="button" size="sm" variant="ghost" onClick={desktopBilling.refresh}>Refresh plan offers</Button>}
+        {purchases && !signedIn && <p className={MUTED}>You’ll sign in when you choose a plan.</p>}
+        {purchases && <div className="mt-3 w-full">
           <SettingsCardAnchor id="subscription-plans" focused={focusCard === "subscription-plans"} focusRequest={plansRequest}>
             {signedIn && !desktopBilling.catalog ? <p role="status" className={MUTED}>
               {desktopBilling.loading ? "Loading current plan offers…" : "Refresh plan offers to choose a subscription."}
@@ -143,8 +154,8 @@ export function AccountTab({ focusCard }: { focusCard?: SettingsCardAnchorId }) 
               onChoose={purchase.choose} intent={purchase.intent} onCancel={purchase.cancel}
               signedInAs={signedIn ? model.identity.email ?? model.identity.display_name : null} />}
           </SettingsCardAnchor>
-        </div>
-        {planChange && model.kind === "signed_in" && planChange.identity === model.identity.uid && <PlanChangeDialog selection={planChange} currentTier={billing.plan?.plan ?? (signedIn ? "unavailable" : "free")}
+        </div>}
+        {purchases && planChange && model.kind === "signed_in" && planChange.identity === model.identity.uid && <PlanChangeDialog selection={planChange} currentTier={billing.plan?.plan ?? (signedIn ? "unavailable" : "free")}
           periodEnd={desktopBilling.subscription?.period_end ?? null} pending={desktopBilling.changing} error={desktopBilling.error}
           submitted={desktopBilling.submitted} onClose={() => setPlanChange(null)}
           onSubmit={() => { void desktopBilling.change(planChange.priceId).then(changed => { if (changed) setPlanChange(null); }); }} />}

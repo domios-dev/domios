@@ -12,13 +12,13 @@ pub(super) fn spawn_backend_pty(
         .read()
         .get_tab(tab_id)
         .and_then(|tab| tab.cwd.clone());
-    let mut env_vars = svc.tab_env(tab_id);
+    let mut env_vars = svc.tab_env(tab_id).map_err(LaunchFailure::PtySpawn)?;
     env_vars.extend(launch_env.clone());
     env_vars.extend(
         svc.model_provider_launch_env(provider_id)
             .map_err(|error| LaunchFailure::PtySpawn(error.to_string()))?,
     );
-    env_vars.extend(svc.tab_env(tab_id));
+    env_vars.extend(svc.tab_env(tab_id).map_err(LaunchFailure::PtySpawn)?);
     crate::service::agent_restart::timing::stage(tab_id, "pending", "relaunch-pty-request");
     let (pty_id, _) = {
         let gate = svc.pty.lock().spawn_gate();
@@ -132,7 +132,16 @@ pub(super) fn reader_finished(svc: &ServiceContext, pty_id: &str) {
     ) else {
         return;
     };
-    let claim = svc.pty_ownership.acquire(&attempt.tab_id);
+    let claim = match svc.pty_ownership.acquire(&attempt.tab_id) {
+        Ok(claim) => claim,
+        Err(error) => {
+            log::warn!(
+                "Direct exit activation refused tab={}: {error}",
+                attempt.tab_id
+            );
+            return;
+        }
+    };
     let ready = svc
         .mux
         .read()

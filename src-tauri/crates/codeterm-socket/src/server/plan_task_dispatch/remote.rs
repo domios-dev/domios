@@ -1,7 +1,6 @@
 use serde_json::{json, Value};
 
 use codeterm_service_core::plan::RemoteDispatchState;
-use codeterm_service_core::service::plan::PlanError;
 use codeterm_service_core::service::ServiceState;
 
 use super::{dispatch_authorized_gates, invalid_dispatch, owned_str};
@@ -74,6 +73,11 @@ pub(super) fn dispatch(
     if owned_str(p, "sandbox").is_some() {
         return Err(invalid_dispatch("explicit sandbox selection is local-only; remote dispatch cannot drop a confinement request"));
     }
+    if owned_str(p, "launch_profile").is_some() {
+        return Err(invalid_dispatch(
+            "launch_profile selection is local-only for task dispatch; dispatch on the provider host or use agent spawn --mesh with --profile",
+        ));
+    }
     if owned_str(p, "worker_kind").is_some() {
         return Err(invalid_dispatch(
             "worker_kind overrides are local-only; mesh dispatch does not compose local Worker role prompts",
@@ -85,13 +89,13 @@ pub(super) fn dispatch(
             invalid_dispatch("mesh dispatch requires a paired peer name or instance ID")
         })?;
     let (plan_id, task_id) = plan_refs::resolve_task(&svc.plan_store, params)?;
-    let detail = svc
+    let initial = svc
         .plan_store
-        .show_task(&task_id)
-        .ok_or_else(|| super::super::plan::plan_rpc_err(PlanError::TaskNotFound))?;
-    super::preflight::preflight_dispatch_task_status(&plan_id, &detail.task)?;
+        .task_dispatch_preflight_projection(&plan_id, &task_id)
+        .map_err(super::super::plan::plan_rpc_err)?;
+    super::preflight::preflight_dispatch_task_status(&plan_id, &initial)?;
     if owned_str(p, "execution_intent").as_deref() != Some("mutating")
-        || !detail.task.execution_intent.requires_repository()
+        || !initial.execution_intent.requires_repository()
     {
         return Err(invalid_dispatch(
             "mesh dispatch requires a repository task with mutating execution intent",
@@ -103,24 +107,25 @@ pub(super) fn dispatch(
         binding_nonce: owned_str(p, "session_binding_nonce"),
     };
     svc.authorize_execution_action(&plan_id, &caller)
-        .map_err(|message| JsonRpcError {
-            code: -32003,
-            message,
-            data: Some(json!({"type": "plan_orchestrator_authorization_required"})),
+        .map_err(|error| {
+            crate::server::plan_task_authority::execution_authority_error(
+                error,
+                Some("plan_orchestrator_authorization_required"),
+            )
         })?;
     super::remote_recovery::recover_remote_attempts(svc, &plan_id, &task_id, now, false)?;
-    let detail = svc
+    let task = svc
         .plan_store
-        .show_task(&task_id)
-        .ok_or_else(|| super::super::plan::plan_rpc_err(PlanError::TaskNotFound))?;
-    let plan = svc
+        .task_dispatch_preflight_projection(&plan_id, &task_id)
+        .map_err(super::super::plan::plan_rpc_err)?;
+    let preparation = svc
         .plan_store
-        .get(&plan_id)
-        .ok_or_else(|| super::super::plan::plan_rpc_err(PlanError::NotFound))?;
-    let canonical_cwd = if plan.canonical_project_path.trim().is_empty() {
-        plan.project_path.clone()
+        .worker_task_preparation_projection(&plan_id, &task_id)
+        .map_err(super::super::plan::plan_rpc_err)?;
+    let canonical_cwd = if task.canonical_project_path.trim().is_empty() {
+        task.project_path.clone()
     } else {
-        plan.canonical_project_path.clone()
+        task.canonical_project_path.clone()
     };
     codeterm_service_core::service::worker_lane::verify_worker_lane(
         &canonical_cwd,
@@ -138,8 +143,7 @@ pub(super) fn dispatch(
             "mesh dispatch requires an attached destination branch",
         ));
     }
-    if detail
-        .task
+    if task
         .lane
         .destination
         .as_deref()
@@ -156,17 +160,18 @@ pub(super) fn dispatch(
         codeterm_service_core::service::worker_lane::repository_identities(&canonical_cwd)
             .map_err(|error| invalid_dispatch(&error))?;
     let authorized_gates = dispatch_authorized_gates(p)?;
-    let requested_model = owned_str(p, "model").or_else(|| detail.task.model.clone());
+    let requested_model = owned_str(p, "model").or_else(|| task.model.clone());
     let model = remote_model_selection(
         owned_str(p, "agent").as_deref(),
         requested_model.as_deref(),
         &svc.configuration().general_agent.agent_provider,
         &svc.agent_registry.provider_ids(),
     )?;
-    super::preflight::preflight_review_capacity(&plan, &detail.task)
+    svc.plan_store
+        .dispatch_review_capacity_warning_projection(&plan_id, &task_id)
         .map_err(super::super::plan::plan_rpc_err)?;
     let regression_warning =
-        super::regression_dispatch_warning(super::regression_dispatch_decision(&plan));
+        super::selected_regression_dispatch_warning(&svc.plan_store, &plan_id)?;
     if p.and_then(|value| value.get("placement"))
         .and_then(Value::as_str)
         .is_some_and(|placement| matches!(placement, "canonical_writer" | "shared"))
@@ -218,8 +223,7 @@ pub(super) fn dispatch(
     )
     .map_err(super::super::plan::plan_rpc_err)?;
     let brief = super::brief::build_brief_with_manifest(
-        &detail.task,
-        &detail.sections,
+        (&preparation, &task),
         &plan_id,
         &manifest,
         &authorized_gates,
@@ -233,12 +237,11 @@ pub(super) fn dispatch(
         .clone();
     let brief = remote_worker_brief(brief, &plan_id, &task_id, &attempt_id, &origin_id);
     let origin_tab_id = owned_str(p, "caller_tab_id")
-        .or(plan.owner.tab_id.clone())
+        .or(task.owner_tab_id.clone())
         .ok_or_else(|| invalid_dispatch("mesh dispatch requires the origin Orchestrator tab"))?;
     let description_override =
         owned_str(p, "description").filter(|description| !description.trim().is_empty());
-    let description =
-        super::task_tab_description(&detail.task.name, description_override.as_deref());
+    let description = super::task_tab_description(&task.name, description_override.as_deref());
     let description = codeterm_service_core::service::normalize_tab_description(&description)
         .map_err(invalid_dispatch)?
         .ok_or_else(|| invalid_dispatch("task Worker description cannot be empty"))?;
@@ -253,7 +256,7 @@ pub(super) fn dispatch(
         "provider": model.provider_id,
         "model": model.model,
         "reasoning_effort": owned_str(p, "reasoning_effort"),
-        "speed": owned_str(p, "speed").or_else(|| detail.task.speed.clone()),
+        "speed": owned_str(p, "speed").or_else(|| preparation.speed.clone()),
         "description": description,
         "task_description_managed": description_override.is_none(),
         "brief": brief,
@@ -419,37 +422,29 @@ pub(crate) fn merge_lane(
     };
     let (plan_id, task_id) = plan_refs::resolve_task(&svc.plan_store, params)?;
     svc.authorize_execution_action(&plan_id, &caller)
-        .map_err(|message| JsonRpcError {
-            code: -32003,
-            message,
-            data: Some(json!({"type": "plan_orchestrator_authorization_required"})),
+        .map_err(|error| {
+            crate::server::plan_task_authority::execution_authority_error(
+                error,
+                Some("plan_orchestrator_authorization_required"),
+            )
         })?;
     let attempt_id = owned_str(params.as_ref(), "attempt_id")
         .ok_or_else(|| invalid_dispatch("attempt_id is required"))?;
-    let detail = svc
+    let attempt = svc
         .plan_store
-        .show_task(&task_id)
-        .ok_or_else(|| super::super::plan::plan_rpc_err(PlanError::TaskNotFound))?;
-    let attempt = detail
-        .task
-        .execution_attempts
-        .iter()
-        .find(|attempt| attempt.id == attempt_id)
-        .ok_or_else(|| super::super::plan::plan_rpc_err(PlanError::TaskNotFound))?;
+        .remote_lane_integration_projection(&plan_id, &task_id, &attempt_id)
+        .map_err(super::super::plan::plan_rpc_err)?;
     if attempt.judge_verdict.as_deref() != Some("accepted") {
         return Err(invalid_dispatch(
             "remote lane can merge only after origin acceptance",
         ));
     }
     let report_sha = attempt
-        .report
-        .as_ref()
-        .and_then(|report| report.sha.clone())
+        .report_sha
+        .clone()
         .ok_or_else(|| invalid_dispatch("accepted remote report has no reviewed lane SHA"))?;
-    let destination = detail
-        .task
-        .lane
-        .destination
+    let destination = attempt
+        .task_destination
         .clone()
         .filter(|destination| attempt.destination.as_ref() == Some(destination))
         .ok_or_else(|| invalid_dispatch("remote attempt destination differs from its task lane"))?;
@@ -485,15 +480,7 @@ pub(crate) fn merge_lane(
         .base
         .clone()
         .ok_or_else(|| invalid_dispatch("remote attempt has no recorded base"))?;
-    let plan = svc
-        .plan_store
-        .get(&plan_id)
-        .ok_or_else(|| super::super::plan::plan_rpc_err(PlanError::NotFound))?;
-    let canonical_cwd = if plan.canonical_project_path.trim().is_empty() {
-        plan.project_path.clone()
-    } else {
-        plan.canonical_project_path.clone()
-    };
+    let canonical_cwd = attempt.canonical_path.clone();
     codeterm_service_core::service::worker_lane::verify_worker_lane(
         &canonical_cwd,
         &canonical_cwd,

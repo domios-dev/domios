@@ -5,7 +5,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { HEADLESS_TARGETS, packageHeadless } from '../headless-release-package.mjs';
 import { assertServerClosure, serverArtifact } from '../server-artifact.mjs';
-import { validateManifest } from '../package-server-component-manifest.mjs';
+import { SUPPORTED_API_VERSION, SUPPORTED_BOOTSTRAP_PROTOCOL, validateManifest } from '../package-server-component-manifest.mjs';
 
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const messages = async file => (await readFile(file, 'utf8')).split(/\r?\n/).filter(Boolean).map(line => JSON.parse(line));
@@ -49,15 +49,9 @@ async function packageCi(target, logs) {
     await mkdir(path.dirname(path.join(stage, relative)), { recursive: true });
     await cp(source, path.join(stage, relative), { recursive: true, errorOnExist: true, force: false });
   }
-  const contract = await readFile('src-tauri/crates/codeterm-types/src/server_bootstrap.rs', 'utf8');
-  const constant = name => {
-    const match = contract.match(new RegExp(`pub const ${name}: u32 = ([0-9]+);`));
-    if (!match) throw new Error('Missing bootstrap contract constant');
-    return Number(match[1]);
-  };
   const manifest = validateManifest({ schema: 2, server_build: sourceSha,
     server_executable: 'domios-server/domios-server', server_sha256: hash(await readFile(server)),
-    client_identity: { kind: 'none' }, api_version: constant('API_VERSION'), bootstrap_protocol: constant('BOOTSTRAP_PROTOCOL') });
+    client_identity: { kind: 'none' }, api_version: SUPPORTED_API_VERSION, bootstrap_protocol: SUPPORTED_BOOTSTRAP_PROTOCOL });
   await writeFile(path.join(stage, 'server-component.json'), JSON.stringify(manifest) + '\n');
   const files = [];
   async function inventory(directory, prefix = '') {

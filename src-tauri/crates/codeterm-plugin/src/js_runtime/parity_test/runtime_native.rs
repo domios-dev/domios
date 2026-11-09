@@ -71,6 +71,12 @@ impl AgentProvider for NativeRuntime {
     ) -> Result<RuntimePlan, RuntimeFailure> {
         validate_runtime_operation(ctx, op)?;
         let action = match op {
+            _ if ctx.provider_settings["localResume"] == true => RuntimeAction::Local,
+            RuntimeOperation::Control { action, value, .. } if action == "refuse" => {
+                RuntimeAction::Refused {
+                    reason: value.as_str().unwrap_or_default().into(),
+                }
+            }
             RuntimeOperation::ForkThread {
                 source_thread_id, ..
             } => RuntimeAction::Request {
@@ -289,6 +295,8 @@ impl AgentProvider for NativeRuntime {
                     },
                     RuntimeOperation::Initialize => RuntimeResult::Initialized {
                         binary_version: value["binaryVersion"].as_str().map(str::to_string),
+                        agent_name: value["agentName"].as_str().map(str::to_string),
+                        mid_turn_input: value["midTurnInput"] == true,
                     },
                     RuntimeOperation::OpenThread { settings, .. } => RuntimeResult::ThreadLoaded {
                         thread_id: value["threadId"]

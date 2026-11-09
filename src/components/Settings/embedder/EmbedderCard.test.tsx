@@ -1,9 +1,16 @@
+import { type DaemonFake, muxMockFetch } from "../../../lib/muxMockFetch.testdata";
+import { configureDaemonTransport } from "../../../lib/daemonBootstrap";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppConfig } from "../../../lib/types";
 import { EmbedderCard } from "./EmbedderCard";
 import { listingFixture, statusFixture } from "./embedderFixtures";
+
+function daemonFake<T extends DaemonFake>(domain: T): T {
+  vi.stubGlobal("fetch", muxMockFetch(domain));
+  return domain;
+}
 
 vi.mock("../../../lib/webApi", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../../lib/webApi")>()),
@@ -17,12 +24,13 @@ function respond(body: unknown, status = 200) {
   return Promise.resolve(new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } }));
 }
 
+beforeEach(() => configureDaemonTransport({ origin: window.location.origin, token: "fixture-auth" }));
 afterEach(() => vi.unstubAllGlobals());
 
 describe("EmbedderCard", () => {
   it("keeps setup hints in a collapsed accessible disclosure", async () => {
     const listing = listingFixture(true);
-    vi.stubGlobal("fetch", vi.fn(() => respond(listing)));
+    daemonFake(vi.fn(() => respond(listing)));
     const host = document.createElement("div");
     document.body.append(host);
     const root = createRoot(host);
@@ -51,7 +59,7 @@ describe("EmbedderCard", () => {
       state: "running", target: null, total: 37, done: 11, failed: 0,
       current_item: { id: "fixture", done: 8, total: 20 },
     } });
-    vi.stubGlobal("fetch", vi.fn(() => respond(listing)));
+    daemonFake(vi.fn(() => respond(listing)));
     const host = document.createElement("div");
     document.body.append(host);
     const root = createRoot(host);
@@ -78,7 +86,7 @@ describe("EmbedderCard", () => {
       for (const failure of cases) {
         const listing = listingFixture(false);
         listing.providers[0].models.push({ ...listing.providers[0].models[0], model: "other" });
-        vi.stubGlobal("fetch", vi.fn((url: string) => {
+        daemonFake(vi.fn((url: string) => {
           if (url.endsWith("/use") || (phase === "preview" && url.includes("/preview"))) return failure.respond();
           if (url.includes("/preview")) {
             return respond({ target: listing.status, remote: false, warning: null,
@@ -115,7 +123,7 @@ describe("EmbedderCard", () => {
 
   it("shows status, disables a refused remote option, previews the count and starts the switch", async () => {
     const calls: string[] = [];
-    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+    daemonFake(vi.fn((url: string, init?: RequestInit) => {
       calls.push(`${init?.method ?? "GET"} ${new URL(url).pathname}`);
       if (url.includes("/preview")) {
         return respond({ target: { provider: "local", model: "l12", dimension: 384 }, remote: false, warning: null,

@@ -164,8 +164,8 @@ fn starting(area: &str) -> Response {
 }
 
 async fn account_status(State(state): State<Desktop>) -> Response {
-    match state.account.filter(|account| account.is_valid()) {
-        Some(account) => Json(account.status()).into_response(),
+    match state.account.and_then(|account| account.projected_status()) {
+        Some(status) => Json(status).into_response(),
         None => starting("account"),
     }
 }

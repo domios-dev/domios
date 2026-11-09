@@ -2,6 +2,12 @@ use super::{BoundWorkerReport, PlanError, PlanStore};
 use crate::plan::{AgentRef, Milestone, TaskExecutionReportSnapshot, TaskStatus};
 use codeterm_types::agent::ReportStatus;
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct BoundWorkerReportReceipt {
+    pub committed_review: bool,
+    pub milestone_id: Option<String>,
+}
+
 impl PlanStore {
     pub fn record_task_attempt_report(
         &self,
@@ -70,9 +76,9 @@ impl PlanStore {
         from: &AgentRef,
         mut report: BoundWorkerReport,
         now_ms: u64,
-    ) -> Result<bool, PlanError> {
+    ) -> Result<BoundWorkerReportReceipt, PlanError> {
         let Some(reporter_tab) = from.tab_id.as_deref() else {
-            return Ok(false);
+            return Ok(BoundWorkerReportReceipt::default());
         };
         let transition = report
             .status
@@ -81,7 +87,13 @@ impl PlanStore {
             .map_err(|error| PlanError::Io(error.into()))?
             .flatten();
         let shared_inspection = if transition == Some(TaskStatus::InReview) {
-            self.inspect_shared_report(plan_id, task_id, reporter_tab, report.sha.as_deref())?
+            self.inspect_shared_report(
+                plan_id,
+                task_id,
+                reporter_tab,
+                report.sha.as_deref(),
+                now_ms,
+            )?
         } else {
             None
         };
@@ -92,7 +104,7 @@ impl PlanStore {
             now_ms,
             |edit| {
                 if edit.task.assigned_tab_id.as_deref() != Some(reporter_tab) {
-                    return Ok(false);
+                    return Ok(BoundWorkerReportReceipt::default());
                 }
                 crate::service_plan::task_attempt_gates::validate_authorized_gate_claim(
                     &edit.task,
@@ -104,7 +116,7 @@ impl PlanStore {
                     || (interruption.owner_epoch > 0
                         && interruption.owner_tab_id.as_deref() != Some(reporter_tab))
                 {
-                    return Ok(false);
+                    return Ok(BoundWorkerReportReceipt::default());
                 }
                 if interruption.owner_epoch > 0 {
                     let authority = report.authority.as_ref().ok_or_else(|| {
@@ -134,11 +146,11 @@ impl PlanStore {
                     .filter_map(|attempt| attempt.reported_at)
                     .any(|reported_at| reported_at >= now_ms)
                 {
-                    return Ok(false);
+                    return Ok(BoundWorkerReportReceipt::default());
                 }
                 let current = edit.task.status.clone();
                 if matches!(current, TaskStatus::Done | TaskStatus::Cancelled) {
-                    return Ok(false);
+                    return Ok(BoundWorkerReportReceipt::default());
                 }
                 let accepted_transition = if report.status == Some(ReportStatus::Blocked) {
                     None
@@ -182,8 +194,9 @@ impl PlanStore {
                         .clone()
                         .filter(|branch| !branch.trim().is_empty());
                 }
+                let milestone_id = crate::plan::ids::short_id("ms");
                 task.milestones.push(Milestone {
-                    id: crate::plan::ids::short_id("ms"),
+                    id: milestone_id.clone(),
                     from: from.clone(),
                     kind: "worker_report".into(),
                     text: match report.status {
@@ -250,7 +263,10 @@ impl PlanStore {
                 if entering_review {
                     edit.review_credit -= 1;
                 }
-                Ok(committed_review)
+                Ok(BoundWorkerReportReceipt {
+                    committed_review,
+                    milestone_id: Some(milestone_id),
+                })
             },
         )
     }

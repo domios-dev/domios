@@ -294,6 +294,7 @@ pub struct ChatRegistry {
     pub snapshot_flights: super::snapshot_flight::SnapshotFlights,
     pub row_cache: super::row_cache::RowCache,
     pub tail_cache: super::tail_cache::TailCache,
+    pub preview_references: crate::service::local_preview::reference_inventory::ReferenceInventory,
 }
 
 impl ChatRegistry {
@@ -305,6 +306,7 @@ impl ChatRegistry {
             "sources": sources,
             "row_cache": self.row_cache.memory_stats(),
             "tail_cache": self.tail_cache.memory_stats(),
+            "preview_references": self.preview_references.memory_stats(),
         })
     }
 
@@ -463,6 +465,7 @@ impl ChatRegistry {
     }
 
     pub fn shutdown_tab(&self, tab_id: &str) {
+        self.preview_references.drop_tab(tab_id);
         self.row_cache.drop_tab(tab_id);
         super::structured_sink::clear_tab(tab_id);
         self.sources.lock().remove(tab_id);
@@ -473,6 +476,7 @@ impl ChatRegistry {
     }
 
     pub fn shutdown_session(&self, tab_id: &str, session_id: &str) {
+        self.preview_references.drop_tab(tab_id);
         let handle = {
             let mut entries = self.inner.lock();
             if entries

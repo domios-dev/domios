@@ -1,7 +1,7 @@
 {
   "id": "opencode",
-  "version": "1.14.15",
-  "minCodeterm": "1.18.0",
+  "version": "1.14.18",
+  "minCodeterm": "1.19.0",
   "hostApi": 2,
   "capabilities": {
     "attachments": {
@@ -293,5 +293,6 @@
       }
     ],
     "directSqlite": true
-  }
+  },
+  "hostIoJobs": true
 }

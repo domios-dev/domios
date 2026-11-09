@@ -420,7 +420,7 @@ fn blueprint_v2_call_durable_r2_concurrent_terminal_settlement_publishes_one_rec
     let first_payload = payload.clone();
     let target = tab.clone();
     let closing = std::thread::spawn(move || {
-        let _claim = service.pty_ownership.acquire(&target);
+        let _claim = service.pty_ownership.acquire(&target).unwrap();
         service.fail_durable_delivery(
             &target,
             &first_owner,

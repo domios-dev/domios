@@ -1,14 +1,10 @@
+import { ioJson, ioEncoded, type HostIoSteps } from "@codeterm/plugin-sdk";
 interface CodexGauge {
   pct: number | null;
   resetsMs: number | null;
 }
 
-interface UsageHost {
-  // Non-secret fields of a manifest-declared credential. The access token is
-  // never among them: the host stamps it into the request itself.
-  credentialPublic(id: string): string | null;
-  fetch(opts: string): string;
-}
+type UsageHost = Pick<import("@codeterm/plugin-sdk").Host, "io">;
 
 interface CodexRateWindow {
   used_percent?: number;
@@ -24,11 +20,11 @@ interface CodexRateLimit {
 const CODEX_USAGE_KIND = "codeterm_usage_v1";
 const CODEX_AUTH_CREDENTIAL = "codexAuth";
 
-export function fetchCodexUsage(host: UsageHost): string | null {
-  const accountId = stringAt(safeJson(host.credentialPublic(CODEX_AUTH_CREDENTIAL)), "accountId");
+export function* fetchCodexUsage(host: UsageHost): HostIoSteps<string | null> {
+  const accountId = stringAt(safeJson((yield* ioJson({ op: "credentialPublic", id: CODEX_AUTH_CREDENTIAL }, true))), "accountId");
   if (!accountId) return null;
 
-  const response = safeJson(host.fetch(JSON.stringify({
+  const response = safeJson((yield* ioEncoded(host.io.fetch({
     url: "https://chatgpt.com/backend-api/wham/usage",
     method: "GET",
     timeoutMs: 6000,
@@ -40,7 +36,7 @@ export function fetchCodexUsage(host: UsageHost): string | null {
       id: CODEX_AUTH_CREDENTIAL,
       headers: { Authorization: "Bearer {accessToken}" },
     },
-  })));
+  }))));
   if (numberAt(response, "status") !== 200) return null;
   const body = safeJson(stringAt(response, "body"));
   const rateLimit = objectAt(body, "rate_limit") as CodexRateLimit | null;

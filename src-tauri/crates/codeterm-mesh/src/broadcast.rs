@@ -1,12 +1,15 @@
-use std::sync::{
-    atomic::{AtomicU64, Ordering},
-    Arc, OnceLock,
-};
+use std::sync::Arc;
+use std::time::Duration;
 
-use parking_lot::Mutex;
+use crate::account_mesh::BoxFuture;
+use crate::types::{PeerAddress, PeerAnnounce};
+use crate::{transport, MeshState};
 
-use super::MeshState;
-use super::{discovery, transport};
+pub(crate) mod coalesce;
+pub(crate) mod refresh;
+
+const MAX_CONCURRENT_ANNOUNCES: usize = 8;
+const PEER_ANNOUNCE_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone, Default, serde::Serialize)]
 pub struct AnnounceReport {
@@ -20,218 +23,199 @@ fn peer_request_error(peer_id: &str, _detail: &str) -> String {
     format!("{peer_id}: request failed")
 }
 
-fn announce_gate() -> &'static tokio::sync::Mutex<()> {
-    static GATE: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
-    GATE.get_or_init(|| tokio::sync::Mutex::new(()))
+struct AnnounceWork {
+    addresses: Vec<PeerAddress>,
+    port: u16,
+    token: String,
+    peer_id: String,
+    announce: PeerAnnounce,
+    membership: Option<String>,
 }
 
-fn refresh_gate() -> &'static std::sync::Mutex<()> {
-    static GATE: OnceLock<std::sync::Mutex<()>> = OnceLock::new();
-    GATE.get_or_init(|| std::sync::Mutex::new(()))
+enum SendOutcome {
+    Acknowledged,
+    Stale,
+    Failed,
 }
 
-fn refresh_generation() -> &'static AtomicU64 {
-    static GENERATION: AtomicU64 = AtomicU64::new(0);
-    &GENERATION
-}
+type SendPort = dyn Fn(AnnounceWork) -> BoxFuture<'static, SendOutcome> + Send + Sync;
 
 pub async fn broadcast_announce(mesh: &MeshState, target: Option<&str>) -> AnnounceReport {
-    let _publication_guard = announce_gate().lock().await;
-    let mut report = AnnounceReport::default();
-    let (announce, membership, clients) = {
-        let m = mesh.lock();
-        let announce = m.build_announce();
-        let membership = m.advertised_membership();
-        let token = match m.sign_request() {
-            Ok(t) => t,
-            Err(e) => {
-                report.errors.push(format!("sign: {}", e));
-                return report;
+    broadcast_with(
+        mesh,
+        target,
+        None,
+        Arc::new(|work| Box::pin(send(work))),
+        PEER_ANNOUNCE_TIMEOUT,
+    )
+    .await
+}
+
+pub async fn broadcast_address_change(mesh: &MeshState) -> AnnounceReport {
+    coalesce::publish_with(mesh, |mesh, snapshot| {
+        Box::pin(broadcast_with(
+            mesh,
+            None,
+            Some(snapshot),
+            Arc::new(|work| Box::pin(send(work))),
+            PEER_ANNOUNCE_TIMEOUT,
+        ))
+    })
+    .await
+}
+
+async fn broadcast_with(
+    mesh: &MeshState,
+    target: Option<&str>,
+    snapshot: Option<PeerAnnounce>,
+    sender: Arc<SendPort>,
+    deadline: Duration,
+) -> AnnounceReport {
+    let work = {
+        let manager = mesh.lock();
+        let token = match manager.sign_request() {
+            Ok(token) => token,
+            Err(error) => {
+                return AnnounceReport {
+                    errors: vec![format!("sign: {error}")],
+                    ..Default::default()
+                }
             }
         };
-        let clients: Vec<_> = m
+        let announce = snapshot.unwrap_or_else(|| manager.build_announce());
+        let membership = manager.advertised_membership();
+        let mut work: Vec<_> = manager
             .paired_peers
             .values()
-            .filter(|p| {
+            .filter(|peer| {
                 target
-                    .map(|t| t == p.instance_id.as_str() || t == p.instance_name.as_str())
-                    .unwrap_or(true)
+                    .is_none_or(|target| target == peer.instance_id || target == peer.instance_name)
             })
-            .filter(|p| m.announce_allowed(&p.instance_id))
-            .filter_map(|p| {
-                if p.addresses.is_empty() {
-                    return None;
-                }
-                Some((
-                    p.addresses.clone(),
-                    p.api_port,
-                    token.clone(),
-                    p.instance_id.clone(),
-                    p.instance_name.clone(),
-                ))
+            .filter(|peer| {
+                manager.announce_allowed(&peer.instance_id) && !peer.addresses.is_empty()
+            })
+            .map(|peer| AnnounceWork {
+                addresses: peer.addresses.clone(),
+                port: peer.api_port,
+                token: token.clone(),
+                peer_id: peer.instance_id.clone(),
+                announce: announce.clone(),
+                membership: membership.clone(),
             })
             .collect();
-        (announce, membership, clients)
+        work.sort_by(|left, right| left.peer_id.cmp(&right.peer_id));
+        work
     };
+    fanout(mesh, work, sender, deadline).await
+}
 
-    if clients.is_empty() {
-        return report;
-    }
-
-    let http = transport::shared_http_client();
-    for (addresses, port, token, peer_id, peer_name) in &clients {
-        report.sent += 1;
-        let stale_marker: Arc<Mutex<bool>> = Arc::new(Mutex::new(false));
-        let result = transport::try_peer(addresses, |addr| {
-            let url = format!(
-                "{}/api/mesh/announce",
-                transport::peer_http_origin(&addr.ip, *port)
-            );
-            let http = http.clone();
-            let token = token.clone();
-            let announce = announce.clone();
-            let membership = membership.clone();
-            let stale_marker = stale_marker.clone();
-            async move {
-                let mut request = http
-                    .post(&url)
-                    .header("Authorization", format!("Bearer {}", token))
-                    .header(
-                        crate::version::VERSION_HEADER,
-                        crate::version::local_version(),
-                    );
-                if let Some(membership) = membership {
-                    request = request
-                        .header(crate::account_mesh::protocol::MEMBERSHIP_HEADER, membership);
-                }
-                match request.json(&announce).send().await {
-                    Ok(resp) if resp.status().is_success() => transport::TryNext::Success(()),
-                    Ok(resp) if resp.status().as_u16() == 404 => {
-                        *stale_marker.lock() = true;
-                        transport::TryNext::Stop("404 (too old)".to_string())
-                    }
-                    Ok(resp) => {
-                        let status = resp.status();
-                        transport::TryNext::Stop(format!("HTTP {}", status))
-                    }
-                    Err(_) => transport::TryNext::Retry("request failed".to_string()),
-                }
-            }
-        })
-        .await;
+async fn fanout(
+    mesh: &MeshState,
+    work: Vec<AnnounceWork>,
+    sender: Arc<SendPort>,
+    deadline: Duration,
+) -> AnnounceReport {
+    let slots = mesh.lock().announce_slots.clone();
+    let mut report = AnnounceReport::default();
+    let mut remaining = work.into_iter();
+    let mut sends = tokio::task::JoinSet::new();
+    loop {
+        while sends.len() < MAX_CONCURRENT_ANNOUNCES {
+            let Some(work) = remaining.next() else { break };
+            let sender = sender.clone();
+            let slots = slots.clone();
+            report.sent += 1;
+            sends.spawn(async move {
+                let peer_id = work.peer_id.clone();
+                let outcome = tokio::time::timeout(deadline, async move {
+                    let Ok(_slot) = slots.acquire_owned().await else {
+                        return SendOutcome::Failed;
+                    };
+                    sender(work).await
+                })
+                .await
+                .unwrap_or(SendOutcome::Failed);
+                (peer_id, outcome)
+            });
+        }
+        let Some(result) = sends.join_next().await else {
+            break;
+        };
         match result {
-            Ok(()) => {
+            Ok((peer_id, SendOutcome::Acknowledged)) => {
                 report.ok += 1;
-                mesh.lock().record_announce_outcome(peer_id, true);
-                log::debug!(
-                    "[mesh/announce] sent to {} ({}) address_count={}",
-                    peer_name,
-                    peer_id,
-                    announce.addresses.len()
-                );
+                mesh.lock().record_announce_outcome(&peer_id, true);
             }
-            Err(_e) if *stale_marker.lock() => {
-                log::warn!(
-                    "[mesh/announce] peer {} ({}) too old — no /api/mesh/announce",
-                    peer_name,
-                    peer_id
-                );
-                report.stale_peers.push(peer_id.clone());
+            Ok((peer_id, SendOutcome::Stale)) => report.stale_peers.push(peer_id),
+            Ok((peer_id, SendOutcome::Failed)) => {
+                mesh.lock().record_announce_outcome(&peer_id, false);
+                report
+                    .errors
+                    .push(peer_request_error(&peer_id, "request failed"));
             }
-            Err(e) => {
-                mesh.lock().record_announce_outcome(peer_id, false);
-                let error = peer_request_error(peer_id, &e);
-                log::warn!("[mesh/announce] send failed: {}", error);
-                report.errors.push(error);
-            }
+            Err(_) => report.errors.push("announce worker failed".into()),
         }
     }
+    report.stale_peers.sort();
+    report.errors.sort();
     report
 }
 
-pub async fn refresh_local_addresses(mesh: &MeshState) -> bool {
-    let observed_generation = refresh_generation().load(Ordering::Acquire);
-    let mesh = mesh.clone();
-    tokio::task::spawn_blocking(move || {
-        refresh_local_addresses_guarded(&mesh, false, observed_generation)
+async fn send(work: AnnounceWork) -> SendOutcome {
+    let http = transport::shared_http_client();
+    transport::try_peer(&work.addresses, |address| {
+        let url = format!(
+            "{}/api/mesh/announce",
+            transport::peer_http_origin(&address.ip, work.port)
+        );
+        let http = http.clone();
+        let token = work.token.clone();
+        let announce = work.announce.clone();
+        let membership = work.membership.clone();
+        async move {
+            let mut request = http
+                .post(url)
+                .header("Authorization", format!("Bearer {token}"))
+                .header(
+                    crate::version::VERSION_HEADER,
+                    crate::version::local_version(),
+                );
+            if let Some(membership) = membership {
+                request =
+                    request.header(crate::account_mesh::protocol::MEMBERSHIP_HEADER, membership);
+            }
+            match request.json(&announce).send().await {
+                Ok(response) if response.status().is_success() => {
+                    transport::TryNext::Success(SendOutcome::Acknowledged)
+                }
+                Ok(response) if response.status().as_u16() == 404 => {
+                    transport::TryNext::Success(SendOutcome::Stale)
+                }
+                Ok(_) => transport::TryNext::Stop("peer refused announce".into()),
+                Err(_) => transport::TryNext::Retry("request failed".into()),
+            }
+        }
     })
     .await
-    .unwrap_or_else(|error| {
-        log::error!("[mesh/refresh] address worker failed: {error}");
-        false
-    })
+    .unwrap_or(SendOutcome::Failed)
+}
+
+pub async fn refresh_local_addresses(mesh: &MeshState) -> bool {
+    let mesh = mesh.clone();
+    tokio::task::spawn_blocking(move || refresh::refresh(&mesh, false))
+        .await
+        .unwrap_or_else(|error| {
+            log::error!("[mesh/refresh] address worker failed: {error}");
+            false
+        })
 }
 
 pub fn refresh_local_addresses_blocking(mesh: &MeshState) -> bool {
-    let observed_generation = refresh_generation().load(Ordering::Acquire);
-    refresh_local_addresses_guarded(mesh, false, observed_generation)
+    refresh::refresh(mesh, false)
 }
 
 pub fn refresh_local_addresses_blocking_force(mesh: &MeshState) -> bool {
-    refresh_local_addresses_guarded(mesh, true, 0)
-}
-
-fn refresh_local_addresses_guarded(
-    mesh: &MeshState,
-    force: bool,
-    observed_generation: u64,
-) -> bool {
-    let _refresh_guard = match refresh_gate().lock() {
-        Ok(guard) => guard,
-        Err(_) => {
-            log::error!("[mesh/refresh] refresh gate is poisoned");
-            return false;
-        }
-    };
-    if !force && refresh_generation().load(Ordering::Acquire) != observed_generation {
-        return false;
-    }
-    let prev_ts = mesh.lock().tailscale_ip.clone();
-    let prev_lan = mesh.lock().local_ip.clone();
-    let prev_web_ui = mesh.lock().local_web_ui.clone();
-
-    discovery::detect_tailscale(mesh);
-    discovery::detect_local_ip(mesh);
-    let (api_port, build_hash, local_http_healthy) = {
-        let m = mesh.lock();
-        (m.api_port, m.build_hash.clone(), m.local_http_healthy)
-    };
-    let snapshot =
-        super::serve_setup::reconcile_web_serve(api_port, None, Some(build_hash.clone()));
-    let https = matches!(
-        snapshot.state,
-        super::serve_setup::ServeReconcileState::Ready
-    )
-    .then_some(snapshot.url)
-    .flatten();
-    let new_ts = mesh.lock().tailscale_ip.clone();
-    let new_lan = mesh.lock().local_ip.clone();
-    let web_ui = local_http_healthy
-        .then(|| {
-            super::web_ui_endpoints::collect_verified(
-                new_ts.as_deref(),
-                new_lan.as_deref(),
-                api_port,
-                https.as_deref(),
-                &build_hash,
-            )
-        })
-        .flatten();
-    mesh.lock().local_web_ui = web_ui.clone();
-    let changed = prev_ts != new_ts || prev_lan != new_lan || prev_web_ui != web_ui;
-    // actually changed; the steady state is debug to keep the log readable.
-    if changed {
-        log::info!("[mesh/refresh] local address sets changed");
-    } else {
-        log::debug!(
-            "[mesh/refresh] local address sets: tailscale={}, lan={}, web_ui={}",
-            new_ts.is_some(),
-            new_lan.is_some(),
-            web_ui.is_some()
-        );
-    }
-    refresh_generation().fetch_add(1, Ordering::Release);
-    changed
+    refresh::refresh(mesh, true)
 }
 
 #[cfg(test)]

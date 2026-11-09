@@ -1,6 +1,7 @@
+import type { PlanTaskView as Task } from "../planProjection";
 import { formatAge } from "../../../lib/timeLabels";
 import type { Tab } from "../../../lib/types";
-import type { Task, TaskStatus } from "../types";
+import type { TaskStatus } from "../types";
 import { CHIP_FIELD_LABELS, pickHighestLaneWarning, type LaneWarningId } from "./laneWatchdogLabels";
 import { middleTruncateSlug } from "./textTruncate";
 

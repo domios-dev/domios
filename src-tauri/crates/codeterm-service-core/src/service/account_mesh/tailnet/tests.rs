@@ -162,6 +162,26 @@ async fn tailnet_config_watch_accepts_the_server_generic_config_event() {
 }
 
 #[test]
+fn darwin_route_lookups_do_not_count_as_address_changes() {
+    let message = |kind: u8| [0x5c, 0x00, 0x05, kind, 0, 0, 0, 0];
+    for kind in [0x1, 0x2, 0x3, 0x4, 0x7, 0xb] {
+        assert!(
+            !network_changes::darwin_address_message(&message(kind)),
+            "{kind}"
+        );
+    }
+    for kind in [0xc, 0xd, 0xe] {
+        assert!(
+            network_changes::darwin_address_message(&message(kind)),
+            "{kind}"
+        );
+    }
+    assert!(!network_changes::darwin_address_message(&[
+        0x5c, 0x00, 0x05
+    ]));
+}
+
+#[test]
 fn tailnet_wildcard_reuses_only_the_covered_family_and_port() {
     let v4 = "100.64.1.2:7685".parse().unwrap();
     let v6 = "[fd7a:115c:a1e0::1]:7685".parse().unwrap();

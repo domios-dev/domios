@@ -74,6 +74,8 @@ void (async () => {
   const api = await import("./webApi");
   api.setTokenFor(api.apiHost(), "fixture-token");
   const webEvents = await import("./webEvents");
+  const { createTransportClient } = await import("./transportClient");
+  webEvents.bindWebEventsTransport(createTransportClient({ origin: api.apiHost(), token: "fixture-token" }));
 
   let resyncRounds = 0;
   const { onResync } = await import("./resync");

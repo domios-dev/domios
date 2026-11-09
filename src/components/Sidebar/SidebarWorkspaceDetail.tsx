@@ -1,13 +1,14 @@
+import type { PlanView as Plan } from "../Canvas/planProjection";
 import { useCallback, useMemo } from "react";
 import type { ProviderDescriptor, Tab, TabStatus, Team, Workspace } from "../../lib/types";
 import type { PlanIndexEntry } from "../Canvas/plansApi";
-import type { Plan } from "../Canvas/types";
 import type { JobsTarget } from "../Jobs/JobsView";
 import type { TeamMemberRole } from "../../lib/teamActions";
 import { WorkspaceItem } from "./WorkspaceItem";
 import { SidebarWorkspaceTabs } from "./SidebarWorkspaceTabs";
 import type { TabAttention } from "./tabAttention";
 import { tabsInWorkspace } from "./workspaceTabs";
+import { useAppearingTabs } from "./useAppearingTabs";
 
 /** Sidebar-wide data every workspace detail reads; built once per sidebar render. */
 export interface SidebarWorkspaceDetailData {
@@ -20,7 +21,6 @@ export interface SidebarWorkspaceDetailData {
   providers: ProviderDescriptor[];
   providersLoading: boolean;
   closingTabIds: Set<string>;
-  appearingTabIds: Set<string>;
   closingTeamIds: ReadonlySet<string>;
   activeTabIds: Record<string, string>;
   activeWorkspaceId: string | null;
@@ -85,6 +85,7 @@ export function SidebarWorkspaceDetail({ workspace, status, data, actions }: {
   const cwd = workspace.cwd ?? null;
   const isActiveVisual = workspaceId === data.activeWorkspaceId && data.isWorkspaceMode;
   const sortedTabs = useMemo(() => tabsInWorkspace(workspace.tabs, data.tabs), [workspace.tabs, data.tabs]);
+  const appearingTabIds = useAppearingTabs(workspace.tabs);
   const { activate, activateTab, closeTab, renameTab, newSession, openRemoteTab, openSentinelJob, closeTeam } =
     useWorkspaceTabActions(workspaceId, cwd, actions);
   const { openMap, openAutomation } = actions;
@@ -128,7 +129,7 @@ export function SidebarWorkspaceDetail({ workspace, status, data, actions }: {
         providers={data.providers}
         providersLoading={data.providersLoading}
         closingTabIds={data.closingTabIds}
-        appearingTabIds={data.appearingTabIds}
+        appearingTabIds={appearingTabIds}
         isActiveVisual={isActiveVisual}
         workspaceCanvasActive={data.workspaceCanvasActive}
         touchMode={data.touchMode}

@@ -61,7 +61,7 @@ fn early_send_nonce_survives_initial_launch_registration() {
             expected_session_id: None,
             expected_binding_nonce: None,
         };
-        let claim = fixture.service.pty_ownership.acquire(&tab_id);
+        let claim = fixture.service.pty_ownership.acquire(&tab_id).unwrap();
         fixture
             .service
             .pin_agent_delivery_binding(&claim, &mut payload)
@@ -231,7 +231,7 @@ fn deferred_structured_preparation_adopts_the_restored_reservation_a_send_pinned
         expected_session_id: None,
         expected_binding_nonce: None,
     };
-    let claim = fixture.service.pty_ownership.acquire(&tab_id);
+    let claim = fixture.service.pty_ownership.acquire(&tab_id).unwrap();
     fixture
         .service
         .pin_agent_delivery_binding(&claim, &mut payload)

@@ -145,7 +145,8 @@ pub async fn set_tab_role(
                 &state.svc,
                 &id,
                 was_orchestrator,
-            );
+            )
+            .map_err(|error| (StatusCode::CONFLICT, error))?;
         }
         Ok(Json(serde_json::json!({"ok": true})))
     })

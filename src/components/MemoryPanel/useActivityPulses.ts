@@ -1,7 +1,7 @@
+import { localFetch } from "../../lib/webApi";
 import { useEffect, useRef, useState } from "react";
 import { listen } from "../../lib/bridge";
 import type { ApiConfig } from "../../lib/types";
-import { baseUrl, authHeaders } from "./memoryApi";
 import { hashString } from "./seedLayout";
 
 export type MemOp =
@@ -136,9 +136,8 @@ export function useActivityPulses(api: ApiConfig): UseActivityPulsesResult {
       pollTimer = setInterval(async () => {
         if (!active) return;
         try {
-          const res = await fetch(
-            `${baseUrl(api)}/api/mem/activity/recent?since_ms=${lastTs}`,
-            { headers: authHeaders(api) },
+          const res = await localFetch(
+            `/api/mem/activity/recent?since_ms=${lastTs}`,
           );
           if (!res.ok) return;
           const data = (await res.json()) as { events?: MemActivityEvent[] };

@@ -1,3 +1,4 @@
+import type { PlanView } from "./planProjection";
 import { TaskPriority, TaskStatus, type Plan, type Section } from "./types";
 import type { Tab } from "../../lib/types";
 import { milestone, plan, task } from "./layout/fixtures";
@@ -320,7 +321,7 @@ export function buildPerfFixturePlans(n: number): Plan[] {
   })];
 }
 
-export function buildPerfFixtureTabs(plans: Plan[]): Record<string, Tab> {
+export function buildPerfFixtureTabs(plans: PlanView[]): Record<string, Tab> {
   const tabs: Record<string, Tab> = {};
   const add = (id: string | null | undefined, title: string) => {
     const pid = id?.trim();
@@ -366,7 +367,7 @@ export function buildMidStreamChatTranscriptFixtureTabs(): Record<string, Tab> {
   };
 }
 
-export function fixtureSpecSectionsByPlan(plans: Plan[]): Map<string, Section[]> {
+export function fixtureSpecSectionsByPlan(plans: readonly Pick<Plan, "id" | "primary_spec_id">[]): Map<string, Section[]> {
   const out = new Map<string, Section[]>();
   for (const p of plans) {
     if (p.primary_spec_id === PERF_SPEC_ID) out.set(p.id, PERF_SPEC_SECTIONS);

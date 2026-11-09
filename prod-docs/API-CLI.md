@@ -1,15 +1,33 @@
 # CLI and environment API
 
+For connecting, configuring and authenticating ACP agents, read `domios docs ACP`.
+
+`--profile <id>` selects a provider-declared ACP launch profile, independently of `--model` and Worker `--kind`/`--role-profile`. Unknown, missing required, and uninstalled profiles refuse before creating a tab or attempt with `unknown_launch_profile`, `launch_profile_required`, and `launch_profile_not_installed`. Respawn inherits the selected attempt's profile when the flag is omitted and the provider stays the same. Profile selection on task dispatch/respawn is local-only; `agent spawn --mesh` carries it to the peer.
+
 Every `--json` command returns one object with its payload under `result`: an array for a list/search, an object for a record, or a scalar/null. Optional `meta` retains list metadata, `next` carries pagination and `warnings` carries diagnostics. Failures also include `ok:false` and `error`; their daemon receipt is under `result`. Read `result` directly; do not guess `data`, `results`, `hits`, `tasks` or `tabs` envelopes.
 
 Search/list output defaults to one line per record: `id  title — short snippet` (80 characters, one line). Known omitted counts end with `N more — refine the query or use --limit`. Use `--verbose` for scores, relevance, warnings and detailed views.
 
-Immediate `domios send` exits 1 with its reason on stderr whenever the result is `ok:false` or `bytes_written:false`, including retained pre-ready input. With `--json`, the error envelope preserves the daemon receipt in `result`. A retained `send_id` or queued delivery requires status or exact own-session transcript inspection; never replay held, written or uncertain input.
+Immediate `domios send` exits 1 with its reason on stderr whenever the result is `ok:false` or `bytes_written:false`, including retained pre-ready input. An accepted send that is held and not written yet is not a failure: its stderr line starts with `Queued:` instead of `Error:` and names the status command. With `--json`, the error envelope preserves the daemon receipt in `result`, and a held send reports `error.code` `held`. A retained `send_id` or queued delivery requires status or exact own-session transcript inspection; never replay held, written or uncertain input.
 
 Cron JSON exposes `protected: true` for system jobs. System jobs refuse deletion and schedule/task edits; use `domios cron enable <id>` or `domios cron disable <id>` to control them.
 
 
 ## CLI
+
+### Messages after command output
+
+A `domios` command run by an ACP agent with a turn in progress can end its output with an `Inbound messages` block holding reports and owner messages for that tab, oldest first. Each message is delivered once and is not repeated at the end of the turn.
+
+The block is added only when all of these hold:
+
+- The command finished normally and reached the daemon.
+- Its output is human format, not `--json`.
+- Both stdout and stdin are terminals. A pipe, `$(...)` capture, redirect or `--from-file -` pipeline never carries messages, so scripts can keep parsing output as before.
+- The agent runtime launch set `CODETERM_RUNTIME_AGENT` in the environment. This only decides whether to ask: shells and PTY agents lack it and make no extra daemon call.
+- The caller has its own tab credential, from `CODETERM_API_TOKEN` or the launch file, and a turn is running in that exact launch.
+
+A message counts as delivered once it was written to the terminal the agent's shell tool reads. That does not prove the model read it, for example if the tool drops or truncates the output. If no byte was written, the message returns to the queue in order. If only part was written, it stays `submit_unconfirmed` and is never resent.
 
 Use `domios <command> --help` for the installed contract. `codeterm` is a working alias; both names show `domios` help and usage.
 
@@ -43,7 +61,7 @@ domios agent cli install <provider>
 domios agent cli update <provider>
 ```
 
-The `agent cli` verbs are local-only; run them in a tab on the target peer. Status returns `required`, `installed` (true/false/null for unknown), `binary`, `resolved_path`, `detected_version`, `latest_version`, `update_job`, `update_refusal`, `availability`, `searched`, `installer`, and `updater`. `latest_version` is the published update availability; status never starts discovery. `update_job` reports the current job state/result. Status also includes `installer_prerequisites` and `updater_prerequisites`: detected command runners with `binary`, `installed` (true/false/null), and a setup `hint`. Runners and `command -v`/`which`/`Get-Command` checks are detected from the manifest command (diagnostic, not a shell parser); missing runners produce warnings and setup guidance. The host never installs prerequisites or alters manifest commands. Dispatch JSON adds `warnings`; completion retains prerequisite diagnostics. Install/update refuse when the OS has no manifest command; otherwise they open a visible utility tab in the caller's workspace and Team and return `tab_id`, `launch_state: "command_dispatched"`. Shell completion or exit produces a routed report for an agent caller or a kept notification record for a shell caller. Completion prose is never sent as shell input; the result also lands in the utility tab description and `provider-cli-completed` carries a fresh status. A completion deadline reports uncertainty; dispatch alone never means installation succeeded. `agent providers` names missing CLIs; `agent spawn` refuses before creating a tab and names the installer and CLI fix. REST: `GET /api/agents/providers/{id}/cli` returns status; `POST` accepts `{operation: "install"|"update", caller_tab_id?}`. Plugin `--json` responses add `cli_status`, keyed by installed provider id.
+The `agent cli` verbs are local-only; run them in a tab on the target peer. Status returns `required`, `installed` (true/false/null for unknown), `binary`, `resolved_path`, `detected_version`, `latest_version`, `update_job`, `update_refusal`, `availability`, `searched`, `installer`, and `updater`. `latest_version` is the published update availability; status never starts discovery. `update_job` reports the current job state/result. Status also includes `installer_prerequisites` and `updater_prerequisites`: detected command runners with `binary`, `installed` (true/false/null), and a setup `hint`. Runners and `command -v`/`which`/`Get-Command` checks are detected from the manifest command (diagnostic, not a shell parser); missing runners produce warnings and setup guidance. The host never installs prerequisites or alters manifest commands. Dispatch JSON adds `warnings`; completion retains prerequisite diagnostics. Install/update refuse when the OS has no manifest command; otherwise they open a visible utility tab in the caller's workspace and Team and return `tab_id`, `launch_state: "command_dispatched"`. Shell completion or exit produces a routed report for an agent caller or a kept notification record for a shell caller. Completion prose is never sent as shell input; the result also lands in the utility tab description and `provider-cli-completed` carries a fresh status. A completion deadline reports uncertainty; dispatch alone never means installation succeeded. `agent providers` names missing CLIs; `agent spawn` refuses before creating a tab and names the installer and CLI fix. A provider launched through launch profiles also reports `launch_profiles` (each `id` with `installed` true/false/null) instead of a CLI warning; readiness is cached and re-observed only by an explicit re-check. REST: `GET /api/agents/providers/{id}/cli` returns status, and `?refresh=true` re-observes launch profiles; `POST` accepts `{operation: "install"|"update", caller_tab_id?}`. Plugin `--json` responses add `cli_status`, keyed by installed provider id.
 
 ### Agent usage, reset credits, and child history
 
@@ -51,13 +69,18 @@ The `agent cli` verbs are local-only; run them in a tab on the target peer. Stat
 domios agent usage read --tab TAB_ID [--json]
 domios agent usage reset --tab TAB_ID --confirm [--json]
 domios agent child-history --tab PARENT_TAB --thread CHILD_THREAD --root-thread-id ROOT_THREAD --binding-nonce NONCE --epoch EPOCH [--cursor CURSOR] [--json]
+domios agent child-history --tab PARENT_TAB --closed [--child CHILD_TAB] [--since N] [--json]
+domios tab chat --tab CLOSED_TAB [--since N] [--json]
+domios sessions get CLOSED_TAB_OR_SESSION [--json]
 ```
 
-These commands always name the target tab. `usage read` returns session/weekly limits, account credits, reset-credit count and expiry from that tab's cached runtime projection. `usage reset` consumes a reset credit through the existing runtime route; `--confirm` is mandatory and each invocation carries a fresh idempotency UUID. Its JSON includes the provider outcome and observed before/after reset-credit counts. `child-history` passes the current parent binding authority to the existing recorded-child route; stale bindings and unrecorded descendants are refused. The cursor is opaque and may be supplied from `nextCursor` to continue.
+A closed agent tab stays readable by id. `child-history --closed` lists the parent's closed child tabs, and `--child` reads one child's transcript. `tab chat` reads a closed tab by its full or unique short id and says that it is closed. `sessions get` also accepts a closed tab id or a host-kept session id, and adds `closed_tab` and `transcript_command`. All three answer only the owner, the tab's parent and its Team; `domios docs API-CHAT` has the response shape and retention.
 
-Both read `GET /api/tabs/{id}/agent/runtime/usage` (exact-tab, binding-checked projection); a missing post-consume count stays `null`.
+These commands always name the target tab. `usage read` answers what the tab's usage pill shows, from the limits source its launch profile declares: `limits_source.kind` is `balance`, `quota` (a plugin read under `account_id: "profile:<id>"`, in `usage_details`), `account` (the named native provider's session/weekly limits, `resets` and `account_credits`), `meter` (the provider's own meter, also every terminal tab) or `unavailable`. Without a reading `limits_reported` is `false` and `unavailable_reason` says why, including a failed read or disabled usage tracking. `context` is the session's reported fill (`used_tokens`, `window_tokens`, `cost_usd`) or `null`; `runtime_usage` is the tab's own binding-checked reading when it has one. A due balance or quota is read first, waiting at most 15 seconds, so a background tab answers too. `usage reset` consumes a reset credit through the existing runtime route; `--confirm` is mandatory and each invocation carries a fresh idempotency UUID. Its JSON includes the provider outcome and observed before/after reset-credit counts. `child-history` passes the current parent binding authority to the existing recorded-child route; stale bindings and unrecorded descendants are refused. The cursor is opaque and may be supplied from `nextCursor` to continue.
 
-`domios agent model --tab TAB_ID [MODEL]` switches the model; `--reasoning-effort` and `--runtime-mode` take catalogue values (omit `MODEL` to keep it). Unsupported values exit non-zero listing the choices; `--json` keeps `mode_used`, `model_confirmation`, `evidence`. `--speed TIER|default` and `--list-speeds` manage service tiers. Worker kinds work with or without `--plan-task`:
+Both read `GET /api/tabs/{id}/agent/runtime/usage`; a missing post-consume count stays `null`.
+
+`domios agent model --tab TAB_ID [MODEL]` switches the model; `--reasoning-effort` and `--runtime-mode` take catalogue values (omit `MODEL` to keep it); `--runtime-mode` belongs to the owner, and an agent caller gets `owner_required`. Unsupported values exit non-zero listing the choices; `--json` keeps `mode_used`, `model_confirmation`, `evidence`. `--speed TIER|default` and `--list-speeds` manage service tiers. Worker kinds work with or without `--plan-task`:
 
 ```bash
 domios agent spawn PROVIDER --role Worker --kind qa --parent-tab TAB_ID
@@ -75,7 +98,7 @@ Same-version manifest hash drift remains a diagnostic in `plugin channel diff`; 
 
 Official system plugins have independent release versions. Their `minCodeterm` declares the required host version, so a compatible plugin can update without updating the app. The embedded copy is an offline fallback and never replaces a newer channel release. Use `domios plugin update-system <id>` to install an official system release even when an embedded install has no channel provenance yet. Core plugins synchronize silently on startup and explicit plugin channel refresh; they are always `core_silent` and never offer a user Update action. Other channel plugin updates remain explicit.
 
-`domios update check [--force]` returns `{items, errors, checked_at_ms}` from `GET /api/update/availability?force=true` (omit force to reuse a snapshot younger than 30 seconds with background refresh; missing or older snapshots wait for discovery). The desktop command is `check_update_availability`. Each item has `{id, kind: plugin|app|frontend, installed, latest, compatible, state: up_to_date|update_available|ready_to_apply|incompatible|core_silent, reason, channel}`; versions and channel may be null. Errors are keyed by source. `checked_at_ms` is the discovery start time in Unix milliseconds. Checks refresh channel metadata without installing or reloading provider plugins. `ready_to_apply` identifies a verified staged Interface bundle, offered even when no downloaded bundle is active. Apply and Update all use the existing checkpoint, consent, activation and health/rollback flow. The app offer comes from the platform's updater manifest; frontend offers come from signed frontend-latest metadata and its host API range. A plugin offer must come from its recorded channel, match its payload version, and meet both minimum host declarations. `up_to_date` with an unavailable or malformed source reason does not authorize installation.
+`domios update check [--force]` returns `{items, errors, checked_at_ms, served_by}` from `GET /api/update/availability?force=true`, which waits for its own result; `served_by` names the path that served a source (`direct`, or `github_api` when release downloads failed and the GitHub Releases API served the same file), and `errors` holds both failures when neither path worked. A release or asset the GitHub API cannot find is no offer rather than a failure, even after a failed direct download, so it adds no error. A failed check is diagnostics only: the app shows no update and no warning. Human output lists each item's installed version in plain words, with an arrow only for a strictly newer update; an item whose check failed shows just its version. `--verbose` adds the serving path and failed checks; `--json` always carries them. Omit force to get the known snapshot and start a background refresh; automatic checks reach the network at most about twice an hour, across restarts. The desktop command is `check_update_availability`. Each item has `{id, kind: plugin|app|frontend, installed, latest, compatible, state: up_to_date|update_available|ready_to_apply|incompatible|core_silent, reason, channel}`; versions and channel may be null. Errors are keyed by source. `checked_at_ms` is the discovery start time in Unix milliseconds. Checks refresh channel metadata without installing or reloading provider plugins. `ready_to_apply` identifies a verified staged Interface bundle, offered even when no downloaded bundle is active. Apply and Update all use the existing checkpoint, consent, activation and health/rollback flow. The app offer comes from the platform's updater manifest; frontend offers come from signed frontend-latest metadata and its host API range. A plugin offer must come from its recorded channel, match its payload version, and meet both minimum host declarations. `up_to_date` with an unavailable or malformed source reason does not authorize installation.
 
 `update-availability-changed` carries the same `{items, errors, checked_at_ms}` snapshot when discovery or completed plugin actions change it. Plugin enable/disable settings recompute the inventory too. `plugin channel diff --json` includes the same item as `availability` on each row; refresh the channel first for fresh metadata. Aggregate refresh reports failures after trying all channels and preserves their last validated caches. A channel failure names its cause and source, for example `Plugin channel unavailable: repository not found or not readable without access (github.com/owner/repo.git). Domios will retry.`; causes are repository not found, authentication required, network unavailable, release asset not found, access denied, and failed integrity check. The official `codeterm-core` channel is a public release archive with a SHA-256 sidecar, readable without a GitHub identity. When it is unreachable the bundled core set stays installed, core items stay `core_silent` against the bundled manifest, and its error is diagnostic only.
 
@@ -87,7 +110,7 @@ Mutation ids are in `result.id` and their named identity field, such as `result.
 
 ### CLI JSON Errors
 
-With `--json` commands print exactly one JSON object on stdout for success and for failure, including argument errors; stderr stays empty. A failure is `{"ok":false,"kind":"error","id":null,"result":...,"hints":[],"error":{"code","message","hint","rpc_code"}}` and the command exits non-zero. `error.code` is one of `not_found`, `invalid_argument`, `conflict`, `rate_limited`, `refused`, `unavailable`, `internal`, or a command-specific snake_case code; a missing tab, plan, cron job, peer, or plugin is always `not_found`. `rpc_code` is the raw daemon code or null. Exit codes: `0` success, `1` failure, `2` invalid arguments, and the command-specific codes named in `SECRETS` and `MESH-BRIDGE`. Structured daemon error data stays under `result`, including `invalid_model` fields such as the provider, requested id, closest catalogue ids, and refresh command. An ambiguous bare id uses `ambiguous_model` with the provider choices and a message asking for `--agent`. Mesh relay failures keep the peer's own delivery `code` inside `error`.
+With `--json` commands print exactly one JSON object on stdout for success and for failure, including argument errors; stderr stays empty. A failure is `{"ok":false,"kind":"error","id":null,"result":...,"hints":[],"error":{"code","message","hint","rpc_code"}}` and the command exits non-zero. `error.code` is one of `not_found`, `invalid_argument`, `conflict`, `rate_limited`, `refused`, `unavailable`, `internal`, `held`, or a command-specific snake_case code; a missing tab, plan, cron job, peer, or plugin is always `not_found`. `rpc_code` is the raw daemon code or null. Exit codes: `0` success, `1` failure, `2` invalid arguments, and the command-specific codes named in `SECRETS` and `MESH-BRIDGE`. Structured daemon error data stays under `result`, including `invalid_model` fields such as the provider, requested id, closest catalogue ids, and refresh command. An ambiguous bare id uses `ambiguous_model` with the provider choices and a message asking for `--agent`. Mesh relay failures keep the peer's own delivery `code` inside `error`.
 
 ### Sandboxed CLI transport
 
@@ -189,10 +212,15 @@ Runtime provider sign-in (Chat card or CLI):
 domios agent login --tab ID --device
 domios agent login --tab ID --show --mesh PEER --json
 domios agent login --tab ID --cancel
+domios agent login --tab ID --method METHOD_ID
 ```
 
 Provider-declared flows also support default browser sign-in and local
-`--api-key-stdin` (never argv or mesh). `--show` reads without starting:
+`--api-key-stdin` (never argv or mesh). ACP agents declare their own methods:
+`--show` lists them, and `--method ID` authenticates with one. A method the
+launch profile marks as key-taking also needs `--api-key-stdin`; Domios stores
+the key in its secret store, restarts the runtime with it in the agent's
+environment and then authenticates. A refusal prints the daemon's reason. `--show` reads without starting:
 `login.url`, `userCode`, `expiresAtMs` (Unix milliseconds). Values disappear at
 completion, cancellation or within 15 minutes; an earlier provider deadline wins.
 One flow per provider; cancel before retry. Verified completion resumes the same
@@ -203,4 +231,4 @@ saved sessions and notifications omit login values.
 
 Account installations connect automatically after same-account sign-in. `domios mesh peers` lists each installation once; `domios mesh status` is read-only for local agents.
 
-<!-- revision: 69 -->
+<!-- revision: 82 -->

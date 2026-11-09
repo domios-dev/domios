@@ -1,3 +1,4 @@
+import { ioTestContext } from "../../provider-shared/tests/hostIo";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import fs from "node:fs";
@@ -33,7 +34,7 @@ async function binding(read: () => Promise<unknown>, sessionGet?: () => Promise<
     module: { exports: undefined as unknown },
   };
   const source = opencodeBindingPluginSource().replace("export default async function", "async function");
-  new vm.Script(`${source}\nmodule.exports = CodeTermSessionBindingPlugin;`).runInNewContext(context);
+  new vm.Script(`${source}\nmodule.exports = CodeTermSessionBindingPlugin;`).runInNewContext(ioTestContext(context));
   const create = context.module.exports as (input: { directory: string; client?: { session: { get: () => Promise<unknown> } } }) => Promise<{
     "chat.message": (input: { sessionID: string }, output: { message: Record<string, unknown> }) => Promise<void>;
   }>;
@@ -124,7 +125,7 @@ test("confirmation reads first new assistant model in the claimed SQLite session
       detectSessionModelAfterBoundary: (cwd: string, sid: string, boundary: unknown) => string | null;
     } } }, exports: {},
   };
-  new vm.Script(fs.readFileSync(new URL("../plugin.js", import.meta.url), "utf8")).runInNewContext(context);
+  new vm.Script(fs.readFileSync(new URL("../plugin.js", import.meta.url), "utf8")).runInNewContext(ioTestContext(context));
   const plugin = context.module.exports.default!;
   const boundary = plugin.sessionModelTranscriptBoundary("/fixture", "ses_fixture_owned");
   const detect = () => plugin.detectSessionModelAfterBoundary("/fixture", "ses_fixture_owned", boundary);
@@ -157,7 +158,7 @@ test("captured SQLite stores render owned text and tool history through the buil
         readStructuredChat: (cwd: string, sid: string, cursor?: string) => { messages: Array<{type: string; content: string}>; cursor: string };
       } } }, exports: {},
     };
-    new vm.Script(fs.readFileSync(new URL("../plugin.js", import.meta.url), "utf8")).runInNewContext(context);
+    new vm.Script(fs.readFileSync(new URL("../plugin.js", import.meta.url), "utf8")).runInNewContext(ioTestContext(context));
     const plugin = context.module.exports.default!;
     const chat = plugin.readStructuredChat("/fixture", "ses_fixture_owned");
     assert.deepEqual(Array.from(chat.messages, message => [message.type, message.content]).filter(([kind]) => kind === "user" || kind === "assistant").sort(), [

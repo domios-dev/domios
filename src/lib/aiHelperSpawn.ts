@@ -1,8 +1,7 @@
 import {
   IS_WEB,
   webFetch,
-  daemonHttpBase,
-  daemonAuthToken,
+  localFetch,
   type DaemonApiConfig,
 } from "./webApi";
 
@@ -44,27 +43,25 @@ type AiHelperPayload = {
 
 const DELIVERY_STATES: readonly string[] = ["confirmed", "launched"];
 
-function postHelper(request: AiHelperRequest, api: DaemonApiConfig): Promise<Response> {
+function postHelper(request: AiHelperRequest): Promise<Response> {
   const init = {
     method: "POST",
     body: JSON.stringify({ title: request.title, description: request.description, task: request.task }),
   };
   if (IS_WEB) return webFetch(AI_HELPER_SPAWN_PATH, init);
-  const token = daemonAuthToken(api);
-  return fetch(`${daemonHttpBase(api)}${AI_HELPER_SPAWN_PATH}`, {
+  return localFetch(AI_HELPER_SPAWN_PATH, {
     ...init,
     headers: {
       "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
   });
 }
 
 export async function spawnAiHelper(
   request: AiHelperRequest,
-  api: DaemonApiConfig = {},
+  _api: DaemonApiConfig = {},
 ): Promise<AiHelperSpawned> {
-  const response = await postHelper(request, api);
+  const response = await postHelper(request);
   const payload = (await response.json().catch(() => null)) as AiHelperPayload;
   if (!response.ok) {
     const error = payload?.error;

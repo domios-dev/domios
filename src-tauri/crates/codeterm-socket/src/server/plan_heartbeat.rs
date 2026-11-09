@@ -24,6 +24,12 @@ fn plan_rpc_err(e: PlanError) -> JsonRpcError {
 
 fn learning_error(error: OrchestratorLearningError) -> JsonRpcError {
     match error {
+        OrchestratorLearningError::PlanningAuthority(error) => {
+            super::plan_task_authority::execution_authority_error(
+                error,
+                Some("plan_orchestrator_required"),
+            )
+        }
         OrchestratorLearningError::Authority(message) => JsonRpcError {
             code: super::error_codes::PLAN_ORCHESTRATOR_REQUIRED,
             message,

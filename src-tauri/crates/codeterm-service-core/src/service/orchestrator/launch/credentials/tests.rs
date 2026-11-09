@@ -12,7 +12,7 @@ fn restored_shell_gets_current_credential_after_server_restart_and_nonce_rotatio
     tab.agent_session_id = Some("saved-session".into());
     tab.boot_stage = Some(codeterm_types::pty::BootStage::AgentReady);
     let previous = ServiceFixture::new(mux);
-    let inherited = previous.service.frontend_pty_env(Some(&tab_id));
+    let inherited = previous.service.frontend_pty_env(Some(&tab_id)).unwrap();
     let old_token = inherited["CODETERM_API_TOKEN"].clone();
     let snapshot = previous.service.mux.read().to_session_snapshot();
     drop(previous);
@@ -27,7 +27,7 @@ fn restored_shell_gets_current_credential_after_server_restart_and_nonce_rotatio
         .service
         .identify_tab_credential(&old_token)
         .is_none());
-    let shell_env = restarted.service.frontend_pty_env(Some(&tab_id));
+    let shell_env = restarted.service.frontend_pty_env(Some(&tab_id)).unwrap();
     let nonce = restarted
         .service
         .reserve_agent_launch_binding_nonce(&tab_id, Some("saved-session"));
@@ -44,16 +44,13 @@ fn restored_shell_gets_current_credential_after_server_restart_and_nonce_rotatio
         false,
     )
     .unwrap();
-    let path = std::fs::read_dir(restarted.service.ensure_agent_pad(&tab_id).unwrap().path())
-        .unwrap()
-        .map(|entry| entry.unwrap().path())
-        .find(|path| {
-            path.file_name()
-                .unwrap()
-                .to_string_lossy()
-                .starts_with(".launch-credential-")
-        })
-        .unwrap();
+    let handoff = wrapped.file.as_ref().unwrap().path();
+    let path = restarted
+        .service
+        .ext::<crate::service::launch_credentials::Directory>()
+        .path()
+        .join(handoff.file_name().unwrap());
+    assert_eq!(path.as_path(), handoff);
     let current = std::fs::read_to_string(&path).unwrap();
     assert!(!wrapped.command.contains(&current));
     assert!(!wrapped.command.contains(&old_token));
@@ -90,6 +87,10 @@ fn fixture_command() -> (ServiceFixture, String, String, CredentialCommand) {
 fn no_write_abort_and_replacement_remove_only_the_owned_file() {
     let (fixture, tab, nonce, mut command) = fixture_command();
     let path = command.file.as_ref().unwrap().path().to_path_buf();
+    assert_eq!(
+        path.parent().unwrap().file_name().unwrap(),
+        "launch-credentials"
+    );
     assert!(codeterm_util::private_file::owner_only(&path).unwrap());
     assert!(command.send(&fixture.service, "absent-pty").is_err());
     drop(command);

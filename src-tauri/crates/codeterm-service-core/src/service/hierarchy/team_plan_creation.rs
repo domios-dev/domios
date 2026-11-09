@@ -112,11 +112,16 @@ impl ServiceContext {
         )
         .map_err(TeamPlanCreationError::Team)?
         {
-            outcome.plan = self.plan_store.get(&outcome.plan.id).ok_or_else(|| {
-                TeamPlanCreationError::Team(
-                    "created Plan disappeared while binding its paired Planner".into(),
-                )
-            })?;
+            let binding = self
+                .plan_store
+                .planner_gate_context(&outcome.plan.id, None)
+                .map_err(TeamPlanCreationError::Plan)?
+                .ok_or_else(|| {
+                    TeamPlanCreationError::Team(
+                        "created Plan disappeared while binding its paired Planner".into(),
+                    )
+                })?;
+            outcome.plan.planner = binding.planner;
         }
         self.emit_state_changed(MuxEmitCause::PlanTask);
         let _ = crate::service::session_persist::persist_session_after_mutation(

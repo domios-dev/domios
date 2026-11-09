@@ -31,6 +31,20 @@ pub(super) fn parent_target(
     target.filter(|target| target != tab)
 }
 
+fn plan_owner_target(
+    svc: &ServiceContext,
+    plan_id: Option<&str>,
+) -> Result<Option<String>, crate::service::plan::PlanError> {
+    let Some(plan_id) = plan_id else {
+        return Ok(None);
+    };
+    match svc.plan_store.plan_identity_projection(plan_id) {
+        Ok(plan) => Ok(plan.owner.tab_id),
+        Err(crate::service::plan::PlanError::NotFound) => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
 pub(super) fn incident(
     svc: &ServiceContext,
     tab_id: &str,
@@ -98,9 +112,15 @@ pub(super) fn incident(
         log::debug!("[provider-access] recovered during notification tab={tab_id}");
         return;
     }
-    let owner = plan
-        .and_then(|plan| svc.plan_store.get(&plan))
-        .and_then(|plan| plan.owner.tab_id);
+    let owner = match plan_owner_target(svc, plan.as_deref()) {
+        Ok(owner) => owner,
+        Err(error) => {
+            log::warn!(
+                "[provider-access] incident owner routing read failed tab={tab_id}: {error}"
+            );
+            return;
+        }
+    };
     let target = parent_target(role_tab, parent, owner, tab_id);
     log::debug!("[provider-access] incident tab={tab_id} target={target:?} level=action_needed");
     svc.events.publish_generic("provider-access-lost", serde_json::json!({"tab_id":tab_id,"provider":provider,"session_id":session,"notification_id":id,"target":target}));
@@ -181,9 +201,15 @@ pub(super) fn deliver_turn(
         log::debug!("[provider-access] turn incident rebound tab={tab_id}");
         return;
     }
-    let owner = plan
-        .and_then(|plan| svc.plan_store.get(&plan))
-        .and_then(|plan| plan.owner.tab_id);
+    let owner = match plan_owner_target(svc, plan.as_deref()) {
+        Ok(owner) => owner,
+        Err(error) => {
+            log::warn!(
+                "[provider-access] turn incident owner routing read failed tab={tab_id}: {error}"
+            );
+            return;
+        }
+    };
     let target = parent_target(role_tab, parent, owner, tab_id);
     svc.events.publish_generic(
         "provider-turn-error",

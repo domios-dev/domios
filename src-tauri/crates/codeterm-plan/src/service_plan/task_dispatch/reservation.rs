@@ -1,5 +1,5 @@
 use super::super::{PlanError, PlanStore};
-use super::{current_dispatch_startup_owner, DispatchStartupOwner};
+use super::DispatchStartupOwner;
 
 #[derive(Debug, Clone)]
 pub(crate) struct DispatchReservationOwner {
@@ -36,11 +36,7 @@ impl PlanStore {
         attempt_id: &str,
     ) -> Result<TaskDispatchReservation, PlanError> {
         let _writer_turn = self.mutation_writer.enter();
-        let task = self
-            .get(plan_id)
-            .and_then(|plan| crate::plan::task_key::find_task(&plan.tasks, task_id).cloned())
-            .ok_or(PlanError::TaskNotFound)?;
-        super::super::task_attempts::ensure_respawn_source_current(&task, source_attempt_id)?;
+        self.verify_respawn_source_projection(plan_id, task_id, source_attempt_id)?;
 
         let key = (plan_id.to_string(), task_id.to_string());
         let mut reservations = self.dispatch_reservations.lock();
@@ -89,10 +85,7 @@ impl PlanStore {
         observed_startup_owner_is_live: bool,
     ) -> Result<TaskDispatchReservation, PlanError> {
         let _writer_turn = self.mutation_writer.enter();
-        let current_owner = self.get(plan_id).and_then(|plan| {
-            crate::plan::task_key::find_task(&plan.tasks, task_id)
-                .and_then(current_dispatch_startup_owner)
-        });
+        let current_owner = self.dispatch_startup_owner_candidate(plan_id, task_id)?;
         if current_owner.as_ref().is_some_and(|owner| {
             observed_startup_owner.as_ref() != Some(owner) || observed_startup_owner_is_live
         }) {

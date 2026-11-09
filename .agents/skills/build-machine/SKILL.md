@@ -355,9 +355,10 @@ Driven by the `github-release` skill. Summary:
    and Windows platform jobs in parallel.
 3. macOS builds signed + notarized DMGs and `.app.tar.gz` updater bundles; Linux builds AppImage
    and Debian packages; Windows builds signed NSIS installers.
-4. Each platform job uploads its source artifacts and mirrors large assets. The final manifest job
+4. Each platform job uploads its source artifacts with `GITHUB_TOKEN`. The final manifest job
    waits for every platform job, merges the updater fragments, publishes signed manifests to the
-   public **`rollacode/codeterm-releases`** mirror, marks releases, and verifies served bytes.
+   public **`domios-dev/domios`** release, marks it latest, and verifies served bytes. For 1.19
+   only, marked transition steps also write `rollacode/codeterm-releases` for 1.18.x clients.
 5. `latest.json` keeps the Tauri updater platform records; `latest-deb.json` remains separate for
    Debian-installed Linux. Verification checks every shipped updater URL before issue closure.
 
@@ -513,7 +514,7 @@ Registration tokens, signing keys, package tokens, and Tauri signing passwords s
 
 Reuse can falsely report `installed_executable_differs_from_pinned_archive` when comparing a ZIP entry stream's unsupported `Length` property. Compare the entry descriptor length, then drain and compare both streams. Three in-memory compressed ZIP controls cover equality across buffer boundaries, changed bytes and changed length; never replace installed bytes to bypass refusal.
 
-<!-- revision: 6 -->
+<!-- revision: 7 -->
 
 Detached server startup passed the single-member maintenance oracle but exposed compiler windows during
 Lookout compilation: pinned sccache creates ordinary compiler children, which lack a console to inherit.

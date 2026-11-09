@@ -1,4 +1,7 @@
-use codeterm_account::Identity;
+mod identity_writer;
+pub(crate) use identity_writer::IdentityWriter;
+
+use codeterm_account::{account_target::build_target, Identity, TargetMismatch};
 use codeterm_billing::{Access, Entitlements, FileGrantStore, GrantStore, Plan, Snapshot};
 use codeterm_entitlements::{LimitGate, VerifiedGrant};
 use codeterm_util::secret_file::SecretFile;
@@ -18,6 +21,9 @@ const IDENTITY_KEY: &str = "startup-identity";
 struct LocalIdentity {
     backend: String,
     identity: Identity,
+    /// The account target that issued the saved credential; absent in records written before it.
+    #[serde(default)]
+    target: Option<String>,
 }
 
 #[derive(Clone)]
@@ -28,9 +34,20 @@ pub struct StartupAccount {
     valid: Arc<AtomicBool>,
     observed: Arc<AtomicU64>,
     clock: Arc<dyn Fn() -> u64 + Send + Sync>,
+    saved_target: Option<String>,
+    mismatch: Option<TargetMismatch>,
 }
 
 pub fn remember(root: &Path, backend: &str, identity: Option<Identity>) -> Result<(), String> {
+    remember_for_target(root, backend, identity, build_target())
+}
+
+fn remember_for_target(
+    root: &Path,
+    backend: &str,
+    identity: Option<Identity>,
+    target: &str,
+) -> Result<(), String> {
     let file = SecretFile::new_at(root, "domios.account");
     if let Some(identity) = identity {
         if file
@@ -42,6 +59,7 @@ pub fn remember(root: &Path, backend: &str, identity: Option<Identity>) -> Resul
         let record = LocalIdentity {
             backend: backend.into(),
             identity,
+            target: Some(target.into()),
         };
         file.set(
             IDENTITY_KEY,
@@ -54,6 +72,10 @@ pub fn remember(root: &Path, backend: &str, identity: Option<Identity>) -> Resul
 }
 
 pub fn load(root: &Path) -> Option<StartupAccount> {
+    load_for_target(root, build_target())
+}
+
+fn load_for_target(root: &Path, build: &str) -> Option<StartupAccount> {
     let file = SecretFile::new_at(root, "domios.account");
     let record: LocalIdentity = serde_json::from_str(&file.get(IDENTITY_KEY).ok()?).ok()?;
     file.get(&super::credentials::credential_name(&record.backend))
@@ -70,6 +92,10 @@ pub fn load(root: &Path) -> Option<StartupAccount> {
         .ok()
         .flatten()
         .map_or_else(now, |floors| floors.observed_at.max(now()));
+    let mismatch = TargetMismatch::detect(record.target.as_deref(), build);
+    if let Some(mismatch) = &mismatch {
+        log::warn!("Account target mismatch: {}", mismatch.reason);
+    }
     Some(StartupAccount {
         backend: record.backend,
         identity: record.identity,
@@ -77,6 +103,8 @@ pub fn load(root: &Path) -> Option<StartupAccount> {
         valid: Arc::new(AtomicBool::new(true)),
         observed: Arc::new(AtomicU64::new(observed)),
         clock: Arc::new(now),
+        saved_target: record.target,
+        mismatch,
     })
 }
 
@@ -91,8 +119,9 @@ impl StartupAccount {
     fn now(&self) -> u64 {
         monotonic_now(&self.observed, (self.clock)())
     }
+    /// Whether the saved sign-in may still be projected as signed in.
     pub fn is_valid(&self) -> bool {
-        self.valid.load(Ordering::Acquire)
+        self.mismatch.is_none() && self.valid.load(Ordering::Acquire)
     }
 
     pub fn invalidate(&self) {
@@ -102,13 +131,24 @@ impl StartupAccount {
     pub fn status(&self) -> codeterm_account::Status {
         codeterm_account::Status {
             provider: self.backend.clone(),
-            identity: Some(self.identity.clone()),
+            identity: self.mismatch.is_none().then(|| self.identity.clone()),
             pending: false,
             session_only: false,
             server_stop_unconfirmed: false,
             session_revoked: false,
             last_sign_in_failure: None,
+            target_mismatch: self.mismatch.clone(),
+            purchases_enabled: codeterm_account::remote_config::purchases_enabled(),
         }
+    }
+
+    /// The status startup may show before the account restores: signed in, or the target mismatch.
+    pub fn projected_status(&self) -> Option<codeterm_account::Status> {
+        self.valid.load(Ordering::Acquire).then(|| self.status())
+    }
+
+    pub fn saved_target(&self) -> Option<&str> {
+        self.saved_target.as_deref()
     }
 
     pub fn gate(&self) -> LimitGate {

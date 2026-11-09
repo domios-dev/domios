@@ -663,7 +663,6 @@ export interface AgentConfig {
   poll_interval_ms: number;
   idle_timeout_s: number;
   resume_sessions: boolean;
-  full_access?: boolean;
   sandbox_ceiling?: "read-only" | "workspace-write";
 }
 
@@ -1105,7 +1104,9 @@ export interface ProviderDescriptor {
   attachments?: ProviderAttachmentCapabilities;
   remote_task?: import("../../packages/plugin-sdk/src/remoteTasks").RemoteTaskCapability;
   agent_runtime?: {
+    launchProfiles?: Readonly<Record<string, import("../../packages/plugin-sdk/src/agentRuntime").RuntimeLaunchProfile>>;
     runtimeModes?: readonly { id: string; displayName: string }[];
+    hostApprovals?: boolean;
     serviceTiers?: readonly import("../../packages/plugin-sdk/src/agentRuntime").RuntimeServiceTier[];
     usage?: boolean;
     backgroundProcesses?: boolean;

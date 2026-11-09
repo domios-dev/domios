@@ -105,9 +105,21 @@ fn locate_body_end_to_end_on_real_store_files() {
         )
         .unwrap();
 
+    let mut spec = crate::plan::Spec::new("Owned".into(), plan.project_path.clone());
+    spec.plan_id = Some(plan.id.clone());
+    spec.sections = serde_json::from_value(serde_json::json!([{
+        "id":"sec_spec", "title":"Parent", "body":"parent", "subsections":[{
+            "id":"sec_child", "handle":"child", "title":"Child", "body":"Spec body A.\nSpec body B."
+        }]
+    }]))
+    .unwrap();
+    store.save_spec(&mut spec, 4).unwrap();
+    store.reset_plan_loads_for_test();
     let loc = store
         .locate_body(&plan.id, LocateTarget::Task(&task))
         .unwrap();
+    assert!(!loc.editable);
+    assert!(loc.write_hint.contains("typed mutation"));
     let text = std::fs::read_to_string(&loc.file).unwrap();
     assert_eq!(
         slice(&text, loc.start_line, loc.end_line),
@@ -120,7 +132,49 @@ fn locate_body_end_to_end_on_real_store_files() {
     let text = std::fs::read_to_string(&loc.file).unwrap();
     assert_eq!(
         slice(&text, loc.start_line, loc.end_line),
-        vec!["    Section body line one.", "    Section body line two."]
+        vec!["  Section body line one.", "  Section body line two."]
     );
-    assert!(loc.file.ends_with("plan.yaml"));
+    assert!(!loc.editable);
+    assert!(loc.file.starts_with(store.plan_data_dir(&plan.id)));
+    let spec_loc = store
+        .locate_body(&plan.id, LocateTarget::SpecSection("child"))
+        .unwrap();
+    let spec_text = std::fs::read_to_string(&spec_loc.file).unwrap();
+    assert_eq!(
+        slice(&spec_text, spec_loc.start_line, spec_loc.end_line),
+        vec!["  Spec body A.", "  Spec body B."]
+    );
+    assert!(!spec_loc.editable);
+    assert!(store.plan_loads_for_test().is_empty());
+    std::fs::write(&loc.file, "body: changed snapshot\n").unwrap();
+    let fresh = store
+        .locate_body(&plan.id, LocateTarget::PlanSection(&sec))
+        .unwrap();
+    assert_eq!(std::fs::read_to_string(&fresh.file).unwrap(), text);
+    store
+        .update_section(
+            &plan.id,
+            &sec,
+            None,
+            Some("New committed body."),
+            &[],
+            None,
+            None,
+            5,
+        )
+        .unwrap();
+    let updated = store
+        .locate_body(&plan.id, LocateTarget::PlanSection(&sec))
+        .unwrap();
+    assert_ne!(updated.file, fresh.file);
+    assert_eq!(std::fs::read_to_string(&fresh.file).unwrap(), text);
+    let updated_text = std::fs::read_to_string(&updated.file).unwrap();
+    let document: serde_yaml::Value = serde_yaml::from_str(&updated_text).unwrap();
+    assert_eq!(document["body"].as_str(), Some("New committed body."));
+
+    assert!(matches!(
+        store.locate_body(&plan.id, LocateTarget::Task("missing")),
+        Err(PlanError::NotFound)
+    ));
+    assert!(store.plan_loads_for_test().is_empty());
 }

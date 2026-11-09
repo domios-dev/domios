@@ -1,6 +1,7 @@
 import { useLayoutEffect, useEffect, useRef, type RefObject } from "react";
 import { createLatestWins } from "./latestWins";
 import { type DecodedFrame, type FrameDecoder, type FrameFeed } from "./frameFeed";
+import { viewportFrame } from "./streamFrameModel";
 import {
   canvasToPage,
   letterboxRect,
@@ -46,6 +47,8 @@ export function useStreamCanvas({ visible, canvasRef, stageRef, frames, decode, 
   const css = useRef<Size>({ width: 0, height: 0 });
   const drawCss = useRef<Rect>(EMPTY_RECT);
   const frame = useRef<DecodedFrame | null>(null);
+  const drawnSize = useRef<Size>({ width: 0, height: 0 });
+  const rawMeta = useRef<FrameMetadata | null>(null);
   const meta = useRef<FrameMetadata | null>(null);
   const reported = useRef<StreamViewport | null>(null);
   const callbacks = useRef({ onViewport, onHidden, onError });
@@ -55,14 +58,18 @@ export function useStreamCanvas({ visible, canvasRef, stageRef, frames, decode, 
     const canvas = canvasRef.current;
     const decoded = frame.current;
     if (!canvas) return false;
-    drawCss.current = letterboxRect(decoded ?? { width: 0, height: 0 }, css.current);
     if (!decoded) return false;
-    if (canvas.width !== decoded.width) canvas.width = decoded.width;
-    if (canvas.height !== decoded.height) canvas.height = decoded.height;
+    const cropped = rawMeta.current ? viewportFrame(decoded, rawMeta.current) : null;
+    const source = cropped?.source ?? { x: 0, y: 0, width: decoded.width, height: decoded.height };
+    drawnSize.current = source;
+    meta.current = cropped?.metadata ?? rawMeta.current;
+    drawCss.current = letterboxRect(source, css.current);
+    if (canvas.width !== source.width) canvas.width = source.width;
+    if (canvas.height !== source.height) canvas.height = source.height;
     const context = canvas.getContext("2d");
     if (!context) return false;
     context.imageSmoothingQuality = "high";
-    context.drawImage(decoded.image, 0, 0, decoded.width, decoded.height);
+    context.drawImage(decoded.image, source.x, source.y, source.width, source.height, 0, 0, source.width, source.height);
     return true;
   };
   const paintRef = useRef(paint);
@@ -78,7 +85,7 @@ export function useStreamCanvas({ visible, canvasRef, stageRef, frames, decode, 
       }
       frame.current?.close();
       frame.current = decoded;
-      meta.current = next.metadata;
+      rawMeta.current = next.metadata;
       paintRef.current();
     }, (error) => callbacks.current.onError(error));
     const unsubscribe = frames.subscribe((next) => queue.push(next));
@@ -104,7 +111,7 @@ export function useStreamCanvas({ visible, canvasRef, stageRef, frames, decode, 
     const measure = (box: Size = stage.getBoundingClientRect()) => {
       css.current = { width: box.width, height: box.height };
       const request = viewportRequest(css.current, currentDpr());
-      drawCss.current = letterboxRect(frame.current ?? { width: 0, height: 0 }, css.current);
+      drawCss.current = letterboxRect(drawnSize.current, css.current);
       if (!request) {
         if (reported.current) {
           reported.current = null;

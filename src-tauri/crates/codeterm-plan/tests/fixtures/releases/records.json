@@ -1,0 +1,139 @@
+{
+  "plans": [
+    {
+      "id": "pl_release",
+      "title": "Published plan",
+      "status": "active",
+      "owner": {
+        "tab_id": "release-orch"
+      },
+      "team_id": "release-team",
+      "project_path": "/synthetic/repo",
+      "created_at": 2,
+      "updated_at": 10,
+      "sections": [
+        {
+          "id": "sec_release",
+          "title": "Retained section",
+          "body": "published body"
+        }
+      ],
+      "elements": [],
+      "strides": [
+        {
+          "id": "stride_release",
+          "from": {
+            "tab_id": "release-orch"
+          },
+          "kind": "note",
+          "text": "retained evidence",
+          "ts": 9,
+          "links": []
+        }
+      ],
+      "heartbeat": {
+        "current_focus": "retained focus"
+      },
+      "tasks": [
+        {
+          "id": "task_release",
+          "name": "Retained task",
+          "type": "implement",
+          "status": "in_progress",
+          "created_at": 3,
+          "updated_at": 7,
+          "milestones": [
+            {
+              "id": "m_release",
+              "from": {
+                "tab_id": "release-orch"
+              },
+              "kind": "note",
+              "text": "retained evidence",
+              "ts": 9,
+              "links": []
+            }
+          ],
+          "execution_attempts": [
+            {
+              "id": "attempt_release",
+              "executor_tab_id": "release-worker",
+              "session_id": "release-session",
+              "closed_at": 8
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "specs": [
+    {
+      "id": "spec_release",
+      "plan_id": "pl_release",
+      "title": "Published spec",
+      "status": "active",
+      "project_path": "/synthetic/repo",
+      "created_at": 2,
+      "updated_at": 10,
+      "sections": [
+        {
+          "id": "spec_section",
+          "title": "Requirement",
+          "body": "keep records"
+        }
+      ]
+    }
+  ],
+  "operations_before": [
+    [
+      11,
+      "committed",
+      20,
+      null
+    ],
+    [
+      12,
+      "failed",
+      21,
+      "synthetic failure"
+    ],
+    [
+      13,
+      "queued",
+      null,
+      null
+    ],
+    [
+      14,
+      "running",
+      null,
+      null
+    ]
+  ],
+  "operations_after": [
+    [
+      11,
+      "committed",
+      20,
+      null
+    ],
+    [
+      12,
+      "failed",
+      21,
+      "synthetic failure"
+    ],
+    [
+      13,
+      "failed",
+      3,
+      "daemon restarted before commit"
+    ],
+    [
+      14,
+      "failed",
+      4,
+      "daemon restarted before commit"
+    ]
+  ]
+}

@@ -27,13 +27,8 @@ pub(super) fn reopen_named_item(
     };
     let executor = svc
         .plan_store
-        .get(plan_id)
-        .and_then(|plan| {
-            plan.tasks
-                .into_iter()
-                .find(|task| task.id == task_id)
-                .and_then(|task| task.assigned_tab_id)
-        })
+        .task_assignment_projection(plan_id, task_id)
+        .map_err(super::plan_rpc_err)?
         .filter(|tab| !tab.trim().is_empty())
         .ok_or_else(|| refusal("the bounced task has no assigned Worker tab to reopen"))?;
     codeterm_service_core::async_runtime::block_on(svc.tab_todo_reopen_for_review(

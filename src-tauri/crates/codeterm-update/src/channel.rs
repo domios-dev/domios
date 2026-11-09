@@ -1,6 +1,6 @@
 pub use codeterm_types::update::channel::Channel;
 
-use super::checker::UPDATE_REPOSITORIES;
+use super::checker::UPDATE_REPOSITORY;
 use super::InstallMethod;
 
 pub fn manifest_filename(c: Channel) -> &'static str {
@@ -27,21 +27,15 @@ pub fn manifest_filename_for_install_method(c: Channel, method: &InstallMethod) 
     }
 }
 
-pub fn default_endpoints(c: Channel) -> Vec<String> {
-    default_endpoints_for_install_method(c, &InstallMethod::Unknown)
+pub fn default_endpoint(c: Channel) -> String {
+    default_endpoint_for_install_method(c, &InstallMethod::Unknown)
 }
 
-/// One endpoint per update repository, public source repository first.
-pub fn default_endpoints_for_install_method(c: Channel, method: &InstallMethod) -> Vec<String> {
-    UPDATE_REPOSITORIES
-        .iter()
-        .map(|repository| {
-            format!(
-                "https://github.com/{repository}/releases/latest/download/{}",
-                manifest_filename_for_install_method(c, method)
-            )
-        })
-        .collect()
+pub fn default_endpoint_for_install_method(c: Channel, method: &InstallMethod) -> String {
+    format!(
+        "https://github.com/{UPDATE_REPOSITORY}/releases/latest/download/{}",
+        manifest_filename_for_install_method(c, method)
+    )
 }
 
 pub fn immutable_endpoint_for_release(

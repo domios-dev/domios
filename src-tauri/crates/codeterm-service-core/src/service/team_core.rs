@@ -114,11 +114,7 @@ pub fn reconcile_dangling_team_plan_bindings_now(
     reconcile_dangling_team_plan_bindings_and_emit(svc, &live_team_ids(svc), now_ms())
 }
 
-pub fn valid_live_plan_team(
-    svc: &ServiceContext,
-    mux: &MultiplexerState,
-    plan_id: &str,
-) -> Result<String, TeamPlanError> {
+pub fn valid_live_plan_team(svc: &ServiceContext, plan_id: &str) -> Result<String, TeamPlanError> {
     let team_id = svc
         .plan_store
         .plan_team_id(plan_id)
@@ -129,7 +125,7 @@ pub fn valid_live_plan_team(
                 plan_id: plan_id.into(),
             })
         })?;
-    if mux.get_team(&team_id).is_none() {
+    if svc.mux.read().get_team(&team_id).is_none() {
         return Err(TeamPlanError::Team(format!(
             "Plan {plan_id} references missing Team {team_id}; adopt it into a live Team before resuming"
         )));

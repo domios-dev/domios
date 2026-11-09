@@ -1,7 +1,9 @@
 use std::collections::HashMap;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::OnceLock;
+use std::time::SystemTime;
 
 use codeterm_util::process_util;
 use parking_lot::RwLock;
@@ -15,10 +17,15 @@ pub fn project_root(cwd: &Path) -> PathBuf {
     if test_project_root(cwd).is_some() {
         return cwd.canonicalize().unwrap_or_else(|_| cwd.to_path_buf());
     }
-    static CACHE: OnceLock<RwLock<HashMap<PathBuf, PathBuf>>> = OnceLock::new();
+    static CACHE: OnceLock<RwLock<HashMap<PathBuf, CachedProjectRoot>>> = OnceLock::new();
     let cache = CACHE.get_or_init(|| RwLock::new(HashMap::new()));
-    if let Some(root) = cache.read().get(cwd) {
-        return root.clone();
+    let identity = RepositoryIdentity::read(cwd);
+    if let Some(identity) = &identity {
+        if let Some(entry) = cache.read().get(cwd) {
+            if &entry.identity == identity {
+                return entry.root.clone();
+            }
+        }
     }
     let root = if !has_git_marker(cwd) {
         cwd.canonicalize().unwrap_or_else(|_| cwd.to_path_buf())
@@ -29,8 +36,103 @@ pub fn project_root(cwd: &Path) -> PathBuf {
     } else {
         cwd.canonicalize().unwrap_or_else(|_| cwd.to_path_buf())
     };
-    cache.write().insert(cwd.to_path_buf(), root.clone());
+    if let Some(identity) =
+        identity.filter(|before| RepositoryIdentity::read(cwd).as_ref() == Some(before))
+    {
+        cache.write().insert(
+            cwd.to_path_buf(),
+            CachedProjectRoot {
+                identity,
+                root: root.clone(),
+            },
+        );
+    } else {
+        cache.write().remove(cwd);
+    }
     root
+}
+
+struct CachedProjectRoot {
+    identity: RepositoryIdentity,
+    root: PathBuf,
+}
+
+#[derive(PartialEq, Eq)]
+struct RepositoryIdentity {
+    cwd: PathBuf,
+    marker: PathBuf,
+    git_dir: PathBuf,
+    common_dir: PathBuf,
+    toplevel_config: Option<[Option<GitConfigStamp>; 2]>,
+}
+
+#[derive(PartialEq, Eq)]
+struct GitConfigStamp {
+    modified: SystemTime,
+    len: u64,
+}
+
+impl RepositoryIdentity {
+    fn read(cwd: &Path) -> Option<Self> {
+        let cwd = cwd.canonicalize().ok()?;
+        let marker = cwd
+            .ancestors()
+            .map(|dir| dir.join(".git"))
+            .find(|marker| marker.exists())?;
+        let git_dir = if marker.is_dir() {
+            marker.canonicalize().ok()?
+        } else {
+            let content = read_git_path(&marker)?;
+            let target = content.trim().strip_prefix("gitdir: ")?;
+            marker.parent()?.join(target).canonicalize().ok()?
+        };
+        let common_file = git_dir.join("commondir");
+        let common_dir = match std::fs::metadata(&common_file) {
+            Ok(_) => git_dir
+                .join(read_git_path(&common_file)?.trim())
+                .canonicalize()
+                .ok()?,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => git_dir.clone(),
+            Err(_) => return None,
+        };
+        let toplevel_config = if common_dir.file_name()? == ".git" {
+            None
+        } else {
+            Some([
+                git_config_stamp(&common_dir.join("config"))?,
+                git_config_stamp(&git_dir.join("config.worktree"))?,
+            ])
+        };
+        Some(Self {
+            cwd,
+            marker,
+            git_dir,
+            common_dir,
+            toplevel_config,
+        })
+    }
+}
+
+fn git_config_stamp(path: &Path) -> Option<Option<GitConfigStamp>> {
+    match std::fs::metadata(path) {
+        Ok(metadata) => Some(Some(GitConfigStamp {
+            modified: metadata.modified().ok()?,
+            len: metadata.len(),
+        })),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Some(None),
+        Err(_) => None,
+    }
+}
+
+fn read_git_path(path: &Path) -> Option<String> {
+    const LIMIT: u64 = 16 * 1024;
+    let mut content = String::new();
+    std::fs::File::open(path)
+        .ok()?
+        .take(LIMIT + 1)
+        .read_to_string(&mut content)
+        .ok()?;
+    (content.len() <= LIMIT as usize).then_some(content)
 }
 
 /// Cheap filesystem probe that lets non-repository cwds skip the git spawns.
@@ -164,18 +266,18 @@ pub fn plan_json_path(
 }
 
 pub fn plan_sidecar_root(plan: &crate::plan::Plan) -> &Path {
-    if plan.canonical_project_path.trim().is_empty() {
-        Path::new(&plan.project_path)
-    } else {
-        Path::new(&plan.canonical_project_path)
-    }
+    sidecar_root(&plan.project_path, &plan.canonical_project_path)
 }
 
 pub fn spec_sidecar_root(spec: &crate::plan::Spec) -> &Path {
-    if spec.canonical_project_path.trim().is_empty() {
-        Path::new(&spec.project_path)
+    sidecar_root(&spec.project_path, &spec.canonical_project_path)
+}
+
+pub(super) fn sidecar_root<'a>(project: &'a str, canonical: &'a str) -> &'a Path {
+    if canonical.trim().is_empty() {
+        Path::new(project)
     } else {
-        Path::new(&spec.canonical_project_path)
+        Path::new(canonical)
     }
 }
 

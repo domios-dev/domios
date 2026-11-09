@@ -1,5 +1,4 @@
-import type { Plan } from "../types";
-
+import type { PlanView as Plan } from "../planProjection";
 /** The plan a detail request names. No id means the selected plan; an unknown id opens nothing. */
 export function planForDetail(
   id: string | undefined,

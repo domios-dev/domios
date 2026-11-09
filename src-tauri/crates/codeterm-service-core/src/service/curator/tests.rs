@@ -27,6 +27,30 @@ fn curator_mirrors_only_the_orchestrators_confirmed_session() {
 }
 
 #[test]
+fn curator_mirror_carries_the_orchestrators_launch_profile() {
+    let (mut mux, id) = crate::multiplexer::state::MultiplexerState::new();
+    let tab = mux.get_tab_mut(&id).unwrap();
+    tab.backing = crate::multiplexer::types::TabBacking::ChatBackend {
+        plugin_id: "fixture-provider".into(),
+        session_id: "session".into(),
+    };
+    tab.chat_view = true;
+    tab.agent_type = Some("fixture-provider".into());
+    tab.agent_session_id = Some("session".into());
+    tab.agent_session_model = Some("actual-model".into());
+    tab.session_binding_nonce = Some("nonce".into());
+    tab.reported_session_binding_nonce = Some("nonce".into());
+    assert_eq!(
+        scheduling::resolve_mirror(tab).unwrap().launch_profile,
+        None
+    );
+    tab.agent_runtime_config = Some(serde_json::json!({"launchProfile":"opaque-profile"}));
+    let mirror = scheduling::resolve_mirror(tab).unwrap();
+    assert_eq!(mirror.launch_profile.as_deref(), Some("opaque-profile"));
+    assert_eq!(mirror.model, "actual-model");
+}
+
+#[test]
 fn curator_grants_expire_at_round_session_and_binding_boundaries() {
     let identity = CuratorIdentity {
         plan_id: "plan".into(),
@@ -139,7 +163,7 @@ fn curator_launch_failure_clears_the_unbound_round() {
     fixture
         .service
         .plan_store
-        .with_plan(&id, 100, |plan| {
+        .edit_plan_fixture(&id, 100, |plan| {
             plan.control_loop.running = Some(CuratorRun {
                 number: 2,
                 started_at: 100,

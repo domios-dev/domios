@@ -48,16 +48,16 @@ impl AdoptPlanExt for PlanStore {
         plan.team_id = None;
         let target_dir = plan_dir_unchecked(&target_project, &plan.status, &plan.id);
         let task_count = canonical_task_count(&source_dir, &plan);
+        let destination_taken =
+            destination_exists(&target_dir, &plan.id) || self.plan_exists_projection(&plan.id)?;
         let warnings = adoption_warnings(
             &plan,
             &source_dir,
             &target_project,
-            self,
+            destination_taken,
             &request,
             task_count,
         );
-        let destination_taken =
-            destination_exists(&target_dir, &plan.id) || self.get(&plan.id).is_some();
         let report = AdoptPlanReport {
             ok: request.overwrite || !destination_taken,
             dry_run: request.dry_run,
@@ -84,7 +84,7 @@ impl AdoptPlanExt for PlanStore {
         }
         copy_dir_all(&source_dir, &target_dir).map_err(|e| PlanError::Io(e.to_string()))?;
         normalize_adopted_plan(&mut plan, &target_project, request.owner);
-        self.save(&mut plan, now_ms)
+        self.import_plan(&mut plan, now_ms)
             .map_err(|e| PlanError::Io(e.to_string()))?;
         self.reload_from_disk(&plan.id)?;
         if request.remove_source && source_dir != target_dir && source_dir.exists() {
@@ -178,7 +178,7 @@ fn adoption_warnings(
     plan: &Plan,
     source_dir: &Path,
     target_project: &Path,
-    store: &PlanStore,
+    destination_taken: bool,
     request: &AdoptPlanRequest,
     task_count: usize,
 ) -> Vec<String> {
@@ -231,8 +231,7 @@ fn adoption_warnings(
     if plan.heartbeat.current_focus.is_some() || !plan.heartbeat.active_lanes.is_empty() {
         warnings.push("heartbeat focus and active lanes will be cleared".into());
     }
-    let target_dir = plan_dir_unchecked(target_project, &plan.status, &plan.id);
-    if destination_exists(&target_dir, &plan.id) || store.get(&plan.id).is_some() {
+    if destination_taken {
         warnings.push(format!("destination plan id {} already exists", plan.id));
     }
     if request.remove_source && source_dir.starts_with(target_project) {

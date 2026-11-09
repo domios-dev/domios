@@ -45,16 +45,16 @@ it("confirmation sends one target selection and shows its result", async () => {
     expect(document.querySelector('[aria-label="Target model: Sonnet 5.5"]')).not.toBeNull();
     expect(document.querySelector('[aria-label="Reasoning effort: Effort"]')).not.toBeNull();
     expect(send).not.toHaveBeenCalled();
-    await act(async () => { const confirm = button("Switch provider"); confirm.click(); confirm.click(); });
+    await act(async () => { const confirm = button("Switch harness"); confirm.click(); confirm.click(); });
     expect(send).toHaveBeenCalledExactlyOnceWith("owned", "target", { model: "model-token", reasoningEffort: "effort-token", force: false });
     await act(async () => finish(result));
-    expect(button("Previous provider: source")).not.toBeNull();
+    expect(button("Previous harness: source")).not.toBeNull();
     __setInvokeForTest(async <T,>(command: string) => {
       expect(command).toBe("read_provider_history");
       return [{ type: "user", content: "opaque-prior-🪵" }] as T;
     });
-    await act(async () => button("Previous provider: source").click());
-    expect(document.querySelector('[aria-label="Previous provider transcript"]')?.textContent).toContain("opaque-prior-🪵");
+    await act(async () => button("Previous harness: source").click());
+    expect(document.querySelector('[aria-label="Previous harness transcript"]')?.textContent).toContain("opaque-prior-🪵");
   } finally { await act(async () => root.unmount()); host.remove(); }
 });
 
@@ -152,12 +152,12 @@ it("explicit stop is carried and refusals stay visible without retry", async () 
   __setInvokeForTest(async <T,>(command: string, args?: Record<string, unknown>) => await read(command, args) as T);
   try {
     await act(async () => root.render(<ProviderSwitchDialog tab={tab} initialProviderId="target" onClose={() => {}} />));
-    await act(async () => button("Switch provider").click());
+    await act(async () => button("Switch harness").click());
     expect(read).toHaveBeenCalledTimes(1);
     expect(document.querySelector('[role="status"]')).not.toBeNull();
-    expect(document.querySelector('[aria-label="Previous provider transcript"]')).toBeNull();
+    expect(document.querySelector('[aria-label="Previous harness transcript"]')).toBeNull();
     await act(async () => finish({ phase: "completed", outcome: result }));
-    expect(button("Previous provider: source")).not.toBeNull();
+    expect(button("Previous harness: source")).not.toBeNull();
   } finally { await act(async () => root.unmount()); host.remove(); }
 });
 
@@ -169,13 +169,13 @@ it("disables unavailable targets with a reason and refuses submission from a sta
   __setTabProviderApiForTest({ switchProvider: send });
   try {
     await act(async () => root.render(<ProviderSwitchDialog tab={tab} initialProviderId="unavailable" onClose={() => {}} />));
-    expect(button("Switch provider").disabled).toBe(true);
+    expect(button("Switch harness").disabled).toBe(true);
     const trigger = document.querySelector<HTMLButtonElement>('button[aria-label^="Target provider:"]');
     await act(async () => trigger?.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true })));
     const unavailable = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')).find(item => item.textContent?.includes("Unavailable target"));
     expect(unavailable?.disabled).toBe(true);
     expect(unavailable?.textContent).toContain("not installed");
-    await act(async () => { unavailable?.click(); button("Switch provider").click(); });
+    await act(async () => { unavailable?.click(); button("Switch harness").click(); });
     expect(send).not.toHaveBeenCalled();
   } finally { await act(async () => root.unmount()); host.remove(); }
 });
@@ -188,11 +188,11 @@ it("offers an explicit retry after an authentication probe timeout", async () =>
   __setTabProviderApiForTest({ switchProvider: send });
   try {
     await act(async () => root.render(<ProviderSwitchDialog tab={tab} initialProviderId="target" onClose={() => {}} />));
-    await act(async () => button("Switch provider").click());
-    expect(document.querySelector('[aria-label="The provider authentication check timed out"]')).not.toBeNull();
+    await act(async () => button("Switch harness").click());
+    expect(document.querySelector('[aria-label="The harness authentication check timed out"]')).not.toBeNull();
     expect(send).toHaveBeenCalledTimes(1);
     await act(async () => button("Retry").click());
     expect(send).toHaveBeenCalledTimes(2);
-    expect(button("Previous provider: source")).not.toBeNull();
+    expect(button("Previous harness: source")).not.toBeNull();
   } finally { await act(async () => root.unmount()); host.remove(); }
 });

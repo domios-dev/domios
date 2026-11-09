@@ -161,6 +161,7 @@ fn status_snapshot(
     let out = json!({
         "plan_id": plan_id,
         "tab_id": tab_id,
+        "details": state.get("details").cloned().unwrap_or(Value::Null),
         "live_lanes": {
             "open": state.get("open_lanes").cloned().unwrap_or_else(|| json!([])),
             "blocked": state.get("blocked_lanes").cloned().unwrap_or_else(|| json!([])),
@@ -244,20 +245,36 @@ fn compact_status(value: &Value) -> Value {
         .get("blocked_or_gated_count")
         .and_then(Value::as_u64)
         .unwrap_or_else(|| count(&["live_lanes", "blocked"]) as u64);
+    let total = |name: &str, fallback: usize| {
+        value
+            .pointer("/details/totals")
+            .and_then(|totals| totals.get(name))
+            .and_then(Value::as_u64)
+            .unwrap_or(fallback as u64)
+    };
+    let live_total = |name: &str, fallback: usize| {
+        value
+            .get("details")
+            .and_then(|details| details.get(name))
+            .and_then(Value::as_u64)
+            .unwrap_or(fallback as u64)
+    };
     json!({
         "plan_id": value.get("plan_id").cloned().unwrap_or(Value::Null),
         "tab_id": value.get("tab_id").cloned().unwrap_or(Value::Null),
         "live_lanes": {
-            "open": live_lane_count("open"),
-            "blocked": live_lane_count("blocked"),
-            "agents": count(&["live_lanes", "agents"]),
+            "open": live_total("live_open_lanes", live_lane_count("open")),
+            "blocked": live_total("live_blocked_lanes", live_lane_count("blocked")),
+            "agents": total("live_agents", count(&["live_lanes", "agents"])),
         },
-        "open_tasks": count(&["live_lanes", "open"]),
+        "open_tasks": total("open_lanes", count(&["live_lanes", "open"])),
         "blocked_or_gated_tasks": blocked_or_gated,
         "drift": drift,
         "report_delivery_drift": report_delivery_drift,
+        "report_delivery_drift_total": value.pointer("/drift/by_kind/report_target_write_missing").and_then(Value::as_u64).unwrap_or(report_delivery_drift.len() as u64),
         "next_actions": compact_actions,
-        "next_actions_total": actions.len(),
+        "next_actions_total": total("next_actions", actions.len()),
+        "next_action_counts": value.pointer("/details/next_action_counts").cloned().unwrap_or_else(||json!({})),
         "reminder": value.get("reminder").cloned().unwrap_or_else(|| json!({})),
     })
 }
@@ -333,6 +350,13 @@ fn render_status(value: &Value) -> String {
         display_optional(reminder.get("last_delivery")),
         display_optional(reminder.get("delivery_failure_retry_reason")),
     ));
+    let report_total = value
+        .get("report_delivery_drift_total")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    if report_total > 0 {
+        out.push_str(&format!("report_delivery_total: {report_total}; use `domios plan reconcile {plan_id}` for all findings\n"));
+    }
     if actions.is_empty() {
         out.push_str("next_actions: none\n");
     } else {
@@ -361,7 +385,7 @@ fn render_status(value: &Value) -> String {
         let hidden = action_total.saturating_sub(3);
         if hidden > 0 {
             out.push_str(&format!(
-                "- +{hidden} more; use `domios orchestrator inspect --plan {plan_id}`\n"
+                "- +{hidden} more; use `domios plan next {plan_id} --page 2` or `domios plan next {plan_id} --all`\n"
             ));
         }
     }

@@ -1,3 +1,4 @@
+import { ioTestContext } from "../../provider-shared/tests/hostIo";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
@@ -24,7 +25,7 @@ for (const platform of ["windows", "linux", "macos"]) {
         },
       },
     };
-    vm.createContext(context);
+    vm.createContext(ioTestContext(context));
     vm.runInContext(source, context);
     const plugin = context.module.exports.default;
     assert.equal(plugin.starterPromptText!("no_starter"), undefined);

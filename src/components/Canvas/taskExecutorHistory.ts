@@ -1,6 +1,7 @@
+import type { PlanTaskView as Task } from "./planProjection";
 import type { Tab } from "../../lib/types";
 import { isActiveTaskStatus } from "./tabCurrentTask";
-import type { Milestone, Task, TaskExecutionAttempt } from "./types";
+import type { Milestone, TaskExecutionAttempt } from "./types";
 
 export interface HistoricalExecutorView {
   label: string;
@@ -63,7 +64,7 @@ function attemptLabel(attempt: TaskExecutionAttempt, tabs: Record<string, Tab>):
 }
 
 function inferReportStatus(task: Task): string | null {
-  const reportMilestone = task.milestones
+  const reportMilestone = (task.milestones ?? [])
     .filter((m) => /report|status|done|blocked|partial|review/i.test(m.kind))
     .reduce<Milestone | null>((latest, m) => (!latest || m.ts > latest.ts ? m : latest), null);
   if (reportMilestone) return reportMilestone.kind.replace(/[_-]+/g, " ");

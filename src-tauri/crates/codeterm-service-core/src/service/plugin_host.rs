@@ -546,16 +546,16 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
         &self,
         tab_id: &str,
         binding_nonce: &str,
-    ) -> std::collections::HashMap<String, String> {
-        let env = self.tab_env(tab_id);
+    ) -> Result<std::collections::HashMap<String, String>, String> {
+        let env = self.tab_env(tab_id)?;
         if env
             .get("CODETERM_SESSION_BINDING_NONCE")
             .map(String::as_str)
             == Some(binding_nonce)
         {
-            env
+            Ok(env)
         } else {
-            Default::default()
+            Ok(Default::default())
         }
     }
 
@@ -630,6 +630,10 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
 
     fn secret_delete(&self, plugin_id: &str, name: &str) -> bool {
         secret_bucket(plugin_id).delete(name).is_ok()
+    }
+
+    fn launch_profile_secret(&self, plugin_id: &str, profile: &str, env: &str) -> Option<String> {
+        crate::usage::profile_limits::launch_profile_secret(self, plugin_id, profile, env)
     }
 
     // ── Surfaces ─────────────────────────────────────────────────────────

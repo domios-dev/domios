@@ -601,7 +601,7 @@ impl ServiceContext {
             tab_id: caller_tab_id.to_string(),
             label: tab.title.clone(),
             from_agent: Some(true),
-            from_model: tab.agent_session_model.clone(),
+            from_model: tab.agent_session_model_label(),
         };
         request_continue_from(
             &mut tab.turn_resume,

@@ -22,7 +22,8 @@ use decision::suppressed;
 pub(crate) use delivery_log::{delivery_tick, DeliveryTick, TickFact};
 pub(crate) use runtime::journal;
 pub(crate) use snapshot::{
-    actionable_pending, binding_digest, collect, collect_owner_messages, collect_worker_scope,
+    actionable_pending, binding_digest, binding_digest_fields, collect, collect_owner_messages,
+    collect_worker_scope, scrubbed,
 };
 #[cfg(test)]
 pub(crate) use state::Telemetry;

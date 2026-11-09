@@ -136,7 +136,11 @@ pub(crate) fn start_background_tasks(
                     if !changed && !heartbeat_due && !became_ready {
                         continue;
                     }
-                    let report = mesh::broadcast_announce(&mesh, None).await;
+                    let report = if changed && !became_ready && !heartbeat_due {
+                        mesh::broadcast_address_change(&mesh).await
+                    } else {
+                        mesh::broadcast_announce(&mesh, None).await
+                    };
                     last_heartbeat = std::time::Instant::now();
                     let kind = if became_ready {
                         "readiness"
@@ -176,12 +180,8 @@ pub(crate) fn start_background_tasks(
         let update_st = states.update.clone();
         let update_ui = service.ui.clone();
         codeterm_service_core::async_runtime::spawn(async move {
-            if let Err(error) =
-                codeterm_commands::update::discovery::check(&update_ui, &update_st, bundles, true)
-                    .await
-            {
-                log::warn!("[update-discovery] startup check failed: {error}");
-            }
+            codeterm_commands::update::discovery::lifecycle::run(update_ui, update_st, bundles)
+                .await;
         });
     }
 

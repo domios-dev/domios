@@ -163,8 +163,10 @@ fn agent_models_cli_preserves_codex_live_default_from_models_cache() {
     let host_setup = format!(
         r#"host.homeDir = function () {{ return "/fixture-home"; }};
 host.platform = function () {{ return "linux"; }};
-host.fs.fileExists = function (path) {{ return path.endsWith("/.codex/models_cache.json"); }};
-host.fs.readJson = function (path) {{ return path.endsWith("/.codex/models_cache.json") ? ({cache_json}) : null; }};"#
+const fixtureEnvGet = host.envGet;
+host.envGet = function (name) {{ return name === "CODEX_HOME" ? null : fixtureEnvGet.call(host, name); }};
+host.io.fs.fileExists = function* (path) {{ return path.endsWith("/.codex/models_cache.json"); }};
+host.io.fs.readJson = function* (path) {{ return path.endsWith("/.codex/models_cache.json") ? ({cache_json}) : null; }};"#
     );
     let bundle = format!(
         "{host_setup}\n{}",

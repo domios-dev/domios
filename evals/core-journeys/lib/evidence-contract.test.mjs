@@ -11,6 +11,8 @@ import { fileURLToPath } from "node:url";
 import { exitCode, validateRun, validateTree } from "./evidence-contract.mjs";
 import { fixtureResults, fixtureRestart, writeFixtureRun } from "./fixture-run.mjs";
 import { emptyResults, recorder } from "./results.mjs";
+import { modelEvidenceErrors } from "./model-evidence.mjs";
+import { profileSelection } from "./profile-policy.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const scratch = () => mkdtempSync(join(tmpdir(), "cj-contract-"));
@@ -24,6 +26,38 @@ function run(mutate = () => {}, { restart = fixtureRestart() } = {}) {
 }
 
 const errorsOf = (dir) => validateRun(dir).errors.join("\n");
+
+function withProfileEvidence() {
+  const { state } = fixtureResults(), policy = state.model_policy;
+  const selected = "gemini-cli";
+  const entry = profileSelection({ id: "acp", agent_runtime: { launchProfiles: { [selected]: {} } } }, selected,
+    [{ id: selected, install: "detected", auth: "unknown", configOptions: [] }]);
+  policy.roster.push("acp"); policy.selections.acp = selected; policy.catalogues.acp = entry;
+  policy.verify_catalogues = { acp: structuredClone(entry) };
+  for (const configuration of Object.values(policy.configurations)) configuration.defaults = { ...configuration.defaults, acp: null };
+  const identity = { provider: "acp", selected, launch_profile: selected, requested: null, resolved: null, actual: null, session: "acp-session" };
+  policy.identities.acpTab = identity; policy.restored_identities.acpTab = { ...identity };
+  policy.launches.push({ provider: "acp", path: "J1-spawn", model: null, selection: selected, launch_profile: selected, catalogue: entry, checked_at: "2026-01-01T00:00:00Z" });
+  state.tabs.push({ id: "acpTab", provider: "acp", journey: "J1", session: identity.session });
+  state.before_restart.tabs.push({ id: "acpTab", agent_type: "acp", session: identity.session, owned: true, model_identity: identity });
+  return state;
+}
+
+test("evidence accepts profile-default identity without claiming an actual model, including restart", () => {
+  assert.deepEqual(modelEvidenceErrors(withProfileEvidence()), []);
+});
+
+test("evidence refuses profile substitution, missing readiness and invented default-model evidence", () => {
+  for (const mutate of [
+    state => { state.model_policy.launches.at(-1).launch_profile = "other"; },
+    state => { state.model_policy.catalogues.acp.profile.install = "not_installed"; },
+    state => { state.model_policy.restored_identities.acpTab.launch_profile = "other"; },
+    state => { state.model_policy.configurations.verify.defaults.acp = "gemini-cli"; },
+  ]) {
+    const state = withProfileEvidence(); mutate(state);
+    assert.ok(modelEvidenceErrors(state).length > 0);
+  }
+});
 
 test("a complete run directory passes and exits 0", () => {
   const dir = run();
@@ -136,4 +170,37 @@ test("requested, resolved and actual model identities and restart proof must all
   }
   assert.match(errorsOf(run((results) => { delete results.state.model_policy.restored_identities.tab1; })), /selected identity absent/);
   assert.match(errorsOf(run((results) => { results.state.model_policy.restored_identities.tab1.session = "foreign"; })), /restored policy session changed/);
+});
+
+
+function qualifyCachedVerify(results) {
+  const policy = results.state.model_policy, provider = "opencode";
+  const build = results.phases.find(phase => phase.name === "setup").build_sha;
+  policy.setup_live = { [provider]: { run: results.state.run, build_sha: build,
+    catalogue: structuredClone(policy.catalogues[provider]) } };
+  const entry = structuredClone(policy.catalogues[provider]);
+  entry.refresh.refreshed = false;
+  entry.refresh.reason = "the provider reported no live model list";
+  entry.qualification = { verified_live_in_setup: true, post_restart_refresh_in_flight: true,
+    model_present_in_cache: true, model_id: policy.selections[provider], run: results.state.run, build_sha: build };
+  policy.catalogues[provider] = entry;
+  policy.verify_catalogues = { [provider]: structuredClone(entry) };
+}
+
+test("validator accepts explicit verify cache qualification backed by same-run live setup", () => {
+  const dir = run(qualifyCachedVerify);
+  try { assert.deepEqual(validateRun(dir).errors, []); } finally { rmSync(dir, { recursive: true }); }
+});
+
+test("validator rejects cached verification without live proof or with a different actual phase build/model", () => {
+  for (const mutate of [
+    results => { delete results.state.model_policy.setup_live.opencode; },
+    results => { results.state.model_policy.setup_live.opencode.catalogue.refresh.refreshed = false; },
+    results => { results.phases.find(phase => phase.name === "verify").build_sha = "different-build"; },
+    results => { results.state.model_policy.verify_catalogues.opencode.model.id = "substituted"; },
+    results => { results.state.model_policy.catalogues.opencode.qualification.verified_live_in_setup = false; },
+  ]) {
+    const dir = run(results => { qualifyCachedVerify(results); mutate(results); });
+    try { assert.equal(validateRun(dir).pass, false); } finally { rmSync(dir, { recursive: true }); }
+  }
 });

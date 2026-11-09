@@ -1,9 +1,10 @@
+import type { PlanView as Plan, PlanTaskView as Task } from "../planProjection";
 import type { Tab } from "../../../lib/types";
 import { buildTaskPresence } from "../taskPresence";
 import { resolvePlanExclusiveTabTasks, taskBoundToTab } from "../tabCurrentTask";
 import { activityAge } from "./planListModel";
 import type { PlanSwitcherOption } from "./PlanSwitcher";
-import { TaskStatus, type Plan, type Task, type TaskStatus as TaskStatusType } from "../types";
+import { TaskStatus, type TaskStatus as TaskStatusType } from "../types";
 
 // Mirror src-tauri/src/plan/reconcile.rs — keep thresholds aligned with plan-state drift.
 export const IN_REVIEW_UNJUDGED_STALE_MS = 2 * 60 * 60 * 1000;
@@ -56,7 +57,7 @@ function executorLabel(tabId: string | null, tabs: Record<string, Tab>): string 
 
 export function taskActivityFreshnessTs(task: Task): number {
   let max = Math.max(task.status_changed_at ?? 0, task.updated_at ?? 0, task.created_at ?? 0);
-  for (const m of task.milestones) max = Math.max(max, m.ts ?? 0);
+  for (const m of task.milestones ?? []) max = Math.max(max, m.ts ?? 0);
   return max;
 }
 

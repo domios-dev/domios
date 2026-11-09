@@ -1,6 +1,20 @@
 use super::*;
 
 #[test]
+fn a_frame_never_carries_a_raw_qualified_model_id() {
+    let raw = Some(r#"["deepseek-official","deepseek-v4-pro"]"#.to_string());
+    let envelope = MessageEnvelope::tab("Sender", "tab-a".to_string()).model(raw.clone());
+    let wrapped = Messenger::message("Sender", "tab-a")
+        .model(raw)
+        .wrap("body");
+    let runtime = inbound_model_context(&envelope, "body");
+    for text in [wrapped, runtime] {
+        let parsed = codeterm_wire::domios::parse_message(&text).unwrap();
+        assert_eq!(parsed.attr("model"), Some("deepseek-v4-pro"));
+    }
+}
+
+#[test]
 fn concierge_provenance_survives_pty_and_runtime_context_rendering() {
     let envelope = MessageEnvelope {
         from_tab: "opaque-concierge".into(),

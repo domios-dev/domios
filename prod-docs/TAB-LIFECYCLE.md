@@ -33,7 +33,7 @@ Backup: stop cleanly; copy all `storage/` (DB, assets, import archive). Restore 
 6. Armed graceful-shutdown exits retain provider/session/nonces. Failed launches retain provider, role/profile, session, exact restore data and failure card. Only authenticated-launch exit clears identity into lineage. Recovery requires the provider to verify this tab's nonce-bound session or journaled launch target exists for its cwd, then binds a new nonce. `agent restart` resumes in place with saved arguments. `LaunchBindingUnconfirmed` + shell-ready PTY + known provider + no saved/journaled session yields `fresh_launch`. A hand-started provider inherits the exited nonce; its hook with the newest retired nonce adopts `agent_ready` only if no launch owns the tab.
 7. A Team member that exited to shell before shutdown stays a shell; report: `agent_exited_before_shutdown`, `exited_session_id`. Recover with `agent restart`.
 8. A missing saved cwd never redirects launch: retain cwd/session, show `spawn_failed` naming the directory and notify. Restore the directory, then `domios agent restart --tab ID`.
-9. Exact sessions are never silently replaced. Provider-confirmed missing sessions offer **Start new session** / **Keep shell**. `domios agent restart --tab ID --fresh` clears dead session/exact binding, retaining tab/cwd/Team/plan/model/effort. Existing exact sessions refuse; live agents require `--force`.
+9. Exact sessions are never silently replaced, except one the provider refuses to load whose saved transcript holds no agent output: that tab starts a fresh session automatically, keeps the transcript and archives the old session id. Other provider-confirmed missing sessions offer **Start new session** / **Keep shell**. `domios agent restart --tab ID --fresh` clears dead session/exact binding, retaining tab/cwd/Team/plan/model/effort. Existing exact sessions refuse; live agents require `--force`.
 
 ## Resume after restart
 
@@ -171,4 +171,4 @@ Working tabs continue. Success: idle tabs (General included) `agent restart` as 
 
 Summary counts restarted/pending/failed restarts and updates in place as pending tabs finish. Supporter journals update runs, safe prompt answers and individual restart outcomes.
 
-<!-- revision: 66 -->
+<!-- revision: 67 -->

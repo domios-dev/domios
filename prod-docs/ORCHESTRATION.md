@@ -75,7 +75,7 @@ Discovery must lead to decisions and implementation, review or verification; res
 Duplicate Worker guidance in `plan doctor` is advisory. Summarize a green draft and ask the owner; after UI approval verify `planning_state=approved`, after conversational approval run `domios plan approve <plan>` once and verify it. Record Planner waivers.
 ## Dispatch contract
 
-Workers default to full machine access; `--execution-intent` governs task and report authority, not OS permissions. Use the default launch policy for project workers. General Agent owns concierge confinement setup; do not change provider or machine sandbox settings as an orchestration workaround. Existing launch restrictions remain binding. Task-less verification reports omit `--status` and `--task`.
+Workers default to full machine access; `--execution-intent` governs task and report authority, not OS permissions. Use the default launch policy for project workers. General Agent owns concierge confinement setup; do not change provider or machine sandbox settings as an orchestration workaround. Existing launch restrictions remain binding. Task-less verification reports omit `--status` and `--task`. The provider allowance is advisory: a low, exhausted or negative allowance adds a `provider_allowance_low` warning to the dispatch receipt and never blocks dispatch, spawn, respawn or compete; `--provider-reserve-pct` only sets the warning threshold.
 
 ## Worker kinds
 
@@ -99,8 +99,8 @@ Bounce resumes the Worker or reopens its task; hold keeps review, assignment and
 
 ### Quiet team heartbeat
 
-The default Curator control loop replaces the Orchestrator heartbeat. It mirrors the Orchestrator's model, starts from a bounded activity digest, and chooses its next round within 45 minutes to two hours. Quiet windows use a free heartbeat nudge only when work needs attention. Paused plans, completed plans and Teams waiting on a human do not launch rounds. Owners can select heartbeat mode and its interval; failures expose a visible heartbeat fallback. Worker reminders keep their own interval. See `ORCHESTRATION-OPERATIONS`.
+The default Curator control loop replaces the Orchestrator heartbeat. It mirrors the Orchestrator's provider, launch profile and model, starts from a bounded activity digest, and chooses its next round within 45 minutes to two hours. Quiet windows use a free heartbeat nudge only when work needs attention. Paused plans, completed plans and Teams waiting on a human do not launch rounds. Owners can select heartbeat mode and its interval; failures expose a visible heartbeat fallback. Worker reminders keep their own interval. See `ORCHESTRATION-OPERATIONS`.
 
 A `[provider access lost]` notice means recover the login or respawn on another provider, never a completed task; routing is in `ORCHESTRATION-TASKS`.
 
-<!-- revision: 145 -->
+<!-- revision: 147 -->

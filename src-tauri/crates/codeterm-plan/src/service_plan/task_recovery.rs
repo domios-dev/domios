@@ -1,6 +1,5 @@
 use crate::plan::{Task, TaskStatus};
 
-use super::readback::pending_after_verified;
 use super::{PlanError, PlanStore};
 
 pub const OWNER_RETIRED_LABEL: &str = "owner_retired";
@@ -55,8 +54,6 @@ fn owner_is_stale(task: &Task, live_tab: impl Fn(&str) -> bool) -> bool {
 }
 
 impl PlanStore {
-    /// ONE `with_plan` transaction: attempts retired, dead owner cleared, epoch
-    /// superseded, recovered status applied — never observable half-applied.
     pub fn retire_stale_task_owner(
         &self,
         plan_id: &str,
@@ -78,108 +75,71 @@ impl PlanStore {
         now_ms: u64,
     ) -> Result<StaleOwnerRetirement, PlanError> {
         let status_label = status_label.unwrap_or(OWNER_RETIRED_LABEL);
-        let mut retirement = None;
-        let write = self.with_plan(plan_id, now_ms, |plan| {
-            let task = crate::plan::task_key::find_task_mut(&mut plan.tasks, task_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            if !owner_is_stale(task, &live_tab) {
-                return Err(PlanError::Io(
-                    "task owner tab is still live; recovery is only for a tab-gone owner".into(),
-                ));
-            }
-            let previous_owner_tab_id = task.interruption.owner_tab_id.clone();
-            let nothing_live = task
-                .execution_attempts
-                .iter()
-                .all(|attempt| attempt.closed_at.is_some());
-            if nothing_live
-                && previous_owner_tab_id.is_none()
-                && task.interruption.owner_session_id.is_none()
-                && recovered_status(&outcome, &task.status)
-                    .is_none_or(|status| task.status == status)
-                && task.status_label.as_deref() == Some(status_label)
-            {
-                retirement = Some(StaleOwnerRetirement {
-                    retired_attempt_ids: Vec::new(),
-                    owner_epoch: task.interruption.owner_epoch,
-                    previous_owner_tab_id,
-                    applied: false,
-                });
-                return Ok(());
-            }
-            let retired = retire_attempts(task, now_ms, |attempt| attempt.closed_at.is_none());
-            let owner_epoch = task.interruption.owner_epoch.saturating_add(1);
-            task.interruption.owner_epoch = owner_epoch;
-            task.interruption.owner_tab_id = None;
-            task.interruption.owner_session_id = None;
-            task.interruption.handoff_required = false;
-            task.assigned_tab_id = None;
-            task.lane.tab_id = None;
-            task.taken_by_role = None;
-            let recovered = recovered_status(&outcome, &task.status);
-            let recovered_review_to_pending = task.status == TaskStatus::InReview
-                && recovered.as_ref() == Some(&TaskStatus::Pending);
-            if let Some(status) = recovered {
-                if task.status != status {
-                    task.status_changed_at = now_ms;
+        self.with_task_rows(
+            plan_id,
+            task_id,
+            super::store_db::hot_write::TaskHistory::LiveAndReported,
+            now_ms,
+            |edit| {
+                let task = &mut edit.task;
+                if !owner_is_stale(task, &live_tab) {
+                    return Err(PlanError::Io(
+                        "task owner tab is still live; recovery is only for a tab-gone owner"
+                            .into(),
+                    ));
                 }
-                task.status = status;
-            }
-            if recovered_review_to_pending {
-                super::qa::normalize_task_review_fields(task);
-                super::review_gate::earn_review_credit(&mut plan.review_policy);
-            }
-            task.status_label = Some(status_label.into());
-            task.updated_at = now_ms;
-            retirement = Some(StaleOwnerRetirement {
-                retired_attempt_ids: retired,
-                owner_epoch,
-                previous_owner_tab_id,
-                applied: true,
-            });
-            Ok(())
-        });
-        let write = match write {
-            Ok(()) => Ok(()),
-            Err(error @ PlanError::WritePending { .. }) => Err(error),
-            Err(error) => return Err(error),
-        };
-        let retirement = retirement.ok_or_else(|| {
-            Self::task_readback_error("task_owner_retire", "retirement was not applied")
-        })?;
-        if !retirement.applied {
-            pending_after_verified(write, Ok(()), Some(task_id.to_string()))?;
-            return Ok(retirement);
-        }
-        let verified = (|| {
-            let task = self.read_task_for_verification(plan_id, task_id)?;
-            let all_retired = retirement.retired_attempt_ids.iter().all(|attempt_id| {
-                task.execution_attempts.iter().any(|attempt| {
-                    attempt.id == *attempt_id
-                        && attempt.retired_at.is_some()
-                        && attempt.closed_at.is_some()
+                let previous_owner_tab_id = task.interruption.owner_tab_id.clone();
+                let nothing_live = task
+                    .execution_attempts
+                    .iter()
+                    .all(|attempt| attempt.closed_at.is_some());
+                if nothing_live
+                    && previous_owner_tab_id.is_none()
+                    && task.interruption.owner_session_id.is_none()
+                    && recovered_status(&outcome, &task.status)
+                        .is_none_or(|status| task.status == status)
+                    && task.status_label.as_deref() == Some(status_label)
+                {
+                    return Ok(StaleOwnerRetirement {
+                        retired_attempt_ids: Vec::new(),
+                        owner_epoch: task.interruption.owner_epoch,
+                        previous_owner_tab_id,
+                        applied: false,
+                    });
+                }
+                let retired = retire_attempts(task, now_ms, |attempt| attempt.closed_at.is_none());
+                let owner_epoch =
+                    super::interruption::next_owner_epoch(task.interruption.owner_epoch)?;
+                task.interruption.owner_epoch = owner_epoch;
+                task.interruption.owner_tab_id = None;
+                task.interruption.owner_session_id = None;
+                task.interruption.handoff_required = false;
+                task.assigned_tab_id = None;
+                task.lane.tab_id = None;
+                task.taken_by_role = None;
+                let recovered = recovered_status(&outcome, &task.status);
+                let recovered_review_to_pending = task.status == TaskStatus::InReview
+                    && recovered.as_ref() == Some(&TaskStatus::Pending);
+                if let Some(status) = recovered {
+                    if task.status != status {
+                        task.status_changed_at = now_ms;
+                    }
+                    task.status = status;
+                }
+                if recovered_review_to_pending {
+                    super::qa::normalize_task_review_fields(task);
+                    edit.review_credit = 1;
+                }
+                task.status_label = Some(status_label.into());
+                task.updated_at = now_ms;
+                Ok(StaleOwnerRetirement {
+                    retired_attempt_ids: retired,
+                    owner_epoch,
+                    previous_owner_tab_id,
+                    applied: true,
                 })
-            });
-            let status_matches =
-                recovered_status(&outcome, &task.status).is_none_or(|status| task.status == status);
-            if !all_retired
-                || !status_matches
-                || task.interruption.owner_epoch != retirement.owner_epoch
-                || task.interruption.owner_tab_id.is_some()
-                || task.interruption.owner_session_id.is_some()
-                || task.interruption.handoff_required
-                || task.assigned_tab_id.is_some()
-                || task.status_label.as_deref() != Some(status_label)
-            {
-                return Err(Self::task_readback_error(
-                    "task_owner_retire",
-                    format!("stale owner retirement did not match for {}", task.id),
-                ));
-            }
-            Ok(())
-        })();
-        pending_after_verified(write, verified, Some(task_id.to_string()))?;
-        Ok(retirement)
+            },
+        )
     }
 }
 

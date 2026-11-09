@@ -67,14 +67,12 @@ open_settings = "Ctrl+,"
 # resume_sessions: resume agent sessions on restart (default true; [agents.<id>] overrides);
 #                  a session whose JSONL is missing, or false, launches fresh.
 # continue_after_restart: one system continue per mid-turn agent tab after any stop.
-# full_access: one global permission choice for every agent provider.
 # Omit it until onboarding or the first agent launch asks the user.
 # sandbox_ceiling: optional "read-only" or "workspace-write" cap for delegated spawns.
 poll_interval_ms = 500
 idle_timeout_s = 2
 resume_sessions = true
 continue_after_restart = true  # false disables it (domios docs TAB-LIFECYCLE)
-full_access = true
 
 [supporter]
 adapter = "typesafe-jev"
@@ -146,11 +144,11 @@ The API listens only on loopback by default. A non-loopback `host` requires a no
 
 `domios rest-api status` reads listener state through the local socket even when HTTP is down. It reports `phase`, `generation`, `diagnostic` and `message`; a port collision reports `bind_ownership_failed` with the bind address and OS error. Release the foreign port owner, then run `domios rest-api restart`. Restart waits for every bound listener's health proof and exits nonzero on failure, including with `--json`. These commands are local-only and never fall back to HTTP. Native Settings → Network also offers Restart REST API. After recovery, use Retry surface lookup on an unavailable Browser surface and confirm the page renders.
 
-Agent access is one global choice. `agent.full_access = true` applies the provider's permission-bypass capability whenever any agent starts or restarts, including General Agent; `false` keeps provider permission prompts everywhere. The first-run picker asks once with Full access selected by default; there are no per-provider, per-resume, audience, or Remember-choice policies. On first load, an enabled remembered bypass from the former global or per-provider settings is converted to `agent.full_access = true` before any agent tab starts; the removed keys are then deleted from the saved config.
+Every Domios agent starts with full machine access by default, through its provider's unattended/bypass capability, for every role and transport. `agent.full_access` is removed. Setup and the session picker no longer ask for an access choice. Neighbors concierge launches keep their authority-bound confinement; an explicit `--sandbox read-only|workspace-write` confines an ordinary launch.
 
-`agent.sandbox_ceiling` is unset by default, so Workers keep full machine access. Set to `read-only` or `workspace-write`, every delegated spawn must pass `--sandbox` at or below it; an omitted `--sandbox` means full access and is refused, as is any other value. Tabs restore and restart with the sandbox recorded at their launch.
+`agent.sandbox_ceiling` is unset by default. Set it to `read-only` or `workspace-write` to bound launches: each delegated spawn must pass `--sandbox` at or below it. An omitted `--sandbox` means full access and is refused. A confined caller also bounds its children, and cannot delegate to a mesh peer. Restore and restart keep the recorded policy without widening it; fresh launches use the current default.
 
-With `false`, a role, task, or cron launch still runs its own Domios commands (`agent startup-ack`, `agent ack`, `agent report`, `pad path`, and `cron complete` for a cron run) without an owner prompt: a provider that declares launch permissions grants exactly those commands through launch arguments when the model has no unattended mode, never through global provider settings. An Orchestrator or Planner on such a model is refused before any tab exists, naming the model and the models that have the mode. An Orchestrator launch always loses the provider's native subagent tools.
+Within explicit confinement, a provider may grant launch-scoped access to the role's Domios commands when its model has no unattended mode. An Orchestrator or Planner on such a model is refused before tab creation, naming the model. An Orchestrator launch always loses the provider's native subagent tools.
 
 ## Config API
 
@@ -207,7 +205,7 @@ Other numeric limits and accepted enum values are reported by `domios config set
 
 ## When config.toml fails to load
 
-A `config.toml` that cannot be read or parsed is never treated as empty and never overwritten. The original is renamed to `config.toml.corrupt-<unix-ms>` (newest 5 kept), one ERROR line names the file and the error, and one action-needed notification names the kept copy. Every successful save also writes a rotating backup under `state-backups/config.toml/` (newest 10 kept); the newest backup that parses is restored, so `agent.full_access` and other settings survive. With no valid backup Domios runs on in-memory defaults and refuses every save until the file is fixed or a valid one is put back (picked up without a restart). The API credential comes from the separate local secret store and is never regenerated after a parse error. During the one-time migration an intact legacy token can be salvaged and rotated; otherwise a missing credential refuses token-authenticated calls. `agent.full_access` is salvaged from intact lines. A save that finds a hand-edited file that no longer parses preserves it the same way first.
+A `config.toml` that cannot be read or parsed is never treated as empty and never overwritten. The original is renamed to `config.toml.corrupt-<unix-ms>` (newest 5 kept), one ERROR line names the file and the error, and one action-needed notification names the kept copy. Every successful save also writes a rotating backup under `state-backups/config.toml/` (newest 10 kept); the newest backup that parses is restored, so confinement ceilings and other settings survive. With no valid backup Domios runs on in-memory defaults and refuses every save until the file is fixed or a valid one is put back (picked up without a restart). The API credential comes from the separate local secret store and is never regenerated after a parse error. During the one-time migration an intact legacy token can be salvaged and rotated; otherwise a missing credential refuses token-authenticated calls. A save that finds a hand-edited file that no longer parses preserves it the same way first.
 
 ## General Agent
 
@@ -237,4 +235,4 @@ Domios account sign-in and product analytics settings: `domios docs ACCOUNT`.
 
 **Docker server:** See the distribution's packaging/docker/README.md for setup and recovery.
 Docs vectors build only on the first enabled hybrid-doc search. With docs hybrid search disabled, startup does not load a model for docs; BM25 remains available while an enabled vector build warms. Actual mem vector search still loads its model on demand.
-<!-- revision: 133 -->
+<!-- revision: 134 -->

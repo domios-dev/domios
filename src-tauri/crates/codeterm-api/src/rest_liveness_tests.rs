@@ -111,6 +111,10 @@ fn rest_liveness_health_bypasses_saturated_blocking_pool_with_real_middleware() 
 }
 
 mod logging;
+mod pty_activation;
+mod report_reads;
+mod restart_provider;
+mod storage_routes;
 
 #[tokio::test]
 async fn published_mux_state_returns_seeded_json_while_state_writers_hold_both_locks() {
@@ -144,4 +148,101 @@ async fn published_mux_state_returns_seeded_json_while_state_writers_hold_both_l
         .await
         .unwrap();
     assert_eq!(body, expected);
+}
+
+fn owner_headers(state: &crate::routes::AppState) -> axum::http::HeaderMap {
+    let token = state
+        .config
+        .lock()
+        .api
+        .token
+        .get_or_insert_with(|| "liveness-owner-fixture".into())
+        .clone();
+    let mut headers = axum::http::HeaderMap::new();
+    headers.insert("authorization", format!("Bearer {token}").parse().unwrap());
+    headers
+}
+
+pub(crate) async fn assert_health_list_send_respond(state: crate::routes::AppState) {
+    let health = tokio::time::timeout(
+        Duration::from_secs(1),
+        crate::health_routes::health(axum::extract::State(state.clone())),
+    )
+    .await
+    .expect("health must remain responsive");
+    assert_eq!(health.0["status"], "ok");
+    let listing = tokio::time::timeout(
+        Duration::from_secs(1),
+        crate::tab_routes::list_tabs(
+            axum::extract::State(state.clone()),
+            owner_headers(&state),
+            axum::extract::Query(crate::tab_routes::TabListQuery {
+                local_only: true,
+                all_workspaces: true,
+                ..Default::default()
+            }),
+        ),
+    )
+    .await
+    .expect("tab list must remain responsive")
+    .unwrap();
+    assert!(listing.0.is_array());
+    let rejection = tokio::time::timeout(
+        Duration::from_secs(1),
+        crate::tab_routes::send_text(
+            axum::extract::State(state.clone()),
+            owner_headers(&state),
+            axum::extract::Path("missing-liveness-target".into()),
+            axum::Json(serde_json::from_value(serde_json::json!({"text":"opaque"})).unwrap()),
+        ),
+    )
+    .await
+    .expect("send preflight must remain responsive")
+    .unwrap_err();
+    let response = axum::response::IntoResponse::into_response(rejection);
+    let bytes = axum::body::to_bytes(response.into_body(), 16 * 1024)
+        .await
+        .unwrap();
+    let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(value["error"]["code"], "tab_not_reachable_on_peer");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+async fn rest_liveness_credential_lookup_waits_off_worker_while_mux_is_held() {
+    use futures_util::FutureExt;
+    let (mux, tab) = MultiplexerState::new();
+    let fixture = ServiceFixture::new(mux);
+    let state = app_state(&fixture);
+    let token = state.svc.frontend_pty_env(Some(&tab)).unwrap()["CODETERM_API_TOKEN"].clone();
+    let router = crate::routes::create_router(state.clone());
+    let service = state.svc.clone();
+    let (entered, ready) = tokio::sync::oneshot::channel();
+    let (release, receive) = std::sync::mpsc::channel();
+    let holder = std::thread::spawn(move || {
+        let _mux = service.mux.write();
+        entered.send(()).unwrap();
+        receive.recv_timeout(Duration::from_secs(5)).unwrap();
+    });
+    ready.await.unwrap();
+    let mut identified = request("/api/identify");
+    identified
+        .headers_mut()
+        .insert("authorization", format!("Bearer {token}").parse().unwrap());
+    let mut identifying = Box::pin(router.clone().oneshot(identified));
+    assert!(identifying.as_mut().now_or_never().is_none());
+    let health = tokio::time::timeout(
+        Duration::from_secs(1),
+        router.oneshot(request("/api/health")),
+    )
+    .await;
+    release.send(()).unwrap();
+    holder.join().unwrap();
+    assert_eq!(
+        health
+            .expect("credential/mux wait must not block REST health")
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    assert_eq!(identifying.await.unwrap().status(), StatusCode::OK);
 }

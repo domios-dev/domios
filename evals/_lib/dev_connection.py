@@ -21,7 +21,8 @@ def dev_environment() -> dict[str, str]:
     connection = json.loads(result.stdout)
     if not connection.get("CODETERM_API_TOKEN", "").strip():
         raise ValueError("Missing DEV credential")
-    return {**{k: v for k, v in env.items() if not k.startswith("CODETERM_")}, **connection}
+    caller = {k: v for k, v in env.items() if k != "CODETERM" and not k.startswith("CODETERM_")}
+    return {**caller, **connection}
 
 
 def dev_token(connection: dict[str, str] | None = None) -> str:

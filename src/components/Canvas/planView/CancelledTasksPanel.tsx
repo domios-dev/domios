@@ -1,12 +1,15 @@
+import type { PlanTaskView as Task } from "../planProjection";
 import { Hash } from "lucide-react";
-import type { Task } from "../types";
 
-export interface CancelledTasksPanelProps {
-  tasks: readonly Task[];
-  onOpenTask: (task: Task) => void;
+
+type CancelledTask = Pick<Task, "id" | "name" | "handle">;
+
+export interface CancelledTasksPanelProps<T extends CancelledTask> {
+  tasks: readonly T[];
+  onOpenTask: (task: T) => void;
 }
 
-export function CancelledTasksPanel({ tasks, onOpenTask }: CancelledTasksPanelProps) {
+export function CancelledTasksPanel<T extends CancelledTask>({ tasks, onOpenTask }: CancelledTasksPanelProps<T>) {
   if (tasks.length === 0) return null;
 
   return (

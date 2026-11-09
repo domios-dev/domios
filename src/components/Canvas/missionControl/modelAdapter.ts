@@ -1,7 +1,8 @@
+import type { PlanView as Plan, PlanTaskView as Task } from "../planProjection";
 import type { Tab } from "../../../lib/types";
 import { displayTaskTitle } from "../planView/activeWork";
 import { isCompetitiveTask } from "../planView/competitionForTask";
-import { TaskStatus, type Plan, type Task } from "../types";
+import { TaskStatus } from "../types";
 import type { MissionControlModel, MissionZoneKey, TaskStation } from "./missionControl";
 import type {
   AgentProvider,
@@ -30,7 +31,7 @@ function clean(value?: string | null): string | null {
 }
 
 function taskHadRecentQaFail(task: Task): boolean {
-  const latest = task.milestones.reduce<{ ts: number; kind: string } | null>(
+  const latest = (task.milestones ?? []).reduce<{ ts: number; kind: string } | null>(
     (best, row) => (!best || row.ts > best.ts ? { ts: row.ts, kind: row.kind } : best),
     null,
   );
@@ -166,7 +167,7 @@ function buildHud(plan: Plan, model: MissionControlModel, lanes: MissionLane[]):
   const liveLanes = lanes.filter((l) =>
     (l.activeTasks ?? (l.activeTask ? [l.activeTask] : [])).some((t) => t.status === TaskStatus.InProgress),
   ).length;
-  const activeLoops = plan.loops.filter((l) => l.status === "running").length;
+  const activeLoops = (plan.loops ?? []).filter((l) => l.status === "running").length;
   const competitiveAttempts = actionable.filter((t) => isCompetitiveTask(t)).length;
   const cleanupDebt = actionable.filter((t) => {
     const status = clean(t.lane?.cleanup_status)?.toLowerCase();
@@ -210,7 +211,7 @@ function zoneForTaskStatus(status: Task["status"]): MissionZoneKey {
 
 export function extractStreamEvents(plan: Plan, max = MAX_STREAM_EVENTS): StreamEvent[] {
   const rows = plan.tasks.flatMap((task) =>
-    task.milestones.map((m) => ({ task, m })),
+    (task.milestones ?? []).map((m) => ({ task, m })),
   );
   rows.sort((a, b) => b.m.ts - a.m.ts);
   return rows.slice(0, max).map(({ task, m }, i) => {

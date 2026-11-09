@@ -59,6 +59,7 @@ pub(super) fn into_params(
         system_prompt: body.system_prompt,
         preset: body.preset,
         execution_mode: body.execution_mode,
+        launch_profile: body.launch_profile,
         resume_session_id: None,
         fork_session: false,
         charter: body.charter,

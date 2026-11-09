@@ -1,6 +1,6 @@
 use serde_json::{json, Value};
 
-use super::{JsonRpcError, PlanError};
+use super::JsonRpcError;
 
 /// Validate the whole draft before any task is persisted.
 pub(super) fn normalize(
@@ -23,23 +23,15 @@ pub(super) fn normalize(
         }
     }
     let name = value["name"].as_str().unwrap_or_default().to_owned();
-    let personality = value
-        .get("personality")
-        .and_then(Value::as_str)
-        .map(str::to_owned)
-        .unwrap_or_else(|| {
-            name.split(|ch: char| !ch.is_alphabetic())
-                .find(|word| !word.is_empty())
-                .unwrap_or("Worker")
-                .to_owned()
-        });
-    match codeterm_types::plan::validate_executor_name(&personality) {
+    match codeterm_types::plan::require_executor_name(
+        value.get("personality").and_then(Value::as_str),
+    ) {
         Ok(personality) => value["personality"] = json!(personality),
         Err(error) => errors.push(format!("--personality: {error}")),
     }
-    let plan = store
-        .get(plan_id)
-        .ok_or_else(|| super::plan_rpc_err(PlanError::NotFound))?;
+    let work_facet = store
+        .plan_work_facet_projection(plan_id)
+        .map_err(super::plan_rpc_err)?;
     let sections = super::csv_string_field(Some(&value), "sections");
     for section in &sections {
         if store
@@ -54,7 +46,7 @@ pub(super) fn normalize(
     }
     let mut tags = super::tags_field(Some(&value));
     let inferred = codeterm_types::plan::work_facet::infer_work_tag(
-        plan.tag_facets.iter().map(|facet| facet.key.as_str()),
+        work_facet.then_some("work"),
         &mut tags,
         &format!(
             "{name} {} {}",
@@ -63,7 +55,7 @@ pub(super) fn normalize(
         ),
     );
     if let Err(error) = codeterm_types::plan::work_facet::validate_work_facet(
-        plan.tag_facets.iter().map(|facet| facet.key.as_str()),
+        work_facet.then_some("work"),
         tags.iter().map(String::as_str),
     ) {
         errors.push(format!("--tag: {error}"));

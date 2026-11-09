@@ -305,9 +305,9 @@ it("retains byte cursors across a capacity end and decodes once for multiple sin
     expect(window.__outputStreamPerf.bytes).toBe(3);
     decode.mockRestore();
     end({ reason: "capacity", bytes: 2097153 });
-    expect(errors).toHaveBeenCalledTimes(2);
-    expect(paths).toHaveLength(1);
-    output.pokeOutputStream();
+    // A lagging client that made progress resumes at once from its delivered cursor.
+    expect(errors).not.toHaveBeenCalled();
+    expect(paths).toHaveLength(2);
     const since = new URL(paths[1], "http://daemon.test").searchParams.get("since")!;
     expect(JSON.parse(atob(since.replace(/-/g, "+").replace(/_/g, "/")))).toEqual({ boot: "boot", tabs: { t: 3 } });
     receive("message", { tab_id: "t", pty_id: "p", boot: "boot", offset: 3, b64: "AP_i" });
@@ -346,13 +346,19 @@ it.each(["local", "mesh"])("delivers captured terminal bytes through the multipl
   const channelPaths: string[] = [];
   const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
     if (new URL(String(input)).pathname === "/api/stream-mux") {
-      return new Response(new ReadableStream<Uint8Array>({ start(controller) { pushWire = (bytes) => controller.enqueue(bytes); } }));
+      return new Response(new ReadableStream<Uint8Array>({ start(controller) { pushWire = (bytes) => controller.enqueue(bytes); } }), { headers: { "Content-Type": "text/event-stream" } });
     }
     const opened = JSON.parse(String(init?.body)) as { channel: string; path: string };
     channelPaths.push(opened.path);
-    const wire = new TextEncoder().encode(`data: ${JSON.stringify({ channel: opened.channel, data: frame })}\n\n`);
+    const head = { channel: opened.channel, open: true, status: 200, headers: [["content-type", "text/event-stream"]] };
+    const body = { channel: opened.channel, chunk: `data: ${JSON.stringify(frame)}
+
+`, enc: "utf8" };
+    const wire = new TextEncoder().encode([head, body].map((value) => `data: ${JSON.stringify(value)}
+
+`).join(""));
     for (let index = 0; index < wire.length; index += 17) pushWire(wire.slice(index, index + 17));
-    return Response.json({ ok: true });
+    return Response.json({ accepted: true }, { status: 202 });
   });
   vi.stubGlobal("fetch", fetch);
   const client = configureDaemonTransport({ origin: window.location.origin, token: "fixture-token" });

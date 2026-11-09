@@ -1,9 +1,10 @@
-import type { CSSProperties } from "react";
+import { useId, type CSSProperties } from "react";
 import { Bot } from "lucide-react";
 import { useProviderLogo } from "./useProviderLogo";
 
 interface Props {
   iconSvg?: string | null;
+  fallbackIconSvg?: string | null;
   iconColor?: string | null;
   iconHint?: string | null;
   className?: string;
@@ -17,9 +18,12 @@ export function ProviderGlyph(props: Props) {
   return <ProviderGlyphContent key={props.iconSvg ?? ""} {...props} />;
 }
 
-function ProviderGlyphContent({ iconSvg, iconColor, className, style, title, ariaLabel, working }: Props) {
-  const { presentation, onLoad, onError } = useProviderLogo(iconSvg);
-  const html = iconSvg ? forceInlineSize(iconSvg) : null;
+function ProviderGlyphContent({ iconSvg, fallbackIconSvg, iconColor, className, style, title, ariaLabel, working }: Props) {
+  const { presentation, failed, onLoad, onError } = useProviderLogo(iconSvg);
+  const scope = `ct-icon-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}-`;
+  const html = iconSvg ? forceInlineSize(iconSvg)
+    .replace(/\bid="([a-zA-Z_][a-zA-Z0-9_-]*)"/g, (_match, id: string) => `id="${scope}${id}"`)
+    .replace(/url\(#([a-zA-Z_][a-zA-Z0-9_-]*)\)/g, (_match, id: string) => `url(#${scope}${id})`) : null;
 
   const cls = ["agent-icon", working ? "agent-icon-working" : "", className]
     .filter(Boolean)
@@ -46,6 +50,10 @@ function ProviderGlyphContent({ iconSvg, iconColor, className, style, title, ari
         dangerouslySetInnerHTML={{ __html: html }}
       />
     );
+  }
+
+  if (failed && fallbackIconSvg && fallbackIconSvg !== iconSvg) {
+    return <ProviderGlyph iconSvg={fallbackIconSvg} iconColor={iconColor} className={className} style={style} title={title} ariaLabel={ariaLabel} working={working} />;
   }
 
   const label = title ? `${title} default agent icon` : "Default agent icon";

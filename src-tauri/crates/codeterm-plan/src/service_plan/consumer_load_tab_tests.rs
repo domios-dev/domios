@@ -3,7 +3,7 @@
 
 use super::load_audit::{assert_never_loaded, attempt, execution_plan, planner, seed, start, task};
 use super::task_attempts::CompleteAcknowledgedDispatchBinding;
-use super::{paths, PlanStore};
+use super::{paths, PlanStore, TaskBindingRead};
 use crate::plan::{PlanMode, TaskStatus};
 
 fn fixture() -> (tempfile::TempDir, PlanStore, String) {
@@ -70,10 +70,14 @@ fn task_binding_for_tab_never_loads_unmatched_plans() {
     start(&store);
 
     assert_eq!(
-        store.task_binding_for_tab("tab-a"),
-        Some((matched, "task_m".into()))
+        store.assigned_task_binding_projection("tab-a").unwrap(),
+        Some(TaskBindingRead {
+            plan_id: matched,
+            task_id: "task_m".into()
+        })
     );
     assert_never_loaded(&store, &[&unmatched]);
+    assert!(store.plan_loads_for_test().is_empty());
 }
 
 #[test]
@@ -99,10 +103,16 @@ fn report_pending_task_binding_for_tab_never_loads_unmatched_plans() {
     start(&store);
 
     assert_eq!(
-        store.report_pending_task_binding_for_tab("tab-a"),
-        Some((matched, "task_m".into()))
+        store
+            .report_pending_task_binding_projection("tab-a")
+            .unwrap(),
+        Some(TaskBindingRead {
+            plan_id: matched,
+            task_id: "task_m".into()
+        })
     );
     assert_never_loaded(&store, &[&unmatched]);
+    assert!(store.plan_loads_for_test().is_empty());
 }
 
 #[test]
@@ -129,9 +139,12 @@ fn active_owned_plan_with_open_work_for_tab_never_loads_unmatched_plans() {
     start(&store);
 
     assert_eq!(
-        store.active_owned_plan_with_open_work_for_tab("orch-a"),
+        store
+            .active_owned_plan_with_open_work_for_tab("orch-a")
+            .unwrap(),
         Some(owned)
     );
+    assert!(store.plan_loads_for_test().is_empty());
     assert_never_loaded(&store, &[&other]);
 }
 
@@ -146,8 +159,12 @@ fn planner_plan_id_for_tab_never_loads_unmatched_plans() {
     let other = seed(&store, other);
     start(&store);
 
-    assert_eq!(store.planner_plan_id_for_tab("planner-a"), Some(planned));
+    assert_eq!(
+        store.planner_binding_projection("planner-a").unwrap(),
+        Some(planned)
+    );
     assert_never_loaded(&store, &[&other]);
+    assert!(store.plan_loads_for_test().is_empty());
 }
 
 #[test]
@@ -169,10 +186,11 @@ fn taskless_plan_context_candidates_for_tab_never_loads_unmatched_plans() {
     let mut expected = vec![owned, planned];
     expected.sort();
     assert_eq!(
-        store.taskless_plan_context_candidates_for_tab("tab-a"),
+        store.taskless_plan_bindings_projection("tab-a").unwrap(),
         expected
     );
     assert_never_loaded(&store, &[&other]);
+    assert!(store.plan_loads_for_test().is_empty());
 }
 
 #[test]
@@ -182,9 +200,10 @@ fn task_bindings_for_tab_never_loads_unmatched_plans() {
     start(&store);
 
     assert_eq!(
-        store.task_bindings_for_tab("tab-a"),
+        store.task_bindings_for_tab("tab-a").unwrap(),
         vec![(matched, "task_m".into())]
     );
+    assert!(store.plan_loads_for_test().is_empty());
     assert_never_loaded(&store, &[&unmatched]);
 }
 
@@ -195,9 +214,10 @@ fn task_bindings_with_name_for_tab_never_loads_unmatched_plans() {
     start(&store);
 
     assert_eq!(
-        store.task_bindings_with_name_for_tab("tab-a"),
+        store.task_bindings_with_name_for_tab("tab-a").unwrap(),
         vec![(matched, "task_m".into(), "task_m".into())]
     );
+    assert!(store.plan_loads_for_test().is_empty());
     assert_never_loaded(&store, &[&unmatched]);
 }
 
@@ -207,7 +227,8 @@ fn live_task_attempts_for_tab_never_loads_unmatched_plans() {
     let (matched, unmatched) = attempt_pair(&store, &project, "tab-a");
     start(&store);
 
-    let live = store.live_task_attempts_for_tab("tab-a");
+    let live = store.live_task_attempts_for_tab("tab-a").unwrap();
+    assert!(store.plan_loads_for_test().is_empty());
     assert_eq!(live.len(), 1);
     assert_eq!(
         (live[0].plan_id.as_str(), live[0].attempt.id.as_str()),
@@ -238,7 +259,11 @@ fn superseded_attempt_for_tab_never_loads_unmatched_plans() {
     );
     start(&store);
 
-    let superseded = store.superseded_attempt_for_tab("old-tab").unwrap();
+    let superseded = store
+        .superseded_attempt_for_tab("old-tab")
+        .unwrap()
+        .unwrap();
+    assert!(store.plan_loads_for_test().is_empty());
     assert_eq!(superseded.0, matched);
     assert_never_loaded(&store, &[&unmatched]);
 }
@@ -291,9 +316,10 @@ fn recent_worker_attempt_titles_never_loads_unmatched_plans() {
     start(&store);
 
     assert_eq!(
-        store.recent_worker_attempt_titles("ws-a", None, 5),
+        store.recent_worker_attempt_titles("ws-a", None, 5).unwrap(),
         vec!["Bolt".to_string()]
     );
+    assert!(store.plan_loads_for_test().is_empty());
     assert_never_loaded(&store, &[&unmatched]);
 }
 
@@ -310,6 +336,7 @@ fn current_plan_skill_attempt_never_loads_unmatched_plans() {
         Some((matched, "task_m".into(), "att_m".into()))
     );
     assert_never_loaded(&store, &[&unmatched]);
+    assert!(store.plan_loads_for_test().is_empty());
 }
 
 #[test]
@@ -364,10 +391,14 @@ fn planner_replay_candidates_never_loads_unmatched_plans() {
     start(&store);
 
     assert!(
-        store.planner_replay_candidates("planner-a").is_empty(),
+        store
+            .planner_replay_candidates("planner-a")
+            .unwrap()
+            .is_empty(),
         "a planner with no open request has nothing to replay"
     );
-    assert_eq!(store.plan_loads_for_test(), vec![planned]);
+    assert!(store.plan_loads_for_test().is_empty());
+    assert_never_loaded(&store, &[&planned]);
     assert_never_loaded(&store, &[&other]);
 }
 
@@ -385,7 +416,10 @@ fn prepend_worker_charter_for_tab_never_loads_unmatched_plans() {
     let planning = seed(&store, planning);
     start(&store);
 
-    let text = store.prepend_worker_charter_for_tab("tab-a", "nudge");
+    let text = store
+        .prepend_worker_charter_for_tab("tab-a", "nudge")
+        .unwrap();
     assert!(text.len() > "nudge".len() && text.ends_with("nudge"));
+    assert!(store.plan_loads_for_test().is_empty());
     assert_never_loaded(&store, &[&unmatched, &planning]);
 }

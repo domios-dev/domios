@@ -211,9 +211,25 @@ fn local_api(failures: &mut Vec<Failure>) -> Option<serde_json::Value> {
 }
 
 fn cli(failures: &mut Vec<Failure>) -> Option<serde_json::Value> {
+    cli_with(|args| run(CLI, args), failures)
+}
+
+pub(super) fn cli_with(
+    mut run: impl FnMut(&[&str]) -> Result<String, Failure>,
+    failures: &mut Vec<Failure>,
+) -> Option<serde_json::Value> {
+    let status = run(&["status", "--json"])
+        .and_then(|raw| status_body(&format!("{CLI} status --json"), raw.as_bytes()));
+    match status {
+        Ok(value) => return Some(value),
+        Err(mut error) => {
+            error.detail = format!("status --json: {}", error.detail);
+            failures.push(error);
+        }
+    }
     let mut addresses = Vec::new();
     for family in ["-4", "-6"] {
-        match run(CLI, &["ip", family]) {
+        match run(&["ip", family]) {
             Ok(raw) => {
                 let found: Vec<IpAddr> = raw
                     .lines()

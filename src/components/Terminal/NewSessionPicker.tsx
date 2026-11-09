@@ -7,7 +7,6 @@ import { useModelPresets } from "../../hooks/useModelPresets";
 import { invoke } from "../../lib/bridge";
 import { DEV_BUILD } from "../../lib/devBuild";
 import { useMultiplexer, useMuxState } from "../../store/multiplexer/hooks";
-import { setAgentSettings } from "../../lib/clientSettings";
 import {
   allowedNewSessionModes,
   choiceForSessionSection,
@@ -33,13 +32,14 @@ import { createPortal } from "react-dom";
 import { isFreeLimitRefusal } from "../billing/freeLimitModel";
 import {remoteProvider, remoteSpawnSelection, type ExecutionLocation} from "../../lib/remoteExecution";
 import {ExecutionLocationPicker} from "./ExecutionLocationPicker";
+import {LaunchProfileModelRow, LaunchProfilePicker, LaunchProfileSelect} from "./LaunchProfilePicker";
+import {useLaunchProfiles} from "./useLaunchProfiles";
 import {cloudExecution} from "./cloudExecution";
 
 export function NewSessionPicker({
   workspaceId,
   workspaceCwd,
   agentsConfig,
-  agentConfig,
   initialProviderId,
   section = "workspace",
   onClose,
@@ -47,7 +47,6 @@ export function NewSessionPicker({
   workspaceId: string;
   workspaceCwd?: string | null;
   agentsConfig?: AppConfig["agents"];
-  agentConfig?: AppConfig["agent"];
   initialProviderId?: string;
   section?: NewSessionSection;
   onClose: () => void;
@@ -57,7 +56,10 @@ export function NewSessionPicker({
   const state = useMuxState();
   const { presets, loading: presetsLoading, error: presetsError } = useModelPresets();
   const menuProviders = useMemo(
-    () => providers.filter((provider) => agentsConfig?.[provider.id]?.visible_in_menu !== false),
+    () => {
+      const visible = providers.filter((provider) => agentsConfig?.[provider.id]?.visible_in_menu !== false);
+      return [...visible.filter(provider => !provider.agent_runtime?.launchProfiles), ...visible.filter(provider => provider.agent_runtime?.launchProfiles)];
+    },
     [providers, agentsConfig],
   );
   const visibleProviders = useMemo(() => menuProviders, [menuProviders]);
@@ -66,12 +68,20 @@ export function NewSessionPicker({
   const [installMap, setInstallMap] = useState<Record<string, boolean>>({});
   const [choice, setChoice] = useState<NewSessionChoice>(() => choiceForSessionSection(defaultNewSessionChoice(visibleProviders), section));
   const localId = choice.mode === "single" ? choice.providerId : "";
+  const selectedProvider = visibleProviders.find(provider => provider.id === localId);
+  const profileCatalog = useLaunchProfiles(selectedProvider);
+  const [profileSelection, setProfileSelection] = useState({providerId: "", id: ""});
+  const launchProfile = profileSelection.providerId === localId ? profileSelection.id : "";
+  const profileReady = !selectedProvider?.agent_runtime?.launchProfiles || profileCatalog.profiles.some(profile => profile.id === launchProfile && ["installed", "detected"].includes(profile.install));
+  const readyProfile = selectedProvider?.agent_runtime?.launchProfiles && profileReady ? profileCatalog.profiles.find(profile => profile.id === launchProfile) : undefined;
+  // A profile's model and effort start at the agent's own default; they belong to that one profile.
+  const [profileChoice, setProfileChoice] = useState({profile: "", model: "", effort: ""});
+  const profileModel = profileChoice.profile === `${localId}:${launchProfile}` ? profileChoice : {model: "", effort: ""};
   const remote = cloudExecution.enabled && section === "workspace" ? remoteProvider(menuProviders, localId) : undefined;
   const location = remote && execution.providerId === localId ? execution.location : "local";
   const environmentId = execution.providerId === localId ? execution.environmentId : "";
   const [busy, setBusy] = useState(false);
   const [dismissing, setDismissing] = useState(false);
-  const [firstAccessFull, setFirstAccessFull] = useState(true);
   const dialogRef = useRef<HTMLDivElement>(null);
   const { frameRef: modeFrameRef, contentRef: modeContentRef } = useAnimatedHeight();
   const disabledProviderIds = useMemo(
@@ -211,11 +221,16 @@ export function NewSessionPicker({
     effortId?: string,
     preset?: string,
     executionMode?: string,
+    profile?: string,
   ) => {
     if (!executionMode && disabledProviderIds.has(providerId)) return;
     const targetCwd = section === "general" ? workspaceCwd ?? selectedWorkspace?.cwd : selectedWorkspace?.cwd ?? workspaceCwd;
     if (executionMode) {
       await finishSpawn(() => spawnAgentTab(workspaceId, providerId, targetCwd ?? undefined, undefined, undefined, preset, undefined, executionMode));
+      return;
+    }
+    if (profile) {
+      await finishSpawn(() => spawnAgentTab(workspaceId, providerId, targetCwd ?? undefined, modelId, effortId, preset, undefined, undefined, profile));
       return;
     }
     await finishSpawn(() =>
@@ -238,8 +253,13 @@ export function NewSessionPicker({
       await runProviderSpawn(target.providerId, undefined, undefined, target.preset, target.executionMode);
       return;
     }
+    if (!profileReady) return;
+    if (launchProfile) {
+      await runProviderSpawn(choice.providerId, profileModel.model || undefined, profileModel.effort || undefined, choice.preset, undefined, launchProfile);
+      return;
+    }
     await runProviderSpawn(choice.providerId, choice.modelId, choice.effortId, choice.preset);
-  }, [choice, runProviderSpawn, location, environmentId, menuProviders]);
+  }, [choice, runProviderSpawn, location, environmentId, menuProviders, profileReady, launchProfile, profileModel.model, profileModel.effort]);
 
   const runPairSpawn = useCallback(async () => {
     if (choice.mode !== "pair" || !allowedNewSessionModes(section).includes("pair")) return;
@@ -274,38 +294,8 @@ export function NewSessionPicker({
         await runSingleSpawn();
       }
     };
-    if (location === "cloud" || agentConfig?.full_access !== undefined) {
-      void start();
-      return;
-    }
-    setBusy(true);
-    void setAgentSettings({ full_access: firstAccessFull })
-      .then(() => {
-        setBusy(false);
-        return start();
-      })
-      .catch((error) => {
-        setBusy(false);
-        createNoticePublisher({ upsertToast })({ kind: "toast", tabId: null,
-          workspaceId: workspaceId,
-          title: "Agent access was not saved",
-          detail: error instanceof Error ? error.message : String(error),
-          severity: "Error" });
-      });
-  }, [
-    upsertToast,
-    busy,
-    dismissing,
-    onClose,
-    selectedWorkspace?.cwd_missing,
-    agentConfig?.full_access,
-    choice.mode,
-    firstAccessFull,
-    location,
-    runPairSpawn,
-    runSingleSpawn,
-    workspaceId,
-  ]);
+    void start();
+  }, [busy, dismissing, onClose, selectedWorkspace?.cwd_missing, choice.mode, runPairSpawn, runSingleSpawn]);
 
   const handleModeSelect = useCallback((mode: NewSessionMode) => {
     if (!allowedNewSessionModes(section).includes(mode)) return;
@@ -319,6 +309,9 @@ export function NewSessionPicker({
           effortId: prev.mode === "pair" ? prev.orchestratorEffortId : prev.effortId,
         };
       }
+      if (prev.mode === "single" && visibleProviders.find(provider => provider.id === prev.providerId)?.agent_runtime?.launchProfiles) {
+        return defaultNewSessionChoice(visibleProviders.filter(provider => !provider.agent_runtime?.launchProfiles));
+      }
       return {
         mode: "pair",
         orchestratorProviderId: prev.mode === "single" ? prev.providerId : prev.orchestratorProviderId,
@@ -329,12 +322,12 @@ export function NewSessionPicker({
         plannerEffortId: prev.mode === "pair" ? prev.plannerEffortId : prev.effortId,
       };
     });
-  }, [section]);
+  }, [section, visibleProviders]);
 
   const remoteCanStart = location === "cloud" && remote?.remote_task?.availability.status === "available"
     && remote.remote_task.environments.some(environment => environment.id === environmentId);
   const canStart = choice.mode === "single"
-    ? location === "cloud" ? remoteCanStart : choice.providerId.length > 0 && !disabledProviderIds.has(choice.providerId)
+    ? location === "cloud" ? remoteCanStart : choice.providerId.length > 0 && !disabledProviderIds.has(choice.providerId) && profileReady
     : choice.orchestratorProviderId.length > 0
       && choice.plannerProviderId.length > 0
       && !disabledProviderIds.has(choice.orchestratorProviderId)
@@ -400,9 +393,9 @@ export function NewSessionPicker({
                 onEnvironment={id => setExecution({providerId: localId, location, environmentId: id})}
                 onRefresh={() => { void refreshRemoteProviders(); }} />}
               {choice.mode === "single" ? (
-                <OrchestrationRoleRow
+                <><OrchestrationRoleRow
                   label="Agent"
-                  modelControls={location === "local"}
+                  modelControls={location === "local" && !selectedProvider?.agent_runtime?.launchProfiles}
                   providers={visibleProviders}
                   providerId={choice.providerId}
                   modelId={choice.modelId ?? ""}
@@ -425,14 +418,24 @@ export function NewSessionPicker({
                   onEffortChange={(effortId) => setChoice({ ...choice, effortId })}
                   effortTestId="picker-effort-single"
                   onInstallProvider={handleInstallProvider}
+                  modelSlot={selectedProvider?.agent_runtime?.launchProfiles && <LaunchProfileSelect provider={selectedProvider}
+                    profiles={profileCatalog.profiles} selected={launchProfile} testId="picker-profile-single"
+                    onSelect={id => setProfileSelection({providerId: selectedProvider.id, id})} />}
                 />
+                {readyProfile && <LaunchProfileModelRow profile={readyProfile} model={profileModel.model} effort={profileModel.effort}
+                  onModel={model => setProfileChoice({...profileModel, profile: `${localId}:${launchProfile}`, model})}
+                  onEffort={effort => setProfileChoice({...profileModel, profile: `${localId}:${launchProfile}`, effort})} />}
+                {selectedProvider?.agent_runtime?.launchProfiles && <LaunchProfilePicker key={`${selectedProvider.id}:${launchProfile}`} list={false}
+                  provider={selectedProvider} profiles={profileCatalog.profiles} selected={launchProfile}
+                  onSelect={id => setProfileSelection({providerId: selectedProvider.id, id})}
+                  onRefresh={profileCatalog.refresh} error={profileCatalog.error} />}</>
               ) : (
                 <>
                   <p data-testid="picker-team-hint" className="mb-2.5 text-[12px] leading-snug text-[var(--ct-muted-fg)]">
                     Tell the Orchestrator what you need. It plans and brings in the agents.
                   </p>
                   <OrchestrationPairForm
-                    providers={visibleProviders}
+                    providers={visibleProviders.filter(provider => !provider.agent_runtime?.launchProfiles)}
                     values={{
                       orchestratorProviderId: choice.orchestratorProviderId,
                       orchestratorModelId: choice.orchestratorModelId ?? "",
@@ -469,22 +472,6 @@ export function NewSessionPicker({
           </div>
         </div>
 
-        {location !== "cloud" && agentConfig?.full_access === undefined && (
-          <label className="relative mt-4 flex cursor-pointer items-start gap-2.5 rounded-md border border-[var(--ct-border)] bg-[var(--ct-bg)] px-3 py-2.5">
-            <input
-              type="checkbox"
-              checked={firstAccessFull}
-              onChange={(event) => setFirstAccessFull(event.target.checked)}
-              className="mt-0.5 h-3.5 w-3.5 accent-[var(--ct-accent)]"
-            />
-            <span>
-              <span className="block text-[12px] text-[var(--ct-fg)]">Full access for agents</span>
-              <span className="mt-0.5 block text-[11px] text-[var(--ct-muted-fg)]">
-                Agents can edit files and run commands without asking. You can change this later in Settings.
-              </span>
-            </span>
-          </label>
-        )}
 
         <div className="relative mt-4 flex justify-end">
           <Button

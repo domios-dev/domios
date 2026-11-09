@@ -534,6 +534,8 @@ export interface DropdownSelectOption {
   /** Section heading; options sharing it render together under one collapsible
    *  header. Options without a group stay in a headerless section. */
   group?: string;
+  /** Rich row content in the open menu (an icon, a quiet state word); `label` still names it. */
+  content?: ReactNode;
 }
 
 /** The closed look of every value picker: a pill that names the current choice, with a trailing chevron. */
@@ -580,6 +582,7 @@ export function DropdownSelect({
   const badge = selected?.badge;
   const toItem = (o: DropdownSelectOption): DropdownMenuItem => ({
     label: o.suffix ? `${o.label}${o.suffix}` : o.label,
+    labelContent: o.content,
     badge: o.badge,
     disabled: o.disabled,
     icon: o.value === value ? <Check size={14} /> : <span className="w-3.5 h-3.5" />,

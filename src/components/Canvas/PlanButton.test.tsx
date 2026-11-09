@@ -1,3 +1,4 @@
+import { muxMockFetch } from "../../lib/muxMockFetch.testdata";
 import { MuxStateStoreContext } from "../../store/multiplexer/context";
 import { createMuxStateStore } from "../../store/multiplexer/selectorStore";
 import type { ExtendedState } from "../../store/multiplexer/tree";
@@ -46,7 +47,7 @@ let planChangedListener: ((event: { payload?: { plan_id?: string } }) => void) |
 
 async function installBridgeMocks() {
   const { __setListenForTest } = await import("../../lib/bridge");
-  globalThis.fetch = async (input) => {
+  globalThis.fetch = muxMockFetch(async (input) => {
     const url = new URL(String(input));
     if (url.pathname === "/api/plans" && url.searchParams.get("full") === "1") return Response.json({ plans: [FIXTURE_PLAN] });
     if (url.pathname === "/api/plans") return Response.json({ plans: [{
@@ -55,7 +56,7 @@ async function installBridgeMocks() {
     }] });
     if (url.pathname.startsWith("/api/plans/")) return Response.json(FIXTURE_PLAN);
     throw new Error(`unexpected request: ${url}`);
-  };
+  });
   __setListenForTest(async (event, handler) => {
     if (event === "plan-changed") planChangedListener = handler as typeof planChangedListener;
     return () => {

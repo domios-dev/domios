@@ -17,12 +17,15 @@ pub(crate) use credentials::AccountCredentialCell;
 pub use credentials::AccountCredentials;
 #[cfg(any(test, feature = "test-support"))]
 pub(crate) use credentials::AccountDataRoot;
-struct AccountRevocations(Arc<tokio::sync::OnceCell<Arc<Account>>>);
+struct AccountRevocations(std::sync::Weak<tokio::sync::OnceCell<Arc<Account>>>);
 
 #[async_trait]
 impl codeterm_account::session_revocation::SessionRevocationObserver for AccountRevocations {
     async fn revoked(&self, session: &codeterm_account::Session) {
-        if let Some(account) = self.0.get() {
+        let Some(owner) = self.0.upgrade() else {
+            return;
+        };
+        if let Some(account) = owner.get() {
             if let Err(error) = account.session_revoked(session).await {
                 log::error!("Revoked account credential cleanup failed: {error}");
             }
@@ -54,28 +57,27 @@ impl codeterm_account::IdentityObserver for AccountIdentity {
             }
             if let Ok(root) = service.account_data_root() {
                 let backend = self.1.clone();
-                let persistent = service
-                    .account_credentials()
-                    .await
-                    .is_ok_and(|credentials| {
+                let persistent = match service.account_credentials().await {
+                    Ok(credentials) => {
                         !codeterm_account::CredentialStore::session_only(
                             credentials.as_ref(),
                             &backend,
                         )
-                    });
+                        .await
+                    }
+                    Err(_) => false,
+                };
                 let identity = identity.filter(|_| persistent).cloned();
                 if !persistent {
                     if let Some(cached) = service.try_ext::<startup::StartupAccount>() {
                         cached.invalidate();
                     }
                 }
-                match tokio::task::spawn_blocking(move || {
-                    startup::remember(&root, &backend, identity)
-                })
-                .await
-                {
-                    Ok(Ok(())) => {}
-                    _ => log::debug!("Local account identity snapshot unavailable"),
+                let writer = service
+                    .extensions
+                    .get_or_init(startup::IdentityWriter::default);
+                if writer.remember(root, backend, identity).await.is_err() {
+                    log::debug!("Local account identity snapshot unavailable");
                 }
             }
             service.retire_callable_waiters();
@@ -125,7 +127,9 @@ impl super::ServiceContext {
     pub(super) fn session_revocations(
         &self,
     ) -> Arc<dyn codeterm_account::session_revocation::SessionRevocationObserver> {
-        Arc::new(AccountRevocations(self.ext::<AccountCell>().0.clone()))
+        Arc::new(AccountRevocations(Arc::downgrade(
+            &self.ext::<AccountCell>().0,
+        )))
     }
 
     pub async fn account(&self) -> Result<Arc<Account>, String> {
@@ -181,7 +185,15 @@ impl super::ServiceContext {
                     ))
                     .with_session_admission(Arc::new(logout::SignInAdmission(self.weak_self()))),
                 );
-                if account.refresh().await == Err(Error::Credentials) {
+                let restored = account.refresh().await;
+                if restored == Err(Error::TargetMismatch) {
+                    // The saved credential and identity record stay; only the signed-in projection ends.
+                    if let Some(cached) = self.try_ext::<startup::StartupAccount>() {
+                        cached.invalidate();
+                    }
+                    log::warn!("Account target mismatch: saved sign-in does not belong to this build's account target; sign in again");
+                }
+                if restored == Err(Error::Credentials) {
                     if let Some(cached) = self.try_ext::<startup::StartupAccount>() {
                         cached.invalidate();
                     }

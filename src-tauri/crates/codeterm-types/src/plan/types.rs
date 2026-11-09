@@ -755,10 +755,17 @@ impl Plan {
     /// dispatched. planning_state is authoritative going forward; an Approved/Execution
     /// lifecycle mode bridges plans predating planning_state. Complete never unlocks.
     pub fn execution_tasks_unlocked(&self) -> bool {
-        !matches!(self.mode, PlanMode::Complete | PlanMode::Paused)
-            && (self.planning_state.allows_execution_tasks()
-                || matches!(self.mode, PlanMode::Approved | PlanMode::Execution))
+        execution_tasks_unlocked_for(&self.mode, self.planning_state)
     }
+}
+
+pub fn execution_tasks_unlocked_for(
+    mode: &PlanMode,
+    planning_state: super::planning_state::PlanningState,
+) -> bool {
+    !matches!(mode, PlanMode::Complete | PlanMode::Paused)
+        && (planning_state.allows_execution_tasks()
+            || matches!(mode, PlanMode::Approved | PlanMode::Execution))
 }
 
 impl Spec {

@@ -6,6 +6,7 @@ export interface ResolvedTabProvider {
   id: string;
   displayName: string;
   iconSvg?: string | null;
+  fallbackIconSvg?: string | null;
   iconColor?: string | null;
   iconHint?: string | null;
   kind: "agent" | "shell";
@@ -17,10 +18,14 @@ export function resolveTabProvider(tab: Tab | null | undefined): ResolvedTabProv
   if (tab.agent_type) {
     const d = getAgentDescriptor(tab.agent_type);
     if (d) {
+      const profileId = tab.agent_runtime_config?.launchProfile;
+      const profile = typeof profileId === "string" ? d.agent_runtime?.launchProfiles?.[profileId] : undefined;
+      const genericIcon = d.agent_runtime?.launchProfiles !== undefined || typeof profileId === "string" ? undefined : d.icon_svg;
       return {
         id: d.id,
-        displayName: d.display_name,
-        iconSvg: d.icon_svg,
+        displayName: runtimeAgentLabel(tab) ?? d.display_name,
+        iconSvg: resolveAgentIcon(profile?.iconSvg, tab.agent_runtime_state?.iconSvg, genericIcon),
+        fallbackIconSvg: genericIcon,
         iconColor: d.icon_color,
         iconHint: d.icon_hint,
         kind: d.transport === "chat_backend" ? "shell" : "agent",
@@ -61,4 +66,13 @@ function fallbackAgentProvider(id: string): ResolvedTabProvider {
     iconHint: meta.iconHint,
     kind: "agent",
   };
+}
+
+export function resolveAgentIcon(profile: string | null | undefined, registry: string | null | undefined, generic: string | null | undefined): string | null | undefined {
+  return profile || registry || generic;
+}
+
+export function runtimeAgentLabel(tab: Tab): string | null {
+  const state = tab.agent_runtime_state;
+  return state?.agentName ? [state.agentName, state.binaryVersion].filter(Boolean).join(" · ") : null;
 }

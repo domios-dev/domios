@@ -24,18 +24,26 @@ import { publishNeighborGateways } from "./neighborGateways";
 import { listedPaused, neighborName } from "./neighborModel";
 import { neighborRuntimeClient, type NeighborRuntimeClient } from "./neighborRuntimeClient";
 import { useNeighbors } from "./useNeighbors";
-import { clearNeighborCaches, readNeighborCache, writeNeighborCache, type CachedFriend, type CachedNeighbors } from "./neighborListCache";
+import { clearNeighborCaches, lastKnownNeighborIdentity, readNeighborCache, writeNeighborCache, type CachedFriend, type CachedNeighbors } from "./neighborListCache";
 import { ActivityDots } from "../shared/ActivityDots";
 import { missingConciergeLine, useConciergeStatus } from "./useConciergeStatus";
 import { resetNeighborStatus, useNeighborStatus } from "./neighborStatusStore";
 import { resetPausedFriends, setFriendPaused, usePausedFriends } from "./neighborPause";
 import { FriendReceiveConfirm, friendReceiveItems, friendReceivingLine, useFriendReceiveRequest } from "./neighborFriendReceiving";
 import { friendReceiverState } from "./useReceiverState";
+import { useNeighborPeer } from "./neighborProjection";
+import { RemoteNeighborSection } from "./RemoteNeighborSection";
 
 const ROW = "sidebar-tab sidebar-tab-dimmed group flex items-center hover:bg-[var(--ct-hover)]";
 
 /** Your connected Neighbors as sidebar rows, each with its concierge tucked under it; hidden until you have one. */
-export function SidebarNeighborsSection({ uiFontScale, touchMode, onNavigateToTab, enabled = true, activeChat = null, activeTabId = null, client, runtimeClient = neighborRuntimeClient,
+export function SidebarNeighborsSection(props: Parameters<typeof LocalNeighborsSection>[0]) {
+  const peer = useNeighborPeer();
+  return peer ? <RemoteNeighborSection key={peer} peer={peer} touchMode={props.touchMode} activeTabId={props.activeTabId} onNavigateToTab={props.onNavigateToTab} />
+    : <LocalNeighborsSection {...props} />;
+}
+
+function LocalNeighborsSection({ uiFontScale, touchMode, onNavigateToTab, enabled = true, activeChat = null, activeTabId = null, client, runtimeClient = neighborRuntimeClient,
   conciergeClient = neighborConciergeClient }: {
   uiFontScale?: number; touchMode: boolean; onNavigateToTab?: () => void; enabled?: boolean; activeChat?: string | null;
   /** The session tab shown in the workspace view, the same source ordinary tab rows highlight from. */
@@ -61,10 +69,15 @@ export function SidebarNeighborsSection({ uiFontScale, touchMode, onNavigateToTa
     return ref;
   };
   // Until the fresh list arrives, draw the friends this account had last time; an empty past keeps the section away.
-  const cached = useMemo(() => readNeighborCache(identity), [identity]);
-  const loading = identity !== null && neighbors.list === null;
-  const shown: CachedNeighbors | null = neighbors.list ?? (loading ? cached : null);
+  // While the account itself is unread, the one remembered account stands in, so the header never arrives after the list.
+  const accountPending = model.kind === "pending";
+  const cached = useMemo(() => readNeighborCache(identity ?? (accountPending ? lastKnownNeighborIdentity() : null)), [identity, accountPending]);
+  const listLoading = identity !== null && neighbors.list === null && neighbors.error === null;
+  const loading = listLoading || (accountPending && cached !== null);
+  const shown: CachedNeighbors | null = neighbors.error ? null : neighbors.list ?? (loading ? cached : null);
   const friends: CachedFriend[] = shown?.friends ?? [];
+  // A signed-in account with no record yet may have friends; its header holds the slot until the list answers.
+  const reserved = listLoading && cached === null;
   const paid = shown?.access === "paid";
   useEffect(() => {
     if (model.kind === "signed_out") clearNeighborCaches();
@@ -82,7 +95,10 @@ export function SidebarNeighborsSection({ uiFontScale, touchMode, onNavigateToTa
   const listBindings = Object.fromEntries(friends.flatMap(friend => friend.gateway_tab ? [[friend.friendship_id, friend.gateway_tab]] : []));
   const allBindings = Object.fromEntries(Object.entries({ ...listBindings, ...(status?.bindings ?? {}), ...bindings }).filter(([, tab]) => tab !== ""));
   const bindingKey = JSON.stringify(allBindings);
-  useEffect(() => { publishNeighborGateways(JSON.parse(bindingKey) as Record<string, string>); }, [bindingKey]);
+  useEffect(() => {
+    publishNeighborGateways(JSON.parse(bindingKey) as Record<string, string>);
+    return () => publishNeighborGateways({});
+  }, [bindingKey]);
   useEffect(() => {
     let stop: (() => void) | undefined;
     let live = true;
@@ -94,7 +110,7 @@ export function SidebarNeighborsSection({ uiFontScale, touchMode, onNavigateToTa
     return () => { live = false; stop?.(); };
   }, [conciergeClient]);
 
-  if (friends.length === 0) return null;
+  if (friends.length === 0 && !neighbors.error && !reserved) return null;
   const togglePaused = (friend: CachedFriend, paused: boolean) => setFriendPaused(conciergeClient, friend.friendship_id, !paused, paused,
     detail => publishNotice({ kind: "toast", severity: "Error", id: `neighbor-pause:${friend.friendship_id}`, title: paused ? "Could not enable" : "Could not disable", detail }));
   const text = touchMode ? pickUiFontScaleValue(uiFontScale, ["text-[13px]", "text-[14px]", "text-[15px]", "text-base"])
@@ -112,6 +128,7 @@ export function SidebarNeighborsSection({ uiFontScale, touchMode, onNavigateToTa
       <span className="sidebar-structural-label truncate">Neighbors</span>
       {loading && <span className="sidebar-neighbors-loading" role="status" aria-label="Refreshing Neighbors"><ActivityDots size="small" tone="muted" active /></span>}
     </SidebarDisclosure>
+    {neighbors.error && <p role="status" className="sidebar-neighbors-off">Neighbors unavailable: {neighbors.error}</p>}
     <div className="sidebar-neighbors-section__items mt-0.5 overflow-y-auto">
     {expanded && !enabled && <p role="status" className="sidebar-neighbors-off">Neighbors is off</p>}
     {expanded && <ul aria-label="Your Neighbors" className="sidebar-neighbors" data-off={enabled ? undefined : true}>{friends.map(friend => {
@@ -124,7 +141,7 @@ export function SidebarNeighborsSection({ uiFontScale, touchMode, onNavigateToTa
       // A friend received on another machine says where; its concierge there, not here, is the one that answers.
       const receiver = enabled ? friendReceiverState(status, friend.friendship_id) : null;
       const elsewhere = receiver !== null && !receiver.receiving_here;
-      const line = !enabled ? "off" : paused ? "disabled" : elsewhere ? friendReceivingLine(receiver)
+      const line = loading ? "refreshing" : !enabled ? "off" : paused ? "disabled" : elsewhere ? friendReceivingLine(receiver)
         : missing ? missingConciergeLine(missing).replace("No concierge on this machine", "no concierge here") : paid ? "connected" : "paused by plan";
       const pauseItem = { label: `${paused ? "Enable" : "Disable"} ${name}`, onClick: () => togglePaused(friend, paused) };
       const receiveItems = friendReceiveItems(receiver, operation => receive.open(friend.friendship_id, operation));
@@ -141,8 +158,10 @@ export function SidebarNeighborsSection({ uiFontScale, touchMode, onNavigateToTa
                 <span className="sidebar-tab-body__title flex min-w-0 items-center gap-1.5">
                   <span className={`${text} block truncate min-w-0 text-[var(--ct-fg)]`}>{name}</span>
                 </span>
-                <span className="sidebar-tab-body__sub neighbor-status text-[10px] leading-3">
-                  <span className="neighbor-dot" data-tone={paused || elsewhere ? "muted" : missing ? "progress" : enabled && paid ? "ok" : "muted"} aria-hidden="true" />{line}
+                <span className="sidebar-tab-body__sub neighbor-status text-[10px] leading-3" title={line}>
+                  <span className="neighbor-dot" data-tone={paused || elsewhere ? "muted" : missing ? "progress" : !loading && enabled && paid ? "ok" : "muted"} aria-hidden="true" />
+                  {/* Touch has no hover tooltip, so the full reason wraps there instead of truncating. */}
+                  <span className={`min-w-0 ${touchMode ? "whitespace-normal [overflow-wrap:anywhere]" : "truncate"}`}>{line}</span>
                 </span>
               </span>
             </button>
@@ -177,9 +196,9 @@ export function conciergeModelLine(tab: Tab): string {
   return effort ? `${name} · ${effort}` : name;
 }
 
-function ConciergeRow({ tab, friendName, text, touchMode, subline, working, paused, pauseItem, receiveItems, active, onOpen, onChangeAgent, onViewPermissions, onEditWithGeneral }: {
-  tab: Tab; friendName: string; text: string; touchMode: boolean; subline: string; working: boolean; paused: boolean; pauseItem: { label: string; onClick: () => void };
-  receiveItems: DropdownMenuItem[]; active: boolean; onOpen: () => void; onChangeAgent: () => void; onViewPermissions: () => void; onEditWithGeneral: () => void;
+export function ConciergeRow({ tab, friendName, text, touchMode, subline, working, paused, pauseItem, receiveItems = [], active, onOpen, onChangeAgent, onViewPermissions, onEditWithGeneral }: {
+  tab: Tab; friendName: string; text: string; touchMode: boolean; subline: string; working: boolean; paused?: boolean; pauseItem?: { label: string; onClick: () => void };
+  receiveItems?: DropdownMenuItem[]; active: boolean; onOpen: () => void; onChangeAgent?: () => void; onViewPermissions?: () => void; onEditWithGeneral?: () => void;
 }) {
   const label = `${friendName}'s concierge`;
   const row = useRef<HTMLDivElement>(null);
@@ -201,7 +220,7 @@ function ConciergeRow({ tab, friendName, text, touchMode, subline, working, paus
         <span className="sidebar-tab-body__sub block truncate text-[10px] leading-3 text-[var(--ct-muted-fg)]">{subline}</span>
       </span>
     </button>
-    <DropdownMenu className={touchMode ? "sr-only" : "sidebar-tab-kebab"} contextMenuTargetRef={row} menuLabel={`${label} actions`}
+    {onChangeAgent && onViewPermissions && onEditWithGeneral && pauseItem && <DropdownMenu className={touchMode ? "sr-only" : "sidebar-tab-kebab"} contextMenuTargetRef={row} menuLabel={`${label} actions`}
       items={[
         { label: "Change agent", onClick: onChangeAgent },
         { label: "View permissions", onClick: onViewPermissions },
@@ -209,6 +228,6 @@ function ConciergeRow({ tab, friendName, text, touchMode, subline, working, paus
         ...receiveItems,
         pauseItem,
       ]}
-      trigger={<RowMenuButton label={`Actions for ${label}`} title="Concierge actions" touchMode={touchMode} />} />
+      trigger={<RowMenuButton label={`Actions for ${label}`} title="Concierge actions" touchMode={touchMode} />} />}
   </div>;
 }

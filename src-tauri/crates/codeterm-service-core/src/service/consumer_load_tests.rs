@@ -23,15 +23,14 @@ fn project(fx: &ServiceFixture) -> std::path::PathBuf {
 fn system_entry_views_for_tab_never_loads_unmatched_plans() {
     let (fx, orchestrator) = fixture();
     let store = &fx.service.plan_store;
-    let owned = seed(
-        store,
-        execution_plan(
-            &project(&fx),
-            "owned",
-            &orchestrator,
-            vec![task("task_o", TaskStatus::InProgress, None)],
-        ),
+    let mut owned_plan = execution_plan(
+        &project(&fx),
+        "owned",
+        &orchestrator,
+        vec![task("task_o", TaskStatus::InProgress, None)],
     );
+    owned_plan.control_loop.mode = crate::plan::ControlLoopMode::Heartbeat;
+    let owned = seed(store, owned_plan);
     let other = seed(
         store,
         execution_plan(
@@ -44,8 +43,18 @@ fn system_entry_views_for_tab_never_loads_unmatched_plans() {
     start(store);
 
     let views = crate::delayed_send::system_heartbeat_views(&fx.service, &orchestrator).unwrap();
-    assert!(views.len() <= 1);
-    assert_eq!(store.plan_loads_for_test(), vec![owned]);
+    assert_eq!(views.len(), 1);
+    assert_eq!(
+        views[0].message.id,
+        format!("system:heartbeat:{owned}:{orchestrator}")
+    );
+    assert_eq!(views[0].message.tab_id, orchestrator);
+    assert_eq!(
+        views[0].message.origin,
+        crate::delayed_send::MessageOrigin::System
+    );
+    assert!(!views[0].message.text.is_empty());
+    assert!(store.plan_loads_for_test().is_empty());
     assert_never_loaded(store, &[&other]);
 }
 
@@ -73,10 +82,14 @@ fn in_progress_assignments_for_tab_never_loads_unmatched_plans() {
     );
     start(store);
 
-    let losses = fx.service.in_progress_assignments_for_tab("worker-a");
+    let losses = fx
+        .service
+        .in_progress_assignments_for_tab("worker-a")
+        .unwrap();
     assert_eq!(losses.len(), 1);
     assert_eq!(losses[0].plan_id, mine);
     assert_never_loaded(store, &[&other]);
+    assert!(store.plan_loads_for_test().is_empty());
 }
 
 #[test]
@@ -103,12 +116,16 @@ fn worker_losses_for_tab_never_loads_unmatched_plans() {
     );
     start(store);
 
-    let losses = fx.service.worker_losses_for_tab(
-        "worker-a",
-        crate::service::worker_loss::WorkerLossCause::AgentUnavailable,
-    );
+    let losses = fx
+        .service
+        .worker_losses_for_tab(
+            "worker-a",
+            crate::service::worker_loss::WorkerLossCause::AgentUnavailable,
+        )
+        .unwrap();
     assert_eq!(losses.len(), 1);
     assert_never_loaded(store, &[&pending]);
+    assert!(store.plan_loads_for_test().is_empty());
 }
 
 #[test]
@@ -132,12 +149,8 @@ fn worker_is_task_bound_never_loads_unmatched_plans() {
     );
     start(store);
 
-    assert!(crate::service::agent_transition::worker_is_task_bound(
-        store, "worker-a"
-    ));
-    assert!(!crate::service::agent_transition::worker_is_task_bound(
-        store, "worker-c"
-    ));
+    assert!(crate::service::agent_transition::worker_is_task_bound(store, "worker-a").unwrap());
+    assert!(!crate::service::agent_transition::worker_is_task_bound(store, "worker-c").unwrap());
     assert_never_loaded(store, &[&other]);
 }
 
@@ -166,7 +179,7 @@ fn worker_task_bindings_never_loads_unmatched_plans() {
     start(store);
 
     assert_eq!(
-        crate::service::agent_transition::worker_task_bindings(store, "worker-a"),
+        crate::service::agent_transition::worker_task_bindings(store, "worker-a").unwrap(),
         vec![(mine, "task_m".to_string())]
     );
     assert_never_loaded(store, &[&finished]);
@@ -199,8 +212,9 @@ fn restore_lane_watches_never_loads_unmatched_plans() {
     );
     start(store);
 
-    fx.service.restore_lane_watches();
-    assert_eq!(store.plan_loads_for_test(), vec![laned]);
+    fx.service.restore_lane_watches().unwrap();
+    assert!(store.plan_loads_for_test().is_empty());
+    assert_never_loaded(store, &[&laned]);
     assert_never_loaded(store, &[&settled, &laneless]);
 }
 
@@ -224,7 +238,11 @@ fn find_lane_attempt_never_loads_unmatched_plans() {
     );
     start(store);
 
-    assert!(crate::service::lane_stats::find_lane_attempt(store, "worker-a").is_some());
+    assert!(
+        crate::service::lane_stats::find_lane_attempt(store, "worker-a")
+            .unwrap()
+            .is_some()
+    );
     assert_never_loaded(store, &[&other]);
 }
 
@@ -256,7 +274,13 @@ fn settle_lanes_held_by_closed_tab_never_loads_unmatched_plans() {
     start(store);
 
     fx.service.settle_lanes_held_by_closed_tab("closed-tab");
-    assert!(store.plan_loads_for_test().contains(&held));
+    assert_eq!(
+        store
+            .lane_settlement_projection(Some(&held), None)
+            .unwrap()
+            .len(),
+        1
+    );
     assert_never_loaded(store, &[&running, &elsewhere]);
 }
 
@@ -282,8 +306,16 @@ fn bind_planner_session_never_loads_unmatched_plans() {
     let other = seed(store, other);
     start(store);
 
-    fx.service.bind_planner_session(&planner_tab);
-    assert!(store.plan_loads_for_test().contains(&planned));
+    fx.service.bind_planner_session(&planner_tab).unwrap();
+    let selected = store.planner_gate_context(&planned, None).unwrap().unwrap();
+    assert!(matches!(selected.planner,
+        Some(crate::plan::PlannerRef::Tab { tab_id, session_id: Some(session), .. })
+            if tab_id == planner_tab && session == "planner-session"));
+    let unmatched = store.planner_gate_context(&other, None).unwrap().unwrap();
+    assert!(matches!(unmatched.planner,
+        Some(crate::plan::PlannerRef::Tab { tab_id, session_id: Some(session), .. })
+            if tab_id == "other-planner" && session == "other-planner-session"));
+    assert!(store.plan_loads_for_test().is_empty());
     assert_never_loaded(store, &[&other]);
 }
 
@@ -315,11 +347,16 @@ fn signal_provider_exhaustion_never_loads_unmatched_plans() {
     start(store);
 
     assert_eq!(
-        fx.service.signal_provider_exhaustion("fixture-provider-a"),
+        fx.service
+            .signal_provider_exhaustion("fixture-provider-a")
+            .unwrap(),
         0,
         "no task names an interruption owner"
     );
-    assert!(store.plan_loads_for_test().contains(&exhausted));
+    assert!(
+        store.plan_loads_for_test().is_empty(),
+        "exhaustion must select {exhausted} without loading a Plan"
+    );
     assert_never_loaded(store, &[&fine]);
 }
 
@@ -349,11 +386,16 @@ fn signal_provider_recovery_never_loads_unmatched_plans() {
     start(store);
 
     assert_eq!(
-        fx.service.signal_provider_recovery("fixture-provider-a"),
+        fx.service
+            .signal_provider_recovery("fixture-provider-a")
+            .unwrap(),
         0,
         "another provider paused it"
     );
-    assert_eq!(store.plan_loads_for_test(), vec![paused]);
+    assert!(
+        store.plan_loads_for_test().is_empty(),
+        "recovery must select {paused} without loading a Plan"
+    );
     assert_never_loaded(store, &[&running]);
 }
 
@@ -381,10 +423,14 @@ fn signal_worker_interruption_never_loads_unmatched_plans() {
 
     assert!(
         !fx.service
-            .signal_worker_interruption("worker-a", WorkerInterruptionEvent::ProviderExhausted),
+            .signal_worker_interruption("worker-a", WorkerInterruptionEvent::ProviderExhausted)
+            .unwrap(),
         "an owner without a session cannot be checkpointed"
     );
-    assert_eq!(store.plan_loads_for_test(), vec![owned]);
+    assert!(
+        store.plan_loads_for_test().is_empty(),
+        "interruption must select {owned} without loading a Plan"
+    );
     assert_never_loaded(store, &[&other]);
 }
 
@@ -401,7 +447,8 @@ fn clear_planner_bindings_for_lifecycle_exit_never_loads_unmatched_plans() {
     start(store);
 
     assert_eq!(
-        crate::service::hierarchy::clear_planner_bindings_for_lifecycle_exit(store, "planner-a", 5),
+        crate::service::hierarchy::clear_planner_bindings_for_lifecycle_exit(store, "planner-a", 5)
+            .unwrap(),
         1
     );
     assert_never_loaded(store, &[&other]);
@@ -410,11 +457,24 @@ fn clear_planner_bindings_for_lifecycle_exit_never_loads_unmatched_plans() {
 #[test]
 fn lazy_restore_initialize_never_loads_unmatched_plans() {
     let (fx, _) = fixture();
+    let (worker_tab, idle_tab) = {
+        let mut mux = fx.service.mux.write();
+        let workspace = mux.list_workspaces()[0].id.clone();
+        let worker = mux.create_tab(&workspace).unwrap();
+        let idle = mux.create_tab(&workspace).unwrap();
+        for id in [&worker, &idle] {
+            let tab = mux.get_tab_mut(id).unwrap();
+            tab.agent_type = Some("opaque".into());
+            tab.restored_from_snapshot = true;
+            tab.last_active_at_ms = Some(0);
+        }
+        (worker, idle)
+    };
     let store = &fx.service.plan_store;
-    let mut continuing = task("task_c", TaskStatus::InProgress, Some("worker-a"));
+    let mut continuing = task("task_c", TaskStatus::InProgress, Some(&worker_tab));
     continuing
         .execution_attempts
-        .push(attempt("att_c", "worker-a"));
+        .push(attempt("att_c", &worker_tab));
     let continuing = seed(
         store,
         execution_plan(&project(&fx), "continuing", "owner", vec![continuing]),
@@ -431,7 +491,18 @@ fn lazy_restore_initialize_never_loads_unmatched_plans() {
     start(store);
 
     crate::service::lazy_restore::initialize(&fx.service, 24);
-    assert_eq!(store.plan_loads_for_test(), vec![continuing]);
+    assert!(store
+        .continuing_restore_tab_projection(&worker_tab)
+        .unwrap());
+    assert!(!store.continuing_restore_tab_projection(&idle_tab).unwrap());
+    let mux = fx.service.mux.read();
+    assert!(
+        !mux.get_tab(&worker_tab).unwrap().frozen,
+        "{continuing} keeps its worker continuing"
+    );
+    assert!(mux.get_tab(&idle_tab).unwrap().frozen);
+    drop(mux);
+    assert!(store.plan_loads_for_test().is_empty());
     assert_never_loaded(store, &[&idle]);
 }
 
@@ -468,7 +539,11 @@ fn run_lane_watchdog_never_loads_unmatched_plans() {
     start(store);
 
     fx.service.run_lane_watchdog();
-    assert!(store.plan_loads_for_test().contains(&running));
+    assert!(store
+        .lane_watchdog_projection()
+        .unwrap()
+        .iter()
+        .any(|plan| plan.id == running));
     assert_never_loaded(store, &[&queued, &archived]);
 }
 
@@ -489,7 +564,7 @@ fn curator_bootstrap_ids_never_loads_unmatched_plans() {
     let quiet = seed(store, quiet);
     start(store);
 
-    let ids = crate::service::curator::curator_bootstrap_ids(store);
+    let ids = crate::service::curator::curator_bootstrap_ids(store).unwrap();
     assert_eq!(ids, [active, scheduled].into_iter().collect());
     assert!(!ids.contains(&quiet));
     assert!(
@@ -547,7 +622,8 @@ fn is_self_close_protected_never_loads_unmatched_plans() {
     );
     start(store);
 
-    assert!(fx.service.is_self_close_protected("owner-tab"));
+    assert!(fx.service.is_self_close_protected("owner-tab").unwrap());
+    assert!(store.plan_loads_for_test().is_empty());
     assert_never_loaded(store, &[&other]);
 }
 
@@ -565,7 +641,7 @@ fn bound_plan_id_never_loads_unmatched_plans() {
     start(store);
 
     assert_eq!(
-        crate::service::orchestrator::bound_plan_id(store, "member-tab", Some("team-a")),
+        crate::service::orchestrator::bound_plan_id(store, "member-tab", Some("team-a")).unwrap(),
         Some(team_plan)
     );
     assert_never_loaded(store, &[&other]);
@@ -584,10 +660,10 @@ fn close_inventory_plans_never_loads_unmatched_plans() {
     start(store);
 
     let teams: HashSet<&str> = ["team-closing"].into_iter().collect();
-    let plans = crate::service::close_history::close_inventory_plans(store, &teams);
+    let plans = crate::service::close_history::close_inventory_plans(store, &teams).unwrap();
     assert_eq!(
         plans.into_iter().map(|plan| plan.id).collect::<Vec<_>>(),
-        vec![closing]
+        vec![closing.clone()]
     );
-    assert_never_loaded(store, &[&staying]);
+    assert_never_loaded(store, &[&closing, &staying]);
 }

@@ -62,7 +62,7 @@ pub(super) const DEFAULT_PLUGIN_CHANNEL_NAME: &str = "codeterm-plugins";
 // Public release assets published only from verified plugin release tags, so every
 // install reads it without a GitHub identity. Override via CODETERM_SYSTEM_PLUGIN_CHANNEL_URL.
 pub(super) const DEFAULT_SYSTEM_CHANNEL_URL: &str =
-    "https://github.com/rollacode/codeterm-releases/releases/download/codeterm-core-latest/codeterm-core.tar.gz";
+    "https://github.com/domios-dev/domios/releases/download/codeterm-core-latest/codeterm-core.tar.gz";
 pub(super) const DEFAULT_PLUGIN_CHANNEL_URL: &str =
     "https://github.com/rollacode/codeterm-plugins.git";
 include!(concat!(env!("OUT_DIR"), "/bundled_plugins.rs"));

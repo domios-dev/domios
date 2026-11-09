@@ -30,33 +30,6 @@ pub fn send(
     input: &crate::service::messenger::AgentInput,
     send_id: Option<&str>,
 ) -> Result<(), DeliveryError> {
-    send_inner(svc, tab, input, send_id, None)
-}
-
-pub(crate) fn send_pinned(
-    svc: &ServiceContext,
-    tab: &str,
-    input: &crate::service::messenger::AgentInput,
-    send_id: &str,
-    session_id: &str,
-    binding_nonce: &str,
-) -> Result<(), DeliveryError> {
-    send_inner(
-        svc,
-        tab,
-        input,
-        Some(send_id),
-        Some((session_id, binding_nonce)),
-    )
-}
-
-fn send_inner(
-    svc: &ServiceContext,
-    tab: &str,
-    input: &crate::service::messenger::AgentInput,
-    send_id: Option<&str>,
-    pinned: Option<(&str, &str)>,
-) -> Result<(), DeliveryError> {
     let rendered = input.text();
     let text = rendered.as_ref();
     svc.require_admitted_input_allowed(tab, send_id)
@@ -90,12 +63,8 @@ fn send_inner(
             detail: "Runtime handoff already claimed; replay refused".into(),
         });
     }
-    let session = if pinned.is_some() {
-        engine::for_tab(tab).ok_or_else(|| before_write(tab, RuntimeFailure::Superseded))?
-    } else {
-        crate::async_runtime::block_on(engine::ensure(svc, tab))
-            .map_err(|error| before_write(tab, error))?
-    };
+    let session = crate::async_runtime::block_on(engine::ensure(svc, tab))
+        .map_err(|error| before_write(tab, error))?;
     let _permit =
         super::blocking::deadline(std::time::Duration::from_secs(30), session.gate.acquire())
             .map_err(|_| before_write(tab, RuntimeFailure::Deadline))?
@@ -103,20 +72,6 @@ fn send_inner(
     let context = session.context.lock().clone();
     if context.binding_nonce != expected {
         return Err(before_write(tab, RuntimeFailure::Superseded));
-    }
-    if let Some((thread, nonce)) = pinned {
-        if context.thread_id.as_deref() != Some(thread)
-            || context.binding_nonce != nonce
-            || !session.thread_loaded.load(std::sync::atomic::Ordering::Acquire)
-            || !svc.mux.read().get_tab(tab).is_some_and(|tab| {
-                tab.launch_session_authenticated()
-                    && tab.agent_session_id.as_deref() == Some(thread)
-                    && tab.session_binding_nonce.as_deref() == Some(nonce)
-                    && matches!(&tab.backing, crate::multiplexer::types::TabBacking::ChatBackend { session_id, .. } if session_id == thread)
-            })
-        {
-            return Err(before_write(tab, RuntimeFailure::Superseded));
-        }
     }
     let process = session
         .process
@@ -214,6 +169,26 @@ pub(super) fn runtime_input(
     }
 }
 
+fn load_image_bytes(mut input: TurnInput) -> Result<TurnInput, RuntimeFailure> {
+    use base64::Engine;
+    let mut remaining = MAX_RUNTIME_VALUE_BYTES as u64;
+    for attachment in &mut input.attachments {
+        if attachment.data.is_some() || !attachment.mime_type.starts_with("image/") {
+            continue;
+        }
+        let path = attachment.path.as_deref().ok_or_else(|| {
+            RuntimeFailure::Refused("Image attachment path is unavailable".into())
+        })?;
+        let bytes = crate::attachments::read_complete_file(std::path::Path::new(path), remaining)
+            .map_err(RuntimeFailure::Refused)?;
+        remaining = remaining.saturating_sub(bytes.len() as u64);
+        attachment.data = Some(base64::prelude::BASE64_STANDARD.encode(bytes));
+    }
+    validate_runtime_size(&input, MAX_RUNTIME_VALUE_BYTES)
+        .map_err(|reason| RuntimeFailure::Refused(reason.to_string()))?;
+    Ok(input)
+}
+
 pub(crate) async fn submit_loaded(
     svc: &ServiceContext,
     session: &Arc<Session>,
@@ -229,6 +204,17 @@ pub(crate) async fn submit_loaded(
         return Err(before_write(
             tab,
             RuntimeFailure::Refused("Context restoration pending or failed; sends held".into()),
+        ));
+    }
+    // Every submit holds the session gate, so this check cannot race another host submit.
+    let joins_turn = super::turn_requests::joins_running_turn(session, &input.text);
+    if !joins_turn && super::turn_requests::holds_new_submit(session) {
+        return Err(before_write(
+            tab,
+            RuntimeFailure::Refused(format!(
+                "{}: the agent's current turn is still running",
+                super::turn_requests::ACTIVE_TURN_HOLD
+            )),
         ));
     }
     let thread = context
@@ -247,6 +233,30 @@ pub(crate) async fn submit_loaded(
     super::capture::validate_if_present(svc, tab, send_id)
         .map_err(|reason| before_write(tab, reason))?;
     engine::validate_binding(svc, &session).map_err(|error| before_write(tab, error))?;
+    let input = if input.attachments.is_empty() {
+        input
+    } else {
+        crate::async_runtime::spawn_blocking(move || load_image_bytes(input))
+            .await
+            .map_err(|reason| RuntimeFailure::HookFailed(reason.to_string()))
+            .and_then(|result| result)
+            .map_err(|reason| DeliveryError::TabBusyRefused {
+                tab: tab.into(),
+                detail: format!("{REJECTED_BEFORE_WRITE}: {reason}"),
+            })?
+    };
+    engine::validate_binding(svc, &session).map_err(|error| before_write(tab, error))?;
+    super::capture::validate_if_present(svc, tab, send_id)
+        .map_err(|reason| before_write(tab, reason))?;
+    {
+        let current = session.context.lock();
+        if current.epoch != context.epoch
+            || current.binding_nonce != context.binding_nonce
+            || current.thread_id != context.thread_id
+        {
+            return Err(before_write(tab, RuntimeFailure::Superseded));
+        }
+    }
     if context.claimed_sends.len() >= MAX_RUNTIME_BATCH
         || serde_json::to_vec(&input).map_or(true, |value| value.len() > MAX_RUNTIME_VALUE_BYTES)
     {
@@ -254,6 +264,15 @@ pub(crate) async fn submit_loaded(
             tab,
             RuntimeFailure::Refused("Runtime input or outstanding claim limit".into()),
         ));
+    }
+    if let crate::service::messenger::AgentInput::Framed(frame) = &classified {
+        let mut maps = session.maps.lock();
+        maps.sync_active_turn(&context);
+        // A digest head already recorded its own row, which is not the digest it travels in.
+        if maps.routed_input(&pending.send_id, &thread).is_none() {
+            maps.remember_routed_input(&pending.send_id, &thread, frame)
+                .map_err(|reason| before_write(tab, RuntimeFailure::Refused(reason)))?;
+        }
     }
     if !svc.chat_send_ledger.bind_rpc_send(
         &pending.send_id,
@@ -285,25 +304,23 @@ pub(crate) async fn submit_loaded(
     let before_start = starts.sequence();
     let (result, handed_off) = engine::run_submit(svc, session, process, operation).await;
     let result = match result {
-        Err(
-            reason @ (RuntimeFailure::PipeEof
-            | RuntimeFailure::PipeFailure { .. }
-            | RuntimeFailure::ProcessExited {
-                requested: false, ..
-            }),
-        ) if !handed_off => Err(RuntimeFailure::PrewriteRefused(format!(
-            "{REJECTED_BEFORE_WRITE}: {reason}"
-        ))),
-        Err(RuntimeFailure::HookFailed(reason)) if !handed_off => Err(
-            RuntimeFailure::PrewriteRefused(format!("{REJECTED_BEFORE_WRITE}: {reason}")),
-        ),
+        Err(reason) if !handed_off => Err(RuntimeFailure::PrewriteRefused(match reason {
+            RuntimeFailure::PrewriteRefused(reason) => reason,
+            reason => format!("{REJECTED_BEFORE_WRITE}: {reason}"),
+        })),
         other => other,
     };
-    if let Err(failure) = &result {
-        log::warn!(
+    match &result {
+        // Not a failure: the outcome is logged once when own-session evidence confirms it.
+        Err(RuntimeFailure::WrittenAwaitingEvidence) => log::info!(
+            "[runtime-send] tab={tab} send_id={} written; awaiting own-session delivery evidence",
+            pending.send_id
+        ),
+        Err(failure) => log::warn!(
             "[runtime-send] tab={tab} send_id={} handed_off={handed_off} failed: {failure}",
             pending.send_id
-        );
+        ),
+        Ok(_) => {}
     }
     match result {
         Ok(RuntimeResult::TurnAccepted {
@@ -311,6 +328,7 @@ pub(crate) async fn submit_loaded(
             send_id,
             turn_id,
         }) if thread_id == thread && send_id == pending.send_id => {
+            let joined_turn = turn_id.clone().filter(|_| joins_turn);
             if turn_id.is_none() || turn_id.as_ref() != submitted_turn.as_ref() {
                 svc.arm_runtime_turn_start(
                     session,
@@ -339,6 +357,18 @@ pub(crate) async fn submit_loaded(
                     "chat-send-status",
                     serde_json::to_value(status).unwrap_or_default(),
                 );
+            }
+            if let Some(turn) = joined_turn {
+                // The agent's reply to this exact request is the evidence: it took the input in.
+                super::inbound::publish_delivered(
+                    svc,
+                    session,
+                    context.epoch,
+                    &thread,
+                    &turn,
+                    &pending.send_id,
+                )
+                .await;
             }
             Ok(())
         }
@@ -374,7 +404,12 @@ pub(crate) async fn submit_loaded(
             }
             Err(DeliveryError::SubmitUnconfirmed {
                 tab: tab.into(),
-                detail: format!("Runtime handoff uncertain: {other:?}"),
+                detail: match other {
+                    Err(RuntimeFailure::WrittenAwaitingEvidence) => {
+                        "Input was written; waiting for the agent to confirm receipt".into()
+                    }
+                    other => format!("Runtime handoff uncertain: {other:?}"),
+                },
             })
         }
     }
@@ -487,9 +522,10 @@ pub fn snapshot(
 ) -> Result<(Arc<Session>, Vec<crate::agent::chat_types::ChatMsg>), String> {
     let started = std::time::Instant::now();
     let cached = engine::for_tab(tab).filter(|session| {
-        session
+        (session
             .thread_loaded
             .load(std::sync::atomic::Ordering::Acquire)
+            || engine::session_load_refused(svc, session))
             && engine::validate_binding(svc, session).is_ok()
     });
     let ensured = match cached {
@@ -512,6 +548,77 @@ pub fn snapshot(
         items.len()
     );
     Ok((session, items))
+}
+
+/// What a tab's chat shows on attach, and the binding those rows belong to.
+pub struct AttachedTranscript {
+    pub messages: Vec<crate::agent::chat_types::ChatMsg>,
+    pub thread_id: Option<String>,
+    pub binding_nonce: Option<String>,
+}
+
+/// Reading history never needs a live runtime: when this tab's runtime cannot
+/// load, the rows come from what this host kept for the tab's bound session.
+pub fn attach_transcript(svc: &ServiceContext, tab: &str) -> Result<AttachedTranscript, String> {
+    match snapshot(svc, tab) {
+        Ok((session, messages)) => {
+            let context = session.context.lock().clone();
+            Ok(AttachedTranscript {
+                messages,
+                thread_id: context.thread_id,
+                binding_nonce: Some(context.binding_nonce),
+            })
+        }
+        Err(error) => kept_transcript(svc, tab).ok_or(error),
+    }
+}
+
+fn kept_transcript(svc: &ServiceContext, tab: &str) -> Option<AttachedTranscript> {
+    let (provider, thread, nonce) = {
+        let mux = svc.mux.read();
+        let target = mux.get_tab(tab)?;
+        (
+            target.agent_type.clone()?,
+            target
+                .agent_session_id
+                .clone()
+                .filter(|thread| !thread.is_empty())?,
+            target.session_binding_nonce.clone(),
+        )
+    };
+    let cached = engine::for_tab(tab)
+        .filter(|session| {
+            session.provider == provider
+                && session.context.lock().thread_id.as_deref() == Some(thread.as_str())
+        })
+        .map(|session| session.cache.lock().snapshot())
+        .filter(|rows| !rows.is_empty());
+    let messages = match cached {
+        Some(rows) => rows,
+        None => {
+            let capability = svc
+                .agent_registry
+                .with_provider(&provider, |adapter| adapter.agent_runtime())
+                .flatten()?;
+            match super::transcript::kept_rows(&provider, &thread, &capability) {
+                Ok(rows) => rows?,
+                Err(error) => {
+                    log::warn!("[chat-attach] tab={tab} kept transcript unreadable: {error}");
+                    return None;
+                }
+            }
+        }
+    };
+    let current = svc.mux.read().get_tab(tab).is_some_and(|target| {
+        target.agent_type.as_deref() == Some(provider.as_str())
+            && target.agent_session_id.as_deref() == Some(thread.as_str())
+            && target.session_binding_nonce == nonce
+    });
+    current.then_some(AttachedTranscript {
+        messages,
+        thread_id: Some(thread),
+        binding_nonce: nonce,
+    })
 }
 
 #[cfg(test)]

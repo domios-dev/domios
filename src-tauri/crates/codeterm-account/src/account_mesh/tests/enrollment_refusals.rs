@@ -186,7 +186,7 @@ async fn ordinary_enrollment_outage_does_not_prevent_a_fresh_registry_read() {
     );
     harness.registry.script.lock().unwrap().membership = None;
     let calls = harness.calls("list");
-    let registry = harness.mesh.list().await.unwrap();
+    let registry = harness.mesh.list_fresh().await.unwrap();
     assert_eq!(registry.observed_at, START + 64800);
     assert_eq!(harness.calls("list"), calls + 1);
 }

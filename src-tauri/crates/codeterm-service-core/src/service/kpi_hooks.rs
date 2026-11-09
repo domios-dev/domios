@@ -12,7 +12,10 @@ use crate::agent::kpi::{deliver_event_kind, KpiAttribution, UsageSource};
 use crate::agent::kpi_ledger::{KpiEventKind, TabCreatedKind};
 
 impl ServiceContext {
-    pub(crate) fn kpi_attribution(&self, tab_id: &str) -> KpiAttribution {
+    pub(crate) fn kpi_attribution(
+        &self,
+        tab_id: &str,
+    ) -> Result<KpiAttribution, super::plan::PlanError> {
         let (resolved, role, role_profile, provider, workspace_id) = {
             let mux = self.mux.read();
             let resolved = mux
@@ -30,29 +33,13 @@ impl ServiceContext {
         // Session-scoped provider evidence, or nothing: a tab the model poller has
         // not reached must not fall back to a provider or launch-time guess.
         let model = self.verified_session_model(&resolved);
-        let (plan_id, task_id) = self.kpi_plan_context(&resolved);
-        KpiAttribution::for_tab(resolved)
-            .plan(plan_id, task_id)
+        let context = self.plan_store.kpi_plan_context_projection(&resolved)?;
+        Ok(KpiAttribution::for_tab(resolved)
+            .plan(context.plan_id, context.task_id)
             .role(role, role_profile.as_deref())
             .provider(provider)
             .model(model)
-            .workspace(workspace_id)
-    }
-
-    /// A task assignment carries both ids. Without one, a plan's owner and its
-    /// registered Planner still take the `plan_id` with a null `task_id`. An
-    /// unbound tab and a tab two active plans claim both stay unassigned.
-    fn kpi_plan_context(&self, tab_id: &str) -> (Option<String>, Option<String>) {
-        if let Some((plan_id, task_id)) = self.plan_store.task_binding_for_tab(tab_id) {
-            return (Some(plan_id), Some(task_id));
-        }
-        let mut candidates = self
-            .plan_store
-            .taskless_plan_context_candidates_for_tab(tab_id);
-        match candidates.len() {
-            1 => (candidates.pop(), None),
-            _ => (None, None),
-        }
+            .workspace(workspace_id))
     }
 
     pub(crate) fn record_kpi_delivery(&self, to_tab: &str, kind: MessageKind, bytes: usize) {
@@ -62,7 +49,13 @@ impl ServiceContext {
         let Some(event_kind) = deliver_event_kind(kind) else {
             return;
         };
-        let attribution = self.kpi_attribution(to_tab);
+        let attribution = match self.kpi_attribution(to_tab) {
+            Ok(attribution) => attribution,
+            Err(error) => {
+                log::warn!("[kpi] plan attribution failed: {error}; event not recorded");
+                return;
+            }
+        };
         self.kpi
             .record(attribution.into_event(event_kind, bytes as u64));
     }
@@ -83,7 +76,13 @@ impl ServiceContext {
         if !self.kpi.is_enabled() {
             return;
         }
-        let mut attribution = self.kpi_attribution(tab_id);
+        let mut attribution = match self.kpi_attribution(tab_id) {
+            Ok(attribution) => attribution,
+            Err(error) => {
+                log::warn!("[kpi] plan attribution failed: {error}; event not recorded");
+                return;
+            }
+        };
         if plan_id.is_some() {
             attribution.plan_id = plan_id.map(str::to_string);
             attribution.task_id = task_id.map(str::to_string);
@@ -105,7 +104,13 @@ impl ServiceContext {
         if !self.kpi.is_enabled() {
             return;
         }
-        let mut attribution = self.kpi_attribution(tab_id);
+        let mut attribution = match self.kpi_attribution(tab_id) {
+            Ok(attribution) => attribution,
+            Err(error) => {
+                log::warn!("[kpi] plan attribution failed: {error}; event not recorded");
+                return;
+            }
+        };
         if attribution.model.is_none() {
             attribution.model = model.map(str::to_string);
         }
@@ -119,7 +124,13 @@ impl ServiceContext {
         if !self.kpi.is_enabled() {
             return;
         }
-        let attribution = self.kpi_attribution(tab_id);
+        let attribution = match self.kpi_attribution(tab_id) {
+            Ok(attribution) => attribution,
+            Err(error) => {
+                log::warn!("[kpi] plan attribution failed: {error}; event not recorded");
+                return;
+            }
+        };
         self.kpi.record(attribution.into_tab_created_event(kind));
     }
 
@@ -139,7 +150,13 @@ impl ServiceContext {
         if !self.kpi.is_enabled() {
             return;
         }
-        let mut attribution = self.kpi_attribution(tab_id);
+        let mut attribution = match self.kpi_attribution(tab_id) {
+            Ok(attribution) => attribution,
+            Err(error) => {
+                log::warn!("[kpi] plan attribution failed: {error}; event not recorded");
+                return;
+            }
+        };
         attribution.plan_id = Some(plan_id.to_string());
         attribution.task_id = Some(task_id.to_string());
         let dedup_key = format!("{task_id}:{review_round}:{}", verdict.label());
@@ -151,7 +168,13 @@ impl ServiceContext {
         if !self.kpi.is_enabled() {
             return;
         }
-        let attribution = self.kpi_attribution(tab_id);
+        let attribution = match self.kpi_attribution(tab_id) {
+            Ok(attribution) => attribution,
+            Err(error) => {
+                log::warn!("[kpi] plan attribution failed: {error}; event not recorded");
+                return;
+            }
+        };
         self.kpi.record(attribution.into_event(kind, bytes as u64));
     }
 
@@ -173,7 +196,13 @@ impl ServiceContext {
         let Some(sources) = self.tab_usage_sources(tab_id) else {
             return;
         };
-        let attribution = self.kpi_attribution(tab_id);
+        let attribution = match self.kpi_attribution(tab_id) {
+            Ok(attribution) => attribution,
+            Err(error) => {
+                log::warn!("[kpi] plan attribution failed: {error}; event not recorded");
+                return;
+            }
+        };
         for source in sources {
             self.kpi.request_ingest(source, attribution.clone());
         }

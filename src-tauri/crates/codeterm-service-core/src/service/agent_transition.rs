@@ -10,7 +10,9 @@ use crate::service::plan::mutations::agent_lifecycle::{
 };
 use crate::service::ServiceContext;
 
+mod prepared;
 mod worker_transfer;
+pub use prepared::plan_owner_request;
 #[cfg(test)]
 pub(crate) use worker_transfer::worker_task_bindings;
 
@@ -159,12 +161,18 @@ impl ServiceContext {
         explicit_parent_tab_id: Option<&str>,
         require_verified_session: bool,
     ) -> Result<Vec<String>, String> {
-        let parent_tab_id = resolve_planner_parent(
-            &self.plan_store,
-            &self.mux.read(),
-            plan_id,
-            explicit_parent_tab_id,
-        )?;
+        let parent_tab_id = if let Some(explicit) = explicit_parent_tab_id
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+        {
+            explicit.to_string()
+        } else {
+            let owner = plan_owner(&self.plan_store, plan_id)?;
+            if self.mux.read().get_tab(&owner).is_none() {
+                return Err(format!("plan {plan_id}'s Orchestrator owner tab '{owner}' is not live; pass --parent-tab explicitly"));
+            }
+            owner
+        };
         self.transition_agent(AgentTransitionRequest {
             tab_id: tab_id.to_string(),
             destination: AgentPlacement::Manager {
@@ -238,19 +246,18 @@ impl ServiceContext {
         &self,
         request: AgentTransitionRequest,
         failure: TransitionFailurePoint,
-        precondition: impl FnOnce(&MultiplexerState) -> Result<(), String>,
+        precondition: impl Fn(&MultiplexerState) -> Result<(), String>,
     ) -> Result<Vec<String>, String> {
-        let mut mux = self.mux.write();
-        precondition(&mux)?;
-        self.remote_teams
-            .ensure_tab_lifecycle_available(&request.tab_id)?;
-        let bindings_before = role_team_bindings(&mux);
-        let changed_plan_ids = execute_transition(&mut mux, &self.plan_store, request, failure)?;
-        let changed_bindings = role_team_bindings(&mux)
-            .into_iter()
-            .filter_map(|(id, binding)| (bindings_before.get(&id) != Some(&binding)).then_some(id))
-            .collect::<Vec<_>>();
-        drop(mux);
+        let (changed_plan_ids, changed_bindings) = self.transition_agent_prepared_at(
+            epoch_ms(),
+            |mux, _| {
+                precondition(mux)?;
+                self.remote_teams
+                    .ensure_tab_lifecycle_available(&request.tab_id)?;
+                Ok(request.clone())
+            },
+            failure,
+        )?;
         for changed_tab_id in changed_bindings {
             self.record_role_transition(&changed_tab_id);
         }
@@ -281,12 +288,15 @@ impl ServiceContext {
             });
         }
 
-        let plan = self
+        let prior_planner = self
             .plan_store
-            .get(plan_id)
-            .ok_or_else(|| format!("Plan {plan_id} not found"))?;
+            .hierarchy_planner_projection(plan_id)
+            .map_err(|error| match error {
+                crate::service::plan::PlanError::NotFound => format!("Plan {plan_id} not found"),
+                error => error.to_string(),
+            })?;
         if planner.is_none() {
-            if let Some(PlannerRef::Tab { tab_id, .. }) = plan.planner {
+            if let Some(PlannerRef::Tab { tab_id, .. }) = prior_planner {
                 if self.mux.read().get_tab(&tab_id).is_some() {
                     return self.transition_agent(AgentTransitionRequest {
                         tab_id,
@@ -299,7 +309,6 @@ impl ServiceContext {
                 }
             }
         }
-        let mux = self.mux.read();
         let change = AgentLifecyclePlanChange {
             tab_id: String::new(),
             preserve_owned_plans: true,
@@ -313,7 +322,6 @@ impl ServiceContext {
             .apply_agent_lifecycle_change(change, epoch_ms())
             .map_err(|error| error.to_string())?;
         let changed = transaction.changed_plan_ids().to_vec();
-        drop(mux);
         for changed_plan_id in &changed {
             self.emit_plan_changed(changed_plan_id);
         }
@@ -326,25 +334,10 @@ impl ServiceContext {
 pub(crate) fn worker_is_task_bound(
     plan_store: &crate::service::plan::PlanStore,
     tab_id: &str,
-) -> bool {
-    use crate::service::plan::{AttemptMatch, AttemptState, PlanMatch, TaskMatch};
-    let candidates = PlanMatch::Any(vec![
-        TaskMatch::bound_to(tab_id),
-        AttemptMatch::executor(tab_id, AttemptState::Unclosed).into_match(),
-    ]);
+) -> Result<bool, String> {
     plan_store
-        .stored_plans_matching(&candidates)
-        .iter()
-        .any(|plan| {
-            plan.tasks.iter().any(|task| {
-                (!task.status.is_terminal()
-                    && (task.assigned_tab_id.as_deref() == Some(tab_id)
-                        || task.lane.tab_id.as_deref() == Some(tab_id)))
-                    || task.execution_attempts.iter().any(|attempt| {
-                        attempt.executor_tab_id == tab_id && attempt.closed_at.is_none()
-                    })
-            })
-        })
+        .transition_worker_is_task_bound_projection(tab_id)
+        .map_err(|error| error.to_string())
 }
 
 fn refuse_unverified_task_bound_worker_transfer(
@@ -363,7 +356,7 @@ fn refuse_unverified_task_bound_worker_transfer(
     {
         return Ok(());
     }
-    if worker_is_task_bound(plan_store, &request.tab_id) {
+    if worker_is_task_bound(plan_store, &request.tab_id)? {
         return Err(
             "task-bound Worker transfer requires an authenticated source-manager transfer".into(),
         );
@@ -411,7 +404,7 @@ pub fn transition_plan_to_orchestrator_core(
     activate: bool,
     planner: Option<PlannerRef>,
     now_ms: u64,
-) -> Result<crate::plan::Plan, String> {
+) -> Result<crate::service::plan::TeamPlanMutationRead, String> {
     transition_plan_owner(
         mux,
         plan_store,
@@ -436,7 +429,7 @@ pub fn recover_plan_ownership_for_new_orchestrator(
     team_id: &str,
     reason: &str,
     now_ms: u64,
-) -> Result<crate::plan::Plan, String> {
+) -> Result<crate::service::plan::TeamPlanMutationRead, String> {
     transition_plan_owner(
         mux, plan_store, plan_id, owner, team_id, reason, true, false, None, now_ms,
     )
@@ -454,7 +447,7 @@ fn transition_plan_owner(
     clear_planner: bool,
     planner_replacement: Option<(String, Option<PlannerRef>)>,
     now_ms: u64,
-) -> Result<crate::plan::Plan, String> {
+) -> Result<crate::service::plan::TeamPlanMutationRead, String> {
     let tab_id = owner
         .tab_id
         .as_deref()
@@ -486,6 +479,7 @@ fn transition_plan_owner(
     verify_persisted_plan_rebind(plan_store, &rebind)
 }
 
+#[cfg(test)]
 fn execute_transition(
     mux: &mut MultiplexerState,
     plan_store: &crate::service::plan::PlanStore,
@@ -574,7 +568,7 @@ fn prepare_transition(
                 Some(PlannerRef::Tab { tab_id, .. }) => Some(tab_id.as_str()),
                 _ => None,
             }),
-    );
+    )?;
     if let Some(incumbent_id) = incumbent.as_deref() {
         if staged.get_tab(incumbent_id).is_some() {
             for affected_id in clear_lifecycle(staged, incumbent_id, None)? {
@@ -802,12 +796,17 @@ fn plan_owner(
     plan_id: &str,
 ) -> Result<String, String> {
     plan_store
-        .get(plan_id)
-        .and_then(|plan| plan.owner.tab_id)
+        .plan_identity_projection(plan_id)
+        .map(|plan| plan.owner.tab_id)
+        .or_else(|error| match error {
+            crate::service::plan::PlanError::NotFound => Ok(None),
+            error => Err(error.to_string()),
+        })?
         .filter(|tab_id| !tab_id.trim().is_empty())
         .ok_or_else(|| format!("Plan {plan_id} has no live Orchestrator owner"))
 }
 
+#[cfg(test)]
 /// An explicit parent wins; otherwise resolves from the plan's live owner.
 pub(super) fn resolve_planner_parent(
     plan_store: &crate::service::plan::PlanStore,
@@ -960,13 +959,17 @@ fn relink_plan_members(
         .tab_id
         .as_deref()
         .ok_or_else(|| "plan rebind requires a destination Orchestrator tab".to_string())?;
-    let mut plan = plan_store
-        .get(&rebind.plan_id)
-        .ok_or_else(|| format!("Plan {} not found", rebind.plan_id))?;
-    plan.planner = None;
-    crate::service::plan::relink_to_owner(
+    let targets = plan_store
+        .relink_targets_projection(&rebind.plan_id, false)
+        .map_err(|error| match error {
+            crate::service::plan::PlanError::NotFound => {
+                format!("Plan {} not found", rebind.plan_id)
+            }
+            error => error.to_string(),
+        })?;
+    crate::service::plan::relink_selected_to_owner(
         &mut crate::service::plan::lane_port_impl::LaneStatePort(mux),
-        &plan,
+        &targets,
         owner_tab_id,
     );
     Ok(())
@@ -1014,19 +1017,26 @@ fn planner_incumbent(
     plan_rebind: Option<&AgentLifecyclePlanRebind>,
     target_tab_id: &str,
     replacement_tab_id: Option<&str>,
-) -> Option<String> {
+) -> Result<Option<String>, String> {
     let plan_id = match plan_binding {
         Some(plan_id) if destination.is_planner() => plan_id,
         _ if destination.anchors_team() => {
-            let rebind = plan_rebind.filter(|rebind| rebind.clear_planner)?;
+            let Some(rebind) = plan_rebind.filter(|rebind| rebind.clear_planner) else {
+                return Ok(None);
+            };
             &rebind.plan_id
         }
-        _ => return None,
+        _ => return Ok(None),
     };
-    let Some(PlannerRef::Tab { tab_id, .. }) = plan_store.get(plan_id)?.planner else {
-        return None;
+    let planner = match plan_store.hierarchy_planner_projection(plan_id) {
+        Ok(planner) => planner,
+        Err(crate::service::plan::PlanError::NotFound) => return Ok(None),
+        Err(error) => return Err(error.to_string()),
     };
-    (tab_id != target_tab_id && Some(tab_id.as_str()) != replacement_tab_id).then_some(tab_id)
+    let Some(PlannerRef::Tab { tab_id, .. }) = planner else {
+        return Ok(None);
+    };
+    Ok((tab_id != target_tab_id && Some(tab_id.as_str()) != replacement_tab_id).then_some(tab_id))
 }
 
 fn verify_destination(
@@ -1121,10 +1131,15 @@ fn verify_leaf(
 fn verify_persisted_plan_rebind(
     plan_store: &crate::service::plan::PlanStore,
     rebind: &AgentLifecyclePlanRebind,
-) -> Result<crate::plan::Plan, String> {
+) -> Result<crate::service::plan::TeamPlanMutationRead, String> {
     let plan = plan_store
-        .get(&rebind.plan_id)
-        .ok_or_else(|| format!("Plan {} not found after lifecycle rebind", rebind.plan_id))?;
+        .team_plan_mutation_projection(&rebind.plan_id)
+        .map_err(|error| {
+            format!(
+                "Plan {} lifecycle rebind verification failed: {error}",
+                rebind.plan_id
+            )
+        })?;
     if plan.owner != rebind.owner || plan.team_id.as_deref() != Some(rebind.team_id.as_str()) {
         return Err(format!(
             "plan lifecycle rebind post-condition failed for {}",

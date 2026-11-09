@@ -1,5 +1,6 @@
+import type { PlanTaskView as Task } from "../planProjection";
 import type { Tab } from "../../../lib/types";
-import type { Task, TaskExecutionAttempt } from "../types";
+import type { TaskExecutionAttempt } from "../types";
 import { attemptTabId, attemptTabTitle } from "../taskExecutorHistory";
 
 export interface CompetitionForTaskResult {

@@ -129,10 +129,14 @@ impl Store {
     }
 
     pub fn asset(&self, release: &str, path: &str) -> Result<Vec<u8>, String> {
+        Self::asset_at(&self.root, release, path)
+    }
+
+    pub(crate) fn asset_at(root: &Path, release: &str, path: &str) -> Result<Vec<u8>, String> {
         if !safe_component(release) || !safe_asset_path(path) {
             return Err("Invalid asset path".into());
         }
-        let base = self.root.join("releases").join(release).join("assets-root");
+        let base = root.join("releases").join(release).join("assets-root");
         let target = base.join(path);
         let metadata = fs::symlink_metadata(&target).map_err(|e| e.to_string())?;
         if !metadata.is_file() || metadata.file_type().is_symlink() {

@@ -1,6 +1,45 @@
 use super::*;
 use rusqlite::OptionalExtension;
 
+pub(in crate::service_plan) fn enqueue_plan_metadata(
+    _turn: &MutationWriterTurn<'_>,
+    root: PathBuf,
+    row: crate::service_plan::store_db::PlanIndexRow,
+) {
+    index_queue().enqueue(IndexJob::PlanMetadata(root, row));
+}
+
+pub(super) fn mirror_plan_metadata(
+    root: &Path,
+    row: &crate::service_plan::store_db::PlanIndexRow,
+) -> Result<(), String> {
+    let status = plan_status_text(&row.status);
+    let unit = super::unit_inputs::UnitParent {
+        id: &row.id,
+        title: &row.title,
+        scope: &project_scope(root),
+        status: &status,
+    }
+    .header("", row.updated_at);
+    let mut connection = open_index(root)?;
+    let transaction = connection
+        .transaction()
+        .map_err(|error| error.to_string())?;
+    delete_unit_vectors(&transaction, &unit.id)?;
+    transaction
+        .execute("DELETE FROM mem_fts WHERE mem_id=?1", [&unit.id])
+        .map_err(|error| error.to_string())?;
+    transaction
+        .execute("DELETE FROM mem_items WHERE id=?1", [&unit.id])
+        .map_err(|error| error.to_string())?;
+    insert_unit(&transaction, &unit)?;
+    transaction.execute("UPDATE mem_items SET title=CASE kind WHEN 'plan_section' THEN ?2 || ' section ' || json_extract(source,'$.unit_title') WHEN 'task' THEN ?2 || ' task ' || json_extract(source,'$.unit_title') ELSE title END, source=json_set(source,'$.parent_title',CASE WHEN kind='stride' THEN json_extract(source,'$.parent_title') ELSE ?2 END,'$.status', CASE WHEN instr(coalesce(json_extract(source,'$.status'),''),':')>0 THEN ?3 || substr(json_extract(source,'$.status'),instr(json_extract(source,'$.status'),':')) ELSE ?3 END) WHERE json_extract(source,'$.plan_id')=?1", params![row.id, row.title, status]).map_err(|error| error.to_string())?;
+    transaction.execute("UPDATE mem_fts SET title=(SELECT title FROM mem_items WHERE id=mem_id) WHERE mem_id IN (SELECT id FROM mem_items WHERE json_extract(source,'$.plan_id')=?1) AND title IS NOT (SELECT title FROM mem_items WHERE id=mem_id)", [&row.id]).map_err(|error| error.to_string())?;
+    transaction.commit().map_err(|error| error.to_string())?;
+    index_queue().enqueue(IndexJob::Embed(root.to_path_buf(), unit));
+    Ok(())
+}
+
 pub(in crate::service_plan) fn enqueue_plan_time(
     _turn: &MutationWriterTurn<'_>,
     root: PathBuf,
@@ -138,23 +177,22 @@ pub(super) fn milestone_unit(
     scope: &str,
     plan_status: &str,
 ) -> Unit {
-    Unit {
-        id: stable_id(plan_id, "stride", &stride.id),
-        kind: "stride",
-        title: format!("{} stride {}", task_name, stride.kind),
-        body: format!(
-            "Plan \"{}\" · task \"{}\" · stride({}): {}",
-            plan_title, task_name, stride.kind, stride.text
-        ),
-        scope: scope.to_string(),
-        plan_id: Some(plan_id.into()),
-        spec_id: None,
-        unit_id: stride.id.clone(),
-        unit_title: stride.kind.clone(),
-        parent_title: task_name.into(),
-        status: Some(format!("{plan_status}:{task_status}")),
-        updated_at: stride.ts,
+    super::unit_inputs::UnitParent {
+        id: plan_id,
+        title: plan_title,
+        scope,
+        status: plan_status,
     }
+    .stride(
+        task_name,
+        task_status,
+        super::unit_inputs::StrideUnitInput {
+            id: &stride.id,
+            kind: &stride.kind,
+            text: &stride.text,
+            ts: stride.ts,
+        },
+    )
 }
 
 pub(super) fn mirror_unit(root: &Path, unit: &Unit) -> Result<Vec<Unit>, String> {
@@ -214,30 +252,25 @@ pub(super) fn task_unit(
     scope: &str,
     plan_status: &str,
 ) -> Unit {
-    let acceptance_criteria = task.acceptance_criteria.join("\n");
-    let external_refs = task
-        .external_refs
-        .iter()
-        .map(|external_ref| external_ref.canonical_url.as_str())
-        .collect::<Vec<_>>()
-        .join("\n");
-    Unit {
-        id: stable_id(plan_id, "task", &task.id),
-        kind: "task",
-        title: format!("{} task {}", plan_title, task.name),
-        body: format!(
-            "Plan \"{}\" · task: {}\n{}\n{}\n{}",
-            plan_title, task.name, acceptance_criteria, external_refs, task.body
-        ),
-        scope: scope.to_string(),
-        plan_id: Some(plan_id.into()),
-        spec_id: None,
-        unit_id: task.id.clone(),
-        unit_title: task.name.clone(),
-        parent_title: plan_title.into(),
-        status: Some(format!("{plan_status}:{}", task_status_text(task))),
-        updated_at: task.updated_at,
+    super::unit_inputs::UnitParent {
+        id: plan_id,
+        title: plan_title,
+        scope,
+        status: plan_status,
     }
+    .task(super::unit_inputs::TaskUnitInput {
+        id: &task.id,
+        name: &task.name,
+        status: &task.status,
+        updated_at: task.updated_at,
+        body: &task.body,
+        acceptance_criteria: &task.acceptance_criteria,
+        external_refs: task
+            .external_refs
+            .iter()
+            .map(|reference| reference.canonical_url.as_str())
+            .collect(),
+    })
 }
 
 pub(super) fn delete_unit(root: &Path, id: &str) -> Result<(), String> {
@@ -253,4 +286,23 @@ pub(super) fn delete_unit(root: &Path, id: &str) -> Result<(), String> {
         .execute("DELETE FROM mem_items WHERE id=?1", [id])
         .map_err(|error| error.to_string())?;
     transaction.commit().map_err(|error| error.to_string())
+}
+
+pub(in crate::service_plan) fn enqueue_task_removal(
+    _turn: &MutationWriterTurn<'_>,
+    root: PathBuf,
+    plan_id: &str,
+    task_id: &str,
+    milestones: &[String],
+) {
+    index_queue().enqueue(IndexJob::DeleteUnit(
+        root.clone(),
+        stable_id(plan_id, "task", task_id),
+    ));
+    for id in milestones {
+        index_queue().enqueue(IndexJob::DeleteUnit(
+            root.clone(),
+            stable_id(plan_id, "stride", id),
+        ));
+    }
 }

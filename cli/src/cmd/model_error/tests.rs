@@ -76,3 +76,13 @@ fn spawn_json_model_refusal_keeps_catalogue_fields() {
     assert_eq!(output["error"]["rpc_code"], -32602);
     assert_eq!(output["error"]["code"], "invalid_argument");
 }
+
+#[test]
+fn launch_profile_error_prints_the_typed_code_and_declared_ids() {
+    let rendered = super::render_launch_profile_error(&serde_json::json!({
+        "code": "unknown_launch_profile",
+        "message": "unknown_launch_profile: provider 'fixture', launch profile nope; declared profile ids: [selected]"
+    })).unwrap();
+    assert!(rendered.contains("unknown_launch_profile"));
+    assert!(rendered.contains("selected"));
+}

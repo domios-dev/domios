@@ -1,12 +1,5 @@
 import { timestampMs } from "@codeterm/chat-core";
 
-/**
- * A sent report is never in the sender's own provider transcript, so it carries no
- * position in it. Rendering the cards after the transcript pins them to the bottom,
- * and every message that arrives afterwards appears above them — the card reads as
- * stuck and the stream reads out of order. Place each card by time instead, and only
- * let it trail when nothing newer exists to place it before.
- */
 export interface OutboundReportPlacement {
   /** Report indices to render after a message index; key -1 renders before the first. */
   afterIndex: Map<number, number[]>;
@@ -18,12 +11,28 @@ export function placeOutboundReports<M>(
   messages: M[],
   messageTimeMs: (message: M) => number | null,
   reportTimes: Array<number | null>,
+  positions?: { sourceMessageIds: string[]; messageId: (message: M) => string; reportMessageIds: Array<string | null> },
 ): OutboundReportPlacement {
   const stamped = messages.map((message, index) => ({ index, at: messageTimeMs(message) }));
   const afterIndex = new Map<number, number[]>();
   const trailing: number[] = [];
 
+  const sourceOrder = new Map(positions?.sourceMessageIds.map((id, index) => [id, index]));
   reportTimes.forEach((at, report) => {
+    const anchor = positions?.reportMessageIds[report];
+    const position = anchor == null ? undefined : sourceOrder.get(anchor);
+    if (position != null && positions) {
+      let slot = -1;
+      for (let index = 0; index < messages.length; index++) {
+        const candidate = sourceOrder.get(positions.messageId(messages[index]));
+        if (candidate != null && candidate <= position) slot = index;
+        else if (candidate != null) break;
+      }
+      const bucket = afterIndex.get(slot);
+      if (bucket) bucket.push(report);
+      else afterIndex.set(slot, [report]);
+      return;
+    }
     if (at == null) {
       trailing.push(report);
       return;

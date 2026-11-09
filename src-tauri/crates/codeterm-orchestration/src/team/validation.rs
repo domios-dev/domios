@@ -28,27 +28,26 @@ impl PlanTeamBinding {
 }
 
 pub fn validate_active_team_plan_bindings(svc: &ServiceContext) -> Result<(), TeamPlanError> {
-    validate_bindings_with(
-        || {
-            svc.plan_store
-                .live_active_plan_ids()
-                .into_iter()
-                .map(|plan_id| {
-                    let team_id = svc.plan_store.plan_team_id(&plan_id);
-                    PlanTeamBinding::new(plan_id, team_id)
-                })
-                .collect()
-        },
-        |team_ids| existing_teams(svc, team_ids),
-    )
+    let bindings = svc
+        .plan_store
+        .active_plan_team_bindings()
+        .map_err(TeamPlanError::Plan)?
+        .into_iter()
+        .map(|(plan_id, team_id)| PlanTeamBinding::new(plan_id, Some(team_id)))
+        .collect();
+    validate_bindings_with(|| bindings, |team_ids| existing_teams(svc, team_ids))
 }
 
 pub fn validate_plan_team_binding(
     svc: &ServiceContext,
     plan_id: &str,
 ) -> Result<(), TeamPlanError> {
+    let metadata = svc
+        .plan_store
+        .plan_team_binding_metadata(plan_id)
+        .map_err(TeamPlanError::Plan)?;
     validate_bindings_with(
-        || match svc.plan_store.plan_team_binding_metadata(plan_id) {
+        || match metadata {
             Some((PlanStatus::Archived, _, _)) | Some((_, _, true)) => vec![],
             Some((_, team_id, _)) => vec![PlanTeamBinding::new(plan_id.into(), Some(team_id))],
             None => vec![PlanTeamBinding::new(plan_id.into(), None)],

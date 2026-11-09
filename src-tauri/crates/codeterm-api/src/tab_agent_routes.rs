@@ -1,5 +1,7 @@
+use crate::blocking_json::handler as blocking_json;
 use axum::{
-    routing::{get, post},
+    middleware,
+    routing::{delete, get, post},
     Router,
 };
 
@@ -8,14 +10,45 @@ use super::{
     tab_chat_routes, tab_routes,
 };
 
+mod profiles;
+
 pub(crate) fn mount(router: Router<AppState>) -> Router<AppState> {
     router
+        .route(
+            "/api/agents/providers/{id}/profiles",
+            get(profiles::list).merge(super::plugin_host_action_routes::owner_post(
+                profiles::setup,
+            )),
+        )
+        .route(
+            "/api/agents/providers/acp/registry",
+            get(profiles::registry::search).route_layer(middleware::from_fn(
+                super::plugin_host_action_routes::require_local_owner,
+            )),
+        )
+        .route(
+            "/api/agents/providers/acp/registry/install",
+            super::plugin_host_action_routes::owner_post(profiles::registry::install),
+        )
+        .route(
+            "/api/agents/providers/acp/profiles/{name}",
+            delete(profiles::registry::remove).route_layer(middleware::from_fn(
+                super::plugin_host_action_routes::require_local_owner,
+            )),
+        )
         .route(
             "/api/tabs/{id}/agent/capabilities/refresh",
             post(super::capability_probe_routes::refresh),
         )
         .route("/api/tabs/{id}/send", post(tab_routes::send_text))
-        .route("/api/tabs/{id}/chat", get(tab_chat_routes::snapshot))
+        .route(
+            "/api/tabs/{id}/chat",
+            get(blocking_json(tab_chat_routes::snapshot)),
+        )
+        .route(
+            "/api/tabs/{id}/closed-children",
+            get(tab_chat_routes::closed::closed_children),
+        )
         .route(
             "/api/tabs/{id}/chat-send",
             post(tab_routes::chat_send_text).get(tab_routes::chat_send_status),
@@ -53,7 +86,9 @@ pub(crate) fn mount(router: Router<AppState>) -> Router<AppState> {
         )
         .route(
             "/api/tabs/{id}/agent/provider-history",
-            get(super::agent_provider_switch_routes::provider_history),
+            get(blocking_json(
+                super::agent_provider_switch_routes::provider_history,
+            )),
         )
         .route("/api/tabs/{id}/timeout", post(tab_routes::set_timeout))
         .route("/api/tabs/{id}/focus", post(tab_routes::focus_tab))
@@ -68,21 +103,30 @@ pub(crate) fn mount(router: Router<AppState>) -> Router<AppState> {
         )
         .route("/api/tabs/{id}/rename", post(tab_routes::rename_tab))
         .route("/api/tabs/{id}/describe", post(tab_routes::describe_tab))
-        .route("/api/tabs/{id}/output", get(tab_routes::get_tab_output))
+        .route(
+            "/api/tabs/{id}/output",
+            get(blocking_json(tab_routes::get_tab_output)),
+        )
         .route(
             "/api/tabs/{id}/output/stream",
             get(output_stream::stream_tab_output),
         )
         .route(
             "/api/agent-runs/{tab_id}/log",
-            get(tab_routes::agent_run_log),
+            get(blocking_json(tab_routes::agent_run_log)),
         )
-        .route("/api/tabs/{id}/text", get(tab_routes::get_tab_text))
+        .route(
+            "/api/tabs/{id}/text",
+            get(blocking_json(tab_routes::get_tab_text)),
+        )
         .route(
             "/api/tabs/{id}/shell-commands",
-            get(tab_routes::shell_command_snapshot),
+            get(blocking_json(tab_routes::shell_command_snapshot)),
         )
-        .route("/api/tabs/{id}/usage", get(tab_routes::get_tab_usage))
+        .route(
+            "/api/tabs/{id}/usage",
+            get(blocking_json(tab_routes::get_tab_usage)),
+        )
         .route("/api/tabs/{id}/exec", post(tab_routes::exec_in_tab))
         .route(
             "/api/tabs/{id}/capture/start",

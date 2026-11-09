@@ -1,3 +1,4 @@
+import { ioTestContext } from "../../provider-shared/tests/hostIo";
 /**
  * Claude model discovery tests: the CLI-version gate and the manifest's static
  * `available` seed are two independent mechanisms, and neither may mask the
@@ -36,7 +37,7 @@ function loadClaudeWithHost(host: unknown) {
   const pluginPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "plugin.js");
   const source = fs.readFileSync(pluginPath, "utf8");
   const context = { host, console, module: { exports: {} as { default?: any } }, exports: {} };
-  new vm.Script(source, { filename: pluginPath }).runInNewContext(context);
+  new vm.Script(source, { filename: pluginPath }).runInNewContext(ioTestContext(context));
   return context.module.exports.default;
 }
 

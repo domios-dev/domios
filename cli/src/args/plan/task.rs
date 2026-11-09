@@ -52,6 +52,9 @@ pub enum PlanTaskAction {
         from_file: Option<String>,
     },
     /// Add a task to a plan (carries model/why routing + quality fields)
+    #[command(
+        after_help = "Example: domios plan task add <plan> --name <task> --personality Ada --executor-role Engineer --role-guidance <guidance>"
+    )]
     Add {
         plan_id: String,
         #[arg(long, allow_hyphen_values = true, default_value = "")]
@@ -134,8 +137,9 @@ pub enum PlanTaskAction {
             long,
             allow_hyphen_values = true,
             value_name = "ONE_WORD_PERSONA",
-            default_value = "",
-            help = "Executor's one-word persona; defaults to the first word of the task name"
+            required = true,
+            value_parser = codeterm_types::plan::validate_executor_name,
+            help = "Required executor persona, for example --personality Ada; one word made only of letters"
         )]
         personality: String,
         #[arg(long, allow_hyphen_values = true)]
@@ -402,6 +406,12 @@ pub enum PlanTaskAction {
         #[arg(long, allow_hyphen_values = true)]
         model: Option<String>,
         #[arg(
+            long = "profile",
+            value_name = "ID",
+            help = "ACP launch profile declared by the provider"
+        )]
+        launch_profile: Option<String>,
+        #[arg(
             long,
             value_name = "TIER",
             help = "Provider-declared service tier for this launch"
@@ -430,7 +440,7 @@ pub enum PlanTaskAction {
         #[arg(
             long = "execution-intent",
             value_parser = ["read_only", "mutating"],
-            help = "Explicit task intent used by provider reserve policy"
+            help = "Explicit task intent; mutating work reports the advisory provider allowance"
         )]
         execution_intent: String,
         /// Explicit OS confinement for this launch; Workers default to full access.
@@ -439,7 +449,7 @@ pub enum PlanTaskAction {
         #[arg(
             long = "provider-reserve-pct",
             default_value_t = 0.0,
-            help = "Optional minimum remaining provider allowance for mutating work (0 = no reserve)"
+            help = "Advisory provider allowance reserve for mutating work: below it, or when exhausted, the receipt carries a provider_allowance_low warning; never blocks (0 = warn only when exhausted)"
         )]
         provider_reserve_pct: f32,
     },
@@ -500,6 +510,12 @@ pub enum PlanTaskAction {
         provider: Option<String>,
         #[arg(long)]
         model: Option<String>,
+        #[arg(
+            long = "profile",
+            value_name = "ID",
+            help = "ACP launch profile; inherits the source attempt when omitted and the provider stays the same"
+        )]
+        launch_profile: Option<String>,
         #[arg(long)]
         reasoning_effort: Option<String>,
         #[arg(

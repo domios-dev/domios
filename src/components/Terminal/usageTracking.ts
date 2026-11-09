@@ -1,3 +1,4 @@
+import type { RuntimeProfileLimitsSource } from "@codeterm/plugin-sdk";
 import type { ProviderConfig, SettingField } from "../../lib/types";
 
 function settingsContainKey(fields: SettingField[], key: string): boolean {
@@ -28,4 +29,25 @@ export function usageTrackingOverrides(
 
 export function tabUsageProvider(provider:string | null | undefined, chatBackend:boolean, runtimeUsage:boolean | undefined): string | null {
   return !chatBackend || runtimeUsage ? provider ?? null : null;
+}
+
+/** What a tab's usage bubble shows. `trackingProvider` owns the Usage Tracking toggle that gates it. */
+export type TabUsageSource =
+  | {kind:"meter"; provider:string; trackingProvider:string; borrowedAccount:boolean}
+  | {kind:"balance" | "quota"; provider:string; accountId:string; trackingProvider:string}
+  | {kind:"unavailable"; reason:string; trackingProvider:string};
+
+export interface TabLaunchProfile {id:string; limitsSource?:RuntimeProfileLimitsSource}
+
+/** A chat-backend tab follows its launch profile's declared limits source; the kind alone decides. */
+export function tabUsageSource(provider:string | null | undefined, chatBackend:boolean, runtimeUsage:boolean | undefined, profile?:TabLaunchProfile): TabUsageSource | null {
+  const source = chatBackend ? profile?.limitsSource : undefined;
+  switch (source?.kind) {
+    case "account": return {kind:"meter", provider:source.provider, trackingProvider:source.provider, borrowedAccount:true};
+    case "balance":
+    case "quota": return provider && profile ? {kind:source.kind, provider, accountId:`profile:${profile.id}`, trackingProvider:provider} : null;
+    case "unavailable": return provider ? {kind:"unavailable", reason:source.reason, trackingProvider:provider} : null;
+  }
+  const meter = tabUsageProvider(provider, chatBackend, runtimeUsage);
+  return meter ? {kind:"meter", provider:meter, trackingProvider:meter, borrowedAccount:false} : null;
 }

@@ -1,3 +1,4 @@
+import type { PlanView as Plan } from "../planProjection";
 import { InlineErrorNotice } from "../../shared/ErrorNotice";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
@@ -17,12 +18,11 @@ import { enrichSwitcherOptions, selectActiveWork } from "../planView/activeWork"
 import { orderPlansByActivity, selectDefaultPlanId } from "../planView/boardModel";
 import { PlanFetchErrorState, PlanFetchReconnectingBanner } from "../planView/PlanFetchErrorState";
 import { planFetchShowsData } from "../planView/planViewFetchGate";
-import type { Plan } from "../types";
 import { usePlanProjection } from "../usePlanProjection";
 import { MissionControlBoard } from "./MissionControlBoard";
 import { MissionControlTeamBoard } from "./MissionControlTeamBoard";
 import { MissionControlControls } from "./MissionControlControls";
-import { usePlanBoardState } from "./usePlanBoardState";
+import { useDeferredPlanBoardState } from "./usePlanBoardState";
 import { useTeamMissionControl } from "./useTeamMissionControl";
 import { useTeamSpendRead } from "./teamSpend";
 import { planForDetail } from "./planDetailTarget";
@@ -132,7 +132,7 @@ export function MissionControlPlanSurface({
       .sort((a, b) => b.updated_at - a.updated_at);
   }, [effectivePlans, selectedPlan]);
 
-  const boardState = usePlanBoardState(api, selectedPlan?.id ?? null, selectedPlan?.updated_at ?? 0, !boardTeamId || Boolean(teamError));
+  const boardState = useDeferredPlanBoardState(api, selectedPlan?.id ?? null, selectedPlan?.updated_at ?? 0, !boardTeamId || Boolean(teamError));
   const recordedEvents = boardState.state?.mission_control?.event_log.recorded_events ?? 0;
   useEffect(() => setBoardEvents(boardState.state?.revision ?? String(recordedEvents)), [boardState.state?.revision, recordedEvents]);
   const spendRead = useTeamSpendRead(api, boardTeamId, teamRevision);

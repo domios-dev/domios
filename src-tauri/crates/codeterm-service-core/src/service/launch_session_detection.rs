@@ -565,20 +565,23 @@ pub(crate) fn canonical_project_for_task_lane(
     plan_id: &str,
     task_id: &str,
     cwd: &str,
-) -> Option<String> {
-    let plan = plan_store.get(plan_id)?;
-    let task = plan.tasks.iter().find(|task| task.id == task_id)?;
-    let lane = task.lane.worktree_path.as_deref()?;
-    if canonical_path(lane)? != canonical_path(cwd)? {
-        return None;
-    }
-    let project = if plan.canonical_project_path.trim().is_empty() {
-        plan.project_path.as_str()
-    } else {
-        plan.canonical_project_path.as_str()
+) -> Result<Option<String>, String> {
+    let Some(lane) = plan_store
+        .launch_lane_projection(plan_id, task_id)
+        .map_err(|error| error.to_string())?
+    else {
+        return Ok(None);
     };
-    let project = canonical_path(project)?;
-    Some(project.to_string_lossy().into_owned())
+    let Some(path) = lane.lane_path.as_deref() else {
+        return Ok(None);
+    };
+    let (Some(lane_path), Some(cwd_path)) = (canonical_path(path), canonical_path(cwd)) else {
+        return Ok(None);
+    };
+    if lane_path != cwd_path {
+        return Ok(None);
+    }
+    Ok(canonical_path(&lane.project_root).map(|project| project.to_string_lossy().into_owned()))
 }
 
 pub(crate) fn canonical_project_for_launch(
@@ -586,12 +589,12 @@ pub(crate) fn canonical_project_for_launch(
     tab_id: &str,
     params: &super::orchestrator::SpawnAgentParams,
     cwd: &str,
-) -> Option<String> {
+) -> Result<Option<String>, String> {
     if let Some(authority) = params.task_launch_authority.as_ref() {
         if params.plan_id.as_deref() != Some(authority.plan_id.as_str())
             || params.task_id.as_deref() != Some(authority.task_id.as_str())
         {
-            return None;
+            return Ok(None);
         }
         return canonical_project_for_task_lane(
             &service.plan_store,
@@ -600,8 +603,7 @@ pub(crate) fn canonical_project_for_launch(
             cwd,
         );
     }
-    let (plan_id, task_id) = service.plan_store.task_binding_for_tab(tab_id)?;
-    canonical_project_for_task_lane(&service.plan_store, &plan_id, &task_id, cwd)
+    canonical_project_for_tab(&service.plan_store, tab_id, cwd)
 }
 
 pub(crate) fn marked_launch_command_for_tab(
@@ -614,7 +616,13 @@ pub(crate) fn marked_launch_command_for_tab(
     if let Err(error) = svc.ensure_agent_pad(tab_id) {
         log::warn!("[sandbox-agent-pad] tab={tab_id} has no AgentPad before launch: {error}");
     }
-    let canonical_project = canonical_project_for_tab(&svc.plan_store, tab_id, cwd);
+    let canonical_project = match canonical_project_for_tab(&svc.plan_store, tab_id, cwd) {
+        Ok(project) => project,
+        Err(error) => {
+            log::error!("[sandbox-launch] canonical project lookup failed tab={tab_id}: {error}");
+            return None;
+        }
+    };
     marked_provider_launch_command_for_service(
         svc,
         &svc.agent_registry,
@@ -630,9 +638,14 @@ pub(crate) fn canonical_project_for_tab(
     plan_store: &crate::service::plan::PlanStore,
     tab_id: &str,
     cwd: &str,
-) -> Option<String> {
-    let (plan_id, task_id) = plan_store.task_binding_for_tab(tab_id)?;
-    canonical_project_for_task_lane(plan_store, &plan_id, &task_id, cwd)
+) -> Result<Option<String>, String> {
+    let Some(binding) = plan_store
+        .assigned_task_binding_projection(tab_id)
+        .map_err(|error| error.to_string())?
+    else {
+        return Ok(None);
+    };
+    canonical_project_for_task_lane(plan_store, &binding.plan_id, &binding.task_id, cwd)
 }
 
 fn git_worktree_metadata_dirs(
@@ -825,6 +838,18 @@ fn provider_owns_resume_session(
         && resume_session_binding_allowed(provider.session_exists(cwd, session_id))
 }
 
+fn detected_resume_matches(
+    detected: &DetectedLaunchSession,
+    provider: &str,
+    nonce: &str,
+    session: &str,
+) -> bool {
+    detected.provider_id == provider
+        && detected.binding_nonce == nonce
+        && detected.detection.session_id == session
+        && detected.detection.source == LaunchSessionSource::PidRegistry
+}
+
 impl ServiceContext {
     /// One detection per tab at a time. A live current-PTY provider record can
     /// re-authenticate a restored session after its launch nonce has rotated.
@@ -941,6 +966,17 @@ impl ServiceContext {
         if !self.resumed_provider_is_live(tab_id, &pty_id) {
             return None;
         }
+        if let Some(detected) = self.probe_process_launch_session(tab_id) {
+            if detected.detection.source == LaunchSessionSource::PidRegistry {
+                return detected_resume_matches(
+                    &detected,
+                    &provider_id,
+                    &binding_nonce,
+                    &session_id,
+                )
+                .then_some(detected);
+            }
+        }
         let owns_session = self
             .agent_registry
             .with_provider(&provider_id, |provider| {
@@ -962,6 +998,10 @@ impl ServiceContext {
         if self.launch_has_resume_target(tab_id) {
             return self.probe_resumed_launch_session(tab_id);
         }
+        self.probe_process_launch_session(tab_id)
+    }
+
+    fn probe_process_launch_session(&self, tab_id: &str) -> Option<DetectedLaunchSession> {
         let (provider_id, pty_id, binding_nonce, cwd, launched_at_ms) = {
             let mux = self.mux.read();
             let tab = mux.get_tab(tab_id)?;

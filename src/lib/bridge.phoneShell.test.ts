@@ -1,3 +1,4 @@
+import { muxMockFetch } from "./muxMockFetch.testdata";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const native = vi.hoisted(() => ({ invoke: vi.fn() }));
@@ -16,7 +17,7 @@ describe("phone shell transport contracts", () => {
   it("sends a JSON path sequence and preserves the returned map files", async () => {
     const files = [{ project_path: "/opaque/one", content: "opaque map" }];
     const fetch = vi.fn().mockResolvedValue(Response.json(files));
-    vi.stubGlobal("fetch", fetch);
+    vi.stubGlobal("fetch", muxMockFetch(fetch));
     const { invoke } = await import("./bridge");
     const { configureDaemonTransport } = await import("./daemonBootstrap");
     configureDaemonTransport({origin: window.location.origin, token: "fixture-token"});
@@ -32,7 +33,7 @@ describe("phone shell transport contracts", () => {
   it("routes every integration re-check through the authenticated provider endpoint", async () => {
     const health = { integration_state: "installed", session_start_hook: true };
     const fetch = vi.fn().mockImplementation(async () => Response.json(health));
-    vi.stubGlobal("fetch", fetch);
+    vi.stubGlobal("fetch", muxMockFetch(fetch));
     const { checkProviderIntegration, webCapability } = await import("./bridge");
     const { setTokenFor, selfHost } = await import("./webApi");
     setTokenFor(selfHost(), "opaque-token");
@@ -50,7 +51,7 @@ describe("phone shell transport contracts", () => {
   });
 
   it("keeps request diagnostics out of the map failure returned to the screen", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("opaque private path", { status: 400 })));
+    vi.stubGlobal("fetch", muxMockFetch(vi.fn().mockResolvedValue(new Response("opaque private path", { status: 400 }))));
     const { invoke } = await import("./bridge");
     const { configureDaemonTransport } = await import("./daemonBootstrap");
     configureDaemonTransport({origin: window.location.origin, token: "fixture-token"});
@@ -65,7 +66,7 @@ describe("phone shell transport contracts", () => {
   it("uses the same HTTP adapter when native shell capabilities are present", async () => {
     vi.stubGlobal("window", { ...window, location: { origin: "http://127.0.0.1:7686" }, dispatchEvent: vi.fn(), CustomEvent: window.CustomEvent, __TAURI_INTERNALS__: {} });
     const fetch = vi.fn().mockResolvedValue(Response.json({ integration_state: "installed" }));
-    vi.stubGlobal("fetch", fetch);
+    vi.stubGlobal("fetch", muxMockFetch(fetch));
     const { configureDaemonTransport } = await import("./daemonBootstrap");
     configureDaemonTransport({origin: "http://127.0.0.1:7686", token: "desktop-token"});
     const { checkProviderIntegration } = await import("./bridge");

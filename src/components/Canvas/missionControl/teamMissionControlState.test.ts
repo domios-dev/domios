@@ -1,3 +1,4 @@
+import { muxMockFetch } from "../../../lib/muxMockFetch.testdata";
 import { beforeEach as beforeDaemonCase } from "vitest";
 import { configureDaemonFixture } from "../../../test/daemonTransport.testdata";
 beforeDaemonCase(() => configureDaemonFixture());
@@ -26,11 +27,11 @@ describe("team mission control state adapter", () => {
       ok: true,
       json: async () => body,
     });
-    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("fetch", muxMockFetch(fetchMock));
 
     await expect(
       fetchTeamMissionControlState(API, "team/one", { limit: 2, cursor: "next-page" }),
-    ).resolves.toBe(body);
+    ).resolves.toEqual(body);
 
     expect(fetchMock).toHaveBeenCalledWith(
       `${baseUrl(API)}/api/teams/team%2Fone/mission-control/state?limit=2&cursor=next-page`,

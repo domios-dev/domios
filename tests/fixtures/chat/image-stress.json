@@ -1,0 +1,199 @@
+{
+  "sourceSessionId": "aff9b0ab-7fe7-4c22-9bdb-d524ed8ddeae",
+  "snapshotStart": 2843185,
+  "records": [
+    {
+      "line": 77,
+      "start": 815808,
+      "end": 816696
+    },
+    {
+      "line": 78,
+      "start": 816696,
+      "end": 817315
+    },
+    {
+      "line": 79,
+      "start": 817315,
+      "end": 817726
+    },
+    {
+      "line": 80,
+      "start": 817726,
+      "end": 1491455
+    },
+    {
+      "line": 81,
+      "start": 1491455,
+      "end": 1491723
+    },
+    {
+      "line": 82,
+      "start": 1491723,
+      "end": 1493391
+    },
+    {
+      "line": 83,
+      "start": 1493391,
+      "end": 1495421
+    },
+    {
+      "line": 84,
+      "start": 1495421,
+      "end": 2843185
+    },
+    {
+      "line": 85,
+      "start": 2843185,
+      "end": 2843528
+    },
+    {
+      "line": 86,
+      "start": 2843528,
+      "end": 2843645
+    },
+    {
+      "line": 87,
+      "start": 2843645,
+      "end": 2843728
+    },
+    {
+      "line": 88,
+      "start": 2843728,
+      "end": 2843843
+    },
+    {
+      "line": 89,
+      "start": 2843843,
+      "end": 2844030
+    },
+    {
+      "line": 90,
+      "start": 2844030,
+      "end": 2844113
+    },
+    {
+      "line": 91,
+      "start": 2844113,
+      "end": 2844784
+    },
+    {
+      "line": 92,
+      "start": 2844784,
+      "end": 2846460
+    },
+    {
+      "line": 93,
+      "start": 2846460,
+      "end": 2847426
+    },
+    {
+      "line": 94,
+      "start": 2847426,
+      "end": 2848438
+    },
+    {
+      "line": 95,
+      "start": 2848438,
+      "end": 2848885
+    },
+    {
+      "line": 96,
+      "start": 2848885,
+      "end": 2849121
+    },
+    {
+      "line": 97,
+      "start": 2849121,
+      "end": 2849365
+    },
+    {
+      "line": 98,
+      "start": 2849365,
+      "end": 2851033
+    },
+    {
+      "line": 99,
+      "start": 2851033,
+      "end": 2851696
+    },
+    {
+      "line": 100,
+      "start": 2851696,
+      "end": 2852315
+    },
+    {
+      "line": 101,
+      "start": 2852315,
+      "end": 2853987
+    },
+    {
+      "line": 102,
+      "start": 2853987,
+      "end": 2854953
+    },
+    {
+      "line": 103,
+      "start": 2854953,
+      "end": 2855965
+    },
+    {
+      "line": 104,
+      "start": 2855965,
+      "end": 2856412
+    },
+    {
+      "line": 105,
+      "start": 2856412,
+      "end": 2856648
+    },
+    {
+      "line": 106,
+      "start": 2856648,
+      "end": 2856894
+    },
+    {
+      "line": 107,
+      "start": 2856894,
+      "end": 2858562
+    },
+    {
+      "line": 108,
+      "start": 2858562,
+      "end": 2859227
+    },
+    {
+      "line": 109,
+      "start": 2859227,
+      "end": 2859846
+    },
+    {
+      "line": 110,
+      "start": 2859846,
+      "end": 2861520
+    },
+    {
+      "line": 111,
+      "start": 2861520,
+      "end": 2862486
+    },
+    {
+      "line": 112,
+      "start": 2862486,
+      "end": 2863498
+    },
+    {
+      "line": 113,
+      "start": 2863498,
+      "end": 2863945
+    }
+  ],
+  "capture": {
+    "build": "78b847b1fe",
+    "snapshot": "image-stress-start.json",
+    "firstBackfill": "image-stress-backfill.json",
+    "backwardPages": "image-stress-pages.json",
+    "backfillProvenance": "Read-only replay from captured start offset, not historical UI response interception",
+    "omitted": "Large JSONL strings and toolResult bodies; original byte offsets retained"
+  }
+}

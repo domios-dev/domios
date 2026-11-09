@@ -1,3 +1,4 @@
+import { muxMockFetch } from "./muxMockFetch.testdata";
 import { configureDaemonTransport } from "./daemonBootstrap";
 import { afterEach, describe, expect, finish, it, vi } from "../test/standaloneTest";
 import { withFailureDeadline } from "../test/withFailureDeadline";
@@ -43,10 +44,10 @@ describe("web JSON prompt response transport", () => {
     });
     vi.stubGlobal("localStorage", { getItem: () => null });
     configureDaemonTransport({ origin: `${window.location.protocol}//${window.location.host}`, token: "fixture-token" });
-    vi.stubGlobal("fetch", async () => new Response(
+    vi.stubGlobal("fetch", muxMockFetch(async () => new Response(
       JSON.stringify({ ok: false, reason: "prompt_not_on_screen" }),
       { status: 409, headers: { "Content-Type": "application/json" } },
-    ));
+    )));
 
     const result = await webJson("POST", "/api/tabs/tab/prompt/respond", { value: "1" });
     expect(result).toEqual({ ok: false, reason: "prompt_not_on_screen" });
@@ -60,10 +61,10 @@ describe("web JSON prompt response transport", () => {
     });
     vi.stubGlobal("localStorage", { getItem: () => null });
     configureDaemonTransport({ origin: `${window.location.protocol}//${window.location.host}`, token: "fixture-token" });
-    vi.stubGlobal("fetch", async () => new Response(
+    vi.stubGlobal("fetch", muxMockFetch(async () => new Response(
       JSON.stringify({ reason: "other_conflict" }),
       { status: 409, headers: { "Content-Type": "application/json" } },
-    ));
+    )));
 
     await expect(webJson("POST", "/api/tabs/tab/prompt/respond", { value: "1" })).rejects.toThrow("HTTP 409");
   });
@@ -76,10 +77,10 @@ describe("web JSON prompt response transport", () => {
     });
     vi.stubGlobal("localStorage", { getItem: () => null });
     configureDaemonTransport({ origin: `${window.location.protocol}//${window.location.host}`, token: "fixture-token" });
-    vi.stubGlobal("fetch", async () => new Response(
+    vi.stubGlobal("fetch", muxMockFetch(async () => new Response(
       JSON.stringify({ ok: true, reason: "prompt_not_on_screen" }),
       { status: 409, headers: { "Content-Type": "application/json" } },
-    ));
+    )));
 
     await expect(webJson("POST", "/api/tabs/tab/prompt/respond", { value: "1" })).rejects.toThrow("HTTP 409");
   });
@@ -100,11 +101,14 @@ describe("web config response context", () => {
     const bodyStarted = new Promise<void>((resolve) => { beginBody = resolve; });
     let finishBody!: (value: string) => void;
     const body = new Promise<string>((resolve) => { finishBody = resolve; });
-    vi.stubGlobal("fetch", async () => {
-      const response = new Response();
-      response.text = () => { beginBody(); return body; };
-      return response;
-    });
+    // The body streams over the mux: its first read marks the start, its bytes arrive when the test finishes it.
+    vi.stubGlobal("fetch", muxMockFetch(async () => new Response(new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        beginBody();
+        controller.enqueue(new TextEncoder().encode(await body));
+        controller.close();
+      },
+    }), { headers: { "Content-Type": "application/json" } })));
     const result = webJson("GET", "/api/config");
     const refused = expect(result).rejects.toThrow("Peer context changed");
     try {
@@ -130,13 +134,13 @@ describe("peer provider catalog relay", () => {
     });
     configureDaemonTransport({ origin: `${window.location.protocol}//${window.location.host}`, token: "fixture-token" });
     const descriptor = { id: "peer-only-provider", supports_chat_ui: true } as ProviderDescriptor;
-    vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
+    vi.stubGlobal("fetch", muxMockFetch(async (url: string, init: RequestInit) => {
       expect(url).toBe("http://gateway:7686/api/mesh/relay-to");
       expect(JSON.parse(String(init.body))).toEqual({
         target_peer_id: "owning-peer", method: "GET", path: "/api/agents/providers", body: null,
       });
       return Response.json({ ok: true, status: 200, data: [descriptor], error: null });
-    });
+    }));
     const catalog = agentProvidersFromResponse(await webJson("GET", "/api/agents/providers"));
     syncAgentDescriptorCache(catalog, false, null);
     expect(getAgentDescriptor(descriptor.id)?.supports_chat_ui).toBe(true);
@@ -154,7 +158,7 @@ describe("browser attachment upload transport", () => {
     configureDaemonTransport({ origin: `${window.location.protocol}//${window.location.host}`, token: "fixture-token" });
     let started!: () => void;
     const requestStarted = new Promise<void>((resolve) => { started = resolve; });
-    vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
+    vi.stubGlobal("fetch", muxMockFetch(async (url: string, init: RequestInit) => {
       expect(url).toBe("https://phone/api/attachments/upload");
       expect(new Headers(init.headers).has("Content-Type")).toBe(false);
       const field = (init.body as FormData).get("file") as File;
@@ -165,7 +169,7 @@ describe("browser attachment upload transport", () => {
         init.signal!.addEventListener("abort", () => reject(init.signal!.reason), { once: true });
         started();
       });
-    });
+    }));
     const result = webUpload(new Blob(["voice"], { type: "audio/webm" }), "voice-note.webm");
     const rejected = expect(result).rejects.toThrow("Interrupted");
     await withFailureDeadline(requestStarted, "voice upload start");

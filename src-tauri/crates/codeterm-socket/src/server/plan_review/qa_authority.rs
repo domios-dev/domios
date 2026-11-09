@@ -32,8 +32,8 @@ fn qa_review_actor(
         .filter(|nonce| !nonce.trim().is_empty());
     let plan = svc
         .plan_store
-        .get(plan_id)
-        .ok_or_else(|| unauthorized("the reviewed Plan no longer exists"))?;
+        .plan_identity_projection(plan_id)
+        .map_err(reviewed_plan_read_error)?;
     let owner_tab_id = plan
         .owner
         .tab_id
@@ -107,24 +107,22 @@ pub(super) fn delegate_review_task(
         .tab_id
         .as_deref()
         .ok_or_else(|| unauthorized("review delegation requires the live Plan owner tab"))?;
-    let plan = svc
+    let status = svc
         .plan_store
-        .get(plan_id)
-        .ok_or_else(|| unauthorized("the reviewed Plan no longer exists"))?;
-    let task = plan
-        .tasks
-        .iter()
-        .find(|task| task.id == task_id)
-        .ok_or_else(|| JsonRpcError {
-            code: -32004,
-            message: "review task not found in this Plan".into(),
-            data: Some(json!({ "type": "review_task_not_found" })),
+        .task_status_projection(plan_id, task_id)
+        .map_err(|error| match error {
+            PlanError::TaskNotFound => JsonRpcError {
+                code: -32004,
+                message: "review task not found in this Plan".into(),
+                data: Some(json!({"type":"review_task_not_found"})),
+            },
+            error => reviewed_plan_read_error(error),
         })?;
-    if task.status != codeterm_service_core::plan::TaskStatus::InReview {
+    if status != codeterm_service_core::plan::TaskStatus::InReview {
         return Err(JsonRpcError {
             code: -32004,
             message: "only an in-review task can be handed to a QA".into(),
-            data: Some(json!({ "type": "review_task_not_in_review" })),
+            data: Some(json!({"type":"review_task_not_in_review"})),
         });
     }
     let task_ref = review_task_ref(plan_id, task_id);
@@ -184,5 +182,12 @@ pub(super) fn consume_qa_review_grant(
         let target = review_task_ref(plan_id, task_id);
         tab.taskless_authorized_review_tasks
             .retain(|grant| grant != &target);
+    }
+}
+
+fn reviewed_plan_read_error(error: PlanError) -> JsonRpcError {
+    match error {
+        PlanError::NotFound => unauthorized("the reviewed Plan no longer exists"),
+        error => plan_rpc_err(error),
     }
 }

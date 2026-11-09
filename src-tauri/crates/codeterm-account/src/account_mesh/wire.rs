@@ -4,10 +4,17 @@ use codeterm_entitlements::DetachedGrant;
 use serde::{Deserialize, Serialize};
 use std::net::IpAddr;
 
+fn required_nullable<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer)
+}
+
 pub const PROOF_SCHEMA_VERSION: u8 = 1;
 pub const MESH_SCHEMA_VERSION: u8 = 1;
 pub const MACHINE_LIMIT_REASON: &str = "mesh.machines";
-pub const MESH_LINK_PERMIT_SECONDS: u64 = 120;
 
 /// Server callable names (`ACCOUNT_MESH_ROUTES`).
 pub const ROUTE_CHALLENGE: &str = "accountMeshChallenge";
@@ -84,7 +91,11 @@ pub struct MeshAdmissionBody {
     pub installation_id: String,
     pub request_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub requested_membership_seconds: Option<u64>,
+    pub endpoint: Option<MeshEndpointWire>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub own_row: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_display_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub signed_registry: Option<bool>,
     #[serde(flatten)]
@@ -133,11 +144,6 @@ pub enum MeshOperation {
     Presence {
         expected_metadata_revision: u64,
         presence: RegistryPresence,
-    },
-    Link {
-        expected_slot_revision: u64,
-        peer: MeshTarget,
-        transcript_sha256: String,
     },
 }
 
@@ -224,6 +230,12 @@ pub enum MembershipOperation {
 pub struct MembershipResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub signed_registry: Option<DetachedGrant>,
+    #[serde(deserialize_with = "required_nullable")]
+    pub endpoint: Option<MeshEndpointObservation>,
+    pub metadata_revision: u64,
+    pub presence: RegistryPresence,
+    #[serde(deserialize_with = "required_nullable")]
+    pub display_name: Option<String>,
     pub operation: MembershipOperation,
     pub installation_id: String,
     pub slot_revision: u64,
@@ -365,18 +377,6 @@ pub enum RegistryPresence {
     SignedOut,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct PermitResult {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub signed_registry: Option<DetachedGrant>,
-    pub installation_id: String,
-    pub peer_installation_id: String,
-    pub slot_revision: u64,
-    pub registry_revision: u64,
-    pub permit: DetachedGrant,
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PublicationState {
@@ -447,7 +447,6 @@ pub enum MeshResult {
     Published(PublishedResult),
     Withdrawn(WithdrawnResult),
     Presence(PresenceResult),
-    Permit(PermitResult),
     Page(PageResult),
 }
 
@@ -597,7 +596,6 @@ impl MeshResult {
             Self::Sync(result) => result.signed_registry.as_ref(),
             Self::Withdrawn(result) => result.signed_registry.as_ref(),
             Self::Presence(result) => result.signed_registry.as_ref(),
-            Self::Permit(result) => result.signed_registry.as_ref(),
             Self::Page(result) => result.signed_registry.as_ref(),
         }
     }

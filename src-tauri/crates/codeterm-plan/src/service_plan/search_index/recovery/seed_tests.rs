@@ -143,7 +143,8 @@ fn seed_racing_mutation(action: &str) {
                 let mut loaded = plan;
                 loaded.title = "Loaded commit".into();
                 loaded.updated_at = 2;
-                mutation_store.commit_loaded_plan(loaded).unwrap();
+                let now = loaded.updated_at;
+                mutation_store.import_plan(&mut loaded, now).unwrap();
             }
             _ => unreachable!(),
         }
@@ -238,4 +239,31 @@ fn seed_racing_public_spec_section_create_persists_current_sql_rows() {
 #[test]
 fn seed_racing_public_task_create_persists_current_sql_rows() {
     seed_racing_mutation("plan_task");
+}
+
+#[test]
+fn malformed_search_snapshot_aborts_project_before_pruning_or_enqueuing() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(directory.path());
+    let mut plan = Plan::new(
+        "Invalid".into(),
+        directory.path().display().to_string(),
+        OrchestratorRef::default(),
+    );
+    store.save(&mut plan, 1).unwrap();
+    let queue = index_queue();
+    *queue.state.lock() = IndexQueueState::default();
+    rusqlite::Connection::open(store.database.path())
+        .unwrap()
+        .execute(
+            "UPDATE plans SET header_json=json_set(header_json,'$.updated_at',NULL) WHERE id=?1",
+            [&plan.id],
+        )
+        .unwrap();
+    store
+        .seed_missing_search_indexes_observed(|_| panic!("malformed project cannot reach enqueue"));
+    assert!(queue.state.lock().latest.is_empty());
+    assert!(store.reindex_project_index(directory.path()).is_err());
+    assert!(queue.state.lock().latest.is_empty());
+    assert!(!project_index_path(directory.path()).exists());
 }

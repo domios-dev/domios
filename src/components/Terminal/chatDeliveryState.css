@@ -64,6 +64,29 @@
   opacity: 0;
 }
 
+/* Inside a card header the state reads as text after its dot. */
+.ct-delivery--inline {
+  position: static;
+  flex-direction: row;
+  flex-shrink: 0;
+  max-width: 50%;
+}
+
+.ct-delivery--inline .ct-delivery__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ct-muted-fg);
+  font-size: 11px;
+}
+
+.ct-delivery__label--short {
+  white-space: nowrap;
+  color: var(--ct-muted-fg);
+  font-size: 11px;
+  line-height: 1;
+}
+
 .ct-delivery__retry {
   flex-shrink: 0;
   white-space: nowrap;

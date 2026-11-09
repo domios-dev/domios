@@ -41,6 +41,18 @@ pub async fn mesh_link_hello(
     AxumState(state): AxumState<AppState>,
     Json(hello): Json<LinkHello>,
 ) -> Result<Json<LinkHelloReply>, Refused> {
+    if hello.protocol_version
+        != codeterm_service_core::mesh::account_mesh::protocol::LINK_PROTOCOL_VERSION
+    {
+        return Err(refused(AdmissionRefusal::PeerNeedsUpdate));
+    }
+    if let Some(snapshot) = hello.signed_registry.as_ref() {
+        state
+            .svc
+            .account_mesh_registry_snapshot(snapshot)
+            .await
+            .map_err(|_| refused(AdmissionRefusal::Revoked))?;
+    }
     let reply = state
         .mesh
         .lock()
@@ -58,27 +70,18 @@ pub async fn mesh_link_confirm(
         .lock()
         .begin_link_confirm(&confirm)
         .map_err(refused)?;
-    let permit = confirmation
-        .authority
-        .authorize_link(confirmation.request.clone())
-        .await
-        .map_err(|error| {
-            state.mesh.lock().fail_pending_connection(&confirm.link_id);
-            refused(error)
-        })?;
     state
         .mesh
         .lock()
         .finish_link_confirm(confirmation)
         .map_err(refused)?;
-    Ok(Json(LinkConfirmReply { permit }))
+    Ok(Json(LinkConfirmReply { confirmed: true }))
 }
 
 pub async fn mesh_link_commit(
     AxumState(state): AxumState<AppState>,
     Json(commit): Json<LinkCommit>,
 ) -> Result<Json<LinkCommitReply>, Refused> {
-    state.mesh.lock().commit_link(&commit).map_err(refused)?;
     state
         .svc
         .ui
@@ -95,6 +98,7 @@ pub async fn mesh_link_commit(
                 )
             })?;
     }
+    state.mesh.lock().commit_link(&commit).map_err(refused)?;
     let signed_registry = state.mesh.lock().signed_registry.clone();
     Ok(Json(LinkCommitReply {
         committed: true,

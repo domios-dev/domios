@@ -1,3 +1,4 @@
+import { ioTestContext } from "../../provider-shared/tests/hostIo";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -42,7 +43,7 @@ function loadPlugin(target = platform): Commands {
     module: { exports: {} as { default: Commands } },
     exports: {},
   };
-  new vm.Script(source, { filename: pluginPath }).runInNewContext(context);
+  new vm.Script(source, { filename: pluginPath }).runInNewContext(ioTestContext(context));
   return context.module.exports.default;
 }
 

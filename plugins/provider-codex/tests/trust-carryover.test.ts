@@ -1,10 +1,7 @@
+import { ioTestExport } from "../../provider-shared/tests/hostIo";
 import assert from "node:assert/strict";
-import {
-  carryCodexProjectTrust,
-  hasTrustedProjectPath,
-  mergeTrustedProjectEntries,
-  type ProjectTrustCarryHost,
-} from "../src/trust-carryover";
+import { carryCodexProjectTrust as ioSource_carryCodexProjectTrust, hasTrustedProjectPath, mergeTrustedProjectEntries, type ProjectTrustCarryHost } from "../src/trust-carryover";
+const carryCodexProjectTrust = ioTestExport(ioSource_carryCodexProjectTrust);
 
 const profile = [
   "# codeterm-instance: dev-tab",

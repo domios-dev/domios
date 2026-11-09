@@ -44,7 +44,11 @@ pub async fn register_webhook(
         once: body.once,
         payload_extra: body.payload_extra,
     };
-    state.svc.events.register_webhook(reg);
+    state
+        .svc
+        .events
+        .register_webhook(reg)
+        .map_err(|error| (StatusCode::TOO_MANY_REQUESTS, error))?;
     Ok(Json(serde_json::json!({"id": id, "once": body.once})))
 }
 

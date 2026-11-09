@@ -1,7 +1,8 @@
+import type { PlanView as Plan } from "./planProjection";
 import type { ApiConfig, Tab } from "../../lib/types";
 import type { LaidOutNode } from "./layout";
 import type { SectionNavArgs } from "./nodeRegistry";
-import type { Plan } from "./types";
+
 import type { TaskCardModel } from "./canvasView/models";
 import { PlanDetailOverlay } from "./planView/PlanDetailOverlay";
 

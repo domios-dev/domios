@@ -1,5 +1,6 @@
 use super::*;
 use crate::service::agent_runtime::plan_warning::PlanBindingFailure;
+use crate::service::plan::PlanError;
 
 impl ServiceContext {
     pub(crate) fn prepare_runtime_worker_binding(
@@ -50,7 +51,7 @@ impl ServiceContext {
         nonce: &str,
     ) -> Result<(), PlanBindingFailure> {
         self.restore_runtime_attempt_binding(tab_id)?;
-        self.bind_planner_session(tab_id);
+        self.bind_planner_session(tab_id)?;
         if self.carry_authorized_runtime_restart_binding(tab_id, thread, nonce)? {
             return Ok(());
         }
@@ -77,23 +78,28 @@ impl ServiceContext {
         else {
             return Err("Runtime task binding incomplete".into());
         };
-        let Some(detail) = self.plan_store.show_task(&task) else {
-            return if remote {
-                Ok(())
-            } else {
-                Err(PlanBindingFailure::bookkeeping(
-                    "Runtime task disappeared before readiness",
-                ))
-            };
+        let detail = match self
+            .plan_store
+            .task_runtime_session_projection(&task, &attempt, tab_id, !restored)
+        {
+            Ok(read) => read,
+            Err(PlanError::TaskNotFound) => {
+                return if remote {
+                    Ok(())
+                } else {
+                    Err(PlanBindingFailure::bookkeeping(
+                        "Runtime task disappeared before readiness",
+                    ))
+                }
+            }
+            Err(error) => return Err(PlanBindingFailure::from_plan_error(error)),
         };
         if detail.plan_id != plan {
             return Err("Runtime task plan changed".into());
         }
         let existing = detail
-            .task
-            .execution_attempts
-            .iter()
-            .find(|entry| entry.id == attempt && entry.executor_tab_id == tab_id)
+            .attempt
+            .as_ref()
             .ok_or("Runtime task attempt changed")?;
         if needs_attempt_finalization(
             existing.session_id.as_deref(),
@@ -115,7 +121,7 @@ impl ServiceContext {
                         nonce: nonce.into(),
                         expected_thread: existing.session_id.clone(),
                         expected_nonce: existing.session_binding_nonce.clone(),
-                        owner_epoch: detail.task.interruption.owner_epoch,
+                        owner_epoch: detail.owner_epoch,
                     },
                     epoch_ms(),
                 )
@@ -127,7 +133,9 @@ impl ServiceContext {
                     &attempt,
                     thread,
                     nonce,
-                    detail.task.lane,
+                    detail.lane.ok_or_else(|| {
+                        PlanBindingFailure::bookkeeping("Runtime task lane was not selected")
+                    })?,
                     epoch_ms(),
                 )
             }

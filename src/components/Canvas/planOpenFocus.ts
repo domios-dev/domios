@@ -1,4 +1,4 @@
-import type { Plan } from "./types";
+import type { PlanView as Plan } from "./planProjection";
 import { isActiveTaskStatus } from "./tabCurrentTask";
 
 export function assignedTaskIdsForTab(plans: readonly Plan[], tabId: string): string[] {

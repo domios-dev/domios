@@ -1,3 +1,10 @@
+#[path = "provider_switch/helpers.rs"]
+mod helpers;
+use helpers::{
+    assert_completed_session_has_no_task_authority, clear_switch_cooldown, complete_switch_task,
+    register_completed_switch_runtime,
+};
+
 mod fixture;
 use fixture::{prepared_switch_worker_fixture, switch_worker_fixture};
 
@@ -5,26 +12,6 @@ use super::*;
 use crate::multiplexer::types::TaskBinding;
 use crate::plan::{OrchestratorRef, Plan, PlanMode};
 use crate::service::plan::{task_assignment::AssignmentRuntimeBinding, NewTask};
-
-fn complete_switch_task(fixture: &RuntimeFixture, task_id: &str) {
-    let detail = fixture.service.plan_store.show_task(task_id).unwrap();
-    fixture
-        .service
-        .plan_store
-        .with_plan(&detail.plan_id, 5, |plan| {
-            let task = plan
-                .tasks
-                .iter_mut()
-                .find(|task| task.id == task_id)
-                .unwrap();
-            task.status = crate::plan::TaskStatus::Done;
-            task.assigned_tab_id = None;
-            task.lane.tab_id = None;
-            task.execution_attempts[0].closed_at = Some(5);
-            Ok(())
-        })
-        .unwrap();
-}
 
 #[test]
 fn completed_worker_switch_preserves_history_without_task_authority_and_delivers_once() {
@@ -47,7 +34,7 @@ fn completed_worker_switch_preserves_history_without_task_authority_and_delivers
     let live_frame = codeterm_wire::message_markers::parse_host_injected(&live_input).unwrap();
     complete_switch_task(&fixture, &task_id);
     let store = &fixture.service.plan_store;
-    let before = store.show_task(&task_id).unwrap();
+    let before = store.inspect_task_for_test(&task_id).unwrap();
     let source = fixture
         .service
         .mux
@@ -93,7 +80,10 @@ fn completed_worker_switch_preserves_history_without_task_authority_and_delivers
         pad
     );
     assert_ne!(target.agent_session_id, source.agent_session_id);
-    assert_eq!(store.show_task(&task_id).unwrap().task, before.task);
+    assert_eq!(
+        store.inspect_task_for_test(&task_id).unwrap().task,
+        before.task
+    );
     assert!(!fixture
         .service
         .restart_carries_worker_interruption(&fixture.tab));
@@ -134,8 +124,11 @@ fn completed_worker_switch_preserves_history_without_task_authority_and_delivers
         },
         7,
     );
-    assert!(matches!(report, Ok(false)));
-    assert_eq!(store.show_task(&task_id).unwrap().task, before.task);
+    assert!(report.is_ok_and(|receipt| !receipt.committed_review && receipt.milestone_id.is_none()));
+    assert_eq!(
+        store.inspect_task_for_test(&task_id).unwrap().task,
+        before.task
+    );
     let requests = fixture.requests();
     let submissions = requests
         .iter()
@@ -159,110 +152,16 @@ fn completed_worker_switch_preserves_history_without_task_authority_and_delivers
     assert_eq!(context["task_context"]["task"]["status"], "done");
 }
 
-fn register_completed_switch_runtime(fixture: &RuntimeFixture, provider: &str) {
-    let methods = [
-        "initialize",
-        "openThread",
-        "resumeThread",
-        "readHistory",
-        "submitTurn",
-        "control",
-    ]
-    .into_iter()
-    .map(|kind| (kind.to_string(), json!([kind])))
-    .collect::<serde_json::Map<String, Value>>();
-    let manifest = PluginManifest::from_json_str(&json!({
-        "id":provider,"version":"1.0.0","displayName":"Next fixture","binaryName":"node",
-        "capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},
-            "agentRuntime":{"runtimeModes":[{"id":"auto-accept-edits","displayName":"Auto accept edits"}],
-                "runtime":"stdio-jsonrpc","command":{"binary":"node","args":[]},
-                "requestMethods":methods,"notificationMethods":[]}},
-        "spawn":{"readinessStrategy":{"kind":"poll_shell_prompt","timeoutSecs":1},
-            "taskDelivery":"inline_flag","systemPromptDelivery":{"kind":"cli_flag","flag":"--opaque-system"},
-            "verifySubmit":{"kind":"none"}},
-        "permissions":{"subprocess":{"allow":["node"]}}
-    }).to_string()).unwrap();
-    fixture
-        .service
-        .agent_registry
-        .register_provider(Box::new(JsProvider::new(
-            manifest,
-            Arc::new(PluginVm::from_source(provider, SOURCE.into()).unwrap()),
-        )));
-}
-
-fn clear_switch_cooldown(fixture: &RuntimeFixture) {
-    fixture
-        .service
-        .ext::<crate::service::agent_restart::RestartTracker>()
-        .lock()
-        .last_restart
-        .remove(&fixture.tab);
-}
-
-fn assert_completed_session_has_no_task_authority(fixture: &RuntimeFixture, task_id: &str) {
-    use crate::service::plan::{
-        interruption::TaskMutationAuthority, task_attempts::BoundWorkerReport,
-    };
-    let detail = fixture.service.plan_store.show_task(task_id).unwrap();
-    let current = fixture
-        .service
-        .mux
-        .read()
-        .get_tab(&fixture.tab)
-        .cloned()
-        .unwrap();
-    let thread = current.agent_session_id.unwrap();
-    let nonce = current.session_binding_nonce.unwrap();
-    assert!(fixture
-        .service
-        .plan_store
-        .acknowledge_live_task_attempt_for_tab_with_runtime_binding(
-            &fixture.tab,
-            Some(&detail.plan_id),
-            Some(task_id),
-            Some((&thread, &nonce)),
-            8,
-        )
-        .is_err());
-    let report = fixture
-        .service
-        .plan_store
-        .ingest_bound_worker_report(
-            &detail.plan_id,
-            task_id,
-            &crate::plan::AgentRef::from_tab(&fixture.tab),
-            BoundWorkerReport {
-                message: "forbidden completed-session report".into(),
-                status: Some(codeterm_types::agent::ReportStatus::InReview),
-                authority: Some(TaskMutationAuthority {
-                    tab_id: fixture.tab.clone(),
-                    session_id: thread,
-                    session_binding_nonce: nonce,
-                    owner_epoch: detail.task.interruption.owner_epoch,
-                }),
-                ..Default::default()
-            },
-            9,
-        )
-        .unwrap();
-    assert!(!report);
-    assert!(!fixture.service.signal_worker_interruption(
-        &fixture.tab,
-        crate::service::worker_interruption::WorkerInterruptionEvent::ProcessExited,
-    ));
-    assert_eq!(
-        fixture.service.plan_store.show_task(task_id).unwrap().task,
-        detail.task
-    );
-}
-
 #[test]
 fn completed_worker_successive_switches_and_resume_keep_history_and_exact_session_continuity() {
     let (fixture, task_id, _) = switch_worker_fixture();
     register_completed_switch_runtime(&fixture, "next-runtime");
     complete_switch_task(&fixture, &task_id);
-    let original = fixture.service.plan_store.show_task(&task_id).unwrap();
+    let original = fixture
+        .service
+        .plan_store
+        .inspect_task_for_test(&task_id)
+        .unwrap();
     let strides = fixture
         .service
         .plan_store
@@ -310,7 +209,12 @@ fn completed_worker_successive_switches_and_resume_keep_history_and_exact_sessio
         );
         assert!(agent_runtime::engine::has_live_bound_session(&current));
         assert_eq!(
-            fixture.service.plan_store.show_task(&task_id).unwrap().task,
+            fixture
+                .service
+                .plan_store
+                .inspect_task_for_test(&task_id)
+                .unwrap()
+                .task,
             original.task
         );
         assert!(!fixture
@@ -381,7 +285,12 @@ fn completed_worker_successive_switches_and_resume_keep_history_and_exact_sessio
         strides
     );
     assert_eq!(
-        fixture.service.plan_store.show_task(&task_id).unwrap().task,
+        fixture
+            .service
+            .plan_store
+            .inspect_task_for_test(&task_id)
+            .unwrap()
+            .task,
         original.task
     );
     assert!(!fixture
@@ -430,7 +339,11 @@ fn completed_current_session_receipt_refuses_stale_identity_generation_history_a
                 true,
             )
             .unwrap();
-        let original = fixture.service.plan_store.show_task(&task_id).unwrap();
+        let original = fixture
+            .service
+            .plan_store
+            .inspect_task_for_test(&task_id)
+            .unwrap();
         if invalid == "generation" {
             agent_runtime::engine::for_tab(&fixture.tab)
                 .unwrap()
@@ -441,7 +354,7 @@ fn completed_current_session_receipt_refuses_stale_identity_generation_history_a
             fixture
                 .service
                 .plan_store
-                .with_plan(&original.plan_id, 6, |plan| {
+                .edit_plan_fixture(&original.plan_id, 6, |plan| {
                     let task = plan
                         .tasks
                         .iter_mut()
@@ -479,7 +392,12 @@ fn completed_current_session_receipt_refuses_stale_identity_generation_history_a
             .get_tab(&fixture.tab)
             .cloned()
             .unwrap();
-        let before = fixture.service.plan_store.show_task(&task_id).unwrap().task;
+        let before = fixture
+            .service
+            .plan_store
+            .inspect_task_for_test(&task_id)
+            .unwrap()
+            .task;
         let requests = fixture.requests().len();
         let error = fixture
             .service
@@ -517,7 +435,12 @@ fn completed_current_session_receipt_refuses_stale_identity_generation_history_a
         assert_eq!(after.task_binding, source.task_binding, "{invalid}");
         assert_eq!(after.agent_session_id, source.agent_session_id, "{invalid}");
         assert_eq!(
-            fixture.service.plan_store.show_task(&task_id).unwrap().task,
+            fixture
+                .service
+                .plan_store
+                .inspect_task_for_test(&task_id)
+                .unwrap()
+                .task,
             before,
             "{invalid}"
         );
@@ -580,11 +503,15 @@ fn completed_resume_target_carry_fails_closed_on_history_or_generation_races() {
                 .reported_session_binding_nonce = Some(nonce.clone());
         }
         if race == "history" {
-            let detail = fixture.service.plan_store.show_task(&task_id).unwrap();
+            let detail = fixture
+                .service
+                .plan_store
+                .inspect_task_for_test(&task_id)
+                .unwrap();
             fixture
                 .service
                 .plan_store
-                .with_plan(&detail.plan_id, 6, |plan| {
+                .edit_plan_fixture(&detail.plan_id, 6, |plan| {
                     plan.tasks
                         .iter_mut()
                         .find(|task| task.id == task_id)
@@ -611,7 +538,12 @@ fn completed_resume_target_carry_fails_closed_on_history_or_generation_races() {
                 .lock()
                 .epoch += 1;
         }
-        let changed_history = fixture.service.plan_store.show_task(&task_id).unwrap().task;
+        let changed_history = fixture
+            .service
+            .plan_store
+            .inspect_task_for_test(&task_id)
+            .unwrap()
+            .task;
         let failure = fixture
             .service
             .carry_authorized_runtime_restart_binding(&fixture.tab, &outcome.session_id, &nonce)
@@ -625,7 +557,12 @@ fn completed_resume_target_carry_fails_closed_on_history_or_generation_races() {
             .authorize_runtime_restart_binding(&fixture.tab, PROVIDER, &nonce, false,)
             .is_err());
         assert_eq!(
-            fixture.service.plan_store.show_task(&task_id).unwrap().task,
+            fixture
+                .service
+                .plan_store
+                .inspect_task_for_test(&task_id)
+                .unwrap()
+                .task,
             changed_history
         );
         assert_completed_session_has_no_task_authority(&fixture, &task_id);
@@ -644,7 +581,11 @@ fn completed_resume_target_carry_fails_closed_on_history_or_generation_races() {
 fn completed_worker_switch_refuses_invalid_identity_before_teardown_or_mutation() {
     let (fixture, task_id, _) = prepared_switch_worker_fixture(false);
     complete_switch_task(&fixture, &task_id);
-    let detail = fixture.service.plan_store.show_task(&task_id).unwrap();
+    let detail = fixture
+        .service
+        .plan_store
+        .inspect_task_for_test(&task_id)
+        .unwrap();
     let valid_tab = fixture
         .service
         .mux
@@ -652,7 +593,7 @@ fn completed_worker_switch_refuses_invalid_identity_before_teardown_or_mutation(
         .get_tab(&fixture.tab)
         .cloned()
         .unwrap();
-    for invalid in [
+    for (case_index, invalid) in [
         "plan",
         "task",
         "attempt",
@@ -676,7 +617,11 @@ fn completed_worker_switch_refuses_invalid_identity_before_teardown_or_mutation(
         "empty_pty",
         "lifecycle_epoch",
         "sleeping",
-    ] {
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let restored_at = 5 + (case_index as u64) * 2;
         clear_switch_cooldown(&fixture);
         *fixture
             .service
@@ -687,7 +632,7 @@ fn completed_worker_switch_refuses_invalid_identity_before_teardown_or_mutation(
         fixture
             .service
             .plan_store
-            .with_plan(&detail.plan_id, 5, |plan| {
+            .edit_plan_fixture(&detail.plan_id, restored_at, |plan| {
                 *plan
                     .tasks
                     .iter_mut()
@@ -696,6 +641,16 @@ fn completed_worker_switch_refuses_invalid_identity_before_teardown_or_mutation(
                 Ok(())
             })
             .unwrap();
+        assert_eq!(
+            fixture
+                .service
+                .plan_store
+                .inspect_task_for_test(&task_id)
+                .unwrap()
+                .task,
+            detail.task,
+            "{invalid}: fixture must restore the baseline before applying one defect"
+        );
         match invalid {
             "plan" | "task" | "attempt" | "partial" | "session" | "nonce" | "unverified"
             | "pty_id" | "empty_pty" | "lifecycle_epoch" | "sleeping" => {
@@ -724,7 +679,7 @@ fn completed_worker_switch_refuses_invalid_identity_before_teardown_or_mutation(
             _ => fixture
                 .service
                 .plan_store
-                .with_plan(&detail.plan_id, 6, |plan| {
+                .edit_plan_fixture(&detail.plan_id, restored_at + 1, |plan| {
                     let task = plan
                         .tasks
                         .iter_mut()
@@ -764,7 +719,12 @@ fn completed_worker_switch_refuses_invalid_identity_before_teardown_or_mutation(
             .get_tab(&fixture.tab)
             .cloned()
             .unwrap();
-        let before = fixture.service.plan_store.show_task(&task_id).unwrap().task;
+        let before = fixture
+            .service
+            .plan_store
+            .inspect_task_for_test(&task_id)
+            .unwrap()
+            .task;
         let requests = fixture.requests().len();
         let error = fixture
             .service
@@ -785,8 +745,18 @@ fn completed_worker_switch_refuses_invalid_identity_before_teardown_or_mutation(
             invalid,
             "pty_id" | "empty_pty" | "lifecycle_epoch" | "sleeping"
         ) {
-            assert!(error.contains("completed_continuity_pty_generation_missing:"));
-            assert!(error.contains("wake or resume this tab"));
+            assert!(
+                error.contains("completed_continuity_pty_generation_missing:"),
+                "{invalid}: {error}; backing={:?}, pty={:?}, epoch={:?}, frozen={}",
+                source.backing,
+                source.pty_id,
+                source.lifecycle_epoch,
+                source.frozen
+            );
+            assert!(
+                error.contains("wake or resume this tab"),
+                "{invalid}: {error}"
+            );
         }
         let after = fixture
             .service
@@ -807,7 +777,12 @@ fn completed_worker_switch_refuses_invalid_identity_before_teardown_or_mutation(
             "{invalid}"
         );
         assert_eq!(
-            fixture.service.plan_store.show_task(&task_id).unwrap().task,
+            fixture
+                .service
+                .plan_store
+                .inspect_task_for_test(&task_id)
+                .unwrap()
+                .task,
             before,
             "{invalid}"
         );
@@ -833,11 +808,15 @@ fn completed_switch_revalidates_history_before_source_retirement() {
         .service
         .validate_provider_switch_binding(&fixture.tab, Some(&authority))
         .unwrap();
-    let detail = fixture.service.plan_store.show_task(&task_id).unwrap();
+    let detail = fixture
+        .service
+        .plan_store
+        .inspect_task_for_test(&task_id)
+        .unwrap();
     fixture
         .service
         .plan_store
-        .with_plan(&detail.plan_id, 6, |plan| {
+        .edit_plan_fixture(&detail.plan_id, 6, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()
@@ -847,13 +826,23 @@ fn completed_switch_revalidates_history_before_source_retirement() {
             Ok(())
         })
         .unwrap();
-    let before = fixture.service.plan_store.show_task(&task_id).unwrap().task;
+    let before = fixture
+        .service
+        .plan_store
+        .inspect_task_for_test(&task_id)
+        .unwrap()
+        .task;
     assert!(fixture
         .service
         .validate_provider_switch_binding(&fixture.tab, Some(&authority))
         .is_err());
     assert_eq!(
-        fixture.service.plan_store.show_task(&task_id).unwrap().task,
+        fixture
+            .service
+            .plan_store
+            .inspect_task_for_test(&task_id)
+            .unwrap()
+            .task,
         before
     );
     assert_eq!(
@@ -901,7 +890,7 @@ fn task_worker_switch_from_pty_carries_attempt_and_delivers_one_handoff() {
         .provider_switch_history(&fixture.tab, &outcome.previous_history_path)
         .unwrap()
         .is_empty());
-    let persisted = store.show_task(&task).unwrap().task;
+    let persisted = store.inspect_task_for_test(&task).unwrap().task;
     assert_eq!(persisted.execution_attempts.len(), 1);
     let carried = &persisted.execution_attempts[0];
     assert_eq!(carried.id, attempt);
@@ -999,7 +988,12 @@ fn failed_target_launch_fences_the_worker_and_releases_carry_authority() {
     assert!(error.contains("fixture load refused"), "{error}");
     rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
     fixture.ui.unlisten(listener);
-    let fenced = fixture.service.plan_store.show_task(&task).unwrap().task;
+    let fenced = fixture
+        .service
+        .plan_store
+        .inspect_task_for_test(&task)
+        .unwrap()
+        .task;
     assert_eq!(fenced.execution_attempts.len(), 1);
     assert_eq!(fenced.execution_attempts[0].id, attempt);
     assert!(fenced.execution_attempts[0].closed_at.is_some());
@@ -1057,7 +1051,12 @@ fn failed_runtime_restart_releases_the_task_attempt_authority() {
         .service
         .carry_authorized_runtime_restart_binding(&fixture.tab, "foreign-thread", "foreign-nonce")
         .unwrap());
-    let persisted = fixture.service.plan_store.show_task(&task).unwrap().task;
+    let persisted = fixture
+        .service
+        .plan_store
+        .inspect_task_for_test(&task)
+        .unwrap()
+        .task;
     assert_eq!(persisted.execution_attempts.len(), 1);
     assert_eq!(persisted.execution_attempts[0].id, attempt);
     assert_eq!(

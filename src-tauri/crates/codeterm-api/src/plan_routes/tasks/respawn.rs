@@ -14,6 +14,40 @@ pub(super) fn respawn_spawn_command(
     )
 }
 
+pub(super) fn respawn_spawn_params(
+    draft: &codeterm_service_core::service::plan::task_attempts::TaskRespawnDraft,
+    task_name: &str,
+    lane_base: Option<String>,
+) -> codeterm_service_core::service::SpawnAgentParams {
+    let description = codeterm_service_core::service::task_tab_description(task_name, None);
+    codeterm_service_core::service::SpawnAgentParams {
+        agent: Some(draft.provider.clone()),
+        cwd: Some(draft.cwd.clone()),
+        title: draft.title.clone(),
+        title_provenance: Some(respawn_title_provenance(draft.explicit_title)),
+        description: Some(description),
+        task_description_managed: true,
+        role: Some("Worker".into()),
+        execution_intent: Some(draft.execution_intent.clone()),
+        parent_tab_id: draft.parent_tab_id.clone(),
+        task: Some(draft.task_prompt.clone()),
+        workspace_id: draft.workspace_id.clone(),
+        spawned_by_tab_id: draft.parent_tab_id.clone(),
+        model: draft.model.clone(),
+        launch_profile: draft.launch_profile.clone(),
+        planned_model: draft.planned_model.clone(),
+        planned_reasoning_effort: draft.reasoning_effort.clone(),
+        reasoning_effort: draft.reasoning_effort.clone(),
+        task_launch_authority: Some(codeterm_service_core::service::TaskLaunchAuthority {
+            plan_id: draft.plan_id.clone(),
+            task_id: draft.task_id.clone(),
+            attempt_id: draft.attempt_id.clone(),
+            lane_base,
+        }),
+        ..Default::default()
+    }
+}
+
 pub async fn task_respawn(
     AxumState(state): AxumState<AppState>,
     headers: crate::auth::ActorHeaders,
@@ -37,21 +71,24 @@ pub async fn task_respawn(
     .await?;
     let store = state.svc.plan_store.clone();
     let plan_id = id.clone();
-    let plan = crate::plan_routes::run_blocking(move || {
-        store
-            .get(&plan_id)
-            .ok_or_else(|| plan_err(codeterm_service_core::service::plan::PlanError::NotFound))
-    })
-    .await?;
-    let original_task = codeterm_service_core::plan::task_key::find_task(&plan.tasks, &tid)
-        .cloned()
-        .ok_or_else(|| plan_err(codeterm_service_core::service::plan::PlanError::TaskNotFound))?;
-    if let Some(source) = original_task
-        .execution_attempts
-        .iter()
-        .find(|attempt| attempt.id == body.attempt_id && attempt.mesh_peer.is_some())
-        .cloned()
-    {
+    let task_id = tid.clone();
+    let source_id = body.attempt_id.clone();
+    let (original_task, remote_source, plan, owner_tab_id) =
+        crate::plan_routes::run_blocking(move || {
+            let task = store
+                .task_launch_projection(&plan_id, &task_id, Some(&source_id))
+                .map_err(plan_err)?;
+            let remote = store
+                .respawn_remote_source_projection(&plan_id, &task_id, &source_id)
+                .map_err(plan_err)?;
+            let plan = store.document_metadata(&plan_id).map_err(plan_err)?;
+            let owner = store
+                .plan_owner_tab_projection(&plan_id)
+                .map_err(plan_err)?;
+            Ok((task, remote, plan, owner))
+        })
+        .await?;
+    if let Some(source) = remote_source {
         let caller = crate::tab_routes::authenticated_plan_caller(&headers);
         let mut params = serde_json::to_value(&body)
             .map_err(|error| text_err(axum::http::StatusCode::BAD_REQUEST, error.to_string()))?;
@@ -86,26 +123,33 @@ pub async fn task_respawn(
         codeterm_service_core::plan::TaskStatus::Pending
             | codeterm_service_core::plan::TaskStatus::Blocked
     ) {
-        codeterm_service_core::service::plan::review_gate::validate_dispatch_review_capacity(
-            &plan,
-            &original_task,
-        )
-        .map_err(plan_err)?;
+        let store = state.svc.plan_store.clone();
+        let plan_id = id.clone();
+        let task_id = tid.clone();
+        crate::plan_routes::run_blocking(move || {
+            store
+                .dispatch_review_capacity_warning_projection(&plan_id, &task_id)
+                .map_err(plan_err)
+        })
+        .await?;
     }
-    let original_plan_mode = plan.mode.clone();
     let store = state.svc.plan_store.clone();
     let plan_id = id.clone();
     let task_id = tid.clone();
-    let mut draft = crate::plan_routes::run_blocking(move || {
-        store
+    let (mut draft, acceptance_criteria) = crate::plan_routes::run_blocking(move || {
+        let draft = store
             .build_task_respawn_draft(&plan_id, &task_id, body)
-            .map_err(plan_err)
+            .map_err(plan_err)?;
+        let criteria = store
+            .task_respawn_acceptance_projection(&plan_id, &task_id)
+            .map_err(plan_err)?;
+        Ok((draft, criteria))
     })
     .await?;
     let parent_tab_id = draft
         .parent_tab_id
         .clone()
-        .or_else(|| plan.owner.tab_id.clone())
+        .or(owner_tab_id)
         .filter(|parent| !parent.trim().is_empty())
         .ok_or_else(|| {
             text_err(
@@ -114,6 +158,15 @@ pub async fn task_respawn(
             )
         })?;
     draft.parent_tab_id = Some(parent_tab_id.clone());
+    let spawn_params =
+        respawn_spawn_params(&draft, &original_task.name, original_task.lane.base.clone());
+    crate::agent_routes::spawn_rejection::validate_spawn_options(
+        &state.svc,
+        &draft.provider,
+        &spawn_params,
+    )
+    .await
+    .map_err(|error| (error.status, Json(error.body)))?;
     let lane_for_commit = original_task.lane.clone();
     let canonical_cwd = if plan.canonical_project_path.trim().is_empty() {
         plan.project_path.clone()
@@ -121,12 +174,19 @@ pub async fn task_respawn(
         plan.canonical_project_path.clone()
     };
     let lane_protection = codeterm_service_core::service::LaneProtection::for_dispatch_intent(
-        &original_task.interruption.execution_intent,
+        &original_task.dispatch_intent,
     );
     let verify_draft = draft.clone();
     let verify_canonical_cwd = canonical_cwd.clone();
-    let verify_task = original_task.clone();
+    let verify_store = state.svc.plan_store.clone();
     let provenance = tokio::task::spawn_blocking(move || {
+        let verify_task = verify_store
+            .task_launch_projection(
+                &verify_draft.plan_id,
+                &verify_draft.task_id,
+                Some(&verify_draft.source_attempt.id),
+            )
+            .map_err(|error| error.to_string())?;
         codeterm_service_core::service::plan::respawn_lane_verify_respawn_lane(
             &verify_canonical_cwd,
             &verify_task,
@@ -171,38 +231,9 @@ pub async fn task_respawn(
         )
     })?
     .map_err(|error| text_err(axum::http::StatusCode::CONFLICT, error))?;
-    let description =
-        codeterm_service_core::service::task_tab_description(&original_task.name, None);
     let spawn = state
         .svc
-        .spawn_agent(
-            codeterm_service_core::service::SpawnAgentParams {
-                agent: Some(draft.provider.clone()),
-                cwd: Some(draft.cwd.clone()),
-                title: draft.title.clone(),
-                title_provenance: Some(respawn_title_provenance(draft.explicit_title)),
-                description: Some(description),
-                task_description_managed: true,
-                role: Some("Worker".into()),
-                execution_intent: Some(draft.execution_intent.clone()),
-                parent_tab_id: draft.parent_tab_id.clone(),
-                task: Some(draft.task_prompt.clone()),
-                workspace_id: draft.workspace_id.clone(),
-                spawned_by_tab_id: draft.parent_tab_id.clone(),
-                model: draft.model.clone(),
-                planned_model: draft.planned_model.clone(),
-                planned_reasoning_effort: draft.reasoning_effort.clone(),
-                reasoning_effort: draft.reasoning_effort.clone(),
-                task_launch_authority: Some(codeterm_service_core::service::TaskLaunchAuthority {
-                    plan_id: draft.plan_id.clone(),
-                    task_id: draft.task_id.clone(),
-                    attempt_id: draft.attempt_id.clone(),
-                    lane_base: original_task.lane.base.clone(),
-                }),
-                ..Default::default()
-            },
-            Some(ready_tx),
-        )
+        .spawn_agent(spawn_params, Some(ready_tx))
         .await
         .map_err(|e| text_err(axum::http::StatusCode::INTERNAL_SERVER_ERROR, e))?;
     draft.provider = spawn.agent.clone();
@@ -235,7 +266,7 @@ pub async fn task_respawn(
             "blocking task failed",
         )
     })?;
-    let created = match created {
+    let (created, rollback) = match created {
         Ok(created) => created,
         Err(error) => {
             if let Err(close_error) = state.svc.close_tab_async(&spawn.tab_id).await {
@@ -262,7 +293,7 @@ pub async fn task_respawn(
             &spawn.tab_id,
             &parent_tab_id,
             std::slice::from_ref(&draft.source_attempt.executor_tab_id),
-            &original_task.acceptance_criteria,
+            &acceptance_criteria,
         )
         .await
         .map_err(|error| {
@@ -282,8 +313,7 @@ pub async fn task_respawn(
         attempt_id: created.attempt.id.clone(),
         parent_tab_id,
         worker_title: spawn.title.clone(),
-        original_task,
-        original_plan_mode,
+        rollback,
         lane_for_commit,
         canonical_project_path: canonical_cwd,
         provenance,

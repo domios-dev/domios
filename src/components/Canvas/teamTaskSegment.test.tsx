@@ -1,3 +1,4 @@
+import { muxMockFetch } from "../../lib/muxMockFetch.testdata";
 import { beforeEach as beforeDaemonCase } from "vitest";
 import { configureDaemonFixture } from "../../test/daemonTransport.testdata";
 beforeDaemonCase(() => configureDaemonFixture());
@@ -537,18 +538,19 @@ const BOARD_STATE: PlanBoardState = {
 async function settle() {
   for (let pass = 0; pass < 10; pass += 1) {
     await act(async () => {
-      await Promise.resolve();
+      // Daemon responses ride the mux stream, which settles across event-loop turns.
+      await new Promise((resolve) => setTimeout(resolve, 0));
     });
   }
 }
 
 describe("Board jumps through the single navigation", () => {
   it("opens What happened tasks by key through onOpenPlanTarget with no surface overlay", async () => {
-    vi.stubGlobal("fetch", vi.fn(async (url: string) => (url.includes(`/api/plans/${TEAM_PLAN.id}/board-state`)
+    vi.stubGlobal("fetch", muxMockFetch(vi.fn(async (url: string) => (url.includes(`/api/plans/${TEAM_PLAN.id}/board-state`)
       ? { ok: true, status: 200, json: async () => BOARD_STATE, text: async () => "" }
       : url.includes(`/api/plans/${TEAM_PLAN.id}/projection?view=board`)
         ? { ok: true, status: 200, json: async () => ({ ...TEAM_PLAN, revision: "1" }), text: async () => "" }
-      : { ok: false, status: 404, json: async () => ({}), text: async () => "not found" })));
+      : { ok: false, status: 404, json: async () => ({}), text: async () => "not found" }))));
     const onOpenPlanTarget = vi.fn();
     const plan = { ...TEAM_PLAN, owner: FIXTURE_PLAN.owner };
     const host = await render(
@@ -576,11 +578,11 @@ describe("Board jumps through the single navigation", () => {
   });
 
   it("a What happened task on the Board opens the shared side panel over Board", async () => {
-    vi.stubGlobal("fetch", vi.fn(async (url: string) => (url.includes(`/api/plans/${TEAM_PLAN.id}/board-state`)
+    vi.stubGlobal("fetch", muxMockFetch(vi.fn(async (url: string) => (url.includes(`/api/plans/${TEAM_PLAN.id}/board-state`)
       ? { ok: true, status: 200, json: async () => BOARD_STATE, text: async () => "" }
       : url.includes(`/api/plans/${TEAM_PLAN.id}/projection?view=board`)
         ? { ok: true, status: 200, json: async () => ({ ...TEAM_PLAN, revision: "1" }), text: async () => "" }
-      : { ok: false, status: 404, json: async () => ({}), text: async () => "not found" })));
+      : { ok: false, status: 404, json: async () => ({}), text: async () => "not found" }))));
     const plan = { ...TEAM_PLAN, owner: FIXTURE_PLAN.owner };
     const host = await render(<TeamView plans={[plan]} api={API} />);
     await act(async () => modeTab(host, "board").click());
@@ -668,13 +670,15 @@ describe("chat task and plan links", () => {
     const view = chatPlanRefView(resolvedTask(), [], WORKSPACES, false);
     const host = await render(
       <LinkedText
-        text={`Review ${KEYED.id} in ${TEAM_PLAN.id}`}
+        text={`Review <domios type="task" id="${KEYED.id}" plan="${TEAM_PLAN.id}" /> in ${TEAM_PLAN.id}`}
         resolvePlanRef={() => view}
         onOpenPlan={(planId, targetId, kind) => { opened.push([planId, targetId, kind]); }}
       />,
     );
     const link = host.querySelector('[data-testid="chat-task-link"]') as HTMLButtonElement;
     expect(link.getAttribute("aria-label")).toContain("CT-7 Render the segment");
+    expect(host.querySelector('[data-testid="chat-plan-link"]')).toBeNull();
+    expect(host.textContent).toContain(`in ${TEAM_PLAN.id}`);
     await act(async () => link.click());
     expect(opened).toEqual([[TEAM_PLAN.id, KEYED.id, "task"]]);
   });
@@ -682,10 +686,10 @@ describe("chat task and plan links", () => {
   it("a chat task link opens the side panel without navigating, Escape returns to the link, show full navigates", async () => {
     const setActiveWorkspace = vi.fn();
     const ctx = context({ activeWorkspaceId: OTHER_WS, setActiveWorkspace });
-    const host = await render(<ChatSurface text={`Review ${KEYED.id} in ${TEAM_PLAN.id}`} ctx={ctx} />);
+    const host = await render(<ChatSurface text={`Review <domios type="task" id="${KEYED.id}" plan="${TEAM_PLAN.id}" /> in ${TEAM_PLAN.id}`} ctx={ctx} />);
 
     const link = host.querySelector('[data-testid="chat-task-link"]') as HTMLButtonElement;
-    link.focus();
+    await act(async () => link.focus());
     await act(async () => link.click());
     expect(sidePanel()?.getAttribute("data-task-id")).toBe(KEYED.id);
     expect(setActiveWorkspace).not.toHaveBeenCalled();
@@ -710,10 +714,10 @@ describe("chat task and plan links", () => {
   it("a chat plan link opens the plan side panel without navigating, and show full lands on Plan", async () => {
     const setActiveWorkspace = vi.fn();
     const ctx = context({ activeWorkspaceId: OTHER_WS, setActiveWorkspace });
-    const host = await render(<ChatSurface text={`Plan ${TEAM_PLAN.id} is ready`} ctx={ctx} />);
+    const host = await render(<ChatSurface text={`Plan <domios type="plan" id="${TEAM_PLAN.id}" /> is ready`} ctx={ctx} />);
 
     const link = host.querySelector('[data-testid="chat-plan-link"]') as HTMLButtonElement;
-    link.focus();
+    await act(async () => link.focus());
     await act(async () => link.click());
     expect(sidePanel()?.getAttribute("data-kind")).toBe("plan");
     expect(sidePanelControl("full").getAttribute("aria-label")).toBe("Open plan in full view");

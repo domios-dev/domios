@@ -91,7 +91,7 @@ fn remote_attempt_ack_deadline_marks_attempt_explicitly() {
             7
         )
         .is_err());
-    let task = store.show_task(&task_id).unwrap().task;
+    let task = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(task.status, TaskStatus::Pending);
     assert!(task.assigned_tab_id.is_none());
     let attempt = &task.execution_attempts[0];
@@ -121,7 +121,7 @@ fn remote_peer_offline_is_explicit_attempt_state() {
             5,
         )
         .unwrap());
-    let task = store.show_task(&task_id).unwrap().task;
+    let task = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(task.status, TaskStatus::Pending);
     assert!(task.assigned_tab_id.is_none());
     assert_eq!(

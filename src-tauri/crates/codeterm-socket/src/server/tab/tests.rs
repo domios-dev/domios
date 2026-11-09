@@ -3,6 +3,52 @@ use codeterm_service_core::service::delivery_error::DeliveryError;
 use codeterm_service_core::service::messenger::Delivery;
 
 #[test]
+fn socket_held_send_cancel_returns_a_persisted_zero_write_receipt() {
+    use codeterm_service_core::multiplexer::state::MultiplexerState;
+    use codeterm_service_core::service::messenger::{MessageEnvelope, Messenger};
+    use codeterm_service_core::service::test_fixture::ServiceFixture;
+    let (mut mux, tab) = MultiplexerState::new();
+    let recipient = mux.get_tab_mut(&tab).unwrap();
+    recipient.agent_type = Some("opaque-provider".into());
+    recipient.agent_session_id = Some("own-session".into());
+    recipient.pty_id = Some("own-pty".into());
+    recipient.session_binding_nonce = Some("own-launch".into());
+    recipient.agent_booting = true;
+    recipient.boot_stage = Some(codeterm_types::pty::BootStage::AgentLaunching);
+    let fixture = ServiceFixture::new(mux);
+    let writes = fixture.record_agent_deliveries(&tab);
+    let delivery = Messenger::deliver(
+        &fixture.service,
+        &tab,
+        MessageEnvelope::tab("sender", "sender-tab"),
+        "opaque fragment",
+    )
+    .unwrap();
+    let Delivery::Pending { delivery_id } = fixture.service.public_delivery_receipt(&tab, delivery)
+    else {
+        panic!("initial launch must hold input");
+    };
+    let svc = std::sync::Arc::new(fixture.service.clone());
+    let params = Some(serde_json::json!({"send_id": delivery_id}));
+    let cancelled = super::dispatch("tab.send_cancel", &params, &svc.mux, &svc).unwrap();
+    assert_eq!(cancelled["state"], "failed");
+    assert_eq!(cancelled["error"], "cancelled_before_write");
+    assert_eq!(
+        super::dispatch("tab.send_status", &params, &svc.mux, &svc).unwrap(),
+        cancelled
+    );
+    writes.wait_for_flush();
+    assert!(writes.texts.lock().is_empty());
+    assert!(super::dispatch(
+        "tab.send_cancel",
+        &Some(serde_json::json!({"send_id":"invalid"})),
+        &svc.mux,
+        &svc
+    )
+    .is_err());
+}
+
+#[test]
 fn socket_send_notice_keeps_build_provenance() {
     use codeterm_service_core::service::messenger::{MessageEnvelope, Messenger};
     for source in [

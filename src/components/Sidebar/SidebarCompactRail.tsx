@@ -89,7 +89,7 @@ export function SidebarCompactRail({ groups, tabStatuses, onActivate, attentionB
                 }}
                 onMouseLeave={release}
               >
-                {tab.agent_type ? <AgentIcon providerId={tab.agent_type} className="text-[15px]" /> : <TerminalIcon size={14} />}
+                {tab.agent_type ? <AgentIcon tab={tab} providerId={tab.agent_type} className="text-[15px]" /> : <TerminalIcon size={14} />}
                 <TabAttentionMark title={title} attention={attentionByTab[tab.id] ?? tabAttention(tab, tabStatuses[tab.id], [], active)} active={active} placement="compact" />
                 {activity === "working" && !attentionByTab[tab.id]?.showMark && <span className="ct-compact-rail__status" aria-hidden="true" />}
               </button>

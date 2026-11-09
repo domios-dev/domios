@@ -1,5 +1,5 @@
+import type { PlanView as Plan } from "../../components/Canvas/planProjection";
 import type { AgentBlockHost, AgentBlockState } from "@codeterm/chat-ui";
-import type { Plan } from "../../components/Canvas/types";
 import { interruptAgentArgs } from "../agentInterrupt";
 import type { MultiplexerState, Tab, TabStatus } from "../types";
 import { agentBlockState, resolveTabRef } from "./agentBlockState";

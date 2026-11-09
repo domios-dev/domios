@@ -156,14 +156,26 @@ fn heartbeat_gate_plan_delta_projection_is_ordered_and_content_addressed() {
         "/fixture".into(),
         OrchestratorRef::from_tab("owner"),
     );
-    let before = snapshot::plan_projection(&plan);
-    assert_eq!(before, snapshot::plan_projection(&plan.clone()));
+    let before = snapshot::plan_projection(
+        &crate::service::hierarchy::plan_reminder_nudge::tests::read(&plan),
+    );
+    assert_eq!(
+        before,
+        snapshot::plan_projection(
+            &crate::service::hierarchy::plan_reminder_nudge::tests::read(&plan.clone())
+        )
+    );
     plan.mode = if plan.mode == crate::plan::PlanMode::Execution {
         crate::plan::PlanMode::Planning
     } else {
         crate::plan::PlanMode::Execution
     };
-    assert_ne!(before["mode"], snapshot::plan_projection(&plan)["mode"]);
+    assert_ne!(
+        before["mode"],
+        snapshot::plan_projection(
+            &crate::service::hierarchy::plan_reminder_nudge::tests::read(&plan)
+        )["mode"]
+    );
 }
 
 #[test]
@@ -189,7 +201,9 @@ fn heartbeat_gate_owner_rules_do_not_consume_situational_selection_slots() {
                 tag: Some("owner".into()),
             });
     }
-    let catalog = snapshot::situational_learning_catalog(&plan);
+    let catalog = snapshot::situational_learning_catalog(
+        &crate::service::hierarchy::plan_reminder_nudge::tests::read(&plan),
+    );
     assert_eq!(catalog.len(), 12);
     for learning in &plan.heartbeat.learnings {
         assert_eq!(

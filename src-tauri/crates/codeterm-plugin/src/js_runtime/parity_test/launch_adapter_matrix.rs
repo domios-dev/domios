@@ -29,6 +29,18 @@ pub(super) fn assert_installed_descriptors() {
             ..Default::default()
         });
 
+        if provider
+            .agent_runtime()
+            .is_some_and(|runtime| runtime.launch_profiles.is_some())
+        {
+            assert!(
+                command.trim().is_empty(),
+                "{} host launch profiles must not expose a JS PTY command",
+                descriptor.id
+            );
+            continue;
+        }
+
         assert!(
             !command.trim().is_empty(),
             "{} launch command",

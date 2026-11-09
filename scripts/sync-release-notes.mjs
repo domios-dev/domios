@@ -10,7 +10,6 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 const DEFAULT_SOURCE = sourceRepository();
-const DEFAULT_MIRROR = "rollacode/codeterm-releases";
 
 export function isPlaceholderBody(body, tag) {
   const text = body.trim();
@@ -52,6 +51,7 @@ export function canonicalPullRequestBody(tag, pullRequestBody) {
 function runGh(args, options = {}) {
   const result = spawnSync("gh", args, {
     encoding: "utf8",
+    env: options.env ?? process.env,
     maxBuffer: 16 * 1024 * 1024,
     stdio: options.capture ? ["ignore", "pipe", "pipe"] : "inherit",
   });
@@ -63,8 +63,13 @@ function runGh(args, options = {}) {
   return options.capture ? result.stdout : "";
 }
 
-function ghJson(args) {
-  return JSON.parse(runGh(args, { capture: true }));
+function ghJson(args, env) {
+  return JSON.parse(runGh(args, { capture: true, env }));
+}
+
+// 1.19 transition mirror: the mirror repository is written with its own token.
+function repoEnv(repo, mirrorRepo) {
+  return repo === mirrorRepo ? { ...process.env, GH_TOKEN: process.env.MIRROR_TOKEN } : process.env;
 }
 
 function ghText(args) {
@@ -72,8 +77,8 @@ function ghText(args) {
 }
 
 // The by-tag endpoint never returns drafts, and publication syncs notes before un-drafting.
-function release(repo, tag) {
-  const found = ghJson(["api", "--paginate", "--slurp", `repos/${repo}/releases?per_page=100`])
+function release(repo, tag, env) {
+  const found = ghJson(["api", "--paginate", "--slurp", `repos/${repo}/releases?per_page=100`], env)
     .flat()
     .find((item) => item.tag_name === tag);
   if (!found) throw new Error(`no release ${tag} in ${repo}`);
@@ -108,9 +113,10 @@ function writeBoth(sourceRepo, mirrorRepo, tag, body) {
   const file = join(dir, "notes.md");
   try {
     writeFileSync(file, `${body.trim()}\n`, "utf8");
-    for (const repo of [sourceRepo, mirrorRepo]) {
-      release(repo, tag);
-      runGh(["release", "edit", tag, "--repo", repo, "--notes-file", file]);
+    for (const repo of [sourceRepo, mirrorRepo].filter(Boolean)) {
+      const env = repoEnv(repo, mirrorRepo);
+      release(repo, tag, env);
+      runGh(["release", "edit", tag, "--repo", repo, "--notes-file", file], { env });
     }
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -128,7 +134,7 @@ export function chooseCanonicalBody(tag, sourceBody, replacementBody) {
 
 function prepareTag(sourceRepo, mirrorRepo, tag) {
   const source = release(sourceRepo, tag);
-  release(mirrorRepo, tag);
+  if (mirrorRepo) release(mirrorRepo, tag, repoEnv(mirrorRepo, mirrorRepo));
   const existing = source.body ?? "";
   let replacement = "";
   if (isPlaceholderBody(existing, tag) || isGeneratedBody(existing)) {
@@ -145,7 +151,7 @@ function publishedTags(repo, count) {
 }
 
 function parseArgs(argv) {
-  const options = { sourceRepo: DEFAULT_SOURCE, mirrorRepo: DEFAULT_MIRROR };
+  const options = { sourceRepo: DEFAULT_SOURCE, mirrorRepo: null };
   for (let index = 0; index < argv.length; index += 1) {
     const value = argv[index];
     if (value === "--tag") options.tag = argv[++index];

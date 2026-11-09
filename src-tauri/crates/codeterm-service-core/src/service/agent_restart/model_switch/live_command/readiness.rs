@@ -10,6 +10,12 @@ pub(super) struct CommandReadiness {
 }
 
 impl CommandReadiness {
+    pub(super) fn has_switch_confirmation(&self, screen: &str, selection: &str) -> bool {
+        self.provider
+            .parse_switch_confirmation_prompt(screen, selection)
+            .is_some()
+    }
+
     pub(super) fn from_declaration(
         commands: &crate::agent::provider::ModelSwitchCommands,
         target: &CommandTarget,

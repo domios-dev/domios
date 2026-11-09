@@ -116,6 +116,8 @@ features = [
     "handleapi",
     "fileapi",
     "namedpipeapi",
+    "ioapiset",
+    "sddl",
     "synchapi",
     "jobapi",
     "jobapi2",

@@ -193,12 +193,12 @@ fn parse_session_messages_parity_across_chunk_boundary() {
     let tmp = tempfile::NamedTempFile::new().unwrap();
     std::fs::write(tmp.path(), &jsonl).unwrap();
 
-    let nm = n.parse_session_messages(tmp.path());
-    let jm = j.parse_session_messages(tmp.path());
+    let nm = n.parse_session_messages(tmp.path()).unwrap();
+    let jm = j.parse_session_messages(tmp.path()).unwrap();
     let text = super::super::parsed_record_fixtures::text_sibling(&j);
     assert_eq!(
         serde_json::to_value(&jm).unwrap(),
-        serde_json::to_value(text.parse_session_messages(tmp.path())).unwrap()
+        serde_json::to_value(text.parse_session_messages(tmp.path()).unwrap()).unwrap()
     );
     assert_eq!(nm.len(), 6000, "native must see every line");
     assert_eq!(jm.len(), nm.len(), "chunked JS read must not lose messages");
@@ -223,12 +223,12 @@ fn parse_session_messages_parity_on_jsonl_fixture() {
     let tmp = tempfile::NamedTempFile::new().unwrap();
     std::fs::write(tmp.path(), jsonl).unwrap();
 
-    let nm = n.parse_session_messages(tmp.path());
-    let jm = j.parse_session_messages(tmp.path());
+    let nm = n.parse_session_messages(tmp.path()).unwrap();
+    let jm = j.parse_session_messages(tmp.path()).unwrap();
     let text = super::super::parsed_record_fixtures::text_sibling(&j);
     assert_eq!(
         serde_json::to_value(&jm).unwrap(),
-        serde_json::to_value(text.parse_session_messages(tmp.path())).unwrap()
+        serde_json::to_value(text.parse_session_messages(tmp.path()).unwrap()).unwrap()
     );
 
     assert_eq!(nm.len(), jm.len(), "message count must match");

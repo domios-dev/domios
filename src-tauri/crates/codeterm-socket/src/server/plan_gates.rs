@@ -69,7 +69,14 @@ pub(super) fn dispatch(
                 .or_else(|| opt_str(p, "caller_tab_id"))
                 .map(str::to_string);
 
-            if let Some(owner) = svc.planner_gate_owner_answerer(&plan_id, asked_by.as_deref()) {
+            let gate_context = store
+                .planner_gate_context(&plan_id, None)
+                .map_err(plan_rpc_err)?;
+            if let Some(owner) = gate_context
+                .as_ref()
+                .and_then(|read| read.owner_for_gate(asked_by.as_deref()))
+                .map(str::to_string)
+            {
                 let gate = store
                     .ask_gate(
                         &plan_id,
@@ -96,8 +103,7 @@ pub(super) fn dispatch(
 
             // Resolve where to route before storing, so heartbeat shows the routed tab.
             let routed_to = {
-                let plan = store.get(&plan_id);
-                plan.and_then(|pl| {
+                gate_context.as_ref().and_then(|pl| {
                     let resolution =
                         codeterm_service_core::plan::peer::resolve_planner_ref(&pl.planner, &pl.owner, |pid| {
                             svc.tab_probe(pid)
@@ -133,32 +139,28 @@ pub(super) fn dispatch(
             if let Some(tab_id) = routed_to.as_deref() {
                 svc.replay_planner_requests_if_routable(tab_id);
             }
-            let request = store
-                .get(&plan_id)
-                .and_then(|plan| {
-                    plan.planner_requests
-                        .into_iter()
-                        .find(|item| item.request_id == request_id)
-                })
+            let gate_context = store
+                .planner_gate_context(&plan_id, Some(&request_id))
+                .map_err(plan_rpc_err)?;
+            let request = gate_context
+                .as_ref()
+                .and_then(|read| read.request.clone())
                 .unwrap_or(request);
             if !matches!(
                 request.state,
                 codeterm_service_core::plan::PlannerRequestState::Accepted
                     | codeterm_service_core::plan::PlannerRequestState::Completed
             ) {
-                let plan = store.get(&plan_id);
-                let resolution = plan.as_ref().map(|plan| {
+                let resolution = gate_context.as_ref().map(|plan| {
                     codeterm_service_core::plan::peer::resolve_planner_ref(
                         &plan.planner,
                         &plan.owner,
                         |tab_id| svc.tab_probe(tab_id),
                     )
                 });
-                let delivery = plan.as_ref().and_then(|plan| {
-                    plan.planner_inbox
-                        .iter()
-                        .find(|entry| entry.request_id == request.request_id)
-                });
+                let delivery = gate_context
+                    .as_ref()
+                    .and_then(|read| read.delivery.as_ref());
                 let planner_dead = matches!(
                     resolution,
                     Some(

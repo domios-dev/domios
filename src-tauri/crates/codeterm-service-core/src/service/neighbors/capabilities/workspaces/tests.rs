@@ -34,6 +34,7 @@ async fn workspace_grant_filters_agent_rows_and_checks_every_send_target() {
         .await;
     let token = service
         .frontend_pty_env(Some(&concierge))
+        .unwrap()
         .remove("CODETERM_API_TOKEN")
         .unwrap();
     let caller = service

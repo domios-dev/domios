@@ -151,3 +151,152 @@ fn fresh_runtime_bootstrap_survives_identical_sibling_completion_before_launch()
         Some(&claimed)
     );
 }
+
+#[test]
+fn bootstrap_written_before_receipt_loads_and_accepts_late_own_evidence() {
+    use super::sync_send::{runtime_fixture_turn_scoped, RUNTIME_FIXTURE_SOURCE};
+    let source = RUNTIME_FIXTURE_SOURCE.replace(
+        "call:{method,params:op}",
+        "call:{method,params:op,...(op.kind === 'submitTurn' ? {target:{threadId:op.threadId,turnId:'late-turn'}} : {})}",
+    );
+    let (fixture, tab, peer, _cleanup) = runtime_fixture_turn_scoped(&source);
+    let storage = fixture.install_seeded_storage_desk();
+    let workspace = fixture
+        .service
+        .mux
+        .read()
+        .find_workspace_for_tab(&tab)
+        .unwrap();
+    let parent = fixture.service.mux.write().create_tab(&workspace).unwrap();
+    fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(&tab)
+        .unwrap()
+        .parent_tab_id = Some(parent.clone());
+    let send = uuid::Uuid::new_v4().to_string();
+    fixture
+        .service
+        .create_pending_delivery_with_send_id(
+            &tab,
+            PendingDeliveryChannel::InteractiveInput,
+            "opaque deferred bootstrap",
+            Some(&send),
+        )
+        .unwrap();
+    let session = for_tab(&tab).unwrap();
+    session.state.lock().phase = RuntimePhase::Loading;
+    let (release, released) = tokio::sync::oneshot::channel();
+    crate::async_runtime::block_on(async {
+        let server = async {
+            let mut reader = BufReader::new(peer);
+            for method in ["fixture/initialize", "fixture/resume", "fixture/history"] {
+                let mut line = String::new();
+                reader.read_line(&mut line).await.unwrap();
+                let request: Value = serde_json::from_str(&line).unwrap();
+                assert_eq!(request["method"], method);
+                reader
+                    .get_mut()
+                    .write_all(
+                        format!("{}\n", serde_json::json!({"id":request["id"],"result":{}}))
+                            .as_bytes(),
+                    )
+                    .await
+                    .unwrap();
+            }
+            let mut line = String::new();
+            reader.read_line(&mut line).await.unwrap();
+            let request: Value = serde_json::from_str(&line).unwrap();
+            assert_eq!(request["method"], "fixture/submit");
+            assert_eq!(request["params"]["sendId"], send);
+            assert_eq!(
+                request["params"]["input"]["text"],
+                "opaque deferred bootstrap"
+            );
+            released.await.unwrap();
+            reader
+                .get_mut()
+                .write_all(
+                    format!(
+                        "{}\n",
+                        serde_json::json!({"id":request["id"],"result":{"turnId":"late-turn"}})
+                    )
+                    .as_bytes(),
+                )
+                .await
+                .unwrap();
+            reader
+        };
+        let launch = async {
+            let loaded = ensure(&fixture.service, &tab).await.unwrap();
+            assert_eq!(loaded.state.lock().snapshot().state, "loaded");
+            assert_eq!(
+                fixture
+                    .service
+                    .chat_send_ledger
+                    .status(&send)
+                    .unwrap()
+                    .state,
+                ChatSendState::Unknown
+            );
+            assert!(fixture
+                .service
+                .report_store
+                .lock()
+                .get(&parent, false)
+                .is_empty());
+            let epoch = loaded.context.lock().epoch;
+            super::super::super::subscriber::publish_events(
+                &fixture.service,
+                &loaded,
+                epoch,
+                vec![AgentRuntimeEvent::SendEvidence {
+                    thread_id: "own-thread".into(),
+                    send_id: send.clone(),
+                    turn_id: "late-turn".into(),
+                    item_id: None,
+                }],
+                10,
+            )
+            .await
+            .unwrap();
+            assert_eq!(
+                fixture
+                    .service
+                    .chat_send_ledger
+                    .status(&send)
+                    .unwrap()
+                    .state,
+                ChatSendState::Sent
+            );
+            assert_eq!(loaded.state.lock().snapshot().state, "loaded");
+            assert!(fixture
+                .service
+                .report_store
+                .lock()
+                .get(&parent, false)
+                .is_empty());
+            release.send(()).unwrap();
+        };
+        let (_, mut reader) = tokio::time::timeout(Duration::from_secs(5), async {
+            tokio::join!(launch, server)
+        })
+        .await
+        .unwrap();
+        use std::{
+            pin::Pin,
+            task::{Context, Poll, Waker},
+        };
+        use tokio::io::AsyncBufRead;
+        assert!(
+            matches!(
+                Pin::new(&mut reader).poll_fill_buf(&mut Context::from_waker(Waker::noop())),
+                Poll::Pending
+            ),
+            "bootstrap must never replay"
+        );
+    });
+    crate::service::session_persist::stop_worker(&fixture.service).unwrap();
+    drop(storage);
+}

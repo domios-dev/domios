@@ -56,9 +56,10 @@ test("delayed messages discard obsolete responses", async () => {
   });
   await started.promise;
   const latest = feed.refresh();
+  assert.equal(calls, 1, "invalidations wait for the current read instead of stacking requests");
   loads[1].resolve([{ id: "new" }] as DelayedMessage[]);
-  await latest;
   loads[0].resolve([{ id: "old" }] as DelayedMessage[]);
+  await latest;
   await feed.ready;
   assert.deepEqual(published.map((messages) => messages[0].id), ["new"]);
   feed.dispose();
@@ -96,4 +97,22 @@ test("wake keeps the last list until the daemon answers, then converges after a 
   await wake;
   assert.deepEqual(published[published.length - 1], []);
   feed.dispose();
+});
+
+
+test("disposing a delayed feed aborts its pending read and stops later wakes", async () => {
+  const started = deferred<void>();
+  let readSignal!: AbortSignal;
+  let calls = 0;
+  const feed = createDelayedMessageFeed("one", {
+    load: (_tab, signal) => new Promise((_resolve, reject) => {
+      calls++; readSignal = signal; started.resolve();
+      signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+    }),
+    publish: () => assert.fail("disposed read published"), subscribe: async () => () => {},
+  });
+  await started.promise;
+  feed.dispose(); await feed.ready; await feed.wake();
+  assert.equal(readSignal.aborted, true);
+  assert.equal(calls, 1);
 });

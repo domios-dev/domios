@@ -69,6 +69,7 @@ fn create_from_linked_worktree_persists_workspace_root_and_routes_sidecars() {
         )
         .unwrap();
 
+    store.export_sidecars_for_test(&plan.id);
     let linked_root = paths::project_root(&linked);
     let loaded = store.get(&plan.id).unwrap();
     assert_eq!(loaded.project_path, linked_root.display().to_string());

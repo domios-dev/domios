@@ -81,7 +81,7 @@ fn setup() -> (tempfile::TempDir, PlanStore, String, String, String) {
             .unwrap();
     }
     store
-        .with_plan(&plan.id, 5, |plan| {
+        .edit_plan_fixture(&plan.id, 5, |plan| {
             for task in &mut plan.tasks {
                 let tab_id = executor_tab(&task.id);
                 let attempt_id = format!("attempt-{}", task.id);
@@ -127,7 +127,7 @@ fn enqueue_claim_and_pass_write_qa_milestones() {
         Some("run independent first QA")
     );
 
-    let task = store.show_task(&first).unwrap().task;
+    let task = store.inspect_task_for_test(&first).unwrap().task;
     assert_eq!(task.review_stage, ReviewStage::Qa);
     assert_eq!(task.qa_state, Some(QaState::Running));
     assert_eq!(task.assigned_tab_id.as_deref(), Some("qa"));
@@ -139,7 +139,7 @@ fn enqueue_claim_and_pass_write_qa_milestones() {
     store
         .pass_qa(&plan_id, &first, "verified", AgentRef::from_tab("qa"), 12)
         .unwrap();
-    let task = store.show_task(&first).unwrap().task;
+    let task = store.inspect_task_for_test(&first).unwrap().task;
     assert_eq!(task.status, TaskStatus::Done);
     assert_eq!(task.review_stage, ReviewStage::Review);
     assert_eq!(task.qa_state, None);
@@ -247,7 +247,7 @@ fn fail_bounces_to_in_progress_and_restores_implementer() {
         )
         .unwrap();
     store
-        .with_plan(&plan_id, 9, |plan| {
+        .edit_plan_fixture(&plan_id, 9, |plan| {
             let task = plan.tasks.iter_mut().find(|task| task.id == first).unwrap();
             task.execution_attempts[0].executor_tab_id = "impl-tab".into();
             Ok(())
@@ -271,7 +271,7 @@ fn fail_bounces_to_in_progress_and_restores_implementer() {
             12,
         )
         .unwrap();
-    let task = store.show_task(&first).unwrap().task;
+    let task = store.inspect_task_for_test(&first).unwrap().task;
     assert_eq!(task.status, TaskStatus::InProgress);
     assert_eq!(task.review_stage, ReviewStage::Review);
     assert_eq!(task.qa_state, None);
@@ -295,7 +295,7 @@ fn fail_bounces_to_in_progress_and_restores_implementer() {
 fn fail_warns_after_three_stagnant_bounces_and_threads_reset_flags() {
     let (_dir, store, plan_id, first, _second) = setup();
     store
-        .with_plan(&plan_id, 9, |plan| {
+        .edit_plan_fixture(&plan_id, 9, |plan| {
             let task = plan.tasks.iter_mut().find(|task| task.id == first).unwrap();
             for at in [7, 8] {
                 task.review_evidence.push(ReviewEvidence {
@@ -334,7 +334,7 @@ fn fail_warns_after_three_stagnant_bounces_and_threads_reset_flags() {
     assert_eq!(warning.consecutive_bounces, 3);
     assert_eq!(warning.review_round, 3);
 
-    let task = store.show_task(&first).unwrap().task;
+    let task = store.inspect_task_for_test(&first).unwrap().task;
     assert!(
         !task
             .review_evidence

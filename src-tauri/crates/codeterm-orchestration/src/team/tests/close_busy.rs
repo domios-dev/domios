@@ -30,7 +30,7 @@ fn busy_team_fixture() -> (ServiceFixture, String, String, String, String, Strin
         )
         .unwrap();
     store
-        .with_plan(&plan.id, 3, |plan| {
+        .edit_plan_fixture(&plan.id, 3, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()

@@ -251,6 +251,8 @@ export interface AutomationAttachment extends AutomationScope {
 
 export interface AutomationGraphAdapter {
   read(attachment: AutomationAttachment, signal: AbortSignal): Promise<AutomationGraph>;
+  /** The last graph this page read for the attachment, so a remounted surface starts from it rather than from nothing. */
+  peek?(attachment: AutomationAttachment): AutomationGraph | null;
   subscribe(attachment: AutomationAttachment, changed: () => void): Promise<() => void>;
   stop(attachment: AutomationAttachment, identity: AutomationIdentity): Promise<void>;
   delete(attachment: AutomationAttachment, identity: AutomationIdentity): Promise<void>;

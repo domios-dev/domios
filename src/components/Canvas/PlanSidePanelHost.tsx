@@ -1,3 +1,4 @@
+import type { PlanView as Plan } from "./planProjection";
 import { returnToOrigin, type ReturnTo } from "../../lib/returnTo";
 import { useReturnToChat } from "../../hooks/useReturnToChat";
 import { chatDocumentsStore } from "../Terminal/chatDocumentsStore";
@@ -15,7 +16,6 @@ import { planSidePanelStore, usePlanSidePanelEntry, type PlanSidePanelTarget } f
 import { usePlanProjection } from "./usePlanProjection";
 import { PlanSidePanel } from "./planView/PlanSidePanel";
 import { usePlanTargetNavigation, type PlanTarget } from "./teamViewNavigation";
-import type { Plan } from "./types";
 import { usePlanTaskDetail } from "./usePlans";
 import { usePresence, type PresenceMotion } from "./usePresence";
 

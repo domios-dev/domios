@@ -57,6 +57,11 @@ pub mod win;
 
 pub mod serial;
 
+pub struct CancellableWriter {
+    pub writer: Box<dyn std::io::Write + Send>,
+    pub cancel: std::sync::Arc<dyn Fn() + Send + Sync>,
+}
+
 /// Represents the size of the visible display area in the pty
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "serde_support", derive(Serialize, Deserialize))]
@@ -100,6 +105,10 @@ pub trait MasterPty: Downcast + Send {
     /// Dropping the writer will send EOF to the slave end.
     /// It is invalid to take the writer more than once.
     fn take_writer(&self) -> Result<Box<dyn std::io::Write + Send>, Error>;
+
+    fn take_cancellable_writer(&self) -> Result<CancellableWriter, Error> {
+        anyhow::bail!("cancellable PTY writes are not supported by this backend")
+    }
 
     /// If applicable to the type of the tty, return the local process id
     /// of the process group or session leader

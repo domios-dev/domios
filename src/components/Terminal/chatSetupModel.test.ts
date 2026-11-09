@@ -10,6 +10,24 @@ test("an observed spawn failure replaces loading even after a transcript attache
   }
 });
 
+test("a launched session whose relaunch failed never takes the body from its transcript", () => {
+  const launched = { boot_stage: "spawn_failed" as const, boot_failure_reason: "opaque-refusal", agent_session_id: "opaque-session",
+    backing: { kind: "chat_backend" as const, plugin_id: "opaque", session_id: "opaque-session" },
+    agent_runtime_state: { state: "degraded" as const, epoch: 2, failureCode: "provider_refused" as const, reason: "opaque-refusal" } };
+  for (const attached of [false, true]) {
+    assert.deepEqual(chatSetupView(launched, attached), { kind: "none" });
+    assert.equal(composerVisible(chatSetupView(launched, attached)), true);
+    assert.deepEqual(chatSetupView({ boot_stage: "spawn_failed" as const, agent_session_id: "opaque-session" }, attached), { kind: "none" });
+  }
+});
+
+test("a chat launch that failed before any session reports failure instead of loading", () => {
+  const degraded = { state: "degraded" as const, epoch: 2, failureCode: "provider_refused" as const, reason: "opaque-refusal" };
+  const unbound = { backing: { kind: "chat_backend" as const, plugin_id: "opaque", session_id: "" }, agent_runtime_state: degraded };
+  assert.deepEqual(chatSetupView(unbound), { kind: "launch_failed", reason: "opaque-refusal" });
+  assert.equal(chatSetupView({ ...unbound, agent_booting: true }).kind, "starting");
+});
+
 test("a pending runtime deadline keeps startup until a transcript attaches or runtime recovers", () => {
   const pending = { boot_stage: "agent_ready" as const, session_bound: true,
     agent_runtime_state: { state: "degraded" as const, epoch: 2, reason: "Deadline: opaque" } };

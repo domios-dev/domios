@@ -117,10 +117,9 @@ fn peer_inventory_uses_authenticated_lease_without_mutating_cached_registry() {
 }
 
 #[test]
-fn apply_announce_replaces_address_list_wholesale() {
+fn apply_announce_requires_a_signed_endpoint_record_to_replace_addresses() {
     let mut m = make_mesh_with_peer("peer-A", vec!["192.168.1.5", "100.64.0.5"]);
     let ann = PeerAnnounce {
-        registry: None,
         instance_id: "peer-A".into(),
         instance_name: "TestPeer".into(),
         addresses: vec![PeerAddress::from_ip("100.99.99.99")],
@@ -130,23 +129,22 @@ fn apply_announce_replaces_address_list_wholesale() {
         relay_protocol_version: types::RELAY_PROTOCOL_VERSION,
     };
     let change = m.apply_announce("peer-A", &ann).expect("ok");
-    assert!(change.addresses_changed);
+    assert!(!change.addresses_changed);
     assert_eq!(
         change.previous_addresses.len(),
         2,
         "old list returned for logging"
     );
     let after = &m.paired_peers["peer-A"];
-    assert_eq!(after.addresses.len(), 1, "list fully replaced, not merged");
-    assert_eq!(after.addresses[0].ip, "100.99.99.99");
-    assert_eq!(after.api_port, 7777);
+    assert_eq!(after.addresses.len(), 2);
+    assert_eq!(after.addresses[0].ip, "192.168.1.5");
+    assert_ne!(after.api_port, 7777);
 }
 
 #[test]
 fn apply_announce_stores_and_clears_web_ui() {
     let mut m = make_mesh_with_peer("peer-A", vec!["100.64.0.5"]);
     let with_https = PeerAnnounce {
-        registry: None,
         instance_id: "peer-A".into(),
         instance_name: "TestPeer".into(),
         addresses: vec![PeerAddress::from_ip("100.64.0.5")],
@@ -166,7 +164,6 @@ fn apply_announce_stores_and_clears_web_ui() {
     assert_eq!(m.paired_peers["peer-A"].web_ui, with_https.web_ui);
 
     let without = PeerAnnounce {
-        registry: None,
         web_ui: None,
         relay_protocol_version: types::RELAY_PROTOCOL_VERSION,
         ..with_https
@@ -180,7 +177,6 @@ fn apply_announce_stores_and_clears_web_ui() {
 fn apply_announce_rejects_spoofed_sender() {
     let mut m = make_mesh_with_peer("peer-A", vec!["192.168.1.5"]);
     let ann = PeerAnnounce {
-        registry: None,
         instance_id: "peer-A".into(),
         instance_name: "TestPeer".into(),
         addresses: vec![PeerAddress::from_ip("100.99.99.99")],
@@ -201,7 +197,6 @@ fn apply_announce_rejects_spoofed_sender() {
 fn apply_announce_empty_list_is_noop() {
     let mut m = make_mesh_with_peer("peer-A", vec!["192.168.1.5"]);
     let ann = PeerAnnounce {
-        registry: None,
         instance_id: "peer-A".into(),
         instance_name: "TestPeer".into(),
         addresses: vec![],
@@ -219,7 +214,6 @@ fn apply_announce_empty_list_is_noop() {
 fn apply_announce_same_addrs_returns_no_change() {
     let mut m = make_mesh_with_peer("peer-A", vec!["100.64.0.5"]);
     let ann = PeerAnnounce {
-        registry: None,
         instance_id: "peer-A".into(),
         instance_name: "TestPeer".into(),
         addresses: vec![PeerAddress::from_ip("100.64.0.5")],
@@ -234,7 +228,6 @@ fn apply_announce_same_addrs_returns_no_change() {
 
 fn announce_with_protocol(relay_protocol_version: u16) -> PeerAnnounce {
     PeerAnnounce {
-        registry: None,
         instance_id: "peer-A".into(),
         instance_name: "TestPeer".into(),
         addresses: vec![PeerAddress::from_ip("100.64.0.5")],

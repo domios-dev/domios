@@ -606,20 +606,8 @@ fn extract_pending(svc: Arc<ServiceContext>, limit: usize, explicit: bool) -> us
             }
         }
     };
-    match tokio::runtime::Handle::try_current() {
-        Ok(h) => {
-            h.spawn(fut);
-        }
-        Err(_) => {
-            std::thread::spawn(move || {
-                let rt = tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                    .expect("build extract runtime");
-                rt.block_on(fut);
-            });
-        }
-    }
+    // Extraction invokes provider launch hooks; never inherit a caller's CurrentThread runtime.
+    crate::async_runtime::spawn(fut);
     count
 }
 

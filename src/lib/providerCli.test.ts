@@ -61,3 +61,23 @@ describe("provider compatibility hint", () => {
     ]) expect(providerCompatibilityHint(status)).toBeNull();
   });
 });
+
+describe("launch profile readiness", () => {
+  it("shows ready profiles without a fictitious CLI or installer", () => {
+    const status = { ...base, required: false, installed: true, binary: null, installer: null,
+      launch_profiles: [{ id: "installed", installed: true }, { id: "missing", installed: false }] };
+    expect(providerCliView(status, null)).toMatchObject({
+      state: "installed", label: "1 of 2 launch profiles ready", canInstall: false, canRecheck: true,
+      installCommand: null, compatibilityHint: null,
+    });
+  });
+  it("distinguishes missing and unknown profiles and never offers a CLI installer", () => {
+    for (const [installed, state, label] of [
+      [false, "missing", "No launch profiles ready"],
+      [null, "unknown", "Launch profile readiness unknown"],
+    ] as const) {
+      const status = { ...base, required: false, installed, launch_profiles: [{ id: "profile", installed }] };
+      expect(providerCliView(status, null)).toMatchObject({ state, label, canInstall: false, canRecheck: true });
+    }
+  });
+});

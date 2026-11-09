@@ -54,8 +54,8 @@ impl AccountMeshService {
 }
 
 struct AccountSessions(
-    Arc<OnceCell<Arc<codeterm_account::Account>>>,
-    watch::Sender<u64>,
+    Weak<OnceCell<Arc<codeterm_account::Account>>>,
+    Weak<watch::Sender<u64>>,
 );
 fn session_refusal(error: codeterm_account::Error) -> AccountMeshRefusal {
     match error {
@@ -66,12 +66,14 @@ fn session_refusal(error: codeterm_account::Error) -> AccountMeshRefusal {
 #[async_trait]
 impl SessionSource for AccountSessions {
     async fn session(&self) -> Result<Option<Session>, AccountMeshRefusal> {
-        let account = self.0.get().ok_or(AccountMeshRefusal::Unauthenticated)?;
+        let owner = self.0.upgrade().ok_or(AccountMeshRefusal::Unavailable)?;
+        let account = owner.get().ok_or(AccountMeshRefusal::Unauthenticated)?;
         account.current_session().await.map_err(session_refusal)
     }
 
     async fn refresh(&self) -> Result<Option<Session>, AccountMeshRefusal> {
-        let account = self.0.get().ok_or(AccountMeshRefusal::Unauthenticated)?;
+        let owner = self.0.upgrade().ok_or(AccountMeshRefusal::Unavailable)?;
+        let account = owner.get().ok_or(AccountMeshRefusal::Unauthenticated)?;
         account.fresh_session().await.map_err(session_refusal)
     }
 }
@@ -79,7 +81,11 @@ impl SessionSource for AccountSessions {
 #[async_trait]
 impl codeterm_account::account_mesh::callable::CallableSessionValidator for AccountSessions {
     async fn retired(&self, expected: &Session) {
-        let mut changes = self.1.subscribe();
+        let Some(owner) = self.1.upgrade() else {
+            return;
+        };
+        let mut changes = owner.subscribe();
+        drop(owner);
         loop {
             if !codeterm_account::account_mesh::callable::CallableSessionValidator::current(
                 self, expected,
@@ -95,7 +101,10 @@ impl codeterm_account::account_mesh::callable::CallableSessionValidator for Acco
     }
 
     async fn current(&self, expected: &Session) -> bool {
-        let Some(account) = self.0.get() else {
+        let Some(owner) = self.0.upgrade() else {
+            return false;
+        };
+        let Some(account) = owner.get() else {
             return false;
         };
         account.session().await.is_some_and(|session| {
@@ -123,6 +132,51 @@ struct TransportBridge {
 }
 #[async_trait]
 impl MeshTransport for TransportBridge {
+    fn peers_reachable(&self) -> bool {
+        self.service
+            .upgrade()
+            .and_then(|service| {
+                service.try_ext::<crate::MeshStateHandle>().map(|mesh| {
+                    let manager = mesh.lock();
+                    manager
+                        .account_mesh_pairs()
+                        .iter()
+                        .filter_map(|peer| peer.installation_id.as_deref())
+                        .any(|id| manager.has_healthy_connection(id))
+                })
+            })
+            .unwrap_or(false)
+    }
+
+    async fn endpoint_changed(
+        &self,
+        endpoint: Option<MeshEndpoint>,
+        sequence: u64,
+        membership: &str,
+    ) -> bool {
+        let Some(service) = self.service.upgrade() else {
+            return false;
+        };
+        if !service.configuration().mesh.enabled {
+            return false;
+        }
+        let Some(mesh) = service.try_ext::<crate::MeshStateHandle>().cloned() else {
+            return false;
+        };
+        let endpoint = endpoint.map(|endpoint| codeterm_mesh::endpoint_gossip::EndpointAddress {
+            tailnet_ip: endpoint.ip().to_string(),
+            api_port: endpoint.port(),
+        });
+        let record = mesh
+            .lock()
+            .sign_endpoint_record(endpoint, sequence, membership);
+        let Ok(record) = record else {
+            return false;
+        };
+        codeterm_mesh::presence_notice::broadcast_endpoint_record(&mesh, record).await;
+        true
+    }
+
     async fn registry_changed(&self, snapshot: &codeterm_entitlements::DetachedGrant) {
         if let Some(service) = self.service.upgrade() {
             if service.configuration().mesh.enabled {
@@ -155,15 +209,6 @@ impl MeshTransport for TransportBridge {
                         membership_expires_at: row.membership_expires_at, endpoint_expires_at: row.endpoint.as_ref().map(|endpoint| endpoint.expires_at),
                         instance_id: None, online: false,
                     }).collect()).unwrap_or_default();
-                manager.registry_revision = state.signed_in_account().and_then(|account| {
-                    state.registry_security.as_ref().map(|registry| {
-                        codeterm_mesh::types::RegistryRevision {
-                            account_id: account.to_owned(),
-                            revision: registry.revision,
-                            security_digest: registry.digest.clone(),
-                        }
-                    })
-                });
             }
             service.ui.emit(
                 ACCOUNT_MESH_CHANGED,
@@ -268,8 +313,8 @@ impl ServiceContext {
             Some(Ok(transport)) => Arc::new(
                 CallableRegistry::new(transport)
                     .with_validator(Arc::new(AccountSessions(
-                        self.ext::<AccountCell>().0.clone(),
-                        self.callable_admission_changes(),
+                        Arc::downgrade(&self.ext::<AccountCell>().0),
+                        Arc::downgrade(&self.callable_admission_changes()),
                     )))
                     .with_revocations(self.session_revocations()),
             ),
@@ -299,8 +344,8 @@ impl ServiceContext {
                     AccountMeshPorts {
                         registry: self.registry(),
                         sessions: Arc::new(AccountSessions(
-                            self.ext::<AccountCell>().0.clone(),
-                            self.callable_admission_changes(),
+                            Arc::downgrade(&self.ext::<AccountCell>().0),
+                            Arc::downgrade(&self.callable_admission_changes()),
                         )),
                         keys: self.account_credentials().await?,
                         store: Arc::new(FileAccountMeshStore::new(self.account_data_root()?)),

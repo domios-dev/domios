@@ -1,219 +1,369 @@
-use super::frames::*;
 use super::*;
+use axum::{
+    body::{Body, Bytes},
+    extract::Request,
+    http::{HeaderValue, Method},
+    routing::{get, post},
+    Extension, Router,
+};
+use codeterm_service_core::service::test_fixture::ServiceFixture;
+use futures_util::StreamExt;
+use serde_json::Value;
+use std::{sync::atomic::AtomicUsize, time::Duration};
+use tokio::sync::Notify;
+use tower::ServiceExt;
 
-fn frames_of(splitter: &mut SseSplitter, input: &[u8]) -> Vec<SseFrame> {
-    splitter.push(input).expect("within cap")
+mod cancellation;
+mod liveness;
+
+fn app(domains: Router<crate::routes::AppState>, state: crate::routes::AppState) -> Router {
+    crate::routes::apply_middleware(domains.merge(super::router()), state)
 }
 
-#[test]
-fn splitter_reassembles_frames_across_chunks_and_line_endings() {
-    let mut splitter = SseSplitter::new(1024);
-    assert!(frames_of(&mut splitter, b"data: {\"a\":").is_empty());
-    let frames = frames_of(
-        &mut splitter,
-        b"1}\n\nevent: named\r\ndata: x\r\ndata: y\r\n\r\n: keep-alive\n\n",
-    );
-    assert_eq!(
-        frames,
-        vec![
-            SseFrame {
-                event: None,
-                data: Some("{\"a\":1}".into())
-            },
-            SseFrame {
-                event: Some("named".into()),
-                data: Some("x\ny".into())
-            },
-            SseFrame {
-                event: None,
-                data: None
-            },
-        ]
-    );
+fn fixture() -> (ServiceFixture, crate::routes::AppState) {
+    let (mux, _) = codeterm_service_core::multiplexer::state::MultiplexerState::new();
+    let fixture = ServiceFixture::new(mux);
+    let state = crate::test_support::app_state(&fixture);
+    state.config.lock().api.token = Some("mux-test-token".into());
+    (fixture, state)
 }
 
-#[test]
-fn splitter_refuses_a_frame_over_its_cap() {
-    let mut splitter = SseSplitter::new(8);
-    assert_eq!(splitter.push(b"data: 123456"), Err(9));
+fn headers() -> HeaderMap {
+    HeaderMap::from_iter([
+        (
+            "authorization".parse().unwrap(),
+            HeaderValue::from_static("Bearer mux-test-token"),
+        ),
+        (
+            "x-codeterm-client-id".parse().unwrap(),
+            HeaderValue::from_static("fixture-client"),
+        ),
+    ])
 }
 
-#[test]
-fn encoded_frames_tag_the_channel_and_stay_one_sse_line() {
-    let raw = encode_frame(
-        "c1",
-        &SseFrame {
-            event: None,
-            data: Some("{\"seq\":3,\"boot\":\"b\"}".into()),
-        },
-    );
-    assert_eq!(
-        &raw[..],
-        b"data: {\"channel\":\"c1\",\"data\":{\"seq\":3,\"boot\":\"b\"}}\n\n"
-    );
-    let multi = encode_frame(
-        "c1",
-        &SseFrame {
-            event: Some("tick".into()),
-            data: Some("{\"a\":\n1}".into()),
-        },
-    );
-    assert_eq!(
-        &multi[..],
-        b"data: {\"channel\":\"c1\",\"event\":\"tick\",\"data\":{\"a\":1}}\n\n"
-    );
-    let text = encode_frame(
-        "c1",
-        &SseFrame {
-            event: Some("message".into()),
-            data: Some("plain\ntext".into()),
-        },
-    );
-    assert_eq!(
-        &text[..],
-        b"data: {\"channel\":\"c1\",\"data\":\"plain\\ntext\"}\n\n"
-    );
-    let keep_alive = encode_frame(
-        "c1",
-        &SseFrame {
-            event: None,
-            data: None,
-        },
-    );
-    assert_eq!(
-        &keep_alive[..],
-        b"data: {\"channel\":\"c1\",\"activity\":true}\n\n"
-    );
-    assert_eq!(
-        &encode_open("c1", Some("text/event-stream"))[..],
-        b"data: {\"channel\":\"c1\",\"open\":true,\"content_type\":\"text/event-stream\"}\n\n"
-    );
-    assert_eq!(
-        &encode_end("c1", &ChannelEnd::Http { status: 404, body: "gone".into() })[..],
-        b"data: {\"channel\":\"c1\",\"end\":{\"reason\":\"http\",\"status\":404,\"body\":\"gone\"}}\n\n"
-    );
+fn request(session: &str, id: &str, method: &str, path: &str, body: Body) -> Request {
+    let mut request = Request::builder()
+        .method(Method::POST)
+        .uri(format!("/api/stream-mux/{session}/requests/{id}"))
+        .header("x-domios-mux-method", method)
+        .header("x-domios-mux-path", path)
+        .header("x-domios-mux-class", "interactive")
+        .header("x-domios-mux-cancellable", "1")
+        .header("content-type", "application/json")
+        .body(body)
+        .unwrap();
+    request.headers_mut().extend(headers());
+    request
 }
 
-#[test]
-fn only_stream_paths_become_channels() {
-    assert!(matches!(
-        classify_channel_path("/api/mesh/relay-stream?peer=p&path=%2Fapi%2Fevents%2Fstream"),
-        Ok(MuxTarget::Relay(_))
-    ));
-    assert!(matches!(
-        classify_channel_path("/api/output/stream?since=abc"),
-        Ok(MuxTarget::LocalOutput(_))
-    ));
-    for refused in [
-        "/api/mux/state",
-        "//evil/api/output/stream",
-        "api/output/stream",
-        "/api\\output/stream",
-    ] {
-        assert!(classify_channel_path(refused).is_err(), "{refused}");
-    }
-    assert!(valid_mux_id("a1-_B"));
-    assert!(!valid_mux_id(""));
-    assert!(!valid_mux_id("a/b"));
-    assert!(!valid_mux_id(&"x".repeat(65)));
+async fn open() -> (
+    String,
+    impl futures_core::Stream<Item = Result<Bytes, axum::Error>> + Unpin,
+) {
+    let id = format!("test-{}", uuid::Uuid::new_v4().simple());
+    let response = stream_mux_open(
+        headers(),
+        Query(MuxSessionQuery {
+            session: id.clone(),
+        }),
+    )
+    .await
+    .unwrap();
+    let mut body = response.into_body().into_data_stream();
+    assert_eq!(body.next().await.unwrap().unwrap(), ": mux\n\n");
+    (id, body)
 }
 
-fn app_state(fixture: &codeterm_service_core::service::test_fixture::ServiceFixture) -> AppState {
-    let config = codeterm_service_core::config::schema::AppConfig::default();
-    let mut mesh = codeterm_service_core::mesh::MeshManager::new("stream-mux".into(), 0);
-    mesh.disk_persist = false;
-    mesh.paired_peers.clear();
-    AppState {
-        frontend_dev_url: None,
-        svc: std::sync::Arc::new(fixture.service.clone()),
-        cron: std::sync::Arc::new(parking_lot::Mutex::new(
-            codeterm_service_core::cron::store::CronStore::new_with_path(
-                fixture.temp.path().join("stream-mux-crons.json"),
-            ),
-        )),
-        cron_wake: std::sync::Arc::new(std::sync::Condvar::new()),
-        api_port: 0,
-        update_state: std::sync::Arc::new(parking_lot::Mutex::new(codeterm_update::UpdateState {
-            install_method: codeterm_update::InstallMethod::Unknown,
-            last_check: None,
-            last_check_time: None,
-            channel: config.updater.channel,
-            phase: codeterm_update::UpdatePhase::Idle,
-            last_error: None,
-            phase_changed_at: None,
-            downloaded_bytes: 0,
-            download_total_bytes: None,
-        })),
-        config: std::sync::Arc::new(parking_lot::Mutex::new(config)),
-        mesh: std::sync::Arc::new(parking_lot::Mutex::new(mesh)),
-        keepawake: std::sync::Arc::new(parking_lot::Mutex::new(None)),
-        resize_owner: std::sync::Arc::new(parking_lot::Mutex::new(Default::default())),
-        rest_api: std::sync::Arc::new(codeterm_service_core::startup::RestApiControl::new()),
-        test_clock: None,
-        events: fixture.service.events.clone(),
-        web_dist: None,
-    }
-}
-
-async fn next_frame(
+async fn frame(
     body: &mut (impl futures_core::Stream<Item = Result<Bytes, axum::Error>> + Unpin),
-) -> String {
-    let bytes = body.next().await.expect("mux frame").expect("mux bytes");
-    String::from_utf8(bytes.to_vec()).unwrap()
+) -> Value {
+    let bytes = tokio::time::timeout(Duration::from_secs(2), body.next())
+        .await
+        .expect("frame deadline")
+        .unwrap()
+        .unwrap();
+    assert!(bytes.len() <= scheduler::model::FRAME_CAP);
+    serde_json::from_slice(&bytes[6..bytes.len() - 2]).unwrap()
 }
 
 #[tokio::test]
-async fn channel_refusal_arrives_tagged_and_the_session_closes_with_its_stream() {
-    let (mux, _) = codeterm_service_core::multiplexer::state::MultiplexerState::new();
-    let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(mux);
-    let state = app_state(&fixture);
-    let session = "mux-test-session";
-    let response = stream_mux_open(Query(MuxSessionQuery {
-        session: session.into(),
-    }))
-    .await
-    .expect("session opens");
-    assert_eq!(
-        stream_mux_open(Query(MuxSessionQuery {
-            session: session.into()
-        }))
-        .await
-        .unwrap_err()
-        .0,
-        StatusCode::CONFLICT
-    );
-    let mut body = response.into_body().into_data_stream();
-    assert_eq!(next_frame(&mut body).await, ": mux\n\n");
-
-    let open = |channel: &str| {
-        stream_mux_open_channel(
-            AxumState(state.clone()),
-            HeaderMap::new(),
-            AxumPath(session.into()),
-            Json(MuxChannelOpen {
-                channel: channel.into(),
-                path: "/api/mesh/relay-stream?peer=ghost&path=%2Fapi%2Fevents%2Fstream".into(),
+async fn ack_precedes_domain_completion_and_status_headers_and_body_use_mux() {
+    let (_fixture, state) = fixture();
+    let entered = Arc::new(Notify::new());
+    let release = Arc::new(Notify::new());
+    let router = app(
+        Router::new().route(
+            "/api/fixture",
+            post({
+                let entered = entered.clone();
+                let release = release.clone();
+                move || {
+                    let entered = entered.clone();
+                    let release = release.clone();
+                    async move {
+                        entered.notify_one();
+                        release.notified().await;
+                        (
+                            StatusCode::CREATED,
+                            [("x-fixture", "retained"), ("set-cookie", "never-on-wire")],
+                            "hello 雪",
+                        )
+                    }
+                }
             }),
-        )
-    };
-    let accepted = open("chan-a").await.expect("channel accepted");
-    assert_eq!(accepted.0["ok"], true);
-    let end = next_frame(&mut body).await;
-    assert!(
-        end.starts_with(
-            "data: {\"channel\":\"chan-a\",\"end\":{\"reason\":\"http\",\"status\":404"
         ),
-        "{end}"
+        state,
     );
-
-    let closed = stream_mux_close_channel(AxumPath((session.into(), "chan-a".into()))).await;
-    assert_eq!(closed.0["closed"], false);
-
-    drop(body);
-    assert_eq!(open("chan-b").await.unwrap_err().0, StatusCode::GONE);
-    stream_mux_open(Query(MuxSessionQuery {
-        session: session.into(),
-    }))
+    let (session, mut body) = open().await;
+    let ack = tokio::time::timeout(
+        Duration::from_secs(2),
+        router.oneshot(request(
+            &session,
+            "r",
+            "POST",
+            "/api/fixture",
+            Body::empty(),
+        )),
+    )
     .await
-    .expect("a released session id can reopen");
+    .expect("ack must not await handler")
+    .unwrap();
+    assert_eq!(ack.status(), StatusCode::ACCEPTED);
+    entered.notified().await;
+    release.notify_one();
+    let head = frame(&mut body).await;
+    assert_eq!(head["status"], 201);
+    assert!(head["headers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|pair| pair[0] == "x-fixture" && pair[1] == "retained"));
+    assert!(!head.to_string().contains("never-on-wire"));
+    let chunk = frame(&mut body).await;
+    assert_eq!(chunk["chunk"], "hello 雪");
+    assert_eq!(chunk["enc"], "utf8");
+    assert_eq!(frame(&mut body).await["end"]["reason"], "eof");
+}
+
+#[tokio::test]
+async fn envelope_dispatch_reenters_auth_and_propagates_startup_and_inner_limits() {
+    let (_fixture, state) = fixture();
+    let router = app(Router::new()
+        .route("/api/auth-fixture", get(|| async { "secret" }))
+        .route("/api/starting-fixture", post(|| async {
+            (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({"error":{"code":"starting","subsystem":"fixture","request_executed":false}})))
+        }))
+        .route("/api/body-fixture", post(|body: String| async move { body }).layer(axum::extract::DefaultBodyLimit::max(4))), state.clone());
+    let dispatcher = dispatch::Dispatcher::new(router.clone(), state.svc.clone());
+    let (session, mut body) = open().await;
+    let mut unauthenticated = request(&session, "auth", "GET", "/api/auth-fixture", Body::empty());
+    unauthenticated.headers_mut().remove("authorization");
+    let ack = stream_mux_request(
+        Extension(dispatcher),
+        Path((session.clone(), "auth".into())),
+        unauthenticated,
+    )
+    .await
+    .unwrap();
+    assert_eq!(ack.0, StatusCode::ACCEPTED);
+    assert_eq!(frame(&mut body).await["status"], 401);
+    while frame(&mut body).await.get("end").is_none() {}
+    for (id, path, bytes, expected) in [
+        ("starting", "/api/starting-fixture", "", 503),
+        ("limit", "/api/body-fixture", "too much", 413),
+    ] {
+        assert_eq!(
+            router
+                .clone()
+                .oneshot(request(&session, id, "POST", path, Body::from(bytes)))
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::ACCEPTED
+        );
+        assert_eq!(frame(&mut body).await["status"], expected);
+        let mut payload = String::new();
+        loop {
+            let frame = frame(&mut body).await;
+            if frame.get("end").is_some() {
+                break;
+            }
+            if let Some(chunk) = frame["chunk"].as_str() {
+                payload.push_str(chunk);
+            }
+        }
+        if expected == 503 {
+            assert!(payload.contains("\"request_executed\":false"));
+        }
+    }
+}
+
+#[tokio::test]
+async fn predispatch_refusals_bind_owner_reject_recursion_duplicates_unknown_and_size() {
+    let (_fixture, state) = fixture();
+    let hold = Arc::new(Notify::new());
+    let router = app(
+        Router::new().route(
+            "/api/held",
+            get({
+                let hold = hold.clone();
+                move || {
+                    let hold = hold.clone();
+                    async move {
+                        hold.notified().await;
+                        "done"
+                    }
+                }
+            }),
+        ),
+        state,
+    );
+    let (session, body) = open().await;
+    for (id, method, path, status) in [
+        ("recursive", "POST", "/api/%73tream-mux", 400),
+        ("held", "GET", "/api/held", 202),
+        ("held", "GET", "/api/held", 409),
+    ] {
+        assert_eq!(
+            router
+                .clone()
+                .oneshot(request(&session, id, method, path, Body::empty()))
+                .await
+                .unwrap()
+                .status()
+                .as_u16(),
+            status
+        );
+    }
+    let mut foreign = request(&session, "foreign", "GET", "/api/held", Body::empty());
+    foreign
+        .headers_mut()
+        .insert("x-codeterm-client-id", HeaderValue::from_static("other"));
+    assert_eq!(
+        router.clone().oneshot(foreign).await.unwrap().status(),
+        StatusCode::FORBIDDEN
+    );
+    let mut large = request(&session, "large", "POST", "/api/held", Body::empty());
+    large.headers_mut().insert(
+        "content-length",
+        HeaderValue::from_str(&(spool::ENVELOPE_LIMIT + 1).to_string()).unwrap(),
+    );
+    assert_eq!(
+        router.clone().oneshot(large).await.unwrap().status(),
+        StatusCode::PAYLOAD_TOO_LARGE
+    );
+    assert_eq!(
+        router
+            .clone()
+            .oneshot(request("unknown", "u", "GET", "/api/held", Body::empty()))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::GONE
+    );
+    for index in 0..63 {
+        assert_eq!(
+            router
+                .clone()
+                .oneshot(request(
+                    &session,
+                    &format!("held-{index}"),
+                    "GET",
+                    "/api/held",
+                    Body::empty()
+                ))
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::ACCEPTED
+        );
+    }
+    assert_eq!(
+        router
+            .clone()
+            .oneshot(request(
+                &session,
+                "over-cap",
+                "GET",
+                "/api/held",
+                Body::empty()
+            ))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::TOO_MANY_REQUESTS
+    );
+    let removed = SESSIONS.lock().get(&session).unwrap().removed.clone();
+    drop(body);
+    tokio::time::timeout(Duration::from_secs(2), removed.notified())
+        .await
+        .unwrap();
+    assert!(!SESSIONS.lock().contains_key(&session));
+}
+
+#[test]
+fn binary_and_escaped_text_frames_respect_wire_cap_and_filter_authority_headers() {
+    let id = "c".repeat(64);
+    let bytes = Bytes::from(vec![0xff; spool::IO_CHUNK]);
+    let binary = frames::encode_chunk(&id, &bytes, false, 0);
+    assert!(binary.len() <= scheduler::model::FRAME_CAP);
+    let text = frames::encode_chunk(&id, &vec![0; 8 * 1024], true, 0);
+    assert!(text.len() <= scheduler::model::FRAME_CAP);
+    assert_eq!(spool::UPLOAD_LIMIT, 151 * 1024 * 1024);
+    let head = frames::encode_head(
+        "c",
+        StatusCode::OK,
+        &HeaderMap::from_iter([
+            (
+                "connection".parse().unwrap(),
+                HeaderValue::from_static("x-private"),
+            ),
+            (
+                "x-private".parse().unwrap(),
+                HeaderValue::from_static("hidden-hop"),
+            ),
+            (
+                "authorization".parse().unwrap(),
+                HeaderValue::from_static("hidden-token"),
+            ),
+            (
+                "set-cookie".parse().unwrap(),
+                HeaderValue::from_static("hidden-cookie"),
+            ),
+            (
+                "etag".parse().unwrap(),
+                HeaderValue::from_static("retained"),
+            ),
+        ]),
+    );
+    let wire = String::from_utf8(head.to_vec()).unwrap();
+    assert!(!wire.contains("hidden-"));
+    assert!(wire.contains("retained"));
+}
+
+#[tokio::test]
+async fn spooling_replays_exact_bytes_off_runtime_and_enforces_the_envelope_bound() {
+    let bytes = vec![42u8; 128 * 1024 + 3];
+    let stored = spool::receive(Body::from(bytes.clone()), 256 * 1024)
+        .await
+        .unwrap();
+    assert!(matches!(stored, spool::Stored::File(_)));
+    let received = axum::body::to_bytes(stored.into_body(), 256 * 1024)
+        .await
+        .unwrap();
+    assert_eq!(received.as_ref(), bytes);
+    let refused = spool::receive(Body::from(vec![0u8; 65]), 64).await;
+    assert!(matches!(refused, Err((StatusCode::PAYLOAD_TOO_LARGE, _))));
+}
+
+#[test]
+fn response_head_advertises_exact_serialized_body_bytes_for_client_buffering() {
+    let response = Response::new(Body::from(vec![b'x'; 820_186]));
+    let head = frames::encode_response_head("snapshot", &response);
+    let wire: Value = serde_json::from_slice(&head[6..head.len() - 2]).unwrap();
+    assert!(wire["headers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|pair| pair == &serde_json::json!(["content-length", "820186"])));
 }

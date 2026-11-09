@@ -37,7 +37,7 @@ const openedPlans: unknown[][] = [];
 await act(async () => markdownRoot.render(
   <InboundReportCard
     message={{ id: "opaque-markdown", type: "user", inboundKind: "report",
-      content: "task: pl_a7c9/task_b8d1\nstatus: In Review\nsha: abc123456789\n\n## Result\n\nFollow pl_a7c9/task_b8d1.\n\n- **Opaque item pl_a7c9/task_b8d1**\n\n`pl_code/task_literal`\n\n```text\nopaque code pl_fenced/task_literal\n```\n\n[Evidence pl_link/task_literal](https://example.test/evidence)" }}
+      content: "task: pl_a7c9/task_b8d1\nstatus: In Review\nsha: abc123456789\n\n## Result\n\nFollow <domios type=\"task\" id=\"task_b8d1\" plan=\"pl_a7c9\" />.\n\n- **Opaque item <domios type=\"task\" id=\"task_b8d1\" plan=\"pl_a7c9\" />**\n\n`pl_code/task_literal`\n\n```text\nopaque code pl_fenced/task_literal\n```\n\n[Evidence pl_link/task_literal](https://example.test/evidence)" }}
     sender="opaque" expanded onToggle={() => {}} onOpenPlan={(...args) => openedPlans.push(args)}
     resolvePlanRef={() => ({ title: "Linked task", planTitle: "Plan", state: "resolved", rawLabel: "pl_a7c9/task_b8d1", fullRef: "pl_a7c9/task_b8d1" })}
   />,

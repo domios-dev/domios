@@ -63,6 +63,15 @@ fn curator_sql_rows_match_distinct_order_counts_synthesis_and_digest_budgets() {
         }];
         plan.tasks.push(task);
     }
+    plan.tasks.push(crate::service_plan::load_audit::task(
+        "progress",
+        TaskStatus::InProgress,
+        None,
+    ));
+    let mut missing =
+        crate::service_plan::load_audit::task("missing-dependency", TaskStatus::Pending, None);
+    missing.depends_on = vec!["absent".into()];
+    plan.tasks.push(missing);
     for index in 0..30 {
         plan.strides.push(milestone(
             &format!("report-{index:02}"),
@@ -79,6 +88,12 @@ fn curator_sql_rows_match_distinct_order_counts_synthesis_and_digest_budgets() {
     }
     plan.strides
         .push(milestone("decision", "decision_answer", "opaque", 100));
+    plan.strides.push(milestone(
+        "decision-max",
+        "decision_answer",
+        "opaque",
+        u64::MAX,
+    ));
     plan.heartbeat.learnings = vec![HeartbeatLearning {
         id: "carried".into(),
         text: "verify task_02".into(),
@@ -109,7 +124,7 @@ fn curator_sql_rows_match_distinct_order_counts_synthesis_and_digest_budgets() {
             .max()
     );
     let mut full = rows(&plan, 50, 1000, true);
-    let mut extra = rows(read.plan(), read.since(), 1000, false);
+    let mut extra: BTreeMap<String, Vec<digest::Row>> = BTreeMap::new();
     let duplicate = digest::Row {
         id: "report-00".into(),
         kind: "worker_report".into(),
@@ -127,10 +142,7 @@ fn curator_sql_rows_match_distinct_order_counts_synthesis_and_digest_budgets() {
         assert_eq!(actual.activity, expected.activity);
         assert_eq!(actual.section_sizes, expected.section_sizes);
     }
-    assert_eq!(
-        synthesis::group_close(read.plan()),
-        synthesis::group_close(&plan)
-    );
+    assert_eq!(read.group_close(), synthesis::group_close(&plan));
 }
 
 #[test]
@@ -194,8 +206,8 @@ fn curator_materialization_is_bounded_and_synthesis_keeps_old_fallback_learning(
         let read = database
             .curator_digest_projection(&plan.id, 300_000)
             .unwrap();
-        let header = synthesis::context_header(read.plan(), "synthesis: yes");
-        let extra = rows(read.plan(), read.since(), 300_000, false);
+        let header = read.synthesis_context_header("synthesis: yes").unwrap();
+        let extra = BTreeMap::new();
         let actual = read.build_digest(&header, &extra, 8192).unwrap();
         let metrics = take_metrics();
         let decoded = super::super::super::super::store_sync::take_decoded_row_bytes();
@@ -209,11 +221,12 @@ fn curator_materialization_is_bounded_and_synthesis_keeps_old_fallback_learning(
             synthesis::real_rounds_started(&full)
         );
         assert_eq!(read.real_rounds_started(), 100);
-        assert_eq!(synthesis::group_close(read.plan()), Some(20));
+        assert_eq!(read.group_close(), Some(20));
         assert!(header.contains("old round fallback"));
         assert_eq!(serialized, 0);
         assert!(fixtures::audit_counts(&database).is_empty());
-        assert!(metrics.materialized_bytes < 2 * 1024 * 1024);
+        assert!(metrics.materialized_bytes < actual.body.len() + 16 * 1024);
+        assert!(decoded < actual.body.len() + 4096);
         println!("fixture={} consumer=curator_digest tasks={} base_bytes={} old_strides={strides} unrelated_attempts={attempts} extra_body={extra_body} anchor_strides=256 valid_rounds=100 retained_rounds=64 baseline_decoded_json_bytes={baseline_decoded} queries={} materialized_text_bytes={} decoded_json_bytes={decoded} serialized_row_bytes={serialized} response_bytes={} changed_rows=0",fixtures::SEED,fixtures::TASKS,fixtures::CONTENT_BYTES,metrics.queries,metrics.materialized_bytes,actual.body.len());
         let measured = (metrics, decoded, actual.body.len());
         if let Some(prior) = &prior {
@@ -243,21 +256,21 @@ fn curator_snapshot_allows_writer_callbacks_without_torn_digest_or_silent_decode
         let mut writer = database.connection.lock();
         let tx = writer.transaction().unwrap();
         tx.execute(
-            "UPDATE plans SET header_json=json_set(header_json,'$.title','B') WHERE id=?1",
+            "UPDATE plans SET title='B',header_json=json_set(header_json,'$.title','B') WHERE id=?1",
             [&plan.id],
         )
         .unwrap();
         tx.execute("UPDATE plan_strides SET row_json=json_set(row_json,'$.text','new text') WHERE plan_id=?1",[&plan.id]).unwrap();
         tx.commit().unwrap();
     }
-    assert_eq!(read.plan().title, "A");
+    assert_eq!(read.scope().title, "A");
     assert!(read
         .build_digest("header", &BTreeMap::new(), 8192)
         .unwrap()
         .body
         .contains("old text"));
     let latest = database.curator_digest_projection(&plan.id, 1000).unwrap();
-    assert_eq!(latest.plan().title, "B");
+    assert_eq!(latest.scope().title, "B");
     assert!(latest
         .build_digest("header", &BTreeMap::new(), 8192)
         .unwrap()
@@ -267,16 +280,120 @@ fn curator_snapshot_allows_writer_callbacks_without_torn_digest_or_silent_decode
         .connection
         .lock()
         .execute(
-            "UPDATE plan_tasks SET row_json=json_remove(row_json,'$.name') WHERE plan_id=?1",
+            "UPDATE plan_tasks SET row_json=json_remove(json_set(row_json,'$.status_changed_at',1001),'$.name') WHERE plan_id=?1",
             [&plan.id],
         )
         .unwrap();
-    assert!(matches!(
-        database.curator_digest_projection(&plan.id, 1000),
-        Err(PlanError::Quarantined { .. })
-    ));
+    let malformed = database.curator_digest_projection(&plan.id, 1000).unwrap();
+    assert!(malformed
+        .build_digest("header", &BTreeMap::new(), 8192)
+        .is_err());
     assert!(matches!(
         database.curator_digest_projection("absent", 1000),
         Err(PlanError::NotFound)
     ));
+}
+
+#[test]
+fn curator_runtime_notices_keep_action_needed_answers_and_done_confirmation_rules() {
+    use crate::service_plan::CuratorRuntimeNotice;
+    let directory = tempfile::tempdir().unwrap();
+    let mut plan = Plan::new(
+        "Runtime".into(),
+        directory.path().display().to_string(),
+        OrchestratorRef::default(),
+    );
+    plan.control_loop.last_round = Some(CuratorRound {
+        ended_at: 50,
+        ..Default::default()
+    });
+    plan.control_loop.observed_owner_answers = ["already-seen".into()].into();
+    plan.tasks = vec![
+        crate::service_plan::load_audit::task("done-one", TaskStatus::Done, None),
+        crate::service_plan::load_audit::task("done-two", TaskStatus::Done, None),
+    ];
+    for task in &mut plan.tasks {
+        task.status_changed_at = 100;
+    }
+    let database = fixtures::database(directory.path(), &plan);
+    let read = database.curator_digest_projection(&plan.id, 1000).unwrap();
+    let notices = vec![
+        CuratorRuntimeNotice {
+            id: "open-question".into(),
+            timestamp: 200,
+            action_needed: true,
+            answered: false,
+            resolved: false,
+            title: "question".into(),
+            body: None,
+        },
+        CuratorRuntimeNotice {
+            id: "new-answer".into(),
+            timestamp: 1,
+            action_needed: true,
+            answered: true,
+            resolved: false,
+            title: "answered".into(),
+            body: None,
+        },
+        CuratorRuntimeNotice {
+            id: "not-action-needed".into(),
+            timestamp: 200,
+            action_needed: false,
+            answered: true,
+            resolved: false,
+            title: "done-one accepted".into(),
+            body: None,
+        },
+        CuratorRuntimeNotice {
+            id: "already-seen".into(),
+            timestamp: 200,
+            action_needed: true,
+            answered: true,
+            resolved: false,
+            title: "old answer".into(),
+            body: None,
+        },
+    ];
+    let mut expected = rows(&plan, 50, 1000, true);
+    for (section, id, kind, state, summary) in [
+        (
+            "owner questions",
+            "open-question",
+            "question",
+            "open",
+            "800",
+        ),
+        (
+            "decisions",
+            "new-answer",
+            "owner_answer",
+            "newly_observed",
+            "1000",
+        ),
+        (
+            "done but not shown",
+            "done-two",
+            "accepted",
+            "notice_unconfirmed",
+            "100",
+        ),
+    ] {
+        expected
+            .entry(section.into())
+            .or_default()
+            .push(digest::Row {
+                id: id.into(),
+                kind: kind.into(),
+                state: state.into(),
+                summary: summary.into(),
+            });
+    }
+    let actual = read
+        .build_digest_with_runtime("header", &BTreeMap::new(), 8192, Some(&notices))
+        .unwrap();
+    let expected = digest::build("header", &expected);
+    assert_eq!(actual.body, expected.body);
+    assert_eq!(actual.activity, expected.activity);
+    assert_eq!(actual.section_sizes, expected.section_sizes);
 }

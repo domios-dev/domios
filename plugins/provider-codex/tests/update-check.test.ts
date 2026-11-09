@@ -1,9 +1,11 @@
+import { ioTestExport, ioTestContext } from "../../provider-shared/tests/hostIo";
 import fs from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
 import { fileURLToPath } from "node:url";
-import { checkCodexUpdate, parseVersion, updateAvailable } from "../src/update";
+import { checkCodexUpdate as ioSource_checkCodexUpdate, parseVersion, updateAvailable } from "../src/update";
 import { availableUpdate } from "../../provider-shared/updateCheck";
+const checkCodexUpdate = ioTestExport(ioSource_checkCodexUpdate);
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 type CodexPlugin = { checkForUpdate?: () => { latestVersion: string } | null };
@@ -49,7 +51,7 @@ function loadPlugin(installed: string, latest: string) {
     () => ({ status: 200, body: JSON.stringify({ version: latest }) }),
   );
   const context = { host, console, module: { exports: {} as { default?: CodexPlugin } }, exports: {} };
-  new vm.Script(source, { filename: pluginPath }).runInNewContext(context);
+  new vm.Script(source, { filename: pluginPath }).runInNewContext(ioTestContext(context));
   const plugin = context.module.exports.default;
   return { checkForUpdate: () => drive(plugin?.checkForUpdate?.()) as { latestVersion: string } | null };
 }

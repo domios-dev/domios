@@ -1,6 +1,6 @@
 use super::read_projections::{column, decode, record_query};
+use super::ui_projections::{ListCursorView, ListWindowView, TaskView};
 use super::{db_error, PlanDatabase};
-use crate::plan::{Plan, Task};
 use crate::service_plan::{
     ui_projections::{ListWindowQuery, PlanViewProjection},
     PlanError,
@@ -23,9 +23,8 @@ pub(super) fn register_functions(connection: &Connection) -> Result<(), PlanErro
 pub(super) fn window(
     connection: &Connection,
     id: &str,
-    plan: &mut Plan,
     query: &ListWindowQuery,
-) -> Result<Value, PlanError> {
+) -> Result<(Vec<TaskView>, ListWindowView), PlanError> {
     if query.after_position.is_some() != query.after_task_id.is_some() {
         return Err(PlanError::Validation(
             "List cursor requires position and task id".into(),
@@ -57,11 +56,17 @@ pub(super) fn window(
         .as_deref()
         .map(|reference| super::task_page_queries::resolve_detail_task(connection, id, reference))
         .transpose()?;
-    let filter = format!("t.plan_id=?1 AND {status} AND (?3 IS NULL OR t.task_id=?3) AND (?4 IS NULL OR t.task_id IN (SELECT value FROM json_each(?4))) AND (?2='' OR instr(domios_casefold(t.task_id || ' ' || coalesce(json_extract(t.row_json,'$.handle'),'') || ' ' || coalesce(json_extract(t.row_json,'$.name'),'') || ' ' || coalesce(json_extract(t.row_json,'$.key'),'') || ' ' || coalesce(json_extract(t.row_json,'$.status_label'),'') || ' ' || coalesce(json_extract(t.row_json,'$.pause_reason'),'') || ' ' || coalesce(t.assigned_tab_id,'') || ' ' || coalesce((SELECT group_concat(json_extract(s.row_json,'$.title'),' ') FROM plan_sections s,json_each(t.row_json,'$.section_ids') ids WHERE s.plan_id=t.plan_id AND s.section_id=ids.value),'')),?2)>0)");
+    let section_labels = "WITH section_labels AS MATERIALIZED (
+        SELECT section_id,json_extract(row_json,'$.title') AS title FROM plan_sections WHERE plan_id=?1 ORDER BY section_id
+    ), task_memberships AS MATERIALIZED (
+        SELECT t.task_id,ids.value AS section_id FROM plan_tasks t,json_each(t.row_json,'$.section_ids') ids
+        WHERE t.plan_id=?1 AND ?2<>''
+    )";
+    let filter = format!("t.plan_id=?1 AND {status} AND (?3 IS NULL OR t.task_id=?3) AND (?4 IS NULL OR t.task_id IN (SELECT value FROM json_each(?4))) AND (?2='' OR instr(domios_casefold(t.task_id || ' ' || coalesce(json_extract(t.row_json,'$.handle'),'') || ' ' || coalesce(json_extract(t.row_json,'$.name'),'') || ' ' || coalesce(json_extract(t.row_json,'$.key'),'') || ' ' || coalesce(json_extract(t.row_json,'$.status_label'),'') || ' ' || coalesce(json_extract(t.row_json,'$.pause_reason'),'') || ' ' || coalesce(t.assigned_tab_id,'') || ' ' || coalesce((SELECT group_concat(s.title,' ') FROM section_labels s CROSS JOIN task_memberships ids WHERE ids.task_id=t.task_id AND s.section_id=ids.section_id),'')),?2)>0)");
     let search = query.search.as_deref().unwrap_or("").trim().to_lowercase();
     let limit = query.page_size.unwrap_or(25).clamp(1, 50);
     record_query();
-    let sql = format!("SELECT t.position,t.task_id,{} FROM plan_tasks t WHERE {filter} AND (?5 IS NULL OR (t.position,t.task_id)>(?5,?6)) ORDER BY t.position,t.task_id LIMIT ?7", super::ui_projections::TASK_SUMMARY);
+    let sql = format!("{section_labels} SELECT t.position,t.task_id,{} FROM plan_tasks t WHERE {filter} AND (?5 IS NULL OR (t.position,t.task_id)>(?5,?6)) ORDER BY t.position,t.task_id LIMIT ?7", super::ui_projections::TASK_SUMMARY);
     let mut statement = connection.prepare_cached(&sql).map_err(db_error)?;
     let rows = statement
         .query_map(
@@ -87,18 +92,21 @@ pub(super) fn window(
     let more = rows.len() > limit;
     rows.truncate(limit);
     let cursor = if more {
-        rows.last()
-            .map(|row| json!({"position":row.0,"task_id":row.1}))
+        rows.last().map(|row| ListCursorView {
+            position: row.0,
+            task_id: row.1.clone(),
+        })
     } else {
         None
     };
-    for (_, _, raw) in rows {
-        plan.tasks.push(decode::<Task>(id, &raw)?);
-    }
+    let tasks = rows
+        .into_iter()
+        .map(|(_, _, raw)| decode::<TaskView>(id, &raw))
+        .collect::<Result<Vec<_>, _>>()?;
     record_query();
     let total: usize = connection
         .query_row(
-            &format!("SELECT count(*) FROM plan_tasks t WHERE {filter}"),
+            &format!("{section_labels} SELECT count(*) FROM plan_tasks t WHERE {filter}"),
             params![id, search, target, query.task_ids],
             |row| row.get(0),
         )
@@ -110,7 +118,14 @@ pub(super) fn window(
             |row| row.get(0),
         )
         .map_err(db_error)?;
-    Ok(json!({"next_cursor":cursor,"total":total,"cancelled":cancelled}))
+    Ok((
+        tasks,
+        ListWindowView {
+            next_cursor: cursor,
+            total,
+            cancelled,
+        },
+    ))
 }
 
 pub(super) fn apply_task_counts(
@@ -158,7 +173,7 @@ impl PlanDatabase {
         let value =
             super::ui_projections::projection_with_list(&transaction, id, view, Some(query))?;
         transaction.commit().map_err(db_error)?;
-        Ok(value)
+        serde_json::to_value(value).map_err(super::json_error)
     }
 }
 

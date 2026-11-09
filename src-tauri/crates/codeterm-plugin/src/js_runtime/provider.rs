@@ -10,6 +10,7 @@ mod integration;
 mod integration_rules;
 mod launch_artifacts;
 mod manifest_sessions;
+mod profile_limits;
 mod prompt_parse;
 mod reply_relay;
 mod runtime_hooks;
@@ -18,6 +19,7 @@ mod session_content;
 mod session_delta;
 mod session_records;
 mod session_resume;
+mod static_capabilities;
 mod wire;
 
 use wire::{result_from_js, SerdeSessionMessage, VmUsageParser};
@@ -57,6 +59,7 @@ pub struct JsProvider {
     /// provider.
     usage_parser_cell: std::sync::OnceLock<Option<VmUsageParser>>,
     descriptor_snapshot: Option<descriptor::DescriptorSnapshot>,
+    static_capabilities: static_capabilities::Snapshot,
     session_delta_failure: parking_lot::Mutex<Option<session_delta::Failure>>,
 }
 
@@ -101,6 +104,7 @@ impl JsProvider {
         let has_launch_session_detection = super::vm::has_method(&vm, "detectLaunchSession");
         let has_reply_relay =
             manifest.capabilities.reply_relay && super::vm::has_method(&vm, "readReplyRelayTurn");
+        let static_capabilities = static_capabilities::Snapshot::capture(&vm);
         let mut provider = Self {
             vm,
             manifest,
@@ -112,6 +116,7 @@ impl JsProvider {
             has_reply_relay,
             usage_parser_cell: std::sync::OnceLock::new(),
             descriptor_snapshot: None,
+            static_capabilities,
             session_delta_failure: parking_lot::Mutex::new(None),
         };
         provider.refresh_descriptor();
@@ -203,12 +208,19 @@ impl JsProvider {
         }
     }
 
-    fn extend_parsed_session_chunk(&self, out: &mut Vec<SessionMessage>, chunk: &str) {
-        if let Some(parsed) =
-            self.try_call::<Vec<SerdeSessionMessage>>("parseSessionMessages", &[json!(chunk)])
-        {
-            out.extend(parsed.into_iter().map(SessionMessage::from));
-        }
+    fn extend_parsed_session_chunk(
+        &self,
+        out: &mut Vec<SessionMessage>,
+        chunk: &str,
+    ) -> Result<(), String> {
+        let parsed = call_json::<Vec<SerdeSessionMessage>>(
+            &self.vm,
+            "parseSessionMessages",
+            &[json!(chunk)],
+        )
+        .map_err(|error| format!("parseSessionMessages failed: {error}"))?;
+        out.extend(parsed.into_iter().map(SessionMessage::from));
+        Ok(())
     }
 
     /// Call a plugin method expected to return `{ok: bool, error?: string}`.
@@ -216,10 +228,22 @@ impl JsProvider {
     /// caller can fall back to a manifest-driven default); returns
     /// `Some(Ok)` / `Some(Err)` once the plugin replies.
     fn try_call_result(&self, method: &str, args: &[Value]) -> Option<Result<(), String>> {
-        self.try_call::<serde_json::Value>(method, args)
-            .map(|v| result_from_js(&v))
+        if !self.has_js(method) {
+            return None;
+        }
+        Some(
+            call_json::<Value>(&self.vm, method, args)
+                .map(|value| result_from_js(&value))
+                .unwrap_or_else(|error| Err(error.to_string())),
+        )
     }
 }
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod effect_tests;
+
+#[cfg(test)]
+mod discovery_deadline_tests;

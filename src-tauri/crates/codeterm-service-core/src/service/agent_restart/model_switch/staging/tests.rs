@@ -238,6 +238,7 @@ fn claimed_switch_stays_pending_until_confirmed_and_survives_refusal() {
         launched_model: request.model.clone(),
         confirmation_detail: None,
         confirmation: ModelSwitchConfirmation::Pending,
+        control_changes: Vec::new(),
     };
     finish_staged_selection(&request, &mut tab, &queue, Some(&outcome));
     assert!(tab.pending_model_selection.is_some());

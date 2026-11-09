@@ -89,7 +89,7 @@ fn third_bounce_is_accepted_with_strategy_advice() {
         serde_json::json!(advice.message)
     );
 
-    let task = store.show_task(&task_id).unwrap().task;
+    let task = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(task.status, TaskStatus::InReview);
     assert_eq!(task.review_evidence.len(), 3);
     assert_eq!(
@@ -135,7 +135,7 @@ fn third_round_report_is_accepted_without_bounce_rejection() {
         .unwrap();
     deliver_bounce(&store, &plan_id, &task_id, &second, 10);
 
-    let before = store.show_task(&task_id).unwrap().task;
+    let before = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(before.status, TaskStatus::InProgress);
     assert_eq!(before.review_round, 2);
     assert_eq!(before.review_override, None);
@@ -159,10 +159,11 @@ fn third_round_report_is_accepted_without_bounce_rejection() {
             },
             20,
         )
-        .expect("a third-round report is not refused by any budget check");
+        .expect("a third-round report is not refused by any budget check")
+        .committed_review;
     assert!(accepted, "the report advances the task into review");
 
-    let task = store.show_task(&task_id).unwrap().task;
+    let task = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(task.status, TaskStatus::InReview);
     assert_eq!(task.review_round, 2);
     assert_eq!(

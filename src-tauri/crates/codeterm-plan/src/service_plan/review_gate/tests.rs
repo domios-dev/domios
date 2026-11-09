@@ -39,7 +39,7 @@ fn ease_cancelled_update_closes_review_and_returns_credit() {
     let before = store.get(&plan_id).unwrap().review_policy.credit;
     set_status(&store, &plan_id, &task_id, "cancelled", 4).unwrap();
     assert_eq!(
-        store.show_task(&task_id).unwrap().task.status,
+        store.inspect_task_for_test(&task_id).unwrap().task.status,
         TaskStatus::Cancelled
     );
     assert!(store.get(&plan_id).unwrap().review_policy.credit > before);
@@ -84,7 +84,7 @@ fn dispatch(
 ) -> Result<(), PlanError> {
     store.assign_task(plan_id, task_id, tab, None, now)?;
     set_status(store, plan_id, task_id, "in_progress", now)?;
-    store.with_plan(plan_id, now, |plan| {
+    store.edit_plan_fixture(plan_id, now, |plan| {
         let task = plan
             .tasks
             .iter_mut()
@@ -192,7 +192,7 @@ fn accepted_reconcile_fix_repays_review_credit_exactly_once() {
 fn wip_threshold_warns_without_blocking_and_review_closure_clears_warning() {
     let (_dir, store, plan_id) = setup();
     store
-        .with_plan(&plan_id, 1, |p| {
+        .edit_plan_fixture(&plan_id, 1, |p| {
             p.review_policy.wip_limit = 2;
             Ok(())
         })
@@ -248,7 +248,7 @@ fn stranded_debt_is_advisory_without_capacity_grants() {
     let review = add_ready_task(&store, &plan_id, "review", 2);
     let implementation = add_ready_task(&store, &plan_id, "implementation", 2);
     store
-        .with_plan(&plan_id, 3, |plan| {
+        .edit_plan_fixture(&plan_id, 3, |plan| {
             plan.review_policy.credit = -(plan.review_policy.wip_limit as i64);
             let task = plan
                 .tasks
@@ -285,7 +285,7 @@ fn actual_review_saturation_does_not_block_dispatch() {
         )
         .unwrap();
     store
-        .with_plan(&plan_id, 4, |plan| {
+        .edit_plan_fixture(&plan_id, 4, |plan| {
             for task_id in &active_reviews {
                 plan.tasks
                     .iter_mut()
@@ -311,7 +311,7 @@ fn assignment_status_transition_uses_the_same_capacity_classification() {
     let review = add_ready_task(&store, &plan_id, "review", 2);
     let implementation = add_ready_task(&store, &plan_id, "implementation", 2);
     store
-        .with_plan(&plan_id, 3, |plan| {
+        .edit_plan_fixture(&plan_id, 3, |plan| {
             plan.review_policy.credit = -(plan.review_policy.wip_limit as i64);
             Ok(())
         })
@@ -403,7 +403,7 @@ fn generic_status_mutation_cannot_exit_review_or_leak_credit() {
 fn explicit_credit_reconcile_repairs_debt_and_records_a_stride() {
     let (_dir, store, plan_id) = setup();
     store
-        .with_plan(&plan_id, 2, |plan| {
+        .edit_plan_fixture(&plan_id, 2, |plan| {
             plan.review_policy.credit = -5;
             Ok(())
         })
@@ -446,7 +446,7 @@ fn credit_reconcile_preserves_active_review_floor_and_is_idempotent() {
     dispatch(&store, &plan_id, &task_id, "worker", 3).unwrap();
     set_status(&store, &plan_id, &task_id, "in_review", 4).unwrap();
     store
-        .with_plan(&plan_id, 5, |plan| {
+        .edit_plan_fixture(&plan_id, 5, |plan| {
             plan.review_policy.credit = -5;
             Ok(())
         })
@@ -573,7 +573,7 @@ fn review_hold_verdict_records_reason_and_keeps_review_open() {
         )
         .unwrap();
 
-    let after = store.show_task(&task_id).unwrap().task;
+    let after = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(result.verdict, ReviewVerdict::Hold);
     assert_eq!(after.status, TaskStatus::InReview);
     assert_eq!(after.status_label.as_deref(), Some("review held"));
@@ -593,7 +593,7 @@ fn review_hold_verdict_preserves_assignment_and_lane() {
     let task_id = add_ready_task(&store, &plan_id, "held", 2);
     dispatch(&store, &plan_id, &task_id, "tab_impl", 3).unwrap();
     set_status(&store, &plan_id, &task_id, "in_review", 4).unwrap();
-    let before = store.show_task(&task_id).unwrap().task;
+    let before = store.inspect_task_for_test(&task_id).unwrap().task;
 
     store
         .hold_review(
@@ -605,7 +605,7 @@ fn review_hold_verdict_preserves_assignment_and_lane() {
         )
         .unwrap();
 
-    let after = store.show_task(&task_id).unwrap().task;
+    let after = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(after.assigned_tab_id, before.assigned_tab_id);
     assert_eq!(after.lane.tab_id, before.lane.tab_id);
 }
@@ -644,7 +644,7 @@ fn review_hold_verdict_can_bounce_to_the_existing_assignment() {
     );
     assert_eq!(
         store
-            .show_task(&task_id)
+            .inspect_task_for_test(&task_id)
             .unwrap()
             .task
             .assigned_tab_id
@@ -675,7 +675,7 @@ fn review_bounce_transition_keeps_task_attempt_epoch_atomic() {
     dispatch(&store, &plan_id, &task_id, "tab_impl", 3).unwrap();
     set_status(&store, &plan_id, &task_id, "in_review", 4).unwrap();
 
-    let before = store.show_task(&task_id).unwrap().task;
+    let before = store.inspect_task_for_test(&task_id).unwrap().task;
     let result = store
         .bounce_review(
             &plan_id,
@@ -687,7 +687,7 @@ fn review_bounce_transition_keeps_task_attempt_epoch_atomic() {
             5,
         )
         .unwrap();
-    let awaiting = store.show_task(&task_id).unwrap().task;
+    let awaiting = store.inspect_task_for_test(&task_id).unwrap().task;
     let continuation = result.continuation.unwrap();
     assert_eq!(awaiting.status, TaskStatus::InReview);
     assert_eq!(
@@ -740,7 +740,7 @@ fn review_bounce_replay_is_idempotent_for_same_review_round() {
         .unwrap();
     assert_eq!(first.milestone_id, replay.milestone_id);
     assert_eq!(first.continuation, replay.continuation);
-    let task = store.show_task(&task_id).unwrap().task;
+    let task = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(task.review_evidence.len(), 1);
     assert_eq!(task.execution_attempts[0].continuation.epoch, 1);
 }
@@ -765,7 +765,7 @@ fn oracle_scope_expansion_rejected_without_override() {
 
     // Expand scope: add a new acceptance criterion after the oracle was fixed.
     store
-        .with_plan(&plan_id, 6, |p| {
+        .edit_plan_fixture(&plan_id, 6, |p| {
             let task = p.tasks.iter_mut().find(|t| t.id == task_id).unwrap();
             task.acceptance_criteria
                 .push("also handles edge case Y".into());
@@ -773,10 +773,10 @@ fn oracle_scope_expansion_rejected_without_override() {
         })
         .unwrap();
 
-    let before_rejection = store.show_task(&task_id).unwrap().task;
+    let before_rejection = store.inspect_task_for_test(&task_id).unwrap().task;
     let err = set_status(&store, &plan_id, &task_id, "in_review", 7).unwrap_err();
     assert!(matches!(err, PlanError::ReviewOracleScopeExpansion));
-    let after_rejection = store.show_task(&task_id).unwrap().task;
+    let after_rejection = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(after_rejection.status, before_rejection.status);
     assert_eq!(
         after_rejection.review_oracle,
@@ -816,7 +816,7 @@ fn authorized_correction_rebuilds_oracle_without_rewriting_history() {
     deliver_bounce(&store, &plan_id, &task_id, &bounce, 6);
 
     store
-        .with_plan(&plan_id, 8, |plan| {
+        .edit_plan_fixture(&plan_id, 8, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()
@@ -841,7 +841,7 @@ fn authorized_correction_rebuilds_oracle_without_rewriting_history() {
         )
         .unwrap();
 
-    let before = store.show_task(&task_id).unwrap().task;
+    let before = store.inspect_task_for_test(&task_id).unwrap().task;
     let stored = before.review_oracle.as_ref().unwrap();
     let current = oracle_signature(&before);
     assert_ne!(stored, &current);
@@ -851,7 +851,7 @@ fn authorized_correction_rebuilds_oracle_without_rewriting_history() {
 
     set_status(&store, &plan_id, &task_id, "in_review", 10).unwrap();
 
-    let after = store.show_task(&task_id).unwrap().task;
+    let after = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(after.status, TaskStatus::InReview);
     assert_eq!(
         after.review_oracle.as_deref(),

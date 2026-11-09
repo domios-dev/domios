@@ -1,6 +1,8 @@
+import { muxMockFetch } from "./muxMockFetch.testdata";
 import { appVersion, buildHash } from "./buildStamp";
 import { __resetForTest, checkBuildMismatch } from "./buildMismatchGuard";
 import { frontendApiContract } from "./frontendApiContract";
+import { configureDaemonTransport } from "./daemonBootstrap";
 
 let passed = 0;
 let failed = 0;
@@ -29,10 +31,11 @@ function setStamps(hash: string | undefined, version: string | undefined) {
 }
 
 function stubHealth(body: { build?: string; version?: string; apiVersion?: number }) {
-  mutableGlobal.fetch = async () => ({ ok: true, json: async () => body });
+  mutableGlobal.fetch = muxMockFetch(async () => Response.json(body));
 }
 
 async function main() {
+  configureDaemonTransport({ origin: "http://fixture", token: "fixture-token" });
   console.log("buildStamp: accessor reads the substituted identifier:");
   setStamps("9f3ac21", "1.9.4");
   assert("buildHash() returns the supplied build stamp", buildHash() === "9f3ac21");
@@ -49,13 +52,13 @@ async function main() {
   stubHealth({ build: "0000000", version: "1.9.4", apiVersion: frontendApiContract.minApiVersion });
   assert(
     "a compatible daemon accepts an uninjected frontend identity",
-    (await checkBuildMismatch("http://fixture")) === null,
+    (await checkBuildMismatch()) === null,
   );
 
   __resetForTest();
   setStamps("9f3ac21", undefined);
   stubHealth({ build: "0000000", apiVersion: 1 });
-  const mismatch = await checkBuildMismatch("http://fixture");
+  const mismatch = await checkBuildMismatch();
   assert("an incompatible API raises the banner", mismatch !== null);
   assert("the banner carries the injected stamp", mismatch?.frontendHash === "9f3ac21");
   assert("the banner attributes the mismatch to the API", mismatch?.reason === "api");
@@ -65,7 +68,7 @@ async function main() {
   stubHealth({ build: "independent-daemon", apiVersion: frontendApiContract.minApiVersion });
   assert(
     "an independent compatible daemon raises nothing",
-    (await checkBuildMismatch("http://fixture")) === null,
+    (await checkBuildMismatch()) === null,
   );
 
   console.log(`\n${passed} passed, ${failed} failed`);

@@ -1,6 +1,7 @@
+import type { PlanTaskView as Task } from "./planProjection";
 import type { PresenceSource } from "./presenceOverlays";
 import type { PresenceAgent } from "./presence/identity";
-import type { Task } from "./types";
+
 
 export const MAX_SWARM_ROSTER = 32;
 

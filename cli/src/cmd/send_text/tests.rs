@@ -19,10 +19,27 @@ fn ease_retained_send_refusal_prints_the_exact_inspection_command() {
     let outcome = analyze_send_text_response(&serde_json::json!({
         "ok":true, "bytes_written":false, "send_id":"retained-1"
     }));
-    let SendTextOutcome::Error { msg, .. } = outcome else {
+    let SendTextOutcome::Held { msg, .. } = outcome else {
         panic!("expected retained refusal")
     };
     assert!(msg.contains("domios tab send-status retained-1"));
+}
+
+#[test]
+fn held_agent_send_exposes_cancellation_and_clap_accepts_its_opaque_id() {
+    use clap::Parser;
+    let id = "agent-pty:b3du:00000000-0000-4000-8000-000000000001";
+    let parsed = crate::Cli::try_parse_from(["domios", "tab", "send-cancel", id]).unwrap();
+    assert!(matches!(parsed.command, crate::Commands::Tab {
+        action: crate::TabAction::SendCancel { send_id }
+    } if send_id == id));
+    let outcome = analyze_send_text_response(&serde_json::json!({
+        "ok": true, "bytes_written": false, "send_id": id,
+    }));
+    let SendTextOutcome::Held { msg, .. } = outcome else {
+        panic!("held send must not report written");
+    };
+    assert!(msg.contains(&format!("domios tab send-cancel {id}")));
 }
 
 #[test]
@@ -183,7 +200,7 @@ fn written_pending_succeeds_but_explicit_failure_exits_nonzero() {
     assert_eq!(
         analyze_send_text_response(&pending),
         SendTextOutcome::Pending {
-            message: "OK (pending)".into(),
+            message: "OK (written; submit unconfirmed)".into(),
             bytes_written: true,
         },
     );
@@ -471,6 +488,45 @@ fn send_failure_renderer_keeps_reason_on_stderr_in_both_modes_and_receipt_in_jso
 }
 
 #[test]
+fn held_send_keeps_exit_contract_without_failure_framing() {
+    let receipt = serde_json::json!({"ok": true, "bytes_written": false, "status": "held", "send_id": "own-send"});
+    let SendTextOutcome::Held { msg, exit_code } = analyze_send_text_response(&receipt) else {
+        panic!("held receipt must classify as held");
+    };
+    assert_eq!(exit_code, 1);
+    for json in [false, true] {
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        super::write_send_text_held(json, &receipt, &msg, &mut out, &mut err);
+        let err = String::from_utf8(err).unwrap();
+        assert!(err.contains("domios tab send-status own-send"), "{err}");
+        assert!(!err.contains("Error"), "{err}");
+        if json {
+            let value: serde_json::Value = serde_json::from_slice(&out).unwrap();
+            assert_eq!(value["ok"], false);
+            assert_eq!(value["result"]["send_id"], "own-send");
+            assert_eq!(value["result"]["status"], "held");
+            assert_eq!(
+                value["error"]["code"], "held",
+                "a held receipt is typed, never an internal error"
+            );
+        } else {
+            assert!(out.is_empty());
+        }
+    }
+    for refused in [
+        serde_json::json!({"ok": false, "bytes_written": false, "send_id": "own-send"}),
+        serde_json::json!({"ok": true, "bytes_written": false, "send_id": "own-send", "error": "pty_unavailable"}),
+        serde_json::json!({"ok": true, "bytes_written": false}),
+    ] {
+        assert!(matches!(
+            analyze_send_text_response(&refused),
+            SendTextOutcome::Error { exit_code: 1, .. }
+        ));
+    }
+}
+
+#[test]
 fn runtime_accepted_and_delivered_receipts_are_successful_writes() {
     for state in ["written", "delivered"] {
         let receipt = serde_json::json!({"ok":true,"delivery":"sent","bytes_written":true,"send_id":"own-send","status":state});
@@ -490,7 +546,7 @@ fn unconfirmed_pending_json_keeps_receipt_and_resolved_body_without_failure() {
     assert_eq!(
         outcome,
         SendTextOutcome::Pending {
-            message: "OK (pending)".into(),
+            message: "OK (written; submit unconfirmed)".into(),
             bytes_written: true
         }
     );
@@ -501,5 +557,23 @@ fn unconfirmed_pending_json_keeps_receipt_and_resolved_body_without_failure() {
             "ok": true, "delivery": "pending", "bytes_written": true, "send_id": "send-1",
             "sent_message": { "text": "opaque staged body", "truncated": false }
         })
+    );
+}
+
+#[test]
+fn retained_send_failure_warns_that_the_original_can_still_write() {
+    let receipt = serde_json::json!({
+        "ok": true, "delivery": "pending", "bytes_written": false,
+        "send_id": "agent-pty:own-tab:own-delivery"
+    });
+    let SendTextOutcome::Held { msg, exit_code } = analyze_send_text_response(&receipt) else {
+        panic!("held original is neither written success nor a failure");
+    };
+    assert_eq!(exit_code, 1);
+    assert!(msg.contains("may still be written"), "{msg}");
+    assert!(msg.contains("do not resend"), "{msg}");
+    assert!(
+        msg.contains("domios tab send-status agent-pty:own-tab:own-delivery"),
+        "{msg}"
     );
 }

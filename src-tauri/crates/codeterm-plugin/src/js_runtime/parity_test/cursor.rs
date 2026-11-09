@@ -140,7 +140,7 @@ fn parse_session_messages_is_text_only() {
     let tmp = tempfile::NamedTempFile::new().unwrap();
     std::fs::write(tmp.path(), jsonl).unwrap();
 
-    let msgs = j.parse_session_messages(tmp.path());
+    let msgs = j.parse_session_messages(tmp.path()).unwrap();
     assert_eq!(msgs.len(), 2, "{msgs:#?}");
     assert_eq!(msgs[0].role, "user");
     assert_eq!(msgs[0].text, "hello");

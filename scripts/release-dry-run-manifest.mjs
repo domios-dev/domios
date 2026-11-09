@@ -112,7 +112,7 @@ export async function capture({ tag, platform, sourceSha, artifactDirectory, hea
     const fragment = expected.fragments[index];
     await writeFile(path.join(outputDirectory, fragment), JSON.stringify({ version, notes: `Domios ${version}`,
       pub_date: new Date().toISOString(), platforms: { [platform]: {
-        url: `https://github.com/rollacode/codeterm-releases/releases/download/${tag}/${name}`, signature,
+        url: `https://github.com/domios-dev/domios/releases/download/${tag}/${name}`, signature,
       } } }));
     verify(path.join(outputDirectory, fragment), outputDirectory, version, [platform], pubkey);
     names.push(name, fragment);

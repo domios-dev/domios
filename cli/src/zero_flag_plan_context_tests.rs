@@ -57,7 +57,7 @@ fn plan_state_allows_missing_plan_id() {
         .expect("plan state parses without plan id");
     match parsed.command {
         Commands::Plan {
-            action: PlanAction::State { plan_id },
+            action: PlanAction::State { plan_id, .. },
         } => assert_eq!(plan_id, None),
         _ => panic!("expected plan state"),
     }
@@ -99,5 +99,18 @@ fn plan_get_allows_missing_plan_id() {
             assert!(sections);
         }
         _ => panic!("expected plan get"),
+    }
+}
+
+#[test]
+fn state_and_next_detail_windows_require_valid_explicit_pages() {
+    for command in ["state", "next", "lanes"] {
+        assert!(Cli::try_parse_from(["domios", "plan", command, "plan", "--page", "2"]).is_ok());
+        assert!(Cli::try_parse_from(["domios", "plan", command, "plan", "--all"]).is_ok());
+        assert!(Cli::try_parse_from(["domios", "plan", command, "plan", "--page", "0"]).is_err());
+        assert!(
+            Cli::try_parse_from(["domios", "plan", command, "plan", "--page", "2", "--all"])
+                .is_err()
+        );
     }
 }

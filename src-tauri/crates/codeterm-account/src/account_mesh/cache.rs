@@ -120,6 +120,14 @@ impl AccountMesh {
             {
                 return false;
             }
+            if let Some(local) = inner.record.local_revocations.get(&signed.account) {
+                inner
+                    .record
+                    .revoked_installations
+                    .extend(local.iter().cloned());
+            }
+            inner.launch_renewal_pending =
+                inner.rejoin_authorized || inner.state.signed_registry.is_none();
             inner.metadata_revision = Some(cache.own.metadata_revision);
             inner.registry_presence = cache.presence;
             inner.sync_pending = cache.sync_pending;

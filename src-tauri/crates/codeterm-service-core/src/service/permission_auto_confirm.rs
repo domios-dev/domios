@@ -368,6 +368,9 @@ impl ServiceContext {
                 .unwrap_or_default(),
         );
         self.emit_state_changed(MuxEmitCause::Prompt);
+        if enabled {
+            super::agent_runtime::prompt_answers::auto_confirm_bridge(self, tab_id);
+        }
         Ok(enabled)
     }
 

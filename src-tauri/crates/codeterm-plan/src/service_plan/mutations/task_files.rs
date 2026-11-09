@@ -11,10 +11,8 @@ impl PlanStore {
     ) -> Result<(), PlanError> {
         let files = files.validated().map_err(PlanError::InvalidPlanText)?;
         let writer_turn = self.mutation_writer.enter();
-        let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
-        let task = crate::plan::task_key::find_task(&plan.tasks, task_id)
-            .ok_or(PlanError::TaskNotFound)?;
-        if super::super::shared_checkout::live_shared(task) {
+        let task = self.task_checkout_projection(plan_id, task_id, false)?;
+        if task.live_shared {
             if task
                 .files
                 .edit
@@ -26,21 +24,29 @@ impl PlanStore {
                         .into(),
                 ));
             }
-            super::super::shared_checkout::validate_shared_files(
-                &self.checkout_peer_plans(&plan),
-                &plan,
-                task,
+            super::super::shared_checkout::validate_shared_files_at(
+                &self.checkout_peer_facts(&task.checkout)?,
+                plan_id,
+                &task.id,
+                &super::super::shared_checkout::canonical_path(&task.checkout),
                 &files,
             )
             .map_err(PlanError::InvalidPlanText)?;
         }
-        self.with_plan_in_writer(&writer_turn, plan_id, now, |plan| {
-            let task = crate::plan::task_key::find_task_mut(&mut plan.tasks, task_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            task.files = files;
-            task.updated_at = now;
-            Ok(())
-        })
+        let task_id = task.id;
+        self.with_task_rows_in_writer(
+            &writer_turn,
+            plan_id,
+            &task_id,
+            super::super::store_db::hot_write::TaskHistory::Core,
+            now,
+            |edit| {
+                let task = &mut edit.task;
+                task.files = files;
+                task.updated_at = now;
+                Ok(())
+            },
+        )
     }
 }
 

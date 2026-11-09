@@ -249,16 +249,44 @@ impl JsProvider {
     }
 
     pub(super) fn owned_session_file_path(&self, cwd: &str, session_id: &str) -> Option<PathBuf> {
-        if let Some(path) =
-            self.try_call::<Option<String>>("sessionFilePath", &[json!(cwd), json!(session_id)])
-        {
-            return path.map(PathBuf::from);
+        self.owned_session_file_path_checked(cwd, session_id)
+            .ok()
+            .flatten()
+    }
+
+    pub(super) fn owned_session_file_path_checked(
+        &self,
+        cwd: &str,
+        session_id: &str,
+    ) -> Result<Option<PathBuf>, String> {
+        if super::super::vm::has_method(&self.vm, "sessionFilePath") {
+            return super::super::vm::call_json::<Option<String>>(
+                &self.vm,
+                "sessionFilePath",
+                &[json!(cwd), json!(session_id)],
+            )
+            .map(|path| path.map(PathBuf::from))
+            .map_err(|error| {
+                let code = match &error {
+                    super::super::vm::VmError::OffRuntimeRequired => {
+                        "session_path_runtime_placement"
+                    }
+                    _ => "session_path_dispatch_failed",
+                };
+                let error = format!("{code}: {error}");
+                log::error!(
+                    "[plugin {}] sessionFilePath failed: {error}",
+                    self.manifest.id
+                );
+                error
+            });
         }
-        let cfg = self.manifest.sessions.as_ref()?;
-        Some(
-            self.sessions_dir(cwd)?
-                .join(format!("{}.{}", session_id, cfg.file_extension)),
-        )
+        let Some(cfg) = self.manifest.sessions.as_ref() else {
+            return Ok(None);
+        };
+        Ok(self
+            .sessions_dir(cwd)
+            .map(|root| root.join(format!("{}.{}", session_id, cfg.file_extension))))
     }
 }
 

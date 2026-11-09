@@ -1,4 +1,5 @@
 import { baseDaemonTransport, daemonTransportForPeer } from "../../lib/daemonBootstrap";
+import type { TransportClient } from "../../lib/transportClient";
 import { GATEWAY_STATE_EVENT } from "../../lib/webApi";
 import { createSseParser } from "./sseParser";
 import type { StreamViewport } from "./streamModel";
@@ -11,6 +12,7 @@ import {
   streamOutcomeForStatus,
   surfaceCallUrl,
   surfaceStreamEvent,
+  surfaceStreamValue,
   surfaceStreamUrl,
   type ReconnectState,
   type StreamOutcome,
@@ -92,7 +94,7 @@ class StreamSession {
   private readonly stopSignal: () => void;
 
   constructor(
-    private readonly options: Required<Omit<HttpSseSurfaceTransportOptions, "retrySignal" | "peerId">>,
+    private readonly options: Required<Omit<HttpSseSurfaceTransportOptions, "retrySignal" | "peerId">> & { subscribe?: TransportClient["subscribe"] },
     private readonly url: string,
     private readonly handlers: StreamHandlers,
     retrySignal: RetrySignal,
@@ -130,10 +132,41 @@ class StreamSession {
     }
   }
 
+  private subscribe(controller: AbortController): Promise<StreamOutcome> {
+    return new Promise((resolve) => {
+      let delivered = false;
+      const target = new URL(this.url);
+      this.options.subscribe!(`${target.pathname}${target.search}`, (name, data) => {
+        if (this.closed) return;
+        const event = surfaceStreamValue(name, data);
+        if (!event) return;
+        delivered = true;
+        if (event.type === "state") this.handlers.state(event.state);
+        else if (event.type === "frame") this.handlers.frame(event.frame);
+        else this.handlers.notice(event.notice);
+      }, {
+        signal: controller.signal,
+        raw: true,
+        requireEventStream: true,
+        onReady: () => {
+          if (this.closed) return;
+          const opened = streamOpened(this.reconnect);
+          this.reconnect = opened.state;
+          this.handlers.open();
+          this.notify(opened.notice);
+        },
+        onEnd: (end) => resolve(end.reason === "http"
+          ? streamOutcomeForStatus(end.status ?? 500, errorMessage(end.error ?? "stream refused"))
+          : { kind: "dropped", delivered, message: "the stream ended" }),
+      });
+    });
+  }
+
   private async attempt(): Promise<StreamOutcome> {
     const controller = new AbortController();
     this.controller = controller;
     try {
+      if (this.options.subscribe) return await this.subscribe(controller);
       const response = await this.options.fetch(this.url, {
         method: "GET",
         headers: authHeaders(this.options.token, { Accept: "text/event-stream" }),
@@ -158,6 +191,7 @@ class StreamSession {
 
 export function createHttpSseSurfaceTransport(options: HttpSseSurfaceTransportOptions): SurfaceStreamTransport {
   const resolved = {
+    subscribe: options.fetch ? undefined : baseDaemonTransport().subscribe,
     baseUrl: options.baseUrl,
     token: options.token,
     tabId: options.tabId,

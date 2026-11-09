@@ -28,6 +28,7 @@ export function AgentStateIndicator({
   tab,
   runtimeState,
   providerName,
+  identityLabel,
   model,
   reasoningEffort,
   className,
@@ -39,11 +40,13 @@ export function AgentStateIndicator({
   showActivity = true,
   channelLoadingLabel,
   activeTool,
+  recovery,
 }: {
   activity: TabActivity;
   runtimeState?: AgentRuntimeState | null;
   tab?: Tab | null;
   providerName?: string | null;
+  identityLabel?: string;
   model?: string | null;
   reasoningEffort?: Tab["reasoning_effort_identity"] | null;
   className?: string;
@@ -55,6 +58,8 @@ export function AgentStateIndicator({
   showActivity?: boolean;
   channelLoadingLabel?: string;
   activeTool?: ActivityTool & { id?: string; sourceSessionId?: string };
+  /** Shown only while the activity's failure offers a restart. */
+  recovery?: ReactNode;
 }) {
   const isWorking = activity.canStop;
   const isQuiet = activity.quiet;
@@ -73,7 +78,7 @@ export function AgentStateIndicator({
   const actualEffort = reasoningEffort?.actual_source === "session-owned"
     ? reasoningEffort.actual?.trim()
     : null;
-  const identity = [providerName?.trim(), model?.trim(), actualEffort].filter(Boolean).join(" · ");
+  const identity = identityLabel ?? [providerName?.trim(), model?.trim(), actualEffort].filter(Boolean).join(" · ");
   const text = [identity, status].filter(Boolean).join(" · ");
   const animated = activity.active && !background;
   // One fixed-width slot: still dots beside a resting label, moving dots while working, the clock while starting.
@@ -152,6 +157,7 @@ export function AgentStateIndicator({
           <span className="ct-agent-stop__label">Stop</span>
         </button>
       )}
+      {activity.failure?.recovery === "restart" && recovery}
       {onRebind && !isQuestion && (
         <button
           type="button"

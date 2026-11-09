@@ -1,0 +1,5 @@
+*.sql text eol=lf
+# Verbatim published-source extracts retain their final blank line.
+001-row-schema.sql whitespace=-blank-at-eof
+schemas/001.sql whitespace=-blank-at-eof
+schemas/published-v1.18.7.sql whitespace=-blank-at-eof

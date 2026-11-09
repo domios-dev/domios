@@ -66,117 +66,6 @@ impl PlanStore {
         }
     }
 
-    /// Merges an incoming plan with the stored one, the newer `updated_at` winning. The
-    /// returned handle holds the winner; callers cache it only after the write commits.
-    fn upsert_plan_arc(&self, plan: Plan) -> (Plan, plan_cache::PlanHandle) {
-        let Some(arc) = self.plan_cache.get(&plan.id) else {
-            let stored_is_newer = self
-                .index
-                .read()
-                .get(&plan.id)
-                .is_some_and(|row| row.updated_at > plan.updated_at);
-            let winner = if stored_is_newer {
-                self.try_get(&plan.id).unwrap_or(plan)
-            } else {
-                plan
-            };
-            return (winner.clone(), Arc::new(Mutex::new(winner)));
-        };
-        let Some(mut guard) = arc.try_lock() else {
-            let mut guard = arc.lock();
-            if guard.updated_at < plan.updated_at {
-                *guard = plan;
-            }
-            let committed = guard.clone();
-            drop(guard);
-            return (committed, arc);
-        };
-        if guard.updated_at <= plan.updated_at {
-            *guard = plan;
-        }
-        let committed = guard.clone();
-        drop(guard);
-        (committed, arc)
-    }
-
-    fn upsert_spec_arc(&self, spec: Spec) -> Spec {
-        let id = spec.id.clone();
-        let existing = { self.specs.read().get(&id).cloned() };
-        if let Some(arc) = existing {
-            let Some(mut guard) = arc.try_lock() else {
-                let mut guard = arc.lock();
-                if guard.updated_at >= spec.updated_at {
-                    return guard.clone();
-                }
-                *guard = spec;
-                return guard.clone();
-            };
-            if guard.updated_at > spec.updated_at {
-                return guard.clone();
-            }
-            *guard = spec;
-            guard.clone()
-        } else {
-            let mut specs = self.specs.write();
-            if let Some(arc) = specs.get(&id).cloned() {
-                drop(specs);
-                let Some(mut guard) = arc.try_lock() else {
-                    let mut guard = arc.lock();
-                    if guard.updated_at >= spec.updated_at {
-                        return guard.clone();
-                    }
-                    *guard = spec;
-                    return guard.clone();
-                };
-                if guard.updated_at > spec.updated_at {
-                    return guard.clone();
-                }
-                *guard = spec;
-                guard.clone()
-            } else {
-                specs.insert(id, Arc::new(Mutex::new(spec.clone())));
-                spec
-            }
-        }
-    }
-
-    pub(super) fn commit_loaded_plan(&self, plan: Plan) -> Result<(), PlanError> {
-        let turn = self.mutation_writer.enter();
-        self.commit_loaded_plan_in_writer(&turn, plan)
-    }
-
-    pub(super) fn commit_loaded_plan_in_writer(
-        &self,
-        turn: &MutationWriterTurn<'_>,
-        plan: Plan,
-    ) -> Result<(), PlanError> {
-        turn.assert_store(self);
-        let (committed, handle) = self.upsert_plan_arc(plan);
-        if let Err(error) = self.persist_plan_and_spec_in_writer(turn, &committed) {
-            self.plan_cache.evict(&committed.id);
-            return Err(PlanError::Io(error.to_string()));
-        }
-        self.plan_cache.commit(&committed.id, &handle);
-        self.note_index(&committed);
-        self.reset_bound_tabs(&committed);
-        Ok(())
-    }
-
-    pub(super) fn commit_loaded_spec_in_writer(
-        &self,
-        turn: &MutationWriterTurn<'_>,
-        spec: Spec,
-    ) -> Result<(), PlanError> {
-        turn.assert_store(self);
-        let committed = self.upsert_spec_arc(spec);
-        let path = self
-            .persist_spec_in_writer(turn, &committed)
-            .map_err(|e| PlanError::Io(e.to_string()))?;
-        let entry = Self::spec_index_entry(&committed, path);
-        self.spec_index.write().insert(committed.id.clone(), entry);
-        Ok(())
-    }
-
     #[cfg(test)]
     pub(super) fn load_file_into_index(
         &self,
@@ -195,62 +84,37 @@ impl PlanStore {
             let json = std::fs::read_to_string(&path).map_err(|e| PlanError::Io(e.to_string()))?;
             let mut plan: Plan =
                 serde_json::from_str(&json).map_err(|e| PlanError::Io(e.to_string()))?;
-            let migrated = body_files::hydrate_and_migrate(&mut plan)
-                .map_err(|e| PlanError::Io(e.to_string()))?;
-            if migrated {
-                self.persist_plan_and_spec_in_writer(&turn, &plan)
-                    .map_err(|e| PlanError::Io(e.to_string()))?;
-            }
+            body_files::hydrate_and_migrate(&mut plan)
+                .map_err(|error| PlanError::Io(error.to_string()))?;
             plan
         };
         paths::normalize_plan_paths(&mut plan, project_root);
         tag_model::normalize_plan(&mut plan);
-        // Load the disk spec before persisting so a hand-edited file is not overwritten by stale in-memory data.
-        let colocated_spec = path.parent().and_then(|dir| {
-            let spec_yaml = dir.join("spec.yaml");
-            spec_yaml.is_file().then_some(spec_yaml)
-        });
-        if let Some(spec_yaml) = &colocated_spec {
-            match spec_store::load_spec_from_path(spec_yaml) {
+        let owned = path
+            .parent()
+            .map(|dir| dir.join("spec.yaml"))
+            .filter(|file| file.is_file())
+            .and_then(|file| match spec_store::load_spec_from_path(&file) {
                 Ok(mut spec) => {
                     paths::normalize_spec_paths(&mut spec, project_root);
-                    self.upsert_spec_arc(spec);
+                    Some(spec)
                 }
-                Err(error) => log::warn!(
-                    "[plan] co-located spec {} failed to load: {}",
-                    spec_yaml.display(),
-                    error
-                ),
-            }
-        }
-        // Persist the plan before its spec because the foreign key requires the owning plan row first.
-        self.commit_loaded_plan_in_writer(&turn, plan)?;
-        // A malformed co-located spec must not take its plan down with it.
-        if let Some(spec_yaml) = colocated_spec {
-            if let Err(error) =
-                self.load_spec_file_into_index(&turn, spec_yaml.clone(), project_root)
-            {
-                log::warn!(
-                    "[plan] plan loaded but co-located spec {} skipped: {}",
-                    spec_yaml.display(),
-                    error
-                );
-            }
+                Err(error) => {
+                    log::warn!(
+                        "[plan] co-located spec {} failed to load: {error}",
+                        file.display()
+                    );
+                    None
+                }
+            });
+        let receipt = self.database.import_plan_rows(&mut plan, owned.as_ref())?;
+        if let Some(receipt) = receipt {
+            self.publish_hot_receipt(&turn, receipt);
+            super::search_index::enqueue_plan_import(&turn, &plan);
+            self.persist_test_sidecars(&plan, owned.as_ref())
+                .map_err(|error| PlanError::Io(error.to_string()))?;
         }
         Ok(())
-    }
-
-    #[cfg(test)]
-    fn load_spec_file_into_index(
-        &self,
-        turn: &MutationWriterTurn<'_>,
-        path: PathBuf,
-        project_root: &Path,
-    ) -> Result<(), PlanError> {
-        let mut spec: Spec =
-            spec_store::load_spec_from_path(&path).map_err(|e| PlanError::Io(e.to_string()))?;
-        paths::normalize_spec_paths(&mut spec, project_root);
-        self.commit_loaded_spec_in_writer(turn, spec)
     }
 
     pub fn scan_project(&self, project_path: &Path) -> Result<PathBuf, PlanError> {
@@ -263,55 +127,35 @@ impl PlanStore {
         team_ids: &[String],
         rebase: impl Fn(&str) -> Option<String>,
     ) -> std::io::Result<(Vec<String>, Vec<String>)> {
-        let writer_turn = self.mutation_writer.enter();
-        let mut updated = Vec::new();
-        let mut warnings = Vec::new();
-        let candidates = PlanMatch::Any(vec![
-            PlanMatch::Owners(tab_ids.to_vec()),
-            PlanMatch::Teams(team_ids.to_vec()),
-        ]);
-        for mut plan in self.plans_matching(&candidates) {
-            let bound = plan
-                .owner
-                .tab_id
-                .as_ref()
-                .is_some_and(|id| tab_ids.contains(id))
-                || plan
-                    .team_id
-                    .as_ref()
-                    .is_some_and(|id| team_ids.contains(id));
-            if !bound {
-                continue;
+        let turn = self.mutation_writer.enter();
+        let (rows, warnings) = self
+            .database
+            .relocate_plan_rows(tab_ids, team_ids, rebase, unix_time_millis())
+            .map_err(|error| std::io::Error::other(error.to_string()))?;
+        let mut updated = vec![];
+        for (receipt, old_root) in rows {
+            updated.push(receipt.plan_id.clone());
+            if let Some(new_root) = &receipt.index_root {
+                super::search_index::enqueue_plan_move(
+                    &turn,
+                    &receipt.plan_id,
+                    old_root,
+                    new_root.clone(),
+                );
             }
-            let mut changed = false;
-            for (label, path) in [
-                ("project", &mut plan.project_path),
-                ("canonical project", &mut plan.canonical_project_path),
-            ] {
-                if path.is_empty() {
-                    continue;
-                }
-                if let Some(new) = rebase(path) {
-                    changed |= *path != new;
-                    *path = new;
-                } else {
-                    warnings.push(format!(
-                        "Plan {} {label}: {path} is outside the old workspace folder; unchanged",
-                        plan.id
-                    ));
-                }
-            }
-            if changed {
-                self.save_in_writer(&writer_turn, &mut plan, unix_time_millis())?;
-                updated.push(plan.id);
-            }
+            self.publish_hot_receipt(&turn, receipt);
         }
         Ok((updated, warnings))
     }
 
-    pub fn save(&self, plan: &mut Plan, now_ms: u64) -> std::io::Result<()> {
+    pub fn import_plan(&self, plan: &mut Plan, now_ms: u64) -> std::io::Result<()> {
         let writer_turn = self.mutation_writer.enter();
-        self.save_in_writer(&writer_turn, plan, now_ms)
+        self.import_payload_in_writer(&writer_turn, plan, now_ms)
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn save(&self, plan: &mut Plan, now: u64) -> std::io::Result<()> {
+        self.import_plan(plan, now)
     }
 
     pub fn import_fixture_plans<T, R>(
@@ -355,19 +199,13 @@ impl PlanStore {
                 )
             })?;
         for plan in plans {
-            self.plan_cache
-                .commit(&plan.id, &Arc::new(Mutex::new(plan.clone())));
             self.note_index(plan);
-            super::search_index::enqueue_plan_index(
-                &turn,
-                plan.clone(),
-                super::search_index::PlanIndexScope::Full,
-            );
+            super::search_index::enqueue_plan_import(&turn, plan);
         }
         publish(committed)
     }
 
-    pub(super) fn save_in_writer(
+    pub(super) fn import_payload_in_writer(
         &self,
         turn: &MutationWriterTurn<'_>,
         plan: &mut Plan,
@@ -385,35 +223,26 @@ impl PlanStore {
         super::text_bounds::validate_plan(plan).map_err(|error| {
             std::io::Error::new(std::io::ErrorKind::InvalidInput, error.to_string())
         })?;
-        let id = plan.id.clone();
-        let existing = if self.index.read().contains_key(&id) {
-            Some(
-                self.plan_arc(&id)
-                    .map_err(|error| std::io::Error::other(error.to_string()))?,
-            )
-        } else {
-            None
-        };
-        let previous = existing.as_ref().map(|arc| arc.lock().clone());
-        let mut staged = match &previous {
-            Some(stored) if stored.updated_at > plan.updated_at => stored.clone(),
-            _ => plan.clone(),
-        };
-        record_lifecycle_events(&mut staged, previous.as_ref(), now_ms);
-        *plan = staged.clone();
-        if let Err(error) = self.persist_plan_and_spec_in_writer(turn, &staged) {
-            self.plan_cache.evict(&id);
-            return Err(error);
+        #[cfg(test)]
+        if let Some(hook) = self.persistence_hook.read().clone() {
+            hook(&plan.title);
         }
-        let handle = match existing {
-            Some(arc) => {
-                *arc.lock() = staged.clone();
-                arc
-            }
-            None => Arc::new(Mutex::new(staged.clone())),
-        };
-        self.plan_cache.commit(&id, &handle);
-        self.note_index(&staged);
+        let owned = self
+            .specs
+            .read()
+            .values()
+            .find(|spec| spec.lock().plan_id.as_deref() == Some(plan.id.as_str()))
+            .map(|spec| spec.lock().clone());
+        let receipt = self
+            .database
+            .import_plan_rows(plan, owned.as_ref())
+            .map_err(|error| std::io::Error::other(error.to_string()))?;
+        if let Some(receipt) = receipt {
+            self.publish_hot_receipt(turn, receipt);
+            super::search_index::enqueue_plan_import(turn, plan);
+            #[cfg(test)]
+            self.persist_test_sidecars(plan, owned.as_ref())?;
+        }
         Ok(())
     }
 
@@ -466,10 +295,7 @@ impl PlanStore {
         let sidecar_reload_blocked = {
             let writer = self.mutation_writer.state.lock();
             writer.next_ticket != writer.serving_ticket
-        } || self
-            .plan_cache
-            .get(id)
-            .is_some_and(|plan| plan.try_lock().is_none());
+        };
         #[cfg(test)]
         if !sidecar_reload_blocked {
             if let Some(plan) = self.get(id) {
@@ -485,12 +311,13 @@ impl PlanStore {
                 }
             }
         }
-        // The stored row is the truth: drop the cached copy so the next read loads it.
+        #[cfg(not(test))]
+        let _turn = self.mutation_writer.enter();
+        // Refresh only index metadata from the committed SQL row.
         let row = self
             .database
             .load_index_row(id)?
             .ok_or(PlanError::NotFound)?;
-        self.plan_cache.evict(id);
         // A mutation that committed since the row was read is newer; its index values stand.
         let mut index = self.index.write();
         if index

@@ -3,7 +3,7 @@ use codeterm_account::account_mesh::{AccountMesh, AccountMeshRefusal, Membership
 use codeterm_mesh::account_mesh as mesh;
 use std::sync::Arc;
 
-/// The account lifecycle as the Mesh gate's authority; it never answers from a cache.
+/// The account lifecycle as the Mesh gate's local authority.
 pub struct AccountAuthority(pub Arc<AccountMesh>);
 
 pub fn mesh_state(state: &account::LifecycleState) -> mesh::AccountMeshState {
@@ -30,7 +30,9 @@ pub fn mesh_state(state: &account::LifecycleState) -> mesh::AccountMeshState {
                 .rows
                 .iter()
                 .filter(|row| {
-                    row.active && row.presence == account::wire::RegistryPresence::Present
+                    row.active
+                        && row.presence == account::wire::RegistryPresence::Present
+                        && row.eligibility == account::wire::Eligibility::Eligible
                 })
                 .map(|row| {
                     (
@@ -116,6 +118,25 @@ pub fn membership_refusal(refusal: MembershipRefusal) -> mesh::AdmissionRefusal 
 }
 
 impl mesh::AccountMeshAuthority for AccountAuthority {
+    fn accept_endpoint_sequence<'a>(
+        &'a self,
+        membership: &'a mesh::VerifiedMembership,
+        sequence: u64,
+        digest: [u8; 32],
+    ) -> mesh::BoxFuture<'a, Result<bool, mesh::AdmissionRefusal>> {
+        Box::pin(async move {
+            self.0
+                .accept_endpoint_sequence(
+                    &membership.account_id,
+                    &membership.installation_id,
+                    sequence,
+                    digest,
+                )
+                .await
+                .map_err(admission_refusal)
+        })
+    }
+
     fn receive_registry_snapshot<'a>(
         &'a self,
         snapshot: &'a codeterm_entitlements::DetachedGrant,
@@ -123,10 +144,7 @@ impl mesh::AccountMeshAuthority for AccountAuthority {
         Box::pin(async move {
             match self.0.receive_registry_snapshot(snapshot).await {
                 Ok(applied) => Ok(applied),
-                Err(error) => {
-                    let _ = self.0.list_fresh().await;
-                    Err(admission_refusal(error))
-                }
+                Err(error) => Err(admission_refusal(error)),
             }
         })
     }
@@ -155,41 +173,6 @@ impl mesh::AccountMeshAuthority for AccountAuthority {
         signature: &str,
     ) -> bool {
         account::verify_possession(&membership.key_id, transcript, signature)
-    }
-
-    fn authorize_link(
-        &self,
-        request: mesh::LinkAuthorizationRequest,
-    ) -> mesh::BoxFuture<'_, Result<String, mesh::AdmissionRefusal>> {
-        Box::pin(async move {
-            self.0
-                .authorize_link(account::LinkAuthorization {
-                    transcript: request.transcript,
-                    local_installation_id: request.local_installation_id,
-                    peer_installation_id: request.peer_installation_id,
-                    account_id: request.account_id,
-                })
-                .await
-                .map_err(admission_refusal)
-        })
-    }
-
-    fn verify_link_permit(
-        &self,
-        permit: &str,
-        expected: &mesh::LinkPermitExpectation,
-        now: u64,
-    ) -> Result<(), mesh::AdmissionRefusal> {
-        let expectation = account::LinkPermitExpectation {
-            transcript: &expected.transcript,
-            holder_installation_id: &expected.holder_installation_id,
-            peer_installation_id: &expected.peer_installation_id,
-            account_id: &expected.account_id,
-            peer_target: None,
-        };
-        self.0
-            .verify_peer_link_permit(permit, &expectation, now)
-            .map_err(membership_refusal)
     }
 
     fn resolve_link_target(

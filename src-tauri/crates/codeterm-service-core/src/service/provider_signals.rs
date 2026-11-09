@@ -114,10 +114,13 @@ pub fn apply(
     };
     for turn in &fresh {
         if turn.pauses_for_exhaustion {
-            svc.signal_worker_interruption(
+            if let Err(error) = svc.signal_worker_interruption(
                 &turn.worker,
                 super::worker_interruption::WorkerInterruptionEvent::ProviderExhausted,
-            );
+            ) {
+                log::error!("[worker-interruption] signal failed: {error}");
+                return;
+            }
         }
         deliver_turn(svc, tab_id, session, nonce, turn);
     }

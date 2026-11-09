@@ -19,6 +19,8 @@ const OUTPUT_TAIL_BYTES: usize = 2048;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SpawnLaunchVerdict {
     Ready,
+    Bound,
+    Pending,
     /// The provider is alive but not ready yet: an owner prompt, a provisional
     /// stage, or a launch still in progress at the deadline. Never a success claim.
     Starting {
@@ -33,12 +35,17 @@ impl SpawnLaunchVerdict {
     pub fn launch_state(&self) -> &'static str {
         match self {
             Self::Ready => "ready",
+            Self::Bound => "bound",
+            Self::Pending => "pending",
             Self::Starting { .. } => "starting",
             Self::Failed { .. } => "failed",
         }
     }
 
     pub(crate) fn warning(&self, tab_id: &str) -> Option<String> {
+        if matches!(self, Self::Pending) {
+            return Some(format!("agent runtime in Tab {tab_id} has not bound a session yet; inspect the tab before sending work"));
+        }
         let Self::Starting { stage } = self else {
             return None;
         };
@@ -64,6 +71,7 @@ pub struct SpawnLaunchFailure {
     pub tab_id: String,
     pub reason: String,
     pub output_tail: Option<String>,
+    pub runtime: bool,
 }
 
 impl SpawnLaunchFailure {
@@ -82,24 +90,82 @@ impl SpawnLaunchFailure {
     }
 
     pub fn data(&self) -> serde_json::Value {
-        serde_json::json!({
+        let mut data = serde_json::json!({
             "type": Self::CODE,
             "tab_id": self.tab_id,
             "reason": self.reason,
             "output_tail": self.output_tail,
             "retry_hint": "the provider exited before readiness; the same launch fails again — fix what output_tail names, then close the failed Tab",
-        })
+        });
+        if self.runtime {
+            data["launch_state"] = serde_json::json!("failed");
+            data["retry_hint"] = serde_json::json!(
+                "inspect the runtime failure reason before starting another launch"
+            );
+        }
+        data
     }
 }
 
 /// The verdict a tab already carries for its launch, or `None` while it is
 /// still on its way to one.
-pub(crate) fn classify_spawn_launch(tab: Option<&Tab>) -> Option<SpawnLaunchVerdict> {
+pub(crate) fn classify_spawn_launch(
+    tab: Option<&Tab>,
+    runtime_declared: bool,
+) -> Option<SpawnLaunchVerdict> {
     let Some(tab) = tab else {
         return Some(SpawnLaunchVerdict::Failed {
             reason: "the Tab was closed before its agent reached readiness".into(),
         });
     };
+    if let (crate::multiplexer::types::TabBacking::ChatBackend { session_id, .. }, true) =
+        (&tab.backing, runtime_declared)
+    {
+        let runtime = tab.agent_runtime_state.as_ref();
+        let state = runtime.and_then(|runtime| runtime["state"].as_str());
+        if matches!(state, Some("degraded" | "unloaded")) {
+            let code =
+                runtime.and_then(|value| serde_json::from_value(value["failureCode"].clone()).ok());
+            if super::agent_runtime::model::runtime_failure_pending(code) {
+                return Some(SpawnLaunchVerdict::Pending);
+            }
+        }
+        if tab.boot_stage == Some(BootStage::SpawnFailed) {
+            return Some(SpawnLaunchVerdict::Failed {
+                reason: tab
+                    .boot_failure_reason
+                    .clone()
+                    .unwrap_or_else(|| "Agent runtime launch failed".into()),
+            });
+        }
+        if matches!(state, Some("degraded" | "unloaded")) {
+            if let Some(reason) = runtime.and_then(|runtime| runtime["reason"].as_str()) {
+                return Some(SpawnLaunchVerdict::Failed {
+                    reason: reason.into(),
+                });
+            }
+            if state == Some("degraded") {
+                return Some(SpawnLaunchVerdict::Failed {
+                    reason: "Agent runtime unavailable".into(),
+                });
+            }
+        }
+        return Some(
+            if state == Some("loaded")
+                && !session_id.trim().is_empty()
+                && tab.agent_session_id.as_deref() == Some(session_id.as_str())
+                && tab
+                    .session_binding_nonce
+                    .as_deref()
+                    .is_some_and(|nonce| !nonce.trim().is_empty())
+                && tab.reported_session_binding_nonce == tab.session_binding_nonce
+            {
+                SpawnLaunchVerdict::Bound
+            } else {
+                SpawnLaunchVerdict::Pending
+            },
+        );
+    }
     match tab.boot_stage {
         Some(BootStage::SpawnFailed) => Some(SpawnLaunchVerdict::Failed {
             reason: tab
@@ -137,9 +203,10 @@ impl ServiceContext {
         tab_id: &str,
         deadline: Duration,
     ) -> Result<SpawnLaunchVerdict, SpawnLaunchFailure> {
+        let runtime_declared = super::agent_runtime::requested_for_tab(self, tab_id);
         let mut verdict = None;
         super::boot_wait::wait_until(Instant::now() + deadline, || {
-            verdict = classify_spawn_launch(self.mux.read().get_tab(tab_id));
+            verdict = classify_spawn_launch(self.mux.read().get_tab(tab_id), runtime_declared);
             verdict.is_some()
         });
         match verdict {
@@ -149,6 +216,7 @@ impl ServiceContext {
                     tab_id: tab_id.to_string(),
                     reason,
                     output_tail: self.launch_output_tail(tab_id),
+                    runtime: runtime_declared,
                 })
             }
             Some(verdict) => Ok(verdict),

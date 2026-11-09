@@ -30,9 +30,10 @@ pub async fn chat_raw_history(
             &body.session_id,
             body.before_offset,
         )
+        .map(|messages| serde_json::json!({ "messages": messages }))
     })
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
     .map_err(|e| (StatusCode::CONFLICT, e))?;
-    Ok(Json(serde_json::json!({ "messages": messages })))
+    Ok(Json(messages))
 }

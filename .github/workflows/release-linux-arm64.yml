@@ -21,7 +21,8 @@ on:
         default: ""
         type: string
 permissions:
-  contents: read
+  # GITHUB_TOKEN uploads this platform's assets to the source draft.
+  contents: write
   actions: read
 
 env:
@@ -31,7 +32,7 @@ jobs:
   build:
     name: build (aarch64-unknown-linux-gnu)
     # One hosted arm64 job compiles, signs, smokes and publishes; release signing secrets live in the release environment.
-    runs-on: ubuntu-24.04-arm
+    runs-on: ${{ fromJSON(vars.CI_LINUX_ARM64_RUNNER || '"ubuntu-24.04-arm"') }}
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && (((startsWith(github.ref, 'refs/heads/release/') || startsWith(github.head_ref, 'release/')) && (github.event_name == 'push' || github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch')) || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.path == '.github/workflows/tests.yml' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.actor.login == 'rollacode' && github.event.workflow_run.triggering_actor.login == 'rollacode' && startsWith(github.event.workflow_run.head_branch, 'release/'))) }}
     environment: release
     timeout-minutes: 120
@@ -48,7 +49,7 @@ jobs:
       DOMIOS_AMPLITUDE_API_KEY_TEST: ${{ secrets.DOMIOS_AMPLITUDE_API_KEY_TEST }}
       DOMIOS_AMPLITUDE_API_KEY_PROD: ${{ secrets.DOMIOS_AMPLITUDE_API_KEY_PROD }}
       CODETERM_SCCACHE_CREDENTIAL_SOURCE: runner
-      GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
+      GH_TOKEN: ${{ github.token }}
       APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
@@ -117,13 +118,14 @@ jobs:
       - name: Clear incomplete release uploads for retry
         if: ${{ !inputs.dry_run }}
         env:
-          GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           MIRROR_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
           PUBLISH_MIRROR: ${{ inputs.mirror }}
           TAG: ${{ inputs.tag }}
           SOURCE_REPO: ${{ github.repository }}
         run: |
           node scripts/release-clear-wedged-assets.mjs "$SOURCE_REPO" "$TAG" "$ASSET_SCOPE"
+          # 1.19 transition mirror: delete after 1.19 ships.
           if [ "$PUBLISH_MIRROR" = true ]; then
             GH_TOKEN="$MIRROR_TOKEN" node scripts/release-clear-wedged-assets.mjs rollacode/codeterm-releases "$TAG" "$ASSET_SCOPE"
           fi

@@ -149,8 +149,8 @@ fn resolve_target(
 ) -> Result<String, WebhookRejection> {
     let plan = svc
         .plan_store
-        .get(plan_id)
-        .ok_or_else(WebhookRejection::delivery_failed)?;
+        .plan_identity_projection(plan_id)
+        .map_err(|_| WebhookRejection::delivery_failed())?;
     let target = plan
         .owner
         .tab_id

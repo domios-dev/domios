@@ -1,11 +1,10 @@
 use std::collections::HashSet;
 
 use crate::multiplexer::types::Tab;
-use crate::plan::Plan;
 use crate::service::hierarchy::heartbeat_gate::{
     self, Claim, Decision, Gate, Observation, ReminderKind, Scope, Snapshot, TickFact,
 };
-use codeterm_plan::service_plan::state::orchestrator_actionable_task_ids;
+use codeterm_plan::service_plan::{ReminderAdmissionRead as Plan, ReminderCandidateRead};
 
 use super::non_empty;
 use super::BlockedNotice;
@@ -71,6 +70,7 @@ pub(crate) enum Transport {
 pub(crate) struct Emission {
     pub(crate) text: String,
     pub(crate) transport: Transport,
+    pub(crate) digest_rate_marks: Vec<crate::service::orchestrator_digests::DigestRateMark>,
 }
 
 /// A live tab together with the workspace whose membership currently holds it,
@@ -86,8 +86,12 @@ pub(crate) trait ReminderHost {
     fn gate(&self) -> &Gate;
     fn journal_runtime(&self) -> std::sync::Arc<crate::service::supporter::SupporterRuntime>;
     fn interval(&self) -> u64;
-    fn plan(&self, plan_id: &str) -> Option<Plan>;
-    fn with_plans<R>(&self, read: impl FnOnce(&[Plan]) -> R) -> R;
+    fn plan(&self, plan_id: &str) -> Result<Option<Plan>, String>;
+    fn worker_bindings(
+        &self,
+        tab: &str,
+        known_plan: Option<&str>,
+    ) -> Result<WorkerBindingRead, String>;
     fn recipient(&self, tab_id: &str) -> Option<Recipient>;
     fn observe_owner(
         &self,
@@ -95,21 +99,21 @@ pub(crate) trait ReminderHost {
         tab_id: &str,
         previous: &Observation,
         now: u64,
-    ) -> (Snapshot, Observation);
+    ) -> Result<(Snapshot, Observation), String>;
     fn observe_worker(
         &self,
         plan: &Plan,
         scope: &Scope,
         previous: &Observation,
         now: u64,
-    ) -> (Snapshot, Observation);
+    ) -> Result<(Snapshot, Observation), String>;
     fn compose(
         &self,
         plan: &Plan,
         scope: &Scope,
         snapshot: &Snapshot,
         decision: &Decision,
-    ) -> Emission;
+    ) -> Result<Emission, String>;
     fn emit(
         &self,
         plan_id: &str,
@@ -125,16 +129,18 @@ pub(crate) fn scope_key(plan_id: &str, tab_id: &str) -> String {
 }
 
 /// Every scope a current candidate plan can produce; the gate keeps no others.
-pub(crate) fn scope_keys(plans: &[Plan]) -> HashSet<String> {
+pub(crate) fn scope_keys(plans: &[ReminderCandidateRead]) -> HashSet<String> {
     plans
         .iter()
         .flat_map(|plan| {
-            non_empty(plan.owner.tab_id.as_deref())
+            non_empty(plan.owner_tab_id.as_deref())
                 .into_iter()
                 .chain(
-                    plan.tasks
-                        .iter()
-                        .filter_map(|task| non_empty(task.assigned_tab_id.as_deref())),
+                    plan.retained_scope_tabs
+                        .as_ref()
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|tab| non_empty(Some(tab))),
                 )
                 .map(|tab_id| scope_key(&plan.id, tab_id))
                 .collect::<Vec<_>>()
@@ -150,7 +156,7 @@ pub(crate) fn admit(
 ) -> ReminderOutcome {
     let (plan, scope) = match resolve(host, request, None) {
         Ok(found) => found,
-        Err(reason) => {
+        Err(ResolveError::Suppressed(reason)) => {
             note_request_tick(
                 host.gate(),
                 request,
@@ -160,6 +166,10 @@ pub(crate) fn admit(
                 },
             );
             return ReminderOutcome::Suppressed(reason);
+        }
+        Err(ResolveError::Read(error)) => {
+            note_request_tick(host.gate(), request, now, TickFact::Failed);
+            return ReminderOutcome::Failed(error);
         }
     };
     let gate = host.gate();
@@ -213,7 +223,10 @@ fn admit_claimed(
     let gate = host.gate();
     let key = claim.key();
     let previous = gate.observation(key);
-    let (mut snapshot, observed) = observe(host, &plan, &scope, &previous, now);
+    let (mut snapshot, observed) = match observe(host, &plan, &scope, &previous, now) {
+        Ok(observed) => observed,
+        Err(error) => return failed(host, claim, request, now, error),
+    };
     gate.observed(key, observed);
     snapshot.scope = Scope {
         criteria: heartbeat_gate::criteria_version(),
@@ -226,8 +239,12 @@ fn admit_claimed(
                 .any(|task| task.id == id && task.status == crate::plan::TaskStatus::Blocked)
         })
     {
-        if let Some(owner) = non_empty(plan.owner.tab_id.as_deref()) {
-            for notice in super::blocked_notices(&plan, &scope, &snapshot) {
+        if let Some(owner) = non_empty(plan.owner_tab_id.as_deref()) {
+            let notices = match super::blocked_notices(&plan, &scope, &snapshot) {
+                Ok(notices) => notices,
+                Err(error) => return failed(host, claim, request, now, error),
+            };
+            for notice in notices {
                 if gate.claim_blocker_notice(&notice.event_key) {
                     host.notify_blocked(owner, &notice);
                 }
@@ -245,17 +262,25 @@ fn admit_claimed(
         heartbeat_gate::journal(&host.journal_runtime(), &decision, &plan.id, now);
     }
     let current = |plan_id: &str| match resolve(host, request, Some(plan_id)) {
-        Ok((plan, fresh)) if fresh == scope => Some(plan),
-        _ => None,
+        Ok((plan, fresh)) if fresh == scope => Ok(Some(plan)),
+        Err(ResolveError::Read(error)) => Err(error),
+        _ => Ok(None),
     };
     if !decision.wake {
         return suppress(gate, claim, request, now, decision.reason);
     }
-    let Some(plan) = current(&plan.id) else {
-        return suppress(gate, claim, request, now, "stale_scope");
+    let plan_id = plan.id.clone();
+    drop(plan);
+    let plan = match current(&plan_id) {
+        Ok(Some(plan)) => plan,
+        Ok(None) => return suppress(gate, claim, request, now, "stale_scope"),
+        Err(error) => return failed(host, claim, request, now, error),
     };
     // The approved identity must still describe the plan the text is built from.
-    let (mut fresh, _) = observe(host, &plan, &scope, &previous, now);
+    let (mut fresh, _) = match observe(host, &plan, &scope, &previous, now) {
+        Ok(fresh) => fresh,
+        Err(error) => return failed(host, claim, request, now, error),
+    };
     fresh.scope = snapshot.scope.clone();
     if fresh.hash() != decision.snapshot_hash {
         return suppress(gate, claim, request, now, "stale_observation");
@@ -270,13 +295,25 @@ fn admit_claimed(
     {
         return suppress(gate, claim, request, now, "recipient_not_actionable");
     }
-    let emission = host.compose(&plan, &scope, &snapshot, &decision);
+    let emission = match host.compose(&plan, &scope, &snapshot, &decision) {
+        Ok(emission) => emission,
+        Err(error) => {
+            gate.failed(key);
+            note_request_tick(gate, request, now, TickFact::Failed);
+            return ReminderOutcome::Failed(error);
+        }
+    };
     // Re-observation and compose can take IO time; the last check is bound to the handoff.
-    if current(&plan.id).is_none() || !gate.attempt(claim, &decision) {
+    let current_scope = match current(&plan.id) {
+        Ok(plan) => plan.is_some(),
+        Err(error) => return failed(host, claim, request, now, error),
+    };
+    if !current_scope || !gate.attempt(claim, &decision) {
         return suppress(gate, claim, request, now, "stale_scope");
     }
+    drop(plan);
     match host.emit(
-        &plan.id,
+        &plan_id,
         &scope,
         &emission,
         request.delivery_observer.clone(),
@@ -311,11 +348,11 @@ fn observe(
     scope: &Scope,
     previous: &Observation,
     now: u64,
-) -> (Snapshot, Observation) {
+) -> Result<(Snapshot, Observation), String> {
     let (mut snapshot, observation) = match scope.kind {
         ReminderKind::Worker => host.observe_worker(plan, scope, previous, now),
         _ => host.observe_owner(plan, &scope.tab_id, previous, now),
-    };
+    }?;
     snapshot.actionable_tasks = if scope.kind == ReminderKind::Worker {
         scope
             .task_id
@@ -328,9 +365,10 @@ fn observe(
             .cloned()
             .collect()
     } else {
-        orchestrator_actionable_task_ids(plan)
+        plan.actionable_task_ids()
+            .map_err(|error| error.to_string())?
     };
-    (snapshot, observation)
+    Ok((snapshot, observation))
 }
 
 fn note_request_tick(gate: &Gate, request: &ReminderRequest, now: u64, fact: TickFact) {
@@ -365,7 +403,7 @@ fn resolve(
     host: &impl ReminderHost,
     request: &ReminderRequest,
     known_plan: Option<&str>,
-) -> Result<(Plan, Scope), &'static str> {
+) -> Result<(Plan, Scope), ResolveError> {
     let recipient = host
         .recipient(&request.tab_id)
         .filter(|recipient| {
@@ -376,17 +414,20 @@ fn resolve(
     if request.kind == ReminderKind::Worker {
         return resolve_worker(host, &recipient, request, known_plan);
     }
-    let plan = request
-        .plan_id
-        .as_deref()
-        .and_then(|plan_id| host.plan(plan_id))
+    let plan_id = request.plan_id.as_deref().ok_or("plan_missing")?;
+    let plan = host
+        .plan(plan_id)
+        .map_err(ResolveError::Read)?
         .ok_or("plan_missing")?;
-    if non_empty(plan.owner.tab_id.as_deref()) != Some(request.tab_id.as_str())
+    if non_empty(plan.owner_tab_id.as_deref()) != Some(request.tab_id.as_str())
         || !owner_eligible(&plan, request.kind)
     {
-        return Err("ineligible");
+        return Err("ineligible".into());
     }
     let binding = heartbeat_gate::binding_digest(&recipient.tab, None).ok_or("binding_missing")?;
+    let plan = plan
+        .with_gate_facts()
+        .map_err(|error| ResolveError::Read(error.to_string()))?;
     let lifecycle = format!("{:?}:{:?}", plan.status, plan.mode);
     let scope = scope(
         &plan,
@@ -407,35 +448,39 @@ fn resolve_worker(
     recipient: &Recipient,
     request: &ReminderRequest,
     known_plan: Option<&str>,
-) -> Result<(Plan, Scope), &'static str> {
+) -> Result<(Plan, Scope), ResolveError> {
     let tab_id = request.tab_id.as_str();
-    let mut matches = match known_plan {
-        Some(plan_id) => {
-            worker_matches(&host.plan(plan_id).into_iter().collect::<Vec<_>>(), tab_id)
-        }
-        None => host.with_plans(|plans| worker_matches(plans, tab_id)),
+    let (plan, task_id) = match host
+        .worker_bindings(tab_id, known_plan)
+        .map_err(ResolveError::Read)?
+    {
+        WorkerBindingRead::Bound { plan, task_id } => (*plan, task_id),
+        WorkerBindingRead::Missing => return Err("binding_missing".into()),
+        WorkerBindingRead::Ambiguous => return Err("binding_ambiguous".into()),
     };
-    let (plan, task_id) = match (matches.pop(), matches.pop()) {
-        (Some(found), None) => found,
-        (None, _) => return Err("binding_missing"),
-        _ => return Err("binding_ambiguous"),
-    };
+    let plan = plan
+        .with_worker_gate_facts(&task_id)
+        .map_err(|error| ResolveError::Read(error.to_string()))?;
     let task = plan
         .tasks
         .iter()
         .find(|task| task.id == task_id)
         .ok_or("binding_missing")?;
     let mut open = task
-        .execution_attempts
+        .attempts
         .iter()
-        .filter(|attempt| attempt.closed_at.is_none() && attempt.executor_tab_id == tab_id);
+        .filter(|attempt| !attempt.closed && attempt.executor_tab_id == tab_id);
     let attempt = match (open.next(), open.next()) {
         (Some(attempt), None) => attempt,
-        (None, _) => return Err("binding_missing"),
-        _ => return Err("binding_ambiguous"),
+        (None, _) => return Err("binding_missing".into()),
+        _ => return Err("binding_ambiguous".into()),
     };
-    let binding =
-        heartbeat_gate::binding_digest(&recipient.tab, Some(attempt)).ok_or("binding_missing")?;
+    let binding = heartbeat_gate::binding_digest_fields(
+        &recipient.tab,
+        attempt.session_id.as_deref(),
+        attempt.session_binding_nonce.as_deref(),
+    )
+    .ok_or("binding_missing")?;
     let lifecycle = format!("{:?}:{:?}:{:?}", plan.status, plan.mode, task.status);
     let attempt_scope = Some((task.id.as_str(), attempt.id.as_str()));
     let scope = scope(
@@ -448,23 +493,6 @@ fn resolve_worker(
         lifecycle,
     )?;
     Ok((plan, scope))
-}
-
-fn worker_matches(plans: &[Plan], tab_id: &str) -> Vec<(Plan, String)> {
-    plans
-        .iter()
-        .flat_map(|plan| {
-            plan.tasks
-                .iter()
-                .filter(move |task| {
-                    non_empty(task.assigned_tab_id.as_deref()) == Some(tab_id)
-                        && super::worker_reminder_eligible(plan, task)
-                })
-                .map(move |task| (plan, task.id.clone()))
-        })
-        .take(2)
-        .map(|(plan, task_id)| (plan.clone(), task_id))
-        .collect()
 }
 
 fn owner_eligible(plan: &Plan, kind: ReminderKind) -> bool {
@@ -504,4 +532,34 @@ fn scope(
         lifecycle,
         ..Default::default()
     })
+}
+
+#[derive(Debug)]
+enum ResolveError {
+    Suppressed(&'static str),
+    Read(String),
+}
+
+impl From<&'static str> for ResolveError {
+    fn from(reason: &'static str) -> Self {
+        Self::Suppressed(reason)
+    }
+}
+
+fn failed(
+    host: &impl ReminderHost,
+    claim: &Claim<'_>,
+    request: &ReminderRequest,
+    now: u64,
+    error: String,
+) -> ReminderOutcome {
+    host.gate().failed(claim.key());
+    note_request_tick(host.gate(), request, now, TickFact::Failed);
+    ReminderOutcome::Failed(error)
+}
+
+pub(crate) enum WorkerBindingRead {
+    Missing,
+    Ambiguous,
+    Bound { plan: Box<Plan>, task_id: String },
 }

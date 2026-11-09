@@ -17,24 +17,25 @@ pub async fn attachment(
     Query(query): Query<AttachmentQuery>,
 ) -> Result<impl IntoResponse, (StatusCode, &'static str)> {
     tokio::task::spawn_blocking(move || {
-        let plan = state
-            .svc
-            .plan_store
-            .get(&id)
-            .ok_or((StatusCode::NOT_FOUND, "Plan not found"))?;
-        let path = state
-            .svc
-            .plan_store
-            .attachment_abs_path(&plan, &query.path)
-            .ok_or((StatusCode::BAD_REQUEST, "Invalid path"))?;
+        let directory =
+            state
+                .svc
+                .plan_store
+                .attachment_directory(&id)
+                .map_err(|error| match error {
+                    codeterm_service_core::service::plan::PlanError::NotFound => {
+                        (StatusCode::NOT_FOUND, "Plan not found")
+                    }
+                    _ => (StatusCode::INTERNAL_SERVER_ERROR, "Plan read failed"),
+                })?;
+        if query.path.contains("..") || std::path::Path::new(&query.path).is_absolute() {
+            return Err((StatusCode::BAD_REQUEST, "Invalid path"));
+        }
+        let path = directory.join(&query.path);
         let requested = path
             .canonicalize()
             .map_err(|_| (StatusCode::NOT_FOUND, "File not found"))?;
-        let plan_dir = state
-            .svc
-            .plan_store
-            .attachment_abs_path(&plan, "")
-            .ok_or((StatusCode::INTERNAL_SERVER_ERROR, "Plan path unavailable"))?
+        let plan_dir = directory
             .canonicalize()
             .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Plan path unavailable"))?;
         if !requested.starts_with(&plan_dir.join("attachments")) {

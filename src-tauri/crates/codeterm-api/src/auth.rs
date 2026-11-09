@@ -151,6 +151,7 @@ fn stored_protocol_answer(
 
 fn empty_gossip_snapshot() -> codeterm_service_core::mesh::types::MeshSyncPayload {
     codeterm_service_core::mesh::types::MeshSyncPayload {
+        endpoints: Vec::new(),
         peers: Vec::new(),
         generation: 0,
     }
@@ -478,13 +479,41 @@ pub async fn auth_middleware(
     req: Request,
     next: Next,
 ) -> Response {
-    if let Some(caller) = req
+    let token = req
         .headers()
         .get("authorization")
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.strip_prefix("Bearer "))
-        .and_then(|token| state.svc.identify_tab_credential(token))
-    {
+        .map(str::to_owned);
+    let caller = if let Some(token) = token {
+        let service = state.svc.clone();
+        #[cfg(debug_assertions)]
+        let (queued, route) = (std::time::Instant::now(), req.uri().path().to_owned());
+        match tokio::task::spawn_blocking(move || {
+            #[cfg(debug_assertions)]
+            let started = std::time::Instant::now();
+            let caller = service.identify_tab_credential(&token);
+            #[cfg(debug_assertions)]
+            if queued.elapsed().as_millis() >= 50 {
+                log::debug!(
+                    "[REST-CREDENTIAL] {} queue={}ms execution={}ms thread={:?}",
+                    route,
+                    started.duration_since(queued).as_millis(),
+                    started.elapsed().as_millis(),
+                    std::thread::current().id()
+                );
+            }
+            caller
+        })
+        .await
+        {
+            Ok(caller) => caller,
+            Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+        }
+    } else {
+        None
+    };
+    if let Some(caller) = caller {
         if let Err(message) = state
             .svc
             .authorize_neighbor_http(&caller, req.method().as_str(), req.uri().path())

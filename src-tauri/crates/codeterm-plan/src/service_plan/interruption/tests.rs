@@ -12,45 +12,87 @@ fn allowance(remaining_pct: f32, observed_at: u64) -> ProviderAllowance {
 }
 
 #[test]
-fn mutating_dispatch_below_provider_reserve_changes_no_bytes() {
-    assert!(provider_allowance_preflight(
-        &ExecutionIntent::Mutating,
-        Some(&allowance(9.0, 100)),
-        100,
-    )
-    .is_err());
-    assert!(provider_allowance_preflight(&ExecutionIntent::ReadOnly, None, 100).is_ok());
+fn below_reserve_or_exhausted_allowance_warns_and_never_blocks() {
+    // Paid credits carry usage past 100%, so remaining goes negative; even a
+    // zero ("no reserve") floor must only warn.
+    for (remaining_pct, reserve_pct, state) in [
+        (9.0, 10.0, "below its reserve"),
+        (0.0, 0.0, "exhausted"),
+        (-37.5, 0.0, "exhausted"),
+        (-37.5, 10.0, "exhausted"),
+    ] {
+        let mut low = allowance(remaining_pct, 100);
+        low.reserve_pct = reserve_pct;
+        let warning =
+            provider_allowance_warning(&ExecutionIntent::Mutating, Some(&low), "allowance-fixture")
+                .expect("a low allowance is reported on the receipt");
+        assert!(warning.starts_with("provider_allowance_low: provider allowance-fixture"));
+        assert!(warning.contains(state), "{warning}");
+    }
 }
 
 #[test]
-fn mutating_dispatch_at_healthy_allowance_passes_but_exhausted_refuses() {
-    // remaining >= reserve (session=8/weekly=45 -> 55) must dispatch.
-    assert!(provider_allowance_preflight(
-        &ExecutionIntent::Mutating,
-        Some(&allowance(55.0, 100)),
-        100,
-    )
-    .is_ok());
-    // genuinely exhausted (remaining below reserve) must still refuse.
-    assert!(provider_allowance_preflight(
-        &ExecutionIntent::Mutating,
-        Some(&allowance(0.0, 100)),
-        100,
-    )
-    .is_err());
-}
-
-#[test]
-fn stale_allowance_warns_at_the_host_boundary_but_does_not_block_mutation() {
+fn healthy_read_only_or_unknown_allowance_has_no_warning() {
+    let healthy = allowance(55.0, 100);
+    assert!(provider_allowance_warning(&ExecutionIntent::Mutating, Some(&healthy), "p").is_none());
+    let exhausted = allowance(-5.0, 100);
+    assert!(
+        provider_allowance_warning(&ExecutionIntent::ReadOnly, Some(&exhausted), "p").is_none()
+    );
+    assert!(provider_allowance_warning(&ExecutionIntent::Mutating, None, "p").is_none());
     let stale = allowance(90.0, 1);
     assert!(stale.is_stale(102));
-    assert!(provider_allowance_preflight(&ExecutionIntent::Mutating, Some(&stale), 102,).is_ok());
+    assert!(provider_allowance_warning(&ExecutionIntent::Mutating, Some(&stale), "p").is_none());
+}
 
-    let mut zero_reserve = allowance(0.0, 1);
-    zero_reserve.reserve_pct = 0.0;
-    assert!(
-        provider_allowance_preflight(&ExecutionIntent::Mutating, Some(&zero_reserve), 102,).is_ok()
+#[test]
+fn negative_remaining_dispatch_policy_is_recorded() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let mut plan = Plan::new(
+        "credits".into(),
+        dir.path().display().to_string(),
+        OrchestratorRef::from_tab("orch"),
     );
+    store.save(&mut plan, 1).unwrap();
+    let task_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "mutate on paid credits".into(),
+                kind: "implement".into(),
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+    let mut overdrawn = allowance(-37.5, 3);
+    overdrawn.reserve_pct = 0.0;
+    let attempt_id = store
+        .begin_task_dispatch_with_policy(
+            &plan.id,
+            &task_id,
+            "worker-tab",
+            "Worker",
+            TaskLaneMetadata::default(),
+            ExecutionIntent::Mutating,
+            Some(overdrawn.clone()),
+            Some("allowance-fixture"),
+            3,
+        )
+        .expect("a negative remaining allowance never blocks dispatch");
+    store
+        .record_dispatch_policy(
+            &plan.id,
+            &task_id,
+            &attempt_id,
+            ExecutionIntent::Mutating,
+            Some(overdrawn.clone()),
+            3,
+        )
+        .expect("a negative remaining allowance never blocks the dispatch policy");
+    let task = store.inspect_task_for_test(&task_id).unwrap().task;
+    assert_eq!(task.interruption.allowance, Some(overdrawn));
 }
 
 fn bound_store() -> (tempfile::TempDir, PlanStore, String, String, String) {
@@ -151,7 +193,7 @@ fn task_pause_status_preservation_provider_hold() {
         .finish_provider_exhaustion_pause(&plan_id, &task_id, &attempt_id, 1, sealed.clone(), 6)
         .unwrap();
 
-    let held = store.show_task(&task_id).unwrap().task;
+    let held = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(held.status, TaskStatus::Paused);
     assert_eq!(held.status_label.as_deref(), Some("provider_exhausted"));
     assert_eq!(
@@ -165,7 +207,7 @@ fn task_pause_status_preservation_provider_hold() {
     store
         .resume_from_provider_exhaustion(&plan_id, &task_id, "old-tab", "old-session", 1, 7)
         .unwrap();
-    let resumed = store.show_task(&task_id).unwrap().task;
+    let resumed = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(resumed.status, TaskStatus::InProgress);
     assert!(resumed.status_label.is_none());
     assert!(resumed.interruption.checkpoint.is_none());
@@ -190,7 +232,7 @@ fn exhaustion_after_dirty_edit_recovers_handoff_required() {
             5,
         )
         .unwrap();
-    let task = store.show_task(&task_id).unwrap().task;
+    let task = store.inspect_task_for_test(&task_id).unwrap().task;
     assert!(task.interruption.handoff_required);
     assert_eq!(task.status, crate::plan::TaskStatus::InProgress);
     assert_eq!(task.status_label.as_deref(), Some("handoff_required"));
@@ -302,7 +344,7 @@ fn dispatch_persists_resolved_provider_on_exact_attempt() {
             6,
         )
         .unwrap();
-    let task = store.show_task(&task_id).unwrap().task;
+    let task = store.inspect_task_for_test(&task_id).unwrap().task;
     let attempt = task
         .execution_attempts
         .iter()
@@ -316,7 +358,7 @@ fn dispatch_persists_resolved_provider_on_exact_attempt() {
 fn continued_review_attempt_is_interruptible_but_undelivered_epoch_is_not() {
     let (_dir, store, plan_id, task_id, attempt_id) = bound_store();
     store
-        .with_plan(&plan_id, 5, |plan| {
+        .edit_plan_fixture(&plan_id, 5, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()
@@ -350,7 +392,7 @@ fn continued_review_attempt_is_interruptible_but_undelivered_epoch_is_not() {
 
     let (_dir, store, plan_id, task_id, attempt_id) = bound_store();
     store
-        .with_plan(&plan_id, 5, |plan| {
+        .edit_plan_fixture(&plan_id, 5, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()
@@ -412,7 +454,7 @@ fn orchestrator_can_close_and_assign_after_worker_epoch_adoption() {
         )
         .unwrap();
     store
-        .with_plan(&plan.id, 4, |plan| {
+        .edit_plan_fixture(&plan.id, 4, |plan| {
             for task in &mut plan.tasks {
                 task.interruption.owner_epoch = 2;
                 task.interruption.owner_tab_id = Some("worker".into());
@@ -479,7 +521,7 @@ fn takeover_between_verification_and_write_is_rejected_atomically() {
         owner_epoch: 1,
     };
     store
-        .with_plan(&plan_id, 5, |plan| {
+        .edit_plan_fixture(&plan_id, 5, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()
@@ -502,7 +544,110 @@ fn takeover_between_verification_and_write_is_rejected_atomically() {
         )
         .is_err());
     assert_ne!(
-        store.show_task(&task_id).unwrap().task.status,
+        store.inspect_task_for_test(&task_id).unwrap().task.status,
         TaskStatus::Done
     );
+}
+
+#[test]
+fn checkpoint_adoption_undo_preserves_unrelated_edits_and_refuses_new_authority() {
+    for changed_owner in [false, true] {
+        let (_dir, store, plan_id, task_id, attempt_id) = bound_store();
+        let sealed = checkpoint(&task_id, &attempt_id);
+        store
+            .interrupt_task_attempt(
+                &plan_id,
+                &task_id,
+                &attempt_id,
+                "old-tab",
+                "old-session",
+                1,
+                "process_exited",
+                sealed.clone(),
+                5,
+            )
+            .unwrap();
+        let before = store.inspect_task_for_test(&task_id).unwrap().task;
+        let receipt = store
+            .adopt_interrupted_task_with_undo(
+                &plan_id,
+                &task_id,
+                &sealed.diff_sha256,
+                "base",
+                "new-tab",
+                &crate::service_plan::task_assignment::AssignmentRuntimeBinding {
+                    session_id: "new-session".into(),
+                    session_binding_nonce: "new-nonce".into(),
+                    provider: None,
+                    model: None,
+                    session_model: None,
+                    reasoning_effort: None,
+                },
+                6,
+            )
+            .unwrap();
+        store
+            .edit_plan_fixture(&plan_id, 7, |plan| {
+                let task = plan
+                    .tasks
+                    .iter_mut()
+                    .find(|task| task.id == task_id)
+                    .unwrap();
+                task.name = "concurrent metadata".into();
+                if changed_owner {
+                    task.interruption.owner_session_id = Some("newer-session".into());
+                }
+                Ok(())
+            })
+            .unwrap();
+        let result = store.undo_checkpoint_adoption(receipt, 8);
+        let current = store.inspect_task_for_test(&task_id).unwrap().task;
+        assert_eq!(current.name, "concurrent metadata");
+        if changed_owner {
+            assert!(result.unwrap_err().to_string().contains("conflict"));
+            assert_eq!(
+                current.execution_attempts.len(),
+                before.execution_attempts.len() + 1
+            );
+            assert_eq!(
+                current.interruption.owner_session_id.as_deref(),
+                Some("newer-session")
+            );
+        } else {
+            result.unwrap();
+            assert_eq!(current.execution_attempts, before.execution_attempts);
+            assert_eq!(current.interruption, before.interruption);
+            assert_eq!(current.assigned_tab_id, before.assigned_tab_id);
+            assert_eq!(current.status, before.status);
+        }
+    }
+}
+
+#[test]
+fn owner_epoch_ceiling_refuses_recovery_without_persisting_partial_retirement() {
+    assert_eq!(
+        next_owner_epoch(i64::MAX as u64 - 1).unwrap(),
+        i64::MAX as u64
+    );
+    for epoch in [i64::MAX as u64, i64::MAX as u64 + 1, u64::MAX] {
+        assert!(next_owner_epoch(epoch).is_err());
+        let (_dir, store, plan_id, task_id, _) = bound_store();
+        store
+            .edit_plan_fixture(&plan_id, 5, |plan| {
+                plan.tasks
+                    .iter_mut()
+                    .find(|task| task.id == task_id)
+                    .unwrap()
+                    .interruption
+                    .owner_epoch = epoch;
+                Ok(())
+            })
+            .unwrap();
+        let before = store.inspect_task_for_test(&task_id).unwrap().task;
+        let result = store.retire_stale_task_owner(&plan_id, &task_id, None, |_| false, 6);
+        assert!(
+            matches!(result, Err(PlanError::Io(message)) if message == "task owner epoch exhausted")
+        );
+        assert_eq!(store.inspect_task_for_test(&task_id).unwrap().task, before);
+    }
 }

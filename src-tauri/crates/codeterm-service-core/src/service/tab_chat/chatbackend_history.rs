@@ -78,6 +78,40 @@ pub fn session_path(plugin_id: &str, session_id: &str) -> PathBuf {
     session_dir(plugin_id).join(format!("{}.jsonl", sanitize(session_id)))
 }
 
+fn session_digest(plugin_id: &str, session_id: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hash = Sha256::new();
+    hash.update(plugin_id.as_bytes());
+    hash.update([0]);
+    hash.update(session_id.as_bytes());
+    format!("{:x}", hash.finalize())
+}
+
+pub fn runtime_path(plugin_id: &str, session_id: &str) -> PathBuf {
+    session_dir(plugin_id)
+        .join("runtime")
+        .join(format!("{}.jsonl", session_digest(plugin_id, session_id)))
+}
+
+/// Append-only log of every row a runtime session produced. The runtime snapshot
+/// holds only the recent rows a restart restores; a closed tab reads this one.
+pub fn archive_path(plugin_id: &str, session_id: &str) -> PathBuf {
+    session_dir(plugin_id)
+        .join("archive")
+        .join(format!("{}.jsonl", session_digest(plugin_id, session_id)))
+}
+
+/// The older half of a session log that outgrew [`ARCHIVE_ROTATE_BYTES`].
+pub fn archive_rotated_path(plugin_id: &str, session_id: &str) -> PathBuf {
+    session_dir(plugin_id).join("archive").join(format!(
+        "{}.prev.jsonl",
+        session_digest(plugin_id, session_id)
+    ))
+}
+
+/// Past this size a session log rotates once, bounding one session to about twice it.
+pub const ARCHIVE_ROTATE_BYTES: u64 = 32 * 1024 * 1024;
+
 /// Sidecar path for the host-composed context decision record. Shares
 /// `session_dir` and `sanitize`, so a plugin-chosen id still cannot escape it.
 pub fn context_sidecar_path(plugin_id: &str, session_id: &str) -> PathBuf {
@@ -137,6 +171,19 @@ pub fn read_window(path: &Path, until: u64, budget: u64) -> std::io::Result<Hist
         start_offset: page.start,
         end_offset: page.start + bytes.len() as u64,
     })
+}
+
+/// Every message of a bounded session log; an explicit closed-tab read, never a hot path.
+pub fn read_log(path: &Path) -> std::io::Result<Vec<ChatMsg>> {
+    let mut file = std::fs::File::open(path)?;
+    let length = file.metadata()?.len();
+    let limit = 2 * ARCHIVE_ROTATE_BYTES;
+    if length > limit {
+        return read_window(path, length, limit).map(|window| window.messages);
+    }
+    let mut bytes = Vec::with_capacity(length as usize);
+    (&mut file).read_to_end(&mut bytes)?;
+    versions::fold(&mut file, &bytes, 0).map(|(messages, _)| messages)
 }
 
 /// Messages of the trailing window; missing or unreadable ⇒ empty.
@@ -218,6 +265,7 @@ enum Operation {
     Upsert(Vec<ChatMsg>),
     Remove(String),
     Compact,
+    Snapshot(Vec<ChatMsg>),
 }
 
 struct Request {
@@ -249,6 +297,18 @@ impl ChatBackendHistory {
             (plugin_id.into(), session_id.into()),
             session_path(plugin_id, session_id),
         )
+    }
+
+    pub fn runtime_shared(plugin_id: &str, session_id: &str) -> SharedHistory {
+        shared_in(
+            &SHARED,
+            (format!("runtime:{plugin_id}"), session_id.into()),
+            runtime_path(plugin_id, session_id),
+        )
+    }
+
+    pub fn snapshot(&mut self, rows: Vec<ChatMsg>) -> std::io::Result<()> {
+        self.request(Operation::Snapshot(rows)).map(|_| ())
     }
 
     pub fn release(plugin_id: &str, session_id: &str) {

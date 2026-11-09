@@ -1,6 +1,6 @@
-use serde_json::{json, Value};
+use serde_json::Value;
 
-use codeterm_service_core::plan::{OrchestratorRef, Plan};
+use codeterm_service_core::plan::OrchestratorRef;
 
 pub(super) fn csv_string_field(params: Option<&Value>, key: &str) -> Vec<String> {
     params
@@ -37,27 +37,4 @@ pub(super) fn tags_field(params: Option<&Value>) -> Vec<String> {
         .and_then(|x| x.get("tags"))
         .and_then(|v| serde_json::from_value(v.clone()).ok())
         .unwrap_or_default()
-}
-
-pub(super) fn plan_with_linking(plan: &Plan) -> Value {
-    let mut value = serde_json::to_value(plan).unwrap_or_default();
-    if let Some(obj) = value.as_object_mut() {
-        let unlinked_tasks = unlinked_tasks(plan);
-        obj.insert(
-            "_linking".into(),
-            json!({
-                "unlinked_count": unlinked_tasks.len(),
-                "unlinked_tasks": unlinked_tasks,
-            }),
-        );
-    }
-    value
-}
-
-fn unlinked_tasks(plan: &Plan) -> Vec<String> {
-    plan.tasks
-        .iter()
-        .filter(|task| task.section_ids.is_empty())
-        .map(|task| task.name.clone())
-        .collect()
 }

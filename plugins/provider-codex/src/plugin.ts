@@ -1,32 +1,21 @@
+import { defineProviderIo, type IoExports } from "@codeterm/plugin-sdk";
+import { type HostIoSteps } from "@codeterm/plugin-sdk";
 import { runPromptSteps } from "../../provider-shared/runPromptStep";
 import { sessionRecords, type SessionRecordInput } from "../../provider-shared/sessionRecords";
 import { buildCodexLaunchSpec, codexCommandFromSpec, CODEX_LAUNCH_CONFIG, hostOwnedCodexLaunchArgs } from "./launchSpec";
-import {cloudExports} from "./cloud/plugin";
-import { runtimePlan, runtimeResponse, runtimeReduce } from "./runtime";
+import { cloudExports } from "./cloud/plugin";
+
 import { runtimeStoredHistory, runtimeStoredRecords, storedHistoryAvailable } from "./runtimeStoredHistory";
-import { codexToolOutputText } from "./toolOutput";
-import {parseSessionObservations} from "./signals";
+import { runtimePlan, runtimeResponse, runtimeReduce } from "./runtime";
+import { parseSessionObservations } from "./signals";
 import { updatePromptSafeChoice } from "../../provider-shared/updatePrompt";
-import type {
-  LaunchParams,
-  LaunchSessionDetection,
-  LaunchSessionEvidence,
-  ModelInfo,
-  ParsedPrompt,
-  PluginModule,
-  ResumeParams,
-  SessionDeltaContext,
-  TabState,
-} from "@codeterm/plugin-sdk";
+import { codexProfileInstanceId, codexProfileTabId, inspectCodexProfiles, sweepCodexProfiles } from "./profile-sweep";
+import { codexToolOutputText } from "./toolOutput";
+
+import type { LaunchParams, LaunchSessionDetection, LaunchSessionEvidence, ModelInfo, ParsedPrompt, PluginModule, ResumeParams, SessionDeltaContext, TabState } from "@codeterm/plugin-sdk";
 import { discoverCodexModels } from "./models";
 import { detectCodexLaunchSession, withLaunchMarker } from "./launchSession";
-import {
-  classifyCodexFolderTrustPrompt,
-  parseMenuOptions,
-  parseCodexFolderTrustPrompt,
-  parseCodexPrompt,
-  responseKeysForIndex,
-} from "./prompt";
+import { classifyCodexFolderTrustPrompt, parseMenuOptions, parseCodexFolderTrustPrompt, parseCodexPrompt, responseKeysForIndex } from "./prompt";
 import { fetchCodexUsage, parseCodexUsage } from "./usage";
 import { checkCodexUpdate, codexSelfUpdateCapability } from "./update";
 import { execScriptCommands, summarizeExecScript, unwrapCommandExecution, unwrapShellCommand } from "./execWrapper";
@@ -38,42 +27,10 @@ import { editFingerprint, pairFileChange, type PendingFileChange } from "./fileC
 import { imageGenerationEndResult, webSearchEndResult } from "./richResults";
 import { actionTitle } from "./actionTitle";
 import { codexImageBlock, parseCodexUserContent, type CodexUserImage } from "./userContent";
-import {
-  codexDirectoryTrustState,
-  codexProfileInstanceId,
-  codexProfileTabId,
-  carryCodexProjectTrustForTab,
-  isCodexDirectoryTrusted,
-  inspectCodexProfiles,
-  manageCodexProfiles,
-  releaseCodexProfile,
-  sweepCodexProfiles,
-  type ProfileSweepHost,
-} from "./profile-sweep";
-import {
-  classifyCodexTabState,
-  type TabStateClassification,
-  type TabStateSnapshot,
-} from "./tabState";
-import {
-  detectSessionId as detectCodexSessionId,
-  detectSessionModel as detectCodexSessionModel,
-  detectSessionReasoningEffort as detectCodexSessionReasoningEffort,
-  enumerateSessions as enumerateCodexSessions,
-  extractSessionUuid,
-  findSession as findCodexSession,
-  sessionFilePath as resolveCodexSessionFilePath,
-  sessionExists as codexSessionExists,
-} from "./sessions";
-import {
-  checkIntegration as checkCodexIntegration,
-  ensureIntegrationOnStartup as ensureCodexIntegrationOnStartup,
-  grantIntegrationTrust as grantCodexIntegrationTrust,
-  installIntegration as installCodexIntegration,
-  restoreIntegration as restoreCodexIntegration,
-  uninstallIntegration as uninstallCodexIntegration,
-  type CodexIntegrationInstallOptions,
-} from "./integration";
+import { codexDirectoryTrustState, carryCodexProjectTrustForTab, isCodexDirectoryTrusted, manageCodexProfiles, releaseCodexProfile, type ProfileSweepHost } from "./profile-sweep";
+import { classifyCodexTabState, type TabStateClassification, type TabStateSnapshot } from "./tabState";
+import { detectSessionId as detectCodexSessionId, detectSessionModel as detectCodexSessionModel, detectSessionReasoningEffort as detectCodexSessionReasoningEffort, enumerateSessions as enumerateCodexSessions, extractSessionUuid, findSession as findCodexSession, sessionFilePath as resolveCodexSessionFilePath, sessionExists as codexSessionExists } from "./sessions";
+import { checkIntegration as checkCodexIntegration, ensureIntegrationOnStartup as ensureCodexIntegrationOnStartup, grantIntegrationTrust as grantCodexIntegrationTrust, installIntegration as installCodexIntegration, restoreIntegration as restoreCodexIntegration, uninstallIntegration as uninstallCodexIntegration, type CodexIntegrationInstallOptions } from "./integration";
 export {
   codexProfileInstanceId,
   codexProfileTabId,
@@ -88,16 +45,7 @@ function profileSweepHost(): ProfileSweepHost {
     platform: () => host.platform(),
     homeDir: () => host.homeDir(),
     log: (level, message) => host.log(level, message),
-    fs: {
-      fileExists: (path) => host.fs.fileExists(path),
-      isSymlink: (path) => host.fs.isSymlink(path),
-      readDir: (path) => host.fs.readDir(path),
-      readFile: (path) => host.fs.readFile(path),
-      removeFile: (path) => host.fs.removeFile(path),
-      writeFileAtomic: (path, contents) => host.fs.writeFileAtomic(path, contents),
-      lockFile: (path) => host.fs.lockFile(path),
-      unlockFile: (id) => host.fs.unlockFile(id),
-    },
+    io: host.io,
   };
 }
 
@@ -186,15 +134,15 @@ function hasPromptAndStatusFooter(screen: string): boolean {
   });
 }
 
-const plugin: PluginModule = {
+const plugin = {
   ...runPromptSteps(() => host.agentRun, { sandbox: "read-only" }),
   ...cloudExports(() => host),
   sessionResume: () => ({ exact: true }),
   runtimeStoredHistory,
   runtimeStoredRecords,
-  runtimeStoredHistoryAvailable(cwd: string, sessionId: string): boolean {
-    const path = resolveCodexSessionFilePath(cwd, sessionId);
-    return storedHistoryAvailable(sessionId, path ? host.fs.readFileHead(path, 262144) : null);
+  *runtimeStoredHistoryAvailable(cwd: string, sessionId: string): HostIoSteps<boolean> {
+    const path = (yield* resolveCodexSessionFilePath(cwd, sessionId));
+    return storedHistoryAvailable(sessionId, path ? (yield* host.io.fs.readFileHead(path, 262144)) : null);
   },
   runtimePlan,
   runtimeResponse,
@@ -296,57 +244,50 @@ const plugin: PluginModule = {
   },
 
   // Codex CLI has no model-list subcommand; its local cache is the only sync account-scoped source. Missing => seed.
-  discoverModels(): ModelInfo[] | null {
-    return discoverCodexModels();
+  *discoverModels(): HostIoSteps<ModelInfo[] | null> {
+    return (yield* discoverCodexModels());
   },
 
-  checkForUpdate() {
-    return checkCodexUpdate(host);
+  *checkForUpdate() {
+    return (yield* checkCodexUpdate(host));
   },
 
   providerSelfUpdateCapability() {
     return codexSelfUpdateCapability;
   },
 
-  releaseTabLaunchArtifacts(tabId: string, instanceId: string): boolean {
-    return releaseCodexProfile(profileSweepHost(), tabId, instanceId);
+  *releaseTabLaunchArtifacts(tabId: string, instanceId: string): HostIoSteps<boolean> {
+    return (yield* releaseCodexProfile(profileSweepHost(), tabId, instanceId));
   },
 
-  folderTrustAnswered(tabId: string, instanceId: string): boolean {
-    return carryCodexProjectTrustForTab(profileSweepHost(), tabId, instanceId);
+  *folderTrustAnswered(tabId: string, instanceId: string): HostIoSteps<boolean> {
+    return (yield* carryCodexProjectTrustForTab(profileSweepHost(), tabId, instanceId));
   },
 
-  isDirectoryTrusted(path: string): boolean {
-    return isCodexDirectoryTrusted(profileSweepHost(), path);
+  *isDirectoryTrusted(path: string): HostIoSteps<boolean> {
+    return (yield* isCodexDirectoryTrusted(profileSweepHost(), path));
   },
 
-  directoryTrustState(path: string, skipPermissions: boolean): "trusted" | "untrusted" | "unknown" {
-    return codexDirectoryTrustState(profileSweepHost(), path, skipPermissions);
+  *directoryTrustState(path: string, skipPermissions: boolean): HostIoSteps<"trusted" | "untrusted" | "unknown"> {
+    return (yield* codexDirectoryTrustState(profileSweepHost(), path, skipPermissions));
   },
 
-  sweepLaunchArtifacts(request: {
+  *sweepLaunchArtifacts(request: {
     instanceId: string;
     liveTabIds: string[];
     goneInstanceIds?: string[];
     confirm: boolean;
     includeLegacy: boolean;
   }) {
-    return manageCodexProfiles(
-      profileSweepHost(),
-      request.liveTabIds,
-      request.instanceId,
-      request.confirm,
-      request.includeLegacy,
-      request.goneInstanceIds,
-    );
+    return (yield* manageCodexProfiles(profileSweepHost(), request.liveTabIds, request.instanceId, request.confirm, request.includeLegacy, request.goneInstanceIds));
   },
 
-  buildLaunchSpec(input: LaunchParams | { resume: ResumeParams }) {
-    return buildCodexLaunchSpec(input, starterPrompt);
+  *buildLaunchSpec(input: LaunchParams | { resume: ResumeParams }) {
+    return (yield* buildCodexLaunchSpec(input, starterPrompt));
   },
 
-  buildLaunchCommand(params: LaunchParams): string {
-    const spec = buildCodexLaunchSpec(params || {}, starterPrompt);
+  *buildLaunchCommand(params: LaunchParams): HostIoSteps<string> {
+    const spec = (yield* buildCodexLaunchSpec(params || {}, starterPrompt));
     if (spec) return codexCommandFromSpec(spec);
     const p = params || {};
     const parts: string[] = ["codex", ...CODEX_LAUNCH_CONFIG];
@@ -366,7 +307,7 @@ const plugin: PluginModule = {
         return "Write-Error 'CodeTerm refused the Codex launch: instance identity is missing, so a per-tab profile cannot be safely owned'; exit 1";
       }
       const instructions = withLaunchMarker(p.task, typeof p.launchMarker === "string" ? p.launchMarker : undefined);
-      const taskPath = host.fs.writeTempFile(instructions, ".ct-task.md");
+      const taskPath = (yield* host.io.fs.writeTempFile(instructions, ".ct-task.md"));
       if (!taskPath) throw new Error("failed to write Codex task instructions");
       const quotedPath = host.shell.quoteFor(taskPath, host.platform());
       if (host.platform() === "windows") {
@@ -389,8 +330,8 @@ const plugin: PluginModule = {
     return parts.join(" ");
   },
 
-  buildResumeCommand(sessionId: string, skipPermissions?: boolean): string {
-    const spec = buildCodexLaunchSpec({ resume: { sessionId, skipPermissions } }, starterPrompt);
+  *buildResumeCommand(sessionId: string, skipPermissions?: boolean): HostIoSteps<string> {
+    const spec = (yield* buildCodexLaunchSpec({ resume: { sessionId, skipPermissions } }, starterPrompt));
     if (spec) return codexCommandFromSpec(spec);
     const parts = ["codex", ...CODEX_LAUNCH_CONFIG, "resume"];
     if (skipPermissions) {
@@ -403,8 +344,8 @@ const plugin: PluginModule = {
     return requireDirectResume(parts.join(" "));
   },
 
-  buildResumeCommandWithContext(params: ResumeParams): string {
-    const spec = buildCodexLaunchSpec({ resume: params }, starterPrompt);
+  *buildResumeCommandWithContext(params: ResumeParams): HostIoSteps<string> {
+    const spec = (yield* buildCodexLaunchSpec({ resume: params }, starterPrompt));
     if (spec) return codexCommandFromSpec(spec);
     const p = params || ({} as ResumeParams);
     const platform = host.platform();
@@ -432,21 +373,21 @@ const plugin: PluginModule = {
     return requireDirectResume(parts.join(" "));
   },
 
-  sessionFilePath(_cwd: string, sessionId: string): string | null {
-    return resolveCodexSessionFilePath(_cwd, sessionId);
+  *sessionFilePath(_cwd: string, sessionId: string): HostIoSteps<string | null> {
+    return (yield* resolveCodexSessionFilePath(_cwd, sessionId));
   },
 
-  sessionExists(cwd: string, sessionId: string): boolean {
-    return codexSessionExists(cwd, sessionId);
+  *sessionExists(cwd: string, sessionId: string): HostIoSteps<boolean> {
+    return (yield* codexSessionExists(cwd, sessionId));
   },
 
-  detectLaunchSession(evidence: LaunchSessionEvidence): LaunchSessionDetection | null {
-    return detectCodexLaunchSession(evidence);
+  *detectLaunchSession(evidence: LaunchSessionEvidence): HostIoSteps<LaunchSessionDetection | null> {
+    return (yield* detectCodexLaunchSession(evidence));
   },
 
   // Codex 0.153 has no per-session JSONL transcript; keep the path capability honest.
-  sessionJsonlPath(cwd: string, sessionId: string): string | null {
-    return this.sessionFilePath!(cwd, sessionId);
+  *sessionJsonlPath(cwd: string, sessionId: string): HostIoSteps<string | null> {
+    return (yield* resolveCodexSessionFilePath(cwd, sessionId));
   },
 
   // Duplicated by design across provider bundles (QuickJS, no imports) — parity guarded by provider-helper-parity.test.ts.
@@ -457,37 +398,33 @@ const plugin: PluginModule = {
     return {...parseSessionDelta(records, meta.sourceKey ? {session_key:meta.sourceKey,from_offset:meta.fromOffset} : undefined), new_offset:meta.newOffset};
   },
 
-  detectSessionId(cwd: string, exclude?: string[] | string, maxAgeMs?: number): string | null {
-    return detectCodexSessionId(cwd, exclude, maxAgeMs);
+  *detectSessionId(cwd: string, exclude?: string[] | string, maxAgeMs?: number): HostIoSteps<string | null> {
+    return (yield* detectCodexSessionId(cwd, exclude, maxAgeMs));
   },
 
-  checkIntegration(): unknown {
-    return checkCodexIntegration();
+  *checkIntegration(): HostIoSteps<unknown> {
+    return (yield* checkCodexIntegration());
   },
 
-  installIntegration(
-    apiPort: number,
-    options?: { consent?: boolean },
-  ): unknown {
-    return installCodexIntegration(apiPort, options);
+  *installIntegration(apiPort: number, options?: { consent?: boolean }): HostIoSteps<unknown> {
+    return (yield* installCodexIntegration(apiPort, options));
   },
 
   // Codex is the only hash authority; the grant lane never computes a trust hash CodeTerm-side.
-  grantIntegrationTrust(managedKeys: string[]): unknown {
-    return grantCodexIntegrationTrust(managedKeys);
+  *grantIntegrationTrust(managedKeys: string[]): HostIoSteps<unknown> {
+    return (yield* grantCodexIntegrationTrust(managedKeys));
   },
 
-  uninstallIntegration(): unknown {
-    return uninstallCodexIntegration();
+  *uninstallIntegration(): HostIoSteps<unknown> {
+    return (yield* uninstallCodexIntegration());
   },
 
-  restoreIntegration(): unknown {
-    return restoreCodexIntegration();
+  *restoreIntegration(): HostIoSteps<unknown> {
+    return (yield* restoreCodexIntegration());
   },
 
-  ensureIntegrationOnStartup(apiPort: number): unknown {
-    return ensureCodexIntegrationOnStartup(apiPort, (port, options) =>
-      installCodexIntegration(port, options as CodexIntegrationInstallOptions));
+  *ensureIntegrationOnStartup(apiPort: number): HostIoSteps<unknown> {
+    return (yield* ensureCodexIntegrationOnStartup(apiPort, function*(port, options) { return (yield* installCodexIntegration(port, options as CodexIntegrationInstallOptions)); }));
   },
 
   // Parse the `/status` TUI screen into a UsageSnapshot; gauges report "% left", snapshot stores "% used".
@@ -495,29 +432,29 @@ const plugin: PluginModule = {
     return parseCodexUsage(rawText, nowMs);
   },
 
-  fetchUsage(): unknown {
-    return fetchCodexUsage(host);
+  *fetchUsage(): HostIoSteps<unknown> {
+    return (yield* fetchCodexUsage(host));
   },
 
   detectActiveSession(_cwd: string, _currentSid?: string): string | null {
     return null;
   },
 
-  enumerateSessions(): unknown[] {
-    return enumerateCodexSessions();
+  *enumerateSessions(): HostIoSteps<unknown[]> {
+    return (yield* enumerateCodexSessions());
   },
 
-  findSession(sessionId: string): unknown | null {
-    return findCodexSession(sessionId);
+  *findSession(sessionId: string): HostIoSteps<unknown | null> {
+    return (yield* findCodexSession(sessionId));
   },
 
   // Read the exact model identity from this session's latest turn context.
-  detectSessionModel(cwd: string, sessionId: string): string | null {
-    return detectCodexSessionModel(cwd, sessionId);
+  *detectSessionModel(cwd: string, sessionId: string): HostIoSteps<string | null> {
+    return (yield* detectCodexSessionModel(cwd, sessionId));
   },
 
-  detectSessionReasoningEffort(cwd: string, sessionId: string): string | null {
-    return detectCodexSessionReasoningEffort(cwd, sessionId);
+  *detectSessionReasoningEffort(cwd: string, sessionId: string): HostIoSteps<string | null> {
+    return (yield* detectCodexSessionReasoningEffort(cwd, sessionId));
   },
 
   // Mirror native parse_session_messages for response_item message blocks.
@@ -535,7 +472,7 @@ const plugin: PluginModule = {
     return options.filter((option) => option.label === "Skip").length === 1 ? "skip" : null;
   },
 
-};
+} satisfies IoExports<PluginModule>;
 
 // types shared by the parsers above
 
@@ -1106,4 +1043,4 @@ function parseSessionMessages(text: SessionRecordInput): unknown[] {
   return out;
 }
 
-export default plugin;
+export default defineProviderIo(plugin, () => host.io) satisfies PluginModule;

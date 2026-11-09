@@ -6,7 +6,12 @@ export interface AccountIdentity {
   photo_url?: string | null;
 }
 export type SignInStage = "preparation" | "browser" | "callback" | "redemption" | "credential_save" | "publication";
-export type SignInError = "configuration" | "invalid_callback" | "wrong_state" | "consumed" | "timeout" | "cancelled" | "pending" | "transport" | "provider" | "credentials" | "browser";
+export type SignInError = "configuration" | "invalid_callback" | "wrong_state" | "consumed" | "timeout" | "cancelled" | "pending" | "transport" | "provider" | "credentials" | "browser" | "target_mismatch";
+export interface TargetMismatch {
+  saved: string | null;
+  build: string;
+  reason: string;
+}
 export interface SignInFailure {
   stage: SignInStage;
   error: SignInError;
@@ -18,9 +23,13 @@ export interface AccountStatus {
   session_revoked?: boolean;
   server_stop_unconfirmed?: boolean;
   last_sign_in_failure?: SignInFailure | null;
+  /** Signed out: the saved sign-in belongs to another account target than this build. */
+  target_mismatch?: TargetMismatch | null;
+  /** The remote purchase switch; purchase is on only when this is exactly true. */
+  purchases_enabled?: boolean;
 }
 export type AccountModel =
-  | { kind: "signed_out"; sessionRevoked?: boolean }
+  | { kind: "signed_out"; sessionRevoked?: boolean; targetMismatch?: string }
   | { kind: "pending" }
   | { kind: "signed_in"; identity: AccountIdentity; sessionOnly?: boolean }
   | { kind: "error"; message: string; failure?: SignInFailure };
@@ -29,7 +38,8 @@ export const SESSION_REVOKED_MESSAGE = "This machine was signed out from your ac
 export function accountModel(status: AccountStatus): AccountModel {
   if (status.pending) return { kind: "pending" };
   if (status.last_sign_in_failure) return { kind: "error", message: signInFailureMessage(status.last_sign_in_failure), failure: status.last_sign_in_failure };
-  return status.identity ? { kind: "signed_in", identity: status.identity, ...(status.session_only ? { sessionOnly: true } : {}) } : { kind: "signed_out", ...(status.session_revoked ? { sessionRevoked: true } : {}) };
+  if (status.identity) return { kind: "signed_in", identity: status.identity, ...(status.session_only ? { sessionOnly: true } : {}) };
+  return { kind: "signed_out", ...(status.session_revoked ? { sessionRevoked: true } : {}), ...(status.target_mismatch ? { targetMismatch: status.target_mismatch.reason } : {}) };
 }
 export function accountInitials(name: string): string {
   const parts = name.replace(/@.*/, "").split(/[\s._-]+/).filter(Boolean);

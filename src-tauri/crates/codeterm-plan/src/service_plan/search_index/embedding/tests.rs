@@ -23,9 +23,11 @@ fn row_jobs_for_all_plans_precede_embedding_backlog() {
     for unit in plan_units(&plan, &project_scope(root.path())) {
         queue.enqueue(IndexJob::Embed(root.path().to_path_buf(), unit));
     }
-    queue.enqueue(IndexJob::Plan(second.clone(), PlanIndexScope::Full));
+    queue.enqueue(IndexJob::PlanSnapshot(PlanSearchSnapshot::from_plan(
+        &second,
+    )));
     let (key, project, job) = queue.take();
-    assert!(matches!(job, IndexJob::Plan(ref snapshot, _) if snapshot.id == second.id));
+    assert!(matches!(job, IndexJob::PlanSnapshot(ref snapshot) if snapshot.id == second.id));
     queue.complete(key, project, false);
     assert!(matches!(queue.take().2, IndexJob::Embed(..)));
 }
@@ -40,7 +42,7 @@ fn queued_embedding_cannot_recreate_deleted_units() {
         OrchestratorRef::default(),
     );
     let units = mirror_plan(&plan, false).unwrap();
-    delete_plan_units(&plan).unwrap();
+    delete_plan_units(&plan.clone().into()).unwrap();
     for unit in units {
         embed_current_with(root.path(), &unit, |_, _| {
             panic!("deleted row reached embedder")

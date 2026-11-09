@@ -29,7 +29,7 @@ fn bounded_reader_refuses_an_installation_that_holds_the_bundle() {
         .install(|| {
             let reader = access.clone();
             std::thread::spawn(move || {
-                assert!(reader.read_until(std::time::Instant::now()).is_err());
+                assert!(reader.try_read().is_err());
             })
             .join()
             .unwrap();

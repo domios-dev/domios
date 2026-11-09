@@ -72,7 +72,7 @@ fn team_close_skips_remote_lane_without_touching_peer_worktree() {
         )
         .unwrap();
     store
-        .with_plan(&plan_id, 3, |plan| {
+        .edit_plan_fixture(&plan_id, 3, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()
@@ -93,8 +93,8 @@ fn team_close_skips_remote_lane_without_touching_peer_worktree() {
         })
         .unwrap();
 
-    let plan_snapshot = store.get(&plan_id).unwrap();
-    assert!(super::super::close::team_close_lanes(&[plan_snapshot], &team_id, &[]).is_empty());
+    let plans = store.team_close_projection(&team_id, &[]).unwrap();
+    assert!(super::super::close::team_close_lanes(&plans, &team_id, &[]).is_empty());
 
     let events = codeterm_events::EventBroadcaster::new();
     close_team_with_state_change(
@@ -850,7 +850,11 @@ fn team_close_inventory_includes_terminal_unplanned_child_and_worktree_less_lane
     };
     store.save(&mut plan, 4).unwrap();
 
-    let lanes = team_close_lanes(&store.all_plans_for_test(), &team_id, &[]);
+    let lanes = team_close_lanes(
+        &store.team_close_projection(&team_id, &[]).unwrap(),
+        &team_id,
+        &[],
+    );
 
     assert_eq!(lanes.len(), 2);
     assert!(lanes.iter().any(|lane| {

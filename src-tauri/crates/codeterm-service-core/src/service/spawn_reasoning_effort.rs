@@ -10,6 +10,9 @@ pub fn validate_agent_reasoning_effort(
     let Some(effort) = effort.map(str::trim).filter(|e| !e.is_empty()) else {
         return Ok(());
     };
+    if super::spawn_model_catalogue::profile_scoped_options(registry, provider_id) {
+        return Ok(());
+    }
     match registry.with_provider(provider_id, |p| {
         if let Some(model) = model {
             let supported = p.reasoning_efforts_for_model(Some(model));

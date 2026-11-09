@@ -88,3 +88,33 @@ fn network_transport_core_selects_capabilities_and_provider_addresses() {
     status.state = TransportState::NotRunning;
     assert!(listener_addresses(&status, true, 7685).is_empty());
 }
+#[test]
+fn transport_and_listener_order_changes_do_not_emit_gate_changes() {
+    let mut manager = crate::MeshManager::in_memory(
+        crate::types::MeshIdentity {
+            instance_id: "local".into(),
+            private_key: None,
+            public_key: None,
+        },
+        "Local".into(),
+        7685,
+    );
+    let mut status = OtherTransport.detect();
+    status.addresses = vec![
+        concat!("100.", "64.0.9").parse().unwrap(),
+        concat!("fd7a:", "115c:a1e0::9").parse().unwrap(),
+    ];
+    assert!(manager.set_network_transport(status.clone()));
+    status.addresses.reverse();
+    status
+        .addresses
+        .push(concat!("100.", "64.0.9").parse().unwrap());
+    status.addresses.push("fe80::1".parse().unwrap());
+    assert!(!manager.set_network_transport(status));
+    let listeners = vec![
+        concat!("100.", "64.0.9:7685").parse().unwrap(),
+        concat!("[fd7a:", "115c:a1e0::9]:7685").parse().unwrap(),
+    ];
+    assert!(manager.set_ready_listeners(listeners.clone()));
+    assert!(!manager.set_ready_listeners(vec![listeners[1], listeners[0], listeners[1]]));
+}

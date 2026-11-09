@@ -1,7 +1,7 @@
 use super::*;
 use crate::plan::lane_liveness::{DEFAULT_T_OVERDUE_MS, DEFAULT_T_STALL_MS};
 use crate::plan::reconcile::TabProbe;
-use crate::plan::{OrchestratorRef, Plan, TaskLaneMetadata, TaskStatus};
+use crate::plan::{OrchestratorRef, Plan, Task, TaskLaneMetadata, TaskStatus};
 
 fn plan_with(tasks: Vec<Task>) -> Plan {
     let mut p = Plan::new("Lanes".into(), "/repo".into(), OrchestratorRef::default());

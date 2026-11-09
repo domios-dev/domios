@@ -2,17 +2,38 @@ use super::*;
 use crate::js_runtime::SerdeModelInfo;
 
 impl JsProvider {
-    pub(super) fn js_discover_models(&self) -> Option<Vec<ModelInfo>> {
+    pub(super) async fn js_discover_models(&self) -> Option<Vec<ModelInfo>> {
         if !self.has_js("discoverModels") {
             return None;
         }
-        let _catalogue = self.vm.catalogue_gate.lock();
-        let fingerprint = self.vm.binary_fingerprint();
-        // `null` is the plugin's honest "no genuine discovery" signal — it must
-        // not deserialize-fail into warn noise, and never falls back to a seed.
-        self.try_call::<Option<Vec<SerdeModelInfo>>>("discoverModels", &[json!(fingerprint)])
-            .flatten()
-            .map(|models| models.iter().map(ModelInfo::from).collect())
+        let result = crate::js_runtime::vm::with_blocking_operation_interruptible(
+            self.vm.clone(),
+            (
+                crate::converter::ConversionCancellation::default(),
+                std::time::Instant::now() + crate::model_catalog::MODEL_DISCOVERY_DEADLINE,
+            ),
+            |vm, context| {
+                let _catalogue = vm.catalogue_gate.enter(&context)?;
+                let fingerprint = vm.binary_fingerprint();
+                crate::js_runtime::vm::call_in_operation::<Option<Vec<SerdeModelInfo>>>(
+                    vm,
+                    "discoverModels",
+                    &[json!(fingerprint)],
+                    context,
+                )
+            },
+        )
+        .await;
+        match result {
+            Ok(models) => models.map(|models| models.iter().map(ModelInfo::from).collect()),
+            Err(error) => {
+                log::warn!(
+                    "[plugin {}] discoverModels failed: {error}",
+                    self.manifest.id
+                );
+                None
+            }
+        }
     }
 
     pub(super) fn js_model_launch_args(&self, model: &str) -> Vec<String> {

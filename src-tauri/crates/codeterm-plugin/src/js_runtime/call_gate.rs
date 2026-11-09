@@ -42,7 +42,7 @@ pub(super) fn reset(name: &str) {
 }
 
 /// Park until `name` opens. Unbounded on purpose: the opener is the test.
-fn wait(name: &str) {
+pub(super) fn wait(name: &str) {
     let g = gate(name);
     let mut open = g.open.lock();
     while !*open {

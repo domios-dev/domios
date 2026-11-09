@@ -87,14 +87,17 @@ impl ServiceContext {
         &self,
         tab_id: &str,
     ) -> Result<TabRestartSnapshot, AgentRestartError> {
-        let mut mux = self.mux.write();
-        let resolved = mux
-            .resolve_tab_id(tab_id)
-            .ok_or_else(|| AgentRestartError::NotFound(format!("Tab {} not found", tab_id)))?;
-        let tab = mux
-            .get_tab(&resolved)
-            .cloned()
-            .ok_or_else(|| AgentRestartError::NotFound(format!("Tab {} not found", tab_id)))?;
+        let (resolved, tab) = {
+            let mux = self.mux.read();
+            let resolved = mux
+                .resolve_tab_id(tab_id)
+                .ok_or_else(|| AgentRestartError::NotFound(format!("Tab {} not found", tab_id)))?;
+            let tab = mux
+                .get_tab(&resolved)
+                .cloned()
+                .ok_or_else(|| AgentRestartError::NotFound(format!("Tab {} not found", tab_id)))?;
+            (resolved, tab)
+        };
 
         let provider = tab
             .agent_type
@@ -123,7 +126,26 @@ impl ServiceContext {
         )
         .map_err(AgentRestartError::BadRequest)?
         .is_some();
-        if let Some(live_tab) = mux.get_tab_mut(&resolved) {
+        {
+            let mut mux = self.mux.write();
+            let live_tab = mux.get_tab_mut(&resolved).ok_or_else(|| {
+                AgentRestartError::NotFound(format!("Tab {resolved} disappeared"))
+            })?;
+            if live_tab.pty_id != tab.pty_id
+                || live_tab.agent_type != tab.agent_type
+                || live_tab.agent_session_id != tab.agent_session_id
+                || live_tab.session_binding_nonce != tab.session_binding_nonce
+                || live_tab.reported_session_binding_nonce != tab.reported_session_binding_nonce
+                || live_tab.role != tab.role
+                || live_tab.role_profile != tab.role_profile
+                || live_tab.team_id != tab.team_id
+                || live_tab.cwd != tab.cwd
+            {
+                return Err(AgentRestartError::BadRequest(
+                    "restart snapshot conflict: launch or placement changed; retry by intent"
+                        .into(),
+                ));
+            }
             live_tab.auto_approve = auto_approve;
         }
 
@@ -139,5 +161,14 @@ impl ServiceContext {
             role_profile: tab.role_profile.clone(),
             handoff_history: None,
         })
+    }
+}
+
+#[cfg(any(test, feature = "test-support"))]
+impl ServiceContext {
+    pub fn snapshot_restart_state_for_test(&self, tab: &str) -> Result<(), String> {
+        self.snapshot_tab_restart_state(tab)
+            .map(|_| ())
+            .map_err(|error| format!("{error:?}"))
     }
 }

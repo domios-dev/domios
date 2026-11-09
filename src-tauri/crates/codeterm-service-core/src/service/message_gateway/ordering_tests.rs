@@ -109,6 +109,7 @@ fn bind_live_worker_session(bw: &BoundWorker) {
             None,
             Some("worker-session"),
             Some("worker-nonce"),
+            None,
             4,
         )
         .unwrap();
@@ -341,4 +342,32 @@ fn dispatched_brief_still_arms_and_provider_stop_still_fabricates_handoff() {
             .any(|m| m.text.contains("automatic provider-stop handoff")),
         "the synthetic Partial must persist as a task milestone"
     );
+}
+
+#[test]
+fn post_submit_sql_failure_keeps_accepted_delivery_and_report_obligation() {
+    let bw = seed_bound_worker();
+    let service = &bw.fx.service;
+    let connection =
+        rusqlite::Connection::open(bw.fx.temp.path().join(".domios").join("plans.db")).unwrap();
+    connection.execute_batch("DROP TABLE plan_tasks").unwrap();
+    let envelope = MessageEnvelope::tab("Orchestrator", bw.orch.clone());
+    let body = "opaque post-submit payload";
+    let expected = body.to_string();
+    let delivered = service.gateway_deliver_with_pad_file(
+        &bw.worker,
+        envelope,
+        body,
+        DeliveryClass::AgentTraffic,
+    );
+    assert!(
+        delivered.is_ok(),
+        "SQL failure cannot downgrade an accepted send: {delivered:?}"
+    );
+    assert!(
+        delivered.unwrap().0.is_written(),
+        "the ready recipient is written synchronously"
+    );
+    assert_eq!(*bw._worker_deliveries.texts.lock(), vec![expected]);
+    assert!(service.gateway.worker_report_required(&bw.worker));
 }

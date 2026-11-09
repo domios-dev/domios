@@ -99,13 +99,16 @@ impl ServiceContext {
             ..Default::default()
         };
         validate_request(&self.mux.read(), &general, &request)?;
+        crate::service::execution_sandbox::enforce_delegation_ceiling(
+            self,
+            &crate::service::SpawnAgentParams::default(),
+            None,
+        )?;
         self.require_agent_provider_ready(&request.provider_id)?;
         let permission_bypass = crate::service::permission_policy::authorize_permission_bypass(
             &self.agent_registry,
             &request.provider_id,
-            crate::service::permission_policy::require_full_access_choice(
-                config.lock().agent.full_access,
-            )?,
+            true,
         )
         .is_some();
         let chat_view = super::default_chat_view_for_provider(

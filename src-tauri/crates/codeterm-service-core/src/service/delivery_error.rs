@@ -214,10 +214,12 @@ impl DeliveryError {
                 detail,
             };
         }
-        if detail.starts_with("tab_busy_refused:") {
+        if let Some(refusal) = detail.strip_prefix("tab_busy_refused:") {
+            let lead = format!("Tab {tab} refused delivery (nothing written): ");
+            let refusal = refusal.trim_start();
             return Self::TabBusyRefused {
                 tab: tab.to_string(),
-                detail,
+                detail: refusal.strip_prefix(&lead).unwrap_or(refusal).to_string(),
             };
         }
         if detail.starts_with("pty_unavailable:") {
@@ -238,6 +240,7 @@ impl DeliveryError {
         match err {
             // Verification gates that run BEFORE the paste — nothing was written.
             InjectionError::PromptNeverReady { .. }
+            | InjectionError::WriteQueueFull { .. }
             | InjectionError::AgentTuiPresent { .. }
             | InjectionError::AgentInputUnavailable { .. } => Self::TabBusyRefused { tab, detail },
             InjectionError::PtyClosed { .. } => Self::PtyUnavailable { tab, detail },

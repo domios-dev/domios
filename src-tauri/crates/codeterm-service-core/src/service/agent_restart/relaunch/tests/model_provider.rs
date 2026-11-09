@@ -72,7 +72,7 @@ fn model_provider_fresh_pty_resume_keeps_tab_session_and_transcript() {
             .map(|built| svc.pty.lock().register_session(None, built))
     }
     .unwrap();
-    let claim = svc.pty_ownership.acquire(&tab_id);
+    let claim = svc.pty_ownership.acquire(&tab_id).unwrap();
     let first = svc.link_pty_with_claim(&claim, &tab_id, old_id.clone(), true);
     assert!(first.linked);
     let snapshot = TabRestartSnapshot {

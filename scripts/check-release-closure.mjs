@@ -16,7 +16,7 @@ function verifyRecord(record, version, platforms, deb) {
   const url = new URL(record.manifest);
   const filename = deb ? 'domios-latest-deb.json' : 'domios-latest.json';
   if (url.protocol !== 'https:' || url.host !== 'github.com' || !url.searchParams.has('cb')
-    || url.pathname !== `/rollacode/codeterm-releases/releases/download/v${version}/${filename}`) {
+    || url.pathname !== `/domios-dev/domios/releases/download/v${version}/${filename}`) {
     throw new Error('Verification must cite this public release manifest');
   }
 }

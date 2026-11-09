@@ -24,8 +24,7 @@ mod directory_trust;
 mod model_launch;
 mod session_detection;
 mod session_wire;
-
-use session_wire::WireUsageSource;
+mod usage_sources;
 
 #[async_trait::async_trait]
 impl AgentProvider for JsProvider {
@@ -60,7 +59,8 @@ impl AgentProvider for JsProvider {
     }
 
     fn agent_runtime(&self) -> Option<crate::agent_runtime::AgentRuntimeCapability> {
-        self.manifest.capabilities.agent_runtime.clone()
+        let capability = self.manifest.capabilities.agent_runtime.clone()?;
+        crate::agent_runtime::owner_profiles::overlay(&self.manifest.id, capability).ok()
     }
 
     fn runtime_stored_history_available(&self, cwd: &str, session_id: &str) -> bool {
@@ -78,8 +78,9 @@ impl AgentProvider for JsProvider {
     fn authorize_agent_runtime(
         &self,
         authority: &crate::agent_runtime::LaunchAuthority,
+        profile: Option<&str>,
     ) -> Result<PathBuf, super::super::manifest::RuntimeManifestError> {
-        self.manifest.authorize_agent_runtime(authority)
+        self.manifest.authorize_agent_runtime(authority, profile)
     }
 
     async fn runtime_plan(
@@ -114,10 +115,10 @@ impl AgentProvider for JsProvider {
     }
 
     fn auth_status_probe(&self) -> Option<provider::AuthStatusProbe> {
-        self.try_call("authStatusProbe", &[]).flatten()
+        self.static_capabilities.auth_status_probe.clone()
     }
     fn tracks_background_work(&self) -> bool {
-        self.try_call("tracksBackgroundWork", &[]).unwrap_or(false)
+        self.static_capabilities.tracks_background_work
     }
     fn capability_probe(&self) -> Option<provider::CapabilityProbe> {
         self.manifest.spawn.capability_probe
@@ -548,40 +549,20 @@ impl AgentProvider for JsProvider {
         self.js_session_file_path(cwd, session_id)
     }
 
+    fn session_file_path_checked(
+        &self,
+        cwd: &str,
+        session_id: &str,
+    ) -> Result<Option<PathBuf>, String> {
+        self.js_session_file_path_checked(cwd, session_id)
+    }
+
     fn additional_usage_sources(&self, session_file: &Path, session_id: &str) -> Vec<PathBuf> {
-        if !self.has_js("sessionUsageSources") {
-            return self
-                .native()
-                .map(|n| n.additional_usage_sources(session_file, session_id))
-                .unwrap_or_default();
-        }
-        self.try_call::<Vec<String>>(
-            "sessionUsageSources",
-            &[json!(session_file.to_string_lossy()), json!(session_id)],
-        )
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|path| !path.is_empty())
-        .map(PathBuf::from)
-        .collect()
+        self.js_additional_usage_sources(session_file, session_id)
     }
 
     fn usage_sources(&self, cwd: &str, session_id: &str) -> Vec<UsageSourceSpec> {
-        if self.has_js("usageSources") {
-            // An exported `usageSources` is authoritative: a null or failed reply
-            // declares no source and must not fall back to a fabricated file.
-            return self
-                .try_call::<Vec<WireUsageSource>>("usageSources", &[json!(cwd), json!(session_id)])
-                .unwrap_or_default()
-                .into_iter()
-                .filter(|source| !source.path.is_empty())
-                .map(|source| UsageSourceSpec {
-                    path: PathBuf::from(source.path),
-                    session_id: source.session_id.filter(|id| !id.is_empty()),
-                })
-                .collect();
-        }
-        provider::usage_sources_from_session_file(self, cwd, session_id)
+        self.js_usage_sources(cwd, session_id)
     }
 
     fn session_exists(&self, cwd: &str, session_id: &str) -> Option<bool> {
@@ -754,7 +735,7 @@ impl AgentProvider for JsProvider {
         self.native().and_then(|n| n.find_session(session_id))
     }
 
-    fn parse_session_messages(&self, file_path: &Path) -> Vec<SessionMessage> {
+    fn parse_session_messages(&self, file_path: &Path) -> Result<Vec<SessionMessage>, String> {
         self.js_parse_session_messages(file_path)
     }
 
@@ -779,8 +760,8 @@ impl AgentProvider for JsProvider {
     }
 
     fn uses_structured_chat(&self) -> bool {
-        if self.has_js("usesStructuredChat") {
-            return self.try_call("usesStructuredChat", &[]).unwrap_or(false);
+        if let Some(structured_chat) = self.static_capabilities.structured_chat {
+            return structured_chat;
         }
         self.native()
             .map(|n| n.uses_structured_chat())
@@ -1026,6 +1007,14 @@ impl AgentProvider for JsProvider {
         self.has_js("fetchUsage")
     }
 
+    fn read_profile_limits(
+        &self,
+        profile: &str,
+        source: &crate::agent_runtime::RuntimeProfileLimitsSource,
+    ) -> Option<Result<String, String>> {
+        self.js_read_profile_limits(profile, source)
+    }
+
     fn fetch_usage(&self) -> Option<Result<String, String>> {
         if !self.has_js("fetchUsage") {
             return None;
@@ -1120,7 +1109,7 @@ impl AgentProvider for JsProvider {
     }
 
     async fn discover_models(&self) -> Option<Vec<ModelInfo>> {
-        self.js_discover_models()
+        self.js_discover_models().await
     }
 
     fn default_model(&self) -> Option<String> {

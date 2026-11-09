@@ -1,7 +1,7 @@
+import type { PlanView as Plan } from "../planProjection";
 import { useCallback, useMemo, useState } from "react";
 import type { ApiConfig } from "../../../lib/types";
 import { archivePlan, renamePlan, unarchivePlan } from "../plansApi";
-import type { Plan } from "../types";
 import type { PlanKebabAction, PlanSwitcherOption } from "./PlanSwitcher";
 
 function activePlansFrom(

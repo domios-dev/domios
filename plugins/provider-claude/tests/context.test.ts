@@ -1,10 +1,12 @@
+import { ioTestExport, ioTestContext } from "../../provider-shared/tests/hostIo";
 import { quoteNativeArgument } from "../../provider-shared/nativeArgument";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
-import { parseContextUsage, composeSettingsArgs, statuslineSettings, STATUSLINE_FLAG } from "../src/context";
+import { parseContextUsage, composeSettingsArgs as ioSource_composeSettingsArgs, statuslineSettings, STATUSLINE_FLAG } from "../src/context";
+const composeSettingsArgs = ioTestExport(ioSource_composeSettingsArgs);
 
 let checks = 0;
 function check(run: () => void) { run(); checks++; }
@@ -96,7 +98,7 @@ const readonlyHost = {
     writeJson: () => { writes++; throw new Error("unexpected settings write"); }},
 };
 const sandbox = {module:{exports:{} as any},exports:{},host:readonlyHost};
-vm.runInNewContext(source, sandbox);
+vm.runInNewContext(source, ioTestContext(sandbox));
 const plugin = sandbox.module.exports.default;
 check(() => assert.deepEqual(JSON.parse(JSON.stringify(plugin.parseContextUsage(record))), parseContextUsage(record)));
 const delta = plugin.parseSessionDelta(JSON.stringify({type:"assistant",uuid:"own",message:{content:[{type:"text",text:"opaque"}],usage:{input_tokens:9,cache_read_input_tokens:2}}}));

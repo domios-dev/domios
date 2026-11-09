@@ -190,8 +190,11 @@ async function main() {
     nativeBridge.updater.check = async () => { throw new Error("offline"); };
     await act(async () => { await state().refresh(true, { silent: true }); });
     assert.equal(state().error, null);
+    // A failed explicit check is no update: no error, and the status returns to what was last known.
+    const known = state().status;
     await act(async () => { await state().refresh(true); });
-    assert.equal(state().error, "offline");
+    assert.equal(state().error, null);
+    assert.equal(state().status, known);
     nativeBridge.updater.check = async () => updateInfo;
     let finishCheck!: (value: UpdateInfo) => void;
     nativeBridge.updater.check = () => new Promise(resolve => { finishCheck = resolve; });
@@ -259,6 +262,25 @@ async function main() {
       assert.equal(requests, 1);
     }
     await unmountFailure();
+    checkAvailability = async () => currentAvailability;
+    nativeBridge.updater.check = async () => updateInfo;
+    nativeBridge.updater.status = async () => runtimeStatus("idle");
+    const unmountDiscovery = await mount();
+    const checkCompletions: Array<(value: UpdateInfo) => void> = [];
+    nativeBridge.updater.check = () => new Promise(resolve => { checkCompletions.push(resolve); });
+    let firstCheck!: Promise<void>, secondCheck!: Promise<void>;
+    await act(async () => { firstCheck = state().refresh(); secondCheck = state().refresh(); });
+    await act(async () => { checkCompletions[1]({ ...updateInfo, latest_version: "3.0.0" }); await secondCheck; });
+    await act(async () => { checkCompletions[0](updateInfo); await firstCheck; });
+    assert.equal(state().latestVersion, "3.0.0");
+    await act(async () => { firstCheck = state().refresh(); });
+    await act(async () => events.get("update-available")?.({ ...updateInfo, latest_version: "4.0.0" }));
+    await act(async () => { checkCompletions[2](updateInfo); await firstCheck; });
+    assert.equal(state().latestVersion, "4.0.0");
+    await act(async () => { firstCheck = state().refresh(); });
+    await unmountDiscovery();
+    checkCompletions[3](updateInfo);
+    await firstCheck;
   } finally {
     nativeBridge.updater = undefined;
     __setInvokeForTest(null);

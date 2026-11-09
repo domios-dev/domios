@@ -59,7 +59,7 @@ fn dispatch_placement_read_only_keeps_canonical_metadata_empty() {
             4,
         )
         .unwrap();
-    let task = store.show_task(&task).unwrap().task;
+    let task = store.inspect_task_for_test(&task).unwrap().task;
     assert!(task.lane.worktree_path.is_none());
 }
 
@@ -104,7 +104,7 @@ fn dispatch_placement_destination_update_preserves_the_starting_owner() {
     );
     assert_eq!(
         store
-            .show_task(&task)
+            .inspect_task_for_test(&task)
             .unwrap()
             .task
             .lane

@@ -120,7 +120,15 @@ impl AgentCommandProvider for JsAgentCommandHandler {
                     })
                 }
             }
-            Err(e) => Err(format!("plugin onAgentCommand failed: {e:?}")),
+            Err(super::vm::VmError::AsyncJobTimedOut) => Err(format!(
+                "plugin {} onAgentCommand {verb} exceeded its {} ms call deadline",
+                self.vm.plugin_id(),
+                super::host_exec::wait_bound(self.vm.plugin_id()).as_millis()
+            )),
+            Err(e) => Err(format!(
+                "plugin {} onAgentCommand {verb} failed: {e}",
+                self.vm.plugin_id()
+            )),
         }
     }
 }

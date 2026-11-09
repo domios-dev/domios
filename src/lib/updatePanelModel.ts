@@ -2,6 +2,7 @@ import type { UpdateFailure } from "./updateStatusModel";
 import type { UpdateAvailabilityItem } from "./updateAvailability";
 
 export const UPDATE_INTENT_KEY = "codeterm.update-all.intent";
+export const CORE_PLUGIN_CHANNEL = "codeterm-core";
 
 export type UpdateGroup = "App" | "Interface" | "Plugins";
 
@@ -10,14 +11,26 @@ export interface UpdateItem {
   group: UpdateGroup;
   name: string;
   currentVersion: string;
-  targetVersion: string;
+  /** A version strictly newer than the current one, or null when nothing newer is known. */
+  targetVersion: string | null;
   channel?: string;
+  /** The row's source failed its last check, so it cannot apply; shown only as `lastKnown`. */
   channelError?: string;
-  sourceWarning?: string;
+  /** What the last successful check established, set while the row's source is unavailable. */
+  lastKnown?: string;
 }
 
 export function updateSourceMessage(error: string): string {
-  return error.match(/GitHub rate limit, retry at \d{2}:\d{2}/)?.[0] ?? error;
+  return error.match(/GitHub rate limit, retry at \d{2}:\d{2}/)?.[0]
+    ?? error.replace(/^Failed to fetch release: /, "").replace(/^Plugin channel unavailable: /, "").replace(/ Domios will retry\.$/, "");
+}
+
+/** Names an availability error key: the app and interface feeds, discovery itself, or a plugin channel. */
+export function updateSourceLabel(key: string): string {
+  if (key === "app") return "App update channel";
+  if (key === "frontend") return "Interface update channel";
+  if (key === "discovery") return "Update discovery";
+  return `${key} plugin channel`;
 }
 
 export function groupUpdates(items: readonly UpdateItem[]) {
@@ -84,6 +97,17 @@ export function appIntentSatisfied(intent: UpdateIntent, hostVersion: string): b
   return comparison !== null && comparison >= 0;
 }
 
+/** A restored app marker with nothing left to do once the running version reached its target. */
+export function appIntentFinished(intent: UpdateIntent, hostVersion: string): boolean {
+  return intent.stage === "app" && appIntentSatisfied(intent, hostVersion)
+    && intent.pluginIds.length === 0 && !intent.interfaceRequested;
+}
+
+function isNewerVersion(installed: string, target: string): boolean {
+  const comparison = compareAppVersions(installed, target);
+  return comparison === null ? installed !== target : comparison < 0;
+}
+
 export function nextUpdateStep(intent: UpdateIntent, hostVersion: string, items: readonly UpdateItem[]): UpdateStep {
   if (intent.stage === "app" && !appIntentSatisfied(intent, hostVersion)) return { kind: "waitForApp" };
   const plugin = items.find(item => item.group === "Plugins" && intent.pluginIds.includes(item.id));
@@ -114,9 +138,19 @@ export function readUpdateIntent(value: string | null): UpdateIntent | null {
 
 
 export function hasUpdateBadge(item: UpdateAvailabilityItem | undefined): boolean {
-  if (item?.state === "ready_to_apply") return item.kind === "frontend" && item.compatible && item.latest !== null;
+  if (item?.state === "ready_to_apply") {
+    return item.kind === "frontend" && item.compatible && item.latest !== null
+      && (item.installed === null || isNewerVersion(item.installed, item.latest));
+  }
   return item?.state === "update_available" && item.compatible
-    && item.installed !== null && item.latest !== null && item.installed !== item.latest;
+    && item.installed !== null && item.latest !== null && isNewerVersion(item.installed, item.latest);
+}
+
+function lastKnownUpdateState(item: UpdateAvailabilityItem): string {
+  if (hasUpdateBadge(item)) return "Found at last check";
+  if (item.latest === null || item.reason === "not_checked") return "Not checked yet";
+  if (!item.compatible) return `${item.latest} is not compatible with this install`;
+  return "Up to date at last check";
 }
 
 export function updateableItems(
@@ -131,18 +165,21 @@ export function panelItems(
   items: readonly UpdateAvailabilityItem[],
   channelErrors: Readonly<Record<string, string>> = {},
 ): UpdateItem[] {
-  return items.filter(item => hasUpdateBadge(item) || (item.kind !== "plugin" && Boolean(channelErrors[item.id])) || (item.kind === "plugin" && item.installed !== null && item.state !== "core_silent"
-    && item.channel !== null && Boolean(channelErrors[item.channel])))
-    .map(item => ({
-    id: item.id,
-    group: item.kind === "app" ? "App" : item.kind === "frontend" ? "Interface" : "Plugins",
-    name: item.kind === "app" ? "Domios" : item.kind === "frontend" ? "Interface" : item.id,
-    currentVersion: item.installed ?? "Bundled", targetVersion: item.latest ?? item.installed ?? "Unknown",
-    channel: item.channel ?? undefined,
-    channelError: item.kind === "plugin" && item.channel ? channelErrors[item.channel]
-      : item.kind !== "plugin" && item.reason !== "cached_manifest" ? channelErrors[item.id] : undefined,
-    sourceWarning: item.reason === "cached_manifest" ? channelErrors[item.id] : undefined,
-  }));
+  return items.filter(item => hasUpdateBadge(item) || (item.kind !== "plugin" && Boolean(channelErrors[item.id])))
+    .map(item => {
+      const channelError = item.kind === "plugin" && item.channel ? channelErrors[item.channel]
+        : item.kind !== "plugin" && item.reason !== "cached_manifest" ? channelErrors[item.id] : undefined;
+      return {
+        id: item.id,
+        group: item.kind === "app" ? "App" : item.kind === "frontend" ? "Interface" : "Plugins",
+        name: item.kind === "app" ? "Domios" : item.kind === "frontend" ? "Interface" : item.id,
+        currentVersion: item.installed ?? "Bundled",
+        targetVersion: hasUpdateBadge(item) ? item.latest : null,
+        channel: item.channel ?? undefined,
+        channelError,
+        lastKnown: channelError ? lastKnownUpdateState(item) : undefined,
+      };
+    });
 }
 
 export function availabilityIntent(items: readonly UpdateAvailabilityItem[]): UpdateIntent {
@@ -156,7 +193,7 @@ export function availabilityIntent(items: readonly UpdateAvailabilityItem[]): Up
 
 
 export type UpdateOutcome = "completed" | "failed";
-export type UpdateRow = UpdateItem & { state: UpdateOutcome | "active" | "queued" | "available"; alreadyCurrent: boolean };
+export type UpdateRow = UpdateItem & { state: UpdateOutcome | "active" | "queued" | "available" | "last_known"; alreadyCurrent: boolean };
 
 export interface UpdatePanelSummary {
   tone: "red" | "accent" | "green" | "muted";
@@ -168,7 +205,7 @@ function count(n: number, noun: string): string {
   return `${n} ${noun}${n === 1 ? "" : "s"}`;
 }
 
-export function summarizeUpdatePanel(rows: readonly UpdateRow[], { busy, failed }: { busy: boolean; failed: boolean }): UpdatePanelSummary {
+export function summarizeUpdatePanel(rows: readonly UpdateRow[], { busy, failed, sourcesFailed = false }: { busy: boolean; failed: boolean; sourcesFailed?: boolean }): UpdatePanelSummary {
   const available = rows.filter(row => !row.channelError && row.state === "available").length;
   const completed = rows.filter(row => row.state === "completed").length;
   if (busy) {
@@ -178,17 +215,15 @@ export function summarizeUpdatePanel(rows: readonly UpdateRow[], { busy, failed 
   }
   if (failed) {
     const attempted = rows.filter(row => row.state === "failed" && !row.channelError).length;
-    const unreachable = rows.some(row => row.channelError);
-    return { tone: "red", label: "Update sources or actions failed",
-      sentence: attempted ? `${count(attempted, "update")} failed` : unreachable ? "An update source is unavailable" : "Update failed" };
+    return { tone: "red", label: "Update failed", sentence: attempted ? `${count(attempted, "update")} failed` : "Update failed" };
   }
   if (available) return { tone: "accent", label: "Updates available", sentence: `${count(available, "update")} available` };
   return { tone: completed ? "green" : "muted", label: "No applicable updates",
-    sentence: completed ? "Everything is updated" : "Everything is up to date" };
+    sentence: completed ? "Everything is updated" : sourcesFailed ? "No updates found" : "Everything is up to date" };
 }
 
 export function targetInstalled(item: UpdateItem, snapshot: readonly UpdateAvailabilityItem[]): boolean {
-  return snapshot.some(current => current.id === item.id && current.installed === item.targetVersion);
+  return item.targetVersion !== null && snapshot.some(current => current.id === item.id && current.installed === item.targetVersion);
 }
 
 export function updateRunRows(runItems: readonly UpdateItem[], items: readonly UpdateItem[], snapshot: readonly UpdateAvailabilityItem[],
@@ -197,7 +232,8 @@ export function updateRunRows(runItems: readonly UpdateItem[], items: readonly U
     const current = items.find(row => row.id === item.id) ?? item;
     const alreadyCurrent = targetInstalled(current, snapshot);
     const outcome = current.targetVersion === item.targetVersion ? outcomes[item.id] : undefined;
-    const state = current.channelError ? "failed" : alreadyCurrent ? "completed" : outcome ?? (activeId === item.id ? "active"
+    // An update the owner started and that failed stays visible; only a failed check reads as last known.
+    const state = outcome === "failed" && !alreadyCurrent ? "failed" : current.channelError ? "last_known" : alreadyCurrent ? "completed" : outcome ?? (activeId === item.id ? "active"
       : intent && (intent.pluginIds.includes(item.id) || (item.group === "Interface" && intent.interfaceRequested)) ? "queued" : "available");
     return { ...current, state, alreadyCurrent };
   });

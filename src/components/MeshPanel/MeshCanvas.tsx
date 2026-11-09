@@ -2,7 +2,7 @@ import { REMOVED_COPY } from "./accountMachines";
 import { peerInventoryModel } from "./peerInventoryModel";
 import type { Service } from "./types";
 import { memo, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Globe } from "lucide-react";
+import { Globe, List, Network } from "lucide-react";
 import { PeerTerminal } from "./PeerTerminal";
 import { lastSeenMs, type AccountCanvas, type AccountCanvasCard, type AccountMachineNode } from "./accountCanvas";
 import { AccountMachineCard, AccountNotes, AccountStateCard, MachineReauthentication, PeerAccountFooterView, type MachineNodeActions } from "./AccountCanvasNodes";
@@ -17,9 +17,10 @@ import { webGraphLayout, webGraphInitialView, WEB_CARD_SCALE, MACHINE_CARD_SCALE
 import { webGatewayGraph } from "./meshProjection";
 import { TailscaleFooter, TailscaleMachineHint, type CanvasTailscale } from "./TailscaleNodes";
 import { differentNetwork } from "./networkTransport";
-import { suggestsRemoteTailscale } from "./tailscaleSetup";
+import { offersTailscaleSetup, suggestsRemoteTailscale } from "./tailscaleSetup";
 import { MachineLimitPaywall } from "./MachineLimitPaywall";
 import type { MyMachines } from "./useMyMachines";
+import { inventoryView, listCardScale, meshZoomStep, offersInventoryList, type InventoryView } from "./meshViewportModel";
 
 export interface RecentPush {
   source_id: string;
@@ -85,11 +86,14 @@ interface Props {
   onOpenPeerWebUi?: (url: string) => void;
   webUiBaseUrl?: string | null;
   webUiToken?: string | null;
+  /** A touch screen: pinch and pan the graph, bigger +/- steps, and on a phone the stacked list first. */
+  touch?: boolean;
 }
 
 const MIN_SCALE = 0.001;
 const MAX_SCALE = 2.5;
-const ZOOM_STEP = 0.06;
+/** The QR in the list's Mesh UI card, at the size the graph card shows it unscaled. */
+const LIST_QR_SIZE = 160;
 const FIT_PADDING = 24;
 const CARD_HALF_WIDTH = MACHINE_CARD_WIDTH / 2;
 
@@ -114,7 +118,12 @@ export const MeshCanvas = memo(function MeshCanvas({
   onOpenPeerWebUi,
   webUiBaseUrl = null,
   webUiToken = null,
+  touch = false,
 }: Props) {
+  const [chosenView, setChosenView] = useState<InventoryView | null>(null);
+  const listOffered = offersInventoryList(width, touch);
+  const shown = inventoryView(width, touch, chosenView);
+  const zoomStep = meshZoomStep(touch);
   const webCardRef = useRef<HTMLDivElement>(null);
   const [webHeight, setWebHeight] = useState(800);
   const [machineHeights, setMachineHeights] = useState<number[]>([]);
@@ -126,7 +135,7 @@ export const MeshCanvas = memo(function MeshCanvas({
     const observer = new ResizeObserver(() => { if (element.offsetHeight > 0) setWebHeight(element.offsetHeight); });
     observer.observe(element);
     return () => observer.disconnect();
-  }, []);
+  }, [shown]);
   const accountNodes = account?.canvas.nodes;
   const accountCard = account?.canvas.card ?? null;
   const extraCount = (accountNodes?.length ?? 0) + (accountCard ? 1 : 0);
@@ -190,7 +199,7 @@ export const MeshCanvas = memo(function MeshCanvas({
     const observer = new ResizeObserver(measure);
     nodes.forEach((node) => observer.observe(node));
     return () => observer.disconnect();
-  }, [layout.length]);
+  }, [layout.length, shown]);
 
   const gateway = { x: width / 2, y: height / 2 };
   const gatewayGraph = webGatewayGraph(peers, meshEnabled);
@@ -202,6 +211,7 @@ export const MeshCanvas = memo(function MeshCanvas({
     fitPadding: FIT_PADDING,
     ignoreSelector: "[data-peer-card]",
     wheelBehavior: "zoom",
+    touch: touch && shown === "graph",
   });
   const userAdjustedRef = useRef(false);
   const fittedBoundsRef = useRef("");
@@ -241,8 +251,93 @@ export const MeshCanvas = memo(function MeshCanvas({
     const name = footer.row.name;
     const seen = peer && !peer.online ? lastSeenMs(peer.last_seen) : null;
     return <PeerAccountFooterView footer={footer} name={name} lastSeen={seen === null ? null : formatAge(seen, account.now)}
-      busy={account.busy === footer.key} actions={account.actions} hint={footer.row.status === "signed_out" ? undefined : tailscaleHint(name, peer?.online ?? false, footer.row.transport)} />;
+      busy={account.busy === footer.key} actions={account.actions} hint={!offersTailscaleSetup(footer.row.status) ? undefined : tailscaleHint(name, peer?.online ?? false, footer.row.transport)} />;
   };
+
+  const machineCard = (p: PeerLayout) => {
+    const row = account?.canvas.peerFooters.get(p.id)?.row;
+    const onRename = account?.actions.onRename;
+    return (
+      p.account && account ? (
+        p.account.kind === "node"
+          ? <AccountMachineCard node={p.account.node} busy={account.busy === p.account.node.key} now={account.now} actions={account.actions}
+            hint={offersTailscaleSetup(p.account.node.row.status) && p.account.node.row.target ? tailscaleHint(p.account.node.name, p.account.node.online === true, p.account.node.row.transport) : undefined} />
+          : <AccountStateCard card={p.account.card} signingIn={account.signingIn} onSignIn={account.onSignIn} onRetry={account.onRetry} />
+      ) : (
+        <div style={{ transform: `scale(${MACHINE_CARD_SCALE})` }}>
+        <PeerTerminal
+          onRename={p.isThisMachine ? account?.onRenameSelf : row?.target && onRename ? (name) => onRename(row, name) : undefined}
+          renameDisabledReason={row && (row.status === "signed_out" || !peers.find((peer) => peer.instance_id === p.id)?.online)
+            ? "Connect to rename it, or rename it on that machine" : undefined}
+          footer={p.isThisMachine ? <>
+            {account?.limitMachines && <MachineLimitPaywall machines={account.limitMachines} />}
+            {account?.removed && <div role="group" aria-label="Rejoin your mesh" onClick={(event) => event.stopPropagation()} className="px-3.5 py-2.5">
+              <p role="status">{REMOVED_COPY}</p>
+              <button type="button" disabled={!!account.busy || account.signingIn} onClick={account.onRejoin}>Sign in and rejoin</button>
+            </div>}
+            {account?.reauthRequired && !account.removed && <MachineReauthentication signingIn={account.signingIn} onSignIn={account.onSignIn} />}
+            {tailscale && <TailscaleFooter tailscale={tailscale} />}
+          </> : peerFooter(p.id)}
+          inventory={peerInventoryModel(services, peers.find((peer) => peer.instance_id === p.id) ?? { instance_id: p.id, name: p.name, online: true }, !!p.isThisMachine, loading, error)}
+          name={p.name}
+          ip={p.ip}
+          isThisMachine={p.isThisMachine}
+          isPaired={p.isPaired}
+          pending={p.pending}
+          accessLevel={p.accessLevel as "full" | "read_only" | "agent_isolated" | undefined}
+          disabled={row?.status === "signed_out"}
+          onClick={() => onPeerClick(p.isThisMachine ? thisMachine.name : peers.find((peer) => peer.instance_id === p.id)?.name ?? p.name)}
+          offline={p.isThisMachine ? !meshEnabled : row?.status === "signed_out" || !peers.find((peer) => peer.instance_id === p.id)?.online}
+          onGoOnline={p.isThisMachine ? onGoOnline : undefined}
+        />
+        </div>
+      )
+    );
+  };
+
+  const viewToggle = listOffered
+    ? <button type="button" data-testid="mesh-inventory-view-toggle" className="ct-bar-pill gap-1.5"
+      aria-label={shown === "list" ? "Show as graph" : "Show as list"}
+      onClick={() => setChosenView(shown === "list" ? "graph" : "list")}>
+      {shown === "list" ? <><Network size={13} aria-hidden="true" />Graph</> : <><List size={13} aria-hidden="true" />List</>}
+    </button>
+    : undefined;
+
+  const accountActions = <>
+    {account?.onRetryEnrollment && <button type="button" onMouseDown={(event) => event.stopPropagation()}
+      disabled={account.busy !== null} aria-busy={account.busy === "enrollment"}
+      onClick={account.onRetryEnrollment} className="ct-btn ct-btn-compact absolute bottom-3 right-3 z-10">Retry enrollment</button>}
+    {account?.moreMachines && <button type="button" onMouseDown={(event) => event.stopPropagation()}
+      onClick={account.onRetry} className="ct-btn ct-btn-compact absolute bottom-3 left-3 z-10">Load more machines</button>}
+  </>;
+
+  if (shown === "list") {
+    const scale = listCardScale(width);
+    return (
+      <div className="relative flex h-full w-full flex-col overflow-hidden" style={{ minHeight: height, background: "var(--ct-bg)" }}>
+        <div className="shrink-0 px-3 pb-2 pt-3">
+          <CanvasToolbar floating={false} label="Mesh inventory controls" view={viewToggle} onRefresh={onRefresh} />
+        </div>
+        <div role="list" aria-label="Machines" data-testid="mesh-inventory-list"
+          className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-16" style={{ touchAction: "pan-y" }}>
+          <div className="mx-auto flex flex-col items-center gap-3">
+            {layout.map((p, i) => (
+              <div key={`${p.id}-${i}`} role="listitem" data-peer-card style={{ zoom: scale }}>{machineCard(p)}</div>
+            ))}
+            {/* On a phone the user is usually already in the web UI, so its QR card follows the machines. */}
+            <div role="listitem" ref={webCardRef} data-peer-card style={{ zoom: scale, width: MACHINE_CARD_WIDTH }}>
+              {webCard ? webCard(LIST_QR_SIZE) : <button type="button" aria-label="Web" aria-pressed={webSelected} onClick={onWebClick}
+                className="w-full rounded-xl border border-[var(--ct-accent)] bg-[var(--ct-bg)] p-4">
+                <Globe size={24} aria-hidden="true" /><strong>Web</strong><span>{webStatus}</span>
+              </button>}
+            </div>
+          </div>
+        </div>
+        {account && <AccountNotes notes={account.canvas.notes} />}
+        {accountActions}
+      </div>
+    );
+  }
 
   return (
     <div
@@ -260,12 +355,8 @@ export const MeshCanvas = memo(function MeshCanvas({
       }}
     >
       {account && <AccountNotes notes={account.canvas.notes} />}
-      {account?.onRetryEnrollment && <button type="button" onMouseDown={(event) => event.stopPropagation()}
-        disabled={account.busy !== null} aria-busy={account.busy === "enrollment"}
-        onClick={account.onRetryEnrollment} className="ct-btn ct-btn-compact absolute bottom-3 right-3 z-10">Retry enrollment</button>}
-      {account?.moreMachines && <button type="button" onMouseDown={(event) => event.stopPropagation()}
-        onClick={account.onRetry} className="ct-btn ct-btn-compact absolute bottom-3 left-3 z-10">Load more machines</button>}
-      <CanvasToolbar label="Mesh graph controls" onRefresh={onRefresh} onFit={() => { userAdjustedRef.current = true; reset(); }} onZoomOut={() => { userAdjustedRef.current = true; zoomBy(-ZOOM_STEP); }} onZoomIn={() => { userAdjustedRef.current = true; zoomBy(ZOOM_STEP); }} />
+      {accountActions}
+      <CanvasToolbar label="Mesh graph controls" view={viewToggle} onRefresh={onRefresh} onFit={() => { userAdjustedRef.current = true; reset(); }} onZoomOut={() => { userAdjustedRef.current = true; zoomBy(-zoomStep); }} onZoomIn={() => { userAdjustedRef.current = true; zoomBy(zoomStep); }} />
       <div
         ref={(element) => { layerRef.current = element; machineLayerRef.current = element; }}
         style={{
@@ -314,10 +405,7 @@ export const MeshCanvas = memo(function MeshCanvas({
             </button>}
           </div>
         </div>
-        {layout.map((p, i) => {
-          const row = account?.canvas.peerFooters.get(p.id)?.row;
-          const onRename = account?.actions.onRename;
-          return (
+        {layout.map((p, i) => (
           <div
             key={`${p.id}-${i}`}
             data-peer-card
@@ -329,43 +417,9 @@ export const MeshCanvas = memo(function MeshCanvas({
               transform: "translate(-50%,-50%)",
             }}
           >
-            {p.account && account ? (
-              p.account.kind === "node"
-                ? <AccountMachineCard node={p.account.node} busy={account.busy === p.account.node.key} now={account.now} actions={account.actions}
-                  hint={p.account.node.row.status !== "signed_out" && p.account.node.row.target ? tailscaleHint(p.account.node.name, p.account.node.online === true, p.account.node.row.transport) : undefined} />
-                : <AccountStateCard card={p.account.card} signingIn={account.signingIn} onSignIn={account.onSignIn} onRetry={account.onRetry} />
-            ) : (
-              <div style={{ transform: `scale(${MACHINE_CARD_SCALE})` }}>
-              <PeerTerminal
-                onRename={p.isThisMachine ? account?.onRenameSelf : row?.target && onRename ? (name) => onRename(row, name) : undefined}
-                renameDisabledReason={row && (row.status === "signed_out" || !peers.find((peer) => peer.instance_id === p.id)?.online)
-                  ? "Connect to rename it, or rename it on that machine" : undefined}
-                footer={p.isThisMachine ? <>
-                  {account?.limitMachines && <MachineLimitPaywall machines={account.limitMachines} />}
-                  {account?.removed && <div role="group" aria-label="Rejoin your mesh" onClick={(event) => event.stopPropagation()} className="px-3.5 py-2.5">
-                    <p role="status">{REMOVED_COPY}</p>
-                    <button type="button" disabled={!!account.busy || account.signingIn} onClick={account.onRejoin}>Sign in and rejoin</button>
-                  </div>}
-                  {account?.reauthRequired && !account.removed && <MachineReauthentication signingIn={account.signingIn} onSignIn={account.onSignIn} />}
-                  {tailscale && <TailscaleFooter tailscale={tailscale} />}
-                </> : peerFooter(p.id)}
-                inventory={peerInventoryModel(services, peers.find((peer) => peer.instance_id === p.id) ?? { instance_id: p.id, name: p.name, online: true }, !!p.isThisMachine, loading, error)}
-                name={p.name}
-                ip={p.ip}
-                isThisMachine={p.isThisMachine}
-                isPaired={p.isPaired}
-                pending={p.pending}
-                accessLevel={p.accessLevel as "full" | "read_only" | "agent_isolated" | undefined}
-                disabled={row?.status === "signed_out"}
-                onClick={() => onPeerClick(p.isThisMachine ? thisMachine.name : peers.find((peer) => peer.instance_id === p.id)?.name ?? p.name)}
-                offline={p.isThisMachine ? !meshEnabled : row?.status === "signed_out" || !peers.find((peer) => peer.instance_id === p.id)?.online}
-                onGoOnline={p.isThisMachine ? onGoOnline : undefined}
-              />
-              </div>
-            )}
+            {machineCard(p)}
           </div>
-          );
-        })}
+        ))}
       </div>
     </div>
   );

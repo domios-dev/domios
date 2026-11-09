@@ -52,7 +52,7 @@ fn batch_resolves_refs_and_writes_in_one_plan_mutation() {
                         why: None,
                         priority: None,
                         group: None,
-                        personality: None,
+                        personality: Some("Ada".into()),
                         personality_provenance: None,
                     },
                     BatchOp::AddMilestone {
@@ -108,7 +108,7 @@ fn batch_is_atomic_when_later_op_fails() {
                         why: None,
                         priority: None,
                         group: None,
-                        personality: None,
+                        personality: Some("Ada".into()),
                         personality_provenance: None,
                     },
                     BatchOp::SetTaskBody {
@@ -307,7 +307,7 @@ fn batch_create_plan_from_spec_is_not_written_when_later_op_fails() {
             .count(),
         before
     );
-    assert_eq!(store.list_index().len(), 1);
+    assert_eq!(store.list_index().unwrap().len(), 1);
 }
 
 #[test]
@@ -383,7 +383,7 @@ fn batch_upsert_and_milestone_key_are_idempotent() {
                 why: None,
                 priority: None,
                 group: None,
-                personality: None,
+                personality: Some("Ada".into()),
                 personality_provenance: None,
             },
             BatchOp::AddMilestone {
@@ -426,7 +426,7 @@ fn batch_set_task_sections_links_existing_task() {
                     why: None,
                     priority: None,
                     group: None,
-                    personality: None,
+                    personality: Some("Ada".into()),
                     personality_provenance: None,
                 }],
             },
@@ -470,7 +470,7 @@ fn batch_set_task_sections_is_atomic_when_later_op_fails() {
                     why: None,
                     priority: None,
                     group: None,
-                    personality: None,
+                    personality: Some("Ada".into()),
                     personality_provenance: None,
                 }],
             },
@@ -523,6 +523,7 @@ fn batch_set_goal_persists_goal_sidecar() {
 
     let plan = store.get(&plan_id).unwrap();
     let plan_dir = store_v2::plan_state_dir(&plan).unwrap();
+    store_v2::write_plan(&plan_dir, &plan).unwrap();
     let goal_path = store_v2::goal_yaml_path(&plan_dir);
     let goal = plan.goal.unwrap();
     assert_eq!(goal.vector, "Keep the foundation coherent");
@@ -535,4 +536,41 @@ fn batch_set_goal_persists_goal_sidecar() {
     assert_eq!(goal_yaml.vision, "# Vision\n\nShip the model first.");
     assert_eq!(goal_yaml.constraints, vec!["no frontend"]);
     assert_eq!(goal_yaml.postulates, vec!["plan get before handoff"]);
+}
+
+#[test]
+fn batch_creation_requires_personality_but_existing_updates_allow_omission() {
+    let (store, plan_id) = store_with_plan();
+    for personality in [
+        serde_json::Value::Null,
+        serde_json::json!(""),
+        serde_json::json!("  "),
+    ] {
+        let request = serde_json::from_value(serde_json::json!({
+            "ops": [{"op":"upsert_task", "handle":"missing-persona", "name":"Named task", "personality":personality}]
+        })).unwrap();
+        let error = store.apply_batch(&plan_id, request, 2).unwrap_err();
+        assert!(matches!(error, PlanError::InvalidExecutorName(_)));
+        assert!(store.get(&plan_id).unwrap().tasks.is_empty());
+    }
+    let id = store
+        .add_task(
+            &plan_id,
+            NewTask {
+                name: "Existing nameless task".into(),
+                handle: Some("existing-nameless".into()),
+                ..Default::default()
+            },
+            3,
+        )
+        .unwrap();
+    let request = serde_json::from_value(serde_json::json!({
+        "ops": [{"op":"upsert_task", "handle":"existing-nameless", "name":"Updated task"}]
+    }))
+    .unwrap();
+    store.apply_batch(&plan_id, request, 4).unwrap();
+    let saved = store.get(&plan_id).unwrap();
+    let task = saved.tasks.iter().find(|task| task.id == id).unwrap();
+    assert_eq!(task.name, "Updated task");
+    assert!(task.personality.is_none());
 }

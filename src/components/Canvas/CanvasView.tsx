@@ -1,3 +1,4 @@
+import type { PlanView as Plan, PlanSectionView as Section } from "./planProjection";
 import { returnToOrigin } from "../../lib/returnTo";
 import { useReturnToChat } from "../../hooks/useReturnToChat";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -27,7 +28,7 @@ import { usePlanDataContextKey, usePlanIndex } from "./PlansProvider";
 import { canvasFocusStore, useCanvasWorkspaceTarget } from "./canvasFocusStore";
 import { isTagFilterActive, taskMatchesTagFilter, toggleTagFilter, type TagFilterSelection } from "./tagModel";
 import type { PlanGhostModel } from "./canvasView/models";
-import type { Plan, Section, TagFacet } from "./types";
+import type { TagFacet } from "./types";
 import { derivePlanWorkspaceScope } from "./planWorkspaceScope";
 import { usePlanDrift } from "./usePlanDrift";
 import { useCanvasViewport, paintLayer, AUTO_FIT_MAX_SCALE, CANVAS_MIN_SCALE, CANVAS_MAX_SCALE, type ViewportTransform } from "@codeterm/canvas-camera";

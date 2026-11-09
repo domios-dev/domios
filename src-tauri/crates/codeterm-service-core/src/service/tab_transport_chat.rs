@@ -2,7 +2,7 @@
 //! `chatBackend` capability (send → `sendMessage`, reads → polled transcript).
 
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 
 use parking_lot::Mutex;
 
@@ -121,19 +121,47 @@ fn authenticate_chatbackend_tab(
 /// can't each fire `openSession` and leave one tab with two plugin sessions.
 #[derive(Default)]
 pub struct TabReopenGuards {
-    locks: Mutex<HashMap<String, Arc<Mutex<()>>>>,
+    locks: Mutex<HashMap<String, Weak<Mutex<()>>>>,
     sessions: Mutex<HashMap<(String, String), Arc<liveness::BoundSession>>>,
     recoveries: Mutex<HashMap<String, recovery::Recovery>>,
     turn_starts: Mutex<HashMap<String, runtime_liveness::EpochStarts>>,
 }
 
+struct ReopenLease<'a> {
+    owner: &'a TabReopenGuards,
+    tab: String,
+    lock: Arc<Mutex<()>>,
+}
+
+impl std::ops::Deref for ReopenLease<'_> {
+    type Target = Mutex<()>;
+    fn deref(&self) -> &Self::Target {
+        &self.lock
+    }
+}
+
+impl Drop for ReopenLease<'_> {
+    fn drop(&mut self) {
+        let mut locks = self.owner.locks.lock();
+        if Arc::strong_count(&self.lock) == 1 {
+            locks.remove(&self.tab);
+        }
+    }
+}
+
 impl TabReopenGuards {
-    fn lock_for(&self, tab_id: &str) -> Arc<Mutex<()>> {
-        self.locks
-            .lock()
-            .entry(tab_id.to_string())
-            .or_default()
-            .clone()
+    fn lock_for(&self, tab_id: &str) -> ReopenLease<'_> {
+        let mut locks = self.locks.lock();
+        let lock = locks
+            .get(tab_id)
+            .and_then(Weak::upgrade)
+            .unwrap_or_default();
+        locks.insert(tab_id.into(), Arc::downgrade(&lock));
+        ReopenLease {
+            owner: self,
+            tab: tab_id.into(),
+            lock,
+        }
     }
 
     /// Runs `transition` under the per-tab lock; the map lock is dropped first
@@ -418,7 +446,7 @@ impl ServiceContext {
             crate::session::lifecycle::AgentTypeWriteOrigin::Spawn,
             None,
         );
-        self.bind_planner_session(tab_id);
+        self.bind_planner_session(tab_id)?;
         Ok(nonce)
     }
 
@@ -472,7 +500,9 @@ impl ServiceContext {
         if super::agent_runtime::requested_for_tab(self, tab_id) {
             let session =
                 crate::async_runtime::block_on(super::agent_runtime::engine::ensure(self, tab_id))
-                    .map_err(|error| error.to_string())?;
+                    .map_err(|error| {
+                        super::agent_runtime::lost_session::wake_failure(self, tab_id, &error)
+                    })?;
             let thread = session.context.lock().thread_id.clone();
             return Ok(thread);
         }

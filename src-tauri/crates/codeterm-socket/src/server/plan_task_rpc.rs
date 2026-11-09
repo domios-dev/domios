@@ -15,6 +15,7 @@ use super::{get_string_param, JsonRpcError};
 use codeterm_service_core::plan::TaskStatus;
 use codeterm_service_core::service::plan::task_queries::TaskListFilter;
 use codeterm_service_core::service::plan::{hints, NewTask, PlanError};
+
 use codeterm_service_core::service::ServiceState;
 use serde_json::{json, Value};
 
@@ -23,6 +24,20 @@ mod respawn;
 mod split;
 mod task_fields;
 use task_fields::task_files_field;
+
+fn draft_mutation_rpc_err(
+    error: codeterm_service_core::service::PlanAuthorityError,
+) -> JsonRpcError {
+    if error == codeterm_service_core::service::PlanAuthorityError::StoreReadFailed {
+        super::plan_task_authority::planning_authority_error(error)
+    } else {
+        JsonRpcError {
+            code: -32003,
+            message: error.to_string(),
+            data: None,
+        }
+    }
+}
 
 pub(super) fn authenticated_caller(
     params: Option<&Value>,
@@ -49,10 +64,11 @@ pub(super) fn authorize_execution(
     params: Option<&Value>,
 ) -> Result<(), JsonRpcError> {
     svc.authorize_execution_action(plan_id, &authenticated_caller(params))
-        .map_err(|message| JsonRpcError {
-            code: -32003,
-            message,
-            data: Some(json!({ "type": "plan_execution_authorization_required" })),
+        .map_err(|error| {
+            super::plan_task_authority::execution_authority_error(
+                error,
+                Some("plan_execution_authorization_required"),
+            )
         })
 }
 fn dependency_vec_field(p: Option<&Value>) -> Result<Option<Vec<String>>, JsonRpcError> {
@@ -261,20 +277,16 @@ pub(super) fn dispatch(
             let (_pid, task_id) = plan_refs::resolve_task(store, params)?;
             let (plan_id, task_id) = svc
                 .authorize_task_execution_action(&task_id, &authenticated_caller(p))
-                .map_err(|message| JsonRpcError {
-                    code: -32003,
-                    message,
-                    data: None,
+                .map_err(|error| {
+                    super::plan_task_authority::execution_authority_error(error, None)
                 })?;
             let tab_id = get_string_param(params, "caller_tab_id")?;
             let role = tab_role(svc, &tab_id);
             store
                 .set_task_assignment(&task_id, Some(&tab_id), role, now)
                 .map_err(plan_rpc_err)?;
-            let detail = store
-                .show_task(&task_id)
-                .ok_or_else(|| plan_rpc_err(PlanError::TaskNotFound))?;
-            set_task_description(svc, p, &tab_id, &detail.task.name, false)?;
+            let name = store.task_name_projection(&task_id).map_err(plan_rpc_err)?;
+            set_task_description(svc, p, &tab_id, &name, false)?;
             emit_plan_changed(svc, &plan_id);
             Ok(json!({ "ok": true, "plan_id": plan_id, "task_id": task_id }))
         }
@@ -283,10 +295,8 @@ pub(super) fn dispatch(
             let (_pid, task_id) = plan_refs::resolve_task(store, params)?;
             let (plan_id, task_id) = svc
                 .authorize_task_execution_action(&task_id, &authenticated_caller(p))
-                .map_err(|message| JsonRpcError {
-                    code: -32003,
-                    message,
-                    data: None,
+                .map_err(|error| {
+                    super::plan_task_authority::execution_authority_error(error, None)
                 })?;
             store
                 .set_task_assignment(&task_id, None, None, now)
@@ -312,12 +322,8 @@ pub(super) fn dispatch(
                 .resolve_task_section_ids(&id, &requested_sections)
                 .map_err(plan_rpc_err)?;
             let author = svc
-                .authorize_draft_structure_mutation(&id, &authenticated_caller(p))
-                .map_err(|message| JsonRpcError {
-                    code: -32003,
-                    message,
-                    data: None,
-                })?;
+                .authorize_draft_structure_mutation_typed(&id, &authenticated_caller(p))
+                .map_err(draft_mutation_rpc_err)?;
             codeterm_service_core::service::ensure_planner_task_fields_are_structural(
                 &author,
                 p.unwrap_or(&Value::Null),
@@ -407,7 +413,13 @@ pub(super) fn dispatch(
                             .map(|s| s.to_string()),
                         execution_intent: execution_intent_field(
                             p,
-                            store.get(&id).map(|plan| plan.project_path).as_deref(),
+                            Some(
+                                store
+                                    .document_metadata(&id)
+                                    .map_err(plan_rpc_err)?
+                                    .project_path
+                                    .as_str(),
+                            ),
                         )?,
                         parent_task_id: p
                             .and_then(|x| x.get("parent"))
@@ -440,15 +452,13 @@ pub(super) fn dispatch(
                 )
                 .map_err(plan_rpc_err)?;
             emit_plan_changed(svc, &id);
-            let linked = store
-                .get(&id)
-                .and_then(|plan| {
-                    plan.tasks
-                        .iter()
-                        .find(|task| task.id == tid)
-                        .map(|task| task.section_ids.clone())
-                })
-                .unwrap_or_default();
+            let (linked, key) = match store
+                .task_creation_projection(&id, &tid)
+                .map_err(plan_rpc_err)?
+            {
+                Some(read) => (read.section_ids, Some(read.key)),
+                None => (Vec::new(), None),
+            };
             let linked_has_sections = !linked.is_empty();
             let mut response_hints = hints::task_create_hints(
                 &id,
@@ -471,14 +481,13 @@ pub(super) fn dispatch(
                 .and_then(|v| v.as_str());
             let mut resp = json!({
                 "task_id": tid.clone(),
-                "key": store.task_display_key(&id, &tid),
+                "key": key,
                 "section_ids": linked,
                 "_hints": response_hints
             });
             if let Some(nudge) = store
-                .get(&id)
-                .as_ref()
-                .and_then(|plan| hints::planner_ownership_nudge(plan, caller_tab))
+                .planner_nudge_projection(&id, caller_tab)
+                .map_err(plan_rpc_err)?
             {
                 resp["_planner_nudge"] = json!(nudge);
             }
@@ -489,18 +498,10 @@ pub(super) fn dispatch(
             validate_task_update_params(p)?;
             let files = task_files_field(p)?;
             let (id, tid) = plan_refs::resolve_task(store, params)?;
-            let previous_name = store
-                .show_task(&tid)
-                .ok_or_else(|| plan_rpc_err(PlanError::TaskNotFound))?
-                .task
-                .name;
+            let previous_name = store.task_name_projection(&tid).map_err(plan_rpc_err)?;
             let author = svc
-                .authorize_draft_structure_mutation(&id, &authenticated_caller(p))
-                .map_err(|message| JsonRpcError {
-                    code: -32003,
-                    message,
-                    data: None,
-                })?;
+                .authorize_draft_structure_mutation_typed(&id, &authenticated_caller(p))
+                .map_err(draft_mutation_rpc_err)?;
             codeterm_service_core::service::ensure_planner_task_fields_are_structural(
                 &author,
                 p.unwrap_or(&Value::Null),
@@ -615,7 +616,7 @@ pub(super) fn dispatch(
                     .map_err(plan_rpc_err)?;
             }
             super::plan_role_helpers::update_role_guidance_if_present(store, &id, &tid, p, now)?;
-            super::plan_role_helpers::update_personality_if_present(store, &id, &tid, p, now)?;
+            super::plan_role_helpers::update_personality_if_present(svc, &id, &tid, p, now)?;
             if let Some(competition) = super::plan_competition::update_field(p)? {
                 store
                     .update_task_competition(&id, &tid, competition, now)
@@ -652,9 +653,8 @@ pub(super) fn dispatch(
                     .map_err(plan_rpc_err)?;
             }
             let updated_task = store
-                .show_task(&tid)
-                .ok_or_else(|| plan_rpc_err(PlanError::TaskNotFound))?
-                .task;
+                .task_description_projection(&tid)
+                .map_err(plan_rpc_err)?;
             if previous_name != updated_task.name {
                 if let Some(tab_id) = updated_task.assigned_tab_id.as_deref() {
                     set_task_description(svc, p, tab_id, &updated_task.name, true)?;
@@ -673,9 +673,8 @@ pub(super) fn dispatch(
                 }
             }
             if let Some(nudge) = store
-                .get(&id)
-                .as_ref()
-                .and_then(|plan| hints::planner_ownership_nudge(plan, caller_tab))
+                .planner_nudge_projection(&id, caller_tab)
+                .map_err(plan_rpc_err)?
             {
                 resp["_planner_nudge"] = json!(nudge);
             }
@@ -694,6 +693,7 @@ pub(super) fn dispatch(
 
         "plan.task.relink" => {
             let id = plan_refs::resolve_plan(store, params)?;
+            authorize_draft_mutation(svc, &id, p)?;
             let apply = p.and_then(|x| x.get("apply")).and_then(|v| v.as_bool()) == Some(true);
             let report = store
                 .relink_unlinked_tasks(&id, apply, now)
@@ -708,9 +708,9 @@ pub(super) fn dispatch(
             let (id, task_id) = plan_refs::resolve_task(store, params)?;
             authorize_execution(svc, &id, p)?;
             let owner_epoch = store
-                .show_task(&task_id)
-                .map(|detail| detail.task.interruption.owner_epoch)
-                .unwrap_or(0);
+                .task_owner_epoch_projection(&task_id)
+                .map_err(plan_rpc_err)?
+                .owner_epoch;
             let id = if owner_epoch > 0 {
                 let authority = task_mutation_authority(params, svc)?;
                 let mux = svc.mux.read();
@@ -735,10 +735,8 @@ pub(super) fn dispatch(
                 assign_task_with_profile(store, svc, params, p, None, now)?
             };
             let tab_id = get_string_param(params, "tab")?;
-            let detail = store
-                .show_task(&task_id)
-                .ok_or_else(|| plan_rpc_err(PlanError::TaskNotFound))?;
-            set_task_description(svc, p, &tab_id, &detail.task.name, false)?;
+            let name = store.task_name_projection(&task_id).map_err(plan_rpc_err)?;
+            set_task_description(svc, p, &tab_id, &name, false)?;
             emit_plan_changed(svc, &id);
             Ok(json!({ "ok": true }))
         }

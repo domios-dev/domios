@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 
 use super::*;
-use crate::plan::OrchestratorRef;
+use crate::plan::{OrchestratorRef, Plan};
 
 struct FakePorts {
     sent: RefCell<Vec<String>>,
@@ -140,7 +140,7 @@ fn plan_pause_resume_resume_on_non_paused_plan_is_noop() {
     assert!(w.ports.recipients().is_empty());
     assert!(w.ports.enabled(&w.team_job));
     assert!(w.store.get(&w.plan_id).unwrap().pause_operations.is_empty());
-    let preview = resume_preview(&w.store.get(&w.plan_id).unwrap(), |_| true);
+    let preview = resume_preview(&(&w.store.get(&w.plan_id).unwrap()).into(), |_| true);
     assert!(!preview.applicable);
     assert!(preview.agents.is_empty());
 }

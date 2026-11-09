@@ -1,3 +1,4 @@
+use crate::blocking_json::handler as blocking_json;
 use axum::{
     http::{HeaderMap, StatusCode},
     middleware,
@@ -84,6 +85,13 @@ pub(super) fn create_router_with_preview_admission(
 ) -> Router {
     let router = Router::new()
         .route(
+            "/api/tabs/{id}/preview/prepare",
+            super::local_preview_routes::bounded(
+                post(super::local_preview_routes::prepare),
+                &super::local_preview_routes::admission(),
+            ),
+        )
+        .route(
             "/api/tabs/{id}/preview/read",
             super::local_preview_routes::bounded(
                 post(super::local_preview_routes::read),
@@ -125,7 +133,7 @@ pub(super) fn create_router_with_preview_admission(
         .route("/api/identify", get(health_routes::identify))
         .route(
             "/api/automation/blueprints/export",
-            post(super::blueprint_portable_routes::export),
+            post(blocking_json(super::blueprint_portable_routes::export)),
         )
         .route(
             "/api/automation/blueprints/import",
@@ -133,18 +141,21 @@ pub(super) fn create_router_with_preview_admission(
         )
         .route(
             "/api/automation/blueprints/{id}/stop",
-            post(super::automation_graph_routes::stop),
+            post(blocking_json(super::automation_graph_routes::stop)),
         )
         .route(
             "/api/automation/blueprints/{id}",
-            axum::routing::delete(super::automation_graph_routes::delete),
+            axum::routing::delete(blocking_json(super::automation_graph_routes::delete)),
         )
         .route(
             "/api/graph/events/{subscription_id}",
-            post(super::automation_graph_routes::event_ingress)
+            post(blocking_json(super::automation_graph_routes::event_ingress))
                 .layer(axum::extract::DefaultBodyLimit::max(64 * 1024)),
         )
-        .route("/api/cli/rpc", post(super::cli_rpc_routes::dispatch))
+        .route(
+            "/api/cli/rpc",
+            post(blocking_json(super::cli_rpc_routes::dispatch)),
+        )
         .route(
             "/api/model-providers",
             post(super::model_provider_routes::manage),
@@ -169,7 +180,8 @@ pub(super) fn create_router_with_preview_admission(
         )
         .route(
             "/api/workspaces",
-            get(workspace_routes::list_workspaces).post(workspace_routes::create_workspace),
+            get(blocking_json(workspace_routes::list_workspaces))
+                .post(workspace_routes::create_workspace),
         )
         .route(
             "/api/workspaces/{id}/focus",
@@ -371,7 +383,7 @@ pub(super) fn create_router_with_preview_admission(
         .route("/api/tabs/{id}/chat-view", post(web_routes::tab_chat_view))
         .route(
             "/api/mesh/peers/{id}/services",
-            get(web_routes::peer_services),
+            get(blocking_json(web_routes::peer_services)),
         )
         .route("/api/mesh/inventory", get(mesh_inventory::inventory))
         .route(
@@ -380,7 +392,7 @@ pub(super) fn create_router_with_preview_admission(
         )
         .route(
             "/api/mesh/peers/{id}/crons/{cron_id}",
-            get(web_routes::peer_cron_get)
+            get(blocking_json(web_routes::peer_cron_get))
                 .put(web_routes::peer_cron_update)
                 .delete(web_routes::peer_cron_delete),
         )
@@ -390,10 +402,11 @@ pub(super) fn create_router_with_preview_admission(
         )
         .route(
             "/api/mesh/peers/{id}/crons/{cron_id}/history",
-            get(web_routes::peer_cron_history),
+            get(blocking_json(web_routes::peer_cron_history)),
         )
         .merge(super::runtime_login::router())
         .merge(super::tab_todo_routes::router())
+        .merge(super::client_selection_routes::router())
         .route(
             "/api/tabs/{id}/agent/runtime/retry",
             post(web_routes::agent_runtime_retry),
@@ -404,19 +417,11 @@ pub(super) fn create_router_with_preview_admission(
         )
         .route("/api/events/stream", get(web_routes::events_stream))
         .route("/api/output/stream", get(output_stream::output_stream))
-        .route("/api/stream-mux", get(stream_mux::stream_mux_open))
-        .route(
-            "/api/stream-mux/{session}/channels",
-            post(stream_mux::stream_mux_open_channel),
-        )
-        .route(
-            "/api/stream-mux/{session}/channels/{channel}",
-            axum::routing::delete(stream_mux::stream_mux_close_channel),
-        )
+        .merge(stream_mux::router())
         .route("/api/transcribe-voice", post(web_routes::transcribe_voice))
         .route(
             "/api/tabs/{id}/chat-raw/start",
-            post(web_routes::chat_raw_start),
+            post(blocking_json(web_routes::chat_raw_start)),
         )
         .route(
             "/api/tabs/{id}/chat-raw/stop",
@@ -424,15 +429,15 @@ pub(super) fn create_router_with_preview_admission(
         )
         .route(
             "/api/tabs/{id}/chat-raw/backfill",
-            post(web_routes::chat_raw_backfill),
+            post(blocking_json(web_routes::chat_raw_backfill)),
         )
         .route(
             "/api/tabs/{id}/chat-raw/history",
-            post(crate::chat_history_routes::chat_raw_history),
+            post(blocking_json(crate::chat_history_routes::chat_raw_history)),
         )
         .route(
             "/api/tabs/{id}/chat-raw/resume",
-            post(web_routes::chat_raw_resume),
+            post(blocking_json(web_routes::chat_raw_resume)),
         )
         .route(
             "/api/sessions/transcript",
@@ -457,7 +462,7 @@ pub(super) fn create_router_with_preview_admission(
         )
         .route(
             "/api/session/backups/{name}/export",
-            get(super::session_exchange::export),
+            get(blocking_json(super::session_exchange::export)),
         )
         .route(
             "/api/session/backups/import",
@@ -537,6 +542,10 @@ pub(super) fn create_router_with_preview_admission(
             post(super::analytics_routes::consent),
         )
         .route("/api/analytics/event", post(super::analytics_routes::event))
+        .route(
+            "/api/neighbors/sidebar",
+            get(super::account_routes::neighbor_sidebar::read),
+        )
         .route("/api/account/plan", get(super::account_routes::plan))
         .route("/api/account/upgrade", post(super::account_routes::upgrade))
         .route("/api/account/portal", post(super::account_routes::portal))
@@ -706,22 +715,28 @@ pub(super) fn create_router_with_preview_admission(
     let router = domain_transport_routes(router);
     let router = super::memory_router::memory_routes(router);
     let router = router
-        .route("/api/plugins/action", post(web_routes::plugin_action))
-        .route("/api/plugins/glance", post(web_routes::plugin_glance))
+        .route(
+            "/api/plugins/action",
+            post(blocking_json(web_routes::plugin_action)),
+        )
+        .route(
+            "/api/plugins/glance",
+            post(blocking_json(web_routes::plugin_glance)),
+        )
         .route("/api/plugins/bubble", post(web_routes::plugin_bubble))
         .route(
             "/api/plugins/remote-task-call",
-            plugin_host_action_routes::owner_post(web_routes::remote_task_call)
+            plugin_host_action_routes::owner_post(blocking_json(web_routes::remote_task_call))
                 .layer(axum::extract::DefaultBodyLimit::max(70 * 1024)),
         )
         .route(
             "/api/plugins/recording-suggestion",
-            plugin_host_action_routes::owner_post(web_routes::recording_suggestion)
+            plugin_host_action_routes::owner_post(blocking_json(web_routes::recording_suggestion))
                 .layer(axum::extract::DefaultBodyLimit::max(70 * 1024)),
         )
         .route(
             "/api/plugins/view-call",
-            plugin_host_action_routes::owner_post(web_routes::plugin_view_call)
+            plugin_host_action_routes::owner_post(blocking_json(web_routes::plugin_view_call))
                 .layer(axum::extract::DefaultBodyLimit::max(70 * 1024)),
         )
         .route(
@@ -900,27 +915,35 @@ pub(super) fn create_router_with_preview_admission(
         )
         .route(
             "/api/logs",
-            get(logs_routes::list_logs).delete(logs_routes::delete_logs),
+            get(blocking_json(logs_routes::list_logs)).delete(logs_routes::delete_logs),
         );
 
     let router = router.merge(
         Router::new()
             .route("/api/mux/state", get(web_routes::mux_state))
-            .route("/api/tabs", get(web_routes::tabs))
-            .route("/api/plans", get(plan_routes::list))
-            .route("/api/plugins/snapshot", get(web_routes::plugin_snapshot))
-            .route("/api/providers", get(agent_routes::list_agent_providers))
+            .route("/api/tabs", get(blocking_json(web_routes::tabs)))
+            .route("/api/plans", get(blocking_json(plan_routes::list)))
+            .route(
+                "/api/plugins/snapshot",
+                get(blocking_json(web_routes::plugin_snapshot)),
+            )
+            .route(
+                "/api/providers",
+                get(blocking_json(agent_routes::list_agent_providers)),
+            )
             .route(
                 "/api/automation/graph",
-                get(super::automation_graph_routes::snapshot),
+                get(blocking_json(super::automation_graph_routes::snapshot)),
             )
             .route(
                 "/api/automation/graph/workspace",
-                get(super::automation_graph_routes::workspace_snapshot),
+                get(blocking_json(
+                    super::automation_graph_routes::workspace_snapshot,
+                )),
             )
             .route(
                 "/api/mem/graph/snapshot",
-                get(mem_routes::mem_graph_snapshot),
+                get(blocking_json(mem_routes::mem_graph_snapshot)),
             )
             .layer(CompressionLayer::new()),
     );
@@ -966,6 +989,7 @@ pub(super) fn create_router_with_preview_admission(
 }
 
 pub(super) fn apply_middleware(router: Router<AppState>, state: AppState) -> Router {
+    let dispatch_service = state.svc.clone();
     let frontend_origins = codeterm_service_core::startup::frontend_shell_declared_frontend_origins(
         &state.config.lock().api,
         state.frontend_dev_url.as_ref(),
@@ -987,7 +1011,8 @@ pub(super) fn apply_middleware(router: Router<AppState>, state: AppState) -> Rou
     let router = router.layer(middleware::from_fn(super::cors_diagnostics::record));
     #[cfg(debug_assertions)]
     let router = router.layer(middleware::from_fn(super::request_census::record));
-    router
+    let router = router
+        .layer(middleware::from_fn(super::request_activity::record))
         .layer(middleware::from_fn(
             super::plan_quota_status::typed_plan_refusal,
         ))
@@ -995,7 +1020,8 @@ pub(super) fn apply_middleware(router: Router<AppState>, state: AppState) -> Rou
         .layer(middleware::from_fn(
             mem_routes::decision::supporter_error_envelope,
         ))
-        .with_state(state)
+        .with_state(state);
+    stream_mux::dispatch::install(router, dispatch_service)
 }
 
 #[derive(serde::Deserialize)]

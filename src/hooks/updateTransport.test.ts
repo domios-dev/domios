@@ -1,3 +1,4 @@
+import { muxMockFetch } from "../lib/muxMockFetch.testdata";
 import { nativeBridge } from "../lib/nativeBridge";
 import { configureDaemonTransport } from "../lib/daemonBootstrap";
 import { checkForUpdate, getUpdateStatus, installAppUpdate, requestUpdateChannel } from "./updateTransport";
@@ -28,10 +29,10 @@ async function main() {
     assert(calls[1]?.command === "get_update_status", "status reads use native IPC");
     assert(calls[2]?.command === "install_app_update", "update installs use native IPC");
     const requests: Array<{ url: string; init: RequestInit }> = [];
-    globalThis.fetch = async (input, init = {}) => {
+    globalThis.fetch = muxMockFetch(async (input, init = {}) => {
       requests.push({ url: String(input), init });
       return new Response("{}");
-    };
+    });
     const api = { host: "0.0.0.0", port: 7697, token: "daemon-token" };
     configureDaemonTransport({origin: "http://127.0.0.1:7697", token: "daemon-token"});
     await requestUpdateChannel(api);

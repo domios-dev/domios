@@ -4,7 +4,7 @@ use std::time::Duration;
 use tokio::sync::watch;
 
 pub(super) struct EpochStarts {
-    nonce: String,
+    pub(super) nonce: String,
     epoch: u64,
     starts: Arc<TurnStarts>,
 }

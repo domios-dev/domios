@@ -2,6 +2,26 @@ use super::*;
 use crate::multiplexer::types::RestorableLaunchParameters;
 
 #[test]
+fn close_reservation_prevents_runtime_registration() {
+    let (fixture, tab_id, _peer, cleanup) = sync_send::runtime_fixture();
+    drop(cleanup);
+    assert!(for_tab(&tab_id).is_none());
+    let _reservation = fixture
+        .service
+        .mux
+        .write()
+        .reserve_tab_close(&tab_id)
+        .unwrap();
+    let error = crate::async_runtime::block_on(ensure(&fixture.service, &tab_id))
+        .err()
+        .unwrap();
+    assert!(
+        matches!(error, RuntimeFailure::Refused(ref reason) if reason.contains("Tab is closing"))
+    );
+    assert!(for_tab(&tab_id).is_none());
+}
+
+#[test]
 fn restricted_cli_trust_projection_never_exposes_project_path() {
     let projected = operation::policy_projection(&serde_json::json!({
         "cwd":"/opaque/private-project",

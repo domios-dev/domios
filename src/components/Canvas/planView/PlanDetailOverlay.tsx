@@ -1,9 +1,10 @@
+import type { PlanView as Plan, PlanTaskView as Task } from "../planProjection";
 import { useCallback, useEffect, useRef } from "react";
 import type { ReactNode } from "react";
 import { ChevronLeft, X } from "lucide-react";
 import { DetailContent } from "../canvasRender/DetailContent";
 import type { ApiConfig, Tab } from "../../../lib/types";
-import type { Plan, Section, Task } from "../types";
+import type { Section } from "../types";
 import type { SectionNavArgs } from "../nodeRegistry";
 import { competitionForTask } from "./competitionForTask";
 import { loopForTask } from "./loopForTask";

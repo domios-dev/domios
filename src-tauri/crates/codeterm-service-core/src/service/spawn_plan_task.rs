@@ -14,7 +14,13 @@ fn resolved_worker_launch_effort(
 }
 
 pub fn planned_task_title(task: &Task) -> Option<String> {
-    crate::service::plan::worker_identity::task_executor_name(task)
+    planned_task_title_for_personality(task.personality.as_deref())
+}
+
+pub fn planned_task_title_for_personality(personality: Option<&str>) -> Option<String> {
+    personality
+        .map(crate::service::plan::worker_identity::validate_executor_name)
+        .transpose()
         .ok()
         .flatten()
 }
@@ -135,24 +141,20 @@ pub(crate) fn preflight_worker_plan_task_wip_gate(
     let resolved = store
         .resolve_task_ref(plan_id, task_ref)
         .map_err(|e| e.to_string())?;
-    let plan = store
-        .get(&resolved.plan_id)
-        .ok_or_else(|| "plan not found".to_string())?;
-    let task = plan
-        .tasks
-        .iter()
-        .find(|t| t.id == resolved.task_id)
-        .ok_or_else(|| "task not found".to_string())?;
+    let status = store
+        .task_status_projection(&resolved.plan_id, &resolved.task_id)
+        .map_err(|error| error.to_string())?;
     store
         .validate_task_startup_status(&resolved.plan_id, &resolved.task_id)
         .map_err(|error| error.to_string())?;
     if !matches!(
-        &task.status,
+        &status,
         crate::plan::TaskStatus::Pending | crate::plan::TaskStatus::Blocked
     ) {
         return Ok(());
     }
-    crate::service::plan::review_gate::validate_dispatch_review_capacity(&plan, task)
+    store
+        .dispatch_review_capacity_warning_projection(&resolved.plan_id, &resolved.task_id)
         .map_err(|error| error.to_string())
 }
 
@@ -167,17 +169,17 @@ pub(crate) fn prepare_worker_plan_task_prompt(
     let resolved = store
         .resolve_task_ref(params.plan_id.as_deref(), task_ref)
         .map_err(|error| error.to_string())?;
-    let detail = store
-        .show_task(&resolved.task_id)
-        .ok_or_else(|| "task not found".to_string())?;
+    let preparation = store
+        .worker_task_preparation_projection(&resolved.plan_id, &resolved.task_id)
+        .map_err(|error| error.to_string())?;
     store
         .validate_task_startup_status(&resolved.plan_id, &resolved.task_id)
         .map_err(|error| error.to_string())?;
-    if let Some(title) = planned_task_title(&detail.task) {
+    if let Some(title) = planned_task_title_for_personality(preparation.personality.as_deref()) {
         params.title = Some(title);
         params.title_provenance = Some(crate::service::SpawnIdentityProvenance::Suggested);
     }
-    params.speed = params.speed.take().or_else(|| detail.task.speed.clone());
+    params.speed = params.speed.take().or_else(|| preparation.speed.clone());
     if params.planned_reasoning_effort.is_none() {
         params.planned_reasoning_effort = params.reasoning_effort.clone();
     }
@@ -185,15 +187,15 @@ pub(crate) fn prepare_worker_plan_task_prompt(
         plan_id: resolved.plan_id.clone(),
         task_id: resolved.task_id.clone(),
         attempt_id: crate::plan::ids::short_id("attempt"),
-        lane_base: detail.task.lane.base.clone(),
+        lane_base: preparation.lane_base.clone(),
     });
     let instruction = params.task.take();
     let manifest = crate::service::plan::plan_skills::plan_skill_manifest(store, &resolved.plan_id)
         .map_err(|error| error.to_string())?;
     let brief = crate::service::plan::task_brief::render_task_brief(
-        &detail.task,
-        &detail.sections,
-        detail.task.personality.as_deref(),
+        &preparation.brief,
+        &preparation.brief.sections,
+        preparation.personality.as_deref(),
         instruction.as_deref(),
         Some(&resolved.plan_id),
         &manifest,
@@ -237,17 +239,11 @@ fn bind_worker_task_to_tab(
         .map_err(|e| e.to_string())?;
     let plan_id = resolved.plan_id;
     let task_id = resolved.task_id;
-    let lane = store
-        .show_task(&task_id)
-        .ok_or_else(|| "task not found".to_string())?
-        .task
-        .lane;
-    let task = store.show_task(&task_id).ok_or("task not found")?.task;
-    if let Some(existing) = task
-        .execution_attempts
-        .iter()
-        .find(|attempt| attempt.id == attempt_id)
-    {
+    let binding = store
+        .task_spawn_binding_projection(&plan_id, &task_id, attempt_id)
+        .map_err(|error| error.to_string())?;
+    let lane = binding.lane;
+    if let Some(existing) = binding.attempt.as_ref() {
         if existing.executor_tab_id != tab_id
             || existing.closed_at.is_some()
             || existing.retired_at.is_some()
@@ -308,11 +304,13 @@ fn bind_worker_task_to_tab(
             model,
             reasoning_effort,
             None,
+            None,
             false,
             false,
             now_ms,
         )
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| error.to_string())?
+        .attempt_id;
     if let Err(error) =
         store.set_attempt_plan_skill_manifest(&plan_id, &task_id, &attempt_id, manifest, now_ms)
     {
@@ -396,17 +394,10 @@ impl ServiceContext {
             return Ok(());
         };
         preflight_worker_plan_task_wip_gate(&self.plan_store, params.plan_id.as_deref(), task_ref)?;
-        let intent = params.execution_intent.as_ref().ok_or_else(|| {
+        params.execution_intent.as_ref().ok_or_else(|| {
             "plan-task spawn requires explicit execution_intent read_only or mutating".to_string()
         })?;
-        let now_ms = epoch_ms();
-        let allowance = self.provider_allowance_for_spawn(params, now_ms)?;
-        crate::service::plan::interruption::provider_allowance_preflight(
-            intent,
-            allowance.as_ref(),
-            now_ms,
-        )
-        .map_err(|error| error.to_string())
+        Ok(())
     }
 
     pub(crate) fn prepare_worker_plan_task_spawn(
@@ -436,17 +427,18 @@ impl ServiceContext {
             if let (Some(plan), Some(task_id)) =
                 (params.plan_id.as_deref(), params.task_id.as_deref())
             {
-                let detail = self.plan_store.show_task(task_id).ok_or("task not found")?;
-                if detail.plan_id == plan {
-                    params.task = Some(
-                        crate::service::plan::task_brief::render_tool_less_task_brief(
-                            &detail.task,
-                            &detail.sections,
-                            detail.task.personality.as_deref(),
-                            instruction.as_deref(),
-                        ),
-                    );
-                }
+                let preparation = self
+                    .plan_store
+                    .worker_task_preparation_projection(plan, task_id)
+                    .map_err(|error| error.to_string())?;
+                params.task = Some(
+                    crate::service::plan::task_brief::render_tool_less_task_brief(
+                        &preparation.brief,
+                        &preparation.brief.sections,
+                        preparation.personality.as_deref(),
+                        instruction.as_deref(),
+                    ),
+                );
             }
         }
         Ok(())
@@ -588,16 +580,14 @@ impl ServiceContext {
         })?;
         let authorized_gates =
             (!params.authorized_gates.is_empty()).then(|| params.authorized_gates.clone());
-        let existing_attempt =
-            self.plan_store
-                .show_task(&authority.task_id)
-                .is_some_and(|detail| {
-                    detail
-                        .task
-                        .execution_attempts
-                        .iter()
-                        .any(|attempt| attempt.id == authority.attempt_id)
-                });
+        let existing_attempt = self
+            .plan_store
+            .task_attempt_exists_projection(
+                &authority.plan_id,
+                &authority.task_id,
+                &authority.attempt_id,
+            )
+            .map_err(|error| error.to_string())?;
         let checkout_path = if existing_attempt || intent == crate::plan::ExecutionIntent::ReadOnly
         {
             None

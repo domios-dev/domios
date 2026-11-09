@@ -1,6 +1,10 @@
 use super::*;
 use crate::multiplexer::state::MultiplexerState;
-use crate::plan::{ElementCanvas, OrchestratorRef, Task, TaskLaneMetadata, TaskPriority};
+use crate::plan::{ElementCanvas, OrchestratorRef, Plan, Task, TaskLaneMetadata, TaskPriority};
+use codeterm_plan::service_plan::heartbeat::is_plan_complete;
+use codeterm_plan::service_plan::state::{
+    orchestrator_actionable_task_ids, task_projection, TaskPresentation,
+};
 use codeterm_types::pty::BootStage;
 use std::cell::RefCell;
 
@@ -123,11 +127,7 @@ fn has_stale_unstaffed_drift(plan: &Plan, id: &str) -> bool {
 }
 
 fn reminder_key(plan: &Plan) -> String {
-    plan_reminder_state_key(
-        &plan.id,
-        crate::service::plan::reminders::NudgeKind::Orchestrator,
-        plan,
-    )
+    plan_reminder_state_key(&crate::service::hierarchy::plan_reminder_nudge::tests::read(plan))
 }
 
 #[test]
@@ -258,15 +258,11 @@ fn owner_plan(tab_id: &str) -> Plan {
 fn reminder_state_key_ignores_bookkeeping_timestamp_changes() {
     let mut plan = owner_plan("orch");
     let before = plan_reminder_state_key(
-        &plan.id,
-        crate::service::plan::reminders::NudgeKind::Orchestrator,
-        &plan,
+        &crate::service::hierarchy::plan_reminder_nudge::tests::read(&plan),
     );
     plan.updated_at = 999_999;
     let after = plan_reminder_state_key(
-        &plan.id,
-        crate::service::plan::reminders::NudgeKind::Orchestrator,
-        &plan,
+        &crate::service::hierarchy::plan_reminder_nudge::tests::read(&plan),
     );
 
     assert_eq!(before, after);
@@ -287,7 +283,13 @@ fn reminder_role_only_shell_records_failure_without_pty_write_or_nudge() {
             Ok(true)
         },
     );
-    send_due_plan_time_reminders_via(&plans, &counter, 100, 10, &ports);
+    send_due_plan_time_reminders_via(
+        &crate::service::hierarchy::plan_reminder_nudge::tests::reads(&plans),
+        &counter,
+        100,
+        10,
+        &ports,
+    );
 
     let telemetry = counter.time_reminder_telemetry(&tab_id);
     assert!(writes.borrow().is_empty());
@@ -359,7 +361,9 @@ fn time_targets_include_execution_owner_and_worker() {
     )];
 
     assert_eq!(
-        timed_plan_reminder_targets(&plans),
+        timed_plan_reminder_targets(
+            &crate::service::hierarchy::plan_reminder_nudge::tests::reads(&plans)
+        ),
         vec![
             TimedPlanReminderTarget {
                 tab_id: "orch".into(),
@@ -402,7 +406,10 @@ fn time_targets_skip_planning_and_terminal_work() {
         ),
     ];
 
-    assert!(timed_plan_reminder_targets(&plans).is_empty());
+    assert!(timed_plan_reminder_targets(
+        &crate::service::hierarchy::plan_reminder_nudge::tests::reads(&plans)
+    )
+    .is_empty());
 }
 
 #[test]
@@ -437,9 +444,15 @@ fn time_targets_preserve_pause_completion_and_closure_suppression() {
         vec![task("done", TaskStatus::Done, Some("done-worker"))],
     );
 
-    assert!(
-        timed_plan_reminder_targets(&[paused, paused_task, archived, no_open_tasks]).is_empty()
-    );
+    assert!(timed_plan_reminder_targets(
+        &crate::service::hierarchy::plan_reminder_nudge::tests::reads(&[
+            paused,
+            paused_task,
+            archived,
+            no_open_tasks
+        ])
+    )
+    .is_empty());
 }
 
 #[test]
@@ -459,14 +472,19 @@ fn all_paused_backlog_stays_active_without_reminders_until_new_work_arrives() {
     assert_eq!(backlog.status, PlanStatus::Active);
     assert_eq!(backlog.mode, PlanMode::Execution);
     assert!(!is_plan_complete(&backlog));
-    assert!(timed_plan_reminder_targets(&[backlog.clone()]).is_empty());
+    assert!(timed_plan_reminder_targets(
+        &crate::service::hierarchy::plan_reminder_nudge::tests::reads(&[backlog.clone()])
+    )
+    .is_empty());
 
     backlog
         .tasks
         .push(task("new-work", TaskStatus::Pending, None));
 
     assert_eq!(
-        timed_plan_reminder_targets(&[backlog]),
+        timed_plan_reminder_targets(
+            &crate::service::hierarchy::plan_reminder_nudge::tests::reads(&[backlog])
+        ),
         vec![TimedPlanReminderTarget {
             tab_id: "backlog-owner".into(),
             target: PlanReminderTarget::Owner {
@@ -486,7 +504,9 @@ fn time_targets_prioritize_owner_over_worker_for_same_tab() {
     )];
 
     assert_eq!(
-        timed_plan_reminder_targets(&plans),
+        timed_plan_reminder_targets(
+            &crate::service::hierarchy::plan_reminder_nudge::tests::reads(&plans)
+        ),
         vec![TimedPlanReminderTarget {
             tab_id: "orch".into(),
             target: PlanReminderTarget::Owner {
@@ -507,7 +527,9 @@ fn time_targets_follow_reseeded_owner_tab() {
     reseeded.owner = OrchestratorRef::from_tab("live-owner");
 
     assert_eq!(
-        timed_plan_reminder_targets(&[reseeded]),
+        timed_plan_reminder_targets(
+            &crate::service::hierarchy::plan_reminder_nudge::tests::reads(&[reseeded])
+        ),
         vec![TimedPlanReminderTarget {
             tab_id: "live-owner".into(),
             target: PlanReminderTarget::Owner {
@@ -530,7 +552,9 @@ fn time_targets_workers_for_open_and_blocked_statuses() {
             task("review", TaskStatus::InReview, Some("p4")),
         ],
     )];
-    let targets = timed_plan_reminder_targets(&plans);
+    let targets = timed_plan_reminder_targets(
+        &crate::service::hierarchy::plan_reminder_nudge::tests::reads(&plans),
+    );
 
     assert!(targets.iter().any(|target| target.tab_id == "p1"));
     assert!(targets.iter().any(|target| target.tab_id == "p2"));
@@ -560,7 +584,9 @@ fn timed_targets_silent_for_all_done_and_complete_mode_plans() {
     );
     complete_mode.mode = PlanMode::Complete;
 
-    let targets = timed_plan_reminder_targets(&[all_done, complete_mode]);
+    let targets = timed_plan_reminder_targets(
+        &crate::service::hierarchy::plan_reminder_nudge::tests::reads(&[all_done, complete_mode]),
+    );
     assert!(
         targets.is_empty(),
         "complete plans must produce zero timed reminder targets: {targets:?}"
@@ -579,7 +605,9 @@ fn timed_targets_fire_for_in_review_open_work() {
             task("t_review", TaskStatus::InReview, Some("worker-review")),
         ],
     )];
-    let targets = timed_plan_reminder_targets(&plans);
+    let targets = timed_plan_reminder_targets(
+        &crate::service::hierarchy::plan_reminder_nudge::tests::reads(&plans),
+    );
     assert!(
         targets.iter().any(|t| t.tab_id == "orch-review"),
         "in_review open work must keep plan non-complete and owner nudge-eligible"
@@ -587,14 +615,16 @@ fn timed_targets_fire_for_in_review_open_work() {
 }
 
 fn owner_target(plan: &Plan) -> bool {
-    timed_plan_reminder_targets(std::slice::from_ref(plan))
-        .iter()
-        .any(|target| {
-            target.target
-                == PlanReminderTarget::Owner {
-                    plan_id: plan.id.clone(),
-                }
-        })
+    timed_plan_reminder_targets(
+        &crate::service::hierarchy::plan_reminder_nudge::tests::reads(std::slice::from_ref(plan)),
+    )
+    .iter()
+    .any(|target| {
+        target.target
+            == PlanReminderTarget::Owner {
+                plan_id: plan.id.clone(),
+            }
+    })
 }
 
 fn held_dependency_plan() -> Plan {
@@ -617,7 +647,13 @@ fn plan_reminder_dependency_wait_alone_still_scans_owner_health() {
         .tasks
         .iter()
         .any(|task| task.status.counts_as_open_work()));
-    assert_eq!(timed_plan_reminder_targets(&[plan]).len(), 1);
+    assert_eq!(
+        timed_plan_reminder_targets(
+            &crate::service::hierarchy::plan_reminder_nudge::tests::reads(&[plan])
+        )
+        .len(),
+        1
+    );
 }
 
 #[test]
@@ -657,7 +693,9 @@ fn plan_reminder_dependency_wait_skips_the_waiting_worker_only() {
         TaskStatus::InProgress,
         Some("live-worker"),
     ));
-    let targets = timed_plan_reminder_targets(&[plan]);
+    let targets = timed_plan_reminder_targets(
+        &crate::service::hierarchy::plan_reminder_nudge::tests::reads(&[plan]),
+    );
     assert!(targets.iter().any(|target| target.tab_id == "live-worker"));
     assert!(!targets
         .iter()
@@ -681,7 +719,12 @@ fn blocked_notices_group_shared_blockers_and_propose_full_plan_pause() {
     let mut second = task("task_b", TaskStatus::Blocked, None);
     second.pause_reason = Some("shared machine hold".into());
     let shared_plan = plan("blocked", "orch", PlanMode::Execution, vec![first, second]);
-    let notices = super::blocked_notices(&shared_plan, &Scope::default(), &Snapshot::default());
+    let notices = super::blocked_notices(
+        &crate::service::hierarchy::plan_reminder_nudge::tests::read(&shared_plan),
+        &Scope::default(),
+        &Snapshot::default(),
+    )
+    .unwrap();
 
     assert_eq!(notices.len(), 1);
     assert_eq!(
@@ -695,7 +738,12 @@ fn blocked_notices_group_shared_blockers_and_propose_full_plan_pause() {
         task_id: Some("task_a".into()),
         ..Scope::default()
     };
-    let notices = super::blocked_notices(&shared_plan, &worker_scope, &Snapshot::default());
+    let notices = super::blocked_notices(
+        &crate::service::hierarchy::plan_reminder_nudge::tests::read(&shared_plan),
+        &worker_scope,
+        &Snapshot::default(),
+    )
+    .unwrap();
     assert_eq!(notices.len(), 1);
     assert_eq!(
         notices[0].task_ids,
@@ -713,7 +761,12 @@ fn blocked_notices_group_shared_blockers_and_propose_full_plan_pause() {
         PlanMode::Execution,
         vec![first, second],
     );
-    let notices = super::blocked_notices(&distinct_plan, &Scope::default(), &Snapshot::default());
+    let notices = super::blocked_notices(
+        &crate::service::hierarchy::plan_reminder_nudge::tests::read(&distinct_plan),
+        &Scope::default(),
+        &Snapshot::default(),
+    )
+    .unwrap();
     assert_eq!(notices.len(), 2);
     assert!(notices.iter().all(|notice| !notice.pause_plan));
 }
@@ -807,7 +860,10 @@ fn project_for_tab_reads_the_scheduler_targets() {
     let ticks = [owner_tick, other_plan_tick, worker_tick];
 
     let owners = super::projection::project_for_tab(
-        &[owner_plan.clone()],
+        &crate::service::hierarchy::plan_reminder_nudge::tests::popup_reads(
+            &[owner_plan.clone()],
+            "owner-tab",
+        ),
         "owner-tab",
         60,
         100,
@@ -830,7 +886,10 @@ fn project_for_tab_reads_the_scheduler_targets() {
     assert_eq!(owners[0].ticks[0].spinal_reason, "delivered");
 
     let workers = super::projection::project_for_tab(
-        &[owner_plan.clone()],
+        &crate::service::hierarchy::plan_reminder_nudge::tests::popup_reads(
+            &[owner_plan.clone()],
+            "worker-tab",
+        ),
         "worker-tab",
         60,
         100,
@@ -851,7 +910,10 @@ fn project_for_tab_reads_the_scheduler_targets() {
     assert_eq!(workers[0].ticks[0].spinal_reason, "not_due");
 
     assert!(super::projection::project_for_tab(
-        &[owner_plan.clone()],
+        &crate::service::hierarchy::plan_reminder_nudge::tests::popup_reads(
+            &[owner_plan.clone()],
+            "owner-tab"
+        ),
         "owner-tab",
         60,
         100,
@@ -861,7 +923,10 @@ fn project_for_tab_reads_the_scheduler_targets() {
     )
     .is_empty());
     assert!(super::projection::project_for_tab(
-        &[owner_plan],
+        &crate::service::hierarchy::plan_reminder_nudge::tests::popup_reads(
+            &[owner_plan],
+            "owner-tab"
+        ),
         "owner-tab",
         0,
         100,
@@ -870,7 +935,16 @@ fn project_for_tab_reads_the_scheduler_targets() {
         true
     )
     .is_empty());
-    assert!(super::projection::project_for_tab(&[], "", 60, 100, None, &[], true).is_empty());
+    assert!(super::projection::project_for_tab(
+        &crate::service::hierarchy::plan_reminder_nudge::tests::popup_reads(&[], ""),
+        "",
+        60,
+        100,
+        None,
+        &[],
+        true
+    )
+    .is_empty());
 }
 
 struct FakePorts<L, D> {
@@ -926,7 +1000,13 @@ fn send_due_plan_time_reminders_with(
     deliver: impl Fn(&str, &PlanReminderTarget, NudgeKind) -> Result<bool, String>,
 ) {
     let ports = FakePorts::new(|_: &str| true, deliver);
-    send_due_plan_time_reminders_via(plans, counter, now, interval_secs, &ports);
+    send_due_plan_time_reminders_via(
+        &crate::service::hierarchy::plan_reminder_nudge::tests::reads(plans),
+        counter,
+        now,
+        interval_secs,
+        &ports,
+    );
 }
 
 #[test]
@@ -947,6 +1027,7 @@ fn dead_worker_is_reported_once_then_skipped_until_a_session_binds_again() {
             Ok(true)
         },
     );
+    let plans = reads(&plans);
     send_due_plan_time_reminders_via(&plans, &counter, 0, 10, &ports);
 
     for now in (10..10_000).step_by(10) {
@@ -998,7 +1079,7 @@ fn heartbeat_owner_interval_drives_delivery_and_delayed_projection() {
     let counter = TurnCounter::new();
     counter.mark_time_nudged("owner-tab", 100);
     let interval = effective_interval(
-        &plans,
+        &crate::service::hierarchy::plan_reminder_nudge::tests::reads(&plans),
         &PlanReminderTarget::Owner {
             plan_id: "pl".into(),
         },
@@ -1006,11 +1087,23 @@ fn heartbeat_owner_interval_drives_delivery_and_delayed_projection() {
     );
     assert!(!counter.time_nudge_due("owner-tab", 999, interval));
     assert!(counter.time_nudge_due("owner-tab", 1000, interval));
-    let projected = project_for_tab(&plans, "owner-tab", 2700, 500, Some(100), &[], true);
+    let projected = project_for_tab(
+        &crate::service::hierarchy::plan_reminder_nudge::tests::popup_reads(&plans, "owner-tab"),
+        "owner-tab",
+        2700,
+        500,
+        Some(100),
+        &[],
+        true,
+    );
     assert_eq!(projected[0].cadence_ms, 900_000);
     assert_eq!(projected[0].next_due_ms, 1_000_000);
     assert_eq!(
-        effective_interval(&plans, &PlanReminderTarget::Worker, 2700),
+        effective_interval(
+            &crate::service::hierarchy::plan_reminder_nudge::tests::reads(&plans),
+            &PlanReminderTarget::Worker,
+            2700
+        ),
         2700
     );
 }
@@ -1023,8 +1116,42 @@ fn owner_off_removes_team_owner_and_worker_system_reminders() {
         PlanMode::Execution,
         vec![task("work", TaskStatus::InProgress, Some("worker"))],
     );
-    assert_eq!(timed_plan_reminder_targets(&[plan.clone()]).len(), 2);
+    assert_eq!(
+        timed_plan_reminder_targets(
+            &crate::service::hierarchy::plan_reminder_nudge::tests::reads(&[plan.clone()])
+        )
+        .len(),
+        2
+    );
     plan.control_loop.mode = crate::plan::ControlLoopMode::Off;
     plan.control_loop.fallback_reason = Some(crate::plan::CuratorFailure::LaunchFailed);
-    assert!(timed_plan_reminder_targets(&[plan]).is_empty());
+    assert!(timed_plan_reminder_targets(
+        &crate::service::hierarchy::plan_reminder_nudge::tests::reads(&[plan])
+    )
+    .is_empty());
+}
+
+pub(crate) fn read(plan: &crate::plan::Plan) -> codeterm_plan::service_plan::ReminderAdmissionRead {
+    codeterm_plan::service_plan::ReminderAdmissionRead::for_test(plan, heartbeat_gate::scrubbed)
+}
+
+pub(crate) fn reads(
+    plans: &[crate::plan::Plan],
+) -> Vec<codeterm_plan::service_plan::ReminderCandidateRead> {
+    codeterm_plan::service_plan::ReminderCandidateRead::for_test(
+        plans,
+        None,
+        heartbeat_gate::scrubbed,
+    )
+}
+
+pub(crate) fn popup_reads(
+    plans: &[crate::plan::Plan],
+    tab: &str,
+) -> Vec<codeterm_plan::service_plan::ReminderCandidateRead> {
+    codeterm_plan::service_plan::ReminderCandidateRead::for_test(
+        plans,
+        Some(tab),
+        heartbeat_gate::scrubbed,
+    )
 }

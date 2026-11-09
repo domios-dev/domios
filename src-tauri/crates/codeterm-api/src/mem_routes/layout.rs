@@ -23,24 +23,28 @@ pub async fn mem_graph_snapshot(
     _headers: HeaderMap,
     Query(p): Query<SnapshotParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let mem = &state.svc.mem;
+    tokio::task::spawn_blocking(move || {
+        let mem = &state.svc.mem;
 
-    // Delta path: client knows the version and its last-seen seq.
-    if let (Some(since_version), Some(since_seq)) = (p.since_version, p.since_seq) {
-        let current = mem.layout_cache().layout_version();
-        if since_version == current {
-            let delta = mem
-                .layout_delta(since_seq)
-                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-            return Ok(Json(serde_json::json!(delta)));
+        // Delta path: client knows the version and its last-seen seq.
+        if let (Some(since_version), Some(since_seq)) = (p.since_version, p.since_seq) {
+            let current = mem.layout_cache().layout_version();
+            if since_version == current {
+                let delta = mem
+                    .layout_delta(since_seq)
+                    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+                return Ok(Json(serde_json::json!(delta)));
+            }
+            // Version changed → fall through to a full snapshot.
         }
-        // Version changed → fall through to a full snapshot.
-    }
 
-    let snap = mem
-        .layout_snapshot()
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    Ok(Json(serde_json::json!(snap)))
+        let snap = mem
+            .layout_snapshot()
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+        Ok(Json(serde_json::json!(snap)))
+    })
+    .await
+    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
 }
 
 #[derive(Deserialize)]
@@ -63,17 +67,21 @@ pub async fn mem_graph_labels(
     _headers: HeaderMap,
     Query(p): Query<IdsParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let ids = parse_ids(&p.ids);
-    let labels = state
-        .svc
-        .mem
-        .layout_labels(&ids)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    let out: Vec<serde_json::Value> = labels
-        .into_iter()
-        .map(|(id, title)| serde_json::json!({ "id": id, "title": title }))
-        .collect();
-    Ok(Json(serde_json::json!(out)))
+    tokio::task::spawn_blocking(move || {
+        let ids = parse_ids(&p.ids);
+        let labels = state
+            .svc
+            .mem
+            .layout_labels(&ids)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+        let out: Vec<serde_json::Value> = labels
+            .into_iter()
+            .map(|(id, title)| serde_json::json!({ "id": id, "title": title }))
+            .collect();
+        Ok(Json(serde_json::json!(out)))
+    })
+    .await
+    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
 }
 
 pub async fn mem_graph_edges(
@@ -81,13 +89,17 @@ pub async fn mem_graph_edges(
     _headers: HeaderMap,
     Query(p): Query<IdsParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let ids = parse_ids(&p.ids);
-    let edges = state
-        .svc
-        .mem
-        .layout_edges(&ids)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    Ok(Json(serde_json::json!(edges)))
+    tokio::task::spawn_blocking(move || {
+        let ids = parse_ids(&p.ids);
+        let edges = state
+            .svc
+            .mem
+            .layout_edges(&ids)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+        Ok(Json(serde_json::json!(edges)))
+    })
+    .await
+    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
 }
 
 pub async fn mem_graph_layout_rebuild(

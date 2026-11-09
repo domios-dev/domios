@@ -1,3 +1,4 @@
+import { type HostIoSteps } from "@codeterm/plugin-sdk";
 import { checkProviderUpdate, installedVersion, type UpdateAvailability, type UpdateHost } from "../../provider-shared/updateCheck";
 
 export const codexSelfUpdateCapability = {
@@ -24,7 +25,6 @@ export function updateAvailable(current: unknown, latest: unknown): boolean {
   return false;
 }
 
-export function checkCodexUpdate(host: UpdateHost): UpdateAvailability | null {
-  return checkProviderUpdate(host, "codex", `https://registry.npmjs.org/${encodeURIComponent(codexSelfUpdateCapability.npmPackage)}/latest`, undefined,
-    installedVersion);
+export function* checkCodexUpdate(host: UpdateHost): HostIoSteps<UpdateAvailability | null> {
+  return (yield* checkProviderUpdate(host, "codex", `https://registry.npmjs.org/${encodeURIComponent(codexSelfUpdateCapability.npmPackage)}/latest`, undefined, installedVersion));
 }

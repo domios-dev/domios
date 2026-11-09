@@ -51,11 +51,30 @@ pub enum SendTextOutcome {
         message: String,
         bytes_written: bool,
     },
+    /// Accepted and retained but not written yet: not a failure, yet the
+    /// immediate-send exit contract still reports `bytes_written:false` as 1.
+    Held {
+        msg: String,
+        exit_code: i32,
+    },
     Error {
         msg: String,
         exit_code: i32,
     },
     Other,
+}
+
+fn is_held_receipt(value: &serde_json::Value) -> bool {
+    value.get("error").is_none_or(serde_json::Value::is_null)
+        && value.get("ok").and_then(serde_json::Value::as_bool) != Some(false)
+        && value
+            .get("bytes_written")
+            .and_then(serde_json::Value::as_bool)
+            == Some(false)
+        && value
+            .get("send_id")
+            .and_then(serde_json::Value::as_str)
+            .is_some()
 }
 
 pub fn analyze_send_text_response(value: &serde_json::Value) -> SendTextOutcome {
@@ -74,7 +93,17 @@ pub fn analyze_send_text_response(value: &serde_json::Value) -> SendTextOutcome 
                     .or_else(|| error.get("message").and_then(serde_json::Value::as_str))
                     .or_else(|| error.get("code").and_then(serde_json::Value::as_str))
             })
-            .unwrap_or("send has not been written; inspect its retained status before resending");
+            .unwrap_or_else(|| {
+                if value
+                    .get("send_id")
+                    .and_then(serde_json::Value::as_str)
+                    .is_some()
+                {
+                    "send is queued and not written yet; it may still be written once; do not resend; inspect its status"
+                } else {
+                    "send has not been written"
+                }
+            });
         let detail = value.get("detail").and_then(serde_json::Value::as_str);
         let message = detail.map_or_else(
             || reason.to_string(),
@@ -85,26 +114,52 @@ pub fn analyze_send_text_response(value: &serde_json::Value) -> SendTextOutcome 
             .and_then(serde_json::Value::as_str)
             .map_or_else(
                 || message.clone(),
-                |id| format!("send_id={id}: {message}\ninspect: domios tab send-status {id}"),
+                |id| {
+                    let inspection =
+                        format!("send_id={id}: {message}\ninspect: domios tab send-status {id}");
+                    if id.starts_with("agent-pty:") {
+                        format!("{inspection}\ncancel held input: domios tab send-cancel {id}")
+                    } else {
+                        inspection
+                    }
+                },
             );
+        let exit_code = crate::cmd::print::CLI_ERROR_EXIT_CODE;
+        if is_held_receipt(value) {
+            return SendTextOutcome::Held {
+                msg: message,
+                exit_code,
+            };
+        }
         return SendTextOutcome::Error {
             msg: message,
-            exit_code: crate::cmd::print::CLI_ERROR_EXIT_CODE,
+            exit_code,
         };
     }
     if value.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
         return match value.get("delivery").and_then(serde_json::Value::as_str) {
             Some("sent") => SendTextOutcome::Success("OK (sent)".to_string()),
-            _ => SendTextOutcome::Pending {
-                message: "OK (pending)".to_string(),
-                bytes_written: value
+            _ => {
+                let bytes_written = value
                     .get("bytes_written")
                     .and_then(serde_json::Value::as_bool)
-                    .unwrap_or(false),
-            },
+                    .unwrap_or(false);
+                SendTextOutcome::Pending {
+                    message: pending_message(bytes_written).to_string(),
+                    bytes_written,
+                }
+            }
         };
     }
     SendTextOutcome::Other
+}
+
+fn pending_message(bytes_written: bool) -> &'static str {
+    if bytes_written {
+        "OK (written; submit unconfirmed)"
+    } else {
+        "OK (pending)"
+    }
 }
 
 fn write_send_text_failure(
@@ -142,6 +197,33 @@ fn write_send_text_failure(
     }
 }
 
+/// A held send keeps the JSON error envelope (`bytes_written:false` contract)
+/// but tells a human it is queued rather than failed.
+fn write_send_text_held(
+    json: bool,
+    value: &serde_json::Value,
+    message: &str,
+    out: &mut impl std::io::Write,
+    err: &mut impl std::io::Write,
+) {
+    if json {
+        let mut data = value.clone();
+        data["code"] = serde_json::json!(crate::cmd::error_contract::ErrorCode::Held.as_str());
+        data["hint"] = serde_json::json!(
+            "the send is queued and not written yet; inspect its status; do not replay this send"
+        );
+        let error = crate::cmd::print::CliError {
+            message: message.to_string(),
+            code: None,
+            data: Some(data),
+        };
+        crate::cmd::print::write_cli_error(true, &error, out, err);
+    } else {
+        let _ = out.flush();
+    }
+    let _ = writeln!(err, "Queued: {message}");
+}
+
 fn pad_file_path(value: &serde_json::Value) -> Option<&str> {
     value.get("pad_file").and_then(serde_json::Value::as_str)
 }
@@ -174,6 +256,16 @@ pub fn handle_send_text_result(
     match result {
         Ok(value) => {
             let outcome = analyze_send_text_response(&value);
+            if let SendTextOutcome::Held { msg, exit_code } = &outcome {
+                write_send_text_held(
+                    json,
+                    &value,
+                    msg,
+                    &mut std::io::stdout(),
+                    &mut std::io::stderr(),
+                );
+                std::process::exit(*exit_code);
+            }
             if let SendTextOutcome::Error { msg, exit_code } = &outcome {
                 write_send_text_failure(
                     json,
@@ -214,7 +306,8 @@ pub fn handle_send_text_result(
                         }
                     }
                 }
-                SendTextOutcome::Error { msg, exit_code } => {
+                SendTextOutcome::Held { msg, exit_code }
+                | SendTextOutcome::Error { msg, exit_code } => {
                     crate::cmd::print::fail(exit_code, msg.to_string());
                 }
                 SendTextOutcome::Other => print_human(&value),
@@ -407,6 +500,7 @@ fn send_text_to_targets(
     system_context: Option<String>,
 ) {
     let mut failures: Vec<(String, String)> = Vec::new();
+    let mut held: Vec<(String, String)> = Vec::new();
     let mut delivered: Vec<String> = Vec::new();
     let mut pending: Vec<String> = Vec::new();
     let mut pending_written: Vec<String> = Vec::new();
@@ -455,6 +549,7 @@ fn send_text_to_targets(
                             pending_written.push(tab_id.clone());
                         }
                     }
+                    SendTextOutcome::Held { msg, .. } => held.push((tab_id.clone(), msg)),
                     SendTextOutcome::Error { msg, .. } => failures.push((tab_id.clone(), msg)),
                     SendTextOutcome::Other => failures.push((
                         tab_id.clone(),
@@ -467,10 +562,14 @@ fn send_text_to_targets(
     }
     if json {
         let mut report = serde_json::json!({
-            "ok": failures.is_empty(),
+            "ok": failures.is_empty() && held.is_empty(),
             "delivered": delivered,
             "pending": pending,
             "pending_written": pending_written,
+            "held": held
+                .iter()
+                .map(|(tab, status)| serde_json::json!({ "tab": tab, "status": status }))
+                .collect::<Vec<_>>(),
             "pad_files": pad_files,
             "failed": failures
                 .iter()
@@ -494,7 +593,10 @@ fn send_text_to_targets(
             println!("OK (sent) {tab_id}");
         }
         for tab_id in &pending {
-            println!("OK (pending) {tab_id}");
+            println!(
+                "{} {tab_id}",
+                pending_message(pending_written.contains(tab_id))
+            );
         }
         for entry in &pad_files {
             if let (Some(tab), Some(path)) = (entry["tab"].as_str(), entry["path"].as_str()) {
@@ -502,9 +604,10 @@ fn send_text_to_targets(
             }
         }
         println!(
-            "{} sent, {} pending, {} refused of {} target(s)",
+            "{} sent, {} pending, {} queued, {} refused of {} target(s)",
             delivered.len(),
             pending.len(),
+            held.len(),
             failures.len(),
             targets.len()
         );
@@ -512,10 +615,13 @@ fn send_text_to_targets(
             println!("{}", resolved_text_echo(resolved_text));
         }
     }
-    if !failures.is_empty() {
-        for (tab_id, err) in &failures {
-            eprintln!("Error {tab_id}: {err}");
-        }
+    for (tab_id, status) in &held {
+        eprintln!("Queued {tab_id}: {status}");
+    }
+    for (tab_id, err) in &failures {
+        eprintln!("Error {tab_id}: {err}");
+    }
+    if !failures.is_empty() || !held.is_empty() {
         std::process::exit(crate::cmd::print::CLI_ERROR_EXIT_CODE);
     }
 }

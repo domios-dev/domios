@@ -10,8 +10,12 @@ import type { ChatUnavailableReason } from "./chatSessionAuthority";
 import type { LockedView } from "../billing/freeLimitModel";
 import { LockedOverlay } from "../billing/LockBadge";
 import { openLockedPlans } from "../billing/freeLimitGate";
-import { useRestartTab } from "./useRestartTab";
+import { useTabRecovery } from "./useTabRecovery";
+import { describeRuntimeConnectionError } from "../../lib/describeError";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
+import { runtimeSessionLoadRefused } from "../../lib/agentRuntimeState";
+import { tabActivity } from "../../lib/tabActivity";
+import { isReadOnlyTab } from "../../lib/tabInputPolicy";
 
 export { chatSetupView } from "./chatSetupModel";
 
@@ -33,6 +37,8 @@ interface ChatSetupStateProps {
   onEscape?: () => void;
   onRetry?: () => void;
   lock?: LockedView;
+  /** Kept rows share the log with this state, so a launch failure takes a row instead of the whole body. */
+  inLog?: boolean;
 }
 
 export function ChatSetupState({
@@ -44,8 +50,10 @@ export function ChatSetupState({
   onEscape,
   onRetry,
   lock,
+  inLog = false,
 }: ChatSetupStateProps) {
-  const recovery = useRestartTab(tab?.id);
+  const { restart: recovery, fresh, actions: launchActions, error: launchActionError } = useTabRecovery(tab?.id,
+    view.kind === "launch_failed" && !isReadOnlyTab(tab) ? tabActivity(tab).failure?.recovery : null);
   const handleKeyDown = useCallback((event: React.KeyboardEvent) => {
     if (event.key !== "Escape") return;
     event.preventDefault();
@@ -55,13 +63,27 @@ export function ChatSetupState({
   if (view.kind === "locked") {
     return lock ? <LockedOverlay view={lock} onActivate={() => openLockedPlans(lock)} /> : null;
   }
+  const startUnbound = tab?.agent_runtime_state?.state === "degraded"
+    && tab.agent_runtime_state.failureCode === "runtime_start_unbound";
+  if (runtimeSessionLoadRefused(tab?.agent_runtime_state) || startUnbound) {
+    const detail = tab?.agent_runtime_state?.reason ?? "";
+    return <div className="relative z-20 mx-auto my-2 w-full max-w-2xl" data-testid="chat-launch-failed">
+      <TabLaunchFailure tabId={tab?.id} workspace={workspace} reason={detail} inline
+        description={{ title: startUnbound ? "The agent could not start a session" : "The agent no longer has this session", cause: "", raw: detail, actions: [] }}
+        actions={[{ label: fresh.startingNewSession ? "Starting…" : "Start new session", ariaLabel: "Start new session",
+          disabled: fresh.startingNewSession, onClick: () => void fresh.onStartNewSession() }]} />
+      {fresh.actionError && <InlineErrorNotice error={fresh.actionError} operation="starting a new session" />}
+    </div>;
+  }
   if (view.kind === "attach_failed") {
-    return <ChatStatusBanner title="Chat connection failed" reason={view.reason} testId="chat-recovery-error"
+    const failure = describeRuntimeConnectionError(view.reason);
+    return <ChatStatusBanner title="Chat connection failed" reason={failure.title} details={failure.raw} testId="chat-recovery-error"
       action={<button type="button" data-testid="chat-retry" onClick={onRetry}>Retry</button>} />;
   }
   if (view.kind === "launch_failed") {
-    return <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-4 overflow-auto bg-[var(--ct-bg)]" data-testid="chat-launch-failed">
-      <TabLaunchFailure tabId={tab?.id} workspace={workspace} cwd={tab?.cwd} reason={view.reason} />
+    return <div className={`${inLog ? "my-3" : "absolute inset-0 z-20 justify-center overflow-auto bg-[var(--ct-bg)]"} flex flex-col items-center gap-4`} data-testid="chat-launch-failed">
+      <TabLaunchFailure tabId={tab?.id} workspace={workspace} cwd={tab?.cwd} reason={view.reason} actions={launchActions} />
+      {launchActionError && <InlineErrorNotice error={launchActionError} operation="recovering this tab" />}
       {waitingMessages > 0 && <p role="status" className="text-xs text-[var(--ct-muted-fg)]">{waitingMessages} {waitingMessages === 1 ? "message is" : "messages are"} waiting for this tab to start.</p>}
     </div>;
   }

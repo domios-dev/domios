@@ -66,6 +66,7 @@ impl RolePolicy for CuratorPolicy {
         match service.prepare_curator_fire(job, now) {
             Ok(Some((mirror, task))) => Ok(Some(CronLaunch {
                 provider: mirror.provider,
+                launch_profile: mirror.launch_profile,
                 model: mirror.model,
                 effort: mirror.effort,
                 task,
@@ -76,7 +77,12 @@ impl RolePolicy for CuratorPolicy {
                         return Err(error.to_string());
                     }
                     log::debug!("[curator] prepare {}: {error}", job.task);
-                    service.curator_fire_failed(&job.task, error.reason, now)?;
+                    service.curator_fire_refused(
+                        &job.task,
+                        error.reason,
+                        error.cause.as_deref(),
+                        now,
+                    )?;
                 }
                 service
                     .reconcile_curator_id(&job.task, now)
@@ -140,7 +146,10 @@ impl RolePolicy for CuratorPolicy {
         if identity.plan_id != plan_id || !matches!(tag, Some("curator" | "curator:next")) {
             return Err("Curator learnings require this round's plan and curator tag".into());
         }
-        let plan = service.plan_store.get(plan_id).ok_or("plan absent")?;
+        let plan = service
+            .plan_store
+            .plan_identity_projection(plan_id)
+            .map_err(|error| error.to_string())?;
         Ok((plan.owner.tab_id, plan.owner.session_id))
     }
 }

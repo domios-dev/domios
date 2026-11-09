@@ -39,17 +39,21 @@ pub async fn mem_graph_related(
     _headers: HeaderMap,
     Query(p): Query<GraphRelatedParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let rels = state
-        .svc
-        .mem
-        .graph_related(
-            &p.id,
-            p.rel.as_deref(),
-            p.as_of.as_deref(),
-            p.include_invalidated,
-        )
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    Ok(Json(serde_json::json!({ "relations": rels })))
+    tokio::task::spawn_blocking(move || {
+        let rels = state
+            .svc
+            .mem
+            .graph_related(
+                &p.id,
+                p.rel.as_deref(),
+                p.as_of.as_deref(),
+                p.include_invalidated,
+            )
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+        Ok(Json(serde_json::json!({ "relations": rels })))
+    })
+    .await
+    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
 }
 
 pub async fn mem_graph_create(
@@ -179,51 +183,55 @@ pub async fn mem_graph_full(
     AxumState(state): AxumState<AppState>,
     _headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let dump = state
-        .svc
-        .mem
-        .graph_full()
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    let nodes: Vec<serde_json::Value> = dump
-        .nodes
-        .iter()
-        .map(|n| {
-            serde_json::json!({
-                "id": n.id,
-                "kind": n.kind,
-                "title": n.title,
-                "summary": n.summary,
-                "area": n.area,
-                "importance": n.importance,
-                "tags": n.tags,
-                "has_vector": n.has_vector,
-                "has_body": n.has_body,
-                "author": n.author,
+    tokio::task::spawn_blocking(move || {
+        let dump = state
+            .svc
+            .mem
+            .graph_full()
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+        let nodes: Vec<serde_json::Value> = dump
+            .nodes
+            .iter()
+            .map(|n| {
+                serde_json::json!({
+                    "id": n.id,
+                    "kind": n.kind,
+                    "title": n.title,
+                    "summary": n.summary,
+                    "area": n.area,
+                    "importance": n.importance,
+                    "tags": n.tags,
+                    "has_vector": n.has_vector,
+                    "has_body": n.has_body,
+                    "author": n.author,
+                })
             })
-        })
-        .collect();
-    let edges: Vec<serde_json::Value> = dump
-        .edges
-        .iter()
-        .map(|e| {
-            serde_json::json!({
-                "from": e.from,
-                "to": e.to,
-                "rel": e.rel,
-                "confidence": e.confidence,
-                "valid_from": e.valid_from,
-                "valid_to": e.valid_to,
+            .collect();
+        let edges: Vec<serde_json::Value> = dump
+            .edges
+            .iter()
+            .map(|e| {
+                serde_json::json!({
+                    "from": e.from,
+                    "to": e.to,
+                    "rel": e.rel,
+                    "confidence": e.confidence,
+                    "valid_from": e.valid_from,
+                    "valid_to": e.valid_to,
+                })
             })
-        })
-        .collect();
-    Ok(Json(serde_json::json!({
-        "nodes": nodes,
-        "edges": edges,
-        "stats": {
-            "node_count": dump.stats.node_count,
-            "edge_count": dump.stats.edge_count,
-        }
-    })))
+            .collect();
+        Ok(Json(serde_json::json!({
+            "nodes": nodes,
+            "edges": edges,
+            "stats": {
+                "node_count": dump.stats.node_count,
+                "edge_count": dump.stats.edge_count,
+            }
+        })))
+    })
+    .await
+    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
 }
 
 // ─── Repair endpoints ────────────────────────────────────────────────

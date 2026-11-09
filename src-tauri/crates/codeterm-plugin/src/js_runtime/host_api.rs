@@ -22,6 +22,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock, Weak};
 
 mod filesystem;
+mod io;
 pub(super) mod sqlite;
 
 use super::manifest::CredentialConfig;
@@ -49,44 +50,73 @@ fn held_file_locks() -> &'static parking_lot::Mutex<HashMap<String, HeldFileLock
 
 pub(super) fn release_bundle_file_locks(directory: &Path) {
     if let Ok(directory) = directory.canonicalize() {
-        held_file_locks()
-            .lock()
-            .retain(|_, lock| !lock.path.starts_with(&directory));
+        remove_file_locks(|lock| lock.path.starts_with(&directory));
     }
 }
 
+fn remove_file_locks(matches: impl Fn(&HeldFileLock) -> bool) {
+    let removed = {
+        let mut locks = held_file_locks().lock();
+        let keys = locks
+            .iter()
+            .filter(|(_, lock)| matches(lock))
+            .map(|(id, _)| id.clone())
+            .collect::<Vec<_>>();
+        keys.into_iter()
+            .filter_map(|id| locks.remove(&id))
+            .collect::<Vec<_>>()
+    };
+    drop(removed);
+}
+
 thread_local! {
-    static FILE_LOCK_CALL: RefCell<Option<String>> = const { RefCell::new(None) };
+    static FILE_LOCK_CALL: RefCell<Option<Arc<FileLockResources>>> = const { RefCell::new(None) };
+}
+
+pub(super) struct FileLockResources {
+    call_id: String,
+}
+
+impl Drop for FileLockResources {
+    fn drop(&mut self) {
+        release_call_file_locks(&self.call_id);
+    }
 }
 
 pub(super) struct FileLockCallScope {
-    call_id: String,
-    previous: Option<String>,
+    previous: Option<Arc<FileLockResources>>,
 }
 
 impl FileLockCallScope {
     pub(super) fn new() -> Self {
-        let call_id = uuid::Uuid::new_v4().to_string();
-        let previous = FILE_LOCK_CALL.with(|scope| scope.replace(Some(call_id.clone())));
-        Self { call_id, previous }
+        Self::attach(Arc::new(FileLockResources {
+            call_id: uuid::Uuid::new_v4().to_string(),
+        }))
+    }
+
+    pub(super) fn attach(resources: Arc<FileLockResources>) -> Self {
+        Self {
+            previous: FILE_LOCK_CALL.with(|scope| scope.replace(Some(resources))),
+        }
     }
 }
 
 impl Drop for FileLockCallScope {
     fn drop(&mut self) {
-        release_call_file_locks(&self.call_id);
         FILE_LOCK_CALL.with(|scope| *scope.borrow_mut() = self.previous.take());
     }
 }
 
-fn current_file_lock_call() -> Option<String> {
+pub(super) fn current_file_lock_resources() -> Option<Arc<FileLockResources>> {
     FILE_LOCK_CALL.with(|scope| scope.borrow().clone())
 }
 
+fn current_file_lock_call() -> Option<String> {
+    current_file_lock_resources().map(|resources| resources.call_id.clone())
+}
+
 fn release_call_file_locks(call_id: &str) {
-    held_file_locks()
-        .lock()
-        .retain(|_, lock| lock.call_id != call_id);
+    remove_file_locks(|lock| lock.call_id == call_id);
 }
 
 /// A write-once, weakly-held ref populated after construction — the VM is built
@@ -507,6 +537,14 @@ fn prepare_fetch(sandbox: &PluginSandbox, opts_json: &str) -> Result<String, Str
         return Err("fetch denied".to_string());
     }
     let prepared = super::host_credentials::inject(sandbox.credentials(), opts_json)?;
+    let prepared = super::host_credentials::inject_profile_secret(&prepared, |profile, env| {
+        if !sandbox.secrets_allowed() {
+            return None;
+        }
+        sandbox
+            .service()?
+            .launch_profile_secret(sandbox.plugin_id(), profile, env)
+    })?;
     let token = if sandbox.token_mode == TokenMode::None || !sandbox.supporter_token_allowed(&host)
     {
         None

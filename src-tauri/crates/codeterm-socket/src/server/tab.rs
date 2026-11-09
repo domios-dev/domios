@@ -25,6 +25,21 @@ pub(super) fn dispatch(
         return super::tab_todos::dispatch(method, params, svc);
     }
     match method {
+        "tab.send_cancel" => {
+            let send_id = get_string_param(params, "send_id")?;
+            let status = svc
+                .cancel_retained_agent_send(&send_id)
+                .map_err(|message| JsonRpcError {
+                    code: -32602,
+                    message,
+                    data: None,
+                })?;
+            serde_json::to_value(status).map_err(|error| JsonRpcError {
+                code: -32603,
+                message: error.to_string(),
+                data: None,
+            })
+        }
         "tab.send_status" => {
             let send_id = get_string_param(params, "send_id")?;
             let status = svc
@@ -288,10 +303,22 @@ pub(super) fn dispatch(
 
         "agents.cli_status" => {
             let provider = get_string_param(params, "provider")?;
-            codeterm_service_core::service::provider_cli::provider_cli_status(
+            let refresh = match params.as_ref().and_then(|params| params.get("refresh")) {
+                None => false,
+                Some(Value::Bool(refresh)) => *refresh,
+                Some(_) => {
+                    return Err(JsonRpcError {
+                        code: -32602,
+                        message: "refresh must be a boolean".into(),
+                        data: None,
+                    })
+                }
+            };
+            codeterm_service_core::service::provider_cli::provider_cli_status_with_refresh(
                 &svc.provider_registry,
                 &provider,
                 codeterm_service_core::agent::provider::current_platform_tag(),
+                refresh,
             )
             .and_then(|status| serde_json::to_value(status).map_err(|e| e.to_string()))
             .map_err(|message| JsonRpcError {
@@ -363,6 +390,7 @@ pub(super) fn dispatch(
                     ));
                 }
             }
+            let restored_send = writes_pty && svc.public_send_restores_agent(&resolved_target);
             let system_context = opt_string_param(params, "system_context");
             let response = if source_tab.is_some() || target_has_agent || system_context.is_some() {
                 let src = source_tab.as_deref().unwrap_or("");
@@ -371,7 +399,7 @@ pub(super) fn dispatch(
                     let source = m.get_tab(src);
                     (
                         m.display_label_for_tab(src),
-                        source.and_then(|tab| tab.agent_session_model.clone()),
+                        source.and_then(|tab| tab.agent_session_model_label()),
                         source.is_some_and(|tab| tab.agent_type.is_some() || tab.agent_booting),
                     )
                 };
@@ -397,10 +425,16 @@ pub(super) fn dispatch(
                         message: e,
                         data: None,
                     })?;
-                gateway_send_response(
-                    svc.public_delivery_receipt(&resolved_target, delivery),
-                    pad_file,
-                )
+                let delivery = if restored_send {
+                    codeterm_service_core::async_runtime::block_on(svc.await_restored_send_receipt(
+                        &resolved_target,
+                        delivery,
+                        std::time::Duration::from_secs(30),
+                    ))
+                } else {
+                    svc.public_delivery_receipt(&resolved_target, delivery)
+                };
+                gateway_send_response(delivery, pad_file)
             } else {
                 let (text, pad_file) = svc
                     .as_ref()

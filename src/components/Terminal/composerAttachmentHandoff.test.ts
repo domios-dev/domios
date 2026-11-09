@@ -1,3 +1,4 @@
+import { muxMockFetch } from "../../lib/muxMockFetch.testdata";
 import { formatAttachmentMarker } from "@codeterm/chat-core";
 import assert from "node:assert/strict";
 import { Window } from "happy-dom";
@@ -25,7 +26,7 @@ async function main() {
   setTokenFor(selfHost(), "test-token");
 
   const calls: Call[] = [];
-  globalThis.fetch = async (input, init) => {
+  globalThis.fetch = muxMockFetch(async (input, init) => {
     const url = String(input);
     const body = typeof init?.body === "string" ? JSON.parse(init.body) as Record<string, unknown> : null;
     calls.push({ url, body });
@@ -42,7 +43,7 @@ async function main() {
       return Response.json({ line: `[voice ${String(body?.path)}: origin transcript]` }, { status: 200 });
     }
     return new Response("unexpected", { status: 500 });
-  };
+  });
 
   setRelayTarget("air", "Air");
   assert.equal(composerAttachmentHandoff.relayPeerId(), "air");

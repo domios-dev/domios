@@ -86,6 +86,7 @@ impl Fixture {
         self.state
             .svc
             .frontend_pty_env(Some(id))
+            .unwrap()
             .remove("CODETERM_API_TOKEN")
             .unwrap()
     }

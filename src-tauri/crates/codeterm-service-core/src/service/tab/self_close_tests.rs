@@ -15,6 +15,28 @@ fn unattributed_close_of_coordinator_reports_missing_attribution() {
 
     assert!(error.starts_with(UNATTRIBUTED_CLOSE_REFUSAL_PREFIX));
     assert!(!error.starts_with(SELF_CLOSE_REFUSAL_PREFIX));
+    // A Team-less coordinator has no Team close, so the refusal names its exit.
+    assert!(error.contains(&format!("domios agent unlink --tab {coordinator}")));
+    assert!(fixture.service.mux.read().get_tab(&coordinator).is_some());
+}
+
+#[test]
+fn unattributed_close_of_team_coordinator_names_the_exact_team_close_command() {
+    let (mut mux, coordinator) = crate::multiplexer::state::MultiplexerState::new();
+    let tab = mux.get_tab_mut(&coordinator).expect("initial Tab");
+    tab.role = Some(AgentRole::Manager);
+    tab.role_profile = Some("orchestrator".into());
+    tab.team_id = Some("team_opaque".into());
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+
+    let error = fixture
+        .service
+        .close_tab_guarded(None, &coordinator, false)
+        .expect_err("an unattributed close of a Team coordinator stays refused");
+
+    assert!(error.starts_with(UNATTRIBUTED_CLOSE_REFUSAL_PREFIX));
+    assert!(error.contains("`domios team close team_opaque`"), "{error}");
+    assert!(!error.contains("attributed caller Tab"), "{error}");
     assert!(fixture.service.mux.read().get_tab(&coordinator).is_some());
 }
 

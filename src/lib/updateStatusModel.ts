@@ -1,10 +1,15 @@
 import type { UpdateAvailabilitySnapshot } from "./updateAvailability";
-import type { UpdateItem, UpdateRow } from "./updatePanelModel";
+import { CORE_PLUGIN_CHANNEL, updateSourceLabel, updateSourceMessage, type UpdateRow } from "./updatePanelModel";
 
-export function updateRestartDescription(group: UpdateItem["group"]): string | null {
-  return group === "App" ? "Restart required" : group === "Interface" ? "No restart required" : null;
+/** "Restart required" is reserved for a newer version staged and waiting for its restart. */
+export function updateRestartDescription(row: Pick<UpdateRow, "group" | "state" | "targetVersion" | "channelError">, appStaged: boolean): string | null {
+  if (row.targetVersion === null || row.channelError || row.state === "completed" || row.state === "failed") return null;
+  if (row.group === "Interface") return "No restart required";
+  if (row.group !== "App") return null;
+  return appStaged ? "Restart required" : "Update restarts Domios";
 }
 
+/** A failed check is not an updater state: the indicator only knows offers and update runs. */
 export function updateIndicator(rows: readonly UpdateRow[], options: { busy: boolean; checking: boolean; failed: boolean; completed?: boolean }) {
   const offers = rows.some(row => !row.channelError && row.state === "available");
   const failed = options.failed || rows.some(row => row.state === "failed");
@@ -16,16 +21,29 @@ export function updateIndicator(rows: readonly UpdateRow[], options: { busy: boo
   const description = failed ? "Update failed. Open updates for details."
     : options.checking ? "Checking for updates."
       : active ? activeRow ? `Updating ${activeRow.name}.` : "Updating components."
-        : offers ? `Updates available. ${restart ? "App update requires a restart." : rows.some(row => row.group === "Interface" && row.state === "available") ? "Interface update needs no restart." : ""}`.trim()
+        : offers ? `Updates available. ${restart ? "App update restarts Domios." : rows.some(row => row.group === "Interface" && row.state === "available") ? "Interface update needs no restart." : ""}`.trim()
           : completed ? "Updates completed." : "Open updates.";
   return { state, description, active, offers };
 }
 
-export const CORE_PLUGIN_CHANNEL = "codeterm-core";
 const CHANNEL_UNAVAILABLE_PREFIX = "Plugin channel unavailable: ";
-const DISCOVERY_SOURCES = new Set(["app", "frontend"]);
 
-export interface ChannelDiagnostic { channel: string; message: string }
+const PATH_LABEL: Readonly<Record<string, string>> = { direct: "direct download", github_api: "GitHub API fallback" };
+
+export interface CheckDetail { source: string; line: string }
+
+/** The quiet record of the last check: which path served each source, or what each failure was. */
+export function updateCheckDetails(snapshot: UpdateAvailabilitySnapshot): CheckDetail[] {
+  const errors = classifyUpdateStatus(snapshot).errors;
+  const details = Object.entries(snapshot.served_by ?? {})
+    .filter(([source]) => !errors[source])
+    .map(([source, path]) => ({ source, line: `${updateSourceLabel(source)}: served by ${PATH_LABEL[path] ?? path}` }));
+  return [...details, ...Object.entries(errors).map(([source, message]) => ({
+    source, line: `${updateSourceLabel(source)}: ${updateSourceMessage(message)}`,
+  }))];
+}
+
+export const COULD_NOT_CHECK = "Couldn't check right now.";
 
 export function classifyUpdateStatus(snapshot: UpdateAvailabilitySnapshot) {
   const information = new Map<string, string>();
@@ -42,18 +60,15 @@ export function classifyUpdateStatus(snapshot: UpdateAvailabilitySnapshot) {
   return { errors, information: [...information.values()] };
 }
 
-/** Channel failures no update row carries, such as the silently synced core channel. */
-export function channelDiagnostics(errors: Readonly<Record<string, string>>, shownChannels: ReadonlySet<string>): ChannelDiagnostic[] {
-  return Object.entries(errors)
-    .filter(([channel]) => !DISCOVERY_SOURCES.has(channel) && !shownChannels.has(channel))
-    .map(([channel, message]) => ({ channel, message }));
+/** Sources a finished check could not reach; the core channel syncs silently and only shows in the details. */
+export function unavailableSourceKeys(errors: Readonly<Record<string, string>>): string[] {
+  return Object.keys(errors).filter(source => source !== CORE_PLUGIN_CHANNEL);
 }
 
-export type UpdateFailureOrigin = "background" | "check" | "update";
 export interface UpdateFailure { message: string; details: string; channelUnavailable: boolean }
 
-export function classifyUpdateFailure(origin: UpdateFailureOrigin, detail: unknown): UpdateFailure | null {
-  if (origin === "background") return null;
+/** Describes a failed update the owner started; a failed check never reaches here. */
+export function classifyUpdateFailure(detail: unknown): UpdateFailure {
   const raw = detail instanceof Error ? detail.toString() : String(detail);
   try {
     const refusal: unknown = JSON.parse(raw.replace(/^Error: /, ""));
@@ -65,7 +80,7 @@ export function classifyUpdateFailure(origin: UpdateFailureOrigin, detail: unkno
   const channel = raw.indexOf(CHANNEL_UNAVAILABLE_PREFIX);
   if (channel >= 0) return { message: raw.slice(channel), details: raw, channelUnavailable: true };
   return {
-    message: origin === "check" ? "Couldn't check for updates. Try again later." : "Couldn't update. Try again later.",
+    message: "Couldn't update. Try again later.",
     details: raw,
     channelUnavailable: false,
   };

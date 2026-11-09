@@ -1,5 +1,5 @@
-use crate::plan::{Plan, TaskStatus};
 use crate::service::hierarchy::heartbeat_gate::DeliveryTick;
+use codeterm_plan::service_plan::ReminderCandidateRead as Plan;
 
 use super::{timed_plan_reminder_targets, PlanReminderTarget};
 
@@ -80,7 +80,7 @@ fn project_target(
     match target {
         PlanReminderTarget::Owner { plan_id } => {
             let plan = plans.iter().find(|plan| plan.id == *plan_id)?;
-            let task_ids = in_progress_ids(plan, None);
+            let task_ids = &plan.popup.as_ref()?.labels;
             Some(ProjectedHeartbeat {
                 id: format!("system:heartbeat:{plan_id}:{tab_id}"),
                 tab_id: tab_id.to_string(),
@@ -93,13 +93,10 @@ fn project_target(
             })
         }
         PlanReminderTarget::Worker => {
-            let plan = plans.iter().find(|plan| {
-                plan.tasks.iter().any(|task| {
-                    task.assigned_tab_id.as_deref() == Some(tab_id)
-                        && task.status == TaskStatus::InProgress
-                })
-            })?;
-            let task_ids = in_progress_ids(plan, Some(tab_id));
+            let plan = plans
+                .iter()
+                .find(|plan| plan.popup.as_ref().is_some_and(|popup| popup.worker))?;
+            let task_ids = &plan.popup.as_ref()?.labels;
             Some(ProjectedHeartbeat {
                 id: format!("system:heartbeat:worker:{tab_id}"),
                 tab_id: tab_id.to_string(),
@@ -112,20 +109,6 @@ fn project_target(
             })
         }
     }
-}
-
-fn in_progress_ids(plan: &Plan, tab_id: Option<&str>) -> Vec<String> {
-    plan.tasks
-        .iter()
-        .filter(|task| task.status == TaskStatus::InProgress)
-        .filter(|task| {
-            tab_id
-                .map(|tab_id| task.assigned_tab_id.as_deref() == Some(tab_id))
-                .unwrap_or(true)
-        })
-        .take(5)
-        .map(crate::service::plan::reminders::composition::task_label)
-        .collect()
 }
 
 fn view_ticks(ticks: &[DeliveryTick], tab_id: &str, plan_id: Option<&str>) -> Vec<ProjectedTick> {

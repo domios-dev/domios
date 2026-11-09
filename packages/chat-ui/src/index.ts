@@ -53,7 +53,7 @@ export { localArtifactOpeningAvailable } from "./localArtifactLoader";
 export { ChatBlockFrame } from "./blocks/ChatBlockFrame";
 export type { ChatBlockAction, ChatBlockFrameProps, ChatBlockStatus, ChatBlockTone } from "./blocks/ChatBlockFrame";
 export { ChatBlockHostProvider, useChatBlockHost } from "./blocks/ChatBlockHost";
-export type { ChatCardMenuItem, ChatCardMenuSpec } from "./blocks/ChatBlockHost";
+export type { ChatCardMenuItem, ChatCardMenuSpec, MessageMenuKind } from "./blocks/ChatBlockHost";
 export type { AgentBlockHost, ChatBlockHost, ChatMentionValue, ChecklistBlockHost, ChoiceBlockHost, ConnectBlockHost, JobBlockHost, PluginBlockHost, SettingBlockHost, TasksBlockHost } from "./blocks/ChatBlockHost";
 export { ChatBlockMessageProvider, useChatBlockMessageId } from "./blocks/ChatBlockHost";
 export { useLiveBinding } from "./blocks/liveBinding";
@@ -90,12 +90,13 @@ export { MessageTimeFrame } from "./MessageTimeFrame";
 export { ChatHighlightBudgetProvider, ChatHighlightRow } from "./ChatHighlightBudget";
 export { ChatDaySeparator } from "./ChatDaySeparator";
 export { chatLocalDay, chatDaySeparators, messageTimeLabels, showChatTimeGutter, chatHorizontalInsets } from "./chatTimeModel";
-export { messageRowTime } from "./messageRowTime";
+export { isUndatedTranscriptRow, messageRowTime } from "./messageRowTime";
 export { ImageFullscreen, type FullscreenImage } from "./ImageFullscreen";
 
 export { CanvasToolbar, type CanvasToolbarProps } from "./CanvasToolbar";
 export { Button, type ButtonProps, type ButtonSize, type ButtonVariant } from "./Button";
 
 export { DsRenderContext, type DsRenderScope } from "./blocks/DsRenderContext";
-export { CompactToolRowsProvider } from "./useCompactToolRow";
+export { CompactToolRowsProvider, useCompactCard } from "./useCompactToolRow";
+export { mergeMessageMenu, messageMenuGroup, MessageMenuBridgeProvider, type MessageMenuBridge } from "./messageMenu";
 export { ChatBlockActivityProvider } from "./blocks/liveBinding";

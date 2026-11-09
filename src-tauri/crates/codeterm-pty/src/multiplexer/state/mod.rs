@@ -11,7 +11,9 @@ use codeterm_types::team::Team;
 mod alias;
 mod closed;
 mod creation_order;
+mod lifecycle;
 mod locks;
+pub use lifecycle::{LifecyclePatch, LIFECYCLE_CONTEXT_CONFLICT};
 pub mod names;
 mod reorder;
 mod role;
@@ -25,8 +27,9 @@ mod workspace;
 
 pub use closed::{
     ArchivedTab, ClosedGroup, ClosedHistoryBatch, ClosedStructure, ClosedStructureView,
-    ClosedTabView, ClosedTabsStore, GroupKind, PreparedWorkspaceClose, StructureState,
-    TabCloseReservation, CLOSED_GROUP_CAP, RECENTLY_CLOSED_CAP, RECENTLY_CLOSED_VIEW_LIMIT,
+    ClosedTabView, ClosedTabsStore, ClosedTranscript, ClosedTranscriptReader, GroupKind,
+    PreparedWorkspaceClose, StructureState, TabCloseReservation, CLOSED_GROUP_CAP,
+    RECENTLY_CLOSED_CAP, RECENTLY_CLOSED_VIEW_LIMIT,
 };
 pub use locks::{LimitGateChange, MuxLocks};
 pub use snapshot::SnapshotMergeReport;
@@ -92,6 +95,7 @@ pub struct MultiplexerState {
     pub(super) closed_store: ClosedTabsStore,
     defer_closed_history: bool,
     pending_closed_history: Vec<closed::ClosedHistoryWrite>,
+    pending_closed_transcripts: Vec<ClosedTranscript>,
     workspace_close_reservations: HashMap<String, String>,
     tab_close_reservations: HashMap<String, (String, String)>,
     /// Entitlement admission source for lock marks; the service swaps it when the plan changes.
@@ -168,6 +172,13 @@ pub struct MultiplexerSnapshot {
 
 impl MultiplexerState {
     pub fn begin_team_close_transaction(&self) -> TeamCloseTransaction {
+        self.begin_team_close_transaction_with_store(ClosedTabsStore::in_memory())
+    }
+
+    pub fn begin_team_close_transaction_with_store(
+        &self,
+        closed_store: ClosedTabsStore,
+    ) -> TeamCloseTransaction {
         TeamCloseTransaction {
             staged: Self {
                 workspaces: self.workspaces.clone(),
@@ -179,9 +190,10 @@ impl MultiplexerState {
                 teams: self.teams.clone(),
                 team_order: self.team_order.clone(),
                 generation: AtomicU64::new(self.generation.load(Ordering::Relaxed)),
-                closed_store: ClosedTabsStore::in_memory(),
+                closed_store,
                 defer_closed_history: false,
                 pending_closed_history: Vec::new(),
+                pending_closed_transcripts: Vec::new(),
                 workspace_close_reservations: self.workspace_close_reservations.clone(),
                 tab_close_reservations: self.tab_close_reservations.clone(),
                 limit_gate: self.limit_gate.clone(),
@@ -228,6 +240,7 @@ impl MultiplexerState {
             closed_store: ClosedTabsStore::in_memory(),
             defer_closed_history: false,
             pending_closed_history: Vec::new(),
+            pending_closed_transcripts: Vec::new(),
             workspace_close_reservations: HashMap::new(),
             tab_close_reservations: HashMap::new(),
             limit_gate: codeterm_entitlements::LimitGate::new(
@@ -478,6 +491,7 @@ impl MultiplexerState {
             closed_store: ClosedTabsStore::in_memory(),
             defer_closed_history: false,
             pending_closed_history: Vec::new(),
+            pending_closed_transcripts: Vec::new(),
             workspace_close_reservations: HashMap::new(),
             tab_close_reservations: HashMap::new(),
             limit_gate: codeterm_entitlements::LimitGate::new(

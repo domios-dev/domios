@@ -118,7 +118,8 @@ export function validateRun(dir, { phases = PHASES, journeys = REQUIRED_JOURNEYS
     checkPhases(results, phases, errors);
     checkChecks(results, journeys, errors);
     checkIds(results, phases, errors);
-    errors.push(...modelEvidenceErrors(results.state, { verify: phases.includes("verify") }));
+    errors.push(...modelEvidenceErrors(results.state, { verify: phases.includes("verify"),
+      builds: Object.fromEntries((Array.isArray(results.phases) ? results.phases : []).filter(Boolean).map(phase => [phase.name, phase.build_sha])) }));
     checkScreenshots(dir, results, phases, errors);
     checkMarkdown(dir, results, errors);
   }

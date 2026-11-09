@@ -27,37 +27,47 @@ fn schema_comparison_allows_layout_whitespace_but_preserves_quoted_text() {
     assert_ne!(normalize("'a b'".into()), normalize("'ab'".into()));
 }
 
+fn declared_indexes(connection: &Connection) -> Vec<(String, String)> {
+    schema(connection)
+        .unwrap()
+        .into_iter()
+        .filter(|entry| entry.0 == "index")
+        .map(|entry| (entry.1, entry.2))
+        .collect()
+}
+
 #[test]
-fn schema_admission_allows_missing_managed_indexes() {
+fn schema_admission_rejects_every_missing_index() {
     let expected = Connection::open_in_memory().unwrap();
     super::super::create_schema(&expected).unwrap();
     let actual = Connection::open_in_memory().unwrap();
     super::super::create_schema(&actual).unwrap();
-    for name in MANAGED_ADDITIVE_INDEXES {
+    let indexes = declared_indexes(&expected);
+    assert!(!indexes.is_empty());
+    for (name, table) in indexes {
         actual.execute_batch(&format!("DROP INDEX {name}")).unwrap();
-        validate(&actual, &expected).unwrap();
+        assert!(validate(&actual, &expected).is_err(), "{name} on {table}");
+        super::super::create_schema(&actual).unwrap();
     }
 }
 
 #[test]
-fn schema_admission_rejects_a_wrong_definition_for_the_managed_index_name() {
+fn schema_admission_rejects_a_wrong_definition_for_a_declared_index_name() {
     let expected = Connection::open_in_memory().unwrap();
     super::super::create_schema(&expected).unwrap();
-    for name in MANAGED_ADDITIVE_INDEXES {
+    for (name, table) in declared_indexes(&expected) {
         let actual = Connection::open_in_memory().unwrap();
         super::super::create_schema(&actual).unwrap();
-        let table = if name.starts_with("plan_tasks") {
-            "plan_tasks"
-        } else if name.starts_with("plan_milestones") {
-            "plan_task_milestones"
-        } else if name.starts_with("plan_strides") {
-            "plan_strides"
-        } else {
-            "plan_task_attempts"
-        };
+        let column: String = actual
+            .query_row(
+                &format!("SELECT name FROM pragma_table_info('{table}') ORDER BY cid DESC LIMIT 1"),
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
         actual
             .execute_batch(&format!(
-                "DROP INDEX {name}; CREATE INDEX {name} ON {table}(plan_id)"
+                "DROP INDEX {name}; CREATE INDEX {name} ON {table}(\"{column}\") WHERE 0"
             ))
             .unwrap();
         assert!(validate(&actual, &expected).is_err(), "{name}");

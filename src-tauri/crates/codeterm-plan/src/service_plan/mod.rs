@@ -3,6 +3,8 @@ mod attempt_binding_refusal;
 pub use attempt_binding_refusal::AttemptBindingRefusalKind;
 pub mod attachments;
 pub mod batch;
+mod binding_projection;
+pub use binding_projection::{KpiPlanContextRead, RestoredPlanBindingRead, TaskBindingRead};
 pub mod body_files;
 pub mod canvas_elements;
 pub mod change_feed;
@@ -11,14 +13,33 @@ pub mod cleanup_debt;
 pub mod competition;
 pub mod complete_wrapup;
 pub mod curator;
+mod curator_notice_projection;
 mod curator_projection;
+pub use curator_notice_projection::CuratorNoticeRead;
 pub mod digest_rules;
 pub mod element_queries;
+mod export_projection;
 pub mod external_refs;
+pub use export_projection::PlanExportEncoder;
 pub mod gates;
 pub mod handoff;
+pub use store_db::read_projections::hierarchy::HierarchyAuthorityRead;
+pub use store_db::read_projections::hierarchy_routing::{
+    GateAnswerNoticeRead, PlannerRehydrateGateRead, PlannerRehydrateRead, TaskReviewNoticeRead,
+};
+pub use store_db::read_projections::launch_restore::{LaunchLaneRead, TabLaunchTaskRead};
+pub use store_db::read_projections::reminder::{
+    reminder_targets, ReminderAdmissionRead, ReminderAdmissionTaskRead, ReminderAttemptRead,
+    ReminderCandidateRead, ReminderCompositionRead, ReminderOwnerRowRead, ReminderPlanRead,
+    ReminderReadSnapshot, ReminderTargetRead, ReminderTaskRead, ReminderWorkerBindingRead,
+};
+pub use store_db::read_projections::runtime_identity::RuntimePlanIdentityRead;
+pub use store_db::read_projections::transfer_authority::TransferTaskAuthorityRead;
+mod header_projection;
+pub use header_projection::{NoticeDeliveryTargetRead, PlanIdentityRead};
 pub mod heartbeat;
 pub mod hints;
+mod index_projection;
 pub mod ingest;
 pub mod interruption;
 pub mod lane_cleanup;
@@ -31,11 +52,17 @@ pub mod loop_mutations;
 pub mod milestone_gates;
 pub mod mutations;
 pub mod next_actions;
+mod notice_digest_projection;
+pub use notice_digest_projection::{
+    NoticeCartographyRead, NoticeClosedGroup, NoticeDigestInput, NoticeFinishedBinding,
+    NoticeInventoryTargets, NoticeQueueRead,
+};
 pub mod paths;
 pub mod pause;
 pub mod pause_operation;
 pub mod peer_mandate;
-mod plan_cache;
+#[cfg(any(test, feature = "test-support"))]
+mod plan_fixture;
 pub mod plan_match;
 pub mod plan_skills;
 pub mod planner_replay;
@@ -46,7 +73,6 @@ pub mod project_paths;
 pub mod prompts_plan;
 pub mod qa;
 pub mod radar;
-mod readback;
 mod reconcile_fixes;
 pub mod reflection;
 mod relink;
@@ -66,11 +92,27 @@ pub mod spec_render;
 pub mod spec_store;
 pub mod state;
 mod status_projection;
-pub use curator_projection::CuratorDigestRead;
+pub use curator_projection::{
+    CuratorDigestRead, CuratorDigestScope, CuratorRoundCursorRead, CuratorRuntimeNotice,
+};
 mod store_convert_118;
 mod store_db;
-pub use status_projection::{CuratorScheduleRead, PlanNoticeRead, PlanStatusRead};
+pub use status_projection::{
+    CuratorAuthorityRead, CuratorScheduleMetadata, CuratorScheduleRead, PlanNoticeRead,
+    PlanStatusRead,
+};
+pub use store_db::read_projections::close_inventory::PlanCloseRestoreRead;
+pub use store_db::read_projections::lane_clean::{LaneCleanupPlanRead, LaneCleanupTaskRead};
+pub use store_db::read_projections::lane_readers::TaskLaneReferenceRead;
+pub use store_db::read_projections::lane_settlement::LaneSettlementRead;
+pub use store_db::read_projections::lane_stats::{LaneAttemptRead, LaneWatchRead};
+pub use store_db::read_projections::lane_watchdog::{LaneWatchdogRead, LaneWatchdogTaskRead};
+pub use store_db::read_projections::lifecycle::PlanLifecycleRead;
+pub use store_db::read_projections::team_close::{TeamClosePlanRead, TeamCloseTaskRead};
+pub use store_db::read_projections::team_mutation::{TeamCloseFlagRead, TeamPlanMutationRead};
+pub use store_db::read_projections::team_readers::TeamExecutionRead;
 pub mod board_state;
+mod document_projection;
 mod store_index;
 mod store_persist;
 mod store_queries;
@@ -97,6 +139,7 @@ pub mod ui_projections;
 pub mod usage_digest;
 pub mod worker_charter;
 pub mod worker_identity;
+pub use document_projection::{PlanDocumentMetadata, PlannerGateRead};
 
 #[cfg(test)]
 mod work_facet_tests;
@@ -120,8 +163,6 @@ mod goal_tests;
 #[cfg(test)]
 mod heartbeat_tests;
 #[cfg(test)]
-mod readback_tests;
-#[cfg(test)]
 mod reminder_tests;
 #[cfg(test)]
 mod review_gate_selection_tests;
@@ -142,25 +183,27 @@ mod tests;
 #[cfg(test)]
 mod timestamp_tests;
 
-use crate::plan::{Plan, PlanLifecycleEvent, PlanMode, PlanStatus, Spec, TaskStatus};
+use crate::plan::{Plan, PlanLifecycleEvent, PlanStatus, Spec};
+#[cfg(test)]
+use crate::plan::{PlanMode, TaskStatus};
 use parking_lot::{Condvar, Mutex, RwLock};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 pub use plan_match::{AttemptMatch, AttemptState, PlanMatch, TaskMatch};
-pub use relink::relink_to_owner;
+pub use relink::{relink_selected_to_owner, relink_to_owner};
 pub use state::{
     build_plan_state_snapshot, planning_approval_blockers, HeartbeatSnapshot, LiveAgent,
     LoopSnapshot, OpenLane, PlanStateSnapshot, PlanningReadiness, StrideSnapshot, TaskCounts,
     TaskPresentation,
 };
-pub use store_db::{AttemptFieldRow, SectionRefRow, TaskFieldRow, TaskRefRow};
+pub use store_db::{AttemptLanePathRead, SectionRefRow};
 pub use task_dispatch::{
     ambiguous_subject_cause, superseded_subject_cause, unresolved_subject_cause, DispatchRollback,
-    DispatchStartupOwner, LiveTabAttempt, TaskDispatchReservation, ACK_CAUSE_AMBIGUOUS_ATTEMPTS,
-    ACK_CAUSE_ATTEMPT_SUPERSEDED, ACK_CAUSE_NO_LIVE_ATTEMPT, ACK_CAUSE_PLAN_NOT_ACTIVE,
-    ACK_CAUSE_TASK_NOT_OPEN,
+    DispatchStart, DispatchStartupOwner, DispatchUndo, LiveTabAttempt, LiveTaskAttemptRead,
+    TaskDispatchReservation, ACK_CAUSE_AMBIGUOUS_ATTEMPTS, ACK_CAUSE_ATTEMPT_SUPERSEDED,
+    ACK_CAUSE_NO_LIVE_ATTEMPT, ACK_CAUSE_PLAN_NOT_ACTIVE, ACK_CAUSE_TASK_NOT_OPEN,
 };
 pub use types::{
     IndexEntry, NewTask, OpenSubtask, PlanError, PlanIncident, ReconcileFixResult, SpecIndexEntry,
@@ -170,7 +213,6 @@ pub use types::{
 
 pub struct PlanStore {
     product_observer: RwLock<Option<std::sync::Arc<dyn Fn() + Send + Sync>>>,
-    plan_cache: plan_cache::PlanCache,
     specs: RwLock<HashMap<String, Arc<Mutex<Spec>>>>,
     /// Id, status, team, project, title and update time of every plan row, read from SQL columns.
     index: RwLock<HashMap<String, store_db::PlanIndexRow>>,
@@ -183,8 +225,9 @@ pub struct PlanStore {
         Arc<Mutex<HashMap<(String, String), task_dispatch::DispatchReservationOwner>>>,
     database: Arc<store_db::PlanDatabase>,
     retention_day: Mutex<Option<u64>>,
+    shared_history: shared_checkout::SharedHistoryWatch,
     #[cfg(test)]
-    persistence_hook: RwLock<Option<Arc<dyn Fn(&Plan) + Send + Sync>>>,
+    persistence_hook: RwLock<Option<Arc<dyn Fn(&str) + Send + Sync>>>,
     #[cfg(any(test, feature = "test-support"))]
     plan_touches: Mutex<Vec<String>>,
     #[cfg(any(test, feature = "test-support"))]
@@ -212,7 +255,7 @@ impl MutationWriter {
         let mut state = self.state.lock();
         let ticket = state.next_ticket;
         state.next_ticket += 1;
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         self.ready.notify_all();
         while state.serving_ticket != ticket {
             self.ready.wait(&mut state);
@@ -241,8 +284,8 @@ impl Drop for MutationWriterTurn<'_> {
 }
 
 impl PlanStore {
-    pub fn new() -> Self {
-        Self::open(paths::global_plan_database_path()).expect("open global PlanStore database")
+    pub fn new() -> Result<Self, PlanError> {
+        Self::open(paths::global_plan_database_path())
     }
 
     #[cfg(any(test, feature = "test-support"))]
@@ -261,7 +304,6 @@ impl PlanStore {
         let specs = database.load_specs()?;
         let store = Self {
             product_observer: RwLock::new(None),
-            plan_cache: plan_cache::PlanCache::new(plan_cache::PLAN_CACHE_CAPACITY),
             specs: RwLock::new(HashMap::new()),
             index: RwLock::new(
                 index_rows
@@ -277,6 +319,7 @@ impl PlanStore {
             dispatch_reservations: Arc::new(Mutex::new(HashMap::new())),
             database,
             retention_day: Mutex::new(None),
+            shared_history: Default::default(),
             #[cfg(test)]
             persistence_hook: RwLock::new(None),
             #[cfg(any(test, feature = "test-support"))]
@@ -300,8 +343,8 @@ impl PlanStore {
         Ok(store)
     }
 
-    #[cfg(test)]
-    pub(crate) fn database_path_for_test(&self) -> PathBuf {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn database_path_for_test(&self) -> PathBuf {
         self.database.path()
     }
 
@@ -313,7 +356,7 @@ impl PlanStore {
     /// Stands in for the Worker ACK that moves a pending task in progress.
     #[cfg(test)]
     pub(crate) fn start_task_for_test(&self, plan_id: &str, task_id: &str, now_ms: u64) {
-        self.with_plan(plan_id, now_ms, |plan| {
+        self.edit_plan_fixture(plan_id, now_ms, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()
@@ -327,3 +370,38 @@ impl PlanStore {
         .expect("start task for test");
     }
 }
+
+mod task_authority_projection;
+pub use document_projection::team::{TeamEventCursor, TeamPlanMetadataRead, TeamPlanRead};
+pub use store_db::read_projections::competition_lane::CompetitionLaneRead;
+pub use store_db::read_projections::provider_switch::{
+    ProviderSwitchTaskContextRead, ProviderSwitchTaskRead,
+};
+pub use task_authority_projection::{
+    BatchTaskRefusalRead, CanonicalWriterHoldRead, CompletedTaskRestartRead, LaneIntegrationRead,
+    PlanTaskAdmissionRead, ProviderRecoveryRead, RemoteRecoveryAttemptRead,
+    RemoteWorkerBindingRead, RestartAttemptRead, ReviewBindingRestoreRead,
+    ReviewRestoreAttemptRead, RuntimeAttemptRestoreQuery, RuntimeAttemptRestoreRead,
+    RuntimeSessionAttemptRead, TaskAttemptBindingRead, TaskBindingRestoreRead,
+    TaskCheckpointAdoptionRead, TaskContextFilesRead, TaskContinuityDigest, TaskContinuityRead,
+    TaskCreationRead, TaskDescriptionRead, TaskInterruptionRead, TaskLaneAdmissionRead,
+    TaskLaneOwnerRead, TaskOwnerEpochRead, TaskRestartAuthorityRead, TaskRestartQuery,
+    TaskRuntimeSessionRead, TaskSelectorRead, TaskSplitDefaultsRead, WorkerLossRead,
+    WorkerLossRecoveryRead, WorkerLossReplacementRead,
+};
+
+pub use task_authority_projection::{TaskDispatchSeedRead, TaskLaunchRead};
+
+pub use task_authority_projection::{SpawnAttemptBindingRead, TaskSpawnBindingRead};
+
+pub use task_authority_projection::{
+    TaskBriefStrideRead, WorkerTaskBriefRead, WorkerTaskPreparationRead,
+};
+
+pub use store_db::read_projections::lane_clean::{ClosedTaskLaneCleanupRead, ClosedTaskLaneRead};
+
+pub use task_authority_projection::TaskDispatchPreflightRead;
+
+pub use task_authority_projection::DispatchCheckoutOccupantRead;
+
+pub use task_authority_projection::RemoteLaneIntegrationRead;

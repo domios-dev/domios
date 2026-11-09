@@ -1,8 +1,9 @@
-// Caller: build.sh ci-tests; CI action.yml, release-linux-arm64.yml, release-linux.yml; scripts rust-warnings-report.mjs, tests/collect-rust-warnings.test.mjs
+// Caller: build.sh ci-tests; CI action.yml, release-linux-arm64.yml, release-linux.yml, release-macos-build.yml, release-windows.yml, tests-fast.yml, tests-pr.yml; scripts rust-warnings-report.mjs, collect-rust-warnings.test.mjs
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
+import { childExit } from './child-exit.mjs';
 
 export const stripAnsi = text => text.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '');
 export const warningKey = w => JSON.stringify([w.target, w.file, w.line, w.code, w.message]);
@@ -94,7 +95,7 @@ export function renderReport(warnings, targets, decision) {
     table('Target', { ...Object.fromEntries(targets.map(t => [t, 0])), ...counts(warnings, 'target') }) + table('Lint', counts(warnings, 'code')) + table('File', counts(warnings, 'file')) +
     '\n### Diagnostics\n\n' + warnings.map(w => `#### ${escape(w.target)}: ${escape(w.file)}:${w.line} (${escape(w.code)})\n\nCrate: ${escape(w.crate)}\n\n\`\`\`text\n${w.rendered.replaceAll('```', "'''")}\n\`\`\`\n`).join('\n');
 }
-export async function capture(program, args, log) {
+export async function capture(program, args, log, { drainMs, stdout = process.stdout, stderr = process.stderr } = {}) {
   let output;
   try {
     fs.mkdirSync(path.dirname(log), { recursive: true });
@@ -102,12 +103,13 @@ export async function capture(program, args, log) {
     output.on('error', () => { output = undefined; });
   } catch { output = undefined; }
   const child = spawn(program, args, { stdio: ['inherit', 'pipe', 'pipe'] });
-  for (const [source, destination] of [[child.stdout, process.stdout], [child.stderr, process.stderr]]) {
+  for (const [source, destination] of [[child.stdout, stdout], [child.stderr, stderr]]) {
     source.on('data', chunk => { destination.write(chunk); output?.write(chunk); });
   }
-  const code = await new Promise((resolve, reject) => { child.on('error', reject); child.on('close', code => resolve(code ?? 1)); });
+  const { code, error } = await childExit(child, { drainMs, warn: message => stderr.write(message + '\n') });
   if (output) await new Promise(resolve => { output.on('error', resolve); output.end(resolve); });
-  return code;
+  if (error) throw error;
+  return code ?? 1;
 }
 function options(argv) {
   const result = {};

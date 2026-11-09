@@ -121,37 +121,41 @@ pub async fn mesh_set_access(
     axum::extract::Path(instance_id): axum::extract::Path<String>,
     Json(body): Json<SetAccessBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    require_administrator(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let level = match body.access_level.as_str() {
-        "full" => codeterm_service_core::mesh::types::AccessLevel::Full,
-        "read_only" => codeterm_service_core::mesh::types::AccessLevel::ReadOnly,
-        "agent_isolated" => codeterm_service_core::mesh::types::AccessLevel::AgentIsolated,
-        _ => {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                format!("Invalid access level: {}", body.access_level),
-            ))
+    tokio::task::spawn_blocking(move || {
+        require_administrator(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+        let level = match body.access_level.as_str() {
+            "full" => codeterm_service_core::mesh::types::AccessLevel::Full,
+            "read_only" => codeterm_service_core::mesh::types::AccessLevel::ReadOnly,
+            "agent_isolated" => codeterm_service_core::mesh::types::AccessLevel::AgentIsolated,
+            _ => {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    format!("Invalid access level: {}", body.access_level),
+                ))
+            }
+        };
+        {
+            let mut m = state.mesh.lock();
+            let peer = m
+                .paired_peers
+                .get_mut(&instance_id)
+                .ok_or_else(|| (StatusCode::NOT_FOUND, "Peer not found".to_string()))?;
+            peer.access_level = level;
+            let _ = m.save();
         }
-    };
-    {
-        let mut m = state.mesh.lock();
-        let peer = m
-            .paired_peers
-            .get_mut(&instance_id)
-            .ok_or_else(|| (StatusCode::NOT_FOUND, "Peer not found".to_string()))?;
-        peer.access_level = level;
-        let _ = m.save();
-    }
-    state.svc.ui.emit(
-        "mesh-state-changed",
-        serde_json::to_value(serde_json::Value::Null).unwrap_or_default(),
-    );
-    log::info!(
-        "[mesh/api] Set access level for {} to {}",
-        instance_id,
-        body.access_level
-    );
-    Ok(Json(serde_json::json!({"ok": true})))
+        state.svc.ui.emit(
+            "mesh-state-changed",
+            serde_json::to_value(serde_json::Value::Null).unwrap_or_default(),
+        );
+        log::info!(
+            "[mesh/api] Set access level for {} to {}",
+            instance_id,
+            body.access_level
+        );
+        Ok(Json(serde_json::json!({"ok": true})))
+    })
+    .await
+    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
 }
 pub(super) fn peer_has_full_access(
     access: Option<&codeterm_service_core::mesh::types::AccessLevel>,

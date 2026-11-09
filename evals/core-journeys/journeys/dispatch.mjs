@@ -1,6 +1,7 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { dcJson } from "../lib/env.mjs";
+import { launchFlags } from "../lib/profile-policy.mjs";
 import { workerBrief } from "../lib/fixtures.mjs";
 import { promoteFixtureOrchestrator } from "../lib/setup.mjs";
 import { connectFixture, installFixture } from "../lib/fixture-control.mjs";
@@ -145,7 +146,7 @@ export async function journeyThreeAfterRestart(ctx) {
 }
 
 export function dispatchWorker(ctx, provider, plan, task, orchestrator, workspace) {
-  return ctx.policy.launch(provider, "J3-dispatch", (model) => (ctx.command ?? ctx.fixtureCommand)(["plan", "task", "dispatch", plan, task,
-    "--agent", provider, "--model", model, "--workspace", workspace.id, "--cwd", workspace.cwd,
+  return ctx.policy.launch(provider, "J3-dispatch", (model, profile) => (ctx.command ?? ctx.fixtureCommand)(["plan", "task", "dispatch", plan, task,
+    "--agent", provider, ...launchFlags(model, profile), "--workspace", workspace.id, "--cwd", workspace.cwd,
     "--execution-intent", "read_only"], { asTab: orchestrator }));
 }

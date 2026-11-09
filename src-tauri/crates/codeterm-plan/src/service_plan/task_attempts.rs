@@ -1,26 +1,38 @@
 use crate::service_plan::store_db::hot_write::AttemptTarget;
+mod prompt_read;
+mod prompt_render;
+pub(super) mod read;
 mod respawn_record;
+use super::store_db::read_projections::task_drafts::TaskDraftPromptRead;
+#[cfg(test)]
+pub(super) use prompt_render::build_prompt;
+pub(super) use prompt_render::{build_compete_prompt, build_prompt_read};
 use serde::{Deserialize, Serialize};
 
 use crate::plan::{Task, TaskExecutionAttempt, TaskLaneMetadata, TaskStatus};
 use codeterm_types::agent::ReportStatus;
 
-use super::{PlanError, PlanMatch, PlanStore, TaskMatch};
+use super::{PlanError, PlanStore};
 
+mod executor_identity;
 mod executor_termination;
+pub use executor_identity::AttemptExecutorIdentityChange;
+pub use executor_termination::{ExecutorSourceFields, ExecutorSourceRead};
 mod launch_binding;
 mod plan_skill_evidence;
 pub mod remote_dispatch;
 mod remote_retirement;
 mod report_ingest;
+pub use report_ingest::BoundWorkerReportReceipt;
 mod respawn_guard;
 mod restore_binding;
+mod runtime_interruption;
 mod runtime_restart;
 mod runtime_restore;
 pub use runtime_restart::{RuntimeRestartBinding, RuntimeRestartMode};
 pub use runtime_restore::RestoredRuntimeSessionBinding;
 
-pub use launch_binding::CompleteAcknowledgedDispatchBinding;
+pub use launch_binding::{CompleteAcknowledgedDispatchBinding, CompletedDispatchBinding};
 pub(super) use respawn_guard::ensure_respawn_source_current;
 pub use restore_binding::{RestoreCurrentAttemptBinding, RestoreCurrentAttemptBindingResult};
 
@@ -29,6 +41,8 @@ mod compete_lane_tests;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TaskRespawnRequest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub launch_profile: Option<String>,
     pub reasoning_effort: Option<String>,
     pub attempt_id: String,
     pub provider: Option<String>,
@@ -66,6 +80,8 @@ pub struct TaskAttemptView {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct TaskRespawnDraft {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub launch_profile: Option<String>,
     pub plan_id: String,
     pub task_id: String,
     pub execution_intent: crate::plan::ExecutionIntent,
@@ -165,8 +181,11 @@ pub fn task_report_command(plan_id: &str, task_id: &str) -> String {
     )
 }
 
-fn latest_milestone_report(task: &Task, tab_id: &str) -> Option<(String, Option<String>, u64)> {
-    task.milestones
+fn latest_milestone_report(
+    milestones: &[crate::plan::Milestone],
+    tab_id: &str,
+) -> Option<(String, Option<String>, u64)> {
+    milestones
         .iter()
         .filter(|milestone| milestone.from.tab_id.as_deref() == Some(tab_id))
         .max_by_key(|milestone| milestone.ts)
@@ -188,11 +207,11 @@ fn attempt_report_status(attempt: &TaskExecutionAttempt) -> Option<String> {
         .and_then(|report| report.status.clone())
 }
 
-fn last_report_for_attempt(
-    task: &Task,
+fn last_report_for_milestones(
+    milestones: &[crate::plan::Milestone],
     attempt: &TaskExecutionAttempt,
 ) -> (Option<String>, Option<String>, Option<u64>) {
-    let milestone = latest_milestone_report(task, &attempt.executor_tab_id);
+    let milestone = latest_milestone_report(milestones, &attempt.executor_tab_id);
     if let Some((text, status, ts)) = milestone {
         return (
             Some(text),
@@ -220,211 +239,6 @@ fn attempt_status(attempt: &TaskExecutionAttempt) -> String {
     } else {
         "recorded".into()
     }
-}
-
-fn lane_lines(lane: &TaskLaneMetadata) -> Vec<String> {
-    [
-        ("worktree", lane.worktree_path.as_deref()),
-        ("branch", lane.branch.as_deref()),
-        ("base", lane.base.as_deref()),
-        ("destination", lane.destination.as_deref()),
-        ("workspace", lane.workspace_id.as_deref()),
-        ("workspace_name", lane.workspace_name.as_deref()),
-    ]
-    .into_iter()
-    .filter_map(|(name, value)| value.map(|v| format!("- {name}: {v}")))
-    .collect()
-}
-
-fn build_prompt(
-    plan_id: &str,
-    task: &Task,
-    source: &TaskExecutionAttempt,
-    provider: &str,
-    model: Option<&str>,
-    report_command: &str,
-    manifest: &[crate::plan::PlanSkillManifestEntry],
-    authorized_gates: &[String],
-) -> String {
-    let identity =
-        super::worker_identity::compose_task_worker_identity(task, task.personality.as_deref());
-    let (last_report, last_status, _) = last_report_for_attempt(task, source);
-    let mut out = String::new();
-    out.push_str("You are a CodeTerm Worker respawned from a prior task attempt.\n");
-    out.push_str(
-        "Work only on this one task. Do not reactivate or reuse the old historical attempt.\n\n",
-    );
-    out.push_str(&format!("Plan: {plan_id}\nTask: {}\n", task.id));
-    out.push_str(&super::task_brief::render_plan_skill_manifest(
-        plan_id, manifest,
-    ));
-    out.push_str(&super::task_brief::render_authorized_gates(
-        authorized_gates,
-    ));
-    out.push_str(&format!("Task name: {}\n", task.name));
-    out.push_str(&format!("Provider/model preference: {provider}"));
-    if let Some(model) = model {
-        out.push_str(&format!("/{model}"));
-    }
-    out.push('\n');
-    if let Some(strides) = super::stride_context::render_worker_strides(&task.milestones) {
-        out.push('\n');
-        out.push_str(&strides);
-    }
-    out.push_str("\nOriginal task body:\n");
-    if task.body.trim().is_empty() {
-        out.push_str("(no body recorded)\n");
-    } else {
-        out.push_str(task.body.trim());
-        out.push('\n');
-    }
-    if let Some(intent) = task.intent.as_deref().filter(|s| !s.trim().is_empty()) {
-        out.push_str("\nIntent:\n");
-        out.push_str(intent.trim());
-        out.push('\n');
-    }
-    if !task.acceptance_criteria.is_empty() {
-        out.push_str("\nAcceptance criteria:\n");
-        for criterion in &task.acceptance_criteria {
-            out.push_str("- ");
-            out.push_str(criterion);
-            out.push('\n');
-        }
-    }
-    if let Some(correctness) = task
-        .correctness
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        out.push_str("\nCorrectness:\n");
-        out.push_str(correctness);
-        out.push('\n');
-    }
-    if let Some(test_plan) = task
-        .test_plan
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        out.push_str("\nTest plan:\n");
-        out.push_str(test_plan);
-        out.push('\n');
-    }
-    let lane = lane_lines(&task.lane);
-    if !lane.is_empty() {
-        out.push_str("\nBranch/worktree hints:\n");
-        out.push_str(&lane.join("\n"));
-        out.push('\n');
-    }
-    out.push_str("\nPrior attempt:\n");
-    out.push_str(&format!(
-        "- attempt_id: {}\n- executor_tab_id: {}\n- status: {}\n",
-        source.id,
-        source.executor_tab_id,
-        attempt_status(source)
-    ));
-    if let Some(status) = last_status {
-        out.push_str(&format!("- last_report_status: {status}\n"));
-    }
-    if let Some(report) = last_report {
-        out.push_str("\nLast report:\n");
-        out.push_str(report.trim());
-        out.push('\n');
-    }
-    out.push_str("\nWhen done, run exactly:\n");
-    out.push_str(report_command);
-    out.push('\n');
-    super::worker_identity::attach_worker_identity(&identity, &out)
-}
-
-fn build_compete_prompt(
-    plan_id: &str,
-    task: &Task,
-    group_id: &str,
-    lane: u32,
-    model_label: &str,
-    report_command: &str,
-    manifest: &[crate::plan::PlanSkillManifestEntry],
-) -> String {
-    let identity =
-        super::worker_identity::compose_task_worker_identity(task, task.personality.as_deref());
-    let mut out = String::new();
-    out.push_str(crate::service_plan::competition::COMPETITION_WORKER_ISOLATION_PROMPT);
-    out.push_str("\n\n");
-    out.push_str(&format!("Plan: {plan_id}\nTask: {}\n", task.id));
-    out.push_str(&super::task_brief::render_plan_skill_manifest(
-        plan_id, manifest,
-    ));
-    out.push_str(&format!(
-        "Competition group: {group_id}\nAttempt lane: {lane}\n"
-    ));
-    out.push_str(&format!("Model: {model_label}\n"));
-    out.push_str(&format!("Task name: {}\n", task.name));
-    if let Some(hint) = task
-        .competition
-        .as_ref()
-        .and_then(|competition| competition.judge_hint.as_deref())
-        .filter(|s| !s.trim().is_empty())
-    {
-        out.push_str("\nJudge hint:\n");
-        out.push_str(hint.trim());
-        out.push('\n');
-    }
-    if let Some(strides) = super::stride_context::render_worker_strides(&task.milestones) {
-        out.push('\n');
-        out.push_str(&strides);
-    }
-    out.push_str("\nTask body:\n");
-    if task.body.trim().is_empty() {
-        out.push_str("(no body recorded)\n");
-    } else {
-        out.push_str(task.body.trim());
-        out.push('\n');
-    }
-    if let Some(intent) = task.intent.as_deref().filter(|s| !s.trim().is_empty()) {
-        out.push_str("\nIntent:\n");
-        out.push_str(intent.trim());
-        out.push('\n');
-    }
-    if !task.acceptance_criteria.is_empty() {
-        out.push_str("\nAcceptance criteria:\n");
-        for criterion in &task.acceptance_criteria {
-            out.push_str("- ");
-            out.push_str(criterion);
-            out.push('\n');
-        }
-    }
-    if let Some(correctness) = task
-        .correctness
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        out.push_str("\nCorrectness:\n");
-        out.push_str(correctness);
-        out.push('\n');
-    }
-    if let Some(test_plan) = task
-        .test_plan
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        out.push_str("\nTest plan:\n");
-        out.push_str(test_plan);
-        out.push('\n');
-    }
-    let lane_lines = lane_lines(&task.lane);
-    if !lane_lines.is_empty() {
-        out.push_str("\nBase lane hints:\n");
-        out.push_str(&lane_lines.join("\n"));
-        out.push('\n');
-    }
-    out.push_str("\nWhen done, run exactly:\n");
-    out.push_str(report_command);
-    out.push('\n');
-    super::worker_identity::attach_worker_identity(&identity, &out)
 }
 
 pub fn new_assignment_attempt(
@@ -556,23 +370,19 @@ pub(super) fn live_attempt_count(task: &Task) -> usize {
         .count()
 }
 
-fn find_attempt<'a>(task: &'a Task, attempt_id: &str) -> Option<&'a TaskExecutionAttempt> {
-    task.execution_attempts
-        .iter()
-        .find(|attempt| attempt.id == attempt_id)
-}
-
-fn attempt_view(
+pub(super) fn attempt_view(
     plan_id: &str,
-    task: &Task,
+    task_id: &str,
+    milestones: &[crate::plan::Milestone],
     attempt: TaskExecutionAttempt,
     prompt: Option<String>,
 ) -> TaskAttemptView {
-    let (last_report, last_report_status, last_report_at) = last_report_for_attempt(task, &attempt);
+    let (last_report, last_report_status, last_report_at) =
+        last_report_for_milestones(milestones, &attempt);
     TaskAttemptView {
         attempt_id: attempt.id.clone(),
         status: attempt_status(&attempt),
-        report_command: task_report_command(plan_id, &task.id),
+        report_command: task_report_command(plan_id, task_id),
         attempt,
         prompt,
         last_report,
@@ -587,77 +397,9 @@ impl PlanStore {
         workspace_id: &str,
         session_id: Option<&str>,
         limit: usize,
-    ) -> Vec<String> {
-        let workspace_id = workspace_id.trim();
-        if workspace_id.is_empty() || limit == 0 {
-            return Vec::new();
-        }
-        let target_session = session_id.map(str::trim).filter(|value| !value.is_empty());
-        let candidates = PlanMatch::active().and(PlanMatch::Task(TaskMatch {
-            fields: vec![("$.lane.workspace_id", workspace_id.to_string())],
-            ..Default::default()
-        }));
-        let mut entries: Vec<(u64, String)> = self
-            .plans_matching(&candidates)
-            .into_iter()
-            .filter(|plan| plan.status == crate::plan::PlanStatus::Active)
-            .flat_map(|plan| plan.tasks.into_iter())
-            .filter(|task| task.lane.workspace_id.as_deref() == Some(workspace_id))
-            .flat_map(|task| task.execution_attempts.into_iter())
-            .filter(|attempt| attempt.role.as_deref() == Some("worker"))
-            .filter_map(|attempt| {
-                let title = attempt.executor_title?.trim().to_string();
-                if title.is_empty() {
-                    return None;
-                }
-                if let Some(target_session) = target_session {
-                    if attempt.session_id.as_deref() != Some(target_session) {
-                        return None;
-                    }
-                }
-                Some((
-                    attempt.assigned_at.or(attempt.reported_at).unwrap_or(0),
-                    title,
-                ))
-            })
-            .collect();
-        entries.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
-        entries.truncate(limit);
-        entries.into_iter().map(|(_, title)| title).collect()
-    }
-
-    pub fn update_attempt_executor_identity(
-        &self,
-        plan_id: &str,
-        task_id: &str,
-        tab_id: &str,
-        title: Option<&str>,
-        session_id: Option<&str>,
-        session_binding_nonce: Option<&str>,
-        now_ms: u64,
-    ) -> Result<(), PlanError> {
-        let title = title.map(str::trim).filter(|value| !value.is_empty());
-        let session_id = session_id.map(str::trim).filter(|value| !value.is_empty());
-        let session_binding_nonce = session_binding_nonce
-            .map(str::trim)
-            .filter(|value| !value.is_empty());
-        self.change_attempt(
-            plan_id,
-            task_id,
-            AttemptTarget {
-                tab: tab_id,
-                ..Default::default()
-            },
-            now_ms,
-            |attempt| {
-                let attempt = attempt.ok_or(PlanError::TaskNotFound)?;
-                attempt.executor_title = title.map(str::to_string);
-                attempt.session_id = session_id.map(str::to_string);
-                attempt.session_binding_nonce = session_binding_nonce.map(str::to_string);
-                Ok(Some(()))
-            },
-        )?;
-        Ok(())
+    ) -> Result<Vec<String>, PlanError> {
+        self.database
+            .recent_worker_titles(workspace_id, session_id, limit)
     }
 
     pub fn update_attempt_session_model_if_unknown(
@@ -839,9 +581,8 @@ impl PlanStore {
         task_id: &str,
         request: TaskCompeteRequest,
     ) -> Result<Vec<TaskCompeteDraft>, PlanError> {
-        let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
-        let task = crate::plan::task_key::find_task(&plan.tasks, task_id)
-            .ok_or(PlanError::TaskNotFound)?;
+        let read = self.task_draft_projection(plan_id, task_id, None)?;
+        let task = &read.task;
         let (task_provider, task_model) = split_provider_model(task.model.as_deref());
         let metadata_models = task
             .competition
@@ -869,7 +610,7 @@ impl PlanStore {
             .lane
             .worktree_path
             .clone()
-            .unwrap_or_else(|| plan.project_path.clone());
+            .unwrap_or_else(|| read.project_path.clone());
         let mut drafts = Vec::new();
         for index in 0..count {
             let model_raw = models
@@ -897,7 +638,7 @@ impl PlanStore {
                 &manifest,
             );
             drafts.push(TaskCompeteDraft {
-                plan_id: plan.id.clone(),
+                plan_id: read.plan_id.clone(),
                 task_id: task.id.clone(),
                 competition_group_id: group_id.clone(),
                 lane,
@@ -905,7 +646,7 @@ impl PlanStore {
                 planned_model: task.model.clone(),
                 model,
                 reasoning_effort: None,
-                parent_tab_id: request.parent_tab_id.clone().or(plan.owner.tab_id.clone()),
+                parent_tab_id: request.parent_tab_id.clone().or(read.owner_tab_id.clone()),
                 workspace_id: request
                     .workspace_id
                     .clone()
@@ -928,14 +669,14 @@ impl PlanStore {
         plan_id: &str,
         task_id: &str,
     ) -> Result<Vec<TaskAttemptView>, PlanError> {
-        let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
-        let task = crate::plan::task_key::find_task(&plan.tasks, task_id)
-            .ok_or(PlanError::TaskNotFound)?;
+        let task = self
+            .database
+            .task_attempt_projection(plan_id, task_id, None)?;
         Ok(task
             .execution_attempts
             .iter()
             .cloned()
-            .map(|attempt| attempt_view(&plan.id, task, attempt, None))
+            .map(|attempt| attempt_view(plan_id, &task.id, &task.milestones, attempt, None))
             .collect())
     }
 
@@ -945,23 +686,25 @@ impl PlanStore {
         task_id: &str,
         attempt_id: &str,
     ) -> Result<TaskAttemptView, PlanError> {
-        let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
-        let task = crate::plan::task_key::find_task(&plan.tasks, task_id)
-            .ok_or(PlanError::TaskNotFound)?;
-        let source = find_attempt(task, attempt_id)
-            .cloned()
-            .ok_or(PlanError::TaskNotFound)?;
-        let (task_provider, task_model) = split_provider_model(task.model.as_deref());
+        let task = self
+            .database
+            .task_attempt_projection(plan_id, task_id, Some(attempt_id))?;
+        let source = task.execution_attempts[0].clone();
+        let prompt_input = task
+            .prompt
+            .as_ref()
+            .ok_or_else(|| PlanError::Io("selected attempt has no prompt facts".into()))?;
+        let (task_provider, task_model) = split_provider_model(prompt_input.model.as_deref());
         let provider = source
             .provider
             .clone()
             .or(task_provider)
             .unwrap_or_else(|| "claude".into());
         let model = source.model.clone().or(task_model);
-        let report_command = task_report_command(&plan.id, &task.id);
-        let prompt = build_prompt(
-            &plan.id,
-            task,
+        let report_command = task_report_command(plan_id, &task.id);
+        let prompt = build_prompt_read(
+            plan_id,
+            (prompt_input, task.milestones.as_slice()),
             &source,
             &provider,
             model.as_deref(),
@@ -969,7 +712,13 @@ impl PlanStore {
             &source.plan_skill_manifest,
             source.authorized_gates.as_deref().unwrap_or(&[]),
         );
-        Ok(attempt_view(&plan.id, task, source, Some(prompt)))
+        Ok(attempt_view(
+            plan_id,
+            &task.id,
+            &task.milestones,
+            source,
+            Some(prompt),
+        ))
     }
 
     pub fn build_task_respawn_draft(
@@ -978,13 +727,10 @@ impl PlanStore {
         task_id: &str,
         request: TaskRespawnRequest,
     ) -> Result<TaskRespawnDraft, PlanError> {
-        let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
-        let task = crate::plan::task_key::find_task(&plan.tasks, task_id)
-            .ok_or(PlanError::TaskNotFound)?;
+        let mut read = self.task_draft_projection(plan_id, task_id, Some(&request.attempt_id))?;
+        let task = &read.task;
         super::task_dispatch::task_respawn_status(&task.status)?;
-        let source = find_attempt(task, &request.attempt_id)
-            .cloned()
-            .ok_or(PlanError::TaskNotFound)?;
+        let source = read.source.take().ok_or(PlanError::TaskNotFound)?;
         let (task_provider, task_model) = split_provider_model(task.model.as_deref());
         let source_provider = source.provider.clone().or(source.agent_type.clone());
         let provider = request
@@ -1007,8 +753,8 @@ impl PlanStore {
             .worktree_path
             .clone()
             .or_else(|| task.lane.worktree_path.clone())
-            .unwrap_or_else(|| plan.project_path.clone());
-        let task_prompt = build_prompt(
+            .unwrap_or_else(|| read.project_path.clone());
+        let task_prompt = build_prompt_read(
             plan_id,
             task,
             &source,
@@ -1019,9 +765,14 @@ impl PlanStore {
             source.authorized_gates.as_deref().unwrap_or(&[]),
         );
         Ok(TaskRespawnDraft {
-            plan_id: plan.id,
+            launch_profile: request.launch_profile.or_else(|| {
+                (source_provider.as_deref() == Some(provider.as_str()))
+                    .then(|| source.launch_profile.clone())
+                    .flatten()
+            }),
+            plan_id: read.plan_id,
             task_id: task.id.clone(),
-            execution_intent: task.interruption.execution_intent.clone(),
+            execution_intent: task.execution_intent.clone(),
             attempt_id: gen_attempt_id(),
             speed: task.speed.clone(),
             source_attempt: source.clone(),
@@ -1032,7 +783,7 @@ impl PlanStore {
             parent_tab_id: request
                 .parent_tab_id
                 .or(source.parent_tab_id.clone())
-                .or(plan.owner.tab_id),
+                .or(read.owner_tab_id),
             workspace_id: request.workspace_id.or(task.lane.workspace_id.clone()),
             title,
             explicit_title,
@@ -1054,39 +805,38 @@ impl PlanStore {
         now_ms: u64,
     ) -> Result<TaskAttemptCreated, PlanError> {
         let mut created = None;
-        self.with_plan(plan_id, now_ms, |plan| {
-            let task_index = crate::plan::task_key::find_task_index(&plan.tasks, task_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            if plan.tasks[task_index].status == TaskStatus::Pending {
-                super::review_gate::validate_dispatch_review_capacity(
-                    plan,
-                    &plan.tasks[task_index],
-                )?;
-            }
-            let task = &mut plan.tasks[task_index];
-            task.status_label = Some("competitive".into());
-            task.updated_at = now_ms;
-            let mut attempt = new_assignment_attempt(task, tab_id, None, role, now_ms);
-            attempt.provider = Some(draft.provider.clone());
-            attempt.agent_type = Some(draft.provider.clone());
-            attempt.model = draft.model.clone();
-            attempt.provider_resolved_model = draft.model.clone();
-            attempt.reasoning_effort = draft.reasoning_effort.clone();
-            attempt.executor_title = draft.title.clone();
-            attempt.parent_tab_id = draft.parent_tab_id.clone();
-            attempt.competition_group_id = Some(draft.competition_group_id.clone());
-            attempt.competition_lane = Some(draft.lane);
-            attempt.plan_skill_manifest = draft.plan_skill_manifest.clone();
-            if draft.branch.is_some() {
-                attempt.worktree_path = Some(draft.cwd.clone());
-                attempt.branch = draft.branch.clone();
-                attempt.base = draft.base.clone();
-                attempt.destination = draft.destination.clone();
-            }
-            task.execution_attempts.push(attempt.clone());
-            created = Some(attempt);
-            Ok(())
-        })?;
+        self.with_task_rows(
+            plan_id,
+            task_id,
+            super::store_db::hot_write::TaskHistory::LiveAndReported,
+            now_ms,
+            |edit| {
+                edit.warn_dispatch = edit.task.status == TaskStatus::Pending;
+                let task = &mut edit.task;
+                task.status_label = Some("competitive".into());
+                task.updated_at = now_ms;
+                let mut attempt = new_assignment_attempt(task, tab_id, None, role, now_ms);
+                attempt.provider = Some(draft.provider.clone());
+                attempt.agent_type = Some(draft.provider.clone());
+                attempt.model = draft.model.clone();
+                attempt.provider_resolved_model = draft.model.clone();
+                attempt.reasoning_effort = draft.reasoning_effort.clone();
+                attempt.executor_title = draft.title.clone();
+                attempt.parent_tab_id = draft.parent_tab_id.clone();
+                attempt.competition_group_id = Some(draft.competition_group_id.clone());
+                attempt.competition_lane = Some(draft.lane);
+                attempt.plan_skill_manifest = draft.plan_skill_manifest.clone();
+                if draft.branch.is_some() {
+                    attempt.worktree_path = Some(draft.cwd.clone());
+                    attempt.branch = draft.branch.clone();
+                    attempt.base = draft.base.clone();
+                    attempt.destination = draft.destination.clone();
+                }
+                task.execution_attempts.push(attempt.clone());
+                created = Some(attempt);
+                Ok(())
+            },
+        )?;
         Ok(TaskAttemptCreated {
             plan_id: plan_id.into(),
             task_id: task_id.into(),
@@ -1105,26 +855,31 @@ impl PlanStore {
         now_ms: u64,
     ) -> Result<TaskAttemptCreated, PlanError> {
         let mut judged = None;
-        self.with_plan(plan_id, now_ms, |plan| {
-            let task = crate::plan::task_key::find_task_mut(&mut plan.tasks, task_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            let attempt = task
-                .execution_attempts
-                .iter_mut()
-                .find(|attempt| attempt.id == attempt_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            crate::service_plan::competition::set_attempt_judgement(
-                attempt, verdict, reason, winner, now_ms,
-            );
-            judged = Some(attempt.clone());
-            if winner {
-                task.status = TaskStatus::InReview;
-                task.status_label = Some("judging".into());
-                task.status_changed_at = now_ms;
-            }
-            task.updated_at = now_ms;
-            Ok(())
-        })?;
+        self.with_task_rows(
+            plan_id,
+            task_id,
+            super::store_db::hot_write::TaskHistory::Attempt(attempt_id.into()),
+            now_ms,
+            |edit| {
+                let task = &mut edit.task;
+                let attempt = task
+                    .execution_attempts
+                    .iter_mut()
+                    .find(|attempt| attempt.id == attempt_id)
+                    .ok_or(PlanError::TaskNotFound)?;
+                crate::service_plan::competition::set_attempt_judgement(
+                    attempt, verdict, reason, winner, now_ms,
+                );
+                judged = Some(attempt.clone());
+                if winner {
+                    task.status = TaskStatus::InReview;
+                    task.status_label = Some("judging".into());
+                    task.status_changed_at = now_ms;
+                }
+                task.updated_at = now_ms;
+                Ok(())
+            },
+        )?;
         Ok(TaskAttemptCreated {
             plan_id: plan_id.into(),
             task_id: task_id.into(),

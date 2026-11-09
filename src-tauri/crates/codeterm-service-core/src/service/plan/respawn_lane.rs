@@ -1,4 +1,5 @@
-use crate::plan::{ExecutionIntent, Task, TaskExecutionIntent};
+use crate::plan::{ExecutionIntent, TaskExecutionIntent};
+use crate::service::plan::TaskLaunchRead;
 use crate::service::{verify_worker_lane, LaneProtection, WorkerLaneProvenance};
 
 use super::task_attempts::TaskRespawnDraft;
@@ -16,19 +17,14 @@ fn respawn_requires_git_lane(
 
 pub fn verify_respawn_lane(
     canonical_cwd: &str,
-    task: &Task,
+    task: &TaskLaunchRead,
     draft: &TaskRespawnDraft,
 ) -> Result<Option<WorkerLaneProvenance>, String> {
-    if draft.task_id != task.id
-        || !task
-            .execution_attempts
-            .iter()
-            .any(|attempt| attempt.id == draft.source_attempt.id)
-    {
+    if draft.task_id != task.task_id || !task.source_attempt_exists {
         return Err("respawn source attempt does not belong to the task".into());
     }
     if !respawn_requires_git_lane(
-        &task.interruption.execution_intent,
+        &task.dispatch_intent,
         task.execution_intent,
         task.lane.worktree_path.as_deref(),
         draft.source_attempt.worktree_path.as_deref(),
@@ -46,7 +42,7 @@ pub fn verify_respawn_lane(
         &draft.cwd,
         task.lane.branch.as_deref(),
         task.lane.base.as_deref(),
-        LaneProtection::for_dispatch_intent(&task.interruption.execution_intent),
+        LaneProtection::for_dispatch_intent(&task.dispatch_intent),
     )
     .map(Some)
 }

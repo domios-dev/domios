@@ -10,10 +10,15 @@ fn prepared_store() -> (tempfile::TempDir, PlanStore, String, String, String) {
             Some("Worker"),
             Some("session"),
             Some("nonce"),
+            None,
             4,
         )
         .unwrap();
-    let attempt_id = store.show_task(&task_id).unwrap().task.execution_attempts[0]
+    let attempt_id = store
+        .inspect_task_for_test(&task_id)
+        .unwrap()
+        .task
+        .execution_attempts[0]
         .id
         .clone();
     store
@@ -64,7 +69,11 @@ fn plan_skill_show_records_exact_attempt_evidence_idempotently() {
             8,
         )
         .is_err());
-    let attempt = &store.show_task(&task_id).unwrap().task.execution_attempts[0];
+    let attempt = &store
+        .inspect_task_for_test(&task_id)
+        .unwrap()
+        .task
+        .execution_attempts[0];
     assert_eq!(attempt.loaded_plan_skills.len(), 1);
     assert_eq!(attempt.loaded_plan_skills[0].loaded_at, 6);
 }
@@ -124,7 +133,7 @@ fn report_snapshot_retains_loaded_plan_skills_after_restart() {
         .unwrap();
     let reloaded = PlanStore::new_for_test(dir.path());
     let persisted = reloaded
-        .show_task(&task_id)
+        .inspect_task_for_test(&task_id)
         .unwrap()
         .task
         .execution_attempts
@@ -165,7 +174,7 @@ fn plan_skill_load_refuses_unannounced_or_modified_digest() {
 fn plan_skill_load_refuses_ambiguous_open_assignment_even_with_explicit_attempt() {
     let (_dir, store, plan_id, task_id, attempt_id) = prepared_store();
     store
-        .with_plan(&plan_id, 6, |plan| {
+        .edit_plan_fixture(&plan_id, 6, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()
@@ -215,7 +224,7 @@ fn plan_skill_load_refuses_foreign_or_retired_current_binding() {
         assert_eq!(store.get(&plan_id).unwrap(), before);
     }
     store
-        .with_plan(&plan_id, 6, |plan| {
+        .edit_plan_fixture(&plan_id, 6, |plan| {
             plan.tasks
                 .iter_mut()
                 .find(|task| task.id == task_id)

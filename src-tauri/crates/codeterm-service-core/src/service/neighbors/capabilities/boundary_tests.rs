@@ -18,6 +18,7 @@ async fn fixture(permission: Permission) -> (ServiceFixture, TabCaller, String) 
     let token = fixture
         .service
         .frontend_pty_env(Some(&concierge))
+        .unwrap()
         .remove("CODETERM_API_TOKEN")
         .unwrap();
     (

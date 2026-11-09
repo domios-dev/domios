@@ -193,7 +193,7 @@ fn service_validation_uses_live_team_state_and_skips_archived_and_orphaned_plans
     ));
 
     svc.plan_store
-        .with_plan(&plan.id, 2, |plan| {
+        .edit_plan_fixture(&plan.id, 2, |plan| {
             plan.team_id = Some("team_gone".into());
             Ok(())
         })
@@ -208,7 +208,7 @@ fn service_validation_uses_live_team_state_and_skips_archived_and_orphaned_plans
     ));
 
     svc.plan_store
-        .with_plan(&plan.id, 3, |plan| {
+        .edit_plan_fixture(&plan.id, 3, |plan| {
             plan.status = PlanStatus::Archived;
             Ok(())
         })
@@ -217,7 +217,7 @@ fn service_validation_uses_live_team_state_and_skips_archived_and_orphaned_plans
     assert!(validate_plan_without_materializing(svc, &plan.id).is_ok());
 
     svc.plan_store
-        .with_plan(&plan.id, 4, |plan| {
+        .edit_plan_fixture(&plan.id, 4, |plan| {
             plan.status = PlanStatus::Active;
             plan.team_id = None;
             plan.orphaned = Some(PlanOrphan {

@@ -19,6 +19,7 @@ import { freeLimitGate } from "../billing/freeLimitGate";
 import { getPersistedChatScrollState } from "./chatViewport";
 import { readTranscriptWindow, transcriptWindowKey } from "./transcriptStore";
 import type { ChatStartResult } from "./chatSessionAuthority";
+import { reconnectTabSession } from "./tabSessionActions";
 
 vi.mock("../../hooks/useAgentProviders", () => ({ useAgentProviders: () => ({ providers: [], loading: false, error: null }) }));
 vi.mock("./TerminalTab", async () => {
@@ -30,6 +31,166 @@ vi.mock("./TerminalTab", async () => {
   };
 });
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+it("docks a degraded session's notice in its own row above the transcript and names the real state", async () => {
+  const reason = "opaque: Interrupt completion deadline exceeded; runtime recovery required";
+  const loaded: Tab = {
+    id: "docked-notice", title: "Fixture", tab_type: "Terminal", cwd: null, pty_id: null, agent_type: "fixture",
+    agent_session_id: "docked-session", session_binding_nonce: "docked-binding", boot_stage: "agent_ready",
+    backing: { kind: "chat_backend", plugin_id: "fixture", session_id: "docked-session" },
+    agent_runtime_state: { state: "loaded", epoch: 1 },
+  };
+  let tab = loaded;
+  let state: ExtendedState = { workspaces: [], tabs: { [tab.id]: tab }, teams: [], active_workspace_id: null, focused_tab_id: tab.id,
+    notifications: [], tabStatuses: {}, toasts: [], activeTabIds: {}, generation: 1, pendingCloses: [] };
+  const store = createMuxStateStore(() => state);
+  __setListenForTest(async () => () => {});
+  __setInvokeForTest(<T,>(command: string, args?: Record<string, unknown>): Promise<T> => {
+    if (command === "chat_start") return Promise.resolve({ text: "", offset: 1, start_offset: 0, pending: false,
+      source_session_id: "docked-session", session_binding_nonce: "docked-binding", subscription_id: String(args?.subscriptionId),
+      messages: [{ id: "docked-row", type: "assistant", content: "opaque retained reply" }] } as T);
+    const value = command === "delayed_send_list" || command === "list_agent_providers" ? []
+      : command === "plugin_manager_snapshot" ? { plugins: [], channels: [], diff: [], marketplace: [] } : {};
+    return Promise.resolve(value as T);
+  });
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  const actions = new Proxy({}, { get: () => () => {} }) as MultiplexerActionsContextType;
+  const render = () => act(async () => root.render(
+    <MuxStateStoreContext.Provider value={store}><MultiplexerActionsContext.Provider value={actions}>
+      <TabContent tab={tab} isFocused isVisible onFocusTab={() => {}} onPtySpawned={() => {}}
+        theme={{ name: "fixture", background: "#000", foreground: "#fff" } as ThemeConfig} />
+    </MultiplexerActionsContext.Provider></MuxStateStoreContext.Provider>,
+  ));
+  try {
+    await render();
+    tab = { ...loaded, agent_runtime_state: { state: "degraded", epoch: 2, failureCode: "provider_refused", reason } };
+    state = { ...state, tabs: { [tab.id]: tab } };
+    await act(async () => store.notify());
+    await render();
+    const dock = host.querySelector('section[aria-label="Session status"]');
+    const log = host.querySelector('[role="log"]');
+    expect(dock).not.toBeNull();
+    expect(log).not.toBeNull();
+    const notice = dock!.querySelector('[role="status"]');
+    expect(notice?.getAttribute("aria-label")).toBe("Runtime needs recovery");
+    expect(notice?.textContent).toContain(reason);
+    expect(host.textContent).not.toContain("taking longer than usual");
+    expect(log!.contains(dock)).toBe(false);
+    expect(dock!.contains(log)).toBe(false);
+    const row = dock!.closest('[data-testid="session-status-row"]');
+    expect(row).not.toBeNull();
+    expect(row!.nextElementSibling?.contains(log)).toBe(true);
+    expect(host.querySelector('[data-testid="chat-message"]')).not.toBeNull();
+  } finally {
+    await act(async () => root.unmount()); host.remove();
+    __setInvokeForTest(null); __setListenForTest(null);
+  }
+});
+
+it.each([
+  ["a kept conversation", [{ id: "kept-row", type: "assistant", content: "opaque retained reply" }]],
+  ["an empty conversation", []],
+])("keeps a launched session readable with a docked Restart after its relaunch failed, with %s", async (_name, messages) => {
+  const reason = "opaque: Interrupt completion deadline exceeded; runtime recovery required";
+  const tab: Tab = {
+    id: `relaunch-failed-${messages.length}`, title: "Fixture", tab_type: "Terminal", cwd: null, pty_id: null, agent_type: "fixture",
+    agent_session_id: "kept-session", session_binding_nonce: "kept-binding", boot_stage: "spawn_failed", boot_failure_reason: reason,
+    backing: { kind: "chat_backend", plugin_id: "fixture", session_id: "kept-session" },
+    agent_runtime_state: { state: "degraded", epoch: 2, failureCode: "provider_refused", reason },
+  };
+  const state: ExtendedState = { workspaces: [], tabs: { [tab.id]: tab }, teams: [], active_workspace_id: null, focused_tab_id: tab.id,
+    notifications: [], tabStatuses: {}, toasts: [], activeTabIds: {}, generation: 1, pendingCloses: [] };
+  const restarts: unknown[] = [];
+  __setListenForTest(async () => () => {});
+  __setInvokeForTest(<T,>(command: string, args?: Record<string, unknown>): Promise<T> => {
+    if (command === "restart_agent_tab") restarts.push(args);
+    if (command === "chat_start") return Promise.resolve({ text: "", offset: messages.length, start_offset: 0, pending: false,
+      source_session_id: "kept-session", session_binding_nonce: "kept-binding", subscription_id: String(args?.subscriptionId), messages } as T);
+    const value = command === "delayed_send_list" || command === "list_agent_providers" ? []
+      : command === "plugin_manager_snapshot" ? { plugins: [], channels: [], diff: [], marketplace: [] } : {};
+    return Promise.resolve(value as T);
+  });
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  const actions = new Proxy({}, { get: () => () => {} }) as MultiplexerActionsContextType;
+  try {
+    await act(async () => root.render(<MuxStateStoreContext.Provider value={createMuxStateStore(() => state)}>
+      <MultiplexerActionsContext.Provider value={actions}>
+        <TabContent tab={tab} isFocused isVisible onFocusTab={() => {}} onPtySpawned={() => {}}
+          theme={{ name: "fixture", background: "#000", foreground: "#fff" } as ThemeConfig} />
+      </MultiplexerActionsContext.Provider>
+    </MuxStateStoreContext.Provider>));
+    expect(host.querySelector('[data-testid="chat-launch-failed"]')).toBeNull();
+    const log = host.querySelector('[role="log"][aria-label="Conversation"]');
+    expect(log).not.toBeNull();
+    expect(log!.closest("[inert]")).toBeNull();
+    expect(host.querySelectorAll('[data-testid="chat-message"]').length).toBe(messages.length);
+    expect(host.querySelector('textarea[aria-label="Message composer"]')).not.toBeNull();
+    const dock = host.querySelector('[data-testid="session-status-row"] section[aria-label="Session status"]');
+    expect(dock?.querySelector('[role="status"]')?.getAttribute("aria-label")).toBe("Runtime needs recovery");
+    const restart = host.querySelectorAll<HTMLButtonElement>('button[aria-label="Restart the agent"]');
+    expect(restart.length).toBe(1);
+    expect(dock!.contains(restart[0])).toBe(true);
+    await act(async () => restart[0].click());
+    expect(restarts).toEqual([{ tabId: tab.id }]);
+  } finally {
+    await act(async () => root.unmount()); host.remove();
+    __setInvokeForTest(null); __setListenForTest(null);
+  }
+});
+
+it.each(["agent_launching", "spawn_failed"] as const)("keeps saved chat visible beside typed load recovery at %s and starts fresh in place", async bootStage => {
+  const viewportHeight = vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(1000);
+  const tab: Tab = {
+    id:"load-refused-chat", title:"Fixture", tab_type:"Terminal", cwd:null, pty_id:null,
+    agent_type:"fixture", agent_session_id:"saved-thread", session_binding_nonce:"saved-binding",
+    backing:{kind:"chat_backend",plugin_id:"fixture",session_id:"saved-thread"},
+    boot_stage:bootStage, boot_failure_reason:"opaque provider detail",
+    agent_runtime_state:{state:"degraded",epoch:1,failureCode:"session_load_refused",reason:"opaque provider detail"},
+  };
+  const state: ExtendedState = { workspaces:[],tabs:{[tab.id]:tab},teams:[],active_workspace_id:null,
+    focused_tab_id:tab.id,notifications:[],tabStatuses:{},toasts:[],activeTabIds:{},generation:1,pendingCloses:[] };
+  const requests: Array<{command:string;args?:Record<string,unknown>}> = [];
+  const saved = ["user", "status", "system", "user", "status", "user", "status", "system"]
+    .map((type, seq) => ({id:`saved-row-${seq}`, type, content:`opaque saved turn ${seq}`, seq}));
+  __setListenForTest(async () => () => {});
+  __setInvokeForTest(async <T,>(command:string,args?:Record<string,unknown>) => {
+    requests.push({command,args});
+    const value = command === "chat_start" ? {messages:saved,
+      pending:false,text:"",offset:8,offset_kind:"items",source_session_id:"saved-thread",session_binding_nonce:"saved-binding"}
+      : command === "delayed_send_list" || command === "list_agent_providers" ? []
+      : command === "plugin_manager_snapshot" ? {plugins:[],channels:[],diff:[],marketplace:[]} : {};
+    return value as T;
+  });
+  const host=document.createElement("div");document.body.append(host);
+  const root=createRoot(host);
+  const actions=new Proxy({}, {get:()=>()=>{}}) as MultiplexerActionsContextType;
+  try {
+    await act(async () => root.render(<MuxStateStoreContext.Provider value={createMuxStateStore(()=>state)}>
+      <MultiplexerActionsContext.Provider value={actions}>
+        <TabContent tab={tab} isFocused isVisible onFocusTab={()=>{}} onPtySpawned={()=>{}}
+          theme={{name:"fixture",background:"#000",foreground:"#fff"} as ThemeConfig}/>
+      </MultiplexerActionsContext.Provider>
+    </MuxStateStoreContext.Provider>));
+    const conversation=host.querySelector('[role="log"][aria-label="Conversation"]');
+    expect(conversation?.textContent).toContain("opaque saved turn");
+    for (const row of saved) expect(conversation?.textContent).toContain(row.content);
+    expect(conversation?.closest("[inert]")).toBeNull();
+    const start=conversation?.querySelector<HTMLButtonElement>('button[aria-label="Start new session"]');
+    expect(start).not.toBeNull();
+    expect(host.querySelector('[role="progressbar"]')).toBeNull();
+    expect(conversation?.querySelector("details pre")?.textContent).toBe("opaque provider detail");
+    await act(async()=>start!.click());
+    expect(requests.filter(request=>request.command==="restart_agent_tab")).toEqual([
+      {command:"restart_agent_tab",args:{tabId:tab.id,fresh:true}},
+    ]);
+    expect(conversation?.textContent).toContain("opaque saved turn");
+  } finally {
+    await act(async()=>root.unmount());host.remove();__setInvokeForTest(null);__setListenForTest(null);
+    viewportHeight.mockRestore();
+  }
+});
 
 it("makes the previous kept-alive composer inert and releases focus in the tab-switch commit", async () => {
   const tabs: Tab[] = ["input-a", "input-b"].map(id => ({
@@ -525,9 +686,7 @@ it("refreshes only its chat attachment while retaining draft, authority, transcr
     expect(getPersistedChatScrollState(scrollKey)?.mode).toBe("detached");
     const authority = readTranscriptWindow(transcriptWindowKey(tab.id, "refresh-session")).transcript.authority;
     expect(authority).toEqual({ sourceSessionId: "refresh-session", sessionBindingNonce: "refresh-binding" });
-    const refresh = ownSurface().querySelector<HTMLButtonElement>('button[aria-label="Refresh chat"]')!;
-    expect(refresh).not.toBeNull();
-    await act(async () => refresh.click());
+    await act(async () => reconnectTabSession(tab.id));
     expect(completeRefresh).toBeDefined();
     expect(ownSurface().querySelector("textarea")).toBe(composer);
     expect(composer.value).toBe("unsent refresh draft");

@@ -109,3 +109,104 @@ fn screen_mode_is_per_pty_and_generation() {
     assert!(!screens.process_if_generation("one", 1, b"\x1b[?9001h"));
     assert!(!screens.win32_input_mode("one"));
 }
+
+#[test]
+fn application_modes_require_negotiation_and_reset_at_each_shell_prompt_boundary() {
+    let enable = b"\x1b[?2004;1003;1006;1004;9001h";
+    let reports = b"\x1b[<0;4;5M\x1b[<35;4;5M\x1b[I\x1b[O";
+    for prompt in [b"\x1b]633;A\x07".as_slice(), b"\x1b]133;A\x1b\\"] {
+        for boundary in 0..=prompt.len() {
+            let mut mode = InputMode::default();
+            assert_eq!(mode.filter_terminal_reports(reports), b"");
+            for byte in enable {
+                mode.process(&[*byte]);
+            }
+            assert!(mode.bracketed_paste());
+            assert_eq!(mode.filter_terminal_reports(reports), reports);
+            mode.process(&prompt[..boundary]);
+            mode.process(&prompt[boundary..]);
+            assert!(!mode.bracketed_paste());
+            assert!(mode.win32());
+            assert_eq!(mode.filter_terminal_reports(reports), b"");
+            mode.process(enable);
+            assert_eq!(mode.filter_terminal_reports(reports), reports);
+            mode.process(b"\x1b[?2004;1003;1006;1004l");
+            assert!(!mode.bracketed_paste());
+            assert_eq!(mode.filter_terminal_reports(reports), b"");
+        }
+    }
+}
+
+#[test]
+fn report_protocols_and_mouse_motion_require_the_matching_modes() {
+    let mut mode = InputMode::default();
+    let legacy = b"\x1b[M !!";
+    let sgr = b"\x1b[<0;1;1M";
+    let urxvt = b"\x1b[32;1;1M";
+    mode.process(b"\x1b[?1006h");
+    assert_eq!(mode.filter_terminal_reports(sgr), b"");
+    mode.process(b"\x1b[?1000h");
+    assert_eq!(mode.filter_terminal_reports(sgr), sgr);
+    assert_eq!(mode.filter_terminal_reports(legacy), b"");
+    assert_eq!(mode.filter_terminal_reports(urxvt), b"");
+    assert_eq!(mode.filter_terminal_reports(b"\x1b[<32;1;1M"), b"");
+    mode.process(b"\x1b[?1002h");
+    assert_eq!(
+        mode.filter_terminal_reports(b"\x1b[<32;1;1M"),
+        b"\x1b[<32;1;1M"
+    );
+    assert_eq!(mode.filter_terminal_reports(b"\x1b[<35;1;1M"), b"");
+    mode.process(b"\x1b[?1003h");
+    assert_eq!(
+        mode.filter_terminal_reports(b"\x1b[<35;1;1M"),
+        b"\x1b[<35;1;1M"
+    );
+    mode.process(b"\x1b[?1006l");
+    assert_eq!(mode.filter_terminal_reports(sgr), b"");
+    assert_eq!(mode.filter_terminal_reports(legacy), legacy);
+    mode.process(b"\x1b[?1015h");
+    assert_eq!(mode.filter_terminal_reports(urxvt), urxvt);
+    assert_eq!(mode.filter_terminal_reports(legacy), b"");
+    assert_eq!(mode.filter_terminal_reports(b"\x1b[I"), b"");
+    mode.process(b"\x1b[?1004h");
+    assert_eq!(mode.filter_terminal_reports(b"\x1b[I"), b"\x1b[I");
+}
+
+#[test]
+fn terminal_resets_and_generation_replacement_discard_application_modes() {
+    for reset in [b"\x1bc".as_slice(), b"\x1b[!p"] {
+        let mut mode = InputMode::default();
+        mode.process(b"\x1b[?2004;1003;1006;1004h");
+        mode.process(reset);
+        assert!(!mode.bracketed_paste());
+        assert_eq!(mode.filter_terminal_reports(b"\x1b[<0;1;1m\x1b[I"), b"");
+    }
+    let screens = crate::pty::screen_state::ScreenState::new();
+    screens.bind_pty_generation("reports", 1);
+    screens.process_if_generation("reports", 1, b"\x1b[?2004;1003;1006;1004h");
+    screens.bind_pty_generation("reports", 2);
+    assert!(!screens.process_if_generation("reports", 1, b"\x1b[?2004;1003;1006;1004h"));
+    assert_eq!(
+        screens.filter_terminal_reports("reports", b"\x1b[<0;1;1m\x1b[I"),
+        b""
+    );
+    assert_eq!(
+        screens.filter_terminal_reports("unknown", b"\x1b[Ikey\x1b[O"),
+        b"key"
+    );
+}
+
+#[test]
+fn report_filter_preserves_keyboard_bytes_and_complete_paste_contents() {
+    let mut mode = InputMode::default();
+    let keys = "echo λ\r\x1b[A\x1b\x03".as_bytes();
+    assert_eq!(mode.filter_terminal_reports(keys), keys);
+    assert_eq!(
+        mode.filter_terminal_reports(b"a\x1b[<0;3;4mb\x1b[Ic\x1b[Od"),
+        b"abcd"
+    );
+    let paste = b"\x1b[200~opaque\x1b[Itext\x1b[201~";
+    assert_eq!(mode.filter_terminal_reports(paste), b"opaque\x1b[Itext");
+    mode.process(b"\x1b[?2004h");
+    assert_eq!(mode.filter_terminal_reports(paste), paste);
+}

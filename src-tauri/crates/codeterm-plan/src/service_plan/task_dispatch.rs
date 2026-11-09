@@ -3,14 +3,15 @@ mod lifecycle;
 mod reservation;
 mod rollback;
 mod unblock;
+mod undo;
 mod worker_ack_subject;
 
 use super::lane_metadata::normalize_lane_metadata;
-use super::readback::pending_after_verified;
 use super::{PlanError, PlanStore};
 
 #[derive(Debug, Clone)]
 pub(super) struct DispatchedAttemptMetadata {
+    launch_profile: Option<String>,
     model: Option<String>,
     requested_model: Option<String>,
     provider_resolved_model: Option<String>,
@@ -20,13 +21,12 @@ pub(super) struct DispatchedAttemptMetadata {
 pub(super) use reservation::DispatchReservationOwner;
 pub use reservation::TaskDispatchReservation;
 pub use rollback::DispatchRollback;
-pub(super) use unblock::{
-    record_blocked_task_unblock, restore_blocked_unblock, task_respawn_status, task_startup_status,
-};
+pub(super) use unblock::{task_respawn_status, task_startup_status};
+pub use undo::{DispatchStart, DispatchUndo};
 pub use worker_ack_subject::{
     ambiguous_subject_cause, superseded_subject_cause, unresolved_subject_cause, LiveTabAttempt,
-    ACK_CAUSE_AMBIGUOUS_ATTEMPTS, ACK_CAUSE_ATTEMPT_SUPERSEDED, ACK_CAUSE_NO_LIVE_ATTEMPT,
-    ACK_CAUSE_PLAN_NOT_ACTIVE, ACK_CAUSE_TASK_NOT_OPEN,
+    LiveTaskAttemptRead, ACK_CAUSE_AMBIGUOUS_ATTEMPTS, ACK_CAUSE_ATTEMPT_SUPERSEDED,
+    ACK_CAUSE_NO_LIVE_ATTEMPT, ACK_CAUSE_PLAN_NOT_ACTIVE, ACK_CAUSE_TASK_NOT_OPEN,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -35,7 +35,7 @@ pub struct DispatchStartupOwner {
     pub tab_id: String,
 }
 
-fn startup_attempt<'a>(
+pub(super) fn startup_attempt<'a>(
     task: &'a crate::plan::Task,
     tab_id: &str,
     attempt_id: &str,
@@ -46,69 +46,44 @@ fn startup_attempt<'a>(
             && attempt.closed_at.is_none()
             && attempt.retired_at.is_none()
     })?;
-    if let Some(group_id) = attempt.competition_group_id.as_deref() {
-        if attempt
-            .session_id
-            .as_deref()
-            .is_none_or(|session_id| session_id.trim().is_empty())
-        {
-            return None;
-        }
-        let current_group = task
-            .execution_attempts
-            .iter()
-            .rev()
-            .find(|attempt| attempt.closed_at.is_none() && attempt.competition_group_id.is_some())
-            .and_then(|attempt| attempt.competition_group_id.as_deref());
-        return (current_group == Some(group_id)).then_some((attempt, true));
-    }
-    let current = task
+    use super::task_authority_projection::startup::{startup_subject_current, StartupSubject};
+    let latest_unclosed = task
         .execution_attempts
         .iter()
-        .rfind(|attempt| attempt.closed_at.is_none());
-    (task.assigned_tab_id.as_deref() == Some(tab_id)
-        && current.is_some_and(|current| current.id == attempt_id))
-    .then_some((attempt, false))
-}
-
-/// Entering `in_progress` needs a persisted executor: a competitive task proves
-/// it with the exact live attempt, an assigned task with its own task-level tab.
-fn progression_authority(
-    plan: &crate::plan::Plan,
-    task_index: usize,
-    competitive: bool,
-    attempt_id: &str,
-) -> Result<(), PlanError> {
-    let task = &plan.tasks[task_index];
-    if competitive {
-        super::mutations::validate_competitive_attempt_status_transition(
-            plan,
-            &task.id,
-            &task.status,
-            &crate::plan::TaskStatus::InProgress,
-            attempt_id,
-        )
-    } else {
-        super::mutations::validate_task_status_transition(
-            plan,
-            &task.id,
-            &task.status,
-            &crate::plan::TaskStatus::InProgress,
-            None,
-        )
-    }
+        .rfind(|attempt| attempt.closed_at.is_none())
+        .map(|attempt| attempt.id.as_str());
+    let latest_group = task
+        .execution_attempts
+        .iter()
+        .rfind(|attempt| attempt.closed_at.is_none() && attempt.competition_group_id.is_some())
+        .and_then(|attempt| attempt.competition_group_id.as_deref());
+    startup_subject_current(
+        tab_id,
+        task.assigned_tab_id.as_deref(),
+        StartupSubject {
+            id: &attempt.id,
+            executor: &attempt.executor_tab_id,
+            session: attempt.session_id.as_deref(),
+            group: attempt.competition_group_id.as_deref(),
+        },
+        latest_unclosed,
+        latest_group,
+    )
+    .then_some((attempt, attempt.competition_group_id.is_some()))
 }
 
 /// A validated startup attempt is already proven to be the task's live executor,
 /// so an in-progress task is that owner respawning, never a foreign claim.
-fn startup_status_allows(task: &crate::plan::Task) -> bool {
+fn startup_status_allows(status: &crate::plan::TaskStatus) -> bool {
     matches!(
-        task.status,
+        status,
         crate::plan::TaskStatus::Pending | crate::plan::TaskStatus::InProgress
     )
 }
 
-fn current_dispatch_startup_owner(task: &crate::plan::Task) -> Option<DispatchStartupOwner> {
+pub(super) fn current_dispatch_startup_owner(
+    task: &crate::plan::Task,
+) -> Option<DispatchStartupOwner> {
     let tab_id = task.assigned_tab_id.as_deref()?;
     let attempt = task
         .execution_attempts
@@ -120,7 +95,7 @@ fn current_dispatch_startup_owner(task: &crate::plan::Task) -> Option<DispatchSt
         || attempt.reported_at.is_some()
         || attempt.report.is_some()
         || attempt.competition_group_id.is_some()
-        || !startup_status_allows(task)
+        || !startup_status_allows(&task.status)
         || startup_attempt(task, tab_id, &attempt.id).is_none()
     {
         return None;
@@ -137,21 +112,17 @@ impl PlanStore {
         plan_id: &str,
         task_id: &str,
     ) -> Result<(), PlanError> {
-        let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
-        let task = crate::plan::task_key::find_task(&plan.tasks, task_id)
-            .ok_or(PlanError::TaskNotFound)?;
-        task_startup_status(&task.status).map(|_| ())
+        let status = self.database.task_status_projection(plan_id, task_id)?;
+        task_startup_status(&status).map(|_| ())
     }
 
     pub fn dispatch_startup_owner_candidate(
         &self,
         plan_id: &str,
         task_id: &str,
-    ) -> Option<DispatchStartupOwner> {
-        self.get(plan_id).and_then(|plan| {
-            crate::plan::task_key::find_task(&plan.tasks, task_id)
-                .and_then(current_dispatch_startup_owner)
-        })
+    ) -> Result<Option<DispatchStartupOwner>, PlanError> {
+        self.database
+            .dispatch_startup_owner_projection(plan_id, task_id)
     }
 
     pub fn worker_startup_attempt_owns(
@@ -161,22 +132,34 @@ impl PlanStore {
         tab_id: &str,
         attempt_id: &str,
         session_id: Option<&str>,
-    ) -> bool {
-        self.get(plan_id).is_some_and(|plan| {
-            crate::plan::task_key::find_task(&plan.tasks, task_id)
-                .and_then(|task| {
-                    startup_attempt(task, tab_id, attempt_id).map(|(attempt, _)| (task, attempt))
-                })
-                .is_some_and(|(task, attempt)| {
-                    startup_status_allows(task)
-                        && attempt.acknowledged_at.is_none()
-                        && attempt.reported_at.is_none()
-                        && attempt.report.is_none()
-                        && session_id.is_none_or(|session_id| {
-                            attempt.session_id.as_deref() == Some(session_id)
-                        })
-                })
-        })
+    ) -> Result<bool, PlanError> {
+        match self
+            .database
+            .worker_startup_state_projection(plan_id, task_id, tab_id, attempt_id)
+        {
+            Ok((read, _)) => Ok(read.owns(tab_id, session_id, true)),
+            Err(PlanError::NotFound | PlanError::TaskNotFound) => Ok(false),
+            Err(error) => Err(error),
+        }
+    }
+
+    pub fn worker_ack_deadline_attempt_projection(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        tab_id: &str,
+        attempt_id: &str,
+    ) -> Result<Option<String>, PlanError> {
+        match self
+            .database
+            .worker_startup_state_projection(plan_id, task_id, tab_id, attempt_id)
+        {
+            Ok((read, active)) => {
+                Ok((active && read.owns(tab_id, None, true)).then(|| attempt_id.to_string()))
+            }
+            Err(PlanError::NotFound | PlanError::TaskNotFound) => Ok(None),
+            Err(error) => Err(error),
+        }
     }
 
     pub fn mark_worker_startup_deadline(
@@ -188,60 +171,66 @@ impl PlanStore {
         final_deadline: bool,
         now_ms: u64,
     ) -> Result<bool, PlanError> {
-        let current = self.read_task_for_verification(plan_id, task_id)?;
-        let authority = startup_attempt(&current, tab_id, attempt_id);
-        let owns_startup = authority.is_some_and(|(attempt, _)| {
-            startup_status_allows(&current) && attempt.acknowledged_at.is_none()
-        });
+        let (current, _) = self
+            .database
+            .worker_startup_state_projection(plan_id, task_id, tab_id, attempt_id)?;
+        let owns_startup = current.owns(tab_id, None, false);
         if !owns_startup {
             return Ok(false);
         }
-        self.with_plan(plan_id, now_ms, |plan| {
-            let Some(task) = crate::plan::task_key::find_task_mut(&mut plan.tasks, task_id) else {
-                return Ok(false);
-            };
-            let authority = startup_attempt(task, tab_id, attempt_id);
-            let owns_startup = authority.is_some_and(|(attempt, _)| {
-                startup_status_allows(task) && attempt.acknowledged_at.is_none()
-            });
-            if !owns_startup {
-                return Ok(false);
-            }
-            let competitive = task
-                .execution_attempts
-                .iter()
-                .any(|attempt| attempt.id == attempt_id && attempt.competition_group_id.is_some());
-            if final_deadline {
-                let attempt = task
-                    .execution_attempts
-                    .iter_mut()
-                    .find(|attempt| attempt.id == attempt_id)
-                    .expect("validated startup attempt must remain present");
-                attempt.closed_at = Some(now_ms);
-                if !competitive {
-                    super::mutations::clear_task_assignment(task);
+        self.with_task_rows(
+            plan_id,
+            task_id,
+            super::store_db::hot_write::TaskHistory::LiveAndTarget(attempt_id.into()),
+            now_ms,
+            |edit| {
+                let task = &mut edit.task;
+                let authority = startup_attempt(task, tab_id, attempt_id);
+                let owns_startup = authority.is_some_and(|(attempt, _)| {
+                    startup_status_allows(&task.status) && attempt.acknowledged_at.is_none()
+                });
+                if !owns_startup {
+                    return Ok(false);
                 }
-                let live_competitors = task.execution_attempts.iter().any(|attempt| {
-                    attempt.closed_at.is_none() && attempt.competition_group_id.is_some()
+                let competitive = task.execution_attempts.iter().any(|attempt| {
+                    attempt.id == attempt_id && attempt.competition_group_id.is_some()
                 });
-                if task.status == crate::plan::TaskStatus::InProgress && !live_competitors {
-                    task.status = crate::plan::TaskStatus::Pending;
-                    task.status_changed_at = now_ms;
+                if final_deadline {
+                    let attempt = task
+                        .execution_attempts
+                        .iter_mut()
+                        .find(|attempt| attempt.id == attempt_id)
+                        .expect("validated startup attempt must remain present");
+                    attempt.closed_at = Some(now_ms);
+                    if !competitive {
+                        super::mutations::clear_task_assignment(task);
+                    }
+                    let live_competitors = task.execution_attempts.iter().any(|attempt| {
+                        attempt.closed_at.is_none() && attempt.competition_group_id.is_some()
+                    });
+                    if task.status == crate::plan::TaskStatus::InProgress && !live_competitors {
+                        task.status = crate::plan::TaskStatus::Pending;
+                        task.status_changed_at = now_ms;
+                    }
+                    task.status_label = Some(if live_competitors {
+                        "competitive".into()
+                    } else {
+                        "startup_failed".into()
+                    });
+                } else {
+                    task.status_label = Some(if competitive {
+                        "competitive".into()
+                    } else {
+                        "startup_unbound".into()
+                    });
                 }
-                task.status_label = Some(if live_competitors {
-                    "competitive".into()
-                } else {
-                    "startup_failed".into()
-                });
-            } else {
-                task.status_label = Some(if competitive {
-                    "competitive".into()
-                } else {
-                    "startup_unbound".into()
-                });
-            }
-            task.updated_at = now_ms;
-            Ok(true)
+                task.updated_at = now_ms;
+                Ok(true)
+            },
+        )
+        .or_else(|error| match error {
+            PlanError::TaskNotFound => Ok(false),
+            error => Err(error),
         })
     }
 
@@ -252,38 +241,49 @@ impl PlanStore {
         attempt_id: &str,
         now_ms: u64,
     ) -> Result<bool, PlanError> {
-        self.with_plan(plan_id, now_ms, |plan| {
-            let Some(task) = plan.tasks.iter_mut().find(|task| task.id == task_id) else {
-                return Ok(false);
-            };
-            let target = task
-                .execution_attempts
-                .iter()
-                .find(|attempt| attempt.id == attempt_id);
-            let fenced_attempt_is_current = target.is_some_and(|attempt| {
-                if attempt.closed_at.is_none() {
-                    return false;
+        self.with_task_rows(
+            plan_id,
+            task_id,
+            super::store_db::hot_write::TaskHistory::Attempts,
+            now_ms,
+            |edit| {
+                let task = &mut edit.task;
+                if task.id != task_id {
+                    return Ok(false);
                 }
-                if let Some(group_id) = attempt.competition_group_id.as_deref() {
-                    return task
-                        .execution_attempts
-                        .iter()
-                        .rev()
-                        .find_map(|candidate| candidate.competition_group_id.as_deref())
-                        == Some(group_id);
+                let target = task
+                    .execution_attempts
+                    .iter()
+                    .find(|attempt| attempt.id == attempt_id);
+                let fenced_attempt_is_current = target.is_some_and(|attempt| {
+                    if attempt.closed_at.is_none() {
+                        return false;
+                    }
+                    if let Some(group_id) = attempt.competition_group_id.as_deref() {
+                        return task
+                            .execution_attempts
+                            .iter()
+                            .rev()
+                            .find_map(|candidate| candidate.competition_group_id.as_deref())
+                            == Some(group_id);
+                    }
+                    task.assigned_tab_id.is_none()
+                        && task
+                            .execution_attempts
+                            .last()
+                            .is_some_and(|candidate| candidate.id == attempt_id)
+                });
+                if !fenced_attempt_is_current {
+                    return Ok(false);
                 }
-                task.assigned_tab_id.is_none()
-                    && task
-                        .execution_attempts
-                        .last()
-                        .is_some_and(|candidate| candidate.id == attempt_id)
-            });
-            if !fenced_attempt_is_current {
-                return Ok(false);
-            }
-            task.status_label = Some("startup_cleanup_failed".into());
-            task.updated_at = now_ms;
-            Ok(true)
+                task.status_label = Some("startup_cleanup_failed".into());
+                task.updated_at = now_ms;
+                Ok(true)
+            },
+        )
+        .or_else(|error| match error {
+            PlanError::TaskNotFound => Ok(false),
+            error => Err(error),
         })
     }
 
@@ -341,6 +341,7 @@ impl PlanStore {
             None,
             now_ms,
         )
+        .map(|started| started.attempt_id)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -375,6 +376,7 @@ impl PlanStore {
             None,
             now_ms,
         )
+        .map(|started| started.attempt_id)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -411,6 +413,7 @@ impl PlanStore {
             None,
             now_ms,
         )
+        .map(|started| started.attempt_id)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -431,11 +434,12 @@ impl PlanStore {
         requested_model: Option<String>,
         provider_resolved_model: Option<String>,
         reasoning_effort: Option<String>,
+        launch_profile: Option<String>,
         observed_startup_owner: Option<DispatchStartupOwner>,
         observed_startup_owner_is_live: bool,
         startup_owner_observation_made: bool,
         now_ms: u64,
-    ) -> Result<String, PlanError> {
+    ) -> Result<DispatchStart, PlanError> {
         self.begin_task_dispatch_with_policy_and_dispatched_metadata(
             plan_id,
             task_id,
@@ -452,6 +456,7 @@ impl PlanStore {
             observed_startup_owner_is_live,
             startup_owner_observation_made,
             Some(DispatchedAttemptMetadata {
+                launch_profile,
                 model,
                 requested_model,
                 provider_resolved_model,
@@ -490,6 +495,7 @@ impl PlanStore {
             None,
             now_ms,
         )
+        .map(|started| started.attempt_id)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -511,176 +517,132 @@ impl PlanStore {
         startup_owner_observation_made: bool,
         dispatched_metadata: Option<DispatchedAttemptMetadata>,
         now_ms: u64,
-    ) -> Result<String, PlanError> {
-        super::interruption::provider_allowance_preflight(&intent, allowance.as_ref(), now_ms)?;
+    ) -> Result<DispatchStart, PlanError> {
         let dispatch_attempt_id = reserved_attempt_id
             .map(str::to_string)
             .unwrap_or_else(|| crate::plan::ids::short_id("attempt"));
         let mut attempt_id = None;
-        let mut original_status = None;
+        let mut undo = None;
         let shared_binding: Option<super::shared_checkout::SharedDispatchInspection> =
             if placement == crate::plan::WorkerPlacement::Shared {
-                Some(self.inspect_shared_dispatch(plan_id, task_id)?)
+                Some(self.inspect_shared_dispatch(plan_id, task_id, now_ms)?)
             } else {
                 None
             };
         let writer_turn = self.mutation_writer.enter();
         if let Some(inspected) = shared_binding.as_ref() {
-            let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
-            let task = crate::plan::task_key::find_task(&plan.tasks, task_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            inspected.recheck(&plan, task)?;
-            super::shared_checkout::validate_shared_ownership(
-                &self.checkout_peer_plans(&plan),
-                &plan,
-                task,
+            let task = self.database.shared_dispatch_projection(plan_id, task_id)?;
+            inspected.recheck(&task.checkout, &task.files)?;
+            super::shared_checkout::validate_shared_ownership_at(
+                &self.checkout_peer_facts(&task.checkout)?,
+                plan_id,
+                &task.task_id,
+                &task.checkout,
                 &task.files,
             )
             .map_err(PlanError::InvalidPlanText)?;
         } else if placement == crate::plan::WorkerPlacement::CanonicalWriter {
-            let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
-            super::shared_checkout::validate_exclusive_checkout(
-                &self.checkout_peer_plans(&plan),
-                &plan,
+            let checkout = self.database.dispatch_checkout_projection(plan_id)?;
+            super::shared_checkout::validate_exclusive_checkout_at(
+                &self.checkout_peer_facts(&checkout)?,
+                plan_id,
                 task_id,
+                &checkout,
             )
             .map_err(PlanError::InvalidPlanText)?;
         }
-        let write = self.with_plan_in_writer(&writer_turn, plan_id, now_ms, |plan| {
-            let task_index = crate::plan::task_key::find_task_index(&plan.tasks, task_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            let dispatch_status = task_startup_status(&plan.tasks[task_index].status)?;
-            record_blocked_task_unblock(
-                plan,
-                task_index,
-                "dispatch",
-                Some(&dispatch_attempt_id),
-                now_ms,
-            );
-            lane.tab_id = Some(tab_id.to_string());
-            let lane_update = super::TaskLaneUpdate {
-                tab_id: Some(Some(tab_id.to_string())),
-                ..Default::default()
-            };
-            super::mutations::validate_task_status_transition_with_lane(
-                plan,
-                &plan.tasks[task_index].id,
-                &dispatch_status,
-                &crate::plan::TaskStatus::InProgress,
-                None,
-                Some(&lane_update),
-            )?;
-            original_status = Some(dispatch_status);
-            let task = &mut plan.tasks[task_index];
-            let current_owner = current_dispatch_startup_owner(task);
-            let dispatch_in_flight = startup_owner_observation_made
-                && current_owner.as_ref().is_some_and(|owner| {
-                    observed_startup_owner.as_ref() != Some(owner) || observed_startup_owner_is_live
-                });
-            if dispatch_in_flight {
-                let owner = current_owner.expect("in-flight owner must be present");
-                return Err(PlanError::DispatchInFlight {
-                    attempt_id: owner.attempt_id,
-                    tab_id: owner.tab_id,
-                });
-            }
-            lane.destination = task.lane.destination.clone().or(lane.destination);
-            lane.cleanup_status = task.lane.cleanup_status.clone();
-            lane.cleanup_hints = task.lane.cleanup_hints.clone();
-            task.lane = normalize_lane_metadata(lane);
-            task.assigned_tab_id = Some(tab_id.to_string());
-            task.taken_by_role = Some("worker".into());
-            task.peer = None;
-            let mut attempt = super::task_attempts::new_assignment_attempt_with_id(
-                task,
-                tab_id,
-                None,
-                Some("worker"),
-                Some(&dispatch_attempt_id),
-                now_ms,
-            );
-            attempt.executor_title = Some(executor_title.to_string());
-            attempt.provider = provider.map(str::to_string);
-            attempt.agent_type = provider.map(str::to_string);
-            if let Some(metadata) = dispatched_metadata.as_ref() {
-                attempt.model = metadata.model.clone();
-                attempt.requested_model = metadata.requested_model.clone();
-                attempt.provider_resolved_model = metadata.provider_resolved_model.clone();
-                attempt.reasoning_effort = metadata.reasoning_effort.clone();
-            }
-            attempt.authorized_gates = authorized_gates.clone();
-            attempt.placement = placement;
-            attempt.execution_intent = Some(intent.clone());
-            if let Some(inspected) = shared_binding.as_ref() {
-                attempt.checkout_path = Some(inspected.checkout.clone());
-                attempt.shared_start_sha = Some(inspected.head.clone());
-            }
-            task.interruption.execution_intent = intent.clone();
-            task.interruption.allowance = allowance.clone();
-            task.interruption.owner_epoch = task.interruption.owner_epoch.max(1);
-            task.interruption.owner_tab_id = Some(tab_id.to_string());
-            task.interruption.owner_session_id = None;
-            attempt.interruption.owner_epoch = task.interruption.owner_epoch;
-            attempt_id = Some(attempt.id.clone());
-            super::task_attempts::record_noncompetitive_replacement_attempt(
-                &mut task.execution_attempts,
-                attempt,
-                now_ms,
-            );
-            task.status_label = Some("starting".into());
-            task.updated_at = now_ms;
-            plan.mode = crate::plan::PlanMode::Execution;
-            Ok(())
-        });
-        let write = match write {
-            Ok(()) => Ok(()),
-            Err(error @ PlanError::WritePending { .. }) => Err(error),
-            Err(error) => return Err(error),
-        };
+        let write = self.with_task_rows_in_writer(
+            &writer_turn,
+            plan_id,
+            task_id,
+            super::store_db::hot_write::TaskHistory::LiveAndReported,
+            now_ms,
+            |edit| {
+                let dispatch_status = task_startup_status(&edit.task.status)?;
+                undo = Some(DispatchUndo::capture(
+                    plan_id,
+                    &edit.mode,
+                    &edit.task,
+                    &dispatch_attempt_id,
+                    None,
+                ));
+                edit.unblock("dispatch", &dispatch_attempt_id, now_ms);
+                lane.tab_id = Some(tab_id.to_string());
+                edit.progression = Some((dispatch_status, true));
+                let task = &mut edit.task;
+                let current_owner = current_dispatch_startup_owner(task);
+                let dispatch_in_flight = startup_owner_observation_made
+                    && current_owner.as_ref().is_some_and(|owner| {
+                        observed_startup_owner.as_ref() != Some(owner)
+                            || observed_startup_owner_is_live
+                    });
+                if dispatch_in_flight {
+                    let owner = current_owner.expect("in-flight owner must be present");
+                    return Err(PlanError::DispatchInFlight {
+                        attempt_id: owner.attempt_id,
+                        tab_id: owner.tab_id,
+                    });
+                }
+                lane.destination = task.lane.destination.clone().or(lane.destination);
+                lane.cleanup_status = task.lane.cleanup_status.clone();
+                lane.cleanup_hints = task.lane.cleanup_hints.clone();
+                task.lane = normalize_lane_metadata(lane);
+                task.assigned_tab_id = Some(tab_id.to_string());
+                task.taken_by_role = Some("worker".into());
+                task.peer = None;
+                let mut attempt = super::task_attempts::new_assignment_attempt_with_id(
+                    task,
+                    tab_id,
+                    None,
+                    Some("worker"),
+                    Some(&dispatch_attempt_id),
+                    now_ms,
+                );
+                attempt.executor_title = Some(executor_title.to_string());
+                attempt.provider = provider.map(str::to_string);
+                attempt.agent_type = provider.map(str::to_string);
+                if let Some(metadata) = dispatched_metadata.as_ref() {
+                    attempt.launch_profile = metadata.launch_profile.clone();
+                    attempt.model = metadata.model.clone();
+                    attempt.requested_model = metadata.requested_model.clone();
+                    attempt.provider_resolved_model = metadata.provider_resolved_model.clone();
+                    attempt.reasoning_effort = metadata.reasoning_effort.clone();
+                }
+                attempt.authorized_gates = authorized_gates.clone();
+                attempt.placement = placement;
+                attempt.execution_intent = Some(intent.clone());
+                if let Some(inspected) = shared_binding.as_ref() {
+                    attempt.checkout_path = Some(inspected.checkout.clone());
+                    attempt.shared_start_sha = Some(inspected.head.clone());
+                }
+                task.interruption.execution_intent = intent.clone();
+                task.interruption.allowance = allowance.clone();
+                task.interruption.owner_epoch = task.interruption.owner_epoch.max(1);
+                task.interruption.owner_tab_id = Some(tab_id.to_string());
+                task.interruption.owner_session_id = None;
+                attempt.interruption.owner_epoch = task.interruption.owner_epoch;
+                attempt_id = Some(attempt.id.clone());
+                super::task_attempts::record_noncompetitive_replacement_attempt(
+                    &mut task.execution_attempts,
+                    attempt,
+                    now_ms,
+                );
+                task.status_label = Some("starting".into());
+                task.updated_at = now_ms;
+                edit.mode = crate::plan::PlanMode::Execution;
+                undo.as_mut()
+                    .expect("undo captured before dispatch mutation")
+                    .finish(&edit.mode, task);
+                Ok(())
+            },
+        );
+        write?;
         let attempt_id = attempt_id.ok_or_else(|| {
             Self::task_readback_error("task_dispatch_start", "attempt was not created")
         })?;
-        let original_status = original_status.ok_or_else(|| {
-            Self::task_readback_error("task_dispatch_start", "original status was not captured")
-        })?;
-        let verified = (|| {
-            let task = self.read_task_for_verification(plan_id, task_id)?;
-            let attempt = task
-                .execution_attempts
-                .iter()
-                .find(|attempt| attempt.id == attempt_id)
-                .ok_or_else(|| {
-                    Self::task_readback_error("task_dispatch_start", "attempt missing")
-                })?;
-            if task.status != original_status
-                || task.status_label.as_deref() != Some("starting")
-                || task.assigned_tab_id.as_deref() != Some(tab_id)
-                || task.lane.tab_id.as_deref() != Some(tab_id)
-                || attempt.executor_tab_id != tab_id
-                || attempt.executor_title.as_deref() != Some(executor_title)
-                || attempt.provider.as_deref() != provider
-                || attempt.agent_type.as_deref() != provider
-                || dispatched_metadata.as_ref().is_some_and(|metadata| {
-                    attempt.model != metadata.model
-                        || attempt.reasoning_effort != metadata.reasoning_effort
-                })
-                || attempt.session_id.is_some()
-                || task.interruption.execution_intent != intent
-                || task.interruption.allowance != allowance
-                || task.interruption.owner_tab_id.as_deref() != Some(tab_id)
-                || attempt.interruption.owner_epoch != task.interruption.owner_epoch
-                || attempt.authorized_gates != authorized_gates
-                || attempt.execution_intent.as_ref() != Some(&intent)
-                || attempt.placement != placement
-            {
-                return Err(Self::task_readback_error(
-                    "task_dispatch_start",
-                    format!("starting dispatch state did not match for {}", task.id),
-                ));
-            }
-            Ok(())
-        })();
-        pending_after_verified(write, verified, Some(task_id.to_string()))?;
-        Ok(attempt_id)
+        Ok(DispatchStart {
+            attempt_id,
+            undo: undo.expect("undo captured before successful dispatch"),
+        })
     }
 }

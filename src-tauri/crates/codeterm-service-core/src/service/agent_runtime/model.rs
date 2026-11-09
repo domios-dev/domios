@@ -1,6 +1,18 @@
 use codeterm_types::agent::chat_types::ChatMsg;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet, VecDeque};
+mod item_cache;
+pub use item_cache::{ItemCache, REREADABLE_CACHE_BYTES, REREADABLE_CACHE_ROWS};
+
+pub(super) fn omit_user_image_data(item: &mut ChatMsg) {
+    if item.kind != "user" {
+        return;
+    }
+    for attachment in item.attachments.iter_mut().flatten() {
+        if attachment.path.is_some() {
+            attachment.data = None;
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
@@ -36,13 +48,28 @@ pub enum RuntimeFailure {
         reason: String,
     },
     InvalidFrame(String),
+    ProtocolError {
+        code: i64,
+        message: String,
+    },
     Deadline,
     HookFailed(String),
     Refused(String),
     SignInRequired,
     ConversationMissing,
+    SessionLoadRefused(String),
     PrewriteRefused(String),
+    WrittenAwaitingEvidence,
     Superseded,
+}
+
+pub(crate) const REFUSED_PREFIX: &str = "Provider refused: ";
+
+impl RuntimeFailure {
+    /// A retained refusal stores its displayed text, so restoring it must not prefix it again.
+    pub(crate) fn retained_refusal(reason: &str) -> Self {
+        Self::Refused(reason.trim_start_matches(REFUSED_PREFIX).to_owned())
+    }
 }
 
 impl std::fmt::Display for RuntimeFailure {
@@ -77,12 +104,15 @@ impl std::fmt::Display for RuntimeFailure {
             Self::InvalidFrame(reason) => {
                 write!(formatter, "Runtime sent an invalid response: {reason}")
             }
+            Self::ProtocolError { code, message } => write!(formatter, "Agent protocol error {code}: {message}"),
             Self::Deadline => formatter.write_str("Runtime did not respond in time"),
             Self::HookFailed(reason) => write!(formatter, "Provider operation failed: {reason}"),
-            Self::Refused(reason) => write!(formatter, "Provider refused: {reason}"),
+            Self::Refused(reason) => write!(formatter, "{REFUSED_PREFIX}{reason}"),
             Self::SignInRequired => formatter.write_str("Sign-in required"),
             Self::ConversationMissing => formatter.write_str("ConversationMissing: The provider's saved conversation rollout is unavailable. Start a new conversation to continue."),
+            Self::SessionLoadRefused(reason) => formatter.write_str(reason),
             Self::PrewriteRefused(reason) => write!(formatter, "Input was not sent: {reason}"),
+            Self::WrittenAwaitingEvidence => formatter.write_str("Input was written; awaiting own-session delivery evidence"),
             Self::Superseded => {
                 formatter.write_str("Runtime session changed; this operation was cancelled")
             }
@@ -107,6 +137,12 @@ pub enum RuntimePhase {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeState {
+    #[serde(
+        default,
+        rename = "failureCode",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub failure_code: Option<codeterm_plugin::agent_runtime::RuntimeFailureCode>,
     pub epoch: u64,
     #[serde(
         default,
@@ -114,6 +150,19 @@ pub struct RuntimeState {
         skip_serializing_if = "Option::is_none"
     )]
     pub binary_version: Option<String>,
+    #[serde(default, rename = "agentName", skip_serializing_if = "Option::is_none")]
+    pub agent_name: Option<String>,
+    #[serde(default, rename = "iconSvg", skip_serializing_if = "Option::is_none")]
+    pub icon_svg: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notice: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub access_failure: Option<String>,
+    #[serde(skip)]
+    pub pending_load_notice: Option<String>,
+    /// Declared by this process at initialize: input may join its running turn.
+    #[serde(skip)]
+    pub mid_turn_input: bool,
     pub thread_id: Option<String>,
     pub phase: RuntimePhase,
     pub active_turn_started_at_ms: Option<u64>,
@@ -122,6 +171,12 @@ pub struct RuntimeState {
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RuntimeSnapshot {
+    #[serde(
+        default,
+        rename = "failureCode",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub failure_code: Option<codeterm_plugin::agent_runtime::RuntimeFailureCode>,
     pub state: String,
     pub epoch: u64,
     #[serde(
@@ -130,6 +185,18 @@ pub struct RuntimeSnapshot {
         skip_serializing_if = "Option::is_none"
     )]
     pub binary_version: Option<String>,
+    #[serde(default, rename = "agentName", skip_serializing_if = "Option::is_none")]
+    pub agent_name: Option<String>,
+    #[serde(default, rename = "iconSvg", skip_serializing_if = "Option::is_none")]
+    pub icon_svg: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notice: Option<String>,
+    #[serde(
+        default,
+        rename = "accessFailure",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub access_failure: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -144,6 +211,33 @@ pub struct RuntimeSnapshot {
     pub history_error: Option<String>,
 }
 
+pub fn runtime_failure_pending(
+    code: Option<codeterm_plugin::agent_runtime::RuntimeFailureCode>,
+) -> bool {
+    code == Some(codeterm_plugin::agent_runtime::RuntimeFailureCode::Deadline)
+}
+
+impl RuntimeFailure {
+    fn code(&self) -> Option<codeterm_plugin::agent_runtime::RuntimeFailureCode> {
+        use codeterm_plugin::agent_runtime::RuntimeFailureCode as Code;
+        Some(match self {
+            Self::Deadline => Code::Deadline,
+            Self::SpawnFailed { .. }
+            | Self::ProcessExited { .. }
+            | Self::PipeEof
+            | Self::PipeFailure { .. }
+            | Self::WrittenAwaitingEvidence => Code::ProcessUnavailable,
+            Self::InvalidFrame(_) | Self::ProtocolError { .. } => Code::ProtocolError,
+            Self::HookFailed(_) => Code::HookFailed,
+            Self::Refused(_) | Self::PrewriteRefused(_) => Code::ProviderRefused,
+            Self::SignInRequired => Code::AuthenticationRequired,
+            Self::ConversationMissing => Code::ThreadNotFound,
+            Self::SessionLoadRefused(_) => Code::SessionLoadRefused,
+            Self::Superseded => Code::BindingMismatch,
+        })
+    }
+}
+
 impl RuntimeState {
     pub fn snapshot(&self) -> RuntimeSnapshot {
         let (state, reason) = match &self.phase {
@@ -154,7 +248,19 @@ impl RuntimeState {
             RuntimePhase::Degraded { reason } => ("degraded", Some(reason.clone())),
         };
         RuntimeSnapshot {
+            failure_code: if matches!(
+                self.phase,
+                RuntimePhase::Degraded { .. } | RuntimePhase::Unloaded { .. }
+            ) {
+                self.failure_code
+            } else {
+                None
+            },
             binary_version: self.binary_version.clone(),
+            agent_name: self.agent_name.clone(),
+            icon_svg: self.icon_svg.clone(),
+            notice: self.notice.clone(),
+            access_failure: self.access_failure.clone(),
             history: None,
             history_pages: None,
             history_error: None,
@@ -168,14 +274,57 @@ impl RuntimeState {
 
     pub fn unloaded(thread_id: Option<String>) -> Self {
         Self {
+            failure_code: None,
             epoch: 0,
             binary_version: None,
+            agent_name: None,
+            icon_svg: None,
+            notice: None,
+            access_failure: None,
+            pending_load_notice: None,
+            mid_turn_input: false,
             thread_id,
             phase: RuntimePhase::Unloaded { reason: None },
             active_turn_started_at_ms: None,
             last_turn_duration_ms: None,
         }
     }
+    pub(super) fn record_initialized(
+        &mut self,
+        result: codeterm_plugin::agent_runtime::RuntimeResult,
+    ) -> Result<(), RuntimeFailure> {
+        let codeterm_plugin::agent_runtime::RuntimeResult::Initialized {
+            binary_version,
+            agent_name,
+            mid_turn_input,
+        } = result
+        else {
+            return Err(RuntimeFailure::HookFailed(
+                "Initialize result is invalid".into(),
+            ));
+        };
+        self.binary_version = binary_version;
+        self.agent_name = agent_name;
+        self.mid_turn_input = mid_turn_input;
+        Ok(())
+    }
+
+    pub fn finish_load_notice(&mut self, host_notice: Option<String>) {
+        let messages = [self.pending_load_notice.take(), host_notice]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>();
+        self.notice = (!messages.is_empty()).then(|| {
+            let mut message = messages.join("\n");
+            let mut end = message.len().min(4096);
+            while !message.is_char_boundary(end) {
+                end -= 1;
+            }
+            message.truncate(end);
+            message
+        });
+    }
+
     pub fn restore_timing(&mut self, snapshot: Option<&serde_json::Value>) {
         let Some(snapshot) = snapshot else {
             return;
@@ -201,7 +350,11 @@ impl RuntimeState {
     }
     pub fn begin(&mut self) -> u64 {
         self.epoch = self.epoch.wrapping_add(1);
+        self.failure_code = None;
         self.phase = RuntimePhase::Loading;
+        self.notice = None;
+        self.access_failure = None;
+        self.pending_load_notice = None;
         self.epoch
     }
     pub fn load(&mut self, epoch: u64, thread: &str) -> bool {
@@ -214,6 +367,7 @@ impl RuntimeState {
             return false;
         }
         self.thread_id = Some(thread.into());
+        self.failure_code = None;
         self.phase = RuntimePhase::Ready;
         true
     }
@@ -221,6 +375,7 @@ impl RuntimeState {
         if self.epoch != epoch || matches!(self.phase, RuntimePhase::Unloaded { .. }) {
             return false;
         }
+        self.failure_code = reason.code();
         self.phase = RuntimePhase::Unloaded {
             reason: Some(reason.to_string()),
         };
@@ -230,11 +385,22 @@ impl RuntimeState {
         if self.epoch != epoch {
             return false;
         }
+        self.failure_code = match reason.code() {
+            Some(codeterm_plugin::agent_runtime::RuntimeFailureCode::ProviderRefused)
+                if self.thread_id.as_deref().is_none_or(str::is_empty) =>
+            {
+                Some(codeterm_plugin::agent_runtime::RuntimeFailureCode::RuntimeStartUnbound)
+            }
+            code => code,
+        };
         self.phase = match reason {
             RuntimeFailure::SignInRequired => RuntimePhase::LoginPending,
-            _ => RuntimePhase::Degraded {
-                reason: reason.to_string(),
-            },
+            _ => {
+                self.active_turn_started_at_ms = None;
+                RuntimePhase::Degraded {
+                    reason: reason.to_string(),
+                }
+            }
         };
         true
     }
@@ -247,224 +413,6 @@ pub enum HistoryBackfill {
     #[default]
     Complete,
     Failed,
-}
-
-pub const REREADABLE_CACHE_ROWS: usize = 400;
-pub const REREADABLE_CACHE_BYTES: usize = 4 * 1024 * 1024;
-
-#[derive(Default)]
-pub struct ItemCache {
-    items: VecDeque<ChatMsg>,
-    rereadable: bool,
-    cached_bytes: usize,
-    positions: HashMap<String, i64>,
-    head: i64,
-    backfill_generation: u64,
-    backfill: HistoryBackfill,
-    history_pages: u32,
-    live_during_backfill: HashSet<String>,
-    history_origin: HashSet<String>,
-}
-impl ItemCache {
-    pub fn bound_rereadable(&mut self) {
-        self.rereadable = true;
-        self.cached_bytes = self.items.iter().map(Self::row_bytes).sum();
-        self.evict();
-    }
-    pub fn retained(&self) -> (usize, usize) {
-        (self.items.len(), self.cached_bytes)
-    }
-    fn row_bytes(row: &ChatMsg) -> usize {
-        serde_json::to_vec(row).map_or(usize::MAX, |bytes| bytes.len())
-    }
-    fn evict(&mut self) {
-        while self.rereadable
-            && (self.items.len() > REREADABLE_CACHE_ROWS
-                || self.cached_bytes > REREADABLE_CACHE_BYTES)
-        {
-            let Some(row) = self.items.pop_front() else {
-                break;
-            };
-            self.cached_bytes = self.cached_bytes.saturating_sub(Self::row_bytes(&row));
-            self.positions.remove(&row.id);
-            self.history_origin.remove(&row.id);
-            self.live_during_backfill.remove(&row.id);
-            self.head += 1;
-        }
-    }
-
-    fn index(&self, id: &str) -> Option<usize> {
-        self.positions
-            .get(id)
-            .map(|slot| (slot - self.head) as usize)
-    }
-    /// Starts a replay and drops rows a previous replay landed, keeping live and host rows,
-    /// so every history row of this replay can sit below the surviving minimum.
-    pub fn begin_backfill(&mut self) -> u64 {
-        self.backfill_generation = self.backfill_generation.wrapping_add(1);
-        self.backfill = HistoryBackfill::Loading;
-        self.history_pages = 0;
-        self.live_during_backfill.clear();
-        if !self.history_origin.is_empty() {
-            let origin = std::mem::take(&mut self.history_origin);
-            self.items.retain(|row| !origin.contains(&row.id));
-            self.head = 0;
-            self.positions = self
-                .items
-                .iter()
-                .enumerate()
-                .map(|(index, row)| (row.id.clone(), index as i64))
-                .collect();
-        }
-        if self.rereadable {
-            self.cached_bytes = self.items.iter().map(Self::row_bytes).sum();
-        }
-        self.backfill_generation
-    }
-    pub fn backfill_current(&self, generation: u64) -> bool {
-        self.backfill_generation == generation
-    }
-    pub fn finish_backfill(&mut self, generation: u64, outcome: HistoryBackfill) -> bool {
-        if self.backfill_generation != generation {
-            return false;
-        }
-        self.backfill = outcome;
-        if outcome == HistoryBackfill::Complete {
-            self.live_during_backfill.clear();
-        }
-        true
-    }
-    pub fn resume_backfill(&mut self, generation: u64) -> bool {
-        if !self.backfill_current(generation) || self.backfill != HistoryBackfill::Failed {
-            return false;
-        }
-        self.backfill = HistoryBackfill::Loading;
-        true
-    }
-    pub fn backfill(&self) -> HistoryBackfill {
-        self.backfill
-    }
-    pub fn history_pages(&self) -> u32 {
-        self.history_pages
-    }
-    pub fn note_history_page(&mut self) {
-        self.history_pages = self.history_pages.saturating_add(1);
-    }
-    /// Lands history rows older than every cached row without renumbering: known rows update
-    /// in place unless a live delta superseded them, unknown rows take seqs below the minimum.
-    pub fn reconcile_backfill(&mut self, page: Vec<ChatMsg>) -> usize {
-        let mut landed = 0;
-        let mut block: Vec<ChatMsg> = Vec::new();
-        for mut item in page {
-            if self.live_during_backfill.contains(&item.id) {
-                continue;
-            }
-            if self.positions.contains_key(&item.id) {
-                self.history_origin.insert(item.id.clone());
-                self.reconcile(item);
-                landed += 1;
-                continue;
-            }
-            item.refresh_segments();
-            match block.iter_mut().find(|row| row.id == item.id) {
-                Some(row) => *row = item,
-                None => block.push(item),
-            }
-        }
-        landed += block.len();
-        let base = self.items.front().map_or(0, |row| row.seq) - block.len() as i64;
-        for (offset, mut item) in block.into_iter().enumerate().rev() {
-            item.seq = base + offset as i64;
-            self.head -= 1;
-            self.positions.insert(item.id.clone(), self.head);
-            self.history_origin.insert(item.id.clone());
-            if self.rereadable {
-                self.cached_bytes = self.cached_bytes.saturating_add(Self::row_bytes(&item));
-            }
-            self.items.push_front(item);
-        }
-        self.evict();
-        landed
-    }
-    pub fn reconcile_live(&mut self, mut item: ChatMsg, at: u64) -> ChatMsg {
-        if self.backfill != HistoryBackfill::Complete {
-            self.live_during_backfill.insert(item.id.clone());
-        }
-        if let Some(status) = item.tool_status.as_deref() {
-            let previous = self.index(&item.id).map(|index| &self.items[index]);
-            item.tool_started_at_ms = item
-                .tool_started_at_ms
-                .or_else(|| previous.and_then(|row| row.tool_started_at_ms))
-                .or_else(|| (status == "running").then_some(at));
-            if status != "running" {
-                item.tool_completed_at_ms = item
-                    .tool_completed_at_ms
-                    .or_else(|| previous.and_then(|row| row.tool_completed_at_ms))
-                    .or(Some(at));
-            }
-        }
-        self.reconcile(item)
-    }
-    pub fn reconcile(&mut self, mut item: ChatMsg) -> ChatMsg {
-        item.refresh_segments();
-        if let Some(index) = self.index(&item.id) {
-            item.seq = self.items[index].seq;
-            if self.rereadable {
-                self.cached_bytes = self
-                    .cached_bytes
-                    .saturating_sub(Self::row_bytes(&self.items[index]))
-                    .saturating_add(Self::row_bytes(&item));
-            }
-            self.items[index] = item.clone();
-        } else {
-            item.seq = self.items.back().map_or(0, |row| row.seq + 1);
-            self.positions
-                .insert(item.id.clone(), self.head + self.items.len() as i64);
-            if self.rereadable {
-                self.cached_bytes = self.cached_bytes.saturating_add(Self::row_bytes(&item));
-            }
-            self.items.push_back(item.clone());
-        }
-        self.evict();
-        item
-    }
-    pub fn snapshot(&self) -> Vec<ChatMsg> {
-        self.items.iter().cloned().collect()
-    }
-    pub fn get(&self, id: &str) -> Option<&ChatMsg> {
-        self.index(id).map(|index| &self.items[index])
-    }
-    pub fn has_turn(&self, turn: &str) -> bool {
-        self.items
-            .iter()
-            .any(|item| item.tool_flow_id.as_deref() == Some(turn))
-    }
-    pub fn truncate_after_turn(&mut self, turn: &str) -> bool {
-        let Some(end) = self
-            .items
-            .iter()
-            .rposition(|item| item.tool_flow_id.as_deref() == Some(turn))
-        else {
-            return false;
-        };
-        while self.items.len() > end + 1 {
-            if let Some(item) = self.items.pop_back() {
-                self.positions.remove(&item.id);
-                self.history_origin.remove(&item.id);
-                self.live_during_backfill.remove(&item.id);
-                if self.rereadable {
-                    self.cached_bytes = self.cached_bytes.saturating_sub(Self::row_bytes(&item));
-                }
-            }
-        }
-        true
-    }
-    pub fn tail(&self, limit: usize) -> Vec<ChatMsg> {
-        self.items
-            .range(self.items.len().saturating_sub(limit)..)
-            .cloned()
-            .collect()
-    }
 }
 
 pub fn validate_operation_thread(
@@ -535,6 +483,9 @@ pub fn settings_from_config(
     codeterm_plugin::agent_runtime::RuntimeSettings {
         service_tier: serde_json::from_value(config["serviceTier"].clone()).ok(),
         service_tier_availability: None,
+        commands: None,
+        config_options: None,
+        modes: None,
         model: config["model"].as_str().map(str::to_string),
         effort: config["effort"].as_str().map(str::to_string),
         mode: config["mode"].as_str().map(str::to_string),
@@ -652,6 +603,23 @@ pub fn accepts_response_event(
         event,
         codeterm_plugin::agent_runtime::AgentRuntimeEvent::TurnState { turn_id: None, .. }
     ) || current.active_turn_id == before.active_turn_id
+}
+
+/// Turn state follows prompt evidence, so a settings reply can end a turn but never start one.
+pub fn reply_may_report_turn(
+    operation: &codeterm_plugin::agent_runtime::RuntimeOperation,
+    event: &codeterm_plugin::agent_runtime::AgentRuntimeEvent,
+) -> bool {
+    use codeterm_plugin::agent_runtime::{AgentRuntimeEvent, RuntimeOperation, RuntimeTurnState};
+    !matches!(operation, RuntimeOperation::Control { action, .. }
+        if !matches!(action.as_str(), "restoreContext" | "compact"))
+        || !matches!(
+            event,
+            AgentRuntimeEvent::TurnState {
+                state: RuntimeTurnState::Working | RuntimeTurnState::NeedsInput,
+                ..
+            }
+        )
 }
 
 #[cfg(test)]

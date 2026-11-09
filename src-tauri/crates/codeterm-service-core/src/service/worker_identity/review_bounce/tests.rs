@@ -78,7 +78,11 @@ fn fixture(status: ReportStatus) -> Fixture {
             3,
         )
         .unwrap();
-    let attempt_id = store.show_task(&task_id).unwrap().task.execution_attempts[0]
+    let attempt_id = store
+        .inspect_task_for_test(&task_id)
+        .unwrap()
+        .task
+        .execution_attempts[0]
         .id
         .clone();
     store
@@ -135,7 +139,7 @@ fn assert_reported_restart_bounce(runtime: bool) {
         };
         let report = f
             .store
-            .show_task(&f.task_id)
+            .inspect_task_for_test(&f.task_id)
             .unwrap()
             .task
             .execution_attempts[0]
@@ -202,7 +206,7 @@ fn assert_reported_restart_bounce(runtime: bool) {
                 10,
             )
             .unwrap();
-        let task = f.store.show_task(&f.task_id).unwrap().task;
+        let task = f.store.inspect_task_for_test(&f.task_id).unwrap().task;
         assert_eq!(task.status, TaskStatus::InProgress);
         assert_eq!(task.execution_attempts.len(), 1);
         assert!(task.execution_attempts[0].closed_at.is_none());
@@ -236,27 +240,29 @@ fn reported_second_round_restart_bounce_restores_the_idle_continuation_epoch() {
     f.store
         .finish_review_continuation(&f.plan_id, &f.task_id, &f.attempt_id, epoch, true, 9)
         .unwrap();
-    let task = f.store.show_task(&f.task_id).unwrap().task;
-    assert!(f
-        .store
-        .ingest_bound_worker_report(
-            &f.plan_id,
-            &f.task_id,
-            &AgentRef::from_tab(&f.tab_id),
-            crate::service::plan::task_attempts::BoundWorkerReport {
-                message: "second report".into(),
-                status: Some(ReportStatus::InReview),
-                authority: Some(crate::service::plan::interruption::TaskMutationAuthority {
-                    tab_id: f.tab_id.clone(),
-                    session_id: SESSION.into(),
-                    session_binding_nonce: CURRENT_NONCE.into(),
-                    owner_epoch: task.interruption.owner_epoch,
-                }),
-                ..Default::default()
-            },
-            10,
-        )
-        .unwrap());
+    let task = f.store.inspect_task_for_test(&f.task_id).unwrap().task;
+    assert!(
+        f.store
+            .ingest_bound_worker_report(
+                &f.plan_id,
+                &f.task_id,
+                &AgentRef::from_tab(&f.tab_id),
+                crate::service::plan::task_attempts::BoundWorkerReport {
+                    message: "second report".into(),
+                    status: Some(ReportStatus::InReview),
+                    authority: Some(crate::service::plan::interruption::TaskMutationAuthority {
+                        tab_id: f.tab_id.clone(),
+                        session_id: SESSION.into(),
+                        session_binding_nonce: CURRENT_NONCE.into(),
+                        owner_epoch: task.interruption.owner_epoch,
+                    }),
+                    ..Default::default()
+                },
+                10,
+            )
+            .unwrap()
+            .committed_review
+    );
     let mut f = f;
     drop(f.store);
     f.store = PlanStore::new_for_test(f.dir.path());

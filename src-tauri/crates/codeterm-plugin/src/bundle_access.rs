@@ -43,17 +43,14 @@ impl BundleAccess {
         self.reader(false)
     }
 
-    pub(crate) fn read_until(
-        &self,
-        deadline: std::time::Instant,
-    ) -> Result<Option<RwLockReadGuard<'_, ()>>, &'static str> {
+    pub(crate) fn try_read(&self) -> Result<Option<RwLockReadGuard<'_, ()>>, &'static str> {
         if INSTALLING.with(|ids| ids.borrow().contains(&self.id)) {
             Ok(None)
         } else {
             self.gate
-                .try_read_until(deadline)
+                .try_read()
                 .map(Some)
-                .ok_or("plugin bundle access deadline")
+                .ok_or("plugin bundle access busy")
         }
     }
 

@@ -28,15 +28,17 @@ impl ServiceContext {
         &self,
         worker_tab_id: &str,
         destination_manager_tab_id: &str,
-    ) -> bool {
-        let mux = self.mux.read();
-        let Some(worker) = mux.get_tab(worker_tab_id) else {
-            return false;
-        };
-        if worker.role != Some(AgentRole::Worker)
-            || worker.parent_tab_id.as_deref() == Some(destination_manager_tab_id)
-        {
-            return false;
+    ) -> Result<bool, String> {
+        let is_cross_parent_worker = self
+            .mux
+            .read()
+            .get_tab(worker_tab_id)
+            .is_some_and(|worker| {
+                worker.role == Some(AgentRole::Worker)
+                    && worker.parent_tab_id.as_deref() != Some(destination_manager_tab_id)
+            });
+        if !is_cross_parent_worker {
+            return Ok(false);
         }
         super::worker_is_task_bound(&self.plan_store, worker_tab_id)
     }
@@ -47,7 +49,12 @@ impl ServiceContext {
         worker_tab_id: &str,
         destination_manager_tab_id: &str,
     ) -> Result<WorkerTransferOutcome, String> {
-        let mut mux = self.mux.write();
+        let history = crate::multiplexer::state::ClosedTabsStore::in_memory();
+        let mut before = self
+            .mux
+            .read()
+            .begin_team_close_transaction_with_store(history);
+        let mux = before.state_mut();
         let worker = mux
             .get_tab(worker_tab_id)
             .ok_or_else(|| "worker transfer refused: Worker tab not found".to_string())?
@@ -136,10 +143,15 @@ impl ServiceContext {
             .as_deref()
             .ok_or_else(|| "worker transfer refused: task binding has no attempt".to_string())?;
 
-        let plan = self
-            .plan_store
-            .get(plan_id)
-            .ok_or_else(|| "worker transfer refused: bound plan is missing".to_string())?;
+        let plan =
+            self.plan_store
+                .plan_identity_projection(plan_id)
+                .map_err(|error| match error {
+                    crate::service::plan::PlanError::NotFound => {
+                        "worker transfer refused: bound plan is missing".to_string()
+                    }
+                    error => error.to_string(),
+                })?;
         if plan.owner.tab_id.as_deref() != Some(destination_manager_tab_id)
             || plan
                 .owner
@@ -150,22 +162,25 @@ impl ServiceContext {
         {
             return Err("worker transfer refused: destination does not own the bound plan".into());
         }
-        let task = plan
-            .tasks
-            .iter()
-            .find(|task| task.id == task_id)
-            .ok_or_else(|| "worker transfer refused: bound task is missing".to_string())?;
+        let task = self
+            .plan_store
+            .transfer_task_authority_projection(plan_id, task_id, attempt_id)
+            .map_err(|error| match error {
+                crate::service::plan::PlanError::TaskNotFound => {
+                    "worker transfer refused: bound task is missing".to_string()
+                }
+                error => error.to_string(),
+            })?;
         let attempt = task
-            .execution_attempts
-            .iter()
-            .find(|attempt| attempt.id == attempt_id)
+            .attempt
+            .as_ref()
             .ok_or_else(|| "worker transfer refused: bound attempt is missing".to_string())?;
         let provider = worker
             .agent_type
             .as_deref()
             .filter(|value| !value.trim().is_empty())
             .ok_or_else(|| "worker transfer refused: live provider is missing".to_string())?;
-        let task_bindings = worker_task_bindings(&self.plan_store, worker_tab_id);
+        let task_bindings = worker_task_bindings(&self.plan_store, worker_tab_id)?;
         if task_bindings.len() != 1
             || task_bindings[0] != (plan_id.to_string(), task_id.to_string())
             || task.lane.tab_id.as_deref() != Some(worker_tab_id)
@@ -181,14 +196,14 @@ impl ServiceContext {
             || attempt.acknowledged_at.is_none()
             || attempt.closed_at.is_some()
             || attempt.retired_at.is_some()
-            || attempt.mesh_peer.is_some()
-            || attempt.remote_dispatch_state.is_some()
+            || attempt.has_mesh_peer
+            || attempt.has_remote_dispatch_state
             || attempt.worktree_path.as_deref() != task.lane.worktree_path.as_deref()
             || task.interruption.handoff_required
-            || task.interruption.checkpoint.is_some()
+            || task.has_checkpoint
             || task.interruption.owner_tab_id.as_deref() != Some(worker_tab_id)
             || task.interruption.owner_session_id.as_deref() != Some(session_id)
-            || attempt.interruption.owner_epoch != task.interruption.owner_epoch
+            || attempt.owner_epoch != task.interruption.owner_epoch
         {
             return Err("worker transfer refused: task ownership is ambiguous or stale".into());
         }
@@ -227,10 +242,17 @@ impl ServiceContext {
         staged_worker.can_spawn = false;
         staged_worker.report_target_tab_id = Some(destination_manager_tab_id.to_string());
 
-        self.plan_store
-            .with_verified_worker_transfer_binding(&verified, || staged.commit(&mut mux, &[]))
-            .map_err(|error| error.to_string())?;
-        drop(mux);
+        let patch = crate::multiplexer::state::LifecyclePatch::new(before, staged);
+        patch.apply(&mut self.mux.write())?;
+        if let Err(error) = self
+            .plan_store
+            .with_verified_worker_transfer_binding(&verified, || {})
+        {
+            patch
+                .revert(&mut self.mux.write())
+                .map_err(|rollback| format!("{error}; lifecycle rollback conflict: {rollback}"))?;
+            return Err(error.to_string());
+        }
 
         let outcome = WorkerTransferOutcome {
             status: "committed_observation_unconfirmed",
@@ -299,20 +321,8 @@ fn unique_team_anchor(mux: &MultiplexerState, team_id: &str, manager_tab_id: &st
 pub(crate) fn worker_task_bindings(
     plan_store: &crate::service::plan::PlanStore,
     worker_tab_id: &str,
-) -> Vec<(String, String)> {
-    let candidates = crate::service::plan::TaskMatch::assigned(
-        worker_tab_id,
-        &crate::service::plan::plan_match::NON_TERMINAL_TASK_STATUSES,
-    );
+) -> Result<Vec<(String, String)>, String> {
     plan_store
-        .stored_plans_matching(&candidates)
-        .iter()
-        .flat_map(|candidate| {
-            candidate.tasks.iter().filter_map(|task| {
-                (!task.status.is_terminal()
-                    && task.assigned_tab_id.as_deref() == Some(worker_tab_id))
-                .then(|| (candidate.id.clone(), task.id.clone()))
-            })
-        })
-        .collect()
+        .transition_worker_task_bindings_projection(worker_tab_id)
+        .map_err(|error| error.to_string())
 }

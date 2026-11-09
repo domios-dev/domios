@@ -233,12 +233,16 @@ pub(super) async fn run(service: Arc<ServiceContext>, mesh: crate::MeshStateHand
             return;
         }
     };
-    run_with_network(service, network).await;
+    let transport = mesh.lock().transport_watch();
+    run_with_network(service, network, transport).await;
 }
 
+/// A transport status recorded by any observer (address refresh, network reads) re-selects
+/// listeners, so a transient detection failure never strands a withdrawn tailnet listener.
 pub(super) async fn run_with_network(
     service: Arc<ServiceContext>,
     mut network: impl AddressChanges,
+    mut transport: tokio::sync::watch::Receiver<u64>,
 ) {
     let Some(control) = service.try_ext::<RestApiControlState>().cloned() else {
         return;
@@ -266,6 +270,7 @@ pub(super) async fn run_with_network(
         };
         let port = control.bound_addr().map_or(0, |address| address.port());
         let listening = rest.borrow_and_update().phase == RestApiPhase::Listening;
+        transport.borrow_and_update();
         let desired = if enabled && listening {
             network.selected(true, port).await
         } else {
@@ -319,6 +324,10 @@ pub(super) async fn run_with_network(
                 service.events.publish_generic(super::reconcile::CONNECTIVITY_CHANGED, serde_json::Value::Null);
             },
             changed = rest.changed() => {
+                if changed.is_err() { break; }
+                serving.retry_now();
+            },
+            changed = transport.changed() => {
                 if changed.is_err() { break; }
                 serving.retry_now();
             },

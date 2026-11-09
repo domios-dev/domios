@@ -194,7 +194,7 @@ fn a_plan_in_another_project_reports_the_mismatch_reason() {
 fn a_plan_whose_tasks_are_all_inactive_reports_the_all_flag_reason() {
     let (store, plan_id, task_id) = store_with_task(&["status_update"]);
     store
-        .with_plan(&plan_id, 3, |plan| {
+        .edit_plan_fixture(&plan_id, 3, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()
@@ -332,13 +332,15 @@ fn task_queries_exclude_archived_plans() {
     let (store, id, _) = store_with_task(&["status_update"]);
     store.archive(&id, 99).unwrap();
 
-    let tasks = store.list_tasks(TaskListFilter {
-        active_only: false,
-        ..Default::default()
-    });
+    let tasks = store
+        .list_tasks(TaskListFilter {
+            active_only: false,
+            ..Default::default()
+        })
+        .unwrap();
 
     assert!(tasks.is_empty());
-    assert!(store.coverage_report(&id).is_none());
+    assert!(store.coverage_report(&id).unwrap().is_none());
 }
 
 #[test]
@@ -380,11 +382,13 @@ fn task_queries_filter_by_status() {
         )
         .unwrap();
 
-    let tasks = store.list_tasks(TaskListFilter {
-        active_only: false,
-        status: Some(TaskStatus::Blocked),
-        ..Default::default()
-    });
+    let tasks = store
+        .list_tasks(TaskListFilter {
+            active_only: false,
+            status: Some(TaskStatus::Blocked),
+            ..Default::default()
+        })
+        .unwrap();
 
     assert_eq!(tasks.len(), 1);
     assert_eq!(tasks[0].task.id, blocked_id);
@@ -406,7 +410,7 @@ fn active_task_query_excludes_paused_but_keeps_pending() {
         )
         .unwrap();
     store
-        .with_plan(&id, 3, |plan| {
+        .edit_plan_fixture(&id, 3, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()
@@ -418,17 +422,21 @@ fn active_task_query_excludes_paused_but_keeps_pending() {
         })
         .unwrap();
 
-    let active = store.list_tasks(TaskListFilter {
-        active_only: true,
-        ..Default::default()
-    });
+    let active = store
+        .list_tasks(TaskListFilter {
+            active_only: true,
+            ..Default::default()
+        })
+        .unwrap();
     assert_eq!(active.len(), 1);
     assert_eq!(active[0].task.id, pending_id);
 
-    let paused = store.list_tasks(TaskListFilter {
-        status: Some(TaskStatus::Paused),
-        ..Default::default()
-    });
+    let paused = store
+        .list_tasks(TaskListFilter {
+            status: Some(TaskStatus::Paused),
+            ..Default::default()
+        })
+        .unwrap();
     assert_eq!(paused.len(), 1);
     assert_eq!(paused[0].task.id, paused_id);
     assert_eq!(
@@ -453,7 +461,9 @@ fn new_task_defaults_to_actionable_pending() {
         )
         .unwrap();
 
-    let detail = store.show_task(&task_id).expect("new task detail");
+    let detail = store
+        .inspect_task_for_test(&task_id)
+        .expect("new task detail");
     assert_eq!(detail.task.status, TaskStatus::Pending);
     assert_eq!(
         detail.presentation,
@@ -501,7 +511,9 @@ fn task_pause_status_preservation_dependency_wait() {
         )
         .unwrap();
 
-    let detail = store.show_task(&task_id).expect("dependent task detail");
+    let detail = store
+        .inspect_task_for_test(&task_id)
+        .expect("dependent task detail");
     assert_eq!(detail.task.status, TaskStatus::Pending);
     assert_eq!(
         detail.presentation,

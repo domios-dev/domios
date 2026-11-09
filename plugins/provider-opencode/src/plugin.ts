@@ -1,3 +1,7 @@
+import { ioFileTransaction } from "@codeterm/plugin-sdk";
+import { defineProviderIo, type IoExports } from "@codeterm/plugin-sdk";
+import { ioSqlite, ioResolve, type HostIoSteps } from "@codeterm/plugin-sdk";
+import { updatePromptSafeChoice } from "../../provider-shared/updatePrompt";
 import { runPromptSteps } from "../../provider-shared/runPromptStep";
 import { sessionObservations, turnError } from "./turnErrors";
 import { checkOpencodeUpdate } from "./update";
@@ -5,46 +9,11 @@ import { modelProviderExports } from "./modelProviders";
 import { modelSwitch } from "./modelSwitch";
 import { decisionModel } from "./decisionModel";
 import { variantLaunch } from "./modelVariants";
-import { updatePromptSafeChoice } from "../../provider-shared/updatePrompt";
+
 // OpenCode (sst/opencode) provider plugin (runtime logic, capability: agentProvider).
 // ProviderPlugin contract is the separate src/index.ts artifact the app imports.
 import type { FileDiff, HostOwnedCapabilities, LaunchParams, ModelInfo, ParsedPrompt, PluginModule, ResumeParams } from "@codeterm/plugin-sdk";
-import {
-  lastPromptShape,
-  parsePermissionPrompt,
-  parseQuestionMenuPrompt,
-  parseModalPickerPrompt,
-  chunkHasQuestionMenuRow,
-  findModalPickerTitle,
-  isVerticalPrompt,
-  verticalPromptHighlightIndex,
-  discoverOpencodeModels,
-  withOpencodeGroupUsage,
-  normalizeSessionDirectory,
-  parseStructuredCursor,
-  opencodeDbPath,
-  opencodeConfigPath,
-  opencodeBindingPluginPath,
-  opencodePluginEntry,
-  opencodePluginEntryMatches,
-  isCurrentOpencodeBindingPluginSource,
-  ownsOpencodeBindingPluginSource,
-  opencodeBindingPluginSource,
-  opencodeSessionRecord,
-  partToChatMsg,
-  toolFileDiffs,
-  scanMessagesForModel,
-  scanSessionModel,
-  scanMessagesForQualifiedModel,
-  scanSessionDirectory,
-  ASSISTANT_MESSAGE_MAX_BYTES,
-  MESSAGE_ROLE_MAX_BYTES,
-  safeJson,
-  OpencodePart,
-  OpencodeConfig,
-  OpencodeSessionRow,
-  ModelGroupUsage,
-} from "./helpers";
+import { lastPromptShape, parsePermissionPrompt, parseQuestionMenuPrompt, parseModalPickerPrompt, chunkHasQuestionMenuRow, findModalPickerTitle, isVerticalPrompt, verticalPromptHighlightIndex, discoverOpencodeModels, withOpencodeGroupUsage, normalizeSessionDirectory, parseStructuredCursor, opencodeDbPath, opencodeConfigPath, opencodeBindingPluginPath, opencodePluginEntry, opencodePluginEntryMatches, isCurrentOpencodeBindingPluginSource, ownsOpencodeBindingPluginSource, opencodeBindingPluginSource, opencodeSessionRecord, partToChatMsg, toolFileDiffs, scanMessagesForModel, scanSessionModel, scanMessagesForQualifiedModel, scanSessionDirectory, ASSISTANT_MESSAGE_MAX_BYTES, MESSAGE_ROLE_MAX_BYTES, safeJson, OpencodePart, OpencodeConfig, OpencodeSessionRow, ModelGroupUsage } from "./helpers";
 import { readOpencodeSessionContent, SessionContentQuery } from "./sessionContent";
 
 const TITLE_RE = /opencode/i;
@@ -63,9 +32,9 @@ const TUI_FRAGMENTS = ["tab agents", "ctrl+p commands"];
 const ASSIGNED_TASK_START_PROMPT = "Execute the assigned task. Follow the configured instructions.";
 const IDLE_WAKEUP_START_PROMPT = "You are a newly started agent. Wait for instructions from the user or your orchestration parent.";
 
-function existingBindingPluginIsUnowned(pluginPath: string): boolean {
-  if (!host.fs.fileExists(pluginPath)) return false;
-  return !ownsOpencodeBindingPluginSource(String(host.fs.readFile(pluginPath) || ""));
+function* existingBindingPluginIsUnowned(pluginPath: string): HostIoSteps<boolean> {
+  if (!(yield* host.io.fs.fileExists(pluginPath))) return false;
+  return !ownsOpencodeBindingPluginSource(String((yield* host.io.fs.readFile(pluginPath)) || ""));
 }
 
 function starterPrompt(params: LaunchParams): string | undefined {
@@ -105,7 +74,7 @@ function withPadPermissionConfig(command: string, instructions?: string[], clean
   return `ct_pad_dir=$(printf '%s' "${"${CODETERM_PAD_DIR:-}"}" | tr '\\\\' '/' | sed 's/"/\\\\\\"/g'); OPENCODE_CONFIG_CONTENT=${q(prefix)}; if [ -n "$ct_pad_dir" ]; then OPENCODE_CONFIG_CONTENT="$OPENCODE_CONFIG_CONTENT,\\\"$ct_pad_dir/*\\\":\\\"allow\\\""; fi; OPENCODE_CONFIG_CONTENT="$OPENCODE_CONFIG_CONTENT"$(printf '%s' ${q(suffix)}); export OPENCODE_CONFIG_CONTENT; CODETERM_RESUME_SESSION_ID=${q(resumeSession || "")}; export CODETERM_RESUME_SESSION_ID; ${command}${finish}`;
 }
 
-const plugin: PluginModule = {
+const plugin = {
   ...runPromptSteps(() => host.agentRun),
   sessionResume: () => ({ exact: true }),
   checkForUpdate: checkOpencodeUpdate,
@@ -194,14 +163,14 @@ const plugin: PluginModule = {
     return events;
   },
 
-  discoverModels(binaryFingerprint?: string | null): ModelInfo[] | null {
-    return discoverOpencodeModels(binaryFingerprint);
+  *discoverModels(binaryFingerprint?: string | null): HostIoSteps<ModelInfo[] | null> {
+    return (yield* discoverOpencodeModels(binaryFingerprint));
   },
 
   // Cumulative usage per upstream company comes from OpenCode's session store.
   // Model-id prefixes match picker groups, keeping vendor knowledge out of core.
-  modelGroupUsage(): ModelGroupUsage[] {
-    return withOpencodeGroupUsage((usage) => usage);
+  *modelGroupUsage(): HostIoSteps<ModelGroupUsage[]> {
+    return (yield* withOpencodeGroupUsage((usage) => usage));
   },
 
   // because response bytes depend on horizontal vs vertical navigation.
@@ -234,13 +203,13 @@ const plugin: PluginModule = {
     return steps;
   },
 
-  buildLaunchCommand(params: LaunchParams): string {
+  *buildLaunchCommand(params: LaunchParams): HostIoSteps<string> {
     const p = params || {};
     const launch = variantLaunch(p.args ?? []);
     const parts: string[] = [];
     let taskPath: string | null = null;
     if (p.task) {
-      taskPath = host.fs.writeTempFile(p.task, ".ct-task.md");
+      taskPath = (yield* host.io.fs.writeTempFile(p.task, ".ct-task.md"));
       if (!taskPath) throw new Error("failed to write OpenCode task instructions");
     }
     parts.push("opencode");
@@ -266,18 +235,18 @@ const plugin: PluginModule = {
     return withPadPermissionConfig(parts.join(" "), taskPath ? [taskPath] : undefined, undefined, launch.config, p.sessionId, p.hostOwned);
   },
 
-  buildResumeCommand(sessionId: string, skipPermissions?: boolean): string {
-    return withPadPermissionConfig(resumeLaunch(sessionId, skipPermissions).parts.join(" "), undefined, undefined, {}, sessionId);
+  *buildResumeCommand(sessionId: string, skipPermissions?: boolean): HostIoSteps<string> {
+    return withPadPermissionConfig((yield* resumeLaunch(sessionId, skipPermissions)).parts.join(" "), undefined, undefined, {}, sessionId);
   },
 
   // A resumed session re-reads `instructions`, so the composed prompt is
   // re-applied through the same session-config channel buildLaunchCommand uses.
-  buildResumeCommandWithContext(params: ResumeParams): string {
+  *buildResumeCommandWithContext(params: ResumeParams): HostIoSteps<string> {
     const p = params || ({} as ResumeParams);
     const platform = host.platform();
-    const launch = resumeLaunch(p.sessionId, p.skipPermissions);
+    const launch = (yield* resumeLaunch(p.sessionId, p.skipPermissions));
     const parts = launch.parts;
-    const variant = variantLaunch(p.args ? resumeLaunchArgs(p.args, p.sessionId) : []);
+    const variant = variantLaunch(p.args ? (yield* resumeLaunchArgs(p.args, p.sessionId)) : []);
     const args = variant.args;
     for (let i = 0; i < args.length; i++) {
       const arg = String(args[i]);
@@ -290,7 +259,7 @@ const plugin: PluginModule = {
     }
     const systemPrompt = p.systemPrompt;
     if (!systemPrompt || !systemPrompt.trim()) return withPadPermissionConfig(parts.join(" "), undefined, undefined, variant.config, p.sessionId, p.hostOwned);
-    const taskPath = host.fs.writeTempFile(systemPrompt, ".ct-task.md");
+    const taskPath = (yield* host.io.fs.writeTempFile(systemPrompt, ".ct-task.md"));
     if (!taskPath) return withPadPermissionConfig(parts.join(" "), undefined, undefined, variant.config, p.sessionId, p.hostOwned);
     const project = launch.directory
       ? host.shell.quoteFor(launch.directory, platform)
@@ -303,9 +272,9 @@ const plugin: PluginModule = {
 
   // absent from opencode's env, or event field structure changed in a new release).
   // agent_session_id.is_some() short-circuits the Rust call-site before this runs.
-  detectSessionId(cwd: string, exclude?: string[] | string, maxAgeMs?: number): string | null {
+  *detectSessionId(cwd: string, exclude?: string[] | string, maxAgeMs?: number): HostIoSteps<string | null> {
     const db = opencodeDbPath();
-    if (!db || !host.fs.fileExists(db)) return null;
+    if (!db || !(yield* host.io.fs.fileExists(db))) return null;
     const targetDirectory = normalizeSessionDirectory(cwd);
     if (!targetDirectory) return null;
     const windowMs = maxAgeMs != null && maxAgeMs > 0 ? maxAgeMs : 300000;
@@ -321,13 +290,9 @@ const plugin: PluginModule = {
     const excludeSql = excludeList.length
       ? " AND id NOT IN (" + excludeList.map((_, index) => "?" + String(index + 4)).join(", ") + ")"
       : "";
-    const rows = host.fs.sqliteQuery<{ id: string; directory?: string }>(
-      db,
-      "SELECT id, directory FROM session WHERE time_created > (strftime('%s','now') * 1000 - ?1) " +
+    const rows = (yield* host.io.fs.sqliteQuery<{ id: string; directory?: string }>(db, "SELECT id, directory FROM session WHERE time_created > (strftime('%s','now') * 1000 - ?1) " +
         "AND " + directoryExpression + " IN (?2, ?3)" + excludeSql +
-        " ORDER BY time_created DESC LIMIT 20",
-      [windowMs, ...directoryAliases, ...excludeList]
-    );
+        " ORDER BY time_created DESC LIMIT 20", [windowMs, ...directoryAliases, ...excludeList]));
     for (let i = 0; i < rows.length; i++) {
       const id = rows[i].id;
       if (typeof id !== "string" || !id.startsWith("ses_")) continue;
@@ -338,45 +303,42 @@ const plugin: PluginModule = {
     return null;
   },
 
-  enumerateSessions(): unknown[] {
+  *enumerateSessions(): HostIoSteps<unknown[]> {
     const db = opencodeDbPath();
-    if (!db || !host.fs.fileExists(db)) return [];
-    const rows = host.fs.sqliteQuery<{
+    if (!db || !(yield* host.io.fs.fileExists(db))) return [];
+    const rows = (yield* host.io.fs.sqliteQuery<{
       id?: string;
       directory?: string;
       title?: string;
       time_created?: number;
       time_updated?: number;
-    }>(db, "SELECT id, directory, title, time_created, time_updated FROM session ORDER BY time_updated DESC", []);
+    }>(db, "SELECT id, directory, title, time_created, time_updated FROM session ORDER BY time_updated DESC", []));
     return rows.filter((row) => typeof row.id === "string" && row.id.startsWith("ses_")).map((row) => opencodeSessionRecord(row, db));
   },
 
-  findSession(sessionId: string): unknown | null {
+  *findSession(sessionId: string): HostIoSteps<unknown | null> {
     if (typeof sessionId !== "string" || !sessionId.startsWith("ses_")) return null;
     const db = opencodeDbPath();
-    if (!db || !host.fs.fileExists(db)) return null;
-    const rows = host.fs.sqliteQuery<OpencodeSessionRow>(db, "SELECT id, directory, title, time_created, time_updated FROM session WHERE id = ?1 LIMIT 1", [sessionId]);
+    if (!db || !(yield* host.io.fs.fileExists(db))) return null;
+    const rows = (yield* host.io.fs.sqliteQuery<OpencodeSessionRow>(db, "SELECT id, directory, title, time_created, time_updated FROM session WHERE id = ?1 LIMIT 1", [sessionId]));
     return rows.length > 0 && rows[0].id === sessionId ? opencodeSessionRecord(rows[0], db) : null;
   },
 
-  readSessionContent(
-    sessionId: string,
-    query: SessionContentQuery,
-  ): { messages: unknown[]; truncated?: boolean } | null {
+  *readSessionContent(sessionId: string, query: SessionContentQuery): HostIoSteps<{ messages: unknown[]; truncated?: boolean } | null> {
     if (typeof sessionId !== "string" || !sessionId.startsWith("ses_")) return null;
     const db = opencodeDbPath();
-    if (!db || !host.fs.fileExists(db)) return null;
-    return readOpencodeSessionContent(db, sessionId, query) as { messages: unknown[]; truncated?: boolean } | null;
+    if (!db || !(yield* host.io.fs.fileExists(db))) return null;
+    return (yield* readOpencodeSessionContent(db, sessionId, query)) as { messages: unknown[]; truncated?: boolean } | null;
   },
 
-  checkIntegration(): unknown {
+  *checkIntegration(): HostIoSteps<unknown> {
     const cfg = opencodeConfigPath();
     const pluginPath = opencodeBindingPluginPath();
-    const pluginExists = !!pluginPath && host.fs.fileExists(pluginPath);
-    const pluginBody = pluginExists ? String(host.fs.readFile(pluginPath!) || "") : "";
+    const pluginExists = !!pluginPath && (yield* host.io.fs.fileExists(pluginPath));
+    const pluginBody = pluginExists ? String((yield* host.io.fs.readFile(pluginPath!)) || "") : "";
     const pluginOwned = pluginExists && ownsOpencodeBindingPluginSource(pluginBody);
     const pluginCurrent = pluginExists && isCurrentOpencodeBindingPluginSource(pluginBody);
-    if (!cfg || !host.fs.fileExists(cfg)) {
+    if (!cfg || !(yield* host.io.fs.fileExists(cfg))) {
       return {
         config_file_exists: false,
         plugin_file_exists: pluginExists,
@@ -385,7 +347,7 @@ const plugin: PluginModule = {
         plugin_installed: false,
       };
     }
-    const json = host.fs.readJson<OpencodeConfig>(cfg);
+    const json = (yield* host.io.fs.readJson<OpencodeConfig>(cfg));
     if (!json) {
       return {
         config_file_exists: true,
@@ -410,10 +372,7 @@ const plugin: PluginModule = {
     };
   },
 
-  installIntegration(
-    _apiPort: number,
-    options: { consent: boolean },
-  ): unknown {
+  *installIntegration(_apiPort: number, options: { consent: boolean }): HostIoSteps<unknown> {
     if (!options || options.consent !== true) {
       return { ok: false, error: "provider integration installation requires explicit local-user consent" };
     }
@@ -421,12 +380,13 @@ const plugin: PluginModule = {
     const pluginPath = opencodeBindingPluginPath();
     const target = opencodePluginEntry();
     if (!cfg || !pluginPath || !target) return { ok: false, error: "could not resolve opencode config path" };
-    if (existingBindingPluginIsUnowned(pluginPath)) {
+    return yield* ioFileTransaction(host.io.fs, [cfg + ".codeterm-integration.lock"], function* () {
+    if ((yield* existingBindingPluginIsUnowned(pluginPath))) {
       return { ok: false, error: "refusing to overwrite an unmarked OpenCode plugin file" };
     }
 
-    const json = (host.fs.fileExists(cfg)
-      ? (host.fs.readJson<OpencodeConfig>(cfg) || { "$schema": "https://opencode.ai/config.json" })
+    const json = ((yield* host.io.fs.fileExists(cfg))
+      ? ((yield* host.io.fs.readJson<OpencodeConfig>(cfg)) || { "$schema": "https://opencode.ai/config.json" })
       : { "$schema": "https://opencode.ai/config.json" }) as OpencodeConfig;
     if (!json || typeof json !== "object" || Array.isArray(json)) {
       return { ok: false, error: "opencode.json root must be an object" };
@@ -435,70 +395,69 @@ const plugin: PluginModule = {
     json.plugin = json.plugin.filter((entry) => !opencodePluginEntryMatches(entry, target));
     json.plugin.push(target);
 
-    if (!host.fs.writeFile(pluginPath, opencodeBindingPluginSource())) {
+    if (!(yield* host.io.fs.writeFile(pluginPath, opencodeBindingPluginSource()))) {
       return { ok: false, error: "writeFile failed for " + pluginPath };
     }
-    if (!host.fs.writeJson(cfg, json)) {
+    if (!(yield* host.io.fs.writeJson(cfg, json))) {
       return { ok: false, error: "writeJson failed for " + cfg };
     }
     host.log("info", "[opencode-plugin] session binding plugin installed at " + pluginPath);
     return { ok: true };
+
+    });
   },
 
-  uninstallIntegration(): unknown {
+  *uninstallIntegration(): HostIoSteps<unknown> {
     const cfg = opencodeConfigPath();
     const pluginPath = opencodeBindingPluginPath();
     const target = opencodePluginEntry();
-    if (pluginPath && existingBindingPluginIsUnowned(pluginPath)) {
+    if (!cfg) return {ok: true};
+    return yield* ioFileTransaction(host.io.fs, [cfg + ".codeterm-integration.lock"], function* () {
+    if (pluginPath && (yield* existingBindingPluginIsUnowned(pluginPath))) {
       return { ok: false, error: "refusing to remove an unmarked OpenCode plugin file" };
     }
-    if (cfg && host.fs.fileExists(cfg)) {
-      const json = host.fs.readJson<OpencodeConfig>(cfg);
+    if (cfg && (yield* host.io.fs.fileExists(cfg))) {
+      const json = (yield* host.io.fs.readJson<OpencodeConfig>(cfg));
       if (json && typeof json === "object" && Array.isArray(json.plugin)) {
         json.plugin = json.plugin.filter((entry) => !opencodePluginEntryMatches(entry, target));
-        if (!host.fs.writeJson(cfg, json)) {
+        if (!(yield* host.io.fs.writeJson(cfg, json))) {
           return { ok: false, error: "writeJson failed for " + cfg };
         }
       }
     }
-    if (pluginPath && host.fs.fileExists(pluginPath) && !host.fs.removeFile(pluginPath)) {
+    if (pluginPath && (yield* host.io.fs.fileExists(pluginPath)) && !(yield* host.io.fs.removeFile(pluginPath))) {
       return { ok: false, error: "removeFile failed for " + pluginPath };
     }
     return { ok: true };
+
+    });
   },
 
-  ensureIntegrationOnStartup(_apiPort: number): unknown {
-    return this.checkIntegration!();
+  *ensureIntegrationOnStartup(_apiPort: number): HostIoSteps<unknown> {
+    return (yield* ioResolve(this.checkIntegration!()));
   },
 
-  sessionExists(_cwd: string, sessionId: string): boolean | null {
+  *sessionExists(_cwd: string, sessionId: string): HostIoSteps<boolean | null> {
     const db = opencodeDbPath();
     if (!db) return null;
-    const raw = host.sqliteQueryAllJson(db, "SELECT id FROM session WHERE id = ?1 LIMIT 1", JSON.stringify([sessionId]));
-    if (raw === null) return null;
-    const rows = safeJson(raw);
+    const rows = (yield* host.io.fs.sqliteQueryNullable<{ id: string }>(db, "SELECT id FROM session WHERE id = ?1 LIMIT 1", [sessionId]));
     if (!Array.isArray(rows)) return null;
     return rows.some((row) => row?.id === sessionId);
   },
 
-
   // opencode keeps every session in one sqlite log, so the source carries the
   // session id: the reader must not charge a sibling's tokens to this tab.
-  usageSources(_cwd: string, sessionId: string): { path: string; sessionId?: string }[] {
+  *usageSources(_cwd: string, sessionId: string): HostIoSteps<{ path: string; sessionId?: string }[]> {
     const db = opencodeDbPath();
-    if (!db || !sessionId || !host.fs.fileExists(db)) return [];
+    if (!db || !sessionId || !(yield* host.io.fs.fileExists(db))) return [];
     return [{ path: db, sessionId }];
   },
 
   // birth-time guard to sqlite-backed sessions, which have no per-session file.
-  sessionCreatedMs(_cwd: string, sessionId: string): number | null {
+  *sessionCreatedMs(_cwd: string, sessionId: string): HostIoSteps<number | null> {
     const db = opencodeDbPath();
-    if (!db || !host.fs.fileExists(db)) return null;
-    const rows = host.fs.sqliteQuery<{ time_created?: number }>(
-      db,
-      "SELECT time_created FROM session WHERE id = ?1 LIMIT 1",
-      [sessionId]
-    );
+    if (!db || !(yield* host.io.fs.fileExists(db))) return null;
+    const rows = (yield* host.io.fs.sqliteQuery<{ time_created?: number }>(db, "SELECT time_created FROM session WHERE id = ?1 LIMIT 1", [sessionId]));
     if (!rows.length) return null;
     const tc = rows[0].time_created;
     return typeof tc === "number" ? tc : null;
@@ -510,14 +469,12 @@ const plugin: PluginModule = {
 
   // the model recorded against this session_id. No "latest model in cwd"
   // fallback — that would hand the tab a SIBLING agent's model. Unknown → null.
-  detectSessionModel(_cwd: string, sessionId: string): string | null {
+  *detectSessionModel(_cwd: string, sessionId: string): HostIoSteps<string | null> {
     const db = opencodeDbPath();
-    if (!db || !host.fs.fileExists(db)) return null;
+    if (!db || !(yield* host.io.fs.fileExists(db))) return null;
     if (!sessionId) return null;
-    return scanMessagesForModel(db,
-      "SELECT data FROM message WHERE session_id = ?1 AND octet_length(data) <= ?2 " +
-        "ORDER BY time_created DESC LIMIT 20",
-      [sessionId, ASSISTANT_MESSAGE_MAX_BYTES]) ?? scanSessionModel(db, sessionId);
+    return (yield* scanMessagesForModel(db, "SELECT data FROM message WHERE session_id = ?1 AND octet_length(data) <= ?2 " +
+        "ORDER BY time_created DESC LIMIT 20", [sessionId, ASSISTANT_MESSAGE_MAX_BYTES])) ?? (yield* scanSessionModel(db, sessionId));
   },
 
   structuredToolFileDiffs(part: unknown): FileDiff[] | null {
@@ -529,29 +486,24 @@ const plugin: PluginModule = {
 
   usesStructuredChat(): boolean { return true; },
 
-  readStructuredChat(_cwd: string, sessionId: string, cursor?: string | null): unknown {
+  *readStructuredChat(_cwd: string, sessionId: string, cursor?: string | null): HostIoSteps<unknown> {
     const db = opencodeDbPath();
-    if (!db || !host.fs.fileExists(db)) return { messages: [], cursor: cursor || null };
+    if (!db || !(yield* host.io.fs.fileExists(db))) return { messages: [], cursor: cursor || null };
     const parsedCursor = parseStructuredCursor(cursor);
     if (!parsedCursor) return { messages: [], cursor: cursor ?? null };
     const [sinceMs, seenAtSinceMs] = parsedCursor;
     // Track `time_updated`, not `time_created`: a streamed part keeps its creation
     // instant while its text/output grows, so a creation window skips every update.
-    return host.fs.sqliteQueryAsync<StructuredChatRow>(
-      db,
-      "SELECT p.id AS id, p.time_created AS ts_created, p.time_updated AS ts_updated, p.data AS part, " +
+    return (yield* ioSqlite<StructuredChatRow, unknown>(host.io.fs, db, "SELECT p.id AS id, p.time_created AS ts_created, p.time_updated AS ts_updated, p.data AS part, " +
         "CASE WHEN octet_length(m.data) <= ?3 AND json_valid(m.data) THEN json_extract(m.data,'$.role') END AS role " +
         " , NULL AS message FROM part p JOIN message m ON m.id = p.message_id " +
         "WHERE p.session_id = ?1 AND m.session_id = ?1 AND p.time_updated >= ?2 " +
         "UNION ALL SELECT 'error:' || id, time_created, time_updated, NULL, 'assistant', data " +
         "FROM message WHERE session_id = ?1 AND time_updated >= ?2 AND octet_length(data) <= ?3 " +
         "AND json_valid(data) AND json_extract(data, '$.role') = 'assistant' AND (json_extract(data, '$.error.name') = 'APIError' OR json_extract(data, '$.time.completed') IS NOT NULL) " +
-        "ORDER BY ts_updated ASC, id ASC",
-      [sessionId, sinceMs, MESSAGE_ROLE_MAX_BYTES],
-      (rows) => structuredChatFromRows(rows, sessionId, sinceMs, seenAtSinceMs),
-    );
+        "ORDER BY ts_updated ASC, id ASC", [sessionId, sinceMs, MESSAGE_ROLE_MAX_BYTES], (rows) => structuredChatFromRows(rows, sessionId, sinceMs, seenAtSinceMs)));
   },
-};
+} satisfies IoExports<PluginModule>;
 
 type StructuredChatRow = { id: string | number; ts_created?: number; ts_updated?: number; part?: string; role?: string | null; message?: string };
 
@@ -588,10 +540,10 @@ function structuredChatFromRows(rows: StructuredChatRow[], sessionId: string, si
   return { messages, observations, cursor: JSON.stringify([lastTs, seenAtLastTs]) };
 }
 
-function resumeLaunchArgs(args: string[], sessionId: string): string[] {
+function* resumeLaunchArgs(args: string[], sessionId: string): HostIoSteps<string[]> {
   const db = opencodeDbPath();
-  const model = db && host.fs.fileExists(db)
-    ? scanMessagesForQualifiedModel(db, sessionId)
+  const model = db && (yield* host.io.fs.fileExists(db))
+    ? (yield* scanMessagesForQualifiedModel(db, sessionId))
     : null;
   if (!model) return args.map(String);
   const modelIndex = args.findIndex((arg) => arg === "-m" || arg === "--model");
@@ -611,10 +563,10 @@ function resumeLaunchArgs(args: string[], sessionId: string): string[] {
   return retained;
 }
 
-function resumeLaunch(sessionId: string, skipPermissions?: boolean): { parts: string[]; directory: string | null } {
+function* resumeLaunch(sessionId: string, skipPermissions?: boolean): HostIoSteps<{ parts: string[]; directory: string | null }> {
   const platform = host.platform();
   const db = opencodeDbPath();
-  const directory = db && host.fs.fileExists(db) ? scanSessionDirectory(db, sessionId) : null;
+  const directory = db && (yield* host.io.fs.fileExists(db)) ? (yield* scanSessionDirectory(db, sessionId)) : null;
   const parts = ["opencode"];
   if (directory) parts.push(host.shell.quoteFor(directory, platform));
   parts.push("--session", host.shell.quoteFor(sessionId, platform));
@@ -622,4 +574,4 @@ function resumeLaunch(sessionId: string, skipPermissions?: boolean): { parts: st
   return { parts, directory };
 }
 
-export default plugin;
+export default defineProviderIo(plugin, () => host.io) satisfies PluginModule;

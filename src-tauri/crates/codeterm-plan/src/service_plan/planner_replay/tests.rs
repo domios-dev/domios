@@ -90,9 +90,12 @@ fn store_query_projects_only_the_bound_plan_among_unrelated_plans() {
         store.save(&mut unrelated, 1).unwrap();
     }
 
-    let candidates = store.planner_replay_candidates("planner");
+    let candidates = store.planner_replay_candidates("planner").unwrap();
 
     assert_eq!(candidates.len(), 1);
     assert_eq!(candidates[0].plan_id, bound.id);
-    assert!(store.planner_replay_candidates("nobody").is_empty());
+    assert!(store
+        .planner_replay_candidates("nobody")
+        .unwrap()
+        .is_empty());
 }

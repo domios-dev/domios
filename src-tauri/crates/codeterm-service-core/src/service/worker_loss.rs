@@ -5,9 +5,11 @@ use std::sync::{Mutex, OnceLock};
 
 use serde::Serialize;
 
+#[cfg(test)]
 use crate::plan::{Plan, PlanStatus, Task, TaskStatus};
 use crate::service::message_gateway::{DeliveryClass, MessageBody, MessageOrigin, OutboundMessage};
 use crate::service::messenger::MessageEnvelope;
+use crate::service::plan::{PlanError, WorkerLossRead};
 use crate::service::ServiceContext;
 
 pub(crate) const WORKER_LOST_EVENT: &str = "worker-lost";
@@ -141,6 +143,48 @@ pub(crate) fn recovery_command(plan_id: &str, task_id: &str, attempt_id: Option<
     }
 }
 
+fn loss_recovery(
+    plan: &str,
+    task: &str,
+    latest: Option<&str>,
+    replacement: Option<(&str, &str)>,
+) -> String {
+    match replacement {
+        Some((attempt, tab)) => {
+            format!("replacement attempt {attempt} is already live on tab {tab}")
+        }
+        None => recovery_command(plan, task, latest),
+    }
+}
+
+fn loss_from_projection(read: WorkerLossRead, tab: &str, cause: WorkerLossCause) -> WorkerLoss {
+    let recovery = loss_recovery(
+        &read.plan_id,
+        &read.task_id,
+        read.latest_attempt_id.as_deref(),
+        read.replacement.as_ref().map(|replacement| {
+            (
+                replacement.attempt_id.as_str(),
+                replacement.executor_tab_id.as_str(),
+            )
+        }),
+    );
+    WorkerLoss {
+        plan_id: read.plan_id,
+        task_id: read.task_id,
+        task_name: read.task_name,
+        attempt_id: read.attempt_id,
+        worker_tab_id: tab.into(),
+        orchestrator_tab_id: read.orchestrator_tab_id,
+        worktree_path: read.worktree_path.filter(|path| !path.trim().is_empty()),
+        branch: read.branch.filter(|branch| !branch.trim().is_empty()),
+        lane: LaneState::NoLane,
+        cause,
+        recovery,
+    }
+}
+
+#[cfg(test)]
 fn bound_to_tab(task: &Task, tab_id: &str) -> bool {
     task.assigned_tab_id.as_deref() == Some(tab_id)
         || task.lane.tab_id.as_deref() == Some(tab_id)
@@ -150,6 +194,7 @@ fn bound_to_tab(task: &Task, tab_id: &str) -> bool {
             .any(|attempt| attempt.closed_at.is_none() && attempt.executor_tab_id == tab_id)
 }
 
+#[cfg(test)]
 fn loss_from_task(plan: &Plan, task: &Task, tab_id: &str, cause: WorkerLossCause) -> WorkerLoss {
     let attempt = task
         .execution_attempts
@@ -175,22 +220,14 @@ fn loss_from_task(plan: &Plan, task: &Task, tab_id: &str, cause: WorkerLossCause
             .rev()
             .find(|candidate| candidate.closed_at.is_none())
     });
-    let recovery = live_replacement
-        .map(|replacement| {
-            format!(
-                "replacement attempt {} is already live on tab {}",
-                replacement.id, replacement.executor_tab_id
-            )
-        })
-        .unwrap_or_else(|| {
-            recovery_command(
-                &plan.id,
-                &task.id,
-                task.execution_attempts
-                    .last()
-                    .map(|latest| latest.id.as_str()),
-            )
-        });
+    let recovery = loss_recovery(
+        &plan.id,
+        &task.id,
+        task.execution_attempts
+            .last()
+            .map(|attempt| attempt.id.as_str()),
+        live_replacement.map(|attempt| (attempt.id.as_str(), attempt.executor_tab_id.as_str())),
+    );
     WorkerLoss {
         plan_id: plan.id.clone(),
         task_id: task.id.clone(),
@@ -207,6 +244,7 @@ fn loss_from_task(plan: &Plan, task: &Task, tab_id: &str, cause: WorkerLossCause
 }
 
 /// In-progress tasks of active plans that `tab_id` executes; lanes unprobed.
+#[cfg(test)]
 pub(crate) fn in_progress_losses(
     plans: &[Plan],
     tab_id: &str,
@@ -296,35 +334,38 @@ fn log_loss_delivery(loss: &WorkerLoss, delivery: &str) {
 }
 
 impl ServiceContext {
-    pub(crate) fn in_progress_assignments_for_tab(&self, tab_id: &str) -> Vec<WorkerLoss> {
-        in_progress_losses(
-            &self.in_progress_plans_for_tab(tab_id),
-            tab_id,
-            WorkerLossCause::TabGone,
-        )
+    pub(crate) fn in_progress_assignments_for_tab(
+        &self,
+        tab_id: &str,
+    ) -> Result<Vec<WorkerLoss>, PlanError> {
+        self.worker_loss_assignments(tab_id, WorkerLossCause::TabGone)
     }
 
-    fn in_progress_plans_for_tab(&self, tab_id: &str) -> Vec<Plan> {
+    fn worker_loss_assignments(
+        &self,
+        tab_id: &str,
+        cause: WorkerLossCause,
+    ) -> Result<Vec<WorkerLoss>, PlanError> {
         let tab_id = tab_id.trim();
-        if tab_id.is_empty() {
-            return Vec::new();
-        }
         self.plan_store
-            .plans_matching(&crate::service::plan::PlanMatch::active().and(
-                crate::service::plan::TaskMatch::held_by(tab_id, &[TaskStatus::InProgress]),
-            ))
+            .worker_loss_assignments_projection(tab_id)
+            .map(|rows| {
+                rows.into_iter()
+                    .map(|read| loss_from_projection(read, tab_id, cause))
+                    .collect()
+            })
     }
 
     pub(crate) fn worker_losses_for_tab(
         &self,
         tab_id: &str,
         cause: WorkerLossCause,
-    ) -> Vec<WorkerLoss> {
-        let mut losses = in_progress_losses(&self.in_progress_plans_for_tab(tab_id), tab_id, cause);
+    ) -> Result<Vec<WorkerLoss>, PlanError> {
+        let mut losses = self.worker_loss_assignments(tab_id, cause)?;
         for loss in &mut losses {
             loss.lane = probe_lane_state(loss.worktree_path.as_deref());
         }
-        losses
+        Ok(losses)
     }
 
     pub(crate) fn worker_loss_for_task(
@@ -333,12 +374,16 @@ impl ServiceContext {
         task_id: &str,
         tab_id: &str,
         cause: WorkerLossCause,
-    ) -> Option<WorkerLoss> {
-        let plan = self.plan_store.get(plan_id)?;
-        let task = plan.tasks.iter().find(|task| task.id == task_id)?;
-        let mut loss = loss_from_task(&plan, task, tab_id, cause);
-        loss.lane = probe_lane_state(loss.worktree_path.as_deref());
-        Some(loss)
+    ) -> Result<Option<WorkerLoss>, PlanError> {
+        self.plan_store
+            .worker_loss_task_projection(plan_id, task_id, tab_id)
+            .map(|read| {
+                read.map(|read| {
+                    let mut loss = loss_from_projection(read, tab_id, cause);
+                    loss.lane = probe_lane_state(loss.worktree_path.as_deref());
+                    loss
+                })
+            })
     }
 
     /// Pushes each loss once: an Orchestrator notice (withheld until its agent is ready)
@@ -346,7 +391,13 @@ impl ServiceContext {
     pub(crate) fn report_worker_losses(&self, losses: Vec<WorkerLoss>) {
         let mut routed = Vec::new();
         for loss in losses {
-            let loss = self.refresh_worker_loss_recovery(loss);
+            let loss = match self.refresh_worker_loss_recovery(&loss) {
+                Ok(loss) => loss,
+                Err(error) => {
+                    log::error!("[worker-lost] recovery read failed before delivery: {error}");
+                    continue;
+                }
+            };
             if !claim_report(&loss) {
                 continue;
             }
@@ -371,13 +422,25 @@ impl ServiceContext {
         self.alert_withheld_worker_losses_if_opened(&routed);
     }
 
-    fn refresh_worker_loss_recovery(&self, mut loss: WorkerLoss) -> WorkerLoss {
-        if let Some(plan) = self.plan_store.get(&loss.plan_id) {
-            if let Some(task) = plan.tasks.iter().find(|task| task.id == loss.task_id) {
-                loss.recovery =
-                    loss_from_task(&plan, task, &loss.worker_tab_id, loss.cause).recovery;
-            }
+    fn refresh_worker_loss_recovery(&self, loss: &WorkerLoss) -> Result<WorkerLoss, PlanError> {
+        let mut refreshed = loss.clone();
+        if let Some(read) = self.plan_store.worker_loss_recovery_projection(
+            &loss.plan_id,
+            &loss.task_id,
+            &loss.worker_tab_id,
+        )? {
+            refreshed.recovery = loss_recovery(
+                &loss.plan_id,
+                &loss.task_id,
+                read.latest_attempt_id.as_deref(),
+                read.replacement.as_ref().map(|replacement| {
+                    (
+                        replacement.attempt_id.as_str(),
+                        replacement.executor_tab_id.as_str(),
+                    )
+                }),
+            );
         }
-        loss
+        Ok(refreshed)
     }
 }

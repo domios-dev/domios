@@ -29,7 +29,7 @@ concurrency:
 jobs:
   admission:
     name: Select CI owner
-    runs-on: ubuntu-24.04
+    runs-on: ${{ fromJSON(vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -61,7 +61,7 @@ jobs:
             core.setOutput('run', 'true');
   policy:
     name: Repository guards
-    runs-on: ubuntu-24.04
+    runs-on: ${{ fromJSON(vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
     timeout-minutes: 8
     permissions:
       contents: read
@@ -122,6 +122,8 @@ jobs:
       - name: Archive-portable Rust test paths
         run: node scripts/check-archive-portable-test-paths.mjs
         if: ${{ !cancelled() && steps.change.outcome == 'success' }}
+      - name: Persisted plan schema contract
+        run: python scripts/check-plan-schema.py
       - name: Run file-size discipline check
         run: bash scripts/check-file-sizes.sh --fail
         if: ${{ !cancelled() && steps.change.outcome == 'success' }}
@@ -156,13 +158,6 @@ jobs:
           echo "release branch $HEAD_REF"
         if: ${{ success() && github.event_name == 'pull_request' && github.base_ref == 'master' }}
     needs: admission
-  pr:
-    name: Pull request checks
-    if: ${{ false }}
-    uses: ./.github/workflows/tests-pr.yml
-    permissions:
-      contents: read
-    needs: policy
   fast:
     name: Fast checks
     uses: ./.github/workflows/tests-fast.yml
@@ -222,16 +217,25 @@ jobs:
       - rust-warnings
       - policy
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && needs.admission.outputs.release_head == 'true' && (inputs.scope != 'fast' && !cancelled() && needs.fast.result == 'success' && needs.rust.result == 'success' && needs.rust-warnings.result == 'success' && needs.policy.result == 'success' && needs.fast.outputs.heavy == 'true') }}
-    runs-on: ${{ vars.CI_LINUX_LIGHT_RUNNER || 'ubuntu-24.04' }}
+    runs-on: ${{ fromJSON(vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
     timeout-minutes: 5
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
       CI_STORE_LAN_ENDPOINT: ${{ secrets.CI_STORE_LAN_ENDPOINT }}
       CI_STORE_PUBLIC_ENDPOINT: ${{ secrets.CI_STORE_PUBLIC_ENDPOINT }}
-      CI_HOSTED: ${{ (vars.CI_LINUX_LIGHT_RUNNER || 'ubuntu-24.04') == 'ubuntu-24.04' }}
       CI_ARTIFACT_STORAGE: ''
     steps:
+      - name: Select runner environment
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        env:
+          CI_HOSTED: ${{ runner.environment == 'github-hosted' }}
+        with:
+          script: |
+            // Runner context is available after allocation, not in job-level env.
+            for (const key of ["CI_HOSTED"]) {
+              core.exportVariable(key, process.env[key]);
+            }
       - name: Use the runner bundled Node
         if: runner.environment == 'self-hosted'
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
@@ -298,13 +302,12 @@ jobs:
     needs:
       - admission
       - policy
-      - pr
       - fast
       - rust
       - rust-warnings
       - qualification
       - release-dry-run
-    runs-on: ubuntu-24.04
+    runs-on: ${{ fromJSON(vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
     timeout-minutes: 2
     permissions:
       contents: read

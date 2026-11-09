@@ -27,6 +27,7 @@ mod startup_model_refresh_tests {
 
 mod next_turn_confirmation;
 mod restored_effort;
+mod resumed_binding;
 
 mod model_refresh_tests {
     use std::collections::{HashMap, HashSet};
@@ -525,7 +526,7 @@ mod model_refresh_tests {
         let attempt_id = fixture
             .service
             .plan_store
-            .show_task(&task_id)
+            .inspect_task_for_test(&task_id)
             .unwrap()
             .task
             .execution_attempts[0]
@@ -541,6 +542,7 @@ mod model_refresh_tests {
                 None,
                 Some("session-known"),
                 Some("nonce-known"),
+                None,
                 4,
             )
             .unwrap();
@@ -557,7 +559,7 @@ mod model_refresh_tests {
             fixture
                 .service
                 .plan_store
-                .show_task(&task_id)
+                .inspect_task_for_test(&task_id)
                 .unwrap()
                 .task
                 .execution_attempts
@@ -673,6 +675,7 @@ mod model_refresh_tests {
                     None,
                     Some(session),
                     Some(nonce),
+                    None,
                     now_ms + 2,
                 )
                 .unwrap();
@@ -824,7 +827,7 @@ mod model_refresh_tests {
         let attempt_id = fixture
             .service
             .plan_store
-            .show_task(&task_id)
+            .inspect_task_for_test(&task_id)
             .unwrap()
             .task
             .execution_attempts[0]
@@ -838,7 +841,7 @@ mod model_refresh_tests {
             fixture
                 .service
                 .plan_store
-                .show_task(&task_id)
+                .inspect_task_for_test(&task_id)
                 .unwrap()
                 .task
                 .execution_attempts[0]
@@ -859,7 +862,7 @@ mod model_refresh_tests {
         let attempt = fixture
             .service
             .plan_store
-            .show_task(&task_id)
+            .inspect_task_for_test(&task_id)
             .unwrap()
             .task
             .execution_attempts

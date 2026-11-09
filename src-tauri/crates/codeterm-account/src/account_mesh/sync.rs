@@ -1,12 +1,18 @@
+#[cfg(test)]
 use super::lifecycle::AccountMesh;
+#[cfg(test)]
 use super::operations::Signed;
+#[cfg(test)]
 use super::state::{AccountMeshRefusal, Cleanup, Publication, RegistryObservation};
+#[cfg(test)]
 use super::wire::{MeshOperation, MeshResult, PublicationState, RegistryPresence};
 
+#[cfg(test)]
 pub(super) fn publication_refresh_after(now: u64, expires_at: u64) -> u64 {
     expires_at.saturating_sub(120.min(expires_at.saturating_sub(now) / 2))
 }
 
+#[cfg(test)]
 impl AccountMesh {
     pub(super) async fn sync_registry(&self, signed: &Signed) -> Result<(), AccountMeshRefusal> {
         let ready = self.ports.endpoint.ready_endpoint();

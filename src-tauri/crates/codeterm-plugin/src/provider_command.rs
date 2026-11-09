@@ -4,6 +4,9 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 pub fn command(binary: &Path) -> Result<Command, String> {
+    if binary.as_os_str().is_empty() {
+        return Err("Provider command is empty".into());
+    }
     #[cfg(unix)]
     {
         let mut head = Vec::new();

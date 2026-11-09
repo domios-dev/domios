@@ -1,4 +1,5 @@
 import { memo, useMemo, type ReactNode } from "react";
+import type { NormalizedChatMessage } from "@codeterm/chat-core";
 import type { InteractiveAnswerHandler, OutboundReportDescriptor } from "@codeterm/chat-ui";
 import { ChatDaySeparator, ChatHighlightRow, MessageBubble, MessageTimeFrame, OutboundReportCard, messageRowTime } from "@codeterm/chat-ui";
 import type { Notification } from "../../lib/types";
@@ -7,9 +8,10 @@ import { ChatAskCard } from "../Notifications/ChatAskCard";
 import { ChatWindowRow } from "./ChatWindowRow";
 import { ChatMessageRow, type MessageRowHandlers } from "./ChatMessageRow";
 import { ChatDeliveryState } from "./ChatDeliveryState";
+import { ChatLiveOperation } from "./ChatLiveOperation";
 import { DroppedUploadNotice } from "./DroppedUploadNotice";
 import { VoiceTranscriptionProgress } from "./voice/VoiceTranscriptionProgress";
-import { canRetryChatSend, canDeleteChatSend, type DeliverySend, type DeliveryState } from "./chatDeliveryModel";
+import { canRetryChatSend, canDeleteChatSend, resendsWithCli, type DeliverySend, type DeliveryState } from "./chatDeliveryModel";
 import type { EnrichedChatEntry } from "./chatEnrichment";
 
 type MessageBubbleProps = React.ComponentProps<typeof MessageBubble>;
@@ -60,8 +62,11 @@ export interface ChatTranscriptRowProps {
   asks: readonly Notification[];
   liveActivityLabel?: string;
   hideMessage?: boolean;
+  /** The running turn's live operation, drawn above the send queued behind that turn. */
+  leadingLiveOperation?: NormalizedChatMessage | null;
   deliverySend?: DeliverySend;
   deliveryView?: DeliveryState;
+  deliveryBehindTurn?: boolean;
   sourceOrdinal?: number;
   selected: boolean;
   joinNext: boolean;
@@ -123,14 +128,18 @@ function sameRowProps(left: ChatTranscriptRowProps, right: ChatTranscriptRowProp
 }
 
 /** One transcript row; it renders again only when its own message, rails, delivery or selection change. */
-export const ChatTranscriptRow = memo(function ChatTranscriptRow({ entry, daySeparator, originProps, reports, asks, liveActivityLabel, hideMessage,
-  deliverySend, deliveryView, sourceOrdinal, selected, joinNext, selecting, cursor, streaming, latestFailedToolCall,
+export const ChatTranscriptRow = memo(function ChatTranscriptRow({ entry, daySeparator, originProps, reports, asks, liveActivityLabel, hideMessage, leadingLiveOperation,
+  deliverySend, deliveryView, deliveryBehindTurn, sourceOrdinal, selected, joinNext, selecting, cursor, streaming, latestFailedToolCall,
   forkable, revertible, ariaLabel, context }: ChatTranscriptRowProps) {
   const { msg, item, origin } = entry;
+  const pendingDelivery = deliverySend && deliveryView && deliveryView !== "delivered";
+  const onRetry = deliverySend && canRetryChatSend(deliverySend) ? () => context.retrySend(deliverySend.id) : undefined;
+  const resendWithCli = Boolean(deliverySend && resendsWithCli(deliverySend));
   const message = useMemo(() => context.promptAnswers ? msg : { ...msg, interactive: [] }, [msg, context.promptAnswers]);
   const turnId = msg.toolFlowId;
   return (
     <ChatWindowRow message={msg} liveActivityLabel={liveActivityLabel}>
+      {leadingLiveOperation && <ChatLiveOperation message={leadingLiveOperation} />}
       <ChatDaySeparator label={daySeparator} />
       {!hideMessage && <ChatHighlightRow id={msg.id}>
         <ChatMessageRow
@@ -155,9 +164,12 @@ export const ChatTranscriptRow = memo(function ChatTranscriptRow({ entry, daySep
             userProgress={deliveryView === "sending" && Boolean(deliverySend?.draft?.recordedVoiceAttachments.length)
               ? <VoiceTranscriptionProgress /> : undefined}
             userFooter={deliverySend ? <>
-              {deliveryView && deliveryView !== "delivered" && <ChatDeliveryState state={deliveryView} onRetry={canRetryChatSend(deliverySend) ? () => context.retrySend(deliverySend.id) : undefined} />}
+              {pendingDelivery && <ChatDeliveryState state={deliveryView} error={deliverySend.status?.error} queuedBehindTurn={deliveryBehindTurn} onRetry={onRetry} resendWithCli={resendWithCli} />}
               <DroppedUploadNotice tabId={context.tabId} id={deliverySend.id} names={deliverySend.droppedUploads} />
             </> : undefined}
+            noticeStatus={pendingDelivery
+              ? <ChatDeliveryState inline state={deliveryView} error={deliverySend.status?.error} queuedBehindTurn={deliveryBehindTurn} onRetry={onRetry} resendWithCli={resendWithCli} />
+              : undefined}
             item={item.kind === "tool" ? item : undefined}
             isLatestFailedToolCall={latestFailedToolCall}
             origin={originProps?.origin ?? origin}

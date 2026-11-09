@@ -5,7 +5,7 @@ use parking_lot::{Condvar, Mutex};
 use serde_json::{json, Value};
 
 use super::{emit_plan_changed, JsonRpcError, ServiceState};
-use codeterm_service_core::plan::Plan;
+use codeterm_service_core::service::plan::LaneCleanupPlanRead;
 
 #[derive(Default)]
 struct Jobs(Mutex<Registry>);
@@ -51,7 +51,7 @@ fn jobs(svc: &ServiceState) -> Result<Arc<Jobs>, JsonRpcError> {
 
 pub(super) fn start(
     svc: &ServiceState,
-    plan: Plan,
+    plan: LaneCleanupPlanRead,
     confirm: bool,
     fetch: bool,
     stream: bool,

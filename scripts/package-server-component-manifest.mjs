@@ -1,10 +1,20 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { lstat, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+const BOOTSTRAP_CONTRACT = readFileSync(new URL('../src-tauri/crates/codeterm-types/src/server_bootstrap.rs', import.meta.url), 'utf8');
+
+export function bootstrapContractConstant(name) {
+  const match = BOOTSTRAP_CONTRACT.match(new RegExp(`pub const ${name}: u32 = ([0-9]+);`));
+  if (!match) throw new Error(`Missing shared bootstrap contract ${name}`);
+  return Number(match[1]);
+}
+
 export const SERVER_COMPONENT_SCHEMA = 2;
-export const SUPPORTED_BOOTSTRAP_PROTOCOL = 2;
+export const SUPPORTED_BOOTSTRAP_PROTOCOL = bootstrapContractConstant('BOOTSTRAP_PROTOCOL');
+export const SUPPORTED_API_VERSION = bootstrapContractConstant('API_VERSION');
 export const MANIFEST_RELATIVE_PATH = 'target/domios-package/server-component.json';
 
 const STAGE_ROOT = path.join('target', 'domios-package');

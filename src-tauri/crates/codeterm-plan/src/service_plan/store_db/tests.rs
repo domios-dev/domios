@@ -392,10 +392,24 @@ fn task_board_cursor_pages_use_the_ordered_plan_status_index_without_temp_sort()
     let database_path = store.database_path_for_test();
     drop(store);
     let old_database = Connection::open(&database_path).unwrap();
+    let registered_index: String = old_database
+        .query_row(
+            "SELECT sql FROM sqlite_master WHERE type='index' AND name='plan_tasks_board_cursor'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
     old_database
         .execute_batch("DROP INDEX plan_tasks_board_cursor")
         .unwrap();
     drop(old_database);
+    assert!(
+        PlanDatabase::open(database_path.clone()).is_err(),
+        "an unregistered partial schema must be rejected"
+    );
+    let fixture_database = Connection::open(&database_path).unwrap();
+    fixture_database.execute_batch(&registered_index).unwrap();
+    drop(fixture_database);
     let database = PlanDatabase::open(database_path).unwrap();
     let connection = database.connection.lock();
     let index_exists: bool = connection
@@ -407,7 +421,7 @@ fn task_board_cursor_pages_use_the_ordered_plan_status_index_without_temp_sort()
         .unwrap();
     assert!(
         index_exists,
-        "opening an existing database restores the schema-owned cursor index"
+        "the registered schema retains its ordered cursor index"
     );
     let preserved_task_count: i64 = connection
         .query_row(

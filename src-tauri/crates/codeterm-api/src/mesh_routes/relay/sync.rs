@@ -18,6 +18,7 @@ pub(super) fn sync_output_for_access(
 ) -> codeterm_service_core::mesh::types::MeshSyncPayload {
     if !full_access {
         payload.peers.retain(|peer| peer.instance_id == our_id);
+        payload.endpoints.clear();
     }
     payload
 }
@@ -38,6 +39,13 @@ pub async fn mesh_sync(
     let sender_id = sender_id_from_headers(&state, &headers);
 
     // Sync only refreshes metadata of already-paired peers; it never discovers new ones.
+    if sender_id.is_some() {
+        codeterm_service_core::mesh::endpoint_gossip::receive_endpoint_records(
+            &state.mesh,
+            payload.endpoints,
+        )
+        .await;
+    }
     let mut mesh = state.mesh.lock();
     if let Some(voucher) = sender_id.as_deref() {
         for info in sync_input_for_access(full_access, Some(voucher), &payload.peers) {

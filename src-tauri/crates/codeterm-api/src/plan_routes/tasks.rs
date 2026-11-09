@@ -12,7 +12,7 @@ use codeterm_service_core::plan::{
     IdentityProvenance, OrchestratorRef, TaskCompetitionMetadata, TaskLaneMetadata,
 };
 use codeterm_service_core::service::plan::task_attempts::TaskRespawnRequest;
-use codeterm_service_core::service::plan::{NewTask, TaskLaneUpdate};
+use codeterm_service_core::service::plan::{NewTask, PlanError, TaskLaneUpdate};
 use codeterm_service_core::service::{
     persist_attempt_executor_identity_for_mux, respawn_title_provenance, TeamPlanError,
 };
@@ -163,7 +163,10 @@ fn record_respawn_attempt_and_persist_identity(
     title: &str,
     now_ms: u64,
 ) -> Result<
-    codeterm_service_core::service::plan::task_attempts::TaskAttemptCreated,
+    (
+        codeterm_service_core::service::plan::task_attempts::TaskAttemptCreated,
+        codeterm_service_core::service::plan::DispatchUndo,
+    ),
     codeterm_service_core::service::plan::PlanError,
 > {
     let created = record_respawn_attempt_and_persist_identity_for(
@@ -192,10 +195,13 @@ fn record_respawn_attempt_and_persist_identity_for(
     title: &str,
     now_ms: u64,
 ) -> Result<
-    codeterm_service_core::service::plan::task_attempts::TaskAttemptCreated,
+    (
+        codeterm_service_core::service::plan::task_attempts::TaskAttemptCreated,
+        codeterm_service_core::service::plan::DispatchUndo,
+    ),
     codeterm_service_core::service::plan::PlanError,
 > {
-    let created = store.record_task_respawn_attempt(
+    let created = store.record_task_respawn_attempt_with_undo(
         plan_id,
         task_id,
         tab_id,
@@ -391,6 +397,8 @@ pub async fn task_add(
             &execution_fields,
         )
         .map_err(|message| text_err(axum::http::StatusCode::FORBIDDEN, message))?;
+        let personality = codeterm_types::plan::require_executor_name(body.personality.as_deref())
+            .map_err(|message| plan_err(PlanError::InvalidExecutorName(message)))?;
         let requested_sections = body
             .sections
             .as_deref()
@@ -449,7 +457,7 @@ pub async fn task_add(
                     body: body.body.unwrap_or_default(),
                     role_guidance: body.role_guidance,
                     executor_role: body.executor_role,
-                    personality: body.personality,
+                    personality: Some(personality),
                     personality_provenance: body.personality_provenance,
                     competition: body.competition,
                     intent: body.intent,
@@ -478,7 +486,7 @@ pub async fn task_add(
         emit_plan_changed(&state, &id);
         Ok(Json(serde_json::json!({
             "task_id": tid.clone(),
-            "key": state.svc.plan_store.task_display_key(&id, &tid),
+            "key": state.svc.plan_store.task_display_key(&id, &tid).map_err(plan_err)?,
             "_hints": codeterm_service_core::service::plan::hints::task_create_hints(
                 &id,
                 &tid,
@@ -563,10 +571,8 @@ fn task_update_core_with_lane_cleanup_check(
 ) -> PlanRouteResult {
     let previous_name = service
         .plan_store
-        .show_task(tid)
-        .ok_or_else(|| plan_err(codeterm_service_core::service::plan::PlanError::TaskNotFound))?
-        .task
-        .name;
+        .task_name_projection(tid)
+        .map_err(plan_err)?;
     codeterm_service_core::plan::task_update_fields::validate_task_update_fields(
         &body,
         codeterm_service_core::plan::task_update_fields::TaskUpdateSeam::Rest,
@@ -756,7 +762,6 @@ fn task_update_core_with_lane_cleanup_check(
             .transpose()
             .map_err(|message| text_err(axum::http::StatusCode::BAD_REQUEST, message))?;
         service
-            .plan_store
             .update_task_personality(
                 id,
                 tid,
@@ -783,9 +788,8 @@ fn task_update_core_with_lane_cleanup_check(
     // (orchestrator) directly, so a separate `agent report` isn't needed.
     let updated_task = service
         .plan_store
-        .show_task(tid)
-        .ok_or_else(|| plan_err(codeterm_service_core::service::plan::PlanError::TaskNotFound))?
-        .task;
+        .task_description_projection(tid)
+        .map_err(plan_err)?;
     if previous_name != updated_task.name {
         if let Some(tab_id) = updated_task.assigned_tab_id.as_deref() {
             let description =
@@ -838,9 +842,9 @@ pub async fn task_close(
         let owner_epoch = state
             .svc
             .plan_store
-            .show_task(&tid)
-            .map(|detail| detail.task.interruption.owner_epoch)
-            .unwrap_or(0);
+            .task_owner_epoch_projection(&tid)
+            .map_err(plan_err)?
+            .owner_epoch;
         if owner_epoch > 0 {
             let authority = rest_task_mutation_authority(&headers)?;
             let mux = state.svc.mux.read();
@@ -878,12 +882,12 @@ pub async fn task_close(
         }
         emit_plan_changed(&state, &id);
         let mut resp = serde_json::json!({ "ok": true });
-        if let Some(plan) = state.svc.plan_store.get(&id) {
-            let cleanup =
-                codeterm_service_core::service::plan::cleanup_debt::detect_plan_cleanup_debt(
-                    &plan,
-                    |tab| state.svc.tab_probe(tab).exists,
-                );
+        if let Some(cleanup) = state
+            .svc
+            .plan_store
+            .cleanup_debt_projection(&id, |tab| state.svc.tab_probe(tab).exists)
+            .map_err(plan_err)?
+        {
             let hints = codeterm_service_core::service::plan::cleanup_debt::cleanup_debt_hints(
                 &cleanup
                     .into_iter()
@@ -935,9 +939,9 @@ pub async fn task_assign(
         let owner_epoch = state
             .svc
             .plan_store
-            .show_task(&tid)
-            .map(|detail| detail.task.interruption.owner_epoch)
-            .unwrap_or(0);
+            .task_owner_epoch_projection(&tid)
+            .map_err(plan_err)?
+            .owner_epoch;
         let authority = if owner_epoch > 0 {
             Some(rest_task_mutation_authority(&headers)?)
         } else {
@@ -965,11 +969,12 @@ pub async fn task_assign(
         )
         .map_err(plan_err)?;
         if body.peer.is_none() {
-            let detail = state.svc.plan_store.show_task(&tid).ok_or_else(|| {
-                plan_err(codeterm_service_core::service::plan::PlanError::TaskNotFound)
-            })?;
-            let description =
-                codeterm_service_core::service::task_tab_description(&detail.task.name, None);
+            let name = state
+                .svc
+                .plan_store
+                .task_name_projection(&tid)
+                .map_err(plan_err)?;
+            let description = codeterm_service_core::service::task_tab_description(&name, None);
             state
                 .svc
                 .assign_task_tab_description(&body.tab, &description)
@@ -1098,15 +1103,20 @@ pub async fn task_adopt_checkpoint(
     let task = tid.clone();
     let plan = id.clone();
     let detail = crate::plan_routes::run_blocking(move || {
-        store
-            .show_task(&task)
-            .filter(|detail| detail.plan_id == plan)
-            .ok_or_else(|| plan_err(codeterm_service_core::service::plan::PlanError::TaskNotFound))
+        let detail = store
+            .task_authority_target_projection(&task)
+            .map_err(plan_err)?;
+        if detail.plan_id != plan {
+            return Err(plan_err(
+                codeterm_service_core::service::plan::PlanError::TaskNotFound,
+            ));
+        }
+        Ok(detail)
     })
     .await?;
     let (owner_epoch, attempt_id) = state
         .svc
-        .adopt_worker_checkpoint(&detail.task.id, tab_id, &session_id, epoch_ms())
+        .adopt_worker_checkpoint(&detail.task_id, tab_id, &session_id, epoch_ms())
         .await
         .map_err(|error| text_err(axum::http::StatusCode::CONFLICT, error))?;
     emit_plan_changed(&state, &id);

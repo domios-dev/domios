@@ -82,19 +82,22 @@ pub fn validate_make_orchestrator(tab: &Tab) -> Result<(), String> {
     Ok(())
 }
 
+/// A spawned anchor forms its Team lazily, so promoting one that still has
+/// none completes the anchoring instead of returning success with no effect.
 pub fn should_deliver_orchestrator_onboarding(tab: Option<&Tab>, was_orchestrator: bool) -> bool {
-    if was_orchestrator {
-        return false;
-    }
-    tab.map(|tab| tab.anchors_team() && tab_is_agent_capable(tab))
-        .unwrap_or(false)
+    tab.is_some_and(|tab| {
+        tab.anchors_team()
+            && tab_is_agent_capable(tab)
+            && (!was_orchestrator || tab.team_id.is_none())
+    })
 }
 
 pub fn orchestrator_onboarding_body(tab_id: &str, team_id: &str, plan_id: Option<&str>) -> String {
     codeterm_service_core::prompts::orchestrator_first_message(tab_id, team_id, plan_id)
 }
 
-pub fn deliver_orchestrator_onboarding(svc: &ServiceContext, tab_id: &str) {
+/// Fails only when the Team cannot be minted; message delivery stays best-effort.
+pub fn deliver_orchestrator_onboarding(svc: &ServiceContext, tab_id: &str) -> Result<(), String> {
     // Membership door 5: onboarding mints a Team onto the promoted Tab, and
     // the General Agent kind anchors, so it would qualify without this.
     {
@@ -104,7 +107,7 @@ pub fn deliver_orchestrator_onboarding(svc: &ServiceContext, tab_id: &str) {
             refuse_general_agent_team_membership(&mux, tab_id, MembershipAttempt::Join, &shape);
         if let Err(refusal) = guard {
             log::warn!("[orchestrator-onboard] {refusal}");
-            return;
+            return Ok(());
         }
     }
     // An anchoring Orchestrator owns a Team; mint it now if the promotion
@@ -114,13 +117,9 @@ pub fn deliver_orchestrator_onboarding(svc: &ServiceContext, tab_id: &str) {
         tab_id,
         codeterm_service_core::service::billing::admit_new_team(&gate),
     );
-    let resolution = match minted {
-        Ok(resolution) => resolution,
-        Err(e) => {
-            log::warn!("[orchestrator-onboard] team resolve for {tab_id} failed: {e}");
-            return;
-        }
-    };
+    let resolution = minted.map_err(|error| {
+        format!("orchestrator_team_unavailable: Orchestrator Tab {tab_id} has no Team: {error}")
+    })?;
     let team_minted = resolution.minted;
     let team_id = resolution.team_id;
     // The team above is always freshly minted; scope the existence check
@@ -167,6 +166,7 @@ pub fn deliver_orchestrator_onboarding(svc: &ServiceContext, tab_id: &str) {
         log::warn!("[orchestrator-onboard] deliver to {tab_id} failed: {e}");
     }
     deliver_orchestration_preferences(svc, tab_id);
+    Ok(())
 }
 
 /// Off-hot-path pull of machine-local area=orchestration preferences,
@@ -207,14 +207,15 @@ pub fn maybe_deliver_orchestrator_promotion_onboarding(
     svc: &ServiceContext,
     tab_id: &str,
     was_orchestrator: bool,
-) {
+) -> Result<(), String> {
     let should_deliver = {
         let mux = svc.mux.read();
         should_deliver_orchestrator_onboarding(mux.get_tab(tab_id), was_orchestrator)
     };
     if should_deliver {
-        deliver_orchestrator_onboarding(svc, tab_id);
+        deliver_orchestrator_onboarding(svc, tab_id)?;
     }
+    Ok(())
 }
 
 /// Promoting a Team-less tab to an anchor mints a Team at onboarding; refuse before the transition.
@@ -246,9 +247,7 @@ pub fn make_orchestrator(svc: &ServiceContext, tab_id: &str) -> Result<(), Strin
         planner_replacement: None,
         plan_rebind: None,
     })?;
-    maybe_deliver_orchestrator_promotion_onboarding(svc, tab_id, was_orchestrator);
-
-    Ok(())
+    maybe_deliver_orchestrator_promotion_onboarding(svc, tab_id, was_orchestrator)
 }
 
 pub fn make_orchestrator_as_tab(
@@ -258,9 +257,11 @@ pub fn make_orchestrator_as_tab(
 ) -> Result<(), String> {
     caller.validate_claim(Some(tab_id))?;
     svc.promote_standalone_agent(caller)?;
-    maybe_deliver_orchestrator_promotion_onboarding(svc, tab_id, false);
-    Ok(())
+    maybe_deliver_orchestrator_promotion_onboarding(svc, tab_id, false)
 }
+
+#[cfg(test)]
+mod promotion_tests;
 
 #[cfg(test)]
 mod tests {
@@ -595,6 +596,9 @@ mod tests {
         tab.role = Some(AgentRole::Manager);
         tab.role_profile = Some(ORCHESTRATOR.into());
         assert!(should_deliver_orchestrator_onboarding(Some(&tab), false));
+        // An existing Orchestrator without a Team completes its anchoring.
+        assert!(should_deliver_orchestrator_onboarding(Some(&tab), true));
+        tab.team_id = Some("team-1".into());
         assert!(!should_deliver_orchestrator_onboarding(Some(&tab), true));
 
         let mut shell = mk_tab("shell-1");

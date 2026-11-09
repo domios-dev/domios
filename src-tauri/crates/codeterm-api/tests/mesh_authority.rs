@@ -167,6 +167,7 @@ async fn registered_router_never_mints_mesh_authority_for_a_tab() {
     let token = state
         .svc
         .frontend_pty_env(Some(&tab))
+        .unwrap()
         .remove("CODETERM_API_TOKEN")
         .unwrap();
     let app = routes::create_router_with_frontend(state, None);
@@ -213,6 +214,7 @@ async fn relayed_agent_cannot_change_mesh_administration_state() {
     let agent = source
         .svc
         .frontend_pty_env(Some(&tab))
+        .unwrap()
         .remove("CODETERM_API_TOKEN")
         .unwrap();
     let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
@@ -338,6 +340,7 @@ async fn registered_agent_operation_matrix_preserves_owner_local_remote_and_peer
     let local_token = target
         .svc
         .frontend_pty_env(Some(&local))
+        .unwrap()
         .remove("CODETERM_API_TOKEN")
         .unwrap();
     let remote_token = signed_agent(&source, "source", &remote_tab);
@@ -488,6 +491,7 @@ async fn owner_and_agent_mesh_workflows_reach_the_same_registered_target_routes(
     let agent = source
         .svc
         .frontend_pty_env(Some(&tab))
+        .unwrap()
         .remove("CODETERM_API_TOKEN")
         .unwrap();
     let (stop, stopped) = tokio::sync::oneshot::channel::<()>();

@@ -63,11 +63,11 @@ pub(super) fn keep(
         session_id: session,
         binding_nonce: caller.nonce.clone(),
     })?;
-    if ctx
+    let plan = ctx
         .plan_store
-        .get(&identity.plan_id)
-        .is_none_or(|plan| plan.team_id != caller.team)
-    {
+        .plan_identity_projection(&identity.plan_id)
+        .map_err(|error| error.to_string())?;
+    if plan.team_id != caller.team {
         return Err("Curator Blueprint belongs to another Team".into());
     }
     let handle = ctx

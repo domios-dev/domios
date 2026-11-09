@@ -38,4 +38,4 @@ pub fn no_window_tokio_suspended(cmd: &mut tokio::process::Command) {
 pub fn no_window_tokio(_cmd: &mut tokio::process::Command) {}
 
 mod capture;
-pub use capture::{bounded_capture, CaptureExit};
+pub use capture::{bounded_capture, bounded_output, CaptureExit};

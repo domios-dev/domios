@@ -3,13 +3,16 @@
 pub mod application_host;
 pub mod apply;
 pub mod channel;
+pub mod check_throttle;
 pub mod checker;
 pub mod container;
 pub mod debian;
+pub mod discovery_policy;
 pub mod headless;
 pub mod manifest;
 pub mod native_handoff;
 pub mod receipt;
+pub mod release_transport;
 pub mod single_flight;
 pub mod update_state;
 

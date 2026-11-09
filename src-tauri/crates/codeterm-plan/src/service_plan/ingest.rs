@@ -1,7 +1,7 @@
 use serde::Serialize;
 
 use super::{PlanError, PlanStore};
-use crate::plan::{Plan, Section};
+use crate::plan::Section;
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct IngestedSection {
@@ -17,12 +17,12 @@ pub struct PlanIngestResult {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-struct MarkdownSection {
-    level: usize,
-    title: String,
-    body: String,
-    handle: String,
-    children: Vec<MarkdownSection>,
+pub(super) struct MarkdownSection {
+    pub(super) level: usize,
+    pub(super) title: String,
+    pub(super) body: String,
+    pub(super) handle: String,
+    pub(super) children: Vec<MarkdownSection>,
 }
 
 fn gen_id() -> String {
@@ -101,7 +101,7 @@ fn section_mut_at<'a>(
     Some(current)
 }
 
-fn parse_markdown_sections(markdown: &str) -> Vec<MarkdownSection> {
+pub(super) fn parse_markdown_sections(markdown: &str) -> Vec<MarkdownSection> {
     let mut roots = Vec::new();
     let mut stack: Vec<(usize, Vec<usize>)> = Vec::new();
     let mut used = Vec::new();
@@ -160,7 +160,7 @@ fn find_matching_section<'a>(
     })
 }
 
-fn upsert_sections(
+pub(super) fn upsert_sections(
     target: &mut Vec<Section>,
     incoming: &[MarkdownSection],
     result: &mut Vec<IngestedSection>,
@@ -201,13 +201,6 @@ fn upsert_sections(
     }
 }
 
-pub(super) fn ingest_sections_into_plan(plan: &mut Plan, markdown: &str) -> PlanIngestResult {
-    let parsed = parse_markdown_sections(markdown);
-    let mut sections = Vec::new();
-    upsert_sections(&mut plan.sections, &parsed, &mut sections);
-    PlanIngestResult { sections }
-}
-
 impl PlanStore {
     pub fn ingest_plan_sections(
         &self,
@@ -215,60 +208,14 @@ impl PlanStore {
         markdown: &str,
         now_ms: u64,
     ) -> Result<PlanIngestResult, PlanError> {
-        self.with_plan(plan_id, now_ms, |plan| {
-            Ok(ingest_sections_into_plan(plan, markdown))
-        })
+        let turn = self.mutation_writer.enter();
+        let (result, receipt) = self
+            .database
+            .ingest_section_rows(plan_id, markdown, now_ms)?;
+        self.publish_hot_receipt(&turn, receipt);
+        Ok(result)
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::plan::{OrchestratorRef, Plan};
-
-    #[test]
-    fn parser_maps_headings_to_section_bodies() {
-        let parsed =
-            parse_markdown_sections("# Plan\n\n## Backend\nDo A\n\n### API\nDo B\n\n## UI\nDo C");
-
-        assert_eq!(parsed.len(), 2);
-        assert_eq!(parsed[0].title, "Backend");
-        assert_eq!(parsed[0].body, "Do A\n");
-        assert_eq!(parsed[0].children[0].title, "API");
-        assert_eq!(parsed[1].body, "Do C");
-    }
-
-    #[test]
-    fn ingest_upserts_existing_section_by_handle() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = PlanStore::new_for_test(dir.path());
-        let mut plan = Plan::new(
-            "Plan".into(),
-            dir.path().display().to_string(),
-            OrchestratorRef::default(),
-        );
-        plan.id = "pl_ingest".into();
-        plan.sections.push(Section {
-            id: "sec_existing".into(),
-            title: "Draft backend".into(),
-            handle: Some("backend".into()),
-            tags: vec![],
-            body: String::new(),
-            subsections: vec![],
-            canvas: Default::default(),
-            attachments: vec![],
-        });
-        store.save(&mut plan, 1).unwrap();
-
-        let result = store
-            .ingest_plan_sections("pl_ingest", "## Backend\nImplement the service.", 2)
-            .unwrap();
-
-        assert_eq!(result.sections.len(), 1);
-        assert!(!result.sections[0].created);
-        let plan = store.get("pl_ingest").unwrap();
-        assert_eq!(plan.sections[0].id, "sec_existing");
-        assert_eq!(plan.sections[0].title, "Backend");
-        assert_eq!(plan.sections[0].body, "Implement the service.");
-    }
-}
+mod tests;

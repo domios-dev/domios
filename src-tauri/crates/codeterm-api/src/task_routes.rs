@@ -60,6 +60,7 @@ fn plan_err(e: PlanError) -> (StatusCode, Json<Value>) {
         | PlanError::PlanActivationRequiresUnarchive { .. }
         | PlanError::InvalidPlanSkillSlug
         | PlanError::InvalidPlanText(_)
+        | PlanError::SharedReportRejected(_)
         | PlanError::InvalidExecutorName(_)
         | PlanError::InvalidExternalRef(_)
         | PlanError::UnauthorizedGateClaim { .. }
@@ -67,7 +68,6 @@ fn plan_err(e: PlanError) -> (StatusCode, Json<Value>) {
         | PlanError::GoalVectorRequired
         | PlanError::WorkFacetViolation(_) => StatusCode::BAD_REQUEST,
         PlanError::OverrideNotAuthorized => StatusCode::FORBIDDEN,
-        PlanError::WritePending { .. } => StatusCode::SERVICE_UNAVAILABLE,
         PlanError::ReadbackMismatch { .. }
         | PlanError::RespawnAttemptNotCurrent { .. }
         | PlanError::TeamAlreadyHasActivePlan { .. }
@@ -125,13 +125,13 @@ fn tab_and_ancestors(state: &AppState, tab_id: &str) -> std::collections::HashSe
 
 #[derive(Debug, Deserialize)]
 pub struct ListTasksQuery {
-    project: Option<String>,
-    active: Option<bool>,
-    all: Option<bool>,
-    mine: Option<bool>,
-    unassigned: Option<bool>,
-    plan: Option<String>,
-    status: Option<String>,
+    pub(super) project: Option<String>,
+    pub(super) active: Option<bool>,
+    pub(super) all: Option<bool>,
+    pub(super) mine: Option<bool>,
+    pub(super) unassigned: Option<bool>,
+    pub(super) plan: Option<String>,
+    pub(super) status: Option<String>,
 }
 
 fn list_response(listed: TaskListResult) -> Json<Value> {
@@ -143,44 +143,62 @@ pub async fn list(
     headers: HeaderMap,
     Query(q): Query<ListTasksQuery>,
 ) -> TaskRouteResult {
-    let caller = header_tab(&headers);
-    let mine = q.mine == Some(true);
-    let status = q
-        .status
-        .map(|status| {
-            serde_json::from_value::<TaskStatus>(Value::String(status))
-                .map_err(|_| plan_err(PlanError::BadStatus))
-        })
-        .transpose()?;
-    let listed = state
-        .svc
-        .plan_store
-        .list_tasks_with_reason(TaskListFilter {
-            project_path: q.project,
-            active_only: status.is_none() && (q.all != Some(true) || q.active == Some(true)),
-            mine_tabs: if mine {
-                caller
-                    .as_deref()
-                    .map(|id| tab_and_ancestors(&state, id))
-                    .unwrap_or_default()
-            } else {
-                Default::default()
-            },
-            unassigned: q.unassigned == Some(true),
-            plan_id: q.plan,
-            status,
-        })
-        .map_err(plan_err)?;
-    Ok(list_response(listed))
+    tokio::task::spawn_blocking(move || {
+        let caller = header_tab(&headers);
+        let mine = q.mine == Some(true);
+        let status = q
+            .status
+            .map(|status| {
+                serde_json::from_value::<TaskStatus>(Value::String(status))
+                    .map_err(|_| plan_err(PlanError::BadStatus))
+            })
+            .transpose()?;
+        let listed = state
+            .svc
+            .plan_store
+            .list_tasks_with_reason(TaskListFilter {
+                project_path: q.project,
+                active_only: status.is_none() && (q.all != Some(true) || q.active == Some(true)),
+                mine_tabs: if mine {
+                    caller
+                        .as_deref()
+                        .map(|id| tab_and_ancestors(&state, id))
+                        .unwrap_or_default()
+                } else {
+                    Default::default()
+                },
+                unassigned: q.unassigned == Some(true),
+                plan_id: q.plan,
+                status,
+            })
+            .map_err(plan_err)?;
+        Ok(list_response(listed))
+    })
+    .await
+    .map_err(|error| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": error.to_string()})),
+        )
+    })?
 }
 
 pub async fn show(State(state): State<AppState>, Path(id): Path<String>) -> TaskRouteResult {
-    let task = state
-        .svc
-        .plan_store
-        .show_task(&id)
-        .ok_or_else(|| plan_err(PlanError::TaskNotFound))?;
-    Ok(Json(serde_json::to_value(task).unwrap_or_default()))
+    tokio::task::spawn_blocking(move || {
+        let task = state
+            .svc
+            .plan_store
+            .show_task_window(&id)
+            .map_err(plan_err)?;
+        Ok(Json(serde_json::to_value(task).unwrap_or_default()))
+    })
+    .await
+    .map_err(|error| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": error.to_string()})),
+        )
+    })?
 }
 
 pub async fn take(
@@ -200,30 +218,40 @@ pub async fn take(
         crate::tab_routes::authenticated_plan_caller(&headers),
     )
     .await?;
-    state
-        .svc
-        .plan_store
-        .set_task_assignment(
-            &task_id,
-            Some(&tab_id),
-            tab_role(&state, &tab_id),
-            epoch_ms(),
+
+    tokio::task::spawn_blocking(move || {
+        state
+            .svc
+            .plan_store
+            .set_task_assignment(
+                &task_id,
+                Some(&tab_id),
+                tab_role(&state, &tab_id),
+                epoch_ms(),
+            )
+            .map_err(plan_err)?;
+        let name = state
+            .svc
+            .plan_store
+            .task_name_projection(&task_id)
+            .map_err(plan_err)?;
+        let description = codeterm_service_core::service::task_tab_description(&name, None);
+        state
+            .svc
+            .assign_task_tab_description(&tab_id, &description)
+            .map_err(|message| (StatusCode::BAD_REQUEST, Json(json!({ "error": message }))))?;
+        state.svc.emit_committed_plan_changed(&plan_id);
+        Ok(Json(
+            json!({ "ok": true, "plan_id": plan_id, "task_id": task_id }),
+        ))
+    })
+    .await
+    .map_err(|error| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": error.to_string()})),
         )
-        .map_err(plan_err)?;
-    let detail = state
-        .svc
-        .plan_store
-        .show_task(&task_id)
-        .ok_or_else(|| plan_err(PlanError::TaskNotFound))?;
-    let description = codeterm_service_core::service::task_tab_description(&detail.task.name, None);
-    state
-        .svc
-        .assign_task_tab_description(&tab_id, &description)
-        .map_err(|message| (StatusCode::BAD_REQUEST, Json(json!({ "error": message }))))?;
-    state.svc.emit_committed_plan_changed(&plan_id);
-    Ok(Json(
-        json!({ "ok": true, "plan_id": plan_id, "task_id": task_id }),
-    ))
+    })?
 }
 
 pub async fn drop_task(
@@ -237,15 +265,25 @@ pub async fn drop_task(
         crate::tab_routes::authenticated_plan_caller(&headers),
     )
     .await?;
-    state
-        .svc
-        .plan_store
-        .set_task_assignment(&task_id, None, None, epoch_ms())
-        .map_err(plan_err)?;
-    state.svc.emit_committed_plan_changed(&plan_id);
-    Ok(Json(
-        json!({ "ok": true, "plan_id": plan_id, "task_id": task_id }),
-    ))
+
+    tokio::task::spawn_blocking(move || {
+        state
+            .svc
+            .plan_store
+            .set_task_assignment(&task_id, None, None, epoch_ms())
+            .map_err(plan_err)?;
+        state.svc.emit_committed_plan_changed(&plan_id);
+        Ok(Json(
+            json!({ "ok": true, "plan_id": plan_id, "task_id": task_id }),
+        ))
+    })
+    .await
+    .map_err(|error| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": error.to_string()})),
+        )
+    })?
 }
 
 #[derive(Debug, Deserialize)]
@@ -274,77 +312,4 @@ pub async fn canvas_focus(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use codeterm_service_core::plan::OrchestratorRef;
-    use codeterm_service_core::service::plan::task_queries::{TaskListEmptyReason, TaskSummary};
-
-    fn summary() -> TaskSummary {
-        TaskSummary {
-            plan_id: "pl_one".into(),
-            plan_title: "One".into(),
-            plan_owner: OrchestratorRef::default(),
-            display_key: "ONE".into(),
-            task: serde_json::from_value(json!({
-                "id": "task_one",
-                "name": "One",
-                "type": "task",
-                "model": null,
-                "model_rationale": null,
-                "test_plan": null,
-                "correctness": null,
-                "status": "pending",
-                "status_label": null,
-                "intent": null,
-                "assigned_tab_id": null,
-                "peer": null
-            }))
-            .expect("task fixture must deserialize"),
-            section_titles: vec![],
-        }
-    }
-
-    #[test]
-    fn list_response_carries_the_empty_reason_verbatim() {
-        let reason = TaskListEmptyReason::AllTasksInactive { hidden: 3 };
-        let Json(body) = list_response(TaskListResult {
-            tasks: vec![],
-            empty_reason: Some(reason.clone()),
-        });
-
-        assert_eq!(body["tasks"], json!([]));
-        assert_eq!(
-            body["empty_reason"],
-            serde_json::to_value(&reason).expect("reason must serialize")
-        );
-    }
-
-    #[test]
-    fn list_response_omits_the_empty_reason_key_for_a_non_empty_listing() {
-        let Json(body) = list_response(TaskListResult {
-            tasks: vec![summary()],
-            empty_reason: None,
-        });
-
-        assert_eq!(body["tasks"].as_array().map(Vec::len), Some(1));
-        assert!(body.get("empty_reason").is_none());
-    }
-
-    #[test]
-    fn team_active_plan_conflict_is_409_with_plan_error_json() {
-        let (status, Json(body)) = plan_err(PlanError::TeamAlreadyHasActivePlan {
-            team_id: "team_alpha".into(),
-            existing_plan_id: "pl_existing".into(),
-            existing_title: "Existing".into(),
-        });
-        assert_eq!(status, StatusCode::CONFLICT);
-        assert_eq!(body["plan_error"]["type"], "team_already_has_active_plan");
-    }
-
-    #[test]
-    fn review_hold_required_is_409_with_plan_error_json() {
-        let (status, Json(body)) = plan_err(PlanError::ReviewHoldRequired);
-        assert_eq!(status, StatusCode::CONFLICT);
-        assert_eq!(body["plan_error"]["type"], "review_hold_required");
-    }
-}
+mod tests;

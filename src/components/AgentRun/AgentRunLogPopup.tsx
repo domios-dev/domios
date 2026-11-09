@@ -1,8 +1,8 @@
+import { localFetch } from "../../lib/webApi";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { ApiConfig, GraphWorkerInfo } from "../../lib/types";
-import { authHeaders, baseUrl } from "../MemoryPanel/memoryApi";
 import { EventRow } from "./EventRenderer";
 import { ClaudeStreamParser, mergeAssistantMessages } from "./streamParser";
 import { useAgentRunStream } from "./useAgentRunStream";
@@ -29,9 +29,7 @@ export function AgentRunLogPopup({ worker, api, onClose }: Props) {
   const [fallbackText, setFallbackText] = useState<string | null>(null);
   useEffect(() => {
     if (!isTerminal) return;
-    fetch(`${baseUrl(api)}/api/mem/workers/${encodeURIComponent(worker.worker_id)}/log`, {
-      headers: authHeaders(api),
-    })
+    localFetch(`/api/mem/workers/${encodeURIComponent(worker.worker_id)}/log`)
       .then((r) => (r.ok ? r.text() : Promise.reject(r.statusText)))
       .then(setFallbackText)
       .catch(() => {});

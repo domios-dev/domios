@@ -159,10 +159,12 @@ fn delivery_failure_remains_a_failure_without_notification_or_retargeting() {
 #[test]
 fn resolves_current_plan_owner_and_refuses_missing_or_unverified_owner() {
     let (fixture, plan_id, _, owner) = codeterm_service_core::service::plan_authority_fixture();
+    codeterm_service_core::service::plan::load_audit::start(&fixture.service.plan_store);
     assert_eq!(
         resolve_target(&fixture.service, &plan_id).unwrap(),
         owner.tab_id.unwrap()
     );
+    assert!(fixture.service.plan_store.plan_loads_for_test().is_empty());
     let registration = Registration {
         token: "opaque".into(),
         repo: "owner/repo".into(),

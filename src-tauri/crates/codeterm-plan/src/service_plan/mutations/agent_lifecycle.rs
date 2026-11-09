@@ -1,6 +1,8 @@
 use super::*;
 
+mod prepared;
 mod worker_transfer;
+pub use prepared::PreparedLifecycleChanges;
 pub use worker_transfer::VerifiedWorkerTransferBinding;
 
 #[derive(Debug, Clone)]
@@ -23,9 +25,11 @@ pub struct AgentLifecyclePlanRebind {
     pub clear_planner: bool,
 }
 
+use crate::service_plan::store_db::hot_write::lifecycle_rows::{LifecyclePlanRows, LifecycleUndo};
+
 #[derive(Debug)]
 pub struct AgentLifecyclePlanTransaction {
-    original_plans: Vec<Plan>,
+    undo: LifecycleUndo,
     changed_plan_ids: Vec<String>,
 }
 
@@ -49,127 +53,19 @@ impl PlanStore {
         changes: Vec<AgentLifecyclePlanChange>,
         now_ms: u64,
     ) -> Result<AgentLifecyclePlanTransaction, PlanError> {
-        let writer_turn = self.mutation_writer.enter();
-        let mut originals = Vec::new();
-        let mut staged = Vec::new();
-        let plans = self.plans_matching(&PlanMatch::Any(
-            changes.iter().map(lifecycle_candidates).collect(),
-        ));
-
-        for original in plans {
-            let mut candidate = original.clone();
-            for change in &changes {
-                apply_change(&mut candidate, change, now_ms);
-            }
-            if candidate != original {
-                candidate.updated_at = now_ms;
-                tag_model::normalize_plan(&mut candidate);
-                originals.push(original);
-                staged.push(candidate);
-            }
-        }
-
-        let changed_plan_ids = staged.iter().map(|plan| plan.id.clone()).collect();
-        for (persisted, candidate) in staged.iter().enumerate() {
-            if let Err(error) = self.persist_plan_and_spec_in_writer(&writer_turn, candidate) {
-                let mut failures = vec![error.to_string()];
-                for original in originals.iter().take(persisted) {
-                    if let Err(error) = self.persist_plan_and_spec_in_writer(&writer_turn, original)
-                    {
-                        failures.push(format!("restore {}: {error}", original.id));
-                    }
-                }
-                if let Err(error) = self.refresh_lifecycle_plans(&originals) {
-                    failures.push(error.to_string());
-                }
-                return Err(PlanError::Io(failures.join("; ")));
-            }
-        }
-        for candidate in &staged {
-            if let Err(error) = self.commit_agent_lifecycle_plan(candidate) {
-                let mut failures = vec![error.to_string()];
-                if let Err(error) = self.refresh_lifecycle_plans(&originals) {
-                    failures.push(error.to_string());
-                }
-                return Err(PlanError::Io(failures.join("; ")));
-            }
-        }
-
-        Ok(AgentLifecyclePlanTransaction {
-            original_plans: originals,
-            changed_plan_ids,
-        })
+        let prepared = self.prepare_agent_lifecycle_changes(changes, now_ms)?;
+        self.commit_prepared_lifecycle_transaction(prepared)
     }
 
     pub fn rollback_agent_lifecycle_change(
         &self,
         transaction: AgentLifecyclePlanTransaction,
     ) -> Result<(), PlanError> {
-        let writer_turn = self.mutation_writer.enter();
-        let mut failures = Vec::new();
-        for original in &transaction.original_plans {
-            if let Err(error) = self.persist_plan_and_spec_in_writer(&writer_turn, original) {
-                failures.push(format!("restore {}: {error}", original.id));
-            }
+        let turn = self.mutation_writer.enter();
+        let receipts = self.database.rollback_lifecycle_rows(transaction.undo)?;
+        for receipt in receipts {
+            self.publish_hot_receipt(&turn, receipt);
         }
-        if let Err(error) = self.refresh_lifecycle_plans(&transaction.original_plans) {
-            failures.push(error.to_string());
-        }
-        if !failures.is_empty() {
-            return Err(PlanError::Io(failures.join("; ")));
-        }
-        Ok(())
-    }
-
-    fn refresh_lifecycle_plans(&self, affected: &[Plan]) -> Result<(), PlanError> {
-        let handles = affected
-            .iter()
-            .map(|plan| (plan.id.as_str(), self.plan_cache.evict(&plan.id)))
-            .collect::<Vec<_>>();
-        let mut failures = Vec::new();
-        for (id, handle) in handles {
-            match self.database.load_index_row(id) {
-                Ok(Some(row)) => {
-                    self.index.write().insert(id.to_string(), row);
-                }
-                Ok(None) => {
-                    self.index.write().remove(id);
-                }
-                Err(error) => {
-                    self.index.write().remove(id);
-                    failures.push(format!("refresh index {id}: {error}"));
-                }
-            }
-            match self.load_plan_from_sql(id) {
-                Ok(Some(plan)) => {
-                    if let Some(handle) = handle {
-                        *handle.lock() = plan.clone();
-                        self.plan_cache.commit(id, &handle);
-                    }
-                    self.record_committed_snapshot(&plan);
-                    self.reset_bound_tabs(&plan);
-                }
-                Ok(None) => {}
-                Err(error) => failures.push(format!("refresh plan {id}: {error}")),
-            }
-        }
-        if failures.is_empty() {
-            Ok(())
-        } else {
-            Err(PlanError::Io(failures.join("; ")))
-        }
-    }
-
-    fn commit_agent_lifecycle_plan(&self, staged: &Plan) -> Result<(), PlanError> {
-        let arc = self.plan_arc(&staged.id)?;
-        {
-            let mut plan = arc.lock();
-            *plan = staged.clone();
-        }
-        self.plan_cache.commit(&staged.id, &arc);
-        self.record_committed_snapshot(staged);
-        self.note_index(staged);
-        self.reset_bound_tabs(staged);
         Ok(())
     }
 }
@@ -207,7 +103,7 @@ fn lifecycle_candidates(change: &AgentLifecyclePlanChange) -> PlanMatch {
     ])
 }
 
-fn apply_change(plan: &mut Plan, change: &AgentLifecyclePlanChange, now_ms: u64) {
+fn apply_change(plan: &mut LifecyclePlanRows, change: &AgentLifecyclePlanChange, now_ms: u64) {
     let tab_id = change.tab_id.as_str();
     let rebound_here = change
         .plan_rebind
@@ -308,7 +204,7 @@ fn apply_change(plan: &mut Plan, change: &AgentLifecyclePlanChange, now_ms: u64)
     }
 }
 
-fn clear_planner_delivery_provenance(plan: &mut Plan) {
+fn clear_planner_delivery_provenance(plan: &mut LifecyclePlanRows) {
     for entry in &mut plan.planner_inbox {
         entry.phase = crate::plan::PlannerDeliveryPhase::PreSend;
         entry.tab_id = None;

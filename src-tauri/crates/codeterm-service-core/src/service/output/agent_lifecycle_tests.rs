@@ -78,7 +78,7 @@ fn output_records_the_work_mark_when_the_classifier_previous_is_stale() {
 
     let (state_changed, mark_changed) = super::store_agent_state_and_record_turn_resume_edge(
         tab,
-        &crate::agent::registry::AgentRegistry::new(),
+        &crate::agent::registry::AgentRegistry::new().state_snapshot(),
         new_state.clone(),
         Some("start-a"),
         false,
@@ -95,7 +95,7 @@ fn output_records_the_work_mark_when_the_classifier_previous_is_stale() {
     assert_eq!(
         super::store_agent_state_and_record_turn_resume_edge(
             tab,
-            &crate::agent::registry::AgentRegistry::new(),
+            &crate::agent::registry::AgentRegistry::new().state_snapshot(),
             new_state,
             Some("start-a"),
             false,
@@ -289,12 +289,12 @@ fn explicit_lifecycle_exit_clears_planner_identity_once() {
 
     assert!(clear_agent_identity_for_lifecycle_exit(tab));
     assert_eq!(
-        clear_planner_bindings_for_lifecycle_exit(&plan_store, &tab_id, 3),
+        clear_planner_bindings_for_lifecycle_exit(&plan_store, &tab_id, 3).unwrap(),
         1
     );
     assert!(!clear_agent_identity_for_lifecycle_exit(tab));
     assert_eq!(
-        clear_planner_bindings_for_lifecycle_exit(&plan_store, &tab_id, 4),
+        clear_planner_bindings_for_lifecycle_exit(&plan_store, &tab_id, 4).unwrap(),
         0
     );
     assert!(tab.agent_type.is_none());
@@ -485,7 +485,7 @@ fn pty_classifier_cannot_overwrite_structured_turn_state() {
     assert_eq!(
         super::store_agent_state_and_record_turn_resume_edge(
             tab,
-            &crate::agent::registry::AgentRegistry::new(),
+            &crate::agent::registry::AgentRegistry::new().state_snapshot(),
             idle,
             None,
             false,
@@ -532,11 +532,12 @@ fn declared_pty_turn_rejects_stale_classifier_idle_and_keeps_stop_available() {
         ProviderStateVerdict::Working
     ));
     {
+        let providers = svc.agent_registry.state_snapshot();
         let mut mux = svc.mux.write();
         assert_eq!(
             super::store_agent_state_and_record_turn_resume_edge(
                 mux.get_tab_mut(&tab_id).unwrap(),
-                &svc.agent_registry,
+                &providers,
                 stale_idle,
                 None,
                 false,

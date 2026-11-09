@@ -12,7 +12,7 @@ Task execution attempts are append-only history on `Task.execution_attempts`. Th
 | GET | `/api/plans/{id}/tasks/{tid}/attempts/{attempt_id}` | — | Show one attempt by stable attempt id, including derived report command, derived prompt, and last report summary when present |
 | POST | `/api/plans/{id}/tasks/{tid}/respawn` | `{attempt_id, provider?, model?, parent_tab_id?, workspace_id?, title?}` | Build a Worker prompt from the task body, selected prior attempt, last report/status, lane branch/worktree hints, and exact `domios agent report --plan ... --task ...` command; spawn a new Worker and append a new `execution_attempts` entry |
 
-Task dispatch requires explicit `execution_intent` (`read_only` or `mutating`). Mutating dispatch requires known provider-allowance telemetry at or above `provider_reserve_pct` (default 5); a stale snapshot emits a warning but uses its last known reserve value instead of deadlocking dispatch. This preflight runs before lane provisioning or task mutation. An interrupted mutating attempt projects `handoff_required` with a digest-verified Git checkpoint until a fresh owner adopts the next owner epoch.
+Task dispatch requires explicit `execution_intent` (`read_only` or `mutating`). The provider allowance is advisory and never blocks dispatch, spawn, respawn or compete: paid credits can carry usage past 100%, so the remainder may be negative. When a mutating dispatch's known allowance is below `provider_reserve_pct` or exhausted, the receipt's `warnings` carry `provider_allowance_low` with the provider and its remaining and reserve percentages, and the daemon logs it; a stale snapshot emits its own warning. An interrupted mutating attempt projects `handoff_required` with a digest-verified Git checkpoint until a fresh owner adopts the next owner epoch.
 
 `POST /api/plans/{id}/tasks/{tid}/adopt-checkpoint` adopts the sealed checkpoint for the nonce-authenticated Worker named by the Domios identity headers. The equivalent CLI command is `domios plan task adopt-checkpoint <plan> <task>`. Successful adoption increments `owner_epoch`, creates a fresh `awaiting_worker_ack` attempt, and fences prior owner sessions.
 
@@ -25,6 +25,8 @@ An orchestrator's first plan creation is atomic: its response includes `plan.tea
 Every active plan must reference exactly one live Team, and a live Team may have only one active plan. `POST /api/plans/{id}/unarchive` and `POST /api/plans/{id}/resume` reject a missing or stale Team binding; unarchive also rejects a Team that already owns another active plan. `team.adopt_plan` activates an archived/teamless plan atomically, replaces its retired owner with the target Team's sole live Orchestrator, records owner history, clears the stale planner binding, and relinks live task hierarchy to that Orchestrator. A Team with zero or multiple live Orchestrators cannot adopt implicitly; use an explicit transfer destination when applicable.
 
 `POST /api/plans/{id}/transfer` accepts `{to: OrchestratorRef, reason?}` and requires `X-CodeTerm-Tab-Id` to identify the source Team's Orchestrator or planner-profile Manager. Missing callers, Workers, and foreign-Team tabs receive `403` without mutation. The destination must be a live Orchestrator belonging to a live Team. Owner, owner history, Team binding, and stale planner retirement are one storage mutation, followed by hierarchy relinking under the Team lock.
+
+`team.adopt_plan` returns `{team_id, plan}` with a committed summary in `plan`: `id`, `title`, `owner`, `status`, `team_id`, `planner`, `orphaned`, and `latest_owner_transfer`. Optional fields are omitted when absent; `latest_owner_transfer` contains only the latest transfer record. task bodies and historical records are available through their explicit read endpoints.
 
 ## Team staffing and Orchestrator recovery (POST /api/teams/{team_id}/members)
 
@@ -118,4 +120,4 @@ Team staffing and closing use the authority and confirmation rules above.
 | POST | `/api/teams/{team_id}/members` | Add a Team member. |
 | POST | `/api/teams/{team_id}/rename` | Rename a Team. |
 
-<!-- revision: 11 -->
+<!-- revision: 13 -->

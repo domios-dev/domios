@@ -61,7 +61,7 @@ pub(super) async fn before_turn(
     Ok(())
 }
 
-pub(super) async fn load(
+pub(crate) async fn load(
     svc: &ServiceContext,
     provider: &str,
     session: &Arc<Session>,
@@ -78,7 +78,7 @@ pub(super) async fn load(
         return result;
     };
     if !matches!(result, Err(RuntimeFailure::ConversationMissing)) {
-        return result;
+        return result.map_err(|reason| super::super::restore::refusal(svc, session, None, reason));
     }
     validate_binding(svc, session)?;
     let context = session.context.lock().clone();

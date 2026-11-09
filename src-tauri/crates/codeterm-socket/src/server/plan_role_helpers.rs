@@ -105,7 +105,7 @@ pub(super) fn update_role_guidance_if_present(
 }
 
 pub(super) fn update_personality_if_present(
-    store: &PlanStore,
+    svc: &ServiceState,
     plan_id: &str,
     task_id: &str,
     params: Option<&Value>,
@@ -127,15 +127,14 @@ pub(super) fn update_personality_if_present(
                 })
             })
             .transpose()?;
-        store
-            .update_task_personality(
-                plan_id,
-                task_id,
-                optional_string_field(params, "personality"),
-                provenance,
-                now,
-            )
-            .map_err(plan_rpc_err)?;
+        svc.update_task_personality(
+            plan_id,
+            task_id,
+            optional_string_field(params, "personality"),
+            provenance,
+            now,
+        )
+        .map_err(plan_rpc_err)?;
     }
     Ok(())
 }
@@ -174,7 +173,13 @@ pub(super) trait RespawnAttemptRoleExt {
         draft: &TaskRespawnDraft,
         svc: &ServiceState,
         now: u64,
-    ) -> Result<TaskAttemptCreated, PlanError>;
+    ) -> Result<
+        (
+            TaskAttemptCreated,
+            codeterm_service_core::service::plan::DispatchUndo,
+        ),
+        PlanError,
+    >;
 }
 
 impl RespawnAttemptRoleExt for PlanStore {
@@ -186,8 +191,14 @@ impl RespawnAttemptRoleExt for PlanStore {
         draft: &TaskRespawnDraft,
         svc: &ServiceState,
         now: u64,
-    ) -> Result<TaskAttemptCreated, PlanError> {
-        self.record_task_respawn_attempt(
+    ) -> Result<
+        (
+            TaskAttemptCreated,
+            codeterm_service_core::service::plan::DispatchUndo,
+        ),
+        PlanError,
+    > {
+        self.record_task_respawn_attempt_with_undo(
             plan_id,
             task_id,
             tab_id,

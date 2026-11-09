@@ -1,3 +1,5 @@
+import type { PlanTaskView as Task } from "../planProjection";
+import type { PlanView as Plan } from "../planProjection";
 import { TaskHistoryControls, type TaskHistoryController } from "./TaskHistoryControls";
 import { SidePanelFrame } from "./SidePanelFrame";
 import { taskDetailMatchesReference } from "../usePlanTaskDetail";
@@ -9,7 +11,7 @@ import { DetailContent } from "../canvasRender/DetailContent";
 import type { PlanSidePanelTarget } from "../planSidePanelStore";
 import { findTaskByReference, taskDisplayKey } from "../taskDisplayKey";
 import type { PlanTarget } from "../teamViewNavigation";
-import type { Plan, PlanTaskDetail, PlanTaskDetailContext, Task } from "../types";
+import type { PlanTaskDetail, PlanTaskDetailContext } from "../types";
 import { SelectionAsk, type SelectionAskOwner } from "../../shared/SelectionAsk";
 import { Loader } from "../../shared/Loader";
 import { resolvePlanAskOwner } from "./planAskModel";

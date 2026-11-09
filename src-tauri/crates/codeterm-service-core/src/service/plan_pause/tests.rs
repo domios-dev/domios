@@ -11,7 +11,7 @@ use crate::cron::store::{CronCreateParams, CronStore};
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::AgentRole;
 use crate::service::hierarchy::plan_reminder_nudge::timed_plan_reminder_targets;
-use crate::service::plan::pause_operation::plan_notices_suppressed;
+use crate::service::plan::pause_operation::{open_pause_operation, plan_notices_suppressed};
 use crate::service::plan::{NewTask, PlanStore};
 
 const FOREIGN_TEAM: &str = "team_foreign";
@@ -235,7 +235,7 @@ fn world() -> World {
 
 fn pause(w: &World) -> PlanLifecycleOutcome {
     let plan = w.store.get(&w.plan_id).unwrap();
-    let agents = live_plan_agents(&w.mux, &plan);
+    let agents = live_plan_agents(&w.mux, &(&plan).into());
     let schedules = enabled_team_schedules(w.ports.cron.borrow().list(), &w.team_id);
     execute_plan_pause(
         &w.store,
@@ -287,10 +287,10 @@ fn join_after_pause(w: &mut World) -> String {
 fn plan_pause_resume_preview_is_computed_from_live_state_without_mutation() {
     let w = world();
     let plan = w.store.get(&w.plan_id).unwrap();
-    let agents = live_plan_agents(&w.mux, &plan);
+    let agents = live_plan_agents(&w.mux, &(&plan).into());
     let schedules = enabled_team_schedules(w.ports.cron.borrow().list(), &w.team_id);
 
-    let preview = pause_preview(&plan, &agents, &schedules);
+    let preview = pause_preview(&(&plan).into(), &agents, &schedules);
 
     assert!(preview.applicable);
     let listed: Vec<_> = preview
@@ -408,10 +408,12 @@ fn plan_pause_resume_second_pause_is_noop_and_keeps_original_record() {
 fn plan_pause_resume_paused_plan_suppresses_reminders_heartbeat_and_notices_only_for_it() {
     let w = world();
     let tabs = |plans: &[Plan]| -> HashSet<String> {
-        timed_plan_reminder_targets(plans)
-            .into_iter()
-            .map(|target| target.tab_id)
-            .collect()
+        timed_plan_reminder_targets(
+            &crate::service::hierarchy::plan_reminder_nudge::tests::reads(plans),
+        )
+        .into_iter()
+        .map(|target| target.tab_id)
+        .collect()
     };
     let before = tabs(&w.store.all_plans_for_test());
     assert!(before.contains(&w.orchestrator));
@@ -450,7 +452,9 @@ fn plan_pause_resume_preview_marks_dead_recorded_tab_and_omits_post_pause_joiner
     w.mux.remove_tab(&worker);
 
     let plan = w.store.get(&w.plan_id).unwrap();
-    let preview = resume_preview(&plan, |agent| recorded_agent_is_live(&w.mux, agent));
+    let preview = resume_preview(&(&plan).into(), |agent| {
+        recorded_agent_is_live(&w.mux, agent)
+    });
 
     assert!(preview.applicable);
     assert_eq!(preview.operation_id.as_deref(), Some(op_id.as_str()));
@@ -471,7 +475,7 @@ fn plan_pause_resume_preview_marks_dead_recorded_tab_and_omits_post_pause_joiner
     assert!(preview.agents.iter().all(|a| a.tab_id != joiner));
     let jobs: Vec<_> = preview.schedules.iter().map(|s| s.job_id.clone()).collect();
     assert_eq!(jobs, vec![w.team_job.clone()]);
-    assert!(!pause_preview(&plan, &[], &[]).applicable);
+    assert!(!pause_preview(&(&plan).into(), &[], &[]).applicable);
 }
 
 #[test]

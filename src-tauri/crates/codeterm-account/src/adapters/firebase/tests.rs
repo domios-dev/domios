@@ -267,6 +267,13 @@ fn refresh_http_failures_sign_out_only_for_credential_rejections() {
     );
 }
 
+#[test]
+fn refresh_token_from_another_project_is_a_target_mismatch_not_a_transport_retry() {
+    let body = json!({"error":{"code":400,"message":"PROJECT_NUMBER_MISMATCH","status":"INVALID_ARGUMENT"}});
+    assert_eq!(classify_http_error(400, Some(&body)), Error::TargetMismatch);
+    assert_eq!(classify_http_error(503, Some(&body)), Error::Transport);
+}
+
 fn fixture_config() -> Config {
     Config {
         provider: "firebase".into(),

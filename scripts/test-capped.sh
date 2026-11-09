@@ -167,7 +167,7 @@ detect_requested_filter() {
             --filter-expr=*|--filterset=*) REQUESTED_FILTER="${1#*=}"; shift ;;
             --no-tests) NO_TESTS_MODE="${2:-}"; shift 2 || return 0 ;;
             --no-tests=*) NO_TESTS_MODE="${1#*=}"; shift ;;
-            --features|-F|--target|--target-dir|--test|--bin|--bench|--example|--exclude|-j|--jobs|--message-format|--profile|--config|-Z|--color|--archive-file|--workspace-remap|--binaries-metadata|--cargo-metadata|--cargo-profile|-P|--test-threads|--status-level|--final-status-level|--run-ignored|--retries|--max-fail|--partition)
+            --features|-F|--target|--target-dir|--test|--bin|--bench|--example|--exclude|-j|--jobs|--message-format|--profile|--config|--config-file|-Z|--color|--archive-file|--workspace-remap|--binaries-metadata|--cargo-metadata|--cargo-profile|-P|--test-threads|--status-level|--final-status-level|--run-ignored|--retries|--max-fail|--partition)
                 shift 2 || return 0 ;;
             -*) shift ;;
             *) REQUESTED_FILTER="$1"; return 0 ;;

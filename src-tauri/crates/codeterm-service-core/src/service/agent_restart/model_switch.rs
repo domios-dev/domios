@@ -52,6 +52,15 @@ pub struct ModelSwitchOutcome {
     pub launched_model: String,
     pub confirmation_detail: Option<String>,
     pub confirmation: ModelSwitchConfirmation,
+    /// Non-model controls this switch confirmed, as before/after values.
+    pub control_changes: Vec<ControlChange>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ControlChange {
+    pub control: &'static str,
+    pub previous: Option<String>,
+    pub current: Option<String>,
 }
 
 fn effective_model_switch_mode(
@@ -119,6 +128,7 @@ pub enum ModelSwitchError {
     },
     LiveSwitchFailed(String),
     RuntimeControlRefused(String),
+    RuntimeBusy,
     LiveCommandFailed(String),
     DuringTurnIncident {
         stage: String,
@@ -164,6 +174,8 @@ impl std::fmt::Display for ModelSwitchError {
                 formatter,
                 "relaunched with {launched_model}, but the current session reported {observed}"
             ),
+            Self::RuntimeBusy => formatter
+                .write_str(crate::service::agent_runtime::declared_controls::RUNTIME_BUSY_MESSAGE),
             Self::RuntimeControlRefused(reason) | Self::LiveSwitchFailed(reason) | Self::LiveCommandFailed(reason) | Self::InputNotReady(reason) => {
                 write!(formatter, "live model switch failed: {reason}")
             }
@@ -743,6 +755,7 @@ impl ServiceContext {
                 launched_model: requested.to_string(),
                 confirmation_detail: detail,
                 confirmation,
+                control_changes: Vec::new(),
             });
         }
         if mechanism == ModelSwitchMode::Unsupported {
@@ -812,6 +825,7 @@ impl ServiceContext {
             launched_model,
             confirmation_detail: None,
             confirmation,
+            control_changes: Vec::new(),
         })
     }
 
@@ -912,16 +926,27 @@ impl ServiceContext {
             Some(&binding_nonce),
             false,
         );
-        let mux = self.mux.read();
-        mux.get_tab(tab_id).is_some_and(|tab| {
-            live_model_confirmation_matches(
-                &self.agent_registry,
-                tab,
-                provider,
-                session_id,
-                &binding_nonce,
-                observed_model,
-            )
+        let snapshot = self.mux.read().get_tab(tab_id).cloned();
+        let Some(snapshot) = snapshot else {
+            return false;
+        };
+        if !live_model_confirmation_matches(
+            &self.agent_registry,
+            &snapshot,
+            provider,
+            session_id,
+            &binding_nonce,
+            observed_model,
+        ) {
+            return false;
+        }
+        self.mux.read().get_tab(tab_id).is_some_and(|tab| {
+            tab.agent_type == snapshot.agent_type
+                && tab.agent_session_id == snapshot.agent_session_id
+                && tab.session_binding_nonce == snapshot.session_binding_nonce
+                && tab.reported_session_binding_nonce == snapshot.reported_session_binding_nonce
+                && tab.agent_session_model == snapshot.agent_session_model
+                && tab.agent_session_model_identity == snapshot.agent_session_model_identity
         })
     }
 

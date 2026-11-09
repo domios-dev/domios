@@ -1,3 +1,4 @@
+import { ioTestContext } from "../../provider-shared/tests/hostIo";
 import assert from "node:assert/strict";
 import vm from "node:vm";
 import { readFileSync } from "node:fs";
@@ -53,7 +54,7 @@ const context = { module: { exports: {} }, host: {
     id: fixture.name, ts_created: index + 1, ts_updated: index + 1, role: "assistant", part: JSON.stringify(fixture.part),
   })) }),
 } };
-new vm.Script(readFileSync(new URL("../plugin.js", import.meta.url), "utf8")).runInNewContext(context);
+new vm.Script(readFileSync(new URL("../plugin.js", import.meta.url), "utf8")).runInNewContext(ioTestContext(context));
 const bundled = (context.module.exports as { default: {
   structuredToolFileDiffs(part: unknown): FileDiff[] | null;
   readStructuredChat(cwd: string, sessionId: string): { messages: NormalizedChatMessage[] };

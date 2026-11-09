@@ -56,11 +56,10 @@ async fn check_and_apply_plugin(
     )
     .await?;
     let endpoint_str = opts.manifest_url.clone().unwrap_or_else(|| {
-        codeterm_update::channel::default_endpoints_for_install_method(
+        codeterm_update::channel::default_endpoint_for_install_method(
             opts.channel,
             &opts.install_method,
-        )[0]
-        .clone()
+        )
     });
 
     let endpoint = Url::parse(&endpoint_str)
@@ -120,7 +119,7 @@ async fn check_and_apply_plugin(
         }
     };
 
-    let update = match update {
+    let mut update = match update {
         Some(u) => {
             log::info!(
                 "[updater] plugin reported update available: remote_version={} current_version={}",
@@ -144,35 +143,45 @@ async fn check_and_apply_plugin(
     update_state.lock().set_phase(UpdatePhase::Downloading);
     log::info!("[updater] downloading and verifying v{}", update.version);
     log::info!(target: "native_updater", "download_started target_version={}", update.version);
-    let chunk_state = update_state.clone();
-    let mut downloaded = 0u64;
-    let mut milestone = 0u64;
-    let bytes = match update
-        .download(
-            move |chunk_len, content_length| {
-                downloaded = downloaded.saturating_add(chunk_len as u64);
-                let next = content_length.filter(|total| *total > 0)
-                    .map(|total| downloaded.saturating_mul(4) / total)
-                    .unwrap_or(downloaded / (16 * 1024 * 1024));
-                if next > milestone {
-                    milestone = next;
-                    log::info!(target: "native_updater", "download_progress bytes={} total={:?}", downloaded, content_length);
+    let direct_url = update.download_url.to_string();
+    let bytes = match download_update(&update, &update_state).await {
+        Ok(bytes) => Ok(bytes),
+        Err(failure) if failure.outage => {
+            // Only the address changes: the same Update verifies the same signature on these bytes.
+            match codeterm_update::release_transport::official_asset_url(
+                &direct_url,
+                &failure.message,
+                std::time::Duration::from_secs(60),
+            )
+            .await
+            .and_then(|url| Url::parse(&url).map_err(|e| e.to_string()))
+            {
+                Ok(api_url) => {
+                    log::warn!(
+                        "[updater] downloading v{} through the GitHub Releases API",
+                        update.version
+                    );
+                    update.download_url = api_url;
+                    update_state.lock().set_phase(UpdatePhase::Downloading);
+                    download_update(&update, &update_state)
+                        .await
+                        .map_err(|api| {
+                            codeterm_update::release_transport::both_failed(
+                                &failure.message,
+                                &api.message,
+                            )
+                        })
                 }
-                chunk_state
-                    .lock()
-                    .record_download_chunk(chunk_len as u64, content_length);
-            },
-            || {},
-        )
-        .await
-    {
-        Ok(bytes) => bytes,
-        Err(e) => {
-            let msg = format!("GET {} download/verify failed: {}", update.download_url, e);
-            log::error!("[updater] {}", msg);
-            return Err(msg);
+                Err(both) => Err(both),
+            }
         }
-    };
+        Err(failure) => Err(failure.message),
+    }
+    .map_err(|cause| {
+        let msg = format!("GET {direct_url} download/verify failed: {cause}");
+        log::error!("[updater] {msg}");
+        msg
+    })?;
 
     log::info!(target: "native_updater", "download_verified bytes={}", bytes.len());
     let verified_len = bytes.len();
@@ -277,6 +286,52 @@ async fn restart_after_plugin_install(_: &AppHandle) -> Result<ApplyResult, Stri
 async fn restart_after_plugin_install(app: &AppHandle) -> Result<ApplyResult, String> {
     super::restart::restart_from_async(app).await?;
     Ok(ApplyResult::Restarting)
+}
+
+struct DownloadFailure {
+    message: String,
+    outage: bool,
+}
+
+fn download_is_outage(error: &tauri_plugin_updater::Error) -> bool {
+    match error {
+        tauri_plugin_updater::Error::Reqwest(_) => true,
+        tauri_plugin_updater::Error::Network(message) => {
+            codeterm_update::release_transport::download_status_is_outage(message)
+        }
+        _ => false,
+    }
+}
+
+async fn download_update(
+    update: &tauri_plugin_updater::Update,
+    update_state: &UpdateStateHandle,
+) -> Result<Vec<u8>, DownloadFailure> {
+    let chunk_state = update_state.clone();
+    let mut downloaded = 0u64;
+    let mut milestone = 0u64;
+    update
+        .download(
+            move |chunk_len, content_length| {
+                downloaded = downloaded.saturating_add(chunk_len as u64);
+                let next = content_length.filter(|total| *total > 0)
+                    .map(|total| downloaded.saturating_mul(4) / total)
+                    .unwrap_or(downloaded / (16 * 1024 * 1024));
+                if next > milestone {
+                    milestone = next;
+                    log::info!(target: "native_updater", "download_progress bytes={} total={:?}", downloaded, content_length);
+                }
+                chunk_state
+                    .lock()
+                    .record_download_chunk(chunk_len as u64, content_length);
+            },
+            || {},
+        )
+        .await
+        .map_err(|error| DownloadFailure {
+            outage: download_is_outage(&error),
+            message: error.to_string(),
+        })
 }
 
 fn prepare_update(

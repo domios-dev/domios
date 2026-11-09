@@ -1,3 +1,4 @@
+import { referenceMarkerText } from "./referenceMarkers";
 import { Window } from "happy-dom";
 import React, { act } from "react";
 import { createRoot } from "react-dom/client";
@@ -118,7 +119,7 @@ await (async () => {
         id: "assistant-plan-ref",
         provider: "codex",
         type: "assistant",
-        content: `See ${SECTION} in ${PLAN}`,
+        content: `See ${referenceMarkerText("section", SECTION, PLAN)}`,
       }}
       onOpenPlan={(p, focus, kind) => {
         opened = [p, focus, kind];
@@ -298,7 +299,7 @@ await (async () => {
   let opened: [string, string | undefined] | null = null;
   const host = await render(
     <SentMessageBubble
-      inv={inv(`codeterm send --tab bda "see ${TASK} in ${PLAN}"`)}
+      inv={inv(`codeterm send --tab bda 'see ${referenceMarkerText("task", TASK, PLAN)}'`)}
       onOpenPlan={(p, t) => {
         opened = [p, t];
       }}

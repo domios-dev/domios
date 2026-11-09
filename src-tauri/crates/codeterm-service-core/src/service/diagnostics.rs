@@ -59,7 +59,6 @@ impl ServiceContext {
             "limitations": "not an allocator census; model weight file sizes and screen upper bounds are not RSS; shared allocations may overlap; busy subsystems are skipped",
             "subsystems": {
                 "tabs": mux,
-                "plan_cache": self.plan_store.cache_memory_stats(),
                 "pty_output": output,
                 "pty_screens": screen,
                 "chat": self.chat_registry.memory_stats(),

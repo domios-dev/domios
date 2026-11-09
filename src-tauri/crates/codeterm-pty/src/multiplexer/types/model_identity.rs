@@ -1,5 +1,47 @@
 use serde::{Deserialize, Serialize};
 
+impl super::Tab {
+    /// The name this tab's own session declared for a runtime-qualified model id.
+    /// Plain ids keep their catalogue rules, so they never read a declared name.
+    pub fn declared_model_name(&self) -> Option<String> {
+        let model = self
+            .agent_session_model
+            .as_deref()
+            .or(self.agent_provider_resolved_model.as_deref())?;
+        if !codeterm_types::pty::is_qualified_model_id(model) {
+            return None;
+        }
+        let options = self
+            .agent_runtime_state
+            .as_ref()?
+            .pointer("/controls/configOptions")?
+            .as_array()?;
+        options
+            .iter()
+            .filter(|option| {
+                option.get("category").and_then(serde_json::Value::as_str) == Some("model")
+                    || option.get("id").and_then(serde_json::Value::as_str) == Some("model")
+            })
+            .filter_map(|option| option.get("options")?.as_array())
+            .flatten()
+            .find(|value| value.get("value").and_then(serde_json::Value::as_str) == Some(model))?
+            .get("name")?
+            .as_str()
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .map(str::to_string)
+    }
+
+    /// The session model as a message frame names it: never a raw qualified id.
+    pub fn agent_session_model_label(&self) -> Option<String> {
+        let model = self.agent_session_model.as_deref()?;
+        Some(
+            self.declared_model_name()
+                .unwrap_or_else(|| codeterm_types::pty::plain_model_id(model)),
+        )
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ModelIdentityMismatch {
     #[serde(default, skip_serializing_if = "Option::is_none")]

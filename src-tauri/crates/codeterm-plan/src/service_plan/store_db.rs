@@ -5,9 +5,10 @@ use parking_lot::Mutex;
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use std::path::PathBuf;
 
-/// `PRAGMA user_version` of the 1.18 row schema; older databases are converted once on open.
-pub(super) const SCHEMA_VERSION: i64 = 1;
+pub(super) const SCHEMA_VERSION: i64 = migrations::SCHEMA_VERSION;
+pub(in crate::service_plan) mod migrations;
 
+#[cfg(test)]
 const PLAN_SCHEMA: &str = r#"
     CREATE TABLE IF NOT EXISTS plans (
         id TEXT PRIMARY KEY,
@@ -57,11 +58,33 @@ const PLAN_SCHEMA: &str = r#"
 
 "#;
 
-/// Creates every missing table and index of the current schema.
+#[cfg(test)]
+const TAB_INDEX_SCHEMA: &str = r#"
+    CREATE INDEX IF NOT EXISTS plans_planner_tab_id
+        ON plans(json_extract(header_json, '$.planner.tab_id'), id)
+        WHERE json_extract(header_json, '$.planner.tab_id') IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS plan_tasks_lane_tab_id
+        ON plan_tasks(json_extract(row_json, '$.lane.tab_id'), plan_id)
+        WHERE json_extract(row_json, '$.lane.tab_id') IS NOT NULL;
+CREATE INDEX IF NOT EXISTS plan_tasks_event_order ON plan_tasks(
+    plan_id, coalesce(json_extract(row_json,'$.created_at'),0) DESC, position DESC,
+    task_id, json_extract(row_json,'$.name'));
+CREATE INDEX IF NOT EXISTS plan_strides_event_order ON plan_strides(
+    plan_id, coalesce(json_extract(row_json,'$.ts'),0) DESC, seq DESC);
+CREATE INDEX IF NOT EXISTS plan_milestones_event_order ON plan_task_milestones(
+    plan_id, coalesce(json_extract(row_json,'$.ts'),0) DESC, task_id, seq DESC);
+CREATE INDEX IF NOT EXISTS plan_attempts_event_author ON plan_task_attempts(
+    plan_id, task_id, executor_tab_id, position DESC, json_extract(row_json,'$.executor_title'))
+    WHERE json_extract(row_json,'$.executor_title') IS NOT NULL;
+"#;
+
+#[cfg(test)]
 pub(super) fn create_schema(connection: &Connection) -> rusqlite::Result<()> {
     connection.execute_batch(PLAN_SCHEMA)?;
     connection.execute_batch(store_sync::TASK_SCHEMA)?;
-    connection.execute_batch(store_sync::PLAN_LEVEL_SCHEMA)
+    connection.execute_batch(store_sync::PLAN_LEVEL_SCHEMA)?;
+    connection.execute_batch(TAB_INDEX_SCHEMA)?;
+    connection.pragma_update(None, "application_id", 0x44504c4e_i64)
 }
 
 pub(super) struct PlanDatabase {
@@ -81,26 +104,23 @@ impl PlanDatabase {
             Connection::open_in_memory()
         }
         .map_err(db_error)?;
-        super::store_convert_118::convert_legacy_database(&mut connection, &path)?;
+        migrations::initialize(&mut connection, &path)?;
         status_queries::register_functions(&connection)?;
+        state_event_window::register_functions(&connection)?;
+        heartbeat_queries::register_functions(&connection)?;
+        reference_resolver_queries::register_functions(&connection)?;
+        task_key_queries::register_functions(&connection)?;
+        curator_notice_queries::register_functions(&connection)?;
+        auxiliary_queries::register_functions(&connection)?;
+        worker_read_queries::register_functions(&connection)?;
         list_window_queries::register_functions(&connection)?;
+        task_authority_queries::register_functions(&connection)?;
         connection
             .busy_timeout(std::time::Duration::from_secs(5))
             .map_err(db_error)?;
         connection
             .pragma_update(None, "journal_mode", "WAL")
             .map_err(db_error)?;
-        let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(db_error)?;
-        transaction
-            .execute_batch("DROP TABLE IF EXISTS plan_fts;")
-            .map_err(db_error)?;
-        create_schema(&transaction).map_err(db_error)?;
-        transaction
-            .pragma_update(None, "user_version", SCHEMA_VERSION)
-            .map_err(db_error)?;
-        transaction.commit().map_err(db_error)?;
         connection
             .execute_batch(
                 "PRAGMA synchronous = NORMAL;
@@ -122,6 +142,12 @@ impl PlanDatabase {
 
     pub(super) fn path(&self) -> PathBuf {
         self.path.clone()
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub(super) fn with_connection_held_for_test<T>(&self, work: impl FnOnce() -> T) -> T {
+        let _connection = self.connection.lock();
+        work()
     }
 
     #[cfg(test)]
@@ -166,6 +192,7 @@ impl PlanDatabase {
     }
 
     /// `Ok(None)` when no row exists; rows that do not parse are `PlanError::Quarantined`.
+    #[cfg(any(test, feature = "test-support"))]
     pub(super) fn load_plan(&self, id: &str) -> Result<Option<Plan>, PlanError> {
         let mut connection = self.connection.lock();
         let transaction = connection.transaction().map_err(db_error)?;
@@ -179,7 +206,7 @@ impl PlanDatabase {
             return Ok(None);
         };
         let result = store_sync::load_plan_rows(&transaction, id, &header)
-            .and_then(parse_plan_value)
+            .and_then(|value| serde_json::from_value(value).map_err(|error| error.to_string()))
             .map(Some)
             .map_err(|reason| PlanError::Quarantined {
                 plan_id: id.to_string(),
@@ -189,30 +216,7 @@ impl PlanDatabase {
         result
     }
 
-    pub(super) fn delete_spec(&self, id: &str, now_ms: u64) -> Result<(), PlanError> {
-        let mut connection = self.connection.lock();
-        let operation_id = queue_operation(&connection, id, "delete_spec", now_ms)?;
-        let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(db_error)?;
-        transaction
-            .execute(
-                "UPDATE plan_operations SET state = 'running' WHERE id = ?1",
-                [operation_id],
-            )
-            .map_err(db_error)?;
-        transaction
-            .execute("DELETE FROM specs WHERE id = ?1", [id])
-            .map_err(db_error)?;
-        transaction
-            .execute(
-                "UPDATE plan_operations SET state = 'committed', finished_at = ?2 WHERE id = ?1",
-                params![operation_id, now_ms],
-            )
-            .map_err(db_error)?;
-        transaction.commit().map_err(db_error)
-    }
-
+    #[cfg(test)]
     pub(super) fn delete_plan(&self, id: &str, now_ms: u64) -> Result<(), PlanError> {
         let mut connection = self.connection.lock();
         let operation_id = queue_operation(&connection, id, "delete_plan", now_ms)?;
@@ -259,6 +263,7 @@ impl PlanDatabase {
             .map(|_| self.path())
     }
 
+    #[cfg(any(test, feature = "test-support"))]
     pub(super) fn persist_plan_rows(
         &self,
         plan: &Plan,
@@ -432,7 +437,7 @@ fn write_plan_rows_at_revision(
         .query_row(
             "SELECT title, status, project_path,
                     coalesce(json_extract(header_json, '$.canonical_project_path'), ''),
-                    stride_count, stride_digest
+                    stride_count, stride_digest, coalesce(json_extract(header_json,'$._stride_digest_invalid'),0)
              FROM plans WHERE id = ?1",
             [&plan.id],
             |row| {
@@ -442,6 +447,7 @@ fn write_plan_rows_at_revision(
                     row.get(2)?,
                     row.get(3)?,
                     StoredStrides {
+                        invalid: row.get(6)?,
                         count: row.get::<_, i64>(4)? as usize,
                         digest: row.get(5)?,
                     },
@@ -519,11 +525,7 @@ fn upsert_spec(transaction: &rusqlite::Transaction<'_>, spec: &Spec) -> Result<(
 
 #[cfg(test)]
 fn parse_plan_json(document: &str) -> Result<Plan, String> {
-    parse_plan_value(serde_json::from_str(document).map_err(|error| error.to_string())?)
-}
-
-pub(super) fn parse_plan_value(value: serde_json::Value) -> Result<Plan, String> {
-    serde_json::from_value(value).map_err(|error| error.to_string())
+    serde_json::from_str(document).map_err(|error| error.to_string())
 }
 
 fn load_documents<T: serde::de::DeserializeOwned>(
@@ -566,27 +568,47 @@ fn json_error(error: serde_json::Error) -> PlanError {
 }
 
 pub(super) mod admission;
+mod attachment_queries;
+mod auxiliary_queries;
+mod binding_context_queries;
 mod binding_queries;
 mod change_feed;
+mod charter_queries;
 mod chat_read_queries;
 mod curator_digest_queries;
+pub(in crate::service_plan) mod curator_input_queries;
+mod curator_notice_queries;
 mod curator_queries;
 mod curator_snapshot;
+mod export_queries;
+pub(in crate::service_plan) mod handoff_queries;
+mod header_queries;
+mod heartbeat_queries;
 mod index_queries;
+mod locate_queries;
 mod notice_queries;
+mod qa_queries;
+mod reference_resolver_queries;
 mod related_queries;
+mod search_queries;
+mod section_link_queries;
+mod task_key_queries;
+mod transactions;
+mod worker_read_queries;
 pub(super) use index_queries::PlanIndexRow;
 mod board_state_queries;
 mod list_window_queries;
 mod match_queries;
-mod read_projections;
+pub(super) mod read_projections;
 mod reference_queries;
 mod state_event_queries;
+mod state_event_window;
 mod status_queries;
 mod task_history_queries;
+mod task_list_queries;
 mod task_read_queries;
 mod ui_projections;
-pub use match_queries::{AttemptFieldRow, SectionRefRow, TaskFieldRow, TaskRefRow};
+pub use match_queries::{AttemptLanePathRead, SectionRefRow};
 #[cfg(test)]
 mod schema_tests;
 #[cfg(test)]
@@ -596,5 +618,11 @@ pub(in crate::service_plan) mod task_page_queries;
 #[cfg(test)]
 mod tests;
 
+mod coverage_queries;
+mod document_queries;
 pub(in crate::service_plan) mod hot_write;
 mod operation_retention;
+
+#[cfg(test)]
+pub(super) mod release_upgrade_tests;
+mod task_authority_queries;

@@ -174,3 +174,56 @@ fn macos_self_detection_filters_interface_name_and_exact_cgnat_ula_prefixes() {
         assert!(!interface_address("utun7", ip.parse().unwrap()), "{ip}");
     }
 }
+
+#[test]
+fn macos_bundled_cli_projects_status_json_identity_and_falls_back_to_ip_only_on_failure() {
+    let suffix = "opaque-network.example";
+    let fixture = json!({
+        "BackendState": "Running",
+        "Self": {"TailscaleIPs": [concat!("100.", "64.0.7"), concat!("fd7a:", "115c:a1e0::7")]},
+        "CurrentTailnet": {"Name": "opaque-name", "MagicDNSSuffix": format!("{suffix}.")},
+    })
+    .to_string();
+    let mut calls = Vec::new();
+    let mut failures = Vec::new();
+    let value = macos::cli_with(
+        |args| {
+            calls.push(args.join(" "));
+            Ok(fixture.clone())
+        },
+        &mut failures,
+    )
+    .unwrap();
+    assert_eq!(calls, ["status --json"]);
+    assert!(failures.is_empty());
+    let status = tailscale::project(true, Some(&value));
+    assert_eq!(status.state, TransportState::Connected);
+    assert_eq!(status.addresses.len(), 2);
+    let identity = status.identity.unwrap();
+    assert_eq!(identity.kind, "tailscale");
+    use sha2::Digest;
+    assert_eq!(
+        identity.network_id,
+        format!("{:x}", sha2::Sha256::digest(suffix.as_bytes()))
+    );
+
+    let mut calls = Vec::new();
+    let mut failures = Vec::new();
+    let value = macos::cli_with(
+        |args| {
+            calls.push(args.join(" "));
+            match args {
+                ["status", "--json"] => Ok("not json".into()),
+                ["ip", "-4"] => Ok(concat!("100.", "64.0.7\n").into()),
+                _ => Ok(String::new()),
+            }
+        },
+        &mut failures,
+    )
+    .unwrap();
+    assert_eq!(calls, ["status --json", "ip -4", "ip -6"]);
+    assert!(failures[0].detail.starts_with("status --json:"));
+    let status = tailscale::project(true, Some(&value));
+    assert_eq!(status.addresses.len(), 1);
+    assert!(status.identity.is_none());
+}

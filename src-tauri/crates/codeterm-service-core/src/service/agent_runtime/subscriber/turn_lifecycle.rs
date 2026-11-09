@@ -1,8 +1,47 @@
 use super::super::engine::{self, Session};
 use super::super::events::{self, RuntimeEvent};
 use crate::service::ServiceContext;
-use codeterm_plugin::agent_runtime::RuntimeTurnState;
+use codeterm_plugin::agent_runtime::{RuntimeTurnDetail, RuntimeTurnState};
 use codeterm_types::agent::chat_types::ChatMsg;
+use codeterm_types::pty::TimelineState;
+
+/// A degraded runtime can no longer report a turn end, so nothing may keep waiting on one.
+pub(in crate::service::agent_runtime) fn release_lost_turn(
+    svc: &ServiceContext,
+    session: &Session,
+) {
+    let (tab, thread, turn) = {
+        let mut context = session.context.lock();
+        context.active_turns.clear();
+        (
+            context.tab_id.clone(),
+            context.thread_id.clone(),
+            context.active_turn_id.take(),
+        )
+    };
+    let Some(thread) = thread else {
+        return;
+    };
+    let shown_active = svc
+        .mux
+        .read()
+        .get_tab(&tab)
+        .and_then(|target| target.agent_state.as_ref())
+        .is_some_and(|live| live.state != TimelineState::Idle);
+    if turn.is_none() && !shown_active {
+        return;
+    }
+    if turn.is_some() {
+        engine::record_completed_turn(session, &thread, turn.as_deref());
+        // A provider may name no turn on its tool rows, and nothing can report any of them now.
+        settle_replaced_session(svc, session);
+    }
+    let detail = turn.is_some().then_some(RuntimeTurnDetail::Failed);
+    let live =
+        crate::agent::state_verdict::live_state_for_runtime(&RuntimeTurnState::Idle, detail, None);
+    crate::agent::state_verdict::apply_live(&svc.mux, &tab, &thread, live);
+    svc.mark_agent_turn_complete(&tab);
+}
 
 pub(in crate::service::agent_runtime) fn reconcile_finished_item(
     session: &Session,
@@ -81,6 +120,15 @@ pub(super) fn prepare(
         settle_tools(svc, session, turn_id.as_deref(), "interrupted", at);
     }
     true
+}
+
+/// A session being replaced can no longer report its tools, so none of them stays running.
+pub(in crate::service::agent_runtime) fn settle_replaced_session(
+    svc: &ServiceContext,
+    session: &Session,
+) {
+    let at = chrono::Utc::now().timestamp_millis().max(0) as u64;
+    settle_tools(svc, session, None, "interrupted", at);
 }
 
 pub(super) fn settle_tools(

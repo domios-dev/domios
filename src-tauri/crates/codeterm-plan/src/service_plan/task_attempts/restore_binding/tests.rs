@@ -60,7 +60,11 @@ fn fixture() -> Fixture {
             3,
         )
         .unwrap();
-    let attempt_id = store.show_task(&task_id).unwrap().task.execution_attempts[0]
+    let attempt_id = store
+        .inspect_task_for_test(&task_id)
+        .unwrap()
+        .task
+        .execution_attempts[0]
         .id
         .clone();
     store
@@ -103,7 +107,11 @@ fn fixture() -> Fixture {
 }
 
 fn request(fixture: &Fixture, now_ms: u64) -> RestoreCurrentAttemptBinding {
-    let task = &fixture.store.show_task(&fixture.task_id).unwrap().task;
+    let task = &fixture
+        .store
+        .inspect_task_for_test(&fixture.task_id)
+        .unwrap()
+        .task;
     RestoreCurrentAttemptBinding {
         plan_id: fixture.plan_id.clone(),
         task_id: fixture.task_id.clone(),
@@ -134,7 +142,11 @@ fn request(fixture: &Fixture, now_ms: u64) -> RestoreCurrentAttemptBinding {
 #[test]
 fn attempt_binding_restore_changes_only_nonce_and_receipt() {
     let fixture = fixture();
-    let before = fixture.store.show_task(&fixture.task_id).unwrap().task;
+    let before = fixture
+        .store
+        .inspect_task_for_test(&fixture.task_id)
+        .unwrap()
+        .task;
     let request = request(&fixture, 7);
     let result = fixture
         .store
@@ -155,7 +167,11 @@ fn attempt_binding_restore_changes_only_nonce_and_receipt() {
     expected_attempt
         .binding_restorations
         .push(request.receipt.clone());
-    let actual = fixture.store.show_task(&fixture.task_id).unwrap().task;
+    let actual = fixture
+        .store
+        .inspect_task_for_test(&fixture.task_id)
+        .unwrap()
+        .task;
     assert_eq!(actual, expected);
     assert_eq!(actual.execution_attempts[0].acknowledged_at, Some(4));
     assert_eq!(
@@ -193,7 +209,7 @@ fn attempt_binding_restore_changes_only_nonce_and_receipt() {
     assert_eq!(
         fixture
             .store
-            .show_task(&fixture.task_id)
+            .inspect_task_for_test(&fixture.task_id)
             .unwrap()
             .task
             .execution_attempts[0]
@@ -211,7 +227,11 @@ fn attempt_binding_restore_current_replay_is_a_noop() {
         .store
         .restore_current_attempt_binding(initial_request, 7)
         .unwrap();
-    let before = fixture.store.show_task(&fixture.task_id).unwrap().task;
+    let before = fixture
+        .store
+        .inspect_task_for_test(&fixture.task_id)
+        .unwrap()
+        .task;
     let operation_count = fixture
         .store
         .operation_count_for_test(Some(&fixture.plan_id));
@@ -223,7 +243,11 @@ fn attempt_binding_restore_current_replay_is_a_noop() {
         RestoreCurrentAttemptBindingResult::AlreadyCurrent
     );
     assert_eq!(
-        fixture.store.show_task(&fixture.task_id).unwrap().task,
+        fixture
+            .store
+            .inspect_task_for_test(&fixture.task_id)
+            .unwrap()
+            .task,
         before
     );
     assert_eq!(
@@ -271,7 +295,7 @@ fn attempt_binding_restore_concurrent_duplicate_rotates_once() {
             .count(),
         1
     );
-    let task = store.show_task(&task_id).unwrap().task;
+    let task = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(
         task.execution_attempts[0].session_binding_nonce.as_deref(),
         Some(CURRENT_NONCE)
@@ -297,7 +321,7 @@ fn attempt_binding_restore_close_race_serializes_without_resurrecting_a_closed_a
     let close_barrier = barrier.clone();
     let close = std::thread::spawn(move || {
         close_barrier.wait();
-        close_store.with_plan(&plan_id, 8, |plan| {
+        close_store.edit_plan_fixture(&plan_id, 8, |plan| {
             plan.tasks[0].execution_attempts[0].closed_at = Some(8);
             Ok(())
         })
@@ -305,7 +329,7 @@ fn attempt_binding_restore_close_race_serializes_without_resurrecting_a_closed_a
     barrier.wait();
     let restore_result = restore.join().unwrap();
     close.join().unwrap().unwrap();
-    let task = store.show_task(&task_id).unwrap().task;
+    let task = store.inspect_task_for_test(&task_id).unwrap().task;
     let attempt = &task.execution_attempts[0];
     assert_eq!(attempt.closed_at, Some(8));
     match restore_result {
@@ -327,7 +351,11 @@ fn attempt_binding_restore_close_race_serializes_without_resurrecting_a_closed_a
 #[test]
 fn attempt_binding_restore_storage_failure_keeps_task_unmodified() {
     let fixture = fixture();
-    let before = fixture.store.show_task(&fixture.task_id).unwrap().task;
+    let before = fixture
+        .store
+        .inspect_task_for_test(&fixture.task_id)
+        .unwrap()
+        .task;
     let database_path = fixture.store.database_path_for_test();
     let connection = rusqlite::Connection::open(&database_path).unwrap();
     connection
@@ -346,7 +374,11 @@ fn attempt_binding_restore_storage_failure_keeps_task_unmodified() {
         matches!(error, PlanError::Io(ref message) if message.contains("injected plan write failure"))
     );
     assert_eq!(
-        fixture.store.show_task(&fixture.task_id).unwrap().task,
+        fixture
+            .store
+            .inspect_task_for_test(&fixture.task_id)
+            .unwrap()
+            .task,
         before
     );
     let connection = rusqlite::Connection::open(&database_path).unwrap();
@@ -355,7 +387,13 @@ fn attempt_binding_restore_storage_failure_keeps_task_unmodified() {
         .unwrap();
     drop(connection);
     let reloaded = PlanStore::open(database_path).unwrap();
-    assert_eq!(reloaded.show_task(&fixture.task_id).unwrap().task, before);
+    assert_eq!(
+        reloaded
+            .inspect_task_for_test(&fixture.task_id)
+            .unwrap()
+            .task,
+        before
+    );
 }
 
 #[test]
@@ -374,17 +412,25 @@ fn reported_attempt_restart_restoration_bounce_ack_preserves_identity_and_report
         .unwrap();
     fixture
         .store
-        .with_plan(&fixture.plan_id, 7, |plan| {
+        .edit_plan_fixture(&fixture.plan_id, 7, |plan| {
             plan.tasks[0].status = TaskStatus::InReview;
             Ok(())
         })
         .unwrap();
-    let before = fixture.store.show_task(&fixture.task_id).unwrap().task;
+    let before = fixture
+        .store
+        .inspect_task_for_test(&fixture.task_id)
+        .unwrap()
+        .task;
     let database = fixture.store.database_path_for_test();
     drop(fixture.store);
     fixture.store = PlanStore::open(database).unwrap();
     assert_eq!(
-        fixture.store.show_task(&fixture.task_id).unwrap().task,
+        fixture
+            .store
+            .inspect_task_for_test(&fixture.task_id)
+            .unwrap()
+            .task,
         before
     );
     let restore = request(&fixture, 8);
@@ -392,7 +438,11 @@ fn reported_attempt_restart_restoration_bounce_ack_preserves_identity_and_report
         .store
         .restore_current_attempt_binding(restore, 8)
         .unwrap();
-    let restored = fixture.store.show_task(&fixture.task_id).unwrap().task;
+    let restored = fixture
+        .store
+        .inspect_task_for_test(&fixture.task_id)
+        .unwrap()
+        .task;
     assert_eq!(restored.status, TaskStatus::InReview);
     assert_eq!(restored.execution_attempts[0].reported_at, Some(7));
     assert_eq!(
@@ -464,7 +514,11 @@ fn reported_attempt_restart_restoration_bounce_ack_preserves_identity_and_report
             12,
         )
         .unwrap();
-    let after = fixture.store.show_task(&fixture.task_id).unwrap().task;
+    let after = fixture
+        .store
+        .inspect_task_for_test(&fixture.task_id)
+        .unwrap()
+        .task;
     assert_eq!(after.status, TaskStatus::InProgress);
     assert_eq!(after.execution_attempts.len(), 1);
     assert!(after.execution_attempts[0].closed_at.is_none());
@@ -473,4 +527,137 @@ fn reported_attempt_restart_restoration_bounce_ack_preserves_identity_and_report
         .store
         .current_plan_skill_attempt(TAB_ID, SESSION_ID, OLD_NONCE)
         .is_err());
+}
+
+#[test]
+fn restoration_undo_preserves_metadata_and_refuses_a_newer_nonce_or_owner() {
+    for conflict in [false, true] {
+        let f = fixture();
+        let request = request(&f, 10);
+        f.store
+            .restore_current_attempt_binding(request.clone(), 10)
+            .unwrap();
+        f.store
+            .edit_plan_fixture(&f.plan_id, 11, |plan| {
+                plan.title = "unrelated edit".into();
+                if conflict {
+                    let task = plan
+                        .tasks
+                        .iter_mut()
+                        .find(|task| task.id == f.task_id)
+                        .unwrap();
+                    task.interruption.owner_epoch += 1;
+                }
+                Ok(())
+            })
+            .unwrap();
+        let result = f.store.undo_restored_attempt_binding(&request, 12);
+        let plan = f.store.get(&f.plan_id).unwrap();
+        assert_eq!(plan.title, "unrelated edit");
+        let attempt = plan
+            .tasks
+            .iter()
+            .find(|task| task.id == f.task_id)
+            .unwrap()
+            .execution_attempts
+            .iter()
+            .find(|attempt| attempt.id == f.attempt_id)
+            .unwrap();
+        if conflict {
+            assert!(result
+                .unwrap_err()
+                .to_string()
+                .contains("rollback conflict"));
+            assert_eq!(
+                attempt.session_binding_nonce.as_deref(),
+                Some(CURRENT_NONCE)
+            );
+            assert_eq!(attempt.binding_restorations.last(), Some(&request.receipt));
+        } else {
+            result.unwrap();
+            assert_eq!(attempt.session_binding_nonce.as_deref(), Some(OLD_NONCE));
+            assert!(!attempt
+                .binding_restorations
+                .iter()
+                .any(|receipt| receipt.operation_id == request.receipt.operation_id));
+        }
+    }
+}
+
+#[test]
+fn executor_identity_undo_preserves_other_attempt_fields_and_rejects_newer_identity() {
+    for newer in [None, Some("nonce"), Some("profile")] {
+        let f = fixture();
+        let before = f
+            .store
+            .inspect_task_for_test(&f.task_id)
+            .unwrap()
+            .task
+            .execution_attempts[0]
+            .clone();
+        let receipt = f
+            .store
+            .update_attempt_executor_identity_with_undo(
+                &f.plan_id,
+                &f.task_id,
+                TAB_ID,
+                Some("captured executor"),
+                Some(SESSION_ID),
+                Some(CURRENT_NONCE),
+                Some("captured-profile"),
+                10,
+            )
+            .unwrap();
+        f.store
+            .edit_plan_fixture(&f.plan_id, 11, |plan| {
+                let attempt = plan
+                    .tasks
+                    .iter_mut()
+                    .find(|task| task.id == f.task_id)
+                    .unwrap()
+                    .execution_attempts
+                    .iter_mut()
+                    .find(|attempt| attempt.id == f.attempt_id)
+                    .unwrap();
+                attempt.model = Some("unrelated model edit".into());
+                if newer == Some("nonce") {
+                    attempt.session_binding_nonce = Some("newer nonce".into());
+                }
+                if newer == Some("profile") {
+                    attempt.launch_profile = Some("newer-profile".into());
+                }
+                Ok(())
+            })
+            .unwrap();
+        let result = f.store.undo_attempt_executor_identity(receipt, 12);
+        let current = f
+            .store
+            .inspect_task_for_test(&f.task_id)
+            .unwrap()
+            .task
+            .execution_attempts[0]
+            .clone();
+        assert_eq!(current.model.as_deref(), Some("unrelated model edit"));
+        if newer.is_some() {
+            assert!(result
+                .unwrap_err()
+                .to_string()
+                .contains("rollback conflict"));
+            if newer == Some("nonce") {
+                assert_eq!(
+                    current.session_binding_nonce.as_deref(),
+                    Some("newer nonce")
+                );
+                assert_eq!(current.launch_profile.as_deref(), Some("captured-profile"));
+            } else {
+                assert_eq!(current.launch_profile.as_deref(), Some("newer-profile"));
+            }
+        } else {
+            result.unwrap();
+            assert_eq!(current.launch_profile, before.launch_profile);
+            assert_eq!(current.executor_title, before.executor_title);
+            assert_eq!(current.session_id, before.session_id);
+            assert_eq!(current.session_binding_nonce, before.session_binding_nonce);
+        }
+    }
 }

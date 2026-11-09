@@ -5,7 +5,7 @@ use crate::plan::peer::resolve_planner_ref;
 use crate::plan::PlannerRef;
 use crate::service::plan::{build_plan_state_snapshot, PlanError, PlanStateSnapshot};
 use crate::service::ServiceContext;
-use codeterm_plan::service_plan::state::lane_rows;
+use codeterm_plan::service_plan::state::{lane_rows, window::StateWindowRequest};
 
 impl ServiceContext {
     pub fn build_plan_board_state(
@@ -21,7 +21,12 @@ impl ServiceContext {
             event_offset,
             include_events,
         )?;
-        let suspended = self.curator_suspended_reason_for_state(&read.plan, read.complete);
+        let suspended = self.curator_suspended_reason_for_fields(
+            &read.mode,
+            &read.status,
+            &read.team_id,
+            read.complete,
+        );
         read.value["control_loop"]["suspended_reason"] = serde_json::json!(suspended);
         if suspended.is_some() {
             read.value["control_loop"]["next_at"] = serde_json::Value::Null;
@@ -36,11 +41,19 @@ impl ServiceContext {
         plan_id: &str,
         now_ms: u64,
     ) -> Result<PlanStateSnapshot, PlanError> {
-        self.reconcile_curator_id(plan_id, now_ms)?;
+        self.build_plan_state_with_window(plan_id, now_ms, StateWindowRequest::default())
+    }
+
+    pub fn build_plan_state_with_window(
+        &self,
+        plan_id: &str,
+        now_ms: u64,
+        window: StateWindowRequest,
+    ) -> Result<PlanStateSnapshot, PlanError> {
         let read = self.plan_store.status_projection(plan_id, now_ms)?;
-        let plan = read.plan();
-        let coverage = compute_coverage_report(&plan);
-        let reconcile = self.reconcile_plan_record(&plan, false, None, now_ms)?;
+        let plan = read.input();
+        let coverage = compute_coverage_report(plan);
+        let reconcile = self.reconcile_plan_record(plan, false, None, now_ms)?;
         let drift = reconcile.drift;
         let cleanup_debt = reconcile.cleanup_debt;
 
@@ -58,11 +71,11 @@ impl ServiceContext {
                 live_tabs.insert(tab_id.clone());
             }
         }
-        let lanes = lane_rows::build_lane_rows(&plan, |p| self.tab_probe(p), now_ms);
+        let lanes = lane_rows::build_lane_rows(plan, |p| self.tab_probe(p), now_ms);
         let planner_resolution =
             resolve_planner_ref(&plan.planner, &plan.owner, |tab_id| self.tab_probe(tab_id));
         let mut snapshot = build_plan_state_snapshot(
-            &plan,
+            plan,
             coverage,
             drift,
             cleanup_debt,
@@ -73,11 +86,19 @@ impl ServiceContext {
         );
         read.apply_history_facts(&mut snapshot, now_ms);
         snapshot.mission_control.kpi = super::mission_control_ext::plan_kpi(self, plan_id);
-        snapshot.control_loop.suspended_reason = self.curator_suspended_reason(plan);
+        snapshot.control_loop.suspended_reason = self.curator_suspended_reason_for_fields(
+            &plan.mode,
+            &plan.status,
+            &plan.team_id,
+            snapshot.task_counts.total > 0
+                && snapshot.task_counts.done + snapshot.task_counts.cancelled
+                    == snapshot.task_counts.total,
+        );
         if snapshot.control_loop.suspended_reason.is_some() {
             snapshot.control_loop.next_at = None;
         }
         snapshot.mission_control.spend = super::mission_control_ext::machine_spend(self);
+        snapshot.window_details(window);
         Ok(snapshot)
     }
 }

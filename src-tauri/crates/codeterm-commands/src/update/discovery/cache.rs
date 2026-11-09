@@ -49,7 +49,9 @@ pub fn now_ms() -> u64 {
 pub fn fresh(checked_at_ms: Option<u64>, now_ms: u64) -> bool {
     checked_at_ms
         .and_then(|checked| now_ms.checked_sub(checked))
-        .is_some_and(|age| age < 30_000)
+        .is_some_and(|age| {
+            age < codeterm_update::discovery_policy::EVENT_THROTTLE.as_millis() as u64
+        })
 }
 
 #[cfg(test)]

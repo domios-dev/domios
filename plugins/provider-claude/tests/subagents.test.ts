@@ -4,6 +4,7 @@
  */
 
 import assert from "node:assert/strict";
+import { installTestIo } from "../../provider-shared/tests/hostIo";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 
@@ -46,6 +47,7 @@ let hideSidechain = false;
     },
   },
 };
+installTestIo((globalThis as {host: object}).host);
 const plugin = (await import("../src/plugin")).default as unknown as Plugin;
 
 const lines = fs.readFileSync(`${projectDir}/${SID}.jsonl`, "utf8").split("\n").filter(Boolean);

@@ -116,6 +116,12 @@ body {
   box-shadow: none !important;
 }
 
+/* A view that follows another client's PTY size keeps the owner's rows and
+   columns; whatever does not fit its own box scrolls instead of refitting. */
+.terminal-xterm-host[data-geometry="follow"] {
+  overflow: auto;
+}
+
 .terminal-xterm-host > .xterm {
   /* FitAddon subtracts the .xterm element's own padding when it sizes columns. */
   box-sizing: border-box;

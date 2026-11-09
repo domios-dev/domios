@@ -11,6 +11,9 @@ pub fn untranscribed_note(error: &TranscribeError) -> String {
              enables itself. Do not build anything by hand."
                 .to_string()
         }
+        TranscribeError::TimedOut(_) => format!(
+            "transcription unavailable: {error}. The voice note is kept; send it again to retry."
+        ),
         other => format!("transcription unavailable: {other}"),
     }
 }
@@ -99,6 +102,42 @@ mod tests {
             parsed.payload,
             untranscribed_note(&TranscribeError::NoBackend)
         );
+    }
+
+    struct SlowTranscriber;
+
+    #[async_trait::async_trait]
+    impl crate::transcribe::Transcriber for SlowTranscriber {
+        fn id(&self) -> &str {
+            "slow"
+        }
+        async fn status(&self) -> crate::transcribe::TranscriberStatus {
+            crate::transcribe::TranscriberStatus::Ready
+        }
+        async fn transcribe(
+            &self,
+            _audio_path: &Path,
+            _language: &str,
+        ) -> Result<crate::transcribe::Transcript, TranscribeError> {
+            Err(TranscribeError::TimedOut(std::time::Duration::from_secs(
+                300,
+            )))
+        }
+    }
+
+    // A timed-out transcription keeps the note's path and says honestly what happened.
+    #[tokio::test]
+    async fn timed_out_voice_attachment_keeps_the_note_and_explains_retry() {
+        let reg = TranscribeRegistry::new();
+        reg.register("slow", Arc::new(SlowTranscriber));
+        let line = format_attachment_line("/note.webm", "voice", None, &reg, "slow").await;
+        let parsed = codeterm_wire::message_markers::parse(&line).unwrap();
+        assert_eq!(parsed.attr("status"), Some("untranscribed"));
+        // The parser exposes the wire `path` attribute as `file`.
+        assert_eq!(parsed.attr("file"), Some("/note.webm"));
+        assert!(line.contains("path=\"/note.webm\""), "got {line}");
+        assert!(parsed.payload.contains("did not finish within 300 s"));
+        assert!(parsed.payload.contains("send it again to retry"));
     }
 
     // Non-voice attachments are untouched by the voice stage.

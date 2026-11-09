@@ -1,20 +1,8 @@
-// Codex remains the trust-hash authority because its private hash algorithm can change across releases.
+import { ioResolve } from "@codeterm/plugin-sdk";
+import { type HostIoSteps } from "@codeterm/plugin-sdk";
 import { CODETERM_CODEX_HOOK_MARKER } from "./hooks";
 
-declare const host: {
-  platform(): string;
-  exec: ((optsJson: string) => string) & {
-    async?: (
-      opts: {
-        bin: string;
-        args: string[];
-        conversation: { stdin: string; awaitResponseIds: number[] }[];
-        timeoutMs: number;
-      },
-      then: (result: unknown) => unknown,
-    ) => unknown;
-  };
-};
+declare const host: import("@codeterm/plugin-sdk").Host;
 
 export interface CodexTrustGrantOutcome {
   granted: boolean;
@@ -116,7 +104,7 @@ function parseAppServerSession(raw: unknown): SessionOutcome {
   return { kind: "ok", responses };
 }
 
-function runAppServerSession(requests: RpcRequest[], then: (session: SessionOutcome) => unknown): unknown {
+function* runAppServerSession(requests: RpcRequest[], then: (session: SessionOutcome) => unknown): HostIoSteps<unknown> {
   const initialize = JSON.stringify({
       method: "initialize",
       id: 1,
@@ -143,14 +131,10 @@ function runAppServerSession(requests: RpcRequest[], then: (session: SessionOutc
     ],
     timeoutMs: APP_SERVER_EXIT_DEADLINE_MS,
   };
-  try {
-    const asyncExec = host.exec.async;
-    return typeof asyncExec === "function"
-      ? asyncExec(opts, (raw) => then(parseAppServerSession(raw)))
-      : then(parseAppServerSession(host.exec(JSON.stringify(opts))));
-  } catch (e) {
-    return then({ kind: "failed", reason: "host.exec threw: " + String(e) });
-  }
+  let outcome: SessionOutcome;
+  try { outcome = parseAppServerSession(yield* host.io.exec(opts)); }
+  catch (error) { outcome = { kind: "failed", reason: "host.exec threw: " + String(error) }; }
+  return yield* ioResolve(then(outcome));
 }
 
 function requestOutcome(
@@ -264,39 +248,39 @@ function recordedTrustedHash(config: string, key: string): string | null {
   return null;
 }
 
-export function inspectCodexHookTrust(opts: {
+export function* inspectCodexHookTrust(opts: {
   hooksPath: string;
   config: string;
   managedLabels: string[];
   listCwd: string;
-}, then: (inspection: CodexHookTrustInspection) => unknown = (inspection) => inspection): unknown {
-  return runAppServerSession([
+}, then: (inspection: CodexHookTrustInspection) => unknown = (inspection) => inspection): HostIoSteps<unknown> {
+  return (yield* runAppServerSession([
     { method: "hooks/list", id: 2, params: { cwds: [opts.listCwd] } },
-  ], (session) => {
+  ], function*(session) {
     const result = requestOutcome(session, 2, "hooks/list");
-    if (result.kind !== "ok") return then({ verdict: "unknown", reason: result.reason });
+    if (result.kind !== "ok") return (yield* ioResolve(then({ verdict: "unknown", reason: result.reason })));
     const managed = managedListings(collectHookListings(result.result), opts.hooksPath, opts.managedLabels);
     if (managed.length !== opts.managedLabels.length) {
-      return then({
+      return (yield* ioResolve(then({
         verdict: "unknown",
         reason: "Codex returned " + managed.length + " managed hooks, expected " + opts.managedLabels.length,
-      });
+      })));
     }
     for (let i = 0; i < managed.length; i++) {
       const listing = managed[i];
       const recorded = recordedTrustedHash(opts.config, listing.key);
       if (recorded === null) {
-        return then({ verdict: "unknown", reason: "No recorded trusted_hash exists for " + listing.key });
+        return (yield* ioResolve(then({ verdict: "unknown", reason: "No recorded trusted_hash exists for " + listing.key })));
       }
       if (recorded !== listing.currentHash) {
-        return then({ verdict: "stale", reason: "Recorded trusted_hash does not match Codex currentHash for " + listing.key });
+        return (yield* ioResolve(then({ verdict: "stale", reason: "Recorded trusted_hash does not match Codex currentHash for " + listing.key })));
       }
       if (listing.trustStatus !== "trusted") {
-        return then({ verdict: "unknown", reason: "Codex reports trustStatus=" + listing.trustStatus + " for " + listing.key });
+        return (yield* ioResolve(then({ verdict: "unknown", reason: "Codex reports trustStatus=" + listing.trustStatus + " for " + listing.key })));
       }
     }
-    return then({ verdict: "trusted" });
-  });
+    return (yield* ioResolve(then({ verdict: "trusted" })));
+  }));
 }
 
 function outcome(partial: Partial<CodexTrustGrantOutcome>): CodexTrustGrantOutcome {
@@ -315,44 +299,44 @@ function outcome(partial: Partial<CodexTrustGrantOutcome>): CodexTrustGrantOutco
  * The upserted hash is always the hash Codex itself reported on hooks/list.
  * Failure paths never write config directly: Codex owns every trust-hash edit.
  */
-export function grantCodexHookTrust(opts: {
+export function* grantCodexHookTrust(opts: {
   hooksPath: string;
   configPath: string | null;
   managedLabels: string[];
   listCwd: string;
-}, then: (result: CodexTrustGrantOutcome) => unknown = (result) => result): unknown {
+}, then: (result: CodexTrustGrantOutcome) => unknown = (result) => result): HostIoSteps<unknown> {
   if (!opts.configPath) {
-    return then(outcome({ degraded: true, reason: "could not resolve Codex config path" }));
+    return (yield* ioResolve(then(outcome({ degraded: true, reason: "could not resolve Codex config path" }))));
   }
-  return grantCodexHookTrustFromCodex(opts, then);
+  return (yield* grantCodexHookTrustFromCodex(opts, then));
 }
 
-function grantCodexHookTrustFromCodex(opts: {
+function* grantCodexHookTrustFromCodex(opts: {
   hooksPath: string;
   configPath: string | null;
   managedLabels: string[];
   listCwd: string;
-}, then: (result: CodexTrustGrantOutcome) => unknown): unknown {
+}, then: (result: CodexTrustGrantOutcome) => unknown): HostIoSteps<unknown> {
   if (!opts.managedLabels.length) {
-    return then(outcome({ degraded: true, reason: "no managed hook keys declared" }));
+    return (yield* ioResolve(then(outcome({ degraded: true, reason: "no managed hook keys declared" }))));
   }
   if (!opts.configPath) {
-    return then(outcome({ degraded: true, reason: "could not resolve Codex config path" }));
+    return (yield* ioResolve(then(outcome({ degraded: true, reason: "could not resolve Codex config path" }))));
   }
 
-  return runAppServerSession([
+  return (yield* runAppServerSession([
     { method: "hooks/list", id: 2, params: { cwds: [opts.listCwd] } },
-  ], (listSession) => {
+  ], function*(listSession) {
     const listResult = requestOutcome(listSession, 2, "hooks/list");
-    if (listResult.kind === "unavailable") return then(outcome({ degraded: true, reason: listResult.reason }));
-    if (listResult.kind === "failed") return then(outcome({ reason: listResult.reason }));
+    if (listResult.kind === "unavailable") return (yield* ioResolve(then(outcome({ degraded: true, reason: listResult.reason }))));
+    if (listResult.kind === "failed") return (yield* ioResolve(then(outcome({ reason: listResult.reason }))));
 
     const managed = managedListings(collectHookListings(listResult.result), opts.hooksPath, opts.managedLabels);
     if (managed.length !== opts.managedLabels.length) {
-      return then(outcome({
+      return (yield* ioResolve(then(outcome({
         verify_failed: true,
         reason: "hooks/list reported " + managed.length + " managed entries, expected " + opts.managedLabels.length,
-      }));
+      }))));
     }
 
     const needingTrust: HookListing[] = [];
@@ -360,60 +344,60 @@ function grantCodexHookTrustFromCodex(opts: {
       if (managed[i].trustStatus !== "trusted") needingTrust.push(managed[i]);
     }
     if (!needingTrust.length) {
-      return then(outcome({
+      return (yield* ioResolve(then(outcome({
         granted: true,
         entries: managed.map((listing) => ({ key: listing.key, hash: listing.currentHash })),
-      }));
+      }))));
     }
 
-    if (!opts.configPath) return then(outcome({ reason: "Codex config path is unknown; trust was not granted" }));
+    if (!opts.configPath) return (yield* ioResolve(then(outcome({ reason: "Codex config path is unknown; trust was not granted" }))));
     const value: Record<string, { trusted_hash: string }> = {};
     for (let i = 0; i < needingTrust.length; i++) {
       const currentHash = needingTrust[i].currentHash;
-      if (!currentHash) return then(outcome({ reason: "Codex reported no current hash for a hook that needs trust" }));
+      if (!currentHash) return (yield* ioResolve(then(outcome({ reason: "Codex reported no current hash for a hook that needs trust" }))));
       value[needingTrust[i].key] = { trusted_hash: currentHash };
     }
-    return runAppServerSession([
+    return (yield* runAppServerSession([
       {
         method: "config/batchWrite",
         id: 2,
         params: { edits: [{ keyPath: "hooks.state", value, mergeStrategy: "upsert" }], reloadUserConfig: true },
       },
       { method: "hooks/list", id: 3, params: { cwds: [opts.listCwd] } },
-    ], (writeSession) => {
+    ], function*(writeSession) {
       const writeResult = requestOutcome(writeSession, 2, "config/batchWrite");
-      if (writeResult.kind !== "ok") return then(outcome({ reason: writeResult.reason }));
+      if (writeResult.kind !== "ok") return (yield* ioResolve(then(outcome({ reason: writeResult.reason }))));
       const writeStatus = writeResult.result && typeof writeResult.result === "object"
         ? (writeResult.result as { status?: unknown }).status
         : undefined;
       if (writeStatus !== "ok") {
-        return then(outcome({ reason: "config/batchWrite did not confirm status=ok" }));
+        return (yield* ioResolve(then(outcome({ reason: "config/batchWrite did not confirm status=ok" }))));
       }
       const verifyResult = requestOutcome(writeSession, 3, "hooks/list");
       if (verifyResult.kind !== "ok") {
-        return then(outcome({ wrote: true, verify_failed: true, reason: verifyResult.reason }));
+        return (yield* ioResolve(then(outcome({ wrote: true, verify_failed: true, reason: verifyResult.reason }))));
       }
 
       const verified = managedListings(collectHookListings(verifyResult.result), opts.hooksPath, opts.managedLabels);
       if (verified.length !== opts.managedLabels.length) {
-        return then(outcome({ wrote: true, verify_failed: true, reason: "post-grant verify reported " + verified.length + " managed entries" }));
+        return (yield* ioResolve(then(outcome({ wrote: true, verify_failed: true, reason: "post-grant verify reported " + verified.length + " managed entries" }))));
       }
       const expectedHashes: Record<string, string> = {};
       for (let i = 0; i < managed.length; i++) expectedHashes[managed[i].key] = managed[i].currentHash;
       for (let i = 0; i < verified.length; i++) {
         const listing = verified[i];
         if (listing.trustStatus !== "trusted") {
-          return then(outcome({ wrote: true, verify_failed: true, reason: "post-grant verify left " + listing.key + " " + listing.trustStatus }));
+          return (yield* ioResolve(then(outcome({ wrote: true, verify_failed: true, reason: "post-grant verify left " + listing.key + " " + listing.trustStatus }))));
         }
         if (expectedHashes[listing.key] !== listing.currentHash) {
-          return then(outcome({ wrote: true, verify_failed: true, reason: "post-grant verify reported a different hash for " + listing.key }));
+          return (yield* ioResolve(then(outcome({ wrote: true, verify_failed: true, reason: "post-grant verify reported a different hash for " + listing.key }))));
         }
       }
-      return then(outcome({
+      return (yield* ioResolve(then(outcome({
         granted: true,
         wrote: true,
         entries: verified.map((listing) => ({ key: listing.key, hash: listing.currentHash })),
-      }));
-    });
-  });
+      }))));
+    }));
+  }));
 }

@@ -1,5 +1,6 @@
+import type { PlanView as Plan } from "../Canvas/planProjection";
 import type { Tab } from "../../lib/types";
-import { TaskStatus, type Plan } from "../Canvas/types";
+import { TaskStatus } from "../Canvas/types";
 import { PLAN_STATUS_COLORS } from "../shared/SegmentedDonut";
 import type { PlanStatusCounts } from "../shared/PlanStatusBreakdown";
 export interface TeamTaskBucket {

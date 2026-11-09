@@ -41,7 +41,7 @@ fn make_source_plan(root: &Path) -> (PlanStore, String, String, PathBuf) {
         )
         .unwrap();
     store
-        .with_plan(&plan.id, 30, |plan| {
+        .edit_plan_fixture(&plan.id, 30, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()
@@ -140,6 +140,7 @@ fn adopt_plan_preserves_task_files_and_clears_stale_runtime_bindings() {
         .is_file());
     assert!(target_store
         .list_index()
+        .unwrap()
         .iter()
         .any(|entry| entry.plan_id == plan_id));
 }

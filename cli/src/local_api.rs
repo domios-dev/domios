@@ -146,6 +146,13 @@ impl LocalApiResponse {
             .and_then(serde_json::Value::as_u64)
             .and_then(|status| StatusCode::from_u16(status as u16).ok())
             .ok_or_else(|| LocalApiError::new("local API response missing status"))?;
+        if status.is_success() {
+            if let Some(body) = value.get("body").and_then(serde_json::Value::as_str) {
+                if let Ok(body) = serde_json::from_str::<serde_json::Value>(body) {
+                    crate::cmd::print::exit_if_daemon_failure(&body);
+                }
+            }
+        }
         let mut headers = HeaderMap::new();
         if let Some(values) = value.get("headers").and_then(serde_json::Value::as_object) {
             for (name, value) in values {

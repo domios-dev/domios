@@ -1,3 +1,5 @@
+// Synchronous JS transcript hooks need the production REST runtime flavor;
+// a single multithread worker preserves the fixture's scheduling constraint.
 use super::*;
 use codeterm_service_core::multiplexer::state::MultiplexerState;
 use codeterm_service_core::service::test_fixture::ServiceFixture;
@@ -64,7 +66,7 @@ async fn response_body(response: Response) -> serde_json::Value {
     serde_json::from_slice(&bytes).unwrap()
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn frozen_chat_and_pty_snapshots_serve_stored_messages_without_runtime() {
     for (runtime, chat_backend) in [(true, true), (true, false), (false, false)] {
         let (mut mux, tab_id) = MultiplexerState::new();
@@ -176,7 +178,7 @@ async fn runtime_without_a_session_returns_pending_waking_without_launching() {
     assert!(codeterm_service_core::service::agent_runtime::engine::for_tab(&tab_id).is_none());
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn runtime_history_missing_and_corrupt_return_typed_non_500_responses() {
     for (missing, expected_status, code, state) in [
         (
@@ -224,5 +226,44 @@ async fn runtime_history_missing_and_corrupt_return_typed_non_500_responses() {
         assert_eq!(body["code"], code);
         assert_eq!(body["state"], state);
         assert!(body["error"].is_string());
+    }
+}
+
+#[tokio::test]
+async fn misplaced_session_path_dispatch_is_unavailable_instead_of_missing() {
+    for runtime in [false, true] {
+        let (mut mux, tab_id) = MultiplexerState::new();
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.frozen = true;
+        tab.agent_type = Some("snapshot-file".into());
+        tab.agent_session_id = Some("owned-session".into());
+        if runtime {
+            tab.backing = TabBacking::ChatBackend {
+                plugin_id: "snapshot-file".into(),
+                session_id: "owned-session".into(),
+            };
+        }
+        let fixture = ServiceFixture::new(mux);
+        register_file_provider_with_history(&fixture, runtime, runtime);
+        let response = snapshot(
+            AxumState(crate::transport_tabs::fixture::app_state(&fixture)),
+            Path(tab_id),
+            Query(ChatQuery { since: 0 }),
+            HeaderMap::new(),
+        )
+        .await
+        .unwrap_err()
+        .into_response();
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let body = response_body(response).await;
+        assert_eq!(body["code"], "chat_history_unavailable");
+        assert_eq!(body["state"], "unavailable");
+        assert!(
+            body["error"]
+                .as_str()
+                .unwrap()
+                .contains("session_path_runtime_placement"),
+            "{body}"
+        );
     }
 }

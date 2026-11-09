@@ -1,4 +1,4 @@
-import type { Plan } from "../types";
+import type { PlanView as Plan } from "../planProjection";
 import type { PlanControlLoop } from "../planControlLoop";
 import type { PlanOversight } from "./planSettingsModel";
 

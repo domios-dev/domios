@@ -33,5 +33,12 @@ e8a91318bfd8c897e8e88dbc122ebe05bc06e7be:plugins/browser/tests/blueprintStep.tes
 # Generated provider output-limit comparisons, not credentials
 5a57f7e202bb85820fb933e6dded30656671860b:plugins/provider-claude/plugin.js:generic-api-key:667
 5a57f7e202bb85820fb933e6dded30656671860b:plugins/provider-codex/plugin.js:generic-api-key:1178
-plugins/provider-claude/plugin.js:generic-api-key:667
-plugins/provider-codex/plugin.js:generic-api-key:1178
+096608ee249126d0e1271b3910d43bbb2cc704d8:plugins/provider-codex/plugin.js:generic-api-key:2268
+plugins/provider-claude/plugin.js:generic-api-key:1010
+plugins/provider-codex/plugin.js:generic-api-key:2268
+1f3a5e301ca97f94190ba98b51418bf059496c3e:tests/fixtures/chat/image-stress.jsonl:generic-api-key:6
+1f3a5e301ca97f94190ba98b51418bf059496c3e:tests/fixtures/chat/image-stress.jsonl:generic-api-key:22
+1f3a5e301ca97f94190ba98b51418bf059496c3e:tests/fixtures/chat/image-stress.jsonl:generic-api-key:31
+tests/fixtures/chat/image-stress.jsonl:generic-api-key:6
+tests/fixtures/chat/image-stress.jsonl:generic-api-key:22
+tests/fixtures/chat/image-stress.jsonl:generic-api-key:31

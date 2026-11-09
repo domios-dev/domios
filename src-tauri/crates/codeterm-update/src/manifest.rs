@@ -2,6 +2,8 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
+mod http;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ManifestPlatform {
     pub url: String,
@@ -17,6 +19,9 @@ pub struct Manifest {
     pub pub_date: Option<String>,
     #[serde(default)]
     pub platforms: HashMap<String, ManifestPlatform>,
+    /// How these bytes reached this process; never part of the published or cached document.
+    #[serde(skip)]
+    pub served_by: Option<crate::release_transport::ServedBy>,
 }
 
 pub fn current_platform_key() -> Option<&'static str> {
@@ -80,6 +85,15 @@ pub fn validate_url(url: &str) -> Result<(), String> {
 }
 
 pub async fn fetch(url: &str) -> Result<Manifest, String> {
+    fetch_with(url, false).await
+}
+
+/// An owner action or an install: the endpoint's event throttle and failure backoff do not apply.
+pub async fn fetch_explicit(url: &str) -> Result<Manifest, String> {
+    fetch_with(url, true).await
+}
+
+async fn fetch_with(url: &str, explicit: bool) -> Result<Manifest, String> {
     validate_url(url)?;
     if codeterm_plugins::update_source::fixture_root().is_some() {
         let url = url.to_owned();
@@ -94,6 +108,9 @@ pub async fn fetch(url: &str) -> Result<Manifest, String> {
     let parsed = reqwest::Url::parse(url).map_err(|error| error.to_string())?;
     if parsed.scheme() == "file" {
         return load_file_manifest(url);
+    }
+    if explicit {
+        http::expire(url).await?;
     }
     fetch_http(url).await
 }
@@ -118,31 +135,7 @@ fn load_file_manifest(url: &str) -> Result<Manifest, String> {
 }
 
 async fn fetch_http(url: &str) -> Result<Manifest, String> {
-    if url.starts_with("https://") {
-        let url = url.to_string();
-        return tokio::task::spawn_blocking(move || {
-            let bytes =
-                codeterm_plugins::update_source::discovery_source().fetch(&url, 1024 * 1024)?;
-            serde_json::from_slice(&bytes).map_err(|e| format!("manifest: {e}"))
-        })
-        .await
-        .map_err(|e| e.to_string())?;
-    }
-    let client = reqwest::Client::builder()
-        .user_agent("Domios-Updater")
-        .build()
-        .map_err(|e| e.to_string())?;
-    let resp = client
-        .get(url)
-        .send()
-        .await
-        .map_err(|e| format!("failed to fetch manifest: {}", e))?;
-    if !resp.status().is_success() {
-        return Err(format!("manifest fetch returned HTTP {}", resp.status()));
-    }
-    resp.json::<Manifest>()
-        .await
-        .map_err(|e| format!("failed to parse manifest JSON: {}", e))
+    http::fetch(url).await
 }
 
 pub fn diff(local: &str, m: &Manifest) -> Result<Option<String>, String> {

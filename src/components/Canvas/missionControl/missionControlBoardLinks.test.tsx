@@ -1,3 +1,4 @@
+import { muxMockFetch } from "../../../lib/muxMockFetch.testdata";
 import { beforeEach as beforeDaemonCase } from "vitest";
 import { configureDaemonFixture } from "../../../test/daemonTransport.testdata";
 beforeDaemonCase(() => configureDaemonFixture());
@@ -82,7 +83,8 @@ async function mount(ui: ReactElement) {
 async function settle() {
   for (let pass = 0; pass < 10; pass += 1) {
     await act(async () => {
-      await Promise.resolve();
+      // Daemon responses ride the mux stream, which settles across event-loop turns.
+      await new Promise((resolve) => setTimeout(resolve, 0));
     });
   }
 }
@@ -114,7 +116,7 @@ describe("mission control previous plans", () => {
       }
       return { ok: false, status: 404, json: async () => ({}), text: async () => "not found" };
     });
-    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("fetch", muxMockFetch(fetchMock));
     const onOpenPlanTarget = vi.fn();
     try {
       const { unmount } = await mount(

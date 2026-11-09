@@ -30,6 +30,8 @@ export interface GaugeMarker {
 interface UsageGaugeProps {
   label: string;
   variant: "session" | "weekly";
+  /** Shown in the reset slot instead of a reset time, e.g. a context gauge's "41.2k of 200k tokens". */
+  note?: string;
   pct: number | null;
   resetsAt: number | null;
   state: "neutral" | "warn" | "danger";
@@ -47,6 +49,7 @@ export function UsageGauge({
   markers = [],
   now,
   showIntroHint = false,
+  note,
 }: UsageGaugeProps) {
   const width = pct == null ? 0 : Math.max(0, Math.min(100, pct));
   return (
@@ -72,7 +75,7 @@ export function UsageGauge({
           ));
         })()}
       </div>
-      <span className="reset">{resetsAt ? formatResetsAt(resetsAt, now) : "—"}</span>
+      <span className="reset">{note ?? (resetsAt ? formatResetsAt(resetsAt, now) : "—")}</span>
     </div>
   );
 }

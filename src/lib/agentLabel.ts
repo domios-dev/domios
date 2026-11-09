@@ -6,7 +6,7 @@
  * fact yet is "unobserved" rather than guessed in either direction.
  */
 
-import { shortModelName } from "./agentModelName";
+import { isQualifiedModelId, plainModelId, shortModelName } from "./agentModelName";
 import { formatModelBadge, modelBadgeWidthForProvider } from "./formatModelBadge";
 
 export type AgentLiveness = "live" | "absent" | "unobserved";
@@ -102,7 +102,8 @@ export function agentBracketLabel(
   const providerText = provider?.trim();
   if (!providerText) return null;
   const modelText = model?.trim();
-  const identity = (modelText ? shortModelName(modelText) : null) ?? providerText;
+  const qualified = modelText && isQualifiedModelId(modelText) ? plainModelId(modelText) : null;
+  const identity = (modelText ? shortModelName(modelText) : null) ?? qualified ?? providerText;
   return withLiveness(identity, liveness);
 }
 

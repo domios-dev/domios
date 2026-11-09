@@ -15,13 +15,17 @@ fn startup_snapshot_backfills_every_plan_without_mutating_it() {
     );
     let plans = vec![first, second];
     let before = plans.clone();
-    let (result, jobs) = project_jobs(Path::new("/recovery-project"), &plans, &[]);
+    let (result, jobs) = project_jobs(
+        Path::new("/recovery-project"),
+        plans.iter().map(PlanSearchSnapshot::from_plan).collect(),
+        &[],
+    );
     assert_eq!(plans, before);
     assert_eq!((result.plans, result.units), (2, 2));
     assert!(matches!(&jobs[0], IndexJob::Prune(_, live) if live.len() == 2));
     assert_eq!(
         jobs.iter()
-            .filter(|job| matches!(job, IndexJob::Plan(_, PlanIndexScope::Full)))
+            .filter(|job| matches!(job, IndexJob::PlanSnapshot(_)))
             .count(),
         2
     );
@@ -43,7 +47,10 @@ fn reindex_live_set_excludes_foreign_and_deleted_units() {
     spec.plan_id = Some(first.id.clone());
     let (result, jobs) = project_jobs(
         Path::new("/recovery-project"),
-        &[first.clone(), foreign.clone()],
+        [first.clone(), foreign.clone()]
+            .iter()
+            .map(PlanSearchSnapshot::from_plan)
+            .collect(),
         &[spec.clone()],
     );
     assert_eq!((result.plans, result.specs), (1, 1));
@@ -101,8 +108,31 @@ fn purge_failure_names_plan_index_and_storage_reason() {
         "/recovery-project".into(),
         OrchestratorRef::default(),
     );
-    queue.enqueue(IndexJob::PurgePlan(plan, vec![]));
+    queue.enqueue(IndexJob::PurgePlan(plan.into(), vec![]));
     let (key, project, _) = queue.take();
     queue.complete(key.clone(), project, true);
     assert!(queue.state.lock().needs_full.contains(&key));
+}
+
+#[test]
+fn queued_recovery_snapshot_forces_superseding_partial_plan_to_rebuild_all_units() {
+    let plan = Plan::new(
+        "Recovery".into(),
+        "/recovery-project".into(),
+        OrchestratorRef::default(),
+    );
+    let queue = IndexQueue::default();
+    queue.enqueue(IndexJob::PlanSnapshot(PlanSearchSnapshot::from_plan(&plan)));
+    queue.enqueue(IndexJob::PlanSnapshot(PlanSearchSnapshot::from_plan(
+        &plan.clone(),
+    )));
+    let (key, project, job) = queue.take();
+    assert!(matches!(job, IndexJob::PlanSnapshot(_)));
+    queue.complete(key, project, false);
+    queue.enqueue(IndexJob::PlanSnapshot(PlanSearchSnapshot::from_plan(
+        &plan.clone(),
+    )));
+    queue.enqueue(IndexJob::PlanSnapshot(PlanSearchSnapshot::from_plan(&plan)));
+    let (_, _, job) = queue.take();
+    assert!(matches!(job, IndexJob::PlanSnapshot(_)));
 }

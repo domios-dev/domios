@@ -6,11 +6,13 @@ use axum::{
     Json,
 };
 use base64::Engine;
-use codeterm_types::{plan::Plan, plan::PlanLifecycleEvent, plan::PlanStatus, team::Team};
+use codeterm_types::{plan::PlanLifecycleEvent, plan::PlanStatus, team::Team};
 use serde::{Deserialize, Serialize};
 
 use crate::routes::AppState;
-use codeterm_service_core::service::plan::PlanStore;
+use codeterm_service_core::service::plan::{
+    PlanError, PlanStore, TeamEventCursor, TeamPlanMetadataRead, TeamPlanRead,
+};
 
 const DEFAULT_LIMIT: usize = 50;
 const MAX_LIMIT: usize = 100;
@@ -75,8 +77,9 @@ pub struct TeamPlanGoal {
     pub vector: String,
 }
 
-impl From<&Plan> for TeamPlanSummary {
-    fn from(plan: &Plan) -> Self {
+impl From<&TeamPlanRead> for TeamPlanSummary {
+    fn from(input: &TeamPlanRead) -> Self {
+        let plan = &input.metadata;
         Self {
             id: plan.id.clone(),
             title: plan.title.clone(),
@@ -88,17 +91,12 @@ impl From<&Plan> for TeamPlanSummary {
                 vector: goal.vector.clone(),
             }),
             updated_at: plan.updated_at,
-            task_counts: codeterm_plan::service_plan::state::task_counts(plan),
+            task_counts: input.task_counts.clone(),
         }
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
-struct EventCursor {
-    ts: u64,
-    plan_id: String,
-    event_id: String,
-}
+type EventCursor = TeamEventCursor;
 
 fn encode_cursor(event: &TeamMissionControlEvent) -> String {
     let payload = EventCursor {
@@ -143,7 +141,7 @@ fn author_parts(author: &codeterm_types::plan::OrchestratorRef) -> (String, Opti
 }
 
 fn lifecycle_event(
-    plan: &Plan,
+    plan: &TeamPlanMetadataRead,
     event: &PlanLifecycleEvent,
     ordinal: usize,
 ) -> TeamMissionControlEvent {
@@ -170,7 +168,7 @@ fn lifecycle_event(
 }
 
 fn stored_event(
-    plan: &Plan,
+    plan: &TeamPlanMetadataRead,
     event: &codeterm_plan::service_plan::state::mission_control::PlanEvent,
     ordinal: usize,
 ) -> TeamMissionControlEvent {
@@ -196,44 +194,32 @@ fn stored_event(
     }
 }
 
-fn team_plans(store: &PlanStore, team_id: &str) -> Vec<Plan> {
-    let mut ids: Vec<String> = store
-        .list_index()
-        .into_iter()
-        .filter(|entry| entry.team_id.as_deref() == Some(team_id))
-        .map(|entry| entry.plan_id)
-        .collect();
-    ids.sort();
-    ids.dedup();
-    let mut plans: Vec<Plan> = ids.into_iter().filter_map(|id| store.get(&id)).collect();
-    plans.retain(|plan| plan.team_id.as_deref() == Some(team_id));
-    plans.sort_by(|left, right| {
-        right
-            .updated_at
-            .cmp(&left.updated_at)
-            .then_with(|| right.created_at.cmp(&left.created_at))
-            .then_with(|| left.id.cmp(&right.id))
-    });
-    plans
+fn team_plans(
+    store: &PlanStore,
+    team_id: &str,
+    limit: usize,
+    cursor: Option<&EventCursor>,
+) -> Result<Vec<TeamPlanRead>, PlanError> {
+    store.team_mission_control_projection(team_id, limit, cursor)
 }
 
 pub(crate) fn project_team_state(
     team: Team,
-    plans: Vec<Plan>,
+    plans: Vec<TeamPlanRead>,
     limit: usize,
     cursor: Option<&str>,
 ) -> Result<TeamMissionControlState, String> {
-    let plans: Vec<Plan> = plans
+    let plans: Vec<_> = plans
         .into_iter()
-        .filter(|plan| plan.team_id.as_deref() == Some(team.id.as_str()))
+        .filter(|plan| plan.metadata.team_id.as_deref() == Some(team.id.as_str()))
         .collect();
     let active_plan = plans
         .iter()
-        .find(|plan| plan.status == PlanStatus::Active)
+        .find(|plan| plan.metadata.status == PlanStatus::Active)
         .map(TeamPlanSummary::from);
     let archived_plans = plans
         .iter()
-        .filter(|plan| plan.status == PlanStatus::Archived)
+        .filter(|plan| plan.metadata.status == PlanStatus::Archived)
         .map(TeamPlanSummary::from)
         .collect();
 
@@ -243,17 +229,12 @@ pub(crate) fn project_team_state(
         events.extend(
             plan.lifecycle_events
                 .iter()
-                .enumerate()
-                .map(|(ordinal, event)| lifecycle_event(plan, event, ordinal)),
+                .map(|(ordinal, event)| lifecycle_event(&plan.metadata, event, *ordinal)),
         );
-        let projection =
-            codeterm_plan::service_plan::state::mission_control::build_plan_event_log(plan);
         events.extend(
-            projection
-                .entries
+            plan.stored_events
                 .iter()
-                .enumerate()
-                .map(|(ordinal, event)| stored_event(plan, event, ordinal)),
+                .map(|(ordinal, event)| stored_event(&plan.metadata, event, *ordinal)),
         );
     }
     events.sort_by(compare_events);
@@ -301,12 +282,18 @@ pub async fn state(
     let limit = query.bounded_limit();
     let cursor = query.cursor;
     let projection = tokio::task::spawn_blocking(move || {
-        let plans = team_plans(&store, &team_id);
+        let decoded_cursor = cursor
+            .as_deref()
+            .map(decode_cursor)
+            .transpose()
+            .map_err(|error| (StatusCode::BAD_REQUEST, error))?;
+        let plans = team_plans(&store, &team_id, limit, decoded_cursor.as_ref())
+            .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
         project_team_state(team, plans, limit, cursor.as_deref())
+            .map_err(|error| (StatusCode::BAD_REQUEST, error))
     })
     .await
-    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
-    .map_err(|error| (StatusCode::BAD_REQUEST, error))?;
+    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))??;
     Ok(Json(projection))
 }
 

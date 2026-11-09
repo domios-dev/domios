@@ -33,7 +33,7 @@ use crate::plan::reconcile::{
     detect_lane_demotions, detect_plan_drift, DriftItem, DriftKind, ReconcileConfig, TabProbe,
     TabRole, DEFAULT_STALE_REVIEW_MS,
 };
-use crate::plan::{PlanStatus, Task, TaskStatus};
+use crate::plan::TaskStatus;
 use crate::service::plan::{cleanup_debt, PlanError, ReconcileFixResult};
 
 #[derive(Debug, Clone, Serialize)]
@@ -55,12 +55,12 @@ impl ServiceContext {
         now_ms: u64,
     ) -> Result<ReconcileResult, PlanError> {
         let read = self.plan_store.status_projection(plan_id, now_ms)?;
-        self.reconcile_plan_record(read.plan(), fix, caller_tab_id, now_ms)
+        self.reconcile_plan_record(read.input(), fix, caller_tab_id, now_ms)
     }
 
     pub(crate) fn reconcile_plan_record(
         &self,
-        plan: &crate::plan::Plan,
+        plan: &codeterm_plan::service_plan::state::input::StateInput,
         fix: bool,
         caller_tab_id: Option<&str>,
         now_ms: u64,
@@ -114,18 +114,31 @@ impl ServiceContext {
     }
 
     pub fn flag_bound_tasks_for_gone_tab(&self, tab_id: &str, now_ms: u64) {
-        let losses = self.worker_losses_for_tab(
+        let losses = match self.worker_losses_for_tab(
             tab_id,
             crate::service::worker_loss::WorkerLossCause::TabGone,
-        );
-        self.flag_bound_tasks_without_report(tab_id, now_ms);
+        ) {
+            Ok(losses) => losses,
+            Err(error) => {
+                log::error!("[worker-lost] assignment read failed before reconciliation: {error}");
+                return;
+            }
+        };
+        if let Err(error) = self.flag_bound_tasks_without_report(tab_id, now_ms) {
+            log::warn!("[plan-reconcile] task binding lookup failed for {tab_id}: {error}");
+            return;
+        }
         self.report_worker_losses(losses);
     }
 
-    fn flag_bound_tasks_without_report(&self, tab_id: &str, now_ms: u64) -> Vec<String> {
-        let bindings = self.plan_store.task_bindings_for_tab(tab_id);
+    fn flag_bound_tasks_without_report(
+        &self,
+        tab_id: &str,
+        now_ms: u64,
+    ) -> Result<Vec<String>, super::plan::PlanError> {
+        let bindings = self.plan_store.task_bindings_for_tab(tab_id)?;
         if bindings.is_empty() {
-            return Vec::new();
+            return Ok(Vec::new());
         }
         let mut changed_plans = Vec::new();
         for (plan_id, task_id) in bindings {
@@ -145,7 +158,7 @@ impl ServiceContext {
         for plan_id in &changed_plans {
             self.emit_plan_changed(plan_id);
         }
-        changed_plans
+        Ok(changed_plans)
     }
 
     /// Periodic watchdog: release in_progress lanes whose tab is gone past the
@@ -155,21 +168,25 @@ impl ServiceContext {
         let now_ms = now_ms();
         let thresholds = LaneThresholds::default();
         let mut changed_plans = Vec::new();
-        let candidates = crate::service::plan::PlanMatch::active().and(
-            crate::service::plan::TaskMatch::with_status(&[TaskStatus::InProgress]),
-        );
-        for plan in self.plan_store.plans_matching(&candidates) {
-            if plan.status != PlanStatus::Active {
-                continue;
+        let plans = match self.plan_store.lane_watchdog_projection() {
+            Ok(plans) => plans,
+            Err(error) => {
+                log::error!("[lane-watchdog] cannot read candidates: {error}");
+                return;
             }
+        };
+        for plan in plans {
             let mut config = ReconcileConfig::new(now_ms);
-            config.current_orchestrator_tab_id = plan.owner.tab_id.clone();
+            config.current_orchestrator_tab_id = plan.owner_tab_id.clone();
             let expected: HashMap<String, String> = plan
                 .tasks
                 .iter()
                 .filter(|task| task.status == TaskStatus::InProgress)
                 .filter_map(|task| {
-                    Some((task.assigned_tab_id.clone()?, live_attempt_session(task)?))
+                    Some((
+                        task.assigned_tab_id.clone()?,
+                        task.expected_session.clone()?,
+                    ))
                 })
                 .collect();
             let demotions = detect_lane_demotions(&plan, &config, &thresholds, |tab_id| {
@@ -287,10 +304,7 @@ fn now_ms() -> u64 {
         .unwrap_or_default()
 }
 
-fn live_attempt_session(task: &Task) -> Option<String> {
-    live_attempt_session_for_assignment(task.assigned_tab_id.as_deref(), &task.execution_attempts)
-}
-
+#[cfg(test)]
 fn live_attempt_session_for_assignment(
     assigned_tab_id: Option<&str>,
     attempts: &[crate::plan::TaskExecutionAttempt],
@@ -330,179 +344,4 @@ fn drift_counts(items: &[DriftItem]) -> HashMap<DriftKind, usize> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::multiplexer::state::MultiplexerState;
-    use crate::multiplexer::types::TabBacking;
-    use crate::plan::TaskExecutionAttempt;
-    use crate::service::plan::task_attempts::{
-        close_live_attempts_for_optional_tab, close_live_attempts_for_tab,
-        record_noncompetitive_replacement_attempt,
-    };
-
-    fn attempt(id: &str, tab_id: &str) -> TaskExecutionAttempt {
-        TaskExecutionAttempt {
-            actual_reasoning_effort: None,
-            id: id.into(),
-            executor_tab_id: tab_id.into(),
-            ..Default::default()
-        }
-    }
-
-    #[test]
-    fn replacement_dispatch_closes_prior_noncompetitive_attempt() {
-        let mut attempts = vec![attempt("attempt-a", "tab-a")];
-        record_noncompetitive_replacement_attempt(&mut attempts, attempt("attempt-b", "tab-b"), 20);
-
-        assert_eq!(attempts[0].closed_at, Some(20));
-        assert_eq!(attempts[1].closed_at, None);
-    }
-
-    #[test]
-    fn reconcile_closes_dead_attempt_without_touching_active_replacement() {
-        let mut attempts = vec![
-            attempt("attempt-dead", "tab-dead"),
-            attempt("attempt-live", "tab-live"),
-        ];
-
-        assert_eq!(
-            close_live_attempts_for_tab(&mut attempts, "tab-dead", 50),
-            1
-        );
-        assert_eq!(
-            close_live_attempts_for_tab(&mut attempts, "tab-dead", 60),
-            0
-        );
-        assert_eq!(attempts[0].closed_at, Some(50));
-        assert_eq!(attempts[1].closed_at, None);
-    }
-
-    #[test]
-    fn replacement_closure_does_not_collapse_live_competition_group() {
-        let mut peer_a = attempt("peer-a", "peer-a-tab");
-        peer_a.competition_group_id = Some("group".into());
-        let mut peer_b = attempt("peer-b", "peer-b-tab");
-        peer_b.competition_group_id = Some("group".into());
-        let mut attempts = vec![attempt("ordinary", "ordinary-tab"), peer_a, peer_b];
-
-        record_noncompetitive_replacement_attempt(
-            &mut attempts,
-            attempt("replacement", "replacement-tab"),
-            60,
-        );
-        assert_eq!(attempts[0].closed_at, Some(60));
-        assert_eq!(attempts[1].closed_at, None);
-        assert_eq!(attempts[2].closed_at, None);
-        assert_eq!(attempts[3].closed_at, None);
-        close_live_attempts_for_tab(&mut attempts, "peer-a-tab", 70);
-        assert_eq!(attempts[2].closed_at, None);
-    }
-
-    #[test]
-    fn missing_executor_does_not_close_latest_open_attempt() {
-        let mut attempts = vec![attempt("attempt-a", "tab-a"), attempt("attempt-b", "tab-b")];
-
-        assert_eq!(
-            close_live_attempts_for_optional_tab(&mut attempts, None, 90),
-            0
-        );
-        assert_eq!(
-            close_live_attempts_for_optional_tab(&mut attempts, Some("  "), 90),
-            0
-        );
-        assert!(attempts.iter().all(|attempt| attempt.closed_at.is_none()));
-    }
-
-    #[test]
-    fn live_attempt_session_requires_assigned_tab() {
-        let mut open = attempt("attempt-open", "tab-open");
-        open.session_id = Some("session-open".into());
-
-        assert_eq!(
-            live_attempt_session_for_assignment(None, &[open.clone()]),
-            None
-        );
-        assert_eq!(
-            live_attempt_session_for_assignment(Some("  "), &[open]),
-            None
-        );
-    }
-
-    #[test]
-    fn live_attempt_session_selects_exact_parallel_competition_peer() {
-        let mut peer_a = attempt("peer-a", "tab-a");
-        peer_a.session_id = Some("session-a".into());
-        peer_a.competition_group_id = Some("group".into());
-        let mut peer_b = attempt("peer-b", "tab-b");
-        peer_b.session_id = Some("session-b".into());
-        peer_b.competition_group_id = Some("group".into());
-
-        assert_eq!(
-            live_attempt_session_for_assignment(Some("tab-a"), &[peer_a, peer_b]),
-            Some("session-a".into())
-        );
-    }
-
-    #[test]
-    fn live_attempt_session_rejects_ambiguous_assigned_attempts() {
-        let mut first = attempt("first", "tab-shared");
-        first.session_id = Some("session-first".into());
-        let mut second = attempt("second", "tab-shared");
-        second.session_id = Some("session-second".into());
-
-        assert_eq!(
-            live_attempt_session_for_assignment(Some("tab-shared"), &[first, second]),
-            None
-        );
-    }
-
-    #[test]
-    fn tab_has_live_agent_requires_verified_session_and_supports_both_backings() {
-        let (mut mux, tab_id) = MultiplexerState::new();
-        assert!(!tab_has_live_agent(mux.get_tab(&tab_id).unwrap()));
-
-        let tab = mux.get_tab_mut(&tab_id).unwrap();
-        tab.agent_type = Some("provider-neutral".into());
-        tab.agent_session_id = Some("session-1".into());
-        tab.session_binding_nonce = Some("nonce-1".into());
-        tab.reported_session_binding_nonce = Some("nonce-1".into());
-        tab.chat_view = true;
-        tab.boot_stage = Some(codeterm_types::pty::BootStage::AgentReady);
-        tab.pty_id = Some("pty-1".into());
-        assert!(tab_has_live_agent(tab));
-        tab.reported_session_binding_nonce = Some("stale-nonce".into());
-        assert!(!tab_has_live_agent(tab));
-        tab.reported_session_binding_nonce = tab.session_binding_nonce.clone();
-
-        tab.agent_state = Some(
-            codeterm_types::pty::TabVerdict {
-                state: codeterm_types::pty::TimelineState::Question,
-                subtype: None,
-            }
-            .into(),
-        );
-        assert!(tab_has_live_agent(tab));
-
-        tab.exit_suspected_at = Some(std::time::Instant::now());
-        assert!(!tab_has_live_agent(tab));
-        tab.exit_suspected_at = None;
-
-        tab.pty_id = None;
-        tab.backing = TabBacking::ChatBackend {
-            plugin_id: "provider-neutral".into(),
-            session_id: "session-1".into(),
-        };
-        assert!(tab_has_live_agent(tab));
-
-        tab.backing = TabBacking::ChatBackend {
-            plugin_id: "foreign-provider".into(),
-            session_id: "session-1".into(),
-        };
-        assert!(!tab_has_live_agent(tab));
-        tab.backing = TabBacking::ChatBackend {
-            plugin_id: "provider-neutral".into(),
-            session_id: "foreign-session".into(),
-        };
-        assert!(!tab_has_live_agent(tab));
-    }
-}
+mod tests;

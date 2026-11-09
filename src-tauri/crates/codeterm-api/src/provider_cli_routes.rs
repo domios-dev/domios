@@ -1,21 +1,29 @@
 use super::routes::AppState;
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     Json,
 };
+
+#[derive(Default, serde::Deserialize)]
+pub(crate) struct StatusQuery {
+    #[serde(default)]
+    refresh: bool,
+}
 
 pub(crate) async fn status(
     State(state): State<AppState>,
     _headers: HeaderMap,
     Path(provider): Path<String>,
+    Query(query): Query<StatusQuery>,
 ) -> Result<Json<codeterm_plugin::provider_cli::ProviderCliStatus>, (StatusCode, String)> {
     let registry = state.svc.provider_registry.clone();
     tokio::task::spawn_blocking(move || {
-        codeterm_service_core::service::provider_cli_provider_cli_status(
+        codeterm_service_core::service::provider_cli::provider_cli_status_with_refresh(
             &registry,
             &provider,
             codeterm_service_core::agent::provider::current_platform_tag(),
+            query.refresh,
         )
     })
     .await

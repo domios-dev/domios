@@ -107,23 +107,30 @@ fn fallback_report_message(source: &str) -> String {
 
 /// Absent or mismatched binding evidence stays absent, so persistence fails
 /// closed instead of inventing an authority the Worker never proved.
-fn observed_handoff_authority(svc: &ServiceContext, tab_id: &str) -> ReportDetails {
+fn observed_handoff_authority(svc: &ServiceContext, tab_id: &str) -> Result<ReportDetails, String> {
     let session_binding_nonce = svc.mux.read().get_tab(tab_id).and_then(|tab| {
         let reported = tab.reported_session_binding_nonce.clone()?;
         (tab.session_binding_nonce.as_deref() == Some(reported.as_str())).then_some(reported)
     });
-    let owner_epoch = svc
+    let owner_epoch = match svc
         .plan_store
-        .task_binding_for_tab(tab_id)
-        .and_then(|(_, task_id)| svc.plan_store.show_task(&task_id))
-        .map(|detail| detail.task.interruption.owner_epoch);
-    ReportDetails {
+        .assigned_task_binding_projection(tab_id)
+        .map_err(|error| error.to_string())?
+    {
+        Some(binding) => match svc.plan_store.task_owner_epoch_projection(&binding.task_id) {
+            Ok(task) => Some(task.owner_epoch),
+            Err(crate::service::plan::PlanError::TaskNotFound) => None,
+            Err(error) => return Err(error.to_string()),
+        },
+        None => None,
+    };
+    Ok(ReportDetails {
         status: Some(ReportStatus::Partial),
         caller_tab_id: Some(tab_id.to_string()),
         session_binding_nonce,
         owner_epoch,
         ..Default::default()
-    }
+    })
 }
 
 impl ServiceContext {
@@ -133,8 +140,11 @@ impl ServiceContext {
         }
         let source = signal.source();
         let message = fallback_report_message(source);
-        let details = observed_handoff_authority(self, tab_id);
-        if let Err(error) = self.submit_report(tab_id, &message, details, None, None, None) {
+        let result = observed_handoff_authority(self, tab_id).and_then(|details| {
+            self.submit_report(tab_id, &message, details, None, None, None)
+                .map_err(|error| error.to_string())
+        });
+        if let Err(error) = result {
             self.gateway.require_worker_report(tab_id);
             log::warn!(
                 "[worker-report-fallback] tab={} source={} failed: {}",

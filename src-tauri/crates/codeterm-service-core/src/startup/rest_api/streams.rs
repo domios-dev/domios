@@ -42,6 +42,18 @@ impl GenerationStreams {
                             .map_or(request.uri().path(), |path| path.as_str()),
                     );
                     let context = diagnostics.accept(&request);
+                    #[cfg(debug_assertions)]
+                    let response = {
+                        let method = request.method().to_string();
+                        let route = request.uri().path().to_owned();
+                        crate::startup::runtime_diagnostics::observe_polls(
+                            &method,
+                            &route,
+                            next.run(request),
+                        )
+                        .await
+                    };
+                    #[cfg(not(debug_assertions))]
                     let response = next.run(request).await;
                     if response
                         .headers()

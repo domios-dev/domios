@@ -76,14 +76,24 @@ pub async fn system_heartbeats(
     AxumState(state): AxumState<AppState>,
     _headers: HeaderMap,
     Path(raw_tab_id): Path<String>,
-) -> Result<Json<Vec<codeterm_service_core::delayed_send::DelayedMessageView>>, (StatusCode, String)>
-{
+) -> Result<Response, (StatusCode, String)> {
     let tab_id = crate::routes::resolve_tab_async(&state, &raw_tab_id)
         .await
         .map_err(|(s, m)| (s, m.to_string()))?;
-    codeterm_service_core::delayed_send::system_heartbeat_views(&state.svc, &tab_id)
-        .map(Json)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
+    system_heartbeats_for_tab(state, tab_id).await
+}
+
+pub(crate) async fn system_heartbeats_for_tab(
+    state: AppState,
+    tab_id: String,
+) -> Result<Response, (StatusCode, String)> {
+    crate::blocking_json::prepare((), move || {
+        codeterm_service_core::delayed_send::system_heartbeat_views(&state.svc, &tab_id)
+            .map(Json)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
+    })
+    .await
+    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
 }
 
 pub async fn update(

@@ -587,6 +587,7 @@ fn stripped_pty_env_drops_ci_markers() {
 #[test]
 fn pty_env_drops_inherited_orchestration_authority() {
     let inherited = [
+        "CODETERM_LAUNCH_FILE",
         "CODETERM_PLAN_ID",
         "CODETERM_TASK_ID",
         "CODETERM_ATTEMPT_ID",
@@ -1016,3 +1017,5 @@ fn child_launch_uses_only_its_explicit_tab_credential() {
         Some(std::ffi::OsStr::new("own-tab"))
     );
 }
+
+mod teardown;

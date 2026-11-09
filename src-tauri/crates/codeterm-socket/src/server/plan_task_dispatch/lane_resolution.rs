@@ -1,14 +1,17 @@
 use serde_json::json;
 
-use codeterm_service_core::plan::{ExecutionIntent, Plan, TaskLaneMetadata};
+#[cfg(test)]
+use codeterm_service_core::plan::Plan;
+use codeterm_service_core::plan::TaskLaneMetadata;
 use codeterm_service_core::service::lane_removal::{lane_release_command, recorded_lane_remnant};
 use codeterm_service_core::service::{
-    classify_mutating_lane, recorded_lane_matches, same_path, verify_worker_lane, LaneProtection,
-    UnsafeMutatingLane, WorkerLaneProvenance,
+    recorded_lane_matches, same_path, verify_worker_lane, LaneProtection, UnsafeMutatingLane,
+    WorkerLaneProvenance,
 };
 
 use super::super::JsonRpcError;
-use super::lane_safety::refuse_unsafe_mutating_write;
+#[cfg(test)]
+use codeterm_service_core::service::classify_mutating_lane;
 
 pub(super) fn invalid_dispatch(reason: impl Into<String>) -> JsonRpcError {
     let reason = reason.into();
@@ -129,14 +132,36 @@ impl DispatchLanePlacement {
     }
 }
 
+#[cfg(test)]
 pub(super) fn plan_dispatch_lane_placement(
     plan: &Plan,
     task_id: &str,
     task_lane: &TaskLaneMetadata,
     resolved: WorkerLaneProvenance,
 ) -> Result<DispatchLanePlacement, JsonRpcError> {
-    let base_checkout = if same_path(&resolved.canonical_cwd, &plan.canonical_project_path) {
-        plan.project_path.clone()
+    plan_dispatch_lane_placement_facts(
+        &plan.id,
+        &plan.project_path,
+        &plan.canonical_project_path,
+        task_id,
+        task_lane,
+        resolved,
+        |path| classify_mutating_lane(plan, task_id, path),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn plan_dispatch_lane_placement_facts(
+    plan_id: &str,
+    project_path: &str,
+    canonical_project_path: &str,
+    task_id: &str,
+    task_lane: &TaskLaneMetadata,
+    resolved: WorkerLaneProvenance,
+    classify: impl Fn(&str) -> Option<UnsafeMutatingLane>,
+) -> Result<DispatchLanePlacement, JsonRpcError> {
+    let base_checkout = if same_path(&resolved.canonical_cwd, canonical_project_path) {
+        project_path.to_string()
     } else {
         resolved.canonical_cwd.clone()
     };
@@ -173,11 +198,10 @@ pub(super) fn plan_dispatch_lane_placement(
             }
             return Ok(DispatchLanePlacement::Provision { base_checkout });
         }
-        refuse_unsafe_mutating_write(
-            plan,
+        super::lane_safety::refuse_unsafe_mutating_lane(
+            plan_id,
             task_id,
-            &resolved.worktree_path,
-            ExecutionIntent::Mutating,
+            classify(&resolved.worktree_path),
         )?;
         return Ok(DispatchLanePlacement::Existing(resolved));
     }
@@ -205,17 +229,16 @@ pub(super) fn plan_dispatch_lane_placement(
     // Canonical is the integration checkout, never the worker checkout: it is
     // the base to branch from, so provisioning replaces the refusal.
     if matches!(
-        classify_mutating_lane(plan, task_id, &resolved.worktree_path),
+        classify(&resolved.worktree_path),
         Some(UnsafeMutatingLane::Canonical { .. })
-    ) || same_path(&resolved.worktree_path, &plan.project_path)
+    ) || same_path(&resolved.worktree_path, project_path)
     {
         return Ok(DispatchLanePlacement::Provision { base_checkout });
     }
-    refuse_unsafe_mutating_write(
-        plan,
+    super::lane_safety::refuse_unsafe_mutating_lane(
+        plan_id,
         task_id,
-        &resolved.worktree_path,
-        ExecutionIntent::Mutating,
+        classify(&resolved.worktree_path),
     )?;
     Ok(DispatchLanePlacement::Existing(resolved))
 }

@@ -6,14 +6,14 @@ fn plan_dir(store: &PlanStore, plan_id: &str) -> std::path::PathBuf {
     store_v2::plan_state_dir(&plan).unwrap()
 }
 
-fn reload_cleared(store: &PlanStore, plan_id: &str) -> Plan {
-    store.forget_all_plans_for_test();
-    store.reload_from_disk(plan_id).unwrap();
+fn import_exported_plan(store: &PlanStore, plan_id: &str) -> Plan {
+    let path = plan_dir(store, plan_id);
+    let mut imported = store_v2::load_plan(&path).unwrap();
+    store.import_plan(&mut imported, 3).unwrap();
     store.get(plan_id).unwrap()
 }
 
-// Second-regression lock: executor_role must survive across plan.json, task
-// sidecar frontmatter, and reload in one test (prior fixes tested layers alone).
+// Explicit YAML exchange must preserve the executor role through SQL import.
 #[test]
 fn executor_role_persists_across_json_frontmatter_and_reload() {
     let dir = tempfile::tempdir().unwrap();
@@ -38,13 +38,14 @@ fn executor_role_persists_across_json_frontmatter_and_reload() {
         )
         .unwrap();
 
+    store.export_sidecars_for_test(&plan.id);
     let plan_state = plan_dir(&store, &plan.id);
     let task_path = store_v2::task_yaml_path(&plan_state, &store.get(&plan.id).unwrap().tasks[0]);
     let task_doc: Task =
         serde_yaml::from_str(&std::fs::read_to_string(&task_path).unwrap()).unwrap();
     assert_eq!(task_doc.executor_role.as_deref(), Some("qa"));
 
-    let loaded = reload_cleared(&store, &plan.id);
+    let loaded = import_exported_plan(&store, &plan.id);
     let task = loaded.tasks.iter().find(|t| t.id == task_id).unwrap();
     assert_eq!(task.executor_role.as_deref(), Some("qa"));
 }
@@ -74,13 +75,14 @@ fn personality_persists_across_yaml_sidecar_and_reload() {
         )
         .unwrap();
 
+    store.export_sidecars_for_test(&plan.id);
     let plan_state = plan_dir(&store, &plan.id);
     let task_path = store_v2::task_yaml_path(&plan_state, &store.get(&plan.id).unwrap().tasks[0]);
     let task_doc: Task =
         serde_yaml::from_str(&std::fs::read_to_string(&task_path).unwrap()).unwrap();
     assert_eq!(task_doc.personality.as_deref(), Some("Hopper"));
 
-    let loaded = reload_cleared(&store, &plan.id);
+    let loaded = import_exported_plan(&store, &plan.id);
     let task = loaded.tasks.iter().find(|t| t.id == task_id).unwrap();
     assert_eq!(task.personality.as_deref(), Some("Hopper"));
 }
@@ -175,6 +177,7 @@ fn corrupt_markdown_sidecar_keeps_plan_indexed_with_json_body() {
     assert_eq!(loaded.tasks[0].body, "json task body");
     assert!(store
         .list_index()
+        .unwrap()
         .iter()
         .any(|entry| entry.plan_id == plan.id));
 

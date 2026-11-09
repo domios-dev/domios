@@ -493,7 +493,10 @@ impl SubmitTransport for PtySubmitTransport<'_> {
         let switch_confirmation = self
             .svc
             .prepare_switch_confirmation(self.pty_id, text, None);
+        let queued = Cell::new(false);
+        let queued_ref = &queued;
         let on_enqueued = move || {
+            queued_ref.set(true);
             if let Some(confirmation) = switch_confirmation {
                 confirmation.start();
             }
@@ -542,9 +545,16 @@ impl SubmitTransport for PtySubmitTransport<'_> {
                 ),
                 None => session.write_and_flush_with_enqueued(input.clone(), timeout, on_enqueued),
             };
-            result
-                .map(|()| input.len())
-                .map_err(|error| injection_write_error(self.pty_id, error))
+            result.map(|()| input.len()).map_err(|error| {
+                if queued.get() {
+                    InjectionError::SubmitNeverConfirmed {
+                        waited: Duration::ZERO,
+                        screen_tail: String::new(),
+                    }
+                } else {
+                    injection_write_error(self.pty_id, error)
+                }
+            })
         };
         result?;
         if self.permit.is_some() {
@@ -613,8 +623,12 @@ impl SubmitTransport for PtySubmitTransport<'_> {
     }
 }
 
-fn injection_write_error(pty_id: &str, error: String) -> InjectionError {
-    if crate::pty::write_queue::is_stale_agent_input(&error) {
+pub(super) fn injection_write_error(pty_id: &str, error: String) -> InjectionError {
+    if crate::pty::write_queue::is_write_queue_full(&error) {
+        InjectionError::WriteQueueFull {
+            pty_id: pty_id.to_string(),
+        }
+    } else if crate::pty::write_queue::is_stale_agent_input(&error) {
         InjectionError::AgentInputUnavailable {
             pty_id: pty_id.to_string(),
         }

@@ -4,12 +4,17 @@ use crate::service::plan::task_attempts::{
     CompleteAcknowledgedDispatchBinding, TaskAttemptAcknowledgement,
 };
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RetainedTaskLaunchAuthority {
+    authority: StartupAuthority,
+    generation: u64,
+}
+
 impl WorkerAckRegistry {
-    pub fn with_current_task_launch_authority<T>(
+    pub fn current_task_launch_authority(
         &self,
         tab_id: &str,
-        use_authority: impl FnOnce(&StartupAuthority) -> Result<T, String>,
-    ) -> Result<T, String> {
+    ) -> Result<RetainedTaskLaunchAuthority, String> {
         let waiters = self.startup_waiters.lock();
         let acknowledged = self.startup_acknowledged.lock();
         let finalized = self.finalized_startups.lock();
@@ -27,7 +32,17 @@ impl WorkerAckRegistry {
         let authority = waiting
             .or(ready)
             .ok_or("no retained startup authority for this launch")?;
-        use_authority(authority)
+        let generation = self
+            .startup_authority_generations
+            .lock()
+            .1
+            .get(tab_id)
+            .copied()
+            .ok_or("retained startup authority generation is missing")?;
+        Ok(RetainedTaskLaunchAuthority {
+            authority: authority.clone(),
+            generation,
+        })
     }
 }
 
@@ -39,83 +54,134 @@ impl ServiceContext {
         session_claim: Option<&str>,
         now_ms: u64,
     ) -> Result<crate::plan::TaskExecutionAttempt, String> {
-        let mux = self.mux.read();
         let tab_id = &acknowledgement.attempt.executor_tab_id;
-        let tab = mux.get_tab(tab_id).ok_or("acknowledging tab is missing")?;
-        let binding = super::super::task_assignment::authenticated_tab_binding(tab)
-            .ok_or("acknowledging tab has no verified session binding")?;
-        let team_id = tab
-            .team_id
-            .as_deref()
-            .ok_or("acknowledging tab has no Team")?;
-        if tab.role != Some(AgentRole::Worker)
-            || tab.backing != TabBacking::Pty
-            || tab.agent_booting
-            || tab.boot_stage != Some(codeterm_types::pty::BootStage::AgentReady)
-            || mux.get_team(team_id).is_none()
-            || binding.session_binding_nonce != nonce
-            || session_claim.is_some_and(|session| session != binding.session_id)
-            || !acknowledgement.already_acknowledged
-            || tab.task_binding.as_ref().is_none_or(|task| {
-                task.plan_id.as_deref() != Some(acknowledgement.plan_id.as_str())
-                    || task.task_id.as_deref() != Some(acknowledgement.task_id.as_str())
-                    || task.attempt_id.as_deref() != Some(acknowledgement.attempt.id.as_str())
-            })
-        {
-            return Err("acknowledging caller does not own the exact dispatch assignment".into());
+        let (authority, request) = {
+            let mux = self.mux.read();
+            let authority = self.worker_ack.current_task_launch_authority(tab_id)?;
+            let request = acknowledged_binding_request(
+                &mux,
+                acknowledgement,
+                nonce,
+                session_claim,
+                &authority.authority,
+            )?;
+            (authority, request)
+        };
+        let receipt = self
+            .plan_store
+            .complete_acknowledged_dispatch_binding_with_undo(request.clone(), now_ms)
+            .map_err(|error| error.to_string())?;
+        let still_current = {
+            let mux = self.mux.read();
+            self.worker_ack
+                .current_task_launch_authority(tab_id)
+                .is_ok_and(|current| current == authority)
+                && acknowledged_binding_request(
+                    &mux,
+                    acknowledgement,
+                    nonce,
+                    session_claim,
+                    &authority.authority,
+                )
+                .is_ok_and(|current| current == request)
+        };
+        if !still_current {
+            self.plan_store
+                .undo_completed_dispatch_binding(receipt, now_ms)
+                .map_err(|error| format!("dispatch binding authority conflict; {error}"))?;
+            return Err(
+                "dispatch binding authority changed during SQL commit; retry by intent".into(),
+            );
         }
-        self.worker_ack
-            .with_current_task_launch_authority(tab_id, |authority| {
-                let expected = StartupTaskIdentity {
-                    plan_id: acknowledgement.plan_id.clone(),
-                    task_id: acknowledgement.task_id.clone(),
-                    attempt_id: acknowledgement.attempt.id.clone(),
-                };
-                let creator = mux
-                    .get_tab(&authority.creator_tab_id)
-                    .ok_or("launch creator is missing")?;
-                if authority.child_tab_id != *tab_id
-                    || authority.task_identity.as_ref() != Some(&expected)
-                    || authority.team_id.as_deref() != Some(team_id)
-                    || creator.team_id.as_deref() != Some(team_id)
-                    || !creator.can_spawn
-                    || creator.agent_type.is_none()
-                    || tab.parent_tab_id.as_deref() != Some(authority.creator_tab_id.as_str())
-                    || tab.pty_id.as_deref() != Some(authority.attempt_id.as_str())
-                    || authority.binding_nonce.as_deref() != Some(nonce)
-                    || authority
-                        .session_id
-                        .as_deref()
-                        .is_some_and(|session| session != binding.session_id)
-                    || authority.task_owner_epoch
-                        != Some(acknowledgement.attempt.interruption.owner_epoch)
-                {
-                    return Err(
-                        "retained launch provenance does not own the current assignment/session"
-                            .into(),
-                    );
-                }
-                self.plan_store
-                    .complete_acknowledged_dispatch_binding(
-                        CompleteAcknowledgedDispatchBinding {
-                            plan_id: expected.plan_id,
-                            task_id: expected.task_id,
-                            attempt_id: expected.attempt_id,
-                            tab_id: tab_id.clone(),
-                            team_id: team_id.into(),
-                            creator_tab_id: authority.creator_tab_id.clone(),
-                            provider: binding.provider.ok_or("launch provider is missing")?,
-                            session_id: binding.session_id,
-                            nonce: nonce.into(),
-                            owner_epoch: acknowledgement.attempt.interruption.owner_epoch,
-                        },
-                        now_ms,
-                    )
-                    .map_err(|error| error.to_string())
-            })
+        Ok(receipt.attempt)
     }
+}
+
+fn acknowledged_binding_request(
+    mux: &MultiplexerState,
+    acknowledgement: &TaskAttemptAcknowledgement,
+    nonce: &str,
+    session_claim: Option<&str>,
+    authority: &StartupAuthority,
+) -> Result<CompleteAcknowledgedDispatchBinding, String> {
+    let tab_id = &acknowledgement.attempt.executor_tab_id;
+    let tab = mux.get_tab(tab_id).ok_or("acknowledging tab is missing")?;
+    let binding = super::super::task_assignment::authenticated_tab_binding(tab)
+        .ok_or("acknowledging tab has no verified session binding")?;
+    let team_id = tab
+        .team_id
+        .as_deref()
+        .ok_or("acknowledging tab has no Team")?;
+    if tab.role != Some(AgentRole::Worker)
+        || tab.backing != TabBacking::Pty
+        || tab.agent_booting
+        || tab.boot_stage != Some(codeterm_types::pty::BootStage::AgentReady)
+        || mux.get_team(team_id).is_none()
+        || binding.session_binding_nonce != nonce
+        || session_claim.is_some_and(|session| session != binding.session_id)
+        || !acknowledgement.already_acknowledged
+        || tab.task_binding.as_ref().is_none_or(|task| {
+            task.plan_id.as_deref() != Some(acknowledgement.plan_id.as_str())
+                || task.task_id.as_deref() != Some(acknowledgement.task_id.as_str())
+                || task.attempt_id.as_deref() != Some(acknowledgement.attempt.id.as_str())
+        })
+    {
+        return Err("acknowledging caller does not own the exact dispatch assignment".into());
+    }
+    let expected = StartupTaskIdentity {
+        plan_id: acknowledgement.plan_id.clone(),
+        task_id: acknowledgement.task_id.clone(),
+        attempt_id: acknowledgement.attempt.id.clone(),
+    };
+    let creator = mux
+        .get_tab(&authority.creator_tab_id)
+        .ok_or("launch creator is missing")?;
+    if authority.child_tab_id != *tab_id
+        || authority.task_identity.as_ref() != Some(&expected)
+        || authority.team_id.as_deref() != Some(team_id)
+        || creator.team_id.as_deref() != Some(team_id)
+        || !creator.can_spawn
+        || creator.agent_type.is_none()
+        || tab.parent_tab_id.as_deref() != Some(authority.creator_tab_id.as_str())
+        || tab.pty_id.as_deref() != Some(authority.attempt_id.as_str())
+        || authority.binding_nonce.as_deref() != Some(nonce)
+        || authority
+            .session_id
+            .as_deref()
+            .is_some_and(|session| session != binding.session_id)
+        || authority.task_owner_epoch != Some(acknowledgement.attempt.interruption.owner_epoch)
+    {
+        return Err(
+            "retained launch provenance does not own the current assignment/session".into(),
+        );
+    }
+    Ok(CompleteAcknowledgedDispatchBinding {
+        plan_id: expected.plan_id,
+        task_id: expected.task_id,
+        attempt_id: expected.attempt_id,
+        tab_id: tab_id.clone(),
+        team_id: team_id.into(),
+        creator_tab_id: authority.creator_tab_id.clone(),
+        provider: binding.provider.ok_or("launch provider is missing")?,
+        session_id: binding.session_id,
+        nonce: nonce.into(),
+        owner_epoch: acknowledgement.attempt.interruption.owner_epoch,
+    })
 }
 
 #[cfg(test)]
 #[path = "launch_binding/tests.rs"]
 mod tests;
+
+#[cfg(any(test, feature = "test-support"))]
+impl WorkerAckRegistry {
+    pub fn retain_task_startup_for_test(&self, authority: StartupAuthority) -> AgentStartupArm {
+        self.arm_startup(authority)
+    }
+
+    pub fn launch_registry_available_for_test(&self) -> bool {
+        self.startup_waiters.try_lock().is_some()
+            && self.startup_acknowledged.try_lock().is_some()
+            && self.finalized_startups.try_lock().is_some()
+    }
+}

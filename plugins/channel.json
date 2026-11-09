@@ -7,26 +7,26 @@
     {
       "id": "claude",
       "path": "provider-claude",
-      "version": "1.14.27",
-      "minCodeterm": "1.18.5"
+      "version": "1.14.28",
+      "minCodeterm": "1.19.0"
     },
     {
       "id": "codex",
       "path": "provider-codex",
-      "version": "1.14.70",
-      "minCodeterm": "1.18.0"
+      "version": "1.14.71",
+      "minCodeterm": "1.19.0"
     },
     {
       "id": "opencode",
       "path": "provider-opencode",
-      "version": "1.14.15",
-      "minCodeterm": "1.18.0"
+      "version": "1.14.18",
+      "minCodeterm": "1.19.0"
     },
     {
       "id": "cursor",
       "path": "provider-cursor",
-      "version": "1.4.8",
-      "minCodeterm": "1.15.2"
+      "version": "1.4.9",
+      "minCodeterm": "1.19.0"
     },
     {
       "id": "chat-preprocessor",
@@ -45,6 +45,12 @@
       "path": "browser",
       "version": "1.15.3",
       "minCodeterm": "1.18.7"
+    },
+    {
+      "id": "acp",
+      "path": "provider-acp",
+      "version": "0.1.6",
+      "minCodeterm": "1.19.1"
     }
   ],
   "retired": [

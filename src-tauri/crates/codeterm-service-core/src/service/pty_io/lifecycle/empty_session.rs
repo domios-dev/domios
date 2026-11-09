@@ -151,7 +151,7 @@ fn file_conversation(
     {
         return None;
     }
-    let messages = provider.parse_session_messages(path);
+    let messages = provider.parse_session_messages(path).ok()?;
     if messages
         .iter()
         .any(|message| message.role == "user" && !message.is_meta)

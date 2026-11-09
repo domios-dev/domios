@@ -68,6 +68,84 @@ fn project_root_resolves_linked_worktree_to_main_worktree() {
 }
 
 #[test]
+fn project_root_refreshes_when_worktree_is_replaced_by_clone() {
+    let tmp = tempfile::tempdir().unwrap();
+    let main = tmp.path().join("main");
+    let linked = tmp.path().join("linked");
+    let retired = tmp.path().join("retired");
+    std::fs::create_dir(&main).unwrap();
+    run_git(&main, &["init"]);
+    run_git(&main, &["config", "user.email", "test@example.com"]);
+    run_git(&main, &["config", "user.name", "Test User"]);
+    std::fs::create_dir(main.join("nested")).unwrap();
+    std::fs::write(main.join("nested/README.md"), "root\n").unwrap();
+    run_git(&main, &["add", "."]);
+    run_git(&main, &["commit", "-m", "init"]);
+    run_git(
+        &main,
+        &[
+            "worktree",
+            "add",
+            linked.to_str().unwrap(),
+            "-b",
+            "linked-test",
+        ],
+    );
+
+    let nested = linked.join("nested");
+    for cwd in [&linked, &nested] {
+        assert_eq!(project_root(cwd), main.canonicalize().unwrap());
+        assert_eq!(project_root(cwd), main.canonicalize().unwrap());
+    }
+
+    run_git(
+        &main,
+        &[
+            "worktree",
+            "move",
+            linked.to_str().unwrap(),
+            retired.to_str().unwrap(),
+        ],
+    );
+    run_git(
+        tmp.path(),
+        &["clone", main.to_str().unwrap(), linked.to_str().unwrap()],
+    );
+
+    assert!(linked.join(".git").is_dir());
+    for cwd in [&linked, &nested] {
+        assert_eq!(project_root(cwd), linked.canonicalize().unwrap());
+        assert_eq!(project_root(cwd), linked.canonicalize().unwrap());
+    }
+}
+
+#[test]
+fn project_root_refreshes_when_plain_directory_becomes_worktree() {
+    let tmp = tempfile::tempdir().unwrap();
+    let main = tmp.path().join("main");
+    let linked = tmp.path().join("linked");
+    std::fs::create_dir(&main).unwrap();
+    std::fs::create_dir(&linked).unwrap();
+    assert_eq!(project_root(&linked), linked.canonicalize().unwrap());
+    run_git(&main, &["init"]);
+    run_git(&main, &["config", "user.email", "test@example.com"]);
+    run_git(&main, &["config", "user.name", "Test User"]);
+    run_git(&main, &["commit", "--allow-empty", "-m", "init"]);
+    run_git(
+        &main,
+        &[
+            "worktree",
+            "add",
+            linked.to_str().unwrap(),
+            "-b",
+            "linked-test",
+        ],
+    );
+
+    assert_eq!(project_root(&linked), main.canonicalize().unwrap());
+}
+
+#[test]
 fn project_root_ignores_linked_worktree_domios_for_plan_sidecars() {
     let tmp = tempfile::tempdir().unwrap();
     let main = tmp.path().join("main");

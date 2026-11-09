@@ -44,25 +44,46 @@ pub async fn list_tabs(
     Query(query): Query<TabListQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     let focused_workspace = !query.all_workspaces && query.focused_workspace;
-    let requested_workspace = query
-        .workspace_id
-        .as_deref()
-        .map(|selector| {
-            let snapshot = state.svc.mux.read().snapshot();
-            codeterm_service_core::dispatch::resolve_workspace_selector(&snapshot, selector)
-        })
-        .transpose()
-        .map_err(|error| {
-            if error.starts_with("Ambiguous workspace id prefix") {
-                (StatusCode::BAD_REQUEST, "Ambiguous workspace id prefix")
-            } else {
-                (StatusCode::NOT_FOUND, "Workspace not found")
-            }
-        })?;
+    let requested_workspace = if let Some(selector) = query.workspace_id.clone() {
+        let service = state.svc.clone();
+        Some(
+            tokio::task::spawn_blocking(move || {
+                let snapshot = service.mux.read().snapshot();
+                codeterm_service_core::dispatch::resolve_workspace_selector(&snapshot, &selector)
+            })
+            .await
+            .map_err(|_| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Workspace resolution task failed",
+                )
+            })?
+            .map_err(|error| {
+                if error.starts_with("Ambiguous workspace id prefix") {
+                    (StatusCode::BAD_REQUEST, "Ambiguous workspace id prefix")
+                } else {
+                    (StatusCode::NOT_FOUND, "Workspace not found")
+                }
+            })?,
+        )
+    } else {
+        None
+    };
     let caller_tab_id = if focused_workspace {
-        let actor = crate::auth::ActorHeaders::authenticate(&state, headers.clone())
-            .map_err(|(status, _)| (status, "Authenticated local actor or owner required"))?;
-        caller_tab_header(&actor)
+        let state = state.clone();
+        let headers = headers.clone();
+        tokio::task::spawn_blocking(move || {
+            let actor = crate::auth::ActorHeaders::authenticate(&state, headers)
+                .map_err(|(status, _)| (status, "Authenticated local actor or owner required"))?;
+            Ok::<_, (StatusCode, &'static str)>(caller_tab_header(&actor))
+        })
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Caller resolution task failed",
+            )
+        })??
     } else {
         None
     };
@@ -91,7 +112,14 @@ pub async fn list_tabs(
                 (StatusCode::INTERNAL_SERVER_ERROR, "Failed to list Tabs")
             }
         })?;
-    let mut local = result.into_json();
+    let mut local = tokio::task::spawn_blocking(move || result.into_json())
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Tabs projection worker failed",
+            )
+        })?;
     if let crate::auth::CallerIdentity::Tab(caller) = crate::auth::caller_identity(&state, &headers)
         .map_err(|_| (StatusCode::FORBIDDEN, "Invalid caller credential"))?
     {
@@ -111,7 +139,10 @@ pub async fn list_tabs(
     if query.local_only || isolated_peer.is_some() {
         return Ok(Json(local));
     }
-    let local = local.as_array().cloned().unwrap_or_default();
+    let local = match local {
+        serde_json::Value::Array(rows) => rows,
+        _ => Vec::new(),
+    };
     Ok(Json(serde_json::Value::Array(
         codeterm_service_core::service::remote_tabs::ordinary_tab_projection(
             &state.mesh,
@@ -172,83 +203,7 @@ pub struct TabListQuery {
 }
 
 #[cfg(test)]
-mod explicit_address_scope_tests {
-    #[test]
-    fn explicit_address_scope_mesh_all_workspaces_matches_the_peer_workspace_list() {
-        let (mut state, _) = codeterm_service_core::multiplexer::state::MultiplexerState::new();
-        state.set_limit_gate(codeterm_entitlements::LimitGate::dormant());
-        let second = state.create_workspace("second".into(), None);
-        state.create_tab(&second.id).unwrap();
-        let third = state.create_workspace("third".into(), None);
-        state.create_tab(&third.id).unwrap();
-        let snapshot = state.snapshot();
-        let expected = snapshot
-            .workspaces
-            .iter()
-            .flat_map(|workspace| workspace.tabs.iter().cloned())
-            .collect::<std::collections::HashSet<_>>();
-
-        let actual = codeterm_service_core::dispatch::build_tab_summary_json(
-            &snapshot, None, None, false, false,
-        )
-        .into_iter()
-        .filter_map(|tab| tab["id"].as_str().map(str::to_owned))
-        .collect::<std::collections::HashSet<_>>();
-
-        assert_eq!(actual, expected);
-    }
-}
-
-#[cfg(test)]
-mod default_scope_contract_tests {
-    use super::TabListQuery;
-    use codeterm_service_core::dispatch::build_tab_summary_json;
-    use codeterm_service_core::multiplexer::state::MultiplexerState;
-
-    #[test]
-    fn tabs_default_to_all_workspaces() {
-        let query = TabListQuery::default();
-        let (mut state, _) = MultiplexerState::new();
-        let second = state.create_workspace("second".into(), None);
-        state.create_tab(&second.id).unwrap();
-
-        let tabs = build_tab_summary_json(
-            &state.snapshot(),
-            query.workspace_id.as_deref(),
-            None,
-            !query.all_workspaces && query.focused_workspace,
-            query.agents,
-        );
-
-        assert_eq!(tabs.len(), 2);
-        assert!(tabs.iter().all(|tab| tab["scope"] == "all_workspaces"));
-    }
-
-    #[test]
-    fn tabs_explicit_workspace_scope() {
-        let (mut state, _) = MultiplexerState::new();
-        let first = state.snapshot().workspaces[0].id.clone();
-        let second = state.create_workspace("second".into(), None);
-        state.create_tab(&second.id).unwrap();
-        let query = TabListQuery {
-            workspace_id: Some(first.clone()),
-            ..TabListQuery::default()
-        };
-
-        let tabs = build_tab_summary_json(
-            &state.snapshot(),
-            query.workspace_id.as_deref(),
-            None,
-            !query.all_workspaces && query.focused_workspace,
-            query.agents,
-        );
-
-        assert_eq!(tabs.len(), 1);
-        assert_eq!(tabs[0]["scope"], "workspace");
-        assert_eq!(tabs[0]["scope_workspace_id"], first);
-        assert_eq!(tabs[0]["other_workspace_tab_count"], 1);
-    }
-}
+mod list_scope_tests;
 
 #[derive(Deserialize)]
 pub struct TabInspectQuery {
@@ -509,7 +464,15 @@ pub async fn get_tab_output(
     let result = codeterm_service_core::dispatch::dispatch_blocking(cmd, state.svc.clone())
         .await
         .map_err(|_| (StatusCode::NOT_FOUND, "Tab not found or has no PTY"))?;
-    Ok(Json(result.into_json()))
+    let value = tokio::task::spawn_blocking(move || result.into_json())
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Output projection worker failed",
+            )
+        })?;
+    Ok(Json(value))
 }
 
 #[derive(Deserialize, Default)]
@@ -540,7 +503,13 @@ pub async fn close_tab(
         .map_err(map_close_error)?;
         return Ok(Json(result.into_json()));
     }
-    let warnings = state.svc.busy_worker_close_warnings_for(&tab_id);
+    let service = state.svc.clone();
+    let warning_tab = tab_id.clone();
+    let warnings =
+        tokio::task::spawn_blocking(move || service.busy_worker_close_warnings_for(&warning_tab))
+            .await
+            .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+            .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     state
         .svc
         .close_tab_async(&tab_id)
@@ -837,14 +806,27 @@ pub async fn agent_run_log(
     ),
     (StatusCode, &'static str),
 > {
-    if let Ok(pty_id) = resolve_pty_id_with_fallback(&state, &raw_tab_id) {
-        let text = state
-            .svc
-            .output_buf
-            .lock()
-            .get_full_text(&pty_id)
-            .unwrap_or_default();
-        if !text.is_empty() {
+    tokio::task::spawn_blocking(move || {
+        if let Ok(pty_id) = resolve_pty_id_with_fallback(&state, &raw_tab_id) {
+            let text = state
+                .svc
+                .output_buf
+                .lock()
+                .get_full_text(&pty_id)
+                .unwrap_or_default();
+            if !text.is_empty() {
+                return Ok((
+                    StatusCode::OK,
+                    [(
+                        axum::http::header::CONTENT_TYPE,
+                        "text/plain; charset=utf-8",
+                    )],
+                    text,
+                ));
+            }
+        }
+
+        if let Some(text) = read_log_from_disk_by_tab(&state, &raw_tab_id) {
             return Ok((
                 StatusCode::OK,
                 [(
@@ -854,20 +836,11 @@ pub async fn agent_run_log(
                 text,
             ));
         }
-    }
 
-    if let Some(text) = read_log_from_disk_by_tab(&state, &raw_tab_id) {
-        return Ok((
-            StatusCode::OK,
-            [(
-                axum::http::header::CONTENT_TYPE,
-                "text/plain; charset=utf-8",
-            )],
-            text,
-        ));
-    }
-
-    Err((StatusCode::NOT_FOUND, "Tab not found or has no PTY"))
+        Err((StatusCode::NOT_FOUND, "Tab not found or has no PTY"))
+    })
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Log read failed"))?
 }
 
 fn read_log_from_disk_by_tab(state: &AppState, raw_tab_id: &str) -> Option<String> {
@@ -972,13 +945,20 @@ pub async fn get_tab_text(
         formatted: query.formatted,
     };
     match codeterm_service_core::dispatch::dispatch_blocking(cmd, state.svc.clone()).await {
-        Ok(r) => {
+        Ok(r) => tokio::task::spawn_blocking(move || {
             let mut v = r.into_json();
             if let Some(obj) = v.as_object_mut() {
                 obj.insert("tab_id".to_string(), serde_json::json!(tab_id));
             }
             Ok(Json(v))
-        }
+        })
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Text projection worker failed",
+            )
+        })?,
         Err(_) => Err((StatusCode::NOT_FOUND, "Tab not found or has no PTY")),
     }
 }
@@ -1078,24 +1058,22 @@ pub async fn stop_capture(
     let reg = codeterm_service_core::pty::capture::CaptureRegistry::global();
     // stop() joins the writer thread (file IO) — keep it off the async runtime.
     let pty_for_stop = pty_id.clone();
-    let out = tokio::task::spawn_blocking(move || reg.stop(&pty_for_stop))
-        .await
-        .map_err(|_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "capture stop join failed",
-            )
-        })?
-        .ok_or((StatusCode::NOT_FOUND, "no active capture for this Tab"))?;
-    let screen_path = out.with_extension("screen.txt");
-    if let Some(text) = screen {
-        let _ = std::fs::write(&screen_path, text);
-    }
-    Ok(Json(serde_json::json!({
-        "ok": true,
-        "cast": out.to_string_lossy(),
-        "screen": screen_path.to_string_lossy(),
-    })))
+    tokio::task::spawn_blocking(move || {
+        let out = reg
+            .stop(&pty_for_stop)
+            .ok_or((StatusCode::NOT_FOUND, "no active capture for this Tab"))?;
+        let screen_path = out.with_extension("screen.txt");
+        if let Some(text) = screen {
+            let _ = std::fs::write(&screen_path, text);
+        }
+        Ok(Json(serde_json::json!({
+            "ok": true,
+            "cast": out.to_string_lossy(),
+            "screen": screen_path.to_string_lossy(),
+        })))
+    })
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Capture stop failed"))?
 }
 
 #[derive(Deserialize)]
@@ -1111,7 +1089,12 @@ pub async fn link_pty(
     Json(body): Json<LinkPtyBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     tokio::task::spawn_blocking(move || {
-        let selected_pty_id = state.svc.link_pty(&tab_id, body.pty_id);
+        let selected_pty_id = state.svc.link_pty(&tab_id, body.pty_id).map_err(|_| {
+            (
+                StatusCode::TOO_MANY_REQUESTS,
+                "tab activation capacity reached",
+            )
+        })?;
         Ok(Json(
             serde_json::json!({"ok": true, "pty_id": selected_pty_id}),
         ))

@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 pub(super) fn memory(
     svc: &ServiceContext,
-    plan: &Plan,
+    plan_id: &str,
     since: u64,
     rows: &mut BTreeMap<String, Vec<digest::Row>>,
 ) {
@@ -24,7 +24,7 @@ pub(super) fn memory(
             .get(&entry.id)
             .ok()
             .flatten()
-            .is_some_and(|item| item.tags.iter().any(|tag| tag == &plan.id));
+            .is_some_and(|item| item.tags.iter().any(|tag| tag == plan_id));
         if scoped {
             rows.entry("memory".into()).or_default().push(digest::Row {
                 id: entry.id,
@@ -39,7 +39,7 @@ pub(super) fn memory(
 
 pub(super) fn blueprints(
     svc: &ServiceContext,
-    plan: &Plan,
+    team_id: &Option<String>,
     since: u64,
     now: u64,
     rows: &mut BTreeMap<String, Vec<digest::Row>>,
@@ -51,7 +51,7 @@ pub(super) fn blueprints(
         .store
         .records()
         .into_iter()
-        .filter(|r| r.team_id == plan.team_id)
+        .filter(|r| &r.team_id == team_id)
         .collect::<Vec<_>>();
     records.sort_by(|a, b| a.id.cmp(&b.id));
     let mut sources = BTreeMap::<String, String>::new();

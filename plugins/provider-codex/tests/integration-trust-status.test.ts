@@ -1,3 +1,4 @@
+import { ioTestContext } from "../../provider-shared/tests/hostIo";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
@@ -62,7 +63,7 @@ function load(files: Map<string, string>, exec: () => string) {
     },
   };
   const context = { host, console, module: { exports: {} as { default?: any } }, exports: {} };
-  new vm.Script(fs.readFileSync(pluginPath, "utf8"), { filename: pluginPath }).runInNewContext(context);
+  new vm.Script(fs.readFileSync(pluginPath, "utf8"), { filename: pluginPath }).runInNewContext(ioTestContext(context));
   return { plugin: context.module.exports.default, calls: () => execCalls };
 }
 

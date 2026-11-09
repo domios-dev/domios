@@ -1,3 +1,4 @@
+import { ioTestContext } from "../../provider-shared/tests/hostIo";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
@@ -86,7 +87,7 @@ const host = {
 };
 
 const context = { host, console, module: { exports: {} as { default?: any } }, exports: {} };
-new vm.Script(fs.readFileSync(pluginPath, "utf8"), { filename: pluginPath }).runInNewContext(context);
+new vm.Script(fs.readFileSync(pluginPath, "utf8"), { filename: pluginPath }).runInNewContext(ioTestContext(context));
 const plugin = context.module.exports.default;
 
 const install = plugin.installIntegration(7686, { consent: true });

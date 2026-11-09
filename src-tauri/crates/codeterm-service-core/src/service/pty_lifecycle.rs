@@ -99,7 +99,7 @@ pub fn spawn_prepared_backend_reader(
         lease,
     } = prepared;
     let generation = lease.0.generation;
-    tokio::spawn(async move {
+    spawn_reader_task(async move {
         let _lease = lease;
         log::info!(
             "[backend-reader] started for pty {}",
@@ -117,6 +117,14 @@ pub fn spawn_prepared_backend_reader(
         )
         .await;
     })
+}
+
+fn spawn_reader_task(
+    task: impl std::future::Future<Output = ()> + Send + 'static,
+) -> JoinHandle<()> {
+    // Reader feeds call synchronous provider hooks, so they must inherit the service runtime,
+    // even when a launch thread uses a private CurrentThread runtime to await the reader.
+    crate::async_runtime::spawn(task)
 }
 
 pub fn start_backend_reader(

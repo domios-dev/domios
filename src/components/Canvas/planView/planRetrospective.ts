@@ -1,4 +1,5 @@
-import type { Milestone, Plan } from "../types";
+import type { PlanView as Plan } from "../planProjection";
+import type { Milestone } from "../types";
 import { RETROSPECTIVE_SUPERSEDE_NOTE } from "./planRetrospectiveConstants";
 
 export function latestRetrospective(plan: Plan): Milestone | null {

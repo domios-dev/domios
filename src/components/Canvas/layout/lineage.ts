@@ -1,4 +1,5 @@
-import type { EffortLinkRel, Plan, PlanStatus } from "../types";
+import type { PlanView as Plan } from "../planProjection";
+import type { EffortLinkRel, PlanStatus } from "../types";
 import type { CanvasLayoutSettings } from "../settings";
 import { unionBox, type Box } from "./geometry";
 import type { LaidOutEdge, LaidOutNode, PlanFrame, WorkspaceLayout } from "./types";

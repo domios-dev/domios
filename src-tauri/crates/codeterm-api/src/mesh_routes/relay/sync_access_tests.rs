@@ -28,6 +28,7 @@ fn lower_access_sync_keeps_only_the_sender_identity_and_liveness() {
         false,
         "receiver",
         MeshSyncPayload {
+            endpoints: Vec::new(),
             peers: vec![peer("receiver"), peer("other")],
             generation: 9,
         },

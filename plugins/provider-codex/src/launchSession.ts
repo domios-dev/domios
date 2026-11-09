@@ -1,5 +1,4 @@
-// A thread binds this tab only when its early developer/user messages carry this
-// launch's marker; neither cwd nor recency decides.
+import { type HostIoSteps } from "@codeterm/plugin-sdk";
 import type { LaunchSessionDetection, LaunchSessionEvidence } from "@codeterm/plugin-sdk";
 import { codexStateDbPath } from "./sessions";
 
@@ -29,30 +28,26 @@ export function withLaunchMarker(instructions: string, marker: string | undefine
   return instructions + "\n\n<!-- " + MARKER_PREFIX + " " + marker + " -->\n";
 }
 
-export function detectCodexLaunchSession(evidence: LaunchSessionEvidence): LaunchSessionDetection | null {
+export function* detectCodexLaunchSession(evidence: LaunchSessionEvidence): HostIoSteps<LaunchSessionDetection | null> {
   const marker = evidence && typeof evidence.launchMarker === "string" ? evidence.launchMarker : "";
   if (marker.length < MIN_MARKER_LENGTH) return null;
-  const db = codexStateDbPath();
-  if (!db || !host.fs.fileExists(db)) return null;
+  const db = (yield* codexStateDbPath());
+  if (!db || !(yield* host.io.fs.fileExists(db))) return null;
   const since = Math.floor(Math.max(0, Number(evidence.launchedAtMs) || 0) / 1000);
-  const rows = host.fs.sqliteQuery<ThreadRow>(
-    db,
-    "SELECT id, rollout_path FROM threads WHERE created_at >= ? ORDER BY created_at DESC LIMIT "
-      + CANDIDATE_THREADS,
-    [since],
-  );
+  const rows = (yield* host.io.fs.sqliteQuery<ThreadRow>(db, "SELECT id, rollout_path FROM threads WHERE created_at >= ? ORDER BY created_at DESC LIMIT "
+      + CANDIDATE_THREADS, [since]));
   const matches: string[] = [];
   for (let i = 0; i < rows.length; i++) {
     const id = typeof rows[i].id === "string" ? (rows[i].id as string) : "";
     const path = typeof rows[i].rollout_path === "string" ? (rows[i].rollout_path as string) : "";
     if (!id || !path || matches.indexOf(id) !== -1) continue;
-    if (rolloutCarriesMarker(path, id, marker)) matches.push(id);
+    if ((yield* rolloutCarriesMarker(path, id, marker))) matches.push(id);
   }
   return matches.length === 1 ? { sessionId: matches[0], source: "launch_marker" } : null;
 }
 
-function rolloutCarriesMarker(path: string, id: string, marker: string): boolean {
-  const head = host.fs.readFileHead(path, ROLLOUT_HEAD_BYTES);
+function* rolloutCarriesMarker(path: string, id: string, marker: string): HostIoSteps<boolean> {
+  const head = (yield* host.io.fs.readFileHead(path, ROLLOUT_HEAD_BYTES));
   if (typeof head !== "string") return false;
   const lines = head.split("\n");
   let records = 0;

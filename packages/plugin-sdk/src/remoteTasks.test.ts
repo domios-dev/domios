@@ -1,18 +1,21 @@
+import { ioTestExport } from "../../../plugins/provider-shared/tests/hostIo";
 import assert from "node:assert/strict";
-import {test} from "node:test";
-import {RemoteTaskController, type RemoteTaskBackend, type RemoteTaskBinding, type RemoteTaskStorage} from "./remoteTasks";
-import {RemoteTaskFileStorage} from "./remoteTaskStorage";
+import { test } from "node:test";
+import { RemoteTaskController as ioSource_RemoteTaskController, type RemoteTaskBackend, type RemoteTaskBinding, type RemoteTaskStorage } from "./remoteTasks";
+import { RemoteTaskFileStorage as ioSource_RemoteTaskFileStorage } from "./remoteTaskStorage";
+const RemoteTaskController = ioTestExport(ioSource_RemoteTaskController);
+const RemoteTaskFileStorage = ioTestExport(ioSource_RemoteTaskFileStorage);
 
 function fixture() {
   const persisted = new Map<string, RemoteTaskBinding>();
-  const storage: RemoteTaskStorage = {
+  const storage = {
     read(id) { return structuredClone(persisted.get(id) ?? null); },
     compareExchange(id, revision, next) {
       if ((persisted.get(id)?.revision ?? null) !== revision) return false;
       persisted.set(id, structuredClone(next));
       return true;
     },
-  };
+  } satisfies RemoteTaskStorage;
   let creates = 0;
   let reads = 0;
   let uncertain = false;
@@ -25,7 +28,7 @@ function fixture() {
       reads++;
       return {taskId: binding.snapshot!.taskId, attempt: "attempt-1", status: "ready", result: "README title", diff: null, cursor: "cursor-fixture", error: null};
     },
-  };
+  } satisfies RemoteTaskBackend;
   return {storage, backend, persisted, environment, creates: () => creates, reads: () => reads, failCreate: () => {uncertain = true;}};
 }
 
@@ -105,10 +108,10 @@ test("provider file storage preserves binding across controller instances and re
 test("an acknowledged create whose binding write fails is never recreated after restart", () => {
   const f = fixture();
   let failAcknowledgement = true;
-  const storage: RemoteTaskStorage = {...f.storage, compareExchange(id, revision, next) {
+  const storage = {...f.storage, compareExchange(id, revision, next) {
     if (failAcknowledgement && next.phase === "bound") return false;
     return f.storage.compareExchange(id, revision, next);
-  }};
+  }} satisfies RemoteTaskStorage;
   assert.throws(() => new RemoteTaskController(storage, f.backend).create("tab", "provider-fixture", f.environment, "master", "Read README"));
   failAcknowledgement = false;
   const restarted = new RemoteTaskController(storage, f.backend);
@@ -124,4 +127,27 @@ test("restore refuses a binding from another execution mode without creating or 
   const storage = {...f.storage, read: () => foreign};
   assert.throws(() => new RemoteTaskController(storage, f.backend).restore("tab"));
   assert.equal(f.creates(), 1);
+});
+
+test("revoked create claim never reaches the remote backend after its storage yield", () => {
+  const f = fixture();
+  let current = true;
+  let claimed = false;
+  const storage = {
+    ...f.storage,
+    *compareExchange() {
+      claimed = true;
+      yield {op: "fileExists" as const, path: "/claim-fixture"};
+      return true;
+    },
+  };
+  const controller = new ioSource_RemoteTaskController(storage, f.backend, () => {
+    if (!current) throw new Error("invocation closed");
+  });
+  const creation = controller.create("tab", "provider-fixture", f.environment, "master", "Read README");
+  assert.equal(creation.next().done, false);
+  assert.equal(claimed, true);
+  current = false;
+  assert.throws(() => creation.next(true), /invocation closed/);
+  assert.equal(f.creates(), 0);
 });

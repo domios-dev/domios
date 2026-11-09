@@ -46,6 +46,7 @@ async fn browser_upload_grants_require_owner_credential_for_key_partial_and_full
     let agent = state
         .svc
         .frontend_pty_env(Some(&tab))
+        .unwrap()
         .remove("CODETERM_API_TOKEN")
         .unwrap();
     let app = Router::new()

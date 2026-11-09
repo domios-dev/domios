@@ -1,5 +1,5 @@
 use super::*;
-use crate::plan::OrchestratorRef;
+use crate::plan::{OrchestratorRef, Plan};
 use crate::service_plan::NewTask;
 
 #[test]

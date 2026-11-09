@@ -182,7 +182,7 @@ impl ServiceContext {
             };
             (
                 mux.display_label_for_tab(target),
-                tab.agent_session_model.clone(),
+                tab.agent_session_model_label(),
             )
         };
         let (text, hops, notice) = match action {

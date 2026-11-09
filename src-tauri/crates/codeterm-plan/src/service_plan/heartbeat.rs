@@ -1,11 +1,13 @@
+use super::store_db::hot_write::runtime::HeartbeatRows;
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::{PlanError, PlanStore};
-use crate::plan::{
-    HeartbeatLearning, LoopSpec, OrchestratorHeartbeat, Plan, PlanMode, PlanStatus, PlannerRef,
-    TaskStatus,
-};
+use crate::plan::{HeartbeatLearning, LoopSpec, OrchestratorHeartbeat, Plan, PlanMode, TaskStatus};
+
+pub(super) mod view;
+
+pub(in crate::service_plan) const HANDOFF_ACTION_VERB: &str = "recover handoff";
 
 pub const STATE_RECONCILIATION_PROMPT: &str = "STATE-RECONCILIATION";
 
@@ -83,29 +85,37 @@ fn render_competitive_attempts(plan: &Plan, out: &mut String) {
 }
 
 fn render_regression_gates(plan: &Plan, out: &mut String) {
-    let gates = super::milestone_gates::pending_regression_gates(plan);
+    out.push_str(&regression_line(
+        &super::milestone_gates::pending_regression_gates(plan),
+        false,
+    ));
+}
+
+fn render_group_retrospectives(plan: &Plan, out: &mut String) {
+    out.push_str(&regression_line(
+        &super::milestone_gates::pending_group_retrospectives(plan),
+        true,
+    ));
+}
+
+pub(in crate::service_plan) fn regression_line(
+    gates: &[super::milestone_gates::RegressionGate],
+    retrospective: bool,
+) -> String {
     if gates.is_empty() {
-        return;
+        return String::new();
     }
+    let title = if retrospective {
+        "Close groups"
+    } else {
+        "Record group regression"
+    };
     let groups = gates
         .iter()
         .map(|gate| gate.key.as_str())
         .collect::<Vec<_>>()
         .join(", ");
-    out.push_str(&format!("Record group regression: {groups}\n"));
-}
-
-fn render_group_retrospectives(plan: &Plan, out: &mut String) {
-    let pending = super::milestone_gates::pending_group_retrospectives(plan);
-    if pending.is_empty() {
-        return;
-    }
-    let groups = pending
-        .iter()
-        .map(|gate| gate.key.as_str())
-        .collect::<Vec<_>>()
-        .join(", ");
-    out.push_str(&format!("Close groups: {groups}\n"));
+    format!("{title}: {groups}\n")
 }
 
 fn render_open_gates(plan: &Plan, now_ms: u64, out: &mut String) {
@@ -115,30 +125,46 @@ fn render_open_gates(plan: &Plan, now_ms: u64, out: &mut String) {
     }
     out.push_str("Decision gates:\n");
     for gate in open {
-        let age_ms = now_ms.saturating_sub(gate.asked_at);
-        let age_h = age_ms / 3_600_000;
-        let age_min = (age_ms % 3_600_000) / 60_000;
-        let age = if age_h > 0 {
-            format!("{age_h}h{age_min}m")
-        } else {
-            format!("{age_min}m")
-        };
-        let blocking = gate.blocking_task_ids.len();
-        let routed = gate.routed_to_tab_id.as_deref().unwrap_or("unrouted");
-        out.push_str(&format!(
-            "- {} (age:{age} blocking:{blocking} routed:{routed}): {}\n",
-            gate.id,
-            gate.question.chars().take(100).collect::<String>()
+        out.push_str(&gate_line(
+            &gate.id,
+            &gate.question,
+            gate.asked_at,
+            gate.blocking_task_ids.len(),
+            gate.routed_to_tab_id.as_deref(),
+            now_ms,
         ));
     }
 }
 
-fn role_identity_line(plan: &Plan, tab_id: Option<&str>) -> String {
-    let owner = plan.owner.tab_id.as_deref();
-    let planner = match &plan.planner {
-        Some(PlannerRef::Tab { tab_id, .. }) => Some(tab_id.as_str()),
-        _ => None,
+pub(in crate::service_plan) fn gate_line(
+    id: &str,
+    question: &str,
+    asked_at: u64,
+    blocking: usize,
+    routed: Option<&str>,
+    now_ms: u64,
+) -> String {
+    let age_ms = now_ms.saturating_sub(asked_at);
+    let age_h = age_ms / 3_600_000;
+    let age_min = (age_ms % 3_600_000) / 60_000;
+    let age = if age_h > 0 {
+        format!("{age_h}h{age_min}m")
+    } else {
+        format!("{age_min}m")
     };
+    format!(
+        "- {id} (age:{age} blocking:{blocking} routed:{}): {}\n",
+        routed.unwrap_or("unrouted"),
+        question.chars().take(100).collect::<String>()
+    )
+}
+
+fn role_identity_line(
+    plan_id: &str,
+    owner: Option<&str>,
+    planner: Option<&str>,
+    tab_id: Option<&str>,
+) -> String {
     let role = match tab_id {
         Some(tab) if owner == Some(tab) => "Orchestrator",
         Some(tab) if planner == Some(tab) => "Planner",
@@ -156,7 +182,7 @@ fn role_identity_line(plan: &Plan, tab_id: Option<&str>) -> String {
     codeterm_types::agent::role_identity::render(
         codeterm_types::agent::role_identity::RoleIdentity::Heartbeat {
             role,
-            plan_id: &plan.id,
+            plan_id,
             peer_text: &peer_text,
         },
     )
@@ -171,37 +197,56 @@ fn is_owner_rule(learning: &HeartbeatLearning) -> bool {
     learning.tag.as_deref() == Some("owner")
 }
 
-fn render_learning(learning: &HeartbeatLearning, out: &mut String) {
+pub(in crate::service_plan) fn render_learning(learning: &HeartbeatLearning, out: &mut String) {
+    render_learning_text(&learning.text, out);
+}
+
+pub(in crate::service_plan) fn render_learning_text(text: &str, out: &mut String) {
     out.push_str("- ");
-    out.push_str(
-        &learning
-            .text
-            .split_whitespace()
-            .collect::<Vec<_>>()
-            .join(" "),
-    );
+    for (index, word) in text.split_whitespace().enumerate() {
+        if index > 0 {
+            out.push(' ');
+        }
+        out.push_str(word);
+    }
     out.push('\n');
 }
 
 const SITUATIONAL_LEARNING_CHARS: usize = 160;
 
-fn render_situational_learning(learning: &HeartbeatLearning, out: &mut String) {
-    let text = learning
-        .text
+pub(in crate::service_plan) fn render_situational_learning(
+    learning: &HeartbeatLearning,
+    out: &mut String,
+) {
+    render_situational_learning_fields(&learning.id, &learning.text, out);
+}
+
+pub(in crate::service_plan) fn render_situational_learning_fields(
+    id: &str,
+    text: &str,
+    out: &mut String,
+) {
+    let normalized = text
         .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ");
-    let excerpt = if text.chars().count() > SITUATIONAL_LEARNING_CHARS {
-        let prefix = text
+        .enumerate()
+        .flat_map(|(index, word)| {
+            std::iter::once(' ')
+                .filter(move |_| index > 0)
+                .chain(word.chars())
+        })
+        .take(SITUATIONAL_LEARNING_CHARS + 1)
+        .collect::<String>();
+    let excerpt = if normalized.chars().count() > SITUATIONAL_LEARNING_CHARS {
+        let prefix = normalized
             .chars()
             .take(SITUATIONAL_LEARNING_CHARS)
             .collect::<String>();
         let boundary = prefix.rfind(' ').unwrap_or(prefix.len());
         format!("{}…", &prefix[..boundary])
     } else {
-        text
+        normalized
     };
-    out.push_str(&format!("- {}: {excerpt}\n", learning.id));
+    out.push_str(&format!("- {id}: {excerpt}\n"));
 }
 
 fn reminder_snapshot(plan: &Plan) -> super::state::PlanStateSnapshot {
@@ -217,6 +262,20 @@ fn reminder_snapshot(plan: &Plan) -> super::state::PlanStateSnapshot {
     )
 }
 
+pub(in crate::service_plan) fn action_verb(
+    kind: super::next_actions::NextActionKind,
+) -> Option<&'static str> {
+    use super::next_actions::NextActionKind;
+    match kind {
+        NextActionKind::Gate => Some("gate"),
+        NextActionKind::ClaimQa => Some("claim QA"),
+        NextActionKind::Dispatch => Some("dispatch"),
+        NextActionKind::Advance => Some("unblock"),
+        NextActionKind::WaitingOnDependency => Some("repair missing dependency"),
+        _ => None,
+    }
+}
+
 fn render_actions(
     plan: &Plan,
     snapshot: &super::state::PlanStateSnapshot,
@@ -227,17 +286,11 @@ fn render_actions(
     let mut named = std::collections::HashSet::new();
     let mut actions = Vec::new();
     for action in &snapshot.next_actions {
-        let verb = match action.kind {
-            NextActionKind::Gate => "gate",
-            NextActionKind::ClaimQa => "claim QA",
-            NextActionKind::Dispatch => "dispatch",
-            NextActionKind::Advance => "unblock",
-            NextActionKind::WaitingOnDependency => "repair missing dependency",
-            NextActionKind::ConsiderStop => {
+        let Some(verb) = action_verb(action.kind) else {
+            if action.kind == NextActionKind::ConsiderStop {
                 out.push_str(&format!("- {}\n", action.message));
-                continue;
             }
-            _ => continue,
+            continue;
         };
         if let Some(id) = action.task_id.as_ref().filter(|id| actionable.contains(id)) {
             if named.insert(id.clone()) {
@@ -252,7 +305,7 @@ fn render_actions(
             && super::state::task_projection(plan, task).presentation
                 == super::state::TaskPresentation::HandoffRequired
         {
-            out.push_str(&format!("- {}: recover handoff\n", task.id));
+            out.push_str(&format!("- {}: {HANDOFF_ACTION_VERB}\n", task.id));
             actions.push(task.id.clone());
         }
     }
@@ -287,55 +340,6 @@ fn render_actionable_skills(plan: &Plan, actions: &[String], out: &mut String) {
     }
 }
 
-fn render_heartbeat(
-    plan: &Plan,
-    heartbeat: &OrchestratorHeartbeat,
-    _loops: &[LoopSpec],
-    extra_digest_lines: &[String],
-) -> String {
-    let snapshot = reminder_snapshot(plan);
-    let pending = snapshot
-        .open_lanes
-        .iter()
-        .filter(|lane| lane.presentation == super::state::TaskPresentation::ActionablePending)
-        .count();
-    let mut out = format!("{HEARTBEAT_BLOCK_OPEN} plan=\"{}\">\nState: in_review={} in_progress={} pending_actionable={pending} blocked={}\n",
-        plan.id, snapshot.task_counts.in_review, snapshot.task_counts.in_progress, snapshot.task_counts.blocked);
-    let actions = render_actions(plan, &snapshot, &mut out);
-    for learning in heartbeat
-        .learnings
-        .iter()
-        .filter(|learning| is_owner_rule(learning))
-    {
-        render_learning(learning, &mut out);
-    }
-    for learning in heartbeat
-        .learnings
-        .iter()
-        .rev()
-        .filter(|learning| !is_owner_rule(learning) && !learning.text.trim().is_empty())
-        .take(MAX_SITUATIONAL_LEARNINGS)
-    {
-        render_situational_learning(learning, &mut out);
-    }
-    render_regression_gates(plan, &mut out);
-    render_group_retrospectives(plan, &mut out);
-    render_competitive_attempts(plan, &mut out);
-    render_open_gates(plan, now_ms(), &mut out);
-    for line in extra_digest_lines
-        .iter()
-        .filter(|line| !line.trim().is_empty())
-    {
-        out.push_str("- ");
-        out.push_str(line.trim());
-        out.push('\n');
-    }
-    render_actionable_skills(plan, &actions, &mut out);
-    out.push_str(HEARTBEAT_MORE);
-    out.push_str("\n</codeterm-orchestrator-heartbeat>");
-    out
-}
-
 pub(super) fn reconciliation_prompt(plan_id: &str, tab_id: Option<&str>) -> String {
     let status = tab_id.map_or_else(
         || format!("domios orchestrator status --plan {plan_id}"),
@@ -367,14 +371,9 @@ fn prepend_heartbeat(
     text: &str,
     tab_id: Option<&str>,
 ) -> String {
-    let plan = Plan {
-        id: plan_id.to_string(),
-        heartbeat: heartbeat.clone(),
-        loops: loops.to_vec(),
-        ..Plan::new(String::new(), String::new(), Default::default())
-    };
-    let block = render_heartbeat(&plan, heartbeat, loops, &[]);
-    let identity = role_identity_line(&plan, tab_id);
+    let parts = view::HeartbeatParts::from_snapshot(plan_id, loops);
+    let block = parts.render_block(&view::learning_lines(heartbeat), &[]);
+    let identity = role_identity_line(plan_id, None, None, tab_id);
     let prompt = reconciliation_prompt(plan_id, tab_id);
     let reconciliation = format!(
         "<codeterm-state-reconciliation plan=\"{plan_id}\">\n{prompt}\n</codeterm-state-reconciliation>"
@@ -409,42 +408,10 @@ pub fn prepend_plan_heartbeat_with_selection(
     digest_lines: &[String],
     learning_ids: Option<&[String]>,
 ) -> String {
-    let mut heartbeat = plan.heartbeat.clone();
-    if let Some(ids) = learning_ids {
-        let allowed: Vec<_> = ids
-            .iter()
-            .filter(|id| {
-                heartbeat
-                    .learnings
-                    .iter()
-                    .any(|learning| &learning.id == *id && !is_owner_rule(learning))
-            })
-            .take(MAX_SITUATIONAL_LEARNINGS)
-            .collect();
-        heartbeat
-            .learnings
-            .retain(|learning| is_owner_rule(learning) || allowed.contains(&&learning.id));
-    }
     if matches!(plan.mode, PlanMode::Paused | PlanMode::Complete) || is_plan_complete(plan) {
         return text.to_string();
     }
-    let mut lines = digest_lines.to_vec();
-    lines.push(format!(
-        "control loop: {:?}, next {:?}{}",
-        plan.control_loop.mode,
-        plan.control_loop.next_at,
-        plan.control_loop
-            .fallback_reason
-            .as_ref()
-            .map(|r| format!(", fallback: heartbeat ({r})"))
-            .unwrap_or_default()
-    ));
-    let block = render_heartbeat(plan, &heartbeat, &plan.loops, &lines);
-    if text.trim().is_empty() {
-        block
-    } else {
-        format!("{block}\n\n{text}")
-    }
+    view::HeartbeatView::from_plan(plan).prepend(text, digest_lines, learning_ids)
 }
 
 pub(super) fn prepend_heartbeat_snapshot(
@@ -456,37 +423,20 @@ pub(super) fn prepend_heartbeat_snapshot(
     prepend_heartbeat(plan_id, heartbeat, loops, text, None)
 }
 
-fn has_open_work(plan: &Plan) -> bool {
-    plan.tasks
-        .iter()
-        .any(|task| task.status.counts_as_open_work())
-}
-
 /// A plan is complete only when every recorded task is terminal.
 pub fn is_plan_complete(plan: &Plan) -> bool {
     !plan.tasks.is_empty() && plan.tasks.iter().all(|task| task.status.is_terminal())
 }
 
-fn owner_matches(plan: &Plan, tab_id: Option<&str>, session_id: Option<&str>) -> bool {
-    let tab_matches = tab_id
-        .filter(|tab| !tab.trim().is_empty())
-        .is_some_and(|tab| plan.owner.tab_id.as_deref() == Some(tab));
-    let session_matches = session_id
-        .filter(|session| !session.trim().is_empty())
-        .is_some_and(|session| plan.owner.session_id.as_deref() == Some(session));
-    tab_matches || session_matches
-}
-
-fn heartbeat_resolution_rank(plan: &Plan) -> (u8, u64) {
-    let rank = match (&plan.mode, has_open_work(plan)) {
+pub(super) fn heartbeat_resolution_priority(mode: &PlanMode, open_work: bool) -> u8 {
+    match (mode, open_work) {
         (PlanMode::Execution, true) => 5,
         (PlanMode::Execution, false) => 4,
         (PlanMode::Approved, true) => 3,
         (PlanMode::Planning, true) => 2,
         (PlanMode::Approved | PlanMode::Planning, false) => 1,
         (PlanMode::Paused | PlanMode::Complete, _) => 0,
-    };
-    (rank, plan.updated_at)
+    }
 }
 
 impl PlanStore {
@@ -496,45 +446,8 @@ impl PlanStore {
         tab_id: Option<&str>,
         session_id: Option<&str>,
     ) -> Result<String, PlanError> {
-        if let Some(plan_id) = plan_id.filter(|id| !id.trim().is_empty()) {
-            return self
-                .database
-                .heartbeat_owner_candidates(&super::PlanMatch::Ids(vec![plan_id.into()]))?
-                .into_iter()
-                .next()
-                .map(|plan| plan.id)
-                .ok_or(PlanError::NotFound);
-        }
-        let mut best_match = None;
-        let mut owners = Vec::new();
-        if let Some(tab) = tab_id.filter(|tab| !tab.trim().is_empty()) {
-            owners.push(super::PlanMatch::owner(tab));
-        }
-        if let Some(session) = session_id.filter(|session| !session.trim().is_empty()) {
-            owners.push(super::PlanMatch::OwnerSession(session.to_string()));
-        }
-        let candidates = super::PlanMatch::active().and(super::PlanMatch::Any(owners));
-        for plan in self.database.heartbeat_owner_candidates(&candidates)? {
-            if plan.status != PlanStatus::Active {
-                continue;
-            }
-            if !owner_matches(&plan, tab_id, session_id) {
-                continue;
-            }
-            let rank = heartbeat_resolution_rank(&plan);
-            if rank.0 == 0 {
-                continue;
-            }
-            if best_match
-                .as_ref()
-                .is_none_or(|(_, best_rank)| rank > *best_rank)
-            {
-                best_match = Some((plan.id, rank));
-            }
-        }
-        best_match
-            .map(|(plan_id, _)| plan_id)
-            .ok_or(PlanError::NotFound)
+        self.database
+            .resolve_heartbeat_plan(plan_id, tab_id, session_id)
     }
 
     pub fn add_heartbeat_learning(
@@ -553,7 +466,7 @@ impl PlanStore {
         let plan_id = self.resolve_active_plan_for_orchestrator(plan_id, tab_id, session_id)?;
         let normalized = normalized_learning(text);
         let mut out = None;
-        self.with_plan(&plan_id, now_ms, |plan| {
+        self.with_runtime_rows::<HeartbeatRows, _>(&plan_id, now_ms, |plan| {
             if let Some(existing) = plan
                 .heartbeat
                 .learnings
@@ -562,7 +475,7 @@ impl PlanStore {
                 .cloned()
             {
                 out = Some(HeartbeatLearnResult {
-                    plan_id: plan.id.clone(),
+                    plan_id: plan_id.clone(),
                     learning: existing,
                     deduped: true,
                 });
@@ -579,7 +492,7 @@ impl PlanStore {
             };
             plan.heartbeat.learnings.push(learning.clone());
             out = Some(HeartbeatLearnResult {
-                plan_id: plan.id.clone(),
+                plan_id: plan_id.clone(),
                 learning,
                 deduped: false,
             });
@@ -595,18 +508,7 @@ impl PlanStore {
         session_id: Option<&str>,
     ) -> Result<HeartbeatShowResult, PlanError> {
         let plan_id = self.resolve_active_plan_for_orchestrator(plan_id, tab_id, session_id)?;
-        let read = self.status_projection(&plan_id, now_ms())?;
-        let plan = read.plan();
-        let mut heartbeat = plan.heartbeat.clone();
-        heartbeat.current_focus = None;
-        heartbeat.active_lanes.clear();
-        heartbeat.rules.clear();
-        Ok(HeartbeatShowResult {
-            plan_id: plan.id.clone(),
-            reinjection: render_heartbeat(&plan, &heartbeat, &plan.loops, &[]),
-            blocked_or_gated_count: super::state::outstanding_blocked_count(&plan),
-            heartbeat,
-        })
+        self.database.heartbeat_show_projection(&plan_id, now_ms())
     }
 
     pub fn prepend_heartbeat_with_selected_learnings(
@@ -616,21 +518,15 @@ impl PlanStore {
         digests: &[String],
         learning_ids: Option<&[String]>,
     ) -> Result<String, PlanError> {
-        let read = match self.database.status_projection(
-            plan_id,
-            now_ms(),
-            learning_ids.unwrap_or_default(),
-        ) {
+        let read = match self
+            .database
+            .heartbeat_projection(plan_id, now_ms(), learning_ids)
+        {
             Ok(read) => read,
-            Err(PlanError::NotFound) => return Ok(text.to_string()),
+            Err(PlanError::NotFound) => return Ok(text.into()),
             Err(error) => return Err(error),
         };
-        Ok(prepend_plan_heartbeat_with_selection(
-            read.plan(),
-            text,
-            digests,
-            learning_ids,
-        ))
+        Ok(read.prepend(text, digests))
     }
 
     pub fn prepend_heartbeat_for_plan(

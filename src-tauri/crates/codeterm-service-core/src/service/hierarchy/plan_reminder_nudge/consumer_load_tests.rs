@@ -46,11 +46,7 @@ fn send_due_plan_time_reminders_never_loads_unmatched_plans() {
     let (fx, working, unmatched) = seeded();
 
     fx.service.send_due_plan_time_reminders();
-    assert!(fx
-        .service
-        .plan_store
-        .plan_loads_for_test()
-        .contains(&working));
+    assert_never_loaded(&fx.service.plan_store, &[&working]);
     assert_never_loaded(&fx.service.plan_store, &[&unmatched[0], &unmatched[1]]);
 }
 
@@ -59,20 +55,23 @@ fn reconcile_time_reminder_eligibility_never_loads_unmatched_plans() {
     let (fx, working, unmatched) = seeded();
 
     fx.service.reconcile_time_reminder_eligibility();
-    assert_eq!(fx.service.plan_store.plan_loads_for_test(), vec![working]);
+    assert_never_loaded(&fx.service.plan_store, &[&working]);
     assert_never_loaded(&fx.service.plan_store, &[&unmatched[0], &unmatched[1]]);
 }
 
 #[test]
-fn live_host_with_plans_never_loads_unmatched_plans() {
+fn live_host_worker_bindings_never_loads_unmatched_plans() {
     let (fx, working, unmatched) = seeded();
     let host = LiveHost {
         svc: &fx.service,
         interval: 60,
-        plans: None,
     };
 
-    let ids = host.with_plans(|plans| plans.iter().map(|plan| plan.id.clone()).collect::<Vec<_>>());
+    let ids = match host.worker_bindings("worker-tab", None).unwrap() {
+        WorkerBindingRead::Bound { plan, .. } => vec![plan.id],
+        WorkerBindingRead::Missing => Vec::new(),
+        WorkerBindingRead::Ambiguous => panic!("one eligible binding"),
+    };
     assert_eq!(ids, vec![working]);
     assert_never_loaded(&fx.service.plan_store, &[&unmatched[0], &unmatched[1]]);
 }

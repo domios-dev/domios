@@ -1,7 +1,7 @@
-// /v1/models list mapped onto the aliases accepted by the installed CLI.
+import { ioJson, ioEncoded, type HostIoSteps } from "@codeterm/plugin-sdk";
 import type { ModelInfo } from "@codeterm/plugin-sdk";
 import { manifest } from "./shared";
-import {modelWithCapabilities} from "./modelCapabilities";
+import { modelWithCapabilities } from "./modelCapabilities";
 
 interface AnthropicModelsResponse { data?: AnthropicModel[] }
 interface AnthropicModel { id?: string; display_name?: string; displayName?: string }
@@ -30,11 +30,11 @@ export function decideAvailability(
   return atLeast(probe.version, minimum) ? "available" : "unavailable";
 }
 
-export function discoverAnthropicModels(): ModelInfo[] | null {
-  const installed = probeInstalledCli();
+export function* discoverAnthropicModels(): HostIoSteps<ModelInfo[] | null> {
+  const installed = (yield* probeInstalledCli());
   const key = host.envGet("ANTHROPIC_API_KEY") || host.envGet("CLAUDE_API_KEY");
   if (!key) return applyInstalledCapabilities(manifestModels(), installed);
-  const live = fetchLiveModels(key);
+  const live = (yield* fetchLiveModels(key));
   if (!live) return applyInstalledCapabilities(manifestModels(), installed);
   const mapped = mapAliasesToLive(manifestModels(), live);
   return mapped.length ? applyInstalledCapabilities(mapped, installed, true) : null;
@@ -51,10 +51,10 @@ export function manifestModels(): ModelInfo[] {
   }));
 }
 
-function fetchLiveModels(key: string): AnthropicModel[] | null {
+function* fetchLiveModels(key: string): HostIoSteps<AnthropicModel[] | null> {
   let raw: string;
   try {
-    raw = host.fetch(JSON.stringify({
+    raw = (yield* ioEncoded(host.io.fetch({
       url: "https://api.anthropic.com/v1/models",
       method: "GET",
       timeoutMs: 3000,
@@ -62,7 +62,7 @@ function fetchLiveModels(key: string): AnthropicModel[] | null {
         "x-api-key": key,
         "anthropic-version": "2023-06-01",
       },
-    }));
+    })));
   } catch (_) {
     return null;
   }
@@ -81,10 +81,10 @@ function fetchLiveModels(key: string): AnthropicModel[] | null {
 
 // A throw, a non-zero exit and unparsable output are the same fact: we could
 // not ask. None of them is the CLI answering no.
-function probeInstalledCli(): CliProbe {
+function* probeInstalledCli(): HostIoSteps<CliProbe> {
   let raw: string;
   try {
-    raw = host.providerVersionJson();
+    raw = (yield* ioJson({ op: "providerVersion" }));
   } catch (_) {
     return { kind: "unreachable" };
   }

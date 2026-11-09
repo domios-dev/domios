@@ -42,10 +42,15 @@ pub async fn bridge_state(
         .svc
         .ext::<std::sync::Arc<codeterm_service_core::bridge::supervisor::BridgeSupervisor>>()
         .snapshot();
-    let token_present = bridge::telegram::token_path(&AppAttachmentStorePort).exists();
-    let bot_id = bridge::telegram::read_token(&AppAttachmentStorePort)
-        .map(|token| codeterm_bridge::bridge::threads::transport::bot_id_from_token(&token))
-        .filter(|id| *id != 0);
+    let (token_present, bot_id) = tokio::task::spawn_blocking(|| {
+        let token_present = bridge::telegram::token_path(&AppAttachmentStorePort).exists();
+        let bot_id = bridge::telegram::read_token(&AppAttachmentStorePort)
+            .map(|token| codeterm_bridge::bridge::threads::transport::bot_id_from_token(&token))
+            .filter(|id| *id != 0);
+        (token_present, bot_id)
+    })
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Token read failed"))?;
 
     let has_secret_in_vault = state
         .svc
@@ -170,15 +175,22 @@ pub async fn bridge_start(
         .op_guard()
         .await;
 
-    let token_file_exists = bridge::telegram::token_path(&AppAttachmentStorePort).exists();
+    let token_file_exists = tokio::task::spawn_blocking(|| {
+        bridge::telegram::token_path(&AppAttachmentStorePort).exists()
+    })
+    .await
+    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     if copies_vault_token(body.ensure_token, body.replace_token, token_file_exists) {
         let store = state.svc.secrets.read().await;
         match store.get(TELEGRAM_SECRET_NAME).await {
             Ok(value) => {
                 drop(store);
-                if let Err(e) = persist_token_file(value.value.expose_secret()) {
-                    return Err((StatusCode::INTERNAL_SERVER_ERROR, e));
-                }
+                tokio::task::spawn_blocking(move || {
+                    persist_token_file(value.value.expose_secret())
+                })
+                .await
+                .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+                .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?;
             }
             Err(_) => {
                 return Err((

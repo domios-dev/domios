@@ -123,7 +123,7 @@ fn add_reported_generation(
             assigned_at,
         )
         .unwrap();
-    let assigned = store.show_task(task_id).unwrap().task;
+    let assigned = store.inspect_task_for_test(task_id).unwrap().task;
     let attempt_id = assigned.execution_attempts.last().unwrap().id.clone();
     store
         .acknowledge_task_attempt(
@@ -140,21 +140,24 @@ fn add_reported_generation(
         session_binding_nonce,
         owner_epoch: assigned.interruption.owner_epoch,
     };
-    assert!(store
-        .ingest_bound_worker_report(
-            plan_id,
-            task_id,
-            &AgentRef::from_tab(&executor_tab_id),
-            BoundWorkerReport {
-                message: format!("synthetic review report {generation}"),
-                status: Some(ReportStatus::InReview),
-                sha: Some(format!("abcdef{generation:06}")),
-                authority: Some(authority),
-                ..Default::default()
-            },
-            assigned_at + 2,
-        )
-        .unwrap());
+    assert!(
+        store
+            .ingest_bound_worker_report(
+                plan_id,
+                task_id,
+                &AgentRef::from_tab(&executor_tab_id),
+                BoundWorkerReport {
+                    message: format!("synthetic review report {generation}"),
+                    status: Some(ReportStatus::InReview),
+                    sha: Some(format!("abcdef{generation:06}")),
+                    authority: Some(authority),
+                    ..Default::default()
+                },
+                assigned_at + 2,
+            )
+            .unwrap()
+            .committed_review
+    );
     attempt_id
 }
 
@@ -169,7 +172,10 @@ fn retire_and_clean(
     store
         .retire_stale_task_owner(plan_id, task_id, Some(outcome), |_| false, now_ms)
         .unwrap();
-    let plan = store.get(plan_id).unwrap();
+    let plan = store
+        .closed_task_lane_cleanup_projection(plan_id, task_id)
+        .unwrap()
+        .unwrap();
     assert!(matches!(
         codeterm_service_core::service::plan::lane_cleanup::try_cleanup_task_lane(
             store,
@@ -312,7 +318,7 @@ fn plan_review_cleaned_runtime_two_generations_endpoint() {
     let runtime = fixture();
     let store = &runtime.fixture.service.plan_store;
     let before_plan = store.get(&runtime.plan_id).unwrap();
-    let before_task = store.show_task(&runtime.task_id).unwrap().task;
+    let before_task = store.inspect_task_for_test(&runtime.task_id).unwrap().task;
     let before_runtime = runtime_inventory(&runtime.fixture);
     let owner = {
         let mux = runtime.fixture.service.mux.read();
@@ -425,7 +431,7 @@ fn plan_review_cleaned_runtime_two_generations_endpoint() {
     .expect("the current authenticated owner can bounce the terminal review");
     assert!(result.get("continuation").is_none_or(Value::is_null));
     let after_plan = store.get(&runtime.plan_id).unwrap();
-    let after_task = store.show_task(&runtime.task_id).unwrap().task;
+    let after_task = store.inspect_task_for_test(&runtime.task_id).unwrap().task;
     assert_eq!(after_task.status, TaskStatus::Pending);
     assert_eq!(after_task.status_label.as_deref(), Some("review bounced"));
     assert_eq!(after_task.review_stage, ReviewStage::Review);

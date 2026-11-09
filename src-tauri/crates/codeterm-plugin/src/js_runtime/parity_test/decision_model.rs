@@ -105,20 +105,18 @@ fn shared_fixtures() -> Vec<DecisionRequest> {
 fn parity_decision_model_opencode_run_shared_fixtures() {
     let bundle = include_str!("../../../../../../plugins/provider-opencode/plugin.js");
     let setup = r#"
-        host.exec = function() { return JSON.stringify({code: 0, stdout: 'fixture/model'}); };
-        host.execStart = function() { return JSON.stringify({jobId: 'fixture-discovery'}); };
-        host.awaitJob = function(id, then) { return then({code: 0, stdout: 'fixture/model'}); };
-        host.exec.async = function(opts, then) {
+        host.io.exec = function* (opts) {
+            if (!opts.stdin) return {code:0, stdout:'fixture/model'};
             var request = JSON.parse(opts.stdin);
             var config = JSON.parse(opts.env.OPENCODE_CONFIG_CONTENT);
             if (config.agent['domios-decision'].permission['*'] !== 'deny') throw new Error('unsafe fixture');
             var answer = request.question.type === 'noul' ? {type:'noul',p:0.8}
                 : request.question.type === 'choice' ? {type:'choice',choice:'yes',probabilities:{no:0.2,yes:0.8},confidence:0.8}
                 : {type:'score',score:2,probabilities:{'0':0.1,'1':0.2,'2':0.7},confidence:0.7};
-            return then({code:0,stdout:JSON.stringify({type:'text',part:{text:JSON.stringify(answer)}})+'\n'+JSON.stringify({type:'step_finish',part:{reason:'stop'}})});
+            return {code:0,stdout:JSON.stringify({type:'text',part:{text:JSON.stringify(answer)}})+'\n'+JSON.stringify({type:'step_finish',part:{reason:'stop'}})};
         };
-        host.fs.fileExists = function() { return false; };
-        host.fs.readFile = function() { return null; };
+        host.io.fs.fileExists = function*() { return false; };
+        host.io.fs.readFile = function*() { return null; };
     "#;
     let vm = Arc::new(PluginVm::from_source("run-fixture", format!("{setup}\n{bundle}")).unwrap());
     let javascript = JsDecisionModel::new(vm, "run-fixture", TokenMode::None);

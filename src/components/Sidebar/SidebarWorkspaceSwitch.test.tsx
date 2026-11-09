@@ -1,0 +1,157 @@
+import { act } from "react";
+import { createRoot } from "react-dom/client";
+import { flushSync } from "react-dom";
+import { afterEach, expect, it, vi } from "vitest";
+import type { AppConfig, Tab, Team, Workspace } from "../../lib/types";
+import type { PlanView } from "../Canvas/planProjection";
+import { Sidebar } from "./Sidebar";
+import { SidebarDnd } from "./sortable";
+import { SidebarWorkspaceDetail, type SidebarWorkspaceDetailActions, type SidebarWorkspaceDetailData } from "./SidebarWorkspaceDetail";
+
+const mux = vi.hoisted(() => ({ state: {} as Record<string, unknown>, listeners: new Set<() => void>() }));
+vi.mock("../../store/multiplexer/hooks", async () => {
+  const { useSyncExternalStore } = await import("react");
+  const subscribe = (listener: () => void) => { mux.listeners.add(listener); return () => { mux.listeners.delete(listener); }; };
+  return {
+    useMultiplexer: () => ({}),
+    useMuxSelector: (select: (state: object) => unknown) => select(useSyncExternalStore(subscribe, () => mux.state)),
+  };
+});
+vi.mock("../../hooks/useAgentProviders", () => ({ useAgentProviders: () => ({ providers: [], loading: false }) }));
+vi.mock("../../hooks/useTouchOptimizedUi", () => ({ useTouchOptimizedUi: () => false }));
+vi.mock("../../lib/bridge", async (actual) => ({ ...await actual<object>(), invoke: vi.fn().mockResolvedValue([]), listen: vi.fn().mockResolvedValue(() => {}) }));
+vi.mock("../Settings/useAccount", () => ({ useAccount: () => ({ model: { kind: "signed_out" } }) }));
+vi.mock("../Automation/hostAdapter", () => ({
+  primeWorkspaceGraphs: async () => undefined,
+  hostAutomationAdapter: {
+    read: () => new Promise(() => undefined),
+    subscribe: async () => () => undefined,
+    stop: async () => undefined,
+    delete: async () => undefined,
+  },
+}));
+
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+const config = { general_agent: { first_run_complete: true }, agent: {}, mesh: { enabled: false } } as AppConfig;
+
+const member = (id: string, workspace_id: string, extra: Partial<Tab> = {}): Tab => ({
+  id, title: id, tab_type: "Terminal", cwd: "/w", pty_id: null, agent_type: "fixture-provider", workspace_id, ...extra,
+} as Tab);
+const manager = (id: string, workspace_id: string) => member(id, workspace_id, { team_id: `team-${workspace_id}`, role: "Manager", role_profile: "planner" });
+const worker = (id: string, workspace_id: string) => member(id, workspace_id, { team_id: `team-${workspace_id}`, role: "Worker", role_profile: "worker" });
+const workspaceOf = (id: string, tabs: readonly Tab[]): Workspace => ({ id, name: id, tabs: tabs.map((tab) => tab.id), active_tab_id: tabs[0]?.id ?? null, cwd: "/w" });
+const team = (workspace_id: string): Team => ({ id: `team-${workspace_id}`, name: "Crew", lifecycle: "active", created_at: 1, workspace_id });
+const plan = (workspace_id: string) => ({
+  id: `plan-${workspace_id}`, title: "Late plan", status: "active", team_id: `team-${workspace_id}`, sections: [], tasks: [],
+  created_at: 1, updated_at: 2, project_path: "/w", milestone_kinds: [], loops: [], elements: [], canvas: { viewport: null }, owner_history: [],
+}) as unknown as PlanView;
+
+const hosts: Array<() => Promise<void>> = [];
+function mountHost() {
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  hosts.push(async () => { await act(async () => root.unmount()); host.remove(); });
+  return { host, root };
+}
+afterEach(async () => {
+  for (const close of hosts.splice(0)) await close();
+  localStorage.clear();
+  vi.unstubAllGlobals();
+});
+
+function detailData(tabs: readonly Tab[], teams: Team[], plans: PlanView[]): SidebarWorkspaceDetailData {
+  return {
+    tabs: Object.fromEntries(tabs.map((tab) => [tab.id, tab])), tabStatuses: {}, attention: {}, teams, planIndex: [], plans,
+    providers: [], providersLoading: false, closingTabIds: new Set(), closingTeamIds: new Set(), activeTabIds: {},
+    activeWorkspaceId: "late", isWorkspaceMode: true, workspaceCanvasActive: false, touchMode: false, compact: false,
+    sidebarActionText: "text-xs", orchestrators: [], newSessionDisabled: false,
+  };
+}
+const detailActions = {
+  activateWorkspace: () => undefined, activateTab: () => undefined, closeTab: () => undefined, renameTab: () => undefined,
+  renameWorkspace: () => undefined, closeWorkspace: () => undefined, newTerminal: () => undefined, newSession: () => undefined,
+  newAgent: () => undefined, openRemoteTab: () => undefined, openAutomation: () => undefined, closeTeam: () => undefined,
+} satisfies SidebarWorkspaceDetailActions;
+const row = (host: Element, tabId: string) => host.querySelector<HTMLElement>(`[data-tab-id="${tabId}"]`);
+
+it("draws a Team's sections and members in the first frame while its Team record and plan are still unread, and keeps those rows when they arrive", async () => {
+  const tabs = [manager("lead", "late"), worker("hand", "late")];
+  const workspace = workspaceOf("late", tabs);
+  const { host, root } = mountHost();
+  const view = (teams: Team[], plans: PlanView[]) => <SidebarDnd handlers={{ reorderTabs: () => undefined, reorderDisplay: () => undefined, reorderWorkspaces: () => undefined }}>
+    <SidebarWorkspaceDetail key={workspace.id} workspace={workspace} status={null} data={detailData(tabs, teams, plans)} actions={detailActions} />
+  </SidebarDnd>;
+
+  flushSync(() => root.render(view([], [])));
+  const managers = host.querySelector('[data-testid="managers-section"]');
+  const workers = host.querySelector('[data-testid="workers-section"]');
+  const leadRow = row(host, "lead");
+  const handRow = row(host, "hand");
+  expect(managers?.contains(leadRow)).toBe(true);
+  expect(workers?.contains(handRow)).toBe(true);
+
+  await act(async () => root.render(view([team("late")], [plan("late")])));
+  expect(host.querySelector('[data-testid="team-name"]')?.textContent).toBe("Late plan");
+  expect(row(host, "lead")).toBe(leadRow);
+  expect(row(host, "hand")).toBe(handRow);
+});
+
+function setMux(workspaces: Workspace[], tabs: readonly Tab[], active: string) {
+  mux.state = {
+    workspaces, tabs: Object.fromEntries(tabs.map((tab) => [tab.id, tab])), teams: workspaces.map((workspace) => team(workspace.id)),
+    notifications: [], tabStatuses: {}, activeTabIds: {}, active_workspace_id: active, closedTabs: [], orphanedTabs: [],
+  };
+}
+async function mountSidebar(workspaces: Workspace[], tabs: readonly Tab[], active: string) {
+  vi.stubGlobal("__CODETERM_DEV__", false);
+  vi.stubGlobal("__APP_VERSION__", "test");
+  setMux(workspaces, tabs, active);
+  const { host, root } = mountHost();
+  await act(async () => root.render(<Sidebar config={config} />));
+  return { host, render: () => { for (const listener of [...mux.listeners]) listener(); } };
+}
+const entering = (host: Element) => [...host.querySelectorAll('[data-tab-id][data-entering="true"]')].map((element) => element.getAttribute("data-tab-id"));
+
+it("plays no entrance for any row on a switch, even one that joined that workspace just before", async () => {
+  const seen = [manager("seen", "away")];
+  const here = [worker("here", "home")];
+  const view = await mountSidebar([workspaceOf("home", here), workspaceOf("away", seen)], [...here, ...seen], "home");
+
+  const joined = worker("joined", "away");
+  const grown = [...seen, joined];
+  setMux([workspaceOf("home", here), workspaceOf("away", grown)], [...here, ...grown], "home");
+  await act(async () => view.render());
+  setMux([workspaceOf("home", here), workspaceOf("away", grown)], [...here, ...grown], "away");
+  await act(async () => view.render());
+
+  expect(row(view.host, "joined")).not.toBeNull();
+  expect(row(view.host, "seen")).not.toBeNull();
+  expect(entering(view.host)).toEqual([]);
+});
+
+it("plays no entrance for a row that left the shown workspace and came back", async () => {
+  const here = [worker("stays", "home"), worker("returns", "home")];
+  const view = await mountSidebar([workspaceOf("home", here)], here, "home");
+
+  setMux([workspaceOf("home", [here[0]])], [here[0]], "home");
+  await act(async () => view.render());
+  expect(row(view.host, "returns")).toBeNull();
+
+  setMux([workspaceOf("home", here)], here, "home");
+  flushSync(() => view.render());
+
+  expect(row(view.host, "returns")).not.toBeNull();
+  expect(entering(view.host)).toEqual([]);
+});
+
+it("plays the entrance for a member that joins the shown workspace, from its first frame, and only for that member", async () => {
+  const here = [worker("here", "home")];
+  const view = await mountSidebar([workspaceOf("home", here)], here, "home");
+
+  const grown = [...here, worker("arrival", "home")];
+  setMux([workspaceOf("home", grown)], grown, "home");
+  flushSync(() => view.render());
+
+  expect(entering(view.host)).toEqual(["arrival"]);
+});

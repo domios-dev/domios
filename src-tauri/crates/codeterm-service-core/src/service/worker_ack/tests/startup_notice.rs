@@ -267,3 +267,76 @@ fn worker_ack_notice_to_unbound_parent_remains_pending() {
     assert_eq!(pending[0].task_id.as_deref(), Some("task-a"));
     assert!(delivery.writes.lock().is_empty());
 }
+
+#[test]
+fn lifecycle_provider_read_failure_precedes_report_persistence_and_delivery() {
+    let (fixture, parent, worker) = lifecycle_fixture(true);
+    fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(&worker)
+        .unwrap()
+        .agent_type = None;
+    let mut plan = crate::plan::Plan::new(
+        "opaque".into(),
+        fixture.temp.path().display().to_string(),
+        crate::plan::OrchestratorRef::from_tab(&parent),
+    );
+    let mut task: crate::plan::Task = serde_json::from_value(
+        json!({"id":"lifecycle-task","name":"opaque","type":"code","status":"pending"}),
+    )
+    .unwrap();
+    task.execution_attempts
+        .push(crate::plan::TaskExecutionAttempt {
+            id: "lifecycle-attempt".into(),
+            executor_tab_id: worker.clone(),
+            provider: Some("opaque-provider".into()),
+            ..Default::default()
+        });
+    plan.tasks.push(task);
+    fixture.service.plan_store.save(&mut plan, 1).unwrap();
+    let connection =
+        rusqlite::Connection::open(fixture.temp.path().join(".domios/plans.db")).unwrap();
+    connection.execute("UPDATE plan_task_attempts SET row_json=json_set(row_json,'$.provider',42) WHERE task_id='lifecycle-task'",[]).unwrap();
+    let delivery = crate::service::test_fixture::RecordingHierarchyReportDelivery::default();
+    fixture
+        .service
+        .publish_worker_lifecycle_report_with_delivery(
+            &parent,
+            &worker,
+            "Worker",
+            &plan.id,
+            "lifecycle-task",
+            json!({"kind":"worker_ack_startup_failed","attempt_id":"lifecycle-attempt"}),
+            &delivery,
+        );
+    assert!(fixture
+        .service
+        .report_store
+        .lock()
+        .pending_for(&parent)
+        .is_empty());
+    assert!(delivery.writes.lock().is_empty());
+    connection.execute("UPDATE plan_task_attempts SET row_json=json_set(row_json,'$.provider','opaque-provider') WHERE task_id='lifecycle-task'",[]).unwrap();
+    fixture
+        .service
+        .publish_worker_lifecycle_report_with_delivery(
+            &parent,
+            &worker,
+            "Worker",
+            &plan.id,
+            "lifecycle-task",
+            json!({"kind":"worker_ack_startup_failed","attempt_id":"lifecycle-attempt"}),
+            &delivery,
+        );
+    assert_eq!(
+        fixture
+            .service
+            .report_store
+            .lock()
+            .pending_for(&parent)
+            .len(),
+        1
+    );
+}

@@ -1,5 +1,4 @@
-import type { Plan, Section } from "../types";
-
+import type { PlanView as Plan, PlanSectionView as Section } from "../planProjection";
 function flatSectionIds(sections: Section[]): string[] {
   const out: string[] = [];
   const walk = (list: Section[]) => {
@@ -32,15 +31,15 @@ export function layoutInputRevision(
         t.id,
         String(t.parent_task_id ?? ""),
         t.section_ids.join(","),
-        String(t.body.length),
+        String(t.body?.length ?? 0),
         String(t.intent?.length ?? 0),
         String(t.model_rationale?.length ?? 0),
-        String(t.milestones.length),
+        String(t.milestone_count ?? t.milestones?.length ?? 0),
         String(t.created_at ?? 0),
       );
     }
-    parts.push(String(p.elements.length));
-    for (const el of p.elements) {
+    parts.push(String(p.elements?.length ?? 0));
+    for (const el of p.elements ?? []) {
       parts.push(el.id, el.kind, String(el.canvas.x ?? ""), String(el.canvas.y ?? ""));
     }
     parts.push(String(p.lineage?.length ?? 0));

@@ -1,5 +1,6 @@
+import type { PlanTaskView as Task } from "./planProjection";
 import type { PresenceAgent } from "./presence/identity";
-import type { Task } from "./types";
+
 
 export interface SectionAgentSource {
   agents: PresenceAgent[];

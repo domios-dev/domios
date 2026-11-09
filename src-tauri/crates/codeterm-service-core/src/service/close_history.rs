@@ -17,7 +17,11 @@ pub use capture::close_inventory_error_data;
 #[cfg(test)]
 mod tests;
 
-fn restore_plan_metadata(current: &mut crate::plan::Plan, saved: &crate::plan::Plan) {
+#[cfg(test)]
+fn restore_plan_metadata(
+    current: &mut crate::plan::Plan,
+    saved: &crate::service::plan::PlanCloseRestoreRead,
+) {
     current.team_id = saved.team_id.clone();
     current.owner = saved.owner.clone();
     current.planner = saved.planner.clone();
@@ -42,7 +46,7 @@ impl Drop for WorkspaceCloseGuard {
 
 #[derive(Clone, Default, Serialize, Deserialize)]
 struct Resources {
-    plans: Vec<crate::plan::Plan>,
+    plans: Vec<crate::service::plan::PlanCloseRestoreRead>,
     crons: Vec<crate::cron::store::CronJob>,
     blueprints: Vec<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -135,7 +139,7 @@ impl ServiceContext {
             super::team_core::now_ms(),
         )?;
         let team_ids: HashSet<_> = record.teams.iter().map(|team| team.id.as_str()).collect();
-        let plans = close_inventory_plans(&self.plan_store, &team_ids);
+        let plans = close_inventory_plans(&self.plan_store, &team_ids)?;
         let in_scope = |workspace_id: &str, team_id: Option<&str>| {
             team.map_or_else(
                 || workspace_id == workspace || team_id.is_some_and(|id| team_ids.contains(id)),
@@ -197,11 +201,17 @@ impl ServiceContext {
         drop(mux);
         let resources: Resources =
             serde_json::from_value(record.resources.clone()).map_err(|error| error.to_string())?;
-        changed |= resources.plans.iter().any(|saved| {
-            self.plan_store
-                .get(&saved.id)
-                .is_none_or(|current| current.team_id != saved.team_id)
-        });
+        for saved in &resources.plans {
+            let plan_changed = match self.plan_store.plan_identity_projection(&saved.id) {
+                Ok(current) => current.team_id != saved.team_id,
+                Err(crate::service::plan::PlanError::NotFound) => true,
+                Err(error) => return Err(error.to_string()),
+            };
+            if plan_changed {
+                changed = true;
+                break;
+            }
+        }
         if let Some(cron) = self.extensions.try_get::<crate::CronState>() {
             changed |= resources
                 .crons
@@ -255,9 +265,13 @@ impl ServiceContext {
         self.validate_restore_automation(&resources)?;
         record.resources = serde_json::to_value(&resources).map_err(|error| error.to_string())?;
         for plan in &resources.plans {
-            if self.plan_store.get(&plan.id).is_none() {
-                self.ensure_plan_project_loaded(std::path::Path::new(&plan.project_path))
-                    .map_err(|error| error.to_string())?;
+            match self.plan_store.plan_identity_projection(&plan.id) {
+                Ok(_) => {}
+                Err(crate::service::plan::PlanError::NotFound) => {
+                    self.ensure_plan_project_loaded(std::path::Path::new(&plan.project_path))
+                        .map_err(|error| error.to_string())?;
+                }
+                Err(error) => return Err(error.to_string()),
             }
         }
         for item in &mut record.tabs {
@@ -268,16 +282,14 @@ impl ServiceContext {
                     if restore.session_cwd.is_none() {
                         restore.session_cwd = origin;
                     }
-                    let lane = binding
-                        .plan_id
-                        .as_deref()
-                        .and_then(|id| self.plan_store.get(id))
-                        .and_then(|plan| {
-                            plan.tasks
-                                .into_iter()
-                                .find(|task| Some(task.id.as_str()) == binding.task_id.as_deref())
-                        })
-                        .and_then(|task| task.lane.worktree_path);
+                    let lane = match (binding.plan_id.as_deref(), binding.task_id.as_deref()) {
+                        (Some(plan), Some(task)) => self
+                            .plan_store
+                            .task_lane_reference_projection(plan, task)
+                            .map_err(|error| error.to_string())?
+                            .and_then(|task| task.worktree_path),
+                        _ => None,
+                    };
                     if let Some(path) = lane.filter(|path| std::path::Path::new(path).is_dir()) {
                         item.tab.cwd = Some(path);
                     } else if item
@@ -309,8 +321,13 @@ impl ServiceContext {
         for saved in &resources.plans {
             let current = self
                 .plan_store
-                .get(&saved.id)
-                .ok_or_else(|| format!("Plan {} is unavailable", saved.id))?;
+                .plan_identity_projection(&saved.id)
+                .map_err(|error| match error {
+                    crate::service::plan::PlanError::NotFound => {
+                        format!("Plan {} is unavailable", saved.id)
+                    }
+                    error => error.to_string(),
+                })?;
             if current.team_id.is_some() && current.team_id != saved.team_id {
                 return Err(format!("Plan {} belongs to another Team", saved.id));
             }
@@ -324,10 +341,7 @@ impl ServiceContext {
     fn restore_history_plans(&self, resources: &Resources) -> Result<(), String> {
         for saved in &resources.plans {
             self.plan_store
-                .with_plan(&saved.id, super::team_core::now_ms(), |current| {
-                    restore_plan_metadata(current, saved);
-                    Ok(())
-                })
+                .restore_close_plan_metadata(saved, super::team_core::now_ms())
                 .map_err(|error| error.to_string())?;
             self.emit_plan_changed(&saved.id);
         }
@@ -466,20 +480,12 @@ impl ServiceContext {
     }
 }
 
-/// The plans bound to the closing Teams; no other plan is loaded.
+/// Pairing fields restored after a Team close; task and lane state stay current.
 pub(crate) fn close_inventory_plans(
     store: &crate::service::plan::PlanStore,
     team_ids: &HashSet<&str>,
-) -> Vec<crate::plan::Plan> {
+) -> Result<Vec<crate::service::plan::PlanCloseRestoreRead>, String> {
     store
-        .plans_matching(&crate::service::plan::PlanMatch::Teams(
-            team_ids.iter().map(|id| id.to_string()).collect(),
-        ))
-        .into_iter()
-        .filter(|plan| {
-            plan.team_id
-                .as_deref()
-                .is_some_and(|id| team_ids.contains(id))
-        })
-        .collect()
+        .close_restore_projection(&team_ids.iter().map(|id| id.to_string()).collect::<Vec<_>>())
+        .map_err(|error| error.to_string())
 }

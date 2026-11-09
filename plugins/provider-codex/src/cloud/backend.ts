@@ -1,4 +1,5 @@
-import type {RemoteEnvironment, RemoteTaskBackend, RemoteTaskBinding, RemoteTaskCapability, RemoteTaskDiscovery, RemoteTaskSnapshot} from "../../../../packages/plugin-sdk/src/remoteTasks";
+import { ioResolve, type HostIoSteps } from "@codeterm/plugin-sdk";
+import type { RemoteEnvironment, RemoteTaskBackend, RemoteTaskBinding, RemoteTaskCapability, RemoteTaskDiscovery, RemoteTaskSnapshot } from "../../../../packages/plugin-sdk/src/remoteTasks";
 
 type Row = Record<string, unknown>;
 const row = (value: unknown): Row => value && typeof value === "object" && !Array.isArray(value) ? value as Row : {};
@@ -6,8 +7,8 @@ const rows = (value: unknown): Row[] => Array.isArray(value) ? value.map(row) : 
 const text = (value: unknown): string | null => typeof value === "string" ? value : null;
 
 export interface CloudTaskTransport {
-  request(method: "GET" | "POST", path: string, accountRef: string, body?: unknown): unknown;
-  discoverRemoteTask(): RemoteTaskDiscovery;
+  request(method: "GET" | "POST", path: string, accountRef: string, body?: unknown): unknown | HostIoSteps<unknown>;
+  discoverRemoteTask(): RemoteTaskDiscovery | HostIoSteps<RemoteTaskDiscovery>;
 }
 
 export const CODEX_CLOUD_ACCOUNT_REF = "codexAuth";
@@ -91,15 +92,15 @@ export function cloudTaskBackend(capability: RemoteTaskCapability, transport: Cl
   return {
     capability,
     environments: () => capability.environments,
-    create(input) {
-      const response = row(transport.request("POST", cloudTaskPath(input.environmentId), input.accountRef, cloudTaskRequest(input.environmentId, input.branch, input.prompt)));
+    *create(input) {
+      const response = row((yield* ioResolve(transport.request("POST", cloudTaskPath(input.environmentId), input.accountRef, cloudTaskRequest(input.environmentId, input.branch, input.prompt)))));
       const taskId = text(row(response.task).id) ?? text(response.id);
       if (!taskId) throw new Error("Cloud did not acknowledge a task identity");
       return {taskId};
     },
-    read(binding) {
+    *read(binding) {
       if (!binding.snapshot) throw new Error("Cloud task identity is missing");
-      return cloudTaskSnapshot(transport.request("GET", cloudTaskPath(binding.environmentId, binding.snapshot.taskId), binding.accountRef), binding);
+      return cloudTaskSnapshot((yield* ioResolve(transport.request("GET", cloudTaskPath(binding.environmentId, binding.snapshot.taskId), binding.accountRef))), binding);
     },
   };
 }

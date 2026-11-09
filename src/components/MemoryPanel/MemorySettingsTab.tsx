@@ -3,7 +3,7 @@ import { formatUntil } from "../../lib/timeLabels";
 import { Cog, Moon, RefreshCw } from "lucide-react";
 import type { AppConfig, CronJob } from "../../lib/types";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
-import { daemonAuthToken, daemonHttpBase } from "../../lib/webApi";
+import { localFetch, daemonAuthToken, daemonHttpBase } from "../../lib/webApi";
 import { Label, SettingsCard, SettingsPage, Toggle } from "../Settings/shared";
 import { DecisionRerankCard } from "./DecisionRerankCard";
 import { resolveWorkerSelection, type WorkerSelection } from "./workerSelection";
@@ -103,7 +103,7 @@ export function MemorySettingsTab({ config, onUpdate, onOpenAgentsSettings }: Me
 
   useEffect(() => {
     if (!apiBase) return;
-    fetch(`${apiBase}/api/mem/sync/status`, { headers: apiHeaders })
+    localFetch(`/api/mem/sync/status`, { headers: apiHeaders })
       .then(r => r.json())
       .then(d => setSyncStatus(d))
       .catch(() => {});
@@ -111,7 +111,7 @@ export function MemorySettingsTab({ config, onUpdate, onOpenAgentsSettings }: Me
 
   useEffect(() => {
     if (!apiBase) return;
-    fetch(`${apiBase}/api/crons`, { headers: apiHeaders })
+    localFetch(`/api/crons`, { headers: apiHeaders })
       .then(r => r.ok ? r.json() : [])
       .then((jobs: CronJob[]) => {
         const job = jobs.find(j => j.name === "mem-dreaming-auto");
@@ -136,7 +136,7 @@ export function MemorySettingsTab({ config, onUpdate, onOpenAgentsSettings }: Me
     setScheduleSaving(true);
     try {
       if (freq === "off") {
-        const r = await fetch(`${apiBase}/api/crons/${encodeURIComponent(dreamCron.id)}/disable`, {
+        const r = await localFetch(`/api/crons/${encodeURIComponent(dreamCron.id)}/disable`, {
           method: "POST",
           headers: apiHeaders,
         });
@@ -147,7 +147,7 @@ export function MemorySettingsTab({ config, onUpdate, onOpenAgentsSettings }: Me
       if (!cronStr) return;
       let updated: CronJob | null = null;
       if (cronStr !== dreamCron.schedule) {
-        const r = await fetch(`${apiBase}/api/crons/${encodeURIComponent(dreamCron.id)}`, {
+        const r = await localFetch(`/api/crons/${encodeURIComponent(dreamCron.id)}`, {
           method: "PUT",
           headers: { ...apiHeaders, "Content-Type": "application/json" },
           body: JSON.stringify({ schedule: cronStr }),
@@ -157,7 +157,7 @@ export function MemorySettingsTab({ config, onUpdate, onOpenAgentsSettings }: Me
         updated = dreamCron;
       }
       if (updated && !updated.enabled) {
-        const r2 = await fetch(`${apiBase}/api/crons/${encodeURIComponent(dreamCron.id)}/enable`, {
+        const r2 = await localFetch(`/api/crons/${encodeURIComponent(dreamCron.id)}/enable`, {
           method: "POST",
           headers: apiHeaders,
         });
@@ -172,7 +172,7 @@ export function MemorySettingsTab({ config, onUpdate, onOpenAgentsSettings }: Me
     if (!apiBase) return;
     setSyncing(true);
     try {
-      const r = await fetch(`${apiBase}/api/mem/sync`, { method: "POST", headers: { "Content-Type": "application/json", ...apiHeaders }, body: "{}" });
+      const r = await localFetch(`/api/mem/sync`, { method: "POST", headers: { "Content-Type": "application/json", ...apiHeaders }, body: "{}" });
       const d = await r.json();
       setSyncStatus({ tracked_files: d.total_tracked ?? 0, stale_files: d.source_missing ?? 0 });
     } catch { /* ignore */ }
@@ -181,7 +181,7 @@ export function MemorySettingsTab({ config, onUpdate, onOpenAgentsSettings }: Me
 
   const triggerDream = useCallback(async () => {
     if (!apiBase) return;
-    fetch(`${apiBase}/api/mem/dream`, { method: "POST", headers: { "Content-Type": "application/json", ...apiHeaders }, body: "{}" }).catch(() => {});
+    localFetch(`/api/mem/dream`, { method: "POST", headers: { "Content-Type": "application/json", ...apiHeaders }, body: "{}" }).catch(() => {});
   }, [apiBase]);
 
   const renderProviderSelect = (
@@ -190,7 +190,7 @@ export function MemorySettingsTab({ config, onUpdate, onOpenAgentsSettings }: Me
     selection: WorkerSelection,
     testId: string,
   ) => (
-    <Label text="Provider">
+    <Label text="Harness">
       <select value={value || ""} onChange={(e) => onChange(e.target.value)} className={inputClass} data-testid={testId}>
         <option value="">Default: {selection.providerLabel} / {selection.defaultModelLabel}</option>
         {providers.map(p => (

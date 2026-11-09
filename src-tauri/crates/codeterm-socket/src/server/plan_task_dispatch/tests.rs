@@ -50,6 +50,7 @@ mod qa_pass;
 mod recovery_race;
 mod resolved_effort;
 mod runtime_dispatch;
+pub(super) mod startup_tasks;
 mod status_preflight;
 mod unplanned;
 mod worker_ack;
@@ -104,7 +105,7 @@ fn dispatched_attempt_records_routed_model_and_effort() {
             2,
         )
         .unwrap();
-    let task = store.show_task(&task_id).unwrap().task;
+    let task = store.inspect_task_for_test(&task_id).unwrap().task;
     assert!(task.model.is_none());
     let registry = codeterm_service_core::agent::registry::AgentRegistry::new();
     registry.register_provider(Box::new(
@@ -138,13 +139,15 @@ fn dispatched_attempt_records_routed_model_and_effort() {
             routing.model,
             Some("xhigh".into()),
             None,
+            None,
             false,
             true,
             3,
         )
-        .unwrap();
+        .unwrap()
+        .attempt_id;
 
-    let task = store.show_task(&task_id).unwrap().task;
+    let task = store.inspect_task_for_test(&task_id).unwrap().task;
     let attempt = task
         .execution_attempts
         .iter()
@@ -164,7 +167,7 @@ fn dispatched_attempt_records_routed_model_and_effort() {
             4,
         )
         .unwrap();
-    let task = store.show_task(&task_id).unwrap().task;
+    let task = store.inspect_task_for_test(&task_id).unwrap().task;
     let attempt = task
         .execution_attempts
         .iter()
@@ -1045,7 +1048,7 @@ fn agent_ready_explicit_error_is_definitive_channel_close_and_timeout_are_uncert
 }
 
 #[test]
-fn launch_delivery_failure_restores_exact_original_task_and_attempt_state() {
+fn launch_delivery_failure_restores_startup_fields_and_keeps_failed_attempt() {
     let (root, project) = git_project();
     let store = PlanStore::new_for_test(root.path());
     let plan = store
@@ -1076,12 +1079,22 @@ fn launch_delivery_failure_restores_exact_original_task_and_attempt_state() {
             3,
         )
         .unwrap();
-    let original = store.show_task(&task_id).unwrap().task;
+    let original = store.inspect_task_for_test(&task_id).unwrap().task;
     let lane = provision_lane_for_test(project.to_str().unwrap(), "rollback").unwrap();
     let actual = lane.verify().unwrap();
     let worktree_path = actual.worktree_path.clone();
     let branch = actual.branch.clone();
     let closed = Cell::new(false);
+    let started = store
+        .begin_task_dispatch_with_undo(
+            &plan.id,
+            &task_id,
+            "tab-worker",
+            "Ada",
+            original.lane.clone(),
+            4,
+        )
+        .unwrap();
     let error = complete_dispatch_transaction(
         Instant::now() + Duration::from_secs(1),
         |_| {
@@ -1111,11 +1124,9 @@ fn launch_delivery_failure_restores_exact_original_task_and_attempt_state() {
         || {
             roll_back_dispatch_attempt(
                 &store,
-                &plan.id,
-                &original,
-                &PlanMode::Approved,
+                &started.undo,
                 "tab-worker",
-                "attempt-unrecorded",
+                &started.attempt_id,
                 Some(lane),
                 || {
                     closed.set(true);
@@ -1129,7 +1140,14 @@ fn launch_delivery_failure_restores_exact_original_task_and_attempt_state() {
 
     assert_eq!(error.data.unwrap()["stage"], "agent_ready");
     assert!(closed.get());
-    assert_eq!(store.show_task(&task_id).unwrap().task, original);
+    let restored = store.inspect_task_for_test(&task_id).unwrap().task;
+    assert_eq!(restored.status, original.status);
+    assert_eq!(restored.assigned_tab_id, original.assigned_tab_id);
+    assert_eq!(restored.lane, original.lane);
+    assert_eq!(restored.interruption, original.interruption);
+    assert_eq!(restored.execution_attempts.len(), 1);
+    assert_eq!(restored.execution_attempts[0].id, started.attempt_id);
+    assert_eq!(restored.execution_attempts[0].closed_at, Some(5));
     assert_eq!(store.get(&plan.id).unwrap().mode, PlanMode::Approved);
     assert!(!Path::new(&worktree_path).exists());
     let branches = Command::new("git")
@@ -1145,4 +1163,26 @@ fn launch_delivery_failure_restores_exact_original_task_and_attempt_state() {
 
 fn task(value: serde_json::Value) -> Task {
     serde_json::from_value(value).expect("task fixture")
+}
+
+fn preflight_facts(task: &Task) -> codeterm_service_core::service::plan::TaskDispatchPreflightRead {
+    codeterm_service_core::service::plan::TaskDispatchPreflightRead {
+        plan_id: String::new(),
+        project_path: String::new(),
+        canonical_project_path: String::new(),
+        owner_tab_id: None,
+        model: task.model.clone(),
+        lane: task.lane.clone(),
+        files: task.files.clone(),
+        kind: task.kind.clone(),
+        build_breaking: task.tags.iter().any(|tag| tag == "build-breaking"),
+        id: task.id.clone(),
+        name: task.name.clone(),
+        status: task.status.clone(),
+        pause_reason: task.pause_reason.clone(),
+        status_label: task.status_label.clone(),
+        execution_intent: task.execution_intent,
+        is_unplanned_work: task.kind == "unplanned"
+            && task.tags.iter().any(|tag| tag == "unplanned"),
+    }
 }

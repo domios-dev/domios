@@ -104,12 +104,6 @@ pub enum PlanError {
     },
     DependencySelfReference,
     DependencyCycle,
-    WritePending {
-        operation: String,
-        committed: bool,
-        committed_id: Option<String>,
-        message: String,
-    },
     ReadbackMismatch {
         operation: String,
         message: String,
@@ -134,6 +128,8 @@ pub enum PlanError {
     },
     InvalidPlanSkillSlug,
     InvalidPlanText(String),
+    /// A shared Worker's reported commit fails the shared checkout contract.
+    SharedReportRejected(String),
     InvalidExecutorName(String),
     InvalidExternalRef(String),
     WorkFacetViolation(codeterm_types::plan::work_facet::WorkFacetViolation),
@@ -383,18 +379,6 @@ impl fmt::Display for PlanError {
             PlanError::DependencyCycle => {
                 write!(f, "dependency graph would contain a cycle")
             }
-            PlanError::WritePending {
-                operation,
-                committed,
-                committed_id,
-                message,
-            } => {
-                let id = committed_id.as_deref().unwrap_or("unknown");
-                write!(
-                    f,
-                    "{operation} pending after write (committed={committed}, id={id}): {message}"
-                )
-            }
             PlanError::ReadbackMismatch { operation, message } => {
                 write!(f, "{operation} readback mismatch: {message}")
             }
@@ -425,6 +409,7 @@ impl fmt::Display for PlanError {
                 write!(f, "plan skill slug is empty after normalization")
             }
             PlanError::InvalidPlanText(message) => write!(f, "invalid plan text: {message}"),
+            PlanError::SharedReportRejected(message) => write!(f, "{message}"),
             PlanError::UnauthorizedGateClaim { claimed, authorized } => write!(
                 f,
                 "worker report claims undeclared gate '{claimed}'; authorized gates: {}",
@@ -459,6 +444,7 @@ impl PlanError {
             PlanError::RespawnAttemptNotCurrent { .. } => RPC_DISPATCH_IN_FLIGHT,
             PlanError::InvalidExecutorName(_)
             | PlanError::InvalidPlanText(_)
+            | PlanError::SharedReportRejected(_)
             | PlanError::Validation(_) => -32602,
             PlanError::InvalidSplitParent { .. } => -32602,
             _ => RPC_INTERNAL_ERROR,
@@ -626,20 +612,6 @@ impl PlanError {
             PlanError::DependencyCycle => {
                 serde_json::json!({ "type": "dependency_cycle" })
             }
-            PlanError::WritePending {
-                operation,
-                committed,
-                committed_id,
-                message,
-            } => {
-                serde_json::json!({
-                    "type": "write_pending",
-                    "operation": operation,
-                    "committed": committed,
-                    "committed_id": committed_id,
-                    "message": message
-                })
-            }
             PlanError::ReadbackMismatch { operation, message } => {
                 serde_json::json!({
                     "type": "readback_mismatch",
@@ -679,6 +651,10 @@ impl PlanError {
             }
             PlanError::InvalidPlanText(message) => serde_json::json!({
                 "type": "invalid_plan_text",
+                "message": message,
+            }),
+            PlanError::SharedReportRejected(message) => serde_json::json!({
+                "type": "shared_report_rejected",
                 "message": message,
             }),
             PlanError::UnauthorizedGateClaim {

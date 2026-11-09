@@ -58,7 +58,7 @@ fn direct_launch_arms_exact_identity_before_fake_spawn_and_completes_on_reader_e
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
     let svc = &fixture.service;
     mark_tab_agent_launch_started(&svc.mux, &tab_id);
-    let claim = svc.pty_ownership.acquire(&tab_id);
+    let claim = svc.pty_ownership.acquire(&tab_id).unwrap();
     let nonce = generation::reserve_binding_nonce(svc, &tab_id, None);
     let mut launch = LaunchGeneration::begin(&tab_id, "pending".into());
     assert!(launch.emit(svc, BootStage::PtyStarting));

@@ -85,7 +85,7 @@ mod tests {
             )
             .unwrap();
         store
-            .with_plan(&plan.id, 4, |plan| {
+            .edit_plan_fixture(&plan.id, 4, |plan| {
                 let task = plan
                     .tasks
                     .iter_mut()

@@ -20,19 +20,32 @@ fn lost_process_mid_turn_interrupts_running_tools_and_names_the_cause() {
     ];
     let cause = runtime_ended_cause(&"Event mapping failed: runtime size limit");
     let rows = runtime_ended_rows(&items, Some("turn-1"), 7, &cause, None);
-    assert_eq!(rows.len(), 2);
+    assert_eq!(rows.len(), 3);
     assert_eq!(rows[0].id, "hung");
     assert_eq!(rows[0].tool_status.as_deref(), Some("interrupted"));
     assert_eq!(rows[0].tool_interrupted, Some(true));
     assert_eq!(rows[0].tool_result.as_deref(), Some("partial"));
-    assert_eq!(rows[1].id, "runtime-ended:7");
-    assert_eq!(rows[1].kind, "system");
+    assert_eq!(rows[1].id, "other-turn");
+    assert_eq!(rows[1].tool_status.as_deref(), Some("interrupted"));
+    assert_eq!(rows[2].id, "runtime-ended:7");
+    assert_eq!(rows[2].kind, "system");
     assert_eq!(
-        rows[1].system_subtype.as_deref(),
+        rows[2].system_subtype.as_deref(),
         Some(RUNTIME_ENDED_SUBTYPE)
     );
-    assert_eq!(rows[1].tool_flow_id.as_deref(), Some("turn-1"));
-    assert!(rows[1].content.contains(&cause));
+    assert_eq!(rows[2].tool_flow_id.as_deref(), Some("turn-1"));
+    assert!(rows[2].content.contains(&cause));
+}
+
+#[test]
+fn a_tool_row_that_names_no_turn_still_settles_when_the_process_ends() {
+    let items = vec![ChatMsg {
+        tool_flow_id: None,
+        ..tool("flowless", "unused", "running")
+    }];
+    let rows = runtime_ended_rows(&items, Some("turn-1"), 7, "cause", None);
+    assert_eq!(rows[0].id, "flowless");
+    assert_eq!(rows[0].tool_status.as_deref(), Some("interrupted"));
 }
 
 #[test]

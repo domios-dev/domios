@@ -230,6 +230,15 @@ async fn receiver_move_keeps_local_concierge_and_never_copies_bindings_or_permis
     assert_eq!(view["state"], "receiving_elsewhere");
     assert_eq!(view["receiver_machine_label"], "Other machine");
     assert_eq!(view["concierge_missing"], false);
+    assert!(view.get("not_receiving_reason").is_none());
+    let lapsed = std::collections::BTreeSet::from(["machine".to_owned()]);
+    let expired = service.neighbor_concierge_projection(&friendship, &settings, &receiver, &lapsed);
+    assert_eq!(
+        expired["not_receiving_reason"],
+        ServiceContext::receiver_view(&receiver, &lapsed)["not_receiving_reason"]
+    );
+    assert_eq!(expired["state"], "not_receiving");
+    assert_eq!(expired["not_receiving_reason"], "membership_expired");
     assert!(service.mux.read().get_tab(&gateway).is_some());
     let another = Metadata::new(fixture.temp.path().join("other-installation"), "owner");
     let other_settings = another.settings().await.unwrap();

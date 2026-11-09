@@ -38,6 +38,7 @@ fn memory_diagnostics_requires_local_owner_and_exposes_sizes_without_payloads() 
         .token = Some("owner-memory-fixture".into());
     let credential = svc
         .frontend_pty_env(Some(&tab))
+        .unwrap()
         .remove("CODETERM_API_TOKEN")
         .unwrap();
     assert_eq!(
@@ -66,7 +67,7 @@ fn memory_diagnostics_requires_local_owner_and_exposes_sizes_without_payloads() 
             .unwrap()
             > 0
     );
-    assert_eq!(result["subsystems"]["plan_cache"]["count"], 0);
+    assert!(result["subsystems"].get("plan_cache").is_none());
     assert!(!result.to_string().contains("private-fixture-payload"));
 }
 
@@ -85,6 +86,7 @@ fn external_socket_refuses_missing_and_retired_launch_credentials() {
     let svc = Arc::new(fixture.service.clone());
     let credential = svc
         .frontend_pty_env(Some(&tab))
+        .unwrap()
         .remove("CODETERM_API_TOKEN")
         .unwrap();
     for invalid in ["", "unknown-credential"] {
@@ -112,6 +114,7 @@ fn external_socket_refuses_missing_and_retired_launch_credentials() {
     );
     let current = svc
         .frontend_pty_env(Some(&tab))
+        .unwrap()
         .remove("CODETERM_API_TOKEN")
         .unwrap();
     assert!(request(&svc, &current, "tab.list", json!({}))
@@ -136,6 +139,7 @@ fn external_socket_refuses_cross_tab_report_and_sender_claims() {
     let svc = Arc::new(fixture.service.clone());
     let credential = svc
         .frontend_pty_env(Some(&tab))
+        .unwrap()
         .remove("CODETERM_API_TOKEN")
         .unwrap();
     for (method, params) in [
@@ -171,6 +175,7 @@ fn local_api_bridge_cannot_promote_a_tab_credential_to_the_host() {
     let svc = state.svc.clone();
     let credential = svc
         .frontend_pty_env(Some(&tab))
+        .unwrap()
         .remove("CODETERM_API_TOKEN")
         .unwrap();
     assert!(svc
@@ -234,6 +239,7 @@ fn socket_api_tab_mutations_enforce_target_authority_and_preserve_owner_access()
     let svc = state.svc.clone();
     let token = |id: &str| {
         svc.frontend_pty_env(Some(id))
+            .unwrap()
             .remove("CODETERM_API_TOKEN")
             .unwrap()
     };

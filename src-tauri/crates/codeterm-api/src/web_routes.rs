@@ -99,13 +99,22 @@ pub async fn tabs(
     query: Query<crate::tab_routes::TabListQuery>,
 ) -> Result<axum::response::Response, (StatusCode, &'static str)> {
     let body = crate::tab_routes::list_tabs(AxumState(state), headers.clone(), query).await?;
-    let json = serde_json::to_vec(&body.0).map_err(|_| {
+    tokio::task::spawn_blocking(move || {
+        let json = serde_json::to_vec(&body.0).map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to serialize Tabs",
+            )
+        })?;
+        Ok(tabs_response(&headers, json))
+    })
+    .await
+    .map_err(|_| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            "Failed to serialize Tabs",
+            "Tabs encoding worker failed",
         )
-    })?;
-    Ok(tabs_response(&headers, json))
+    })?
 }
 
 fn tabs_response(headers: &HeaderMap, json: Vec<u8>) -> axum::response::Response {
@@ -147,7 +156,7 @@ pub async fn tab_focus(
             .map_err(|e| (StatusCode::NOT_FOUND, e))?;
         state
             .svc
-            .focus_tab(&tab_id)
+            .request_tab_focus(&tab_id)
             .map_err(|e| (StatusCode::NOT_FOUND, e))?;
         Ok(Json(serde_json::json!({"ok": true})))
     })
@@ -328,8 +337,12 @@ fn parse_since(raw: &str) -> Option<(String, u64)> {
     Some((boot.to_string(), seq.parse().ok()?))
 }
 
-fn event_frame(se: &crate::events::SeqEvent) -> Event {
-    Event::default().data(se.frame.bytes.as_ref())
+fn event_frame(se: &crate::events::SeqEvent, previous: Option<u64>) -> Event {
+    let previous = previous.map_or_else(|| "null".to_string(), |seq| seq.to_string());
+    Event::default().data(format!(
+        "{{\"prev_seq\":{previous},{}",
+        &se.frame.bytes[1..]
+    ))
 }
 
 /// The ONLY loss signal (D1): client adopts `next_seq` and full-resyncs.
@@ -397,21 +410,20 @@ pub(crate) fn events_sse(
     let tab_id = q.tab_id;
 
     let stream = async_stream::stream! {
-        // tracks the highest seq yielded so the live loop drops the overlap.
-        let (mut replayed_max, replay) = match plan {
+        let (mut replayed_max, mut previous, replay) = match plan {
             ReplayPlan::FromNow => {
-                (0, Vec::new())
+                (0, None, Vec::new())
             }
             ReplayPlan::BootChanged { next_seq } => {
                 yield Ok(overflow_frame("boot-changed", &boot, next_seq, None, Some(codeterm_build_info::hash())));
-                (0, Vec::new())
+                (next_seq.saturating_sub(1), Some(next_seq.saturating_sub(1)), Vec::new())
             }
             ReplayPlan::Covered { replay } => {
-                (cursor_seq.unwrap_or(0), replay)
+                (cursor_seq.unwrap_or(0), cursor_seq, replay)
             }
             ReplayPlan::Evicted { oldest, next_seq, replay } => {
                 yield Ok(overflow_frame("ring-evicted", &boot, next_seq, Some(oldest), None));
-                (next_seq.saturating_sub(1), replay)
+                (next_seq.saturating_sub(1), Some(next_seq.saturating_sub(1)), replay)
             }
         };
         for se in &replay {
@@ -419,7 +431,8 @@ pub(crate) fn events_sse(
                 replayed_max = se.seq;
             }
             if !se.public || !event_matches_tab(&se.event, tab_id.as_deref()) { continue; }
-            yield Ok(event_frame(se));
+            yield Ok(event_frame(se, previous));
+            previous = Some(previous.map_or(se.seq, |seq| seq.max(se.seq)));
         }
         loop {
             match rx.recv().await {
@@ -429,10 +442,14 @@ pub(crate) fn events_sse(
                     }
                     replayed_max = se.seq;
                     if !se.public || !event_matches_tab(&se.event, tab_id.as_deref()) { continue; }
-                    yield Ok(event_frame(&se));
+                    yield Ok(event_frame(&se, previous));
+                    previous = Some(previous.map_or(se.seq, |seq| seq.max(se.seq)));
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
-                    yield Ok(overflow_frame("lagged", &boot, events.current_seq(), None, None));
+                    let next_seq = events.current_seq();
+                    replayed_max = next_seq.saturating_sub(1);
+                    previous = Some(replayed_max);
+                    yield Ok(overflow_frame("lagged", &boot, next_seq, None, None));
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
             }
@@ -726,12 +743,12 @@ pub async fn chat_raw_start(
             queued.elapsed().as_micros(),
             result.is_ok()
         );
-        result
+        result.map(|result| serde_json::to_value(result).unwrap_or_default())
     })
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
     .map_err(|e| (StatusCode::CONFLICT, e))?;
-    Ok(Json(serde_json::to_value(result).unwrap_or_default()))
+    Ok(Json(result))
 }
 
 #[derive(serde::Deserialize)]
@@ -1067,11 +1084,12 @@ pub async fn chat_raw_backfill(
     let svc = state.svc.clone();
     let result = tokio::task::spawn_blocking(move || {
         commands::chat_backfill_core(&svc, tab_id, body.before_offset, body.offset_kind)
+            .map(|result| serde_json::to_value(result).unwrap_or_default())
     })
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
     .map_err(|e| (StatusCode::CONFLICT, e))?;
-    Ok(Json(serde_json::to_value(result).unwrap_or_default()))
+    Ok(Json(result))
 }
 
 pub async fn agent_runtime_retry(

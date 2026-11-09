@@ -2,6 +2,140 @@ use super::*;
 use crate::plan::{PlanMode, PlanStatus, TaskStatus};
 
 #[test]
+fn tab_binding_lists_preserve_plan_task_order_and_unclosed_retired_attempts() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut plan = Plan::new(
+        "Bindings".into(),
+        directory.path().display().to_string(),
+        OrchestratorRef::default(),
+    );
+    plan.id = "pl_a".into();
+    plan.updated_at = 10;
+    plan.mode = PlanMode::Paused;
+    for (index, status) in [
+        TaskStatus::Pending,
+        TaskStatus::Paused,
+        TaskStatus::InProgress,
+        TaskStatus::InReview,
+        TaskStatus::Blocked,
+        TaskStatus::Done,
+        TaskStatus::Cancelled,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mut task =
+            crate::service_plan::load_audit::task(&format!("t{index}"), status, Some("worker"));
+        let mut attempt = crate::service_plan::load_audit::attempt("retired", "worker");
+        attempt.retired_at = Some(4);
+        let mut second = attempt.clone();
+        second.id = "retired_second".into();
+        task.execution_attempts = vec![attempt, second];
+        plan.tasks.push(task);
+    }
+    let mut newer = plan.clone();
+    newer.id = "pl_new".into();
+    newer.updated_at = 11;
+    newer.tasks.truncate(1);
+    let mut tied = plan.clone();
+    tied.id = "pl_b".into();
+    tied.tasks.truncate(1);
+    let mut archived = plan.clone();
+    archived.id = "pl_archived".into();
+    archived.status = PlanStatus::Archived;
+    let database = fixtures::database(directory.path(), &plan);
+    for other in [&newer, &tied, &archived] {
+        database.persist_plan_rows(other, None).unwrap();
+    }
+    let expected = vec![
+        ("pl_new", "t0"),
+        ("pl_a", "t0"),
+        ("pl_a", "t1"),
+        ("pl_a", "t2"),
+        ("pl_a", "t3"),
+        ("pl_a", "t4"),
+        ("pl_b", "t0"),
+    ]
+    .into_iter()
+    .map(|(p, t)| (p.to_string(), t.to_string()))
+    .collect::<Vec<_>>();
+    assert_eq!(
+        database.unclosed_attempt_bindings("worker").unwrap(),
+        expected
+    );
+    assert_eq!(
+        database
+            .assigned_task_bindings("worker")
+            .unwrap()
+            .into_iter()
+            .map(|(p, t, _)| (p, t))
+            .collect::<Vec<_>>(),
+        expected
+    );
+    assert!(database.unclosed_attempt_bindings("  ").unwrap().is_empty());
+    database.connection.lock().execute("UPDATE plan_task_attempts SET row_json=json_set(row_json,'$.closed_at',5) WHERE plan_id='pl_new'",[]).unwrap();
+    assert_eq!(
+        database.unclosed_attempt_bindings("worker").unwrap(),
+        expected[1..]
+    );
+    database.connection.lock().execute("UPDATE plan_tasks SET row_json=json_set(row_json,'$.name',NULL) WHERE plan_id='pl_new'",[]).unwrap();
+    assert!(database.assigned_task_bindings("worker").is_err());
+    database
+        .connection
+        .lock()
+        .execute(
+            "UPDATE plan_tasks SET row_json=json_set(row_json,'$.id',NULL) WHERE plan_id='pl_a'",
+            [],
+        )
+        .unwrap();
+    assert!(database.unclosed_attempt_bindings("worker").is_err());
+}
+
+#[test]
+fn tab_binding_lists_ignore_unrelated_bodies_attempts_and_strides() {
+    let mut prior = None;
+    for (strides, attempts, extra) in [(0, 1, 0), (2048, 1, 0), (0, 2048, 0), (0, 1, 32768)] {
+        let directory = tempfile::tempdir().unwrap();
+        let mut plan = fixtures::fixture(directory.path(), strides, attempts);
+        plan.tasks[0].assigned_tab_id = Some("worker".into());
+        plan.tasks[2].body.push_str(&"x".repeat(extra));
+        let database = fixtures::database(directory.path(), &plan);
+        fixtures::audit(&database);
+        super::super::super::super::store_sync::take_decoded_row_bytes();
+        let _full = database.load_plan(&plan.id).unwrap().unwrap();
+        let baseline = super::super::super::super::store_sync::take_decoded_row_bytes();
+        take_metrics();
+        super::super::super::super::store_rows::take_serialized_row_bytes();
+        let assigned = database.assigned_task_bindings("worker").unwrap();
+        let attempts = database.unclosed_attempt_bindings("worker").unwrap();
+        assert_eq!(attempts, vec![(plan.id.clone(), plan.tasks[0].id.clone())]);
+        assert_eq!(
+            assigned,
+            vec![(
+                plan.id.clone(),
+                plan.tasks[0].id.clone(),
+                plan.tasks[0].name.clone()
+            )]
+        );
+        let response_bytes = serde_json::to_vec(&(assigned, attempts)).unwrap().len();
+        let metrics = take_metrics();
+        let decoded = super::super::super::super::store_sync::take_decoded_row_bytes();
+        let serialized = super::super::super::super::store_rows::take_serialized_row_bytes();
+        assert_eq!(metrics.queries, 2);
+        assert!(metrics.materialized_bytes < 256);
+        assert_eq!(decoded, 0);
+        assert_eq!(serialized, 0);
+        assert!(fixtures::audit_counts(&database).is_empty());
+        println!("fixture={} consumer=tab_binding_lists tasks={} base_bytes={} old_strides={strides} unrelated_attempts={} extra_body={extra} baseline_decoded_json_bytes={baseline} queries={} materialized_text_bytes={} decoded_json_bytes={decoded} serialized_row_bytes={serialized} response_bytes={response_bytes} changed_rows=0",fixtures::SEED,fixtures::TASKS,fixtures::CONTENT_BYTES,plan.tasks[1].execution_attempts.len(),metrics.queries,metrics.materialized_bytes);
+        let measured = (metrics, decoded, response_bytes);
+        if let Some(prior) = &prior {
+            assert_eq!(&measured, prior)
+        }
+        prior = Some(measured);
+    }
+}
+
+#[test]
 fn open_attempt_binding_denies_stale_retired_closed_archived_and_ambiguous_identities() {
     let directory = tempfile::tempdir().unwrap();
     let mut plan = Plan::new(

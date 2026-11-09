@@ -560,6 +560,7 @@ pub(crate) fn project_team_spend(
     let plans_snapshot: Vec<SpendPlan> = svc
         .plan_store
         .list_index()
+        .map_err(|error| ProjectionError::Internal(error.to_string()))?
         .into_iter()
         .map(|entry| SpendPlan {
             id: entry.plan_id,

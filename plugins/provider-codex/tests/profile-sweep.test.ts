@@ -1,16 +1,12 @@
+import { ioTestExport } from "../../provider-shared/tests/hostIo";
 import assert from "node:assert/strict";
-import {
-  codexProfileInstanceId,
-  classifyCodexProfile,
-  codexProfileTabId,
-  carryCodexProjectTrustForTab,
-  codexDirectoryTrustState,
-  isCodexDirectoryTrusted,
-  manageCodexProfiles,
-  releaseCodexProfile,
-  sweepCodexProfiles,
-  type ProfileSweepHost,
-} from "../src/profile-sweep";
+import { codexProfileInstanceId, classifyCodexProfile, codexProfileTabId, carryCodexProjectTrustForTab as ioSource_carryCodexProjectTrustForTab, codexDirectoryTrustState as ioSource_codexDirectoryTrustState, isCodexDirectoryTrusted as ioSource_isCodexDirectoryTrusted, manageCodexProfiles as ioSource_manageCodexProfiles, releaseCodexProfile as ioSource_releaseCodexProfile, sweepCodexProfiles as ioSource_sweepCodexProfiles, type ProfileSweepHost } from "../src/profile-sweep";
+const carryCodexProjectTrustForTab = ioTestExport(ioSource_carryCodexProjectTrustForTab);
+const codexDirectoryTrustState = ioTestExport(ioSource_codexDirectoryTrustState);
+const isCodexDirectoryTrusted = ioTestExport(ioSource_isCodexDirectoryTrusted);
+const manageCodexProfiles = ioTestExport(ioSource_manageCodexProfiles);
+const releaseCodexProfile = ioTestExport(ioSource_releaseCodexProfile);
+const sweepCodexProfiles = ioTestExport(ioSource_sweepCodexProfiles);
 
 function eq(actual: unknown, expected: unknown, message: string): void {
   assert.deepEqual(actual, expected, message);

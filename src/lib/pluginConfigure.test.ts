@@ -1,3 +1,4 @@
+import { muxMockFetch } from "./muxMockFetch.testdata";
 import { configureDaemonTransport } from "./daemonBootstrap";
 import { parseMarker } from "@codeterm/chat-core";
 import { AI_HELPER_CONTEXT, AI_HELPER_SPAWN_PATH } from "./aiHelperSpawn";
@@ -52,11 +53,11 @@ async function asyncTests() {
   const opaqueToken = process.env.PROVIDER_SETUP_TASK_TOKEN ?? "configure-token-7f91b";
   let requestUrl = "";
   let requestBody: Record<string, unknown> = {};
-  g.fetch = async (url: string, init: { body?: string }) => {
+  g.fetch = muxMockFetch(async (url: string, init: { body?: string }) => {
     requestUrl = url;
     requestBody = JSON.parse(init.body ?? "{}");
     return { ok: true, status: 200, json: async () => ({ id: "tab-xyz", workspace_id: "workspace-general", delivery_state: "launched" }) };
-  };
+  });
   await configureWithAI("lmstudio", "LM Studio", opaqueToken, { host: "127.0.0.1", port: 7686 });
   const focus = focusEvents.find((e) => e.type === "codeterm:focus-tab");
   assert("spawns through the shared daemon helper route", requestUrl.endsWith(AI_HELPER_SPAWN_PATH));
@@ -69,11 +70,11 @@ async function asyncTests() {
   assert("dispatches focus with the spawned Tab and General workspace ids", focus?.detail?.tabId === "tab-xyz" && focus?.detail?.workspaceId === "workspace-general");
 
   const exactFailure = "fixture launch refused 2c418";
-  g.fetch = async () => ({
+  g.fetch = muxMockFetch(async () => ({
     ok: false,
     status: 503,
     json: async () => ({ error: { message: exactFailure } }),
-  });
+  }));
   let surfaced = "";
   try {
     await configureWithAI("lmstudio", "LM Studio", opaqueToken, { host: "127.0.0.1", port: 7686 });

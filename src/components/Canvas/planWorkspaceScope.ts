@@ -1,5 +1,6 @@
+import type { PlanView as Plan, PlanTaskView as Task } from "./planProjection";
 import type { Workspace } from "../../lib/types";
-import type { Plan, Task, TaskLaneMetadata } from "./types";
+import type { TaskLaneMetadata } from "./types";
 
 export interface PlanWorkspaceScope {
   ownerWorkspaceId: string | null;

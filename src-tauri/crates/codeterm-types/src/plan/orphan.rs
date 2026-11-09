@@ -12,8 +12,18 @@ pub struct PlanOrphan {
 
 impl super::Plan {
     pub fn is_orphaned_active(&self) -> bool {
-        self.status == super::PlanStatus::Active
-            && self.team_id.is_none()
-            && self.orphaned.is_some()
+        orphaned_active_for(
+            &self.status,
+            self.team_id.as_deref(),
+            self.orphaned.as_ref(),
+        )
     }
+}
+
+pub fn orphaned_active_for(
+    status: &super::PlanStatus,
+    team_id: Option<&str>,
+    orphaned: Option<&PlanOrphan>,
+) -> bool {
+    *status == super::PlanStatus::Active && team_id.is_none() && orphaned.is_some()
 }

@@ -1,7 +1,7 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { describe, expect, it } from "vitest";
-import { suggestsRemoteTailscale, tailnetName, tailscalePrompt, tailscaleSetupRequest, tailscaleState, type TailscaleState } from "./tailscaleSetup";
+import { offersTailscaleSetup, suggestsRemoteTailscale, tailnetName, tailscalePrompt, tailscaleSetupRequest, tailscaleState, type TailscaleState } from "./tailscaleSetup";
 import { TailscaleFooter, TailscaleMachineHint, type CanvasTailscale } from "./TailscaleNodes";
 import type { ServeStatus } from "../../lib/webAccess";
 
@@ -40,6 +40,11 @@ describe("Tailscale state on this machine", () => {
     expect(suggestsRemoteTailscale(false, { kind: "connected", tailnet: null })).toBe(true);
     expect(suggestsRemoteTailscale(true, { kind: "connected", tailnet: null })).toBe(false);
     expect(suggestsRemoteTailscale(false, { kind: "not_installed" })).toBe(false);
+  });
+
+  it("keeps network setup advice off a machine that is expired, removed or signed out", () => {
+    for (const status of ["expired", "membership_expired", "revoked", "signed_out"] as const) expect(offersTailscaleSetup(status)).toBe(false);
+    for (const status of ["unreachable", "linking", "waiting", "endpoint_stale"] as const) expect(offersTailscaleSetup(status)).toBe(true);
   });
 
   it("names the unreachable machine in the request and keeps this machine's request general", () => {

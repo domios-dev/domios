@@ -3,6 +3,10 @@ import type {ResetCredits, RuntimeAccountCredits} from "@codeterm/plugin-sdk";
 export interface UsageDetails {
   limits: {kind: "session" | "weekly_all" | "weekly_scoped"; label: string; percent: number; resets_at: number | null; is_active: boolean; critical: boolean}[];
   dollar_credits: {remaining_dollars: number; resets_at: number | null}[];
+  /** A plugin-read account balance for a launch profile that declares a `balance` limits source. */
+  balance?: {available: boolean; amounts: {currency: string; amount: string}[]} | null;
+  /** Plugin-read account quota for a launch profile that declares a `quota` limits source. */
+  quota?: {title: string; limits: {label: string; used_percent: number; resets_at: number | null}[]} | null;
   extra_usage: {enabled: boolean; effective_enabled?: boolean; disabled_reason?: string | null; decimal_places?: number; spend_limit_reached: boolean; used: number | null; limit: number | null; currency: string; settings_url: string} | null;
 }
 

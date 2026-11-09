@@ -66,7 +66,7 @@ const PLATFORM_ARTIFACTS = new Map([
 
 // The one origin the shipped updater reads from. A version segment anywhere in
 // an arbitrary path is not evidence the bytes came from the public release.
-const PUBLIC_RELEASE_ASSET = /^\/rollacode\/codeterm-releases\/releases\/download\/([^/]+)\/[^/]+$/;
+const PUBLIC_RELEASE_ASSET = /^\/domios-dev\/domios\/releases\/download\/([^/]+)\/[^/]+$/;
 
 // Artifacts carried over from a previous tag are internally consistent and
 // describe a build this release never produced, so the serving tag is checked.

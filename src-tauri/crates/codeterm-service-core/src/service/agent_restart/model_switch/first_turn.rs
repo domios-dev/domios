@@ -75,6 +75,7 @@ impl ServiceContext {
             launched_model,
             confirmation_detail: Some("model will be confirmed by the first user turn".into()),
             confirmation: ModelSwitchConfirmation::Pending,
+            control_changes: Vec::new(),
         })
     }
 }

@@ -15,6 +15,7 @@ fn model_provider_management_accepts_only_the_loopback_host_credential() {
     let scoped = state
         .svc
         .frontend_pty_env(Some(&tab))
+        .unwrap()
         .remove("CODETERM_API_TOKEN")
         .unwrap();
     let local = "127.0.0.1:7000".parse().unwrap();

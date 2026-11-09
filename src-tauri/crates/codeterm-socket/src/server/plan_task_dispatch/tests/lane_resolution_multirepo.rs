@@ -217,7 +217,7 @@ fn reopened_task_redispatches_onto_its_lane() {
         )
         .unwrap();
     store
-        .with_plan(&plan.id, 3, |plan| {
+        .edit_plan_fixture(&plan.id, 3, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()
@@ -296,7 +296,7 @@ fn reopened_task_redispatches_onto_its_lane() {
             5,
         )
         .unwrap();
-    let redispatched = store.show_task(&task_id).unwrap().task;
+    let redispatched = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(redispatched.lane.tab_id.as_deref(), Some("tab_replacement"));
     assert_eq!(redispatched.lane.worktree_path, lane.worktree_path);
     assert_eq!(redispatched.lane.branch, lane.branch);

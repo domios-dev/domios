@@ -109,9 +109,12 @@ fn notice_projection_preserves_wave_release_and_historical_map_disarming() {
             .extend((0..256).map(|index| milestone("note", 1000 + index)));
         store.save(&mut plan, 1).unwrap();
         store.reset_plan_loads_for_test();
-        let read = store.notice_projection(&plan.id, 10_000, &[]).unwrap();
+        let read = store.notice_projection(&plan.id).unwrap();
         assert_eq!(
-            boundary_digest_lines(read.plan(), MapAvailability::Enabled),
+            boundary_digest_lines_from_input(
+                &read.digest_input(10_000, &Default::default()).unwrap(),
+                MapAvailability::Enabled
+            ),
             boundary_digest_lines(&plan, MapAvailability::Enabled),
             "complete={complete} map_ts={map_ts}",
         );

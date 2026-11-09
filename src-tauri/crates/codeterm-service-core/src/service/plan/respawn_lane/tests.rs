@@ -1,7 +1,22 @@
 use super::*;
-use crate::plan::{OrchestratorRef, PlanMode, TaskLaneMetadata, TaskStatus};
+use crate::plan::{OrchestratorRef, PlanMode, Task, TaskLaneMetadata, TaskStatus};
 use crate::service::plan::task_attempts::TaskRespawnRequest;
 use crate::service::plan::{NewTask, PlanStore};
+
+fn lane_facts(task: &Task, draft: &TaskRespawnDraft) -> TaskLaunchRead {
+    TaskLaunchRead {
+        task_id: task.id.clone(),
+        name: task.name.clone(),
+        status: task.status.clone(),
+        lane: task.lane.clone(),
+        execution_intent: task.execution_intent,
+        dispatch_intent: task.interruption.execution_intent.clone(),
+        source_attempt_exists: task
+            .execution_attempts
+            .iter()
+            .any(|attempt| attempt.id == draft.source_attempt.id),
+    }
+}
 
 #[test]
 fn respawn_git_lane_decision_preserves_recorded_lanes() {
@@ -88,7 +103,7 @@ fn respawn_fixture(
         )
         .unwrap();
     store
-        .with_plan(&plan.id, 4, |plan| {
+        .edit_plan_fixture(&plan.id, 4, |plan| {
             let task = crate::plan::task_key::find_task_mut(&mut plan.tasks, &task_id).unwrap();
             task.interruption.execution_intent = intent;
             Ok(())
@@ -114,7 +129,11 @@ fn respawn_fixture(
             },
         )
         .unwrap();
-    (plan.id, store.show_task(&task_id).unwrap().task, draft)
+    (
+        plan.id,
+        store.inspect_task_for_test(&task_id).unwrap().task,
+        draft,
+    )
 }
 
 #[test]
@@ -136,11 +155,13 @@ fn non_repository_respawn_in_non_git_directory_persists_acknowledged_replacement
     assert!(task.lane.worktree_path.is_none());
     assert!(draft.source_attempt.worktree_path.is_none());
     assert_eq!(draft.cwd, project);
-    assert!(
-        verify_respawn_lane("/absent-canonical-checkout", &task, &draft)
-            .unwrap()
-            .is_none()
-    );
+    assert!(verify_respawn_lane(
+        "/absent-canonical-checkout",
+        &lane_facts(&task, &draft),
+        &draft
+    )
+    .unwrap()
+    .is_none());
     let created = store
         .record_task_respawn_attempt(
             &plan_id,
@@ -166,7 +187,7 @@ fn non_repository_respawn_in_non_git_directory_persists_acknowledged_replacement
     store
         .acknowledge_live_task_attempt_for_tab("tab-replacement", None, None, 8)
         .unwrap();
-    let persisted = store.show_task(&task.id).unwrap().task;
+    let persisted = store.inspect_task_for_test(&task.id).unwrap().task;
     assert_eq!(persisted.status, TaskStatus::InProgress);
     assert_eq!(
         persisted.assigned_tab_id.as_deref(),
@@ -199,24 +220,32 @@ fn lane_free_respawn_checks_cwd_and_source_attempt() {
         TaskExecutionIntent::NonRepository,
         ExecutionIntent::Mutating,
     );
-    assert!(verify_respawn_lane(project, &task, &draft)
-        .unwrap()
-        .is_none());
+    assert!(
+        verify_respawn_lane(project, &lane_facts(&task, &draft), &draft)
+            .unwrap()
+            .is_none()
+    );
     draft.cwd = root.path().join("missing").display().to_string();
-    assert!(verify_respawn_lane(project, &task, &draft)
-        .unwrap_err()
-        .contains("cwd"));
+    assert!(
+        verify_respawn_lane(project, &lane_facts(&task, &draft), &draft)
+            .unwrap_err()
+            .contains("cwd")
+    );
     let file = root.path().join("file");
     std::fs::write(&file, "file").unwrap();
     draft.cwd = file.display().to_string();
-    assert!(verify_respawn_lane(project, &task, &draft)
-        .unwrap_err()
-        .contains("cwd"));
+    assert!(
+        verify_respawn_lane(project, &lane_facts(&task, &draft), &draft)
+            .unwrap_err()
+            .contains("cwd")
+    );
     draft.cwd = project.into();
     draft.source_attempt.id = "foreign-attempt".into();
-    assert!(verify_respawn_lane(project, &task, &draft)
-        .unwrap_err()
-        .contains("source attempt"));
+    assert!(
+        verify_respawn_lane(project, &lane_facts(&task, &draft), &draft)
+            .unwrap_err()
+            .contains("source attempt")
+    );
 }
 
 #[test]
@@ -230,20 +259,26 @@ fn repository_respawn_and_recorded_read_only_lane_still_inspect_git() {
         TaskExecutionIntent::RepositoryMutation,
         ExecutionIntent::Mutating,
     );
-    assert!(verify_respawn_lane(project, &task, &draft)
-        .unwrap_err()
-        .contains("failed to inspect worker lane"));
+    assert!(
+        verify_respawn_lane(project, &lane_facts(&task, &draft), &draft)
+            .unwrap_err()
+            .contains("failed to inspect worker lane")
+    );
     task.execution_intent = TaskExecutionIntent::NonRepository;
     task.interruption.execution_intent = ExecutionIntent::ReadOnly;
     task.lane.worktree_path = Some(project.into());
-    assert!(verify_respawn_lane(project, &task, &draft)
-        .unwrap_err()
-        .contains("failed to inspect worker lane"));
+    assert!(
+        verify_respawn_lane(project, &lane_facts(&task, &draft), &draft)
+            .unwrap_err()
+            .contains("failed to inspect worker lane")
+    );
     task.lane.worktree_path = None;
     draft.source_attempt.worktree_path = Some(project.into());
-    assert!(verify_respawn_lane(project, &task, &draft)
-        .unwrap_err()
-        .contains("failed to inspect worker lane"));
+    assert!(
+        verify_respawn_lane(project, &lane_facts(&task, &draft), &draft)
+            .unwrap_err()
+            .contains("failed to inspect worker lane")
+    );
 }
 
 mod cross_repository;

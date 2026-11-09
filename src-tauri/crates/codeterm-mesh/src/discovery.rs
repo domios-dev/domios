@@ -62,7 +62,7 @@ pub(crate) fn tailscale_binary() -> Option<String> {
         let mut c = std::process::Command::new(cmd);
         c.arg("version");
         codeterm_util::process_util::no_window_std(&mut c);
-        if let Some((true, _)) = run_with_timeout(&mut c, std::time::Duration::from_secs(3)) {
+        if let Some((true, _)) = run_with_timeout(c, std::time::Duration::from_secs(3)) {
             return Some(cmd.to_string());
         }
     }
@@ -78,7 +78,7 @@ pub(crate) fn run_tailscale_json(
         let mut c = std::process::Command::new(cmd);
         c.args(args);
         codeterm_util::process_util::no_window_std(&mut c);
-        let Some((success, raw)) = run_with_timeout(&mut c, timeout) else {
+        let Some((success, raw)) = run_with_timeout(c, timeout) else {
             continue;
         };
         if let Ok(val) = serde_json::from_str::<serde_json::Value>(&raw) {
@@ -95,18 +95,19 @@ pub(crate) fn run_tailscale_json(
 /// which on Windows briefly flashes a console window every time it runs.
 pub fn find_tailscale_ip() -> Option<String> {
     let ifs = if_addrs::get_if_addrs().ok()?;
-    for iface in ifs {
-        if iface.is_loopback() {
-            continue;
-        }
-        if let if_addrs::IfAddr::V4(v4) = iface.addr {
-            let o = v4.ip.octets();
-            if o[0] == 100 && (64..=127).contains(&o[1]) {
-                return Some(v4.ip.to_string());
+    let mut addresses: Vec<_> = ifs
+        .into_iter()
+        .filter(|iface| !iface.is_loopback())
+        .filter_map(|iface| match iface.addr {
+            if_addrs::IfAddr::V4(v4) if crate::types::is_tailscale_ip(&v4.ip.to_string()) => {
+                Some(v4.ip)
             }
-        }
-    }
-    None
+            _ => None,
+        })
+        .collect();
+    addresses.sort_unstable();
+    addresses.dedup();
+    addresses.first().map(ToString::to_string)
 }
 
 #[cfg(test)]
@@ -121,35 +122,16 @@ fn parse_first_ip(stdout: &str) -> Option<String> {
 }
 
 pub(crate) fn run_with_timeout(
-    cmd: &mut std::process::Command,
+    cmd: std::process::Command,
     timeout: std::time::Duration,
 ) -> Option<(bool, String)> {
-    use std::process::Stdio;
-    let mut child = cmd
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .stdin(Stdio::null())
-        .spawn()
-        .ok()?;
-    let start = std::time::Instant::now();
-    loop {
-        match child.try_wait().ok()? {
-            Some(_status) => break,
-            None => {
-                if start.elapsed() >= timeout {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    log::warn!(
-                        "[mesh] tailscale probe timed out after {:?}, killed",
-                        timeout
-                    );
-                    return None;
-                }
-                std::thread::sleep(std::time::Duration::from_millis(50));
-            }
+    let output = match codeterm_util::process_util::bounded_output(cmd, timeout) {
+        Ok(output) => output,
+        Err(error) => {
+            log::debug!("[mesh] tailscale probe failed: {error}");
+            return None;
         }
-    }
-    let output = child.wait_with_output().ok()?;
+    };
     Some((
         output.status.success(),
         String::from_utf8_lossy(&output.stdout).to_string(),
@@ -162,7 +144,7 @@ pub fn detect_local_ip(mesh: &Arc<Mutex<MeshManager>>) {
     }
 }
 
-fn local_ip_address() -> Result<String, String> {
+pub(crate) fn local_ip_address() -> Result<String, String> {
     let socket = std::net::UdpSocket::bind("0.0.0.0:0").map_err(|e| e.to_string())?;
     socket.connect("8.8.8.8:80").map_err(|e| e.to_string())?;
     let addr = socket.local_addr().map_err(|e| e.to_string())?;
@@ -183,39 +165,4 @@ pub fn remote_addresses(mesh: &MeshManager) -> Result<Vec<PeerAddress>, String> 
 }
 
 #[cfg(test)]
-mod tests {
-    use super::parse_first_ip;
-
-    #[test]
-    fn parse_first_ip_trims_whitespace() {
-        for input in ["100.65.0.40\n", "   100.65.0.40   \n"] {
-            assert_eq!(parse_first_ip(input).as_deref(), Some("100.65.0.40"));
-        }
-    }
-
-    #[test]
-    fn parse_first_ip_picks_first_of_many() {
-        assert_eq!(
-            parse_first_ip("100.65.0.40\nfd7a:115c:a1e0::1\n").as_deref(),
-            Some("100.65.0.40")
-        );
-    }
-
-    #[test]
-    fn parse_first_ip_rejects_gui_bridge_error_string() {
-        let raw = "The Tailscale GUI failed to start: The operation couldn't be completed. (Tailscale.CLIError error 3.)\n";
-        assert_eq!(parse_first_ip(raw), None);
-    }
-
-    #[test]
-    fn parse_first_ip_rejects_empty() {
-        assert_eq!(parse_first_ip(""), None);
-        assert_eq!(parse_first_ip("\n\n"), None);
-    }
-
-    #[test]
-    fn parse_first_ip_rejects_non_address_text() {
-        assert_eq!(parse_first_ip("not an ip\n"), None);
-        assert_eq!(parse_first_ip("100.999.0.1\n"), None);
-    }
-}
+mod tests;

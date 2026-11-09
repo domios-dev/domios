@@ -9,6 +9,8 @@ use std::sync::LazyLock;
 static WAKING: LazyLock<parking_lot::Mutex<HashSet<String>>> = LazyLock::new(Default::default);
 
 mod policy;
+#[cfg(test)]
+mod read_failure_tests;
 mod user_send;
 
 #[cfg(test)]
@@ -28,10 +30,19 @@ impl Drop for WakeRequest {
     }
 }
 
+/// Reloading a session the provider refused cannot succeed; only the owner's
+/// Start new session or an explicit restart moves such a tab on.
+fn provider_lost_session(tab: &Tab) -> bool {
+    tab.agent_runtime_state.as_ref().is_some_and(|state| {
+        state["state"] == "degraded" && state["failureCode"] == "session_load_refused"
+    })
+}
+
 pub(crate) fn wake_eligible(tab: &Tab, explicit: bool) -> bool {
     tab.frozen
         || explicit
             && !tab.protected
+            && !provider_lost_session(tab)
             && (tab.boot_stage == Some(BootStage::SpawnFailed)
                 || tab.restored_from_snapshot
                     && matches!(tab.backing, TabBacking::ChatBackend { .. })
@@ -44,10 +55,32 @@ pub(crate) fn wake_eligible(tab: &Tab, explicit: bool) -> bool {
 }
 
 pub fn initialize(svc: &ServiceContext, active_window_hours: u64) {
-    let continuing = policy::continuing_tabs(
-        &svc.plan_store
-            .plans_matching(&policy::continuing_candidates()),
-    );
+    initialize_with_continuing(svc, active_window_hours, |tab| {
+        svc.plan_store
+            .continuing_restore_tab_projection(tab)
+            .map_err(|error| error.to_string())
+    });
+}
+
+fn initialize_with_continuing(
+    svc: &ServiceContext,
+    active_window_hours: u64,
+    read: impl Fn(&str) -> Result<bool, String>,
+) {
+    let snapshot = svc.mux.read().snapshot();
+    let continuing = snapshot
+        .tabs
+        .values()
+        .map(|tab| {
+            let read =
+                if tab.agent_type.is_none() && tab.role.is_none() && tab.task_binding.is_none() {
+                    Ok(false)
+                } else {
+                    read(&tab.id)
+                };
+            (tab.id.clone(), read)
+        })
+        .collect::<std::collections::HashMap<_, _>>();
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
@@ -60,11 +93,19 @@ pub fn initialize(svc: &ServiceContext, active_window_hours: u64) {
     for workspace in &snapshot.workspaces {
         for id in &workspace.tabs {
             if let Some(tab) = mux.get_tab_mut(id) {
+                let is_continuing = match continuing.get(id) {
+                    Some(Ok(continuing)) => *continuing,
+                    Some(Err(_)) => {
+                        tab.frozen = tab.restored_from_snapshot && !tab.protected;
+                        continue;
+                    }
+                    None => false,
+                };
                 tab.frozen = tab.restored_from_snapshot
                     && !tab.protected
                     && policy::decision(
                         tab,
-                        continuing.contains(id),
+                        is_continuing,
                         restore_on_boot(
                             general_workspace.as_deref() == Some(workspace.id.as_str()),
                             tab.protected,
@@ -74,6 +115,12 @@ pub fn initialize(svc: &ServiceContext, active_window_hours: u64) {
                         ),
                     ) == RestoreDecision::Freeze;
             }
+        }
+    }
+    drop(mux);
+    for (tab, error) in continuing {
+        if let Err(error) = error {
+            svc.warn_plan_environment_read(&tab,format!("Automatic restore for this tab was deferred because plan state could not be read: {error}"));
         }
     }
 }

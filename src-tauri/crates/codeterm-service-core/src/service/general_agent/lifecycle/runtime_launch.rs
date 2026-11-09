@@ -139,6 +139,19 @@ fn launch(
         mut selection,
     } = target;
     let session_id = ownership.select_session(session_id);
+    if session_id.is_none() {
+        crate::service::execution_sandbox::enforce_delegation_ceiling(
+            svc,
+            &crate::service::SpawnAgentParams::default(),
+            None,
+        )?;
+    }
+    let permission_bypass = if session_id.is_some() {
+        crate::service::permission_policy::permission_bypass_for_tab(svc, provider, &tab_id)?
+            .is_some()
+    } else {
+        permission_bypass
+    };
     if !selection.preset_args.is_empty() {
         return Err("Runtime General launch does not support preset CLI arguments".into());
     }
@@ -205,6 +218,13 @@ fn launch(
         reasoning_effort: selection.reasoning_effort.clone(),
         system_prompt: Some(prompt.clone()),
         resume_session_id: session_id.clone(),
+        skip_permissions: Some(permission_bypass),
+        permission_bypass_authorization:
+            crate::service::permission_policy::authorize_permission_bypass(
+                &svc.agent_registry,
+                provider,
+                permission_bypass,
+            ),
         ..Default::default()
     };
     let metadata = ChatBackendLaunchMetadata {

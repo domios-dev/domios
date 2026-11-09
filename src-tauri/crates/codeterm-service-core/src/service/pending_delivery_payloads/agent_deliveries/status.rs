@@ -8,7 +8,7 @@ pub(crate) fn send_id(tab_id: &str, id: &str) -> String {
     format!("agent-pty:{}:{id}", URL_SAFE_NO_PAD.encode(tab_id))
 }
 
-fn parse_send_id(value: &str) -> Option<(String, String)> {
+pub(crate) fn parse_send_id(value: &str) -> Option<(String, String)> {
     if value.len() > 512 {
         return None;
     }
@@ -43,10 +43,16 @@ fn status(
     }
 }
 
-fn publish_inspection(tab: &AgentDeliveryTab, receipt: &ChatSendStatus) -> Result<(), String> {
+fn publish_inspection(
+    tab: &AgentDeliveryTab,
+    receipt: &ChatSendStatus,
+    bytes_written: bool,
+) -> Result<(), String> {
     let dir = tab.dir.join("inspection");
     owner_directory(&dir)?;
-    let bytes = serde_json::to_vec(receipt).map_err(|error| error.to_string())?;
+    let mut document = serde_json::to_value(receipt).map_err(|error| error.to_string())?;
+    document["bytes_written"] = serde_json::json!(bytes_written);
+    let bytes = serde_json::to_vec(&document).map_err(|error| error.to_string())?;
     let temporary = tab.dir.join("inspection.next.json");
     write_replace(&temporary, &bytes)?;
     atomic_replace(&temporary, &dir.join(format!("{}.json", receipt.send_id)))?;
@@ -117,7 +123,7 @@ impl AgentDeliveryStore {
         tab: &AgentDeliveryTab,
         record: &AgentDeliveryRecord,
         written: bool,
-    ) {
+    ) -> Result<(), String> {
         self.prune_inspection(tab);
         let receipt = status(
             &tab.tab_id,
@@ -135,10 +141,35 @@ impl AgentDeliveryStore {
                     .unwrap_or_else(|| "launch_ended_before_write".into())
             }),
         );
-        if let Err(error) = publish_inspection(tab, &receipt) {
+        if let Err(error) = publish_inspection(tab, &receipt, written) {
+            if !written {
+                return Err(error);
+            }
             log::debug!("[agent-delivery] inspection receipt publication failed: {error}");
         }
         self.prune_inspection(tab);
+        Ok(())
+    }
+
+    pub(crate) fn inspected_payload_written(&self, public_id: &str) -> Result<bool, String> {
+        let Some((tab_id, id)) = parse_send_id(public_id) else {
+            return Ok(false);
+        };
+        let path = self
+            .root
+            .join(digest(tab_id.as_bytes()))
+            .join("inspection")
+            .join(format!("{id}.json"));
+        if !path.try_exists().map_err(|error| error.to_string())? {
+            return Ok(false);
+        }
+        let document: serde_json::Value =
+            serde_json::from_slice(&read_bounded(&path, MAX_INDEX_BYTES)?)
+                .map_err(|error| error.to_string())?;
+        if document["tab_id"] != tab_id || document["send_id"] != id {
+            return Err("agent delivery inspection receipt identity mismatch".into());
+        }
+        Ok(document["bytes_written"] == true)
     }
 
     pub(crate) fn inspect(&self, public_id: &str) -> Result<Option<ChatSendStatus>, String> {
@@ -202,13 +233,22 @@ impl AgentDeliveryStore {
             } else {
                 ChatSendState::Unknown
             };
-            return Ok(Some(status(
+            let mut receipt = status(
                 tab_id,
                 id,
                 record.sequence,
                 state,
                 record.terminal_failure.clone(),
-            )));
+            );
+            if receipt.state == ChatSendState::Pending {
+                receipt.pending_reason = Some(format!(
+                    "{} {} Cancel before write with domios tab send-cancel {public_id}.",
+                    record.pending_reason.as_deref().unwrap_or("Waiting for exact own-session initial readiness; binding the current recipient launch releases queued sends in order."),
+                    record.ready_deadline_ms.map(|deadline| format!("Refuses without writing at Unix millisecond {deadline} if still held.")).unwrap_or_else(|| "The durable delivery TTL bounds this hold.".into()),
+                    public_id = send_id(tab_id, id),
+                ));
+            }
+            return Ok(Some(receipt));
         }
         let path = tab.dir.join("inspection").join(format!("{id}.json"));
         if !path.try_exists().map_err(|error| error.to_string())? {

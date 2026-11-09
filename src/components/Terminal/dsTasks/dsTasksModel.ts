@@ -1,3 +1,4 @@
+import type { PlanView as Plan, PlanTaskView as Task } from "../../Canvas/planProjection";
 import {
   DS_TASK_GROUP_ALIASES,
   formatDsTasksBlock,
@@ -9,7 +10,7 @@ import type { Team, Workspace } from "../../../lib/types";
 import { planBelongsToWorkspace } from "../../Canvas/planTabMatch";
 import { attemptTabTitle } from "../../Canvas/taskExecutorHistory";
 import { findTaskByReference, taskDisplayKey } from "../../Canvas/taskDisplayKey";
-import type { Plan, Task, TaskExecutionAttempt } from "../../Canvas/types";
+import type { TaskExecutionAttempt } from "../../Canvas/types";
 
 export const DS_TASKS_MENTION = "<ds-tasks />";
 
@@ -218,7 +219,7 @@ export function dsTaskRow(task: Task): DsTaskRow {
     status: task.status,
     executor: attempt ? attemptTabTitle(attempt) : null,
     model: clean(attempt?.session_model) ?? clean(attempt?.model) ?? clean(task.model),
-    strides: task.milestone_count ?? task.milestones.length,
+    strides: task.milestone_count ?? (task.milestones?.length ?? 0),
     criteria: task.criteria_count ?? task.acceptance_criteria?.length ?? 0,
     detached: false,
   };

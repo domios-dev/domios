@@ -1,3 +1,4 @@
+import { ioTestContext } from "../../provider-shared/tests/hostIo";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
@@ -37,7 +38,7 @@ const context = {
     expandHome: (value: string) => value, fs: { fileExists: () => false } },
   JSON: { parse: (text: string) => { parses++; return JSON.parse(text); }, stringify: JSON.stringify },
 };
-vm.runInNewContext(fs.readFileSync(path.join(root, "plugin.js"), "utf8"), context);
+vm.runInNewContext(fs.readFileSync(path.join(root, "plugin.js"), "utf8"), ioTestContext(context));
 const plugin = context.module.exports.default;
 const fixtureFiles = fs.readdirSync(path.join(root, "tests/fixtures"), { recursive: true })
   .map(String).filter(file => file.endsWith(".jsonl")).sort();

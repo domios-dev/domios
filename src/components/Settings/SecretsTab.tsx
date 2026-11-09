@@ -4,9 +4,9 @@ import { invoke } from "../../lib/bridge";
 import { KeyRound, LogIn, FlaskConical, Settings2, Clock, RefreshCw } from "lucide-react";
 import { BusySpinner } from "../shared/BusyState";
 import type { AppConfig, SecretsConfig } from "../../lib/types";
-import { useMuxState } from "../../store/multiplexer/hooks";
+import { useMultiplexer, useMuxState } from "../../store/multiplexer/hooks";
 import { setPendingCommand } from "../../lib/pendingCommands";
-import { daemonAuthToken, daemonHttpBase } from "../../lib/webApi";
+import { localFetch, daemonAuthToken, daemonHttpBase } from "../../lib/webApi";
 import { SettingsCard, SettingsPill } from "./shared";
 import { UI_BUTTON, UI_INPUT, UI_TEXT } from "../shared/design";
 
@@ -52,6 +52,7 @@ export function SecretsTab({
   const jsonHeaders: HeadersInit = { "Content-Type": "application/json", ...apiHeaders };
 
   const muxState = useMuxState();
+  const { selectTabByTab } = useMultiplexer();
   const installBitwardenCli = useCallback(async () => {
     const platform = navigator.platform.toLowerCase();
     const cmd = platform.includes("mac")
@@ -70,14 +71,13 @@ export function SecretsTab({
         { workspaceId: ws.id, activate: true },
       );
       setPendingCommand(tabInfo.tab_id, cmd);
-      await invoke("mux_set_active_workspace", { workspaceId: ws.id });
-      await invoke("mux_set_active_tab", { workspaceId: ws.id, tabId: tabInfo.id });
+      await selectTabByTab(ws.id, tabInfo.id);
       // Tell the host UI to switch back to the workspace view (away from Settings) so the user sees the install running.
       onCloseSettings?.();
     } catch (e) {
       console.error("Failed to spawn install tab:", e);
     }
-  }, [muxState, onCloseSettings]);
+  }, [muxState, onCloseSettings, selectTabByTab]);
 
   const cfg = config.integrations?.secrets ?? {
     backend: "local",
@@ -110,7 +110,7 @@ export function SecretsTab({
     if (!apiBase) return;
     setStatusBusy(true);
     try {
-      const r = await fetch(`${apiBase}/api/secrets/status`, { headers: apiHeaders });
+      const r = await localFetch(`/api/secrets/status`, { headers: apiHeaders });
       if (r.ok) setStatus(await r.json());
     } catch (e) {
       console.warn("secrets status failed:", e);
@@ -122,7 +122,7 @@ export function SecretsTab({
   const refreshItems = useCallback(async () => {
     if (!apiBase) return;
     try {
-      const r = await fetch(`${apiBase}/api/secrets/items?limit=10`, { headers: apiHeaders });
+      const r = await localFetch(`/api/secrets/items?limit=10`, { headers: apiHeaders });
       if (r.ok) {
         const d = await r.json();
         setItems(d.items ?? []);
@@ -137,7 +137,7 @@ export function SecretsTab({
   const refreshOrgs = useCallback(async () => {
     if (!apiBase) return;
     try {
-      const r = await fetch(`${apiBase}/api/secrets/organizations`, { headers: apiHeaders });
+      const r = await localFetch(`/api/secrets/organizations`, { headers: apiHeaders });
       if (r.ok) {
         const d = await r.json();
         setOrgs(d.organizations ?? []);
@@ -150,10 +150,10 @@ export function SecretsTab({
     async (orgId: string) => {
       if (!apiBase) return;
       const url = orgId
-        ? `${apiBase}/api/secrets/collections?organization=${encodeURIComponent(orgId)}`
-        : `${apiBase}/api/secrets/collections`;
+        ? `/api/secrets/collections?organization=${encodeURIComponent(orgId)}`
+        : `/api/secrets/collections`;
       try {
-        const r = await fetch(url, { headers: apiHeaders });
+        const r = await localFetch(url, { headers: apiHeaders });
         if (r.ok) {
           const d = await r.json();
           setColls(d.collections ?? []);
@@ -216,7 +216,7 @@ export function SecretsTab({
       setColls([]);
       setStatus(null);
       try {
-        const r = await fetch(`${apiBase}/api/secrets/backend`, {
+        const r = await localFetch(`/api/secrets/backend`, {
           method: "POST",
           headers: jsonHeaders,
           body: JSON.stringify({
@@ -249,7 +249,7 @@ export function SecretsTab({
       bitwarden: { ...(cfg.bitwarden ?? { server_url: bitwardenServerUrl }), server_url: url },
     });
     try {
-      const r = await fetch(`${apiBase}/api/secrets/backend`, {
+      const r = await localFetch(`/api/secrets/backend`, {
         method: "POST",
         headers: jsonHeaders,
         body: JSON.stringify({ backend: "bitwarden", bitwarden_server_url: url }),
@@ -286,7 +286,7 @@ export function SecretsTab({
       e.preventDefault();
       setError(null);
       try {
-        const r = await fetch(`${apiBase}/api/secrets/unlock`, {
+        const r = await localFetch(`/api/secrets/unlock`, {
           method: "POST",
           headers: jsonHeaders,
           body: JSON.stringify({
@@ -327,7 +327,7 @@ export function SecretsTab({
       e.preventDefault();
       setError(null);
       try {
-        const r = await fetch(`${apiBase}/api/secrets/unlock`, {
+        const r = await localFetch(`/api/secrets/unlock`, {
           method: "POST",
           headers: jsonHeaders,
           body: JSON.stringify({
@@ -355,7 +355,7 @@ export function SecretsTab({
   const logout = useCallback(async () => {
     if (!confirm("Sign out? This deletes the saved master password and session token.")) return;
     setError(null);
-    await fetch(`${apiBase}/api/secrets/logout`, { method: "POST", headers: jsonHeaders, body: "{}" });
+    await localFetch(`/api/secrets/logout`, { method: "POST", headers: jsonHeaders, body: "{}" });
     await refreshStatus();
   }, [apiBase, jsonHeaders, refreshStatus]);
 

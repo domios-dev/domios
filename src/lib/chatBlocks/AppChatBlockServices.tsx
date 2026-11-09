@@ -1,3 +1,4 @@
+import type { PlanView as Plan } from "../../components/Canvas/planProjection";
 import { useLayoutEffect, useMemo, useRef, type ReactNode } from "react";
 import { ChatBlockHostProvider, decodeTasksBlockKey, type ChatBlockHost, type ChatMentionValue } from "@codeterm/chat-ui";
 import { hostAutomationAdapter, AUTOMATION_GRAPH_EVENT } from "../../components/Automation/hostAdapter";
@@ -23,7 +24,6 @@ import { createTasksBlockHost, type PlansSnapshot } from "./tasksBlockHost";
 import { fetchPlans, fetchPlanTaskReference } from "../../components/Canvas/plansApi";
 import type { PlanProjection } from "../../components/Canvas/planProjection";
 import { planRevision } from "../../components/Canvas/planProjection";
-import type { Plan } from "../../components/Canvas/types";
 import { webRequestContext } from "../webApi";
 import { mentionScopeForTab } from "../mentionSources/scope";
 import { watchMentionState } from "../mentionSources/live";

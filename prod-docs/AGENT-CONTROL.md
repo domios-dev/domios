@@ -1,5 +1,7 @@
 # Agent control
 
+To connect an ACP agent and use its non-PTY chat runtime, read `domios docs ACP`.
+
 Skill-driven agent integration, hierarchy, command palette, and session persistence.
 
 ## Agent Integration
@@ -44,7 +46,7 @@ Domios has a 2-level role hierarchy: Orchestrator (depth 1) -> Worker (depth 2).
 
 Backward-compat alias: `Conductor` -> `Orchestrator`.
 
-**Placement rules.** The backend refuses a parent for an Orchestrator (`Orchestrator cannot have a parent`), requires a Worker's `--parent-tab` to be a spawning parent such as its Orchestrator, and refuses to make a tab that already has a parent an Orchestrator (`already in a hierarchy`). There is no middle coordinator: a sub-task that needs its own tree goes to a fresh Orchestrator spawned with `--workspace` in its own workspace, which owns the whole sub-request; a concrete leaf goes to a Worker under you. Workers fan out in parallel, one task each.
+**Placement rules.** The backend refuses a parent for an Orchestrator (`Orchestrator cannot have a parent`), requires a Worker's `--parent-tab` to be a spawning parent such as its Orchestrator, and refuses to make a tab that already has a parent an Orchestrator (`already in a hierarchy`). There is no middle coordinator: a sub-task that needs its own tree goes to a fresh Orchestrator spawned with `--workspace` in its own workspace, which owns the whole sub-request; a concrete leaf goes to a Worker under you. Workers fan out in parallel, one task each. A spawned Orchestrator starts without a Team (`team_id: null`); its Team forms when it creates its Team Plan, or when the host promotes it with Make Orchestrator, which onboards it into a new Team or refuses with `orchestrator_team_unavailable`. A coordinator without a Team cannot be closed unattributed; release it with `domios agent unlink --tab <id>` first.
 
 A live roleless agent outside any Team can promote itself with `domios agent set-orchestrator`. Its own authenticated tab credential is required. Workers, Planners, concierges, Neighbor agents, remote-controlled tabs, and Team members cannot use this self-promotion path; targeting another tab is refused. Success uses the same promotion and onboarding as the tab menu's Make Orchestrator action.
 
@@ -63,7 +65,8 @@ domios agent set-orchestrator --tab $CODETERM_TAB_ID
 # View the complete local workspace map (workspaces, Teams, Plans, and nested tabs); --workspace selects the existing one-workspace tree; --agents = agent tabs only
 domios tab list
 
-# Get one tab's state (working|question|idle|error|exited, as tab list shows), type, session, prompt
+# Get one tab's state (working|question|idle|error|exited, as tab list shows), type, session, prompt;
+# a failed restore or degraded runtime adds a `failure:` line with its state, code and reason
 domios tab status --tab $WORKER
 
 # Include pending_prompt question and numbered options for an active provider dialog
@@ -171,4 +174,12 @@ Domios tracks and restores terminal state across sessions:
 - **Already-bound sessions**: `sessions resume` reuses a tab only while its bound agent is ready. A degraded, failed or unverified tab returns a conflict with `domios agent restart --tab ID` as its recovery command. For an `agentRuntime` Chat tab rebound to another session, that restart stops the old runtime and resumes the recorded session and its own history.
 - **Auto-save**: Session state is persisted every 30 seconds.
 
-<!-- revision: 33 -->
+## Domios MCP tools
+
+Agents that negotiate ACP v1 can receive the `domios` stdio tool server from the host. Available tools are `send`, `agent_report`, `agent_startup_ack`, `mem_search`, `mem_get`, `task_show`, `notify_send`, and `messages_check`. They use the same tab authority and CLI checks as commands from that tab. `send`, `agent_report`, and `notify_send` take `from_pad` paths; write the payload into your own pad first. Reports use your own inherited task binding; in a task-bound tab `agent_startup_ack` performs this tab's `agent ack`. No tool accepts caller, instance, URL, credential or mesh overrides.
+
+While a turn runs, a successful result from these tools can end with an `Inbound messages` block holding reports and owner messages that arrived for this tab, oldest first; `messages_check` runs no command and exists to collect them between long steps. Each message is delivered once and is not repeated at the end of the turn. `send` returns the receipt of a send held for a busy target; do not send it again.
+
+The host supplies the tab-scoped credential, API URL and matching tab binding in the descriptor environment; Domios does not log or persist credential values. The agent receives this tab’s credential in session parameters and may store its session configuration. Missing credentials or a changed tab or binding nonce refuses MCP startup. If session creation or restoration fails with MCP offered, the host retries that session method once without tools and shows a “Domios tools are unavailable” notice; a second failure remains visible. ACP v1 requires stdio MCP support; `mcpCapabilities` advertises optional HTTP/SSE transports and does not gate this stdio server. Without a host descriptor, the agent receives no server.
+
+<!-- revision: 42 -->

@@ -311,10 +311,15 @@ impl LiveCaller {
                 Some("Worker"),
                 Some(CALLER_SESSION),
                 Some(CALLER_NONCE),
+                None,
                 5,
             )
             .unwrap();
-        let attempt_id = store.show_task(&task_id).unwrap().task.execution_attempts[0]
+        let attempt_id = store
+            .inspect_task_for_test(&task_id)
+            .unwrap()
+            .task
+            .execution_attempts[0]
             .id
             .clone();
         let shown = rpc(
@@ -352,7 +357,7 @@ impl LiveCaller {
     fn tab_id(&self) -> String {
         self.svc
             .plan_store
-            .show_task(&self.task_id)
+            .inspect_task_for_test(&self.task_id)
             .unwrap()
             .task
             .assigned_tab_id
@@ -378,7 +383,7 @@ impl LiveCaller {
     fn loaded_skills(&self) -> Vec<String> {
         self.svc
             .plan_store
-            .show_task(&self.task_id)
+            .inspect_task_for_test(&self.task_id)
             .unwrap()
             .task
             .execution_attempts[0]

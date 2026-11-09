@@ -1,10 +1,11 @@
+import type { PlanView as Plan, PlanTaskView as Task } from "../planProjection";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { usePlanListWindow } from "../usePlanListWindow";
 import { fetchSpecSections } from "../plansApi";
 import { fixtureSpecSectionsByPlan } from "../perfFixture";
 import type { PlanViewSurfaceProps } from "../planViewSurfaceProps";
-import type { Plan, Section, Task } from "../types";
+import type { Section } from "../types";
 import {
   buildBoardPlanModel,
   filterPlansForBoard,

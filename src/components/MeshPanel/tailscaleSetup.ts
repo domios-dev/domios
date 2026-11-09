@@ -1,6 +1,7 @@
 import { spawnAiHelper, withAiHelperContext, type AiHelperSpawned } from "../../lib/aiHelperSpawn";
 import type { DaemonApiConfig } from "../../lib/webApi";
 import type { ServeStatus } from "../../lib/webAccess";
+import type { MachineStatus } from "./accountMachines";
 import { transportState } from "./networkTransport";
 import type { NetworkInfo } from "./webUiTarget";
 
@@ -48,6 +49,13 @@ export function tailscaleState({ serve, network, loading }: { serve: ServeStatus
   if (loading) return { kind: "checking" };
   if (!serve) return { kind: "unknown" };
   return serve.installed ? { kind: "not_connected" } : { kind: "not_installed" };
+}
+
+/** A signed-out, expired or removed machine needs signing in, renewing or rejoining; network setup advice would contradict that. */
+const NO_NETWORK_ADVICE: ReadonlySet<MachineStatus> = new Set(["signed_out", "expired", "membership_expired", "revoked"]);
+
+export function offersTailscaleSetup(status: MachineStatus): boolean {
+  return !NO_NETWORK_ADVICE.has(status);
 }
 
 /** An unreachable account machine points at its own Tailscale only when this machine's side is known to be fine. */

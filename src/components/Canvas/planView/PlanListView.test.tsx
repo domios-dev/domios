@@ -1,3 +1,4 @@
+import { muxMockFetch } from "../../../lib/muxMockFetch.testdata";
 // Run: npx tsx src/components/Canvas/planView/PlanListView.test.tsx
 
 import { act, type ReactElement } from "react";
@@ -492,12 +493,12 @@ test("live list requests a visible cursor window and keeps filter focus while re
   const page=(start:number, count:number, cursor:boolean)=>Response.json({...plan,revision:"1",
     tasks:Array.from({length:count},(_,index)=>({...FIXTURE_TASK,id:`window-${start+index}`,name:`Window ${start+index}`,status:TaskStatus.Pending,section_ids:[],body:"",milestones:[],execution_attempts:[]})),
     task_window:{next_cursor:cursor?{position:24,task_id:"window-24"}:null,total:50,cancelled:0}});
-  globalThis.fetch=async(input)=>{
+  globalThis.fetch=muxMockFetch(async(input)=>{
     const url=new URL(String(input));requests.push(url);
     if(url.searchParams.has("after_position") && holdPage) return new Promise<Response>((resolve)=>{finishOld=resolve;});
     if(url.searchParams.get("status")==="blocked") return page(40,1,false);
     return page(0,25,true);
-  };
+  });
   const {host,unmount}=await render(<PlanListView mode="workspace" workspaceId={WS_ID} workspaces={WORKSPACES} plans={[plan]}
     api={{enabled:true,host:"localhost",port:7686,token:"fixture",cors:true}} />);
   try {

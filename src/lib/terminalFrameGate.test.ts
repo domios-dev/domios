@@ -1,5 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { terminalFrameVisible, terminalLayoutRequired, acceptsTerminalOutput } from "./terminalFrameGate";
+import { terminalFrameVisible, terminalLayoutRequired, acceptsTerminalOutput, terminalContentTopInset } from "./terminalFrameGate";
+
+describe("terminal content below the tab top bar", () => {
+  it("reserves the top bar's overhang so PTY row 0 starts below it in plain terminal mode", () => {
+    expect(terminalContentTopInset({ terminalMode: true, touchUi: false, fallbackChat: false, keyBar: false }))
+      .toBe("var(--ct-top-bar-fade, 12px)");
+  });
+
+  it("keeps the larger touch inset and the fallback frame's own offsets", () => {
+    expect(terminalContentTopInset({ terminalMode: true, touchUi: true, fallbackChat: false, keyBar: true }))
+      .toBe("calc(1.25rem + var(--ct-safe-top, 0px))");
+    expect(terminalContentTopInset({ terminalMode: false, touchUi: false, fallbackChat: true, keyBar: false })).toBe(8);
+    expect(terminalContentTopInset({ terminalMode: false, touchUi: false, fallbackChat: false, keyBar: false })).toBe(0);
+  });
+});
 
 describe("terminal frame identity", () => {
   it("fits a ready destination before its first identity-confirmed frame can be revealed", () => {

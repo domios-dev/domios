@@ -336,6 +336,26 @@ pub fn commit_team_member_spawn(
     expected_role: &str,
     expected_profile: &Option<String>,
 ) -> Result<AddTeamMemberResult, String> {
+    let result = commit_team_member_spawn_staged(
+        mux,
+        team_id,
+        caller_tab_id,
+        tab_id,
+        expected_role,
+        expected_profile,
+    )?;
+    codeterm_service_core::service::publish_mux_state_changed(events);
+    Ok(result)
+}
+
+pub(crate) fn commit_team_member_spawn_staged(
+    mux: &mut MultiplexerState,
+    team_id: &str,
+    caller_tab_id: Option<&str>,
+    tab_id: &str,
+    expected_role: &str,
+    expected_profile: &Option<String>,
+) -> Result<AddTeamMemberResult, String> {
     let (expected_role, expected_kind) =
         ServiceContext::parse_role_kind(expected_role, expected_profile.as_deref())?;
     // An anchoring member takes no parent and binds its Team after placement.
@@ -373,7 +393,6 @@ pub fn commit_team_member_spawn(
         .get_team(team_id)
         .cloned()
         .ok_or_else(|| format!("Team {team_id} not found after member spawn"))?;
-    codeterm_service_core::service::publish_mux_state_changed(events);
     Ok(AddTeamMemberResult {
         tab_id: tab_id.into(),
         team,
@@ -398,20 +417,22 @@ pub fn take_over_team_plan(
     team_id: &str,
     owner_tab_id: &str,
     now_ms: u64,
-) -> Option<PlanTakeover> {
-    let (plan_id, _) = plan_store.active_plan_for_team(team_id)?;
-    let previous = plan_store
-        .get(&plan_id)
-        .and_then(|plan| plan.owner.tab_id)
-        .unwrap_or_default();
+) -> Result<Option<PlanTakeover>, String> {
+    let Some((plan_id, previous)) = plan_store
+        .team_owner_projection(team_id)
+        .map_err(|error| error.to_string())?
+    else {
+        return Ok(None);
+    };
+    let previous = previous.unwrap_or_default();
     if previous == owner_tab_id {
-        return None;
+        return Ok(None);
     }
     let previous_is_live_anchor = mux.get_tab(&previous).is_some_and(|tab| {
         tab.anchors_team() && tab.team_id.as_deref() == Some(team_id) && tab_is_agent_capable(tab)
     });
     if previous_is_live_anchor {
-        return None;
+        return Ok(None);
     }
     let reason = match previous.is_empty() {
         true => format!("Orchestrator recovery: Team {team_id} plan had no owner tab"),
@@ -435,11 +456,11 @@ pub fn take_over_team_plan(
             "[team-staffing] plan takeover team={team_id} plan={plan_id} owner={owner_tab_id}"
         ),
     }
-    Some(PlanTakeover {
+    Ok(Some(PlanTakeover {
         plan_id,
         owner_tab_id: owner_tab_id.to_string(),
         error,
-    })
+    }))
 }
 
 /// The anchoring question answered from an already-resolved role pair.

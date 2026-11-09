@@ -14,6 +14,7 @@ import { fileURLToPath } from 'node:url';
 import { fetchAndAggregate, PLATFORMS } from './release-dry-run-manifest.mjs';
 
 const SOURCE_REPO = sourceRepository();
+// 1.19 transition mirror: PUBLISH_MIRROR also writes this repository; delete after 1.19 ships.
 const MIRROR_REPO = 'rollacode/codeterm-releases';
 const exec = promisify(execFile);
 export const PUBLICATION_CONCURRENCY = 3;

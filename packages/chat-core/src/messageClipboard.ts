@@ -167,6 +167,7 @@ function argumentsText(input: Record<string, unknown> | undefined): string {
 /** A tool row as text: the command or the call's arguments, then its output; card decorations stay out. */
 export function toolEventText(event: ToolEvent): string {
   if (event.commandBatch?.length) return event.commandBatch.map(toolEventText).join("\n\n");
+  if (event.editRun?.length) return event.editRun.map(toolEventText).join("\n\n");
   const parts: string[] = [];
   if (event.kind === "command" || event.kind === "codeterm") {
     parts.push(`$ ${toolCommandLabel(event)}`);

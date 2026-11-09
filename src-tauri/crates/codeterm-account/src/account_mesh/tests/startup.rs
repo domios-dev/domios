@@ -17,7 +17,7 @@ fn admissions(harness: &Harness) -> usize {
 }
 
 #[tokio::test]
-async fn account_mesh_startup_uses_two_admissions_and_network_noops_use_none() {
+async fn account_mesh_startup_uses_one_admission_and_network_noops_use_none() {
     let mut harness = Harness::new().await;
     harness.default_name = Some("BLACKSTAR".into());
     *harness.endpoint.0.lock().unwrap() = Some(tailnet_endpoint());
@@ -34,9 +34,9 @@ async fn account_mesh_startup_uses_two_admissions_and_network_noops_use_none() {
         .refresh(EnrollTrigger::Automatic)
         .await
         .unwrap();
-    assert_eq!(admissions(&harness), 2);
+    assert_eq!(admissions(&harness), 1);
     assert_eq!(harness.calls("enroll"), 1);
-    assert_eq!(harness.calls("sync"), 1);
+    assert_eq!(harness.calls("sync"), 0);
     assert_eq!(harness.calls("list"), 0);
     assert_eq!(harness.calls("presence"), 0);
     assert_eq!(harness.calls("update"), 0);
@@ -58,8 +58,8 @@ async fn account_mesh_startup_uses_two_admissions_and_network_noops_use_none() {
         .refresh(EnrollTrigger::Automatic)
         .await
         .unwrap();
-    assert_eq!(admissions(&harness), 1);
-    assert_eq!(harness.calls("renew"), 1);
+    assert_eq!(admissions(&harness), 0);
+    assert_eq!(harness.calls("renew"), 0);
     assert_eq!(harness.calls("sync"), 0);
     assert_eq!(harness.calls("list"), 0);
     harness.log.lock().unwrap().clear();
@@ -73,7 +73,7 @@ async fn account_mesh_startup_uses_two_admissions_and_network_noops_use_none() {
 }
 
 #[tokio::test]
-async fn account_mesh_startup_withdraws_a_stale_endpoint_in_one_admission() {
+async fn account_mesh_startup_gossips_endpoint_withdrawal_without_server_admission() {
     let mut harness = Harness::new().await;
     *harness.endpoint.0.lock().unwrap() = Some(tailnet_endpoint());
     harness.sign_in("owner").await;
@@ -83,12 +83,6 @@ async fn account_mesh_startup_withdraws_a_stale_endpoint_in_one_admission() {
         .await
         .unwrap();
     *harness.endpoint.0.lock().unwrap() = None;
-    harness
-        .registry
-        .script
-        .lock()
-        .unwrap()
-        .membership_registry_revision = Some(10);
     harness.restart().await;
     harness.sign_in("owner").await;
     harness.log.lock().unwrap().clear();
@@ -97,14 +91,18 @@ async fn account_mesh_startup_withdraws_a_stale_endpoint_in_one_admission() {
         .refresh(EnrollTrigger::Automatic)
         .await
         .unwrap();
-    assert_eq!(admissions(&harness), 2);
-    assert_eq!(harness.calls("renew"), 1);
-    assert_eq!(harness.calls("withdraw"), 1);
-    assert_eq!(harness.calls("list"), 0);
-    assert_eq!(harness.calls("sync"), 0);
-    assert!(harness.registry.endpoint("owner").is_none());
-    assert!(!harness.store.record.lock().unwrap().published);
-    harness.log.lock().unwrap().clear();
+    assert_eq!(admissions(&harness), 0);
+    assert_eq!(harness.calls("withdraw"), 0);
+    assert!(harness
+        .transport
+        .endpoints
+        .lock()
+        .unwrap()
+        .last()
+        .unwrap()
+        .0
+        .is_none());
+    assert_eq!(harness.state().publication, Publication::NotReady);
     harness.mesh.refresh(EnrollTrigger::Network).await.unwrap();
     assert_eq!(admissions(&harness), 0);
 }
@@ -140,9 +138,10 @@ async fn account_mesh_rename_uses_one_admission_and_updates_both_views() {
 }
 
 #[tokio::test]
-async fn account_mesh_network_republishes_an_expired_endpoint() {
+async fn account_mesh_network_does_not_republish_an_unchanged_expired_endpoint() {
     let harness = Harness::new().await;
     harness.registry.script.lock().unwrap().membership_seconds = Some(86400);
+    harness.registry.script.lock().unwrap().endpoint_seconds = Some(3600);
     *harness.endpoint.0.lock().unwrap() = Some(tailnet_endpoint());
     harness.sign_in("owner").await;
     harness
@@ -150,36 +149,70 @@ async fn account_mesh_network_republishes_an_expired_endpoint() {
         .refresh(EnrollTrigger::Automatic)
         .await
         .unwrap();
+    let expiry = harness.registry.endpoint("owner").unwrap().expires_at;
+    harness.clock.set(START + 3600);
+    harness.log.lock().unwrap().clear();
+    harness.mesh.refresh(EnrollTrigger::Network).await.unwrap();
+    assert_eq!(harness.calls("publish"), 0);
+    assert_eq!(harness.calls("renew"), 0);
+    assert_eq!(harness.calls("sync"), 0);
+    assert_eq!(
+        harness.registry.endpoint("owner").unwrap().expires_at,
+        expiry
+    );
+}
+
+#[tokio::test]
+async fn account_mesh_cold_start_republishes_an_expired_unchanged_endpoint_once() {
+    let mut harness = Harness::new().await;
+    harness.registry.script.lock().unwrap().membership_seconds = Some(86400);
+    harness.registry.script.lock().unwrap().endpoint_seconds = Some(3600);
+    harness.sign_in("owner").await;
+    harness
+        .mesh
+        .refresh(EnrollTrigger::Automatic)
+        .await
+        .unwrap();
+    // A separately published lease ends before the membership, as when a renew lacked it.
+    *harness.endpoint.0.lock().unwrap() = Some(tailnet_endpoint());
+    harness.mesh.refresh(EnrollTrigger::Network).await.unwrap();
+    assert_eq!(harness.calls("publish"), 1);
     assert_eq!(
         harness.registry.endpoint("owner").unwrap().expires_at,
         START + 3600
     );
     harness.clock.set(START + 3600);
     harness.log.lock().unwrap().clear();
-    harness.mesh.refresh(EnrollTrigger::Network).await.unwrap();
+    harness.restart().await;
+    harness.sign_in("owner").await;
+    harness
+        .mesh
+        .refresh(EnrollTrigger::Automatic)
+        .await
+        .unwrap();
     assert_eq!(harness.calls("publish"), 1);
     assert_eq!(harness.calls("renew"), 0);
-    assert_eq!(harness.calls("sync"), 0);
     assert!(harness.registry.endpoint("owner").unwrap().expires_at > START + 3600);
+    assert_eq!(harness.state().publication, Publication::Published);
+    harness.mesh.refresh(EnrollTrigger::Network).await.unwrap();
+    assert_eq!(harness.calls("publish"), 1);
 }
 
 #[tokio::test]
-async fn account_mesh_failed_sync_retries_without_losing_the_default_name() {
+async fn account_mesh_failed_membership_retries_without_losing_the_default_name() {
     let mut harness = Harness::new().await;
     harness.default_name = Some("BLACKSTAR".into());
     harness.restart().await;
     harness.sign_in("owner").await;
-    harness.registry.script.lock().unwrap().publication = Some(wire::RegistryRefusal::Offline);
+    harness.registry.script.lock().unwrap().membership_once = Some(wire::RegistryRefusal::Offline);
     assert_eq!(
         harness.mesh.refresh(EnrollTrigger::Automatic).await,
         Err(AccountMeshRefusal::Offline)
     );
-    harness.registry.script.lock().unwrap().publication = None;
     harness.clock.set(harness.state().retry_at.unwrap());
     harness.mesh.refresh(EnrollTrigger::Network).await.unwrap();
-    assert_eq!(harness.calls("sync"), 2);
-    assert_eq!(harness.calls("enroll"), 1);
-    assert_eq!(harness.calls("renew"), 0);
+    assert_eq!(harness.calls("sync"), 0);
+    assert_eq!(harness.calls("enroll"), 2);
     assert_eq!(
         harness
             .state()
@@ -222,7 +255,7 @@ fn account_mesh_sync_wire_matches_the_atomic_server_operation() {
 }
 
 #[tokio::test]
-async fn account_mesh_startup_with_a_late_listener_uses_at_most_three_admissions() {
+async fn account_mesh_startup_with_a_late_listener_uses_two_admissions() {
     let mut harness = Harness::new().await;
     harness.default_name = Some("BLACKSTAR".into());
     harness.restart().await;
@@ -232,19 +265,19 @@ async fn account_mesh_startup_with_a_late_listener_uses_at_most_three_admissions
         .refresh(EnrollTrigger::Automatic)
         .await
         .unwrap();
-    assert_eq!(admissions(&harness), 2);
+    assert_eq!(admissions(&harness), 1);
     *harness.endpoint.0.lock().unwrap() = Some(tailnet_endpoint());
     harness.mesh.refresh(EnrollTrigger::Network).await.unwrap();
-    assert_eq!(admissions(&harness), 3);
+    assert_eq!(admissions(&harness), 2);
     assert_eq!(harness.calls("publish"), 1);
     assert_eq!(harness.calls("list"), 0);
     harness.mesh.refresh(EnrollTrigger::Network).await.unwrap();
-    assert_eq!(admissions(&harness), 3);
+    assert_eq!(admissions(&harness), 2);
     assert!(harness.registry.endpoint("owner").is_some());
 }
 
 #[tokio::test]
-async fn account_mesh_startup_keeps_the_page_cursor_without_automatic_admissions() {
+async fn account_mesh_startup_uses_complete_signed_registry_without_page_reads() {
     let harness = Harness::new().await;
     harness.registry.script.lock().unwrap().sync_cursor = Some(wire::MeshCursor {
         after_installation_id: INSTALLATION.into(),
@@ -256,8 +289,8 @@ async fn account_mesh_startup_keeps_the_page_cursor_without_automatic_admissions
         .refresh(EnrollTrigger::Automatic)
         .await
         .unwrap();
-    assert_eq!(admissions(&harness), 2);
-    assert!(harness.state().registry.as_ref().unwrap().cursor.is_some());
+    assert_eq!(admissions(&harness), 1);
+    assert!(harness.state().registry.as_ref().unwrap().cursor.is_none());
     assert!(harness.mesh.list().await.unwrap().cursor.is_none());
-    assert_eq!(harness.calls("list"), 1);
+    assert_eq!(harness.calls("list"), 0);
 }

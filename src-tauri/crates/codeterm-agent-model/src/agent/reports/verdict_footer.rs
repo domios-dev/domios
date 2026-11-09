@@ -76,6 +76,36 @@ mod tests {
     }
 
     #[test]
+    fn rejected_transition_is_never_framed_as_a_review() {
+        use codeterm_types::agent::ReportOutcomeClass;
+        for outcome in [
+            ReportOutcomeClass::TransitionRejected,
+            ReportOutcomeClass::StaleBindingConflict,
+            ReportOutcomeClass::MissingReviewEvidence,
+        ] {
+            let report = ReportStore::new(1).add_detailed_with_model_identity_and_outcome(
+                "parent",
+                "worker",
+                "Worker",
+                "opaque evidence",
+                ReportDetails {
+                    plan_id: Some("pl_render".into()),
+                    task_id: Some("task_render".into()),
+                    status: Some(ReportStatus::InReview),
+                    ..Default::default()
+                },
+                None,
+                Some(outcome),
+            );
+            let body = report.inject_body();
+            assert!(!body.contains(VERDICT_COMMAND), "{outcome:?}: {body}");
+            assert!(!body.lines().any(|line| line == "status: In Review"));
+            assert!(body.contains("status: Rejected (In Review was requested"));
+            assert!(body.ends_with("opaque evidence"));
+        }
+    }
+
+    #[test]
     fn unattached_report_has_no_verdict_footer() {
         for (plan, task) in [
             (None, None),

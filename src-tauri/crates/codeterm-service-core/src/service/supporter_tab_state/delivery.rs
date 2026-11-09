@@ -59,8 +59,15 @@ fn publish_spawn_ok(
         "episode": episode,
         "message": SPAWN_OK_LINE,
     });
+    let target = match orchestrator_target(service, metadata) {
+        Ok(target) => target,
+        Err(error) => {
+            log::warn!("[tab-state] spawn owner lookup failed tab={tab_id}: {error}");
+            return;
+        }
+    };
     if let (Some(target), Some(plan_id), Some(task_id)) = (
-        orchestrator_target(service, metadata),
+        target,
         metadata.plan_id.as_deref(),
         metadata.task_id.as_deref(),
     ) {
@@ -176,8 +183,10 @@ fn publish_event(
         })).collect::<Vec<Value>>(),
     });
     service.events.publish_generic(event_type, payload);
-    if let Some(target) = orchestrator_target(service, metadata) {
-        deliver_to_target(service, &target, &message);
+    match orchestrator_target(service, metadata) {
+        Ok(Some(target)) => deliver_to_target(service, &target, &message),
+        Ok(None) => {}
+        Err(error) => log::warn!("[tab-state] notice owner lookup failed tab={tab_id}: {error}"),
     }
 }
 
@@ -193,14 +202,21 @@ fn numbered_options(options: &[NumberedPromptOption]) -> String {
     format!(" Pending options:{choices}.")
 }
 
-fn orchestrator_target(service: &ServiceContext, metadata: &TabStateMetadata) -> Option<String> {
-    metadata
-        .plan_id
-        .as_deref()
-        .and_then(|plan_id| service.plan_store.get(plan_id))
-        .and_then(|plan| plan.owner.tab_id)
+fn orchestrator_target(
+    service: &ServiceContext,
+    metadata: &TabStateMetadata,
+) -> Result<Option<String>, String> {
+    let owner = match metadata.plan_id.as_deref() {
+        Some(plan) => match service.plan_store.plan_identity_projection(plan) {
+            Ok(identity) => identity.owner.tab_id,
+            Err(crate::service::plan::PlanError::NotFound) => None,
+            Err(error) => return Err(error.to_string()),
+        },
+        None => None,
+    };
+    Ok(owner
         .or_else(|| metadata.parent_tab_id.clone())
-        .or_else(|| metadata.spawning_tab_id.clone())
+        .or_else(|| metadata.spawning_tab_id.clone()))
 }
 
 fn deliver_to_target(service: &ServiceContext, target: &str, message: &str) {

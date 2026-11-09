@@ -7,6 +7,8 @@ use crate::service::MuxEmitCause;
 use crate::service::{agent_runtime::model::RuntimeMode, ServiceContext};
 use codeterm_plugin::agent_runtime::{RuntimeOperation, RuntimeResult, RuntimeSettings};
 
+mod declared;
+
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum SwitchRoute {
     Runtime,
@@ -83,6 +85,42 @@ pub(crate) fn switch(
         .get_tab(tab)
         .and_then(|target| target.agent_type.clone())
         .ok_or_else(|| ModelSwitchError::NotFound(tab.into()))?;
+    // A switch addresses the tab the same way a send does, so it wakes a sleeping tab.
+    if svc
+        .mux
+        .read()
+        .get_tab(tab)
+        .is_some_and(|target| target.frozen)
+    {
+        svc.wake_frozen_tab(tab)
+            .map_err(ModelSwitchError::RuntimeControlRefused)?;
+    }
+    let live = engine::for_tab(tab);
+    // `ensure` waits on the gate with no busy outcome, so a running operation is waited out here first.
+    if live.as_ref().is_some_and(|session| {
+        crate::async_runtime::block_on(async {
+            tokio::time::timeout(GATE_WAIT, session.gate.acquire())
+                .await
+                .is_err()
+        })
+    }) {
+        return Err(ModelSwitchError::RuntimeBusy);
+    }
+    let declared_controls = live
+        .as_ref()
+        .is_some_and(|session| session.context.lock().settings.config_options.is_some())
+        || svc.mux.read().get_tab(tab).is_some_and(|target| {
+            target
+                .agent_runtime_state
+                .as_ref()
+                .and_then(|state| state.pointer("/controls/configOptions"))
+                .is_some_and(serde_json::Value::is_array)
+        });
+    if declared_controls {
+        let session = crate::async_runtime::block_on(engine::ensure(svc, tab))
+            .map_err(|reason| ModelSwitchError::RuntimeControlRefused(reason.to_string()))?;
+        return declared::switch(svc, tab, &session, model, effort, mode, service_tier);
+    }
     let model_selection = crate::service::spawn::resolve_agent_model_selection(
         &svc.agent_registry,
         Some(&provider),
@@ -165,26 +203,29 @@ pub(crate) fn switch(
     } else {
         None
     };
+    let refused =
+        |reason: RuntimeFailure| ModelSwitchError::RuntimeControlRefused(reason.to_string());
     crate::async_runtime::block_on(async {
-        switch_inner(svc, tab, model, effort, mode, service_tier)
+        let session = engine::ensure(svc, tab).await.map_err(refused)?;
+        let Ok(permit) = tokio::time::timeout(GATE_WAIT, session.gate.acquire()).await else {
+            return Err(ModelSwitchError::RuntimeBusy);
+        };
+        let _permit = permit.map_err(|_| refused(RuntimeFailure::Superseded))?;
+        switch_inner(svc, tab, session.clone(), model, effort, mode, service_tier)
             .await
-            .map_err(|reason| ModelSwitchError::RuntimeControlRefused(reason.to_string()))
+            .map_err(refused)
     })
 }
 
 async fn switch_inner(
     svc: &ServiceContext,
     tab: &str,
+    session: std::sync::Arc<engine::Session>,
     model: &str,
     effort: Option<&str>,
     mode: Option<RuntimeMode>,
     service_tier: Option<codeterm_plugin::agent_runtime::RuntimeServiceTierSelection>,
 ) -> Result<ModelSwitchOutcome, RuntimeFailure> {
-    let session = engine::ensure(svc, tab).await?;
-    let _permit = session
-        .gate
-        .try_acquire()
-        .map_err(|_| RuntimeFailure::Refused("Runtime operation already in progress".into()))?;
     engine::validate_binding(svc, &session)?;
     refresh_service_tiers(svc, &session).await?;
     let before = session.context.lock().clone();
@@ -285,6 +326,10 @@ async fn switch_inner(
         .model
         .clone()
         .ok_or_else(|| RuntimeFailure::Refused("Runtime model confirmation absent".into()))?;
+    let persisted_mode = confirmed
+        .mode
+        .clone()
+        .filter(|_| before.settings.modes.is_none() && confirmed.modes.is_none());
     {
         let mut mux = svc.mux.write();
         let target = mux.get_tab_mut(tab).ok_or(RuntimeFailure::Superseded)?;
@@ -294,16 +339,10 @@ async fn switch_inner(
         {
             return Err(RuntimeFailure::Superseded);
         }
-        target.restorable_launch.model = Some(actual_model.clone());
-        if !model.trim().is_empty() {
-            target.restorable_launch.requested_model = Some(model.trim().into());
-            target.agent_requested_model = Some(model.trim().into());
-        }
-        target.restorable_launch.resolved_reasoning_effort = confirmed.effort.clone();
-        target.restorable_launch.structured_runtime_mode = confirmed.mode.clone();
+        target.restorable_launch.structured_runtime_mode = persisted_mode.clone();
         if let (Some(options), Some(mode)) = (
             target.restorable_launch.runtime_launch_options.as_mut(),
-            confirmed.mode.as_ref(),
+            persisted_mode.as_ref(),
         ) {
             options.mode = mode.clone();
         }
@@ -312,21 +351,13 @@ async fn switch_inner(
         let config = target
             .agent_runtime_config
             .get_or_insert_with(|| serde_json::json!({}));
-        for (key, value) in [
-            ("model", &confirmed.model),
-            ("effort", &confirmed.effort),
-            ("mode", &confirmed.mode),
-        ] {
-            if let Some(value) = value {
-                config[key] = value.clone().into();
-            }
+        if let Some(value) = &persisted_mode {
+            config["mode"] = value.clone().into();
         }
     }
-    crate::service::session_persist::persist_session_after_mutation(
-        svc,
-        crate::service::session_persist::SessionPersistUrgency::Prompt,
-    )
-    .map_err(RuntimeFailure::Refused)?;
+    session.state.lock().notice = None;
+    engine::publish_controls(svc, tab, &session);
+    super::selections::persist(svc, &session, &before, &settings, &confirmed)?;
     svc.emit_state_changed(MuxEmitCause::RuntimeSignal);
     Ok(ModelSwitchOutcome {
         tab_id: tab.into(),
@@ -335,6 +366,7 @@ async fn switch_inner(
         restart: None,
         mechanism: crate::agent::provider::ModelSwitchMode::Live,
         fallback_reason: None,
+        control_changes: control_changes(&before.settings, &confirmed),
         previous_model: before.settings.model,
         requested_model: model.into(),
         launched_model: actual_model.clone(),
@@ -344,6 +376,67 @@ async fn switch_inner(
             evidence: ModelSwitchEvidence::LiveSessionRecord,
         },
     })
+}
+
+fn declared_value(settings: &RuntimeSettings, category: &str) -> Option<String> {
+    settings
+        .config_options
+        .as_ref()?
+        .iter()
+        .find(|option| option.category.as_deref() == Some(category))
+        .map(|option| option.current_value.clone())
+}
+
+/// Effort, mode and speed before and after a switch; a control the confirmation omits is unchanged.
+pub(super) fn control_changes(
+    before: &RuntimeSettings,
+    after: &RuntimeSettings,
+) -> Vec<crate::service::agent_restart::ControlChange> {
+    let effort = |settings: &RuntimeSettings| {
+        declared_value(settings, "thought_level").or_else(|| settings.effort.clone())
+    };
+    let mode = |settings: &RuntimeSettings| settings.effective_mode().map(str::to_owned);
+    let speed = |settings: &RuntimeSettings| {
+        settings
+            .service_tier
+            .as_ref()
+            .and_then(|tier| tier.id.clone())
+    };
+    let effort_before = effort(before);
+    let mode_before = mode(before);
+    let speed_before = speed(before);
+    [
+        (
+            "effort",
+            effort(after).or_else(|| effort_before.clone()),
+            effort_before,
+        ),
+        (
+            "mode",
+            mode(after).or_else(|| mode_before.clone()),
+            mode_before,
+        ),
+        (
+            "speed",
+            if after.service_tier.is_some() {
+                speed(after)
+            } else {
+                speed_before.clone()
+            },
+            speed_before,
+        ),
+    ]
+    .into_iter()
+    .map(|(control, current, previous)| (control, previous, current))
+    .filter(|(_, previous, current)| previous != current)
+    .map(
+        |(control, previous, current)| crate::service::agent_restart::ControlChange {
+            control,
+            previous,
+            current,
+        },
+    )
+    .collect()
 }
 
 fn unchanged_settings(
@@ -438,8 +531,21 @@ pub(crate) async fn refresh_service_tiers(
 mod tests;
 
 mod interrupt;
+pub(crate) use interrupt::{before_first_turn_pending, InterruptDropped, InterruptOutcome};
+
+/// How long a control or Stop waits for a running runtime operation to release the gate.
+pub(super) const GATE_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
 
 pub fn interrupt(svc: &ServiceContext, tab: &str) -> Result<bool, String> {
+    interrupt::interrupt(svc, tab).map(|outcome| {
+        matches!(
+            outcome,
+            InterruptOutcome::Stopped | InterruptOutcome::Pending
+        )
+    })
+}
+
+pub(crate) fn stop(svc: &ServiceContext, tab: &str) -> Result<InterruptOutcome, String> {
     interrupt::interrupt(svc, tab)
 }
 

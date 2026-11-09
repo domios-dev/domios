@@ -71,7 +71,7 @@ pub enum PlanAction {
     },
     /// Print only the plan's hydrated section prose (no goal, tasks, or metadata)
     Spec { plan_id: String },
-    /// File + line range of a body block, for in-place edits with file tools
+    /// Read-only body snapshot file + line range; write via typed mutation commands
     Locate {
         plan_id: String,
         /// Task id or handle
@@ -88,11 +88,26 @@ pub enum PlanAction {
     Files { plan_id: String },
     /// Show tag facets, counts, topics, and duplicate warnings
     Tags { plan_id: String },
-    /// One read-only state snapshot (counts, coverage, drift, loops, lanes, strides)
-    State { plan_id: Option<String> },
+    /// Read-only summary with bounded detail lists; use --page or --all for more
+    State {
+        plan_id: Option<String>,
+        /// Return every detail row instead of one bounded page
+        #[arg(long, conflicts_with = "page")]
+        all: bool,
+        /// Detail page (50 rows per list); counts and decisions cover the entire plan
+        #[arg(long, default_value_t = 1, value_parser = clap::value_parser!(u32).range(1..))]
+        page: u32,
+    },
     /// Lane hygiene table: one row per open lane (task/status/tab/branch/worktree/cleanup)
     Lanes {
         plan_id: Option<String>,
+        /// Return every detail row instead of one bounded page
+        #[arg(long, conflicts_with_all = ["page", "clean"])]
+        all: bool,
+        /// Detail page (50 rows per list); counts and decisions cover the entire plan
+        #[arg(long, default_value_t = 1, conflicts_with = "clean", value_parser = clap::value_parser!(u32).range(1..))]
+        page: u32,
+
         /// Only show stale lanes (dead tab / report-overdue / uncleaned)
         #[arg(long)]
         stale: bool,
@@ -121,8 +136,16 @@ pub enum PlanAction {
         #[arg(long, value_name = "PATH")]
         project: Option<String>,
     },
-    /// Prioritized, advisory next-action guidance computed from plan state
-    Next { plan_id: String },
+    /// Prioritized next-action page computed from the entire plan
+    Next {
+        plan_id: String,
+        /// Return every detail row instead of one bounded page
+        #[arg(long, conflicts_with = "page")]
+        all: bool,
+        /// Detail page (50 rows per list); counts and decisions cover the entire plan
+        #[arg(long, default_value_t = 1, value_parser = clap::value_parser!(u32).range(1..))]
+        page: u32,
+    },
     /// Show section coverage (% + gaps)
     Coverage { plan_id: String },
     /// Show sections with zero tasks

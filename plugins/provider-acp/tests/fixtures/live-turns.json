@@ -1,0 +1,14 @@
+{
+  "provenance": "Modeled from Scout's bae2cc5e20 journey steps 3-5 and existing ACP v1 wire fixtures; no raw live frames were captured.",
+  "firstPrompt": "First prompt",
+  "secondPrompt": "Second prompt",
+  "updates": [
+    {"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"Thinking"}},
+    {"sessionUpdate":"tool_call","toolCallId":"live-tool","title":"Read marker","status":"in_progress"},
+    {"sessionUpdate":"agent_message_chunk","messageId":"answer","content":{"type":"text","text":"First answer"}}
+  ],
+  "cancel": {"method":"session/cancel","params":{"sessionId":"session-fixture"}},
+  "completedReply": {"stopReason":"end_turn"},
+  "cancelledReply": {"stopReason":"cancelled"},
+  "secondUpdate": {"sessionUpdate":"agent_message_chunk","messageId":"answer","content":{"type":"text","text":"Second answer"}}
+}

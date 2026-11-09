@@ -157,9 +157,8 @@ export interface NormalizedChatMessage extends Omit<Partial<ChatMsg>, "pluginIco
   segments?: import("./envelope").MessageSegment[] | null;
   attachments?: ChatAttachment[];
   timestamp?: string;
-  /** Monotonic source-order ordinal supplied by the server (JSONL line/rich-message
-   *  index, structured row position). Stable tiebreaker when timestamps are coarse
-   *  (codex floors to seconds) or absent (cursor emits none) — see `mergeById`. */
+  /** Source-order ordinal within one parsed batch; later appends may restart it.
+   *  Cached snapshots can combine batches, so their array order is authoritative. */
   seq?: number;
   /** Frontend join context for a parser sequence; sequence values repeat when a
    * tab rotates to a new agent session. */

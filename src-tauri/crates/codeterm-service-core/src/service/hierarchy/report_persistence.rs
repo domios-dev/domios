@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use std::path::Path;
 
 use crate::agent::reports::{ReportDetails, ReportStatus};
@@ -13,6 +12,10 @@ use crate::service::plan_batch_authority::{
 };
 use crate::service::ServiceContext;
 use codeterm_types::agent::ReportOutcomeClass;
+
+const SHARED_REPORT_NEXT_STEP: &str = "commit only your declared paths as one \
+     ordinary commit on the current shared checkout HEAD and report again with that literal \
+     SHA; if the work cannot land on the shared HEAD, ask the Orchestrator for a lane.";
 
 #[derive(Debug)]
 pub(super) struct ReportPersistenceFailure {
@@ -68,6 +71,10 @@ fn plan_failure(
         crate::service::plan::PlanError::ReviewEvidenceRequired => ReportPersistenceFailure {
             cause: crate::service::plan::PlanError::ReviewEvidenceRequired.to_string(),
             report_outcome: ReportOutcomeClass::MissingReviewEvidence,
+        },
+        crate::service::plan::PlanError::SharedReportRejected(cause) => ReportPersistenceFailure {
+            cause: format!("{cause}\nWorker next step: {SHARED_REPORT_NEXT_STEP}"),
+            report_outcome: ReportOutcomeClass::TransitionRejected,
         },
         other => incident_failure(tab_id, plan_id, task_id, &other.to_string()),
     }
@@ -248,6 +255,13 @@ pub(super) fn rejected_report_delivery_message(
              Required evidence: {cause}\n\n{message}"
         );
     }
+    if outcome == ReportOutcomeClass::TransitionRejected {
+        return format!(
+            "REPORT RECEIVED — TASK TRANSITION REJECTED\n\
+             The report was not persisted and the task is not in review; do not accept or bounce it. The Worker corrects and reports again.\n\
+             Cause: {cause}\n\n{message}"
+        );
+    }
     format!(
         "REPORT RECEIVED — TASK TRANSITION REJECTED\n\
          The report itself was delivered and must not be resent.\n\
@@ -268,10 +282,12 @@ pub(super) fn persist_local_task_report(
     milestone_kind: Option<&str>,
     now_ms: u64,
 ) -> Result<(), ReportPersistenceFailure> {
-    let binding = store.task_binding_for_tab(tab_id);
+    let binding = store
+        .assigned_task_binding_projection(tab_id)
+        .map_err(|error| plan_failure(tab_id, plan_id, task_id, error))?;
     if binding
         .as_ref()
-        .is_some_and(|(bound_plan, bound_task)| bound_plan == plan_id && bound_task == task_id)
+        .is_some_and(|binding| binding.plan_id == plan_id && binding.task_id == task_id)
     {
         return persist_bound_report(
             store, tab_id, plan_id, task_id, from, message, details, now_ms,
@@ -303,11 +319,6 @@ fn persist_bound_report(
     details: &ReportDetails,
     now_ms: u64,
 ) -> Result<(), ReportPersistenceFailure> {
-    let before: HashSet<String> = store
-        .get(plan_id)
-        .and_then(|plan| plan.tasks.into_iter().find(|task| task.id == task_id))
-        .map(|task| task.milestones.into_iter().map(|item| item.id).collect())
-        .unwrap_or_default();
     let evidence = BoundWorkerReport {
         message: message.to_string(),
         status: details.status,
@@ -321,30 +332,17 @@ fn persist_bound_report(
             report_authority(details, tab_id, plan_id, task_id).map_err(stale_failure)?,
         ),
     };
-    store
+    let receipt = store
         .ingest_bound_worker_report(plan_id, task_id, from, evidence, now_ms)
         .map_err(|error| plan_failure(tab_id, plan_id, task_id, error))?;
-
-    let milestone_id = store
-        .get(plan_id)
-        .and_then(|plan| plan.tasks.into_iter().find(|task| task.id == task_id))
-        .and_then(|task| {
-            task.milestones.into_iter().find(|item| {
-                !before.contains(&item.id)
-                    && item.kind == "worker_report"
-                    && item.from.tab_id.as_deref() == Some(tab_id)
-                    && item.text.contains(message)
-            })
-        })
-        .map(|item| item.id)
-        .ok_or_else(|| {
-            incident_failure(
-                tab_id,
-                plan_id,
-                task_id,
-                "the plan write produced no matching worker_report milestone",
-            )
-        })?;
+    let milestone_id = receipt.milestone_id.ok_or_else(|| {
+        incident_failure(
+            tab_id,
+            plan_id,
+            task_id,
+            "the plan write produced no matching worker_report milestone",
+        )
+    })?;
     attach_files(
         store,
         plan_id,
@@ -442,509 +440,5 @@ fn attach_files(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::multiplexer::state::MultiplexerState;
-    use crate::plan::{OrchestratorRef, Plan};
-    use crate::service::plan::NewTask;
-    use crate::service::test_fixture::ServiceFixture;
-
-    #[test]
-    fn missing_report_identity_resolves_only_from_exact_live_tab_binding() {
-        let details = ReportDetails {
-            caller_tab_id: Some("worker".into()),
-            ..Default::default()
-        };
-        assert_eq!(
-            resolve_missing_report_identity(
-                &details,
-                "worker",
-                Some("live-session"),
-                Some("live-nonce"),
-                Some("live-nonce"),
-            ),
-            Some(("live-session".into(), "live-nonce".into()))
-        );
-        assert!(resolve_missing_report_identity(
-            &details,
-            "other-tab",
-            Some("live-session"),
-            Some("live-nonce"),
-            Some("live-nonce"),
-        )
-        .is_none());
-        assert!(resolve_missing_report_identity(
-            &details,
-            "worker",
-            Some("live-session"),
-            Some("live-nonce"),
-            Some("unreported-nonce"),
-        )
-        .is_none());
-        let stale_claim = ReportDetails {
-            session_binding_nonce: Some("stale-nonce".into()),
-            ..details
-        };
-        assert!(resolve_missing_report_identity(
-            &stale_claim,
-            "worker",
-            Some("live-session"),
-            Some("live-nonce"),
-            Some("live-nonce"),
-        )
-        .is_none());
-    }
-
-    #[test]
-    fn missing_review_evidence_has_its_own_report_outcome() {
-        let failure = plan_failure(
-            "worker",
-            "plan",
-            "task",
-            crate::service::plan::PlanError::ReviewEvidenceRequired,
-        );
-
-        assert_eq!(
-            failure.report_outcome,
-            ReportOutcomeClass::MissingReviewEvidence
-        );
-    }
-
-    fn add_task(store: &PlanStore, plan_id: &str, name: &str, now_ms: u64) -> String {
-        store
-            .add_task(
-                plan_id,
-                NewTask {
-                    name: name.into(),
-                    kind: "implement".into(),
-                    acceptance_criteria: vec!["report persists".into()],
-                    test_plan: Some("focused regression".into()),
-                    ..Default::default()
-                },
-                now_ms,
-            )
-            .unwrap()
-    }
-
-    #[test]
-    fn late_bound_no_id_report_persists_exact_task_milestone() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = PlanStore::new_for_test(dir.path());
-        let mut plan = Plan::new(
-            "late binding".into(),
-            dir.path().display().to_string(),
-            OrchestratorRef::from_tab("orch"),
-        );
-        store.save(&mut plan, 1).unwrap();
-        let task_id = add_task(&store, &plan.id, "fresh dispatch", 2);
-        assert_eq!(store.task_binding_for_tab("worker"), None);
-        store
-            .assign_task(&plan.id, &task_id, "worker", None, 3)
-            .unwrap();
-        store
-            .update_attempt_executor_identity(
-                &plan.id,
-                &task_id,
-                "worker",
-                None,
-                Some("worker-session"),
-                Some("worker-nonce"),
-                4,
-            )
-            .unwrap();
-        // A bound report carries the caller's own authoritative identity; the
-        // refusal below is the product incident, not a default to fill in.
-        let details = ReportDetails {
-            caller_tab_id: Some("worker".into()),
-            caller_session_id: Some("worker-session".into()),
-            session_binding_nonce: Some("worker-nonce".into()),
-            owner_epoch: Some(0),
-            ..Default::default()
-        };
-
-        persist_local_task_report(
-            &store,
-            "worker",
-            &plan.id,
-            &task_id,
-            &AgentRef::from_tab("worker"),
-            "LATE_BIND_MARKER",
-            &details,
-            None,
-            None,
-            5,
-        )
-        .unwrap();
-
-        let saved = store.get(&plan.id).unwrap();
-        let task = saved.tasks.iter().find(|task| task.id == task_id).unwrap();
-        assert_eq!(task.milestones.len(), 1);
-        assert_eq!(task.milestones[0].kind, "worker_report");
-        assert_eq!(task.milestones[0].text, "LATE_BIND_MARKER");
-        assert_eq!(task.milestones[0].from.tab_id.as_deref(), Some("worker"));
-    }
-
-    #[test]
-    fn explicit_target_wins_over_discovered_binding() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = PlanStore::new_for_test(dir.path());
-        let mut bound_plan = Plan::new(
-            "bound".into(),
-            dir.path().display().to_string(),
-            OrchestratorRef::from_tab("orch-a"),
-        );
-        store.save(&mut bound_plan, 1).unwrap();
-        let bound_task = add_task(&store, &bound_plan.id, "bound task", 2);
-        store
-            .assign_task(&bound_plan.id, &bound_task, "worker", None, 3)
-            .unwrap();
-
-        let mut explicit_plan = Plan::new(
-            "explicit".into(),
-            dir.path().display().to_string(),
-            OrchestratorRef::from_tab("orch-b"),
-        );
-        store.save(&mut explicit_plan, 4).unwrap();
-        let explicit_task = add_task(&store, &explicit_plan.id, "explicit task", 5);
-
-        persist_local_task_report(
-            &store,
-            "worker",
-            &explicit_plan.id,
-            &explicit_task,
-            &AgentRef::from_tab("worker"),
-            "EXPLICIT_MARKER",
-            &ReportDetails::default(),
-            None,
-            None,
-            6,
-        )
-        .unwrap();
-
-        let bound = store.get(&bound_plan.id).unwrap();
-        assert!(bound.tasks[0].milestones.is_empty());
-        let explicit = store.get(&explicit_plan.id).unwrap();
-        assert_eq!(explicit.tasks[0].milestones[0].text, "EXPLICIT_MARKER");
-    }
-
-    #[test]
-    fn blocked_explicit_report_persists_as_proposal_without_task_transition() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = PlanStore::new_for_test(dir.path());
-        let mut plan = Plan::new(
-            "explicit blocked report".into(),
-            dir.path().display().to_string(),
-            OrchestratorRef::from_tab("orch"),
-        );
-        store.save(&mut plan, 1).unwrap();
-        let task_id = add_task(&store, &plan.id, "blocked task", 2);
-        let reason = "explicit worker report reason";
-        store
-            .with_plan(&plan.id, 3, |plan| {
-                plan.tasks[0].status = TaskStatus::InProgress;
-                Ok(())
-            })
-            .unwrap();
-        let details = ReportDetails {
-            status: Some(ReportStatus::Blocked),
-            ..Default::default()
-        };
-
-        persist_local_task_report(
-            &store,
-            "worker",
-            &plan.id,
-            &task_id,
-            &AgentRef::from_tab("worker"),
-            reason,
-            &details,
-            Some("blocked"),
-            Some("worker_report"),
-            4,
-        )
-        .unwrap();
-
-        let task = store.get(&plan.id).unwrap().tasks.remove(0);
-        assert_eq!(task.status, TaskStatus::InProgress);
-        assert_eq!(task.milestones.len(), 1);
-        assert!(task.milestones[0].text.starts_with("BLOCK PROPOSAL: "));
-        assert!(task.milestones[0].text.contains(reason));
-    }
-
-    #[test]
-    fn blocked_explicit_report_on_in_review_task_is_kept_as_a_milestone() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = PlanStore::new_for_test(dir.path());
-        let mut plan = Plan::new(
-            "explicit blocked review note".into(),
-            dir.path().display().to_string(),
-            OrchestratorRef::from_tab("orch"),
-        );
-        store.save(&mut plan, 1).unwrap();
-        let task_id = add_task(&store, &plan.id, "reviewed task", 2);
-        store
-            .with_plan(&plan.id, 3, |plan| {
-                let task = plan
-                    .tasks
-                    .iter_mut()
-                    .find(|task| task.id == task_id)
-                    .unwrap();
-                task.status = TaskStatus::InReview;
-                Ok(())
-            })
-            .unwrap();
-
-        let details = ReportDetails {
-            status: Some(ReportStatus::Blocked),
-            ..Default::default()
-        };
-        persist_local_task_report(
-            &store,
-            "worker",
-            &plan.id,
-            &task_id,
-            &AgentRef::from_tab("worker"),
-            "review still owns this task",
-            &details,
-            Some("blocked"),
-            Some("worker_report"),
-            4,
-        )
-        .unwrap();
-
-        let task = store.get(&plan.id).unwrap().tasks.remove(0);
-        assert_eq!(task.status, TaskStatus::InReview);
-        assert_eq!(task.milestones.len(), 1);
-        assert_eq!(
-            task.milestones[0].text,
-            "BLOCK PROPOSAL: review still owns this task"
-        );
-    }
-
-    #[test]
-    fn missing_task_persistence_is_a_loud_incident_not_parent_only_success() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = PlanStore::new_for_test(dir.path());
-        let mut plan = Plan::new(
-            "persistence guard".into(),
-            dir.path().display().to_string(),
-            OrchestratorRef::from_tab("orch"),
-        );
-        store.save(&mut plan, 1).unwrap();
-        let task_id = add_task(&store, &plan.id, "guarded task", 2);
-        store
-            .assign_task(&plan.id, &task_id, "worker", None, 3)
-            .unwrap();
-
-        let error = persist_local_task_report(
-            &store,
-            "worker",
-            &plan.id,
-            &task_id,
-            &AgentRef::from_tab("wrong-reporter"),
-            "MUST_NOT_DISAPPEAR",
-            &ReportDetails::default(),
-            None,
-            None,
-            4,
-        )
-        .unwrap_err();
-
-        assert!(error.cause.contains("ORCHESTRATION PRODUCT INCIDENT"));
-        assert!(error.cause.contains("parent delivery alone cannot prove"));
-        assert!(error.cause.contains("no task-report success was returned"));
-        assert!(store.get(&plan.id).unwrap().tasks[0].milestones.is_empty());
-    }
-
-    #[test]
-    fn spoofed_or_rebound_report_rejects_transition_without_mutating_task() {
-        let (mux, _) = MultiplexerState::new();
-        let fixture = ServiceFixture::new(mux);
-        let workspace = fixture
-            .service
-            .mux
-            .write()
-            .create_workspace("reports".into(), None)
-            .id;
-        let tab_id = fixture.service.mux.write().create_tab(&workspace).unwrap();
-        {
-            let mut mux = fixture.service.mux.write();
-            let tab = mux.get_tab_mut(&tab_id).unwrap();
-            tab.agent_session_id = Some("new-session".into());
-            tab.session_binding_nonce = Some("new-nonce".into());
-            tab.reported_session_binding_nonce = Some("new-nonce".into());
-        }
-        let mut plan = Plan::new(
-            "reports".into(),
-            fixture.temp.path().display().to_string(),
-            OrchestratorRef::from_tab("orch"),
-        );
-        fixture.service.plan_store.save(&mut plan, 1).unwrap();
-        let task_id = add_task(&fixture.service.plan_store, &plan.id, "report", 2);
-        let details = ReportDetails {
-            caller_tab_id: Some(tab_id.clone()),
-            caller_session_id: Some("old-session".into()),
-            session_binding_nonce: Some("old-nonce".into()),
-            owner_epoch: Some(1),
-            ..Default::default()
-        };
-        let error = persist_authorized_local_task_report(
-            &fixture.service,
-            &tab_id,
-            &plan.id,
-            &task_id,
-            &AgentRef::from_tab(&tab_id),
-            "must still deliver outside this persistence seam",
-            &details,
-            None,
-            None,
-            3,
-        )
-        .unwrap_err();
-        assert!(error.cause.contains("stale, spoofed, or rebound"));
-        assert!(fixture
-            .service
-            .plan_store
-            .show_task(&task_id)
-            .unwrap()
-            .task
-            .milestones
-            .is_empty());
-    }
-
-    #[test]
-    fn verified_nonce_resolves_missing_report_session_id() {
-        let (mux, _) = MultiplexerState::new();
-        let fixture = ServiceFixture::new(mux);
-        let workspace = fixture
-            .service
-            .mux
-            .write()
-            .create_workspace("reports".into(), None)
-            .id;
-        let tab_id = fixture.service.mux.write().create_tab(&workspace).unwrap();
-        {
-            let mut mux = fixture.service.mux.write();
-            let tab = mux.get_tab_mut(&tab_id).unwrap();
-            tab.agent_session_id = Some("live-session".into());
-            tab.session_binding_nonce = Some("live-nonce".into());
-            tab.reported_session_binding_nonce = Some("live-nonce".into());
-        }
-        let mut plan = Plan::new(
-            "reports".into(),
-            fixture.temp.path().display().to_string(),
-            OrchestratorRef::from_tab("orch"),
-        );
-        fixture.service.plan_store.save(&mut plan, 1).unwrap();
-        let task_id = add_task(&fixture.service.plan_store, &plan.id, "report", 2);
-        fixture
-            .service
-            .plan_store
-            .assign_task(&plan.id, &task_id, &tab_id, None, 3)
-            .unwrap();
-        fixture
-            .service
-            .plan_store
-            .update_attempt_executor_identity(
-                &plan.id,
-                &task_id,
-                &tab_id,
-                None,
-                Some("live-session"),
-                Some("live-nonce"),
-                4,
-            )
-            .unwrap();
-        let details = ReportDetails {
-            caller_tab_id: Some(tab_id.clone()),
-            caller_session_id: None,
-            session_binding_nonce: Some("live-nonce".into()),
-            owner_epoch: Some(0),
-            ..Default::default()
-        };
-        persist_authorized_local_task_report(
-            &fixture.service,
-            &tab_id,
-            &plan.id,
-            &task_id,
-            &AgentRef::from_tab(&tab_id),
-            "report persisted",
-            &details,
-            None,
-            None,
-            5,
-        )
-        .unwrap();
-        assert_eq!(
-            fixture.service.plan_store.get(&plan.id).unwrap().tasks[0].milestones[0].text,
-            "report persisted"
-        );
-    }
-
-    #[test]
-    fn current_tab_binding_resolves_missing_report_identity_before_persistence() {
-        let (mux, _) = MultiplexerState::new();
-        let fixture = ServiceFixture::new(mux);
-        let workspace = fixture
-            .service
-            .mux
-            .write()
-            .create_workspace("reports".into(), None)
-            .id;
-        let tab_id = fixture.service.mux.write().create_tab(&workspace).unwrap();
-        {
-            let mut mux = fixture.service.mux.write();
-            let tab = mux.get_tab_mut(&tab_id).unwrap();
-            tab.agent_session_id = Some("live-session".into());
-            tab.session_binding_nonce = Some("live-nonce".into());
-            tab.reported_session_binding_nonce = Some("live-nonce".into());
-        }
-        let mut plan = Plan::new(
-            "reports".into(),
-            fixture.temp.path().display().to_string(),
-            OrchestratorRef::from_tab("orch"),
-        );
-        fixture.service.plan_store.save(&mut plan, 1).unwrap();
-        let task_id = add_task(&fixture.service.plan_store, &plan.id, "report", 2);
-        fixture
-            .service
-            .plan_store
-            .assign_task(&plan.id, &task_id, &tab_id, None, 3)
-            .unwrap();
-        fixture
-            .service
-            .plan_store
-            .update_attempt_executor_identity(
-                &plan.id,
-                &task_id,
-                &tab_id,
-                None,
-                Some("live-session"),
-                Some("live-nonce"),
-                4,
-            )
-            .unwrap();
-        let details = ReportDetails {
-            caller_tab_id: Some(tab_id.clone()),
-            owner_epoch: Some(0),
-            ..Default::default()
-        };
-        persist_authorized_local_task_report(
-            &fixture.service,
-            &tab_id,
-            &plan.id,
-            &task_id,
-            &AgentRef::from_tab(&tab_id),
-            "report persisted from current tab binding",
-            &details,
-            None,
-            None,
-            5,
-        )
-        .unwrap();
-        assert_eq!(
-            fixture.service.plan_store.get(&plan.id).unwrap().tasks[0].milestones[0].text,
-            "report persisted from current tab binding"
-        );
-    }
-}
+#[path = "report_persistence/tests.rs"]
+mod tests;

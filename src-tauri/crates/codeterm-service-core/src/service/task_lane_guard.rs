@@ -6,7 +6,10 @@
 use super::orchestrator::SpawnAgentParams;
 use super::worker_lane::{same_path, verify_worker_lane, LaneProtection};
 use super::ServiceContext;
-use crate::plan::{ExecutionIntent, Plan, Task};
+#[cfg(any(test, feature = "test-support"))]
+use crate::plan::Task;
+use crate::plan::{ExecutionIntent, Plan};
+use crate::service::plan::TaskLaneAdmissionRead;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum UnsafeMutatingLane {
@@ -26,37 +29,50 @@ fn same_checkout(a: &str, b: &str) -> bool {
     codeterm_paths::normalize_cwd(a) == codeterm_paths::normalize_cwd(b)
 }
 
-fn foreign_lane_owner<'a>(plan: &'a Plan, task_id: &str, worktree: &str) -> Option<&'a str> {
+fn foreign_lane_facts<'a>(
+    plan: &'a Plan,
+    task_id: &'a str,
+) -> impl Iterator<Item = (&'a str, &'a str)> {
     plan.tasks
         .iter()
-        .filter(|task| task.id != task_id && task.handle.as_deref() != Some(task_id))
-        .find(|task| {
+        .filter(move |task| task.id != task_id && task.handle.as_deref() != Some(task_id))
+        .filter_map(|task| {
             task.lane
                 .worktree_path
                 .as_deref()
-                .is_some_and(|recorded| same_checkout(recorded, worktree))
+                .map(|path| (task.id.as_str(), path))
         })
-        .map(|task| task.id.as_str())
 }
 
-/// `None` means the checkout is this task's own isolated lane.
+pub fn classify_lane_facts<'a>(
+    canonical: &str,
+    resolved_worktree: &str,
+    lanes: impl Iterator<Item = (&'a str, &'a str)>,
+) -> Option<UnsafeMutatingLane> {
+    if same_checkout(resolved_worktree, canonical) {
+        return Some(UnsafeMutatingLane::Canonical {
+            canonical: canonical.into(),
+        });
+    }
+    lanes
+        .into_iter()
+        .find(|(_, path)| same_checkout(path, resolved_worktree))
+        .map(|(owner, _)| UnsafeMutatingLane::ForeignLane {
+            worktree: resolved_worktree.into(),
+            owner: owner.into(),
+        })
+}
+
 pub fn classify_mutating_lane(
     plan: &Plan,
     task_id: &str,
     resolved_worktree: &str,
 ) -> Option<UnsafeMutatingLane> {
-    let canonical = canonical_path_of(plan);
-    if same_checkout(resolved_worktree, canonical) {
-        return Some(UnsafeMutatingLane::Canonical {
-            canonical: canonical.to_string(),
-        });
-    }
-    foreign_lane_owner(plan, task_id, resolved_worktree).map(|owner| {
-        UnsafeMutatingLane::ForeignLane {
-            worktree: resolved_worktree.to_string(),
-            owner: owner.to_string(),
-        }
-    })
+    classify_lane_facts(
+        canonical_path_of(plan),
+        resolved_worktree,
+        foreign_lane_facts(plan, task_id),
+    )
 }
 
 /// `(task_id, attempt_id)` of a live attempt holding canonical against integration.
@@ -121,29 +137,41 @@ fn canonical_dispatch_remedy(plan_id: &str, task_id: &str, selected_kind: Option
 
 /// Hard stop for a task-bound mutating spawn, decided from values alone so the
 /// same verdict is reachable without a live service.
+#[cfg(any(test, feature = "test-support"))]
 pub fn refuse_unsafe_task_bound_mutating_lane(
     plan: &Plan,
     task: &Task,
     intent: Option<&ExecutionIntent>,
     spawn_cwd: Option<&str>,
 ) -> Result<(), String> {
-    refuse_unsafe_task_bound_mutating_lane_with_kind(plan, task, intent, spawn_cwd, None)
+    let input = TaskLaneAdmissionRead {
+        plan_id: plan.id.clone(),
+        task_id: task.id.clone(),
+        execution_intent: task.execution_intent,
+        canonical_path: canonical_path_of(plan).into(),
+        foreign_lanes: foreign_lane_facts(plan, &task.id)
+            .map(|(id, path)| crate::service::plan::TaskLaneOwnerRead {
+                task_id: id.into(),
+                worktree_path: path.into(),
+            })
+            .collect(),
+    };
+    refuse_unsafe_task_bound_mutating_lane_with_kind(&input, intent, spawn_cwd, None)
 }
 
 fn refuse_unsafe_task_bound_mutating_lane_with_kind(
-    plan: &Plan,
-    task: &Task,
+    input: &TaskLaneAdmissionRead,
     intent: Option<&ExecutionIntent>,
     spawn_cwd: Option<&str>,
     selected_kind: Option<&str>,
 ) -> Result<(), String> {
     // Read-only verification keeps its existing contract: it owns no lane and
     // is the one shape allowed to run in the canonical checkout.
-    if intent != Some(&ExecutionIntent::Mutating) || !task.execution_intent.requires_repository() {
+    if intent != Some(&ExecutionIntent::Mutating) || !input.execution_intent.requires_repository() {
         return Ok(());
     }
-    let remedy = dispatch_remedy(&plan.id, &task.id);
-    let task_id = task.id.as_str();
+    let remedy = dispatch_remedy(&input.plan_id, &input.task_id);
+    let task_id = input.task_id.as_str();
     let Some(cwd) = spawn_cwd.map(str::trim).filter(|cwd| !cwd.is_empty()) else {
         return Err(format!(
             "spawn refused: a mutating Worker for task '{task_id}' named no checkout, so it \
@@ -158,12 +186,19 @@ fn refuse_unsafe_task_bound_mutating_lane_with_kind(
                  created. {remedy}"
             )
         })?;
-    match classify_mutating_lane(plan, task_id, &provenance.worktree_path) {
+    match classify_lane_facts(
+        &input.canonical_path,
+        &provenance.worktree_path,
+        input
+            .foreign_lanes
+            .iter()
+            .map(|lane| (lane.task_id.as_str(), lane.worktree_path.as_str())),
+    ) {
         None => Ok(()),
         Some(UnsafeMutatingLane::Canonical { canonical }) => Err(format!(
             "spawn refused: a mutating Worker for task '{task_id}' would write in the \
              canonical checkout '{canonical}'. No tab was created. {}",
-            canonical_dispatch_remedy(&plan.id, task_id, selected_kind)
+            canonical_dispatch_remedy(&input.plan_id, task_id, selected_kind)
         )),
         Some(UnsafeMutatingLane::ForeignLane { worktree, owner }) => Err(format!(
             "spawn refused: a mutating Worker for task '{task_id}' would write in \
@@ -186,18 +221,12 @@ impl ServiceContext {
         let resolved = store
             .resolve_task_ref(params.plan_id.as_deref(), task_ref)
             .map_err(|error| error.to_string())?;
-        let plan = store
-            .get(&resolved.plan_id)
-            .ok_or_else(|| "plan not found".to_string())?;
-        let task = plan
-            .tasks
-            .iter()
-            .find(|task| task.id == resolved.task_id)
-            .ok_or_else(|| "task not found".to_string())?;
+        let input = store
+            .task_lane_admission_projection(&resolved.plan_id, &resolved.task_id)
+            .map_err(|error| error.to_string())?;
         let cwd = self.task_bound_spawn_cwd(params);
         refuse_unsafe_task_bound_mutating_lane_with_kind(
-            &plan,
-            task,
+            &input,
             params.execution_intent.as_ref(),
             cwd.as_deref(),
             params.role_profile.as_deref(),

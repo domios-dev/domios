@@ -534,7 +534,7 @@ test("fresh unbound PTY launch failure exposes recovery", async () => {
   await act(async () => root.unmount());
 });
 
-test("a failed boot exposes recovery even when a saved transcript attaches", async () => {
+test("a failed relaunch of a bound session keeps its transcript and composer", async () => {
   const tabId = "attached-stale-failure";
   const state = muxStateFor({
     [tabId]: tabBase(tabId, {
@@ -545,8 +545,9 @@ test("a failed boot exposes recovery even when a saved transcript attaches", asy
     }),
   });
   const { host, root } = await renderTabSessionChat(tabId, state);
-  assert(!host.querySelector('textarea, [role="textbox"]'), "failed launch hides the composer even with an attached transcript");
-  assert(host.querySelector('[data-testid="chat-launch-failed"]'), "saved transcript does not hide failed startup");
+  assert(host.querySelector('[role="log"][aria-label="Conversation"]'), "the conversation stays mounted");
+  assert(host.querySelector('textarea, [role="textbox"]'), "the composer and its draft stay available");
+  assert(!host.querySelector('[data-testid="chat-launch-failed"]'), "the failure never replaces the body");
   await act(async () => root.unmount());
 });
 
@@ -623,7 +624,7 @@ test("launch failure uses the shared failure surface without an automatic retry"
   const tabId = "generic-retry-tab";
   const state = muxStateFor({
     [tabId]: tabBase(tabId, {
-      agent_session_id: "bound-session",
+      backing: { kind: "pty" },
       boot_stage: "spawn_failed",
       boot_failure_reason: "launch failed",
       protected: true,

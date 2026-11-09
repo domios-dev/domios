@@ -1,7 +1,7 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ComponentType, type KeyboardEvent, type ReactNode } from "react";
+import { Fragment, useEffect, useLayoutEffect, useRef, useState, type ComponentType, type KeyboardEvent, type ReactNode } from "react";
 import { Trash2, Check, Copy, Hash, ListChecks, MessageSquarePlus, GitBranch, RotateCcw, ArrowBigUp, MousePointer2 } from "lucide-react";
 import { messageClipboard, messageMarkdownClipboard, sourceDiffersFromVisible, type ClipMessage } from "@codeterm/chat-core";
-import { writeClipboardFlavours } from "@codeterm/chat-ui";
+import { mergeMessageMenu, messageMenuGroup, writeClipboardFlavours, type ChatCardMenuItem } from "@codeterm/chat-ui";
 import { createPortal } from "react-dom";
 import { AnchoredPopover } from "../shared/AnchoredPopover";
 import { useMessageHoverBridge, useMessageHoverIntent } from "./useMessageHoverBridge";
@@ -18,9 +18,30 @@ export interface MessageMenuActions {
   revert?: () => void;
 }
 
-function MenuItem({ label, icon: Icon, hint, done, onSelect }: {
+const MENU_ICON = 14;
+const icon = (Icon: ComponentType<{ size?: number; "aria-hidden"?: boolean }>) => <Icon size={MENU_ICON} aria-hidden />;
+
+const SELECT_HINT = <span className="inline-flex items-center gap-1"><kbd className="inline-flex items-center rounded border px-1 py-0.5" style={{ borderColor: "var(--ct-border)" }}><ArrowBigUp size={12} /></kbd><span>+</span><MousePointer2 size={13} /></span>;
+
+/** The message's own actions, as the shared menu model; a card's items merge into them (see `mergeMessageMenu`). */
+export function messageMenuItems(clip: ClipMessage, actions: MessageMenuActions, { touch = false }: { touch?: boolean } = {}): ChatCardMenuItem[] {
+  const items: ChatCardMenuItem[] = [
+    { label: "Copy", kind: "copy", icon: icon(Copy), onSelect: () => writeClipboardFlavours(messageClipboard(clip)) },
+  ];
+  if (sourceDiffersFromVisible(clip)) items.push({ label: "Copy as Markdown", kind: "copy-markdown", icon: icon(Hash), onSelect: () => writeClipboardFlavours(messageMarkdownClipboard(clip)) });
+  items.push(
+    { label: "Ask about this", kind: "ask", icon: icon(MessageSquarePlus), onSelect: () => actions.quote(clip) },
+    { label: "Select", kind: "select", icon: icon(ListChecks), hint: touch ? undefined : SELECT_HINT, onSelect: () => actions.select() },
+  );
+  if (actions.fork) items.push({ label: "Fork from here", kind: "fork", icon: icon(GitBranch), onSelect: actions.fork });
+  if (actions.revert) items.push({ label: "Revert to here", kind: "revert", icon: icon(RotateCcw), onSelect: actions.revert });
+  if (actions.delete) items.push({ label: "Delete", kind: "delete", icon: icon(Trash2), hint: "Delete", onSelect: actions.delete });
+  return items;
+}
+
+function MenuItem({ label, icon, hint, done, onSelect }: {
   label: string;
-  icon: ComponentType<{ size?: number; "aria-hidden"?: boolean }>;
+  icon: ReactNode;
   hint?: ReactNode;
   done?: boolean;
   onSelect: () => void;
@@ -35,7 +56,7 @@ function MenuItem({ label, icon: Icon, hint, done, onSelect }: {
       data-done={done || undefined}
       onClick={(event) => { event.stopPropagation(); onSelect(); }}
     >
-      <span className="ct-menu-row__icon"><Icon size={14} aria-hidden /></span>
+      <span className="ct-menu-row__icon">{icon}</span>
       <span className="min-w-0 flex-1 truncate">{label}</span>
       {hint && <span aria-hidden className="ct-menu-row__shortcut">{hint}</span>}
     </button>
@@ -43,7 +64,9 @@ function MenuItem({ label, icon: Icon, hint, done, onSelect }: {
 }
 
 /** The quiet gutter dot of one message and the small menu it opens on hover, focus, click or Enter. */
-export function MessageActionsDot({ metadata, clip, touch = false, whole = false, hasParts = false, onScopeChange, side, open, onOpenChange, actions, hint, onHintEnd }: {
+export function MessageActionsDot({ metadata, clip, touch = false, whole = false, hasParts = false, onScopeChange, side, open, onOpenChange, actions, cardItems, hint, onHintEnd }: {
+  /** The items of the card that speaks for this row, merged into the message's own. */
+  cardItems?: () => readonly ChatCardMenuItem[];
   metadata?: { time: string; date: string; shortDate: string; dateTime: string; sender?: string; deliveryState?: string };
   touch?: boolean;
   whole?: boolean;
@@ -114,9 +137,19 @@ export function MessageActionsDot({ metadata, clip, touch = false, whole = false
     return () => { document.removeEventListener("mousedown", onPress); document.removeEventListener("pointerdown", onPress); document.removeEventListener("keydown", onKey); };
   });
 
-  const copy = (kind: "copy" | "markdown") => {
-    writeClipboardFlavours(kind === "copy" ? messageClipboard(clip) : messageMarkdownClipboard(clip));
-    setCopied(kind);
+  const own = messageMenuItems(clip, actions, { touch });
+  const entries = mergeMessageMenu(own, open ? cardItems?.() ?? [] : []);
+  // Copying keeps the menu open to say so; anything else closes it first, and a card's action (Open full screen)
+  // starts from the refocused dot so focus has somewhere to come back to.
+  const choose = (item: ChatCardMenuItem) => {
+    if (item.kind === "copy" || item.kind === "copy-markdown") {
+      item.onSelect();
+      setCopied(item.kind === "copy" ? "copy" : "markdown");
+      return;
+    }
+    const fromCard = !own.includes(item);
+    hide(fromCard);
+    item.onSelect();
   };
 
   const onDotKey = (event: KeyboardEvent<HTMLButtonElement>) => {
@@ -159,15 +192,15 @@ export function MessageActionsDot({ metadata, clip, touch = false, whole = false
               <button type="button" role="menuitemradio" tabIndex={-1} aria-checked={!whole} onClick={() => { setCopied(null); onScopeChange?.(false); }}>This part</button>
               <button type="button" role="menuitemradio" tabIndex={-1} aria-checked={whole} onClick={() => { setCopied(null); onScopeChange?.(true); }}>Whole message</button>
             </div>}
-            <MenuItem label={copied === "copy" ? "Copied" : "Copy"} icon={copied === "copy" ? Check : Copy} done={copied === "copy"} onSelect={() => copy("copy")} />
-            {sourceDiffersFromVisible(clip) && <MenuItem label={copied === "markdown" ? "Copied as Markdown" : "Copy as Markdown"} icon={copied === "markdown" ? Check : Hash} done={copied === "markdown"} onSelect={() => copy("markdown")} />}
-            <div role="separator" className="ct-menu-separator" />
-            <MenuItem label="Ask about this" icon={MessageSquarePlus} onSelect={() => { hide(); actions.quote(clip); }} />
-            <div role="separator" className="ct-menu-separator" />
-            <MenuItem label="Select" icon={ListChecks} hint={touch ? undefined : <span className="inline-flex items-center gap-1"><kbd className="inline-flex items-center rounded border px-1 py-0.5" style={{ borderColor: "var(--ct-border)" }}><ArrowBigUp size={12} /></kbd><span>+</span><MousePointer2 size={13} /></span>} onSelect={() => { hide(); actions.select(); }} />
-            {actions.fork && <MenuItem label="Fork from here" icon={GitBranch} onSelect={() => { hide(); actions.fork?.(); }} />}
-            {actions.revert && <MenuItem label="Revert to here" icon={RotateCcw} onSelect={() => { hide(); actions.revert?.(); }} />}
-            {actions.delete && <MenuItem label="Delete" icon={Trash2} hint="Delete" onSelect={() => { hide(); actions.delete?.(); }} />}
+            {entries.map((item, index) => {
+              const done = (item.kind === "copy" && copied === "copy") || (item.kind === "copy-markdown" && copied === "markdown");
+              const label = done ? (item.kind === "copy" ? "Copied" : "Copied as Markdown") : item.label;
+              const separated = index > 0 && messageMenuGroup(entries[index - 1]) !== messageMenuGroup(item);
+              return <Fragment key={`${item.kind ?? "card"}:${item.label}`}>
+                {separated && <div role="separator" className="ct-menu-separator" />}
+                <MenuItem label={label} icon={done ? icon(Check) : item.icon} hint={item.hint} done={done} onSelect={() => choose(item)} />
+              </Fragment>;
+            })}
             {touch && <button type="button" role="menuitem" className="ct-menu-row" onClick={() => hide(true)}>Close actions</button>}
           </div>
   );

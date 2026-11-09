@@ -1,0 +1,14 @@
+{
+  "name": "@codeterm/provider-acp",
+  "version": "0.1.6",
+  "private": true,
+  "type": "module",
+  "license": "Apache-2.0",
+  "main": "src/plugin.ts",
+  "devDependencies": {
+    "@codeterm/plugin-sdk": "workspace:*"
+  },
+  "scripts": {
+    "test": "node ../../scripts/run-plugin-tests.mjs provider-acp"
+  }
+}

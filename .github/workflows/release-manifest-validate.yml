@@ -26,12 +26,16 @@ jobs:
     name: publish and verify all platform manifests
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && ((github.event_name == 'push' && github.ref == 'refs/heads/master') || ((startsWith(github.ref, 'refs/heads/release/') || startsWith(github.head_ref, 'release/')) && (github.event_name == 'push' || github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch')) || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.path == '.github/workflows/tests.yml' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.actor.login == 'rollacode' && github.event.workflow_run.triggering_actor.login == 'rollacode' && startsWith(github.event.workflow_run.head_branch, 'release/'))) }}
     environment: release
+    concurrency:
+      group: codeterm-core-channel-publication
+      cancel-in-progress: false
     # Publication only talks to the GitHub API, so it runs where no machine of ours can stall it.
-    runs-on: ubuntu-24.04
+    runs-on: ${{ fromJSON(vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
     timeout-minutes: 30
     env:
-      GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
+      GH_TOKEN: ${{ github.token }}
       SOURCE_REPO: ${{ github.repository }}
+      # 1.19 transition mirror: every MIRROR_REPO step serves 1.18.x fallback clients; delete after 1.19 ships.
       MIRROR_REPO: rollacode/codeterm-releases
     steps:
 
@@ -196,6 +200,7 @@ jobs:
           gh release upload "$TAG" "$MANIFEST" "$DEB_MANIFEST" "$LEGACY" "${LEGACY%.json}-deb.json" "${LEGACY%.json}-rpm.json" \
             --repo "$SOURCE_REPO" --clobber
 
+          # 1.19 transition mirror
           if [ "$PUBLISH_MIRROR" = true ]; then
             export GH_TOKEN="$MIRROR_TOKEN"
             gh release upload "$TAG" "$MANIFEST" "$DEB_MANIFEST" "$LEGACY" "${LEGACY%.json}-deb.json" "${LEGACY%.json}-rpm.json" \
@@ -207,48 +212,58 @@ jobs:
           TAG: ${{ steps.release.outputs.tag }}
           VER: ${{ steps.release.outputs.version }}
           MANIFEST: ${{ steps.channel.outputs.manifest }}
-          MIRROR_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
-          PUBLISH_MIRROR: ${{ inputs.mirror }}
         shell: bash
         run: |
           set -euo pipefail
           directory="$RUNNER_TEMP/draft-integrity"
           rm -rf "$directory"
           mkdir -p "$directory"
-          repo="$SOURCE_REPO"
-          if [ "$PUBLISH_MIRROR" = true ]; then repo="$MIRROR_REPO"; export GH_TOKEN="$MIRROR_TOKEN"; fi
           for manifest in "$MANIFEST" domios-latest-deb.json; do
             jq -r '.platforms[].url | split("/")[-1]' "$manifest" | while IFS= read -r asset; do
-              gh release download "$TAG" --repo "$repo" --pattern "$asset" --dir "$directory" --clobber
+              gh release download "$TAG" --repo "$SOURCE_REPO" --pattern "$asset" --dir "$directory" --clobber
             done
             node scripts/verify-updater-manifest.mjs --manifest "$manifest" --local "$directory" --require-version "$VER"
           done
 
-      - name: Sync full release notes to source and public mirror
-        if: inputs.mirror
+      - name: Sync full release notes to the source release
         env:
           TAG: ${{ steps.release.outputs.tag }}
+          # 1.19 transition mirror: also sync the mirror notes; delete after 1.19 ships.
+          MIRROR_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
+          PUBLISH_MIRROR: ${{ inputs.mirror }}
         shell: bash
-        run: node scripts/sync-release-notes.mjs --tag "$TAG"
+        run: |
+          set -euo pipefail
+          args=(--tag "$TAG")
+          [ "$PUBLISH_MIRROR" != true ] || args+=(--mirror-repo "$MIRROR_REPO")
+          node scripts/sync-release-notes.mjs "${args[@]}"
 
-      - name: Mark source and public releases published
+      - name: Mark the source release published
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+          MANIFEST: ${{ steps.channel.outputs.manifest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Clients read releases/latest; only a stable release may become latest.
+          latest=--latest=false
+          [ "$MANIFEST" != domios-latest.json ] || latest=--latest
+          gh release edit "$TAG" --repo "$SOURCE_REPO" --draft=false "$latest"
+
+      - name: Mark the 1.19 transition mirror release published
         if: inputs.mirror
         env:
           TAG: ${{ steps.release.outputs.tag }}
           MANIFEST: ${{ steps.channel.outputs.manifest }}
-          MIRROR_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
+          GH_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
-          # Clients read releases/latest in both repositories; only a stable release may become latest.
           latest=--latest=false
           [ "$MANIFEST" != domios-latest.json ] || latest=--latest
-          gh release edit "$TAG" --repo "$SOURCE_REPO" --draft=false "$latest"
-          export GH_TOKEN="$MIRROR_TOKEN"
           gh release edit "$TAG" --repo "$MIRROR_REPO" --draft=false "$latest"
 
-      - name: Verify published public mirror
-        if: inputs.mirror
+      - name: Verify the published source release
         env:
           TAG: ${{ steps.release.outputs.tag }}
           VER: ${{ steps.release.outputs.version }}
@@ -256,19 +271,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          node scripts/legacy-updater-refusal.mjs verify "https://github.com/$MIRROR_REPO/releases/download/$TAG/${MANIFEST#domios-}" "$VER"
+          node scripts/legacy-updater-refusal.mjs verify "https://github.com/$SOURCE_REPO/releases/download/$TAG/${MANIFEST#domios-}" "$VER"
           mkdir -p "$RUNNER_TEMP/public-mirror"
-          source_release=$(gh release view "$TAG" --repo "$SOURCE_REPO" \
-            --json isDraft,publishedAt)
-          test "$(printf '%s' "$source_release" | jq -r .isDraft)" = false
-          test "$(printf '%s' "$source_release" | jq -r .publishedAt)" != null
-          release=$(gh release view "$TAG" --repo "$MIRROR_REPO" \
+          release=$(gh release view "$TAG" --repo "$SOURCE_REPO" \
             --json isDraft,publishedAt,assets)
           test "$(printf '%s' "$release" | jq -r .isDraft)" = false
           test "$(printf '%s' "$release" | jq -r .publishedAt)" != null
           printf '%s' "$release" | jq -e --arg manifest "$MANIFEST" \
             '.assets | any(.name == $manifest)' >/dev/null
-          gh release download "$TAG" --repo "$MIRROR_REPO" \
+          gh release download "$TAG" --repo "$SOURCE_REPO" \
             --pattern "$MANIFEST" --dir "$RUNNER_TEMP/public-mirror" --clobber
           jq -e --arg ver "$VER" '
             (.version == $ver)
@@ -282,14 +293,14 @@ jobs:
           jq -r '.platforms[].url' "$RUNNER_TEMP/public-mirror/$MANIFEST" \
             | while IFS= read -r url; do
                 case "$url" in
-                  https://github.com/rollacode/codeterm-releases/releases/download/"$TAG"/*) ;;
+                  https://github.com/"$SOURCE_REPO"/releases/download/"$TAG"/*) ;;
                   *) echo "::error::non-versioned or non-public updater URL: $url"; exit 1 ;;
                 esac
                 curl --fail --silent --show-error --location --head "$url" >/dev/null
               done
           verification=0
           node scripts/verify-updater-manifest.mjs \
-            --manifest "https://github.com/rollacode/codeterm-releases/releases/download/$TAG/$MANIFEST?cb=$(date +%s)" \
+            --manifest "https://github.com/$SOURCE_REPO/releases/download/$TAG/$MANIFEST?cb=$(date +%s)" \
             --require-version "$VER" \
             --require-platform darwin-aarch64 \
             --require-platform darwin-x86_64 \
@@ -299,13 +310,12 @@ jobs:
             --require-platform linux-aarch64 \
             --evidence "$RUNNER_TEMP/manifest-verification.json" || verification=$?
           gh release upload "$TAG" "$RUNNER_TEMP/manifest-verification.json" \
-            --repo "$MIRROR_REPO" --clobber || true
+            --repo "$SOURCE_REPO" --clobber || true
           if [ "$verification" -ne 0 ]; then
             echo "::error::published manifest is not installable"; exit 1
           fi
 
       - name: Verify published Debian manifest
-        if: inputs.mirror
         env:
           TAG: ${{ steps.release.outputs.tag }}
           VER: ${{ steps.release.outputs.version }}
@@ -320,14 +330,59 @@ jobs:
             *) echo "::error::unknown channel manifest $MANIFEST"; exit 1 ;;
           esac
           node scripts/verify-updater-manifest.mjs \
-            --manifest "https://github.com/rollacode/codeterm-releases/releases/download/$TAG/$deb_manifest?cb=$(date +%s)" \
+            --manifest "https://github.com/$SOURCE_REPO/releases/download/$TAG/$deb_manifest?cb=$(date +%s)" \
             --require-version "$VER" \
             --require-platform linux-x86_64 \
             --require-platform linux-aarch64 \
             --evidence "$RUNNER_TEMP/deb-manifest-verification.json"
 
-      - name: Mint issue closure boundary
+      - name: Verify the published 1.19 transition mirror
         if: inputs.mirror
+        env:
+          GH_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
+          TAG: ${{ steps.release.outputs.tag }}
+          VER: ${{ steps.release.outputs.version }}
+          MANIFEST: ${{ steps.channel.outputs.manifest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$MANIFEST" in
+            domios-latest.json) deb_manifest=domios-latest-deb.json ;;
+            domios-latest-rc.json) deb_manifest=domios-latest-rc-deb.json ;;
+            domios-latest-nightly.json) deb_manifest=domios-latest-nightly-deb.json ;;
+            *) echo "::error::unknown channel manifest $MANIFEST"; exit 1 ;;
+          esac
+          node scripts/legacy-updater-refusal.mjs verify "https://github.com/$MIRROR_REPO/releases/download/$TAG/${MANIFEST#domios-}" "$VER"
+          test "$(gh release view "$TAG" --repo "$MIRROR_REPO" --json isDraft --jq .isDraft)" = false
+          node scripts/verify-updater-manifest.mjs \
+            --manifest "https://github.com/$MIRROR_REPO/releases/download/$TAG/$MANIFEST?cb=$(date +%s)" \
+            --require-version "$VER" \
+            --require-platform darwin-aarch64 \
+            --require-platform darwin-x86_64 \
+            --require-platform windows-x86_64 \
+            --require-platform windows-aarch64 \
+            --require-platform linux-x86_64 \
+            --require-platform linux-aarch64
+          node scripts/verify-updater-manifest.mjs \
+            --manifest "https://github.com/$MIRROR_REPO/releases/download/$TAG/$deb_manifest?cb=$(date +%s)" \
+            --require-version "$VER" \
+            --require-platform linux-x86_64 \
+            --require-platform linux-aarch64
+
+      - name: Publish the verified core channel to the source repository
+        env:
+          SOURCE_SHA: ${{ steps.release.outputs.source_sha }}
+        run: node scripts/publish-core-channel.mjs publish "$SOURCE_SHA" "$SOURCE_REPO"
+
+      # 1.19 transition mirror: 1.18.x clients read the core channel here; delete after 1.19 ships.
+      - name: Publish the verified core channel to the 1.19 transition mirror
+        if: inputs.mirror
+        env:
+          GH_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
+          SOURCE_SHA: ${{ steps.release.outputs.source_sha }}
+        run: node scripts/publish-core-channel.mjs publish "$SOURCE_SHA" "$MIRROR_REPO"
+
+      - name: Mint issue closure boundary
         env:
           TAG: ${{ steps.release.outputs.tag }}
           VER: ${{ steps.release.outputs.version }}
@@ -347,11 +402,8 @@ jobs:
             > "$RUNNER_TEMP/issue-closure-boundary.json"
           gh release upload "$TAG" "$RUNNER_TEMP/issue-closure-boundary.json" \
             --repo "$SOURCE_REPO" --clobber
-          gh release upload "$TAG" "$RUNNER_TEMP/issue-closure-boundary.json" \
-            --repo "$MIRROR_REPO" --clobber
 
       - name: Resolve included private source public issues
-        if: inputs.mirror
         env:
           VER: ${{ steps.release.outputs.version }}
           SOURCE_SHA: ${{ steps.release.outputs.source_sha }}
@@ -363,9 +415,11 @@ jobs:
           jq -r '.issues[].reference' "$RUNNER_TEMP/resolved-public-issues.json" \
             | tee -a "$GITHUB_STEP_SUMMARY"
 
+      # Public issues live in rollacode/codeterm-releases, so closing them needs its Issues write token.
       - name: Close shipped public issues
-        if: inputs.mirror && vars.RELEASE_CLOSE_PUBLIC_ISSUES != 'false'
+        if: vars.RELEASE_CLOSE_PUBLIC_ISSUES != 'false'
         env:
+          GH_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
           TAG: ${{ steps.release.outputs.tag }}
           VER: ${{ steps.release.outputs.version }}
         shell: bash

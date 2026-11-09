@@ -1,8 +1,9 @@
+import type { PlanTaskView as Task } from "../planProjection";
 import type { Box } from "../layout";
 import { boxCenter, unionBox } from "../layout/geometry";
 import type { PresenceAgent } from "../presence/identity";
 import { DEFAULT_CANVAS_SETTINGS } from "../settings";
-import type { Task, TaskStatus } from "../types";
+import type { TaskStatus } from "../types";
 
 import { CANVAS_MIN_SCALE } from "@codeterm/canvas-camera";
 

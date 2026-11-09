@@ -51,6 +51,15 @@ fn call_runtime_hook_with_clock<R: serde::de::DeserializeOwned>(
     deadline: std::time::Instant,
     now: HookClock,
 ) -> Result<R, RuntimeFailure> {
+    let credential = args
+        .first()
+        .and_then(|ctx| ctx.pointer("/hostMcp/env/CODETERM_API_TOKEN"))
+        .and_then(serde_json::Value::as_str)
+        .filter(|value| !value.is_empty());
+    let redact = |text: String| match credential {
+        Some(token) => text.replace(token, "[redacted]"),
+        None => text,
+    };
     let mut timing = timing::HookTiming::new(method);
     let _bundle_reader = vm.bundle_access.read();
     let args_json = crate::agent_runtime::serialize_runtime_value(&args, MAX_RUNTIME_VALUE_BYTES)?;
@@ -101,7 +110,7 @@ fn call_runtime_hook_with_clock<R: serde::de::DeserializeOwned>(
             let setup = |e: rquickjs::CaughtError<'_>| {
                 failure(
                     RuntimeFailureCode::HookFailed,
-                    format!("{method} setup: {}", caught_message(e)),
+                    format!("{method} setup: {}", redact(caught_message(e))),
                 )
             };
             globals
@@ -130,14 +139,22 @@ fn call_runtime_hook_with_clock<R: serde::de::DeserializeOwned>(
                             log::debug!(
                                 "[runtime-hook-refusal] method={} code={:?} message={:?}",
                                 method,
-                                object.get::<_, Option<String>>("code").ok().flatten(),
-                                object.get::<_, Option<String>>("message").ok().flatten()
+                                object
+                                    .get::<_, Option<String>>("code")
+                                    .ok()
+                                    .flatten()
+                                    .map(&redact),
+                                object
+                                    .get::<_, Option<String>>("message")
+                                    .ok()
+                                    .flatten()
+                                    .map(&redact)
                             );
                         }
                     }
                     failure(
                         RuntimeFailureCode::HookFailed,
-                        format!("{method}: {}", caught_message(e)),
+                        format!("{method}: {}", redact(caught_message(e))),
                     )
                 });
             #[cfg(test)]
@@ -178,8 +195,48 @@ fn call_runtime_hook_with_clock<R: serde::de::DeserializeOwned>(
                     format!("{method}: runtime hook output too large"),
                 ));
             }
-            serde_json::from_str(&result)
-                .map_err(|e| failure(RuntimeFailureCode::InvalidSchema, format!("{method}: {e}")))
+            if credential.is_none() {
+                return serde_json::from_str(&result).map_err(|e| {
+                    failure(RuntimeFailureCode::InvalidSchema, format!("{method}: {e}"))
+                });
+            }
+            let value: serde_json::Value = serde_json::from_str(&result).map_err(|e| {
+                failure(
+                    RuntimeFailureCode::InvalidSchema,
+                    redact(format!("{method}: {e}")),
+                )
+            })?;
+            if let Some(token) = credential {
+                let descriptor = args
+                    .first()
+                    .and_then(|ctx| ctx.get("hostMcp"))
+                    .cloned()
+                    .and_then(|value| {
+                        serde_json::from_value::<crate::agent_runtime::RuntimeHostMcp>(value).ok()
+                    })
+                    .map(|descriptor| serde_json::json!([descriptor.descriptor()]));
+                let mut protected = value.clone();
+                for path in ["/action/call/params", "/plan/action/call/params"] {
+                    if let Some(params) = protected
+                        .pointer_mut(path)
+                        .and_then(serde_json::Value::as_object_mut)
+                    {
+                        params.retain(|_, value| Some(&*value) != descriptor.as_ref());
+                    }
+                }
+                if contains_credential(&protected, token) {
+                    return Err(failure(
+                        RuntimeFailureCode::InvalidSchema,
+                        "Credential material outside host MCP descriptor",
+                    ));
+                }
+            }
+            serde_json::from_value(value).map_err(|e| {
+                failure(
+                    RuntimeFailureCode::InvalidSchema,
+                    redact(format!("{method}: {e}")),
+                )
+            })
         })
     };
     if let Err(error) = &result {
@@ -194,6 +251,19 @@ fn call_runtime_hook_with_clock<R: serde::de::DeserializeOwned>(
         *runtime_inner = None;
     }
     result
+}
+
+fn contains_credential(value: &serde_json::Value, token: &str) -> bool {
+    match value {
+        serde_json::Value::String(text) => text.contains(token),
+        serde_json::Value::Array(values) => {
+            values.iter().any(|value| contains_credential(value, token))
+        }
+        serde_json::Value::Object(values) => values
+            .iter()
+            .any(|(key, value)| key.contains(token) || contains_credential(value, token)),
+        _ => false,
+    }
 }
 
 fn caught_message(error: rquickjs::CaughtError<'_>) -> String {

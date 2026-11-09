@@ -32,21 +32,20 @@ impl PlanStore {
         if additions.is_empty() {
             return Ok(());
         }
-        let expected = additions.clone();
-        let write = self.with_plan(plan_id, now_ms, |plan| {
-            let task = crate::plan::task_key::find_task_mut(&mut plan.tasks, task_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            crate::service_plan::external_refs::merge_external_refs(
-                &mut task.external_refs,
-                additions,
-            );
-            task.updated_at = now_ms;
-            Ok(())
-        });
-        pending_after_verified(
-            write,
-            self.verify_task_external_refs_added(plan_id, task_id, &expected),
-            None,
+        self.with_task_rows(
+            plan_id,
+            task_id,
+            crate::service_plan::store_db::hot_write::TaskHistory::Core,
+            now_ms,
+            |edit| {
+                let task = &mut edit.task;
+                crate::service_plan::external_refs::merge_external_refs(
+                    &mut task.external_refs,
+                    additions,
+                );
+                task.updated_at = now_ms;
+                Ok(())
+            },
         )
     }
 
@@ -219,27 +218,12 @@ impl PlanStore {
         depends_on: Vec<String>,
         now_ms: u64,
     ) -> Result<(), PlanError> {
-        let write: Result<Vec<String>, PlanError> = self.with_plan(plan_id, now_ms, |p| {
-            let task_index = crate::plan::task_key::find_task_index(&p.tasks, task_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            let canonical_task_id = p.tasks[task_index].id.clone();
-            let normalized = validate_task_dependencies(p, &canonical_task_id, &depends_on)?;
-            let task = &mut p.tasks[task_index];
-            task.depends_on = normalized.clone();
-            task.updated_at = now_ms;
-            Ok(normalized)
-        });
-        // depends_on refs (e.g. handles) resolve to canonical task ids during the
-        // write; verify against the resolved form or readback always fails.
-        let (write, verify_depends_on) = match write {
-            Ok(resolved) => (Ok(()), resolved),
-            Err(err) => (Err(err), normalized_dependency_ids(&depends_on)),
-        };
-        pending_after_verified(
-            write,
-            self.verify_task_dependencies_updated(plan_id, task_id, &verify_depends_on),
-            Some(task_id.to_string()),
-        )
+        let turn = self.mutation_writer.enter();
+        let receipt = self
+            .database
+            .update_dependencies(plan_id, task_id, &depends_on, now_ms)?;
+        self.publish_hot_receipt(&turn, receipt);
+        Ok(())
     }
 
     pub fn update_task_role_guidance(
@@ -310,31 +294,36 @@ impl PlanStore {
         if branch.is_none() && peer.is_none() {
             return Ok(());
         }
-        self.with_plan(plan_id, now_ms, |p| {
-            let task = crate::plan::task_key::find_task_mut(&mut p.tasks, task_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            if is_terminal_task_status(&task.status) {
-                return Ok(());
-            }
-            let mut touched = false;
-            if let Some(branch) = branch {
-                if task.lane.branch.as_deref().unwrap_or("").is_empty() {
-                    task.lane.branch = Some(branch.to_string());
-                    touched = true;
+        self.with_task_rows(
+            plan_id,
+            task_id,
+            crate::service_plan::store_db::hot_write::TaskHistory::Core,
+            now_ms,
+            |edit| {
+                let task = &mut edit.task;
+                if is_terminal_task_status(&task.status) {
+                    return Ok(());
                 }
-            }
-            if let Some(peer) = peer {
-                if task.peer.as_deref().unwrap_or("").is_empty() {
-                    task.peer = Some(peer.to_string());
-                    touched = true;
+                let mut touched = false;
+                if let Some(branch) = branch {
+                    if task.lane.branch.as_deref().unwrap_or("").is_empty() {
+                        task.lane.branch = Some(branch.to_string());
+                        touched = true;
+                    }
                 }
-            }
-            if touched {
-                task.lane = normalize_lane_metadata(std::mem::take(&mut task.lane));
-                task.updated_at = now_ms;
-            }
-            Ok(())
-        })
+                if let Some(peer) = peer {
+                    if task.peer.as_deref().unwrap_or("").is_empty() {
+                        task.peer = Some(peer.to_string());
+                        touched = true;
+                    }
+                }
+                if touched {
+                    task.lane = normalize_lane_metadata(std::mem::take(&mut task.lane));
+                    task.updated_at = now_ms;
+                }
+                Ok(())
+            },
+        )
     }
 
     /// Recording discipline: at report / status-to-active time, capture lane
@@ -356,41 +345,46 @@ impl PlanStore {
         if tab_id.is_none() && branch.is_none() && peer.is_none() {
             return Ok(());
         }
-        self.with_plan(plan_id, now_ms, |p| {
-            let task = crate::plan::task_key::find_task_mut(&mut p.tasks, task_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            if is_terminal_task_status(&task.status) {
-                return Ok(());
-            }
-            let mut touched = false;
-            if let Some(tab) = tab_id {
-                if task.lane.tab_id.as_deref().unwrap_or("").is_empty() {
-                    task.lane.tab_id = Some(tab.to_string());
-                    touched = true;
+        self.with_task_rows(
+            plan_id,
+            task_id,
+            crate::service_plan::store_db::hot_write::TaskHistory::Core,
+            now_ms,
+            |edit| {
+                let task = &mut edit.task;
+                if is_terminal_task_status(&task.status) {
+                    return Ok(());
                 }
-                if task.assigned_tab_id.as_deref().unwrap_or("").is_empty() {
-                    task.assigned_tab_id = Some(tab.to_string());
-                    touched = true;
+                let mut touched = false;
+                if let Some(tab) = tab_id {
+                    if task.lane.tab_id.as_deref().unwrap_or("").is_empty() {
+                        task.lane.tab_id = Some(tab.to_string());
+                        touched = true;
+                    }
+                    if task.assigned_tab_id.as_deref().unwrap_or("").is_empty() {
+                        task.assigned_tab_id = Some(tab.to_string());
+                        touched = true;
+                    }
                 }
-            }
-            if let Some(branch) = branch {
-                if task.lane.branch.as_deref().unwrap_or("").is_empty() {
-                    task.lane.branch = Some(branch.to_string());
-                    touched = true;
+                if let Some(branch) = branch {
+                    if task.lane.branch.as_deref().unwrap_or("").is_empty() {
+                        task.lane.branch = Some(branch.to_string());
+                        touched = true;
+                    }
                 }
-            }
-            if let Some(peer) = peer {
-                if task.peer.as_deref().unwrap_or("").is_empty() {
-                    task.peer = Some(peer.to_string());
-                    touched = true;
+                if let Some(peer) = peer {
+                    if task.peer.as_deref().unwrap_or("").is_empty() {
+                        task.peer = Some(peer.to_string());
+                        touched = true;
+                    }
                 }
-            }
-            if touched {
-                task.lane = normalize_lane_metadata(std::mem::take(&mut task.lane));
-                task.updated_at = now_ms;
-            }
-            Ok(())
-        })
+                if touched {
+                    task.lane = normalize_lane_metadata(std::mem::take(&mut task.lane));
+                    task.updated_at = now_ms;
+                }
+                Ok(())
+            },
+        )
     }
 
     pub fn update_task_lane(
@@ -401,33 +395,32 @@ impl PlanStore {
         now_ms: u64,
     ) -> Result<(), PlanError> {
         crate::service_plan::text_bounds::validate_lane_update(&lane)?;
-        let expected = lane.clone();
         // Explicit --tab overwrites the executor binding.
         let tab_explicit = lane.tab_id.is_some();
-        let write = self.with_plan(plan_id, now_ms, |p| {
-            let task = crate::plan::task_key::find_task_mut(&mut p.tasks, task_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            apply_lane_update(&mut task.lane, lane);
-            task.lane = normalize_lane_metadata(std::mem::take(&mut task.lane));
-            if tab_explicit && is_terminal_task_status(&task.status) {
-                let assigned = task.assigned_tab_id.clone();
-                super::task_attempts::mark_task_assignment_closed(
-                    task,
-                    assigned.as_deref(),
-                    now_ms,
-                );
-                clear_task_assignment(task);
-            } else if tab_explicit {
-                task.assigned_tab_id = task.lane.tab_id.clone();
-            }
-            task.updated_at = now_ms;
-            crate::service_plan::text_bounds::validate_stored_task_text(task)?;
-            Ok(())
-        });
-        pending_after_verified(
-            write,
-            self.verify_task_lane_updated(plan_id, task_id, &expected),
-            Some(task_id.to_string()),
+        self.with_task_rows(
+            plan_id,
+            task_id,
+            crate::service_plan::store_db::hot_write::TaskHistory::LiveAndReported,
+            now_ms,
+            |edit| {
+                let task = &mut edit.task;
+                apply_lane_update(&mut task.lane, lane);
+                task.lane = normalize_lane_metadata(std::mem::take(&mut task.lane));
+                if tab_explicit && is_terminal_task_status(&task.status) {
+                    let assigned = task.assigned_tab_id.clone();
+                    super::task_attempts::mark_task_assignment_closed(
+                        task,
+                        assigned.as_deref(),
+                        now_ms,
+                    );
+                    clear_task_assignment(task);
+                } else if tab_explicit {
+                    task.assigned_tab_id = task.lane.tab_id.clone();
+                }
+                task.updated_at = now_ms;
+                crate::service_plan::text_bounds::validate_stored_task_text(task)?;
+                Ok(())
+            },
         )
     }
 
@@ -465,37 +458,42 @@ impl PlanStore {
                 crate::service_plan::text_bounds::validate_plan_text(field, value)?;
             }
         }
-        self.with_plan(plan_id, now_ms, |p| {
-            let task = crate::plan::task_key::find_task_mut(&mut p.tasks, task_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            let criteria_counts = acceptance_criteria.map(|update| {
-                let before = task.acceptance_criteria.len();
-                match update {
-                    AcceptanceCriteriaUpdate::Append(new_items) => {
-                        task.acceptance_criteria.extend(new_items);
+        self.with_task_rows(
+            plan_id,
+            task_id,
+            crate::service_plan::store_db::hot_write::TaskHistory::Core,
+            now_ms,
+            |edit| {
+                let task = &mut edit.task;
+                let criteria_counts = acceptance_criteria.map(|update| {
+                    let before = task.acceptance_criteria.len();
+                    match update {
+                        AcceptanceCriteriaUpdate::Append(new_items) => {
+                            task.acceptance_criteria.extend(new_items);
+                        }
+                        AcceptanceCriteriaUpdate::Replace(new_items) => {
+                            task.acceptance_criteria = new_items;
+                        }
                     }
-                    AcceptanceCriteriaUpdate::Replace(new_items) => {
-                        task.acceptance_criteria = new_items;
+                    AcceptanceCriteriaCounts {
+                        before,
+                        after: task.acceptance_criteria.len(),
                     }
+                });
+                if let Some(plan) = test_plan {
+                    task.test_plan = plan.map(str::to_string);
                 }
-                AcceptanceCriteriaCounts {
-                    before,
-                    after: task.acceptance_criteria.len(),
+                if let Some(plan) = qa_plan {
+                    task.qa_plan = plan.map(str::to_string);
                 }
-            });
-            if let Some(plan) = test_plan {
-                task.test_plan = plan.map(str::to_string);
-            }
-            if let Some(plan) = qa_plan {
-                task.qa_plan = plan.map(str::to_string);
-            }
-            if let Some(vector) = correctness {
-                task.correctness = vector.map(str::to_string);
-            }
-            task.updated_at = now_ms;
-            crate::service_plan::text_bounds::validate_stored_task_text(task)?;
-            Ok(criteria_counts)
-        })
+                if let Some(vector) = correctness {
+                    task.correctness = vector.map(str::to_string);
+                }
+                task.updated_at = now_ms;
+                crate::service_plan::text_bounds::validate_stored_task_text(task)?;
+                Ok(criteria_counts)
+            },
+        )
     }
 
     #[cfg(any(test, feature = "test-support"))]
@@ -533,43 +531,37 @@ impl PlanStore {
         task_id: &str,
         now_ms: u64,
     ) -> Result<(), PlanError> {
-        self.with_plan(plan_id, now_ms, |p| {
-            let (assigned, dispatch_attempt_id) =
-                crate::plan::task_key::find_task(&p.tasks, task_id)
-                    .map(|task| {
-                        let assigned = task.assigned_tab_id.clone();
-                        let attempt_id = task
-                            .execution_attempts
-                            .iter()
-                            .rev()
-                            .find(|attempt| {
-                                assigned.as_deref() == Some(attempt.executor_tab_id.as_str())
-                                    && attempt.closed_at.is_none()
-                                    && attempt.retired_at.is_none()
-                            })
-                            .map(|attempt| attempt.id.clone());
-                        (assigned, attempt_id)
+        self.with_task_rows(
+            plan_id,
+            task_id,
+            crate::service_plan::store_db::hot_write::TaskHistory::LiveAndReported,
+            now_ms,
+            |edit| {
+                let task = &mut edit.task;
+                let assigned = task.assigned_tab_id.clone();
+                edit.rollback_unblock = task
+                    .execution_attempts
+                    .iter()
+                    .rev()
+                    .find(|attempt| {
+                        assigned.as_deref() == Some(attempt.executor_tab_id.as_str())
+                            && attempt.closed_at.is_none()
+                            && attempt.retired_at.is_none()
                     })
-                    .ok_or(PlanError::TaskNotFound)?;
-            let blocked_reason = dispatch_attempt_id.as_deref().and_then(|attempt_id| {
-                super::super::task_dispatch::restore_blocked_unblock(p, task_id, attempt_id)
-            });
-            let task = crate::plan::task_key::find_task_mut(&mut p.tasks, task_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            super::task_attempts::mark_task_assignment_closed(task, assigned.as_deref(), now_ms);
-            clear_task_assignment(task);
-            task.status = if blocked_reason.is_some() {
-                crate::plan::TaskStatus::Blocked
-            } else {
-                crate::plan::TaskStatus::Pending
-            };
-            if blocked_reason.is_some() {
-                task.status_label = blocked_reason;
-            }
-            task.status_changed_at = now_ms;
-            task.updated_at = now_ms;
-            Ok(())
-        })
+                    .map(|attempt| attempt.id.clone());
+                edit.legacy_dispatch_rollback = true;
+                super::task_attempts::mark_task_assignment_closed(
+                    task,
+                    assigned.as_deref(),
+                    now_ms,
+                );
+                clear_task_assignment(task);
+                task.status = crate::plan::TaskStatus::Pending;
+                task.status_changed_at = now_ms;
+                task.updated_at = now_ms;
+                Ok(())
+            },
+        )
     }
 
     pub fn update_milestone(

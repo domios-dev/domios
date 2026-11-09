@@ -1,9 +1,10 @@
+use super::preflight_facts;
 use serde_json::json;
 
 use super::super::canonical_writer::{
     compose_dispatch_brief, dispatch_worker_placement,
-    refuse_lane_integration_while_canonical_held, verify_canonical_writer_checkout,
-    CANONICAL_WRITER_BRIEF, CANONICAL_WRITER_HOLDS_CHECKOUT_CODE,
+    refuse_lane_integration_while_canonical_held as refuse_projected_lane_integration,
+    verify_canonical_writer_checkout, CANONICAL_WRITER_BRIEF, CANONICAL_WRITER_HOLDS_CHECKOUT_CODE,
     REFUSAL_LANE_INTEGRATION_WHILE_CANONICAL_WRITER,
 };
 use super::super::lane_safety::{
@@ -18,6 +19,44 @@ use codeterm_service_core::service::{
     canonical_path_of, classify_mutating_lane, live_canonical_writer, LaneProtection,
     UnsafeMutatingLane, WorkerLaneProvenance,
 };
+
+fn refuse_lane_integration_while_canonical_held(
+    plan: &Plan,
+    task_id: &str,
+) -> Result<(), crate::server::JsonRpcError> {
+    use codeterm_service_core::service::plan::{CanonicalWriterHoldRead, LaneIntegrationRead};
+    let input = (|| {
+        let task = plan.tasks.iter().find(|task| task.id == task_id)?;
+        let lane = task
+            .lane
+            .worktree_path
+            .as_deref()
+            .filter(|path| !path.trim().is_empty())?;
+        let (holder_task_id, holder_attempt_id) = live_canonical_writer(plan)?;
+        if holder_task_id == task.id {
+            return None;
+        }
+        let attempt = plan
+            .tasks
+            .iter()
+            .find(|task| task.id == holder_task_id)?
+            .execution_attempts
+            .iter()
+            .find(|attempt| attempt.id == holder_attempt_id)?;
+        Some(LaneIntegrationRead {
+            plan_id: plan.id.clone(),
+            task_id: task.id.clone(),
+            worktree_path: lane.into(),
+            canonical_path: canonical_path_of(plan).into(),
+            holder: CanonicalWriterHoldRead {
+                task_id: holder_task_id.into(),
+                attempt_id: holder_attempt_id.into(),
+                placement: attempt.placement,
+            },
+        })
+    })();
+    refuse_projected_lane_integration(input.as_ref())
+}
 
 fn store_with_tasks(names: &[&str]) -> (tempfile::TempDir, PlanStore, String, Vec<String>) {
     let root = tempfile::tempdir().unwrap();
@@ -101,7 +140,12 @@ fn canonical_writer_placement_is_never_inferred_without_opt_in() {
         Some(json!({ "placement": "isolated_lane" })),
     ] {
         assert_eq!(
-            dispatch_worker_placement(params.as_ref(), &ExecutionIntent::Mutating, &task).unwrap(),
+            dispatch_worker_placement(
+                params.as_ref(),
+                &ExecutionIntent::Mutating,
+                &preflight_facts(&task)
+            )
+            .unwrap(),
             WorkerPlacement::IsolatedLane
         );
     }
@@ -139,12 +183,18 @@ fn canonical_writer_opt_in_is_refused_outside_a_mutating_repository_task_without
     let opt_in = json!({ "placement": "canonical_writer" });
     let repo_task = repository_task();
     assert_eq!(
-        dispatch_worker_placement(Some(&opt_in), &ExecutionIntent::Mutating, &repo_task).unwrap(),
+        dispatch_worker_placement(
+            Some(&opt_in),
+            &ExecutionIntent::Mutating,
+            &preflight_facts(&repo_task)
+        )
+        .unwrap(),
         WorkerPlacement::CanonicalWriter
     );
 
     for intent in [ExecutionIntent::ReadOnly, ExecutionIntent::Unspecified] {
-        let error = dispatch_worker_placement(Some(&opt_in), &intent, &repo_task).unwrap_err();
+        let error = dispatch_worker_placement(Some(&opt_in), &intent, &preflight_facts(&repo_task))
+            .unwrap_err();
         assert_eq!(error.code, -32602);
     }
 
@@ -163,8 +213,12 @@ fn canonical_writer_opt_in_is_refused_outside_a_mutating_repository_task_without
         "lane": { "worktree_path": "/lanes/recorded" }
     }));
     for task in [&nonrepo, &laned] {
-        let error =
-            dispatch_worker_placement(Some(&opt_in), &ExecutionIntent::Mutating, task).unwrap_err();
+        let error = dispatch_worker_placement(
+            Some(&opt_in),
+            &ExecutionIntent::Mutating,
+            &preflight_facts(&task),
+        )
+        .unwrap_err();
         assert_eq!(error.code, -32602, "{}", task.id);
     }
 
@@ -172,9 +226,12 @@ fn canonical_writer_opt_in_is_refused_outside_a_mutating_repository_task_without
         json!({ "placement": "canonical" }),
         json!({ "placement": 1 }),
     ] {
-        let error =
-            dispatch_worker_placement(Some(&malformed), &ExecutionIntent::Mutating, &repo_task)
-                .unwrap_err();
+        let error = dispatch_worker_placement(
+            Some(&malformed),
+            &ExecutionIntent::Mutating,
+            &preflight_facts(&repo_task),
+        )
+        .unwrap_err();
         assert_eq!(error.code, -32602);
     }
 }
@@ -431,19 +488,20 @@ fn canonical_worker_kind_composition_preserves_admission_and_report_identity() {
         dispatch_worker_placement(
             Some(&json!({ "placement": "canonical_writer" })),
             &ExecutionIntent::Mutating,
-            &task,
+            &preflight_facts(&task),
         )
         .unwrap(),
         WorkerPlacement::CanonicalWriter
     );
     assert_eq!(
-        dispatch_worker_placement(None, &ExecutionIntent::ReadOnly, &task).unwrap(),
+        dispatch_worker_placement(None, &ExecutionIntent::ReadOnly, &preflight_facts(&task))
+            .unwrap(),
         WorkerPlacement::ReadOnly
     );
     assert!(dispatch_worker_placement(
         Some(&json!({ "placement": "canonical_writer" })),
         &ExecutionIntent::ReadOnly,
-        &task,
+        &preflight_facts(&task),
     )
     .is_err());
     assert!(matches!(
@@ -540,13 +598,14 @@ fn nonrepository_dispatch_reports_nonrepository_placement() {
         "status": "pending", "execution_intent": "non_repository"
     }));
     assert_eq!(
-        dispatch_worker_placement(None, &ExecutionIntent::Mutating, &task).unwrap(),
+        dispatch_worker_placement(None, &ExecutionIntent::Mutating, &preflight_facts(&task))
+            .unwrap(),
         WorkerPlacement::NonRepository
     );
     assert!(dispatch_worker_placement(
         Some(&json!({"placement": "canonical_writer"})),
         &ExecutionIntent::Mutating,
-        &task
+        &preflight_facts(&task)
     )
     .is_err());
 }

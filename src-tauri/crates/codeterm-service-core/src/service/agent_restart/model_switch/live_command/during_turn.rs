@@ -19,6 +19,8 @@ pub(super) fn screen_stage(
         ScreenStage::Picker
     } else if prompt.is_some_and(|prompt| prompt.present(screen)) {
         ScreenStage::Confirmation
+    } else if picker.is_some_and(|picker| picker.rendering(screen)) {
+        ScreenStage::AwaitingEvidence
     } else if has_prompt {
         ScreenStage::UnknownPrompt
     } else {

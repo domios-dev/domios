@@ -28,14 +28,14 @@ pub(super) fn validate(
     vm: &PluginVm,
     method: &str,
     pending: &AwaitRequest,
-    deadline: Option<std::time::Instant>,
+    operation: &std::sync::Arc<operation::Context>,
 ) -> Result<(), VmError> {
     if !crate::js_runtime::host_exec::await_ticket_owned(vm.plugin_id(), &pending.job) {
         return Err(VmError::Script(
             "await job is foreign, unavailable or denied".into(),
         ));
     }
-    let inner = VmEntry::acquire(vm, method, deadline)?;
+    let inner = VmEntry::acquire(vm, method, operation)?;
     inner._ctx.with(|ctx| {
         let validate: Function = ctx
             .globals()

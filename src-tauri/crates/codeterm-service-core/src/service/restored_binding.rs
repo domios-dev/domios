@@ -106,11 +106,17 @@ impl ServiceContext {
         };
         let now_ms = epoch_ms();
 
-        for plan in self.plan_store.plans_owned_or_planned_by(tab_id) {
-            if plan.owner.tab_id.as_deref() == Some(tab_id) {
+        for plan in self
+            .plan_store
+            .restored_plan_bindings_projection(tab_id)
+            .map_err(|error| {
+                RestoreBindingError::RebindFailed(format!("plan binding lookup failed: {error}"))
+            })?
+        {
+            if plan.owns_plan {
                 self.plan_store
                     .refresh_owner_session(
-                        &plan.id,
+                        &plan.plan_id,
                         tab_id,
                         live_session_id.as_deref(),
                         Some(&title),
@@ -119,13 +125,13 @@ impl ServiceContext {
                     .map_err(|error| {
                         RestoreBindingError::RebindFailed(format!(
                             "owner rebind failed for plan {}: {error}",
-                            plan.id
+                            plan.plan_id
                         ))
                     })?;
-                restored.owned_plan_ids.push(plan.id.clone());
+                restored.owned_plan_ids.push(plan.plan_id.clone());
             }
             let planner_is_this_tab = matches!(
-                &plan.planner,
+                &plan.planner_binding,
                 Some(PlannerRef::Tab { tab_id: bound, .. }) if bound == tab_id
             );
             if planner_is_this_tab {
@@ -134,21 +140,28 @@ impl ServiceContext {
                     session_id: live_session_id.clone(),
                     title: Some(title.clone()),
                 };
-                if plan.planner.as_ref() != Some(&refreshed) {
+                if plan.planner_binding.as_ref() != Some(&refreshed) {
                     self.plan_store
-                        .set_planner_ref(&plan.id, Some(refreshed), now_ms)
+                        .set_planner_ref(&plan.plan_id, Some(refreshed), now_ms)
                         .map_err(|error| {
                             RestoreBindingError::RebindFailed(format!(
                                 "planner rebind failed for plan {}: {error}",
-                                plan.id
+                                plan.plan_id
                             ))
                         })?;
                 }
-                restored.planner_plan_ids.push(plan.id.clone());
+                restored.planner_plan_ids.push(plan.plan_id.clone());
             }
         }
 
-        restored.task_bindings = self.plan_store.task_bindings_for_tab(tab_id);
+        restored.task_bindings =
+            self.plan_store
+                .task_bindings_for_tab(tab_id)
+                .map_err(|error| {
+                    RestoreBindingError::RebindFailed(format!(
+                        "task binding lookup failed: {error}"
+                    ))
+                })?;
         restored.owned_plan_ids.sort();
         restored.planner_plan_ids.sort();
         restored.task_bindings.sort();

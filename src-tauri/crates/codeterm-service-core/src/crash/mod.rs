@@ -4,7 +4,7 @@ pub use codeterm_crash::crash::macos_quit;
 pub use codeterm_crash::crash::trigger_test_crash;
 pub use codeterm_crash::crash::{
     check_previous_crashes, dump_record, image_identity, install, lifecycle, record_clean_shutdown,
-    record_startup, report, shutdown,
+    record_startup, report, request_activity, shutdown,
 };
 
 pub mod exit;

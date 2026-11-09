@@ -54,6 +54,7 @@ pub(crate) fn record<T>(result: Option<T>) -> Option<T> {
     result
 }
 
+#[cfg(test)]
 pub(crate) fn wait<T>(budget: Duration, receive: impl FnOnce(Duration) -> Option<T>) -> Option<T> {
     if budget.is_zero() {
         return None;

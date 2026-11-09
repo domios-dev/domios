@@ -113,7 +113,7 @@ test("dsBlocks LinkedText and user boundaries hide pending/malformed bodies whil
       await render(pending); await render(pending, true, true, true); await render(complete, true, true, true);
       assert.equal(reads.counts.starts, before); assert.equal(view.host.querySelectorAll("iframe").length, 0);
       sequence++; await render(complete, false); assert.equal(reads.counts.starts, before);
-      sequence++; await render('task_outside\n\n' + pending);
+      sequence++; await render('<domios type="task" id="task_outside" />\n\n' + pending);
       assert.equal(reads.counts.starts, before + 1);
       const chip = view.host.querySelector<HTMLButtonElement>('[data-testid="chat-task-link"]'); assert.ok(chip && !chip.disabled);
       const opens = opened.length; await act(async () => chip.click()); assert.equal(opened.length, opens + 1); assert.ok(opened[opened.length - 1].includes('task_outside'));

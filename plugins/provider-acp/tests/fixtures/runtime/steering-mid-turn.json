@@ -1,0 +1,499 @@
+{
+  "schemaVersion": 1,
+  "context": {
+    "epoch": 1,
+    "cwd": "/work/project",
+    "hostVersion": "1.19.1",
+    "tabId": "steering-mid-turn",
+    "bindingNonce": "nonce-fixture",
+    "settings": {},
+    "providerSettings": {},
+    "claimedSends": [],
+    "activeTurns": [],
+    "threadParents": []
+  },
+  "operations": [
+    {
+      "operation": {
+        "kind": "initialize"
+      }
+    },
+    {
+      "operation": {
+        "kind": "openThread",
+        "instructions": "",
+        "settings": {}
+      }
+    },
+    {
+      "operation": {
+        "kind": "submitTurn",
+        "threadId": "session-fixture",
+        "sendId": "first",
+        "input": {
+          "text": "first",
+          "attachments": []
+        },
+        "settings": {}
+      },
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/project",
+        "hostVersion": "1.19.1",
+        "tabId": "steering-mid-turn",
+        "bindingNonce": "nonce-fixture",
+        "settings": {},
+        "providerSettings": {},
+        "claimedSends": [
+          {
+            "sendId": "first",
+            "threadId": "session-fixture",
+            "input": {
+              "text": "first",
+              "attachments": []
+            }
+          }
+        ],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "session-fixture"
+      }
+    },
+    {
+      "operation": {
+        "kind": "submitTurn",
+        "threadId": "session-fixture",
+        "sendId": "steered",
+        "input": {
+          "text": "steered",
+          "attachments": []
+        },
+        "settings": {},
+        "activeTurnId": "session-fixture:turn:1"
+      },
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/project",
+        "hostVersion": "1.19.1",
+        "tabId": "steering-mid-turn",
+        "bindingNonce": "nonce-fixture",
+        "settings": {},
+        "providerSettings": {},
+        "claimedSends": [
+          {
+            "sendId": "steered",
+            "threadId": "session-fixture",
+            "input": {
+              "text": "steered",
+              "attachments": []
+            }
+          }
+        ],
+        "activeTurns": [
+          {
+            "threadId": "session-fixture",
+            "turnId": "session-fixture:turn:1"
+          }
+        ],
+        "threadParents": [],
+        "threadId": "session-fixture",
+        "activeTurnId": "session-fixture:turn:1"
+      }
+    }
+  ],
+  "rpc": [
+    {
+      "direction": "outbound",
+      "operation": 0,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "initialize",
+          "params": {
+            "protocolVersion": 1,
+            "clientCapabilities": {
+              "fs": {
+                "readTextFile": false,
+                "writeTextFile": false
+              },
+              "terminal": false
+            },
+            "clientInfo": {
+              "name": "domios",
+              "title": "Domios",
+              "version": "1.19.1"
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 0,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "protocolVersion": 1,
+          "agentCapabilities": {
+            "sessionCapabilities": {
+              "resume": {}
+            }
+          },
+          "authMethods": [],
+          "_meta": {
+            "steering": {
+              "supported": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 1,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "session/new",
+          "params": {
+            "cwd": "/work/project",
+            "mcpServers": []
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 1,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "sessionId": "session-fixture"
+        }
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 2,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "session/prompt",
+          "params": {
+            "sessionId": "session-fixture",
+            "prompt": [
+              {
+                "type": "text",
+                "text": "first"
+              }
+            ]
+          },
+          "target": {
+            "threadId": "session-fixture",
+            "turnId": "session-fixture:turn:1"
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/project",
+        "hostVersion": "1.19.1",
+        "tabId": "steering-mid-turn",
+        "bindingNonce": "nonce-fixture",
+        "settings": {},
+        "providerSettings": {},
+        "claimedSends": [
+          {
+            "sendId": "first",
+            "threadId": "session-fixture",
+            "input": {
+              "text": "first",
+              "attachments": []
+            }
+          }
+        ],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "session-fixture"
+      },
+      "frame": {
+        "kind": "notification",
+        "method": "session/update",
+        "params": {
+          "sessionId": "session-fixture",
+          "update": {
+            "sessionUpdate": "tool_call",
+            "toolCallId": "self-send",
+            "title": "Send",
+            "kind": "execute",
+            "status": "in_progress",
+            "rawInput": {
+              "target": "self"
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 3,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "_session/steering",
+          "params": {
+            "sessionId": "session-fixture",
+            "prompt": [
+              {
+                "type": "text",
+                "text": "steered"
+              }
+            ],
+            "_meta": {
+              "steering": {
+                "idleBehavior": "promptRequired"
+              }
+            }
+          },
+          "target": {
+            "threadId": "session-fixture",
+            "turnId": "session-fixture:turn:1"
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 3,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "outcome": "injected"
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/project",
+        "hostVersion": "1.19.1",
+        "tabId": "steering-mid-turn",
+        "bindingNonce": "nonce-fixture",
+        "settings": {},
+        "providerSettings": {},
+        "claimedSends": [
+          {
+            "sendId": "steered",
+            "threadId": "session-fixture",
+            "input": {
+              "text": "steered",
+              "attachments": []
+            }
+          }
+        ],
+        "activeTurns": [
+          {
+            "threadId": "session-fixture",
+            "turnId": "session-fixture:turn:1"
+          }
+        ],
+        "threadParents": [],
+        "threadId": "session-fixture",
+        "activeTurnId": "session-fixture:turn:1"
+      },
+      "frame": {
+        "kind": "notification",
+        "method": "session/update",
+        "params": {
+          "sessionId": "session-fixture",
+          "update": {
+            "sessionUpdate": "agent_message_chunk",
+            "content": {
+              "type": "text",
+              "text": "steered answer"
+            }
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 2,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "stopReason": "end_turn"
+        }
+      }
+    }
+  ],
+  "expected": {
+    "results": [
+      {
+        "operation": 0,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "initialized",
+            "midTurnInput": true
+          },
+          "events": [
+            {
+              "kind": "authentication",
+              "authentication": {
+                "state": "unknown",
+                "methods": []
+              }
+            }
+          ]
+        }
+      },
+      {
+        "operation": 1,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "threadLoaded",
+            "threadId": "session-fixture",
+            "settings": {
+              "commands": [],
+              "configOptions": [],
+              "modes": []
+            }
+          }
+        }
+      },
+      {
+        "operation": 3,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "turnAccepted",
+            "threadId": "session-fixture",
+            "sendId": "steered",
+            "turnId": "session-fixture:turn:1"
+          }
+        }
+      },
+      {
+        "operation": 2,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "turnAccepted",
+            "threadId": "session-fixture",
+            "sendId": "first",
+            "turnId": "session-fixture:turn:1"
+          },
+          "events": [
+            {
+              "kind": "chatItemPatch",
+              "threadId": "session-fixture",
+              "item": {
+                "id": "self-send",
+                "seq": 2,
+                "type": "tool_call",
+                "content": "",
+                "toolId": "self-send",
+                "toolStatus": "interrupted",
+                "toolInterrupted": true
+              }
+            },
+            {
+              "kind": "turnState",
+              "threadId": "session-fixture",
+              "turnId": "session-fixture:turn:1",
+              "state": "idle"
+            }
+          ]
+        }
+      }
+    ],
+    "events": [
+      {
+        "kind": "authentication",
+        "authentication": {
+          "state": "unknown",
+          "methods": []
+        }
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "session-fixture",
+        "item": {
+          "id": "session-fixture:turn:1:item:1",
+          "seq": 1,
+          "type": "user",
+          "content": "first"
+        }
+      },
+      {
+        "kind": "turnState",
+        "threadId": "session-fixture",
+        "turnId": "session-fixture:turn:1",
+        "state": "working"
+      },
+      {
+        "kind": "sendEvidence",
+        "threadId": "session-fixture",
+        "sendId": "first",
+        "turnId": "session-fixture:turn:1",
+        "itemId": "session-fixture:turn:1:item:1"
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "session-fixture",
+        "item": {
+          "id": "self-send",
+          "seq": 2,
+          "type": "tool_call",
+          "content": "",
+          "toolId": "self-send",
+          "collapsed": true,
+          "toolTitle": "Send",
+          "toolName": "Send",
+          "toolKind": "command",
+          "toolInput": {
+            "target": "self"
+          },
+          "toolArgs": "{\"target\":\"self\"}",
+          "toolStatus": "running",
+          "toolError": false
+        }
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "session-fixture",
+        "item": {
+          "id": "session-fixture:turn:1:item:3",
+          "seq": 3,
+          "type": "assistant",
+          "content": "steered answer"
+        }
+      },
+      {
+        "kind": "chatItemPatch",
+        "threadId": "session-fixture",
+        "item": {
+          "id": "self-send",
+          "seq": 2,
+          "type": "tool_call",
+          "content": "",
+          "toolId": "self-send",
+          "toolStatus": "interrupted",
+          "toolInterrupted": true
+        }
+      },
+      {
+        "kind": "turnState",
+        "threadId": "session-fixture",
+        "turnId": "session-fixture:turn:1",
+        "state": "idle"
+      }
+    ]
+  }
+}

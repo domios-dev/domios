@@ -57,9 +57,16 @@ impl PtyFlow {
             let provider = mux.get_tab(&tab)?.agent_type.clone()?;
             (tab, provider)
         };
-        let inherited = id
-            .map(str::to_string)
-            .or_else(|| super::tab_flow(svc, &tab));
+        let inherited = match id {
+            Some(id) => Some(id.to_string()),
+            None => match super::tab_flow(svc, &tab) {
+                Ok(flow) => flow,
+                Err(error) => {
+                    log::warn!("[flow-trace] PTY binding read failed tab={tab}: {error}");
+                    return None;
+                }
+            },
+        };
         Self::start(inherited.as_deref(), &tab, &provider)
     }
 

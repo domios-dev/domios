@@ -13,6 +13,7 @@ import {
   type SidebarWorkspaceDetailData,
 } from "./SidebarWorkspaceDetail";
 import { isGeneralSectionTab, tabsInWorkspace } from "./workspaceTabs";
+import { useAppearingTabs } from "./useAppearingTabs";
 import { projectUtilityShells } from "../General/generalOverviewModel";
 import { isSurfaceTab, surfaceOwnerId } from "../../lib/surfaceTab";
 
@@ -41,15 +42,18 @@ export function SidebarGeneralSection({ workspace, expanded, onToggle, providerI
   const isActiveVisual = workspaceId === data.activeWorkspaceId && data.isWorkspaceMode;
   const { activate, activateTab, closeTab, renameTab, openRemoteTab, openSentinelJob, closeTeam } =
     useWorkspaceTabActions(workspaceId, generalCwd, actions);
+  // The inventory lists shells of every workspace, so its entrances follow all of them.
+  const machineTabIds = useMemo(() => workspaces.flatMap((candidate) => candidate.tabs), [workspaces]);
+  const appearingTabIds = useAppearingTabs(machineTabIds);
   const inventoryRowState = useMemo(() => ({
     tabStatuses: data.tabStatuses,
     tabAttentionByTab: data.attention,
     planIndex: data.planIndex,
     closingTabIds: data.closingTabIds,
-    appearingTabIds: data.appearingTabIds,
+    appearingTabIds,
     orchestrators: data.orchestrators,
     uiFontScale: data.uiFontScale,
-  }), [data]);
+  }), [data, appearingTabIds]);
 
   return (
     <section data-testid="general-section" className="sidebar-general-section" role="region" aria-label={`${workspace.name} workspace contents`}>
@@ -74,7 +78,7 @@ export function SidebarGeneralSection({ workspace, expanded, onToggle, providerI
         providers={data.providers}
         providersLoading={data.providersLoading}
         closingTabIds={data.closingTabIds}
-        appearingTabIds={data.appearingTabIds}
+        appearingTabIds={appearingTabIds}
         isActiveVisual={isActiveVisual}
         workspaceCanvasActive={data.workspaceCanvasActive}
         touchMode={data.touchMode}

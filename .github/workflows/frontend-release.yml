@@ -34,7 +34,7 @@ env:
 jobs:
   build:
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && (((startsWith(github.ref, 'refs/heads/release/') || startsWith(github.head_ref, 'release/')) && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')) || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.path == '.github/workflows/tests.yml' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.actor.login == 'rollacode' && github.event.workflow_run.triggering_actor.login == 'rollacode' && startsWith(github.event.workflow_run.head_branch, 'release/'))) }}
-    runs-on: [self-hosted, Linux, light, host-ubunta]
+    runs-on: ${{ fromJSON(vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
     timeout-minutes: 30
     environment: release
     env:
@@ -144,9 +144,13 @@ jobs:
   publish:
     needs: build
     if: ${{ (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && (((startsWith(github.ref, 'refs/heads/release/') || startsWith(github.head_ref, 'release/')) && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')) || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.path == '.github/workflows/tests.yml' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.actor.login == 'rollacode' && github.event.workflow_run.triggering_actor.login == 'rollacode' && startsWith(github.event.workflow_run.head_branch, 'release/'))) && (github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || !inputs.dry_run)) }}
-    runs-on: [self-hosted, Linux, light, host-ubunta]
+    runs-on: ${{ fromJSON(vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
     timeout-minutes: 30
     environment: release
+    # GITHUB_TOKEN publishes the frontend release to this repository.
+    permissions:
+      contents: write
+      actions: read
     env:
       FRONTEND_TAG: ${{ inputs.tag || github.ref_name }}
     steps:
@@ -196,5 +200,5 @@ jobs:
           echo "$dir/gh_2.102.0_linux_amd64/bin" >> "$GITHUB_PATH"
       - name: Verify, upload immutable assets, then update frontend discovery
         env:
-          GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: node scripts/frontend-release/release.mjs publish "$FRONTEND_TAG"

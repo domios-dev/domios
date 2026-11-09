@@ -12,7 +12,8 @@ pub(super) async fn tab_usage(
     _headers: HeaderMap,
     Path(tab): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    codeterm_service_core::service::agent_runtime::usage_for_tab(&state.svc, &tab)
+    codeterm_service_core::service::agent_runtime::read_usage_for_tab(&state.svc, &tab)
+        .await
         .map(Json)
         .map_err(|reason| (StatusCode::CONFLICT, reason))
 }
@@ -150,8 +151,91 @@ pub(super) async fn thread_history(
     .map_err(|reason| (StatusCode::CONFLICT, reason))
 }
 
+/// Permission choices belong to the owner and the owner's paired machines, never to an agent:
+/// one answering or widening its own questions would defeat the owner's Ask choice.
+pub(crate) fn require_permission_authority(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<(), (StatusCode, String)> {
+    match crate::auth::RequestActor::authenticate(state, headers)? {
+        crate::auth::RequestActor::Owner | crate::auth::RequestActor::Peer => Ok(()),
+        _ => Err((
+            StatusCode::FORBIDDEN,
+            "Only the owner changes a tab's permissions".to_string(),
+        )),
+    }
+}
+
+async fn controls(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(tab): Path<String>,
+    Json(request): Json<
+        codeterm_service_core::service::agent_runtime::declared_controls::Selection,
+    >,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    use codeterm_service_core::service::agent_runtime::declared_controls::{
+        select, ControlError, RUNTIME_BUSY_MESSAGE, RUNTIME_BUSY_REASON,
+    };
+    if state
+        .svc
+        .runtime_control_requires_owner(&tab, request.mode, &request.id)
+    {
+        require_permission_authority(&state, &headers)?;
+    }
+    select(&state.svc, &tab, request)
+        .await
+        .map(Json)
+        .map_err(|error| match error {
+            ControlError::Busy => (
+                StatusCode::CONFLICT,
+                serde_json::json!({"ok":false,"reason":RUNTIME_BUSY_REASON,"error":RUNTIME_BUSY_MESSAGE})
+                    .to_string(),
+            ),
+            ControlError::Refused(reason) => (StatusCode::CONFLICT, reason),
+        })
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct HostApprovalsRequest {
+    allow_all: bool,
+}
+
+async fn host_approvals(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(raw_tab): Path<String>,
+    Json(request): Json<HostApprovalsRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    require_permission_authority(&state, &headers)?;
+    let tab = crate::routes::resolve_tab_async(&state, &raw_tab)
+        .await
+        .map_err(|(status, message)| (status, message.to_string()))?;
+    let svc = state.svc.clone();
+    let target = tab.clone();
+    let allow_all =
+        tokio::task::spawn_blocking(move || svc.set_tab_host_approvals(&target, request.allow_all))
+            .await
+            .map_err(|_| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "host approvals task join failed".to_string(),
+                )
+            })?
+            .map_err(|reason| (StatusCode::CONFLICT, reason))?;
+    Ok(Json(
+        serde_json::json!({"tab_id": tab, "allow_all": allow_all}),
+    ))
+}
+
 pub(super) fn router() -> Router<AppState> {
     Router::new()
+        .route("/api/tabs/{id}/agent/runtime/controls", post(controls))
+        .route(
+            "/api/tabs/{id}/agent/runtime/host-approvals",
+            post(host_approvals),
+        )
         .route("/api/tabs/{id}/agent/runtime/goal", post(goal))
         .route("/api/tabs/{id}/agent/runtime/usage", get(tab_usage))
         .route(

@@ -1,3 +1,4 @@
+import { ioTestContext } from "../../provider-shared/tests/hostIo";
 /**
  * Opencode per-group usage: store rows, balance, cache, and the yielded query.
  * Run: npx tsx plugins/provider-opencode/tests/groupUsage.test.ts
@@ -27,7 +28,7 @@ function loadOpencodeWithHost(host: unknown) {
   const pluginPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "plugin.js");
   const source = fs.readFileSync(pluginPath, "utf8");
   const context = { host, console, module: { exports: {} as { default?: any } }, exports: {} };
-  new vm.Script(source, { filename: pluginPath }).runInNewContext(context);
+  new vm.Script(source, { filename: pluginPath }).runInNewContext(ioTestContext(context));
   return context.module.exports.default;
 }
 

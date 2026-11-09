@@ -43,7 +43,8 @@ Chat send and transcript routes: API-CHAT
 |---|---|---|---|
 | GET | `/api/workspaces` | — | List all workspaces |
 | POST | `/api/workspaces` | `{name, cwd?, provision?}` | Create workspace; `name` is required, non-empty, one line, at most 64 characters, and has no control characters (absent or invalid name: `400`). A `cwd` matching a workspace returns it with `existing: true`. `provision: true` (`400` with `cwd`) creates a new empty data-dir directory; agents started exactly there get directory trust. |
-| POST | `/api/workspaces/{id}/focus` | — | Switch to workspace and check its folder |
+| POST | `/api/workspaces/{id}/focus` | — | Explicit focus request: every open client switches to the workspace; checks its folder |
+| POST | `/api/workspaces/{id}/select` | — | Record one client's own workspace selection silently; no other client follows it. |
 | POST | `/api/workspaces/{id}/cwd` | `{cwd}` | Choose an existing absolute folder for the same workspace. Returns `workspace_id`, `cwd`, `updated_tabs`, `updated_plans` and `warnings`. Invalid folders return `422`. Identity, Teams, Plans and sessions are retained; idle tab and stored launch paths beneath the old root are rebased. Active tabs and paths outside that root are reported unchanged. |
 | POST | `/api/workspaces/{id}/rename` | `{name}` | Rename workspace with the same name limits as create. |
 | POST | `/api/workspaces/{id}/close` | `{force?, confirm?}` or no body | Close the workspace. Agent tabs require `force: true`. A request without `X-CodeTerm-Tab-Id` is Human only when it sends `{force: true, confirm: "<workspace_id>"}` after the user confirms (logged `human-attributed (headerless, confirmed)`); otherwise it is refused as Unattributed and logged. A coordinator agent cannot close its own workspace even with `force: true`. Every Team with members here is closed through Team close before remaining tabs are removed. |
@@ -175,6 +176,9 @@ Custom themes are `.toml` files in `~/.domios/themes/` on every platform.
 | GET | `/api/stream-mux` | `?session=<id>` | The browser's single multiplexed SSE. Channels added below ride it as frames tagged `{channel, data|open|activity|end}`, so HTTP/1.1 keeps sockets free for REST. Closing it releases every channel. |
 | POST | `/api/stream-mux/{session}/channels` | `{channel, path}` | Attach a `relay-stream` or `/api/output/stream` path as a channel; its frames, cursor and refusal arrive on the session stream. Unknown session → `410`. |
 | DELETE | `/api/stream-mux/{session}/channels/{channel}` | — | Release one channel (idempotent). |
+| POST | `/api/stream-mux/{session}/credit` | `{received}` | Acknowledge the cumulative count of credited bulk frames so the session releases more bulk traffic. `204`; unknown session → `410`, another client → `403`. |
+| POST | `/api/stream-mux/{session}/requests/{id}` | raw body; headers `x-domios-mux-path`, `x-domios-mux-method`, `x-domios-mux-class: interactive\|bulk`, optional `x-domios-mux-cancellable: 1` | Run one REST call through the session: the server acknowledges at once and streams the response as frames for channel `{id}`. Bodies are size-capped (`413`); attachment uploads get the larger upload limit. |
+| DELETE | `/api/stream-mux/{session}/requests/{id}` | — | Cancel a request started above; only requests admitted as cancellable are aborted (idempotent). |
 | GET | `/api/mesh/relay-asset/{peer}/{*path}` | `?token=<LOCAL>` | Read-only, `plugins/{id}/ui/*`-scoped byte proxy for a peer's plugin-UI iframe. |
 | POST | `/api/mesh/refresh` | — | Refresh local addresses and announce to peers |
 | POST | `/api/mesh/announce` | `PeerAnnounce` | Inbound peer announcement with addresses, `relay_protocol_version`, and optional typed `web_ui` endpoints; may carry the `x-domios-account-membership` header to renew an adopted edge |
@@ -226,4 +230,4 @@ Session changes retain caller and binding checks. Provider hook ingress methods:
 
 `POST /api/tabs` with `cmd` returns the created tab id and `command_submission`. `submitted` is backed by a shell command-start mark. Once bytes are queued, absent confirmation returns success with `submit_unconfirmed`, `bytes_written: true` and the exact PTY id; never replay it. Proven pre-write failure remains an error. Use `tab exec` for final completion and exit status.
 
-<!-- revision: 70 -->
+<!-- revision: 72 -->

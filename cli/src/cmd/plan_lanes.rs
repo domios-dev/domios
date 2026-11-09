@@ -91,6 +91,13 @@ pub fn render_lanes(val: &Value, stale_only: bool) -> String {
         rows.retain(|r| r.stale);
     }
     if rows.is_empty() {
+        if val.pointer("/details/windows/lanes").is_some() {
+            return if stale_only {
+                "no stale lanes on this page\n".into()
+            } else {
+                "no lanes on this page\n".into()
+            };
+        }
         return if stale_only {
             "no stale lanes\n".to_string()
         } else if val

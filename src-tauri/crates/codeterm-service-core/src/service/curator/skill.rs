@@ -38,35 +38,20 @@ impl ServiceContext {
         let slug = candidate
             .strip_prefix("plan-skill:")
             .ok_or("non-graph candidate must name a plan skill")?;
-        let plan = self
+        let episodes = self
             .plan_store
-            .get(&identity.plan_id)
-            .ok_or("plan absent")?;
-        let episodes = plan
-            .tasks
-            .iter()
-            .filter(|task| {
-                task.status == crate::plan::TaskStatus::Done
-                    && task
-                        .execution_attempts
-                        .iter()
-                        .filter_map(|attempt| attempt.report.as_ref())
-                        .any(|report| {
-                            report
-                                .loaded_plan_skills
-                                .iter()
-                                .any(|skill| skill.slug == slug)
-                        })
-            })
-            .map(|task| task.id.clone())
-            .collect();
+            .curator_skill_episodes_projection(&identity.plan_id, slug)
+            .map_err(|error| match error {
+                crate::service::plan::PlanError::NotFound => "plan absent".to_string(),
+                error => error.to_string(),
+            })?;
         let now = self.curator_now()?;
         let shape = curator::fingerprint(&item.body);
         let id = self.curator_save_solution(
             &identity,
             &candidate,
             &shape,
-            episodes,
+            episodes.into_iter().collect(),
             now,
             |episodes, granted| {
                 let relations = self.mem.curator_skill_relations(&item)?;

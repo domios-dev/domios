@@ -57,7 +57,7 @@ fn startup_override_route_requires_authenticated_owner_and_rejected_callers_have
     note_dispatched_for_test(&fixture.service, &tab);
     let authority = fixture.service.user_send_authority(&tab).unwrap();
     let state = crate::transport_tabs::fixture::app_state(&fixture);
-    let tab_token = state.svc.frontend_pty_env(Some(&tab))["CODETERM_API_TOKEN"].clone();
+    let tab_token = state.svc.frontend_pty_env(Some(&tab)).unwrap()["CODETERM_API_TOKEN"].clone();
     let peer_token = signed_peer(&state);
     let service_id = state
         .svc
@@ -82,11 +82,13 @@ fn startup_override_route_requires_authenticated_owner_and_rejected_callers_have
             })
         }),
     );
-    fixture
+    let gate = fixture
         .service
         .pty
         .lock()
-        .invalidate_guarded_input(authority.pty_id().unwrap());
+        .guarded_input_gate(authority.pty_id().unwrap())
+        .unwrap();
+    gate.invalidate();
     let bare = Router::new()
         .route("/api/tabs/{id}/chat-send", post(chat_send_text))
         .with_state(state.clone());
@@ -148,7 +150,7 @@ fn ordinary_tab_chat_send_keeps_its_existing_admission_policy_without_override()
     let (fixture, tab) = queue_fixture(true, None);
     attach_fixture_pty(&fixture, &tab);
     let state = crate::transport_tabs::fixture::app_state(&fixture);
-    let token = state.svc.frontend_pty_env(Some(&tab))["CODETERM_API_TOKEN"].clone();
+    let token = state.svc.frontend_pty_env(Some(&tab)).unwrap()["CODETERM_API_TOKEN"].clone();
     let router = Router::new()
         .route("/api/tabs/{id}/chat-send", post(chat_send_text))
         .with_state(state.clone())

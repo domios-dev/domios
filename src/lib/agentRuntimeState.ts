@@ -1,5 +1,14 @@
 import { describeError, isPendingRuntimeDeadline } from "./describeError";
 export interface AgentRuntimeState {
+  agentName?: string;
+  iconSvg?: string;
+  binaryVersion?: string;
+  controls?: import("@codeterm/plugin-sdk").RuntimeSettings;
+  authentication?: import("@codeterm/plugin-sdk").RuntimeAuthentication;
+  notice?: string | null;
+  requiredSecrets?: string[];
+  /** Declared sign-in methods that take an API key, which the host stores and injects. */
+  apiKeyMethods?: string[];
   auth?: "signedIn"|"signedOut"|"unknown";
   loginCodeInput?: boolean;
   loginChoices?: { id: string; label: string }[];
@@ -10,6 +19,7 @@ export interface AgentRuntimeState {
   state: "loading" | "loginPending" | "loaded" | "unloaded" | "degraded";
   epoch: number;
   reason?: string | null;
+  failureCode?: import("@codeterm/plugin-sdk").RuntimeFailureCode;
   active_turn_started_at_ms?: number | null;
   last_turn_duration_ms?: number | null;
   history?: RuntimeHistoryState;
@@ -19,11 +29,18 @@ export interface AgentRuntimeState {
 
 export type RuntimeHistoryState = "loading" | "complete" | "failed";
 
+export function runtimeSessionLoadRefused(state: AgentRuntimeState | null | undefined): boolean {
+  return state?.state === "degraded" && state.failureCode === "session_load_refused";
+}
+
 export function runtimeResponseDeadlinePending(
   state: AgentRuntimeState | null | undefined,
   bootFailureReason?: string | null,
 ): boolean {
   if (state?.state === "loaded" && state.history !== "failed") return false;
+  if (state?.failureCode !== undefined && (state.state === "degraded" || state.state === "unloaded" || state.state === "loading")) {
+    return state.failureCode === "deadline";
+  }
   return isPendingRuntimeDeadline(bootFailureReason)
     || ((state?.state === "degraded" || state?.state === "loading") && isPendingRuntimeDeadline(state.reason))
     || (state?.state === "loaded" && state.history === "failed" && isPendingRuntimeDeadline(state.historyError));
@@ -55,6 +72,7 @@ export function runtimeStateFromSnapshot(
 ): AgentRuntimeState | null {
   if (!next) return null;
   if (current && next.epoch < current.epoch) return current;
+  if (current?.epoch === next.epoch && current.notice && next.notice === undefined) next = {...next,notice:current.notice};
   if (next.state === "loaded" || next.state === "loginPending") {
     const loaded = { ...next };
     delete loaded.reason;
@@ -86,6 +104,7 @@ export function runtimeRetryFailed(current: AgentRuntimeState | null, reason: st
 }
 
 export function runtimeStatusPresentation(state: AgentRuntimeState | null, startupOwned = false) {
+  if (runtimeSessionLoadRefused(state)) return null;
   if (state?.state === "loginPending") return { severity: "action_needed" as const,
     label: "Sign-in required", reason: "Sign in to continue.", details: null, canRetry: true };
   if (runtimeResponseDeadlinePending(state)) {

@@ -25,7 +25,12 @@ pub(super) fn authorize(
     let authorization = if params.skip_permissions == Some(false) || carried.is_some() {
         carried
     } else {
-        permission_policy::configured_permission_bypass_for(&svc, &svc.agent_registry, provider)?
+        permission_policy::spawn_permission_bypass_for_params(
+            svc,
+            provider,
+            params.role.as_deref() == Some("Worker"),
+            &params,
+        )?
     };
     params.skip_permissions = Some(permission_request(
         params.skip_permissions,
@@ -62,6 +67,11 @@ pub(super) fn apply_prepared(
         object.insert("networkAccess".into(), serde_json::json!(access));
     } else {
         object.remove("networkAccess");
+    }
+    if let Some(mode) = &options.full_access_mode {
+        object.insert("fullAccessMode".into(), serde_json::json!(mode));
+    } else {
+        object.remove("fullAccessMode");
     }
     Ok(config)
 }

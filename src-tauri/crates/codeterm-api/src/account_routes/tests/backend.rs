@@ -67,6 +67,7 @@ async fn backend_route_requires_local_owner_auth_and_reports_the_executing_endpo
     let tab_token = state
         .svc
         .frontend_pty_env(Some(&tab))
+        .unwrap()
         .remove("CODETERM_API_TOKEN")
         .unwrap();
     let router = crate::routes::create_router(state);

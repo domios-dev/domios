@@ -4,6 +4,7 @@ export interface RestoreFailureFacts {
   bootStage: string | null | undefined;
   agentType: string | null | undefined;
   protectedTab: boolean;
+  failureCode?: import("@codeterm/plugin-sdk").RuntimeFailureCode;
 }
 
 export interface RestoreFailurePresentation {
@@ -26,7 +27,8 @@ export function restoreFailurePresentation(
 ): RestoreFailurePresentation {
   const failed = facts.bootStage === "spawn_failed";
   const pending = failed && isPendingRuntimeDeadline(failureReason);
-  const missingSession = failureReason?.startsWith("restored_session_unavailable: session_missing:") === true;
+  const missingSession = facts.failureCode === "session_load_refused"
+    || failureReason?.startsWith("restored_session_unavailable: session_missing:") === true;
   return {
     view: pending ? "pending" : failed && !keepShell ? "launch_failure" : "terminal",
     showFailureBadge: failed && !pending,

@@ -63,6 +63,7 @@ impl Qa {
 
     pub fn endpoints(&'static self) -> Endpoints {
         Endpoints {
+            project: self.project,
             functions: &self.functions,
             signin: &self.signin,
             redeem: &self.redeem,

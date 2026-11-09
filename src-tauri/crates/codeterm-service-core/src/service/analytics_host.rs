@@ -43,7 +43,7 @@ impl ServiceContext {
                 })
             })
             .collect::<Result<Vec<_>, AnalyticsRefusal>>()?;
-        let directory = self.analytics_directory();
+        let directory = self.analytics_directory()?;
         let ledger = self.analytics_ledger_read(&buckets);
         let allowance: Vec<_> = super::plan::mission_control_ext::provider_allowances(self)
             .into_iter()
@@ -58,7 +58,7 @@ impl ServiceContext {
         })
     }
 
-    fn analytics_directory(&self) -> ScopeDirectory {
+    fn analytics_directory(&self) -> Result<ScopeDirectory, AnalyticsRefusal> {
         let mut directory = ScopeDirectory::default();
         {
             let mux = self.mux.read();
@@ -69,7 +69,9 @@ impl ServiceContext {
                 directory.teams.insert(team.id, team.name);
             }
         }
-        for plan in self.plan_store.list_index() {
+        for plan in self.plan_store.list_index().map_err(|error| {
+            AnalyticsRefusal::internal(format!("plan directory unavailable: {error}"))
+        })? {
             directory.plans.insert(
                 plan.plan_id,
                 DirectoryPlan {
@@ -86,7 +88,7 @@ impl ServiceContext {
                 directory.providers.insert(provider, name);
             }
         }
-        directory
+        Ok(directory)
     }
 
     fn analytics_ledger_read(&self, buckets: &[BucketBound]) -> LedgerRead {

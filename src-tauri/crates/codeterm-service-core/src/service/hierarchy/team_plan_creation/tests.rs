@@ -96,7 +96,7 @@ fn own_team_planner_can_create_plan_without_orchestrator_placeholder() {
     let harness = TeamPlanHarness::new(dir.path());
     let (orchestrator, planner, caller) = bound_pair(&harness.mux, "own");
     let outcome = planner_create(&harness, caller, "Planner-authored", 1).unwrap();
-    assert_eq!(harness.plan_store.list_index().len(), 1);
+    assert_eq!(harness.plan_store.list_index().unwrap().len(), 1);
     assert_eq!(
         outcome.plan.owner.tab_id.as_deref(),
         Some(orchestrator.as_str())
@@ -144,7 +144,7 @@ fn planner_plan_creation_waits_until_the_binding_deadline() {
     let error = planner_create(&harness, caller, "Still pending", 1).unwrap_err();
 
     assert!(matches!(error, TeamPlanCreationError::SessionUnregistered));
-    assert!(harness.plan_store.list_index().is_empty());
+    assert!(harness.plan_store.list_index().unwrap().is_empty());
 }
 
 #[test]
@@ -164,7 +164,7 @@ fn stale_foreign_or_unassigned_planner_cannot_create_plan() {
         binding_nonce: Some("none".into()),
     };
     assert!(planner_create(&harness, unassigned, "Unassigned", 3).is_err());
-    assert!(harness.plan_store.list_index().is_empty());
+    assert!(harness.plan_store.list_index().unwrap().is_empty());
 }
 
 #[test]
@@ -201,7 +201,7 @@ fn concurrent_planner_plan_create_never_duplicates_team_plan() {
             .count(),
         1
     );
-    assert_eq!(harness.plan_store.list_index().len(), 1);
+    assert_eq!(harness.plan_store.list_index().unwrap().len(), 1);
 }
 
 #[test]
@@ -332,5 +332,5 @@ fn existing_team_second_plan_preserves_hard_refuse() {
             ..
         }) if team_id == first.team_id && existing_plan_id == first.plan.id
     ));
-    assert_eq!(harness.plan_store.list_index().len(), 1);
+    assert_eq!(harness.plan_store.list_index().unwrap().len(), 1);
 }

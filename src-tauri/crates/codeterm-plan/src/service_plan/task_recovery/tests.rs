@@ -76,7 +76,7 @@ fn task_of(store: &PlanStore, plan_id: &str, task_id: &str) -> crate::plan::Task
 
 fn put_task_in_review(store: &PlanStore, plan_id: &str, task_id: &str) {
     store
-        .with_plan(plan_id, 5, |plan| {
+        .edit_plan_fixture(plan_id, 5, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()
@@ -352,7 +352,9 @@ fn late_dispatch_ready_for_a_retired_attempt_is_rejected() {
     let after = task_of(&store, &plan_id, &task_id);
     assert_ne!(after.status, TaskStatus::InProgress);
     assert!(after.interruption.owner_tab_id.is_none());
-    assert!(!store.worker_startup_attempt_owns(&plan_id, &task_id, GONE_TAB, &attempt_id, None));
+    assert!(!store
+        .worker_startup_attempt_owns(&plan_id, &task_id, GONE_TAB, &attempt_id, None)
+        .unwrap());
 }
 
 /// The widening is for the live Plan owner ONLY. Recovery adds no bypass to the

@@ -1,9 +1,9 @@
 {
   "version": "1.14.6",
   "releaseNotes": "One Update entry covers application and interface updates.\nInterface updates show their own release notes without an app restart.",
-  "minApiVersion": 3,
-  "maxApiVersion": 3,
+  "minApiVersion": 4,
+  "maxApiVersion": 4,
   "contractVersion": 1,
-  "repository": "rollacode/codeterm-releases",
+  "repository": "domios-dev/domios",
   "publicKey": "RWQEISOuM/Wnv5YTuWUQmyiPvtKi3ZoS8bL0Zi7LhEO4kCVhya7d4sVH"
 }

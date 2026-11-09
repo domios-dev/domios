@@ -25,10 +25,10 @@ export function slashCommandsEqual(a: readonly SlashCommandSuggestion[], b: read
 }
 export function capabilityBadge(snapshot:ProbeSnapshot | null | undefined):string | null {
   if (!snapshot) return null;
-  if (snapshot.status==="pending") return "Provider capabilities pending";
+  if (snapshot.status==="pending") return "Harness capabilities pending";
   if (snapshot.status==="unavailable") return `Provider capabilities unavailable (${snapshot.reason})`;
   const data=snapshot.data;
   return [data.account?.subscription_type,data.account?.api_provider,
     data.current_permission_mode ? `Mode: ${data.current_permission_mode}` : null,
-    data.fast_mode_state ? `Fast mode: ${data.fast_mode_state}` : null].filter(Boolean).join(" · ") || "Provider capabilities available";
+    data.fast_mode_state ? `Fast mode: ${data.fast_mode_state}` : null].filter(Boolean).join(" · ") || "Harness capabilities available";
 }

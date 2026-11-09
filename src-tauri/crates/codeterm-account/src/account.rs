@@ -6,6 +6,9 @@ use std::{
 };
 use tokio::sync::{oneshot, Mutex, Notify};
 
+mod owners;
+use owners::{CredentialOwner, ObserverOwner};
+
 fn unix_time() -> Option<u64> {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -31,13 +34,20 @@ pub struct Status {
     pub pending: bool,
     pub session_only: bool,
     pub last_sign_in_failure: Option<SignInFailure>,
+    /// Signed out because the saved sign-in belongs to another account target; the credential is kept.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_mismatch: Option<crate::TargetMismatch>,
+    /// The remote purchase switch; false unless the last fetch said exactly "true".
+    pub purchases_enabled: bool,
 }
 #[derive(Default)]
 struct State {
     session_revoked: bool,
+    session_only: bool,
     session: Option<Session>,
     pending: Option<(LoginFlow, oneshot::Sender<Redemption>)>,
     generation: u64,
+    publication_revision: u64,
     refresh_blocked: bool,
     refresh_revision: u64,
     last_refresh: Option<(u64, Result<()>)>,
@@ -46,11 +56,14 @@ struct State {
     #[cfg(debug_assertions)]
     pending_url: Option<url::Url>,
     last_sign_in_failure: Option<SignInFailure>,
+    target_mismatch: Option<crate::TargetMismatch>,
 }
 pub struct Account {
     provider: Arc<dyn IdentityProvider>,
     store: Arc<dyn CredentialStore>,
-    state: Mutex<State>,
+    state: Arc<Mutex<State>>,
+    credentials: CredentialOwner,
+    notifications: ObserverOwner,
     operation: Mutex<()>,
     refresh_cancel: Notify,
     deadline: Duration,
@@ -71,7 +84,9 @@ impl Account {
             observer: None,
             admission: None,
             browser_return_to_app: false,
-            state: Mutex::new(State::default()),
+            state: Arc::new(Mutex::new(State::default())),
+            credentials: CredentialOwner::new(),
+            notifications: ObserverOwner::new(),
             operation: Mutex::new(()),
             refresh_cancel: Notify::new(),
         }
@@ -100,8 +115,10 @@ impl Account {
                 .filter(|_| !state.refresh_blocked)
                 .map(|s| s.identity.clone()),
             pending: state.busy,
-            session_only: state.session.is_some() && self.store.session_only(self.provider.id()),
+            session_only: state.session.is_some() && state.session_only,
             last_sign_in_failure: state.last_sign_in_failure,
+            target_mismatch: state.target_mismatch.clone(),
+            purchases_enabled: crate::remote_config::purchases_enabled(),
         }
     }
     #[cfg(debug_assertions)]
@@ -248,49 +265,46 @@ impl Account {
                 .run(SignInStage::Publication, admission.admit(&tokens.session))
                 .await?;
         }
-        let mut state = self.state.lock().await;
+        if self.state.lock().await.generation != generation {
+            attempt.enter(SignInStage::Publication);
+            return Err(Error::Cancelled);
+        }
         attempt
-            .run(SignInStage::Publication, async {
-                if generation != state.generation {
-                    Err(Error::Cancelled)
-                } else {
-                    Ok(())
-                }
-            })
+            .run(
+                SignInStage::CredentialSave,
+                self.credentials
+                    .save(self, generation, tokens.refresh_token),
+            )
             .await?;
-        let saved = self.store.load(self.provider.id()).await?;
-        if saved.as_ref().map(Secret::expose) != Some(tokens.refresh_token.expose()) {
-            attempt
-                .run(
-                    SignInStage::CredentialSave,
-                    self.store.save(self.provider.id(), &tokens.refresh_token),
-                )
-                .await?;
-        }
         attempt.enter(SignInStage::Publication);
-        log::debug!(target: "codeterm_account::sign_in", "sign_in detail stage={} identity_present=true", SignInStage::Publication.name());
-        tokens.session.login_generation = generation;
-        let announce_identity = announce_sign_in
-            || state.session.as_ref().map(|session| &session.identity)
-                != Some(&tokens.session.identity);
-        state.session = Some(tokens.session);
-        state.refresh_blocked = false;
-        state.session_revoked = false;
-        state.last_sign_in_failure = None;
-        if let Some(observer) = self.observer.as_ref().filter(|_| announce_identity) {
-            observer
-                .changed(state.session.as_ref().map(|session| &session.identity))
-                .await;
-        }
-        let refreshed = if announce_sign_in {
-            None
-        } else {
-            state.session.clone()
+        let (revision, identity, announce_identity, refreshed) = {
+            let mut state = self.state.lock().await;
+            if state.generation != generation {
+                return Err(Error::Cancelled);
+            }
+            tokens.session.login_generation = generation;
+            let announce_identity = announce_sign_in
+                || state.session.as_ref().map(|session| &session.identity)
+                    != Some(&tokens.session.identity);
+            state.session = Some(tokens.session);
+            state.refresh_blocked = false;
+            state.session_revoked = false;
+            state.last_sign_in_failure = None;
+            state.target_mismatch = None;
+            state.publication_revision += 1;
+            (
+                state.publication_revision,
+                state
+                    .session
+                    .as_ref()
+                    .map(|session| session.identity.clone()),
+                announce_identity,
+                (!announce_sign_in).then(|| state.session.clone()).flatten(),
+            )
         };
-        drop(state);
-        if let (Some(observer), Some(session)) = (&self.observer, refreshed) {
-            observer.session_refreshed(&session).await;
-        }
+        self.notifications
+            .notify(self, revision, identity, announce_identity, refreshed)
+            .await?;
         Ok(())
     }
     pub async fn refresh(&self) -> Result<Status> {
@@ -335,24 +349,31 @@ impl Account {
             let mut state = self.state.lock().await;
             state.refresh_revision += 1;
             state.last_refresh = Some((generation, result));
-            if result == Err(Error::Credentials)
-                && state.generation == generation
-                && state
-                    .session
-                    .as_ref()
-                    .is_some_and(|session| force || session.expires_at.is_some_and(token_expired))
+            let mismatch = result == Err(Error::TargetMismatch) && state.generation == generation;
+            if mismatch {
+                state.target_mismatch = Some(crate::TargetMismatch::refused(
+                    crate::account_target::build_target(),
+                ));
+            }
+            if (mismatch && state.session.is_some())
+                || (result == Err(Error::Credentials)
+                    && state.generation == generation
+                    && state.session.as_ref().is_some_and(|session| {
+                        force || session.expires_at.is_some_and(token_expired)
+                    }))
             {
                 state.generation += 1;
                 state.session = None;
-                true
+                state.publication_revision += 1;
+                Some(state.publication_revision)
             } else {
-                false
+                None
             }
         };
-        if cleared {
-            if let Some(observer) = &self.observer {
-                observer.changed(None).await;
-            }
+        if let Some(generation) = cleared {
+            self.notifications
+                .notify(self, generation, None, true, None)
+                .await?;
         }
         result
     }
@@ -372,8 +393,8 @@ impl Account {
         };
         tokio::time::timeout(self.deadline, async {
             let token = self
-                .store
-                .load(self.provider.id())
+                .credentials
+                .load(self)
                 .await?
                 .ok_or(Error::Credentials)?;
             let tokens = tokio::select! {
@@ -389,9 +410,10 @@ impl Account {
         Ok(())
     }
     pub async fn logout(&self) -> Result<Status> {
-        {
+        let (generation, revision) = {
             let mut state = self.state.lock().await;
             state.generation += 1;
+            state.publication_revision += 1;
             state.refresh_blocked = true;
             state.session = None;
             if let Some(cancel) = state.login_cancel.take() {
@@ -404,16 +426,17 @@ impl Account {
                 state.pending_url = None;
             }
             state.busy = false;
-            state.session = None;
             state.session_revoked = false;
             state.last_sign_in_failure = None;
-            tokio::time::timeout(self.deadline, self.store.delete(self.provider.id()))
-                .await
-                .map_err(|_| Error::Timeout)??;
-            if let Some(observer) = &self.observer {
-                observer.changed(None).await;
-            }
-        }
+            state.target_mismatch = None;
+            (state.generation, state.publication_revision)
+        };
+        let (deleted, notified) = tokio::join!(
+            self.credentials.delete(self, generation),
+            self.notifications.notify(self, revision, None, true, None)
+        );
+        deleted?;
+        notified?;
         Ok(self.status().await)
     }
     pub async fn session_revoked(self: &Arc<Self>, expected: &Session) -> Result<bool> {
@@ -426,26 +449,31 @@ impl Account {
     }
 
     async fn clear_revoked_session(&self, expected: &Session) -> Result<bool> {
-        let mut state = self.state.lock().await;
-        if state.generation != expected.login_generation
-            || !state.session.as_ref().is_some_and(|current| {
-                current.login_generation == expected.login_generation
-                    && current.identity.uid == expected.identity.uid
-            })
-        {
-            return Ok(false);
-        }
-        state.generation += 1;
-        state.refresh_blocked = true;
-        state.session = None;
-        state.session_revoked = true;
-        state.last_sign_in_failure = None;
-        if let Some(observer) = &self.observer {
-            observer.changed(None).await;
-        }
-        tokio::time::timeout(self.deadline, self.store.delete(self.provider.id()))
-            .await
-            .map_err(|_| Error::Timeout)??;
+        let (generation, revision) = {
+            let mut state = self.state.lock().await;
+            if state.generation != expected.login_generation
+                || !state.session.as_ref().is_some_and(|current| {
+                    current.login_generation == expected.login_generation
+                        && current.identity.uid == expected.identity.uid
+                })
+            {
+                return Ok(false);
+            }
+            state.generation += 1;
+            state.refresh_blocked = true;
+            state.session = None;
+            state.session_revoked = true;
+            state.last_sign_in_failure = None;
+            state.target_mismatch = None;
+            state.publication_revision += 1;
+            (state.generation, state.publication_revision)
+        };
+        let (deleted, notified) = tokio::join!(
+            self.credentials.delete(self, generation),
+            self.notifications.notify(self, revision, None, true, None)
+        );
+        notified?;
+        deleted?;
         Ok(true)
     }
 

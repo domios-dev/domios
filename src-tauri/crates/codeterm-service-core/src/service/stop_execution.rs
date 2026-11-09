@@ -64,28 +64,61 @@ fn stop_sequence_steps(keys: &[String], wait_for_output: bool) -> Vec<StopSequen
     steps
 }
 
+fn runtime_interrupt_unconfirmed() -> serde_json::Value {
+    serde_json::json!({"ok": true, "stopped": false, "reason": "interrupt_unconfirmed", "route": "runtime"})
+}
+
 pub async fn stop_agent_turn(
     svc: ServiceContext,
     tab_id: String,
 ) -> Result<serde_json::Value, String> {
     log::info!("[tab-stop] attempt tab={}", tab_id);
     if let Some(runtime_tab) = super::agent_runtime::controls::routed_tab(&svc, &tab_id) {
-        return tokio::task::spawn_blocking(move || match svc.stop_decision(&runtime_tab) {
-            StopDecision::NoAgent => Ok(serde_json::json!({"ok": true, "stopped": false})),
-            StopDecision::NotWorking(status) => Ok(serde_json::json!({
-                "ok": true, "stopped": false, "reason": "not_working", "status": status.label(),
-            })),
-            StopDecision::Interrupt { .. } => {
-                let stopped = super::agent_runtime::controls::interrupt(&svc, &runtime_tab)?;
-                if stopped {
-                    Ok(serde_json::json!({"ok": true, "stopped": true, "reason": "stopped", "route": "runtime"}))
-                } else {
-                    Ok(serde_json::json!({"ok": true, "stopped": false, "reason": "not_working", "status": crate::agent::status::TabStatus::Idle.label(), "route": "runtime"}))
+        let stop: tokio::task::JoinHandle<Result<serde_json::Value, String>> =
+            tokio::task::spawn_blocking(move || match svc.stop_decision(&runtime_tab) {
+                StopDecision::NoAgent => Ok(serde_json::json!({"ok": true, "stopped": false})),
+                StopDecision::NotWorking(status)
+                    if !super::agent_runtime::controls::before_first_turn_pending(
+                        &svc,
+                        &runtime_tab,
+                    ) =>
+                {
+                    Ok(serde_json::json!({
+                        "ok": true, "stopped": false, "reason": "not_working", "status": status.label(),
+                    }))
                 }
+                StopDecision::Interrupt { .. } | StopDecision::NotWorking(_) => {
+                    use super::agent_runtime::controls::{InterruptDropped, InterruptOutcome};
+                    match super::agent_runtime::controls::stop(&svc, &runtime_tab)? {
+                        InterruptOutcome::Dropped(InterruptDropped::TurnEnded) => Ok(
+                            serde_json::json!({"ok": true, "stopped": false, "reason": "turn_ended", "route": "runtime"}),
+                        ),
+                        InterruptOutcome::Dropped(InterruptDropped::TurnChanged) => Ok(
+                            serde_json::json!({"ok": true, "stopped": false, "reason": "turn_changed", "route": "runtime"}),
+                        ),
+                        InterruptOutcome::Stopped => Ok(
+                            serde_json::json!({"ok": true, "stopped": true, "reason": "stopped", "route": "runtime"}),
+                        ),
+                        InterruptOutcome::NoTurn => Ok(
+                            serde_json::json!({"ok": true, "stopped": false, "reason": "not_working", "status": crate::agent::status::TabStatus::Idle.label(), "route": "runtime"}),
+                        ),
+                        InterruptOutcome::Pending => Ok(runtime_interrupt_unconfirmed()),
+                    }
+                }
+            });
+        // The detached interrupt keeps owning the provider's cancel grace; only the caller stops waiting.
+        return match tokio::time::timeout(STOP_CONFIRMATION_TIMEOUT, stop).await {
+            Ok(joined) => {
+                joined.map_err(|error| format!("Runtime stop operation failed: {error}"))?
             }
-        })
-        .await
-        .map_err(|error| format!("Runtime stop operation failed: {error}"))?;
+            Err(_) => {
+                log::info!(
+                    "[tab-stop] outcome tab={} stopped=false reason=interrupt_unconfirmed route=runtime",
+                    tab_id
+                );
+                Ok(runtime_interrupt_unconfirmed())
+            }
+        };
     }
     let deadline = Instant::now() + STOP_CONFIRMATION_TIMEOUT;
     let decision_svc = svc.clone();

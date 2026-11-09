@@ -16,7 +16,7 @@ interface ChatCursor {
 const chatCursorAdvanced = (prev: ChatCursor | null, next: ChatCursor): boolean => prev === null || next.boot !== prev.boot || next.seq > prev.seq;
 interface SubscriptionRecord {
     event: string;
-    kind: "chat" | "resize-owner" | "state" | "runtime";
+    kind: "chat" | "resize-owner" | "state" | "runtime" | "preview";
     ordinaryTabId: string;
     peerId: string;
     remoteTabId: string;
@@ -32,6 +32,7 @@ interface SubscriptionRecord {
     }>;
 }
 const subscriptions = new Map<string, SubscriptionRecord>();
+const previewHandlers = new Map<string, Set<(value: { payload: unknown }) => void>>();
 function connect(record: SubscriptionRecord): void {
     if (record.disposed)
         return;
@@ -68,6 +69,9 @@ function connect(record: SubscriptionRecord): void {
         let progressed = true;
         if (message.boot && typeof message.seq === "number") {
             progressed = record.recovery.noteProgress(generation, { boot: message.boot, seq: message.seq });
+        }
+        if (progressed && message.data && message.event_type === `preview-index-state-${record.remoteTabId}`) {
+            for (const handler of previewHandlers.get(record.ordinaryTabId) ?? []) handler({ payload: message.data });
         }
         if (progressed && message.data && record.kind === "chat"
             && message.event_type === `tab-chat-msg-${record.remoteTabId}`) {
@@ -122,19 +126,30 @@ export function subscribeRemoteTabEvent<T>(event: string, handler: (value: {
     const chatPrefix = "tab-chat-msg-";
     const ownerPrefix = "pty-resize-owner-changed:";
     const statePrefix = "peer-state-changed:";
+    const previewPrefix = "preview-index-state-";
     const kind = event.startsWith(runtimePrefix) ? "runtime" : event.startsWith(chatPrefix) ? "chat"
-        : event.startsWith(ownerPrefix) ? "resize-owner"
+        : event.startsWith(previewPrefix) ? "preview" : event.startsWith(ownerPrefix) ? "resize-owner"
             : event.startsWith(statePrefix) ? "state"
                 : null;
     if (!kind)
         return null;
-    const eventTarget = event.slice(kind === "runtime" ? runtimePrefix.length : kind === "chat" ? chatPrefix.length : kind === "state" ? statePrefix.length : ownerPrefix.length);
+    const eventTarget = event.slice(kind === "runtime" ? runtimePrefix.length : kind === "chat" ? chatPrefix.length : kind === "preview" ? previewPrefix.length : kind === "state" ? statePrefix.length : ownerPrefix.length);
     if (classifyTabTarget(eventTarget).kind === "invalid-remote") {
         throw new Error(`Invalid remote tab id "${eventTarget}"; local event fallback is forbidden`);
     }
     const identity = parseCompositeTabId(eventTarget);
     if (!identity)
         return null;
+    if (kind === "preview") {
+        const handlers = previewHandlers.get(identity.ordinaryTabId) ?? new Set();
+        const receive = handler as (value: { payload: unknown }) => void;
+        handlers.add(receive);
+        previewHandlers.set(identity.ordinaryTabId, handlers);
+        return () => {
+            handlers.delete(receive);
+            if (!handlers.size) previewHandlers.delete(identity.ordinaryTabId);
+        };
+    }
     subscriptions.get(event)?.controller?.abort();
     const record: SubscriptionRecord = {
         event,

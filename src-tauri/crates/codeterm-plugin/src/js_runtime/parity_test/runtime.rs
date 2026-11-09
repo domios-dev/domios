@@ -14,6 +14,7 @@ mod replay;
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct GenericFixture {
+    launch_profiles: std::collections::BTreeMap<String, RuntimeLaunchProfile>,
     context: RuntimeContext,
     operations: Vec<OperationCase>,
     reductions: Vec<ReductionCase>,
@@ -25,6 +26,8 @@ struct OperationCase {
     context: Option<RuntimeContext>,
     reply: Option<RpcReply>,
     plan: RuntimePlan,
+    #[serde(rename = "planError")]
+    plan_error: Option<RuntimeFailure>,
     step: Option<RuntimeStep>,
 }
 #[derive(Deserialize)]
@@ -73,7 +76,9 @@ fn generic_provider_with_history(dir: &Path, stored_history: bool) -> JsProvider
             ((*kind).into(), methods)
         })
         .collect();
-    let manifest=PluginManifest::from_json_str(&json!({"id":"echo-runtime","version":"1.0.0","displayName":"Fixture","capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},"agentRuntime":{"restrictedCli":{"kind":"execpolicy-service-operations","metadataDirectory":".runtime-policy"},"storedHistory":stored_history,"serviceTiers":[{"id":"priority","name":"Fast","description":""}],"backgroundProcesses":true,"usage":true,"threadHistory":{"actions":["fork","revert"]},"resetCreditsMinVersion":"0.162.1","runtime":"stdio-jsonrpc","command":{"binary":"fixture-engine","args":[]},"requestMethods":methods,"notificationMethods":["item"],"login":{"methods":["browser","device","apiKey"],"terminalCommand":"fixture-engine login"}}},"permissions":{"subprocess":{"allow":["fixture-engine"]}}}).to_string()).unwrap();
+    let fixture: GenericFixture =
+        serde_json::from_str(&std::fs::read_to_string(dir.join("shared.json")).unwrap()).unwrap();
+    let manifest=PluginManifest::from_json_str(&json!({"id":"echo-runtime","version":"1.0.0","displayName":"Fixture","capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},"agentRuntime":{"envelope":"jsonrpc2","launchProfiles":fixture.launch_profiles,"restrictedCli":{"kind":"execpolicy-service-operations","metadataDirectory":".runtime-policy"},"storedHistory":stored_history,"serviceTiers":[{"id":"priority","name":"Fast","description":""}],"backgroundProcesses":true,"usage":true,"threadHistory":{"actions":["fork","revert"]},"resetCreditsMinVersion":"0.162.1","runtime":"stdio-jsonrpc","command":{"binary":"fixture-engine","args":[]},"requestMethods":methods,"notificationMethods":["item"],"login":{"methods":["browser","device","apiKey"],"terminalCommand":"fixture-engine login"}}},"permissions":{"subprocess":{"allow":["fixture-engine","npx"]}}}).to_string()).unwrap();
     let source = std::fs::read_to_string(dir.join("plugin.js"))
         .expect("generic runtime plugin path must exist");
     JsProvider::new(
@@ -208,6 +213,18 @@ async fn runtime_native_quickjs_shared_fixture_parity() {
     let js = generic_provider(&dir);
     let native = native::NativeRuntime(js.agent_runtime().unwrap());
     assert_eq!(js.agent_runtime(), native.agent_runtime());
+    assert_eq!(
+        native.agent_runtime().unwrap().envelope,
+        Some(AgentRuntimeEnvelope::Jsonrpc2)
+    );
+    assert_eq!(
+        js.agent_runtime()
+            .unwrap()
+            .launch_profiles
+            .as_ref()
+            .unwrap(),
+        &fixture.launch_profiles
+    );
     assert!(js.agent_runtime().unwrap().usage);
     assert_eq!(js.agent_runtime().unwrap().service_tiers.len(), 1);
     assert_eq!(
@@ -271,6 +288,33 @@ async fn runtime_native_quickjs_shared_fixture_parity() {
     }
     for case in &fixture.operations {
         let ctx = case.context.as_ref().unwrap_or(&fixture.context);
+        if let Some(expected) = &case.plan_error {
+            assert_eq!(
+                &native.runtime_plan(ctx, &case.operation).await.unwrap_err(),
+                expected
+            );
+            assert_eq!(
+                &js.runtime_plan(ctx, &case.operation).await.unwrap_err(),
+                expected
+            );
+            assert_eq!(
+                &validate_runtime_plan(&native.0, ctx, &case.operation, &case.plan).unwrap_err(),
+                expected
+            );
+            for reason in [String::new(), "x".repeat(4097), "invalid\0reason".into()] {
+                let invalid = RuntimePlan {
+                    action: RuntimeAction::Refused { reason },
+                    state: Value::Null,
+                };
+                assert_eq!(
+                    validate_runtime_plan(&native.0, ctx, &case.operation, &invalid)
+                        .unwrap_err()
+                        .code,
+                    RuntimeFailureCode::InvalidSchema
+                );
+            }
+            continue;
+        }
         let a = native.runtime_plan(ctx, &case.operation).await.unwrap();
         let b = js.runtime_plan(ctx, &case.operation).await.unwrap();
         assert_eq!(a, case.plan);
@@ -729,4 +773,48 @@ async fn restricted_cli_context_native_quickjs_authority_parity() {
             .await
             .is_err());
     }
+}
+
+#[test]
+fn runtime_client_bridges_native_quickjs_declaration_parity() {
+    let fixture: Value =
+        serde_json::from_str(include_str!("fixtures/runtime/client-bridges.json")).unwrap();
+    let native: RuntimeClientBridges = serde_json::from_value(fixture.clone()).unwrap();
+    let mut raw = json!({"id":"bridge-fixture","version":"1.0.0","displayName":"Bridge fixture","capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},"agentRuntime":{"runtime":"stdio-jsonrpc","command":{"binary":"fixture-engine","args":[]},"requestMethods":{"initialize":["initialize"]},"notificationMethods":[]}},"permissions":{"subprocess":{"allow":["fixture-engine"]}}});
+    raw["capabilities"]["agentRuntime"]["clientBridges"] = fixture;
+    let interrupt: Value =
+        serde_json::from_str(include_str!("fixtures/runtime/interrupt.json")).unwrap();
+    raw["capabilities"]["agentRuntime"]["interrupt"] = interrupt.clone();
+    raw["capabilities"]["agentRuntime"]["requestMethods"]["interrupt"] = json!(["session/cancel"]);
+    let manifest = PluginManifest::from_json_str(&raw.to_string()).unwrap();
+    manifest.validate_agent_runtime().unwrap();
+    let js = JsProvider::new(
+        manifest,
+        Arc::new(PluginVm::from_source("bridge-fixture", "module.exports = {};".into()).unwrap()),
+    );
+    assert_eq!(js.agent_runtime().unwrap().client_bridges, Some(native));
+    assert_eq!(
+        js.agent_runtime().unwrap().interrupt,
+        Some(serde_json::from_value::<RuntimeInterruptCapability>(interrupt).unwrap())
+    );
+}
+
+#[test]
+fn turn_scoped_requests_native_quickjs_declaration_parity() {
+    let fixture: Value =
+        serde_json::from_str(include_str!("fixtures/runtime/turn-scoped-requests.json")).unwrap();
+    let native = native::NativeRuntime(serde_json::from_value(fixture.clone()).unwrap());
+    let raw = json!({"id":"turn-fixture","version":"1.0.0","displayName":"Turn fixture",
+        "capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},"agentRuntime":fixture},
+        "permissions":{"subprocess":{"allow":["fixture-engine"]}}});
+    let manifest = PluginManifest::from_json_str(&raw.to_string()).unwrap();
+    let js = JsProvider::new(
+        manifest,
+        Arc::new(PluginVm::from_source("turn-fixture", "module.exports={}".into()).unwrap()),
+    );
+    assert_eq!(native.agent_runtime(), js.agent_runtime());
+    assert_eq!(
+        js.agent_runtime().unwrap().turn_scoped_requests,
+        vec!["submitTurn"]
+    );
 }

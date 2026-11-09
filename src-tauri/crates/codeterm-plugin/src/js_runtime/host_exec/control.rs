@@ -3,24 +3,24 @@ use std::sync::Arc;
 
 #[derive(Default)]
 pub(super) struct Process {
-    state: parking_lot::Mutex<(bool, Option<u32>)>,
+    state: parking_lot::Mutex<(bool, Option<super::child::Target>)>,
 }
 
 impl Process {
     pub(super) fn cancel(&self) {
         let mut state = self.state.lock();
         state.0 = true;
-        if let Some(pid) = state.1 {
-            kill(pid);
+        if let Some(target) = &state.1 {
+            target.terminate();
         }
     }
 
-    fn register(&self, pid: u32) {
+    fn register(&self, target: super::child::Target) {
         let mut state = self.state.lock();
-        state.1 = Some(pid);
         if state.0 {
-            kill(pid);
+            target.terminate();
         }
+        state.1 = Some(target);
     }
 }
 
@@ -44,10 +44,10 @@ impl Drop for Scope {
 
 pub(super) struct ChildRegistration(Option<Arc<Process>>);
 
-pub(super) fn spawned(pid: u32) -> ChildRegistration {
+pub(super) fn spawned(target: super::child::Target) -> ChildRegistration {
     let process = CURRENT.with(|current| current.borrow().clone());
     if let Some(process) = &process {
-        process.register(pid);
+        process.register(target);
     }
     ChildRegistration(process)
 }
@@ -58,23 +58,4 @@ impl Drop for ChildRegistration {
             process.state.lock().1 = None;
         }
     }
-}
-
-#[cfg(unix)]
-fn kill(pid: u32) {
-    unsafe {
-        libc::kill(-(pid as i32), libc::SIGKILL);
-    }
-}
-
-#[cfg(windows)]
-fn kill(pid: u32) {
-    let mut command = std::process::Command::new("taskkill");
-    codeterm_util::process_util::no_window_std(&mut command);
-    let _ = command
-        .args(["/PID", &pid.to_string(), "/T", "/F"])
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status();
 }

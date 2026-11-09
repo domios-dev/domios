@@ -2,8 +2,24 @@ use serde_json::Value;
 
 use super::{plan_refs, JsonRpcError};
 use codeterm_service_core::service::plan::interruption::TaskMutationAuthority;
-use codeterm_service_core::service::plan::PlanError;
-use codeterm_service_core::service::ServiceState;
+use codeterm_service_core::service::plan::{PlanError, TaskOwnerEpochRead};
+use codeterm_service_core::service::{PlanAuthorityError, ServiceState};
+
+pub(super) fn planning_authority_error(error: PlanAuthorityError) -> JsonRpcError {
+    let mut data = serde_json::json!({ "type": error.diagnostic_type() });
+    if error.is_retryable() {
+        data["retryable"] = Value::Bool(true);
+    }
+    JsonRpcError {
+        code: if error == PlanAuthorityError::StoreReadFailed {
+            -32603
+        } else {
+            -32003
+        },
+        message: error.to_string(),
+        data: Some(data),
+    }
+}
 
 pub(super) fn authorize_draft_mutation(
     svc: &ServiceState,
@@ -28,17 +44,7 @@ pub(super) fn authorize_draft_mutation(
         },
     )
     .map(|_| ())
-    .map_err(|error| {
-        let mut data = serde_json::json!({ "type": error.diagnostic_type() });
-        if error.is_retryable() {
-            data["retryable"] = serde_json::Value::Bool(true);
-        }
-        JsonRpcError {
-            code: -32003,
-            message: error.to_string(),
-            data: Some(data),
-        }
-    })
+    .map_err(planning_authority_error)
 }
 
 /// Recovery verbs the live Plan owner may drive against a tab-gone task. A stale
@@ -68,7 +74,6 @@ pub(super) const PLAN_OWNER_AUTHORITY_METHODS: &[&str] = &[
     "plan.task.judge",
     "plan.task.rm",
     "plan.task.link",
-    "plan.task.relink",
 ];
 
 pub(super) fn is_recovery_method(method: &str) -> bool {
@@ -96,18 +101,19 @@ fn planner_may_edit_structure(
     params: &Option<Value>,
     svc: &ServiceState,
     plan_id: &str,
-) -> bool {
+) -> Result<bool, JsonRpcError> {
     if !PLANNER_STRUCTURE_METHODS.contains(&method) {
-        return false;
+        return Ok(false);
     }
     let body = params.as_ref().unwrap_or(&Value::Null);
     if codeterm_service_core::service::planner_forbidden_task_field(body).is_some() {
-        return false;
+        return Ok(false);
     }
-    matches!(
-        svc.classify_planning_caller(plan_id, &plan_caller(params)),
-        Ok(codeterm_service_core::plan::PlanningAuthor::Planner { .. })
-    )
+    match svc.classify_planning_caller(plan_id, &plan_caller(params)) {
+        Ok(codeterm_service_core::plan::PlanningAuthor::Planner { .. }) => Ok(true),
+        Err(error @ PlanAuthorityError::StoreReadFailed) => Err(planning_authority_error(error)),
+        _ => Ok(false),
+    }
 }
 
 /// Stable discriminants for task-authority refusals, carried as `data.type`.
@@ -180,8 +186,8 @@ pub(super) fn plan_orchestrator_close_override(
     params: &Option<Value>,
     svc: &ServiceState,
     plan_id: &str,
-) -> bool {
-    method == "plan.task.close" && caller_is_live_plan_owner(svc, plan_id, params)
+) -> Result<bool, JsonRpcError> {
+    Ok(method == "plan.task.close" && caller_is_live_plan_owner(svc, plan_id, params)?)
 }
 
 /// The recovered status a `plan.task.update` asks for, so cancel and pend land
@@ -242,32 +248,38 @@ fn owner_session_is_live(
 fn metadata_update_preserves_startup_owner(
     svc: &ServiceState,
     plan_id: &str,
-    task: &codeterm_service_core::plan::Task,
-) -> bool {
+    task: &TaskOwnerEpochRead,
+) -> Result<bool, JsonRpcError> {
     // Dispatch records task ownership before the launch session is persisted.
-    if task.interruption.owner_session_id.is_some() {
-        return false;
+    if task.owner_session_id.is_some() {
+        return Ok(false);
     }
-    let Some(tab_id) = task.interruption.owner_tab_id.as_deref() else {
-        return false;
+    let Some(tab_id) = task.owner_tab_id.as_deref() else {
+        return Ok(false);
     };
     let Some(owner) = svc
         .plan_store
-        .dispatch_startup_owner_candidate(plan_id, &task.id)
+        .dispatch_startup_owner_candidate(plan_id, &task.task_id)
+        .map_err(super::plan::plan_rpc_err)?
         .filter(|owner| owner.tab_id == tab_id)
     else {
-        return false;
+        return Ok(false);
     };
-    svc.plan_store
-        .worker_startup_attempt_owns(plan_id, &task.id, tab_id, &owner.attempt_id, None)
+    Ok(svc
+        .plan_store
+        .worker_startup_attempt_owns(plan_id, &task.task_id, tab_id, &owner.attempt_id, None)
+        .map_err(super::plan::plan_rpc_err)?
         && (svc.plan_store.task_dispatch_startup_reservation_owns(
             plan_id,
-            &task.id,
+            &task.task_id,
             &owner.attempt_id,
             tab_id,
         ) || super::plan_task_dispatch::dispatch_startup_owner_is_live(
-            svc, plan_id, &task.id, tab_id,
-        ))
+            svc,
+            plan_id,
+            &task.task_id,
+            tab_id,
+        )))
 }
 
 fn lane_metadata_only_task_update(method: &str, params: &Option<Value>) -> bool {
@@ -315,12 +327,12 @@ pub(super) fn plan_owner_may_recover(
     plan_id: &str,
     owner_tab_id: Option<&str>,
     owner_session_id: Option<&str>,
-) -> bool {
+) -> Result<bool, JsonRpcError> {
     if !is_recovery_method(method) {
-        return false;
+        return Ok(false);
     }
     if owner_session_is_live(svc, owner_tab_id, owner_session_id) {
-        return false;
+        return Ok(false);
     }
     caller_is_live_plan_owner(svc, plan_id, params)
 }
@@ -352,12 +364,17 @@ fn require_plan_role_for_unowned_task(
         .and_then(Value::as_bool)
         == Some(true)
         && caller.tab_id.is_none();
-    let plan_role = caller.tab_id.is_some()
-        && matches!(
-            svc.classify_planning_caller(plan_id, &caller),
-            Ok(codeterm_service_core::plan::PlanningAuthor::User
-                | codeterm_service_core::plan::PlanningAuthor::Planner { .. })
-        );
+    let plan_role = if caller.tab_id.is_some() {
+        match svc.classify_planning_caller(plan_id, &caller) {
+            Ok(_) => true,
+            Err(error @ PlanAuthorityError::StoreReadFailed) => {
+                return Err(planning_authority_error(error))
+            }
+            _ => false,
+        }
+    } else {
+        false
+    };
     if confirmed_human || plan_role {
         return Ok(());
     }
@@ -381,6 +398,7 @@ pub(super) fn verify_owner_epoch_for_task_mutation(
             | "plan.task.attempt.show"
             | "plan.task.adopt_checkpoint"
             | "plan.task.add"
+            | "plan.task.relink"
             | "plan.task.split"
             | "plan.task.dispatch_unplanned"
     ) {
@@ -389,8 +407,11 @@ pub(super) fn verify_owner_epoch_for_task_mutation(
     let (_, task_id) = plan_refs::resolve_task(&svc.plan_store, params)?;
     let detail = svc
         .plan_store
-        .show_task(&task_id)
-        .ok_or_else(|| rpc_error(PlanError::TaskNotFound.to_string()))?;
+        .task_owner_epoch_projection(&task_id)
+        .map_err(|error| match error {
+            PlanError::TaskNotFound => rpc_error(error),
+            error => super::plan::plan_rpc_err(error),
+        })?;
     let blocked_update = method == "plan.task.update"
         && params
             .as_ref()
@@ -411,11 +432,14 @@ pub(super) fn verify_owner_epoch_for_task_mutation(
             });
         }
         let caller = plan_caller(params);
-        let owner = caller_is_live_plan_owner(svc, &detail.plan_id, params);
-        let planner = matches!(
-            svc.classify_planning_caller(&detail.plan_id, &caller),
-            Ok(codeterm_service_core::plan::PlanningAuthor::Planner { .. })
-        ) && codeterm_service_core::service::planner_forbidden_task_field(
+        let owner = caller_is_live_plan_owner(svc, &detail.plan_id, params)?;
+        let planner = match svc.classify_planning_caller(&detail.plan_id, &caller) {
+            Ok(codeterm_service_core::plan::PlanningAuthor::Planner { .. }) => true,
+            Err(error @ PlanAuthorityError::StoreReadFailed) => {
+                return Err(planning_authority_error(error))
+            }
+            _ => false,
+        } && codeterm_service_core::service::planner_forbidden_task_field(
             params.as_ref().unwrap_or(&Value::Null),
         )
         .is_none();
@@ -427,10 +451,10 @@ pub(super) fn verify_owner_epoch_for_task_mutation(
         if planner
             && !owner_session_is_live(
                 svc,
-                detail.task.interruption.owner_tab_id.as_deref(),
-                detail.task.interruption.owner_session_id.as_deref(),
+                detail.owner_tab_id.as_deref(),
+                detail.owner_session_id.as_deref(),
             )
-            && detail.task.interruption.owner_epoch > 0
+            && detail.owner_epoch > 0
         {
             svc.plan_store
                 .retire_stale_task_owner_with_label(
@@ -445,27 +469,27 @@ pub(super) fn verify_owner_epoch_for_task_mutation(
             return Ok(());
         }
     }
-    if plan_orchestrator_close_override(method, params, svc, &detail.plan_id) {
+    if plan_orchestrator_close_override(method, params, svc, &detail.plan_id)? {
         return Ok(());
     }
-    if detail.task.interruption.owner_epoch == 0 {
+    if detail.owner_epoch == 0 {
         return require_plan_role_for_unowned_task(method, params, svc, &detail.plan_id);
     }
     // Structure-only, so the live attempt is neither fenced nor retired: the
     // Planner edits the brief around a Worker that keeps its ownership.
-    if planner_may_edit_structure(method, params, svc, &detail.plan_id) {
+    if planner_may_edit_structure(method, params, svc, &detail.plan_id)? {
         return Ok(());
     }
     let metadata_update_preserves_startup = lane_metadata_only_task_update(method, params)
-        && metadata_update_preserves_startup_owner(svc, &detail.plan_id, &detail.task);
+        && metadata_update_preserves_startup_owner(svc, &detail.plan_id, &detail)?;
     if plan_owner_may_recover(
         method,
         params,
         svc,
         &detail.plan_id,
-        detail.task.interruption.owner_tab_id.as_deref(),
-        detail.task.interruption.owner_session_id.as_deref(),
-    ) && !metadata_update_preserves_startup
+        detail.owner_tab_id.as_deref(),
+        detail.owner_session_id.as_deref(),
+    )? && !metadata_update_preserves_startup
     {
         // Retire-and-recover is ONE transition: the verb cannot proceed until the
         // stale attempt is fenced, so a later dispatch_ready is already dead.
@@ -482,7 +506,7 @@ pub(super) fn verify_owner_epoch_for_task_mutation(
         return Ok(());
     }
     let authority = task_mutation_authority(params, svc)?;
-    if detail.task.interruption.owner_epoch != authority.owner_epoch {
+    if detail.owner_epoch != authority.owner_epoch {
         return Err(authority_refusal(TaskAuthorityRefusal::OwnerEpochStale));
     }
     let binding_matches = svc
@@ -501,31 +525,57 @@ pub(super) fn verify_owner_epoch_for_task_mutation(
     // Plan ownership is proven against the LIVE tab, never against the owner
     // record's session field, which only the agent-restart path ever refreshes.
     if is_plan_owner_authority_method(method)
-        && caller_is_live_plan_owner(svc, &detail.plan_id, params)
+        && caller_is_live_plan_owner(svc, &detail.plan_id, params)?
     {
         return Ok(());
     }
-    svc.verify_task_owner_session(
-        &task_id,
-        &authority.tab_id,
-        &authority.session_id,
-        authority.owner_epoch,
-    )
-    .map_err(|_| {
-        authority_refusal(unrecognized_authority(
+    let authenticated = svc
+        .mux
+        .read()
+        .get_tab(&authority.tab_id)
+        .is_some_and(|tab| {
+            tab.agent_session_id.as_deref() == Some(&authority.session_id)
+                && tab.session_binding_nonce.as_ref().is_some_and(|nonce| {
+                    tab.reported_session_binding_nonce.as_deref() == Some(nonce.as_str())
+                })
+        });
+    let epoch_matches = if authenticated {
+        match svc.plan_store.task_owner_epoch_projection(&task_id) {
+            Ok(owner) => owner.matches_owner_epoch(&authority.tab_id, authority.owner_epoch),
+            Err(PlanError::TaskNotFound) => false,
+            Err(error) => return Err(super::plan::plan_rpc_err(error)),
+        }
+    } else {
+        false
+    };
+    if epoch_matches {
+        Ok(())
+    } else {
+        Err(authority_refusal(unrecognized_authority(
             svc,
             &detail.plan_id,
             params,
-            detail.task.interruption.owner_tab_id.as_deref(),
-            detail.task.interruption.owner_session_id.as_deref(),
-        ))
-    })
+            detail.owner_tab_id.as_deref(),
+            detail.owner_session_id.as_deref(),
+        )?))
+    }
 }
 
 // A headerless caller classifies as the user; live ownership needs the owner's tab.
-fn caller_is_live_plan_owner(svc: &ServiceState, plan_id: &str, params: &Option<Value>) -> bool {
+fn caller_is_live_plan_owner(
+    svc: &ServiceState,
+    plan_id: &str,
+    params: &Option<Value>,
+) -> Result<bool, JsonRpcError> {
     let caller = plan_caller(params);
-    caller.tab_id.is_some() && svc.authorize_plan_orchestrator(plan_id, &caller).is_ok()
+    if caller.tab_id.is_none() {
+        return Ok(false);
+    }
+    match svc.classify_planning_caller(plan_id, &caller) {
+        Ok(codeterm_service_core::plan::PlanningAuthor::User) => Ok(true),
+        Err(error @ PlanAuthorityError::StoreReadFailed) => Err(planning_authority_error(error)),
+        _ => Ok(false),
+    }
 }
 
 /// Names the state that actually blocked the caller: a Plan owner held off a
@@ -536,12 +586,12 @@ fn unrecognized_authority(
     params: &Option<Value>,
     owner_tab_id: Option<&str>,
     owner_session_id: Option<&str>,
-) -> TaskAuthorityRefusal {
+) -> Result<TaskAuthorityRefusal, JsonRpcError> {
     let owner_gone = !owner_session_is_live(svc, owner_tab_id, owner_session_id);
-    if owner_gone && caller_is_live_plan_owner(svc, plan_id, params) {
-        return TaskAuthorityRefusal::OwnerGoneVerbNotRecoverable;
+    if owner_gone && caller_is_live_plan_owner(svc, plan_id, params)? {
+        return Ok(TaskAuthorityRefusal::OwnerGoneVerbNotRecoverable);
     }
-    TaskAuthorityRefusal::CallerNotTaskOwner
+    Ok(TaskAuthorityRefusal::CallerNotTaskOwner)
 }
 
 pub(super) fn task_mutation_authority(
@@ -632,19 +682,12 @@ pub(super) fn verify_remote_worker_binding(
     })?;
     let worker_tab_id = super::get_string_param(params, "worker_tab_id")?;
     let nonce = super::get_string_param(params, "session_binding_nonce")?;
-    let detail = svc.plan_store.show_task(&task_id);
-    let attempt = detail.as_ref().and_then(|detail| {
-        detail
-            .task
-            .execution_attempts
-            .iter()
-            .find(|attempt| attempt.id == attempt_id)
-    });
-    let valid = attempt.is_some_and(|attempt| {
-        attempt.closed_at.is_none()
-            && attempt.retired_at.is_none()
-            && attempt.mesh_peer.as_deref() == Some(peer_id.as_str())
-            && attempt.executor_tab_id == worker_tab_id
+    let attempt = svc
+        .plan_store
+        .remote_worker_binding_projection(&plan_id, &task_id, &attempt_id)
+        .map_err(super::plan::plan_rpc_err)?;
+    let valid = attempt.as_ref().is_some_and(|attempt| {
+        attempt.can_observe(&peer_id, &worker_tab_id)
             && super::plan_task_dispatch::remote_recovery::observe_worker(
                 svc,
                 &plan_id,
@@ -663,5 +706,32 @@ pub(super) fn verify_remote_worker_binding(
             message: "remote worker binding does not match the origin attempt".into(),
             data: Some(serde_json::json!({"type": "remote_worker_binding_stale"})),
         })
+    }
+}
+
+pub(super) fn plan_operation_error(
+    error: codeterm_service_core::service::PlanOperationError,
+) -> JsonRpcError {
+    match error {
+        codeterm_service_core::service::PlanOperationError::Authority(error) => {
+            execution_authority_error(error, Some("plan_approval_authorization_required"))
+        }
+        codeterm_service_core::service::PlanOperationError::Store(error) => {
+            super::plan::plan_rpc_err(error)
+        }
+    }
+}
+
+pub(super) fn execution_authority_error(
+    error: codeterm_service_core::service::PlanAuthorityError,
+    diagnostic: Option<&str>,
+) -> JsonRpcError {
+    if error == codeterm_service_core::service::PlanAuthorityError::StoreReadFailed {
+        return planning_authority_error(error);
+    }
+    JsonRpcError {
+        code: -32003,
+        message: error.to_string(),
+        data: diagnostic.map(|diagnostic| serde_json::json!({"type": diagnostic})),
     }
 }

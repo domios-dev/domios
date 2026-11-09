@@ -13,6 +13,7 @@ use std::{collections::HashSet, sync::Arc, time::Duration};
 pub(super) enum Mode {
     Interrupt,
     Shutdown,
+    Failure,
 }
 
 #[async_trait::async_trait]
@@ -44,6 +45,7 @@ struct RuntimeIo<'a> {
     session: &'a Arc<Session>,
     process: &'a Arc<Process>,
     captured: Vec<Member>,
+    failure_cleanup: bool,
 }
 #[async_trait::async_trait]
 impl CleanupIo for RuntimeIo<'_> {
@@ -90,7 +92,11 @@ impl CleanupIo for RuntimeIo<'_> {
         );
     }
     async fn finish(&mut self) -> Result<(), RuntimeFailure> {
-        self.process.finish().await?;
+        if self.failure_cleanup {
+            self.process.finish_after_failure().await?;
+        } else {
+            self.process.finish().await?;
+        }
         self.session.maps.lock().background_processes.clear();
         Ok(())
     }
@@ -121,6 +127,7 @@ pub(super) async fn cleanup(
         session,
         process,
         captured,
+        failure_cleanup: mode == Mode::Failure,
     };
     coordinate(&mut io, &context, mode, enabled).await
 }
@@ -282,6 +289,7 @@ async fn list_for_tab_inner(
         session: &session,
         process: &process,
         captured: Vec::new(),
+        failure_cleanup: false,
     };
     let processes = list_owned(&mut io, &context).await?;
     validate_current_session(svc, tab, &authority, &session)?;
@@ -319,6 +327,7 @@ async fn stop_for_tab_inner(
         session: &session,
         process: &process,
         captured: Vec::new(),
+        failure_cleanup: false,
     };
     let before = list(&mut io, &request.thread_id).await?;
     validate_current_session(svc, tab, &authority, &session)?;
@@ -373,7 +382,7 @@ async fn coordinate(
     } else {
         Ok(())
     };
-    if mode == Mode::Shutdown {
+    if matches!(mode, Mode::Shutdown | Mode::Failure) {
         if let Err(reason) = protocol {
             log::debug!(
                 "[agent-runtime] protocol cleanup failed before owned-tree retirement: {reason}"
@@ -457,7 +466,7 @@ async fn drain(
     let Some(root) = context.thread_id.clone() else {
         return Ok(());
     };
-    if mode == Mode::Shutdown
+    if matches!(mode, Mode::Shutdown | Mode::Failure)
         && (!context.active_turns.is_empty() || context.active_turn_id.is_some())
     {
         match io

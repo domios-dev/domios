@@ -1,8 +1,8 @@
-
+import type { PlanView as Plan, PlanSectionView as Section, PlanTaskView as Task } from "../planProjection";
 import { TASK_STATUS_COLORS } from "../settings";
 import { flatSections, flattenSections, sectionRows, type SectionRowGlyph } from "../sectionRows";
 import { facetColorMap, resolveTags } from "../tagModel";
-import type { Plan, Section, Task, TagFacet } from "../types";
+import type { TagFacet } from "../types";
 import type { TaskPresence } from "../taskPresence";
 
 export type CardLevel = "far" | "near";

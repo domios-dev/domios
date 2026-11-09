@@ -2,7 +2,7 @@ use super::support::*;
 use crate::account_mesh::{wire::RegistryRefusal, *};
 
 #[tokio::test]
-async fn account_mesh_forbidden_cached_recover_falls_back_to_one_rotation_and_enrollment() {
+async fn account_mesh_changed_local_key_recovers_revoked_slot_without_registry_read() {
     let mut harness = Harness::new().await;
     harness.sign_in("owner").await;
     harness
@@ -21,7 +21,7 @@ async fn account_mesh_forbidden_cached_recover_falls_back_to_one_rotation_and_en
         .refresh(EnrollTrigger::Automatic)
         .await
         .unwrap();
-    assert_eq!(harness.calls("list"), 1);
+    assert_eq!(harness.calls("list"), 0);
     assert_eq!(harness.calls("recover"), 1);
     assert_eq!(harness.calls("recover_key"), 1);
     assert_eq!(harness.calls("enroll"), 1);
@@ -67,24 +67,18 @@ async fn account_mesh_stuck_typed_forbidden_backs_off_for_hours_without_repeated
 }
 
 #[test]
-fn account_mesh_short_lease_margin_is_capped_at_ten_minutes() {
-    let membership = |duration| VerifiedMembership {
-        account_id: "account".into(),
-        installation_id: INSTALLATION.into(),
-        key_id: "a".repeat(64),
-        key_generation: 1,
-        slot_revision: 1,
-        issued_at: START,
-        expires_at: START + duration,
-    };
-    for duration in [1, 119, 120, 121, 600, 1800, 2400, 3600, 86400] {
-        let latest_margin = 120u64.max(duration / 24).min(duration / 2);
-        let earliest_margin = 600u64.max(duration / 12).min(duration / 2);
-        let due = membership(duration).refresh_after();
-        assert!(
-            (START + duration - earliest_margin..=START + duration - latest_margin).contains(&due)
-        );
-        assert!(due > START);
+fn account_mesh_renewal_margin_is_one_twelfth_of_each_granted_lifetime() {
+    for duration in [1, 119, 120, 121, 600, 1800, 2400, 3600, 86400, 172800] {
+        let membership = VerifiedMembership {
+            account_id: "account".into(),
+            installation_id: INSTALLATION.into(),
+            key_id: "a".repeat(64),
+            key_generation: 1,
+            slot_revision: 1,
+            issued_at: START,
+            expires_at: START + duration,
+        };
+        assert_eq!(membership.refresh_after(), START + duration - duration / 12);
     }
 }
 
@@ -119,6 +113,7 @@ async fn account_mesh_manual_network_and_signin_rearm_escape_four_hour_permanent
             14400
         );
         let calls = harness.calls("publish");
+        let renewals = harness.calls("renew");
         harness.registry.script.lock().unwrap().publication = None;
         for deferred in [EnrollTrigger::Lease, EnrollTrigger::Automatic] {
             assert_eq!(
@@ -131,7 +126,10 @@ async fn account_mesh_manual_network_and_signin_rearm_escape_four_hour_permanent
             harness.mesh.enrollment_signed_in();
         }
         harness.mesh.refresh(trigger).await.unwrap();
-        assert_eq!(harness.calls("publish"), calls + 1);
+        let renewed = trigger == EnrollTrigger::Automatic;
+        assert_eq!(harness.calls("publish"), calls + usize::from(!renewed));
+        assert_eq!(harness.calls("renew"), renewals + usize::from(renewed));
+        assert!(harness.registry.endpoint("owner").is_some());
         assert_eq!(harness.state().publication, Publication::Published);
         assert_eq!(harness.state().retry_at, None);
     }

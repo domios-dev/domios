@@ -33,7 +33,7 @@ fn plan_with_history(
         )
         .unwrap();
     store
-        .with_plan(&plan.id, at, |plan| {
+        .edit_plan_fixture(&plan.id, at, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()
@@ -104,7 +104,7 @@ fn a_plan_touched_after_the_candidate_scan_is_not_deleted() {
     let touched = plan_with_history(&store, root.path(), "Touched", 400);
     let cutoff = NOW_MS - PLAN_RETENTION_MS;
     store
-        .with_plan(&touched, NOW_MS, |plan| {
+        .edit_plan_fixture(&touched, NOW_MS, |plan| {
             plan.tasks[0].body = "touched".into();
             Ok(())
         })

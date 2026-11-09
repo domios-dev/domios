@@ -6,14 +6,20 @@ use crate::service::MuxEmitCause;
 use crate::{multiplexer::types::TabBacking, service::ServiceContext};
 use std::sync::{atomic::Ordering, Arc};
 
-pub(crate) async fn restart(
+pub(in crate::service) async fn restart(
     svc: &ServiceContext,
     tab: &str,
     provider: &str,
     old_nonce: &str,
-    fresh: bool,
+    fresh_restart: Option<(&crate::service::agent_restart::TabRestartSnapshot, bool)>,
+    retry_refused_start: bool,
 ) -> Result<Arc<Session>, RuntimeFailure> {
-    let result = restart_inner(svc, tab, provider, old_nonce, fresh, false)
+    let trigger = if retry_refused_start {
+        Trigger::RetryRefused
+    } else {
+        Trigger::Request
+    };
+    let result = restart_inner(svc, tab, provider, old_nonce, fresh_restart, trigger)
         .await
         .and_then(|session| session.ok_or(RuntimeFailure::Superseded));
     if let Err(reason) = &result {
@@ -37,9 +43,17 @@ pub(crate) async fn restart_idle(
     provider: &str,
     nonce: &str,
 ) -> Result<Option<Arc<Session>>, RuntimeFailure> {
-    restart_inner(svc, tab, provider, nonce, false, true)
+    restart_inner(svc, tab, provider, nonce, None, Trigger::IdleUpdate)
         .await
         .inspect_err(|_| svc.clear_runtime_restart_binding(tab))
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Trigger {
+    IdleUpdate,
+    Request,
+    /// Only this trigger retires a retained provider refusal, so it relaunches.
+    RetryRefused,
 }
 
 async fn restart_inner(
@@ -47,9 +61,10 @@ async fn restart_inner(
     tab: &str,
     provider: &str,
     old_nonce: &str,
-    fresh: bool,
-    idle_only: bool,
+    fresh_restart: Option<(&crate::service::agent_restart::TabRestartSnapshot, bool)>,
+    trigger: Trigger,
 ) -> Result<Option<Arc<Session>>, RuntimeFailure> {
+    let idle_only = trigger == Trigger::IdleUpdate;
     let session = engine::for_tab(tab);
     let _permit = match &session {
         Some(session) => Some(
@@ -60,10 +75,25 @@ async fn restart_inner(
         ),
         None => None,
     };
+    let fresh = fresh_restart.is_some();
+    if let Some((snapshot, force)) = fresh_restart {
+        svc.require_fresh_restart_allowed(snapshot, force)
+            .map_err(|_| {
+                RuntimeFailure::Refused(
+                    "Fresh restart is no longer allowed for the current session".into(),
+                )
+            })?;
+    }
     if let Some(session) = &session {
         if idle_only {
             engine::validate_binding(svc, session)?;
-        } else {
+        } else if !fresh
+            || !svc
+                .mux
+                .read()
+                .get_tab(tab)
+                .is_some_and(super::start_failure::for_tab)
+        {
             engine::validate_restart_binding(svc, session)?;
         }
         if idle_only
@@ -72,6 +102,14 @@ async fn restart_inner(
         {
             return Ok(None);
         }
+    }
+    if let Some(session) = &session {
+        super::turn_requests::end_for_lifecycle(
+            svc,
+            session,
+            "Runtime restarted before the turn completion reply",
+        )
+        .await;
     }
     let old_thread = svc
         .mux
@@ -84,7 +122,8 @@ async fn restart_inner(
     let binding = svc
         .authorize_runtime_restart_binding(tab, provider, old_nonce, fresh)
         .map_err(RuntimeFailure::Refused)?;
-    let environment = super::environment::compose(svc, tab, provider, old_nonce);
+    let environment = super::environment::compose(svc, tab, provider, old_nonce)
+        .map_err(|reason| RuntimeFailure::SpawnFailed { reason })?;
     for status in svc
         .chat_send_ledger
         .rpc_uncertain_for_launch(tab, Some(old_nonce))
@@ -99,7 +138,21 @@ async fn restart_inner(
     let nonce = super::authority::rotate_restart(svc, tab, provider, old_nonce)
         .map_err(RuntimeFailure::Refused)?;
     svc.stage_runtime_restart_binding(tab, binding);
+    let mut bridge_retired = Ok(());
     if let Some(session) = &session {
+        // The client bridge is found by the old epoch and nonce, so it retires (its pending
+        // requests answered, terminals killed) before the context moves to the new epoch.
+        let process = session.process.lock().clone();
+        if let Some(process) = process {
+            bridge_retired = super::client_bridge::cancel(svc, session, &process, true).await;
+        }
+        if fresh {
+            // The archive is read once the thread is gone, so it must hold the settled rows now.
+            super::subscriber::settle_replaced_session(svc, session);
+            if !session.cache.lock().tail(1).is_empty() {
+                super::transcript::persist(session).await;
+            }
+        }
         let context = session.context.lock().clone();
         super::prompt_answers::clear(svc, &context);
         let epoch = session.state.lock().begin();
@@ -113,11 +166,14 @@ async fn restart_inner(
                 context.thread_id = None;
             }
         }
+        super::declared_controls::reset(session, epoch);
         {
             let mut state = session.state.lock();
+            state.failure_code = None;
             state.phase = RuntimePhase::Unloaded { reason: None };
             if fresh {
                 state.thread_id = None;
+                state.active_turn_started_at_ms = None;
             }
         }
         session.thread_loaded.store(false, Ordering::Release);
@@ -138,7 +194,8 @@ async fn restart_inner(
         }
         target.agent_booting = true;
         target.boot_stage = None;
-        if rebound {
+        // Without a live session the tab's retained state is all the launch guard reads.
+        if rebound || (session.is_none() && (fresh || trigger == Trigger::RetryRefused)) {
             let mut state = RuntimeState::unloaded(old_thread.clone());
             state.restore_timing(target.agent_runtime_state.as_ref());
             if let Some(session) = &session {
@@ -149,9 +206,18 @@ async fn restart_inner(
             target.agent_runtime_state = serde_json::to_value(state.snapshot()).ok();
         }
         if fresh {
+            if let Some(thread) = &old_thread {
+                target.archive_context_epoch(provider, thread);
+            }
             target.agent_session_id = None;
             target.agent_session_name = None;
             target.restored_from_snapshot = false;
+            target.agent_state = Some(codeterm_types::pty::AgentLiveState::from(
+                codeterm_types::pty::TabVerdict {
+                    state: codeterm_types::pty::TimelineState::Idle,
+                    subtype: None,
+                },
+            ));
             if let Some(restore) = target.close_restore.as_mut() {
                 restore.exact_session = false;
             }
@@ -177,7 +243,7 @@ async fn restart_inner(
             }
             session.process.lock().take();
         }
-        Ok(())
+        bridge_retired
     }
     .await;
     drop(_permit);
@@ -192,7 +258,7 @@ async fn restart_inner(
             "Fresh runtime returned the previous thread".into(),
         ));
     }
-    if !fresh && loaded.context.lock().thread_id != old_thread {
+    if !fresh && old_thread.is_some() && loaded.context.lock().thread_id != old_thread {
         return Err(RuntimeFailure::Superseded);
     }
     Ok(Some(loaded))

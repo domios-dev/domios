@@ -76,6 +76,8 @@ fn snapshot_failure(tab_id: &str, error: String) -> SnapshotError {
 #[path = "tab_chat_routes/sleeping_tests.rs"]
 mod sleeping_tests;
 
+pub(crate) mod closed;
+
 #[derive(Deserialize)]
 pub struct ChatQuery {
     #[serde(default)]
@@ -116,9 +118,9 @@ pub async fn snapshot(
     AxumState(state): AxumState<AppState>,
     Path(raw_tab_id): Path<String>,
     Query(query): Query<ChatQuery>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, SnapshotError> {
-    tokio::task::spawn_blocking(move || snapshot_blocking(state, raw_tab_id, query))
+    tokio::task::spawn_blocking(move || snapshot_blocking(state, raw_tab_id, query, headers))
         .await
         .map_err(|error| snapshot_failure("snapshot-worker", error.to_string()))?
 }
@@ -127,8 +129,16 @@ fn snapshot_blocking(
     state: AppState,
     raw_tab_id: String,
     query: ChatQuery,
+    headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, SnapshotError> {
-    let tab_id = resolve_tab(&state, &raw_tab_id)?;
+    let tab_id = match resolve_tab(&state, &raw_tab_id) {
+        Ok(tab_id) => tab_id,
+        // Only a tab with no live record reads as closed, so live reads are unchanged.
+        Err(refusal) => {
+            return closed::snapshot(&state, &raw_tab_id, query.since, &headers)
+                .unwrap_or_else(|| Err(refusal.into()))
+        }
+    };
     if chat_read_target(&state.svc.mux, &tab_id)? == ChatReadTarget::Unbound {
         let since = query.since;
         let journal = state.svc.lifecycle_journal.clone();

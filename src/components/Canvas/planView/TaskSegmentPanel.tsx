@@ -1,10 +1,11 @@
+import type { PlanView as Plan } from "../planProjection";
 import { TaskHistoryControls, type TaskHistoryController } from "./TaskHistoryControls";
 import type { RefObject } from "react";
 import type { ApiConfig, Tab } from "../../../lib/types";
 import { DetailContent } from "../canvasRender/DetailContent";
 import type { SectionNavArgs } from "../nodeRegistry";
 import { taskDisplayKey } from "../taskDisplayKey";
-import type { Plan, PlanTaskDetail } from "../types";
+import type { PlanTaskDetail } from "../types";
 import { taskDetailMatchesReference } from "../usePlanTaskDetail";
 import { competitionForTask } from "./competitionForTask";
 import { loopForTask } from "./loopForTask";

@@ -544,6 +544,7 @@ impl ServiceContext {
                 launched_model: model.into(),
                 confirmation_detail: Some(pending::PENDING_DETAIL.into()),
                 confirmation: ModelSwitchConfirmation::Pending,
+                control_changes: Vec::new(),
             });
         }
         if let Some((_, signal)) = self
@@ -614,6 +615,7 @@ impl ServiceContext {
                 model: model.to_owned(),
                 evidence: ModelSwitchEvidence::LiveSessionRecord,
             },
+            control_changes: Vec::new(),
         })
     }
 
@@ -667,7 +669,18 @@ impl ServiceContext {
             .prompt
             .as_ref()
             .filter(|_| !structural_confirmation)
-            .map(|declaration| CommandPrompt::new(declaration, target, effort))
+            .map(|declaration| {
+                CommandPrompt::new(declaration, target, effort).map(|prompt| {
+                    if template.confirmation_prompt_kind.is_some() {
+                        prompt.with_structural_confirmation(
+                            target.readiness.clone(),
+                            effort.unwrap_or(model),
+                        )
+                    } else {
+                        prompt
+                    }
+                })
+            })
             .transpose()
             .map_err(ModelSwitchError::LiveCommandFailed)?;
         let mut picker = template

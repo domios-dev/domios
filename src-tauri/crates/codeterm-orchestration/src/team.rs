@@ -6,13 +6,15 @@ use codeterm_service_core::multiplexer::state::MultiplexerState;
 use codeterm_service_core::multiplexer::types::{AgentRole, TabCloseReason};
 use codeterm_service_core::service::plan::PlanError;
 use codeterm_service_core::service::team_core::{
-    is_remote_team, local_team_anchors, now_ms, remote_team_origin, valid_live_plan_team,
-    TeamMutationCaller, TeamPlanError,
+    is_remote_team, local_team_anchors, now_ms, remote_team_origin, TeamMutationCaller,
+    TeamPlanError,
 };
 use codeterm_service_core::service::ServiceContext;
 
 pub mod close;
 mod close_busy;
+mod member_commit;
+pub use member_commit::commit_team_member_prepared;
 mod storage_teardown;
 mod validation;
 #[cfg(any(test, feature = "test-support"))]
@@ -105,6 +107,17 @@ pub async fn add_team_member(
     caller_tab_id: Option<&str>,
     params: AddTeamMemberParams,
 ) -> Result<AddTeamMemberResult, String> {
+    add_team_member_checked(svc, team_id, caller_tab_id, params)
+        .await
+        .map_err(Into::into)
+}
+
+pub async fn add_team_member_checked(
+    svc: &ServiceContext,
+    team_id: &str,
+    caller_tab_id: Option<&str>,
+    params: AddTeamMemberParams,
+) -> Result<AddTeamMemberResult, codeterm_service_core::service::spawn_params::SpawnTargetRefusal> {
     codeterm_service_core::service::spawn::validate_agent_model(
         &svc.agent_registry,
         &params.provider,
@@ -144,7 +157,9 @@ pub async fn add_team_member(
         (prepared, existing)
     };
     if let Some(existing) = existing {
-        return staffing::reuse_cartographer_with_brief(svc, existing, params.task).await;
+        return staffing::reuse_cartographer_with_brief(svc, existing, params.task)
+            .await
+            .map_err(Into::into);
     }
     svc.classify_spawn_target_for_params(
         classified.spawn_params.agent.as_deref().unwrap_or_default(),
@@ -166,7 +181,9 @@ pub async fn add_team_member(
         (prepared, detached, existing)
     };
     if let Some(existing) = existing {
-        return staffing::reuse_cartographer_with_brief(svc, existing, brief).await;
+        return staffing::reuse_cartographer_with_brief(svc, existing, brief)
+            .await
+            .map_err(Into::into);
     }
     if detached_failed_anchor {
         codeterm_service_core::service::publish_mux_state_changed(&svc.events);
@@ -195,28 +212,35 @@ pub async fn add_team_member(
                     codeterm_service_core::async_runtime::spawn_blocking(move || lane.cleanup())
                         .await;
             }
-            return Err(error);
+            return Err(error.into());
         }
     };
     let anchors = staffing::role_anchors_team(
         &prepared.expected_role,
         prepared.expected_profile.as_deref(),
     );
-    let (result, history_batch) = {
-        let mut mux = svc.mux.write();
-        let result = commit_team_member_with_plan_takeover(
-            &mut mux,
-            &svc.events,
-            team_id,
-            caller_tab_id,
-            &tab_id,
+    let service = svc.clone();
+    let (team_id_owned, caller_owned, tab_owned) = (
+        team_id.to_string(),
+        caller_tab_id.map(str::to_string),
+        tab_id.clone(),
+    );
+    let (result, history_batch) = codeterm_service_core::async_runtime::spawn_blocking(move || {
+        let result = commit_team_member_prepared(
+            &service,
+            &team_id_owned,
+            caller_owned.as_deref(),
+            &tab_owned,
             &prepared.expected_role,
             &prepared.expected_profile,
             anchors,
-            |mux| take_over_team_plan(mux, &svc.plan_store, team_id, &tab_id, now_ms()),
+            now_ms(),
         );
-        (result, mux.take_closed_history_batch())
-    };
+        let history = service.mux.write().take_closed_history_batch();
+        (result, history)
+    })
+    .await
+    .map_err(|error| format!("Team member commit worker failed: {error}"))?;
     if let Some(batch) = history_batch {
         codeterm_service_core::async_runtime::spawn_blocking(move || batch.persist())
             .await
@@ -233,7 +257,7 @@ pub async fn add_team_member(
                     codeterm_service_core::async_runtime::spawn_blocking(move || lane.cleanup())
                         .await;
             }
-            return Err(error);
+            return Err(error.into());
         }
     };
     result.warning = spawn_warning;
@@ -347,10 +371,11 @@ async fn close_team_inner(
     let lane_team_id = team_id.to_string();
     let lane_member_ids = prepared.member_tab_ids.clone();
     let plans = tokio::task::spawn_blocking(move || {
-        lane_plan_store.team_close_plans(&lane_team_id, &lane_member_ids)
+        lane_plan_store.team_close_projection(&lane_team_id, &lane_member_ids)
     })
     .await
-    .map_err(|error| format!("Team lane inventory task failed: {error}"))?;
+    .map_err(|error| format!("Team lane inventory task failed: {error}"))?
+    .map_err(|error| error.to_string())?;
     let lanes = team_close_lanes(&plans, team_id, &prepared.member_tab_ids);
     let busy = {
         let mux = svc.mux.read();
@@ -503,17 +528,13 @@ async fn close_team_inner(
     for tab_id in &cleanup.member_tab_ids {
         svc.settle_lanes_held_by_closed_tab(tab_id);
     }
-    let flagged_plans = changed_plan_ids
-        .iter()
-        .filter_map(|plan_id| svc.plan_store.get(plan_id))
-        .filter_map(|plan| {
-            let reason = plan.orphaned.map(|orphan| orphan.reason)?;
-            Some(close_busy::TeamCloseFlaggedPlan {
-                plan_id: plan.id,
-                reason,
-            })
-        })
-        .collect();
+    let flag_store = std::sync::Arc::clone(&svc.plan_store);
+    let flag_ids = changed_plan_ids.clone();
+    let flagged_plans =
+        tokio::task::spawn_blocking(move || flag_store.team_close_flags_projection(&flag_ids))
+            .await
+            .map_err(|error| format!("Team close flag read task failed: {error}"))
+            .and_then(|result| result.map_err(|error| error.to_string()));
     for plan_id in changed_plan_ids {
         svc.emit_plan_changed(&plan_id);
     }
@@ -541,6 +562,13 @@ async fn close_team_inner(
             busy.tasks.len()
         );
     }
+    let flagged_plans = flagged_plans?
+        .into_iter()
+        .map(|flag| close_busy::TeamCloseFlaggedPlan {
+            plan_id: flag.plan_id,
+            reason: flag.reason,
+        })
+        .collect();
     Ok(TeamCloseResult {
         remote_members,
         team,
@@ -599,11 +627,20 @@ pub fn adopt_plan_for_team(
     plan_id: &str,
     caller: TeamMutationCaller,
     now_ms: u64,
-) -> Result<codeterm_service_core::plan::Plan, TeamPlanError> {
-    let mut mux = svc.mux.write();
-    let plan =
-        adopt_plan_for_team_core(&mut mux, &svc.plan_store, team_id, plan_id, caller, now_ms)?;
-    drop(mux);
+) -> Result<codeterm_service_core::service::plan::TeamPlanMutationRead, TeamPlanError> {
+    svc.transition_agent_prepared_at(
+        now_ms,
+        |mux, store| {
+            adopt_plan_request(mux, store, team_id, plan_id, caller.clone())
+                .map_err(|error| format!("{error:?}"))
+        },
+        codeterm_service_core::service::agent_transition::TransitionFailurePoint::None,
+    )
+    .map_err(TeamPlanError::Team)?;
+    let plan = svc
+        .plan_store
+        .team_plan_mutation_projection(plan_id)
+        .map_err(TeamPlanError::Plan)?;
     svc.emit_committed_plan_changed(&plan_id);
     svc.emit_state_changed(MuxEmitCause::Team);
     Ok(plan)
@@ -623,12 +660,28 @@ pub fn unarchive_team_plan(
     plan_id: &str,
     now_ms: u64,
 ) -> Result<(), TeamPlanError> {
-    let mux = svc.mux.read();
-    valid_live_plan_team(svc, &mux, plan_id)?;
-    svc.plan_store
-        .unarchive(plan_id, now_ms)
+    let history = codeterm_service_core::multiplexer::state::ClosedTabsStore::in_memory();
+    let mut before = svc
+        .mux
+        .read()
+        .begin_team_close_transaction_with_store(history);
+    let (prepared, team_id) = svc
+        .plan_store
+        .prepare_team_plan_unarchive(plan_id, now_ms)
         .map_err(TeamPlanError::Plan)?;
-    drop(mux);
+    if before.state_mut().get_team(&team_id).is_none() {
+        return Err(TeamPlanError::Team(format!("Plan {plan_id} references missing Team {team_id}; adopt it into a live Team before resuming")));
+    }
+    let history = codeterm_service_core::multiplexer::state::ClosedTabsStore::in_memory();
+    let after = before
+        .state_mut()
+        .begin_team_close_transaction_with_store(history);
+    codeterm_service_core::multiplexer::state::LifecyclePatch::new(before, after)
+        .apply(&mut svc.mux.write())
+        .map_err(TeamPlanError::Team)?;
+    svc.plan_store
+        .commit_prepared_agent_lifecycle_changes(prepared)
+        .map_err(TeamPlanError::Plan)?;
     svc.emit_plan_changed(plan_id);
     Ok(())
 }
@@ -640,18 +693,27 @@ pub fn transfer_team_plan(
     reason: &str,
     caller_tab_id: String,
     now_ms: u64,
-) -> Result<codeterm_service_core::plan::Plan, TeamPlanError> {
-    let mut mux = svc.mux.write();
-    let plan = transfer_team_plan_core(
-        &mut mux,
-        &svc.plan_store,
-        plan_id,
-        to,
-        reason,
-        TeamMutationCaller::AgentTab(caller_tab_id),
+) -> Result<codeterm_service_core::service::plan::TeamPlanMutationRead, TeamPlanError> {
+    svc.transition_agent_prepared_at(
         now_ms,
-    )?;
-    drop(mux);
+        |mux, store| {
+            transfer_plan_request(
+                mux,
+                store,
+                plan_id,
+                to.clone(),
+                reason,
+                TeamMutationCaller::AgentTab(caller_tab_id.clone()),
+            )
+            .map_err(|error| format!("{error:?}"))
+        },
+        codeterm_service_core::service::agent_transition::TransitionFailurePoint::None,
+    )
+    .map_err(TeamPlanError::Team)?;
+    let plan = svc
+        .plan_store
+        .team_plan_mutation_projection(plan_id)
+        .map_err(TeamPlanError::Plan)?;
     svc.emit_state_changed(MuxEmitCause::Team);
     svc.emit_plan_changed(plan_id);
     Ok(plan)
@@ -685,6 +747,7 @@ pub fn rename_team_with_state_change(
     Ok(team)
 }
 
+#[cfg(test)]
 #[allow(clippy::too_many_arguments)]
 fn commit_team_member_with_plan_takeover<F>(
     mux: &mut MultiplexerState,
@@ -698,7 +761,7 @@ fn commit_team_member_with_plan_takeover<F>(
     take_over: F,
 ) -> Result<AddTeamMemberResult, String>
 where
-    F: FnOnce(&mut MultiplexerState) -> Option<staffing::PlanTakeover>,
+    F: FnOnce(&mut MultiplexerState) -> Result<Option<staffing::PlanTakeover>, String>,
 {
     let mut result = commit_team_member_spawn(
         mux,
@@ -713,10 +776,12 @@ where
         return Ok(result);
     }
     let takeover = take_over(mux);
-    if let Some(cause) = takeover
-        .as_ref()
-        .and_then(|takeover| takeover.error.as_deref())
-    {
+    let cause = match &takeover {
+        Ok(Some(takeover)) => takeover.error.as_deref(),
+        Ok(None) => None,
+        Err(error) => Some(error.as_str()),
+    };
+    if let Some(cause) = cause {
         if let Some(tab) = mux.get_tab_mut(tab_id) {
             tab.team_id = None;
         }
@@ -726,7 +791,7 @@ where
             })?;
         return Err(format!("plan takeover failed: {cause}"));
     }
-    result.plan_takeover = takeover;
+    result.plan_takeover = takeover?;
     Ok(result)
 }
 
@@ -737,7 +802,29 @@ pub fn adopt_plan_for_team_core(
     plan_id: &str,
     caller: TeamMutationCaller,
     now_ms: u64,
-) -> Result<codeterm_service_core::plan::Plan, TeamPlanError> {
+) -> Result<codeterm_service_core::service::plan::TeamPlanMutationRead, TeamPlanError> {
+    let request = adopt_plan_request(mux, plan_store, team_id, plan_id, caller)?;
+    codeterm_service_core::service::agent_transition::execute_transition_at(
+        mux,
+        plan_store,
+        request,
+        codeterm_service_core::service::agent_transition::TransitionFailurePoint::None,
+        now_ms,
+    )
+    .map_err(TeamPlanError::Team)?;
+    plan_store
+        .team_plan_mutation_projection(plan_id)
+        .map_err(TeamPlanError::Plan)
+}
+
+fn adopt_plan_request(
+    mux: &MultiplexerState,
+    plan_store: &codeterm_service_core::service::plan::PlanStore,
+    team_id: &str,
+    plan_id: &str,
+    caller: TeamMutationCaller,
+) -> Result<codeterm_service_core::service::agent_transition::AgentTransitionRequest, TeamPlanError>
+{
     authorize_team_mutation(mux, team_id, &caller).map_err(|error| {
         TeamPlanError::Team(format!(
             "Plan adoption requires manager authority in destination Team {team_id}: {error}. \
@@ -746,16 +833,14 @@ Safe recovery: old-team member transfers ownership, then new owner adopts."
     })?;
     let owner_tab_id = team_plan_owner(mux, plan_store, team_id, plan_id, &caller)?;
     let planner = live_team_planner_ref(mux, team_id);
-    codeterm_service_core::service::agent_transition::transition_plan_to_orchestrator_core(
-        mux,
-        plan_store,
-        plan_id,
+    codeterm_service_core::service::agent_transition::plan_owner_request(
         codeterm_service_core::plan::OrchestratorRef::from_tab(&owner_tab_id),
+        plan_id,
         team_id,
         &format!("adopted by Team {team_id}"),
         true,
-        planner,
-        now_ms,
+        Some((plan_id.to_string(), planner)),
+        true,
     )
     .map_err(TeamPlanError::Team)
 }
@@ -782,6 +867,7 @@ pub fn live_team_planner_ref(
     })
 }
 
+#[cfg(test)]
 fn transfer_team_plan_core(
     mux: &mut MultiplexerState,
     plan_store: &codeterm_service_core::service::plan::PlanStore,
@@ -790,10 +876,33 @@ fn transfer_team_plan_core(
     reason: &str,
     caller: TeamMutationCaller,
     now_ms: u64,
-) -> Result<codeterm_service_core::plan::Plan, TeamPlanError> {
+) -> Result<codeterm_service_core::service::plan::TeamPlanMutationRead, TeamPlanError> {
+    let request = transfer_plan_request(mux, plan_store, plan_id, to, reason, caller)?;
+    codeterm_service_core::service::agent_transition::execute_transition_at(
+        mux,
+        plan_store,
+        request,
+        codeterm_service_core::service::agent_transition::TransitionFailurePoint::None,
+        now_ms,
+    )
+    .map_err(TeamPlanError::Team)?;
+    plan_store
+        .team_plan_mutation_projection(plan_id)
+        .map_err(TeamPlanError::Plan)
+}
+
+fn transfer_plan_request(
+    mux: &MultiplexerState,
+    plan_store: &codeterm_service_core::service::plan::PlanStore,
+    plan_id: &str,
+    to: codeterm_service_core::plan::OrchestratorRef,
+    reason: &str,
+    caller: TeamMutationCaller,
+) -> Result<codeterm_service_core::service::agent_transition::AgentTransitionRequest, TeamPlanError>
+{
     let source_plan = plan_store
-        .get(plan_id)
-        .ok_or(TeamPlanError::Plan(PlanError::NotFound))?;
+        .plan_identity_projection(plan_id)
+        .map_err(TeamPlanError::Plan)?;
     let source_team_id = source_plan
         .team_id
         .as_deref()
@@ -831,16 +940,14 @@ fn transfer_team_plan_core(
         .to_string();
     authorize_plan_transfer(mux, source_team_id, &destination_team_id, &tab_id, caller)
         .map_err(TeamPlanError::Team)?;
-    codeterm_service_core::service::agent_transition::transition_plan_to_orchestrator_core(
-        mux,
-        plan_store,
-        plan_id,
+    codeterm_service_core::service::agent_transition::plan_owner_request(
         to,
+        plan_id,
         &destination_team_id,
         reason,
         false,
-        None,
-        now_ms,
+        Some((plan_id.to_string(), None)),
+        true,
     )
     .map_err(TeamPlanError::Team)
 }
@@ -916,10 +1023,12 @@ pub fn team_plan_owner(
             ))
         });
     }
-    let current_owner = plan_store
-        .get(plan_id)
-        .and_then(|plan| plan.owner.tab_id)
-        .filter(|tab_id| anchors.iter().any(|anchor| anchor == tab_id));
+    let current_owner = match plan_store.plan_identity_projection(plan_id) {
+        Ok(plan) => plan.owner.tab_id,
+        Err(PlanError::NotFound) => None,
+        Err(error) => return Err(TeamPlanError::Plan(error)),
+    }
+    .filter(|tab_id| anchors.iter().any(|anchor| anchor == tab_id));
     match (current_owner, anchors.as_slice()) {
         (Some(owner), _) => Ok(owner),
         (None, [only]) => Ok(only.clone()),

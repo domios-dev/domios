@@ -148,5 +148,5 @@ async fn account_mesh_signed_out_peer_is_unavailable_and_returns_on_the_same_acc
         original
     );
     assert_eq!(a.mesh.lock().paired_peers.len(), 1);
-    assert_eq!(a.authority.authorize_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(a.authority.authorize_calls.load(Ordering::SeqCst), 0);
 }

@@ -49,6 +49,7 @@ async fn notify_resolve_route_closes_only_the_callers_question() {
         let token = fixture
             .service
             .frontend_pty_env(Some(tab))
+            .unwrap()
             .remove("CODETERM_API_TOKEN")
             .unwrap();
         let response = router

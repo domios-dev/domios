@@ -29,55 +29,28 @@ pub fn short_id(prefix: &str) -> String {
 
 /// Collision-checked short id. Grows 6 -> 7 -> 8 chars, regenerating the salt on every collision.
 pub fn mint_id(prefix: &str, taken: impl Fn(&str) -> bool) -> String {
+    match try_mint_id(prefix, |candidate| {
+        Ok::<_, std::convert::Infallible>(taken(candidate))
+    }) {
+        Ok(id) => id,
+        Err(never) => match never {},
+    }
+}
+
+pub fn try_mint_id<E>(
+    prefix: &str,
+    mut taken: impl FnMut(&str) -> Result<bool, E>,
+) -> Result<String, E> {
     for len in [6usize, 7, 8] {
         for _ in 0..16 {
             let candidate = format!("{prefix}_{}", slug(len));
-            if !taken(&candidate) {
-                return candidate;
+            if !taken(&candidate)? {
+                return Ok(candidate);
             }
         }
     }
-    // Astronomically unlikely: a full uuid is unique by construction.
-    format!("{prefix}_{}", uuid::Uuid::new_v4().simple())
+    Ok(format!("{prefix}_{}", uuid::Uuid::new_v4().simple()))
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::collections::HashSet;
-
-    #[test]
-    fn short_id_is_prefixed_and_bounded() {
-        let id = short_id("task");
-        let (prefix, slug) = id.split_once('_').expect("prefixed");
-        assert_eq!(prefix, "task");
-        assert_eq!(slug.len(), 6);
-        assert!(slug
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() && !b.is_ascii_uppercase()));
-    }
-
-    #[test]
-    fn mint_id_avoids_collisions_and_grows_on_saturation() {
-        // Everything at length 6 is "taken" -> minter must escalate to a longer slug.
-        let id = mint_id("task", |c| {
-            c.split_once('_')
-                .map(|(_, s)| s.len() == 6)
-                .unwrap_or(false)
-        });
-        let slug = id.split_once('_').unwrap().1;
-        assert!(
-            slug.len() >= 7,
-            "expected escalation past 6 chars, got {id}"
-        );
-    }
-
-    #[test]
-    fn mint_id_returns_free_candidate() {
-        let mut seen = HashSet::new();
-        for _ in 0..2000 {
-            let id = mint_id("sec", |c| seen.contains(c));
-            assert!(seen.insert(id.clone()), "minted duplicate {id}");
-        }
-    }
-}
+mod tests;

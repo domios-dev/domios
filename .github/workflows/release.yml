@@ -56,7 +56,7 @@ jobs:
   qualified-source:
     name: admit release head
     if: ${{ !cancelled() && (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && (github.event_name == 'push' || github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && (startsWith(github.ref, 'refs/heads/release/') || startsWith(github.head_ref, 'release/')))) }}
-    runs-on: ubuntu-24.04
+    runs-on: ${{ fromJSON(vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -108,7 +108,7 @@ jobs:
     if: ${{ always() && (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && (github.event_name == 'push' || github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && (startsWith(github.ref, 'refs/heads/release/') || startsWith(github.head_ref, 'release/')))) && (github.event_name == 'workflow_dispatch' || (needs.qualified-source.result == 'success' && needs.qualified-source.outputs.source_sha != '')) }}
     environment: release
     # GitHub's runner: ubunta's single runner is often busy with the Rust suite, and every build waits on this job.
-    runs-on: ubuntu-24.04
+    runs-on: ${{ fromJSON(vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
     timeout-minutes: 30
     outputs:
       tag: ${{ steps.release.outputs.tag }}
@@ -183,7 +183,7 @@ jobs:
           DRY_RUN: ${{ inputs.dry_run && 'true' || 'false' }}
           PROMOTE_RUN_ID: ${{ needs.qualified-source.outputs.promote_run_id || inputs.promote_run_id }}
           EVENT_NAME: ${{ github.event_name }}
-          GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           SOURCE_REPO: ${{ github.repository }}
         shell: bash
         run: |
@@ -238,7 +238,7 @@ jobs:
             tag="v$version"; published_repo="$SOURCE_REPO"
           else
             committed=$(node -p "require('./frontend-release-contract.json').version")
-            tag="frontend-v$version"; published_repo=rollacode/codeterm-releases
+            tag="frontend-v$version"; published_repo="$SOURCE_REPO"
           fi
           echo "::notice::release/$version is a $kind release (changes since ${previous:-the start})"
           if [ "$committed" != "$version" ]; then
@@ -275,7 +275,7 @@ jobs:
       - name: Create draft releases before parallel uploads
         if: steps.release.outputs.dry_run != 'true' && steps.release.outputs.published != 'true' && steps.release.outputs.kind == 'app'
         env:
-          GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           MIRROR_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
           SOURCE_REPO: ${{ github.repository }}
           TAG: ${{ steps.release.outputs.tag }}
@@ -290,6 +290,7 @@ jobs:
           fi
           node scripts/release-clear-wedged-assets.mjs "$SOURCE_REPO" "$TAG"
 
+          # 1.19 transition mirror: rollacode/codeterm-releases draft; delete after 1.19 ships.
           if [ "$PUBLISH_MIRROR" = true ]; then
             export GH_TOKEN="$MIRROR_TOKEN"
             if ! gh release view "$TAG" --repo rollacode/codeterm-releases >/dev/null 2>&1; then
@@ -307,7 +308,7 @@ jobs:
     if: ${{ !cancelled() && (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && (github.event_name == 'push' || github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && (startsWith(github.ref, 'refs/heads/release/') || startsWith(github.head_ref, 'release/')))) && needs.prepare.result == 'success' && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app' && needs.prepare.outputs.promote_run_id == '' }}
     environment: release
     # GitHub's runner: ubunta's single runner is often busy with the Rust suite, and every build waits on this job.
-    runs-on: ubuntu-24.04
+    runs-on: ${{ fromJSON(vars.CI_LINUX_LIGHT_RUNNER || '"ubuntu-24.04"') }}
     timeout-minutes: 20
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
@@ -473,7 +474,7 @@ jobs:
     if: ${{ !cancelled() && (github.repository_owner == 'rollacode' || github.repository_owner == 'domios-dev') && github.actor == 'rollacode' && github.triggering_actor == 'rollacode' && (github.event_name == 'push' || github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && (startsWith(github.ref, 'refs/heads/release/') || startsWith(github.head_ref, 'release/')))) && needs.prepare.result == 'success' && needs.prepare.outputs.promote_run_id != '' && vars.RELEASE_PUBLISH_ENABLED == 'true' && needs.prepare.outputs.dry_run != 'true' && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app' }}
     environment: release
     # The LAN store makes our Linux runner fastest; CI_RELEASE_EVIDENCE_RUNNER=hosted moves it to the public edge.
-    runs-on: ${{ vars.CI_RELEASE_EVIDENCE_RUNNER == 'hosted' && 'ubuntu-24.04' || fromJSON('["self-hosted","linux-build"]') }}
+    runs-on: ${{ fromJSON(vars.CI_RELEASE_EVIDENCE_RUNNER || '"ubuntu-24.04"') }}
     timeout-minutes: 120
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
@@ -505,7 +506,8 @@ jobs:
         run: node scripts/ci-runner-paths.mjs receipt
       - name: Re-verify retained evidence and publish it to the drafts
         env:
-          GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          # 1.19 transition mirror: rollacode/codeterm-releases write; delete after 1.19 ships.
           MIRROR_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
           PUBLISH_MIRROR: ${{ needs.prepare.outputs.mirror }}
           TAG: ${{ needs.prepare.outputs.tag }}

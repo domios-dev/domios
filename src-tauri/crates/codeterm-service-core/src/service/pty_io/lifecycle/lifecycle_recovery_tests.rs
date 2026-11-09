@@ -99,7 +99,7 @@ fn legacy_restored_provider_recovers_from_its_sealed_tab_session_checkpoint() {
 fn missing_restored_provider_surfaces_a_reason_without_unique_journal_provenance() {
     for owners in [vec![], vec!["owner-one"], vec!["owner-one", "owner-two"]] {
         let (fixture, tab_id) = fixture(&owners);
-        let claim = fixture.service.pty_ownership.acquire(&tab_id);
+        let claim = fixture.service.pty_ownership.acquire(&tab_id).unwrap();
         let error = fixture
             .service
             .materialize_restored_agent_with_claim(&claim)

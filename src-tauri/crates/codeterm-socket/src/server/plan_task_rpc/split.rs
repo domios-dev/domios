@@ -8,16 +8,24 @@ pub(super) fn dispatch_split(
     let p = params.as_ref();
     let store = &svc.plan_store;
     let (plan_id, parent_id) = plan_refs::resolve_task(store, params)?;
+    let include_body = p
+        .and_then(|p| p.get("children"))
+        .and_then(Value::as_array)
+        .is_some_and(|children| {
+            children
+                .iter()
+                .any(|child| child.get("body").and_then(Value::as_str).is_none())
+        });
     let parent = store
-        .show_task(&parent_id)
-        .ok_or_else(|| plan_rpc_err(PlanError::TaskNotFound))?;
-    if parent.task.parent_task_id.is_some() {
+        .task_split_defaults_projection(&parent_id, include_body)
+        .map_err(plan_rpc_err)?;
+    if parent.parent_task_id.is_some() {
         return Err(plan_rpc_err(PlanError::InvalidSplitParent {
             reason: codeterm_service_core::service::plan::SplitParentReason::ChildParent,
         }));
     }
     if matches!(
-        &parent.task.status,
+        &parent.status,
         codeterm_types::plan::TaskStatus::Done | codeterm_types::plan::TaskStatus::Cancelled
     ) {
         return Err(plan_rpc_err(PlanError::InvalidSplitParent {
@@ -40,11 +48,17 @@ pub(super) fn dispatch_split(
         });
     }
     let author = svc
-        .authorize_draft_structure_mutation(&plan_id, &authenticated_caller(p))
-        .map_err(|message| JsonRpcError {
-            code: -32003,
-            message,
-            data: Some(json!({"type":"plan_structure_authorization_required"})),
+        .authorize_draft_structure_mutation_typed(&plan_id, &authenticated_caller(p))
+        .map_err(|error| {
+            if error == codeterm_service_core::service::PlanAuthorityError::StoreReadFailed {
+                super::super::plan_task_authority::planning_authority_error(error)
+            } else {
+                JsonRpcError {
+                    code: -32003,
+                    message: error.to_string(),
+                    data: Some(json!({"type":"plan_structure_authorization_required"})),
+                }
+            }
         })?;
     if matches!(
         &author,
@@ -85,11 +99,11 @@ pub(super) fn dispatch_split(
             .get("criteria")
             .or_else(|| child.get("acceptance_criteria"))
             .cloned()
-            .unwrap_or_else(|| json!(parent.task.acceptance_criteria));
+            .unwrap_or_else(|| json!(parent.acceptance_criteria));
         let sections = child
             .get("sections")
             .cloned()
-            .unwrap_or_else(|| json!(parent.task.section_ids));
+            .unwrap_or_else(|| json!(parent.section_ids));
         let sections = match sections {
             Value::Array(items) => items
                 .iter()
@@ -99,23 +113,23 @@ pub(super) fn dispatch_split(
             Value::String(value) => value,
             _ => String::new(),
         };
-        let child_params = json!({
+        let mut child_params = json!({
             "plan_id": plan_id,
             "name": name,
             "parent": parent_id,
-            "type": parent.task.kind,
-            "body": string("body", Some(&parent.task.body)).unwrap_or_default(),
+            "type": parent.kind,
+            "body": string("body", parent.body.as_deref()).unwrap_or_default(),
             "acceptance_criteria": criteria,
-            "test_plan": string("test_plan", parent.task.test_plan.as_deref()),
-            "qa_plan": string("qa_plan", parent.task.qa_plan.as_deref()),
-            "correctness": string("correctness", parent.task.correctness.as_deref()),
+            "test_plan": string("test_plan", parent.test_plan.as_deref()),
+            "qa_plan": string("qa_plan", parent.qa_plan.as_deref()),
+            "correctness": string("correctness", parent.correctness.as_deref()),
             "sections": sections,
-            "executor_role": string("executor_role", parent.task.executor_role.as_deref()),
-            "personality": string("personality", parent.task.personality.as_deref()).unwrap_or_else(|| "Worker".into()),
-            "role_guidance": string("role_guidance", parent.task.role_guidance.as_deref()),
-            "model": string("model", parent.task.model.as_deref()),
-            "why": string("model_rationale", parent.task.model_rationale.as_deref()),
-            "intent": string("intent", parent.task.intent.as_deref()),
+            "executor_role": string("executor_role", parent.executor_role.as_deref()),
+            "personality": string("personality", parent.personality.as_deref()),
+            "role_guidance": string("role_guidance", parent.role_guidance.as_deref()),
+            "model": string("model", parent.model.as_deref()),
+            "why": string("model_rationale", parent.model_rationale.as_deref()),
+            "intent": string("intent", parent.intent.as_deref()),
             "tags": child.get("tags"),
             "caller_tab_id": p.and_then(|v| v.get("caller_tab_id")),
             "session_id": p.and_then(|v| v.get("session_id")),
@@ -128,6 +142,10 @@ pub(super) fn dispatch_split(
                 data: Some(json!({"type":"invalid_task_split"})),
             });
         }
+        let personality =
+            codeterm_types::plan::require_executor_name(child_params["personality"].as_str())
+                .map_err(|message| plan_rpc_err(PlanError::InvalidExecutorName(message)))?;
+        child_params["personality"] = json!(personality);
         additions.push(child_params);
     }
     let mut new_children = Vec::with_capacity(additions.len());
@@ -204,11 +222,19 @@ pub(super) fn dispatch_split(
     let ids = store
         .add_child_tasks_atomic(&plan_id, &parent_id, new_children, now)
         .map_err(plan_rpc_err)?;
-    let created = ids.into_iter().map(|id| json!({
-        "task_id": id,
-        "key": store.task_display_key(&plan_id, &id),
-        "section_ids": store.get(&plan_id).and_then(|plan| plan.tasks.iter().find(|task| task.id == id).map(|task| task.section_ids.clone())).unwrap_or_default(),
-    })).collect::<Vec<_>>();
     emit_plan_changed(svc, &plan_id);
+    let created = ids
+        .into_iter()
+        .map(|id| {
+            let (key, section_ids) = match store
+                .task_creation_projection(&plan_id, &id)
+                .map_err(plan_rpc_err)?
+            {
+                Some(read) => (Some(read.key), read.section_ids),
+                None => (None, Vec::new()),
+            };
+            Ok::<_, JsonRpcError>(json!({"task_id":id,"key":key,"section_ids":section_ids}))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
     Ok(json!({"plan_id": plan_id, "parent_task_id": parent_id, "children": created}))
 }

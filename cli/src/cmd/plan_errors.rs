@@ -37,6 +37,9 @@ assign an existing isolated lane, then dispatch again:\n  {update_command}\n  {d
 }
 
 pub(crate) fn render_plan_error(data: &Value, params: &Value) -> Option<String> {
+    if let Some(message) = crate::cmd::model_error::render_launch_profile_error(data) {
+        return Some(message);
+    }
     let kind = data.get("type")?.as_str()?;
     let plan_id = params
         .get("plan_id")

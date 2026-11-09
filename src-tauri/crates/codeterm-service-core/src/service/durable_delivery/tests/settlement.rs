@@ -64,7 +64,7 @@ fn settlement_race(winner_fails: bool) {
     let winner_payload = payload.clone();
     let target = tab.clone();
     let winner = std::thread::spawn(move || {
-        let _claim = service.pty_ownership.acquire(&target);
+        let _claim = service.pty_ownership.acquire(&target).unwrap();
         service.fail_durable_delivery(
             &target,
             &winner_owner,

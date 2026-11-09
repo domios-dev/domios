@@ -1,3 +1,4 @@
+import type { PlanView as Plan, PlanTaskView as Task } from "../planProjection";
 import type { Tab } from "../../../lib/types";
 import { resolvePlanExclusiveTabTasks } from "../tabCurrentTask";
 import { presenceColor } from "../presence/identity";
@@ -10,7 +11,7 @@ import type { LoopForTaskResult } from "../planView/loopForTask";
 import { qaChipText } from "../planView/taskQa";
 import { latestTaskNote } from "../planView/taskStatusLabel";
 import { buildTaskPresence } from "../taskPresence";
-import { TaskStatus, type Plan, type Task } from "../types";
+import { TaskStatus } from "../types";
 
 // ── Zone classification ────────────────────────────────────────────────────
 

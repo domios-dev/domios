@@ -5,6 +5,17 @@ description: "Author and validate JavaScript agent provider plugins for Domios."
 
 # Authoring an Agent Provider Plugin
 
+Shipped provider plugins declare `hostIoJobs: true` and `minCodeterm: "1.19.0"`.
+Use the [SDK host I/O contract](../../../packages/plugin-sdk/README.md#host-io-jobs):
+yield one typed job per effect, resume the same iterator through `host.awaitJob`,
+and delegate nested I/O helpers with `yield*`. Pure exports stay synchronous.
+Keep native/JS parity and the existing confinement and exact-session boundaries.
+Changed shipped plugins prepare versions through `scripts/release-plugin.mjs`;
+never edit generated bundles or downgrade a newer installed channel release.
+Legacy synchronous APIs remain explicitly non-cancellable for external plugins
+in 1.19; their separate migration precedes removal.
+
+
 `spawn.launchPermissions.scopedFilesystem` declares session-local tool preapproval:
 `noPromptArgs`, `readAllRules`, `readRootRule`, `writeRootRule`, and
 `additionalDirectoryArgs`. Rule templates take `{path}` in absolute gitignore
@@ -730,6 +741,74 @@ stdout from caller-supplied JSON (1 MiB record and 24 KiB declaration bounds),
 with no filesystem, network, environment or subprocess access. The guard,
 confirmation reader and native/JS model-label detection share that parser;
 shared command fixtures cover native/QuickJS parity.
+
+A launch profile's `hostWorkingDirectory: true` starts the agent process in a
+host-owned directory under the provider's profile data (`<profile>/launch-cwd`)
+instead of the tab's folder; the runtime context `cwd`, and so every session the
+plugin opens, stays the tab's folder. Use it when an agent scopes startup
+housekeeping to its process directory: Gemini CLI prunes the unresumable chats of
+that directory's project on each start, and loads system settings only from
+admin- or root-owned paths, so a host-written settings file cannot turn that off.
+It adds no plugin filesystem or environment access, stays outside install
+fingerprints, and `agent acp add --like` copies it.
+
+`agentRuntime.hostApprovals: true` declares that the runtime's agent permission requests
+carry declared option kinds (`prompt` event `permission`), so the host answers them from the
+tab's effective choice and a full-access launch is authorized without `autoApproveFlags`.
+A launch profile (or `registryDefaults` entry) may declare `fullAccessMode`, the agent's own
+approve-everything session mode id; full-access launch options carry it to the runtime config
+as `fullAccessMode`, and the plugin enters it only when the agent advertises that mode. The
+host checks the loaded session against the declaration: a mode not advertised or not reached
+is the named failure `full_access_unavailable`, never a silent sandbox. Record the agent's real
+modes in `plugins/provider-acp/tests/fixtures/advertised-session-modes.json` when declaring one.
+
+Where the session offers that mode, as a session mode or a `category: "mode"` config option, the
+mode is the tab's single switch. The owner's choice of mode is persisted and reaches the plugin as
+`sessionMode`, which it enters on every open and resume ahead of `fullAccessMode`, because agents
+rebuild their own default on load. The host decides from that choice and never from the agent's
+live mode: an agent can ask in its approve-all mode, and must not lift its own Ask by changing
+mode. Mode changes on the controls route are owner only. A profile with no such mode gets the
+picker's Permissions row (`POST .../agent/runtime/host-approvals`).
+
+What a session reports as its mode is one value, `RuntimeSettings::effective_mode`: a mode config
+option's `currentValue`, otherwise the session mode. Whichever place an agent reports through, the
+host's controls projection moves the other with it, so `controls.mode` and the option never differ.
+
+Declare `fullAccessMode` only for a mode the session can enter and leave over the protocol. A
+process-wide setting read at session creation, such as an environment variable, cannot follow
+the live switch or reach resumed sessions, so it does not qualify.
+
+A launch profile's `askScope` states how far the agent's own permission questions reach, so the
+Permissions row never promises questions the agent does not send. Absent makes no claim, and the
+row reads "Ask when the agent asks".
+`outsideWorkspace` is an agent that confines its own work to the workspace and asks only to go
+beyond it (DeepSeek Harness pins workspace-write + ask into each session at creation and offers no
+permission control over ACP). The switch stays live because the host still answers those questions.
+Read the agent's permission model before declaring it, and again when its pinned package moves.
+
+A launch profile's `limitsSource` names where its account limits come from:
+`{kind:"account",provider}` reuses that native provider's account meter,
+`{kind:"balance",reader,credentialEnv}` asks the plugin's `readProfileLimits({profile,source},nowMs)`
+export for a UsageSnapshot-shaped JSON string (balance under `usage_details.balance`), or
+`{error}` naming why the read failed (never a response body), which the bubble shows,
+`{kind:"quota",reader}` asks the same export for a snapshot with `usage_details.quota`
+(`{title,limits:[{label,used_percent,resets_at}]}`) or an `{error}` reason, shown as a dash, and
+`{kind:"unavailable",reason}` shows a quiet dash with the reason in its popover; both show the
+session's reported context fill instead when there is one. A quota reader uses manifest
+`credentials` through `credentialPublic` and `host.fetch` `credential` header templates.
+`agentRuntime.registryDefaults`
+maps a registry id to `{limitsSource}` for profiles whose own declaration names none;
+the host resolves it on every profile load (never persisted, outside install fingerprints),
+and a default must hold for a credential-free profile, so `balance` is refused there.
+Host and UI branch only on `kind`;
+the plugin dispatches on its own declared `reader` names. `credentialEnv` must be a
+`secretEnv`/`authEnv` variable of the same profile. A balance request passes
+`profileSecret:{profile,env,headers}` to `host.fetch`; the host fills `{secret}` header
+templates only with that profile's declared balance credential in the plugin's own
+`domios:provider:<id>:` namespace, so the key never enters the VM. It adds no filesystem,
+environment or subprocess access; network still follows `permissions.network.allow`. The host
+manifest validator and the SDK `validLimitsSource` agree on
+`codeterm-plugin/src/js_runtime/parity_test/fixtures/limits-sources.json`.
 
 `agentRuntime.usage: true` declares live usage publication and earns the shared Usage Tracking setting. Runtime auth events declare `billingMode`; account rate windows reach the subscription meter and exact-thread token events reach the session chip. `TokenUsage.cost_micros` is optional reported USD cost, never an estimate. These pure data extensions grant no host filesystem, environment, network or subprocess access.
 

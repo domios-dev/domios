@@ -104,13 +104,7 @@ async fn account_mesh_machine_over_limit_refuses_links_with_plan_limit_code_unti
         serde_json::to_value(state.view()).unwrap()["traffic"],
         codeterm_entitlements::PLAN_LIMIT_LOCKED
     );
-    let request = LinkAuthorization {
-        transcript: [6u8; 32],
-        local_installation_id: INSTALLATION.into(),
-        peer_installation_id: PEER.into(),
-        account_id: account_id(UID),
-    };
-    let refusal = harness.mesh.authorize_link(request).await.unwrap_err();
+    let refusal = harness.mesh.resolve_link_target(PEER).await.unwrap_err();
     assert_eq!(refusal, AccountMeshRefusal::PlanLimitLocked);
     assert_eq!(
         serde_json::to_value(refusal).unwrap(),

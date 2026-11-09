@@ -96,26 +96,10 @@ pub(super) fn requires_current_receipt(
     store: &PlanStore,
     plan_id: &str,
     caller: &SkillCaller,
-) -> bool {
-    if caller
-        .team_id
-        .as_deref()
-        .and_then(|team| store.active_plan_for_team(team))
-        .is_some_and(|(active, _)| active != plan_id)
-    {
-        return false;
-    }
-    store.get(plan_id).is_some_and(|plan| {
-        plan.tasks.iter().any(|task| {
-            !task.status.is_terminal()
-                && (task.assigned_tab_id.as_deref() == Some(&caller.tab_id)
-                    || task.execution_attempts.iter().any(|attempt| {
-                        attempt.executor_tab_id == caller.tab_id
-                            && attempt.closed_at.is_none()
-                            && attempt.retired_at.is_none()
-                    }))
-        })
-    })
+) -> Result<bool, JsonRpcError> {
+    store
+        .plan_skill_receipt_projection(plan_id, caller.team_id.as_deref(), &caller.tab_id)
+        .map_err(plan_rpc_err)
 }
 
 fn refused(message: &str) -> JsonRpcError {

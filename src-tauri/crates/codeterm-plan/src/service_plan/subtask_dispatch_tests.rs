@@ -101,12 +101,12 @@ fn dispatch_child(store: &PlanStore, plan_id: &str, child_id: &str) -> String {
 fn child_of_in_progress_task_dispatches_into_its_own_lane() {
     let (_root, store, plan_id, parent_id, child_id, parent_attempt_id) =
         approved_plan_with_in_progress_parent();
-    let parent_before = store.show_task(&parent_id).unwrap().task;
+    let parent_before = store.inspect_task_for_test(&parent_id).unwrap().task;
 
     let child_attempt_id = dispatch_child(&store, &plan_id, &child_id);
 
-    let parent_after = store.show_task(&parent_id).unwrap().task;
-    let child = store.show_task(&child_id).unwrap().task;
+    let parent_after = store.inspect_task_for_test(&parent_id).unwrap().task;
+    let child = store.inspect_task_for_test(&child_id).unwrap().task;
     assert_eq!(parent_after.status, TaskStatus::InProgress);
     assert_eq!(parent_after.assigned_tab_id, parent_before.assigned_tab_id);
     assert_eq!(parent_after.lane, parent_before.lane);
@@ -148,7 +148,7 @@ fn children_of_approved_task_are_dispatchable_without_replan() {
     let plan = store.get(&plan_id).unwrap();
     assert_eq!(plan.mode, PlanMode::Execution);
     assert_eq!(plan.planning_state, PlanningState::Approved);
-    let child = store.show_task(&child_id).unwrap().task;
+    let child = store.inspect_task_for_test(&child_id).unwrap().task;
     assert_eq!(child.status, TaskStatus::Pending);
     assert!(child.execution_attempts.iter().any(|attempt| {
         attempt.id == child_attempt_id

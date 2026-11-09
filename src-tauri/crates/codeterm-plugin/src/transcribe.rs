@@ -35,6 +35,8 @@ pub enum TranscribeError {
     Empty,
     /// No transcriber is installed/active.
     NoBackend,
+    /// The engine did not finish within the transcription call deadline.
+    TimedOut(std::time::Duration),
 }
 
 impl std::fmt::Display for TranscribeError {
@@ -49,6 +51,11 @@ impl std::fmt::Display for TranscribeError {
             Self::ParseError(e) => write!(f, "failed to parse response: {}", e),
             Self::Empty => write!(f, "empty transcript"),
             Self::NoBackend => write!(f, "no transcriber installed"),
+            Self::TimedOut(bound) => write!(
+                f,
+                "transcription did not finish within {} s",
+                bound.as_secs()
+            ),
         }
     }
 }

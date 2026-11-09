@@ -183,6 +183,55 @@ fn supervisor_backoff_is_bounded() {
     assert_eq!(bounded_backoff_ms(99), 30_000);
 }
 
+#[test]
+fn supervisor_bounds_deterministic_startup_failure_when_history_is_consumed() {
+    let mut observed = Vec::new();
+    let mut launches = 0;
+    let mut fail_startup = || {
+        launches += 1;
+        PendingCrashRecord {
+            classification: "fast_fail".into(),
+            previous: recovery_state("failed-startup", None).current,
+            detected_at: 100 + launches * 6,
+            supervisor_action: SupervisorAction {
+                external_restart_required: true,
+                backoff_ms: 1_000,
+                loop_protected: false,
+                crash_count_in_window: 1,
+            },
+        }
+    };
+    for expected in 1..=LOOP_THRESHOLD {
+        let mut crash = fail_startup();
+        bound_observed_restarts(&mut observed, &mut crash);
+        assert_eq!(crash.supervisor_action.crash_count_in_window, expected);
+        assert_eq!(
+            crash.supervisor_action.loop_protected,
+            expected == LOOP_THRESHOLD
+        );
+    }
+    assert_eq!(launches, i64::from(LOOP_THRESHOLD));
+}
+
+#[test]
+fn supervisor_observation_budget_expires_outside_the_crash_window() {
+    let mut crash = PendingCrashRecord {
+        classification: "fast_fail".into(),
+        previous: recovery_state("failed-startup", None).current,
+        detected_at: LOOP_WINDOW_SECS + 2,
+        supervisor_action: SupervisorAction {
+            external_restart_required: true,
+            backoff_ms: 1_000,
+            loop_protected: false,
+            crash_count_in_window: 1,
+        },
+    };
+    let mut observed = vec![0, 1];
+    bound_observed_restarts(&mut observed, &mut crash);
+    assert!(!crash.supervisor_action.loop_protected);
+    assert_eq!(crash.supervisor_action.crash_count_in_window, 1);
+}
+
 fn recovery_state(epoch: &str, clean: Option<(&str, &str)>) -> RecoveryState {
     RecoveryState {
         current: ProcessEpoch {

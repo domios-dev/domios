@@ -110,3 +110,18 @@ fn envelope_segments_refresh_after_content_changes_and_never_parse_tool_output()
     assert!(row.segments.is_none());
     assert!(row.segments_version.is_none());
 }
+
+#[test]
+fn runtime_source_identity_is_optional_and_round_trips_only_when_present() {
+    let old = serde_json::json!({"id":"row","type":"user","content":"opaque body"});
+    let mut row: ChatMsg = serde_json::from_value(old).unwrap();
+    assert!(row.runtime_source_item_id.is_none());
+    assert!(serde_json::to_value(&row)
+        .unwrap()
+        .get("runtimeSourceItemId")
+        .is_none());
+    row.runtime_source_item_id = Some("native-source".into());
+    let stored = serde_json::to_value(&row).unwrap();
+    assert_eq!(stored["runtimeSourceItemId"], "native-source");
+    assert_eq!(serde_json::from_value::<ChatMsg>(stored).unwrap(), row);
+}

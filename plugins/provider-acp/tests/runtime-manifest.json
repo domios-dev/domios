@@ -1,0 +1,230 @@
+{
+  "agentRuntime": {
+    "runtime": "stdio-jsonrpc",
+    "envelope": "jsonrpc2",
+    "usage": true,
+    "hostApprovals": true,
+    "command": {
+      "binary": "acp-agent",
+      "args": []
+    },
+    "launchProfiles": {
+      "deepseek-harness": {
+        "binary": "npx",
+        "args": [
+          "@deepseek-ai/dsh@0.2.1-rc.5",
+          "--profile",
+          "acp"
+        ],
+        "install": {
+          "package": "@deepseek-ai/dsh@0.2.1-rc.5",
+          "registry": "https://registry.npmjs.org"
+        },
+        "secretEnv": {
+          "DEEPSEEK_API_KEY": "domios:provider:acp:deepseek-api-key"
+        },
+        "icon": "deepseek-color.svg",
+        "askScope": "outsideWorkspace",
+        "limitsSource": {
+          "kind": "balance",
+          "reader": "deepseek-balance",
+          "credentialEnv": "DEEPSEEK_API_KEY"
+        }
+      },
+      "gemini-cli": {
+        "binary": "gemini",
+        "args": [
+          "--acp"
+        ],
+        "env": {
+          "GEMINI_CLI_TRUST_WORKSPACE": "true"
+        },
+        "hostWorkingDirectory": true,
+        "authEnv": {
+          "GEMINI_API_KEY": {
+            "secret": "domios:provider:acp:gemini-api-key",
+            "methods": [
+              "gemini-api-key"
+            ]
+          }
+        },
+        "icon": "gemini-color.svg",
+        "fullAccessMode": "yolo",
+        "clientCapabilities": {
+          "fs": {
+            "readTextFile": false
+          }
+        },
+        "limitsSource": {
+          "kind": "quota",
+          "reader": "gemini-code-assist"
+        }
+      },
+      "local": {
+        "binary": "local-acp-command",
+        "args": [],
+        "ownerConfigured": true
+      }
+    },
+    "registryDefaults": {
+      "claude-acp": {
+        "fullAccessMode": "bypassPermissions",
+        "limitsSource": {
+          "kind": "account",
+          "provider": "claude"
+        }
+      },
+      "codex-acp": {
+        "fullAccessMode": "agent-full-access",
+        "limitsSource": {
+          "kind": "account",
+          "provider": "codex"
+        }
+      },
+      "gemini": {
+        "fullAccessMode": "yolo",
+        "limitsSource": {
+          "kind": "quota",
+          "reader": "gemini-code-assist"
+        }
+      }
+    },
+    "requestMethods": {
+      "initialize": [
+        "initialize"
+      ],
+      "openThread": [
+        "session/new",
+        "session/set_config_option",
+        "session/set_model",
+        "session/set_mode"
+      ],
+      "resumeThread": [
+        "session/load",
+        "session/resume",
+        "session/set_config_option",
+        "session/set_model",
+        "session/set_mode"
+      ],
+      "submitTurn": [
+        "session/prompt",
+        "_session/steering"
+      ],
+      "interrupt": [
+        "session/cancel"
+      ],
+      "control": [
+        "initialize",
+        "authenticate",
+        "session/set_mode",
+        "session/set_config_option",
+        "session/set_model"
+      ],
+      "answer": []
+    },
+    "notificationMethods": [
+      "session/update"
+    ],
+    "clientBridges": {
+      "fsRead": true,
+      "fsWrite": true,
+      "terminal": true
+    },
+    "interrupt": {
+      "beforeFirstTurn": true
+    },
+    "turnScopedRequests": [
+      "submitTurn"
+    ],
+    "hostMcp": {
+      "param": "mcpServers",
+      "methods": [
+        "session/new",
+        "session/load",
+        "session/resume"
+      ]
+    }
+  },
+  "chatBackend": {
+    "enabled": true,
+    "spawnable": true,
+    "sessionConfig": true,
+    "agentTasks": true
+  },
+  "scenarios": [
+    "cancel-mid-tool.json",
+    "cancel.json",
+    "commands-modes-config-usage.json",
+    "foreign-session-frame.json",
+    "fs-read-approved.json",
+    "fs-write-denied.json",
+    "initialize-new-prompt.json",
+    "interrupt-before-first-update.json",
+    "load-replay-no-duplicates.json",
+    "load-when-advertised.json",
+    "lost-stream.json",
+    "permission-allow.json",
+    "permission-cancelled-on-interrupt.json",
+    "permission-reject.json",
+    "plan-updates.json",
+    "resume-not-advertised.json",
+    "resume-when-advertised.json",
+    "stream-message-thought-chunks.json",
+    "terminal-lifecycle.json",
+    "tool-call-first-allow.json",
+    "tool-call-first-deny.json",
+    "tool-call-lifecycle.json",
+    "unknown-update-kind.json",
+    "unsupported-version.json",
+    "controls-selection.json",
+    "declared-auth.json",
+    "model-option-undeclared-refused.json",
+    "model-option-declared-selected.json",
+    "agent-info-identity.json",
+    "model-option-load-refused.json",
+    "mcp-not-declared.json",
+    "mcp-advertised.json",
+    "mcp-fallback-new-failure.json",
+    "mcp-fallback-new-success.json",
+    "mcp-fallback-generic-error.json",
+    "mcp-no-fallback-auth.json",
+    "mcp-no-fallback-session-missing.json",
+    "mcp-no-fallback-method-not-found.json",
+    "long-stream-complete.json",
+    "long-stream-cancel.json",
+    "oversize-single-frame.json",
+    "two-turns-restart-third.json",
+    "resume-buffered-replay-new-turn.json",
+    "gemini-durable-replay-new-turn.json",
+    "self-send-overlapping-prompts.json",
+    "steering-mid-turn.json",
+    "tool-output-retention.json",
+    "oversize-astral-cut.json",
+    "many-turns-tool-admission.json",
+    "dsh-shared-message-id.json",
+    "large-single-update.json",
+    "large-multi-update.json",
+    "batch-text-1024.json",
+    "batch-byte-limit.json",
+    "batch-event-limit.json",
+    "batch-row-determinism.json",
+    "concurrent-rpc-refusal.json",
+    "active-error-queued-prompt.json",
+    "initialize-client-capability-mask.json",
+    "cancel-before-first-update.json",
+    "profile-selection-valid.json",
+    "profile-selection-invalid.json",
+    "session-authenticated.json",
+    "context-only-usage.json",
+    "load-refused.json",
+    "load-refused-with-mcp.json",
+    "resume-refused-with-mcp.json",
+    "session-models-only.json",
+    "prompt-images.json",
+    "prompt-images-refused.json",
+    "prompt-images-undeclared.json",
+    "prompt-image-bytes-missing.json",
+    "prompt-resource-refused.json",
+    "prompt-images-echo.json"
+  ]
+}

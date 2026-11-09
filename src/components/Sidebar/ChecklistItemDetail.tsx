@@ -1,5 +1,5 @@
+import type { PlanView as Plan } from "../Canvas/planProjection";
 import { usePlanTargetNavigation } from "../Canvas/teamViewNavigation";
-import type { Plan } from "../Canvas/types";
 import { checklistStateLabel, type AgentChecklistItem } from "./agentChecklistModel";
 
 function ChecklistTaskLink({ target, label, onOpen }: { target: { planId: string; taskId: string }; label: string; onOpen: () => void }) {

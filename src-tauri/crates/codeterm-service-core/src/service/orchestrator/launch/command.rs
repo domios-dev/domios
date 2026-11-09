@@ -285,13 +285,22 @@ fn build_agent_command_inner(
             crate::agent::provider::current_platform_tag(),
             &mut args,
         );
-        let canonical_project = notice_context.and_then(|(service, tab_id)| {
-            params.cwd.as_deref().and_then(|cwd| {
-                crate::service::launch_session_detection::canonical_project_for_launch(
-                    service, tab_id, params, cwd,
-                )
+        let project = notice_context
+            .and_then(|(service, tab_id)| {
+                params.cwd.as_deref().map(|cwd| {
+                    crate::service::launch_session_detection::canonical_project_for_launch(
+                        service, tab_id, params, cwd,
+                    )
+                })
             })
-        });
+            .transpose();
+        let canonical_project = match project {
+            Ok(project) => project.flatten(),
+            Err(error) => {
+                log::error!("[execution-sandbox] canonical project lookup refused launch: {error}");
+                return Default::default();
+            }
+        };
         crate::service::launch_session_detection::append_sandbox_git_metadata_args(
             registry,
             agent_cmd,

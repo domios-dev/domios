@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
-# Caller: build.sh helpers; scripts qa-report.sh, tests/qa-report-early-alerts.sh, tests/utility-shell-reports.test.mjs
+# Caller: build.sh helpers; scripts qa-report.sh, firebase-build-config.sh, cache-policy.sh
 
+source "$(dirname "${BASH_SOURCE[0]}")/launch-markers.sh"
+
+# The parent CLI talks only to the parent's own instance, with the parent's complete launch identity
+# (its credential file included), so a notice never needs an owner fallback and never reaches DEV.
 dev_notify_capture_parent() {
+  local name names
   DEV_NOTIFY_PARENT_CLI="$(command -v codeterm 2>/dev/null || true)"
   DEV_NOTIFY_PARENT_CODETERM_API_URL_SET="${CODETERM_API_URL+x}"
   DEV_NOTIFY_PARENT_CODETERM_API_URL="${CODETERM_API_URL-}"
@@ -11,18 +16,16 @@ dev_notify_capture_parent() {
   DEV_NOTIFY_PARENT_CODETERM_SOCKET_PATH="${CODETERM_SOCKET_PATH-}"
   DEV_NOTIFY_PARENT_CODETERM_DATA_DIR_SET="${CODETERM_DATA_DIR+x}"
   DEV_NOTIFY_PARENT_CODETERM_DATA_DIR="${CODETERM_DATA_DIR-}"
-  DEV_NOTIFY_PARENT_CODETERM_TAB_ID_SET="${CODETERM_TAB_ID+x}"
   DEV_NOTIFY_PARENT_CODETERM_TAB_ID="${CODETERM_TAB_ID-}"
-  DEV_NOTIFY_PARENT_CODETERM_SESSION_ID_SET="${CODETERM_SESSION_ID+x}"
-  DEV_NOTIFY_PARENT_CODETERM_SESSION_ID="${CODETERM_SESSION_ID-}"
-  DEV_NOTIFY_PARENT_CODETERM_SESSION_BINDING_NONCE_SET="${CODETERM_SESSION_BINDING_NONCE+x}"
-  DEV_NOTIFY_PARENT_CODETERM_SESSION_BINDING_NONCE="${CODETERM_SESSION_BINDING_NONCE-}"
-  DEV_NOTIFY_PARENT_CODETERM_WORKER_ID_SET="${CODETERM_WORKER_ID+x}"
-  DEV_NOTIFY_PARENT_CODETERM_WORKER_ID="${CODETERM_WORKER_ID-}"
-  DEV_NOTIFY_PARENT_CODETERM_PARENT_TAB_ID_SET="${CODETERM_PARENT_TAB_ID+x}"
   DEV_NOTIFY_PARENT_CODETERM_PARENT_TAB_ID="${CODETERM_PARENT_TAB_ID-}"
-  DEV_NOTIFY_PARENT_CODETERM_TEAM_ID_SET="${CODETERM_TEAM_ID+x}"
-  DEV_NOTIFY_PARENT_CODETERM_TEAM_ID="${CODETERM_TEAM_ID-}"
+  DEV_NOTIFY_PARENT_LAUNCH=()
+  DEV_NOTIFY_PARENT_LAUNCH_READY=0
+  if names="$(launch_marker_names)"; then
+    for name in $names; do
+      if [ -n "${!name+x}" ]; then DEV_NOTIFY_PARENT_LAUNCH+=("$name=${!name}"); fi
+    done
+    DEV_NOTIFY_PARENT_LAUNCH_READY=1
+  fi
 }
 
 dev_notify_parent_cli() {
@@ -30,21 +33,22 @@ dev_notify_parent_cli() {
     echo "ERROR: parent codeterm CLI was not available when notifications were captured" >&2
     return 127
   fi
+  if [ "${DEV_NOTIFY_PARENT_LAUNCH_READY:-0}" != 1 ]; then
+    echo "ERROR: the parent launch identity was not captured; refusing to call the parent CLI" >&2
+    return 1
+  fi
   (
-    local name
-    for name in $(compgen -A variable CODETERM_); do
+    local name entry
+    for name in CODETERM $(compgen -A variable CODETERM_); do
       unset "$name" 2>/dev/null || true
     done
     if [ "${DEV_NOTIFY_PARENT_CODETERM_API_URL_SET:-}" = x ]; then export CODETERM_API_URL="$DEV_NOTIFY_PARENT_CODETERM_API_URL"; fi
     if [ "${DEV_NOTIFY_PARENT_CODETERM_API_TOKEN_SET:-}" = x ]; then export CODETERM_API_TOKEN="$DEV_NOTIFY_PARENT_CODETERM_API_TOKEN"; fi
     if [ "${DEV_NOTIFY_PARENT_CODETERM_SOCKET_PATH_SET:-}" = x ]; then export CODETERM_SOCKET_PATH="$DEV_NOTIFY_PARENT_CODETERM_SOCKET_PATH"; fi
     if [ "${DEV_NOTIFY_PARENT_CODETERM_DATA_DIR_SET:-}" = x ]; then export CODETERM_DATA_DIR="$DEV_NOTIFY_PARENT_CODETERM_DATA_DIR"; fi
-    if [ "${DEV_NOTIFY_PARENT_CODETERM_TAB_ID_SET:-}" = x ]; then export CODETERM_TAB_ID="$DEV_NOTIFY_PARENT_CODETERM_TAB_ID"; fi
-    if [ "${DEV_NOTIFY_PARENT_CODETERM_SESSION_ID_SET:-}" = x ]; then export CODETERM_SESSION_ID="$DEV_NOTIFY_PARENT_CODETERM_SESSION_ID"; fi
-    if [ "${DEV_NOTIFY_PARENT_CODETERM_SESSION_BINDING_NONCE_SET:-}" = x ]; then export CODETERM_SESSION_BINDING_NONCE="$DEV_NOTIFY_PARENT_CODETERM_SESSION_BINDING_NONCE"; fi
-    if [ "${DEV_NOTIFY_PARENT_CODETERM_WORKER_ID_SET:-}" = x ]; then export CODETERM_WORKER_ID="$DEV_NOTIFY_PARENT_CODETERM_WORKER_ID"; fi
-    if [ "${DEV_NOTIFY_PARENT_CODETERM_PARENT_TAB_ID_SET:-}" = x ]; then export CODETERM_PARENT_TAB_ID="$DEV_NOTIFY_PARENT_CODETERM_PARENT_TAB_ID"; fi
-    if [ "${DEV_NOTIFY_PARENT_CODETERM_TEAM_ID_SET:-}" = x ]; then export CODETERM_TEAM_ID="$DEV_NOTIFY_PARENT_CODETERM_TEAM_ID"; fi
+    for entry in ${DEV_NOTIFY_PARENT_LAUNCH[@]+"${DEV_NOTIFY_PARENT_LAUNCH[@]}"}; do
+      export "$entry"
+    done
     "$DEV_NOTIFY_PARENT_CLI" "$@"
   )
 }

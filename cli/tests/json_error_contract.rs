@@ -433,7 +433,9 @@ fn refused_workspace_close_keeps_its_json_body_and_exits_nonzero() {
             "result": null
         })
     );
-    assert!(output.stderr.is_empty());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("[TEAM CLOSE REFUSED] caller not member")
+    );
 }
 
 #[test]

@@ -1,3 +1,4 @@
+import { localFetch } from "../../lib/webApi";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { DEV_BUILD } from "../../lib/devBuild";
 import type { SupporterAdapter, SupporterFailure, SupporterMutation, SupporterStatus } from "./supporterTypes";
@@ -52,7 +53,7 @@ export function useDecisionToken(apiBase: string, apiHeaders: HeadersInit) {
     setRefreshing(true);
     try {
       const results = await Promise.allSettled([
-        fetch(`${apiBase}/api/supporter/status`, {
+        localFetch(`/api/supporter/status`, {
           headers: authRef.current,
         }).then(async (response) => {
           if (!response.ok) throw new Error("Status unavailable");
@@ -60,7 +61,7 @@ export function useDecisionToken(apiBase: string, apiHeaders: HeadersInit) {
           if (!isSupporterStatus(value) || !hasCoherentSelection(value)) throw new Error("Status unavailable");
           return value;
         }),
-        fetch(`${apiBase}/api/supporter/models`, {
+        localFetch(`/api/supporter/models`, {
           headers: authRef.current,
         }).then(async (response) => {
           if (!response.ok) throw new Error("Catalogue unavailable");
@@ -129,7 +130,7 @@ export function useDecisionToken(apiBase: string, apiHeaders: HeadersInit) {
     try {
       const headers = new Headers(authRef.current);
       if (body !== undefined) headers.set("Content-Type", "application/json");
-      const response = await fetch(`${apiBase}/api/supporter/${path}`, {
+      const response = await localFetch(`/api/supporter/${path}`, {
         method,
         headers,
         body: body === undefined ? undefined : JSON.stringify(body),

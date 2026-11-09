@@ -18,6 +18,7 @@ import { AccountMeshClientProvider } from "../MeshPanel/accountMeshClient";
 import { FakeAccountMeshClient, macRow, lenovoRow, NOW, snapshot } from "../MeshPanel/accountMachines.testdata";
 import { useMyMachines } from "../MeshPanel/useMyMachines";
 import { MachineLimitPaywall } from "../MeshPanel/MachineLimitPaywall";
+import { PURCHASES_DEFAULT } from "./purchaseSwitch";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -41,7 +42,8 @@ async function mountModal(upgrade: (planKey: string) => Promise<void> = async ()
   const host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
-  await act(async () => root!.render(<FreeLimitPlansModal upgrade={upgrade} />));
+  // Checkout paths stay covered with purchase on, for when it returns.
+  await act(async () => root!.render(<FreeLimitPlansModal upgrade={upgrade} purchases />));
 }
 
 const dialog = () => document.querySelector<HTMLElement>("[role=dialog]");
@@ -79,7 +81,26 @@ afterEach(async () => {
 });
 
 describe("automatic enroll after sign-in or restore", () => {
-  it("opens the existing plans dialog from the refused machine's See plans control", async () => {
+  it("the refused machine shows the free-key notice in place of See plans, and changes nothing", async () => {
+    const client = new FakeAccountMeshClient(snapshot({ self: null, traffic: "plan_limit_locked", enrollment: "refused", last_refusal: machineLimit() as { reason: "mesh.machines"; limit: number; active_count: number }, registry: { observed_at: NOW, rows: [macRow, lenovoRow] } }));
+    function RefusedMachine() {
+      const machines = useMyMachines({ account: "signed_in", onSignIn: () => {} });
+      return <MachineLimitPaywall machines={machines} />;
+    }
+    fetches.localFetch.mockImplementation(signedInDaemon);
+    const host = document.createElement("div");
+    document.body.append(host);
+    root = createRoot(host);
+    await act(async () => root!.render(<AccountMeshClientProvider value={client}><RefusedMachine /><FreeLimitPlansModal /></AccountMeshClientProvider>));
+    const paywall = document.querySelector("[role=group]")!;
+    expect(paywall.querySelector("[data-testid=community-keys-notice]")).not.toBeNull();
+    expect(button("See plans")).toBeUndefined();
+    expect(dialog()).toBeNull();
+    expect(client.revokeCalls).toEqual([]);
+    expect(client.enrollCalls).toBe(0);
+  });
+
+  it.runIf(PURCHASES_DEFAULT)("opens the existing plans dialog from the refused machine's See plans control", async () => {
     const client = new FakeAccountMeshClient(snapshot({ self: null, traffic: "plan_limit_locked", enrollment: "refused", last_refusal: machineLimit() as { reason: "mesh.machines"; limit: number; active_count: number }, registry: { observed_at: NOW, rows: [macRow, lenovoRow] } }));
     const onSignIn = () => {};
     function RefusedMachine() {

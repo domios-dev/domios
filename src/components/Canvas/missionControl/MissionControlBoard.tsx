@@ -1,9 +1,9 @@
+import type { PlanView as Plan } from "../planProjection";
 import { BoardCardReading } from "./BoardCardSkeleton";
 import { InlineErrorNotice } from "../../shared/ErrorNotice";
 import type { ApiConfig } from "../../../lib/types";
 import { UnderwayBoardRow } from "./UnderwayPanel";
 import { useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
-import type { Plan } from "../types";
 import type { NeedsYouDeepLinks } from "../../Notifications/NeedsYouNotificationRow";
 import { ModelsCard, NeedsYouPanel, PlanCard, SpendCard } from "./BoardCards";
 import { BoardEventLog } from "./BoardEventLog";

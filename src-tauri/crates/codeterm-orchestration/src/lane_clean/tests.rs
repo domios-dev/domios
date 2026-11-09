@@ -1,4 +1,5 @@
 use super::*;
+use codeterm_service_core::plan::Plan;
 use std::path::Path;
 
 struct Fixture {
@@ -308,21 +309,26 @@ fn lane_clean_inventory_includes_attempts_and_branch_only_lanes_and_defaults_to_
             worktree_path: Some("current-path".into()),
             ..Default::default()
         });
-    let lanes = cleanup_inventory(&plan);
+    let lanes = cleanup_inventory(&(&plan).into());
     assert_eq!(lanes.len(), 2);
     assert_eq!(lanes[0].destination.as_deref(), Some("HEAD"));
     assert_eq!(lanes[1].destination.as_deref(), Some("accepted"));
-    assert!(task_refusal(&plan.tasks[0], &lanes[0], &HashSet::from(["worker".into()])).is_some());
     assert!(task_refusal(
-        &plan.tasks[0],
+        &(&plan.tasks[0]).into(),
+        &lanes[0],
+        &HashSet::from(["worker".into()])
+    )
+    .is_some());
+    assert!(task_refusal(
+        &(&plan.tasks[0]).into(),
         &lanes[1],
         &HashSet::from(["former-worker".into()])
     )
     .is_some());
-    assert!(task_refusal(&plan.tasks[0], &lanes[1], &HashSet::new()).is_none());
+    assert!(task_refusal(&(&plan.tasks[0]).into(), &lanes[1], &HashSet::new()).is_none());
     plan.tasks[0].lane.worktree_path = None;
     assert!(
-        cleanup_inventory(&plan)
+        cleanup_inventory(&(&plan).into())
             .iter()
             .any(|lane| lane.worktree_path.is_none()
                 && lane.branch.as_deref() == Some("lane/current"))
@@ -421,7 +427,8 @@ fn lane_clean_inventory_git_call_count_is_constant_for_historical_lanes() {
                     destination: Some("HEAD".into()),
                     hold_reason: None,
                 };
-                let row = run_lane_with_inventory(&lane, online, &inventory, || (vec![], None));
+                let row = run_lane_with_inventory(&lane, online, &inventory, || Ok((vec![], None)))
+                    .unwrap();
                 assert_eq!(row.action, "absent");
             }
             assert_eq!(
@@ -502,7 +509,7 @@ fn lane_clean_real_project_preview_measurement() {
     } else {
         &plan.canonical_project_path
     };
-    let lanes = cleanup_inventory(&plan);
+    let lanes = cleanup_inventory(&(&plan).into());
     let inventory = Inventory::load(project, false).unwrap();
     let inventory_ms = started.elapsed().as_millis();
     let mut rows = Vec::new();
@@ -545,9 +552,10 @@ fn lane_clean_real_project_preview_measurement() {
                             .zip(lane.branch.as_ref())
                             .is_some_and(|(a, b)| a == b)
                 })
-                .find_map(|task| task_refusal(task, lane, &live));
-            (tabs.clone(), refusal)
-        });
+                .find_map(|task| task_refusal(&task.into(), lane, &live));
+            Ok((tabs.clone(), refusal))
+        })
+        .unwrap();
         rows.push(row);
     }
     let lanes_ms = started.elapsed().as_millis();
@@ -604,8 +612,9 @@ fn lane_clean_absence_never_overrides_remote_or_live_worker_refusal() {
         "lane Worker tab is live",
     ] {
         let row = run_lane_with_inventory(&lane, true, &Inventory::default(), || {
-            (vec![], Some(reason.into()))
-        });
+            Ok((vec![], Some(reason.into())))
+        })
+        .unwrap();
         assert_eq!(row.action, "kept");
         assert_eq!(row.reason, reason);
     }

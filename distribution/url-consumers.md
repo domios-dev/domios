@@ -1,10 +1,13 @@
 # Distribution URL consumers
 
-Source classification at dispatch base `3b4b6982e3b4deb9d5c3b367e8ac3bc6562af723`.
-Owner decision for 1.16.1: retain `rollacode/codeterm-releases` for updater,
-frontend and core-plugin delivery. Public source, issues, desktop downloads and
-the proposed package definitions use `domios-dev/domios`. No mirror cutover,
-external repository creation, visibility change or publication is authorized.
+Owner decision for 1.19: every client update source is `domios-dev/domios`.
+App updater manifests, frontend releases and the `codeterm-core` plugin channel
+are read and published there; release writes use the workflow `GITHUB_TOKEN`.
+1.19 alone also writes `rollacode/codeterm-releases` (the 1.19 transition
+mirror) so 1.18.x clients that fall back to it still reach 1.19. Every such
+write carries a `1.19 transition mirror` comment and uses `PACKAGE_REPOS_TOKEN`;
+`git grep -n "1.19 transition mirror"` lists the sites to delete after 1.19
+ships. Public issues stay in `rollacode/codeterm-releases`.
 
 ## Current source and installation
 
@@ -25,22 +28,18 @@ external repository creation, visibility change or publication is authorized.
 
 | Consumer | Retained contract |
 | --- | --- |
-| `src-tauri/tauri.conf.json` updater endpoints | Existing current-source endpoint plus mirror fallback, same `domios-latest.json` basename and signing key. |
-| `codeterm-update/src/checker.rs`, `channel.rs` | Existing source/mirror repository discovery and immutable release manifest selection; only package command strings change. |
-| `codeterm-service-core/src/startup/frontend_bundles.rs`, `frontend-release-contract.json` | `frontend-latest/frontend-manifest.json` on the mirror, separate frontend signature key and immutable release bundles. |
-| `codeterm-plugins/src/types.rs`, archive-channel tests | `codeterm-core-latest/codeterm-core.tar.gz` on the mirror; retain checksum/source receipts and independently versioned plugin channel. |
-| `.github/workflows/{release*,plugin-release}.yml` | Existing mirror publication, permissions, platform fragments and served readback; no edits in this lane. |
-| `scripts/{release-publish,release-promote,release-publish-platform,release-verify-windows,release-dry-run-manifest}.*` | Existing mirror URL assembly and retained artifact/signature/source evidence; no edits in this lane. |
-| `scripts/{publish-core-channel,sync-release-notes,release_issue_contract,check-release-closure}.*`, frontend release tooling | Existing plugin channel, notes, public mirror issue namespace and verified closure boundary. |
+| `src-tauri/tauri.conf.json` updater endpoints | One `domios-dev/domios` `releases/latest` endpoint, same `domios-latest.json` basename and signing key. |
+| `codeterm-update/src/checker.rs`, `channel.rs` | One update repository, `domios-dev/domios`; a manifest cached from any other repository is never restored. Headless discovery follows the same repository. |
+| `codeterm-service-core/src/startup/frontend_bundles.rs`, `frontend-release-contract.json` | `frontend-latest/frontend-manifest.json` on `domios-dev/domios`, separate frontend signature key and immutable release bundles. |
+| `codeterm-plugins/src/types.rs`, archive-channel tests | `codeterm-core-latest/codeterm-core.tar.gz` on `domios-dev/domios`; retain checksum/source receipts and independently versioned plugin channel. |
+| `.github/workflows/{release*,plugin-release,frontend-release}.yml` | Publish and verify on the source repository with `GITHUB_TOKEN`; platform fragments cite `domios-dev/domios` assets; marked 1.19 transition mirror steps only. |
+| `scripts/{release-publish,release-promote,release-publish-platform,release-verify-windows,release-dry-run-manifest,verify-updater-manifest}.*` | Updater URLs and the served-asset check name `domios-dev/domios`; marked 1.19 transition mirror writes only. |
+| `scripts/{publish-core-channel,sync-release-notes,release_issue_contract,check-release-closure}.*`, frontend release tooling | Core channel and notes publish to the source; closure cites the source manifest evidence and closes issues in the public issue repository with `PACKAGE_REPOS_TOKEN`. |
 | `distribution/{scoop,homebrew}` | New desktop URLs point at current source releases. Hash placeholders must be filled from the same accepted run, then compared to anonymous public bytes. |
 
-No fresh signed discovery/readback was executed in this lane: the owner's working
-1.16.0 mirror evidence is the stated basis for retention, not a new 1.16.1 proof.
-The release owner retains original platform `dry-run-evidence.json`, aggregate
-`manifest-local-verification.json`, source SHA, updater signatures, plugin
-`.sha256`/`.source-commit`, and public readback receipts. None were supplied here;
-their 1.16.1 values and package SHA256s remain UNVERIFIED. This lane neither
-rewrites those receipts nor claims that unchanged source proves live delivery.
+The `frontend-latest` and `codeterm-core-latest` discovery releases in
+`domios-dev/domios` must stay `latest=false`, so `releases/latest` keeps
+resolving to the newest app release.
 
 ## Legitimate external, historical and protocol references
 

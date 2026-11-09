@@ -51,7 +51,7 @@ impl JsSecretBackend {
         args: Vec<serde_json::Value>,
     ) -> Result<serde_json::Value, SecretError> {
         let plugin = self.plugin.clone();
-        tokio::task::spawn_blocking(move || plugin.call(method, &args))
+        codeterm_plugin::js_runtime::spawn_blocking(move || plugin.call(method, &args))
             .await
             .map_err(|_| SecretError::Backend {
                 message: format!("plugin {method} worker failed"),
@@ -111,6 +111,10 @@ fn vm_error_kind(e: &VmError) -> &'static str {
         VmError::InvalidJson(..) => "invalid_json",
         VmError::ArgSerialize(..) => "arg_serialize",
         VmError::AsyncJobTimedOut => "timed_out",
+        VmError::CallCancelled => "cancelled",
+        VmError::AdmissionBusy => "busy",
+        VmError::IoUnconfirmed => "io_unconfirmed",
+        VmError::OffRuntimeRequired => "off_runtime_required",
     }
 }
 

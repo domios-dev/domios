@@ -67,29 +67,32 @@ where
         binding_nonce: owned_str(p, "session_binding_nonce"),
     };
     svc.authorize_plan_orchestrator(&plan_id, &caller)
-        .map_err(|message| JsonRpcError {
-            code: -32003,
-            message,
-            data: Some(json!({ "type": "plan_orchestrator_authorization_required" })),
+        .map_err(|error| {
+            crate::server::plan_task_authority::execution_authority_error(
+                error,
+                Some("plan_orchestrator_authorization_required"),
+            )
         })?;
     let parent_task_id = caller
         .tab_id
         .as_deref()
-        .and_then(|tab| svc.plan_store.task_binding_for_tab(tab))
-        .filter(|(bound_plan, _)| bound_plan == &plan_id)
-        .map(|(_, task)| task);
-    let plan = svc.plan_store.get(&plan_id).ok_or_else(|| JsonRpcError {
-        code: -32004,
-        message: "unplanned task plan disappeared before creation".into(),
-        data: Some(json!({ "type": "plan_not_found" })),
-    })?;
-    let inherited_section_id = parent_task_id
-        .as_deref()
-        .and_then(|task_id| plan.tasks.iter().find(|task| task.id == task_id))
-        .and_then(|task| task.section_ids.first().cloned());
-    let section_id = match inherited_section_id
-        .or_else(|| plan.sections.first().map(|section| section.id.clone()))
-    {
+        .map(|tab| svc.plan_store.assigned_task_binding_projection(tab))
+        .transpose()
+        .map_err(super::super::plan::plan_rpc_err)?
+        .flatten()
+        .filter(|binding| binding.plan_id == plan_id)
+        .map(|binding| binding.task_id);
+    let section_id = match svc
+        .plan_store
+        .unplanned_task_section_projection(&plan_id, parent_task_id.as_deref())
+        .map_err(|error| match error {
+            codeterm_service_core::service::plan::PlanError::NotFound => JsonRpcError {
+                code: -32004,
+                message: "unplanned task plan disappeared before creation".into(),
+                data: Some(json!({ "type": "plan_not_found" })),
+            },
+            error => plan_rpc_err(error),
+        })? {
         Some(section_id) => section_id,
         None => svc
             .plan_store
@@ -113,8 +116,12 @@ where
         .map_err(|error| invalid_dispatch(&format!("invalid --tag values: {error}")))?
         .unwrap_or_default();
     tags.push("unplanned".into());
+    let work_facet = svc
+        .plan_store
+        .plan_work_facet_projection(&plan_id)
+        .map_err(plan_rpc_err)?;
     let inferred_work = codeterm_types::plan::work_facet::infer_work_tag(
-        plan.tag_facets.iter().map(|facet| facet.key.as_str()),
+        work_facet.then_some("work"),
         &mut tags,
         &task_body,
     );

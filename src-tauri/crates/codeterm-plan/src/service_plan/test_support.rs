@@ -6,6 +6,57 @@ use super::ports::{PlanIndexHit, PlanIndexQuery, PlanSearchPort};
 
 static TEST_DATA_DIR: OnceLock<tempfile::TempDir> = OnceLock::new();
 
+impl super::PlanStore {
+    pub fn with_mutation_writer_held_for_test<T>(&self, work: impl FnOnce() -> T) -> T {
+        let _writer = self.mutation_writer.enter();
+        work()
+    }
+
+    pub fn wait_for_queued_mutation_for_test(&self, timeout: std::time::Duration) -> bool {
+        let deadline = std::time::Instant::now() + timeout;
+        let mut state = self.mutation_writer.state.lock();
+        while state.next_ticket <= state.serving_ticket + 1 {
+            let Some(remaining) = deadline.checked_duration_since(std::time::Instant::now()) else {
+                return false;
+            };
+            if self
+                .mutation_writer
+                .ready
+                .wait_for(&mut state, remaining)
+                .timed_out()
+                && state.next_ticket <= state.serving_ticket + 1
+            {
+                return false;
+            }
+        }
+        true
+    }
+
+    pub fn wait_for_active_mutation_for_test(&self, timeout: std::time::Duration) -> bool {
+        let deadline = std::time::Instant::now() + timeout;
+        let mut state = self.mutation_writer.state.lock();
+        while state.next_ticket == state.serving_ticket {
+            let Some(remaining) = deadline.checked_duration_since(std::time::Instant::now()) else {
+                return false;
+            };
+            if self
+                .mutation_writer
+                .ready
+                .wait_for(&mut state, remaining)
+                .timed_out()
+                && state.next_ticket == state.serving_ticket
+            {
+                return false;
+            }
+        }
+        true
+    }
+
+    pub fn with_database_held_for_test<T>(&self, work: impl FnOnce() -> T) -> T {
+        self.database.with_connection_held_for_test(work)
+    }
+}
+
 pub(super) fn seed_plan_database(path: &Path) {
     use std::io::Write;
 

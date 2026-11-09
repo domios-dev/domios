@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { NormalizedChatMessage } from "@codeterm/chat-core";
 import type { ProviderDescriptor } from "../../lib/types";
-import { chatLiveOperationFullLabel, chatLiveOperationLabel, projectChatTranscriptActivity } from "./chatTranscriptActivity";
+import { chatLiveOperationFullLabel, chatLiveOperationLabel, composerRunningTool, liveOperationSlot, projectChatTranscriptActivity } from "./chatTranscriptActivity";
 
 const chatProvider = { transport: "chat_backend" } as Pick<ProviderDescriptor, "transport" | "agent_runtime">;
 const runtimeProvider = { agent_runtime: {} } as Pick<ProviderDescriptor, "transport" | "agent_runtime">;
@@ -15,6 +15,15 @@ const tool = (id: string, toolStatus: NonNullable<NormalizedChatMessage["toolSta
   toolKind: "command",
   toolSummary: "gh run view 39149606573",
   toolStatus,
+});
+
+test("the composer names no running tool once its runtime is down", () => {
+  const rows = [tool("done", "completed"), tool("cut-off", "running")];
+  assert.equal(composerRunningTool(rows, "degraded"), undefined);
+  assert.equal(composerRunningTool(rows, "unloaded"), undefined);
+  assert.equal(composerRunningTool(rows, "loaded")?.id, "cut-off");
+  assert.equal(composerRunningTool(rows, null)?.id, "cut-off");
+  assert.equal(composerRunningTool([tool("done", "interrupted")], "loaded"), undefined);
 });
 
 test("enables transcript activity from chat transport capabilities and leaves PTY providers alone", () => {
@@ -50,4 +59,14 @@ test("full transcript labels retain multiline commands and complete targets", ()
   assert.equal(chatLiveOperationFullLabel({ ...tool("cmd", "running"), toolInput: { cmd: command } }), command);
   assert.equal(chatLiveOperationFullLabel({ ...tool("read", "running"), toolKind: "read", toolInput: { file_path: "/workspace/components/Terminal/a-very-long-file-name.tsx" } }), "/workspace/components/Terminal/a-very-long-file-name.tsx");
   assert.deepEqual(projectChatTranscriptActivity([{ msg: tool("done", "completed") }], "working", runtimeProvider, undefined, false), { supported: true, liveToolId: null });
+});
+
+test("the live operation slot is the first send of the queue trailing its turn", () => {
+  const rows = (...ids: string[]) => ids.map((id) => ({ msg: { id, type: "assistant" as const } }));
+  const queued = (message: { id: string }) => message.id.startsWith("queued");
+  assert.equal(liveOperationSlot(rows("tool", "text", "queued-1", "queued-2"), "tool", queued), "queued-1");
+  assert.equal(liveOperationSlot(rows("tool", "text"), "tool", queued), null);
+  assert.equal(liveOperationSlot(rows("tool", "queued-1", "text"), "tool", queued), null);
+  assert.equal(liveOperationSlot(rows("queued-1", "tool"), "tool", queued), null);
+  assert.equal(liveOperationSlot(rows("tool", "queued-1"), null, queued), null);
 });

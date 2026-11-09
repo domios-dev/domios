@@ -3,6 +3,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
 import { ChatBlockHostProvider, type ChatMentionValue } from "../blocks/ChatBlockHost";
 import { CompactMessageContent } from "./CompactMessageContent";
+import { referenceMarkerText } from "./referenceMarkers";
 import { ReferenceChip, TASK_CHIP_TITLE_CHARS, splitTaskLabel, truncateChipTitle } from "./ReferenceChip";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -52,7 +53,8 @@ describe("task reference chip", () => {
   });
 
   it("keeps a chip in a list item and its trailing colon in one inline run", async () => {
-    const el = await mount(<CompactMessageContent markdown text={"What is left:\n\n- BLU-44: waiting for your choice\n"} onOpenPlan={() => {}} />);
+    // Task chips come only from explicit markers; a bare key stays text.
+    const el = await mount(<CompactMessageContent markdown text={`What is left:\n\n- ${referenceMarkerText("task", "BLU-44")}: waiting for your choice\n`} onOpenPlan={() => {}} />);
     const item = el.querySelector("li")!;
     const chip = item.querySelector<HTMLElement>('[data-ref-kind="task"]')!;
     expect(chip).not.toBeNull();

@@ -21,6 +21,27 @@ pub async fn account_presence(
     let nonce = crown::nonce_from_token(token)
         .map_err(|_| (StatusCode::UNAUTHORIZED, "Invalid peer notice".into()))?;
     let refreshed = match notice {
+        PresenceNotice::Endpoint { endpoint_record } => {
+            state
+                .mesh
+                .lock()
+                .verify_endpoint_record(&endpoint_record)
+                .map_err(|_| (StatusCode::FORBIDDEN, "Invalid endpoint record".to_owned()))?;
+            let accepted = !codeterm_service_core::mesh::endpoint_gossip::receive_endpoint_records(
+                &state.mesh,
+                vec![endpoint_record.clone()],
+            )
+            .await
+            .is_empty();
+            if accepted {
+                codeterm_service_core::mesh::presence_notice::broadcast_endpoint_record(
+                    &state.mesh,
+                    endpoint_record,
+                )
+                .await;
+            }
+            Ok(accepted)
+        }
         PresenceNotice::Snapshot { signed_registry } => {
             state
                 .svc
@@ -31,22 +52,6 @@ pub async fn account_presence(
             state
                 .svc
                 .account_mesh_presence_notice(&sender, &nonce, metadata_revision)
-                .await
-        }
-        PresenceNotice::Registry {
-            account_id,
-            registry_revision,
-            security_digest,
-        } => {
-            state
-                .svc
-                .account_mesh_registry_hint(
-                    &sender,
-                    &nonce,
-                    &account_id,
-                    registry_revision,
-                    security_digest.as_deref(),
-                )
                 .await
         }
     }

@@ -1,3 +1,5 @@
+import { ioResolve } from "@codeterm/plugin-sdk";
+import { type HostIoSteps } from "@codeterm/plugin-sdk";
 import type { LaunchSessionDetection, LaunchSessionEvidence } from "@codeterm/plugin-sdk";
 
 const MARKER = /^ct-launch-[a-f0-9]{32}$/;
@@ -35,16 +37,13 @@ export function cursorLaunchCommand(command: string, marker: unknown): string {
     " && " + resumed + ")";
 }
 
-export function detectCursorLaunchSession(
-  evidence: LaunchSessionEvidence,
-  sessionExists: (cwd: string, sessionId: string) => boolean,
-): LaunchSessionDetection | null {
+export function* detectCursorLaunchSession(evidence: LaunchSessionEvidence, sessionExists: (cwd: string, sessionId: string) => boolean | HostIoSteps<boolean>): HostIoSteps<LaunchSessionDetection | null> {
   const marker = evidence?.launchMarker;
   if (typeof marker !== "string") return null;
   const path = launchRecordPath(marker);
   if (!path) return null;
-  const record = host.fs.readJson<{ launchMarker?: unknown; sessionId?: unknown }>(path);
+  const record = (yield* host.io.fs.readJson<{ launchMarker?: unknown; sessionId?: unknown }>(path));
   if (!record || record.launchMarker !== marker || typeof record.sessionId !== "string" ||
-      !SESSION.test(record.sessionId) || !sessionExists(evidence.cwd, record.sessionId)) return null;
+      !SESSION.test(record.sessionId) || !(yield* ioResolve(sessionExists(evidence.cwd, record.sessionId)))) return null;
   return { sessionId: record.sessionId, source: "launch_marker" };
 }

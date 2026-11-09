@@ -5,8 +5,11 @@ import { findPlanOwnerWorkspace } from "../Canvas/workspacePlanEntry";
 import { planRefViewState } from "./planRefViewState";
 
 function refTitle(resolved: ResolvedPlanRef): string {
-  if (resolved.target_kind !== "task" || !resolved.target_id || !resolved.task_title) return resolved.title;
-  return taskReferenceLabel({ id: resolved.target_id, key: resolved.task_key, name: resolved.task_title });
+  if (resolved.target_kind === "plan" || !resolved.target_id) return resolved.title;
+  if (resolved.target_kind === "task" && resolved.task_title) return taskReferenceLabel({ id: resolved.target_id, key: resolved.task_key, name: resolved.task_title });
+  if (resolved.target_kind === "section" && resolved.section_title) return resolved.title;
+  // A task or section the plan no longer has keeps its own id; the plan's title would name the wrong thing.
+  return resolved.task_key?.trim() || resolved.target_id;
 }
 
 export function chatPlanRefView(

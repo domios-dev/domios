@@ -1,3 +1,4 @@
+import { muxMockFetch } from "../../../lib/muxMockFetch.testdata";
 import { beforeEach as beforeDaemonCase } from "vitest";
 import { configureDaemonFixture } from "../../../test/daemonTransport.testdata";
 beforeDaemonCase(() => configureDaemonFixture());
@@ -287,11 +288,11 @@ describe("mission control spend card", () => {
     const api: ApiConfig = { enabled: true, host: "127.0.0.1", port: 7686, token: "test-token", cors: false };
     const fixture = teamSpendFixture();
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => fixture });
-    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("fetch", muxMockFetch(fetchMock));
     try {
       await expect(
         fetchTeamSpend(api, "team 1", { metric: "tokens", from: "2026-09-07", to: "2026-09-13" }),
-      ).resolves.toBe(fixture);
+      ).resolves.toEqual(fixture);
       expect(fetchMock).toHaveBeenCalledWith(
         `${baseUrl(api)}/api/teams/team%201/mission-control/spend?metric=tokens&from=2026-09-07&to=2026-09-13`,
         expect.objectContaining({ headers: expect.anything() }),

@@ -1,7 +1,7 @@
 import { tabActivity } from "../tabActivity";
 import { showStopControl } from "../agentInterrupt";
 import type { AgentBlockInfo, AgentBlockState, AgentRunState } from "@codeterm/chat-ui";
-import type { Plan } from "../../components/Canvas/types";
+import type { PlanView as Plan } from "../../components/Canvas/planProjection";
 import { resolveTabCurrentTask } from "../../components/Canvas/tabCurrentTask";
 import { taskDisplayKey } from "../../components/Canvas/taskDisplayKey";
 import { agentModelForBadge } from "../agentLabel";

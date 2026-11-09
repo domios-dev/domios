@@ -6,12 +6,14 @@ use crate::cmd::print::handle_result;
 use crate::{build_local_api, read_api_config, resolve_tab, AgentAction};
 use std::io::Read;
 
+#[path = "agent_acp.rs"]
+mod agent_acp;
 #[path = "agent_cli.rs"]
 mod agent_cli;
 #[path = "agent_compatibility.rs"]
 mod agent_compatibility;
 #[path = "agent_login.rs"]
-mod agent_login;
+pub(crate) mod agent_login;
 #[path = "agent_model_switch.rs"]
 mod agent_model_switch;
 #[path = "agent_models.rs"]
@@ -351,6 +353,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             show,
             tab,
             device,
+            method,
             api_key_stdin,
             cancel,
         } => agent_login::run(
@@ -360,6 +363,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             tab,
             agent_login::LoginOptions {
                 device,
+                method,
                 api_key_stdin,
                 cancel,
                 show,
@@ -371,6 +375,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             handle_result(json, client.call("agent.turns", Some(params)));
         }
         AgentAction::Cli { action } => agent_cli::run(client, json, action),
+        AgentAction::Acp { action } => agent_acp::run(client, json, action),
         AgentAction::Providers => match local_http
             .get(format!("{}/api/agents/providers", base))
             .send()
@@ -394,7 +399,30 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 crate::cmd::print::fail(1, e.to_string());
             }
         },
-        AgentAction::Models { provider } => {
+        AgentAction::Models {
+            provider,
+            profile: Some(profile),
+        } => {
+            let response = local_http
+                .get(format!(
+                    "{base}/api/agents/providers/{}/profiles",
+                    urlencoding::encode(&provider)
+                ))
+                .send()
+                .unwrap_or_else(|error| crate::cmd::print::fail(1, error.to_string()));
+            let status = response.status();
+            let value: serde_json::Value = response.json().unwrap_or_default();
+            if !status.is_success() {
+                crate::cmd::print::fail_http(1, status.as_u16(), &value.to_string());
+            }
+            let output = agent_models::render_profile_options(&value, &provider, &profile, json)
+                .unwrap_or_else(|error| crate::cmd::print::exit_with_cli_error(json, &error));
+            print!("{output}");
+        }
+        AgentAction::Models {
+            provider,
+            profile: None,
+        } => {
             match local_http
                 .get(format!("{}/api/agents/providers", base))
                 .send()
@@ -790,7 +818,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                         )
                     })
             };
-            let attempt_id = required_env("CODETERM_STARTUP_ATTEMPT_ID");
+            let attempt_id = crate::nonempty_env("CODETERM_STARTUP_ATTEMPT_ID");
             let binding_nonce = required_env("CODETERM_SESSION_BINDING_NONCE");
             handle_result(
                 json,

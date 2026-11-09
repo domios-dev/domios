@@ -61,3 +61,24 @@ fn repository_watcher_emits_ref_and_index_events() {
         "a checkout in the linked worktree",
     );
 }
+
+/// HEAD and ref writes are the head-moved signal; working-tree, index and
+/// lock-file churn are not.
+#[test]
+fn head_moved_classifies_head_and_ref_writes_only() {
+    if !git_available() {
+        eprintln!("skipping: git is not on PATH");
+        return;
+    }
+    let repo = primary_repo();
+    let identity = RepoIdentity::resolve(repo.path()).expect("identity resolves");
+    let moved = |path: std::path::PathBuf| crate::filter::head_moved(&identity, &[path]);
+    assert!(moved(identity.gitdir.join("HEAD")));
+    assert!(moved(
+        identity.common_dir.join("refs").join("heads").join("main")
+    ));
+    assert!(moved(identity.common_dir.join("packed-refs")));
+    assert!(!moved(identity.gitdir.join("HEAD.lock")));
+    assert!(!moved(identity.gitdir.join("index")));
+    assert!(!moved(identity.workdir.join("tracked.txt")));
+}

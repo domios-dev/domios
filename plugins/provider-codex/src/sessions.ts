@@ -1,21 +1,7 @@
+import { ioMap, type HostIoSteps } from "@codeterm/plugin-sdk";
 import { effectiveReadPath } from "../../provider-shared/readHome";
 
-declare const host: {
-  envGet(name: string): string | null;
-  homeDir(): string | null;
-  platform(): string;
-  unixNowMs?: () => number;
-  path: { equal(a: string, b: string): boolean };
-  log(level: "trace" | "debug" | "info" | "warn" | "error", msg: string): void;
-  fs: {
-    fileExists(path: string): boolean;
-    readFile(path: string): string | null;
-    readFileHead(path: string, maxBytes: number): string | null;
-    readFileTail(path: string, maxBytes: number): string | null;
-    readDir(path: string): { name: string; isFile: boolean }[];
-    sqliteQuery<T>(db: string, sql: string, params: unknown[]): T[];
-  };
-};
+declare const host: import("@codeterm/plugin-sdk").Host;
 
 export interface CodexSessionIndexEntry {
   id: string;
@@ -60,25 +46,25 @@ export function foldSessionIndex(contents: string): CodexSessionIndexEntry[] {
   return Array.from(folded.values());
 }
 
-export function sessionFilePath(_cwd: string, sessionId: string): string | null {
+export function* sessionFilePath(_cwd: string, sessionId: string): HostIoSteps<string | null> {
   // Codex records the rollout it is appending to on the thread row itself. It is a
   // real JSONL file and the usage parser reads it; the transcript did not move.
-  const path = trimmedField(threadRow(sessionId), "rollout_path");
-  return path && host.fs.fileExists(path) ? path : null;
+  const path = trimmedField((yield* threadRow(sessionId)), "rollout_path");
+  return path && (yield* host.io.fs.fileExists(path)) ? path : null;
 }
 
-export function sessionExists(_cwd: string, sessionId: string): boolean {
+export function* sessionExists(_cwd: string, sessionId: string): HostIoSteps<boolean> {
   if (!sessionId) return false;
-  if (threadRow(sessionId) !== null) return true;
+  if ((yield* threadRow(sessionId)) !== null) return true;
   const store = codexSessionStore();
-  return store !== null && sessionIndexEntry(store.indexPath, sessionId) !== null;
+  return store !== null && (yield* sessionIndexEntry(store.indexPath, sessionId)) !== null;
 }
 
-export function detectSessionId(cwd: string, exclude?: string[] | string, maxAgeMs?: number): string | null {
-  if (!cwd || !host.fs.fileExists(cwd)) return null;
+export function* detectSessionId(cwd: string, exclude?: string[] | string, maxAgeMs?: number): HostIoSteps<string | null> {
+  if (!cwd || !(yield* host.io.fs.fileExists(cwd))) return null;
   const store = codexSessionStore();
   if (!store) return null;
-  const entries = readSessionIndex(store.indexPath);
+  const entries = (yield* readSessionIndex(store.indexPath));
   if (entries.length === 0) return null;
   const excluded = new Set(Array.isArray(exclude) ? exclude : (exclude ? [exclude] : []));
   const now = host.unixNowMs ? host.unixNowMs() : Date.now();
@@ -89,21 +75,21 @@ export function detectSessionId(cwd: string, exclude?: string[] | string, maxAge
     if (excluded.has(entry.id)) continue;
     const updatedMs = sessionTimestamp(entry.updated_at);
     if (updatedMs > 0 && now - updatedMs > ageLimit) continue;
-    const project = readThreadCwd(entry.id);
+    const project = (yield* readThreadCwd(entry.id));
     if (project && host.path.equal(project, cwd)) matching.push(entry.id);
   }
   // The index has no cwd and can contain several live threads. Ambiguity is unknown, not recency.
   return matching.length === 1 ? matching[0] : null;
 }
 
-export function enumerateSessions(): unknown[] {
+export function* enumerateSessions(): HostIoSteps<unknown[]> {
   const store = codexSessionStore();
   if (!store) return [];
-  const entries = readSessionIndex(store.indexPath);
-  return entries.map((entry) => ({
+  const entries = (yield* readSessionIndex(store.indexPath));
+  return (yield* ioMap(entries, function*(entry) { return ({
     sessionId: entry.id,
     provider: "codex",
-    projectPath: readThreadCwd(entry.id),
+    projectPath: (yield* readThreadCwd(entry.id)),
     title: entry.thread_name || null,
     summary: null,
     filePath: store.indexPath,
@@ -111,34 +97,34 @@ export function enumerateSessions(): unknown[] {
     modifiedTs: sessionTimestamp(entry.updated_at) > 0
       ? Math.floor(sessionTimestamp(entry.updated_at) / 1000)
       : null,
-  }));
+  }); }));
 }
 
-export function findSession(sessionId: string): unknown | null {
+export function* findSession(sessionId: string): HostIoSteps<unknown | null> {
   // Whole row, so a Codex schema without the newer columns still resolves the thread.
-  const row = queryThreadRow(sessionId, "SELECT * FROM threads WHERE id = ? LIMIT 1");
+  const row = (yield* queryThreadRow(sessionId, "SELECT * FROM threads WHERE id = ? LIMIT 1"));
   if (!row) return null;
   const store = codexSessionStore();
   return {
     sessionId,
     provider: "codex",
-    projectPath: resolveThreadCwd(sessionId, row),
+    projectPath: (yield* resolveThreadCwd(sessionId, row)),
     title: trimmedField(row, "name") || trimmedField(row, "title"),
     summary: null,
-    filePath: store ? store.indexPath : (codexStateDbPath() || ""),
+    filePath: store ? store.indexPath : ((yield* codexStateDbPath()) || ""),
     createdTs: unixSeconds(row.created_at),
     modifiedTs: unixSeconds(row.updated_at),
   };
 }
 
-export function detectSessionModel(_cwd: string, sessionId: string): string | null {
-  return trimmedField(threadRow(sessionId), "model");
+export function* detectSessionModel(_cwd: string, sessionId: string): HostIoSteps<string | null> {
+  return trimmedField((yield* threadRow(sessionId)), "model");
 }
 
-export function detectSessionReasoningEffort(_cwd: string, sessionId: string): string | null {
-  const path = sessionFilePath(_cwd, sessionId);
+export function* detectSessionReasoningEffort(_cwd: string, sessionId: string): HostIoSteps<string | null> {
+  const path = (yield* sessionFilePath(_cwd, sessionId));
   if (!path) return null;
-  const contents = host.fs.readFileTail(path, 4 * 1024 * 1024);
+  const contents = (yield* host.io.fs.readFileTail(path, 4 * 1024 * 1024));
   if (typeof contents !== "string") return null;
   const lines = contents.split("\n");
   for (let index = lines.length - 1; index >= 0; index--) {
@@ -161,16 +147,16 @@ interface CodexThreadRow {
   updated_at?: unknown;
 }
 
-function threadRow(sessionId: string): CodexThreadRow | null {
-  return queryThreadRow(sessionId, "SELECT model, rollout_path, cwd FROM threads WHERE id = ? LIMIT 1");
+function* threadRow(sessionId: string): HostIoSteps<CodexThreadRow | null> {
+  return (yield* queryThreadRow(sessionId, "SELECT model, rollout_path, cwd FROM threads WHERE id = ? LIMIT 1"));
 }
 
-function queryThreadRow(sessionId: string, sql: string): CodexThreadRow | null {
+function* queryThreadRow(sessionId: string, sql: string): HostIoSteps<CodexThreadRow | null> {
   if (!sessionId) return null;
-  const db = codexStateDbPath();
-  if (!db || !host.fs.fileExists(db)) return null;
+  const db = (yield* codexStateDbPath());
+  if (!db || !(yield* host.io.fs.fileExists(db))) return null;
   try {
-    const rows = host.fs.sqliteQuery<CodexThreadRow>(db, sql, [sessionId]);
+    const rows = (yield* host.io.fs.sqliteQuery<CodexThreadRow>(db, sql, [sessionId]));
     return rows.length > 0 ? rows[0] : null;
   } catch (_) {
     return null;
@@ -189,7 +175,7 @@ function trimmedField(
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-export function codexStateDbPath(): string | null {
+export function* codexStateDbPath(): HostIoSteps<string | null> {
   const override = host.envGet(sessionStoreOverrides.state);
   if (override) return override;
   const sep = host.platform() === "windows" ? "\\" : "/";
@@ -197,7 +183,7 @@ export function codexStateDbPath(): string | null {
   if (!root) return null;
   let entries: { name: string; isFile: boolean }[];
   try {
-    entries = host.fs.readDir(root);
+    entries = (yield* host.io.fs.readDir(root));
   } catch (_) {
     return null;
   }
@@ -246,14 +232,14 @@ function codexSessionsRoot(sep: string): string | null {
   return effectiveReadPath(host.envGet("CODEX_HOME"), home ? home + sep + ".codex" : null, "", sep);
 }
 
-function readSessionIndex(path: string): CodexSessionIndexEntry[] {
-  if (!host.fs.fileExists(path)) return [];
-  const contents = host.fs.readFile(path);
+function* readSessionIndex(path: string): HostIoSteps<CodexSessionIndexEntry[]> {
+  if (!(yield* host.io.fs.fileExists(path))) return [];
+  const contents = (yield* host.io.fs.readFile(path));
   return typeof contents === "string" ? foldSessionIndex(contents) : [];
 }
 
-function sessionIndexEntry(path: string, sessionId: string): CodexSessionIndexEntry | null {
-  const entries = readSessionIndex(path);
+function* sessionIndexEntry(path: string, sessionId: string): HostIoSteps<CodexSessionIndexEntry | null> {
+  const entries = (yield* readSessionIndex(path));
   for (let i = 0; i < entries.length; i++) {
     if (entries[i].id === sessionId) return entries[i];
   }
@@ -262,11 +248,11 @@ function sessionIndexEntry(path: string, sessionId: string): CodexSessionIndexEn
 
 const unresolvedCwdDiagnostics = new Set<string>();
 
-function readThreadCwd(sessionId: string): string | null {
-  return resolveThreadCwd(sessionId, threadRow(sessionId));
+function* readThreadCwd(sessionId: string): HostIoSteps<string | null> {
+  return (yield* resolveThreadCwd(sessionId, (yield* threadRow(sessionId))));
 }
 
-function resolveThreadCwd(sessionId: string, row: CodexThreadRow | null): string | null {
+function* resolveThreadCwd(sessionId: string, row: CodexThreadRow | null): HostIoSteps<string | null> {
   if (!row) {
     logUnresolvedCwd(sessionId, "no_row");
     return null;
@@ -276,7 +262,7 @@ function resolveThreadCwd(sessionId: string, row: CodexThreadRow | null): string
     logUnresolvedCwd(sessionId, "no_cwd");
     return null;
   }
-  if (!host.fs.fileExists(cwd)) {
+  if (!(yield* host.io.fs.fileExists(cwd))) {
     logUnresolvedCwd(sessionId, "cwd_absent");
     return null;
   }

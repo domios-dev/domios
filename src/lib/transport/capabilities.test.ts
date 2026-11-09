@@ -19,6 +19,18 @@ function fixture(result: unknown = {}) {
 }
 
 describe("capabilities HTTP transport", () => {
+  it("only explicit provider Re-check adds the refresh request flag", async () => {
+    const { transport, calls } = fixture();
+    await transport.provider_cli_status({ providerId: "fixture" });
+    await transport.provider_cli_status({ providerId: "fixture", refresh: false });
+    await transport.provider_cli_status({ providerId: "fixture", refresh: true });
+    expect(calls).toEqual([
+      ["GET", "/api/agents/providers/fixture/cli", undefined],
+      ["GET", "/api/agents/providers/fixture/cli", undefined],
+      ["GET", "/api/agents/providers/fixture/cli?refresh=true", undefined],
+    ]);
+  });
+
   it("has all 95 lane commands and rejects unregistered schema commands", async () => {
     const { transport, calls } = fixture();
     expect(Object.keys(transport)).toHaveLength(95);

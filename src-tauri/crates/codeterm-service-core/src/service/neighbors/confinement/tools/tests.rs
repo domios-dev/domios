@@ -56,8 +56,13 @@ fn assert_policy(args: &[String], access: MachineAccess) {
     }
 }
 
-#[tokio::test]
-async fn advisory_policy_matrix_reaches_fresh_resume_and_cold_restore_launch_specs() {
+#[test]
+fn advisory_policy_matrix_reaches_fresh_resume_and_cold_restore_launch_specs() {
+    // Keep synchronous provider launch callbacks off async workers, as production spawn does.
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
     for access in [
         MachineAccess::ReadOnly,
         MachineAccess::Folder,
@@ -150,23 +155,21 @@ async fn advisory_policy_matrix_reaches_fresh_resume_and_cold_restore_launch_spe
                 &serde_json::from_slice(&snapshot).unwrap(),
             );
             let fixture = if disk_restart {
-                fixture
-                    .save_neighbor_restore_settings(
-                        "owner",
-                        &"a".repeat(64),
-                        &tab_id,
-                        Permission {
-                            machine_access: access,
-                            folder: Some(folder.clone()),
-                            ..Default::default()
-                        },
-                    )
-                    .await;
+                runtime.block_on(fixture.save_neighbor_restore_settings(
+                    "owner",
+                    &"a".repeat(64),
+                    &tab_id,
+                    Permission {
+                        machine_access: access,
+                        folder: Some(folder.clone()),
+                        ..Default::default()
+                    },
+                ));
                 drop(fixture);
                 let fixture = ServiceFixture::new_at(restored_mux, data.path());
                 register(&fixture.service);
                 fixture.install_seeded_storage_desk();
-                fixture.load_neighbor_restore_settings("owner").await;
+                runtime.block_on(fixture.load_neighbor_restore_settings("owner"));
                 fixture
             } else {
                 *fixture.service.mux.write() = restored_mux;

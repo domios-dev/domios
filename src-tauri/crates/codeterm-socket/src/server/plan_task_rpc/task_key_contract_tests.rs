@@ -72,7 +72,7 @@ fn task_key_contract_socket_add_returns_key_and_reads_accept_id_or_key() {
 
     let created = dispatch(
         "plan.task.add",
-        &owner_call(&owner, json!({ "plan_id": plan_id, "name": "Keyed task", "executor_role": "Engineer", "role_guidance": "Own the implementation" })),
+        &owner_call(&owner, json!({ "plan_id": plan_id, "name": "Keyed task", "executor_role": "Engineer", "personality": "Ada", "role_guidance": "Own the implementation" })),
         &service,
         2,
     )
@@ -108,7 +108,7 @@ fn task_key_contract_socket_add_returns_key_and_reads_accept_id_or_key() {
 
     let second = dispatch(
         "plan.task.add",
-        &owner_call(&owner, json!({ "plan_id": plan_id, "name": "Second task", "executor_role": "Engineer", "role_guidance": "Own the implementation" })),
+        &owner_call(&owner, json!({ "plan_id": plan_id, "name": "Second task", "executor_role": "Engineer", "personality": "Ada", "role_guidance": "Own the implementation" })),
         &service,
         4,
     )
@@ -119,6 +119,7 @@ fn task_key_contract_socket_add_returns_key_and_reads_accept_id_or_key() {
             .service
             .plan_store
             .task_display_key(&plan_id, &task_id)
+            .unwrap()
             .as_deref(),
         Some(key.as_str())
     );

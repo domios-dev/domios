@@ -13,6 +13,10 @@ use std::time::Duration;
 
 #[path = "tests/durable.rs"]
 mod durable;
+#[path = "tests/held.rs"]
+mod held;
+#[path = "tests/public_receipt.rs"]
+mod public_receipt;
 #[path = "tests/wake.rs"]
 mod wake;
 

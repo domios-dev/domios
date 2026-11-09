@@ -1,5 +1,6 @@
 use super::support::*;
 use crate::account_mesh::callable::{refusal, CallableFailure};
+use crate::account_mesh::tests::support::wait_for_event;
 use crate::account_mesh::wire::RegistryRefusal;
 use crate::account_mesh::*;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
@@ -126,16 +127,21 @@ async fn account_mesh_post_sign_in_list_and_automatic_refresh_enroll_the_key_onc
         let mesh = harness.mesh.clone();
         async move { mesh.refresh(EnrollTrigger::Automatic).await }
     });
-    harness.registry.entered.notified().await;
-    let list = async { harness.mesh.list().await };
-    let release = async {
-        harness.registry.script.lock().unwrap().enrollment_gate = None;
-        gate.notify_one();
-        automatic.await.unwrap()
-    };
-    let (list, automatic) = tokio::join!(list, release);
-    assert!(list.is_ok());
-    assert_eq!(automatic, Ok(()));
+    wait_for_event(harness.registry.entered.notified()).await;
+    assert_eq!(
+        harness.mesh.list().await,
+        Err(AccountMeshRefusal::Unavailable)
+    );
+    harness.registry.script.lock().unwrap().enrollment_gate = None;
+    gate.notify_one();
+    assert_eq!(
+        tokio::time::timeout(std::time::Duration::from_secs(5), automatic)
+            .await
+            .unwrap()
+            .unwrap(),
+        Ok(())
+    );
+    assert!(harness.mesh.list().await.is_ok());
     assert_eq!(harness.calls("enroll_key"), 1);
     assert_eq!(harness.calls("enroll"), 1);
     assert!(harness.state().current_membership(START).is_some());

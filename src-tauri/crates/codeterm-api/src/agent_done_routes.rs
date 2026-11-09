@@ -9,7 +9,7 @@ use crate::routes::AppState;
 
 #[derive(Deserialize)]
 pub struct DoneQuery {
-    limit: Option<usize>,
+    pub(crate) limit: Option<usize>,
 }
 
 /// Durable Done surface: completed lanes across all orchestrators (done /
@@ -21,7 +21,11 @@ pub async fn list_done(
     _headers: HeaderMap,
     Query(query): Query<DoneQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let limit = query.limit.unwrap_or(200).min(1000);
-    let rows = state.svc.report_store.lock().completed_rows(limit);
-    Ok(Json(serde_json::json!({ "completed": rows })))
+    tokio::task::spawn_blocking(move || {
+        let limit = query.limit.unwrap_or(200).min(1000);
+        let rows = state.svc.report_store.lock().completed_rows(limit);
+        Json(serde_json::json!({ "completed": rows }))
+    })
+    .await
+    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))
 }

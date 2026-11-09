@@ -1,3 +1,4 @@
+import { ioTestContext } from "../../provider-shared/tests/hostIo";
 /**
  * Opencode plugin contract + detection tests.
  * Run: npx tsx plugins/provider-opencode/tests/plugin.test.ts
@@ -11,12 +12,7 @@ import plugin from "../src/index";
 import { enrichTimelineItems } from "../../../src/components/Terminal/chatEnrichment";
 import type { MessageSegment } from "@codeterm/chat-core";
 import { ocHost } from "./hostFixture.testdata";
-import {
-  isCurrentOpencodeBindingPluginSource,
-  opencodeBindingPluginSource,
-  ownsOpencodeBindingPluginSource,
-  ASSISTANT_MESSAGE_MAX_BYTES,
-} from "../src/helpers";
+import { isCurrentOpencodeBindingPluginSource, opencodeBindingPluginSource, ownsOpencodeBindingPluginSource, ASSISTANT_MESSAGE_MAX_BYTES } from "../src/helpers";
 
 let passed = 0;
 let failed = 0;
@@ -104,7 +100,7 @@ async function loadGeneratedBindingHooks() {
     },
     module: { exports: undefined as unknown },
   };
-  new vm.Script(`${source}\nmodule.exports = CodeTermSessionBindingPlugin;`).runInNewContext(context);
+  new vm.Script(`${source}\nmodule.exports = CodeTermSessionBindingPlugin;`).runInNewContext(ioTestContext(context));
   const makePlugin = context.module.exports as (input: { directory: string }) => Promise<{
     event: (input: { event: unknown }) => Promise<void>;
     "chat.message": (input: { sessionID: string }) => Promise<void>;
@@ -159,7 +155,7 @@ function loadOpencodeWithHost(host: unknown) {
   const pluginPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "plugin.js");
   const source = fs.readFileSync(pluginPath, "utf8");
   const context = { host, console, module: { exports: {} as { default?: any } }, exports: {} };
-  new vm.Script(source, { filename: pluginPath }).runInNewContext(context);
+  new vm.Script(source, { filename: pluginPath }).runInNewContext(ioTestContext(context));
   return context.module.exports.default;
 }
 

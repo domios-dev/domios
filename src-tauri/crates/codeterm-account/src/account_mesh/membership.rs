@@ -1,14 +1,11 @@
 use super::key::sha256_hex;
-use super::wire::{MeshTarget, MESH_LINK_PERMIT_SECONDS};
 use codeterm_entitlements::text::{scalar_text, valid_id, valid_installation_id};
 use codeterm_entitlements::{DetachedGrant, EntitlementAuthority, Mode, Refusal};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 pub const MEMBERSHIP_ISSUER: &str = "domios-mesh-membership";
-pub const MAX_MEMBERSHIP_SECONDS: u64 = 86400;
-/// Not-before leeway for a desktop clock behind the issuer; expiry is never extended. It stays
-/// within one link-permit lifetime and far inside the renewal window.
+/// Not-before clock leeway; expiry is never extended.
 pub const NOT_BEFORE_SKEW_SECONDS: u64 = 120;
 const MAX_PAYLOAD_BYTES: usize = 2048;
 const MAX_TOKEN_BYTES: usize = 4096;
@@ -71,16 +68,7 @@ impl VerifiedMembership {
     }
     pub fn refresh_after(&self) -> u64 {
         let duration = self.expires_at.saturating_sub(self.issued_at);
-        let latest_margin = 120.max(duration / 24).min(duration / 2);
-        let earliest_margin = 600.max(duration / 12).min(duration / 2);
-        let seed = sha256_hex(self.installation_id.as_bytes())
-            .bytes()
-            .take(16)
-            .fold(0u64, |hash, byte| {
-                hash.wrapping_mul(31).wrapping_add(u64::from(byte))
-            });
-        let margin = latest_margin + seed % (earliest_margin - latest_margin + 1);
-        self.expires_at.saturating_sub(margin)
+        self.expires_at.saturating_sub(duration / 12)
     }
 }
 
@@ -112,7 +100,6 @@ pub enum MembershipRefusal {
     Key,
     Slot,
     Window,
-    Duration,
     NotYetValid,
     Expired,
 }
@@ -214,8 +201,8 @@ fn audience(
     Ok(())
 }
 
-fn window(issued_at: u64, expires_at: u64, max: u64, now: u64) -> Result<(), MembershipRefusal> {
-    if expires_at <= issued_at || expires_at - issued_at > max {
+fn window(issued_at: u64, expires_at: u64, now: u64) -> Result<(), MembershipRefusal> {
+    if issued_at == 0 || expires_at <= issued_at || expires_at > 9_007_199_254_740_991 {
         return Err(MembershipRefusal::Window);
     }
     if now.saturating_add(NOT_BEFORE_SKEW_SECONDS) < issued_at {
@@ -267,15 +254,7 @@ pub fn verify_membership(
     {
         return Err(R::Slot);
     }
-    if payload.expires_at.saturating_sub(payload.issued_at) > MAX_MEMBERSHIP_SECONDS {
-        return Err(R::Duration);
-    }
-    window(
-        payload.issued_at,
-        payload.expires_at,
-        MAX_MEMBERSHIP_SECONDS,
-        now,
-    )?;
+    window(payload.issued_at, payload.expires_at, now)?;
     Ok(VerifiedMembership {
         account_id: expect.account_id.to_owned(),
         installation_id: payload.installation_id,
@@ -285,71 +264,4 @@ pub fn verify_membership(
         issued_at: payload.issued_at,
         expires_at: payload.expires_at,
     })
-}
-
-pub const LINK_PERMIT_ISSUER: &str = "domios-mesh-link";
-
-/// Holder is the counterpart that proved its key in the transcript; peer is the verifier itself.
-#[derive(Clone, Copy, Debug)]
-pub struct LinkPermitExpectation<'a> {
-    pub transcript: &'a [u8; 32],
-    pub holder_installation_id: &'a str,
-    pub peer_installation_id: &'a str,
-    pub account_id: &'a str,
-    /// The verifier's own current slot; `None` checks the installation id only.
-    pub peer_target: Option<&'a MeshTarget>,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct LinkPayload {
-    schema_version: u64,
-    iss: String,
-    aud: Audience,
-    sub: String,
-    holder: MeshTarget,
-    peer: MeshTarget,
-    transcript_sha256: String,
-    authority_fingerprint: String,
-    policy_epoch: String,
-    issued_at: u64,
-    expires_at: u64,
-}
-
-/// `MeshLinkPermitPayload`: one side's own short online authorization for exactly this transcript.
-pub fn verify_link_permit(
-    grant: &DetachedGrant,
-    trust: &MembershipTrust,
-    expect: &LinkPermitExpectation<'_>,
-    now: u64,
-) -> Result<(), MembershipRefusal> {
-    use MembershipRefusal as R;
-    let value = signed_payload(grant, trust)?;
-    let payload: LinkPayload = serde_json::from_value(value).map_err(|_| R::Malformed)?;
-    if payload.schema_version != 1 || payload.iss != LINK_PERMIT_ISSUER {
-        return Err(R::Issuer);
-    }
-    audience(trust, &payload.aud, &payload.policy_epoch)?;
-    if !valid_id(&payload.sub) || account_id(&payload.sub) != expect.account_id {
-        return Err(R::Subject);
-    }
-    if !hex64(&payload.authority_fingerprint) {
-        return Err(R::Malformed);
-    }
-    if payload.holder.installation_id != expect.holder_installation_id
-        || payload.peer.installation_id != expect.peer_installation_id
-        || payload.holder.installation_id == payload.peer.installation_id
-        || payload.transcript_sha256 != sha256_hex(expect.transcript)
-    {
-        return Err(R::Installation);
-    }
-    if expect.peer_target.is_some_and(|own| *own != payload.peer) {
-        return Err(R::Slot);
-    }
-    window(
-        payload.issued_at,
-        payload.expires_at,
-        MESH_LINK_PERMIT_SECONDS,
-        now,
-    )
 }

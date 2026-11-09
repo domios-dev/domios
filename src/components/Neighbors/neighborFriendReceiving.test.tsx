@@ -78,6 +78,22 @@ it("the sidebar friend row says where that friend is received and receives only 
   expect(runtimeClient.receiveFriend).toHaveBeenCalledExactlyOnceWith("pair", 7, "set");
 });
 
+it("a receiver whose membership expired is shown as the reason the friend is not received, never as the receiver", async () => {
+  const lapsed: ReceiverState = { receiving_here: false, receiving_enabled: false, receiver_machine_label: "Studio Mac", revision: 7, is_me: false, not_receiving_reason: "membership_expired" };
+  const runtimeClient = receiving(lapsed);
+  await mount(<SidebarNeighborsSection touchMode={false} client={friends([neighbor])} runtimeClient={runtimeClient} />);
+  expect(document.body.textContent).toContain("not receiving · Studio Mac's membership expired");
+  expect(Array.from(document.querySelectorAll<HTMLElement>("[title]"), element => element.title)).toContain("not receiving · Studio Mac's membership expired");
+  expect(document.body.textContent).not.toContain("receiving on");
+  await act(async () => mounted.current!.root.unmount()); mounted.current!.host.remove(); mounted.current = null;
+  await mount(<NeighborConversationView friendship="pair" client={friends([neighbor])} runtimeClient={runtimeClient} conciergeClient={concierge([])} />);
+  expect(document.body.textContent).toContain("No machine is receiving Ada's messages: Studio Mac's membership expired.");
+  expect(document.body.textContent).not.toContain("messages arrive on");
+  await act(async () => button("Receive this friend here").click());
+  await act(async () => button("Confirm receiving").click());
+  expect(runtimeClient.receiveFriend).toHaveBeenCalledExactlyOnceWith("pair", 7, "set");
+});
+
 it("a local receiver offers stopping only that friend", async () => {
   const runtimeClient = receiving(overridden);
   await mount(<SidebarNeighborsSection touchMode={false} client={friends([neighbor])} runtimeClient={runtimeClient} />);

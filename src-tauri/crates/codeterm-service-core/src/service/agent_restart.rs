@@ -46,6 +46,12 @@ pub(super) struct RestartClaim {
     tab_id: String,
 }
 
+impl RestartClaim {
+    fn release_cooldown(&self) {
+        self.tracker.lock().last_restart.remove(&self.tab_id);
+    }
+}
+
 impl Drop for RestartClaim {
     fn drop(&mut self) {
         let mut tracker = self.tracker.lock();
@@ -179,7 +185,7 @@ impl RestartOutcome {
 
 /// Tab state captured before any restart leg mutates it.
 #[derive(Debug, Clone)]
-struct TabRestartSnapshot {
+pub(in crate::service) struct TabRestartSnapshot {
     tab_id: String,
     pty_id: String,
     provider: String,
@@ -351,7 +357,10 @@ impl ServiceContext {
         if mode == RestartMode::Fresh {
             self.require_fresh_restart_allowed(&snap, force)?;
         }
-        let pty_claim = self.pty_ownership.acquire(&snap.tab_id);
+        let pty_claim = self
+            .pty_ownership
+            .acquire(&snap.tab_id)
+            .map_err(AgentRestartError::BadRequest)?;
         {
             let mux = self.mux.read();
             let tab = mux.get_tab(&snap.tab_id).ok_or_else(|| {
@@ -1029,6 +1038,7 @@ mod shutdown;
 pub mod sleep_transition;
 pub(crate) mod timing;
 mod unverified_shell;
+pub use model_switch::ControlChange;
 pub use model_switch::ModelSwitchConfirmation;
 pub use model_switch::ModelSwitchError;
 pub use model_switch::ModelSwitchEvidence;

@@ -1,8 +1,8 @@
+import type { PlanView as Plan } from "../planProjection";
 import { ChevronDown } from "lucide-react";
 import type { PlanningState } from "../types";
 import type { ApiConfig } from "../../../lib/types";
 import { PLANNING_STATE_LABEL, type BoardPlanSummary, type BoardSpecSummary } from "./boardModel";
-import type { Plan } from "../types";
 import { PairAffordance } from "../../shared/PairAffordance";
 import { isPlanParked } from "./PlanModeControls";
 import { useTouchOptimizedUi } from "../../../hooks/useTouchOptimizedUi";

@@ -281,35 +281,72 @@ fn container_update_error(marked: bool) -> Option<crate::cmd::print::CliError> {
     })
 }
 
-fn check_item_line(item: &serde_json::Value, errors: &serde_json::Value) -> String {
-    let id = item["id"].as_str().unwrap_or("?");
-    let source = if item["kind"] == "plugin" {
-        item["channel"].as_str().unwrap_or(id)
-    } else {
-        id
-    };
-    if let Some(error) = errors[source]
-        .as_str()
-        .or_else(|| errors["discovery"].as_str())
-    {
-        let cached = if item["reason"] == "cached_manifest" {
-            " (cached update usable)"
-        } else {
-            ""
-        };
-        return format!("{id}: check failed: {error}{cached}");
+fn strictly_newer(installed: &str, latest: &str) -> bool {
+    use codeterm_plugins::{AvailabilityItem, AvailabilityState, UpdateKind};
+    AvailabilityItem::release("", UpdateKind::App, installed, latest, true).state
+        == AvailabilityState::UpdateAvailable
+}
+
+/// Plain words for what an item's state establishes; a state that vouches for nothing has none.
+fn check_item_state(state: &str, reason: &str) -> Option<&'static str> {
+    match (state, reason) {
+        ("core_silent", _) => Some("updates automatically"),
+        ("incompatible", _) | (_, "incompatible") => Some("no compatible update"),
+        ("up_to_date", "same_version" | "local_ahead") => Some("up to date"),
+        ("up_to_date", "local_install") => Some("installed locally"),
+        _ => None,
     }
-    format!(
-        "{}: {} → {} ({})",
-        id,
-        item["installed"].as_str().unwrap_or("unknown"),
-        item["latest"].as_str().unwrap_or("unknown"),
-        item["state"].as_str().unwrap_or("unknown")
-    )
+}
+
+fn check_item_line(item: &serde_json::Value) -> String {
+    let id = item["id"].as_str().unwrap_or("?");
+    let Some(installed) = item["installed"].as_str() else {
+        return id.to_string();
+    };
+    let state = item["state"].as_str().unwrap_or_default();
+    let offer = match state {
+        "update_available" => Some("update available"),
+        "ready_to_apply" => Some("ready to apply"),
+        _ => None,
+    };
+    if let (Some(offer), Some(latest)) = (offer, item["latest"].as_str()) {
+        if strictly_newer(installed, latest) {
+            return format!("{id}: {installed} → {latest} ({offer})");
+        }
+    }
+    match check_item_state(state, item["reason"].as_str().unwrap_or_default()) {
+        Some(words) => format!("{id}: {installed} ({words})"),
+        None => format!("{id}: {installed}"),
+    }
+}
+
+fn check_lines(body: &serde_json::Value, verbose: bool) -> Vec<String> {
+    let mut lines: Vec<String> = body["items"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(check_item_line)
+        .collect();
+    if verbose {
+        for (source, path) in body["served_by"].as_object().into_iter().flatten() {
+            let path = match path.as_str() {
+                Some("direct") => "direct download",
+                Some("github_api") => "the GitHub Releases API",
+                _ => "another path",
+            };
+            lines.push(format!("{source}: served by {path}"));
+        }
+        for (source, error) in body["errors"].as_object().into_iter().flatten() {
+            let error = error.as_str().unwrap_or("no detail");
+            lines.push(format!("{source}: check failed: {error}"));
+        }
+    }
+    lines
 }
 
 pub fn handle_update(
     json: bool,
+    verbose: bool,
     action: Option<UpdateAction>,
     manifest_url: Option<String>,
     after_update: Option<String>,
@@ -359,14 +396,8 @@ pub fn handle_update(
                     if json {
                         println!("{}", crate::cmd::output::encode(&body).unwrap_or_default());
                     } else {
-                        for item in body["items"].as_array().into_iter().flatten() {
-                            println!("{}", check_item_line(item, &body["errors"]));
-                        }
-                        for (source, error) in body["errors"].as_object().into_iter().flatten() {
-                            println!(
-                                "WARNING: {source}: {}",
-                                error.as_str().unwrap_or("discovery failed")
-                            );
+                        for line in check_lines(&body, verbose) {
+                            println!("{line}");
                         }
                     }
                 }

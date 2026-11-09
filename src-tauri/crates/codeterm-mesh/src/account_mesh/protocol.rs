@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 use super::transcript::Party;
 use crate::types::PeerAddress;
 
+pub const LINK_PROTOCOL_VERSION: u8 = 2;
+
 pub const LINK_HELLO_PATH: &str = "/api/mesh/link/hello";
 pub const LINK_CONFIRM_PATH: &str = "/api/mesh/link/confirm";
 pub const LINK_COMMIT_PATH: &str = "/api/mesh/link/commit";
@@ -26,6 +28,9 @@ pub struct PartyDescriptor {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LinkHello {
+    #[serde(default)]
+    pub protocol_version: u8,
+    pub signed_registry: Option<codeterm_entitlements::DetachedGrant>,
     pub link_id: String,
     pub initiator: PartyDescriptor,
     pub membership: String,
@@ -34,6 +39,9 @@ pub struct LinkHello {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LinkHelloReply {
+    #[serde(default)]
+    pub protocol_version: u8,
+    pub signed_registry: Option<codeterm_entitlements::DetachedGrant>,
     pub link_id: String,
     pub responder: PartyDescriptor,
     pub membership: String,
@@ -47,15 +55,13 @@ pub struct LinkConfirm {
     pub link_id: String,
     pub installation_signature: String,
     pub mesh_signature: String,
-    pub permit: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LinkConfirmReply {
-    pub permit: String,
+    pub confirmed: bool,
 }
 
-/// The initiator verified the responder's permit and is about to record the pair.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LinkCommit {
     #[serde(default, skip_serializing_if = "Option::is_none")]

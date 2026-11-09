@@ -7,12 +7,15 @@ import { fileURLToPath } from 'node:url';
 import { retentionPaths } from './rust-build-dir-retention.mjs';
 import { orphanLanePaths } from './orphan-lane-units.mjs';
 import { laneBuildDirectory } from './lane-build-dir.mjs';
+import { ownedIntermediateMappings } from './cargo-intermediates.mjs';
 
 const log = (value) => console.log(`[cargo-build-gc] ${value}`);
 const key = (value) => process.platform === 'win32' ? path.resolve(value).toLowerCase() : path.resolve(value);
 
 function command(program, args, cwd, runner) {
-  const result = runner(program, args, { cwd, encoding: 'utf8', maxBuffer: 64 * 1024 ** 2 });
+  const env = { ...process.env };
+  if (program === 'cargo' && args[0] === 'metadata') delete env.CARGO_BUILD_BUILD_DIR;
+  const result = runner(program, args, { cwd, env, encoding: 'utf8', maxBuffer: 64 * 1024 ** 2 });
   if (result.error || result.status !== 0) throw new Error(`${program} ${args.join(' ')}: ${result.error?.message || result.stderr}`);
   return result.stdout;
 }
@@ -126,13 +129,16 @@ export function collectCargoBuilds(checkout, { dryRun = false, runner = spawnSyn
   let mappings = map(checkouts);
   for (const mapping of mappings) log(`live ${mapping.workspace} -> ${mapping.build}`);
   const stableBuilds = resolveStableBuilds(stableMapped, mappings, stable, record);
-  const protectedBuilds = () => [...mappings, ...stableBuilds.map((build) => ({ build }))];
+  const ownedRoot = process.env.CODETERM_RUST_CACHE_ROOT || (record ? path.dirname(record) : null);
+  const ownedBuilds = () => ownedRoot ? ownedIntermediateMappings(path.join(ownedRoot, 'build')) : [];
+  const protectedBuilds = () => [...mappings, ...ownedBuilds(), ...stableBuilds.map((build) => ({ build }))];
   const roots = new Set(protectedBuilds().map((mapping) => {
     if (!/^[a-f0-9]{14}$/.test(path.basename(mapping.build)) || !/^[a-f0-9]{2}$/.test(path.basename(path.dirname(mapping.build)))) {
       return null;
     }
     return path.dirname(path.dirname(mapping.build));
   }).filter(Boolean));
+  if (ownedRoot) roots.add(path.join(ownedRoot, 'build'));
   let reclaimed = 0;
   const helper = fileURLToPath(new URL('./cargo-build-gc.py', import.meta.url));
   const python = ['python3', 'python'].find((program) => runner(program, ['--version'], { encoding: 'utf8' }).status === 0);
@@ -140,6 +146,7 @@ export function collectCargoBuilds(checkout, { dryRun = false, runner = spawnSyn
   for (const root of roots) {
     if (!fs.existsSync(root)) continue;
     for (const dir of orphanCandidates(root, protectedBuilds())) {
+      if (ownedBuilds().some(mapping => key(mapping.build) === key(dir))) continue;
       const current = inventory();
       if (JSON.stringify(current) !== JSON.stringify(checkouts)) {
         log('worktree inventory changed; remapping before the next removal');

@@ -1,5 +1,6 @@
 use crate::multiplexer::types::TaskBinding;
 use crate::service::agent_runtime::plan_warning::PlanBindingFailure;
+use crate::service::plan::{PlanError, RestartAttemptRead, TaskContinuityRead, TaskRestartQuery};
 use crate::service::{
     plan::task_attempts::{RuntimeRestartBinding, RuntimeRestartMode},
     ServiceContext,
@@ -17,7 +18,7 @@ pub(crate) struct RestartBindingAuthority {
     owner: Weak<Mux>,
     request: RuntimeRestartBinding,
     carried: bool,
-    completed_task: Option<crate::plan::Task>,
+    completed_task: Option<TaskContinuityRead>,
     completed_source: Option<CurrentSession>,
     completed_binding: Option<TaskBinding>,
     completed_target: Option<CurrentSession>,
@@ -143,7 +144,7 @@ impl CurrentSession {
 struct CompletedSession {
     owner: Weak<Mux>,
     plan_id: String,
-    task: crate::plan::Task,
+    task: TaskContinuityRead,
     binding: TaskBinding,
     current: CurrentSession,
 }
@@ -166,7 +167,7 @@ fn key(svc: &ServiceContext, tab: &str) -> (usize, String) {
 
 fn completed_attempt_matches(
     tab: &crate::multiplexer::types::Tab,
-    attempt: &crate::plan::TaskExecutionAttempt,
+    attempt: &RestartAttemptRead,
     source: &str,
     nonce: &str,
 ) -> bool {
@@ -205,6 +206,20 @@ impl ServiceContext {
         Ok(())
     }
 
+    fn completed_task_continuity_matches(
+        &self,
+        expected: &TaskContinuityRead,
+    ) -> Result<bool, PlanError> {
+        match self
+            .plan_store
+            .task_continuity_projection(&expected.task_id)
+        {
+            Ok(current) => Ok(current == *expected),
+            Err(PlanError::TaskNotFound) => Ok(false),
+            Err(error) => Err(error),
+        }
+    }
+
     fn retained_completed_session_matches(
         &self,
         tab_id: &str,
@@ -235,13 +250,14 @@ impl ServiceContext {
             && proof.current.thread == thread
             && proof.current.nonce == nonce
             && proof.current.matches(&tab)
+            && proof.task.plan_id == proof.plan_id
+            && self
+                .completed_task_continuity_matches(&proof.task)
+                .map_err(PlanBindingFailure::from_plan_error)?
             && self
                 .plan_store
-                .show_task(&proof.task.id)
-                .is_some_and(|detail| detail.plan_id == proof.plan_id && detail.task == proof.task)
-            && self
-                .plan_store
-                .live_task_attempts_for_tab(tab_id)
+                .runtime_unclosed_attempt_bindings_projection(tab_id)
+                .map_err(PlanBindingFailure::from_plan_error)?
                 .is_empty();
         if !exact {
             return Err("Completed current-session continuity changed".into());
@@ -261,7 +277,8 @@ impl ServiceContext {
             if bound
                 || !self
                     .plan_store
-                    .live_task_attempts_for_tab(tab_id)
+                    .runtime_unclosed_attempt_bindings_projection(tab_id)
+                    .map_err(|error| error.to_string())?
                     .is_empty()
             {
                 return Err("provider_switch_binding_refused: source task binding changed".into());
@@ -283,12 +300,7 @@ impl ServiceContext {
             .get_tab(tab_id)
             .cloned()
             .ok_or("provider_switch_binding_refused: tab disappeared")?;
-        let detail = self
-            .plan_store
-            .show_task(&request.task_id)
-            .ok_or("provider_switch_binding_refused: task disappeared")?;
-        let exact = detail.plan_id == request.plan_id
-            && tab.agent_type.as_deref() == Some(request.provider.as_str())
+        let exact = tab.agent_type.as_deref() == Some(request.provider.as_str())
             && tab.agent_session_id.as_deref() == Some(request.old_thread.as_str())
             && tab.session_binding_nonce.as_deref() == Some(request.old_nonce.as_str())
             && tab.reported_session_binding_nonce.as_deref() == Some(request.old_nonce.as_str())
@@ -298,7 +310,10 @@ impl ServiceContext {
                     && binding.attempt_id.as_ref() == Some(&request.attempt_id)
             });
         let unchanged = if let Some(completed) = &authority.completed_task {
-            detail.task == *completed
+            completed.plan_id == request.plan_id
+                && self
+                    .completed_task_continuity_matches(completed)
+                    .map_err(|error| error.to_string())?
                 && authority
                     .completed_source
                     .as_ref()
@@ -306,14 +321,26 @@ impl ServiceContext {
                 && tab.task_binding == authority.completed_binding
                 && self
                     .plan_store
-                    .live_task_attempts_for_tab(tab_id)
+                    .runtime_unclosed_attempt_bindings_projection(tab_id)
+                    .map_err(|error| error.to_string())?
                     .is_empty()
         } else {
-            detail.task.assigned_tab_id.as_deref() == Some(tab_id)
-                && detail.task.interruption.owner_epoch == request.owner_epoch
-                && detail.task.interruption.owner_tab_id.as_deref() == Some(tab_id)
-                && detail.task.interruption.owner_session_id.as_deref()
-                    == Some(request.old_thread.as_str())
+            let detail = self
+                .plan_store
+                .task_restart_authority_projection(&TaskRestartQuery {
+                    task_ref: &request.task_id,
+                    attempt_id: &request.attempt_id,
+                    executor_tab_id: tab_id,
+                    provider: &request.provider,
+                    session_id: Some(&request.old_thread),
+                    nonce: &request.old_nonce,
+                })
+                .map_err(|error| format!("provider_switch_binding_refused: {error}"))?;
+            detail.plan_id == request.plan_id
+                && detail.assigned_tab_id.as_deref() == Some(tab_id)
+                && detail.owner_epoch == request.owner_epoch
+                && detail.owner_tab_id.as_deref() == Some(tab_id)
+                && detail.owner_session_id.as_deref() == Some(request.old_thread.as_str())
                 && self
                     .plan_store
                     .open_attempt_task_for_effort_for_tab(
@@ -327,10 +354,7 @@ impl ServiceContext {
                         request.task_id.clone(),
                         request.attempt_id.clone(),
                     ))
-                && detail.task.execution_attempts.iter().any(|attempt| {
-                    attempt.id == request.attempt_id
-                        && attempt.provider.as_deref() == Some(request.provider.as_str())
-                })
+                && detail.provider_attempts > 0
         };
         if !exact || !unchanged {
             return Err("provider_switch_binding_refused: source task binding changed".into());
@@ -411,20 +435,39 @@ impl ServiceContext {
         else {
             return Ok(None);
         };
-        let Some(detail) = self.plan_store.show_task(task) else {
-            if retained.is_some() {
+        let completed = match self
+            .plan_store
+            .task_completed_restart_projection(&TaskRestartQuery {
+                task_ref: task,
+                attempt_id: attempt,
+                executor_tab_id: tab_id,
+                provider: source,
+                session_id: tab.agent_session_id.as_deref(),
+                nonce,
+            }) {
+            Ok(Some(read)) => read,
+            Ok(None) if retained.is_none() => return Ok(None),
+            Ok(None) => {
+                return Err(
+                    "provider_switch_binding_refused: completed task history changed".into(),
+                )
+            }
+            Err(PlanError::TaskNotFound) if retained.is_none() => return Ok(None),
+            Err(PlanError::TaskNotFound) => {
                 return Err(
                     "provider_switch_binding_refused: completed task history disappeared".into(),
-                );
+                )
             }
-            return Ok(None);
+            Err(error) => return Err(format!("provider_switch_binding_refused: {error}")),
         };
+        let continuity = completed.continuity();
+        let detail = completed.authority;
         if retained.as_ref().is_some_and(|retained| {
-            retained.plan_id != detail.plan_id || retained.task != detail.task
+            retained.plan_id != detail.plan_id || retained.task != continuity
         }) {
             return Err("provider_switch_binding_refused: completed task history changed".into());
         }
-        if detail.task.status != crate::plan::TaskStatus::Done {
+        if detail.status != crate::plan::TaskStatus::Done {
             return Ok(None);
         }
         if !matches!(
@@ -433,51 +476,28 @@ impl ServiceContext {
         ) {
             return Err("provider_switch_binding_refused: completed history only permits provider handoff or same-session resume".into());
         }
-        let matches = detail
-            .task
-            .execution_attempts
-            .iter()
-            .filter(|entry| entry.id == *attempt)
-            .collect::<Vec<_>>();
-        let valid = matches
-            .as_slice()
-            .first()
-            .filter(|_| matches.len() == 1)
+        let valid = detail
+            .attempt
+            .as_ref()
+            .filter(|_| detail.attempt_id_count == 1)
             .is_some_and(|old| {
                 completed_attempt_matches(&tab, old, source, nonce)
-                    && old.interruption.owner_epoch == detail.task.interruption.owner_epoch
+                    && old.owner_epoch == detail.owner_epoch
             });
-        if (retained.is_none()
-            && (!valid || detail.task.interruption.owner_session_id != tab.agent_session_id))
+        if (retained.is_none() && (!valid || detail.owner_session_id != tab.agent_session_id))
             || detail.plan_id != *plan
             || tab.agent_type.as_deref() != Some(source)
             || tab.session_binding_nonce.as_deref() != Some(nonce)
-            || detail
-                .task
-                .execution_attempts
-                .iter()
-                .filter(|entry| entry.id == *attempt)
-                .count()
-                != 1
-            || (retained.is_none()
-                && detail
-                    .task
-                    .execution_attempts
-                    .iter()
-                    .filter(|entry| completed_attempt_matches(&tab, entry, source, nonce))
-                    .count()
-                    != 1)
-            || detail.task.assigned_tab_id.is_some()
-            || detail.task.interruption.owner_epoch == 0
-            || detail.task.interruption.owner_tab_id.as_deref() != Some(tab_id)
-            || detail
-                .task
-                .execution_attempts
-                .iter()
-                .any(|entry| entry.closed_at.is_none())
+            || detail.attempt_id_count != 1
+            || (retained.is_none() && detail.completed_source_attempts != 1)
+            || detail.assigned_tab_id.is_some()
+            || detail.owner_epoch == 0
+            || detail.owner_tab_id.as_deref() != Some(tab_id)
+            || detail.unclosed_attempts > 0
             || !self
                 .plan_store
-                .live_task_attempts_for_tab(tab_id)
+                .runtime_unclosed_attempt_bindings_projection(tab_id)
+                .map_err(|error| error.to_string())?
                 .is_empty()
         {
             return Err(
@@ -499,11 +519,11 @@ impl ServiceContext {
                 old_nonce: nonce.into(),
                 new_thread: String::new(),
                 new_nonce: String::new(),
-                owner_epoch: detail.task.interruption.owner_epoch,
+                owner_epoch: detail.owner_epoch,
                 mode,
             },
             carried: false,
-            completed_task: Some(detail.task),
+            completed_task: Some(continuity),
             completed_source: Some(current),
             completed_binding: Some(binding.clone()),
             completed_target: None,
@@ -524,10 +544,8 @@ impl ServiceContext {
             .ok_or("provider_switch_binding_refused: tab not found")?;
         let live_attempts = self
             .plan_store
-            .live_task_attempts_for_tab(tab_id)
-            .into_iter()
-            .filter(|candidate| candidate.attempt.retired_at.is_none())
-            .collect::<Vec<_>>();
+            .runtime_current_attempt_bindings_projection(tab_id)
+            .map_err(|error| format!("provider_switch_binding_refused: {error}"))?;
         let task_binding_present = tab.task_binding.as_ref().is_some_and(|binding| {
             binding.plan_id.is_some() || binding.task_id.is_some() || binding.attempt_id.is_some()
         });
@@ -556,7 +574,7 @@ impl ServiceContext {
             || live_attempts.len() != 1
             || live_attempts[0].plan_id != plan_id
             || live_attempts[0].task_id != task_id
-            || live_attempts[0].attempt.id != attempt_id
+            || live_attempts[0].attempt_id != attempt_id
         {
             return Err(
                 "provider_switch_binding_refused: current task attempt is ambiguous or unverified"
@@ -566,23 +584,25 @@ impl ServiceContext {
         let prior = tab.task_binding.clone().unwrap_or_default();
         let detail = self
             .plan_store
-            .show_task(&task_id)
-            .ok_or("provider_switch_binding_refused: task disappeared")?;
-        let source_attempt = detail
-            .task
-            .execution_attempts
-            .iter()
-            .filter(|entry| entry.id == attempt_id)
-            .collect::<Vec<_>>();
-        if source_attempt.len() != 1
-            || source_attempt[0].provider.as_deref() != Some(source)
-            || detail.task.assigned_tab_id.as_deref() != Some(tab_id)
-            || detail.task.interruption.owner_epoch == 0
-            || detail.task.interruption.owner_tab_id.as_deref() != Some(tab_id)
-            || detail.task.interruption.owner_session_id != tab.agent_session_id
-            || detail.task.execution_attempts.iter().any(|entry| {
-                entry.id != attempt_id && entry.closed_at.is_none() && entry.retired_at.is_none()
+            .task_restart_authority_projection(&TaskRestartQuery {
+                task_ref: &task_id,
+                attempt_id: &attempt_id,
+                executor_tab_id: tab_id,
+                provider: source,
+                session_id: tab.agent_session_id.as_deref(),
+                nonce,
             })
+            .map_err(|error| format!("provider_switch_binding_refused: {error}"))?;
+        if detail.attempt_id_count != 1
+            || detail
+                .attempt
+                .as_ref()
+                .is_none_or(|attempt| attempt.provider.as_deref() != Some(source))
+            || detail.assigned_tab_id.as_deref() != Some(tab_id)
+            || detail.owner_epoch == 0
+            || detail.owner_tab_id.as_deref() != Some(tab_id)
+            || detail.owner_session_id != tab.agent_session_id
+            || detail.other_open_attempts > 0
         {
             return Err("provider_switch_binding_refused: source task owner changed".into());
         }
@@ -741,13 +761,18 @@ impl ServiceContext {
             .ok_or("Runtime restart thread absent")?;
         let detail = self
             .plan_store
-            .show_task(&task)
-            .ok_or_else(|| PlanBindingFailure::bookkeeping("Runtime restart task absent"))?;
+            .task_restart_authority_projection(&TaskRestartQuery {
+                task_ref: &task,
+                attempt_id: &attempt,
+                executor_tab_id: tab_id,
+                provider,
+                session_id: Some(&thread),
+                nonce,
+            })
+            .map_err(PlanBindingFailure::from_plan_error)?;
         let old = detail
-            .task
-            .execution_attempts
-            .iter()
-            .find(|entry| entry.id == attempt && entry.executor_tab_id == tab_id)
+            .attempt
+            .as_ref()
             .ok_or("Runtime restart attempt changed")?;
         if detail.plan_id != plan
             || old.retired_at.is_some()
@@ -774,7 +799,7 @@ impl ServiceContext {
                 old_nonce: nonce.into(),
                 new_thread: String::new(),
                 new_nonce: String::new(),
-                owner_epoch: detail.task.interruption.owner_epoch,
+                owner_epoch: detail.owner_epoch,
                 mode,
             },
             carried: false,
@@ -872,15 +897,14 @@ impl ServiceContext {
             if thread.is_empty() || nonce.is_empty() || nonce == request.old_nonce {
                 return Err("Completed provider switch target is unverified".into());
             }
-            if !self
-                .plan_store
-                .show_task(&request.task_id)
-                .is_some_and(|detail| {
-                    detail.plan_id == request.plan_id && detail.task == *completed
-                })
+            if completed.plan_id != request.plan_id
+                || !self
+                    .completed_task_continuity_matches(completed)
+                    .map_err(PlanBindingFailure::from_plan_error)?
                 || !self
                     .plan_store
-                    .live_task_attempts_for_tab(tab_id)
+                    .runtime_unclosed_attempt_bindings_projection(tab_id)
+                    .map_err(PlanBindingFailure::from_plan_error)?
                     .is_empty()
             {
                 return Err("Completed provider switch history changed".into());
@@ -936,7 +960,9 @@ impl ServiceContext {
         if authority.carried {
             if request.new_thread == thread
                 && request.new_nonce == nonce
-                && self.runtime_restart_attempt_matches(request)
+                && self
+                    .runtime_restart_attempt_matches(request)
+                    .map_err(PlanBindingFailure::from_plan_error)?
             {
                 return Ok(true);
             }
@@ -1014,34 +1040,33 @@ impl ServiceContext {
         Ok(true)
     }
 
-    fn runtime_restart_attempt_matches(&self, request: &RuntimeRestartBinding) -> bool {
-        self.plan_store
-            .show_task(&request.task_id)
-            .is_some_and(|detail| {
-                detail.plan_id == request.plan_id
-                    && detail.task.assigned_tab_id.as_deref()
-                        == Some(request.executor_tab_id.as_str())
-                    && detail.task.interruption.owner_epoch == request.owner_epoch
-                    && detail.task.interruption.owner_tab_id.as_deref()
-                        == Some(request.executor_tab_id.as_str())
-                    && detail.task.interruption.owner_session_id.as_deref()
-                        == Some(request.new_thread.as_str())
-                    && detail.task.execution_attempts.iter().any(|attempt| {
-                        attempt.id == request.attempt_id
-                            && attempt.executor_tab_id == request.executor_tab_id
-                            && attempt.provider.as_deref()
-                                == Some(
-                                    request
-                                        .target_provider
-                                        .as_deref()
-                                        .unwrap_or(&request.provider),
-                                )
-                            && attempt.session_id.as_deref() == Some(request.new_thread.as_str())
-                            && attempt.session_binding_nonce.as_deref()
-                                == Some(request.new_nonce.as_str())
-                            && attempt.retired_at.is_none()
-                    })
-            })
+    fn runtime_restart_attempt_matches(
+        &self,
+        request: &RuntimeRestartBinding,
+    ) -> Result<bool, PlanError> {
+        let detail = match self
+            .plan_store
+            .task_restart_authority_projection(&TaskRestartQuery {
+                task_ref: &request.task_id,
+                attempt_id: &request.attempt_id,
+                executor_tab_id: &request.executor_tab_id,
+                provider: request
+                    .target_provider
+                    .as_deref()
+                    .unwrap_or(&request.provider),
+                session_id: Some(&request.new_thread),
+                nonce: &request.new_nonce,
+            }) {
+            Ok(read) => read,
+            Err(PlanError::TaskNotFound) => return Ok(false),
+            Err(error) => return Err(error),
+        };
+        Ok(detail.plan_id == request.plan_id
+            && detail.assigned_tab_id.as_deref() == Some(request.executor_tab_id.as_str())
+            && detail.owner_epoch == request.owner_epoch
+            && detail.owner_tab_id.as_deref() == Some(request.executor_tab_id.as_str())
+            && detail.owner_session_id.as_deref() == Some(request.new_thread.as_str())
+            && detail.runtime_attempts > 0)
     }
 }
 

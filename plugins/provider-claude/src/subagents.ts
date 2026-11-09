@@ -1,3 +1,4 @@
+import { type HostIoSteps } from "@codeterm/plugin-sdk";
 import { claudeSessionFilePath, familyFromModelId, type ClaudeEntry } from "./session";
 import { canonicalToolFields, toolDescription } from "./toolFields";
 
@@ -138,9 +139,9 @@ interface Sidechain {
   model?: string;
 }
 
-function readTail(path: string): string | null {
+function* readTail(path: string): HostIoSteps<string | null> {
   try {
-    const raw = host.fs.readFileTail(path, SIDECHAIN_TAIL_BYTES);
+    const raw = (yield* host.io.fs.readFileTail(path, SIDECHAIN_TAIL_BYTES));
     return typeof raw === "string" ? raw : null;
   } catch (_) {
     return null;
@@ -148,14 +149,14 @@ function readTail(path: string): string | null {
 }
 
 /** Bounded tail read of the transcript the row's own session wrote for this agent; absent or unreadable is null. */
-export function subAgentSidechain(entry: ClaudeEntry, agentId: string): Sidechain | null {
+export function* subAgentSidechain(entry: ClaudeEntry, agentId: string): HostIoSteps<Sidechain | null> {
   const cwd = text(entry.cwd);
   const sessionId = text(entry.sessionId);
   if (!cwd || !PLAIN_ID_RE.test(sessionId) || !PLAIN_ID_RE.test(agentId)) return null;
   const mainPath = claudeSessionFilePath(cwd, sessionId);
   if (!mainPath || !mainPath.endsWith(`${sessionId}.jsonl`)) return null;
   const sep = mainPath.lastIndexOf("\\") > mainPath.lastIndexOf("/") ? "\\" : "/";
-  const raw = readTail(`${mainPath.slice(0, -".jsonl".length)}${sep}subagents${sep}agent-${agentId}.jsonl`);
+  const raw = (yield* readTail(`${mainPath.slice(0, -".jsonl".length)}${sep}subagents${sep}agent-${agentId}.jsonl`));
   if (raw === null) return null;
   const actions: Array<Record<string, unknown>> = [];
   const byId: Record<string, Record<string, unknown>> = {};
@@ -187,10 +188,10 @@ export function subAgentSidechain(entry: ClaudeEntry, agentId: string): Sidechai
   return { actions: actions.slice(-MAX_ACTIONS), ...(model ? { model } : {}) };
 }
 
-export function subAgentNotificationBlock(content: string, entry: ClaudeEntry): Block | null {
+export function* subAgentNotificationBlock(content: string, entry: ClaudeEntry): HostIoSteps<Block | null> {
   const notice = subAgentNotification(content);
   if (!notice) return null;
-  const sidechain = subAgentSidechain(entry, notice.agentId);
+  const sidechain = (yield* subAgentSidechain(entry, notice.agentId));
   return agentBlock(notice.callId, {
     agent_id: notice.agentId,
     agent_state: notice.state,
@@ -204,7 +205,7 @@ export function subAgentNotificationBlock(content: string, entry: ClaudeEntry): 
 }
 
 /** Sub-agent transcripts beside this exact session file; a path not named for the session yields none. */
-export function subAgentUsageSources(sessionFilePath: string, sessionId: string): string[] {
+export function* subAgentUsageSources(sessionFilePath: string, sessionId: string): HostIoSteps<string[]> {
   const file = text(sessionFilePath);
   const id = text(sessionId);
   if (!file || !PLAIN_ID_RE.test(id)) return [];
@@ -213,7 +214,7 @@ export function subAgentUsageSources(sessionFilePath: string, sessionId: string)
   const sep = cut >= 0 ? file.charAt(cut) : "/";
   let entries: Array<{ name: string; path: string; isFile: boolean }> = [];
   try {
-    entries = host.fs.readDir(`${file.slice(0, cut + 1)}${id}${sep}subagents`) || [];
+    entries = (yield* host.io.fs.readDir(`${file.slice(0, cut + 1)}${id}${sep}subagents`)) || [];
   } catch (_) {
     return [];
   }

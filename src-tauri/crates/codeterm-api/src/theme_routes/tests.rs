@@ -4,6 +4,27 @@ use codeterm_service_core::agent::provider::{
 use std::path::PathBuf;
 use std::time::Duration;
 
+#[tokio::test]
+async fn oversized_theme_is_rejected_before_parsing_or_writing() {
+    let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(
+        codeterm_service_core::multiplexer::state::MultiplexerState::empty(),
+    );
+    let state = crate::test_support::app_state(&fixture);
+    let result = super::save_theme_api(
+        axum::extract::State(state),
+        Default::default(),
+        axum::Json(super::SaveThemeBody {
+            id: "bounded-theme".into(),
+            toml: "!".repeat(super::MAX_THEME_BYTES + 1),
+        }),
+    )
+    .await;
+    assert_eq!(
+        result.unwrap_err().0,
+        axum::http::StatusCode::PAYLOAD_TOO_LARGE
+    );
+}
+
 pub(crate) struct SettingsProbe {
     pub(crate) path: PathBuf,
 }

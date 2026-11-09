@@ -28,7 +28,7 @@ fn list_index_counts_come_from_sql_without_loading_plans() {
             .unwrap();
     }
     store
-        .with_plan(&plan.id, 10, |plan| {
+        .edit_plan_fixture(&plan.id, 10, |plan| {
             let assignments = [
                 (TaskStatus::Pending, " tab-a "),
                 (TaskStatus::InProgress, "tab-b"),
@@ -68,7 +68,7 @@ fn list_index_counts_come_from_sql_without_loading_plans() {
     drop(store);
 
     let reopened = PlanStore::open(database_path.clone()).unwrap();
-    let entry = reopened.list_index().remove(0);
+    let entry = reopened.list_index().unwrap().remove(0);
 
     assert_eq!(entry.plan_id, plan.id);
     assert_eq!(entry.title, "Counted");

@@ -102,21 +102,27 @@ where
         }
         Err(()) => Err(SyncFailure::Request),
     };
-    let mut manager = mesh.lock();
-    if manager.account_state().account_epoch != probe.account_epoch
-        || manager.account_state().signed_in_account() != Some(probe.account_id.as_str())
-        || manager
-            .link_record(peer_id)
-            .is_none_or(|record| record.link_nonce != probe.link_nonce)
-        || !manager.traffic_open(peer_id)
-    {
-        return None;
-    }
-    let status = match result {
-        Ok(_) => 200,
-        Err(SyncFailure::Refused(status)) => status,
-        Err(_) => 0,
+    let status = {
+        let mut manager = mesh.lock();
+        if manager.account_state().account_epoch != probe.account_epoch
+            || manager.account_state().signed_in_account() != Some(probe.account_id.as_str())
+            || manager
+                .link_record(peer_id)
+                .is_none_or(|record| record.link_nonce != probe.link_nonce)
+            || !manager.traffic_open(peer_id)
+        {
+            return None;
+        }
+        let status = match &result {
+            Ok(_) => 200,
+            Err(SyncFailure::Refused(status)) => *status,
+            Err(_) => 0,
+        };
+        manager.record_peer_http_status(peer_id, probe.link_nonce.as_deref(), status);
+        status
     };
-    manager.record_peer_http_status(peer_id, probe.link_nonce.as_deref(), status);
+    if let Ok(payload) = result {
+        crate::endpoint_gossip::receive_endpoint_records(mesh, payload.endpoints).await;
+    }
     Some((200..=299).contains(&status))
 }

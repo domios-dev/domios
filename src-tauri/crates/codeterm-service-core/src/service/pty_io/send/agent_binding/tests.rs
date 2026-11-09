@@ -206,3 +206,35 @@ fn pty_starting_never_pins_stale_pty_after_boot_flag_clears() {
     tab.boot_stage = Some(BootStage::AgentReady);
     assert_eq!(queued_delivery_target(&tab, &payload).unwrap().0, "new-pty");
 }
+
+#[test]
+fn routed_send_waits_for_restored_launch_authority_but_never_for_agent_work() {
+    use codeterm_types::pty::{TabVerdict, TimelineState};
+    let mut tab = launching_tab();
+    tab.agent_session_id = Some("saved-session".into());
+    tab.agent_state = Some(
+        TabVerdict {
+            state: TimelineState::Idle,
+            subtype: None,
+        }
+        .into(),
+    );
+    let payload = pinned(&tab);
+    assert!(queued_delivery_target(&tab, &payload)
+        .unwrap_err()
+        .contains("session binding"));
+    tab.reported_session_binding_nonce = tab.session_binding_nonce.clone();
+    assert!(queued_delivery_target(&tab, &payload)
+        .unwrap_err()
+        .contains("readiness"));
+    tab.boot_stage = Some(BootStage::AgentReady);
+    tab.agent_booting = false;
+    tab.agent_state = Some(
+        TabVerdict {
+            state: TimelineState::Working,
+            subtype: None,
+        }
+        .into(),
+    );
+    assert!(queued_delivery_target(&tab, &payload).is_ok());
+}

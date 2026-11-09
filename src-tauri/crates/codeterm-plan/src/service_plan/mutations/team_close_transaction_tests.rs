@@ -78,7 +78,7 @@ fn team_close_force_keeps_plan_active_flagged() {
         )
         .unwrap();
     store
-        .with_plan(&plan.id, 4, |plan| {
+        .edit_plan_fixture(&plan.id, 4, |plan| {
             for task in &mut plan.tasks {
                 if task.id == busy {
                     task.status = TaskStatus::InProgress;
@@ -116,6 +116,7 @@ fn team_close_force_keeps_plan_active_flagged() {
     assert!(task.execution_attempts[0].closed_at.is_some());
     let entry = store
         .list_index()
+        .unwrap()
         .into_iter()
         .find(|entry| entry.plan_id == plan.id)
         .unwrap();
@@ -151,6 +152,7 @@ fn large_team_detach_preserves_tasks_and_flags_unfinished_work() {
     plan.tasks = (0..64)
         .map(|n| crate::service_plan::test_support::task(&format!("task_{n}")))
         .collect();
+    let mut plan = crate::service_plan::store_db::hot_write::lifecycle_rows::from_test_plan(&plan);
     let tasks = plan.tasks.clone();
     super::team_plan_detach::detach_closed_team_plan(&mut plan, "team_closed", 100);
     assert_eq!(plan.tasks, tasks);

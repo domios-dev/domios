@@ -1,4 +1,5 @@
-import { TaskStatus, type Plan, type Task, type TaskStatus as TaskStatusType } from "./types";
+import type { PlanView as Plan, PlanTaskView as Task } from "./planProjection";
+import { TaskStatus, type TaskStatus as TaskStatusType } from "./types";
 
 export interface TabCurrentTask {
   plan: Plan;

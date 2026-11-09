@@ -1,15 +1,44 @@
-use super::{db_error, json_error, queue_operation, PlanDatabase};
+use super::{db_error, json_error, PlanDatabase};
 use crate::plan::{
     IdentityProvenance, Milestone, MilestoneKind, ReviewOverride, Task, TaskExecutionAttempt,
 };
 use crate::service_plan::{store_rows, text_bounds, PlanError};
-use rusqlite::{params, OptionalExtension, Transaction, TransactionBehavior};
+use rusqlite::{params, OptionalExtension, Transaction};
 use std::collections::BTreeSet;
 mod batch_rows;
+mod batch_sidecars;
+mod dispatch_rows;
+mod element_rows;
+mod gate_rows;
+pub(in crate::service_plan) mod handoff;
+mod header_edits;
+mod ingest_rows;
+mod lane_history;
+pub(in crate::service_plan) mod lifecycle_rows;
+mod loop_rows;
 mod milestones;
+mod plan_audit;
+mod plan_fields;
+mod plan_state;
+mod relationship_rows;
+pub(in crate::service_plan) mod review_header;
 mod review_rows;
+pub(in crate::service_plan) mod runtime;
+mod section_rows;
+mod spec_rows;
+mod storage_rows;
 mod task_fields;
+mod task_structure;
+pub(in crate::service_plan) use element_rows::ElementChange;
+pub(in crate::service_plan) use gate_rows::{GateAsk, GateChange};
+pub(in crate::service_plan) use header_edits::HeaderChange;
+pub(in crate::service_plan) use loop_rows::LoopChange;
+pub(in crate::service_plan) use plan_audit::PlanAudit;
+pub(in crate::service_plan) use plan_state::PlanEdit;
 pub(in crate::service_plan) use review_rows::{TaskHistory, TaskRowEdit};
+pub(in crate::service_plan) use section_rows::SectionChange;
+pub(in crate::service_plan) use spec_rows::{SpecLinkChange, SpecPlanCreate};
+pub(in crate::service_plan) use storage_rows::DeletedPlanRows;
 pub(in crate::service_plan) use task_fields::TaskFields;
 
 #[derive(Default)]
@@ -70,15 +99,26 @@ pub(in crate::service_plan) struct CommittedRows {
     pub milestones: usize,
     pub strides: usize,
     pub task_rows: usize,
+    pub section_rows: usize,
+    pub spec_rows: usize,
     pub header_rows: usize,
+    pub heartbeat_rows: usize,
+    pub element_rows: usize,
     pub decoded_bytes: usize,
     pub serialized_bytes: usize,
     pub projected_text_bytes: usize,
     pub hashed_bytes: usize,
     pub index_root: Option<std::path::PathBuf>,
+    pub plan_metadata: Option<super::PlanIndexRow>,
     pub reset_tabs: Vec<String>,
     pub search: Vec<crate::service_plan::search_index::MilestoneIndexDelta>,
+    pub removed_tasks: Vec<(String, Vec<String>)>,
     pub task_search: Vec<crate::service_plan::search_index::TaskIndexDelta>,
+    pub section_search: Vec<crate::service_plan::search_index::SectionIndexDelta>,
+    pub specs: Vec<crate::plan::Spec>,
+    pub created_plans: Vec<CommittedRows>,
+    pub body_files: Vec<batch_sidecars::NewBodyFile>,
+    pub file_bytes: usize,
 }
 
 impl std::fmt::Debug for CommittedRows {
@@ -86,6 +126,9 @@ impl std::fmt::Debug for CommittedRows {
         formatter
             .debug_struct("CommittedRows")
             .field("task_rows", &self.task_rows)
+            .field("section_rows", &self.section_rows)
+            .field("spec_rows", &self.spec_rows)
+            .field("file_bytes", &self.file_bytes)
             .field("header_rows", &self.header_rows)
             .field("attempts", &self.attempts)
             .field("milestones", &self.milestones)
@@ -105,28 +148,47 @@ impl std::fmt::Debug for CommittedRows {
 
 #[cfg(test)]
 thread_local! {
-    static LAST_COMMITTED_WORK: std::cell::RefCell<Option<[usize; 9]>> = const { std::cell::RefCell::new(None) };
+    static LAST_COMMITTED_WORK: std::cell::RefCell<Option<[usize; 14]>> = const { std::cell::RefCell::new(None) };
 }
 
 #[cfg(test)]
 pub(in crate::service_plan) fn record_work(receipt: &CommittedRows) {
-    LAST_COMMITTED_WORK.with(|cell| {
-        *cell.borrow_mut() = Some([
-            receipt.task_rows,
-            receipt.header_rows,
-            receipt.attempts,
-            receipt.milestones,
-            receipt.strides,
-            receipt.decoded_bytes,
-            receipt.serialized_bytes,
-            receipt.projected_text_bytes,
-            receipt.hashed_bytes,
-        ])
-    });
+    record_work_values(work_values(receipt));
 }
 
 #[cfg(test)]
-fn take_work() -> [usize; 9] {
+pub(in crate::service_plan) fn work_values(receipt: &CommittedRows) -> [usize; 14] {
+    let mut values = [
+        receipt.task_rows,
+        receipt.header_rows,
+        receipt.attempts,
+        receipt.milestones,
+        receipt.strides,
+        receipt.decoded_bytes,
+        receipt.serialized_bytes,
+        receipt.projected_text_bytes,
+        receipt.hashed_bytes,
+        receipt.section_rows,
+        receipt.element_rows,
+        receipt.heartbeat_rows,
+        receipt.spec_rows,
+        receipt.file_bytes,
+    ];
+    for child in &receipt.created_plans {
+        for (sum, value) in values.iter_mut().zip(work_values(child)) {
+            *sum += value;
+        }
+    }
+    values
+}
+
+#[cfg(test)]
+pub(in crate::service_plan) fn record_work_values(values: [usize; 14]) {
+    LAST_COMMITTED_WORK.with(|cell| *cell.borrow_mut() = Some(values));
+}
+
+#[cfg(test)]
+fn take_work() -> [usize; 14] {
     LAST_COMMITTED_WORK.with(|cell| cell.borrow_mut().take().expect("committed hot receipt"))
 }
 
@@ -265,79 +327,98 @@ impl PlanDatabase {
         now_ms: u64,
         change: impl FnOnce(&Transaction<'_>, &mut CommittedRows) -> Result<(), PlanError>,
     ) -> Result<CommittedRows, PlanError> {
-        let mut connection = self.connection.lock();
-        let operation_id = queue_operation(&connection, plan_id, "persist_plan", now_ms)?;
-        let result = (|| {
-            let tx = connection
-                .transaction_with_behavior(TransactionBehavior::Immediate)
-                .map_err(db_error)?;
-            if !tx
-                .query_row(
-                    "SELECT EXISTS(SELECT 1 FROM plans WHERE id=?1)",
-                    [plan_id],
-                    |row| row.get::<_, bool>(0),
-                )
-                .map_err(db_error)?
-            {
-                return Err(PlanError::NotFound);
-            }
-            tx.execute(
-                "UPDATE plan_operations SET state='running' WHERE id=?1",
-                [operation_id],
-            )
-            .map_err(db_error)?;
-            let mut receipt = CommittedRows {
-                plan_id: plan_id.into(),
-                updated_at: now_ms,
-                previous_revision: super::change_feed::revision(&tx, plan_id)?,
-                ..Default::default()
-            };
-            receipt.revision =
-                super::change_feed::next_revision(receipt.previous_revision, operation_id)?;
-            change(&tx, &mut receipt)?;
-            if receipt.task_rows + receipt.milestones + receipt.attempts + receipt.strides > 0 {
-                tx.execute("UPDATE plans SET updated_at=?2, header_json=json_set(header_json, '$.updated_at', ?2, '$._revision', ?3, '$.canonical_project_path', CASE WHEN trim(coalesce(json_extract(header_json,'$.canonical_project_path'),''))='' THEN project_path ELSE json_extract(header_json,'$.canonical_project_path') END) WHERE id=?1", params![plan_id, now_ms, receipt.revision]).map_err(db_error)?;
-                receipt.header_rows += 1;
-                let root: String = tx.query_row("SELECT CASE WHEN trim(coalesce(json_extract(header_json,'$.canonical_project_path'),''))='' THEN project_path ELSE json_extract(header_json,'$.canonical_project_path') END FROM plans WHERE id=?1", [plan_id], |row| row.get(0)).map_err(db_error)?;
-                receipt.projected_text_bytes += root.len();
-                receipt.index_root = Some(root.into());
-                let mut statement = tx.prepare_cached("SELECT DISTINCT assigned_tab_id FROM plan_tasks INDEXED BY plan_tasks_bound_tabs WHERE plan_id=?1 AND assigned_tab_id IS NOT NULL").map_err(db_error)?;
-                receipt.reset_tabs = statement
-                    .query_map([plan_id], |row| row.get(0))
-                    .map_err(db_error)?
-                    .collect::<Result<_, _>>()
+        let mut receipt =
+            self.commit_entity_rows(plan_id, "persist_plan", now_ms, |tx, operation_id| {
+                let exists: bool = tx
+                    .query_row(
+                        "SELECT EXISTS(SELECT 1 FROM plans WHERE id=?1)",
+                        [plan_id],
+                        |row| row.get(0),
+                    )
                     .map_err(db_error)?;
-                receipt.projected_text_bytes +=
-                    receipt.reset_tabs.iter().map(String::len).sum::<usize>();
-            }
-            tx.execute(
-                "UPDATE plan_operations SET state='committed', finished_at=?2 WHERE id=?1",
-                params![operation_id, now_ms],
-            )
-            .map_err(db_error)?;
-            tx.commit().map_err(db_error)?;
-            if receipt.header_rows > 0 {
-                self.pending_changes
-                    .lock()
-                    .insert(super::change_feed::change(
-                        plan_id,
-                        receipt.revision,
-                        receipt.previous_revision,
-                        receipt.tasks.iter().cloned().collect(),
-                        false,
-                        false,
-                    ));
-            }
-            Ok(receipt)
-        })();
-        if let Err(error) = &result {
-            let _ = connection.execute(
-                "UPDATE plan_operations SET state='failed', finished_at=?2, error=?3 WHERE id=?1",
-                params![operation_id, now_ms, error.to_string()],
-            );
+                if !exists {
+                    return Err(PlanError::NotFound);
+                }
+                let mut receipt = row_receipt(tx, plan_id, now_ms, operation_id)?;
+                change(tx, &mut receipt)?;
+                if receipt.element_rows
+                    + receipt.heartbeat_rows
+                    + receipt.header_rows
+                    + receipt.section_rows
+                    + receipt.spec_rows
+                    + receipt.task_rows
+                    + receipt.milestones
+                    + receipt.attempts
+                    + receipt.strides
+                    > 0
+                    || !receipt.created_plans.is_empty()
+                {
+                    touch_header(tx, &mut receipt)?;
+                } else {
+                    tx.execute("DELETE FROM plan_operations WHERE id=?1", [operation_id])
+                        .map_err(db_error)?;
+                }
+                Ok(receipt)
+            })?;
+        for file in &mut receipt.body_files {
+            file.keep();
         }
-        result
+        self.record_row_change(&receipt);
+        for created in &receipt.created_plans {
+            self.record_row_change(created);
+        }
+        Ok(receipt)
     }
+
+    pub(super) fn record_row_change(&self, receipt: &CommittedRows) {
+        if receipt.header_rows > 0 {
+            self.pending_changes
+                .lock()
+                .insert(super::change_feed::change(
+                    &receipt.plan_id,
+                    receipt.revision,
+                    receipt.previous_revision,
+                    receipt.tasks.iter().cloned().collect(),
+                    receipt.section_rows + receipt.element_rows + receipt.spec_rows > 0,
+                    false,
+                ));
+        }
+    }
+}
+
+pub(super) fn row_receipt(
+    tx: &Transaction<'_>,
+    plan_id: &str,
+    now_ms: u64,
+    operation_id: i64,
+) -> Result<CommittedRows, PlanError> {
+    let previous_revision = super::change_feed::revision(tx, plan_id)?;
+    Ok(CommittedRows {
+        plan_id: plan_id.into(),
+        updated_at: now_ms,
+        previous_revision,
+        revision: super::change_feed::next_revision(previous_revision, operation_id)?,
+        ..Default::default()
+    })
+}
+
+pub(super) fn touch_header(
+    tx: &Transaction<'_>,
+    receipt: &mut CommittedRows,
+) -> Result<(), PlanError> {
+    tx.execute("UPDATE plans SET updated_at=?2, header_json=json_set(header_json, '$.updated_at', ?2, '$._revision', ?3, '$.canonical_project_path', CASE WHEN trim(coalesce(json_extract(header_json,'$.canonical_project_path'),''))='' THEN project_path ELSE json_extract(header_json,'$.canonical_project_path') END) WHERE id=?1", params![receipt.plan_id, receipt.updated_at, receipt.revision]).map_err(db_error)?;
+    receipt.header_rows += 1;
+    let root: String = tx.query_row("SELECT CASE WHEN trim(coalesce(json_extract(header_json,'$.canonical_project_path'),''))='' THEN project_path ELSE json_extract(header_json,'$.canonical_project_path') END FROM plans WHERE id=?1", [&receipt.plan_id], |row| row.get(0)).map_err(db_error)?;
+    receipt.projected_text_bytes += root.len();
+    receipt.index_root = Some(root.into());
+    let mut statement = tx.prepare_cached("SELECT DISTINCT assigned_tab_id FROM plan_tasks INDEXED BY plan_tasks_bound_tabs WHERE plan_id=?1 AND assigned_tab_id IS NOT NULL").map_err(db_error)?;
+    receipt.reset_tabs = statement
+        .query_map([&receipt.plan_id], |row| row.get(0))
+        .map_err(db_error)?
+        .collect::<Result<_, _>>()
+        .map_err(db_error)?;
+    receipt.projected_text_bytes += receipt.reset_tabs.iter().map(String::len).sum::<usize>();
+    Ok(())
 }
 
 fn resolve_task(

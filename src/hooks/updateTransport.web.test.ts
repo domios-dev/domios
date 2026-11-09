@@ -1,3 +1,4 @@
+import { muxMockFetch } from "../lib/muxMockFetch.testdata";
 import assert from "node:assert/strict";
 import { finish, it, vi } from "../test/standaloneTest";
 
@@ -19,14 +20,14 @@ it("web update channel reads and writes use the browser gateway and selected rel
   const origin = "http://100.64.10.2:7697";
   const config = { host: "127.0.0.1", port: 7685, token: "desktop-only-token" };
   api.setTokenFor(origin, "gateway-token");
-  vi.stubGlobal("fetch", async (input: unknown, init: RequestInit = {}) => {
+  vi.stubGlobal("fetch", muxMockFetch(async (input: unknown, init: RequestInit = {}) => {
     const url = new URL(String(input));
     requests.push({ url, init });
     assert.equal(url.origin, origin);
     assert.equal(new Headers(init.headers).get("Authorization"), "Bearer gateway-token");
     return Response.json(url.pathname === "/api/mesh/relay-to"
       ? { ok: true, status: 200, data: { channel: "rc" } } : { channel: "stable" });
-  });
+  }));
   try {
     await requestUpdateChannel(config);
     await requestUpdateChannel(config, "nightly");

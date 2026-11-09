@@ -18,8 +18,12 @@ integration report after verification.
 | --- | --- | --- |
 | `5a57f7e202bb85820fb933e6dded30656671860b:plugins/provider-claude/plugin.js:generic-api-key:667` | Protocol field comparisons, not a credential | Ignore this exact historical fingerprint. |
 | `5a57f7e202bb85820fb933e6dded30656671860b:plugins/provider-codex/plugin.js:generic-api-key:1178` | Protocol field comparisons, not a credential | Ignore this exact historical fingerprint. |
-| `plugins/provider-claude/plugin.js:generic-api-key:667` | Same comparison in a directory scan | Ignore this exact file/line fingerprint. |
-| `plugins/provider-codex/plugin.js:generic-api-key:1178` | Same comparison in a directory scan | Ignore this exact file/line fingerprint. |
+| `096608ee249126d0e1271b3910d43bbb2cc704d8:plugins/provider-codex/plugin.js:generic-api-key:2268` | Same comparison after bundle regeneration | Ignore this exact historical fingerprint. |
+| `plugins/provider-claude/plugin.js:generic-api-key:1010` | Same comparison in a directory scan | Ignore this exact file/line fingerprint. |
+| `plugins/provider-codex/plugin.js:generic-api-key:2268` | Same comparison in a directory scan | Ignore this exact file/line fingerprint. |
+
+Directory-scan fingerprints follow the current bundle lines; the superseded
+lines 667 and 1178 no longer exist in the tree.
 
 Both generated lines compare `stop_reason` with `max_tokens` and `finish_reason`
 with `length` inside `outputLimit`. Neither contains a credential or performs

@@ -1,3 +1,4 @@
+import { ioTestExport } from "../../provider-shared/tests/hostIo";
 // @vitest-environment node
 
 import { describe, expect, it } from "vitest";
@@ -33,8 +34,9 @@ import { DatabaseSync } from "node:sqlite";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import plugin from "../src/plugin";
+import ioSource_plugin from "../src/plugin";
 import { withAsyncSqlite } from "./hostFixture.testdata";
+const plugin = ioTestExport(ioSource_plugin);
 
 // rusqlite binds ?N by index; node:sqlite 22.14 rejects ?N, so expand each to a positional "?".
 function queryLikeHost(db: DatabaseSync, sql: string, params: Array<string | number>) {

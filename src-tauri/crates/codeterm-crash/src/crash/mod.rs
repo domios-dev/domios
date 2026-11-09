@@ -17,6 +17,7 @@ pub mod macos_quit;
 mod native;
 mod panic;
 pub mod report;
+pub mod request_activity;
 pub mod shutdown;
 
 use std::path::{Path, PathBuf};

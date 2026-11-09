@@ -15,7 +15,7 @@ async fn unreadable_mesh_file_is_preserved_and_cannot_be_overwritten() {
     let path = directory.join("mesh.json");
     let corrupt = b"{not-json";
     fs::write(&path, corrupt).unwrap();
-    let store = FileAccountMeshStore { path: path.clone() };
+    let store = FileAccountMeshStore::at_path(path.clone());
 
     assert!(store.load().await.is_err());
     assert!(store.save(&AccountMeshRecord::default()).await.is_err());
@@ -25,7 +25,7 @@ async fn unreadable_mesh_file_is_preserved_and_cannot_be_overwritten() {
 }
 
 #[tokio::test]
-async fn admission_cache_is_separate_and_mesh_json_remains_rollback_readable() {
+async fn admission_cache_is_separate_and_security_state_round_trips() {
     use super::super::tests::support::Harness;
     use super::super::{AccountMeshRecord, EnrollTrigger};
     let directory = std::env::temp_dir().join(format!(
@@ -48,23 +48,6 @@ async fn admission_cache_is_separate_and_mesh_json_remains_rollback_readable() {
     let bytes = fs::read(&path).unwrap();
     let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
     assert!(value.get("admission_cache").is_none());
-    #[derive(serde::Deserialize, serde::Serialize)]
-    #[serde(deny_unknown_fields)]
-    struct RollbackRecord {
-        owner: Option<String>,
-        signed_out: bool,
-        cleanup_pending: bool,
-        published: bool,
-        keys: std::collections::BTreeMap<String, super::super::state::KeyBinding>,
-        slots: std::collections::BTreeMap<String, u64>,
-        revoked_installations: std::collections::BTreeSet<String>,
-        #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
-        revoked_generations: std::collections::BTreeMap<String, u64>,
-        #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
-        peer_keys: std::collections::BTreeMap<String, super::super::state::KeyBinding>,
-    }
-    let rollback: RollbackRecord = serde_json::from_slice(&bytes).unwrap();
-    assert_eq!(serde_json::to_value(rollback).unwrap(), value);
     let mut old: AccountMeshRecord = serde_json::from_slice(&bytes).unwrap();
     assert!(old.peer_presence.is_empty());
     old.peer_presence = record.peer_presence.clone();

@@ -30,7 +30,19 @@ impl ServiceContext {
         };
         let ops: Vec<BatchOp> = serde_json::from_value(ops.clone())
             .map_err(|error| format!("invalid batch ops: {error}"))?;
-        let plan = self.plan_store.get(plan_id).ok_or("plan not found")?;
+        let selectors = ops
+            .iter()
+            .filter_map(super::op_task_selector)
+            .map(str::to_string)
+            .collect::<Vec<_>>();
+        let resolved = self
+            .plan_store
+            .batch_task_resolution_projection(plan_id, &selectors)
+            .map_err(|error| error.to_string())?;
+        let resolutions = resolved
+            .into_iter()
+            .map(|read| (selectors[read.index].clone(), read.task_id))
+            .collect::<HashMap<_, _>>();
         let mut aliases = HashMap::new();
         let mut completions = Vec::new();
         let mut notes = Vec::new();
@@ -39,8 +51,9 @@ impl ServiceContext {
                 .get(selector)
                 .map(String::as_str)
                 .unwrap_or(selector);
-            super::resolve_task(&plan.tasks, selector)
-                .map(|task| task.id.clone())
+            resolutions
+                .get(selector)
+                .cloned()
                 .unwrap_or_else(|| selector.to_string())
         };
         for op in ops {

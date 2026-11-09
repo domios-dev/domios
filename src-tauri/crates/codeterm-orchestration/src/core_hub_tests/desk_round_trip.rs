@@ -15,7 +15,7 @@ fn team_create_round_trip_expected_red() {
     }
     mux.set_orchestrator_role(&tab_id).unwrap();
     let instance = crate::test_fixture::open_instance_with_mux(root.path(), mux);
-    crate::deliver_orchestrator_onboarding(&instance.fixture.service, &tab_id);
+    crate::deliver_orchestrator_onboarding(&instance.fixture.service, &tab_id).unwrap();
     let team_id = instance
         .fixture
         .service

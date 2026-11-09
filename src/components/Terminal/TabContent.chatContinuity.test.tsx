@@ -1,3 +1,4 @@
+import { muxMockFetch } from "../../lib/muxMockFetch.testdata";
 // Run: npx tsx src/components/Terminal/TabContent.chatContinuity.test.tsx
 import { act } from "react";
 import { createRoot } from "react-dom/client";
@@ -253,7 +254,7 @@ async function main(): Promise<void> {
   let markPeerCatalogRequested!: () => void;
   const peerCatalogRequested = new Promise<void>((resolve) => { markPeerCatalogRequested = resolve; });
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = async (input, init) => {
+  globalThis.fetch = muxMockFetch(async (input, init) => {
     if (String(input).endsWith("/api/mesh/relay-to")) {
       markPeerCatalogRequested();
       const call = JSON.parse(String(init?.body));
@@ -262,7 +263,7 @@ async function main(): Promise<void> {
       return Response.json({ ok: true, status: 200, data: [descriptor], error: null });
     }
     return Response.json([]);
-  };
+  });
   function CatalogPublisher() {
     useAgentProviderCachePublisher();
     return null;

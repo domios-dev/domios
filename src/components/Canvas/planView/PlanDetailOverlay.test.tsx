@@ -1,3 +1,4 @@
+import { muxMockFetch } from "../../../lib/muxMockFetch.testdata";
 import { configureDaemonFixture } from "../../../test/daemonTransport.testdata";
 // Run: npx tsx src/components/Canvas/planView/PlanDetailOverlay.test.tsx
 
@@ -120,10 +121,10 @@ test("renders plan detail with progress", async () => {
 test("parked plan resume is reachable from plan detail", async () => {
   const calls: Array<{ url: string; init?: RequestInit }> = [];
   Object.defineProperty(globalThis, "fetch", {
-    value: async (url: string, init?: RequestInit) => {
+    value: muxMockFetch(async (url: string, init?: RequestInit) => {
       calls.push({ url, init });
       return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
-    },
+    }),
     configurable: true,
   });
   const plan: Plan = { ...FIXTURE_PLAN, mode: "paused" };
@@ -142,10 +143,10 @@ test("parked plan resume is reachable from plan detail", async () => {
 test("active plan park is reachable from plan detail", async () => {
   const calls: Array<{ url: string; init?: RequestInit }> = [];
   Object.defineProperty(globalThis, "fetch", {
-    value: async (url: string, init?: RequestInit) => {
+    value: muxMockFetch(async (url: string, init?: RequestInit) => {
       calls.push({ url, init });
       return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
-    },
+    }),
     configurable: true,
   });
   const originalPrompt = window.prompt;

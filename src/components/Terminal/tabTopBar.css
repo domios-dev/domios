@@ -1,3 +1,8 @@
+:root {
+  /* Height of the fade each header paints over the content below it. */
+  --ct-top-bar-fade: 12px;
+}
+
 .ct-tab-top-bar,
 .ct-jobs-header,
 .plan-side-panel__header,
@@ -15,7 +20,7 @@
   top: 100%;
   right: 0;
   left: 0;
-  height: 12px;
+  height: var(--ct-top-bar-fade);
   background: linear-gradient(var(--ct-bg), transparent);
   content: "";
   pointer-events: none;

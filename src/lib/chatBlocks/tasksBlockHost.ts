@@ -1,7 +1,8 @@
+import type { PlanView as Plan } from "../../components/Canvas/planProjection";
 import { decodeTasksBlockKey, type TasksBlockGroup, type TasksBlockHost, type TasksBlockSpec, type TasksBlockState } from "@codeterm/chat-ui";
 import { TASK_STATUS_COLORS } from "../../components/Canvas/settings";
 import type { PlanTarget } from "../../components/Canvas/teamViewNavigation";
-import type { Plan, TaskStatus } from "../../components/Canvas/types";
+import type { TaskStatus } from "../../components/Canvas/types";
 import { dsTaskProgressLabel, dsTaskRowsForSpec, groupDsTaskRows } from "../../components/Terminal/dsTasks/dsTasksModel";
 import { formatModelBadge } from "../formatModelBadge";
 import type { PlanProjection } from "../../components/Canvas/planProjection";

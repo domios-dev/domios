@@ -1,3 +1,4 @@
+export type { HostIo, HostIoFs, HostIoRequest, HostIoSteps } from "./io";
 // @codeterm/plugin-sdk — plugin contracts and pure recorded-diff mapping helpers.
 export type {ProviderAuthStatus, ProviderSessionObservations, RuntimeErrorSignal} from "./providerSignals";
 export type {
@@ -58,6 +59,7 @@ export { recordedTextDiff, recordedPatchDiff, type RecordedFileDiff } from "./fi
 export type { ModelProviderConfig, ModelProviderDefinition, ModelPreset } from './modelProviders';
 
 export * from "./agentRuntime";
+export * from "./limitsSource";
 export * from "./remoteTasks";
 export {RemoteTaskFileStorage} from "./remoteTaskStorage";
 export type { ParsedSessionRecord, JsonlRecordFilter, JsonlRecordSource, JsonlRecordSources, SessionRecordsMeta } from "./jsonlRecords";
@@ -68,3 +70,6 @@ export type { ChatAttachment } from "./gen/ChatAttachment";
 export * from "./mediaDelivery";
 
 export * from "./binaryTransfer";
+
+export { defineProviderIo, ioValue, ioMap, ioFilter, ioJson, ioEncoded, ioSqlite, ioResolve, ioFileTransaction, ioThen } from "./ioPrograms";
+export type { IoExports, IoResults } from "./ioPrograms";

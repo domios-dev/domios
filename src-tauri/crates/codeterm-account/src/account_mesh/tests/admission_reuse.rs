@@ -1,4 +1,5 @@
 use super::support::*;
+use crate::account_mesh::tests::support::wait_for_event;
 use crate::account_mesh::wire::RegistryRefusal;
 use crate::account_mesh::*;
 use std::sync::atomic::Ordering;
@@ -13,7 +14,7 @@ async fn admitted() -> Harness {
         .refresh(EnrollTrigger::Automatic)
         .await
         .unwrap();
-    harness.registry.entered.notified().await;
+    wait_for_event(harness.registry.entered.notified()).await;
     harness
         .registry
         .script
@@ -165,7 +166,7 @@ async fn account_mesh_admission_reuse_concurrent_callers_share_one_handshake() {
     harness.registry.script.lock().unwrap().gate = Some(gate.clone());
     let owner = harness.mesh.refresh(EnrollTrigger::Lease);
     let joined = async {
-        harness.registry.entered.notified().await;
+        wait_for_event(harness.registry.entered.notified()).await;
         let explicit = harness.mesh.refresh(EnrollTrigger::Explicit);
         let release = async {
             gate.notify_one();

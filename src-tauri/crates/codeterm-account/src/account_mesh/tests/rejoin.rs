@@ -22,7 +22,7 @@ async fn account_mesh_rejoin_registry_advances_peer_key_without_downgrade() {
         payload["installation_id"] = json!(PEER);
         membership_token(&Issuer::new().sign(&payload))
     };
-    harness.mesh.list().await.unwrap();
+    harness.mesh.list_fresh().await.unwrap();
     harness
         .mesh
         .revoke(wire::MeshTarget {
@@ -33,14 +33,14 @@ async fn account_mesh_rejoin_registry_advances_peer_key_without_downgrade() {
         })
         .await
         .unwrap();
-    harness.mesh.list().await.unwrap();
+    harness.mesh.list_fresh().await.unwrap();
     assert!(harness.state().revoked_installations.contains(PEER));
     harness.registry.script.lock().unwrap().peer_active = Some(false);
-    harness.mesh.list().await.unwrap();
+    harness.mesh.list_fresh().await.unwrap();
     assert!(harness.state().revoked_installations.contains(PEER));
     harness.registry.script.lock().unwrap().peer_key = Some((new_key.key_id(), 2));
     harness.registry.script.lock().unwrap().peer_active = Some(true);
-    harness.mesh.list().await.unwrap();
+    harness.mesh.list_fresh().await.unwrap();
     assert!(!harness.state().revoked_installations.contains(PEER));
     assert!(!harness
         .transport
@@ -64,7 +64,10 @@ async fn account_mesh_rejoin_registry_advances_peer_key_without_downgrade() {
         .verify_peer_membership(&membership(&old_key, 2), START)
         .is_err());
     harness.registry.script.lock().unwrap().peer_key = Some((old_key.key_id(), 1));
-    harness.mesh.list().await.unwrap();
+    assert_eq!(
+        harness.mesh.list_fresh().await,
+        Err(AccountMeshRefusal::Invalid)
+    );
     harness.restart().await;
     harness.sign_in(UID).await;
     assert!(!harness.state().revoked_installations.contains(PEER));
@@ -101,11 +104,11 @@ async fn account_mesh_rejoin_registry_reconciles_persisted_revocation_without_ke
     harness.sign_in(UID).await;
     assert!(harness.state().revoked_installations.contains(PEER));
     harness.registry.script.lock().unwrap().peer_active = Some(false);
-    harness.mesh.list().await.unwrap();
+    harness.mesh.list_fresh().await.unwrap();
     assert!(harness.state().revoked_installations.contains(PEER));
     harness.registry.script.lock().unwrap().peer_key = Some(("d".repeat(64), 2));
     harness.registry.script.lock().unwrap().peer_active = Some(true);
-    harness.mesh.list().await.unwrap();
+    harness.mesh.list_fresh().await.unwrap();
     assert!(!harness.state().revoked_installations.contains(PEER));
     assert!(!harness
         .store
@@ -203,19 +206,18 @@ async fn removed() -> Harness {
 }
 
 #[tokio::test]
-async fn account_mesh_rejoin_rotates_then_enrolls_then_syncs() {
+async fn account_mesh_rejoin_rotates_then_recovers_with_bundled_signed_registry() {
     let harness = removed().await;
     auth_time(&harness, START - 86400);
     let old = harness.store.record.lock().unwrap().keys[&account_id(UID)].clone();
     harness.mesh.refresh(EnrollTrigger::Explicit).await.unwrap();
     assert_eq!(harness.calls("recover_key"), 1);
     assert_eq!(harness.calls("recover"), 1);
-    assert_eq!(harness.calls("sync"), 1);
+    assert_eq!(harness.calls("sync"), 0);
     assert!(
         position(&harness.log, "registry:recover_key:")
             < position(&harness.log, "registry:recover:")
     );
-    assert!(position(&harness.log, "registry:recover:") < position(&harness.log, "registry:sync:"));
     let state = harness.state();
     let own = state.self_installation.as_ref().unwrap();
     assert_eq!(own.installation_id, INSTALLATION);
@@ -292,48 +294,39 @@ async fn account_mesh_rejoin_same_generation_is_refused() {
 }
 
 #[tokio::test]
-async fn account_mesh_rejoin_retries_sync_without_another_rotation() {
+async fn account_mesh_rejoin_ignores_retired_sync_without_another_rotation() {
     let harness = removed().await;
     harness.registry.script.lock().unwrap().publication = Some(wire::RegistryRefusal::Offline);
-    assert_eq!(
-        harness.mesh.refresh(EnrollTrigger::Explicit).await,
-        Err(AccountMeshRefusal::Offline)
-    );
-    harness.registry.script.lock().unwrap().publication = None;
-    harness.clock.set(START + 30);
+    harness.mesh.refresh(EnrollTrigger::Explicit).await.unwrap();
     harness.mesh.refresh(EnrollTrigger::Network).await.unwrap();
     assert_eq!(harness.calls("recover_key"), 1);
     assert_eq!(harness.calls("recover"), 1);
-    assert_eq!(harness.calls("sync"), 2);
+    assert_eq!(harness.calls("sync"), 0);
+    assert!(harness.state().current_membership(START).is_some());
 }
 
 #[tokio::test]
 async fn account_mesh_fresh_signin_observes_current_short_lease_once_without_rotation() {
-    for offline in [false, true] {
-        let harness = Harness::new().await;
-        harness.sign_in(UID).await;
-        harness
-            .mesh
-            .refresh(EnrollTrigger::Automatic)
-            .await
-            .unwrap();
-        let membership = harness.state().membership.clone().unwrap();
-        let lists = harness.calls("list");
-        harness.mesh.enrollment_signed_in();
-        if offline {
-            harness.registry.script.lock().unwrap().list = Some(wire::RegistryRefusal::Offline);
-        }
-        harness.mesh.refresh(EnrollTrigger::Explicit).await.unwrap();
-        assert_eq!(harness.calls("list"), lists + 1);
-        assert_eq!(harness.state().membership.as_ref(), Some(&membership));
-        assert_eq!(harness.calls("recover_key"), 0);
-        harness.registry.script.lock().unwrap().list = None;
+    let harness = Harness::new().await;
+    harness.sign_in(UID).await;
+    harness
+        .mesh
+        .refresh(EnrollTrigger::Automatic)
+        .await
+        .unwrap();
+    let old = harness.state().membership.clone().unwrap();
+    harness.mesh.enrollment_signed_in();
+    harness.registry.script.lock().unwrap().list = Some(wire::RegistryRefusal::Offline);
+    harness.mesh.refresh(EnrollTrigger::Explicit).await.unwrap();
+    let new = harness.state().membership.clone().unwrap();
+    assert_eq!(new.verified.key_generation, old.verified.key_generation);
+    assert_eq!(new.verified.slot_revision, old.verified.slot_revision + 1);
+    for _ in 0..3 {
         harness.mesh.refresh(EnrollTrigger::Network).await.unwrap();
-        assert_eq!(harness.calls("list"), lists + 1 + usize::from(offline));
-        harness.mesh.refresh(EnrollTrigger::Network).await.unwrap();
-        assert_eq!(harness.calls("list"), lists + 1 + usize::from(offline));
-        assert_eq!(harness.calls("recover_key"), 0);
     }
+    assert_eq!(harness.calls("list"), 0);
+    assert_eq!(harness.calls("renew"), 1);
+    assert_eq!(harness.calls("recover_key"), 0);
 }
 
 #[tokio::test]
@@ -363,12 +356,12 @@ async fn account_mesh_fresh_signin_registry_refusal_recovers_short_and_long_cach
             assert_ne!(own.key_id, old.key_id);
             assert!(state.current_membership(START).is_some());
             assert_eq!(state.publication, Publication::Published);
-            assert_eq!(harness.calls("list"), 2);
-            assert_eq!(harness.calls("renew"), 0);
+            assert_eq!(harness.calls("list"), 1);
+            assert_eq!(harness.calls("renew"), 1);
             assert_eq!(harness.calls("recover_key"), 1);
             assert_eq!(harness.calls("recover"), 1);
             harness.mesh.refresh(EnrollTrigger::Network).await.unwrap();
-            assert_eq!(harness.calls("list"), 2);
+            assert_eq!(harness.calls("list"), 1);
             assert_eq!(harness.calls("recover_key"), 1);
         }
     }

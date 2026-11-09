@@ -53,14 +53,17 @@ pub fn wait_for_session_binding<T>(
     }
 }
 
-pub(crate) async fn wait_for_session_binding_async<T>(
+pub(crate) async fn wait_for_session_binding_async<T, Fut>(
     deadline: Instant,
-    mut ready: impl FnMut() -> Option<T>,
-) -> Option<T> {
+    mut ready: impl FnMut() -> Fut,
+) -> Option<T>
+where
+    Fut: std::future::Future<Output = Option<T>>,
+{
     let mut changed = signal().async_changed.subscribe();
     loop {
         let _generation = *changed.borrow_and_update();
-        if let Some(value) = ready() {
+        if let Some(value) = ready().await {
             return Some(value);
         }
         if tokio::time::Instant::now() >= tokio::time::Instant::from_std(deadline) {
@@ -70,76 +73,10 @@ pub(crate) async fn wait_for_session_binding_async<T>(
             .await
             .is_err()
         {
-            return ready();
+            return ready().await;
         }
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::sync::atomic::{AtomicBool, Ordering};
-    use std::sync::mpsc;
-    use std::sync::Arc;
-    use std::time::Duration;
-
-    #[test]
-    fn binding_notification_releases_waiter_without_polling() {
-        let bound = Arc::new(AtomicBool::new(false));
-        let observed = Arc::clone(&bound);
-        let (ready_tx, ready_rx) = mpsc::channel();
-        let (done_tx, done_rx) = mpsc::channel();
-        let waiter = std::thread::spawn(move || {
-            let value = wait_for_session_binding(Instant::now() + Duration::from_secs(1), || {
-                ready_tx.send(()).ok();
-                observed.load(Ordering::SeqCst).then_some("session-id")
-            });
-            done_tx.send(value).unwrap();
-        });
-
-        ready_rx
-            .recv_timeout(Duration::from_secs(1))
-            .expect("waiter must inspect the binding before waiting");
-        bound.store(true, Ordering::SeqCst);
-        notify_binding_state_changed();
-
-        assert_eq!(
-            done_rx
-                .recv_timeout(Duration::from_secs(1))
-                .expect("binding event must release the waiter"),
-            Some("session-id")
-        );
-        waiter.join().unwrap();
-    }
-
-    #[tokio::test(flavor = "current_thread")]
-    async fn async_binding_wait_leaves_the_runtime_available_for_other_requests() {
-        use std::sync::atomic::Ordering;
-
-        let bound = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let observed = std::sync::Arc::clone(&bound);
-        let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
-        let waiter = tokio::spawn(async move {
-            let mut ready_tx = Some(ready_tx);
-            wait_for_session_binding_async(
-                Instant::now() + std::time::Duration::from_secs(1),
-                || {
-                    if let Some(ready_tx) = ready_tx.take() {
-                        let _ = ready_tx.send(());
-                    }
-                    observed.load(Ordering::SeqCst).then_some("bound")
-                },
-            )
-            .await
-        });
-
-        ready_rx
-            .await
-            .expect("waiter must inspect state before waiting");
-        let other_request = tokio::spawn(async { "completed" });
-        assert_eq!(other_request.await.unwrap(), "completed");
-        bound.store(true, Ordering::SeqCst);
-        notify_binding_state_changed();
-        assert_eq!(waiter.await.unwrap(), Some("bound"));
-    }
-}
+mod tests;

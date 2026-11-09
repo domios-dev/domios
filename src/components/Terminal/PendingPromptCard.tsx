@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, CornerDownLeft, Pencil } from "lucide-react";
 import type { PendingPrompt, PromptSection } from "../../lib/types";
 import { isFreeTextPromptOption } from "../../lib/promptAnswers";
+import { promptQuestionParts } from "../../lib/promptQuestion";
 import { encodePromptSelection } from "../../lib/promptSelection";
 
 const WIZARD_SUBMIT_VALUE = "9000";
@@ -28,6 +29,7 @@ function PromptCard({
   const isWizard = sections.length > 0;
   const multiSelect = pendingPrompt.multi_select === true;
   const submitAvailable = pendingPrompt.submit_available === true;
+  const question = useMemo(() => promptQuestionParts(pendingPrompt.question), [pendingPrompt.question]);
 
   const [selected, setSelected] = useState<Set<string>>(
     () => new Set(pendingPrompt.selected_values ?? []),
@@ -62,12 +64,21 @@ function PromptCard({
         {isWizard && <Stepper sections={sections} />}
 
         <p
-          className="text-sm font-medium leading-snug"
+          className="text-sm font-medium leading-snug break-words"
           style={{ color: "var(--ct-fg)" }}
           data-testid="tab-pending-prompt-question"
         >
-          {pendingPrompt.question}
+          {question.title}
         </p>
+        {question.details && (
+          <p
+            className="mt-1 whitespace-pre-wrap break-words text-xs leading-relaxed"
+            style={{ color: "var(--ct-muted-fg)" }}
+            data-testid="tab-pending-prompt-details"
+          >
+            {question.details}
+          </p>
+        )}
 
         {multiSelect && (
           <p className="mt-1 text-xs" style={{ color: "var(--ct-muted-fg)" }}>
@@ -117,15 +128,14 @@ function PromptCard({
                   <CheckBox checked={checked} />
                 ) : freeText ? (
                   <PencilCap />
-                ) : (
-                  <KeyCap label={keyLabel} />
-                )}
+                ) : null}
                 <span className="min-w-0 flex-1 truncate">{opt.label}</span>
                 {freeText && (
                   <span className="text-xs" style={{ color: "var(--ct-muted-fg)" }}>
                     type your own
                   </span>
                 )}
+                {!multiSelect && !freeText && <KeyHint label={keyLabel} />}
               </button>
             );
           })}
@@ -174,17 +184,12 @@ function PromptCard({
   );
 }
 
-function KeyCap({ label }: { label: string }) {
+function KeyHint({ label }: { label: string }) {
   return (
     <span
       aria-hidden
-      className="inline-flex h-6 min-w-[1.5rem] shrink-0 items-center justify-center rounded-md px-1.5 font-mono text-[11px] font-semibold"
-      style={{
-        background: "color-mix(in srgb, var(--ct-accent) 12%, var(--ct-bg))",
-        color: "var(--ct-accent)",
-        border: "1px solid color-mix(in srgb, var(--ct-accent) 30%, transparent)",
-        borderBottomWidth: 2,
-      }}
+      className="shrink-0 font-mono text-[10px] tabular-nums leading-none"
+      style={{ color: "var(--ct-muted-fg)", opacity: 0.7 }}
     >
       {label}
     </span>

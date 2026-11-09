@@ -1,7 +1,8 @@
+import type { PlanView as Plan } from "../planProjection";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ViewportTransform } from "@codeterm/canvas-camera";
 import { boxesOverlap, viewportWorldRect, type WorkspaceLayout } from "../layout";
-import type { Plan } from "../types";
+
 
 interface ChangeSignalDeps {
   filteredPlans: Plan[];

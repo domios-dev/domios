@@ -20,34 +20,42 @@ pub async fn mem_activity_recent(
     _headers: HeaderMap,
     Query(p): Query<ActivityRecentParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let since = p
-        .since_ms
-        .unwrap_or_else(|| now_ms().saturating_sub(60_000));
-    let events = state.svc.activity.recent(since);
-    Ok(Json(serde_json::json!({ "events": events })))
+    tokio::task::spawn_blocking(move || {
+        let since = p
+            .since_ms
+            .unwrap_or_else(|| now_ms().saturating_sub(60_000));
+        let events = state.svc.activity.recent(since);
+        Ok(Json(serde_json::json!({ "events": events })))
+    })
+    .await
+    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
 }
 pub async fn mem_get(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let item = state
-        .svc
-        .mem
-        .get(&id)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    match item {
-        Some(item) => {
-            emit_activity(&state, &headers, "read", vec![id.clone()]);
-            // Skip evidence bump on worker-driven reads (extraction/dreamer sweeps would poison the signal).
-            let is_worker_call = headers.get(WORKER_ID_HEADER).is_some();
-            if !is_worker_call {
-                state.svc.mem.bump_on_get(&item.kind, &id);
+    tokio::task::spawn_blocking(move || {
+        let item = state
+            .svc
+            .mem
+            .get(&id)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+        match item {
+            Some(item) => {
+                emit_activity(&state, &headers, "read", vec![id.clone()]);
+                // Skip evidence bump on worker-driven reads (extraction/dreamer sweeps would poison the signal).
+                let is_worker_call = headers.get(WORKER_ID_HEADER).is_some();
+                if !is_worker_call {
+                    state.svc.mem.bump_on_get(&item.kind, &id);
+                }
+                Ok(Json(serde_json::to_value(item).unwrap_or_default()))
             }
-            Ok(Json(serde_json::to_value(item).unwrap_or_default()))
+            None => Err((StatusCode::NOT_FOUND, format!("mem item {} not found", id))),
         }
-        None => Err((StatusCode::NOT_FOUND, format!("mem item {} not found", id))),
-    }
+    })
+    .await
+    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
 }
 
 pub async fn mem_pinned_list(
@@ -55,13 +63,17 @@ pub async fn mem_pinned_list(
     _headers: HeaderMap,
     Query(p): Query<PinnedListParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let limit = p.limit.unwrap_or(100).clamp(1, 500);
-    let items = state
-        .svc
-        .mem
-        .list_pinned(limit)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    Ok(Json(serde_json::json!({ "items": items })))
+    tokio::task::spawn_blocking(move || {
+        let limit = p.limit.unwrap_or(100).clamp(1, 500);
+        let items = state
+            .svc
+            .mem
+            .list_pinned(limit)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+        Ok(Json(serde_json::json!({ "items": items })))
+    })
+    .await
+    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
 }
 
 mod archive;

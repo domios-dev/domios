@@ -1,5 +1,4 @@
-use codeterm_service_core::plan::{PlanMode, Task};
-use codeterm_service_core::service::plan::{DispatchRollback, PlanStore};
+use codeterm_service_core::service::plan::{DispatchRollback, DispatchUndo, PlanStore};
 use codeterm_service_core::service::{same_path, ProvisionedWorkerLane};
 
 use super::rollback_failed_dispatch;
@@ -9,9 +8,7 @@ use super::rollback_failed_dispatch;
 #[allow(clippy::too_many_arguments)]
 pub(super) fn roll_back_dispatch_attempt<C>(
     store: &PlanStore,
-    plan_id: &str,
-    original_task: &Task,
-    original_plan_mode: &PlanMode,
+    undo: &DispatchUndo,
     tab_id: &str,
     attempt_id: &str,
     lane: Option<ProvisionedWorkerLane>,
@@ -22,14 +19,7 @@ where
     C: FnOnce() -> Result<(), String>,
 {
     let rollback = store
-        .roll_back_task_dispatch_attempt(
-            plan_id,
-            original_task,
-            original_plan_mode.clone(),
-            tab_id,
-            attempt_id,
-            now_ms,
-        )
+        .roll_back_task_dispatch_attempt(undo, tab_id, attempt_id, now_ms)
         .map_err(|error| error.to_string());
     let (lane, owns_tab) = match &rollback {
         Ok(DispatchRollback::Superseded {

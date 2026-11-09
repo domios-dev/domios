@@ -19,6 +19,28 @@ pub(super) fn milestone(id: &str) -> Milestone {
     }
 }
 
+/// Curator round history lives in `curator_round` strides, never in the header.
+pub(in crate::service_plan::store_db) fn round_strides(
+    rounds: Vec<crate::plan::CuratorRound>,
+) -> Vec<Milestone> {
+    rounds
+        .into_iter()
+        .enumerate()
+        .map(|(index, round)| Milestone {
+            id: format!("round-{index}"),
+            from: Default::default(),
+            kind: "curator_round".into(),
+            text: serde_json::to_string(&round).unwrap(),
+            ts: round.ended_at,
+            links: vec![],
+            loop_id: None,
+            iteration: None,
+            canvas: Default::default(),
+            attachments: vec![],
+        })
+        .collect()
+}
+
 pub(in crate::service_plan::store_db) fn fixture(
     root: &std::path::Path,
     strides: usize,
@@ -67,6 +89,7 @@ pub(in crate::service_plan::store_db) fn database(
     root: &std::path::Path,
     plan: &Plan,
 ) -> PlanDatabase {
+    crate::service_plan::paths::mark_test_project_root(root);
     let database = PlanDatabase::open(root.join("plans.db")).unwrap();
     database.persist_plan_rows(plan, None).unwrap();
     let mut spec = crate::plan::Spec::new("owned spec".into(), plan.project_path.clone());
@@ -90,6 +113,8 @@ pub(in crate::service_plan::store_db) fn audit(database: &PlanDatabase) {
     for table in [
         "plans",
         "plan_tasks",
+        "plan_sections",
+        "plan_elements",
         "plan_task_milestones",
         "plan_task_attempts",
         "plan_strides",
@@ -121,7 +146,7 @@ pub(super) fn database_for_baseline(root: &std::path::Path, plan: &Plan) -> Plan
     database(root, plan)
 }
 
-pub(super) fn baseline_operation(
+pub(in crate::service_plan::store_db) fn baseline_operation(
     database: &PlanDatabase,
     id: &str,
     kind: &str,
@@ -144,6 +169,9 @@ pub(super) fn baseline_operation(
 pub(super) fn assert_and_clear_writes(database: &PlanDatabase, receipt: &CommittedRows) {
     let mut expected: Vec<(String, usize)> = [
         ("plan_tasks", receipt.task_rows),
+        ("plan_sections", receipt.section_rows),
+        ("plan_elements", receipt.element_rows),
+        ("specs", receipt.spec_rows),
         ("plans", receipt.header_rows),
         ("plan_task_attempts", receipt.attempts),
         ("plan_task_milestones", receipt.milestones),
@@ -159,5 +187,27 @@ pub(super) fn assert_and_clear_writes(database: &PlanDatabase, receipt: &Committ
         .connection
         .lock()
         .execute("DELETE FROM write_audit", [])
+        .unwrap();
+}
+
+// Test observers are deliberately outside the admitted durable schema.
+pub(in crate::service_plan::store_db) fn remove_observers(database: &PlanDatabase) {
+    let connection = database.connection.lock();
+    let names = {
+        let mut statement = connection
+            .prepare("SELECT name FROM sqlite_schema WHERE type='trigger'")
+            .unwrap();
+        let rows = statement
+            .query_map([], |row| row.get::<_, String>(0))
+            .unwrap();
+        rows.map(Result::unwrap).collect::<Vec<_>>()
+    };
+    for name in names {
+        connection
+            .execute_batch(&format!("DROP TRIGGER \"{}\";", name.replace('"', "\"\"")))
+            .unwrap();
+    }
+    connection
+        .execute_batch("DROP TABLE IF EXISTS write_audit;")
         .unwrap();
 }

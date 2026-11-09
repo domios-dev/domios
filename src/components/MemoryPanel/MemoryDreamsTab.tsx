@@ -252,6 +252,7 @@ function MemoryDreamsTabImpl({ api }: Props) {
               size="sm"
               type="button"
               data-testid="memory-dream-nightly-toggle"
+              className="gap-1.5"
               onClick={() => toggleDreamCron(!dreamCron.enabled)}
               aria-label={dreamCron.enabled ? "Disable nightly dreaming" : "Enable nightly dreaming"}
             >
@@ -271,6 +272,7 @@ function MemoryDreamsTabImpl({ api }: Props) {
             variant="primary"
             size="sm"
             data-testid="memory-dream-run-now"
+            className="gap-1.5"
             onClick={runNow}
             disabled={running || !!inflight}
           >

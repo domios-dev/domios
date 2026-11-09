@@ -1148,7 +1148,7 @@ checksum = "0c9ea0ac24bc397ab3c98583a3c9ba74fa56b09a4449bbe172b9b1ddb016027a"
 
 [[package]]
 name = "codeterm"
-version = "1.18.7"
+version = "1.19.1"
 dependencies = [
  "async-trait",
  "codeterm-build-info",
@@ -1437,7 +1437,7 @@ dependencies = [
 
 [[package]]
 name = "codeterm-cli"
-version = "1.18.7"
+version = "1.19.1"
 dependencies = [
  "base64 0.23.1",
  "chrono",
@@ -2046,6 +2046,7 @@ name = "codeterm-plugins"
 version = "0.0.0"
 dependencies = [
  "chrono",
+ "codeterm-paths",
  "codeterm-util",
  "dirs 5.0.1",
  "flate2",
@@ -2557,6 +2558,7 @@ dependencies = [
  "codeterm-plugins",
  "codeterm-process-identity",
  "codeterm-types",
+ "httpdate",
  "libc",
  "log",
  "minisign-verify 0.2.5",

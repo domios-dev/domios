@@ -9,6 +9,7 @@ use std::time::Duration;
 
 mod descriptor;
 mod live_model_command;
+mod session_failures;
 
 fn load(manifest_json: &str, plugin_js: &str) -> JsProvider {
     let mut m: PluginManifest = serde_json::from_str(manifest_json).expect("parse manifest");
@@ -308,7 +309,7 @@ fn parse_session_messages_delegates_to_js() {
     let p = load(MIN_MANIFEST, js);
     let tmp = tempfile::NamedTempFile::new().unwrap();
     std::fs::write(tmp.path(), "hello\nworld\n").unwrap();
-    let msgs = p.parse_session_messages(tmp.path());
+    let msgs = p.parse_session_messages(tmp.path()).unwrap();
     assert_eq!(msgs.len(), 2);
     assert_eq!(msgs[0].text, "hello");
     assert_eq!(msgs[1].text, "world");
@@ -340,7 +341,7 @@ fn parse_session_messages_streams_multi_chunk_files_without_splitting_lines() {
     assert!(body.len() > 4 * 1024 * 1024, "fixture must span >1 chunk");
     std::fs::write(tmp.path(), &body).unwrap();
 
-    let msgs = p.parse_session_messages(tmp.path());
+    let msgs = p.parse_session_messages(tmp.path()).unwrap();
     assert_eq!(
         msgs.len(),
         6000,

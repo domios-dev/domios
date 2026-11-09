@@ -359,6 +359,10 @@ fn classify_maps_structural_markers() {
         classify("p", "some other failure".to_string()),
         DeliveryError::Transport { .. }
     ));
+    assert_eq!(
+        classify("p", "tab_busy_refused: opaque".to_string()).to_string(),
+        "tab_busy_refused: opaque"
+    );
 }
 
 #[test]

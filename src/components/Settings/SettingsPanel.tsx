@@ -166,7 +166,7 @@ export function SettingsPanel({
       ? "Settings"
       : top.kind === "section"
       ? sectionTitle(top.id)
-      : "Provider";
+      : "Harness";
 
   // to the root grid is handled by closing — the titlebar menu is the entry point.
   const jobsPage = top.kind === "section" && top.id === "jobs";

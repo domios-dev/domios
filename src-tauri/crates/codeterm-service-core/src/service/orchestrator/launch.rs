@@ -360,9 +360,18 @@ pub fn launch_agent_in_background_with_env(
     crate::service::boot_wait::notify_boot_changed();
     let mut launch = LaunchGeneration::begin(&tab_id, "pending".into());
     std::thread::spawn(move || {
-        let pty_claim = svc.pty_ownership.acquire(&tab_id);
-        crate::service::agent_restart::timing::stage(&tab_id, "pending", "relaunch-worker");
         let public_send_guard = public_send::guard(&svc, &tab_id, public_send_key);
+        let pty_claim = match svc.pty_ownership.acquire(&tab_id) {
+            Ok(claim) => claim,
+            Err(error) => {
+                launch.fail(&svc, LaunchFailure::StartupSupervision(error.clone()));
+                if let Some(tx) = ready_tx {
+                    let _ = tx.send(Err(error));
+                }
+                return;
+            }
+        };
+        crate::service::agent_restart::timing::stage(&tab_id, "pending", "relaunch-worker");
         let mut delivery_gate = crate::service::launch_delivery::LaunchDeliveryGate::new();
         if !launch.emit(&svc, BootStage::PtyStarting) {
             return;
@@ -731,7 +740,16 @@ pub fn launch_agent_in_background_with_env(
                             tab_id, replacement, pty_id
                         );
                         pty_id = replacement;
-                        let replacement_claim = svc.pty_ownership.acquire(&tab_id);
+                        let replacement_claim = match svc.pty_ownership.acquire(&tab_id) {
+                            Ok(claim) => claim,
+                            Err(error) => {
+                                launch.fail(&svc, LaunchFailure::StartupSupervision(error.clone()));
+                                if let Some(tx) = ready_tx {
+                                    let _ = tx.send(Err(error));
+                                }
+                                return;
+                            }
+                        };
                         if !launch.replace(pty_id.clone()) {
                             return;
                         }

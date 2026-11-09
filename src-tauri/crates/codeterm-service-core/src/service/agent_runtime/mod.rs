@@ -1,5 +1,7 @@
 use crate::service::MuxEmitCause;
 mod abort_provenance;
+pub mod acp_profiles;
+mod auth_env;
 pub(crate) mod authority;
 pub mod background;
 pub(crate) mod blocking;
@@ -8,18 +10,27 @@ pub(crate) mod capacity_retry;
 pub(crate) mod capture;
 pub mod children;
 mod cli_exception;
+mod client_bridge;
 mod completions;
 pub(crate) mod controls;
+pub mod declared_controls;
 pub mod engine;
 mod envelope_delivery;
 mod environment;
 mod events;
+pub mod full_access;
 pub mod goals;
+mod host_mcp;
+mod inbound;
 mod initialize;
 mod launch_options;
+pub mod launch_profile;
+pub mod launch_profile_install;
+pub mod launch_profile_setup;
 #[cfg(unix)]
 pub(crate) mod lease;
 pub mod login;
+pub(crate) mod lost_session;
 pub mod model;
 mod owned_context;
 #[cfg(any(unix, test))]
@@ -28,12 +39,15 @@ pub(crate) mod plan_warning;
 pub(crate) mod process;
 mod process_boundary;
 mod process_slot;
+pub(crate) mod profile_options;
 pub(crate) mod projections;
 pub mod reset_credits;
 pub mod thread_history;
+mod transcript;
 pub(crate) mod update;
-pub use projections::for_tab as usage_for_tab;
 pub use projections::latest as projections_latest;
+pub use projections::read_for_tab as read_usage_for_tab;
+mod permission_policy;
 pub(crate) mod prompt_answers;
 mod question_delivery;
 pub mod questions;
@@ -42,9 +56,13 @@ pub(crate) mod restore;
 pub use restore::all as restore_all;
 mod restore_attempt;
 mod rpc;
+mod selections;
+pub(crate) mod start_failure;
 mod subscriber;
 pub mod transport;
+mod turn_requests;
 pub(crate) mod user_delivery;
+mod working_directory;
 
 pub fn requested_for_tab(svc: &crate::service::ServiceContext, tab: &str) -> bool {
     let provider = svc

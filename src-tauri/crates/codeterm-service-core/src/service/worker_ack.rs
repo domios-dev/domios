@@ -13,6 +13,8 @@ use crate::service::startup_lease::{
 
 use super::ServiceContext;
 
+#[path = "worker_ack/ack_failure.rs"]
+pub(crate) mod ack_failure;
 #[path = "worker_ack/launch_binding.rs"]
 pub mod launch_binding;
 #[path = "worker_ack/plan_deadline.rs"]
@@ -233,17 +235,27 @@ pub fn startup_task_identity_from_env(
 pub struct WorkerAckRegistry {
     waiters: Mutex<WorkerAckState>,
     startup_waiters: Mutex<HashMap<String, AgentStartupWaiter>>,
+    startup_authority_generations: Mutex<(u64, HashMap<String, u64>)>,
     startup_acknowledged: Mutex<HashMap<String, StartupAuthority>>,
     finalized_startups: Mutex<HashMap<String, StartupAuthority>>,
     pending_task_startup_acks: Mutex<HashMap<String, registry::PendingTaskStartupAck>>,
     startup_supervisors: Mutex<HashMap<String, PendingAgentStartupSupervisor>>,
     startup_leases: Mutex<HashMap<String, StartupTeamLease>>,
+    ack_evidence: Mutex<HashMap<String, ack_failure::AckEvidence>>,
 }
 
 impl WorkerAckRegistry {
     fn arm_startup(&self, authority: StartupAuthority) -> AgentStartupArm {
         let (sender, receiver) = mpsc::channel();
         let mut startup_waiters = self.startup_waiters.lock();
+        {
+            let mut generations = self.startup_authority_generations.lock();
+            generations.0 = generations.0.wrapping_add(1);
+            let generation = generations.0;
+            generations
+                .1
+                .insert(authority.child_tab_id.clone(), generation);
+        }
         self.finalized_startups
             .lock()
             .remove(&authority.child_tab_id);
@@ -702,6 +714,7 @@ impl WorkerAckRegistry {
             let mut waiters = self.startup_waiters.lock();
             let waiter = waiters.remove(tab_id);
             self.finalized_startups.lock().remove(tab_id);
+            self.startup_authority_generations.lock().1.remove(tab_id);
             waiter
         };
         if let Some(waiter) = waiter {
@@ -869,6 +882,13 @@ fn worker_lifecycle_notice(
             task_id.as_deref().unwrap_or("unknown task"),
             remote_tab.as_deref().unwrap_or("unknown tab")
         ),
+        ack_failure::WORKER_ACK_FAILED => format!(
+            "could not acknowledge task {}",
+            task_id.as_deref().unwrap_or("unknown task")
+        ),
+        crate::service::agent_runtime::full_access::FULL_ACCESS_UNAVAILABLE => {
+            "did not get its declared full access".to_string()
+        }
         "agent_startup_failed" => "failed to start".to_string(),
         "agent_startup_overdue" if startup_notice_waits_for_owner(payload) => {
             "is waiting for your response".to_string()
@@ -876,7 +896,13 @@ fn worker_lifecycle_notice(
         "agent_startup_overdue" => "is still starting".to_string(),
         _ => "reported a lifecycle update".to_string(),
     };
-    let detail = if matches!(kind, "agent_startup_failed" | "worker_ack_startup_failed") {
+    let detail = if matches!(
+        kind,
+        "agent_startup_failed"
+            | "worker_ack_startup_failed"
+            | ack_failure::WORKER_ACK_FAILED
+            | crate::service::agent_runtime::full_access::FULL_ACCESS_UNAVAILABLE
+    ) {
         payload
             .get("failure_reason")
             .and_then(Value::as_str)

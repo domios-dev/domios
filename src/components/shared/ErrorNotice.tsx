@@ -36,7 +36,7 @@ export function ErrorNotice({
   if (blocking) return <PaneState error={error} context={{ ...context, description }} actions={actions} />;
   return <section role={role} aria-live={ariaLive} aria-label={view.title} className={`${compact ? "text-xs" : "rounded-md border border-[var(--ct-border)] bg-[var(--ct-surface)] p-3 text-sm"} min-w-0 text-left text-[var(--ct-fg)]`}>
     <p className="font-medium">{view.title}</p>
-    <p className="mt-1 break-words text-[var(--ct-muted-fg)]">{view.cause}</p>
+    {view.cause && <p className="mt-1 break-words text-[var(--ct-muted-fg)]">{view.cause}</p>}
     {actions.length > 0 && <div className="mt-2 flex flex-wrap gap-2">{actions.map(action =>
       <button key={action.ariaLabel ?? action.label} type="button" aria-label={action.ariaLabel ?? action.label} disabled={action.disabled} onKeyDown={stopRowActivation} onClick={event => { event.stopPropagation(); action.onClick(); }}
         className="rounded-md border border-[var(--ct-border)] px-2 py-1 text-xs hover:bg-[var(--ct-bg-hover)] disabled:opacity-50">{action.label}</button>)}</div>}

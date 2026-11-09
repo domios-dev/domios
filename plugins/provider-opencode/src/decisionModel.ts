@@ -1,9 +1,11 @@
-import type { DecisionAnswer, DecisionFailure, DecisionModelCapability, DecisionQuestion, DecisionRequest, ExecOpts, Host } from "@codeterm/plugin-sdk";
+import { ioThen, type IoExports, type HostIoSteps } from "@codeterm/plugin-sdk";
+
+import type { DecisionAnswer, DecisionFailure, DecisionModelCapability, DecisionQuestion, DecisionRequest, ExecOpts } from "@codeterm/plugin-sdk";
 import { cachedOpencodeModels, withOpencodeModels, opencodeConfigPath } from "./helpers";
 import type { ModelInfo } from "@codeterm/plugin-sdk";
 import { readModelProviders } from "./modelProviders";
 
-declare const host: Host;
+declare const host: import("@codeterm/plugin-sdk").Host;
 
 export const DECISION_AGENT = "domios-decision";
 export const DECISION_TIMEOUT_MS = 4500;
@@ -89,10 +91,10 @@ export function parseDecisionEvents(stdout: string, question: DecisionQuestion):
   }
 }
 
-function modelsFromCatalogue(models: ModelInfo[] | null) {
+function* modelsFromCatalogue(models: ModelInfo[] | null) {
   const catalogue = new Map((models ?? []).map((model) => [model.id, { id: model.id, display_name: model.displayName }]));
   const path = opencodeConfigPath();
-  const raw = path ? host.fs.readFile(path) : null;
+  const raw = path ? (yield* host.io.fs.readFile(path)) : null;
   if (raw) {
     try {
       for (const provider of readModelProviders(JSON.parse(raw))) {
@@ -108,18 +110,18 @@ function modelsFromCatalogue(models: ModelInfo[] | null) {
   return Array.from(catalogue.values());
 }
 
-function models(binaryFingerprint?: string | null) {
+function* models(binaryFingerprint?: string | null) {
   const cached = cachedOpencodeModels();
   return cached !== null
-    ? modelsFromCatalogue(cached)
-    : withOpencodeModels(binaryFingerprint, modelsFromCatalogue);
+    ? (yield* modelsFromCatalogue(cached))
+    : (yield* withOpencodeModels(binaryFingerprint, modelsFromCatalogue));
 }
 
-export const decisionModel: DecisionModelCapability = {
+export const decisionModel = {
   models,
   modelId: () => selectedModel,
-  selectModel(id) {
-    if (!id || !models().some((model) => model.id === id)) return false;
+  *selectModel(id: string): HostIoSteps<boolean> {
+    if (!id || !(yield* models()).some((model) => model.id === id)) return false;
     selectedModel = id;
     return true;
   },
@@ -127,13 +129,13 @@ export const decisionModel: DecisionModelCapability = {
   primitives: () => ({ choice: true, noul: true, score: true }),
   supportsCalibratedChoiceConfidence: () => false,
   supportsQuestionBatch: () => false,
-  decide(request, remainingMs) {
+  *decide(request: DecisionRequest, remainingMs?: number): HostIoSteps<DecisionAnswer | DecisionFailure> {
     if (!selectedModel) return { error: "unavailable" };
     if (remainingMs !== undefined && remainingMs <= 0) return { error: "timeout" };
-    return host.exec.async(decisionRunOptions(selectedModel, request, remainingMs), (result) => {
+    return (yield* ioThen(host.io.exec(decisionRunOptions(selectedModel, request, remainingMs)), (result) => {
       if (result.error) return { error: /timed out/i.test(result.error) ? "timeout" : "unavailable" };
       if (result.code !== 0) return { error: "transport" };
       return parseDecisionEvents(result.stdout ?? "", request.question);
-    });
+    }));
   },
-};
+} satisfies IoExports<DecisionModelCapability>;

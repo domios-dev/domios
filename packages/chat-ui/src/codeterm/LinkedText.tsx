@@ -46,7 +46,7 @@ function openRef(onOpenPlan: OpenPlan | undefined, seg: PlanRefLinkSegment) {
 /** Render plain text with CodeTerm plan/task/section mentions as clickable deep-links. */
 function compactLabel(seg: PlanRefLinkSegment, resolved: ResolvedChatPlanRef | null): string {
   if (resolved?.title?.trim()) return resolved.title.trim();
-  return resolved?.rawLabel ?? seg.value;
+  return resolved?.rawLabel ?? seg.targetId ?? seg.planId;
 }
 
 function fullRefLabel(seg: PlanRefLinkSegment): string {
@@ -96,7 +96,6 @@ export function MentionChip({ mention }: { mention: CanonicalMention }) {
   const host = useChatBlockHost();
   const key = JSON.stringify([host.mentionTabId ?? "", mention.kind, mention.id]);
   const value = useLiveBinding(host.mentions?.binding, key, null);
-  if (!value && mention.kind === "task") return <>{mention.text}</>;
   return <ReferenceChip kind={mention.kind} label={value?.title ?? mention.id} fullRef={mention.id}
     planId={value?.planId} targetId={value?.targetId} disabled={!value || value.state === "loading"} state={value?.state ?? (value ? "resolved" : "missing")}
     onOpen={() => host.mentions?.open(key)} />;

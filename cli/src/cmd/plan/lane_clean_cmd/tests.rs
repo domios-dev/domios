@@ -62,6 +62,8 @@ fn lane_clean_cli_forwards_dry_run_confirm_and_fetch_once() {
             PlanAction::Lanes {
                 plan_id: Some("plan-token".into()),
                 stale: false,
+                all: false,
+                page: 1,
                 clean: true,
                 confirm,
                 fetch,

@@ -36,6 +36,23 @@ fn chat_admission_rejection(tab_id: &str, detail: String) -> SendRejection {
     }
 }
 
+fn validate_user_client_token(tab: &str, token: Option<&str>) -> Result<(), SendRejection> {
+    if token.is_some_and(|token| token.starts_with("runtime-envelope:")) {
+        return Err(SendRejection {
+            status: StatusCode::BAD_REQUEST,
+            body: serde_json::json!({
+                "ok": false,
+                "error": {
+                    "code": "reserved_client_token", "tab": tab,
+                    "message": "Client token prefix is reserved for host-created routed deliveries",
+                    "bytes_written": false, "delivery_state": "refused",
+                },
+            }),
+        });
+    }
+    Ok(())
+}
+
 pub async fn chat_send_text(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
@@ -43,6 +60,7 @@ pub async fn chat_send_text(
     Path(id): Path<String>,
     Json(body): Json<SendTextBody>,
 ) -> Result<Json<codeterm_service_core::service::agent_pad::ChatSendResult>, SendRejection> {
+    validate_user_client_token(&id, body.client_token.as_deref())?;
     if body.startup_override_nonce.is_some()
         && !matches!(
             caller.as_ref().map(|caller| &caller.0),
@@ -480,6 +498,7 @@ pub async fn send_text(
     Path(raw_tab_id): Path<String>,
     Json(mut body): Json<SendTextBody>,
 ) -> Result<Json<serde_json::Value>, SendRejection> {
+    validate_user_client_token(&raw_tab_id, body.client_token.as_deref())?;
     let svc_token_match = headers
         .get("Authorization")
         .and_then(|v| v.to_str().ok())
@@ -670,7 +689,7 @@ pub async fn send_text(
                         let source_tab = mux.get_tab(&resolved);
                         let from_agent = source_tab
                             .is_some_and(|tab| tab.agent_type.is_some() || tab.agent_booting);
-                        let model = source_tab.and_then(|tab| tab.agent_session_model.clone());
+                        let model = source_tab.and_then(|tab| tab.agent_session_model_label());
                         let purpose = source_tab.and_then(utility_shell_purpose);
                         Some(
                             codeterm_service_core::service::messenger::MessageEnvelope::tab(
@@ -941,18 +960,27 @@ pub async fn send_text(
     let svc = state.svc.clone();
     let target = tab_id.clone();
     let payload = raw_text.clone();
-    let (delivery, pad_file) = run_programmatic_delivery(&tab_id, move || {
+    let (delivery, pad_file, restored_send) = run_programmatic_delivery(&tab_id, move || {
         let class =
             if envelope.kind == codeterm_service_core::service::messenger::MessageKind::System {
                 codeterm_service_core::service::message_gateway::DeliveryClass::SystemNotice
             } else {
                 codeterm_service_core::service::message_gateway::DeliveryClass::AgentTraffic
             };
+        let restored_send = svc.public_send_restores_agent(&target);
         svc.gateway_deliver_with_pad_file(&target, envelope, &payload, class)
+            .map(|(delivery, pad)| (delivery, pad, restored_send))
     })
     .await?;
     record_push_activity(&state, &svc_token_match, &tab_id, &raw_text);
-    let delivery = state.svc.public_delivery_receipt(&tab_id, delivery);
+    let delivery = if restored_send {
+        state
+            .svc
+            .await_restored_send_receipt(&tab_id, delivery, std::time::Duration::from_secs(30))
+            .await
+    } else {
+        state.svc.public_delivery_receipt(&tab_id, delivery)
+    };
     use codeterm_service_core::service::messenger::Delivery;
     let (delivery_state, send_id, bytes_written) = match delivery {
         Delivery::Pending { delivery_id } => ("pending", Some(delivery_id), false),

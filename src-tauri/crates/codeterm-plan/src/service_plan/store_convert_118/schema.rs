@@ -70,6 +70,3 @@ pub(super) const LEGACY_IMPORTS_SCHEMA: &str = r#"
         imported_at INTEGER NOT NULL
     );
 "#;
-
-pub(super) const RETIRED_FTS_SCHEMA: &str =
-    "CREATE VIRTUAL TABLE plan_fts USING fts5(plan_id UNINDEXED, title, body);";

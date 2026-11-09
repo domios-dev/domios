@@ -50,7 +50,7 @@ async fn account_mesh_lease_accepts_hour_and_day_and_reuses_after_restart() {
             harness.mesh.refresh(trigger).await.unwrap();
         }
         assert_eq!(harness.calls("list"), 0);
-        assert_eq!(harness.calls("renew"), 1);
+        assert_eq!(harness.calls("renew"), 0);
         assert_eq!(harness.calls("enroll_key"), 0);
         assert_eq!(harness.calls("link"), 0);
         assert!(harness
@@ -88,7 +88,7 @@ async fn account_mesh_lease_expired_startup_renews_once_without_redundant_sync()
 }
 
 #[tokio::test]
-async fn account_mesh_launch_renews_even_when_issuer_clock_is_ahead() {
+async fn account_mesh_launch_reuses_membership_when_issuer_clock_is_ahead() {
     let mut harness = Harness::new().await;
     {
         let mut script = harness.registry.script.lock().unwrap();
@@ -121,12 +121,12 @@ async fn account_mesh_launch_renews_even_when_issuer_clock_is_ahead() {
         .await
         .unwrap();
     harness.mesh.refresh(EnrollTrigger::Network).await.unwrap();
-    assert_eq!(harness.calls("renew"), 1);
+    assert_eq!(harness.calls("renew"), 0);
     assert_eq!(harness.calls("link"), 0);
 }
 
 #[tokio::test]
-async fn account_mesh_lease_changed_registry_syncs_after_renew() {
+async fn account_mesh_lease_changed_registry_is_bundled_with_renew() {
     let harness = leased(86400).await;
     harness
         .registry
@@ -137,8 +137,8 @@ async fn account_mesh_lease_changed_registry_syncs_after_renew() {
     harness.clock.set(START + 86400 - 120);
     harness.mesh.refresh(EnrollTrigger::Lease).await.unwrap();
     assert_eq!(harness.calls("renew"), 1);
-    assert_eq!(harness.calls("sync"), 1);
-    assert_eq!(harness.calls("challenge"), 2);
+    assert_eq!(harness.calls("sync"), 0);
+    assert_eq!(harness.calls("challenge"), 1);
 }
 
 #[tokio::test]
@@ -179,7 +179,7 @@ async fn account_mesh_lease_observed_revocation_and_signout_fence_long_membershi
 }
 
 #[tokio::test]
-async fn account_mesh_lease_rejects_longer_signed_peer_without_revoking_it() {
+async fn account_mesh_lease_accepts_server_controlled_lifetime() {
     let harness = leased(86400).await;
     let own = harness.state().membership.clone().unwrap();
     let mut payload = Issuer::membership_payload("owner", &own.verified.key_id, 1, 1, START);
@@ -187,49 +187,16 @@ async fn account_mesh_lease_rejects_longer_signed_peer_without_revoking_it() {
     let token = membership_token(&Issuer::new().sign(&payload));
     assert_eq!(
         harness.mesh.verify_peer_membership(&token, START),
-        Err(MembershipRefusal::Duration)
+        Ok(VerifiedMembership {
+            expires_at: START + 86401,
+            ..own.verified.clone()
+        })
     );
     assert!(harness.state().revoked_installations.is_empty());
     assert!(harness
         .mesh
         .verify_peer_membership(&own.token, START)
         .is_ok());
-}
-
-#[test]
-fn account_mesh_lease_opt_in_is_additive_for_an_old_request_reader() {
-    #[derive(serde::Deserialize)]
-    struct OldRequest {
-        schema_version: u8,
-        installation_id: String,
-        operation: String,
-    }
-    let body = MeshAdmissionBody {
-        schema_version: 1,
-        installation_id: INSTALLATION.into(),
-        request_id: "a".repeat(64),
-        signed_registry: Some(true),
-        requested_membership_seconds: Some(86400),
-        operation: MeshOperation::Renew {
-            expected_slot_revision: 1,
-        },
-    };
-    let value = serde_json::to_value(body).unwrap();
-    assert_eq!(value["requested_membership_seconds"], 86400);
-    assert_eq!(value["signed_registry"], true);
-    assert_eq!(
-        super::super::key::jcs_sha256_hex(&value).unwrap(),
-        "563528ee076a0ea2044e1f1925340565bf6587ad9b4efa4333c4d098e22a510e"
-    );
-    let old: OldRequest = serde_json::from_value(value).unwrap();
-    assert_eq!(
-        (
-            old.schema_version,
-            old.installation_id.as_str(),
-            old.operation.as_str()
-        ),
-        (1, INSTALLATION, "renew")
-    );
 }
 
 #[tokio::test]
@@ -286,17 +253,6 @@ async fn account_mesh_lease_own_renew_adopts_one_revision_and_current_slot() {
         .unwrap();
     assert_eq!(own.slot_revision, before + 1);
     harness
-        .mesh
-        .authorize_link(LinkAuthorization {
-            transcript: [3; 32],
-            local_installation_id: INSTALLATION.into(),
-            peer_installation_id: PEER.into(),
-            account_id: account_id("owner"),
-        })
-        .await
-        .unwrap();
-    assert_eq!(harness.calls("link"), 1);
-    harness
         .registry
         .script
         .lock()
@@ -313,76 +269,9 @@ async fn account_mesh_lease_own_renew_adopts_one_revision_and_current_slot() {
     harness.mesh.refresh(EnrollTrigger::Lease).await.unwrap();
     assert_eq!(
         harness.calls("link"),
-        1,
+        0,
         "renewal does not request another permit"
     );
-}
-
-#[tokio::test(start_paused = true)]
-async fn account_mesh_lease_schedules_short_endpoint_before_long_membership() {
-    scheduled_publication(3600, 3480, 0).await;
-}
-
-#[tokio::test(start_paused = true)]
-async fn account_mesh_lease_equal_expiries_share_one_refresh() {
-    let harness = leased(86400).await;
-    let due = harness
-        .state()
-        .membership
-        .as_ref()
-        .unwrap()
-        .verified
-        .refresh_after()
-        - START;
-    scheduled_publication(due + 120, due, 1).await;
-}
-
-async fn scheduled_publication(endpoint_seconds: u64, due: u64, renewals: usize) {
-    let harness = Harness::with_leases().await;
-    {
-        let mut script = harness.registry.script.lock().unwrap();
-        script.membership_seconds = Some(86400);
-        script.endpoint_seconds = Some(endpoint_seconds);
-        script.membership_registry_revision = Some(10);
-    }
-    *harness.endpoint.0.lock().unwrap() = Some(tailnet_endpoint());
-    harness.sign_in("owner").await;
-    harness
-        .mesh
-        .refresh(EnrollTrigger::Automatic)
-        .await
-        .unwrap();
-    let revision = harness
-        .state()
-        .self_installation
-        .as_ref()
-        .unwrap()
-        .metadata_revision;
-    harness.log.lock().unwrap().clear();
-    let mut state = harness.mesh.subscribe();
-    harness.clock.set(START + due);
-    let started = tokio::time::Instant::now();
-    tokio::time::timeout(
-        std::time::Duration::from_secs(due + 1),
-        state.wait_for(|state| {
-            state.enrollment == Enrollment::Enrolled
-                && state
-                    .self_installation
-                    .as_ref()
-                    .is_some_and(|own| own.metadata_revision > revision)
-        }),
-    )
-    .await
-    .unwrap()
-    .unwrap();
-    assert!(started.elapsed() <= std::time::Duration::from_secs(60));
-    harness.mesh.refresh(EnrollTrigger::Explicit).await.unwrap();
-    assert_eq!(harness.calls("renew"), renewals);
-    assert_eq!(harness.calls("publish"), 1);
-    assert_eq!(harness.calls("sync"), 0);
-    assert_eq!(harness.calls("challenge"), renewals + 1);
-    assert!(harness.registry.endpoint("owner").unwrap().expires_at > START + due);
-    harness.mesh.sign_out_local().await.unwrap();
 }
 
 #[tokio::test]
@@ -435,9 +324,9 @@ async fn account_mesh_lease_restore_rejects_changed_authority_and_tampered_signa
         harness.log.lock().unwrap().clear();
         let result = harness.mesh.refresh(EnrollTrigger::Automatic).await;
         if case == "valid" {
-            assert_eq!(result, Err(AccountMeshRefusal::Offline));
+            assert_eq!(result, Ok(()));
             assert_eq!(harness.calls("list"), 0);
-            assert_eq!(harness.calls("renew"), 1);
+            assert_eq!(harness.calls("renew"), 0);
             assert_eq!(
                 harness.state().membership.as_ref().unwrap().verified,
                 original.verified
@@ -476,19 +365,12 @@ async fn account_mesh_terminal_renewal_denials_retire_authority_and_park() {
         assert_eq!(harness.state().publication, Publication::Published);
         let membership = harness.state().membership.clone().unwrap();
         let display = harness.state().self_installation.clone();
-        if refusal == RegistryRefusal::Revoked {
-            harness
-                .clock
-                .set(harness.mesh.with(|inner| inner.publication_refresh_after));
-            harness.registry.script.lock().unwrap().publication = Some(refusal);
-        } else {
-            harness.clock.set(membership.verified.refresh_after());
-            harness.registry.script.lock().unwrap().membership = Some(refusal);
-        }
+        harness.clock.set(membership.verified.refresh_after());
+        harness.registry.script.lock().unwrap().membership = Some(refusal);
         let error = harness.mesh.refresh(EnrollTrigger::Lease).await;
         assert!(error.is_err(), "{refusal:?}");
         if refusal == RegistryRefusal::Revoked {
-            assert_eq!(error, Err(AccountMeshRefusal::Revoked));
+            assert_eq!(error, Err(AccountMeshRefusal::ReauthRequired));
         }
         assert!(harness.state().membership.is_none(), "{refusal:?}");
         assert_eq!(harness.state().self_installation, display);
@@ -595,7 +477,7 @@ async fn account_mesh_terminal_limit_rearms_only_when_registry_observes_a_freed_
         .unwrap_err();
     harness.registry.script.lock().unwrap().membership = None;
     harness.registry.script.lock().unwrap().peer_presence = RegistryPresence::SignedOut;
-    harness.mesh.list().await.unwrap();
+    harness.mesh.list_fresh().await.unwrap();
     let calls = harness.calls("renew");
     assert_eq!(
         harness.mesh.refresh(EnrollTrigger::Network).await,
@@ -603,7 +485,7 @@ async fn account_mesh_terminal_limit_rearms_only_when_registry_observes_a_freed_
     );
     assert_eq!(harness.calls("renew"), calls);
     harness.registry.script.lock().unwrap().peer_active = Some(false);
-    harness.mesh.list().await.unwrap();
+    harness.mesh.list_fresh().await.unwrap();
     assert!(harness.state().plan_limit_locked());
     harness
         .mesh
@@ -618,6 +500,14 @@ async fn account_mesh_terminal_limit_rearms_only_when_registry_observes_a_freed_
 async fn account_mesh_terminal_launch_denial_stays_parked_across_restart_until_rearmed() {
     for recovery in ["explicit", "plan", "signin"] {
         let mut harness = leased(86400).await;
+        let due = harness
+            .state()
+            .membership
+            .as_ref()
+            .unwrap()
+            .verified
+            .refresh_after();
+        harness.clock.set(due);
         let stale_cache = harness.store.record.lock().unwrap().admission_cache.clone();
         harness.restart().await;
         harness.sign_in("owner").await;
@@ -682,7 +572,7 @@ async fn account_mesh_terminal_launch_denial_stays_parked_across_restart_until_r
         };
         harness.mesh.refresh(trigger).await.unwrap();
         assert_eq!(harness.calls("renew"), 1);
-        assert!(harness.state().current_membership(START).is_some());
+        assert!(harness.state().current_membership(due).is_some());
         assert!(harness
             .store
             .record

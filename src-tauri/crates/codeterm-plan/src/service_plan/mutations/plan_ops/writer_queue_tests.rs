@@ -29,12 +29,12 @@ fn writer_queue_serializes_persistence_in_submission_order() {
     store.set_persistence_hook_for_test(Some(Arc::new({
         let release_rx = release_rx.clone();
         let persisted = persisted.clone();
-        move |plan| {
-            if plan.title == "First" {
+        move |title| {
+            if title == "First" {
                 first_started_tx.send(()).unwrap();
                 release_rx.lock().unwrap().take().unwrap().recv().unwrap();
             }
-            persisted.lock().unwrap().push(plan.title.clone());
+            persisted.lock().unwrap().push(title.to_string());
         }
     })));
 
@@ -74,8 +74,8 @@ fn reads_keep_last_committed_snapshot_while_persistence_is_blocked() {
     let release_rx = Arc::new(StdMutex::new(Some(release_rx)));
     store.set_persistence_hook_for_test(Some(Arc::new({
         let release_rx = release_rx.clone();
-        move |plan| {
-            if plan.title == "Blocked" {
+        move |title| {
+            if title == "Blocked" {
                 started_tx.send(()).unwrap();
                 release_rx.lock().unwrap().take().unwrap().recv().unwrap();
             }

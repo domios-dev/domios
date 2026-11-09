@@ -412,7 +412,7 @@ fn lane_remove_is_idempotent_for_an_already_removed_worktree() {
     let (store, plan_id, task_id) = task_store(root.path(), &project);
     record_lane(&store, &plan_id, &task_id, &lane);
     store
-        .with_plan(&plan_id, 4, |plan| {
+        .edit_plan_fixture(&plan_id, 4, |plan| {
             plan.tasks
                 .iter_mut()
                 .find(|task| task.id == task_id)
@@ -447,7 +447,7 @@ fn lane_remove_is_idempotent_for_an_already_removed_worktree() {
 
     assert!(outcome.worktree_already_removed);
     assert!(outcome.branch_already_removed);
-    let task = store.show_task(&task_id).unwrap().task;
+    let task = store.inspect_task_for_test(&task_id).unwrap().task;
     assert!(task.assigned_tab_id.is_none());
     assert!(task.lane.tab_id.is_none());
     assert!(task.lane.workspace_id.is_none());
@@ -472,7 +472,7 @@ fn lane_checkpoint_refs_are_deleted_when_lane_is_removed() {
     let (store, plan_id, task_id) = task_store(root.path(), &project);
     record_lane(&store, &plan_id, &task_id, &lane);
     store
-        .with_plan(&plan_id, 4, |plan| {
+        .edit_plan_fixture(&plan_id, 4, |plan| {
             plan.tasks
                 .iter_mut()
                 .find(|task| task.id == task_id)
@@ -629,7 +629,7 @@ fn cleanup_status_done_clears_vanished_lane_references() {
     let (store, plan_id, task_id) = task_store(root.path(), &project);
     record_lane(&store, &plan_id, &task_id, &lane);
     store
-        .with_plan(&plan_id, 4, |plan| {
+        .edit_plan_fixture(&plan_id, 4, |plan| {
             plan.tasks
                 .iter_mut()
                 .find(|task| task.id == task_id)
@@ -664,7 +664,7 @@ fn cleanup_status_done_clears_vanished_lane_references() {
         .update_task_lane(&plan_id, &task_id, update, 5)
         .unwrap();
 
-    let task = store.show_task(&task_id).unwrap().task;
+    let task = store.inspect_task_for_test(&task_id).unwrap().task;
     assert!(task.lane.tab_id.is_none());
     assert!(task.lane.workspace_id.is_none());
     assert!(task.lane.workspace_name.is_none());
@@ -705,7 +705,7 @@ fn cleanup_status_done_clears_removed_worktree_with_merged_branch_kept() {
         .update_task_lane(&plan_id, &task_id, update, 5)
         .unwrap();
 
-    let task = store.show_task(&task_id).unwrap().task;
+    let task = store.inspect_task_for_test(&task_id).unwrap().task;
     assert!(branch_exists(&project, &branch));
     assert!(task.assigned_tab_id.is_none());
     assert!(task.lane.tab_id.is_none());
@@ -754,10 +754,11 @@ mod consumer_loads {
         let (store, holder, other) = seeded(dir.path(), &removed);
 
         assert_eq!(
-            project_for_recorded_lane(&store, &removed),
+            project_for_recorded_lane(&store, &removed).unwrap(),
             Some(dir.path().display().to_string())
         );
-        assert_eq!(store.plan_loads_for_test(), vec![holder]);
+        assert!(store.plan_loads_for_test().is_empty());
+        assert_never_loaded(&store, &[&holder]);
         assert_never_loaded(&store, &[&other]);
     }
 

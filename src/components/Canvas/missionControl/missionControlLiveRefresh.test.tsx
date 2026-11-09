@@ -1,3 +1,4 @@
+import { muxMockFetch } from "../../../lib/muxMockFetch.testdata";
 import { beforeEach as beforeDaemonCase } from "vitest";
 import { configureDaemonFixture } from "../../../test/daemonTransport.testdata";
 beforeDaemonCase(() => configureDaemonFixture());
@@ -16,7 +17,7 @@ import type {
   TeamMissionControlEvent,
   TeamMissionControlState,
 } from "./missionControlState";
-import { usePlanBoardState, type PlanBoardStateResult } from "./usePlanBoardState";
+import { useDeferredPlanBoardState, usePlanBoardState, type PlanBoardStateResult } from "./usePlanBoardState";
 import { useTeamMissionControl, type TeamMissionControlView } from "./useTeamMissionControl";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -158,7 +159,8 @@ function emit(event: string, payload: unknown) {
 }
 
 async function flush() {
-  for (let i = 0; i < 20; i++) await Promise.resolve();
+  // Daemon responses ride the mux stream, which settles across event-loop turns.
+  for (let i = 0; i < 20; i++) await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 async function render(ui: ReactElement) {
@@ -216,7 +218,7 @@ beforeEach(() => {
   nextFrameId = 0;
   installBrowserHarness();
   installListenHarness();
-  vi.stubGlobal("fetch", vi.fn());
+  vi.stubGlobal("fetch", muxMockFetch(vi.fn()));
 });
 
 afterEach(() => {
@@ -386,6 +388,38 @@ describe("Mission Control live refresh", () => {
       expect(rendered.host.textContent).toBe("pl_selected");
       await act(async () => { obsolete.resolve(response(boardState())); await flush(); });
       expect(rendered.host.textContent).toBe("pl_selected");
+    } finally { await rendered.unmount(); }
+  });
+
+  it("renders plan figures while the separate event window is pending", async () => {
+    const pending = deferred<Response>();
+    const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
+    fetchMock.mockImplementation((url: string) => {
+      if (new URL(url).searchParams.get("events") === "false") {
+        return Promise.resolve(response({ ...boardState({ tasks: 9 }), revision: "1", event_window_loaded: false }));
+      }
+      return pending.promise;
+    });
+    function DeferredProbe() {
+      const result = useDeferredPlanBoardState(API, PLAN_ID, 1, true);
+      return <MissionControlBoard plan={PLAN} state={result.state} eventPager={result.events} loading={result.loading} error={result.error} now={NOW} />;
+    }
+    const rendered = await render(<DeferredProbe />);
+    try {
+      expect(taskTotal(rendered.host)).toBe("9");
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      await act(async () => {
+        const value = boardState({ tasks: 9 });
+        pending.resolve(response({ ...value, revision: "1", event_window_loaded: true,
+          mission_control: { ...value.mission_control, event_log: { recorded_events: 1, truncated: false, entries: [{
+            ts: NOW, last_ts: NOW, count: 1, kind: "note", author: "Worker", author_tab_id: null,
+            task_id: null, task_name: null, text: "Deferred event loaded",
+          }] } },
+        }));
+        await flush();
+      });
+      expect(rendered.host.textContent).toContain("Deferred event loaded");
+      expect(taskTotal(rendered.host)).toBe("9");
     } finally { await rendered.unmount(); }
   });
 

@@ -1,7 +1,7 @@
 use super::*;
 use crate::plan::coverage::compute_coverage_report;
 use crate::plan::reconcile::DriftKind;
-use crate::plan::types::{LoopSpec, Milestone, Section, Task, TaskGroup};
+use crate::plan::types::{LoopSpec, Milestone, Plan, Section, Task, TaskGroup};
 
 fn section(id: &str) -> Section {
     Section {

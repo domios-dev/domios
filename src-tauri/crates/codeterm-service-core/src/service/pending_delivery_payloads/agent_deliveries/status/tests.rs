@@ -51,6 +51,7 @@ fn crash_after_receipt_257_recovers_retention_and_flushes_later_sends() {
             ChatSendState::Unknown,
             None,
         ),
+        false,
     )
     .unwrap();
     assert_eq!(

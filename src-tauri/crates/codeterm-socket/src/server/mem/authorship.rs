@@ -14,6 +14,7 @@ fn socket_save_delete_append_archive_and_promote_use_authenticated_author() {
         .token = Some("host".into());
     let token = svc
         .frontend_pty_env(Some(&owner))
+        .unwrap()
         .remove("CODETERM_API_TOKEN")
         .unwrap();
     let request = |method: &str, params: serde_json::Value| {

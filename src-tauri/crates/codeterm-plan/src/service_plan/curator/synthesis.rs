@@ -3,6 +3,11 @@ use crate::plan::{CuratorRound, Milestone, Plan};
 
 const HISTORY_LIMIT: usize = 4096;
 const ROUND_RECORD_LIMIT: usize = 16 * 1024;
+mod inputs;
+pub use inputs::{
+    context_prefix, history_budget, history_learning_kind, history_line, round_history_lines,
+    SynthesisGoalInput,
+};
 
 pub fn due(
     real_rounds_started: u64,
@@ -52,12 +57,18 @@ pub fn context_header(plan: &Plan, base: &str) -> String {
         .filter(|task| !task.status.is_terminal())
         .map(|task| task.acceptance_criteria.len())
         .sum();
-    let goal = format!("\ngoal [{}]: {} | {}\ncorrectness vector [{}]: {}\nopen acceptance criteria [{}]: {open_criteria}\n", plan.id, bounded_text(&plan.title, 256), bounded_text(goal.map_or("", |goal| goal.vision.as_str()), 512), plan.id, bounded_text(goal.map_or("", |goal| goal.vector.as_str()), 512), plan.id);
-    let context_limit = MAX_DIGEST_BYTES - 2048;
-    let mut body = bounded_text(base, context_limit.saturating_sub(goal.len()));
-    body.push_str(&goal);
-    let history_limit = HISTORY_LIMIT.min(context_limit.saturating_sub(body.len()));
-    body.push_str(&history(plan, history_limit));
+    let mut body = context_prefix(
+        SynthesisGoalInput {
+            id: &plan.id,
+            title: &plan.title,
+            vision: goal.map_or("", |goal| goal.vision.as_str()),
+            vector: goal.map_or("", |goal| goal.vector.as_str()),
+            open_criteria,
+        },
+        base,
+    );
+    let budget = history_budget(&body);
+    body.push_str(&history(plan, budget));
     body
 }
 
@@ -72,35 +83,15 @@ fn history(plan: &Plan, limit: usize) -> String {
     records.sort_by(|(a, _), (b, _)| b.ts.cmp(&a.ts).then_with(|| b.id.cmp(&a.id)));
     let mut body = String::new();
     for (stride, round) in records {
-        let mut lines = vec![(
-            "MOVE",
-            if round.move_line.is_empty() {
-                round.summary
-            } else {
-                round.move_line
-            },
-        )];
-        let mut retro = round.retro;
-        let mut learn = round.learn;
-        if retro.is_empty() && learn.is_empty() {
-            for entry in plan.heartbeat.learnings.iter().filter(|entry| {
-                entry.ts == round.ended_at && entry.tag.as_deref() == Some("curator")
-            }) {
-                if entry.text.starts_with(['+', '-']) {
-                    retro.push(entry.text.clone());
-                } else {
-                    learn.push(entry.text.clone());
-                }
-            }
-        }
-        lines.extend(retro.into_iter().map(|line| ("RETRO", line)));
-        lines.extend(learn.into_iter().map(|line| ("LEARN", line)));
-        for (kind, line) in lines {
-            let line = format!(
-                "{} | {kind} | {}\n",
-                stride.id,
-                line.replace(['\n', '\r'], " ")
-            );
+        let ended_at = round.ended_at;
+        let fallback = plan
+            .heartbeat
+            .learnings
+            .iter()
+            .filter(|entry| entry.ts == ended_at && entry.tag.as_deref() == Some("curator"))
+            .map(|entry| entry.text.clone());
+        for (kind, text) in round_history_lines(round, fallback) {
+            let line = history_line(&stride.id, kind, &text);
             if body.len() + line.len() > limit {
                 return body;
             }

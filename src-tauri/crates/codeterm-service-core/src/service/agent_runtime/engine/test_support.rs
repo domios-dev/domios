@@ -1,4 +1,7 @@
-pub(in crate::service::agent_runtime) use super::tests::sync_send::runtime_fixture;
+pub(in crate::service::agent_runtime) use super::tests::sync_send::{
+    runtime_fixture, runtime_fixture_host_approvals, runtime_fixture_host_approvals_with,
+    runtime_fixture_turn_scoped, runtime_fixture_with,
+};
 use super::*;
 use crate::multiplexer::types::Tab;
 
@@ -21,7 +24,7 @@ pub(crate) fn loaded_runtime(
     tab: &Tab,
     adapter: Option<Arc<dyn crate::agent::provider::AgentProvider>>,
 ) -> LiveRuntime {
-    let (process, peer) = crate::async_runtime::block_on(async {
+    let (process, peer) = {
         let (host, peer) = tokio::io::duplex(4096);
         let (reader, writer) = tokio::io::split(host);
         (
@@ -30,7 +33,7 @@ pub(crate) fn loaded_runtime(
             ))),
             peer,
         )
-    });
+    };
     let mut state = RuntimeState::unloaded(tab.agent_session_id.clone());
     let epoch = state.begin();
     assert!(state.load(epoch, tab.agent_session_id.as_deref().unwrap()));
@@ -59,11 +62,15 @@ pub(crate) fn loaded_runtime(
         auth: Mutex::new(RuntimeAuthState::SignedIn),
         login: Mutex::new(Default::default()),
         thread_loaded: std::sync::atomic::AtomicBool::new(true),
+        stream_progress: tokio::sync::watch::channel(0).0,
+        turn_requests: Mutex::new(HashMap::new()),
         hook_state: Mutex::new(Value::Null),
         maps: Mutex::new(super::super::events::RuntimeMaps::default()),
         provider_operation_failures: std::sync::atomic::AtomicU32::new(0),
         bookkeeping_warning_emitted: std::sync::atomic::AtomicBool::new(false),
+        transcript_io: Default::default(),
         prompts: Mutex::new(HashMap::new()),
+        prompts_cancelled: std::sync::atomic::AtomicBool::new(false),
         process: crate::service::agent_runtime::process_slot::ProcessSlot::new(Some(process)),
         gate: tokio::sync::Semaphore::new(1),
         initialization: Default::default(),
@@ -83,7 +90,9 @@ pub(super) fn stop_test(tab: &str) {
     let session = SESSIONS.lock().remove(tab);
     if let Some(session) = session {
         if let Some(process) = session.process.close() {
-            crate::async_runtime::block_on(process.finish()).unwrap();
+            super::super::blocking::task(async move { process.finish().await })
+                .unwrap()
+                .unwrap();
         }
     }
 }

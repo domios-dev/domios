@@ -1,4 +1,4 @@
-import { usageTrackingEnabled, usageTrackingOverrides, tabUsageProvider } from "./usageTracking";
+import { usageTrackingEnabled, usageTrackingOverrides, tabUsageProvider, tabUsageSource } from "./usageTracking";
 import type { SettingField } from "../../lib/types";
 
 const usageSection: SettingField[] = [{
@@ -36,3 +36,24 @@ console.log("usageTracking tests: 4/4 passed");
 if (tabUsageProvider("fixture",true,true) !== "fixture" || tabUsageProvider("fixture",true,false) !== null || tabUsageProvider("fixture",false,false) !== "fixture") {
   throw new Error("headers select runtime usage by capability and retain terminal usage");
 }
+
+const sourceCases: [Parameters<typeof tabUsageSource>, ReturnType<typeof tabUsageSource>][] = [
+  [["fixture-acp", true, true, {id:"borrowing", limitsSource:{kind:"account", provider:"fixture-native"}}],
+    {kind:"meter", provider:"fixture-native", trackingProvider:"fixture-native", borrowedAccount:true}],
+  [["fixture-acp", true, false, {id:"balanced", limitsSource:{kind:"balance", reader:"fixture-balance", credentialEnv:"KEY"}}],
+    {kind:"balance", provider:"fixture-acp", accountId:"profile:balanced", trackingProvider:"fixture-acp"}],
+  [["fixture-acp", true, false, {id:"quoted", limitsSource:{kind:"quota", reader:"fixture-quota"}}],
+    {kind:"quota", provider:"fixture-acp", accountId:"profile:quoted", trackingProvider:"fixture-acp"}],
+  [["fixture-acp", true, true, {id:"opaque", limitsSource:{kind:"unavailable", reason:"Opaque reason"}}],
+    {kind:"unavailable", reason:"Opaque reason", trackingProvider:"fixture-acp"}],
+  [["fixture-acp", true, true, {id:"undeclared"}], {kind:"meter", provider:"fixture-acp", trackingProvider:"fixture-acp", borrowedAccount:false}],
+  [["fixture-acp", true, false, {id:"undeclared"}], null],
+  [["fixture-pty", false, false, {id:"ignored", limitsSource:{kind:"unavailable", reason:"Opaque reason"}}],
+    {kind:"meter", provider:"fixture-pty", trackingProvider:"fixture-pty", borrowedAccount:false}],
+];
+for (const [args, expected] of sourceCases) {
+  if (JSON.stringify(tabUsageSource(...args)) !== JSON.stringify(expected)) {
+    throw new Error(`usage source follows only the declared kind: ${JSON.stringify(args)}`);
+  }
+}
+console.log("tabUsageSource: declared kind selects account, balance, quota or unavailable; undeclared keeps the runtime meter");

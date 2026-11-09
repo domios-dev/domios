@@ -77,7 +77,8 @@ pub async fn bind_planner_session_after_claim(
     let bound_tab = tab_id.to_string();
     tokio::task::spawn_blocking(move || service.bind_planner_session(&bound_tab))
         .await
-        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))
+        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))
 }
 
 pub async fn finish_session_binding(
@@ -127,6 +128,21 @@ pub async fn finish_session_binding(
             .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
             .map_err(|error| (StatusCode::CONFLICT, error))?;
     }
+    let service = svc.clone();
+    let tab = tab_id.to_owned();
+    let provider = provider_id.to_owned();
+    let session = sid.to_owned();
+    let report = report_nonce.map(str::to_owned);
+    let binding_source_name = source.to_owned();
+    let identity_claim = claim.clone();
+    tokio::task::spawn_blocking(move || {
+        let svc = &service;
+        let tab_id = tab.as_str();
+        let provider_id = provider.as_str();
+        let sid = session.as_str();
+        let report_nonce = report.as_deref();
+        let claim = identity_claim;
+        let source = binding_source_name.as_str();
     if claim.changed {
         crate::service::provider_signals::refresh_auth(svc, tab_id);
         if let Some(previous_session_id) = claim.prev.as_deref() {
@@ -223,6 +239,7 @@ pub async fn finish_session_binding(
             },
         );
     }
+    }).await.map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     let relay_service = svc.clone();
     let relay_tab = tab_id.to_string();
     drop(tokio::task::spawn_blocking(move || {
@@ -248,8 +265,12 @@ pub async fn finish_session_binding(
             )
         }));
     }
-    if let Some(evidence) = launch_identity.as_ref() {
-        svc.retire_provisional_launch(tab_id, evidence);
+    if let Some(evidence) = launch_identity {
+        let service = svc.clone();
+        let tab = tab_id.to_owned();
+        tokio::task::spawn_blocking(move || service.retire_provisional_launch(&tab, &evidence))
+            .await
+            .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     }
     // while it runs — not only after completion.
     let service = std::sync::Arc::new(svc.clone());
@@ -297,6 +318,17 @@ pub async fn finish_session_binding(
 
     if !claim.changed {
         if claim.nonce_verified {
+            if !claim.nonce_already_acknowledged {
+                // A resumed launch cleared its model evidence but keeps its session id, so its
+                // first verified report, not a session change, is the event that re-reads it.
+                let service = svc.clone();
+                let tab = tab_id.to_string();
+                let session = sid.to_string();
+                let _ = tokio::task::spawn_blocking(move || {
+                    service.refresh_unconfirmed_session_model(&tab, &session)
+                })
+                .await;
+            }
             svc.schedule_planner_replay(&tab_id);
         }
         return Ok(Json(serde_json::json!({"ok": true, "changed": false})));

@@ -5,6 +5,36 @@ use codeterm_update::update_state::AvailabilitySnapshot;
 
 static LAST: parking_lot::Mutex<Option<AvailabilitySnapshot>> = parking_lot::Mutex::new(None);
 
+mod background;
+static BACKGROUND: background::Refresh = background::Refresh::new();
+
+pub fn cached_snapshot() -> AvailabilitySnapshot {
+    let mut cached = LAST.lock().clone().unwrap_or_default();
+    ensure_app(&mut cached);
+    cached
+}
+
+pub fn refresh_in_background(
+    ui: Arc<dyn codeterm_service_core::ports::host::UiEvents>,
+    state: codeterm_update::UpdateStateHandle,
+    bundles: Option<Arc<codeterm_frontend_bundle::FrontendBundles>>,
+    force: bool,
+) {
+    let _ = BACKGROUND.start(async move {
+        complete_background_check(&ui, check(&ui, &state, bundles, force)).await;
+    });
+}
+
+async fn complete_background_check(
+    ui: &Arc<dyn codeterm_service_core::ports::host::UiEvents>,
+    check: impl std::future::Future<Output = Result<AvailabilitySnapshot, String>>,
+) {
+    match check.await {
+        Ok(snapshot) => publish(ui, &snapshot),
+        Err(error) => log::debug!("[update-discovery] background check failed: {error}"),
+    }
+}
+
 pub async fn check(
     ui: &Arc<dyn codeterm_service_core::ports::host::UiEvents>,
     state: &codeterm_update::UpdateStateHandle,
@@ -31,7 +61,10 @@ pub async fn check(
         .await
         .map_err(|error| error.to_string())??;
     replace_plugins(&mut cached, plugins);
-    if !force && cache::fresh(cached.checked_at_ms, cache::now_ms()) {
+    if !force
+        && (cache::fresh(cached.checked_at_ms, cache::now_ms())
+            || (app_checked(&cached) && !codeterm_update::checker::automatic_check_due().await))
+    {
         return Ok(cached);
     }
     FLIGHT
@@ -50,6 +83,7 @@ pub async fn check(
 
 static FLIGHT: cache::SingleFlight<AvailabilitySnapshot> = cache::SingleFlight::new();
 mod cache;
+pub mod lifecycle;
 
 async fn refresh(
     ui: &Arc<dyn codeterm_service_core::ports::host::UiEvents>,
@@ -58,7 +92,12 @@ async fn refresh(
     force: bool,
 ) -> Result<AvailabilitySnapshot, String> {
     let method = state.lock().install_method.clone();
-    let app_result = codeterm_update::checker::check_with_diagnostic(&method, None).await;
+    let app_result = codeterm_update::checker::check_with_diagnostic(
+        &method,
+        None,
+        codeterm_update::check_throttle::CheckTrigger::from_force(force),
+    )
+    .await;
     if let Ok((info, _)) = &app_result {
         let mut state = state.lock();
         state.last_check = Some(info.clone());
@@ -73,21 +112,10 @@ async fn refresh(
         let mut snapshot: AvailabilitySnapshot =
             serde_json::from_value(codeterm_plugins::update_inventory(ctx, force)?)
                 .map_err(|e| e.to_string())?;
-        match app_result {
-            Ok((info, error)) => {
-                let mut item = info.availability;
-                if let Some(error) = error {
-                    snapshot.errors.insert("app".into(), error);
-                    item = cached_app_availability(item);
-                }
-                snapshot.items.push(item);
-            }
-            Err(error) => {
-                snapshot.errors.insert("app".into(), error);
-                ensure_app(&mut snapshot);
-            }
-        }
-        match bundles.map(|bundles| bundles.availability()) {
+        apply_app_check(&mut snapshot, app_result);
+        match bundles
+            .map(|bundles| frontend_offer(bundles.availability(), || bundles.local_availability()))
+        {
             Some(Ok(item)) => snapshot.items.push(item),
             Some(Err(error)) => {
                 snapshot.errors.insert("frontend".into(), error);
@@ -151,6 +179,57 @@ pub fn publish(
             serde_json::to_value(snapshot).unwrap_or(serde_json::Value::Null),
         );
     }
+}
+
+/// A failed check stays in the log and the snapshot's diagnostics; the UI reads it as no update.
+fn apply_app_check(
+    snapshot: &mut AvailabilitySnapshot,
+    result: Result<(codeterm_update::update_state::UpdateInfo, Option<String>), String>,
+) {
+    match result {
+        Ok((info, error)) => {
+            if let Some(path) = info.check_path {
+                snapshot.served_by.insert("app".into(), path);
+            }
+            let mut item = info.availability;
+            if let Some(error) = error {
+                log::warn!(
+                    "[update-discovery] app check failed, keeping the last manifest: {error}"
+                );
+                snapshot.errors.insert("app".into(), error);
+                item = cached_app_availability(item);
+            }
+            snapshot.items.push(item);
+        }
+        Err(error) => {
+            if error != codeterm_update::checker::CHECK_DEFERRED {
+                log::warn!("[update-discovery] app check failed: {error}");
+                snapshot.errors.insert("app".into(), error);
+            }
+            ensure_app(snapshot);
+        }
+    }
+}
+
+/// A frontend release that was never published is no offer, not a failed source.
+fn frontend_offer(
+    discovered: Result<AvailabilityItem, String>,
+    local: impl FnOnce() -> AvailabilityItem,
+) -> Result<AvailabilityItem, String> {
+    match discovered {
+        Err(error) if codeterm_plugins::update_source::is_missing_release_asset(&error) => {
+            log::debug!("[update-discovery] no frontend release published: {error}");
+            Ok(local())
+        }
+        other => other,
+    }
+}
+
+fn app_checked(snapshot: &AvailabilitySnapshot) -> bool {
+    snapshot
+        .items
+        .iter()
+        .any(|item| item.kind == UpdateKind::App && item.reason != "not_checked")
 }
 
 fn record_failure(snapshot: &mut AvailabilitySnapshot, error: &str, now_ms: u64) {

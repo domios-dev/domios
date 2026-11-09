@@ -73,3 +73,102 @@ fn explicit_compaction_runs_below_the_automatic_budget() {
         COMPACT_AT_RECORDS + 1
     );
 }
+
+#[test]
+fn prepared_compaction_refuses_concurrent_append_without_losing_history() {
+    let dir = tempfile::tempdir().unwrap();
+    let journal = TabLifecycleJournal::for_dir(dir.path().into());
+    journal
+        .append(key(), LifecycleTransition::EpochOpened)
+        .unwrap();
+    journal.cursor.lock().compact_at_records = 1;
+    let prepared = dir.path().join("prepared.jsonl");
+    write_all_records(&prepared, &journal.load().records).unwrap();
+    // Model the append that races preparation without running its automatic compaction yet.
+    journal.cursor.lock().compact_at_records = usize::MAX;
+    journal
+        .append(key(), LifecycleTransition::LaunchReady)
+        .unwrap();
+    journal.cursor.lock().compact_at_records = 1;
+    let error = journal
+        .commit_compaction(&prepared, 1, 1, 1, None)
+        .unwrap_err();
+    assert!(error.contains("compaction conflict"), "{error}");
+    let history = journal.load();
+    assert!(history.tail.is_intact());
+    assert_eq!(history.records.len(), 2);
+    assert_eq!(history.last_seq(), 2);
+    assert_eq!(journal.cursor.lock().compact_at_records, 1);
+    journal
+        .append(key(), LifecycleTransition::EpochOpened)
+        .unwrap();
+    let history = journal.load();
+    assert!(history.tail.is_intact());
+    assert_eq!(history.records.len(), 3);
+    assert_eq!(history.last_seq(), 3);
+    assert_eq!(
+        journal.cursor.lock().compact_at_records,
+        3 + COMPACT_AT_RECORDS
+    );
+}
+
+#[test]
+fn held_file_writer_does_not_block_epoch_or_index_reads() {
+    let dir = tempfile::tempdir().unwrap();
+    let journal = TabLifecycleJournal::for_dir(dir.path().into());
+    journal
+        .note_conversation_started(key(), "own-session")
+        .unwrap();
+    let observed = std::thread::scope(|scope| {
+        let writer = journal.writer.lock();
+        let (done, received) = std::sync::mpsc::channel();
+        let journal = &journal;
+        let child = scope.spawn(move || {
+            let epoch = journal.next_epoch_for_tab("own-tab");
+            journal
+                .note_conversation_started(key(), "own-session")
+                .unwrap();
+            done.send(epoch).unwrap();
+        });
+        let result = received.recv_timeout(std::time::Duration::from_secs(1));
+        drop(writer);
+        child.join().unwrap();
+        result
+    });
+    assert_eq!(
+        observed.expect("epoch/index reads must not wait on file work"),
+        LifecycleEpoch(2)
+    );
+    assert_eq!(journal.load().records.len(), 1);
+}
+
+#[test]
+fn stale_compaction_cannot_publish_quarantine_or_overwrite_a_concurrent_append() {
+    let dir = tempfile::tempdir().unwrap();
+    let journal = TabLifecycleJournal::for_dir(dir.path().into());
+    journal
+        .append(key(), LifecycleTransition::EpochOpened)
+        .unwrap();
+    OpenOptions::new()
+        .append(true)
+        .open(journal.path())
+        .unwrap()
+        .write_all(b"{not json\n")
+        .unwrap();
+    let load = journal.load();
+    let (quarantine, original_len) = prepare_refused_tail(journal.path(), &load)
+        .unwrap()
+        .unwrap();
+    let prepared = dir.path().join("prepared.jsonl");
+    write_all_records(&prepared, &load.records).unwrap();
+    journal
+        .append(key(), LifecycleTransition::LaunchReady)
+        .unwrap();
+    let before = fs::read(journal.path()).unwrap();
+    let error = journal
+        .commit_compaction(&prepared, 1, 1, 1, Some((&quarantine, original_len)))
+        .unwrap_err();
+    assert!(error.contains("compaction conflict"), "{error}");
+    assert_eq!(fs::read(journal.path()).unwrap(), before);
+    assert!(!refused_tail_path(journal.path()).exists());
+}

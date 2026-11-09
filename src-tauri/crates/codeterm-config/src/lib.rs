@@ -469,7 +469,7 @@ fn save_hook_reconciliation_config_at(
     };
     let current = std::fs::read_to_string(path)
         .map_err(|error| format!("Failed to read held config: {error}"))?;
-    if !load::is_salvaged_config(&current) || load::salvaged_critical_values(&current).0.is_some() {
+    if !load::is_salvaged_config(&current) || load::salvaged_token(&current).is_some() {
         return Err(hold.refusal());
     }
     let contents = load::mark_salvaged_config(&serialize_config(config)?);

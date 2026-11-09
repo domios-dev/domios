@@ -4,6 +4,7 @@ import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
+import { SUPPORTED_API_VERSION } from './package-server-component-manifest.mjs';
 
 const windows = process.platform === 'win32';
 const normalize = value => {
@@ -12,7 +13,7 @@ const normalize = value => {
 };
 
 export function validateReady(ready, { identity, executable, resources, build, port }) {
-  if (ready?.protocol !== 2 || ready.api_version !== 3 || ready.build !== build ||
+  if (ready?.protocol !== 2 || ready.api_version !== SUPPORTED_API_VERSION || ready.build !== build ||
       !ready.epoch || !ready.instance_id || !Number.isInteger(ready.process?.pid) || ready.process.pid <= 0 ||
       !ready.process.created || normalize(ready.process.executable) !== normalize(executable) ||
       normalize(ready.resources) !== normalize(resources) || ready.api_address !== `127.0.0.1:${port}` ||
@@ -83,7 +84,7 @@ export function selected(recordFile, data, port) {
 }
 
 export async function inspect(target) {
-  const request = attachRequest({ protocol: 2, api_version: 3, build: target.build }, target.identity);
+  const request = attachRequest({ protocol: 2, api_version: SUPPORTED_API_VERSION, build: target.build }, target.identity);
   const frames = await helper(target.executable, 'attach', request).done;
   if (frames.length !== 1 || frames[0].challenge !== request.challenge) throw Error('DEV inspect reply mismatch');
   validateReady(frames[0].ready, target);

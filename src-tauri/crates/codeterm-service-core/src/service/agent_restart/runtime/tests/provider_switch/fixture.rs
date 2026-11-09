@@ -64,7 +64,7 @@ pub(super) fn prepared_switch_worker_fixture(storage: bool) -> (RuntimeFixture, 
         )
         .unwrap();
     store
-        .with_plan(&plan.id, 3, |plan| {
+        .edit_plan_fixture(&plan.id, 3, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()
@@ -75,7 +75,11 @@ pub(super) fn prepared_switch_worker_fixture(storage: bool) -> (RuntimeFixture, 
             Ok(())
         })
         .unwrap();
-    let attempt = store.show_task(&task).unwrap().task.execution_attempts[0]
+    let attempt = store
+        .inspect_task_for_test(&task)
+        .unwrap()
+        .task
+        .execution_attempts[0]
         .id
         .clone();
     store

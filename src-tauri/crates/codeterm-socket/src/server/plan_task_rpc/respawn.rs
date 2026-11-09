@@ -11,29 +11,22 @@ pub(super) fn respawn(
     let store = &svc.plan_store;
     let (id, tid) = plan_refs::resolve_task(store, params)?;
     authorize_execution(svc, &id, p)?;
-    let plan = store
-        .get(&id)
-        .ok_or_else(|| plan_rpc_err(PlanError::NotFound))?;
-    let task = plan
-        .tasks
-        .iter()
-        .find(|task| task.id == tid)
-        .ok_or_else(|| plan_rpc_err(PlanError::TaskNotFound))?;
+    let task = store
+        .task_launch_projection(&id, &tid, None)
+        .map_err(plan_rpc_err)?;
     let source_id = get_string_param(params, "attempt_id")?;
-    if let Some(source) = task
-        .execution_attempts
-        .iter()
-        .find(|attempt| attempt.id == source_id && attempt.mesh_peer.is_some())
+    if let Some(source) = store
+        .respawn_remote_source_projection(&id, &tid, &source_id)
+        .map_err(plan_rpc_err)?
     {
         return super::super::plan_task_dispatch::remote_recovery::respawn_remote(
-            params, svc, &id, &tid, source, now,
+            params, svc, &id, &tid, &source, now,
         );
     }
     if task.status == TaskStatus::Pending {
-        codeterm_service_core::service::plan::review_gate::validate_dispatch_review_capacity(
-            &plan, task,
-        )
-        .map_err(plan_rpc_err)?;
+        store
+            .dispatch_review_capacity_warning_projection(&id, &tid)
+            .map_err(plan_rpc_err)?;
     }
     let body = p.ok_or(JsonRpcError {
         code: -32602,
@@ -41,6 +34,10 @@ pub(super) fn respawn(
         data: None,
     })?;
     let request = codeterm_service_core::service::plan::task_attempts::TaskRespawnRequest {
+        launch_profile: body
+            .get("launch_profile")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
         reasoning_effort: body
             .get("reasoning_effort")
             .and_then(Value::as_str)
@@ -70,19 +67,23 @@ pub(super) fn respawn(
     let mut draft = store
         .build_task_respawn_draft(&id, &tid, request)
         .map_err(plan_rpc_err)?;
-    let original_task = task.clone();
-    let original_plan_mode = plan.mode.clone();
-    let canonical_cwd = if plan.canonical_project_path.trim().is_empty() {
-        plan.project_path.clone()
-    } else {
-        plan.canonical_project_path.clone()
-    };
-    let lane_protection = codeterm_service_core::service::LaneProtection::for_dispatch_intent(
-        &task.interruption.execution_intent,
-    );
+    svc.validate_launch_profile(&draft.provider, draft.launch_profile.as_deref())
+        .map_err(super::super::model_errors::launch_profile_rpc_error)?;
+    let seed = store
+        .task_dispatch_seed_projection(&id, &tid, "")
+        .map_err(plan_rpc_err)?;
+    let launch = store
+        .task_launch_projection(&id, &tid, Some(&draft.source_attempt.id))
+        .map_err(plan_rpc_err)?;
+    let plan = store
+        .competition_lane_projection(&id, &tid)
+        .map_err(plan_rpc_err)?;
+    let canonical_cwd = plan.canonical_path.clone();
+    let lane_protection =
+        codeterm_service_core::service::LaneProtection::for_dispatch_intent(&task.dispatch_intent);
     let provenance = codeterm_service_core::service::plan::respawn_lane::verify_respawn_lane(
         &canonical_cwd,
-        task,
+        &launch,
         &draft,
     )
     .map_err(|error| JsonRpcError {
@@ -91,17 +92,23 @@ pub(super) fn respawn(
         data: None,
     })?;
     if let Some(provenance) = provenance.as_ref() {
-        super::super::plan_task_dispatch::lane_safety::refuse_unsafe_mutating_write(
-            &plan,
-            &tid,
-            &provenance.worktree_path,
-            task.interruption.execution_intent.clone(),
-        )?;
+        if task.dispatch_intent == codeterm_service_core::plan::ExecutionIntent::Mutating {
+            let verdict = codeterm_service_core::service::task_lane_guard::classify_lane_facts(
+                &plan.canonical_path,
+                &provenance.worktree_path,
+                plan.foreign_lanes
+                    .iter()
+                    .map(|lane| (lane.task_id.as_str(), lane.worktree_path.as_str())),
+            );
+            super::super::plan_task_dispatch::lane_safety::refuse_unsafe_mutating_lane(
+                &plan.id, &tid, verdict,
+            )?;
+        }
     }
     let parent_tab_id = draft
         .parent_tab_id
         .clone()
-        .or_else(|| plan.owner.tab_id.clone())
+        .or_else(|| plan.owner_tab_id.clone())
         .filter(|parent| !parent.trim().is_empty())
         .ok_or(JsonRpcError {
             code: -32602,
@@ -109,15 +116,6 @@ pub(super) fn respawn(
             data: None,
         })?;
     draft.parent_tab_id = Some(parent_tab_id.clone());
-    let _respawn_reservation = store
-        .reserve_task_respawn_startup(&id, &tid, &draft.source_attempt.id, &draft.attempt_id)
-        .map_err(plan_rpc_err)?;
-    svc.retire_respawn_executor(&draft)
-        .map_err(|error| JsonRpcError {
-            code: -32603,
-            message: error,
-            data: None,
-        })?;
     let mut spawn_params = super::super::plan_task_dispatch::respawn_worker_params(
         &draft,
         &task.name,
@@ -129,6 +127,17 @@ pub(super) fn respawn(
         .and_then(Value::as_str)
         .map(str::to_owned)
         .or(spawn_params.speed);
+    svc.validate_spawn_options(&draft.provider, &spawn_params)
+        .map_err(super::super::model_errors::spawn_target_rpc_error)?;
+    let _respawn_reservation = store
+        .reserve_task_respawn_startup(&id, &tid, &draft.source_attempt.id, &draft.attempt_id)
+        .map_err(plan_rpc_err)?;
+    svc.retire_respawn_executor(&draft)
+        .map_err(|error| JsonRpcError {
+            code: -32603,
+            message: error,
+            data: None,
+        })?;
     let speed = spawn_params.speed.clone();
     let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
     let spawn = svc
@@ -146,7 +155,7 @@ pub(super) fn respawn(
     draft.provider = spawn.agent.clone();
     draft.model = spawn.provider_resolved_model.clone();
     draft.reasoning_effort = svc.resolved_worker_launch_effort_for_tab(&spawn.tab_id);
-    let created = record_spawned_attempt(svc, &spawn.tab_id, || {
+    let (created, rollback) = record_spawned_attempt(svc, &spawn.tab_id, || {
         store.record_task_respawn_attempt_with_profile(&id, &tid, &spawn.tab_id, &draft, svc, now)
     })?;
     persist_attempt_executor_identity(store, svc, &id, &tid, &spawn.tab_id, &spawn.title, now)
@@ -160,8 +169,8 @@ pub(super) fn respawn(
             parent_tab_id: &parent_tab_id,
             tab_id: &spawn.tab_id,
             attempt_id: &created.attempt.id,
-            original_task: &original_task,
-            original_plan_mode: &original_plan_mode,
+            seed: &seed,
+            rollback: &rollback,
             provisioned_lane: None,
             now,
         },
@@ -176,8 +185,7 @@ pub(super) fn respawn(
         attempt_id: created.attempt.id.clone(),
         parent_tab_id,
         worker_title: spawn.title.clone(),
-        original_task,
-        original_plan_mode,
+        rollback,
         lane_for_commit: task.lane.clone(),
         canonical_project_path: canonical_cwd.clone(),
         provenance,

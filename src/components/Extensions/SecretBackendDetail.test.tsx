@@ -1,3 +1,4 @@
+import { baseDaemonTransport } from "../../lib/daemonBootstrap";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
@@ -17,6 +18,7 @@ const STATUS_REFRESH_DELAY_MS = 5000;
 function setupDom() {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   const window = new Window({ url: "http://localhost/" });
+  Object.assign(window, { __CODETERM_DAEMON__: { origin: window.location.origin, token: "tok-a" } });
   for (const key of ["window", "document", "HTMLElement", "SVGElement", "Element", "Node", "Event"] as const) {
     Object.defineProperty(globalThis, key, { value: (window as never as Record<string, unknown>)[key], configurable: true });
   }
@@ -95,8 +97,9 @@ async function main() {
   const calls = { status: 0, orgs: 0, colls: 0 };
   let statusGate = deferred<void>();
 
-  globalThis.fetch = (async (url: string | URL) => {
-    const u = String(url);
+  globalThis.fetch = (() => { throw new Error("Raw daemon fetch bypass"); }) as typeof fetch;
+  baseDaemonTransport().request = async (u, _init, local) => {
+    assert(local === true, "secret backend requests must target the local daemon");
     if (u.includes("/api/secrets/status")) {
       calls.status++;
       await statusGate.promise;
@@ -111,7 +114,7 @@ async function main() {
       return { ok: true, json: async () => ({ collections: [] }) } as Response;
     }
     return { ok: true, json: async () => ({}) } as Response;
-  }) as typeof fetch;
+  };
 
   const host = document.createElement("div");
   document.body.appendChild(host);

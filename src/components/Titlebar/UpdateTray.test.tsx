@@ -76,9 +76,28 @@ it("keeps an unreachable core channel silent and names its cause as a diagnostic
     expect(host.querySelector('button[aria-label^="Update "]:not([aria-label="Update all"])')).toBeNull();
     expect(host.querySelector('[aria-label="Installed plugin ahead of channel"]')).toBeNull();
     expect(host.querySelector('[role="alert"]')).toBeNull();
-    expect(host.querySelector('[aria-label="codeterm-core channel diagnostics"] pre')?.textContent).toBe(coreUnavailable);
+    const details = host.querySelector<HTMLDetailsElement>('details[aria-label="Update check details"]')!;
+    expect(details.open).toBe(false);
+    expect(details.textContent).toContain("codeterm-core plugin channel: repository not found");
     const updateAll = [...host.querySelectorAll("button")].find(button => button.textContent === "Update all")!;
     expect(updateAll.disabled).toBe(true);
+  } finally { await act(async () => root.unmount()); host.remove(); }
+});
+
+it("leaves the trigger idle when the app source fails: no warning, no failed badge, no offer, no toast", async () => {
+  fake.check.mockResolvedValue({ errors: { app: "Failed to fetch release: domios-dev/domios: manifest fetch returned HTTP 504" }, items: [
+    { id: "app", kind: "app", installed: "1.19.0", latest: "1.19.0", compatible: true, state: "up_to_date", reason: "cached_check", channel: "official" },
+  ] });
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<UpdatePanelProvider><UpdateTrayWithActions /></UpdatePanelProvider>));
+    const trigger = host.querySelector<HTMLButtonElement>('button[aria-label="Update"]')!;
+    expect(trigger.getAttribute("data-activity-state")).toBe("idle");
+    expect(trigger.getAttribute("aria-description")).toBe("Open updates.");
+    expect(trigger.title).not.toBe("Updates available");
+    expect(host.querySelector('[data-testid="notification-toast"]')).toBeNull();
+    expect(testActions.upsertToast).not.toHaveBeenCalled();
   } finally { await act(async () => root.unmount()); host.remove(); }
 });
 
@@ -195,7 +214,8 @@ it("keeps a failed channel on its own row while Update all applies the healthy c
   const root = createRoot(host);
   try {
     await act(async () => root.render(<UpdatePanelProvider><UpdateTrayWithActions /><UpdatePanel waves={false} /></UpdatePanelProvider>));
-    expect(host.querySelector('[aria-label="community updates unavailable"] pre')?.textContent).toBe(communityUnavailable);
+    expect(host.querySelector('[aria-label="community plugin channel unavailable"]')).toBeNull();
+    expect(host.querySelector('details[aria-label="Update check details"]')?.textContent).toContain("network unavailable (example.com/community.git)");
     const failedApply = host.querySelector<HTMLButtonElement>('button[aria-label="Update lark"]')!;
     const healthyApply = host.querySelector<HTMLButtonElement>('button[aria-label="Update teams-client"]')!;
     expect(failedApply).toBeNull();
@@ -207,7 +227,7 @@ it("keeps a failed channel on its own row while Update all applies the healthy c
     await act(async () => updateAll.click());
     expect(fake.plugin).toHaveBeenCalledExactlyOnceWith({ kind: "update", pluginId: "teams-client" });
     expect(host.querySelector('[role="alert"]')).toBeNull();
-    expect(panel.textContent).toContain(communityUnavailable);
+    expect(panel.textContent).toContain("community plugin channel: network unavailable");
   } finally { await act(async () => root.unmount()); host.remove(); }
 });
 
@@ -230,7 +250,7 @@ it("allows Update from a healthy channel while another channel is unavailable", 
     await act(async () => healthyApply.click());
     expect(fake.plugin).toHaveBeenCalledExactlyOnceWith({ kind: "update", pluginId: "teams-client" });
     expect(panel.querySelector('[role="alert"]')).toBeNull();
-    expect(panel.textContent).toContain(communityUnavailable);
+    expect(panel.textContent).toContain("community plugin channel: network unavailable");
   } finally { await act(async () => root.unmount()); host.remove(); }
 });
 
@@ -261,7 +281,8 @@ for (const actionName of ["Update Interface", "Update all"]) {
     const root = createRoot(host);
     try {
       await act(async () => root.render(<UpdatePanelProvider><UpdateTrayWithActions /></UpdatePanelProvider>));
-      expect(fake.check).toHaveBeenCalledWith();
+      // Opening the tray is a passive check: the cached snapshot with a background refresh, never a forced one.
+      expect(fake.check).toHaveBeenCalledWith(false);
       await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Update"]')!.click());
       const panel = document.querySelector('[role="dialog"][aria-label="Updates"]')!;
       expect(panel.querySelector('section[aria-label="Interface updates"]')).not.toBeNull();
@@ -320,7 +341,7 @@ for (const origin of ["startup", "event"] as const) {
       if (origin === "event") await act(async () => fake.availabilityChanged!({ payload: { items: [], errors: { app: "offline" } } }));
       expect(host.querySelector('button[aria-label="Update"]')?.getAttribute("data-activity-state")).toBe("idle");
       expect(host.querySelector('[role="alert"]')).toBeNull();
-      expect(host.querySelector("details")).toBeNull();
+      expect(host.querySelector("details")?.open ?? false).toBe(false);
       await act(async () => fake.availabilityChanged!({ payload: snapshot }));
       expect(host.querySelector('button[aria-label="Update"]')).not.toBeNull();
       expect(host.querySelector('[role="alert"]')).toBeNull();
@@ -328,7 +349,7 @@ for (const origin of ["startup", "event"] as const) {
   });
 }
 
-it("shows explicit transport and update failures through the model with collapsed diagnostics", async () => {
+it("keeps a failed explicit check neutral and shows a failed update through the model with collapsed diagnostics", async () => {
   fake.check.mockResolvedValue(snapshot);
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host);
@@ -340,10 +361,10 @@ it("shows explicit transport and update failures through the model with collapse
     const failure = new Error("InvalidJsonResponseError: /api/update/availability");
     fake.check.mockRejectedValue(failure);
     await act(async () => button("Check again").click());
-    expect(dialog.querySelector('[role="alert"]')).not.toBeNull();
-    expect(dialog.querySelector("details")?.open).toBe(false);
-    expect(dialog.querySelector("pre")?.textContent).toBe(String(failure));
-    expect(dialog.querySelector('[role="alert"]')?.textContent).toContain("InvalidJsonResponseError");
+    expect(dialog.querySelector('[role="alert"]')).toBeNull();
+    expect(dialog.querySelector('[aria-label="Update check result"]')?.textContent).toBe("Couldn't check right now.");
+    expect(host.querySelector('button[aria-label="Update"]')?.getAttribute("data-activity-state")).not.toBe("failed");
+    expect(testActions.upsertToast).not.toHaveBeenCalled();
     fake.check.mockResolvedValue(snapshot);
     await act(async () => button("Check again").click());
     expect(dialog.querySelector('[role="alert"]')).toBeNull();

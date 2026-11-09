@@ -623,20 +623,10 @@ fn load_column(
         substr(json_extract(row_json, '$.qa_state'), 1, 32),
         substr(json_extract(row_json, '$.status_label'), 1, 240),
         substr(json_extract(row_json, '$.group'), 1, 96),
-        (SELECT substr(json_extract(task_group.value, '$.label'), 1, 128)
-         FROM plans AS board_plan, json_each(board_plan.header_json, '$.task_groups') AS task_group
-         WHERE board_plan.id = plan_tasks.plan_id
-           AND json_extract(task_group.value, '$.key') = json_extract(plan_tasks.row_json, '$.group')
-         LIMIT 1),
-        (SELECT substr(json_extract(task_group.value, '$.color'), 1, 32)
-         FROM plans AS board_plan, json_each(board_plan.header_json, '$.task_groups') AS task_group
-         WHERE board_plan.id = plan_tasks.plan_id
-           AND json_extract(task_group.value, '$.key') = json_extract(plan_tasks.row_json, '$.group')
-         LIMIT 1),
-        (SELECT substr(json_extract(section.row_json, '$.title'), 1, 160)
-         FROM plan_sections AS section
-         WHERE section.plan_id = plan_tasks.plan_id
-           AND section.section_id = json_extract(plan_tasks.row_json, '$.section_ids[0]')
+        (SELECT label FROM board_groups WHERE group_key=(SELECT group_key FROM selected_groups WHERE task_id=plan_tasks.task_id) ORDER BY position LIMIT 1),
+        (SELECT color FROM board_groups WHERE group_key=(SELECT group_key FROM selected_groups WHERE task_id=plan_tasks.task_id) ORDER BY position LIMIT 1),
+        (SELECT title FROM board_sections
+         WHERE section_id=(SELECT first_section FROM selected_groups WHERE task_id=plan_tasks.task_id)
          LIMIT 1),
         (SELECT substr(json_extract(milestone.row_json, '$.text'), 1, 512)
          FROM plan_task_milestones AS milestone
@@ -688,12 +678,7 @@ fn load_column(
         CASE WHEN status = 'in_review'
                   AND json_extract(row_json, '$.review_stage') = 'qa'
                   AND json_extract(row_json, '$.qa_state') = 'queued'
-             THEN (SELECT COUNT(*) FROM plan_tasks AS queued
-                   WHERE queued.plan_id = plan_tasks.plan_id
-                     AND CASE WHEN queued.status IN ('pending', 'paused') THEN 'pending' ELSE queued.status END = 'in_review'
-                     AND json_extract(queued.row_json, '$.review_stage') = 'qa'
-                     AND json_extract(queued.row_json, '$.qa_state') = 'queued'
-                     AND queued.position <= plan_tasks.position)
+             THEN (SELECT queue_position FROM qa_positions WHERE task_id=plan_tasks.task_id)
              ELSE 0 END,
         max(
             coalesce(CAST(json_extract(row_json, '$.created_at') AS INTEGER), 0),
@@ -706,39 +691,70 @@ fn load_column(
         )
         FROM plan_tasks WHERE plan_id = ?1 AND ";
     let created_at_expr = "coalesce(CAST(json_extract(row_json, '$.created_at') AS INTEGER), 0)";
+    let cursor = if after.is_some() {
+        format!("AND ({created_at_expr},position,task_id)>(?2,?3,?4)")
+    } else {
+        String::new()
+    };
+    let limit_parameter = if after.is_some() { "?5" } else { "?2" };
+    let lookups = format!("WITH board_groups AS MATERIALIZED (
+        SELECT CAST(g.key AS INTEGER) AS position,json_extract(g.value,'$.key') AS group_key,
+            substr(json_extract(g.value,'$.label'),1,128) AS label,
+            substr(json_extract(g.value,'$.color'),1,32) AS color
+        FROM plans p,json_each(p.header_json,'$.task_groups') g WHERE p.id=?1
+     ), qa_positions AS MATERIALIZED (
+        SELECT task_id,count(*) OVER(ORDER BY position RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS queue_position
+        FROM plan_tasks WHERE plan_id=?1 AND status='in_review'
+            AND json_extract(row_json,'$.review_stage')='qa' AND json_extract(row_json,'$.qa_state')='queued'
+     ), selected_groups AS MATERIALIZED (
+        SELECT task_id,json_extract(row_json,'$.group') AS group_key,
+            json_extract(row_json,'$.section_ids[0]') AS first_section FROM plan_tasks
+        WHERE plan_id=?1 AND {predicate} {cursor}
+        ORDER BY {created_at_expr},position,task_id LIMIT {limit_parameter}
+     ), board_sections AS MATERIALIZED (
+        SELECT section_id,substr(json_extract(row_json,'$.title'),1,160) AS title
+        FROM plan_sections WHERE plan_id=?1
+            AND section_id IN (SELECT first_section FROM selected_groups)
+     ) ");
     let sql = if after.is_some() {
         format!(
-            "{projection}{predicate}
+            "{lookups}{projection}{predicate}
              AND ({created_at_expr}, position, task_id) > (?2, ?3, ?4)
              ORDER BY {created_at_expr}, position, task_id
              LIMIT ?5"
         )
     } else {
         format!(
-            "{projection}{predicate}
+            "{lookups}{projection}{predicate}
              ORDER BY {created_at_expr}, position, task_id
              LIMIT ?2"
         )
     };
     let mut statement = connection.prepare_cached(&sql).map_err(db_error)?;
-    let map_row = |row: &rusqlite::Row<'_>| {
-        let created_at = column::<i64>(row, 2)?.max(0) as u64;
-        let updated_at = column::<i64>(row, 5)?.max(0) as u64;
-        let status_changed_at = column::<i64>(row, 6)?.max(0) as u64;
-        let historical_executor = column::<Option<String>>(row, 24)?
-            .and_then(|raw| super::read_projections::decode::<Value>(plan_id, &raw).ok());
-        let competition_enabled = column::<i64>(row, 25)? != 0;
-        let competition_attempts = column::<i64>(row, 26)?.max(2) as u64;
-        let judge_hint = column::<Option<String>>(row, 27)?;
-        let models = column::<Option<String>>(row, 28)?
-            .and_then(|raw| super::read_projections::decode::<Vec<String>>(plan_id, &raw).ok())
+    let map_row = |row: &rusqlite::Row<'_>| -> Result<TaskBoardRow, PlanError> {
+        let created_at = column::<i64>(row, 2).map_err(db_error)?.max(0) as u64;
+        let updated_at = column::<i64>(row, 5).map_err(db_error)?.max(0) as u64;
+        let status_changed_at = column::<i64>(row, 6).map_err(db_error)?.max(0) as u64;
+        let historical_executor = column::<Option<String>>(row, 24)
+            .map_err(db_error)?
+            .map(|raw| super::read_projections::decode::<Value>(plan_id, &raw))
+            .transpose()?;
+        let competition_enabled = column::<i64>(row, 25).map_err(db_error)? != 0;
+        let competition_attempts = column::<i64>(row, 26).map_err(db_error)?.max(2) as u64;
+        let judge_hint = column::<Option<String>>(row, 27).map_err(db_error)?;
+        let models = column::<Option<String>>(row, 28)
+            .map_err(db_error)?
+            .map(|raw| super::read_projections::decode::<Vec<String>>(plan_id, &raw))
+            .transpose()?
             .unwrap_or_default();
-        let live_competition_count = column::<i64>(row, 29)?.max(0) as u64;
-        let live_competition_attempts = column::<Option<String>>(row, 30)?
-            .and_then(|raw| super::read_projections::decode::<Vec<Value>>(plan_id, &raw).ok())
+        let live_competition_count = column::<i64>(row, 29).map_err(db_error)?.max(0) as u64;
+        let live_competition_attempts = column::<Option<String>>(row, 30)
+            .map_err(db_error)?
+            .map(|raw| super::read_projections::decode::<Vec<Value>>(plan_id, &raw))
+            .transpose()?
             .unwrap_or_default();
-        let qa_queue_position = column::<i64>(row, 31)?.max(0) as u64;
-        let activity_at = column::<i64>(row, 32)?.max(0) as u64;
+        let qa_queue_position = column::<i64>(row, 31).map_err(db_error)?.max(0) as u64;
+        let activity_at = column::<i64>(row, 32).map_err(db_error)?.max(0) as u64;
         let competition_badge = competition_badge(
             competition_enabled,
             competition_attempts,
@@ -749,59 +765,59 @@ fn load_column(
         );
         let loop_badge = task_loop_badge(
             loops,
-            &column::<String>(row, 0)?,
-            column::<Option<String>>(row, 7)?.as_deref(),
+            &column::<String>(row, 0).map_err(db_error)?,
+            column::<Option<String>>(row, 7)
+                .map_err(db_error)?
+                .as_deref(),
         );
         Ok(TaskBoardRow {
-            task_id: column(row, 0)?,
-            position: column(row, 1)?,
+            task_id: column(row, 0).map_err(db_error)?,
+            position: column(row, 1).map_err(db_error)?,
             created_at,
-            name: column(row, 3)?,
-            status: column(row, 4)?,
+            name: column(row, 3).map_err(db_error)?,
+            status: column(row, 4).map_err(db_error)?,
             updated_at,
             status_changed_at,
             activity_at,
-            handle: column(row, 7)?,
-            key: column(row, 8)?,
-            assigned_tab_id: column(row, 9)?,
-            lane_tab_id: column(row, 10)?,
-            lane_branch: column(row, 11)?,
-            taken_by_role: column(row, 12)?,
-            pause_reason: column(row, 13)?,
-            model: column(row, 14)?,
-            peer: column(row, 15)?,
-            review_stage: column(row, 16)?,
-            qa_state: column(row, 17)?,
-            status_label: column(row, 18)?,
+            handle: column(row, 7).map_err(db_error)?,
+            key: column(row, 8).map_err(db_error)?,
+            assigned_tab_id: column(row, 9).map_err(db_error)?,
+            lane_tab_id: column(row, 10).map_err(db_error)?,
+            lane_branch: column(row, 11).map_err(db_error)?,
+            taken_by_role: column(row, 12).map_err(db_error)?,
+            pause_reason: column(row, 13).map_err(db_error)?,
+            model: column(row, 14).map_err(db_error)?,
+            peer: column(row, 15).map_err(db_error)?,
+            review_stage: column(row, 16).map_err(db_error)?,
+            qa_state: column(row, 17).map_err(db_error)?,
+            status_label: column(row, 18).map_err(db_error)?,
             qa_queue_position,
-            group_key: column(row, 19)?,
-            group_label: column(row, 20)?,
-            group_color: column(row, 21)?,
-            section_title: column(row, 22)?,
-            latest_note: column(row, 23)?,
+            group_key: column(row, 19).map_err(db_error)?,
+            group_label: column(row, 20).map_err(db_error)?,
+            group_color: column(row, 21).map_err(db_error)?,
+            section_title: column(row, 22).map_err(db_error)?,
+            latest_note: column(row, 23).map_err(db_error)?,
             historical_executor,
             competition_badge,
             loop_badge,
         })
     };
-    let rows = match after {
-        Some((created_at, position, task_id)) => statement
-            .query_map(
-                params![
-                    plan_id,
-                    created_at as i64,
-                    position,
-                    task_id,
-                    (limit + 1) as i64
-                ],
-                map_row,
-            )
-            .map_err(db_error)?,
-        None => statement
-            .query_map(params![plan_id, (limit + 1) as i64], map_row)
-            .map_err(db_error)?,
-    };
-    rows.collect::<Result<Vec<_>, _>>().map_err(db_error)
+    let mut rows = match after {
+        Some((created_at, position, task_id)) => statement.query(params![
+            plan_id,
+            created_at as i64,
+            position,
+            task_id,
+            (limit + 1) as i64
+        ]),
+        None => statement.query(params![plan_id, (limit + 1) as i64]),
+    }
+    .map_err(db_error)?;
+    let mut result = Vec::new();
+    while let Some(row) = rows.next().map_err(db_error)? {
+        result.push(map_row(row)?);
+    }
+    Ok(result)
 }
 
 fn page_value(status: &str, mut rows: Vec<TaskBoardRow>, page_size: usize) -> Value {

@@ -1,3 +1,4 @@
+import { plansAction } from "../billing/purchaseSwitch";
 export interface ReferralTrial {
   state: "granted" | "already_paid" | "none";
   trial_end: number | null;
@@ -21,6 +22,6 @@ export function referralStatus(trial: ReferralTrial, access: "paid" | "locked", 
   if (trial.state === "already_paid") return "Your existing plan is unchanged. You can accept the Neighbor request.";
   if (trial.state !== "granted") return null;
   return access === "locked"
-    ? "Your referral trial is not providing writing access. Subscribe to write with Neighbors."
+    ? `Your referral trial is not providing writing access. ${plansAction("Subscribe")} to write with Neighbors.`
     : `Domios issued your seven-day referral trial ending ${formatDate(trial.trial_end!)}. No payment method was required. A qualifying subscription during this window earns your inviter one free month.`;
 }

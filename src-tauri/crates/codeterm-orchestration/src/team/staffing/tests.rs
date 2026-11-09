@@ -507,6 +507,7 @@ fn the_new_orchestrator_takes_the_plan_over_and_the_heartbeat_follows() {
     let prepared = prepare_team_member_spawn(&mux, &team_id, None, orchestrator_params()).unwrap();
     let result = commit_replacement_anchor(&mut mux, &team_id, &prepared);
     let takeover = take_over_team_plan(&mut mux, &store, &team_id, &result.tab_id, 7)
+        .unwrap()
         .expect("a plan whose owner tab is gone is taken over");
     assert_eq!(takeover.error, None, "the recovery rebind must succeed");
     assert_eq!(takeover.plan_id, plan_id);
@@ -528,8 +529,10 @@ fn the_new_orchestrator_takes_the_plan_over_and_the_heartbeat_follows() {
     assert_eq!(transfer.from.tab_id.as_deref(), Some(orchestrator.as_str()));
     assert_eq!(transfer.to.tab_id.as_deref(), Some(result.tab_id.as_str()));
 
-    let reloaded = store.get(&plan_id).unwrap();
-    let plans = [reloaded];
+    let snapshot = store
+        .reminder_read_snapshot(|text| text.chars().take(512).collect())
+        .unwrap();
+    let plans = snapshot.candidate_targets(None).unwrap();
     let reminder_targets = timed_plan_reminder_targets(&plans);
     let owner_targets: Vec<&str> = reminder_targets
         .iter()
@@ -557,7 +560,9 @@ fn a_plan_whose_owner_is_still_a_live_anchor_is_left_alone() {
     );
 
     assert!(
-        take_over_team_plan(&mut mux, &store, &team_id, &orchestrator, 7).is_none(),
+        take_over_team_plan(&mut mux, &store, &team_id, &orchestrator, 7)
+            .unwrap()
+            .is_none(),
         "the recorded owner is the live anchor already"
     );
     assert_eq!(

@@ -86,6 +86,7 @@ const fn pre_socket_unsupported(reason: &'static str) -> Transport {
 
 pub(crate) fn transport_for(command: &Commands) -> Transport {
     match command {
+        Commands::Mcp { .. } => pre_socket_unsupported("MCP stdio is local-only"),
         Commands::App { .. } => pre_socket_unsupported("app lifecycle is local-only; run on the owning machine"),
         Commands::Account { .. } => pre_socket_unsupported("account is local-only; run on the owning machine"),
         Commands::Analytics { .. } => pre_socket_unsupported("analytics is local-only; run on the owning machine"),
@@ -149,6 +150,8 @@ pub(crate) fn transport_for(command: &Commands) -> Transport {
         Commands::Surface { .. } => socket_unsupported(SURFACE_LOCAL_ONLY),
         Commands::Agent { action: crate::AgentAction::Turns { .. } } => socket_unsupported("agent turns reads this daemon's authenticated session; run on the target machine"),
         Commands::Agent { action: crate::AgentAction::Reparent { .. } } => socket_unsupported("agent reparent runs on the local origin; use --peer instead of --mesh"),
+        Commands::Agent { action: crate::AgentAction::Acp { .. } } => socket_unsupported("agent acp manages this machine's profiles and secrets; run locally"),
+        Commands::Agent { action: crate::AgentAction::Models { profile: Some(_), .. } } => socket_unsupported("profile option catalogs are local-only; run on the target machine"),
         Commands::Agent { .. } => socket_rest(),
         Commands::Cron { .. } => socket_rest(),
         Commands::Service { .. } => socket_rest(),

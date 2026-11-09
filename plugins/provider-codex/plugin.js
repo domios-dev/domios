@@ -30,460 +30,6 @@ __export(plugin_exports, {
 });
 module.exports = __toCommonJS(plugin_exports);
 
-// plugins/provider-shared/runPromptStep.ts
-function bytes(text7) {
-  let count = 0;
-  for (const point of text7) {
-    const code = point.codePointAt(0);
-    count += code < 128 ? 1 : code < 2048 ? 2 : code < 65536 ? 3 : 4;
-  }
-  return count;
-}
-function bounded(text7) {
-  if (bytes(JSON.stringify(text7)) <= 60 * 1024) return text7;
-  let points = Array.from(text7);
-  while (bytes(JSON.stringify(points.join("") + "\n[truncated]")) > 60 * 1024) points = points.slice(0, Math.floor(points.length * 0.9));
-  return points.join("") + "\n[truncated]";
-}
-function runPromptSteps(getHost, options = {}) {
-  function update2(job, reply) {
-    if (reply.state === "running") return { job, state: "running", outcome: null, outputs: {} };
-    if (reply.state === "unknown" || reply.state === "canceled") return { job, state: reply.state, outcome: null, outputs: {} };
-    const done = reply.state === "done" && typeof reply.text === "string" && reply.text.trim().length > 0;
-    return { job, state: "succeeded", outcome: done ? "done" : "failed", outputs: { text: [{ kind: "text", text: bounded(done ? reply.text : "The agent run failed.") }] } };
-  }
-  return {
-    blueprintSubmit(request2) {
-      const params = request2.params;
-      const failed = () => update2(request2.context.operation, { state: "failed" });
-      if (typeof params.prompt !== "string" || !params.prompt.trim() || params.prompt.length > 32768 || typeof params.cwd !== "string" || params.cwd.length > 1024 || !/^(?:\/|[A-Za-z]:[\\/]|\\\\)/.test(params.cwd) || params.model !== void 0 && (typeof params.model !== "string" || !params.model.trim() || params.model.length > 128)) return failed();
-      const timeout = params.timeout_ms ?? 6e5;
-      if (!Number.isInteger(timeout) || timeout < 1 || timeout > 36e5) return failed();
-      const context = request2.inputs.context?.[0];
-      let prompt = params.prompt;
-      if (context) {
-        if (context.kind !== "text") return failed();
-        const fence = "`".repeat(Math.max(3, ...Array.from(context.text.matchAll(/`+/g), (match) => match[0].length + 1)));
-        prompt += `
-
-Context:
-${fence}text
-${context.text}
-${fence}`;
-      }
-      if (bytes(prompt) > 48 * 1024) return failed();
-      return getHost().start({ prompt, cwd: params.cwd, model: params.model, timeoutMs: timeout, ...options }, (reply) => {
-        if (reply.error === "launch_unconfirmed" || reply.error === "transport_unconfirmed") return update2(request2.context.operation, { state: "unknown" });
-        return typeof reply.run === "string" ? { job: reply.run, state: "running", outcome: null, outputs: {} } : failed();
-      });
-    },
-    blueprintReconcile(request2) {
-      const job = request2.job ?? request2.context.operation;
-      return getHost().await(job, (reply) => update2(job, reply));
-    },
-    blueprintCancel(request2) {
-      const job = request2.job ?? request2.context.operation;
-      return getHost().cancel(job, (reply) => update2(job, reply));
-    }
-  };
-}
-
-// plugins/provider-shared/sessionRecords.ts
-function* sessionRecords(input, accepts) {
-  if (typeof input !== "string") {
-    for (const record6 of input) yield { row: record6.row, value: record6.value };
-    return;
-  }
-  const lines = String(input || "").split("\n");
-  for (let row3 = 0; row3 < lines.length; row3++) {
-    const line = lines[row3];
-    if (!line || accepts && !accepts(line)) continue;
-    let value;
-    try {
-      value = JSON.parse(line);
-    } catch {
-      continue;
-    }
-    yield { row: row3, value };
-  }
-}
-
-// plugins/provider-shared/readHome.ts
-function effectiveReadPath(inheritedHome, fallback, subpath, separator) {
-  if (!inheritedHome) return fallback;
-  if (!subpath) return inheritedHome;
-  return inheritedHome + (/[\\/]$/.test(inheritedHome) ? "" : separator) + subpath;
-}
-
-// plugins/provider-codex/src/sessions.ts
-var sessionStoreOverrides = {
-  root: "CODETERM_CODEX_SESSIONS_ROOT",
-  index: "CODETERM_CODEX_SESSION_INDEX_PATH",
-  state: "CODETERM_CODEX_STATE_DB_PATH"
-};
-var STATE_DB_NAME = /^state_(\d+)\.sqlite$/;
-function foldSessionIndex(contents) {
-  const folded = /* @__PURE__ */ new Map();
-  const lines = String(contents || "").split("\n");
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim();
-    if (!line) continue;
-    let entry;
-    try {
-      entry = JSON.parse(line);
-    } catch (_) {
-      continue;
-    }
-    if (!entry || typeof entry.id !== "string" || !entry.id.trim()) continue;
-    if (typeof entry.thread_name !== "string" || typeof entry.updated_at !== "string") continue;
-    const current = folded.get(entry.id);
-    if (!current || sessionTimestamp(entry.updated_at) > sessionTimestamp(current.updated_at)) {
-      folded.set(entry.id, {
-        id: entry.id,
-        thread_name: entry.thread_name,
-        updated_at: entry.updated_at
-      });
-    }
-  }
-  return Array.from(folded.values());
-}
-function sessionFilePath(_cwd, sessionId) {
-  const path = trimmedField(threadRow(sessionId), "rollout_path");
-  return path && host.fs.fileExists(path) ? path : null;
-}
-function sessionExists(_cwd, sessionId) {
-  if (!sessionId) return false;
-  if (threadRow(sessionId) !== null) return true;
-  const store = codexSessionStore();
-  return store !== null && sessionIndexEntry(store.indexPath, sessionId) !== null;
-}
-function detectSessionId(cwd, exclude, maxAgeMs) {
-  if (!cwd || !host.fs.fileExists(cwd)) return null;
-  const store = codexSessionStore();
-  if (!store) return null;
-  const entries = readSessionIndex(store.indexPath);
-  if (entries.length === 0) return null;
-  const excluded = new Set(Array.isArray(exclude) ? exclude : exclude ? [exclude] : []);
-  const now = host.unixNowMs ? host.unixNowMs() : Date.now();
-  const ageLimit = Number.isFinite(maxAgeMs) && maxAgeMs > 0 ? maxAgeMs : 3e5;
-  const matching = [];
-  for (let i = 0; i < entries.length; i++) {
-    const entry = entries[i];
-    if (excluded.has(entry.id)) continue;
-    const updatedMs = sessionTimestamp(entry.updated_at);
-    if (updatedMs > 0 && now - updatedMs > ageLimit) continue;
-    const project = readThreadCwd(entry.id);
-    if (project && host.path.equal(project, cwd)) matching.push(entry.id);
-  }
-  return matching.length === 1 ? matching[0] : null;
-}
-function enumerateSessions() {
-  const store = codexSessionStore();
-  if (!store) return [];
-  const entries = readSessionIndex(store.indexPath);
-  return entries.map((entry) => ({
-    sessionId: entry.id,
-    provider: "codex",
-    projectPath: readThreadCwd(entry.id),
-    title: entry.thread_name || null,
-    summary: null,
-    filePath: store.indexPath,
-    createdTs: null,
-    modifiedTs: sessionTimestamp(entry.updated_at) > 0 ? Math.floor(sessionTimestamp(entry.updated_at) / 1e3) : null
-  }));
-}
-function findSession(sessionId) {
-  const row3 = queryThreadRow(sessionId, "SELECT * FROM threads WHERE id = ? LIMIT 1");
-  if (!row3) return null;
-  const store = codexSessionStore();
-  return {
-    sessionId,
-    provider: "codex",
-    projectPath: resolveThreadCwd(sessionId, row3),
-    title: trimmedField(row3, "name") || trimmedField(row3, "title"),
-    summary: null,
-    filePath: store ? store.indexPath : codexStateDbPath() || "",
-    createdTs: unixSeconds(row3.created_at),
-    modifiedTs: unixSeconds(row3.updated_at)
-  };
-}
-function detectSessionModel(_cwd, sessionId) {
-  return trimmedField(threadRow(sessionId), "model");
-}
-function detectSessionReasoningEffort(_cwd, sessionId) {
-  const path = sessionFilePath(_cwd, sessionId);
-  if (!path) return null;
-  const contents = host.fs.readFileTail(path, 4 * 1024 * 1024);
-  if (typeof contents !== "string") return null;
-  const lines = contents.split("\n");
-  for (let index = lines.length - 1; index >= 0; index--) {
-    let entry;
-    try {
-      entry = JSON.parse(lines[index]);
-    } catch (_) {
-      continue;
-    }
-    if (entry.type !== "turn_context" || typeof entry.payload?.effort !== "string") continue;
-    const effort = entry.payload.effort.trim();
-    if (effort) return effort;
-  }
-  return null;
-}
-function threadRow(sessionId) {
-  return queryThreadRow(sessionId, "SELECT model, rollout_path, cwd FROM threads WHERE id = ? LIMIT 1");
-}
-function queryThreadRow(sessionId, sql) {
-  if (!sessionId) return null;
-  const db = codexStateDbPath();
-  if (!db || !host.fs.fileExists(db)) return null;
-  try {
-    const rows2 = host.fs.sqliteQuery(db, sql, [sessionId]);
-    return rows2.length > 0 ? rows2[0] : null;
-  } catch (_) {
-    return null;
-  }
-}
-function unixSeconds(value) {
-  return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.floor(value) : null;
-}
-function trimmedField(row3, field) {
-  const value = row3 ? row3[field] : null;
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-function codexStateDbPath() {
-  const override = host.envGet(sessionStoreOverrides.state);
-  if (override) return override;
-  const sep = host.platform() === "windows" ? "\\" : "/";
-  const root = codexSessionsRoot(sep);
-  if (!root) return null;
-  let entries;
-  try {
-    entries = host.fs.readDir(root);
-  } catch (_) {
-    return null;
-  }
-  let best = null;
-  for (let i = 0; i < entries.length; i++) {
-    const entry = entries[i];
-    if (!entry || !entry.isFile) continue;
-    const match = STATE_DB_NAME.exec(entry.name);
-    if (!match) continue;
-    const version = parseInt(match[1], 10);
-    if (!best || version > best.version) best = { name: entry.name, version };
-  }
-  return best ? root + sep + best.name : null;
-}
-function extractSessionUuid(stem) {
-  if (typeof stem !== "string") return null;
-  const prefix = "rollout-";
-  if (stem.indexOf(prefix) !== 0) return null;
-  const rest = stem.substring(prefix.length);
-  if (rest.length <= 20 || rest.charAt(19) !== "-") return null;
-  return rest.substring(20);
-}
-function codexSessionStore() {
-  const indexOverride = host.envGet(sessionStoreOverrides.index);
-  if (indexOverride) return { indexPath: indexOverride };
-  const sep = host.platform() === "windows" ? "\\" : "/";
-  const root = codexSessionsRoot(sep);
-  if (!root) return null;
-  return {
-    indexPath: indexOverride || root + sep + "session_index.jsonl"
-  };
-}
-function trimTrailingSeparators(path) {
-  let end = path.length;
-  while (end > 1 && (path.charAt(end - 1) === "/" || path.charAt(end - 1) === "\\")) end--;
-  return path.substring(0, end);
-}
-function codexSessionsRoot(sep) {
-  const override = host.envGet(sessionStoreOverrides.root);
-  if (override) return trimTrailingSeparators(override);
-  const home = host.homeDir();
-  return effectiveReadPath(host.envGet("CODEX_HOME"), home ? home + sep + ".codex" : null, "", sep);
-}
-function readSessionIndex(path) {
-  if (!host.fs.fileExists(path)) return [];
-  const contents = host.fs.readFile(path);
-  return typeof contents === "string" ? foldSessionIndex(contents) : [];
-}
-function sessionIndexEntry(path, sessionId) {
-  const entries = readSessionIndex(path);
-  for (let i = 0; i < entries.length; i++) {
-    if (entries[i].id === sessionId) return entries[i];
-  }
-  return null;
-}
-var unresolvedCwdDiagnostics = /* @__PURE__ */ new Set();
-function readThreadCwd(sessionId) {
-  return resolveThreadCwd(sessionId, threadRow(sessionId));
-}
-function resolveThreadCwd(sessionId, row3) {
-  if (!row3) {
-    logUnresolvedCwd(sessionId, "no_row");
-    return null;
-  }
-  const cwd = trimmedField(row3, "cwd");
-  if (!cwd) {
-    logUnresolvedCwd(sessionId, "no_cwd");
-    return null;
-  }
-  if (!host.fs.fileExists(cwd)) {
-    logUnresolvedCwd(sessionId, "cwd_absent");
-    return null;
-  }
-  return cwd;
-}
-function logUnresolvedCwd(sessionId, cause) {
-  const key = sessionId + "\0" + cause;
-  if (unresolvedCwdDiagnostics.has(key)) return;
-  unresolvedCwdDiagnostics.add(key);
-  host.log("warn", JSON.stringify({
-    provider: "codex",
-    event: "session_cwd_unresolved",
-    sessionId,
-    cause
-  }));
-}
-function sessionTimestamp(value) {
-  const parsed = Date.parse(value);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-// plugins/provider-codex/src/launchSession.ts
-var MARKER_PREFIX = "codeterm-launch-marker:";
-var MIN_MARKER_LENGTH = 16;
-var ROLLOUT_HEAD_BYTES = 262144;
-var EARLY_RECORDS = 24;
-var CANDIDATE_THREADS = 64;
-function withLaunchMarker(instructions, marker) {
-  if (!marker) return instructions;
-  return instructions + "\n\n<!-- " + MARKER_PREFIX + " " + marker + " -->\n";
-}
-function detectCodexLaunchSession(evidence) {
-  const marker = evidence && typeof evidence.launchMarker === "string" ? evidence.launchMarker : "";
-  if (marker.length < MIN_MARKER_LENGTH) return null;
-  const db = codexStateDbPath();
-  if (!db || !host.fs.fileExists(db)) return null;
-  const since = Math.floor(Math.max(0, Number(evidence.launchedAtMs) || 0) / 1e3);
-  const rows2 = host.fs.sqliteQuery(
-    db,
-    "SELECT id, rollout_path FROM threads WHERE created_at >= ? ORDER BY created_at DESC LIMIT " + CANDIDATE_THREADS,
-    [since]
-  );
-  const matches = [];
-  for (let i = 0; i < rows2.length; i++) {
-    const id = typeof rows2[i].id === "string" ? rows2[i].id : "";
-    const path = typeof rows2[i].rollout_path === "string" ? rows2[i].rollout_path : "";
-    if (!id || !path || matches.indexOf(id) !== -1) continue;
-    if (rolloutCarriesMarker(path, id, marker)) matches.push(id);
-  }
-  return matches.length === 1 ? { sessionId: matches[0], source: "launch_marker" } : null;
-}
-function rolloutCarriesMarker(path, id, marker) {
-  const head = host.fs.readFileHead(path, ROLLOUT_HEAD_BYTES);
-  if (typeof head !== "string") return false;
-  const lines = head.split("\n");
-  let records = 0;
-  for (let i = 0; i < lines.length && records < EARLY_RECORDS; i++) {
-    if (!lines[i].trim()) continue;
-    records++;
-    let entry;
-    try {
-      entry = JSON.parse(lines[i]);
-    } catch (_) {
-      if (records === 1) return false;
-      continue;
-    }
-    const payload = entry && entry.payload;
-    if (records === 1) {
-      if (entry.type !== "session_meta" || !payload || payload.id !== id) return false;
-      continue;
-    }
-    if (entry.type !== "response_item" || !payload || payload.type !== "message") continue;
-    if (payload.role !== "developer" && payload.role !== "user") continue;
-    const content = Array.isArray(payload.content) ? payload.content : [];
-    for (let j = 0; j < content.length; j++) {
-      const text7 = content[j] && content[j].text;
-      if (typeof text7 === "string" && text7.indexOf(marker) !== -1) return true;
-    }
-  }
-  return false;
-}
-
-// plugins/provider-codex/src/launchSpec.ts
-var CODEX_LAUNCH_CONFIG = ["-c", "check_for_update_on_startup=false", "-c", "project_doc_max_bytes=65536"];
-var POSIX_ARGV_BUDGET = 256 * 1024;
-function hostOwnedCodexLaunchArgs(hostOwned) {
-  return hostOwned?.questions ? ["--disable", "default_mode_request_user_input"] : [];
-}
-function utf8Bytes(value) {
-  let bytes2 = 0;
-  for (const character of value) {
-    const code = character.codePointAt(0);
-    bytes2 += code <= 127 ? 1 : code <= 2047 ? 2 : code <= 65535 ? 3 : 4;
-  }
-  return bytes2;
-}
-function supportsDirectResume() {
-  try {
-    const minimum = "0.159.0";
-    const observed = JSON.parse(host.providerVersionJson());
-    if (observed?.status !== "detected" || typeof minimum !== "string") return false;
-    const parse = (value) => /^(\d+)\.(\d+)\.(\d+)$/.exec(value)?.slice(1).map(Number);
-    const version = parse(String(observed.version));
-    const bound = parse(minimum);
-    if (!version || !bound) return false;
-    for (let index = 0; index < 3; index++) {
-      if (version[index] !== bound[index]) return version[index] > bound[index];
-    }
-    return true;
-  } catch {
-    return false;
-  }
-}
-function buildCodexLaunchSpec(input, starter) {
-  const platform = host.platform();
-  if (platform === "windows") return null;
-  const hostOwned = "resume" in input ? input.resume?.hostOwned : input.hostOwned;
-  const args = [...CODEX_LAUNCH_CONFIG];
-  if ("resume" in input) {
-    const resume = input.resume;
-    if (!resume || typeof resume.sessionId !== "string" || !supportsDirectResume()) return null;
-    args.push("resume");
-    if (resume.skipPermissions) args.push("--dangerously-bypass-approvals-and-sandbox", "--dangerously-bypass-hook-trust");
-    args.push(extractSessionUuid(resume.sessionId) || resume.sessionId, "--no-daemon", ...resume.args || []);
-    args.push(...hostOwnedCodexLaunchArgs(hostOwned));
-  } else {
-    if (input.skipPermissions) args.push("--dangerously-bypass-approvals-and-sandbox", "--dangerously-bypass-hook-trust");
-    args.push(...input.args || []);
-    args.push(...hostOwnedCodexLaunchArgs(hostOwned));
-    if (input.task?.trim()) {
-      const instructions = withLaunchMarker(input.task, input.launchMarker).replace(/\n+$/, "");
-      args.push("-c", "developer_instructions=" + instructions);
-      const prompt = starter(input);
-      if (prompt) args.push("--", prompt);
-    }
-  }
-  const values = ["codex", ...args];
-  if (values.some((value) => value.includes("\0"))) return null;
-  if (values.reduce((bytes2, value) => bytes2 + utf8Bytes(value) + 1, 0) > POSIX_ARGV_BUDGET) return null;
-  if (platform === "linux" && values.some((value) => utf8Bytes(value) + 1 > 128 * 1024)) return null;
-  let exclusions;
-  try {
-    exclusions = JSON.parse(host.manifestJson() || "null")?.capabilities?.agentRuntime?.inheritedEnvironmentExclusions;
-  } catch {
-    return null;
-  }
-  if (!Array.isArray(exclusions) || exclusions.some((value) => typeof value !== "string")) return null;
-  return { program: "codex", args, envSet: {}, envUnset: [...exclusions] };
-}
-function codexCommandFromSpec(spec) {
-  const quote = (value) => host.shell.quoteFor(value, host.platform());
-  const unset = spec.envUnset.length ? "unset " + spec.envUnset.map(quote).join(" ") + " && " : "";
-  return unset + [spec.program, ...spec.args].map((value) => /^[A-Za-z0-9_\-.,:=@/+%]+$/.test(value) ? value : quote(value)).join(" ");
-}
-
 // packages/plugin-sdk/src/fileDiffs.ts
 function recordedPatchDiff(path, patch, kind) {
   if (!path.trim()) return [];
@@ -511,13 +57,69 @@ function recordedPatchDiff(path, patch, kind) {
   }];
 }
 
+// packages/plugin-sdk/src/ioPrograms.ts
+function* ioValue(request2) {
+  return yield request2;
+}
+function* ioMap(values, project) {
+  const result = [];
+  for (let index = 0; index < values.length; index++) result.push(yield* project(values[index], index));
+  return result;
+}
+function* ioFilter(values, predicate) {
+  const result = [];
+  for (let index = 0; index < values.length; index++) if (yield* predicate(values[index], index)) result.push(values[index]);
+  return result;
+}
+function defineProviderIo(source, io) {
+  const exports = { ...source };
+  for (const key of Object.keys(source)) {
+    const value = source[key];
+    if (typeof value !== "function") continue;
+    exports[key] = function(...args) {
+      const result = value.apply(source, args);
+      return result && typeof result.next === "function" ? io().run(result) : result;
+    };
+  }
+  return exports;
+}
+function* ioEncoded(steps) {
+  return JSON.stringify(yield* steps);
+}
+function* ioJson(request2, nullable = false) {
+  const value = yield* ioValue(request2);
+  return nullable && value == null ? null : JSON.stringify(value);
+}
+function* ioResolve(value) {
+  if (value && typeof value.next === "function") return yield* value;
+  return value;
+}
+function* ioFileTransaction(fs, paths, work) {
+  const locks = [];
+  try {
+    for (const path of [...new Set(paths)].sort()) {
+      const parent = path.slice(0, Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\")));
+      if (parent && !(yield* fs.makeDirs(parent))) return { ok: false, error: "integration directory is unavailable" };
+      const lock = yield* fs.lockFile(path);
+      if (!lock) return { ok: false, error: "integration files are busy" };
+      locks.push(lock);
+    }
+    return yield* work();
+  } finally {
+    for (const lock of locks.reverse()) yield* fs.unlockFile(lock);
+  }
+}
+
 // packages/plugin-sdk/src/remoteTasks.ts
 var RemoteTaskController = class {
-  constructor(storage, backend) {
+  constructor(storage, backend, assertCurrent = () => {
+  }) {
     this.storage = storage;
     this.backend = backend;
+    this.assertCurrent = assertCurrent;
   }
-  create(tabId, providerId, environment, branch, prompt) {
+  *create(tabId, providerId, environment, branch, prompt) {
+    this.assertCurrent();
     if (this.backend.capability.availability.status !== "available") {
       throw new Error(this.backend.capability.availability.reason);
     }
@@ -537,16 +139,18 @@ var RemoteTaskController = class {
       phase: "creating",
       snapshot: null
     };
-    if (!this.storage.compareExchange(tabId, null, claim)) {
+    if (!(yield* ioResolve(this.storage.compareExchange(tabId, null, claim)))) {
       throw new Error("This tab already has a remote task; creation was not repeated");
     }
     let acknowledgement;
+    this.assertCurrent();
     try {
-      acknowledgement = this.backend.create({ environmentId: environment.id, accountRef: environment.accountRef, branch, prompt });
+      acknowledgement = yield* ioResolve(this.backend.create({ environmentId: environment.id, accountRef: environment.accountRef, branch, prompt }));
       if (!acknowledgement.taskId) throw new Error("Missing remote task acknowledgement");
     } catch {
+      this.assertCurrent();
       const uncertain = { ...claim, revision: 1, phase: "create_uncertain" };
-      this.storage.compareExchange(tabId, claim.revision, uncertain);
+      yield* ioResolve(this.storage.compareExchange(tabId, claim.revision, uncertain));
       return uncertain;
     }
     const bound = {
@@ -555,26 +159,30 @@ var RemoteTaskController = class {
       phase: "bound",
       snapshot: { taskId: acknowledgement.taskId, attempt: null, status: "pending", result: "", diff: null, cursor: null, error: null }
     };
-    if (!this.storage.compareExchange(tabId, claim.revision, bound)) {
+    this.assertCurrent();
+    if (!(yield* ioResolve(this.storage.compareExchange(tabId, claim.revision, bound)))) {
       throw new Error("Remote creation was acknowledged but its binding could not be saved; do not submit again");
     }
     return bound;
   }
-  restore(tabId) {
-    const binding = this.storage.read(tabId);
+  *restore(tabId) {
+    this.assertCurrent();
+    const binding = yield* ioResolve(this.storage.read(tabId));
+    this.assertCurrent();
     if (!binding) return null;
     if (binding.executionMode !== this.backend.capability.mode) throw new Error("Remote execution mode does not match the stored tab");
     if (binding.backend !== this.backend.capability.backend) throw new Error("Remote backend does not match the stored tab");
     if (binding.phase !== "bound" || !binding.snapshot) {
       if (binding.phase === "create_uncertain") return binding;
       const uncertain = { ...binding, revision: binding.revision + 1, phase: "create_uncertain" };
-      if (!this.storage.compareExchange(tabId, binding.revision, uncertain)) return this.storage.read(tabId);
+      if (!(yield* ioResolve(this.storage.compareExchange(tabId, binding.revision, uncertain)))) return yield* ioResolve(this.storage.read(tabId));
       return uncertain;
     }
-    const snapshot = this.backend.read(binding);
+    const snapshot = yield* ioResolve(this.backend.read(binding));
+    this.assertCurrent();
     if (snapshot.taskId !== binding.snapshot.taskId) throw new Error("Remote response belongs to a different task");
     const updated = { ...binding, revision: binding.revision + 1, snapshot };
-    if (!this.storage.compareExchange(tabId, binding.revision, updated)) return this.storage.read(tabId);
+    if (!(yield* ioResolve(this.storage.compareExchange(tabId, binding.revision, updated)))) return yield* ioResolve(this.storage.read(tabId));
     return updated;
   }
 };
@@ -589,11 +197,11 @@ var RemoteTaskFileStorage = class {
     if (!/^[a-zA-Z0-9_-]+$/.test(tabId)) throw new Error("Invalid remote tab storage identity");
     return `${this.root}/${tabId}.json`;
   }
-  read(tabId) {
-    return this.readFile(this.path(tabId));
+  *read(tabId) {
+    return yield* this.readFile(this.path(tabId));
   }
-  readFile(path) {
-    const raw = this.fs.readFile(path);
+  *readFile(path) {
+    const raw = yield* this.fs.readFile(path);
     if (raw === null) return null;
     const binding = JSON.parse(raw);
     if (!binding || !Number.isSafeInteger(binding.revision) || binding.revision < 0 || !["creating", "create_uncertain", "bound"].includes(binding.phase) || ![binding.providerId, binding.executionMode, binding.backend, binding.environmentId, binding.accountRef, binding.branch].every((value) => typeof value === "string" && value.length > 0) || binding.phase === "bound" && (!binding.snapshot || typeof binding.snapshot.taskId !== "string" || !binding.snapshot.taskId)) {
@@ -601,17 +209,17 @@ var RemoteTaskFileStorage = class {
     }
     return binding;
   }
-  compareExchange(tabId, revision, next) {
+  *compareExchange(tabId, revision, next) {
     const path = this.path(tabId);
-    if (!this.fs.makeDirs(this.root)) throw new Error("Remote task storage is unavailable");
-    const lock = this.fs.lockFile(`${path}.lock`);
+    if (!(yield* this.fs.makeDirs(this.root))) throw new Error("Remote task storage is unavailable");
+    const lock = yield* this.fs.lockFile(`${path}.lock`);
     if (!lock) throw new Error("Remote task storage is busy; creation was not repeated");
     try {
-      if ((this.readFile(path)?.revision ?? null) !== revision) return false;
-      if (!this.fs.writeFileAtomic(path, JSON.stringify(next))) throw new Error("Remote task binding could not be saved");
+      if (((yield* this.readFile(path))?.revision ?? null) !== revision) return false;
+      if (!(yield* this.fs.writeFileAtomic(path, JSON.stringify(next)))) throw new Error("Remote task binding could not be saved");
       return true;
     } finally {
-      this.fs.unlockFile(lock);
+      yield* this.fs.unlockFile(lock);
     }
   }
 };
@@ -776,6 +384,458 @@ function activityLabel(tool) {
   return clip(unwrapped) || "Working";
 }
 
+// plugins/provider-shared/runPromptStep.ts
+function bytes(text7) {
+  let count = 0;
+  for (const point of text7) {
+    const code = point.codePointAt(0);
+    count += code < 128 ? 1 : code < 2048 ? 2 : code < 65536 ? 3 : 4;
+  }
+  return count;
+}
+function bounded(text7) {
+  if (bytes(JSON.stringify(text7)) <= 60 * 1024) return text7;
+  let points = Array.from(text7);
+  while (bytes(JSON.stringify(points.join("") + "\n[truncated]")) > 60 * 1024) points = points.slice(0, Math.floor(points.length * 0.9));
+  return points.join("") + "\n[truncated]";
+}
+function runPromptSteps(getHost, options = {}) {
+  function update2(job, reply) {
+    if (reply.state === "running") return { job, state: "running", outcome: null, outputs: {} };
+    if (reply.state === "unknown" || reply.state === "canceled") return { job, state: reply.state, outcome: null, outputs: {} };
+    const done = reply.state === "done" && typeof reply.text === "string" && reply.text.trim().length > 0;
+    return { job, state: "succeeded", outcome: done ? "done" : "failed", outputs: { text: [{ kind: "text", text: bounded(done ? reply.text : "The agent run failed.") }] } };
+  }
+  return {
+    blueprintSubmit(request2) {
+      const params = request2.params;
+      const failed = () => update2(request2.context.operation, { state: "failed" });
+      if (typeof params.prompt !== "string" || !params.prompt.trim() || params.prompt.length > 32768 || typeof params.cwd !== "string" || params.cwd.length > 1024 || !/^(?:\/|[A-Za-z]:[\\/]|\\\\)/.test(params.cwd) || params.model !== void 0 && (typeof params.model !== "string" || !params.model.trim() || params.model.length > 128)) return failed();
+      const timeout = params.timeout_ms ?? 6e5;
+      if (!Number.isInteger(timeout) || timeout < 1 || timeout > 36e5) return failed();
+      const context = request2.inputs.context?.[0];
+      let prompt = params.prompt;
+      if (context) {
+        if (context.kind !== "text") return failed();
+        const fence = "`".repeat(Math.max(3, ...Array.from(context.text.matchAll(/`+/g), (match) => match[0].length + 1)));
+        prompt += `
+
+Context:
+${fence}text
+${context.text}
+${fence}`;
+      }
+      if (bytes(prompt) > 48 * 1024) return failed();
+      return getHost().start({ prompt, cwd: params.cwd, model: params.model, timeoutMs: timeout, ...options }, (reply) => {
+        if (reply.error === "launch_unconfirmed" || reply.error === "transport_unconfirmed") return update2(request2.context.operation, { state: "unknown" });
+        return typeof reply.run === "string" ? { job: reply.run, state: "running", outcome: null, outputs: {} } : failed();
+      });
+    },
+    blueprintReconcile(request2) {
+      const job = request2.job ?? request2.context.operation;
+      return getHost().await(job, (reply) => update2(job, reply));
+    },
+    blueprintCancel(request2) {
+      const job = request2.job ?? request2.context.operation;
+      return getHost().cancel(job, (reply) => update2(job, reply));
+    }
+  };
+}
+
+// plugins/provider-shared/sessionRecords.ts
+function* sessionRecords(input, accepts) {
+  if (typeof input !== "string") {
+    for (const record6 of input) yield { row: record6.row, value: record6.value };
+    return;
+  }
+  const lines = String(input || "").split("\n");
+  for (let row3 = 0; row3 < lines.length; row3++) {
+    const line = lines[row3];
+    if (!line || accepts && !accepts(line)) continue;
+    let value;
+    try {
+      value = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    yield { row: row3, value };
+  }
+}
+
+// plugins/provider-shared/readHome.ts
+function effectiveReadPath(inheritedHome, fallback, subpath, separator) {
+  if (!inheritedHome) return fallback;
+  if (!subpath) return inheritedHome;
+  return inheritedHome + (/[\\/]$/.test(inheritedHome) ? "" : separator) + subpath;
+}
+
+// plugins/provider-codex/src/sessions.ts
+var sessionStoreOverrides = {
+  root: "CODETERM_CODEX_SESSIONS_ROOT",
+  index: "CODETERM_CODEX_SESSION_INDEX_PATH",
+  state: "CODETERM_CODEX_STATE_DB_PATH"
+};
+var STATE_DB_NAME = /^state_(\d+)\.sqlite$/;
+function foldSessionIndex(contents) {
+  const folded = /* @__PURE__ */ new Map();
+  const lines = String(contents || "").split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    let entry;
+    try {
+      entry = JSON.parse(line);
+    } catch (_) {
+      continue;
+    }
+    if (!entry || typeof entry.id !== "string" || !entry.id.trim()) continue;
+    if (typeof entry.thread_name !== "string" || typeof entry.updated_at !== "string") continue;
+    const current = folded.get(entry.id);
+    if (!current || sessionTimestamp(entry.updated_at) > sessionTimestamp(current.updated_at)) {
+      folded.set(entry.id, {
+        id: entry.id,
+        thread_name: entry.thread_name,
+        updated_at: entry.updated_at
+      });
+    }
+  }
+  return Array.from(folded.values());
+}
+function* sessionFilePath(_cwd, sessionId) {
+  const path = trimmedField(yield* threadRow(sessionId), "rollout_path");
+  return path && (yield* host.io.fs.fileExists(path)) ? path : null;
+}
+function* sessionExists(_cwd, sessionId) {
+  if (!sessionId) return false;
+  if ((yield* threadRow(sessionId)) !== null) return true;
+  const store = codexSessionStore();
+  return store !== null && (yield* sessionIndexEntry(store.indexPath, sessionId)) !== null;
+}
+function* detectSessionId(cwd, exclude, maxAgeMs) {
+  if (!cwd || !(yield* host.io.fs.fileExists(cwd))) return null;
+  const store = codexSessionStore();
+  if (!store) return null;
+  const entries = yield* readSessionIndex(store.indexPath);
+  if (entries.length === 0) return null;
+  const excluded = new Set(Array.isArray(exclude) ? exclude : exclude ? [exclude] : []);
+  const now = host.unixNowMs ? host.unixNowMs() : Date.now();
+  const ageLimit = Number.isFinite(maxAgeMs) && maxAgeMs > 0 ? maxAgeMs : 3e5;
+  const matching = [];
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    if (excluded.has(entry.id)) continue;
+    const updatedMs = sessionTimestamp(entry.updated_at);
+    if (updatedMs > 0 && now - updatedMs > ageLimit) continue;
+    const project = yield* readThreadCwd(entry.id);
+    if (project && host.path.equal(project, cwd)) matching.push(entry.id);
+  }
+  return matching.length === 1 ? matching[0] : null;
+}
+function* enumerateSessions() {
+  const store = codexSessionStore();
+  if (!store) return [];
+  const entries = yield* readSessionIndex(store.indexPath);
+  return yield* ioMap(entries, function* (entry) {
+    return {
+      sessionId: entry.id,
+      provider: "codex",
+      projectPath: yield* readThreadCwd(entry.id),
+      title: entry.thread_name || null,
+      summary: null,
+      filePath: store.indexPath,
+      createdTs: null,
+      modifiedTs: sessionTimestamp(entry.updated_at) > 0 ? Math.floor(sessionTimestamp(entry.updated_at) / 1e3) : null
+    };
+  });
+}
+function* findSession(sessionId) {
+  const row3 = yield* queryThreadRow(sessionId, "SELECT * FROM threads WHERE id = ? LIMIT 1");
+  if (!row3) return null;
+  const store = codexSessionStore();
+  return {
+    sessionId,
+    provider: "codex",
+    projectPath: yield* resolveThreadCwd(sessionId, row3),
+    title: trimmedField(row3, "name") || trimmedField(row3, "title"),
+    summary: null,
+    filePath: store ? store.indexPath : (yield* codexStateDbPath()) || "",
+    createdTs: unixSeconds(row3.created_at),
+    modifiedTs: unixSeconds(row3.updated_at)
+  };
+}
+function* detectSessionModel(_cwd, sessionId) {
+  return trimmedField(yield* threadRow(sessionId), "model");
+}
+function* detectSessionReasoningEffort(_cwd, sessionId) {
+  const path = yield* sessionFilePath(_cwd, sessionId);
+  if (!path) return null;
+  const contents = yield* host.io.fs.readFileTail(path, 4 * 1024 * 1024);
+  if (typeof contents !== "string") return null;
+  const lines = contents.split("\n");
+  for (let index = lines.length - 1; index >= 0; index--) {
+    let entry;
+    try {
+      entry = JSON.parse(lines[index]);
+    } catch (_) {
+      continue;
+    }
+    if (entry.type !== "turn_context" || typeof entry.payload?.effort !== "string") continue;
+    const effort = entry.payload.effort.trim();
+    if (effort) return effort;
+  }
+  return null;
+}
+function* threadRow(sessionId) {
+  return yield* queryThreadRow(sessionId, "SELECT model, rollout_path, cwd FROM threads WHERE id = ? LIMIT 1");
+}
+function* queryThreadRow(sessionId, sql) {
+  if (!sessionId) return null;
+  const db = yield* codexStateDbPath();
+  if (!db || !(yield* host.io.fs.fileExists(db))) return null;
+  try {
+    const rows2 = yield* host.io.fs.sqliteQuery(db, sql, [sessionId]);
+    return rows2.length > 0 ? rows2[0] : null;
+  } catch (_) {
+    return null;
+  }
+}
+function unixSeconds(value) {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.floor(value) : null;
+}
+function trimmedField(row3, field) {
+  const value = row3 ? row3[field] : null;
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+function* codexStateDbPath() {
+  const override = host.envGet(sessionStoreOverrides.state);
+  if (override) return override;
+  const sep = host.platform() === "windows" ? "\\" : "/";
+  const root = codexSessionsRoot(sep);
+  if (!root) return null;
+  let entries;
+  try {
+    entries = yield* host.io.fs.readDir(root);
+  } catch (_) {
+    return null;
+  }
+  let best = null;
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    if (!entry || !entry.isFile) continue;
+    const match = STATE_DB_NAME.exec(entry.name);
+    if (!match) continue;
+    const version = parseInt(match[1], 10);
+    if (!best || version > best.version) best = { name: entry.name, version };
+  }
+  return best ? root + sep + best.name : null;
+}
+function extractSessionUuid(stem) {
+  if (typeof stem !== "string") return null;
+  const prefix = "rollout-";
+  if (stem.indexOf(prefix) !== 0) return null;
+  const rest = stem.substring(prefix.length);
+  if (rest.length <= 20 || rest.charAt(19) !== "-") return null;
+  return rest.substring(20);
+}
+function codexSessionStore() {
+  const indexOverride = host.envGet(sessionStoreOverrides.index);
+  if (indexOverride) return { indexPath: indexOverride };
+  const sep = host.platform() === "windows" ? "\\" : "/";
+  const root = codexSessionsRoot(sep);
+  if (!root) return null;
+  return {
+    indexPath: indexOverride || root + sep + "session_index.jsonl"
+  };
+}
+function trimTrailingSeparators(path) {
+  let end = path.length;
+  while (end > 1 && (path.charAt(end - 1) === "/" || path.charAt(end - 1) === "\\")) end--;
+  return path.substring(0, end);
+}
+function codexSessionsRoot(sep) {
+  const override = host.envGet(sessionStoreOverrides.root);
+  if (override) return trimTrailingSeparators(override);
+  const home = host.homeDir();
+  return effectiveReadPath(host.envGet("CODEX_HOME"), home ? home + sep + ".codex" : null, "", sep);
+}
+function* readSessionIndex(path) {
+  if (!(yield* host.io.fs.fileExists(path))) return [];
+  const contents = yield* host.io.fs.readFile(path);
+  return typeof contents === "string" ? foldSessionIndex(contents) : [];
+}
+function* sessionIndexEntry(path, sessionId) {
+  const entries = yield* readSessionIndex(path);
+  for (let i = 0; i < entries.length; i++) {
+    if (entries[i].id === sessionId) return entries[i];
+  }
+  return null;
+}
+var unresolvedCwdDiagnostics = /* @__PURE__ */ new Set();
+function* readThreadCwd(sessionId) {
+  return yield* resolveThreadCwd(sessionId, yield* threadRow(sessionId));
+}
+function* resolveThreadCwd(sessionId, row3) {
+  if (!row3) {
+    logUnresolvedCwd(sessionId, "no_row");
+    return null;
+  }
+  const cwd = trimmedField(row3, "cwd");
+  if (!cwd) {
+    logUnresolvedCwd(sessionId, "no_cwd");
+    return null;
+  }
+  if (!(yield* host.io.fs.fileExists(cwd))) {
+    logUnresolvedCwd(sessionId, "cwd_absent");
+    return null;
+  }
+  return cwd;
+}
+function logUnresolvedCwd(sessionId, cause) {
+  const key = sessionId + "\0" + cause;
+  if (unresolvedCwdDiagnostics.has(key)) return;
+  unresolvedCwdDiagnostics.add(key);
+  host.log("warn", JSON.stringify({
+    provider: "codex",
+    event: "session_cwd_unresolved",
+    sessionId,
+    cause
+  }));
+}
+function sessionTimestamp(value) {
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+// plugins/provider-codex/src/launchSession.ts
+var MARKER_PREFIX = "codeterm-launch-marker:";
+var MIN_MARKER_LENGTH = 16;
+var ROLLOUT_HEAD_BYTES = 262144;
+var EARLY_RECORDS = 24;
+var CANDIDATE_THREADS = 64;
+function withLaunchMarker(instructions, marker) {
+  if (!marker) return instructions;
+  return instructions + "\n\n<!-- " + MARKER_PREFIX + " " + marker + " -->\n";
+}
+function* detectCodexLaunchSession(evidence) {
+  const marker = evidence && typeof evidence.launchMarker === "string" ? evidence.launchMarker : "";
+  if (marker.length < MIN_MARKER_LENGTH) return null;
+  const db = yield* codexStateDbPath();
+  if (!db || !(yield* host.io.fs.fileExists(db))) return null;
+  const since = Math.floor(Math.max(0, Number(evidence.launchedAtMs) || 0) / 1e3);
+  const rows2 = yield* host.io.fs.sqliteQuery(db, "SELECT id, rollout_path FROM threads WHERE created_at >= ? ORDER BY created_at DESC LIMIT " + CANDIDATE_THREADS, [since]);
+  const matches = [];
+  for (let i = 0; i < rows2.length; i++) {
+    const id = typeof rows2[i].id === "string" ? rows2[i].id : "";
+    const path = typeof rows2[i].rollout_path === "string" ? rows2[i].rollout_path : "";
+    if (!id || !path || matches.indexOf(id) !== -1) continue;
+    if (yield* rolloutCarriesMarker(path, id, marker)) matches.push(id);
+  }
+  return matches.length === 1 ? { sessionId: matches[0], source: "launch_marker" } : null;
+}
+function* rolloutCarriesMarker(path, id, marker) {
+  const head = yield* host.io.fs.readFileHead(path, ROLLOUT_HEAD_BYTES);
+  if (typeof head !== "string") return false;
+  const lines = head.split("\n");
+  let records = 0;
+  for (let i = 0; i < lines.length && records < EARLY_RECORDS; i++) {
+    if (!lines[i].trim()) continue;
+    records++;
+    let entry;
+    try {
+      entry = JSON.parse(lines[i]);
+    } catch (_) {
+      if (records === 1) return false;
+      continue;
+    }
+    const payload = entry && entry.payload;
+    if (records === 1) {
+      if (entry.type !== "session_meta" || !payload || payload.id !== id) return false;
+      continue;
+    }
+    if (entry.type !== "response_item" || !payload || payload.type !== "message") continue;
+    if (payload.role !== "developer" && payload.role !== "user") continue;
+    const content = Array.isArray(payload.content) ? payload.content : [];
+    for (let j = 0; j < content.length; j++) {
+      const text7 = content[j] && content[j].text;
+      if (typeof text7 === "string" && text7.indexOf(marker) !== -1) return true;
+    }
+  }
+  return false;
+}
+
+// plugins/provider-codex/src/launchSpec.ts
+var CODEX_LAUNCH_CONFIG = ["-c", "check_for_update_on_startup=false", "-c", "project_doc_max_bytes=65536"];
+var POSIX_ARGV_BUDGET = 256 * 1024;
+function hostOwnedCodexLaunchArgs(hostOwned) {
+  return hostOwned?.questions ? ["--disable", "default_mode_request_user_input"] : [];
+}
+function utf8Bytes(value) {
+  let bytes2 = 0;
+  for (const character of value) {
+    const code = character.codePointAt(0);
+    bytes2 += code <= 127 ? 1 : code <= 2047 ? 2 : code <= 65535 ? 3 : 4;
+  }
+  return bytes2;
+}
+function* supportsDirectResume() {
+  try {
+    const minimum = "0.159.0";
+    const observed = JSON.parse(yield* ioJson({ op: "providerVersion" }));
+    if (observed?.status !== "detected" || typeof minimum !== "string") return false;
+    const parse = (value) => /^(\d+)\.(\d+)\.(\d+)$/.exec(value)?.slice(1).map(Number);
+    const version = parse(String(observed.version));
+    const bound = parse(minimum);
+    if (!version || !bound) return false;
+    for (let index = 0; index < 3; index++) {
+      if (version[index] !== bound[index]) return version[index] > bound[index];
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+function* buildCodexLaunchSpec(input, starter) {
+  const platform = host.platform();
+  if (platform === "windows") return null;
+  const hostOwned = "resume" in input ? input.resume?.hostOwned : input.hostOwned;
+  const args = [...CODEX_LAUNCH_CONFIG];
+  if ("resume" in input) {
+    const resume = input.resume;
+    if (!resume || typeof resume.sessionId !== "string" || !(yield* supportsDirectResume())) return null;
+    args.push("resume");
+    if (resume.skipPermissions) args.push("--dangerously-bypass-approvals-and-sandbox", "--dangerously-bypass-hook-trust");
+    args.push(extractSessionUuid(resume.sessionId) || resume.sessionId, "--no-daemon", ...resume.args || []);
+    args.push(...hostOwnedCodexLaunchArgs(hostOwned));
+  } else {
+    if (input.skipPermissions) args.push("--dangerously-bypass-approvals-and-sandbox", "--dangerously-bypass-hook-trust");
+    args.push(...input.args || []);
+    args.push(...hostOwnedCodexLaunchArgs(hostOwned));
+    if (input.task?.trim()) {
+      const instructions = withLaunchMarker(input.task, input.launchMarker).replace(/\n+$/, "");
+      args.push("-c", "developer_instructions=" + instructions);
+      const prompt = starter(input);
+      if (prompt) args.push("--", prompt);
+    }
+  }
+  const values = ["codex", ...args];
+  if (values.some((value) => value.includes("\0"))) return null;
+  if (values.reduce((bytes2, value) => bytes2 + utf8Bytes(value) + 1, 0) > POSIX_ARGV_BUDGET) return null;
+  if (platform === "linux" && values.some((value) => utf8Bytes(value) + 1 > 128 * 1024)) return null;
+  let exclusions;
+  try {
+    exclusions = JSON.parse(host.manifestJson() || "null")?.capabilities?.agentRuntime?.inheritedEnvironmentExclusions;
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(exclusions) || exclusions.some((value) => typeof value !== "string")) return null;
+  return { program: "codex", args, envSet: {}, envUnset: [...exclusions] };
+}
+function codexCommandFromSpec(spec) {
+  const quote = (value) => host.shell.quoteFor(value, host.platform());
+  const unset = spec.envUnset.length ? "unset " + spec.envUnset.map(quote).join(" ") + " && " : "";
+  return unset + [spec.program, ...spec.args].map((value) => /^[A-Za-z0-9_\-.,:=@/+%]+$/.test(value) ? value : quote(value)).join(" ");
+}
+
 // plugins/provider-codex/src/cloud/backend.ts
 var row = (value) => value && typeof value === "object" && !Array.isArray(value) ? value : {};
 var rows = (value) => Array.isArray(value) ? value.map(row) : [];
@@ -853,15 +913,15 @@ function cloudTaskBackend(capability, transport) {
   return {
     capability,
     environments: () => capability.environments,
-    create(input) {
-      const response = row(transport.request("POST", cloudTaskPath(input.environmentId), input.accountRef, cloudTaskRequest(input.environmentId, input.branch, input.prompt)));
+    *create(input) {
+      const response = row(yield* ioResolve(transport.request("POST", cloudTaskPath(input.environmentId), input.accountRef, cloudTaskRequest(input.environmentId, input.branch, input.prompt))));
       const taskId = text(row(response.task).id) ?? text(response.id);
       if (!taskId) throw new Error("Cloud did not acknowledge a task identity");
       return { taskId };
     },
-    read(binding) {
+    *read(binding) {
       if (!binding.snapshot) throw new Error("Cloud task identity is missing");
-      return cloudTaskSnapshot(transport.request("GET", cloudTaskPath(binding.environmentId, binding.snapshot.taskId), binding.accountRef), binding);
+      return cloudTaskSnapshot(yield* ioResolve(transport.request("GET", cloudTaskPath(binding.environmentId, binding.snapshot.taskId), binding.accountRef)), binding);
     }
   };
 }
@@ -884,15 +944,26 @@ ${task.diff}
   return [{ id: `${task.taskId}:${binding.revision}`, type: "assistant", content }];
 }
 function remoteChatBackend(storage, backend, providerId) {
-  const controller = new RemoteTaskController(storage, backend);
+  const epochs = /* @__PURE__ */ new Map();
+  const requireCurrent = (id, epoch) => {
+    if (epochs.get(id) !== epoch) throw new Error("Remote task tab closed during operation");
+  };
+  const controllerFor = (id) => {
+    const epoch = epochs.get(id);
+    return new RemoteTaskController(storage, backend, () => requireCurrent(id, epoch));
+  };
   const sessions = /* @__PURE__ */ new Map();
   return {
-    openSession(ctx) {
+    *openSession(ctx) {
+      const epoch = {};
+      epochs.set(ctx.tabId, epoch);
       if (ctx.config?.executionMode !== backend.capability.mode) throw new Error("Choose the declared Cloud execution mode");
       if (backend.capability.availability.status === "unavailable") throw new Error(backend.capability.availability.reason);
-      const saved = storage.read(ctx.tabId);
+      const saved = yield* ioResolve(storage.read(ctx.tabId));
       if (saved && saved.providerId !== providerId) throw new Error("Stored task belongs to another provider");
-      const existing = controller.restore(ctx.tabId);
+      requireCurrent(ctx.tabId, epoch);
+      const existing = yield* controllerFor(ctx.tabId).restore(ctx.tabId);
+      requireCurrent(ctx.tabId, epoch);
       if (!existing && !backend.capability.environments.some((environment) => environment.id === ctx.preset)) {
         throw new Error("Choose a Cloud environment before opening a remote task");
       }
@@ -901,47 +972,54 @@ function remoteChatBackend(storage, backend, providerId) {
         const environment = backend.capability.environments.find((environment2) => environment2.id === ctx.preset);
         if (!environment) throw new Error("The selected environment is unavailable");
         try {
-          controller.create(ctx.tabId, providerId, environment, "master", ctx.systemPrompt);
+          yield* controllerFor(ctx.tabId).create(ctx.tabId, providerId, environment, "master", ctx.systemPrompt);
         } catch (error) {
-          if (!storage.read(ctx.tabId)) throw error;
+          requireCurrent(ctx.tabId, epoch);
+          if (!(yield* ioResolve(storage.read(ctx.tabId)))) throw error;
         }
       }
+      requireCurrent(ctx.tabId, epoch);
       return { sessionId: ctx.tabId };
     },
-    sendMessage(sessionId, prompt) {
+    *sendMessage(sessionId, prompt) {
       const ctx = sessions.get(sessionId);
       if (!ctx) throw new Error("Remote task tab is not open");
       const environment = backend.capability.environments.find((environment2) => environment2.id === ctx.preset);
       if (!environment) throw new Error("The selected environment is unavailable");
-      controller.create(sessionId, providerId, environment, "master", prompt);
+      yield* controllerFor(sessionId).create(sessionId, providerId, environment, "master", prompt);
     },
-    poll(sessionId, cursor) {
+    *poll(sessionId, cursor) {
+      const epoch = epochs.get(sessionId);
       if (!sessions.has(sessionId)) throw new Error("Remote task tab is not open");
-      const binding = storage.read(sessionId);
+      const binding = yield* ioResolve(storage.read(sessionId));
+      requireCurrent(sessionId, epoch);
       const messages = taskMessages(binding);
       const next = JSON.stringify(messages);
       return { messages: cursor === next ? [] : messages, cursor: next, done: binding?.snapshot?.status === "ready" || binding?.snapshot?.status === "error" };
     },
     closeSession(sessionId) {
+      epochs.delete(sessionId);
       sessions.delete(sessionId);
     },
     listModels: () => [],
     listPresets: () => backend.capability.environments.map((environment) => ({ id: environment.id, name: environment.label })),
-    viewCall(method, args) {
+    *viewCall(method, args, _context) {
       const input = args;
       const sessionId = input?.sessionId;
       if (!sessionId) throw new Error("Remote task tab is not open");
       if (method === "read") {
-        const binding = storage.read(sessionId);
+        const epoch = epochs.get(sessionId);
+        const binding = yield* ioResolve(storage.read(sessionId));
+        requireCurrent(sessionId, epoch);
         if (binding && (binding.executionMode !== backend.capability.mode || binding.providerId !== providerId)) throw new Error("Stored execution mode does not match Cloud");
         return binding;
       }
-      if (method === "refresh") return controller.restore(sessionId);
+      if (method === "refresh") return yield* controllerFor(sessionId).restore(sessionId);
       if (method === "submit") {
         if (!sessions.has(sessionId)) throw new Error("Remote task tab must reopen before submission");
         const environment = backend.capability.environments.find((environment2) => environment2.id === sessions.get(sessionId)?.preset);
         if (!environment) throw new Error("The selected environment is unavailable");
-        return controller.create(sessionId, providerId, environment, input?.branch ?? "master", input?.prompt ?? "");
+        return yield* controllerFor(sessionId).create(sessionId, providerId, environment, input?.branch ?? "master", input?.prompt ?? "");
       }
       throw new Error("This remote task operation is unsupported");
     }
@@ -966,10 +1044,10 @@ var CloudTransportError = class extends Error {
 function record2(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : null;
 }
-function publicAccountId(host2) {
+function* publicAccountId() {
   let credential = null;
   try {
-    const raw = host2.credentialPublic(CODEX_AUTH_CREDENTIAL);
+    const raw = yield* ioJson({ op: "credentialPublic", id: CODEX_AUTH_CREDENTIAL }, true);
     credential = raw ? record2(JSON.parse(raw)) : null;
   } catch {
     credential = null;
@@ -991,15 +1069,15 @@ function isCodexTaskPath(method, path) {
   return path === "/api/codex/tasks/list" || /^\/api\/codex\/tasks\/list\?[^#]*$/.test(path) || /^\/api\/codex\/tasks\/[A-Za-z0-9._-]+$/.test(path);
 }
 function createCodexCloudTransport(host2) {
-  const request2 = (method, path, accountRef, body) => {
+  const request2 = function* (method, path, accountRef, body) {
     const settingsRequest = method === "GET" && path === SETTINGS_ENVIRONMENTS_PATH;
     const legacyRequest = path.startsWith("/wham/");
     const codexTaskRequest = isCodexTaskPath(method, path);
     if (accountRef !== CODEX_CLOUD_ACCOUNT_REF || !settingsRequest && !legacyRequest && !codexTaskRequest) throw new CloudTransportError();
-    const accountId = publicAccountId(host2);
+    const accountId = yield* publicAccountId();
     let result;
     try {
-      result = JSON.parse(host2.fetch(JSON.stringify({
+      result = JSON.parse(yield* ioEncoded(host2.io.fetch({
         url: `${settingsRequest || codexTaskRequest ? SETTINGS_BASE_URL : CLOUD_BASE_URL}${path}`,
         method,
         timeoutMs: 6e3,
@@ -1023,23 +1101,23 @@ function createCodexCloudTransport(host2) {
     if (status < 200 || status >= 300) throw new CloudTransportError(status);
     return readBody(response);
   };
-  const discoverRemoteTask = () => {
+  const discoverRemoteTask = function* () {
     try {
       try {
-        const settingsEnvironments = cloudEnvironmentConfigList(request2("GET", SETTINGS_ENVIRONMENTS_PATH, CODEX_CLOUD_ACCOUNT_REF));
+        const settingsEnvironments = cloudEnvironmentConfigList(yield* request2("GET", SETTINGS_ENVIRONMENTS_PATH, CODEX_CLOUD_ACCOUNT_REF));
         if (settingsEnvironments.length > 0) return { availability: { status: "available" }, environments: settingsEnvironments };
       } catch (error) {
         if (error instanceof CloudTransportError && (error.status === 401 || error.status === 403)) throw error;
       }
       let repoEnvironments = null;
       try {
-        repoEnvironments = cloudEnvironmentList(request2("GET", REPOSITORY_ENVIRONMENTS_PATH, CODEX_CLOUD_ACCOUNT_REF));
+        repoEnvironments = cloudEnvironmentList(yield* request2("GET", REPOSITORY_ENVIRONMENTS_PATH, CODEX_CLOUD_ACCOUNT_REF));
       } catch (error) {
         if (error instanceof CloudTransportError && (error.status === 401 || error.status === 403)) throw error;
       }
       let allEnvironments = null;
       try {
-        allEnvironments = cloudEnvironmentList(request2("GET", ENVIRONMENTS_PATH, CODEX_CLOUD_ACCOUNT_REF));
+        allEnvironments = cloudEnvironmentList(yield* request2("GET", ENVIRONMENTS_PATH, CODEX_CLOUD_ACCOUNT_REF));
       } catch (error) {
         if (error instanceof CloudTransportError && (error.status === 401 || error.status === 403)) throw error;
         if (repoEnvironments === null) throw error;
@@ -1072,137 +1150,33 @@ function cloudExports(hostRef) {
     const root = `${dataRoot.replace(/[\\/]$/, "")}/codex/tasks`;
     capability = manifest.capabilities.remoteTask;
     transport = createCodexCloudTransport(host2);
-    backend = remoteChatBackend(new RemoteTaskFileStorage(host2.fs, root), cloudTaskBackend(capability, transport), manifest.id);
+    backend = remoteChatBackend(new RemoteTaskFileStorage(host2.io.fs, root), cloudTaskBackend(capability, transport), manifest.id);
     return backend;
   };
-  const discoverRemoteTask = () => {
+  const discoverRemoteTask = function* () {
     get();
-    const discovery = transport.discoverRemoteTask();
+    const discovery = yield* ioResolve(transport.discoverRemoteTask());
     Object.assign(capability, discovery);
     return discovery;
   };
   return {
     discoverRemoteTask,
-    openSession: (ctx) => {
-      const discovery = discoverRemoteTask();
+    openSession: function* (ctx) {
+      const discovery = yield* discoverRemoteTask();
       if (discovery.availability.status === "unavailable") throw new Error(discovery.availability.reason);
-      return get().openSession(ctx);
+      return yield* get().openSession(ctx);
     },
-    sendMessage: (session, text7) => get().sendMessage(session, text7),
-    poll: (session, cursor) => get().poll(session, cursor),
+    sendMessage: function* (session, text7) {
+      return yield* get().sendMessage(session, text7);
+    },
+    poll: function* (session, cursor) {
+      return yield* get().poll(session, cursor);
+    },
     closeSession: (session) => get().closeSession(session),
-    viewCall: (method, args, context) => get().viewCall(method, args, context)
+    viewCall: function* (method, args, context) {
+      return yield* get().viewCall(method, args, context);
+    }
   };
-}
-
-// plugins/provider-codex/src/runtimeGoal.ts
-var statuses = /* @__PURE__ */ new Set(["active", "paused", "blocked", "usageLimited", "budgetLimited", "complete"]);
-function goalIntent(raw, thread) {
-  if (!raw || typeof raw !== "object") return null;
-  const goal = raw;
-  if (thread && goal.threadId !== thread) return null;
-  if (typeof goal.objective !== "string" || !goal.objective.trim()) return null;
-  return { goal: goal.objective, ...typeof goal.status === "string" && statuses.has(goal.status) ? { goalStatus: goal.status } : {} };
-}
-function goalPlan(threadId, value) {
-  const action = value && typeof value === "object" && !Array.isArray(value) ? value.action : void 0;
-  const status = action === "pause" ? "paused" : action === "resume" ? "active" : action === "complete" ? "complete" : void 0;
-  if (action !== "read" && action !== "cancel" && !status) throw new Error("Unsupported goal action");
-  const method = action === "read" ? "thread/goal/get" : action === "cancel" ? "thread/goal/clear" : "thread/goal/set";
-  return { action: { kind: "request", call: { method, params: { threadId, ...action !== "read" ? { origin: "user" } : {}, ...status ? { status } : {} } } }, state: { goalAction: String(action) } };
-}
-function goalResponse(threadId, state, reply) {
-  const refuse = (message) => ({ kind: "refused", reason: { code: "provider_refused", message }, beforeAcceptance: false });
-  if (reply.kind === "error") return refuse(reply.error.message);
-  const value = reply.value;
-  if (!value || typeof value !== "object") return refuse("Goal response is invalid");
-  if (state.goalAction === "cancel") return value.cleared === true ? { kind: "continue", plan: { ...goalPlan(threadId, { action: "read" }), state: { goalAction: "verifyCancel" } } } : refuse("Goal removal was not confirmed");
-  if (!("goal" in value)) return refuse("Goal response is missing");
-  if (state.goalAction === "verifyCancel" && value.goal !== null) return refuse("Goal still exists after removal");
-  const intent = goalIntent(value.goal, threadId);
-  if (value.goal !== null && (!intent || !intent.goalStatus)) return refuse("Goal identity or status is invalid");
-  const expected = state.goalAction === "pause" ? "paused" : state.goalAction === "resume" ? "active" : state.goalAction === "complete" ? "complete" : void 0;
-  if (expected && intent?.goalStatus !== expected) return refuse("Goal status was not confirmed");
-  return { kind: "complete", result: { kind: "goal", threadId, intent } };
-}
-
-// plugins/provider-codex/src/runtimeVersion.ts
-function runtimeBinaryVersion(userAgent) {
-  if (typeof userAgent !== "string") return void 0;
-  return userAgent.match(/^[^\s/]+\/(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?=\s|$)/)?.[0].split("/")[1];
-}
-function initializedResult(state) {
-  const binaryVersion = typeof state.binaryVersion === "string" ? state.binaryVersion : void 0;
-  return { kind: "initialized", ...binaryVersion ? { binaryVersion } : {} };
-}
-
-// plugins/provider-codex/src/runtimeProtocol.ts
-function object(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
-}
-function text2(value) {
-  return typeof value === "string" && value.length > 0 ? value : void 0;
-}
-function list(value) {
-  return Array.isArray(value) ? value : [];
-}
-function userThread(value, expected) {
-  const thread = object(object(value).thread);
-  const id = text2(thread.id);
-  if (!id || expected && expected !== id || thread.parentThreadId != null || object(thread.source).subAgent != null || String(thread.threadSource ?? "").toLowerCase().startsWith("subagent")) return void 0;
-  return id;
-}
-function steerRefused(error, turn) {
-  return error.code === -32600 && error.data == null && (error.message === "no active turn to steer" || error.message.startsWith(`expected active turn id \`${turn}\` but found \``) && error.message.endsWith("`"));
-}
-function archivedResume(message) {
-  const words = message.toLowerCase().split(/\s+/).map((word) => word.replace(/^[`"']+|[`"'.:;,]+$/g, ""));
-  return words.some((word, index) => word === "codex" && words[index + 1] === "unarchive" || word === "session" && !!words[index + 1] && words[index + 2] === "is" && words[index + 3] === "archived");
-}
-function missingRollout(error, thread) {
-  return error.code === -32600 && error.data == null && error.message === `no rollout found for thread id ${thread}`;
-}
-var serverRequestMethods = [
-  "item/commandExecution/requestApproval",
-  "item/fileChange/requestApproval",
-  "item/permissions/requestApproval",
-  "item/tool/requestUserInput",
-  "mcpServer/elicitation/request"
-];
-
-// plugins/provider-shared/outputLimit.ts
-function outputLimit(value) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const record6 = value;
-  const details = record6.incomplete_details;
-  if (record6.stop_reason === "max_tokens" || record6.finish_reason === "length") return true;
-  if (record6.status === "incomplete" && details?.reason === "max_output_tokens") return true;
-  const message = record6.message;
-  return typeof message === "string" && message.length <= 16384 && /incomplete response[^\n]*\bmax_output_tokens\b/i.test(message);
-}
-
-// plugins/provider-codex/src/runtimeTurnStatus.ts
-function threadStatus(raw) {
-  const status = object(raw);
-  const type = typeof raw === "string" ? raw : status.type;
-  if (type === "idle") return { state: "idle" };
-  if (type === "systemError") return { state: "needs_input", detail: "systemError" };
-  if (type !== "active") return void 0;
-  const flags = list(status.activeFlags);
-  if (flags.includes("waitingOnApproval")) return { state: "needs_input", detail: "awaitingApproval" };
-  if (flags.includes("waitingOnUserInput")) return { state: "needs_input", detail: "awaitingInput" };
-  return { state: "working" };
-}
-function turnOutcome(turn) {
-  if (outputLimit(turn)) return "failed";
-  const status = object(turn).status;
-  return status === "interrupted" ? "interrupted" : status === "failed" ? "failed" : void 0;
-}
-function requestDetail(method) {
-  return method.endsWith("/requestApproval") ? "awaitingApproval" : "awaitingInput";
-}
-function withDetail(status, compacting) {
-  return status.state === "working" && compacting ? { state: "working", detail: "compacting" } : status;
 }
 
 // plugins/provider-codex/src/runtimeHistoryBounds.ts
@@ -1286,6 +1260,40 @@ ${gap.repeat(depth)}${close}` : open + parts.join(",") + close;
   };
   return render(normalized, 0);
 }
+
+// plugins/provider-codex/src/runtimeProtocol.ts
+function object(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+function text2(value) {
+  return typeof value === "string" && value.length > 0 ? value : void 0;
+}
+function list(value) {
+  return Array.isArray(value) ? value : [];
+}
+function userThread(value, expected) {
+  const thread = object(object(value).thread);
+  const id = text2(thread.id);
+  if (!id || expected && expected !== id || thread.parentThreadId != null || object(thread.source).subAgent != null || String(thread.threadSource ?? "").toLowerCase().startsWith("subagent")) return void 0;
+  return id;
+}
+function steerRefused(error, turn) {
+  return error.code === -32600 && error.data == null && (error.message === "no active turn to steer" || error.message.startsWith(`expected active turn id \`${turn}\` but found \``) && error.message.endsWith("`"));
+}
+function archivedResume(message) {
+  const words = message.toLowerCase().split(/\s+/).map((word) => word.replace(/^[`"']+|[`"'.:;,]+$/g, ""));
+  return words.some((word, index) => word === "codex" && words[index + 1] === "unarchive" || word === "session" && !!words[index + 1] && words[index + 2] === "is" && words[index + 3] === "archived");
+}
+function missingRollout(error, thread) {
+  return error.code === -32600 && error.data == null && error.message === `no rollout found for thread id ${thread}`;
+}
+var serverRequestMethods = [
+  "item/commandExecution/requestApproval",
+  "item/fileChange/requestApproval",
+  "item/permissions/requestApproval",
+  "item/tool/requestUserInput",
+  "mcpServer/elicitation/request"
+];
 
 // plugins/provider-codex/src/fileDiffs.ts
 var LINE_MARKERS = " +-\\";
@@ -2209,6 +2217,82 @@ function projectStoredRecords(sessionId, records) {
     }
   }
   return [...rows2.values()];
+}
+
+// plugins/provider-codex/src/runtimeGoal.ts
+var statuses = /* @__PURE__ */ new Set(["active", "paused", "blocked", "usageLimited", "budgetLimited", "complete"]);
+function goalIntent(raw, thread) {
+  if (!raw || typeof raw !== "object") return null;
+  const goal = raw;
+  if (thread && goal.threadId !== thread) return null;
+  if (typeof goal.objective !== "string" || !goal.objective.trim()) return null;
+  return { goal: goal.objective, ...typeof goal.status === "string" && statuses.has(goal.status) ? { goalStatus: goal.status } : {} };
+}
+function goalPlan(threadId, value) {
+  const action = value && typeof value === "object" && !Array.isArray(value) ? value.action : void 0;
+  const status = action === "pause" ? "paused" : action === "resume" ? "active" : action === "complete" ? "complete" : void 0;
+  if (action !== "read" && action !== "cancel" && !status) throw new Error("Unsupported goal action");
+  const method = action === "read" ? "thread/goal/get" : action === "cancel" ? "thread/goal/clear" : "thread/goal/set";
+  return { action: { kind: "request", call: { method, params: { threadId, ...action !== "read" ? { origin: "user" } : {}, ...status ? { status } : {} } } }, state: { goalAction: String(action) } };
+}
+function goalResponse(threadId, state, reply) {
+  const refuse = (message) => ({ kind: "refused", reason: { code: "provider_refused", message }, beforeAcceptance: false });
+  if (reply.kind === "error") return refuse(reply.error.message);
+  const value = reply.value;
+  if (!value || typeof value !== "object") return refuse("Goal response is invalid");
+  if (state.goalAction === "cancel") return value.cleared === true ? { kind: "continue", plan: { ...goalPlan(threadId, { action: "read" }), state: { goalAction: "verifyCancel" } } } : refuse("Goal removal was not confirmed");
+  if (!("goal" in value)) return refuse("Goal response is missing");
+  if (state.goalAction === "verifyCancel" && value.goal !== null) return refuse("Goal still exists after removal");
+  const intent = goalIntent(value.goal, threadId);
+  if (value.goal !== null && (!intent || !intent.goalStatus)) return refuse("Goal identity or status is invalid");
+  const expected = state.goalAction === "pause" ? "paused" : state.goalAction === "resume" ? "active" : state.goalAction === "complete" ? "complete" : void 0;
+  if (expected && intent?.goalStatus !== expected) return refuse("Goal status was not confirmed");
+  return { kind: "complete", result: { kind: "goal", threadId, intent } };
+}
+
+// plugins/provider-codex/src/runtimeVersion.ts
+function runtimeBinaryVersion(userAgent) {
+  if (typeof userAgent !== "string") return void 0;
+  return userAgent.match(/^[^\s/]+\/(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?=\s|$)/)?.[0].split("/")[1];
+}
+function initializedResult(state) {
+  const binaryVersion = typeof state.binaryVersion === "string" ? state.binaryVersion : void 0;
+  return { kind: "initialized", ...binaryVersion ? { binaryVersion } : {} };
+}
+
+// plugins/provider-shared/outputLimit.ts
+function outputLimit(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const record6 = value;
+  const details = record6.incomplete_details;
+  if (record6.stop_reason === "max_tokens" || record6.finish_reason === "length") return true;
+  if (record6.status === "incomplete" && details?.reason === "max_output_tokens") return true;
+  const message = record6.message;
+  return typeof message === "string" && message.length <= 16384 && /incomplete response[^\n]*\bmax_output_tokens\b/i.test(message);
+}
+
+// plugins/provider-codex/src/runtimeTurnStatus.ts
+function threadStatus(raw) {
+  const status = object(raw);
+  const type = typeof raw === "string" ? raw : status.type;
+  if (type === "idle") return { state: "idle" };
+  if (type === "systemError") return { state: "needs_input", detail: "systemError" };
+  if (type !== "active") return void 0;
+  const flags = list(status.activeFlags);
+  if (flags.includes("waitingOnApproval")) return { state: "needs_input", detail: "awaitingApproval" };
+  if (flags.includes("waitingOnUserInput")) return { state: "needs_input", detail: "awaitingInput" };
+  return { state: "working" };
+}
+function turnOutcome(turn) {
+  if (outputLimit(turn)) return "failed";
+  const status = object(turn).status;
+  return status === "interrupted" ? "interrupted" : status === "failed" ? "failed" : void 0;
+}
+function requestDetail(method) {
+  return method.endsWith("/requestApproval") ? "awaitingApproval" : "awaitingInput";
+}
+function withDetail(status, compacting) {
+  return status.state === "working" && compacting ? { state: "working", detail: "compacting" } : status;
 }
 
 // plugins/provider-codex/src/runtimeHistoryPager.ts
@@ -3896,16 +3980,6 @@ function streamHistory(op, step, state) {
   return { ...step, plan: { ...step.plan, state: json(cursor) }, history: complete.result };
 }
 
-// plugins/provider-codex/src/toolOutput.ts
-function codexToolOutputText(output) {
-  if (typeof output === "string") return output;
-  if (output == null) return "";
-  if (Array.isArray(output) && output.every((item) => item && typeof item === "object" && typeof item.text === "string")) {
-    return output.map((item) => item.text).join("");
-  }
-  return typeof output === "object" ? canonicalJson(output) : String(output);
-}
-
 // plugins/provider-shared/accessError.ts
 function object2(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : null;
@@ -4044,790 +4118,6 @@ function updatePromptSafeChoice(prompt) {
   if (!value || /\bupdate\b/i.test(label)) return null;
   if (prompt.options.filter(([, candidate]) => candidate === value).length !== 1) return null;
   return value;
-}
-
-// plugins/provider-codex/src/models.ts
-function discoverCodexModels() {
-  return discoverCodexModelsFromCache();
-}
-function codexModelsCachePath() {
-  const home = host.homeDir();
-  const sep = host.platform() === "windows" ? "\\" : "/";
-  return effectiveReadPath(host.envGet("CODEX_HOME"), home ? home + sep + ".codex" + sep + "models_cache.json" : null, "models_cache.json", sep);
-}
-function discoverCodexModelsFromCache() {
-  const path = codexModelsCachePath();
-  if (!path || !host.fs.fileExists(path)) return null;
-  const cache = host.fs.readJson(path);
-  const raw = cache && cache.models;
-  if (!Array.isArray(raw)) return null;
-  const kept = [];
-  for (let i = 0; i < raw.length; i++) {
-    const item = raw[i];
-    const id = typeof item.slug === "string" ? item.slug.trim() : "";
-    if (!id) continue;
-    if (item.visibility === "hide") continue;
-    if (isNonChatModel(id)) continue;
-    kept.push(item);
-  }
-  kept.sort((a, b) => priorityOf(a) - priorityOf(b));
-  const models = [];
-  for (let i = 0; i < kept.length; i++) {
-    const item = kept[i];
-    const id = item.slug.trim();
-    models.push({
-      id,
-      displayName: typeof item.display_name === "string" && item.display_name.trim() ? item.display_name.trim() : displayNameFromId(id),
-      description: typeof item.description === "string" && item.description.trim() ? item.description.trim() : void 0,
-      reasoningEfforts: reasoningEffortsFrom(item.supported_reasoning_levels),
-      defaultReasoningEffort: defaultEffortFrom(item)
-    });
-  }
-  return models.length ? models : null;
-}
-function defaultEffortFrom(model) {
-  const effort = typeof model.default_reasoning_level === "string" ? model.default_reasoning_level.trim() : "";
-  return effort || void 0;
-}
-function reasoningEffortsFrom(levels) {
-  if (!Array.isArray(levels)) return void 0;
-  const efforts = [];
-  const seen = /* @__PURE__ */ new Set();
-  for (const level of levels) {
-    const id = typeof level.effort === "string" ? level.effort.trim() : "";
-    if (!id || seen.has(id)) continue;
-    seen.add(id);
-    efforts.push({
-      id,
-      displayName: id,
-      description: typeof level.description === "string" && level.description.trim() ? level.description.trim() : void 0
-    });
-  }
-  return efforts.length ? efforts : void 0;
-}
-function priorityOf(m) {
-  return typeof m.priority === "number" ? m.priority : 1e9;
-}
-var NON_CHAT_TOKENS = ["embed", "embedding", "embeddings", "tts", "whisper", "moderation", "rerank", "dall", "dalle"];
-function isNonChatModel(id) {
-  const leaf = (id.split("/").pop() || id).toLowerCase();
-  const toks = leaf.split(/[-_.]/);
-  for (let i = 0; i < toks.length; i++) {
-    if (NON_CHAT_TOKENS.indexOf(toks[i]) !== -1) return true;
-  }
-  return false;
-}
-function displayNameFromId(id) {
-  const parts = id.split("/");
-  const leaf = parts[parts.length - 1] || id;
-  return leaf.split("-").filter(Boolean).map(capitalizeToken).join(" ");
-}
-function capitalizeToken(token) {
-  return token ? token.charAt(0).toUpperCase() + token.substring(1) : token;
-}
-
-// plugins/provider-codex/src/prompt.ts
-var DOWN = "G1tC";
-var UP = "G1tB";
-var ENTER = "DQ==";
-var MENU_OPTION_RE = /^[ \t]*([>❯▶➤›])?[ \t]*(\d+)[.)][ \t]+(.+?)[ \t]*$/;
-function parseCodexPrompt(screen) {
-  const choice = parseActiveTerminalChoice(screen);
-  return choice ? {
-    question: choice.question,
-    options: choice.options.map((option) => [option.label, option.value])
-  } : null;
-}
-function parseCodexFolderTrustPrompt(screen) {
-  const trust = classifyCodexFolderTrustPrompt(screen);
-  return trust?.kind === "active" ? trust.prompt : null;
-}
-function classifyCodexFolderTrustPrompt(screen) {
-  const options = activeMenuOptions(screen);
-  if (options.length !== 2) return null;
-  if (!hasDirectoryContextLine(screen, options[0].line)) return null;
-  const affirmativeIndex = options.findIndex((option) => /^(?:yes|trust|allow)\b/i.test(option.label));
-  const negativeIndex = options.findIndex((option) => /^(?:no|quit|cancel|decline|deny)\b/i.test(option.label));
-  if (affirmativeIndex < 0 || negativeIndex < 0) return null;
-  const preamble = cleanPromptText(menuPreamble(screen, options[0].line));
-  if (!hasDirectoryTrustContent(preamble)) return null;
-  const questionEnd = preamble.indexOf("?");
-  const explanation = questionEnd < 0 ? "" : preamble.slice(questionEnd + 1).trim();
-  if (explanation.split(/\s+/).filter(Boolean).length < 8) return null;
-  if (!hasConfirmFooter(screen, options[options.length - 1].line)) return null;
-  const choice = parseActiveTerminalChoice(screen);
-  if (!choice || choice.options.length !== 2 || choice.options.filter((option) => option.highlighted).length !== 1) {
-    return { kind: "not_on_screen" };
-  }
-  return {
-    kind: "active",
-    affirmativeIndex,
-    affirmativeSelected: choice.options[affirmativeIndex].highlighted,
-    prompt: {
-      question: preamble.slice(0, questionEnd + 1).trim(),
-      options: choice.options.map((option) => [option.label, option.value]),
-      multiSelect: false,
-      submitAvailable: false
-    }
-  };
-}
-function hasConfirmFooter(screen, lastOptionLine) {
-  const lines = normalizeLines(screen);
-  let footerLine = -1;
-  for (let i = lastOptionLine + 1; i < Math.min(lines.length, lastOptionLine + 5); i++) {
-    if (/\benter\b.{0,24}\b(?:confirm|continue|select)\b/i.test(lines[i])) {
-      footerLine = i;
-      break;
-    }
-  }
-  return footerLine >= 0 && lastMeaningfulLineIndex(lines) === footerLine;
-}
-function hasDirectoryContextLine(screen, firstOptionLine) {
-  const lines = normalizeLines(screen);
-  const start = Math.max(0, firstOptionLine - 12);
-  const context = lines.slice(start, firstOptionLine).map((line) => line.trim()).filter(Boolean).join(" ");
-  const questionEnds = [];
-  const questionPattern = /\?/g;
-  let questionMatch;
-  while ((questionMatch = questionPattern.exec(context)) !== null) questionEnds.push(questionMatch.index);
-  for (let i = questionEnds.length - 1; i >= 0; i--) {
-    const questionEnd = questionEnds[i];
-    const prefix = context.slice(0, questionEnd + 1);
-    if (!/\b(folder|directory|workspace)\b/i.test(prefix)) continue;
-    if (!/\b(trust|load(?:ed|ing)?)\b/i.test(prefix)) continue;
-    if (prefix.split(/\s+/).some((token) => isAbsolutePathToken(token))) return true;
-  }
-  return false;
-}
-function hasDirectoryTrustContent(preamble) {
-  const content = preamble.toLowerCase();
-  if (/\b(?:bypass|disable|override|without restrictions)\b/.test(content)) return false;
-  const questionEnd = content.indexOf("?");
-  if (questionEnd < 0) return false;
-  const question = content.slice(0, questionEnd);
-  const explanation = content.slice(questionEnd + 1);
-  return /\b(?:folder|directory|workspace)\b/.test(question) && /\b(?:trust(?:ed|ing)?|load(?:ed|ing)?)\b/.test(question) && /\b(?:guidance|rules|config(?:uration)?|settings|policy|policies|instructions|hooks)\b/.test(explanation);
-}
-function isAbsolutePathToken(token) {
-  const path = token.replace(/[),;]+$/, "");
-  return /^(?:[a-z]:[\\/]|\\\\|\/\/|\/)/i.test(path);
-}
-function responseKeysForIndex(optionIndex, screen) {
-  const options = activeMenuOptions(screen);
-  let highlightIdx = 0;
-  for (let i = 0; i < options.length; i++) {
-    if (options[i].highlighted) {
-      highlightIdx = i;
-      break;
-    }
-  }
-  const target = optionIndex > 0 ? optionIndex : 0;
-  const delta = target - highlightIdx;
-  const steps = [];
-  if (delta > 0) for (let i = 0; i < delta; i++) steps.push(DOWN);
-  else if (delta < 0) for (let i = 0; i < -delta; i++) steps.push(UP);
-  steps.push(ENTER);
-  return steps;
-}
-function parseMenuOptions(screen) {
-  const lines = normalizeLines(screen);
-  const options = [];
-  for (let i = 0; i < lines.length; i++) {
-    const m = MENU_OPTION_RE.exec(lines[i]);
-    if (!m) continue;
-    const indent = leadingIndent(lines[i]);
-    const wrapped = [];
-    for (let j = i + 1; j < lines.length; j++) {
-      if (!lines[j].trim() || MENU_OPTION_RE.test(lines[j]) || isPromptFooter(lines[j])) break;
-      if (leadingIndent(lines[j]) <= indent) break;
-      wrapped.push(lines[j]);
-    }
-    options.push({
-      highlighted: !!m[1],
-      label: wrapped.reduce(joinWrappedLabel, m[3].trim()),
-      value: m[2],
-      line: i
-    });
-  }
-  return options;
-}
-function joinWrappedLabel(label, row3) {
-  const continuation2 = row3.trim();
-  const pathBoundary = /[\\/]$/.test(label);
-  return `${label}${pathBoundary ? "" : " "}${continuation2}`;
-}
-function parseActiveTerminalChoice(screen) {
-  const lines = normalizeLines(screen);
-  const options = activeMenuOptions(screen);
-  if (options.length < 2 || options.filter((option) => option.highlighted).length !== 1) return null;
-  const lastOptionLine = options[options.length - 1].line;
-  let footerLine = -1;
-  for (let i = lastOptionLine + 1; i < Math.min(lines.length, lastOptionLine + 5); i++) {
-    if (isActiveChoiceFooter(lines[i])) {
-      footerLine = i;
-      break;
-    }
-  }
-  if (footerLine === -1 || lastMeaningfulLineIndex(lines) > footerLine) return null;
-  return { question: questionForMenu(lines, options[0].line), options };
-}
-function menuPreamble(screen, firstOptionLine) {
-  const lines = normalizeLines(screen);
-  let i = firstOptionLine - 1;
-  while (i >= 0 && !lines[i].trim()) i--;
-  const parts = [];
-  while (i >= 0 && lines[i].trim()) {
-    parts.unshift(lines[i].trim());
-    i--;
-  }
-  return parts.join(" ");
-}
-function activeMenuOptions(screen) {
-  const lines = normalizeLines(screen);
-  const all = parseMenuOptions(screen);
-  if (all.length < 2) return [];
-  const cluster = [];
-  let prev = all[all.length - 1].line;
-  for (let i = all.length - 1; i >= 0; i--) {
-    const between = lines.slice(all[i].line + 1, prev);
-    const wrapsPreviousOption = between.every(
-      (line) => line.trim().length > 0 && leadingIndent(line) > leadingIndent(lines[all[i].line])
-    );
-    if (wrapsPreviousOption || cluster.length === 0) {
-      cluster.unshift(all[i]);
-      prev = all[i].line;
-    } else {
-      break;
-    }
-  }
-  return cluster.length >= 2 ? cluster : [];
-}
-function isPromptFooter(line) {
-  return isActiveChoiceFooter(line);
-}
-function leadingIndent(line) {
-  return /^\s*/.exec(line)?.[0].length ?? 0;
-}
-function isActiveChoiceFooter(line) {
-  if (isActiveChoiceEnterFooter(line)) return true;
-  const bindings = line.trim().split(/\s+[·•]\s+/);
-  if (bindings.length < 2) return false;
-  const keys = bindings.map((binding) => /^(enter|esc|[a-z])\s+\S.*$/i.exec(binding)?.[1]?.toLowerCase());
-  return keys.every((key) => key !== void 0) && keys.includes("enter") && keys.includes("esc");
-}
-function isActiveChoiceEnterFooter(line) {
-  return /^(?:\S+[ \t]+)?enter[ \t]+\S.*$/i.test(line.trim());
-}
-function questionForMenu(lines, firstLine) {
-  for (let i = firstLine - 1; i >= 0 && firstLine - i <= 16; i--) {
-    const t = lines[i].trim();
-    if (t.length > 3 && t.charAt(t.length - 1) === "?") return t;
-  }
-  for (let i = firstLine - 1; i >= 0 && firstLine - i <= 3; i--) {
-    const t = lines[i].trim();
-    if (t.length > 3) return t;
-  }
-  return "Permission required";
-}
-function normalizeLines(text7) {
-  return String(text7 || "").replace(/\r*\n|\r/g, "\n").split("\n");
-}
-function lastMeaningfulLineIndex(lines) {
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const line = lines[i].trim();
-    if (!line || /^[-─━═]{8,}$/.test(line.replace(/\s/g, ""))) continue;
-    return i;
-  }
-  return -1;
-}
-function cleanPromptText(value) {
-  return String(value || "").replace(/^[•⏺]\s*/, "").replace(/─+/g, " ").replace(/\s+/g, " ").trim();
-}
-
-// plugins/provider-codex/src/usage.ts
-var CODEX_USAGE_KIND = "codeterm_usage_v1";
-var CODEX_AUTH_CREDENTIAL2 = "codexAuth";
-function fetchCodexUsage(host2) {
-  const accountId = stringAt(safeJson(host2.credentialPublic(CODEX_AUTH_CREDENTIAL2)), "accountId");
-  if (!accountId) return null;
-  const response = safeJson(host2.fetch(JSON.stringify({
-    url: "https://chatgpt.com/backend-api/wham/usage",
-    method: "GET",
-    timeoutMs: 6e3,
-    headers: {
-      "ChatGPT-Account-Id": accountId,
-      "User-Agent": "codeterm-usage/1.7.8"
-    },
-    credential: {
-      id: CODEX_AUTH_CREDENTIAL2,
-      headers: { Authorization: "Bearer {accessToken}" }
-    }
-  })));
-  if (numberAt(response, "status") !== 200) return null;
-  const body = safeJson(stringAt(response, "body"));
-  const rateLimit = objectAt(body, "rate_limit");
-  if (!rateLimit) return null;
-  const windows = [rateLimit.primary_window, rateLimit.secondary_window].filter(Boolean);
-  const session = windows.find((window) => windowDuration(window) !== null && windowDuration(window) < 86400) ?? null;
-  const weekly = windows.find((window) => windowDuration(window) !== null && windowDuration(window) >= 86400) ?? null;
-  if (!session && !weekly) return null;
-  return JSON.stringify({
-    kind: CODEX_USAGE_KIND,
-    account_id: accountId,
-    session_pct: numberAt(session, "used_percent"),
-    session_resets_at_ms: secondsToMs(numberAt(session, "reset_at")),
-    weekly_pct: numberAt(weekly, "used_percent"),
-    weekly_resets_at_ms: secondsToMs(numberAt(weekly, "reset_at"))
-  });
-}
-function parseCodexUsage(rawText, nowMs) {
-  const raw = String(rawText || "");
-  if (!raw.trim()) return null;
-  const fetched = safeJson(raw);
-  if (stringAt(fetched, "kind") === CODEX_USAGE_KIND) {
-    return {
-      provider: "codex",
-      account_id: stringAt(fetched, "account_id"),
-      captured_at_ms: nowMs,
-      session_pct: numberAt(fetched, "session_pct"),
-      session_resets_at_ms: numberAt(fetched, "session_resets_at_ms"),
-      weekly_pct: numberAt(fetched, "weekly_pct"),
-      weekly_resets_at_ms: numberAt(fetched, "weekly_resets_at_ms"),
-      raw_text: raw
-    };
-  }
-  const text7 = raw.split("\r").join("").split("\u2588").join(" ").split("\u2591").join(" ");
-  const lines = text7.split("\n");
-  const limits = parseCodexLimits(lines, nowMs);
-  const session = limits.find((line) => line.family === "general") ?? limits.find((line) => line.family === "legacy-session");
-  const weekly = limits.find((line) => line.family === "weekly");
-  if (session === void 0 && weekly === void 0) return null;
-  return {
-    provider: "codex",
-    account_id: null,
-    captured_at_ms: nowMs,
-    session_pct: session ? session.pct : null,
-    session_resets_at_ms: session ? session.resetsMs : null,
-    weekly_pct: weekly ? weekly.pct : null,
-    weekly_resets_at_ms: weekly ? weekly.resetsMs : null,
-    raw_text: raw
-  };
-}
-function safeJson(raw) {
-  if (typeof raw !== "string" || !raw.trim()) return null;
-  try {
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === "object" ? parsed : null;
-  } catch {
-    return null;
-  }
-}
-function objectAt(value, key) {
-  if (!value || typeof value !== "object") return null;
-  const nested = value[key];
-  return nested && typeof nested === "object" ? nested : null;
-}
-function stringAt(value, key) {
-  if (!value || typeof value !== "object") return null;
-  const nested = value[key];
-  return typeof nested === "string" && nested ? nested : null;
-}
-function numberAt(value, key) {
-  if (!value || typeof value !== "object") return null;
-  const nested = value[key];
-  return typeof nested === "number" && Number.isFinite(nested) ? nested : null;
-}
-function secondsToMs(value) {
-  return value === null ? null : value * 1e3;
-}
-function windowDuration(window) {
-  return numberAt(window, "limit_window_seconds");
-}
-var CODEX_BORDER_RE = /^[\s─-╿]+|[\s─-╿]+$/g;
-function stripCodexBorder(raw) {
-  return String(raw || "").replace(CODEX_BORDER_RE, "");
-}
-var CODEX_HEADER_RE = /\blimit\s*:?\s*$/i;
-function isCodexSectionHeader(line) {
-  if (!line || line.indexOf("%") !== -1) return false;
-  return CODEX_HEADER_RE.test(line);
-}
-function parseCodexLimits(lines, nowMs) {
-  const out = [];
-  let sectionHeader = null;
-  for (let i = 0; i < lines.length; i++) {
-    const line = stripCodexBorder(lines[i]);
-    if (!line) continue;
-    if (isCodexSectionHeader(line)) {
-      sectionHeader = line;
-      continue;
-    }
-    let context = line;
-    for (let j = i - 1; j >= 0; j--) {
-      const prev = stripCodexBorder(lines[j]);
-      if (prev) {
-        context = `${prev} ${line}`;
-        break;
-      }
-    }
-    const gauge = parseCodexGaugeLine(line, context, nowMs);
-    if (gauge.pct === null && gauge.resetsMs === null) continue;
-    const family = codexLimitFamily(context, sectionHeader);
-    if (family !== "model") {
-      out.push({ family, pct: gauge.pct, resetsMs: gauge.resetsMs });
-    }
-  }
-  return out;
-}
-function parseCodexGaugeLine(line, context, nowMs) {
-  const re = /(\d+(?:\.\d+)?)\s*%\s*(left|remaining|used)\s*\(\s*resets?\s+(?:at\s+)?([^)]+?)\)/i;
-  const caps = re.exec(line);
-  if (!caps) {
-    return { pct: null, resetsMs: null };
-  }
-  const value = parseFloat(caps[1]);
-  const pct = codexPctToUsed(value, (caps[2] || "").toLowerCase());
-  const resetsRaw = (caps[3] || "").trim();
-  const isWeekly = /\bweekly\b/i.test(context);
-  const resetsMs = isWeekly ? codexParseWeeklyResets(resetsRaw, nowMs) : codexParseSessionResets(resetsRaw, nowMs);
-  return { pct, resetsMs };
-}
-function codexPctToUsed(value, mode) {
-  if (isNaN(value)) return null;
-  const rawMode = mode === "used" ? "used" : "left";
-  const pct = rawMode === "used" ? value : 100 - value;
-  return Math.min(100, Math.max(0, pct));
-}
-var CODEX_MODEL_NAME_RE = /\b(?:gpt|opus|haiku|sonnet|claude|codex|o\d|gemini)\b.*\d+\.\d+/i;
-function codexLimitFamily(text7, sectionHeader) {
-  const lower = String(text7 || "").toLowerCase();
-  const hasGeneral = /\bgeneral\b/.test(lower);
-  const hasWeekly = /\bweekly\b/.test(lower);
-  const hasSession = /\b5(?:\s*|-\s*)(?:h|hour|hours)\b/.test(lower);
-  const hasModel = CODEX_MODEL_NAME_RE.test(lower) || sectionHeader !== null && CODEX_MODEL_NAME_RE.test(sectionHeader);
-  if (hasModel) return "model";
-  if (hasGeneral) return hasWeekly ? "weekly" : "general";
-  if (hasWeekly) return "weekly";
-  if (hasSession) return "legacy-session";
-  return "general";
-}
-function codexParseSessionResets(raw, nowMs) {
-  const m = /(\d{1,2}):(\d{2})/.exec(String(raw || "").trim());
-  if (!m) return null;
-  const hh = parseInt(m[1], 10);
-  const mm = parseInt(m[2], 10);
-  const now = new Date(nowMs);
-  let cand = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hh, mm, 0, 0);
-  if (cand.getTime() <= nowMs) cand = new Date(cand.getTime() + 24 * 3600 * 1e3);
-  return cand.getTime();
-}
-var CODEX_MONTHS = {
-  jan: 0,
-  january: 0,
-  feb: 1,
-  february: 1,
-  mar: 2,
-  march: 2,
-  apr: 3,
-  april: 3,
-  may: 4,
-  jun: 5,
-  june: 5,
-  jul: 6,
-  july: 6,
-  aug: 7,
-  august: 7,
-  sep: 8,
-  sept: 8,
-  september: 8,
-  oct: 9,
-  october: 9,
-  nov: 10,
-  november: 10,
-  dec: 11,
-  december: 11
-};
-function codexParseWeeklyResets(raw, nowMs) {
-  const s = String(raw || "").trim().replace(/^at\s+/i, "");
-  let hh;
-  let mm;
-  let day;
-  let month;
-  let year = null;
-  let m = /(\d{1,2}):(\d{2})\s+on\s+(\d{1,2})\s+([A-Za-z]+)(?:,?\s+(\d{4}))?/i.exec(s);
-  if (m) {
-    hh = parseInt(m[1], 10);
-    mm = parseInt(m[2], 10);
-    day = parseInt(m[3], 10);
-    month = CODEX_MONTHS[m[4].toLowerCase()];
-    year = m[5] ? parseInt(m[5], 10) : null;
-  } else {
-    m = /(\d{1,2}):(\d{2})\s+on\s+([A-Za-z]+)\s+(\d{1,2})(?:,?\s+(\d{4}))?/i.exec(s);
-    if (!m) return null;
-    hh = parseInt(m[1], 10);
-    mm = parseInt(m[2], 10);
-    month = CODEX_MONTHS[m[3].toLowerCase()];
-    day = parseInt(m[4], 10);
-    year = m[5] ? parseInt(m[5], 10) : null;
-  }
-  if (month === void 0) return null;
-  const now = new Date(nowMs);
-  let cand = new Date(year ?? now.getFullYear(), month, day, hh, mm, 0, 0);
-  if (year === null && cand.getTime() <= nowMs) {
-    cand = new Date(now.getFullYear() + 1, month, day, hh, mm, 0, 0);
-  }
-  return cand.getTime();
-}
-
-// plugins/provider-shared/updateCheck.ts
-function record5(raw) {
-  if (raw !== null && typeof raw === "object") return raw;
-  if (typeof raw !== "string") return null;
-  try {
-    const value = JSON.parse(raw);
-    return value !== null && typeof value === "object" ? value : null;
-  } catch {
-    return null;
-  }
-}
-function versionParts(version) {
-  if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(version)) return null;
-  const parts = version.split(".").map(Number);
-  return parts.every(Number.isSafeInteger) ? parts : null;
-}
-function compare(left, right) {
-  const a = versionParts(left), b = versionParts(right);
-  if (!a || !b) return null;
-  for (let index = 0; index < 3; index++) {
-    if (a[index] !== b[index]) return a[index] < b[index] ? -1 : 1;
-  }
-  return 0;
-}
-function matchesRange(version, range) {
-  return range.split(",").every((clause) => {
-    const match = clause.trim().match(/^(>=|<=|>|<|=)?\s*(\d+\.\d+\.\d+)$/);
-    if (!match) return false;
-    const order = compare(version, match[2]);
-    if (order === null) return false;
-    switch (match[1] ?? "=") {
-      case ">=":
-        return order >= 0;
-      case "<=":
-        return order <= 0;
-      case ">":
-        return order > 0;
-      case "<":
-        return order < 0;
-      default:
-        return order === 0;
-    }
-  });
-}
-function newestSupportedVersion(versions, compatibility) {
-  return versions.reduce((best, version) => {
-    if (!versionParts(version) || !compatibility.supported.some((range) => matchesRange(version, range)) || compatibility.breaking?.some((rule) => matchesRange(version, rule.range))) return best;
-    return best === null || compare(version, best) === 1 ? version : best;
-  }, null);
-}
-function installedVersion(result) {
-  const installed = record5(result);
-  if (installed?.code !== 0 || typeof installed.stdout !== "string") return null;
-  const version = installed.stdout.match(/(?:^|\s)(\d+\.\d+\.\d+)(?=\s|$)/)?.[1];
-  return version && versionParts(version) ? version : null;
-}
-function availableUpdate(currentVersion, result, compatibility) {
-  const response = record5(result);
-  if (response?.status !== 200) return null;
-  const metadata = record5(response.body);
-  let latestVersion = typeof metadata?.version === "string" ? metadata.version : null;
-  if (!compatibility && !latestVersion) return null;
-  if (compatibility) {
-    if (!metadata?.versions || typeof metadata.versions !== "object") return null;
-    latestVersion = newestSupportedVersion(Object.keys(metadata.versions), compatibility);
-  }
-  return latestVersion && compare(latestVersion, currentVersion) === 1 ? { currentVersion, latestVersion } : { currentVersion, latestVersion: currentVersion };
-}
-function startedJob(raw) {
-  const job = record5(raw)?.jobId;
-  return typeof job === "string" && job !== "" ? job : null;
-}
-function checkProviderUpdate(host2, binary, metadataUrl, compatibility, parseInstalled = installedVersion) {
-  const probe = startedJob(host2.execStart(JSON.stringify({ bin: binary, args: ["--version"], timeoutMs: 5e3 })));
-  if (!probe) return null;
-  return host2.awaitJob(probe, (installed) => {
-    const currentVersion = parseInstalled(installed);
-    if (!currentVersion) return null;
-    const metadata = startedJob(host2.fetchStart(JSON.stringify({
-      url: metadataUrl,
-      method: "GET",
-      timeoutMs: 6e3,
-      headers: { Accept: compatibility ? "application/vnd.npm.install-v1+json" : "application/json" }
-    })));
-    if (!metadata) return null;
-    return host2.awaitJob(metadata, (response) => availableUpdate(currentVersion, response, compatibility));
-  });
-}
-
-// plugins/provider-codex/src/update.ts
-var codexSelfUpdateCapability = {
-  npmPackage: "@openai/codex",
-  standaloneDirectory: "packages/standalone",
-  standaloneArgs: ["update"]
-};
-function checkCodexUpdate(host2) {
-  return checkProviderUpdate(
-    host2,
-    "codex",
-    `https://registry.npmjs.org/${encodeURIComponent(codexSelfUpdateCapability.npmPackage)}/latest`,
-    void 0,
-    installedVersion
-  );
-}
-
-// plugins/provider-codex/src/patchEdits.ts
-function patchEdits(patch) {
-  if (typeof patch !== "string" || patch.indexOf("*** Begin Patch") < 0) return [];
-  try {
-    const edits = [];
-    let path = null;
-    let oldLines = [];
-    let newLines = [];
-    const flush = () => {
-      if (path && (oldLines.length > 0 || newLines.length > 0)) edits.push({ path, old: oldLines.join("\n"), new: newLines.join("\n") });
-      oldLines = [];
-      newLines = [];
-    };
-    for (const line of patch.replace(/\r\n/g, "\n").split("\n")) {
-      const header = /^\*\*\* (?:Update|Add|Delete) File: (.+)$/.exec(line);
-      if (header) {
-        flush();
-        path = header[1].trim();
-      } else if (line === "@@" || line.indexOf("@@ ") === 0) {
-        flush();
-      } else if (path && line.indexOf("-") === 0) {
-        oldLines.push(line.substring(1));
-      } else if (path && line.indexOf("+") === 0) {
-        newLines.push(line.substring(1));
-      }
-    }
-    flush();
-    return edits;
-  } catch (_) {
-    return [];
-  }
-}
-
-// plugins/provider-codex/src/fileChangePairing.ts
-function editFingerprint(edits) {
-  if (!edits.length) return "";
-  const files = /* @__PURE__ */ new Map();
-  for (const edit of edits) {
-    if (!edit.path || typeof edit.old !== "string" || typeof edit.new !== "string") return "";
-    const lines = files.get(edit.path) ?? { old: [], new: [] };
-    if (edit.old) lines.old.push(edit.old);
-    if (edit.new) lines.new.push(edit.new);
-    files.set(edit.path, lines);
-  }
-  return JSON.stringify([...files].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([path, lines]) => [path, lines.old.join("\n"), lines.new.join("\n")]));
-}
-function pairFileChange(activity, turnId, pending) {
-  if (!activity || typeof turnId !== "string" || !turnId) return activity;
-  const call = activity.blocks.find((block) => block.kind === "tool_use")?.data;
-  if (call?.name !== "file_change" || !Array.isArray(call.file_diffs) || !call.file_diffs.length) return activity;
-  const edits = call.tool_edits;
-  const fingerprint = editFingerprint(edits);
-  const paths = call.input?.paths;
-  if (!fingerprint || !paths || paths.length !== new Set(edits.map((edit) => edit.path)).size) return activity;
-  const matches = [...pending].filter(([, entry]) => entry.turnId === turnId && entry.fingerprint === fingerprint);
-  if (matches.length !== 1) return activity;
-  const [id] = matches[0];
-  pending.delete(id);
-  const result = activity.blocks.find((block) => block.kind === "tool_result")?.data;
-  return { ...activity, blocks: [{ kind: "tool_result", data: {
-    ...result,
-    tool_use_id: id,
-    file_diffs: call.file_diffs
-  } }] };
-}
-
-// plugins/provider-codex/src/userContent.ts
-var OPEN_TAG = /^<image\s+name=(\[Image #\d+\])(?:\s+path="([^"]*)")?\s*>$/;
-var INLINE_IMAGE = /<image\s+name=(\[Image #\d+\])(?:\s+path="([^"]*)")?\s*>[\s\S]*?<\/image>/g;
-var CLOSE_TAG = /^<\/image>$/;
-var PLACEHOLDER = /\[Image #\d+\]/g;
-var EXT_MEDIA = {
-  png: "image/png",
-  jpg: "image/jpeg",
-  jpeg: "image/jpeg",
-  gif: "image/gif",
-  webp: "image/webp",
-  bmp: "image/bmp",
-  svg: "image/svg+xml"
-};
-function mediaTypeFromPath(path) {
-  const ext = path?.split(".").pop()?.toLowerCase() ?? "";
-  return EXT_MEDIA[ext] ?? "image/png";
-}
-function imageFromTag(name, rawPath) {
-  const path = rawPath?.trim() || null;
-  return { name, path, mediaType: mediaTypeFromPath(path), data: null };
-}
-function withDataUrl(image, url) {
-  const match = /^data:([^;,]+);base64,([\s\S]*)$/.exec(url ?? "");
-  if (!match) return image;
-  return { ...image, mediaType: match[1], data: match[2] };
-}
-function extractInlineImages(text7, images) {
-  return text7.replace(INLINE_IMAGE, (_whole, name, path) => {
-    images.push(imageFromTag(name, path));
-    return "";
-  });
-}
-function stripPlaceholders(text7, images) {
-  if (images.length === 0) return text7;
-  const names = new Set(images.map((image) => image.name).filter(Boolean));
-  return text7.replace(PLACEHOLDER, (token) => names.has(token) ? "" : token).split("\n").map((line) => line.replace(/[ \t]{2,}/g, " ").trim()).join("\n").trim();
-}
-function parseCodexUserContent(content) {
-  const images = [];
-  if (typeof content === "string") {
-    return { text: stripPlaceholders(extractInlineImages(content, images), images), images };
-  }
-  let text7 = "";
-  let open = null;
-  for (const item of content ?? []) {
-    if (!item) continue;
-    if (item.type === "input_image") {
-      if (open) {
-        open = withDataUrl(open, item.image_url);
-      } else {
-        images.push(withDataUrl({ name: null, path: null, mediaType: "image/png", data: null }, item.image_url));
-      }
-      continue;
-    }
-    if (typeof item.text !== "string") continue;
-    const trimmed = item.text.trim();
-    const tag = OPEN_TAG.exec(trimmed);
-    if (tag) {
-      if (open) images.push(open);
-      open = imageFromTag(tag[1], tag[2]);
-      continue;
-    }
-    if (CLOSE_TAG.test(trimmed) && open) {
-      images.push(open);
-      open = null;
-      continue;
-    }
-    text7 += extractInlineImages(item.text, images);
-  }
-  if (open) images.push(open);
-  return { text: stripPlaceholders(text7, images), images };
-}
-function codexImageBlock(image) {
-  const source = { media_type: image.mediaType };
-  if (image.path) source.path = image.path;
-  if (image.data) source.data = image.data;
-  return { kind: "image", data: { source } };
 }
 
 // plugins/provider-codex/src/trust-carryover.ts
@@ -5173,21 +4463,21 @@ function mergeTrustedProjectEntries(profile, config) {
   const appended = missing.flatMap((entry) => [entry.header, entry.assignment]).join(newline) + newline;
   return config + separator + appended;
 }
-function carryCodexProjectTrust(host2, profilePath2, configPath) {
-  const lockId = host2.fs.lockFile(configPath + ".project-trust.lock");
+function* carryCodexProjectTrust(host2, profilePath2, configPath) {
+  const lockId = yield* host2.io.fs.lockFile(configPath + ".project-trust.lock");
   if (lockId === null) {
     host2.log?.("warn", "Codex project trust carry-over skipped because the shared config lock is busy");
     return false;
   }
   try {
-    if (host2.fs.isSymlink(configPath) !== false) {
+    if ((yield* host2.io.fs.isSymlink(configPath)) !== false) {
       host2.log?.("warn", "Codex project trust carry-over skipped because the shared config path could not be safely replaced");
       return false;
     }
-    const profile = host2.fs.readFile(profilePath2);
+    const profile = yield* host2.io.fs.readFile(profilePath2);
     if (profile === null) return false;
-    const configExists = host2.fs.fileExists(configPath);
-    const config = configExists ? host2.fs.readFile(configPath) : "";
+    const configExists = yield* host2.io.fs.fileExists(configPath);
+    const config = configExists ? yield* host2.io.fs.readFile(configPath) : "";
     if (config === null) return false;
     const merged = mergeTrustedProjectEntries(profile, config);
     if (merged === null) {
@@ -5195,23 +4485,23 @@ function carryCodexProjectTrust(host2, profilePath2, configPath) {
       return false;
     }
     if (merged === config) return true;
-    const currentExists = host2.fs.fileExists(configPath);
-    const current = currentExists ? host2.fs.readFile(configPath) : "";
+    const currentExists = yield* host2.io.fs.fileExists(configPath);
+    const current = currentExists ? yield* host2.io.fs.readFile(configPath) : "";
     if (current === null || currentExists !== configExists || current !== config) {
       host2.log?.("warn", "Codex project trust carry-over skipped after a concurrent config change");
       return false;
     }
-    if (host2.fs.isSymlink(configPath) !== false) {
+    if ((yield* host2.io.fs.isSymlink(configPath)) !== false) {
       host2.log?.("warn", "Codex project trust carry-over skipped because the shared config path could not be safely replaced");
       return false;
     }
-    if (!host2.fs.writeFileAtomic(configPath, merged)) {
+    if (!(yield* host2.io.fs.writeFileAtomic(configPath, merged))) {
       host2.log?.("warn", "Codex project trust carry-over could not atomically update the shared config");
       return false;
     }
     return true;
   } finally {
-    host2.fs.unlockFile(lockId);
+    yield* host2.io.fs.unlockFile(lockId);
   }
 }
 
@@ -5233,21 +4523,21 @@ function codexConfigPath(host2, home) {
   const separator = host2.platform() === "windows" ? "\\" : "/";
   return `${home}${separator}.codex${separator}config.toml`;
 }
-function isCodexDirectoryTrusted(host2, path) {
-  return codexDirectoryTrustState(host2, path) === "trusted";
+function* isCodexDirectoryTrusted(host2, path) {
+  return (yield* codexDirectoryTrustState(host2, path)) === "trusted";
 }
-function codexDirectoryTrustState(host2, cwd, _skipPermissions = false) {
+function* codexDirectoryTrustState(host2, cwd, _skipPermissions = false) {
   const home = host2.homeDir();
   if (!home || !isAbsolutePath(host2, cwd)) return "unknown";
   const configPath = codexConfigPath(host2, home);
-  const configSymlink = host2.fs.isSymlink(configPath);
+  const configSymlink = yield* host2.io.fs.isSymlink(configPath);
   if (configSymlink !== false) return "unknown";
-  const configExists = host2.fs.fileExists(configPath);
-  const config = configExists ? host2.fs.readFile(configPath) : "";
+  const configExists = yield* host2.io.fs.fileExists(configPath);
+  const config = configExists ? yield* host2.io.fs.readFile(configPath) : "";
   if (config === null) return "unknown";
   const markers = projectRootMarkers(config);
   if (!markers) return "unknown";
-  const roots = codexTrustRoots(host2, cwd, markers);
+  const roots = yield* codexTrustRoots(host2, cwd, markers);
   if (!roots) return "unknown";
   for (const root of roots) {
     const trust = projectTrustForPath(config, root);
@@ -5287,22 +4577,22 @@ function projectRootMarkers(config) {
   }
   return markers;
 }
-function codexTrustRoots(host2, cwd, markers) {
+function* codexTrustRoots(host2, cwd, markers) {
   const windows = host2.platform() === "windows";
   const normalizedCwd = normalizeAbsolutePath(cwd, windows);
   if (!normalizedCwd) return null;
-  const projectRoot = markers.length === 0 ? normalizedCwd : findRoot(host2, normalizedCwd, markers, windows);
-  const gitRoot = findRoot(host2, normalizedCwd, [".git"], windows);
+  const projectRoot = markers.length === 0 ? normalizedCwd : yield* findRoot(host2, normalizedCwd, markers, windows);
+  const gitRoot = yield* findRoot(host2, normalizedCwd, [".git"], windows);
   if (projectRoot === null || gitRoot === null) return null;
-  const mainRepoRoot = gitRoot === void 0 ? void 0 : worktreeMainRoot(host2, gitRoot, windows);
+  const mainRepoRoot = gitRoot === void 0 ? void 0 : yield* worktreeMainRoot(host2, gitRoot, windows);
   return uniquePaths(
     [normalizedCwd, projectRoot, gitRoot, mainRepoRoot].filter((path) => path !== void 0),
     windows
   );
 }
-function worktreeMainRoot(host2, gitRoot, windows) {
+function* worktreeMainRoot(host2, gitRoot, windows) {
   const separator = windows ? "\\" : "/";
-  const pointer = host2.fs.readFile(`${gitRoot.replace(/[\\/]$/, "")}${separator}.git`);
+  const pointer = yield* host2.io.fs.readFile(`${gitRoot.replace(/[\\/]$/, "")}${separator}.git`);
   const gitdir = pointer?.match(/^gitdir:\s*(.+?)\s*$/m)?.[1];
   if (!gitdir) return void 0;
   const absolute = isAbsolutePath(host2, gitdir) ? gitdir : `${gitRoot}${separator}${gitdir}`;
@@ -5310,17 +4600,17 @@ function worktreeMainRoot(host2, gitRoot, windows) {
   const main = normalized?.match(/^(.*?)[\\/]\.git[\\/]worktrees[\\/][^\\/]+[\\/]?$/i)?.[1];
   return main || void 0;
 }
-function findRoot(host2, cwd, markers, windows) {
+function* findRoot(host2, cwd, markers, windows) {
   const separator = windows ? "\\" : "/";
   let current = cwd;
   const root = windows ? current.slice(0, 3) : "/";
   while (current) {
-    if (host2.fs.isSymlink(current) !== false) return null;
+    if ((yield* host2.io.fs.isSymlink(current)) !== false) return null;
     for (const markerName of markers) {
       const marker = `${current.replace(/[\\/]$/, "")}${separator}${markerName}`;
-      const markerSymlink = host2.fs.isSymlink(marker);
+      const markerSymlink = yield* host2.io.fs.isSymlink(marker);
       if (markerSymlink === null || markerSymlink === true) return null;
-      if (host2.fs.fileExists(marker)) return current;
+      if (yield* host2.io.fs.fileExists(marker)) return current;
     }
     if (current === root) break;
     const parent = parentPath(current, windows);
@@ -5377,64 +4667,66 @@ function profilePath(host2, name) {
   const separator = host2.platform() === "windows" ? "\\" : "/";
   return home ? `${home}${separator}.codex${separator}${name}` : null;
 }
-function profiles(host2) {
+function* profiles(host2) {
   const home = host2.homeDir();
   if (!home) return null;
   const separator = host2.platform() === "windows" ? "\\" : "/";
   const dir = `${home}${separator}.codex`;
   try {
-    const entries = host2.fs.readDir(dir);
+    const entries = yield* host2.io.fs.readDir(dir);
     if (!Array.isArray(entries)) return null;
     return entries.filter((entry) => entry?.isFile).map((entry) => entry.name);
   } catch {
     return null;
   }
 }
-function readProfile(host2, path) {
+function* readProfile(host2, path) {
   try {
-    if (host2.fs.isSymlink(path) !== false) return null;
-    return host2.fs.readFile(path);
+    if ((yield* host2.io.fs.isSymlink(path)) !== false) return null;
+    return yield* host2.io.fs.readFile(path);
   } catch {
     return null;
   }
 }
-function removeProfile(host2, path) {
+function* removeProfile(host2, path) {
   try {
-    if (host2.fs.isSymlink(path) !== false) return false;
-    return host2.fs.removeFile(path);
+    if ((yield* host2.io.fs.isSymlink(path)) !== false) return false;
+    return yield* host2.io.fs.removeFile(path);
   } catch {
     return false;
   }
 }
-function removeProfileAfterTrustCarry(host2, path, expected) {
+function* removeProfileAfterTrustCarry(host2, path, expected) {
   const home = host2.homeDir();
   if (!home) return false;
-  const original = readProfile(host2, path);
+  const original = yield* readProfile(host2, path);
   if (original === null || original !== expected) return false;
   const configPath = codexConfigPath(host2, home);
-  if (!carryCodexProjectTrust(host2, path, configPath)) return false;
-  return readProfile(host2, path) === original && removeProfile(host2, path);
+  if (!(yield* carryCodexProjectTrust(host2, path, configPath))) return false;
+  return (yield* readProfile(host2, path)) === original && (yield* removeProfile(host2, path));
 }
-function carryCodexProjectTrustForTab(host2, tabId, instanceId) {
-  const listing = profiles(host2);
+function* carryCodexProjectTrustForTab(host2, tabId, instanceId) {
+  const listing = yield* profiles(host2);
   const home = host2.homeDir();
   if (!listing || !home) return false;
   const configPath = codexConfigPath(host2, home);
   const suffix = tabId.replace(/[^A-Za-z0-9_-]/g, "-");
-  const owned = listing.filter((name) => codexProfileTabId(name) === suffix).map((name) => profilePath(host2, name)).filter((path) => path !== null).filter((path) => codexProfileInstanceId(readProfile(host2, path) || "") === instanceId);
+  const owned = yield* ioFilter(listing.filter((name) => codexProfileTabId(name) === suffix).map((name) => profilePath(host2, name)).filter((path) => path !== null), function* (path) {
+    return codexProfileInstanceId((yield* readProfile(host2, path)) || "") === instanceId;
+  });
   if (owned.length === 0) return false;
   let foundTrustedEntry = false;
   for (const path of owned) {
-    const profile = readProfile(host2, path);
+    const profile = yield* readProfile(host2, path);
     if (profile === null) return false;
     if (!hasTrustedProjectEntries(profile)) continue;
     foundTrustedEntry = true;
-    if (!carryCodexProjectTrust(host2, path, configPath)) return false;
+    if (!(yield* carryCodexProjectTrust(host2, path, configPath))) return false;
   }
   return foundTrustedEntry;
 }
-function inspectCodexProfiles(host2, liveTabIds, instanceId, goneInstanceIds = []) {
-  const listing = profiles(host2);
+function* inspectCodexProfiles(host2, liveTabIds, instanceId, goneInstanceIds = []) {
+  const listing = yield* profiles(host2);
   if (!listing) return { dead: [], legacy: [] };
   const live = new Set(liveTabIds);
   const gone = new Set(goneInstanceIds);
@@ -5445,7 +4737,7 @@ function inspectCodexProfiles(host2, liveTabIds, instanceId, goneInstanceIds = [
     if (tabId === null) continue;
     const path = profilePath(host2, name);
     if (!path) continue;
-    const contents = readProfile(host2, path);
+    const contents = yield* readProfile(host2, path);
     if (contents === null) continue;
     const classification = classifyCodexProfile(name, contents, live, instanceId, gone);
     if (classification === "dead") dead.push(name);
@@ -5453,12 +4745,12 @@ function inspectCodexProfiles(host2, liveTabIds, instanceId, goneInstanceIds = [
   }
   return { dead, legacy };
 }
-function sweepCodexProfiles(host2, liveTabIds, instanceId) {
-  return manageCodexProfiles(host2, liveTabIds, instanceId, true, false);
+function* sweepCodexProfiles(host2, liveTabIds, instanceId) {
+  return yield* manageCodexProfiles(host2, liveTabIds, instanceId, true, false);
 }
 var MAX_SWEEP_REMOVALS = 200;
-function manageCodexProfiles(host2, liveTabIds, instanceId, confirm, includeLegacy, goneInstanceIds = []) {
-  const candidates = inspectCodexProfiles(host2, liveTabIds, instanceId, goneInstanceIds);
+function* manageCodexProfiles(host2, liveTabIds, instanceId, confirm, includeLegacy, goneInstanceIds = []) {
+  const candidates = yield* inspectCodexProfiles(host2, liveTabIds, instanceId, goneInstanceIds);
   const removed = [];
   if (!confirm) return { ...candidates, removed };
   const targets = [...candidates.dead, ...includeLegacy ? candidates.legacy : []];
@@ -5468,25 +4760,817 @@ function manageCodexProfiles(host2, liveTabIds, instanceId, confirm, includeLega
     if (removed.length >= MAX_SWEEP_REMOVALS) break;
     const path = profilePath(host2, name);
     if (!path) continue;
-    const contents = readProfile(host2, path);
+    const contents = yield* readProfile(host2, path);
     if (contents === null) continue;
     const classification = classifyCodexProfile(name, contents, live, instanceId, gone);
-    if ((classification === "dead" || includeLegacy && classification === "legacy") && removeProfileAfterTrustCarry(host2, path, contents)) removed.push(name);
+    if ((classification === "dead" || includeLegacy && classification === "legacy") && (yield* removeProfileAfterTrustCarry(host2, path, contents))) removed.push(name);
   }
   return { ...candidates, removed };
 }
-function releaseCodexProfile(host2, tabId, instanceId) {
+function* releaseCodexProfile(host2, tabId, instanceId) {
   const suffix = tabId.replace(/[^A-Za-z0-9_-]/g, "-");
-  const listing = profiles(host2);
+  const listing = yield* profiles(host2);
   if (!listing) return false;
-  const ownedPaths = listing.filter((name) => codexProfileTabId(name) === suffix).map((name) => profilePath(host2, name)).filter((path) => path !== null).filter((path) => codexProfileInstanceId(readProfile(host2, path) || "") === instanceId);
+  const ownedPaths = yield* ioFilter(listing.filter((name) => codexProfileTabId(name) === suffix).map((name) => profilePath(host2, name)).filter((path) => path !== null), function* (path) {
+    return codexProfileInstanceId((yield* readProfile(host2, path)) || "") === instanceId;
+  });
   if (ownedPaths.length === 0) return false;
   let released = true;
   for (const path of ownedPaths) {
-    const contents = readProfile(host2, path);
-    if (contents === null || codexProfileInstanceId(contents) !== instanceId || !removeProfileAfterTrustCarry(host2, path, contents)) released = false;
+    const contents = yield* readProfile(host2, path);
+    if (contents === null || codexProfileInstanceId(contents) !== instanceId || !(yield* removeProfileAfterTrustCarry(host2, path, contents))) released = false;
   }
   return released;
+}
+
+// plugins/provider-codex/src/toolOutput.ts
+function codexToolOutputText(output) {
+  if (typeof output === "string") return output;
+  if (output == null) return "";
+  if (Array.isArray(output) && output.every((item) => item && typeof item === "object" && typeof item.text === "string")) {
+    return output.map((item) => item.text).join("");
+  }
+  return typeof output === "object" ? canonicalJson(output) : String(output);
+}
+
+// plugins/provider-codex/src/models.ts
+function* discoverCodexModels() {
+  return yield* discoverCodexModelsFromCache();
+}
+function codexModelsCachePath() {
+  const home = host.homeDir();
+  const sep = host.platform() === "windows" ? "\\" : "/";
+  return effectiveReadPath(host.envGet("CODEX_HOME"), home ? home + sep + ".codex" + sep + "models_cache.json" : null, "models_cache.json", sep);
+}
+function* discoverCodexModelsFromCache() {
+  const path = codexModelsCachePath();
+  if (!path || !(yield* host.io.fs.fileExists(path))) return null;
+  const cache = yield* host.io.fs.readJson(path);
+  const raw = cache && cache.models;
+  if (!Array.isArray(raw)) return null;
+  const kept = [];
+  for (let i = 0; i < raw.length; i++) {
+    const item = raw[i];
+    const id = typeof item.slug === "string" ? item.slug.trim() : "";
+    if (!id) continue;
+    if (item.visibility === "hide") continue;
+    if (isNonChatModel(id)) continue;
+    kept.push(item);
+  }
+  kept.sort((a, b) => priorityOf(a) - priorityOf(b));
+  const models = [];
+  for (let i = 0; i < kept.length; i++) {
+    const item = kept[i];
+    const id = item.slug.trim();
+    models.push({
+      id,
+      displayName: typeof item.display_name === "string" && item.display_name.trim() ? item.display_name.trim() : displayNameFromId(id),
+      description: typeof item.description === "string" && item.description.trim() ? item.description.trim() : void 0,
+      reasoningEfforts: reasoningEffortsFrom(item.supported_reasoning_levels),
+      defaultReasoningEffort: defaultEffortFrom(item)
+    });
+  }
+  return models.length ? models : null;
+}
+function defaultEffortFrom(model) {
+  const effort = typeof model.default_reasoning_level === "string" ? model.default_reasoning_level.trim() : "";
+  return effort || void 0;
+}
+function reasoningEffortsFrom(levels) {
+  if (!Array.isArray(levels)) return void 0;
+  const efforts = [];
+  const seen = /* @__PURE__ */ new Set();
+  for (const level of levels) {
+    const id = typeof level.effort === "string" ? level.effort.trim() : "";
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    efforts.push({
+      id,
+      displayName: id,
+      description: typeof level.description === "string" && level.description.trim() ? level.description.trim() : void 0
+    });
+  }
+  return efforts.length ? efforts : void 0;
+}
+function priorityOf(m) {
+  return typeof m.priority === "number" ? m.priority : 1e9;
+}
+var NON_CHAT_TOKENS = ["embed", "embedding", "embeddings", "tts", "whisper", "moderation", "rerank", "dall", "dalle"];
+function isNonChatModel(id) {
+  const leaf = (id.split("/").pop() || id).toLowerCase();
+  const toks = leaf.split(/[-_.]/);
+  for (let i = 0; i < toks.length; i++) {
+    if (NON_CHAT_TOKENS.indexOf(toks[i]) !== -1) return true;
+  }
+  return false;
+}
+function displayNameFromId(id) {
+  const parts = id.split("/");
+  const leaf = parts[parts.length - 1] || id;
+  return leaf.split("-").filter(Boolean).map(capitalizeToken).join(" ");
+}
+function capitalizeToken(token) {
+  return token ? token.charAt(0).toUpperCase() + token.substring(1) : token;
+}
+
+// plugins/provider-codex/src/prompt.ts
+var DOWN = "G1tC";
+var UP = "G1tB";
+var ENTER = "DQ==";
+var MENU_OPTION_RE = /^[ \t]*([>❯▶➤›])?[ \t]*(\d+)[.)][ \t]+(.+?)[ \t]*$/;
+function parseCodexPrompt(screen) {
+  const choice = parseActiveTerminalChoice(screen);
+  return choice ? {
+    question: choice.question,
+    options: choice.options.map((option) => [option.label, option.value])
+  } : null;
+}
+function parseCodexFolderTrustPrompt(screen) {
+  const trust = classifyCodexFolderTrustPrompt(screen);
+  return trust?.kind === "active" ? trust.prompt : null;
+}
+function classifyCodexFolderTrustPrompt(screen) {
+  const options = activeMenuOptions(screen);
+  if (options.length !== 2) return null;
+  if (!hasDirectoryContextLine(screen, options[0].line)) return null;
+  const affirmativeIndex = options.findIndex((option) => /^(?:yes|trust|allow)\b/i.test(option.label));
+  const negativeIndex = options.findIndex((option) => /^(?:no|quit|cancel|decline|deny)\b/i.test(option.label));
+  if (affirmativeIndex < 0 || negativeIndex < 0) return null;
+  const preamble = cleanPromptText(menuPreamble(screen, options[0].line));
+  if (!hasDirectoryTrustContent(preamble)) return null;
+  const questionEnd = preamble.indexOf("?");
+  const explanation = questionEnd < 0 ? "" : preamble.slice(questionEnd + 1).trim();
+  if (explanation.split(/\s+/).filter(Boolean).length < 8) return null;
+  if (!hasConfirmFooter(screen, options[options.length - 1].line)) return null;
+  const choice = parseActiveTerminalChoice(screen);
+  if (!choice || choice.options.length !== 2 || choice.options.filter((option) => option.highlighted).length !== 1) {
+    return { kind: "not_on_screen" };
+  }
+  return {
+    kind: "active",
+    affirmativeIndex,
+    affirmativeSelected: choice.options[affirmativeIndex].highlighted,
+    prompt: {
+      question: preamble.slice(0, questionEnd + 1).trim(),
+      options: choice.options.map((option) => [option.label, option.value]),
+      multiSelect: false,
+      submitAvailable: false
+    }
+  };
+}
+function hasConfirmFooter(screen, lastOptionLine) {
+  const lines = normalizeLines(screen);
+  let footerLine = -1;
+  for (let i = lastOptionLine + 1; i < Math.min(lines.length, lastOptionLine + 5); i++) {
+    if (/\benter\b.{0,24}\b(?:confirm|continue|select)\b/i.test(lines[i])) {
+      footerLine = i;
+      break;
+    }
+  }
+  return footerLine >= 0 && lastMeaningfulLineIndex(lines) === footerLine;
+}
+function hasDirectoryContextLine(screen, firstOptionLine) {
+  const lines = normalizeLines(screen);
+  const start = Math.max(0, firstOptionLine - 12);
+  const context = lines.slice(start, firstOptionLine).map((line) => line.trim()).filter(Boolean).join(" ");
+  const questionEnds = [];
+  const questionPattern = /\?/g;
+  let questionMatch;
+  while ((questionMatch = questionPattern.exec(context)) !== null) questionEnds.push(questionMatch.index);
+  for (let i = questionEnds.length - 1; i >= 0; i--) {
+    const questionEnd = questionEnds[i];
+    const prefix = context.slice(0, questionEnd + 1);
+    if (!/\b(folder|directory|workspace)\b/i.test(prefix)) continue;
+    if (!/\b(trust|load(?:ed|ing)?)\b/i.test(prefix)) continue;
+    if (prefix.split(/\s+/).some((token) => isAbsolutePathToken(token))) return true;
+  }
+  return false;
+}
+function hasDirectoryTrustContent(preamble) {
+  const content = preamble.toLowerCase();
+  if (/\b(?:bypass|disable|override|without restrictions)\b/.test(content)) return false;
+  const questionEnd = content.indexOf("?");
+  if (questionEnd < 0) return false;
+  const question = content.slice(0, questionEnd);
+  const explanation = content.slice(questionEnd + 1);
+  return /\b(?:folder|directory|workspace)\b/.test(question) && /\b(?:trust(?:ed|ing)?|load(?:ed|ing)?)\b/.test(question) && /\b(?:guidance|rules|config(?:uration)?|settings|policy|policies|instructions|hooks)\b/.test(explanation);
+}
+function isAbsolutePathToken(token) {
+  const path = token.replace(/[),;]+$/, "");
+  return /^(?:[a-z]:[\\/]|\\\\|\/\/|\/)/i.test(path);
+}
+function responseKeysForIndex(optionIndex, screen) {
+  const options = activeMenuOptions(screen);
+  let highlightIdx = 0;
+  for (let i = 0; i < options.length; i++) {
+    if (options[i].highlighted) {
+      highlightIdx = i;
+      break;
+    }
+  }
+  const target = optionIndex > 0 ? optionIndex : 0;
+  const delta = target - highlightIdx;
+  const steps = [];
+  if (delta > 0) for (let i = 0; i < delta; i++) steps.push(DOWN);
+  else if (delta < 0) for (let i = 0; i < -delta; i++) steps.push(UP);
+  steps.push(ENTER);
+  return steps;
+}
+function parseMenuOptions(screen) {
+  const lines = normalizeLines(screen);
+  const options = [];
+  for (let i = 0; i < lines.length; i++) {
+    const m = MENU_OPTION_RE.exec(lines[i]);
+    if (!m) continue;
+    const indent = leadingIndent(lines[i]);
+    const wrapped = [];
+    for (let j = i + 1; j < lines.length; j++) {
+      if (!lines[j].trim() || MENU_OPTION_RE.test(lines[j]) || isPromptFooter(lines[j])) break;
+      if (leadingIndent(lines[j]) <= indent) break;
+      wrapped.push(lines[j]);
+    }
+    options.push({
+      highlighted: !!m[1],
+      label: wrapped.reduce(joinWrappedLabel, m[3].trim()),
+      value: m[2],
+      line: i
+    });
+  }
+  return options;
+}
+function joinWrappedLabel(label, row3) {
+  const continuation2 = row3.trim();
+  const pathBoundary = /[\\/]$/.test(label);
+  return `${label}${pathBoundary ? "" : " "}${continuation2}`;
+}
+function parseActiveTerminalChoice(screen) {
+  const lines = normalizeLines(screen);
+  const options = activeMenuOptions(screen);
+  if (options.length < 2 || options.filter((option) => option.highlighted).length !== 1) return null;
+  const lastOptionLine = options[options.length - 1].line;
+  let footerLine = -1;
+  for (let i = lastOptionLine + 1; i < Math.min(lines.length, lastOptionLine + 5); i++) {
+    if (isActiveChoiceFooter(lines[i])) {
+      footerLine = i;
+      break;
+    }
+  }
+  if (footerLine === -1 || lastMeaningfulLineIndex(lines) > footerLine) return null;
+  return { question: questionForMenu(lines, options[0].line), options };
+}
+function menuPreamble(screen, firstOptionLine) {
+  const lines = normalizeLines(screen);
+  let i = firstOptionLine - 1;
+  while (i >= 0 && !lines[i].trim()) i--;
+  const parts = [];
+  while (i >= 0 && lines[i].trim()) {
+    parts.unshift(lines[i].trim());
+    i--;
+  }
+  return parts.join(" ");
+}
+function activeMenuOptions(screen) {
+  const lines = normalizeLines(screen);
+  const all = parseMenuOptions(screen);
+  if (all.length < 2) return [];
+  const cluster = [];
+  let prev = all[all.length - 1].line;
+  for (let i = all.length - 1; i >= 0; i--) {
+    const between = lines.slice(all[i].line + 1, prev);
+    const wrapsPreviousOption = between.every(
+      (line) => line.trim().length > 0 && leadingIndent(line) > leadingIndent(lines[all[i].line])
+    );
+    if (wrapsPreviousOption || cluster.length === 0) {
+      cluster.unshift(all[i]);
+      prev = all[i].line;
+    } else {
+      break;
+    }
+  }
+  return cluster.length >= 2 ? cluster : [];
+}
+function isPromptFooter(line) {
+  return isActiveChoiceFooter(line);
+}
+function leadingIndent(line) {
+  return /^\s*/.exec(line)?.[0].length ?? 0;
+}
+function isActiveChoiceFooter(line) {
+  if (isActiveChoiceEnterFooter(line)) return true;
+  const bindings = line.trim().split(/\s+[·•]\s+/);
+  if (bindings.length < 2) return false;
+  const keys = bindings.map((binding) => /^(enter|esc|[a-z])\s+\S.*$/i.exec(binding)?.[1]?.toLowerCase());
+  return keys.every((key) => key !== void 0) && keys.includes("enter") && keys.includes("esc");
+}
+function isActiveChoiceEnterFooter(line) {
+  return /^(?:\S+[ \t]+)?enter[ \t]+\S.*$/i.test(line.trim());
+}
+function questionForMenu(lines, firstLine) {
+  for (let i = firstLine - 1; i >= 0 && firstLine - i <= 16; i--) {
+    const t = lines[i].trim();
+    if (t.length > 3 && t.charAt(t.length - 1) === "?") return t;
+  }
+  for (let i = firstLine - 1; i >= 0 && firstLine - i <= 3; i--) {
+    const t = lines[i].trim();
+    if (t.length > 3) return t;
+  }
+  return "Permission required";
+}
+function normalizeLines(text7) {
+  return String(text7 || "").replace(/\r*\n|\r/g, "\n").split("\n");
+}
+function lastMeaningfulLineIndex(lines) {
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i].trim();
+    if (!line || /^[-─━═]{8,}$/.test(line.replace(/\s/g, ""))) continue;
+    return i;
+  }
+  return -1;
+}
+function cleanPromptText(value) {
+  return String(value || "").replace(/^[•⏺]\s*/, "").replace(/─+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+// plugins/provider-codex/src/usage.ts
+var CODEX_USAGE_KIND = "codeterm_usage_v1";
+var CODEX_AUTH_CREDENTIAL2 = "codexAuth";
+function* fetchCodexUsage(host2) {
+  const accountId = stringAt(safeJson(yield* ioJson({ op: "credentialPublic", id: CODEX_AUTH_CREDENTIAL2 }, true)), "accountId");
+  if (!accountId) return null;
+  const response = safeJson(yield* ioEncoded(host2.io.fetch({
+    url: "https://chatgpt.com/backend-api/wham/usage",
+    method: "GET",
+    timeoutMs: 6e3,
+    headers: {
+      "ChatGPT-Account-Id": accountId,
+      "User-Agent": "codeterm-usage/1.7.8"
+    },
+    credential: {
+      id: CODEX_AUTH_CREDENTIAL2,
+      headers: { Authorization: "Bearer {accessToken}" }
+    }
+  })));
+  if (numberAt(response, "status") !== 200) return null;
+  const body = safeJson(stringAt(response, "body"));
+  const rateLimit = objectAt(body, "rate_limit");
+  if (!rateLimit) return null;
+  const windows = [rateLimit.primary_window, rateLimit.secondary_window].filter(Boolean);
+  const session = windows.find((window) => windowDuration(window) !== null && windowDuration(window) < 86400) ?? null;
+  const weekly = windows.find((window) => windowDuration(window) !== null && windowDuration(window) >= 86400) ?? null;
+  if (!session && !weekly) return null;
+  return JSON.stringify({
+    kind: CODEX_USAGE_KIND,
+    account_id: accountId,
+    session_pct: numberAt(session, "used_percent"),
+    session_resets_at_ms: secondsToMs(numberAt(session, "reset_at")),
+    weekly_pct: numberAt(weekly, "used_percent"),
+    weekly_resets_at_ms: secondsToMs(numberAt(weekly, "reset_at"))
+  });
+}
+function parseCodexUsage(rawText, nowMs) {
+  const raw = String(rawText || "");
+  if (!raw.trim()) return null;
+  const fetched = safeJson(raw);
+  if (stringAt(fetched, "kind") === CODEX_USAGE_KIND) {
+    return {
+      provider: "codex",
+      account_id: stringAt(fetched, "account_id"),
+      captured_at_ms: nowMs,
+      session_pct: numberAt(fetched, "session_pct"),
+      session_resets_at_ms: numberAt(fetched, "session_resets_at_ms"),
+      weekly_pct: numberAt(fetched, "weekly_pct"),
+      weekly_resets_at_ms: numberAt(fetched, "weekly_resets_at_ms"),
+      raw_text: raw
+    };
+  }
+  const text7 = raw.split("\r").join("").split("\u2588").join(" ").split("\u2591").join(" ");
+  const lines = text7.split("\n");
+  const limits = parseCodexLimits(lines, nowMs);
+  const session = limits.find((line) => line.family === "general") ?? limits.find((line) => line.family === "legacy-session");
+  const weekly = limits.find((line) => line.family === "weekly");
+  if (session === void 0 && weekly === void 0) return null;
+  return {
+    provider: "codex",
+    account_id: null,
+    captured_at_ms: nowMs,
+    session_pct: session ? session.pct : null,
+    session_resets_at_ms: session ? session.resetsMs : null,
+    weekly_pct: weekly ? weekly.pct : null,
+    weekly_resets_at_ms: weekly ? weekly.resetsMs : null,
+    raw_text: raw
+  };
+}
+function safeJson(raw) {
+  if (typeof raw !== "string" || !raw.trim()) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+function objectAt(value, key) {
+  if (!value || typeof value !== "object") return null;
+  const nested = value[key];
+  return nested && typeof nested === "object" ? nested : null;
+}
+function stringAt(value, key) {
+  if (!value || typeof value !== "object") return null;
+  const nested = value[key];
+  return typeof nested === "string" && nested ? nested : null;
+}
+function numberAt(value, key) {
+  if (!value || typeof value !== "object") return null;
+  const nested = value[key];
+  return typeof nested === "number" && Number.isFinite(nested) ? nested : null;
+}
+function secondsToMs(value) {
+  return value === null ? null : value * 1e3;
+}
+function windowDuration(window) {
+  return numberAt(window, "limit_window_seconds");
+}
+var CODEX_BORDER_RE = /^[\s─-╿]+|[\s─-╿]+$/g;
+function stripCodexBorder(raw) {
+  return String(raw || "").replace(CODEX_BORDER_RE, "");
+}
+var CODEX_HEADER_RE = /\blimit\s*:?\s*$/i;
+function isCodexSectionHeader(line) {
+  if (!line || line.indexOf("%") !== -1) return false;
+  return CODEX_HEADER_RE.test(line);
+}
+function parseCodexLimits(lines, nowMs) {
+  const out = [];
+  let sectionHeader = null;
+  for (let i = 0; i < lines.length; i++) {
+    const line = stripCodexBorder(lines[i]);
+    if (!line) continue;
+    if (isCodexSectionHeader(line)) {
+      sectionHeader = line;
+      continue;
+    }
+    let context = line;
+    for (let j = i - 1; j >= 0; j--) {
+      const prev = stripCodexBorder(lines[j]);
+      if (prev) {
+        context = `${prev} ${line}`;
+        break;
+      }
+    }
+    const gauge = parseCodexGaugeLine(line, context, nowMs);
+    if (gauge.pct === null && gauge.resetsMs === null) continue;
+    const family = codexLimitFamily(context, sectionHeader);
+    if (family !== "model") {
+      out.push({ family, pct: gauge.pct, resetsMs: gauge.resetsMs });
+    }
+  }
+  return out;
+}
+function parseCodexGaugeLine(line, context, nowMs) {
+  const re = /(\d+(?:\.\d+)?)\s*%\s*(left|remaining|used)\s*\(\s*resets?\s+(?:at\s+)?([^)]+?)\)/i;
+  const caps = re.exec(line);
+  if (!caps) {
+    return { pct: null, resetsMs: null };
+  }
+  const value = parseFloat(caps[1]);
+  const pct = codexPctToUsed(value, (caps[2] || "").toLowerCase());
+  const resetsRaw = (caps[3] || "").trim();
+  const isWeekly = /\bweekly\b/i.test(context);
+  const resetsMs = isWeekly ? codexParseWeeklyResets(resetsRaw, nowMs) : codexParseSessionResets(resetsRaw, nowMs);
+  return { pct, resetsMs };
+}
+function codexPctToUsed(value, mode) {
+  if (isNaN(value)) return null;
+  const rawMode = mode === "used" ? "used" : "left";
+  const pct = rawMode === "used" ? value : 100 - value;
+  return Math.min(100, Math.max(0, pct));
+}
+var CODEX_MODEL_NAME_RE = /\b(?:gpt|opus|haiku|sonnet|claude|codex|o\d|gemini)\b.*\d+\.\d+/i;
+function codexLimitFamily(text7, sectionHeader) {
+  const lower = String(text7 || "").toLowerCase();
+  const hasGeneral = /\bgeneral\b/.test(lower);
+  const hasWeekly = /\bweekly\b/.test(lower);
+  const hasSession = /\b5(?:\s*|-\s*)(?:h|hour|hours)\b/.test(lower);
+  const hasModel = CODEX_MODEL_NAME_RE.test(lower) || sectionHeader !== null && CODEX_MODEL_NAME_RE.test(sectionHeader);
+  if (hasModel) return "model";
+  if (hasGeneral) return hasWeekly ? "weekly" : "general";
+  if (hasWeekly) return "weekly";
+  if (hasSession) return "legacy-session";
+  return "general";
+}
+function codexParseSessionResets(raw, nowMs) {
+  const m = /(\d{1,2}):(\d{2})/.exec(String(raw || "").trim());
+  if (!m) return null;
+  const hh = parseInt(m[1], 10);
+  const mm = parseInt(m[2], 10);
+  const now = new Date(nowMs);
+  let cand = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hh, mm, 0, 0);
+  if (cand.getTime() <= nowMs) cand = new Date(cand.getTime() + 24 * 3600 * 1e3);
+  return cand.getTime();
+}
+var CODEX_MONTHS = {
+  jan: 0,
+  january: 0,
+  feb: 1,
+  february: 1,
+  mar: 2,
+  march: 2,
+  apr: 3,
+  april: 3,
+  may: 4,
+  jun: 5,
+  june: 5,
+  jul: 6,
+  july: 6,
+  aug: 7,
+  august: 7,
+  sep: 8,
+  sept: 8,
+  september: 8,
+  oct: 9,
+  october: 9,
+  nov: 10,
+  november: 10,
+  dec: 11,
+  december: 11
+};
+function codexParseWeeklyResets(raw, nowMs) {
+  const s = String(raw || "").trim().replace(/^at\s+/i, "");
+  let hh;
+  let mm;
+  let day;
+  let month;
+  let year = null;
+  let m = /(\d{1,2}):(\d{2})\s+on\s+(\d{1,2})\s+([A-Za-z]+)(?:,?\s+(\d{4}))?/i.exec(s);
+  if (m) {
+    hh = parseInt(m[1], 10);
+    mm = parseInt(m[2], 10);
+    day = parseInt(m[3], 10);
+    month = CODEX_MONTHS[m[4].toLowerCase()];
+    year = m[5] ? parseInt(m[5], 10) : null;
+  } else {
+    m = /(\d{1,2}):(\d{2})\s+on\s+([A-Za-z]+)\s+(\d{1,2})(?:,?\s+(\d{4}))?/i.exec(s);
+    if (!m) return null;
+    hh = parseInt(m[1], 10);
+    mm = parseInt(m[2], 10);
+    month = CODEX_MONTHS[m[3].toLowerCase()];
+    day = parseInt(m[4], 10);
+    year = m[5] ? parseInt(m[5], 10) : null;
+  }
+  if (month === void 0) return null;
+  const now = new Date(nowMs);
+  let cand = new Date(year ?? now.getFullYear(), month, day, hh, mm, 0, 0);
+  if (year === null && cand.getTime() <= nowMs) {
+    cand = new Date(now.getFullYear() + 1, month, day, hh, mm, 0, 0);
+  }
+  return cand.getTime();
+}
+
+// plugins/provider-shared/updateCheck.ts
+function record5(raw) {
+  if (raw !== null && typeof raw === "object") return raw;
+  if (typeof raw !== "string") return null;
+  try {
+    const value = JSON.parse(raw);
+    return value !== null && typeof value === "object" ? value : null;
+  } catch {
+    return null;
+  }
+}
+function versionParts(version) {
+  if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(version)) return null;
+  const parts = version.split(".").map(Number);
+  return parts.every(Number.isSafeInteger) ? parts : null;
+}
+function compare(left, right) {
+  const a = versionParts(left), b = versionParts(right);
+  if (!a || !b) return null;
+  for (let index = 0; index < 3; index++) {
+    if (a[index] !== b[index]) return a[index] < b[index] ? -1 : 1;
+  }
+  return 0;
+}
+function matchesRange(version, range) {
+  return range.split(",").every((clause) => {
+    const match = clause.trim().match(/^(>=|<=|>|<|=)?\s*(\d+\.\d+\.\d+)$/);
+    if (!match) return false;
+    const order = compare(version, match[2]);
+    if (order === null) return false;
+    switch (match[1] ?? "=") {
+      case ">=":
+        return order >= 0;
+      case "<=":
+        return order <= 0;
+      case ">":
+        return order > 0;
+      case "<":
+        return order < 0;
+      default:
+        return order === 0;
+    }
+  });
+}
+function newestSupportedVersion(versions, compatibility) {
+  return versions.reduce((best, version) => {
+    if (!versionParts(version) || !compatibility.supported.some((range) => matchesRange(version, range)) || compatibility.breaking?.some((rule) => matchesRange(version, rule.range))) return best;
+    return best === null || compare(version, best) === 1 ? version : best;
+  }, null);
+}
+function installedVersion(result) {
+  const installed = record5(result);
+  if (installed?.code !== 0 || typeof installed.stdout !== "string") return null;
+  const version = installed.stdout.match(/(?:^|\s)(\d+\.\d+\.\d+)(?=\s|$)/)?.[1];
+  return version && versionParts(version) ? version : null;
+}
+function availableUpdate(currentVersion, result, compatibility) {
+  const response = record5(result);
+  if (response?.status !== 200) return null;
+  const metadata = record5(response.body);
+  let latestVersion = typeof metadata?.version === "string" ? metadata.version : null;
+  if (!compatibility && !latestVersion) return null;
+  if (compatibility) {
+    if (!metadata?.versions || typeof metadata.versions !== "object") return null;
+    latestVersion = newestSupportedVersion(Object.keys(metadata.versions), compatibility);
+  }
+  return latestVersion && compare(latestVersion, currentVersion) === 1 ? { currentVersion, latestVersion } : { currentVersion, latestVersion: currentVersion };
+}
+function* checkProviderUpdate(host2, binary, metadataUrl, compatibility, parseInstalled = installedVersion) {
+  let installed;
+  try {
+    installed = yield* host2.io.exec({ bin: binary, args: ["--version"], timeoutMs: 5e3 });
+  } catch {
+    return null;
+  }
+  const currentVersion = parseInstalled(installed);
+  if (!currentVersion) return null;
+  let metadata;
+  try {
+    metadata = yield* host2.io.fetch({
+      url: metadataUrl,
+      method: "GET",
+      timeoutMs: 6e3,
+      headers: { Accept: compatibility ? "application/vnd.npm.install-v1+json" : "application/json" }
+    });
+  } catch {
+    return null;
+  }
+  return availableUpdate(currentVersion, metadata, compatibility);
+}
+
+// plugins/provider-codex/src/update.ts
+var codexSelfUpdateCapability = {
+  npmPackage: "@openai/codex",
+  standaloneDirectory: "packages/standalone",
+  standaloneArgs: ["update"]
+};
+function* checkCodexUpdate(host2) {
+  return yield* checkProviderUpdate(host2, "codex", `https://registry.npmjs.org/${encodeURIComponent(codexSelfUpdateCapability.npmPackage)}/latest`, void 0, installedVersion);
+}
+
+// plugins/provider-codex/src/patchEdits.ts
+function patchEdits(patch) {
+  if (typeof patch !== "string" || patch.indexOf("*** Begin Patch") < 0) return [];
+  try {
+    const edits = [];
+    let path = null;
+    let oldLines = [];
+    let newLines = [];
+    const flush = () => {
+      if (path && (oldLines.length > 0 || newLines.length > 0)) edits.push({ path, old: oldLines.join("\n"), new: newLines.join("\n") });
+      oldLines = [];
+      newLines = [];
+    };
+    for (const line of patch.replace(/\r\n/g, "\n").split("\n")) {
+      const header = /^\*\*\* (?:Update|Add|Delete) File: (.+)$/.exec(line);
+      if (header) {
+        flush();
+        path = header[1].trim();
+      } else if (line === "@@" || line.indexOf("@@ ") === 0) {
+        flush();
+      } else if (path && line.indexOf("-") === 0) {
+        oldLines.push(line.substring(1));
+      } else if (path && line.indexOf("+") === 0) {
+        newLines.push(line.substring(1));
+      }
+    }
+    flush();
+    return edits;
+  } catch (_) {
+    return [];
+  }
+}
+
+// plugins/provider-codex/src/fileChangePairing.ts
+function editFingerprint(edits) {
+  if (!edits.length) return "";
+  const files = /* @__PURE__ */ new Map();
+  for (const edit of edits) {
+    if (!edit.path || typeof edit.old !== "string" || typeof edit.new !== "string") return "";
+    const lines = files.get(edit.path) ?? { old: [], new: [] };
+    if (edit.old) lines.old.push(edit.old);
+    if (edit.new) lines.new.push(edit.new);
+    files.set(edit.path, lines);
+  }
+  return JSON.stringify([...files].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([path, lines]) => [path, lines.old.join("\n"), lines.new.join("\n")]));
+}
+function pairFileChange(activity, turnId, pending) {
+  if (!activity || typeof turnId !== "string" || !turnId) return activity;
+  const call = activity.blocks.find((block) => block.kind === "tool_use")?.data;
+  if (call?.name !== "file_change" || !Array.isArray(call.file_diffs) || !call.file_diffs.length) return activity;
+  const edits = call.tool_edits;
+  const fingerprint = editFingerprint(edits);
+  const paths = call.input?.paths;
+  if (!fingerprint || !paths || paths.length !== new Set(edits.map((edit) => edit.path)).size) return activity;
+  const matches = [...pending].filter(([, entry]) => entry.turnId === turnId && entry.fingerprint === fingerprint);
+  if (matches.length !== 1) return activity;
+  const [id] = matches[0];
+  pending.delete(id);
+  const result = activity.blocks.find((block) => block.kind === "tool_result")?.data;
+  return { ...activity, blocks: [{ kind: "tool_result", data: {
+    ...result,
+    tool_use_id: id,
+    file_diffs: call.file_diffs
+  } }] };
+}
+
+// plugins/provider-codex/src/userContent.ts
+var OPEN_TAG = /^<image\s+name=(\[Image #\d+\])(?:\s+path="([^"]*)")?\s*>$/;
+var INLINE_IMAGE = /<image\s+name=(\[Image #\d+\])(?:\s+path="([^"]*)")?\s*>[\s\S]*?<\/image>/g;
+var CLOSE_TAG = /^<\/image>$/;
+var PLACEHOLDER = /\[Image #\d+\]/g;
+var EXT_MEDIA = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  webp: "image/webp",
+  bmp: "image/bmp",
+  svg: "image/svg+xml"
+};
+function mediaTypeFromPath(path) {
+  const ext = path?.split(".").pop()?.toLowerCase() ?? "";
+  return EXT_MEDIA[ext] ?? "image/png";
+}
+function imageFromTag(name, rawPath) {
+  const path = rawPath?.trim() || null;
+  return { name, path, mediaType: mediaTypeFromPath(path), data: null };
+}
+function withDataUrl(image, url) {
+  const match = /^data:([^;,]+);base64,([\s\S]*)$/.exec(url ?? "");
+  if (!match) return image;
+  return { ...image, mediaType: match[1], data: match[2] };
+}
+function extractInlineImages(text7, images) {
+  return text7.replace(INLINE_IMAGE, (_whole, name, path) => {
+    images.push(imageFromTag(name, path));
+    return "";
+  });
+}
+function stripPlaceholders(text7, images) {
+  if (images.length === 0) return text7;
+  const names = new Set(images.map((image) => image.name).filter(Boolean));
+  return text7.replace(PLACEHOLDER, (token) => names.has(token) ? "" : token).split("\n").map((line) => line.replace(/[ \t]{2,}/g, " ").trim()).join("\n").trim();
+}
+function parseCodexUserContent(content) {
+  const images = [];
+  if (typeof content === "string") {
+    return { text: stripPlaceholders(extractInlineImages(content, images), images), images };
+  }
+  let text7 = "";
+  let open = null;
+  for (const item of content ?? []) {
+    if (!item) continue;
+    if (item.type === "input_image") {
+      if (open) {
+        open = withDataUrl(open, item.image_url);
+      } else {
+        images.push(withDataUrl({ name: null, path: null, mediaType: "image/png", data: null }, item.image_url));
+      }
+      continue;
+    }
+    if (typeof item.text !== "string") continue;
+    const trimmed = item.text.trim();
+    const tag = OPEN_TAG.exec(trimmed);
+    if (tag) {
+      if (open) images.push(open);
+      open = imageFromTag(tag[1], tag[2]);
+      continue;
+    }
+    if (CLOSE_TAG.test(trimmed) && open) {
+      images.push(open);
+      open = null;
+      continue;
+    }
+    text7 += extractInlineImages(item.text, images);
+  }
+  if (open) images.push(open);
+  return { text: stripPlaceholders(text7, images), images };
+}
+function codexImageBlock(image) {
+  const source = { media_type: image.mediaType };
+  if (image.path) source.path = image.path;
+  if (image.data) source.data = image.data;
+  return { kind: "image", data: { source } };
 }
 
 // plugins/provider-codex/src/tabState.ts
@@ -5730,8 +5814,8 @@ function isCurrentCodexHookScriptContent(text7) {
   }
   return true;
 }
-function isOwnedCodexWindowsHookScript(path) {
-  const text7 = host.fs.readFile(path);
+function* isOwnedCodexWindowsHookScript(path) {
+  const text7 = yield* host.io.fs.readFile(path);
   return typeof text7 === "string" && isOwnedCodexHookScriptContent(text7);
 }
 
@@ -5790,7 +5874,7 @@ function parseAppServerSession(raw) {
   }
   return { kind: "ok", responses };
 }
-function runAppServerSession(requests, then) {
+function* runAppServerSession(requests, then) {
   const initialize = JSON.stringify({
     method: "initialize",
     id: 1,
@@ -5817,12 +5901,13 @@ function runAppServerSession(requests, then) {
     ],
     timeoutMs: APP_SERVER_EXIT_DEADLINE_MS
   };
+  let outcome2;
   try {
-    const asyncExec = host.exec.async;
-    return typeof asyncExec === "function" ? asyncExec(opts, (raw) => then(parseAppServerSession(raw))) : then(parseAppServerSession(host.exec(JSON.stringify(opts))));
-  } catch (e) {
-    return then({ kind: "failed", reason: "host.exec threw: " + String(e) });
+    outcome2 = parseAppServerSession(yield* host.io.exec(opts));
+  } catch (error) {
+    outcome2 = { kind: "failed", reason: "host.exec threw: " + String(error) };
   }
+  return yield* ioResolve(then(outcome2));
 }
 function requestOutcome(session, id, method) {
   if (session.kind !== "ok") return session;
@@ -5918,33 +6003,33 @@ function recordedTrustedHash(config, key) {
   }
   return null;
 }
-function inspectCodexHookTrust(opts, then = (inspection) => inspection) {
-  return runAppServerSession([
+function* inspectCodexHookTrust(opts, then = (inspection) => inspection) {
+  return yield* runAppServerSession([
     { method: "hooks/list", id: 2, params: { cwds: [opts.listCwd] } }
-  ], (session) => {
+  ], function* (session) {
     const result = requestOutcome(session, 2, "hooks/list");
-    if (result.kind !== "ok") return then({ verdict: "unknown", reason: result.reason });
+    if (result.kind !== "ok") return yield* ioResolve(then({ verdict: "unknown", reason: result.reason }));
     const managed = managedListings(collectHookListings(result.result), opts.hooksPath, opts.managedLabels);
     if (managed.length !== opts.managedLabels.length) {
-      return then({
+      return yield* ioResolve(then({
         verdict: "unknown",
         reason: "Codex returned " + managed.length + " managed hooks, expected " + opts.managedLabels.length
-      });
+      }));
     }
     for (let i = 0; i < managed.length; i++) {
       const listing = managed[i];
       const recorded = recordedTrustedHash(opts.config, listing.key);
       if (recorded === null) {
-        return then({ verdict: "unknown", reason: "No recorded trusted_hash exists for " + listing.key });
+        return yield* ioResolve(then({ verdict: "unknown", reason: "No recorded trusted_hash exists for " + listing.key }));
       }
       if (recorded !== listing.currentHash) {
-        return then({ verdict: "stale", reason: "Recorded trusted_hash does not match Codex currentHash for " + listing.key });
+        return yield* ioResolve(then({ verdict: "stale", reason: "Recorded trusted_hash does not match Codex currentHash for " + listing.key }));
       }
       if (listing.trustStatus !== "trusted") {
-        return then({ verdict: "unknown", reason: "Codex reports trustStatus=" + listing.trustStatus + " for " + listing.key });
+        return yield* ioResolve(then({ verdict: "unknown", reason: "Codex reports trustStatus=" + listing.trustStatus + " for " + listing.key }));
       }
     }
-    return then({ verdict: "trusted" });
+    return yield* ioResolve(then({ verdict: "trusted" }));
   });
 }
 function outcome(partial) {
@@ -5956,87 +6041,87 @@ function outcome(partial) {
     ...partial
   };
 }
-function grantCodexHookTrust(opts, then = (result) => result) {
+function* grantCodexHookTrust(opts, then = (result) => result) {
   if (!opts.configPath) {
-    return then(outcome({ degraded: true, reason: "could not resolve Codex config path" }));
+    return yield* ioResolve(then(outcome({ degraded: true, reason: "could not resolve Codex config path" })));
   }
-  return grantCodexHookTrustFromCodex(opts, then);
+  return yield* grantCodexHookTrustFromCodex(opts, then);
 }
-function grantCodexHookTrustFromCodex(opts, then) {
+function* grantCodexHookTrustFromCodex(opts, then) {
   if (!opts.managedLabels.length) {
-    return then(outcome({ degraded: true, reason: "no managed hook keys declared" }));
+    return yield* ioResolve(then(outcome({ degraded: true, reason: "no managed hook keys declared" })));
   }
   if (!opts.configPath) {
-    return then(outcome({ degraded: true, reason: "could not resolve Codex config path" }));
+    return yield* ioResolve(then(outcome({ degraded: true, reason: "could not resolve Codex config path" })));
   }
-  return runAppServerSession([
+  return yield* runAppServerSession([
     { method: "hooks/list", id: 2, params: { cwds: [opts.listCwd] } }
-  ], (listSession) => {
+  ], function* (listSession) {
     const listResult = requestOutcome(listSession, 2, "hooks/list");
-    if (listResult.kind === "unavailable") return then(outcome({ degraded: true, reason: listResult.reason }));
-    if (listResult.kind === "failed") return then(outcome({ reason: listResult.reason }));
+    if (listResult.kind === "unavailable") return yield* ioResolve(then(outcome({ degraded: true, reason: listResult.reason })));
+    if (listResult.kind === "failed") return yield* ioResolve(then(outcome({ reason: listResult.reason })));
     const managed = managedListings(collectHookListings(listResult.result), opts.hooksPath, opts.managedLabels);
     if (managed.length !== opts.managedLabels.length) {
-      return then(outcome({
+      return yield* ioResolve(then(outcome({
         verify_failed: true,
         reason: "hooks/list reported " + managed.length + " managed entries, expected " + opts.managedLabels.length
-      }));
+      })));
     }
     const needingTrust = [];
     for (let i = 0; i < managed.length; i++) {
       if (managed[i].trustStatus !== "trusted") needingTrust.push(managed[i]);
     }
     if (!needingTrust.length) {
-      return then(outcome({
+      return yield* ioResolve(then(outcome({
         granted: true,
         entries: managed.map((listing) => ({ key: listing.key, hash: listing.currentHash }))
-      }));
+      })));
     }
-    if (!opts.configPath) return then(outcome({ reason: "Codex config path is unknown; trust was not granted" }));
+    if (!opts.configPath) return yield* ioResolve(then(outcome({ reason: "Codex config path is unknown; trust was not granted" })));
     const value = {};
     for (let i = 0; i < needingTrust.length; i++) {
       const currentHash = needingTrust[i].currentHash;
-      if (!currentHash) return then(outcome({ reason: "Codex reported no current hash for a hook that needs trust" }));
+      if (!currentHash) return yield* ioResolve(then(outcome({ reason: "Codex reported no current hash for a hook that needs trust" })));
       value[needingTrust[i].key] = { trusted_hash: currentHash };
     }
-    return runAppServerSession([
+    return yield* runAppServerSession([
       {
         method: "config/batchWrite",
         id: 2,
         params: { edits: [{ keyPath: "hooks.state", value, mergeStrategy: "upsert" }], reloadUserConfig: true }
       },
       { method: "hooks/list", id: 3, params: { cwds: [opts.listCwd] } }
-    ], (writeSession) => {
+    ], function* (writeSession) {
       const writeResult = requestOutcome(writeSession, 2, "config/batchWrite");
-      if (writeResult.kind !== "ok") return then(outcome({ reason: writeResult.reason }));
+      if (writeResult.kind !== "ok") return yield* ioResolve(then(outcome({ reason: writeResult.reason })));
       const writeStatus = writeResult.result && typeof writeResult.result === "object" ? writeResult.result.status : void 0;
       if (writeStatus !== "ok") {
-        return then(outcome({ reason: "config/batchWrite did not confirm status=ok" }));
+        return yield* ioResolve(then(outcome({ reason: "config/batchWrite did not confirm status=ok" })));
       }
       const verifyResult = requestOutcome(writeSession, 3, "hooks/list");
       if (verifyResult.kind !== "ok") {
-        return then(outcome({ wrote: true, verify_failed: true, reason: verifyResult.reason }));
+        return yield* ioResolve(then(outcome({ wrote: true, verify_failed: true, reason: verifyResult.reason })));
       }
       const verified = managedListings(collectHookListings(verifyResult.result), opts.hooksPath, opts.managedLabels);
       if (verified.length !== opts.managedLabels.length) {
-        return then(outcome({ wrote: true, verify_failed: true, reason: "post-grant verify reported " + verified.length + " managed entries" }));
+        return yield* ioResolve(then(outcome({ wrote: true, verify_failed: true, reason: "post-grant verify reported " + verified.length + " managed entries" })));
       }
       const expectedHashes = {};
       for (let i = 0; i < managed.length; i++) expectedHashes[managed[i].key] = managed[i].currentHash;
       for (let i = 0; i < verified.length; i++) {
         const listing = verified[i];
         if (listing.trustStatus !== "trusted") {
-          return then(outcome({ wrote: true, verify_failed: true, reason: "post-grant verify left " + listing.key + " " + listing.trustStatus }));
+          return yield* ioResolve(then(outcome({ wrote: true, verify_failed: true, reason: "post-grant verify left " + listing.key + " " + listing.trustStatus })));
         }
         if (expectedHashes[listing.key] !== listing.currentHash) {
-          return then(outcome({ wrote: true, verify_failed: true, reason: "post-grant verify reported a different hash for " + listing.key }));
+          return yield* ioResolve(then(outcome({ wrote: true, verify_failed: true, reason: "post-grant verify reported a different hash for " + listing.key })));
         }
       }
-      return then(outcome({
+      return yield* ioResolve(then(outcome({
         granted: true,
         wrote: true,
         entries: verified.map((listing) => ({ key: listing.key, hash: listing.currentHash }))
-      }));
+      })));
     });
   });
 }
@@ -6047,21 +6132,21 @@ var CODEX_INTEGRATION_STATE_STALE_VERSION = "stale_version";
 var CODEX_INTEGRATION_STATE_UNTRUSTED_HASH = "untrusted_hash";
 var CODEX_INTEGRATION_STATE_INSTALLED = "installed";
 var codexHookTrustCache = /* @__PURE__ */ new Map();
-function checkIntegration() {
+function* checkIntegration() {
   const path = codexHooksPath();
-  if (!path || !host.fs.fileExists(path)) {
-    return emptyIntegrationStatus(path, false);
+  if (!path || !(yield* host.io.fs.fileExists(path))) {
+    return yield* emptyIntegrationStatus(path, false);
   }
-  const json2 = host.fs.readJson(path);
+  const json2 = yield* host.io.fs.readJson(path);
   if (!json2) {
-    return emptyIntegrationStatus(path, true);
+    return yield* emptyIntegrationStatus(path, true);
   }
   const arr = json2.hooks && json2.hooks.SessionStart;
   const stopArr = json2.hooks && json2.hooks.Stop;
   const installed = Array.isArray(arr) && arr.some(isCodetermCodexHook);
   const stopInstalled = Array.isArray(stopArr) && stopArr.some(isCodetermCodexHook) && (host.platform() !== "windows" || stopArr.some(hasCodetermCodexWindowsCommand));
   const winScript = codexWindowsHookScriptPath();
-  const winScriptText = winScript && host.fs.fileExists(winScript) ? String(host.fs.readFile(winScript) || "") : "";
+  const winScriptText = winScript && (yield* host.io.fs.fileExists(winScript)) ? String((yield* host.io.fs.readFile(winScript)) || "") : "";
   const windowsReady = host.platform() !== "windows" || !!winScript && Array.isArray(arr) && arr.some(hasCodetermCodexWindowsCommand);
   const contractOk = host.platform() === "windows" ? isCurrentCodexHookScriptContent(winScriptText) : Array.isArray(arr) && arr.some((entry) => {
     const hk = entry && entry.hooks;
@@ -6071,10 +6156,10 @@ function checkIntegration() {
     });
   });
   const current = installed && windowsReady && contractOk && hookTimeoutsAdequate(arr, stopArr);
-  const trustState = codexHookTrustState(path);
-  const trustReason = trustState === "unknown" ? codexHookTrustReason(path) : void 0;
+  const trustState = yield* codexHookTrustState(path);
+  const trustReason = trustState === "unknown" ? yield* codexHookTrustReason(path) : void 0;
   const trustOk = trustState === "trusted";
-  const trustVerificationSource = codexHookTrustVerificationSource(path, trustState);
+  const trustVerificationSource = yield* codexHookTrustVerificationSource(path, trustState);
   const trustVerifiedCurrent = trustState === "trusted" && trustVerificationSource === "hash_verified";
   const proposedChanges = ["SessionStart hook", "Stop hook"];
   if (!trustVerifiedCurrent) proposedChanges.push("hook trust");
@@ -6095,7 +6180,7 @@ function checkIntegration() {
     hooks_owned: installed,
     hook_contract_current: current && stopInstalled,
     target: path,
-    backup_exists: host.fs.fileExists(path + ".codeterm-backup"),
+    backup_exists: yield* host.io.fs.fileExists(path + ".codeterm-backup"),
     proposed_changes: proposedChanges
   };
 }
@@ -6115,7 +6200,7 @@ function ownedContentHash(sessionStart, stop, scriptText) {
   parts.push(scriptText);
   return codexHookContentHash(parts.join(String.fromCharCode(0)));
 }
-function emptyIntegrationStatus(path, fileExists) {
+function* emptyIntegrationStatus(path, fileExists) {
   return {
     hooks_file_exists: fileExists,
     hook_content_hash: codexHookContentHash(""),
@@ -6131,19 +6216,19 @@ function emptyIntegrationStatus(path, fileExists) {
     hooks_owned: false,
     hook_contract_current: false,
     target: path || "~/.codex/hooks.json",
-    backup_exists: !!path && host.fs.fileExists(path + ".codeterm-backup"),
+    backup_exists: !!path && (yield* host.io.fs.fileExists(path + ".codeterm-backup")),
     proposed_changes: ["SessionStart hook", "Stop hook", "hook trust"]
   };
 }
-function installIntegration(apiPort, options) {
+function* installIntegrationLocked(apiPort, options) {
   void apiPort;
   if (!options || options.consent !== true) {
     return { ok: false, error: "provider integration installation requires explicit local-user consent" };
   }
   const path = codexHooksPath();
   if (!path) return { ok: false, error: "could not resolve ~/.codex/hooks.json" };
-  const hooksExisted = host.fs.fileExists(path);
-  const originalHooksValue = hooksExisted ? host.fs.readFile(path) : null;
+  const hooksExisted = yield* host.io.fs.fileExists(path);
+  const originalHooksValue = hooksExisted ? yield* host.io.fs.readFile(path) : null;
   if (hooksExisted && typeof originalHooksValue !== "string") {
     return { ok: false, error: "could not read existing hooks JSON at " + path };
   }
@@ -6171,24 +6256,24 @@ function installIntegration(apiPort, options) {
     return { ok: false, error: "hooks.Stop is not an array" };
   }
   const configPath = codexConfigPath2();
-  const configExisted = !!configPath && host.fs.fileExists(configPath);
-  const originalConfigValue = configPath && configExisted ? host.fs.readFile(configPath) : null;
+  const configExisted = !!configPath && (yield* host.io.fs.fileExists(configPath));
+  const originalConfigValue = configPath && configExisted ? yield* host.io.fs.readFile(configPath) : null;
   if (configExisted && typeof originalConfigValue !== "string") {
     return { ok: false, error: "could not read existing Codex config at " + configPath };
   }
   const originalConfig = typeof originalConfigValue === "string" ? originalConfigValue : "";
   const scriptPath = host.platform() === "windows" ? codexWindowsHookScriptPath() : null;
-  const scriptExisted = !!scriptPath && host.fs.fileExists(scriptPath);
-  const originalScriptValue = scriptExisted && scriptPath ? host.fs.readFile(scriptPath) : null;
+  const scriptExisted = !!scriptPath && (yield* host.io.fs.fileExists(scriptPath));
+  const originalScriptValue = scriptExisted && scriptPath ? yield* host.io.fs.readFile(scriptPath) : null;
   if (scriptExisted && typeof originalScriptValue !== "string") {
     return { ok: false, error: "could not read existing hook script at " + scriptPath };
   }
   const originalScript = typeof originalScriptValue === "string" ? originalScriptValue : "";
-  if (scriptPath && scriptExisted && !isOwnedCodexWindowsHookScript(scriptPath)) {
+  if (scriptPath && scriptExisted && !(yield* isOwnedCodexWindowsHookScript(scriptPath))) {
     return { ok: false, error: "refusing to replace unowned hook script at " + scriptPath };
   }
   const ownershipPath = codexHookTrustOwnershipPath();
-  const ownershipSnapshot = ownershipPath ? captureIntegrationFile(ownershipPath) : null;
+  const ownershipSnapshot = ownershipPath ? yield* captureIntegrationFile(ownershipPath) : null;
   if (ownershipPath && !ownershipSnapshot) {
     return { ok: false, error: "could not read existing Codex trust ownership record" };
   }
@@ -6198,7 +6283,7 @@ function installIntegration(apiPort, options) {
     ...configPath && configExisted ? [configPath + ".codeterm-backup"] : [],
     ...scriptPath ? [scriptPath + ".codeterm-backup", scriptPath + ".codeterm-backup-state"] : []
   ];
-  const artifactSnapshots = artifactPaths.map(captureIntegrationFile);
+  const artifactSnapshots = yield* ioMap(artifactPaths, captureIntegrationFile);
   if (artifactSnapshots.some((snapshot) => snapshot === null)) {
     return { ok: false, error: "could not snapshot existing CodeTerm integration artifacts" };
   }
@@ -6209,19 +6294,19 @@ function installIntegration(apiPort, options) {
     ...ownershipSnapshot ? [ownershipSnapshot] : [],
     ...artifactSnapshots
   ];
-  const fail3 = (error) => {
-    const restored = restoreIntegrationFiles(rollbackSnapshots);
+  const fail3 = function* (error) {
+    const restored = yield* restoreIntegrationFiles(rollbackSnapshots);
     invalidateCodexHookTrust(path);
     return { ok: false, error: restored ? error : error + "; exact rollback failed" };
   };
-  if (!writeFileIfChanged(path + ".codeterm-backup", originalHooks) || !writeFileIfChanged(path + ".codeterm-backup-state", hooksExisted ? "present" : "absent")) {
-    return fail3("could not write recoverable backup for " + path);
+  if (!(yield* writeFileIfChanged(path + ".codeterm-backup", originalHooks)) || !(yield* writeFileIfChanged(path + ".codeterm-backup-state", hooksExisted ? "present" : "absent"))) {
+    return yield* fail3("could not write recoverable backup for " + path);
   }
-  if (configPath && configExisted && !writeFileIfChanged(configPath + ".codeterm-backup", originalConfig)) {
-    return fail3("could not write recoverable backup for " + configPath);
+  if (configPath && configExisted && !(yield* writeFileIfChanged(configPath + ".codeterm-backup", originalConfig))) {
+    return yield* fail3("could not write recoverable backup for " + configPath);
   }
-  if (scriptPath && (!writeFileIfChanged(scriptPath + ".codeterm-backup", originalScript) || !writeFileIfChanged(scriptPath + ".codeterm-backup-state", scriptExisted ? "present" : "absent"))) {
-    return fail3("could not write recoverable backup for " + scriptPath);
+  if (scriptPath && (!(yield* writeFileIfChanged(scriptPath + ".codeterm-backup", originalScript)) || !(yield* writeFileIfChanged(scriptPath + ".codeterm-backup-state", scriptExisted ? "present" : "absent")))) {
+    return yield* fail3("could not write recoverable backup for " + scriptPath);
   }
   if (!json2.hooks) json2.hooks = {};
   for (const event of ["SessionStart", "Stop"]) {
@@ -6245,8 +6330,8 @@ function installIntegration(apiPort, options) {
   ].join(" ") : hookCmd(route);
   const scriptContents = codexWindowsHookScript();
   const scriptChanged = !!scriptPath && (!scriptExisted || originalScript !== scriptContents);
-  if (scriptChanged && scriptPath && !host.fs.writeFile(scriptPath, scriptContents)) {
-    return fail3("writeFile failed for " + scriptPath);
+  if (scriptChanged && scriptPath && !(yield* host.io.fs.writeFile(scriptPath, scriptContents))) {
+    return yield* fail3("writeFile failed for " + scriptPath);
   }
   json2.hooks.SessionStart.push({
     matcher: "startup|resume|clear|compact",
@@ -6268,44 +6353,44 @@ function installIntegration(apiPort, options) {
     }]
   });
   const hooksChanged = !hooksExisted || JSON.stringify(json2) !== originalHooksJson;
-  const ok = hooksChanged ? host.fs.writeJson(path, json2) : true;
+  const ok = hooksChanged ? yield* host.io.fs.writeJson(path, json2) : true;
   if (ok) {
-    const trust = enableExistingCodexHookTrust(path);
-    if (trust.write_failed) return fail3("could not enable existing Codex hook trust");
+    const trust = yield* enableExistingCodexHookTrust(path);
+    if (trust.write_failed) return yield* fail3("could not enable existing Codex hook trust");
     if (trust.changed) {
-      if (!ownershipPath || !writeFileIfChanged(ownershipPath, path)) {
-        return fail3("could not record owned Codex hook trust expansion");
+      if (!ownershipPath || !(yield* writeFileIfChanged(ownershipPath, path))) {
+        return yield* fail3("could not record owned Codex hook trust expansion");
       }
     }
     if (scriptChanged || hooksChanged || trust.changed) invalidateCodexHookTrust(path);
     host.log("info", "[codex-plugin] SessionStart + Stop hooks installed at " + path);
     return { ok: true, hook_trust_state: trust.state };
   }
-  return fail3("writeJson failed for " + path);
+  return yield* fail3("writeJson failed for " + path);
 }
-function grantIntegrationTrust(managedKeys, then = (result) => result) {
+function* grantIntegrationTrustLocked(managedKeys, then = (result) => result) {
   const hooksPath = codexHooksPath();
   if (!hooksPath) {
-    return then({ granted: false, wrote: false, degraded: true, verify_failed: false, reason: "could not resolve ~/.codex/hooks.json" });
+    return yield* ioResolve(then({ granted: false, wrote: false, degraded: true, verify_failed: false, reason: "could not resolve ~/.codex/hooks.json" }));
   }
   invalidateCodexHookTrust(hooksPath);
-  return grantCodexHookTrust({
+  return yield* grantCodexHookTrust({
     hooksPath,
     configPath: codexConfigPath2(),
     managedLabels: Array.isArray(managedKeys) ? managedKeys.map(String) : [],
     listCwd: host.homeDir() || "."
-  }, (result) => {
-    if (result.granted) cacheCodexHookTrust(hooksPath, "trusted");
-    else cacheCodexHookTrust(hooksPath, "unknown", result.reason);
-    return then(result);
+  }, function* (result) {
+    if (result.granted) yield* cacheCodexHookTrust(hooksPath, "trusted");
+    else yield* cacheCodexHookTrust(hooksPath, "unknown", result.reason);
+    return yield* ioResolve(then(result));
   });
 }
-function uninstallIntegration() {
+function* uninstallIntegrationLocked() {
   const path = codexHooksPath();
   if (!path) return { ok: true };
   let hooksOk = true;
-  if (host.fs.fileExists(path)) {
-    const json2 = host.fs.readJson(path);
+  if (yield* host.io.fs.fileExists(path)) {
+    const json2 = yield* host.io.fs.readJson(path);
     if (!json2 || !json2.hooks || typeof json2.hooks !== "object") {
       return { ok: false, error: "could not safely read hooks JSON at " + path };
     }
@@ -6316,79 +6401,79 @@ function uninstallIntegration() {
     if (Array.isArray(json2.hooks.Stop)) {
       json2.hooks.Stop = removeOwnedCodexHooks(json2.hooks.Stop);
     }
-    hooksOk = before === JSON.stringify(json2) || host.fs.writeJson(path, json2);
+    hooksOk = before === JSON.stringify(json2) || (yield* host.io.fs.writeJson(path, json2));
   }
   const ownershipPath = codexHookTrustOwnershipPath();
-  if (ownershipPath && host.fs.fileExists(ownershipPath)) {
-    const ownedTarget = host.fs.readFile(ownershipPath);
-    if (ownedTarget === path && disableOwnedCodexHookTrust(path)) {
-      host.fs.removeFile(ownershipPath);
+  if (ownershipPath && (yield* host.io.fs.fileExists(ownershipPath))) {
+    const ownedTarget = yield* host.io.fs.readFile(ownershipPath);
+    if (ownedTarget === path && (yield* disableOwnedCodexHookTrust(path))) {
+      yield* host.io.fs.removeFile(ownershipPath);
     }
   }
   const scriptPath = codexWindowsHookScriptPath();
-  if (scriptPath && host.fs.fileExists(scriptPath) && isOwnedCodexWindowsHookScript(scriptPath)) {
-    host.fs.removeFile(scriptPath);
+  if (scriptPath && (yield* host.io.fs.fileExists(scriptPath)) && (yield* isOwnedCodexWindowsHookScript(scriptPath))) {
+    yield* host.io.fs.removeFile(scriptPath);
   }
   invalidateCodexHookTrust(path);
   return hooksOk ? { ok: true } : { ok: false, error: "writeJson failed for " + path };
 }
-function restoreIntegration() {
+function* restoreIntegrationLocked() {
   const path = codexHooksPath();
   if (!path) return { ok: false, error: "could not resolve ~/.codex/hooks.json" };
   const backup = path + ".codeterm-backup";
-  if (!host.fs.fileExists(backup)) return { ok: false, error: "no recoverable backup at " + backup };
-  const hooks = host.fs.readFile(backup);
+  if (!(yield* host.io.fs.fileExists(backup))) return { ok: false, error: "no recoverable backup at " + backup };
+  const hooks = yield* host.io.fs.readFile(backup);
   if (typeof hooks !== "string") return { ok: false, error: "restore failed for " + path };
-  const hooksState = host.fs.readFile(path + ".codeterm-backup-state");
+  const hooksState = yield* host.io.fs.readFile(path + ".codeterm-backup-state");
   if (hooksState === "absent" || typeof hooksState !== "string" && hooks === "") {
-    if (host.fs.fileExists(path) && !host.fs.removeFile(path)) return { ok: false, error: "restore failed for " + path };
-  } else if (!writeFileIfChanged(path, hooks)) {
+    if ((yield* host.io.fs.fileExists(path)) && !(yield* host.io.fs.removeFile(path))) return { ok: false, error: "restore failed for " + path };
+  } else if (!(yield* writeFileIfChanged(path, hooks))) {
     return { ok: false, error: "restore failed for " + path };
   }
   const config = codexConfigPath2();
-  if (config && host.fs.fileExists(config + ".codeterm-backup")) {
-    const original = host.fs.readFile(config + ".codeterm-backup");
-    if (typeof original !== "string" || !writeFileIfChanged(config, original)) return { ok: false, error: "restore failed for " + config };
+  if (config && (yield* host.io.fs.fileExists(config + ".codeterm-backup"))) {
+    const original = yield* host.io.fs.readFile(config + ".codeterm-backup");
+    if (typeof original !== "string" || !(yield* writeFileIfChanged(config, original))) return { ok: false, error: "restore failed for " + config };
     const ownershipPath = codexHookTrustOwnershipPath();
-    if (ownershipPath && host.fs.fileExists(ownershipPath)) host.fs.removeFile(ownershipPath);
+    if (ownershipPath && (yield* host.io.fs.fileExists(ownershipPath))) yield* host.io.fs.removeFile(ownershipPath);
   }
   const script = host.platform() === "windows" ? codexWindowsHookScriptPath() : null;
-  if (script && host.fs.fileExists(script + ".codeterm-backup")) {
-    const original = host.fs.readFile(script + ".codeterm-backup");
+  if (script && (yield* host.io.fs.fileExists(script + ".codeterm-backup"))) {
+    const original = yield* host.io.fs.readFile(script + ".codeterm-backup");
     if (typeof original !== "string") return { ok: false, error: "restore failed for " + script };
-    const scriptState = host.fs.readFile(script + ".codeterm-backup-state");
+    const scriptState = yield* host.io.fs.readFile(script + ".codeterm-backup-state");
     if (scriptState === "absent" || typeof scriptState !== "string" && original === "") {
-      if (host.fs.fileExists(script) && !host.fs.removeFile(script)) return { ok: false, error: "restore failed for " + script };
-    } else if (!writeFileIfChanged(script, original)) {
+      if ((yield* host.io.fs.fileExists(script)) && !(yield* host.io.fs.removeFile(script))) return { ok: false, error: "restore failed for " + script };
+    } else if (!(yield* writeFileIfChanged(script, original))) {
       return { ok: false, error: "restore failed for " + script };
     }
   }
   invalidateCodexHookTrust(path);
   return { ok: true };
 }
-function ensureIntegrationOnStartup(apiPort, install, then = (result) => result) {
+function* ensureIntegrationOnStartup(apiPort, install, then = (result) => result) {
   void apiPort;
   void install;
   const path = codexHooksPath();
-  if (!path || !host.fs.fileExists(path)) return then({ ok: true, changed: false });
-  const json2 = host.fs.readJson(path);
-  if (!json2 || !json2.hooks) return then({ ok: true, changed: false });
+  if (!path || !(yield* host.io.fs.fileExists(path))) return yield* ioResolve(then({ ok: true, changed: false }));
+  const json2 = yield* host.io.fs.readJson(path);
+  if (!json2 || !json2.hooks) return yield* ioResolve(then({ ok: true, changed: false }));
   const owned = (json2.hooks.SessionStart || []).filter(isCodetermCodexHook);
-  if (owned.length === 0) return then({ ok: true, changed: false });
-  return refreshCodexHookTrustState(path, (trustState) => {
+  if (owned.length === 0) return yield* ioResolve(then({ ok: true, changed: false }));
+  return yield* refreshCodexHookTrustState(path, function* (trustState) {
     if (trustState === "disabled") {
-      return then({ ok: true, changed: false, reason: "Codex hook trust is disabled" });
+      return yield* ioResolve(then({ ok: true, changed: false, reason: "Codex hook trust is disabled" }));
     }
     if (trustState === "unknown") {
-      return then({
+      return yield* ioResolve(then({
         ok: false,
         changed: false,
         actionable: true,
-        error: "Codex could not confirm hook trust: " + codexHookTrustReason(path)
-      });
+        error: "Codex could not confirm hook trust: " + (yield* codexHookTrustReason(path))
+      }));
     }
     const scriptPath = codexWindowsHookScriptPath();
-    const scriptStale = host.platform() === "windows" && !!scriptPath && (!host.fs.fileExists(scriptPath) || !isCurrentCodexHookScriptContent(String(host.fs.readFile(scriptPath) || "")));
+    const scriptStale = host.platform() === "windows" && !!scriptPath && (!(yield* host.io.fs.fileExists(scriptPath)) || !isCurrentCodexHookScriptContent(String((yield* host.io.fs.readFile(scriptPath)) || "")));
     const commandStale = owned.some((entry) => {
       const hooks = entry && entry.hooks || [];
       return hooks.some(
@@ -6405,14 +6490,14 @@ function ensureIntegrationOnStartup(apiPort, install, then = (result) => result)
     const timeoutStale = owned.some((entry) => !hasAdequateCodexHookTimeout(entry));
     const trustStale = trustState === "stale";
     if (!scriptStale && !commandStale && !timeoutStale && !stopCommandStale && stopOwned && !trustStale) {
-      return then({ ok: true, changed: false });
+      return yield* ioResolve(then({ ok: true, changed: false }));
     }
-    return then({
+    return yield* ioResolve(then({
       ok: false,
       changed: false,
       actionable: true,
       error: "Codex hook repair requires recorded integration consent; open provider integration settings and approve Repair"
-    });
+    }));
   });
 }
 function codexHooksPath() {
@@ -6444,35 +6529,35 @@ function codexHookTrustOwnershipPath() {
   const config = codexConfigPath2();
   return config ? config + ".codeterm-hook-trust-owned" : null;
 }
-function captureIntegrationFile(path) {
-  const existed = host.fs.fileExists(path);
-  const bytes2 = existed ? host.fs.readFile(path) : "";
+function* captureIntegrationFile(path) {
+  const existed = yield* host.io.fs.fileExists(path);
+  const bytes2 = existed ? yield* host.io.fs.readFile(path) : "";
   return typeof bytes2 === "string" ? { path, existed, bytes: bytes2 } : null;
 }
-function writeFileIfChanged(path, contents) {
-  return host.fs.readFile(path) === contents || host.fs.writeFile(path, contents);
+function* writeFileIfChanged(path, contents) {
+  return (yield* host.io.fs.readFile(path)) === contents || (yield* host.io.fs.writeFile(path, contents));
 }
-function restoreIntegrationFiles(snapshots) {
+function* restoreIntegrationFiles(snapshots) {
   let restored = true;
   for (let i = snapshots.length - 1; i >= 0; i--) {
     const snapshot = snapshots[i];
-    const ok = snapshot.existed ? writeFileIfChanged(snapshot.path, snapshot.bytes) : !host.fs.fileExists(snapshot.path) || host.fs.removeFile(snapshot.path);
+    const ok = snapshot.existed ? yield* writeFileIfChanged(snapshot.path, snapshot.bytes) : !(yield* host.io.fs.fileExists(snapshot.path)) || (yield* host.io.fs.removeFile(snapshot.path));
     restored = ok && restored;
   }
   return restored;
 }
-function codexHookTrustContext(hooksPath) {
+function* codexHookTrustContext(hooksPath) {
   const cfg = codexConfigPath2();
-  if (!cfg || !host.fs.fileExists(cfg)) return null;
-  const text7 = String(host.fs.readFile(cfg) || "");
+  if (!cfg || !(yield* host.io.fs.fileExists(cfg))) return null;
+  const text7 = String((yield* host.io.fs.readFile(cfg)) || "");
   const block = findCodexHookTrustBlock(text7, hooksPath);
   if (block == null) return null;
-  const hooks = host.fs.readJson(hooksPath)?.hooks;
+  const hooks = (yield* host.io.fs.readJson(hooksPath))?.hooks;
   const labels = [];
   if ((hooks?.SessionStart || []).some(isCodetermCodexHook)) labels.push("session_start");
   if ((hooks?.Stop || []).some(isCodetermCodexHook)) labels.push("stop");
   const script = codexWindowsHookScriptPath();
-  const scriptText = script && host.fs.fileExists(script) ? String(host.fs.readFile(script) || "") : "";
+  const scriptText = script && (yield* host.io.fs.fileExists(script)) ? String((yield* host.io.fs.readFile(script)) || "") : "";
   const trustFingerprint = codexHookContentHash(hookTrustConfigSections(text7));
   const hookFingerprint = codexHookContentHash([
     ownedContentHash(hooks?.SessionStart, hooks?.Stop, scriptText),
@@ -6499,8 +6584,8 @@ function hookTrustConfigSections(config) {
   if (active) sections.push(lines.join("\n"));
   return sections.join(String.fromCharCode(0));
 }
-function cacheCodexHookTrust(hooksPath, verdict, reason) {
-  const context = codexHookTrustContext(hooksPath);
+function* cacheCodexHookTrust(hooksPath, verdict, reason) {
+  const context = yield* codexHookTrustContext(hooksPath);
   if (context) codexHookTrustCache.set(hooksPath, {
     fingerprint: context.fingerprint,
     hookFingerprint: context.hookFingerprint,
@@ -6509,8 +6594,8 @@ function cacheCodexHookTrust(hooksPath, verdict, reason) {
     reason
   });
 }
-function codexHookTrustState(hooksPath) {
-  const context = codexHookTrustContext(hooksPath);
+function* codexHookTrustState(hooksPath) {
+  const context = yield* codexHookTrustContext(hooksPath);
   if (!context) return "missing";
   const { block, fingerprint } = context;
   const m = block.match(/(?:^|\n)\s*enabled\s*=\s*(true|false)\s*(?:\n|$)/);
@@ -6523,17 +6608,17 @@ function codexHookTrustState(hooksPath) {
   if (m) return "unknown";
   return "missing";
 }
-function codexHookTrustReason(hooksPath) {
-  const context = codexHookTrustContext(hooksPath);
+function* codexHookTrustReason(hooksPath) {
+  const context = yield* codexHookTrustContext(hooksPath);
   if (!context) return "Codex hook trust configuration is unavailable";
   const cached = codexHookTrustCache.get(hooksPath);
   if (cached?.fingerprint === context.fingerprint && cached.reason) return cached.reason;
   return "Codex has not confirmed the current hook hash";
 }
-function codexHookTrustVerificationSource(hooksPath, state) {
+function* codexHookTrustVerificationSource(hooksPath, state) {
   if (state === "disabled") return "disabled";
   if (state === "missing") return "missing";
-  const context = codexHookTrustContext(hooksPath);
+  const context = yield* codexHookTrustContext(hooksPath);
   if (!context || !context.labels.includes("session_start")) return "unverified";
   const cached = codexHookTrustCache.get(hooksPath);
   if (cached?.fingerprint !== context.fingerprint) return "unverified";
@@ -6542,20 +6627,22 @@ function codexHookTrustVerificationSource(hooksPath, state) {
 function invalidateCodexHookTrust(hooksPath) {
   codexHookTrustCache.delete(hooksPath);
 }
-function refreshCodexHookTrustState(hooksPath, then = (verdict) => verdict) {
-  const context = codexHookTrustContext(hooksPath);
-  if (!context) return then("missing");
-  if (/(?:^|\n)\s*enabled\s*=\s*false\s*(?:\n|$)/.test(context.block)) return then("disabled");
-  if (!/(?:^|\n)\s*trusted_hash\s*=/.test(context.block)) return then(codexHookTrustState(hooksPath));
+function* refreshCodexHookTrustState(hooksPath, then = (verdict) => verdict) {
+  const context = yield* codexHookTrustContext(hooksPath);
+  if (!context) return yield* ioResolve(then("missing"));
+  if (/(?:^|\n)\s*enabled\s*=\s*false\s*(?:\n|$)/.test(context.block)) return yield* ioResolve(then("disabled"));
+  if (!/(?:^|\n)\s*trusted_hash\s*=/.test(context.block)) return yield* ioResolve(then(yield* codexHookTrustState(hooksPath)));
   const cached = codexHookTrustCache.get(hooksPath);
-  if (cached?.fingerprint === context.fingerprint) return then(cached.verdict);
-  if (!context.labels.includes("session_start")) return then("unknown");
-  return inspectCodexHookTrust({
+  if (cached?.fingerprint === context.fingerprint) return yield* ioResolve(then(cached.verdict));
+  if (!context.labels.includes("session_start")) return yield* ioResolve(then("unknown"));
+  return yield* inspectCodexHookTrust({
     hooksPath,
     config: context.config,
     managedLabels: context.labels,
     listCwd: host.homeDir() || "."
-  }, (inspected) => {
+  }, function* (inspected) {
+    const current = yield* codexHookTrustContext(hooksPath);
+    if (current?.fingerprint !== context.fingerprint) return yield* ioResolve(then("unknown"));
     codexHookTrustCache.set(hooksPath, {
       fingerprint: context.fingerprint,
       hookFingerprint: context.hookFingerprint,
@@ -6563,30 +6650,30 @@ function refreshCodexHookTrustState(hooksPath, then = (verdict) => verdict) {
       verdict: inspected.verdict,
       reason: inspected.reason
     });
-    return then(inspected.verdict);
+    return yield* ioResolve(then(inspected.verdict));
   });
 }
-function enableExistingCodexHookTrust(hooksPath) {
+function* enableExistingCodexHookTrust(hooksPath) {
   const cfg = codexConfigPath2();
-  if (!cfg || !host.fs.fileExists(cfg)) return { state: "missing", changed: false, write_failed: false };
-  const text7 = String(host.fs.readFile(cfg) || "");
+  if (!cfg || !(yield* host.io.fs.fileExists(cfg))) return { state: "missing", changed: false, write_failed: false };
+  const text7 = String((yield* host.io.fs.readFile(cfg)) || "");
   if (!text7) return { state: "missing", changed: false, write_failed: false };
   const span = findCodexHookTrustBlockSpan(text7, hooksPath);
   if (!span) return { state: "missing", changed: false, write_failed: false };
   const block = text7.substring(span.start, span.end);
   if (!/(?:^|\n)\s*enabled\s*=\s*false\s*(?:\n|$)/.test(block)) {
-    const current = codexHookTrustState(hooksPath);
+    const current = yield* codexHookTrustState(hooksPath);
     const state = current === "enabled" || current === "trusted" ? current : "unknown";
     return { state, changed: false, write_failed: false };
   }
   const nextBlock = block.replace(/(^|\n)(\s*enabled\s*=\s*)false(\s*(?:\n|$))/, "$1$2true$3");
   const next = text7.substring(0, span.start) + nextBlock + text7.substring(span.end);
-  return host.fs.writeFile(cfg, next) ? { state: "enabled", changed: true, write_failed: false } : { state: "unknown", changed: false, write_failed: true };
+  return (yield* host.io.fs.writeFile(cfg, next)) ? { state: "enabled", changed: true, write_failed: false } : { state: "unknown", changed: false, write_failed: true };
 }
-function disableOwnedCodexHookTrust(hooksPath) {
+function* disableOwnedCodexHookTrust(hooksPath) {
   const cfg = codexConfigPath2();
-  if (!cfg || !host.fs.fileExists(cfg)) return true;
-  const text7 = host.fs.readFile(cfg);
+  if (!cfg || !(yield* host.io.fs.fileExists(cfg))) return true;
+  const text7 = yield* host.io.fs.readFile(cfg);
   if (typeof text7 !== "string") return false;
   const span = findCodexHookTrustBlockSpan(text7, hooksPath);
   if (!span) return true;
@@ -6594,7 +6681,7 @@ function disableOwnedCodexHookTrust(hooksPath) {
   const nextBlock = block.replace(/(^|\n)(\s*enabled\s*=\s*)true(\s*(?:\n|$))/, "$1$2false$3");
   if (nextBlock === block) return true;
   const next = text7.substring(0, span.start) + nextBlock + text7.substring(span.end);
-  return host.fs.writeFile(cfg, next);
+  return yield* host.io.fs.writeFile(cfg, next);
 }
 function findCodexHookTrustBlock(text7, hooksPath) {
   const span = findCodexHookTrustBlockSpan(text7, hooksPath);
@@ -6659,6 +6746,26 @@ function hasCodetermCodexWindowsCommand(entry) {
   }
   return false;
 }
+function integrationLockPaths() {
+  return [codexHooksPath() && codexHooksPath() + ".codeterm-integration.lock", codexConfigPath2() && codexConfigPath2() + ".project-trust.lock"].filter((path) => !!path);
+}
+function* installIntegration(apiPort, options) {
+  if (options?.consent !== true) return yield* installIntegrationLocked(apiPort, options);
+  return yield* ioFileTransaction(host.io.fs, integrationLockPaths(), function* () {
+    return yield* installIntegrationLocked(apiPort, options);
+  });
+}
+function* grantIntegrationTrust(managedKeys, then = (value) => value) {
+  return yield* ioFileTransaction(host.io.fs, integrationLockPaths(), function* () {
+    return yield* grantIntegrationTrustLocked(managedKeys, then);
+  });
+}
+function* uninstallIntegration() {
+  return yield* ioFileTransaction(host.io.fs, integrationLockPaths(), uninstallIntegrationLocked);
+}
+function* restoreIntegration() {
+  return yield* ioFileTransaction(host.io.fs, integrationLockPaths(), restoreIntegrationLocked);
+}
 
 // plugins/provider-codex/src/plugin.ts
 function profileSweepHost() {
@@ -6666,16 +6773,7 @@ function profileSweepHost() {
     platform: () => host.platform(),
     homeDir: () => host.homeDir(),
     log: (level, message) => host.log(level, message),
-    fs: {
-      fileExists: (path) => host.fs.fileExists(path),
-      isSymlink: (path) => host.fs.isSymlink(path),
-      readDir: (path) => host.fs.readDir(path),
-      readFile: (path) => host.fs.readFile(path),
-      removeFile: (path) => host.fs.removeFile(path),
-      writeFileAtomic: (path, contents) => host.fs.writeFileAtomic(path, contents),
-      lockFile: (path) => host.fs.lockFile(path),
-      unlockFile: (id) => host.fs.unlockFile(id)
-    }
+    io: host.io
   };
 }
 var TITLE_RE = /codex/i;
@@ -6732,9 +6830,9 @@ var plugin = {
   sessionResume: () => ({ exact: true }),
   runtimeStoredHistory,
   runtimeStoredRecords,
-  runtimeStoredHistoryAvailable(cwd, sessionId) {
-    const path = sessionFilePath(cwd, sessionId);
-    return storedHistoryAvailable(sessionId, path ? host.fs.readFileHead(path, 262144) : null);
+  *runtimeStoredHistoryAvailable(cwd, sessionId) {
+    const path = yield* sessionFilePath(cwd, sessionId);
+    return storedHistoryAvailable(sessionId, path ? yield* host.io.fs.readFileHead(path, 262144) : null);
   },
   runtimePlan,
   runtimeResponse,
@@ -6805,42 +6903,35 @@ var plugin = {
     return responseKeysForIndex(prompt.affirmativeIndex, view).slice(0, 1);
   },
   // Codex CLI has no model-list subcommand; its local cache is the only sync account-scoped source. Missing => seed.
-  discoverModels() {
-    return discoverCodexModels();
+  *discoverModels() {
+    return yield* discoverCodexModels();
   },
-  checkForUpdate() {
-    return checkCodexUpdate(host);
+  *checkForUpdate() {
+    return yield* checkCodexUpdate(host);
   },
   providerSelfUpdateCapability() {
     return codexSelfUpdateCapability;
   },
-  releaseTabLaunchArtifacts(tabId, instanceId) {
-    return releaseCodexProfile(profileSweepHost(), tabId, instanceId);
+  *releaseTabLaunchArtifacts(tabId, instanceId) {
+    return yield* releaseCodexProfile(profileSweepHost(), tabId, instanceId);
   },
-  folderTrustAnswered(tabId, instanceId) {
-    return carryCodexProjectTrustForTab(profileSweepHost(), tabId, instanceId);
+  *folderTrustAnswered(tabId, instanceId) {
+    return yield* carryCodexProjectTrustForTab(profileSweepHost(), tabId, instanceId);
   },
-  isDirectoryTrusted(path) {
-    return isCodexDirectoryTrusted(profileSweepHost(), path);
+  *isDirectoryTrusted(path) {
+    return yield* isCodexDirectoryTrusted(profileSweepHost(), path);
   },
-  directoryTrustState(path, skipPermissions) {
-    return codexDirectoryTrustState(profileSweepHost(), path, skipPermissions);
+  *directoryTrustState(path, skipPermissions) {
+    return yield* codexDirectoryTrustState(profileSweepHost(), path, skipPermissions);
   },
-  sweepLaunchArtifacts(request2) {
-    return manageCodexProfiles(
-      profileSweepHost(),
-      request2.liveTabIds,
-      request2.instanceId,
-      request2.confirm,
-      request2.includeLegacy,
-      request2.goneInstanceIds
-    );
+  *sweepLaunchArtifacts(request2) {
+    return yield* manageCodexProfiles(profileSweepHost(), request2.liveTabIds, request2.instanceId, request2.confirm, request2.includeLegacy, request2.goneInstanceIds);
   },
-  buildLaunchSpec(input) {
-    return buildCodexLaunchSpec(input, starterPrompt);
+  *buildLaunchSpec(input) {
+    return yield* buildCodexLaunchSpec(input, starterPrompt);
   },
-  buildLaunchCommand(params) {
-    const spec = buildCodexLaunchSpec(params || {}, starterPrompt);
+  *buildLaunchCommand(params) {
+    const spec = yield* buildCodexLaunchSpec(params || {}, starterPrompt);
     if (spec) return codexCommandFromSpec(spec);
     const p = params || {};
     const parts = ["codex", ...CODEX_LAUNCH_CONFIG];
@@ -6857,7 +6948,7 @@ var plugin = {
         return "Write-Error 'CodeTerm refused the Codex launch: instance identity is missing, so a per-tab profile cannot be safely owned'; exit 1";
       }
       const instructions = withLaunchMarker(p.task, typeof p.launchMarker === "string" ? p.launchMarker : void 0);
-      const taskPath = host.fs.writeTempFile(instructions, ".ct-task.md");
+      const taskPath = yield* host.io.fs.writeTempFile(instructions, ".ct-task.md");
       if (!taskPath) throw new Error("failed to write Codex task instructions");
       const quotedPath = host.shell.quoteFor(taskPath, host.platform());
       if (host.platform() === "windows") {
@@ -6879,8 +6970,8 @@ var plugin = {
     parts.push(...hostOwnedCodexLaunchArgs(p.hostOwned));
     return parts.join(" ");
   },
-  buildResumeCommand(sessionId, skipPermissions) {
-    const spec = buildCodexLaunchSpec({ resume: { sessionId, skipPermissions } }, starterPrompt);
+  *buildResumeCommand(sessionId, skipPermissions) {
+    const spec = yield* buildCodexLaunchSpec({ resume: { sessionId, skipPermissions } }, starterPrompt);
     if (spec) return codexCommandFromSpec(spec);
     const parts = ["codex", ...CODEX_LAUNCH_CONFIG, "resume"];
     if (skipPermissions) {
@@ -6891,8 +6982,8 @@ var plugin = {
     parts.push(host.shell.quoteFor(uuid, host.platform()), "--no-daemon");
     return requireDirectResume(parts.join(" "));
   },
-  buildResumeCommandWithContext(params) {
-    const spec = buildCodexLaunchSpec({ resume: params }, starterPrompt);
+  *buildResumeCommandWithContext(params) {
+    const spec = yield* buildCodexLaunchSpec({ resume: params }, starterPrompt);
     if (spec) return codexCommandFromSpec(spec);
     const p = params || {};
     const platform = host.platform();
@@ -6917,18 +7008,18 @@ var plugin = {
     }
     return requireDirectResume(parts.join(" "));
   },
-  sessionFilePath(_cwd, sessionId) {
-    return sessionFilePath(_cwd, sessionId);
+  *sessionFilePath(_cwd, sessionId) {
+    return yield* sessionFilePath(_cwd, sessionId);
   },
-  sessionExists(cwd, sessionId) {
-    return sessionExists(cwd, sessionId);
+  *sessionExists(cwd, sessionId) {
+    return yield* sessionExists(cwd, sessionId);
   },
-  detectLaunchSession(evidence) {
-    return detectCodexLaunchSession(evidence);
+  *detectLaunchSession(evidence) {
+    return yield* detectCodexLaunchSession(evidence);
   },
   // Codex 0.153 has no per-session JSONL transcript; keep the path capability honest.
-  sessionJsonlPath(cwd, sessionId) {
-    return this.sessionFilePath(cwd, sessionId);
+  *sessionJsonlPath(cwd, sessionId) {
+    return yield* sessionFilePath(cwd, sessionId);
   },
   // Duplicated by design across provider bundles (QuickJS, no imports) — parity guarded by provider-helper-parity.test.ts.
   parseSessionObservations,
@@ -6936,50 +7027,52 @@ var plugin = {
   parseSessionRecords(records, meta) {
     return { ...parseSessionDelta(records, meta.sourceKey ? { session_key: meta.sourceKey, from_offset: meta.fromOffset } : void 0), new_offset: meta.newOffset };
   },
-  detectSessionId(cwd, exclude, maxAgeMs) {
-    return detectSessionId(cwd, exclude, maxAgeMs);
+  *detectSessionId(cwd, exclude, maxAgeMs) {
+    return yield* detectSessionId(cwd, exclude, maxAgeMs);
   },
-  checkIntegration() {
-    return checkIntegration();
+  *checkIntegration() {
+    return yield* checkIntegration();
   },
-  installIntegration(apiPort, options) {
-    return installIntegration(apiPort, options);
+  *installIntegration(apiPort, options) {
+    return yield* installIntegration(apiPort, options);
   },
   // Codex is the only hash authority; the grant lane never computes a trust hash CodeTerm-side.
-  grantIntegrationTrust(managedKeys) {
-    return grantIntegrationTrust(managedKeys);
+  *grantIntegrationTrust(managedKeys) {
+    return yield* grantIntegrationTrust(managedKeys);
   },
-  uninstallIntegration() {
-    return uninstallIntegration();
+  *uninstallIntegration() {
+    return yield* uninstallIntegration();
   },
-  restoreIntegration() {
-    return restoreIntegration();
+  *restoreIntegration() {
+    return yield* restoreIntegration();
   },
-  ensureIntegrationOnStartup(apiPort) {
-    return ensureIntegrationOnStartup(apiPort, (port, options) => installIntegration(port, options));
+  *ensureIntegrationOnStartup(apiPort) {
+    return yield* ensureIntegrationOnStartup(apiPort, function* (port, options) {
+      return yield* installIntegration(port, options);
+    });
   },
   // Parse the `/status` TUI screen into a UsageSnapshot; gauges report "% left", snapshot stores "% used".
   parseUsage(rawText, nowMs) {
     return parseCodexUsage(rawText, nowMs);
   },
-  fetchUsage() {
-    return fetchCodexUsage(host);
+  *fetchUsage() {
+    return yield* fetchCodexUsage(host);
   },
   detectActiveSession(_cwd, _currentSid) {
     return null;
   },
-  enumerateSessions() {
-    return enumerateSessions();
+  *enumerateSessions() {
+    return yield* enumerateSessions();
   },
-  findSession(sessionId) {
-    return findSession(sessionId);
+  *findSession(sessionId) {
+    return yield* findSession(sessionId);
   },
   // Read the exact model identity from this session's latest turn context.
-  detectSessionModel(cwd, sessionId) {
-    return detectSessionModel(cwd, sessionId);
+  *detectSessionModel(cwd, sessionId) {
+    return yield* detectSessionModel(cwd, sessionId);
   },
-  detectSessionReasoningEffort(cwd, sessionId) {
-    return detectSessionReasoningEffort(cwd, sessionId);
+  *detectSessionReasoningEffort(cwd, sessionId) {
+    return yield* detectSessionReasoningEffort(cwd, sessionId);
   },
   // Mirror native parse_session_messages for response_item message blocks.
   parseSessionMessages,
@@ -7455,4 +7548,4 @@ function parseSessionMessages(text7) {
   }
   return out;
 }
-var plugin_default = plugin;
+var plugin_default = defineProviderIo(plugin, () => host.io);

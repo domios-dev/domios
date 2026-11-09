@@ -58,10 +58,14 @@ async fn explicit_refresh_discovers_remote_environments_for_dual_registered_prov
             )
             .await
             .unwrap();
-            assert_eq!(
-                call_json::<usize>(&vm, "discoveryCalls", &[]).unwrap(),
-                expected_calls
-            );
+            let probe = vm.clone();
+            let calls = codeterm_plugin::js_runtime::spawn_blocking(move || {
+                call_json::<usize>(&probe, "discoveryCalls", &[])
+            })
+            .await
+            .unwrap()
+            .unwrap();
+            assert_eq!(calls, expected_calls);
             let remote = state
                 .svc
                 .chatbackend_registry

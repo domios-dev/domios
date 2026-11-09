@@ -1,5 +1,6 @@
+import type { PlanView as Plan } from "../planProjection";
 import type { Tab } from "../../../lib/types";
-import type { Plan } from "../types";
+
 
 export function buildTaskPresenceFingerprint(filteredPlans: readonly Plan[], tabs: Record<string, Tab>): string {
   const ids = new Set<string>();
@@ -18,7 +19,7 @@ export function buildTaskPresenceFingerprint(filteredPlans: readonly Plan[], tab
     for (const t of p.tasks) {
       add(t.assigned_tab_id);
       add(t.lane?.tab_id);
-      for (const m of t.milestones) add(m.from?.tab_id);
+      for (const m of t.milestones ?? []) add(m.from?.tab_id);
       assignmentParts.push(t.id, t.assigned_tab_id ?? "", t.lane?.tab_id ?? "");
     }
   }

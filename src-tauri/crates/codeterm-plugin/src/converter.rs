@@ -143,6 +143,7 @@ impl From<TranscribeError> for ConvertError {
     fn from(e: TranscribeError) -> Self {
         match e {
             TranscribeError::Empty | TranscribeError::EmptyPath => Self::NoOutput,
+            TranscribeError::TimedOut(_) => Self::DeadlineExceeded,
             other => Self::RequestFailed(other.to_string()),
         }
     }
@@ -406,6 +407,7 @@ fn lexical_normalize(path: &Path) -> PathBuf {
 pub struct TranscriberConverter {
     inner: Arc<dyn Transcriber>,
     conversions: [Conversion; 1],
+    runtime: Option<tokio::runtime::Handle>,
 }
 
 impl TranscriberConverter {
@@ -413,6 +415,7 @@ impl TranscriberConverter {
         Self {
             inner,
             conversions: [Conversion::new(MediaKind::Audio, MediaKind::Text)],
+            runtime: tokio::runtime::Handle::try_current().ok(),
         }
     }
 }
@@ -437,6 +440,7 @@ impl Converter for TranscriberConverter {
             return Err(ConvertError::Cancelled);
         }
         let language = req.language.as_deref().unwrap_or("");
+        let _runtime = self.runtime.as_ref().map(tokio::runtime::Handle::enter);
         let transcript = futures_executor::block_on(async {
             let transcribe = self.inner.transcribe(&req.input_path, language).fuse();
             let cancelled = req.cancellation.cancelled().fuse();

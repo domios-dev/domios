@@ -104,6 +104,26 @@ fn refusal() -> Response {
         .into_response()
 }
 
+pub(super) async fn prepare(
+    State(state): State<AppState>,
+    Path(tab): Path<String>,
+    Extension(admission): Extension<Arc<Admission>>,
+) -> Response {
+    if let Err(status) = admission.count((admission.clock)()) {
+        return status.into_response();
+    }
+    match tokio::task::spawn_blocking(move || {
+        codeterm_service_core::service::local_preview::reference_inventory::prepare(
+            &state.svc, &tab,
+        )
+    })
+    .await
+    {
+        Ok(Ok(state)) => Json(state).into_response(),
+        _ => refusal(),
+    }
+}
+
 pub(super) async fn read(
     State(state): State<AppState>,
     Path(tab): Path<String>,
@@ -114,9 +134,8 @@ pub(super) async fn read(
         Ok(permit) => permit,
         Err(status) => return status.into_response(),
     };
-    let configured = state.config.lock().api.preview_secret_paths.clone();
-    let result = tokio::task::spawn_blocking(move || {
-        let _permit = permit;
+    let result = crate::blocking_json::prepare(permit, move || {
+        let configured = state.config.lock().api.preview_secret_paths.clone();
         codeterm_service_core::service::local_preview::read(
             &state.svc,
             &tab,
@@ -124,10 +143,11 @@ pub(super) async fn read(
             &body.path,
             &body.kind,
         )
+        .map(Json)
     })
     .await;
     match result {
-        Ok(Ok(file)) => Json(file).into_response(),
+        Ok(Ok(response)) => response,
         Ok(Err(error)) => {
             log::debug!(
                 "[local-preview] read refused: {}",

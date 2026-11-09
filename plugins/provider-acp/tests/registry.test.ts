@@ -1,0 +1,66 @@
+import assert from "node:assert/strict";
+import {decodeRegistry, registryBounds, saveRegistryCache, searchRegistryCache} from "../src/registry";
+const agent = {id:"fixture", name:"Fixture Agent", version:"1.2.3", description:"Offline coding", distribution:{npx:{package:"@fixture/agent@1.2.3", args:["--acp"], env:{LANG:"en"}}, binary:{"linux-x86_64":{archive:"https://example.org/agent.tgz",cmd:"./agent",sha256:"a".repeat(64)}}}};
+const text = JSON.stringify({version:"1.0.0",agents:[agent]});
+assert.equal(decodeRegistry(text).agents[0].distribution.binary?.["linux-x86_64"].sha256,"a".repeat(64));
+for (const input of ["{", "[]", "null", JSON.stringify({version:1,agents:[]}), JSON.stringify({version:"1.0.0",agents:[agent,agent]}), JSON.stringify({version:"1.0.0",agents:Array.from({length:registryBounds.agents+1},()=>agent)}), " ".repeat(registryBounds.bytes+1), JSON.stringify({version:"1.0.0",agents:[{...agent,name:"x".repeat(257)}]}), JSON.stringify({version:"1.0.0",agents:[{...agent,distribution:{npx:{package:"x",secret:true}}}]}), JSON.stringify({version:"1.0.0",agents:[{...agent,distribution:{binary:{"linux-x86_64":{archive:"file:///tmp/agent",cmd:"./agent"}}}}]})]) assert.throws(()=>decodeRegistry(input));
+let stored: string | null = null;
+let writes = 0;
+const cache = {read:()=>stored,write:(text:string)=>{stored=text; writes++; return true;}};
+assert.deepEqual(searchRegistryCache(cache,"fixture"),[]);
+saveRegistryCache(cache,text);
+assert.equal(searchRegistryCache(cache,"OFFLINE")[0].id,"fixture");
+assert.deepEqual(searchRegistryCache(cache,"absent"),[]);
+assert.throws(()=>saveRegistryCache(cache,"{}"));
+assert.equal(writes,1);
+assert.equal(stored,text);
+console.log("✓ ACP registry: v1 distributions, malformed input, bounds, offline search and atomic validation");
+
+const {decodeAuthMethods, authenticationState, agentAuthMethod} = await import("../src/auth");
+const methods = decodeAuthMethods([{id:"opaque-login",name:"Sign in"},{id:"interactive",name:"Terminal",type:"terminal"}]);
+assert.equal(agentAuthMethod(methods,"opaque-login").id,"opaque-login");
+assert.throws(()=>agentAuthMethod(methods,"interactive"));
+assert.throws(()=>agentAuthMethod(methods,"undeclared"));
+assert.equal(authenticationState(undefined),"unknown");
+assert.equal(authenticationState(methods,{keyPresent:true}),"unknown");
+assert.equal(authenticationState(methods,{keyPresent:false}),"needs_auth");
+assert.equal(authenticationState(methods,{authenticated:true}),"authenticated");
+assert.equal(authenticationState(methods.filter(method=>method.type==="terminal")),"unavailable");
+assert.equal(authenticationState([]),"unknown");
+assert.throws(()=>decodeAuthMethods([{id:"same",name:"One"},{id:"same",name:"Two"}]));
+assert.throws(()=>decodeAuthMethods(Array(33).fill({id:"x",name:"x"})));
+console.log("✓ ACP authentication: declared IDs, terminal refusal, key presence remains unknown, missing key requires auth");
+
+const {registryCache} = await import("../src/discovery");
+const paths: string[] = [];
+const appCache = registryCache({dataDir:()=>"/app-data",readFileHead:(path,max)=>{paths.push(path); assert.equal(max,registryBounds.bytes+1); return stored;},writeFileAtomic:(path,text)=>{paths.push(path); stored=text; return true;}});
+saveRegistryCache(appCache,text);
+assert.equal(searchRegistryCache(appCache,"fixture").length,1);
+assert.deepEqual(paths,["/app-data/acp/cache/registry-v1.json","/app-data/acp/cache/registry-v1.json"]);
+console.log("✓ ACP registry cache is scoped to app data and requires no discovery subprocess");
+const runtime = await import("../src/runtime");
+const fs = await import("node:fs");
+const recorded = JSON.parse(fs.readFileSync(new URL("./fixtures/runtime/initialize-new-prompt.json", import.meta.url),"utf8"));
+const context = {...recorded.context,tabId:"auth-fixture"};
+const init = {kind:"initialize"} as const;
+const initPlan = runtime.runtimePlan(context,init);
+assert.equal(runtime.runtimeResponse(context,init,initPlan.state,{kind:"success",value:{protocolVersion:1,authMethods:[{id:"opaque-login",name:"Agent sign-in"},{id:"terminal-only",name:"Interactive sign-in",type:"terminal"}],agentCapabilities:{}}}).kind,"complete");
+const login = {kind:"control",action:"login",value:{methodId:"opaque-login"}} as const;
+const loginPlan = runtime.runtimePlan(context,login);
+assert.deepEqual(loginPlan.action,{kind:"request",call:{method:"authenticate",params:{methodId:"opaque-login"}}});
+for (const id of ["terminal-only","undeclared"]) assert.equal(runtime.runtimePlan(context,{kind:"control",action:"login",value:{methodId:id}}).action.kind,"refused");
+const continued = runtime.runtimeResponse(context,login,loginPlan.state,{kind:"success",value:{}});
+assert.equal(continued.kind,"continue");
+if (continued.kind !== "continue") throw new Error("Authentication did not re-initialize");
+assert.equal(continued.plan.action.kind,"request");
+const authenticated = runtime.runtimeResponse(context,login,continued.plan.state,{kind:"success",value:{protocolVersion:1,agentCapabilities:{},authMethods:[]}});
+assert.equal(authenticated.kind,"complete");
+if (authenticated.kind !== "complete") throw new Error("Authentication unavailable");
+assert.deepEqual(authenticated.events,[{kind:"authentication",authentication:{state:"authenticated",methods:[]}}]);
+console.log("✓ ACP runtime uses declared authenticate method IDs and reinitializes after success");
+
+assert.equal(decodeRegistry(JSON.stringify({version:"1.0.0",agents:[{...agent,icon:"https://icons.example/agent.svg"}]})).agents[0].icon,"https://icons.example/agent.svg");
+for (const icon of ["http://icons.example/agent.png", "javascript:alert(1)", "https://user@icons.example/a.svg"]) {
+  assert.throws(()=>decodeRegistry(JSON.stringify({version:"1.0.0",agents:[{...agent,icon}]})));
+}
+console.log("✓ ACP registry preserves HTTPS icons and refuses insecure icon references");

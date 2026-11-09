@@ -11,8 +11,10 @@
  * eviction, or broadcast lag — server-unified, D1 §3), which triggers a full
  * resync instead of guessing what was missed.
  */
-import { apiHost, currentToken, relayTarget } from "./webApi";
-import { createTransportClient, type TransportClient } from "./transportClient";
+import { apiHost, relayTarget } from "./webApi";
+import { type TransportClient } from "./transportClient";
+import { baseDaemonTransport } from "./daemonBootstrap";
+import { wakeStreamMuxes } from "./streamMux";
 import { fireResync } from "./resync";
 import { replayCursorForTarget } from "./resyncModel";
 import { createSeqGapTracker } from "./eventSeqGaps";
@@ -32,6 +34,7 @@ type Handler = (e: { payload: unknown }) => void;
 
 interface EventFrame {
   seq?: number;
+  prev_seq?: number | null;
   boot?: string;
   event_type: string;
   data: unknown;
@@ -67,6 +70,7 @@ export function webReconnectEnabled(): boolean {
 }
 
 export function wakeWebEvents(): void {
+  wakeStreamMuxes();
   if (wakeReconnectWait) {
     wakeReconnectWait();
   } else if (reconnectState === "connected" && Date.now() - lastFrameAt > RECEIVE_TIMEOUT_MS) {
@@ -178,8 +182,10 @@ function dispatch(event: string, payload: unknown): void {
 // refetch reachable state; coverage beyond this is tracked as follow-up.
 function runFullResync(info: OverflowData): void {
   // as "last seen" means a later reconnect replays from next_seq forward.
-  saveCursor(`${info.boot}:${info.next_seq - 1}`);
-  seqGaps.adopt(info.boot, info.next_seq - 1);
+  if (Number.isSafeInteger(info.next_seq)) {
+    saveCursor(`${info.boot}:${info.next_seq - 1}`);
+    seqGaps.adopt(info.boot, info.next_seq - 1);
+  }
   window.dispatchEvent(new Event("codeterm-refresh-mux-state"));
   for (const ev of RESYNC_EVENTS) dispatch(ev, null);
   fireResync(info.reason === "boot-changed" ? "epoch_changed" : "overflow");
@@ -197,7 +203,7 @@ function handleFrame(msg: EventFrame): void {
     return;
   }
   if (msg.boot && typeof msg.seq === "number") {
-    const seen = seqGaps.observe(msg.boot, msg.seq);
+    const seen = seqGaps.observe(msg.boot, msg.seq, msg.prev_seq);
     if (seen.verdict === "gap") {
       // Loss with no overflow frame: a contract violation, not a hiccup.
       console.warn(
@@ -207,6 +213,7 @@ function handleFrame(msg: EventFrame): void {
       // Because this frame is already `next_seq`, rebaseline past it or the following frame appears to be a gap.
       seqGaps.adopt(msg.boot, msg.seq);
     }
+    if (seen.verdict === "duplicate") return;
     saveCursor(`${msg.boot}:${msg.seq}`);
   }
   dispatch(msg.event_type, msg.data);
@@ -241,7 +248,12 @@ async function runStream(): Promise<void> {
     const reconnecting = hasAttemptedConnection;
     hasAttemptedConnection = true;
     let connected = false;
-    const client = eventClient ?? createTransportClient({ origin: apiHost(), token: currentToken });
+    const client = eventClient ?? baseDaemonTransport();
+    if (cursor) {
+      const separator = cursor.lastIndexOf(":");
+      const seq = Number(cursor.slice(separator + 1));
+      if (separator > 0 && Number.isSafeInteger(seq) && seq >= 0) seqGaps.adopt(cursor.slice(0, separator), seq);
+    }
     const target = relayTarget();
     await new Promise<void>((resolve) => {
       client.subscribe(webEventStreamUrl(cursor, target).slice(client.origin().length), (_name, data) => {
@@ -257,7 +269,6 @@ async function runStream(): Promise<void> {
           if (reconnecting) {
             window.dispatchEvent(new Event(TERMINAL_VIEWER_RECONNECTED_EVENT));
             window.dispatchEvent(new Event("codeterm-refresh-mux-state"));
-            fireResync("reconnected");
           }
         }
         handleFrame(frame);

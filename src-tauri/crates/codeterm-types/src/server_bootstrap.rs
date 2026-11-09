@@ -6,7 +6,7 @@ use std::{
 
 /// Protocol 2 Shutdown replies attest successful required cleanup before process exit.
 pub const BOOTSTRAP_PROTOCOL: u32 = 2;
-pub const API_VERSION: u32 = 3;
+pub const API_VERSION: u32 = 4;
 pub const SERVER_COMPONENT_SCHEMA: u32 = 2;
 pub const CLI_RESOURCE_HINT_FILE: &str = "cli-resources.json";
 

@@ -1,0 +1,4 @@
+[
+  {"wire":"<domios from=\"cli\">opaque cli body</domios>","content":"opaque cli body","inboundKind":"cli"},
+  {"wire":"<domios from=\"tab\" label=\"Sender\" tab=\"a1234567\" model=\"opaque-model\" purpose=\"review\" context=\"handoff\" mesh=\"peer-a\">opaque routed body<tip>opaque return hint</tip></domios>","content":"opaque routed body","inboundKind":"tab","fromLabel":"Sender","fromTab":"a1234567","fromModel":"opaque-model","fromPurpose":"review","fromContext":"handoff","fromMesh":"peer-a"}
+]

@@ -41,7 +41,7 @@ pub(super) fn bound_report_store() -> (tempfile::TempDir, PlanStore, String, Str
 
 fn mark_bound_task_in_progress(store: &PlanStore, plan_id: &str, task_id: &str) {
     store
-        .with_plan(plan_id, 3, |plan| {
+        .edit_plan_fixture(plan_id, 3, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()
@@ -177,7 +177,7 @@ fn dispatch_of_blocked_task_unblocks_atomically_and_ack_succeeds() {
     let (_dir, store, plan_id, task_id) = bound_report_store();
     let block_reason = "awaiting dependency evidence";
     store
-        .with_plan(&plan_id, 4, |plan| {
+        .edit_plan_fixture(&plan_id, 4, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()
@@ -190,7 +190,7 @@ fn dispatch_of_blocked_task_unblocks_atomically_and_ack_succeeds() {
         })
         .unwrap();
 
-    let lane = store.show_task(&task_id).unwrap().task.lane;
+    let lane = store.inspect_task_for_test(&task_id).unwrap().task.lane;
     let attempt_id = store
         .begin_task_dispatch(&plan_id, &task_id, "worker-next", "Worker", lane.clone(), 5)
         .unwrap();
@@ -273,7 +273,7 @@ fn dispatch_without_declared_gates_records_an_explicit_empty_policy() {
 fn undeclared_gate_claim_is_rejected_by_stable_error_code_before_persistence() {
     let (_dir, store, plan_id, task_id) = bound_report_store();
     store
-        .with_plan(&plan_id, 4, |plan| {
+        .edit_plan_fixture(&plan_id, 4, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()
@@ -314,15 +314,18 @@ fn undeclared_gate_claim_is_rejected_by_stable_error_code_before_persistence() {
 #[test]
 fn bound_in_review_report_advances_atomically() {
     let (_dir, store, plan_id, task_id) = bound_report_store();
-    assert!(store
-        .ingest_bound_worker_report(
-            &plan_id,
-            &task_id,
-            &AgentRef::from_tab("worker"),
-            worker_report(ReportStatus::InReview, Some("abc123")),
-            4,
-        )
-        .unwrap());
+    assert!(
+        store
+            .ingest_bound_worker_report(
+                &plan_id,
+                &task_id,
+                &AgentRef::from_tab("worker"),
+                worker_report(ReportStatus::InReview, Some("abc123")),
+                4,
+            )
+            .unwrap()
+            .committed_review
+    );
 
     let task = store.get(&plan_id).unwrap().tasks.remove(0);
     assert_eq!(task.status, TaskStatus::InReview);
@@ -336,15 +339,18 @@ fn bound_in_review_report_advances_atomically() {
 #[test]
 fn in_review_report_without_sha_still_advances_bound_task() {
     let (_dir, store, plan_id, task_id) = bound_report_store();
-    assert!(store
-        .ingest_bound_worker_report(
-            &plan_id,
-            &task_id,
-            &AgentRef::from_tab("worker"),
-            worker_report(ReportStatus::InReview, None),
-            4,
-        )
-        .unwrap());
+    assert!(
+        store
+            .ingest_bound_worker_report(
+                &plan_id,
+                &task_id,
+                &AgentRef::from_tab("worker"),
+                worker_report(ReportStatus::InReview, None),
+                4,
+            )
+            .unwrap()
+            .committed_review
+    );
     let task = store.get(&plan_id).unwrap().tasks.remove(0);
     assert_eq!(task.status, TaskStatus::InReview);
     assert!(task.execution_attempts[0].report.is_some());
@@ -355,15 +361,18 @@ fn in_review_report_without_sha_still_advances_bound_task() {
 fn partial_report_keeps_bound_task_actionable() {
     let (_dir, store, plan_id, task_id) = bound_report_store();
     mark_bound_task_in_progress(&store, &plan_id, &task_id);
-    assert!(!store
-        .ingest_bound_worker_report(
-            &plan_id,
-            &task_id,
-            &AgentRef::from_tab("worker"),
-            worker_report(ReportStatus::Partial, Some("abc123")),
-            4,
-        )
-        .unwrap());
+    assert!(
+        !store
+            .ingest_bound_worker_report(
+                &plan_id,
+                &task_id,
+                &AgentRef::from_tab("worker"),
+                worker_report(ReportStatus::Partial, Some("abc123")),
+                4,
+            )
+            .unwrap()
+            .committed_review
+    );
     let task = store.get(&plan_id).unwrap().tasks.remove(0);
     assert_eq!(task.status, TaskStatus::InProgress);
     assert_eq!(task.assigned_tab_id.as_deref(), Some("worker"));
@@ -377,7 +386,7 @@ fn blocked_report_is_persisted_as_a_proposal_without_moving_the_task() {
     let (_dir, store, plan_id, task_id) = bound_report_store();
     mark_bound_task_in_progress(&store, &plan_id, &task_id);
     store
-        .with_plan(&plan_id, 3, |plan| {
+        .edit_plan_fixture(&plan_id, 3, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()
@@ -389,9 +398,18 @@ fn blocked_report_is_persisted_as_a_proposal_without_moving_the_task() {
         .unwrap();
     let report = worker_report(ReportStatus::Blocked, None);
     let reason = report.message.clone();
-    assert!(!store
-        .ingest_bound_worker_report(&plan_id, &task_id, &AgentRef::from_tab("worker"), report, 4,)
-        .unwrap());
+    assert!(
+        !store
+            .ingest_bound_worker_report(
+                &plan_id,
+                &task_id,
+                &AgentRef::from_tab("worker"),
+                report,
+                4,
+            )
+            .unwrap()
+            .committed_review
+    );
 
     let task = store.get(&plan_id).unwrap().tasks.remove(0);
     assert_eq!(task.status, TaskStatus::InProgress);
@@ -426,15 +444,18 @@ fn blocked_report_on_in_review_task_is_kept_as_a_milestone() {
 
     let mut blocked = worker_report(ReportStatus::Blocked, None);
     blocked.message = "review already owns this task".into();
-    assert!(!store
-        .ingest_bound_worker_report(
-            &plan_id,
-            &task_id,
-            &AgentRef::from_tab("worker"),
-            blocked,
-            5,
-        )
-        .unwrap());
+    assert!(
+        !store
+            .ingest_bound_worker_report(
+                &plan_id,
+                &task_id,
+                &AgentRef::from_tab("worker"),
+                blocked,
+                5,
+            )
+            .unwrap()
+            .committed_review
+    );
 
     let task = store.get(&plan_id).unwrap().tasks.remove(0);
     assert_eq!(task.status, TaskStatus::InReview);
@@ -455,7 +476,7 @@ fn partial_report_then_redispatch_reuses_its_own_lane() {
         ..Default::default()
     };
     store
-        .with_plan(&plan_id, 4, |plan| {
+        .edit_plan_fixture(&plan_id, 4, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()
@@ -468,21 +489,26 @@ fn partial_report_then_redispatch_reuses_its_own_lane() {
             Ok(())
         })
         .unwrap();
-    assert!(!store
-        .ingest_bound_worker_report(
-            &plan_id,
-            &task_id,
-            &AgentRef::from_tab("worker"),
-            worker_report(ReportStatus::Partial, Some("abc123")),
-            5,
-        )
-        .unwrap());
+    assert!(
+        !store
+            .ingest_bound_worker_report(
+                &plan_id,
+                &task_id,
+                &AgentRef::from_tab("worker"),
+                worker_report(ReportStatus::Partial, Some("abc123")),
+                5,
+            )
+            .unwrap()
+            .committed_review
+    );
 
-    let reported = store.show_task(&task_id).unwrap().task;
+    let reported = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(reported.status, TaskStatus::Pending);
     let old_attempt_id = reported.execution_attempts[0].id.clone();
     let old_reported_at = reported.execution_attempts[0].reported_at;
-    let observed_owner = store.dispatch_startup_owner_candidate(&plan_id, &task_id);
+    let observed_owner = store
+        .dispatch_startup_owner_candidate(&plan_id, &task_id)
+        .unwrap();
     assert!(observed_owner.is_none());
     let replacement_id = store
         .begin_task_dispatch_with_observation(
@@ -496,7 +522,7 @@ fn partial_report_then_redispatch_reuses_its_own_lane() {
             6,
         )
         .unwrap();
-    let redispatched = store.show_task(&task_id).unwrap().task;
+    let redispatched = store.inspect_task_for_test(&task_id).unwrap().task;
     let old_attempt = redispatched
         .execution_attempts
         .iter()
@@ -548,24 +574,30 @@ fn duplicate_stale_or_unbound_reports_never_regress_task() {
             4,
         )
         .unwrap();
-    assert!(!store
-        .ingest_bound_worker_report(
-            &plan_id,
-            &task_id,
-            &AgentRef::from_tab("worker"),
-            worker_report(ReportStatus::Partial, Some("old")),
-            3,
-        )
-        .unwrap());
-    assert!(!store
-        .ingest_bound_worker_report(
-            &plan_id,
-            &task_id,
-            &AgentRef::from_tab("unbound"),
-            worker_report(ReportStatus::InReview, Some("other")),
-            5,
-        )
-        .unwrap());
+    assert!(
+        !store
+            .ingest_bound_worker_report(
+                &plan_id,
+                &task_id,
+                &AgentRef::from_tab("worker"),
+                worker_report(ReportStatus::Partial, Some("old")),
+                3,
+            )
+            .unwrap()
+            .committed_review
+    );
+    assert!(
+        !store
+            .ingest_bound_worker_report(
+                &plan_id,
+                &task_id,
+                &AgentRef::from_tab("unbound"),
+                worker_report(ReportStatus::InReview, Some("other")),
+                5,
+            )
+            .unwrap()
+            .committed_review
+    );
     let task = store.get(&plan_id).unwrap().tasks.remove(0);
     assert_eq!(task.status, TaskStatus::InReview);
     assert_eq!(
@@ -716,8 +748,12 @@ fn terminal_status_update_leaves_history_but_no_active_presence() {
     assert_eq!(task.execution_attempts.len(), 1);
     assert_eq!(task.execution_attempts[0].executor_tab_id, "tab_live");
     assert_eq!(task.execution_attempts[0].closed_at, Some(4));
-    assert!(store.task_binding_for_tab("tab_live").is_none());
-    assert!(store.task_bindings_for_tab("tab_live").is_empty());
+    assert!(store
+        .assigned_task_binding_projection("tab_live")
+        .unwrap()
+        .map(|binding| (binding.plan_id, binding.task_id))
+        .is_none());
+    assert!(store.task_bindings_for_tab("tab_live").unwrap().is_empty());
 }
 
 #[test]
@@ -756,6 +792,7 @@ fn recent_worker_attempt_titles_filters_workspace_session_and_limit() {
             Some("Ada"),
             Some("sess-1"),
             None,
+            None,
             4,
         )
         .unwrap();
@@ -770,16 +807,21 @@ fn recent_worker_attempt_titles_filters_workspace_session_and_limit() {
             Some("Bea"),
             Some("sess-2"),
             None,
+            None,
             6,
         )
         .unwrap();
 
     assert_eq!(
-        store.recent_worker_attempt_titles("ws_target", Some("sess-1"), 10),
+        store
+            .recent_worker_attempt_titles("ws_target", Some("sess-1"), 10)
+            .unwrap(),
         vec!["Ada".to_string()]
     );
     assert_eq!(
-        store.recent_worker_attempt_titles("ws_target", None, 1),
+        store
+            .recent_worker_attempt_titles("ws_target", None, 1)
+            .unwrap(),
         vec!["Bea".to_string()]
     );
 }
@@ -958,7 +1000,9 @@ fn a_live_dispatch_refuses_a_second_start_without_superseding() {
     let live_attempt = store
         .begin_task_dispatch(&plan_id, &task_id, "winner-tab", "Worker", lane.clone(), 3)
         .unwrap();
-    let observed_owner = store.dispatch_startup_owner_candidate(&plan_id, &task_id);
+    let observed_owner = store
+        .dispatch_startup_owner_candidate(&plan_id, &task_id)
+        .unwrap();
     let refusal = store
         .begin_task_dispatch_with_observation(
             &plan_id,
@@ -977,7 +1021,7 @@ fn a_live_dispatch_refuses_a_second_start_without_superseding() {
     assert_eq!(attempt_id, live_attempt);
     assert_eq!(tab_id, "winner-tab");
 
-    let task = store.show_task(&task_id).unwrap().task;
+    let task = store.inspect_task_for_test(&task_id).unwrap().task;
     let open: Vec<_> = task
         .execution_attempts
         .iter()
@@ -1007,7 +1051,9 @@ fn a_live_dispatch_refuses_a_second_start_without_superseding() {
 #[test]
 fn assign_then_dispatch_keeps_the_existing_supersede_semantics() {
     let (_dir, store, plan_id, task_id) = bound_report_store();
-    let observed_owner = store.dispatch_startup_owner_candidate(&plan_id, &task_id);
+    let observed_owner = store
+        .dispatch_startup_owner_candidate(&plan_id, &task_id)
+        .unwrap();
     assert!(observed_owner.is_none());
 
     let replacement_id = store
@@ -1022,7 +1068,7 @@ fn assign_then_dispatch_keeps_the_existing_supersede_semantics() {
             4,
         )
         .expect("an assignment without a dispatched startup remains redispatchable");
-    let task = store.show_task(&task_id).unwrap().task;
+    let task = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(task.execution_attempts.len(), 2);
     assert_eq!(task.execution_attempts[0].closed_at, Some(4));
     assert_eq!(task.execution_attempts[1].id, replacement_id);
@@ -1040,7 +1086,9 @@ fn concurrent_dispatch_reservations_allow_exactly_one_live_attempt() {
         let plan_id = plan_id.clone();
         let task_id = task_id.clone();
         std::thread::spawn(move || {
-            let observed_owner = store.dispatch_startup_owner_candidate(&plan_id, &task_id);
+            let observed_owner = store
+                .dispatch_startup_owner_candidate(&plan_id, &task_id)
+                .unwrap();
             barrier.wait();
             let result = store.begin_task_dispatch_with_observation(
                 &plan_id,
@@ -1078,7 +1126,7 @@ fn concurrent_dispatch_reservations_allow_exactly_one_live_attempt() {
         "the refusal must name the live attempt and tab"
     );
 
-    let task = store.show_task(&task_id).unwrap().task;
+    let task = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(task.assigned_tab_id.as_deref(), Some(winner_tab.as_str()));
     let open: Vec<_> = task
         .execution_attempts
@@ -1087,4 +1135,38 @@ fn concurrent_dispatch_reservations_allow_exactly_one_live_attempt() {
         .collect();
     assert_eq!(open.len(), 1);
     assert_eq!(open[0].id, winner_attempt);
+}
+
+#[test]
+fn bound_report_receipt_identifies_committed_non_review_milestone_and_refused_replay() {
+    let (_dir, store, plan_id, task_id) = bound_report_store();
+    let receipt = store
+        .ingest_bound_worker_report(
+            &plan_id,
+            &task_id,
+            &AgentRef::from_tab("worker"),
+            worker_report(ReportStatus::Blocked, None),
+            4,
+        )
+        .unwrap();
+    assert!(!receipt.committed_review);
+    let id = receipt
+        .milestone_id
+        .expect("a stored report returns its own committed milestone");
+    let task = store.inspect_task_for_test(&task_id).unwrap().task;
+    assert_eq!(task.milestones.len(), 1);
+    assert_eq!(task.milestones[0].id, id);
+    assert_eq!(task.milestones[0].kind, "worker_report");
+    let replay = store
+        .ingest_bound_worker_report(
+            &plan_id,
+            &task_id,
+            &AgentRef::from_tab("worker"),
+            worker_report(ReportStatus::Blocked, None),
+            4,
+        )
+        .unwrap();
+    assert!(!replay.committed_review);
+    assert!(replay.milestone_id.is_none());
+    assert_eq!(store.inspect_task_for_test(&task_id).unwrap().task, task);
 }

@@ -1,3 +1,4 @@
+import { ioTestContext } from "../../provider-shared/tests/hostIo";
 // Run: npx tsx plugins/provider-opencode/tests/lifecycle.test.ts
 
 import assert from "node:assert/strict";
@@ -23,7 +24,7 @@ test("every_launch_shape_scopes_the_resume_session_to_the_worker_environment", (
       },
       module: { exports: {} as { default?: any } }, exports: {},
     };
-    new vm.Script(source).runInNewContext(context);
+    new vm.Script(source).runInNewContext(ioTestContext(context));
     const plugin = context.module.exports.default;
     const assignment = platform === "windows" ? "$env:CODETERM_RESUME_SESSION_ID = " : "CODETERM_RESUME_SESSION_ID=";
     for (const command of [
@@ -66,7 +67,7 @@ async function loadBinding(input: {
     },
     module: { exports: undefined as unknown },
   };
-  new vm.Script(`${source}\nmodule.exports = CodeTermSessionBindingPlugin;`).runInNewContext(context);
+  new vm.Script(`${source}\nmodule.exports = CodeTermSessionBindingPlugin;`).runInNewContext(ioTestContext(context));
   const makePlugin = context.module.exports as (value: {
     directory: string;
     client?: { session?: { get?: (args: unknown) => Promise<unknown> } };
@@ -201,7 +202,7 @@ test("sqlite_read_failure_is_unknown_and_only_empty_success_is_absent", () => {
       },
       module: { exports: {} as { default?: { sessionExists: (cwd: string, id: string) => boolean | null } } }, exports: {},
     };
-    new vm.Script(source).runInNewContext(context);
+    new vm.Script(source).runInNewContext(ioTestContext(context));
     assert.equal(context.module.exports.default!.sessionExists("/work", "ses_owned"), expected);
   }
 });

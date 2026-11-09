@@ -15,6 +15,8 @@ fn executor_role_required_add_reaches_the_aggregate_daemon_validator() {
         "pl_1",
         "--name",
         "Roleless lane",
+        "--personality",
+        "Ada",
     ])
     .expect("missing required draft fields are reported together by the daemon");
     assert!(matches!(parsed.command, Commands::Plan {

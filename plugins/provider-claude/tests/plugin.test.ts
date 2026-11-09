@@ -1,3 +1,4 @@
+import { ioTestContext } from "../../provider-shared/tests/hostIo";
 import { runQueuedEvidenceTests } from "./queued-evidence";
 import { runSessionModelTests } from "./session-model";
 import { runFolderTrustRegionTests } from "./folder-trust-region";
@@ -54,7 +55,7 @@ function loadHostPlugin() {
     exports: {},
   };
   const script = new vm.Script(source, { filename: pluginPath });
-  script.runInNewContext(context);
+  script.runInNewContext(ioTestContext(context));
   return context.module.exports.default;
 }
 
@@ -62,7 +63,7 @@ function loadClaudeWithHost(host: unknown) {
   const pluginPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "plugin.js");
   const source = fs.readFileSync(pluginPath, "utf8");
   const context = { host, console, module: { exports: {} as { default?: any } }, exports: {} };
-  new vm.Script(source, { filename: pluginPath }).runInNewContext(context);
+  new vm.Script(source, { filename: pluginPath }).runInNewContext(ioTestContext(context));
   return context.module.exports.default;
 }
 
@@ -1144,7 +1145,6 @@ console.log("\n--- Claude primary alias catalog ---\n");
     assert(typeof m.description === "string" && m.description.length > 0, `${m.id} keeps a description`);
   }
 }
-
 
 // A marker-less hook that only resembles a CodeTerm command is user-owned: the
 // installer preserves it beside its own entry, while exact installed forms migrate.

@@ -1,19 +1,17 @@
 use super::digest::Row;
 use crate::plan::{Plan, TaskStatus};
 use std::collections::BTreeMap;
+mod inputs;
+pub use inputs::{
+    append_gate_rows, append_task_rows, review_backlog_row, task_age, TaskMovementInput,
+};
 
 pub fn current_rows(plan: &Plan, since: u64, now: u64) -> BTreeMap<String, Vec<Row>> {
     let mut rows = BTreeMap::<String, Vec<Row>>::new();
     let mut review_count = 0;
     let mut oldest_review = 0;
     for task in plan.tasks.iter().filter(|task| !task.status.is_terminal()) {
-        let age = now.saturating_sub(task.status_changed_at.max(task.created_at));
-        rows.entry("time in state".into()).or_default().push(Row {
-            id: task.id.clone(),
-            kind: "task".into(),
-            state: task.status.key().into(),
-            summary: format!("{age:020}"),
-        });
+        let age = task_age(task.created_at, task.status_changed_at, now);
         if task.status == TaskStatus::InReview {
             review_count += 1;
             oldest_review = oldest_review.max(age);
@@ -34,54 +32,32 @@ pub fn current_rows(plan: &Plan, since: u64, now: u64) -> BTreeMap<String, Vec<R
                 .filter(|gate| gate.is_open() && gate.blocking_task_ids.contains(&task.id))
                 .map(|gate| gate.id.clone()),
         );
-        if task.status == TaskStatus::InReview {
-            waits.push(
-                plan.owner
-                    .tab_id
-                    .clone()
-                    .unwrap_or_else(|| "orchestrator".into()),
-            );
-        }
-        if task.status == TaskStatus::Blocked {
-            waits.push("blocker".into());
-        }
-        if task.status == TaskStatus::Paused {
-            waits.push("machine_hold".into());
-        }
-        if !waits.is_empty() {
-            waits.sort();
-            waits.dedup();
-            rows.entry("waits".into()).or_default().push(Row {
-                id: task.id.clone(),
-                kind: "wait".into(),
-                state: task.status.key().into(),
-                summary: waits.join(" "),
-            });
-        }
+        append_task_rows(
+            &mut rows,
+            TaskMovementInput {
+                id: &task.id,
+                status: &task.status,
+                created_at: task.created_at,
+                status_changed_at: task.status_changed_at,
+                waits,
+                owner: plan.owner.tab_id.as_deref(),
+            },
+            now,
+        );
     }
-    rows.entry("review backlog".into()).or_default().push(Row {
-        id: plan.id.clone(),
-        kind: "review".into(),
-        state: review_count.to_string(),
-        summary: oldest_review.to_string(),
-    });
+    rows.entry("review backlog".into())
+        .or_default()
+        .push(review_backlog_row(&plan.id, review_count, oldest_review));
     for gate in &plan.gates {
-        if gate.is_open() {
-            rows.entry("owner questions".into()).or_default().push(Row {
-                id: gate.id.clone(),
-                kind: "gate".into(),
-                state: "open".into(),
-                summary: now.saturating_sub(gate.asked_at).to_string(),
-            });
-        }
-        if let Some(answer) = gate.answer.as_ref().filter(|answer| answer.at > since) {
-            rows.entry("decisions".into()).or_default().push(Row {
-                id: gate.id.clone(),
-                kind: "answer".into(),
-                state: "answered".into(),
-                summary: answer.at.to_string(),
-            });
-        }
+        append_gate_rows(
+            &mut rows,
+            &gate.id,
+            &gate.status,
+            gate.asked_at,
+            gate.answer.as_ref().map(|answer| answer.at),
+            since,
+            now,
+        );
     }
     rows
 }

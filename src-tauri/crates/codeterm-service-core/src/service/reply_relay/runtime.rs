@@ -170,15 +170,22 @@ impl ServiceContext {
             .as_deref()
             .filter(|_| crate::paths::is_dev_instance())
         {
+            let task = match self.reply_relay_task_binding(&target) {
+                Ok(task) => task,
+                Err(error) => {
+                    log::warn!(
+                        "[reply-relay] preparation binding read failed target={target}: {error}"
+                    );
+                    return None;
+                }
+            };
             crate::flow_trace::record_flow(
                 id,
                 "relay.expected",
                 &target,
                 &provider,
                 "pending",
-                self.reply_relay_task_binding(&target)
-                    .as_ref()
-                    .map(|task| task.attempt_id.as_str()),
+                task.as_ref().map(|task| task.attempt_id.as_str()),
             );
         }
         let capture = self.chat_send_anchor(&target);
@@ -215,7 +222,15 @@ impl ServiceContext {
             user_text: text.to_string(),
             turn_normalization: capture.turn_normalization,
             hops: envelope.relay_hops,
-            task: self.reply_relay_task_binding(&target),
+            task: match self.reply_relay_task_binding(&target) {
+                Ok(task) => task,
+                Err(error) => {
+                    log::warn!(
+                        "[reply-relay] preparation binding read failed target={target}: {error}"
+                    );
+                    return None;
+                }
+            },
         };
         let id = pending.delivery_id.clone();
         if pending.session_id.is_empty() {
@@ -237,9 +252,19 @@ impl ServiceContext {
     }
 
     pub(crate) fn trace_spawn_reply_relay(&self, target_tab: &str, pending: &PendingReplyRelay) {
-        let task = crate::paths::is_dev_instance()
-            .then(|| self.reply_relay_task_binding(target_tab))
-            .flatten();
+        let task = if crate::paths::is_dev_instance() {
+            match self.reply_relay_task_binding(target_tab) {
+                Ok(task) => task,
+                Err(error) => {
+                    log::warn!(
+                        "[reply-relay] trace binding read failed target={target_tab}: {error}"
+                    );
+                    return;
+                }
+            }
+        } else {
+            None
+        };
         crate::flow_trace::record_flow(
             &pending.delivery_id,
             "relay.expected",
@@ -275,12 +300,28 @@ impl ServiceContext {
             .lock()
             .remove(target)
             .unwrap_or_default();
-        for mut pending in pending {
+        let mut remaining = pending.into_iter();
+        while let Some(mut pending) = remaining.next() {
             if pending.provider_id != binding.provider || pending.binding_nonce != binding.nonce {
                 continue;
             }
             pending.session_id = binding.session.clone();
-            pending.task = self.reply_relay_task_binding(target);
+            let task = match self.reply_relay_task_binding(target) {
+                Ok(task) => task,
+                Err(error) => {
+                    log::warn!(
+                        "[reply-relay] activation binding read failed target={target}: {error}"
+                    );
+                    self.ext::<Arc<crate::service::reply_relay::ReplyRelayRegistry>>()
+                        .staged
+                        .lock()
+                        .entry(target.to_string())
+                        .or_default()
+                        .extend(std::iter::once(pending).chain(remaining));
+                    return;
+                }
+            };
+            pending.task = task;
             if let Err(error) = self.record_bound_reply_relay(target, pending) {
                 log::warn!("[reply-relay] target={target} activation failed: {error}");
             }

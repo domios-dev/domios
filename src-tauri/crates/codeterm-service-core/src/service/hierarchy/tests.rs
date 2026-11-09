@@ -371,7 +371,7 @@ fn planner_rehydrate_after_rebind_is_a_bounded_open_gate_list() {
         )
         .unwrap());
 
-    let rebound = store.get(&plan.id).unwrap();
+    let rebound = store.planner_rehydrate_projection(&plan.id).unwrap();
     let payload = planner_rehydrate_payload(&rebound);
 
     assert!(payload.starts_with(PLANNER_REHYDRATE_HEADER));
@@ -458,7 +458,7 @@ fn bound_blocked_report_and_hierarchy_mapping_agree() {
             .unwrap();
         if matches!(report_status, ReportStatus::Partial | ReportStatus::Blocked) {
             store
-                .with_plan(&plan.id, index as u64 + 3, |plan| {
+                .edit_plan_fixture(&plan.id, index as u64 + 3, |plan| {
                     let task = plan
                         .tasks
                         .iter_mut()
@@ -957,7 +957,7 @@ fn first_plan_mints_team_enrolls_manager_and_binds() {
     .unwrap();
 
     assert!(outcome.team_minted);
-    assert_eq!(harness.plan_store.list_index().len(), 1);
+    assert_eq!(harness.plan_store.list_index().unwrap().len(), 1);
     assert_eq!(
         outcome.plan.team_id.as_deref(),
         Some(outcome.team_id.as_str())
@@ -1012,7 +1012,7 @@ fn concurrent_first_plan_and_first_child_converge() {
 
     let mux = harness.mux.read();
     assert_eq!(mux.team_count(), 1);
-    assert_eq!(harness.plan_store.list_index().len(), 1);
+    assert_eq!(harness.plan_store.list_index().unwrap().len(), 1);
     assert_eq!(
         mux.get_tab(&owner_tab_id).unwrap().team_id.as_deref(),
         Some(outcome.team_id.as_str())
@@ -1052,7 +1052,7 @@ fn first_plan_failure_is_atomic() {
         error,
         TeamPlanCreationError::Plan(PlanError::Io(_))
     ));
-    assert!(harness.plan_store.list_index().is_empty());
+    assert!(harness.plan_store.list_index().unwrap().is_empty());
     let mux = harness.mux.read();
     assert_eq!(mux.team_count(), 0);
     assert!(mux.get_tab(&owner_tab_id).unwrap().team_id.is_none());

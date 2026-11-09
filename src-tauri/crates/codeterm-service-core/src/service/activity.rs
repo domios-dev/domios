@@ -228,7 +228,7 @@ impl ActivityWriter {
         limit: Option<usize>,
     ) -> rusqlite::Result<Vec<ActivityEvent>> {
         let conn = self.conn.lock();
-        let limit_val = limit.unwrap_or(500) as i64;
+        let limit_val = limit.unwrap_or(500).min(MAX_ROWS) as i64;
         let row_to_event = |row: &rusqlite::Row| -> rusqlite::Result<ActivityEvent> {
             let source_str: String = row.get(2)?;
             let source = parse_source(&source_str).ok_or_else(|| {
@@ -305,56 +305,4 @@ impl ActivityWriter {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::service::store::ServicesStore;
-
-    #[test]
-    fn record_push_event_persists_with_source_metadata() {
-        let store = ServicesStore::open_in_memory().unwrap();
-        let activity = ActivityWriter::new(store.conn());
-        activity
-            .record(ActivityEvent::push(
-                "svc_voice",
-                "tab_a3f1",
-                "transcript: hello",
-            ))
-            .unwrap();
-        let events = activity.list(None, None, Some(10)).unwrap();
-        assert_eq!(events.len(), 1);
-        assert_eq!(events[0].source, ActivitySource::Push);
-        assert_eq!(events[0].source_id.as_deref(), Some("svc_voice"));
-        assert_eq!(events[0].target.as_deref(), Some("tab_a3f1"));
-    }
-
-    #[test]
-    fn eviction_keeps_recent_drops_old() {
-        let store = ServicesStore::open_in_memory().unwrap();
-        let activity = ActivityWriter::new(store.conn());
-        for i in 0..10003 {
-            activity
-                .record(ActivityEvent::peer("svc", "info", &format!("e{}", i)))
-                .unwrap();
-        }
-        activity.evict_if_needed().unwrap();
-        let count = activity.count().unwrap();
-        assert!(count <= 10000, "got {}", count);
-    }
-
-    #[test]
-    fn list_filters_by_source() {
-        let store = ServicesStore::open_in_memory().unwrap();
-        let activity = ActivityWriter::new(store.conn());
-        activity
-            .record(ActivityEvent::push("svc1", "tab1", "x"))
-            .unwrap();
-        activity
-            .record(ActivityEvent::peer("peer1", "info", "msg"))
-            .unwrap();
-        let pushes = activity
-            .list(Some(ActivitySource::Push), None, None)
-            .unwrap();
-        assert_eq!(pushes.len(), 1);
-        assert_eq!(pushes[0].source, ActivitySource::Push);
-    }
-}
+mod tests;

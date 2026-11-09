@@ -1,5 +1,29 @@
 use super::*;
 
+#[test]
+fn provider_version_empty_and_unresolved_commands_are_never_probed() {
+    for binary in ["", " ", "\t", "domios-intentionally-absent-version-probe"] {
+        assert_eq!(
+            observe(binary),
+            VersionObservation::unknown(ProbeStatus::Missing)
+        );
+    }
+    assert_eq!(
+        probe(Path::new("")),
+        VersionObservation::unknown(ProbeStatus::Missing)
+    );
+    let root = tempfile::tempdir().unwrap();
+    assert_eq!(
+        probe(root.path()),
+        VersionObservation::unknown(ProbeStatus::Missing)
+    );
+    assert_eq!(
+        probe(&root.path().join("absent")),
+        VersionObservation::unknown(ProbeStatus::Missing)
+    );
+    assert!(crate::provider_command::command(Path::new("")).is_err());
+}
+
 fn identity(path: &str, revision: u64) -> BinaryIdentity {
     BinaryIdentity {
         path: path.into(),
@@ -11,40 +35,80 @@ fn identity(path: &str, revision: u64) -> BinaryIdentity {
     }
 }
 
+fn detected() -> VersionObservation {
+    VersionObservation {
+        version: Some("1.2.3".into()),
+        status: ProbeStatus::Detected,
+    }
+}
+
 #[test]
 fn provider_compat_cache_deduplicates_inflight_and_completed_binary_identity() {
+    let now = Instant::now();
     let mut cache = VersionCache::default();
     let first = identity("/binary-a", 1);
     assert_eq!(
-        cache.reserve(&first),
+        cache.reserve(&first, now),
         (VersionObservation::unknown(ProbeStatus::Pending), true)
     );
-    assert!(!cache.reserve(&first).1);
-    let detected = VersionObservation {
-        version: Some("1.2.3".into()),
-        status: ProbeStatus::Detected,
-    };
-    cache.entries.insert(first.clone(), detected.clone());
-    assert_eq!(cache.reserve(&first), (detected, false));
-    assert!(cache.reserve(&identity("/binary-b", 1)).1);
-    assert!(cache.reserve(&identity("/binary-a", 2)).1);
+    assert!(!cache.reserve(&first, now + RETRY_BACKOFF).1);
+    cache.settle(first.clone(), detected(), now);
+    assert_eq!(cache.reserve(&first, now), (detected(), false));
+    assert!(cache.reserve(&identity("/binary-b", 1), now).1);
+    assert!(cache.reserve(&identity("/binary-a", 2), now).1);
     assert!(!cache.entries.contains_key(&first));
 }
 
 #[test]
 fn provider_compat_cache_is_bounded_and_failed_probes_stay_unknown() {
+    let now = Instant::now();
     let mut cache = VersionCache::default();
     for index in 0..MAX_CACHE_ENTRIES {
-        assert!(cache.reserve(&identity(&format!("/binary-{index}"), 1)).1);
+        assert!(
+            cache
+                .reserve(&identity(&format!("/binary-{index}"), 1), now)
+                .1
+        );
     }
     assert_eq!(
-        cache.reserve(&identity("/overflow", 1)),
+        cache.reserve(&identity("/overflow", 1), now),
         (VersionObservation::unknown(ProbeStatus::Saturated), false)
     );
     let first = identity("/binary-0", 1);
     let failed = VersionObservation::unknown(ProbeStatus::Timeout);
-    cache.entries.insert(first.clone(), failed.clone());
-    assert_eq!(cache.reserve(&first), (failed, false));
+    cache.settle(first.clone(), failed.clone(), now);
+    assert_eq!(cache.reserve(&first, now), (failed, false));
+}
+
+#[test]
+fn provider_compat_failed_probe_is_retried_after_backoff_while_detected_is_kept() {
+    let now = Instant::now();
+    let mut cache = VersionCache::default();
+    let binary = identity("/binary-shim", 1);
+    for status in [
+        ProbeStatus::Timeout,
+        ProbeStatus::Failed,
+        ProbeStatus::Invalid,
+    ] {
+        let failed = VersionObservation::unknown(status);
+        cache.settle(binary.clone(), failed.clone(), now);
+        assert_eq!(
+            cache.reserve(&binary, now + RETRY_BACKOFF - Duration::from_millis(1)),
+            (failed, false),
+            "{status:?} must not re-probe before the backoff"
+        );
+        assert_eq!(
+            cache.reserve(&binary, now + RETRY_BACKOFF),
+            (VersionObservation::unknown(ProbeStatus::Pending), true),
+            "{status:?} must re-probe after the backoff"
+        );
+        assert!(!cache.reserve(&binary, now + RETRY_BACKOFF * 2).1);
+    }
+    cache.settle(binary.clone(), detected(), now);
+    assert_eq!(
+        cache.reserve(&binary, now + RETRY_BACKOFF * 100),
+        (detected(), false)
+    );
 }
 
 #[test]

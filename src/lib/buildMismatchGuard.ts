@@ -66,20 +66,20 @@ function getFrontendVersion(): string {
   return frontendApiContract.version;
 }
 
-export async function checkBuildMismatch(apiBase?: string): Promise<BuildMismatch | null> {
+export async function checkBuildMismatch(): Promise<BuildMismatch | null> {
   if (_proven) return _mismatch;
-  return runCheck(apiBase, undefined);
+  return runCheck(undefined);
 }
 
 /** A trigger after bootstrap: a local boot-changed frame (optional build hint) or a stream reconnect. */
 export function recheckBuildDrift(hint?: string): Promise<BuildMismatch | null> {
-  return runCheck(undefined, hint);
+  return runCheck(hint);
 }
 
-async function runCheck(apiBase: string | undefined, hint: string | undefined): Promise<BuildMismatch | null> {
+async function runCheck(hint: string | undefined): Promise<BuildMismatch | null> {
   const generation = ++_generation;
   _deferred = null;
-  const backend = hint === undefined ? await fetchBackendIdentity(apiBase) : null;
+  const backend = hint === undefined ? await fetchBackendIdentity() : null;
   if (generation !== _generation) return _mismatch;
   const identity: DaemonIdentity = hint !== undefined ? { kind: "hint", build: hint }
     : backend ? { kind: "health", build: backend.build ?? null, apiCompatible: frontendApiCompatible(backend.apiVersion) }
@@ -188,11 +188,9 @@ export function onMismatch(fn: MismatchListener): () => void {
 }
 
 interface BackendIdentity { build?: string; version?: string; apiVersion?: unknown }
-async function fetchBackendIdentity(apiBase?: string): Promise<BackendIdentity | null> {
+async function fetchBackendIdentity(): Promise<BackendIdentity | null> {
   try {
-    if (apiBase === undefined) return await baseDaemonTransport().localJson<BackendIdentity>("GET", "/api/health");
-    const res = await fetch(`${apiBase}/api/health`);
-    return res.ok ? await res.json() as BackendIdentity : null;
+    return await baseDaemonTransport().localJson<BackendIdentity>("GET", "/api/health");
   } catch {
     return null;
   }

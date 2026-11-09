@@ -10,6 +10,7 @@ pub(super) struct Recovery {
     liveness_incident_epoch: Option<String>,
     last_attempt: Option<Instant>,
     in_flight: bool,
+    exit_pending: bool,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -55,23 +56,114 @@ impl Recovery {
 struct RecoveryCompletion<'a> {
     service: &'a ServiceContext,
     tab_id: &'a str,
+    owned: bool,
 }
 
 impl Drop for RecoveryCompletion<'_> {
+    fn drop(&mut self) {
+        if self.owned {
+            if let Some(recovery) = self
+                .service
+                .ext::<Arc<TabReopenGuards>>()
+                .recoveries
+                .lock()
+                .get_mut(self.tab_id)
+            {
+                recovery.in_flight = false;
+            }
+        }
+        self.service.wake_user_owner_on_state_change(self.tab_id);
+    }
+}
+
+/// Held sends wait while a dead runtime's exit is handled, because recovery may take over the relaunch.
+pub(crate) struct RuntimeExitHandling {
+    service: ServiceContext,
+    tab_id: String,
+}
+
+impl Drop for RuntimeExitHandling {
     fn drop(&mut self) {
         if let Some(recovery) = self
             .service
             .ext::<Arc<TabReopenGuards>>()
             .recoveries
             .lock()
-            .get_mut(self.tab_id)
+            .get_mut(&self.tab_id)
         {
-            recovery.in_flight = false;
+            recovery.exit_pending = false;
         }
+        self.service.wake_user_owner_on_state_change(&self.tab_id);
     }
 }
 
 impl ServiceContext {
+    pub(crate) fn begin_runtime_exit(&self, tab_id: &str) -> RuntimeExitHandling {
+        self.ext::<Arc<TabReopenGuards>>()
+            .recoveries
+            .lock()
+            .entry(tab_id.into())
+            .or_default()
+            .exit_pending = true;
+        RuntimeExitHandling {
+            service: self.clone(),
+            tab_id: tab_id.into(),
+        }
+    }
+
+    /// True until automatic recovery knows its outcome, so a transient degrade settles no held send.
+    pub(crate) fn runtime_recovery_owns_sends(&self, tab_id: &str) -> bool {
+        self.try_ext::<Arc<TabReopenGuards>>()
+            .is_some_and(|guards| {
+                guards
+                    .recoveries
+                    .lock()
+                    .get(tab_id)
+                    .is_some_and(|recovery| recovery.in_flight || recovery.exit_pending)
+            })
+    }
+
+    pub(crate) fn record_runtime_interruption_for_tab(
+        &self,
+        tab_id: &str,
+        session: &str,
+        nonce: &str,
+        epoch: u64,
+        reason: &str,
+    ) -> Result<Option<(String, String, String)>, String> {
+        let binding = self
+            .mux
+            .read()
+            .get_tab(tab_id)
+            .filter(|tab| {
+                tab.session_binding_nonce.as_deref() == Some(nonce)
+                    && tab.agent_session_id.as_deref() == Some(session)
+            })
+            .and_then(|tab| tab.task_binding.clone());
+        let Some(binding) = binding else {
+            return Ok(None);
+        };
+        let (Some(plan), Some(task), Some(attempt)) =
+            (binding.plan_id, binding.task_id, binding.attempt_id)
+        else {
+            return Err("runtime interruption has an incomplete task binding".into());
+        };
+        self.plan_store
+            .record_runtime_interruption(
+                &plan,
+                &task,
+                &attempt,
+                tab_id,
+                session,
+                nonce,
+                epoch,
+                reason,
+                chrono::Utc::now().timestamp_millis().max(0) as u64,
+            )
+            .map_err(|error| error.to_string())?;
+        Ok(Some((plan, task, attempt)))
+    }
+
     pub(crate) fn chatbackend_turn_start_incident(&self, tab_id: &str, nonce: &str, epoch: u64) {
         let reason = "Accepted send had no observed turn start within 60 seconds";
         {
@@ -169,10 +261,11 @@ impl ServiceContext {
         let nonce = nonce.to_owned();
         let reason = reason.to_owned();
         std::thread::spawn(move || {
-            let _completion = (decision == Decision::Restart).then(|| RecoveryCompletion {
+            let _completion = RecoveryCompletion {
                 service: &svc,
                 tab_id: &tab_id,
-            });
+                owned: decision == Decision::Restart,
+            };
             if super::super::agent_runtime::engine::for_tab(&tab_id)
                 .is_some_and(|runtime| runtime.context.lock().epoch != epoch)
             {
@@ -184,6 +277,18 @@ impl ServiceContext {
             }) {
                 return;
             }
+            let binding = match svc
+                .record_runtime_interruption_for_tab(&tab_id, &expected, &nonce, epoch, &reason)
+            {
+                Ok(binding) => binding,
+                Err(error) => {
+                    svc.chatbackend_incident(
+                        &tab_id,
+                        &format!("{reason}. Cannot persist interruption: {error}"),
+                    );
+                    return;
+                }
+            };
             let failure = if decision == Decision::Restart {
                 match svc.agent_restart(&tab_id, false, 0) {
                     Ok(result)
@@ -214,6 +319,33 @@ impl ServiceContext {
                         if let Some(runtime) = super::super::agent_runtime::engine::for_tab(&tab_id)
                         {
                             super::super::agent_runtime::engine::publish(&svc, &tab_id, &runtime);
+                        }
+                        if let Some((plan, task, attempt)) = &binding {
+                            let new_nonce = svc
+                                .mux
+                                .read()
+                                .get_tab(&tab_id)
+                                .and_then(|tab| tab.session_binding_nonce.clone())
+                                .unwrap_or_default();
+                            if let Err(error) = svc.plan_store.record_runtime_recovery(
+                                plan,
+                                task,
+                                attempt,
+                                &tab_id,
+                                &expected,
+                                &new_nonce,
+                                &nonce,
+                                epoch,
+                                chrono::Utc::now().timestamp_millis().max(0) as u64,
+                            ) {
+                                svc.chatbackend_incident(
+                                    &tab_id,
+                                    &format!(
+                                        "Runtime resumed, but recovery receipt failed: {error}"
+                                    ),
+                                );
+                                return;
+                            }
                         }
                         svc.emit_state_changed(super::super::MuxEmitCause::RuntimeSignal);
                         if interrupted {

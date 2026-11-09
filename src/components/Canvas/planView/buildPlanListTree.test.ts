@@ -1,5 +1,8 @@
 // Run: npx tsx src/components/Canvas/planView/buildPlanListTree.test.ts
 
+import type { PlanProjection } from "../planProjection";
+import { buildBoardPlanModel } from "./boardModel";
+import { selectActiveWork } from "./activeWork";
 import type { Tab } from "../../../lib/types";
 import { FIXTURE_MILESTONE, FIXTURE_PLAN, FIXTURE_SECTION, FIXTURE_TASK } from "../cards/fixtures.testdata";
 import { bandedSeedPlans } from "../layout/fixtures";
@@ -270,6 +273,29 @@ test("text filter matches task titles", () => {
     .map((v) => (v as { type: "row"; row: { taskId?: string } }).row.taskId);
   assert(taskIds.includes("t2"), "beta visible");
   assert(!taskIds.includes("t1"), "alpha hidden");
+});
+
+test("SQL view metadata renders without document bodies or histories", () => {
+  const view: PlanProjection = {
+    id: "projection", title: "Projected plan", status: "active", revision: "1",
+    owner: { tab_id: null, session_id: null, title: null }, project_path: "/repo",
+    created_at: 1, updated_at: 1, canvas: { viewport: null },
+    sections: [{ id: "section", title: "Outline", subsections: [] }],
+    tasks: [{
+      id: "visible", name: "Visible task", type: "implement", status: "in_progress",
+      model: null, status_label: null, assigned_tab_id: null, parent_task_id: null,
+      peer: null, section_ids: ["section"], canvas: { x: null, y: null, collapsed: false },
+      criteria_count: 3, milestone_count: 7, updated_at: 25,
+    }],
+  };
+  const rows = buildPlanListRows(view);
+  const row = rows.find((candidate) => candidate.taskId === "visible");
+  assert(row?.title === "Visible task", "list renders the task label");
+  assert(row.sectionTitle === "Outline", "list uses the outline label");
+  assert(row.activityTs === 25, "list uses the selected activity stamp");
+  const board = buildBoardPlanModel(view, {}, undefined, 30);
+  assert(board.columns.flatMap((column) => column.cards).length === 1, "shared board decisions accept the view");
+  assert(selectActiveWork([view], {}, 30).entries.length === 1, "active work accepts absent milestone history");
 });
 
 let passed = 0;

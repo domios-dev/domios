@@ -1,6 +1,7 @@
 use super::*;
 
 mod backend;
+mod concurrency;
 mod neighbor_authority;
 mod neighbor_files;
 mod neighbor_read;

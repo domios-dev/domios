@@ -428,3 +428,59 @@ fn runtime_send_evidence_without_item_identity_delivers_without_claiming_a_row()
         .matched_row
         .is_some());
 }
+
+#[test]
+fn rpc_refused_after_write_is_uncertain_and_never_retryable() {
+    let ledger = ChatSendLedger::default();
+    let send = started(&ledger, "nonce-a");
+    let refused = ledger.mark_rpc_uncertain(&send.send_id).unwrap();
+    assert_eq!(refused.state, ChatSendState::Unknown);
+    assert_eq!(refused.error, None);
+    assert_eq!(
+        ledger.finish(&send.send_id, Ok(())).unwrap().state,
+        ChatSendState::Unknown
+    );
+    assert!(!ledger.bind_rpc_send(&send.send_id, SendLiveBinding::default()));
+}
+
+#[test]
+fn rpc_refused_then_exact_evidence_becomes_delivered() {
+    let ledger = ChatSendLedger::default();
+    let send = started(&ledger, "nonce-a");
+    ledger.mark_rpc_uncertain(&send.send_id).unwrap();
+    let delivered = ledger
+        .confirm_rpc_send(
+            "tab-a",
+            "thread-a",
+            "nonce-a",
+            &send.send_id,
+            Some("late-own-row"),
+        )
+        .unwrap();
+    assert_eq!(delivered.state, ChatSendState::Sent);
+    assert_eq!(delivered.error, None);
+    assert!(ledger.mark_rpc_uncertain(&send.send_id).is_none());
+    assert_eq!(
+        ledger
+            .finish(&send.send_id, Err("submit_unconfirmed".into()))
+            .unwrap()
+            .state,
+        ChatSendState::Sent
+    );
+}
+
+#[test]
+fn rpc_uncertain_without_correlated_refusal_stays_non_retryable() {
+    let ledger = ChatSendLedger::default();
+    let send = started(&ledger, "nonce-a");
+    ledger.mark_rpc_accepted(&send.send_id).unwrap();
+    assert_eq!(
+        ledger.mark_rpc_uncertain(&send.send_id).unwrap().state,
+        ChatSendState::Unknown
+    );
+    assert_eq!(
+        ledger.finish(&send.send_id, Ok(())).unwrap().state,
+        ChatSendState::Unknown
+    );
+    assert_eq!(ledger.status(&send.send_id).unwrap().error, None);
+}

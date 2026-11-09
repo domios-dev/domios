@@ -1,7 +1,7 @@
+import type { PlanView as Plan } from "../../components/Canvas/planProjection";
 import type { ChatMentionHost, ChatMentionValue } from "../../../packages/chat-ui/src/blocks/ChatBlockHost";
 import type { CanonicalMentionKind } from "../../../packages/chat-ui/src/codeterm/canonicalMentions";
 import type { AutomationGraph } from "../../components/Automation/types";
-import type { Plan } from "../../components/Canvas/types";
 import type { PlanTarget } from "../../components/Canvas/teamViewNavigation";
 import type { MuxStateStore } from "../../store/multiplexer/selectorStore";
 import { mentionScopeForTab, planInMentionScope } from "../mentionSources/scope";

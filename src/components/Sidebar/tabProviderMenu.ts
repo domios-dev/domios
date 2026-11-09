@@ -20,7 +20,7 @@ export function tabProviderMenuView(tab: Tab, descriptors: ProviderDescriptor[],
 }
 
 export function tabProviderEntryLabel(_view: TabProviderMenuView): string {
-  return "Switch provider…";
+  return "Switch harness…";
 }
 
 export interface ProviderSwitchOptions { model?: string; reasoningEffort?: string; force?: boolean }

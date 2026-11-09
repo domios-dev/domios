@@ -47,7 +47,9 @@ fn board_state_reads_exact_counts_and_event_windows_without_histories_or_writes(
     assert_eq!(next.value["next_event_cursor"], 100);
     assert!(first.value["control_loop"].get("rounds").is_none());
     assert!(first.value["control_loop"].get("task_states").is_none());
-    assert!(first.plan.tasks.is_empty() && first.plan.strides.is_empty());
+    assert_eq!(first.mode, plan.mode);
+    assert_eq!(first.status, plan.status);
+    assert_eq!(first.team_id, plan.team_id);
     assert!(database
         .board_state_projection("missing", 100, 0, true)
         .is_err());

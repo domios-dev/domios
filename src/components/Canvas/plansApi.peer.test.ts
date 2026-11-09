@@ -1,3 +1,4 @@
+import { muxMockFetch } from "../../lib/muxMockFetch.testdata";
 import assert from "node:assert/strict";
 import { Window } from "happy-dom";
 import type { ApiConfig } from "../../lib/types";
@@ -35,7 +36,7 @@ async function main() {
     context: { plan_id: remotePlan.id, title: remotePlan.title, status: "active", owner: remotePlan.owner, sections: [] },
   };
 
-  globalThis.fetch = async (input, init) => {
+  globalThis.fetch = muxMockFetch(async (input, init) => {
     if (init?.signal?.aborted) throw new DOMException("Aborted", "AbortError");
     const url = new URL(String(input));
     assert.equal(new Headers(init?.headers).get("Authorization"), "Bearer gateway-token");
@@ -53,7 +54,7 @@ async function main() {
     if (request.path.endsWith("/skills")) data = { skills: [skill] };
     if (request.path.endsWith("/skills/check")) data = { skill };
     return Response.json({ ok: true, status: 200, data, error: null });
-  };
+  });
 
   setRelayTarget("ubunta", "ubunta");
   assert.deepEqual((await plansApi.fetchPlans(API)).map((plan) => plan.id), [remotePlan.id]);
@@ -95,34 +96,38 @@ async function main() {
   await assert.rejects(plansApi.fetchPlanTaskDetail(API, remotePlan.id, "task-exact", ctrl.signal), { name: "AbortError" });
 
   let finishOld!: (value: Response) => void;
-  globalThis.fetch = () => new Promise<Response>((resolve) => { finishOld = resolve; });
+  let dispatched!: () => void;
+  const reached = new Promise<void>((resolve) => { dispatched = resolve; });
+  globalThis.fetch = muxMockFetch(() => new Promise<Response>((resolve) => { finishOld = resolve; dispatched(); }));
   const oldRead = plansApi.fetchPlans(API);
+  // The carrier dispatches after its ack, so the read is in flight only once the daemon has it.
+  await reached;
   invalidateWebRequestContext();
   setRelayTarget("eight", "eight");
   finishOld(Response.json({ ok: true, status: 200, data: { plans: [remotePlan] } }));
   await assert.rejects(oldRead, { name: "AbortError" });
 
   const failedPaths: string[] = [];
-  globalThis.fetch = async (input) => {
+  globalThis.fetch = muxMockFetch(async (input) => {
     failedPaths.push(new URL(String(input)).pathname);
     return Response.json({ ok: false, status: 403, data: { error: "denied" } });
-  };
+  });
   await assert.rejects(plansApi.fetchPlans(API), /403/);
   assert.deepEqual(failedPaths, ["/api/mesh/relay-to"], "a peer refusal never falls back to local plans");
 
   clearRelayTarget();
   for (const body of [{ error: "Opaque refusal" }, { error: { message: "Opaque refusal", code: "denied" } }]) {
-    globalThis.fetch = async () => Response.json(body, { status: 400 });
+    globalThis.fetch = muxMockFetch(async () => Response.json(body, { status: 400 }));
     await assert.rejects(plansApi.runPlanControlLoop(API, "pl_peer"), { message: "Opaque refusal" });
   }
-  globalThis.fetch = async () => new Response("proxy failure", { status: 502 });
+  globalThis.fetch = muxMockFetch(async () => new Response("proxy failure", { status: 502 }));
   await assert.rejects(plansApi.runPlanControlLoop(API, "pl_peer"), { message: "The Curator round could not start (HTTP 502)." });
-  globalThis.fetch = async (input) => {
+  globalThis.fetch = muxMockFetch(async (input) => {
     assert.equal(String(input), "http://gateway:7685/api/plans?view=summary");
     return Response.json({ plans: [{ ...FIXTURE_PLAN, revision: "1" }] });
-  };
+  });
   assert.deepEqual(await plansApi.fetchPlans(API), [{ ...FIXTURE_PLAN, revision: "1" }]);
-  globalThis.fetch = async (input) => {
+  globalThis.fetch = muxMockFetch(async (input) => {
     const url = new URL(String(input));
     assert.equal(url.pathname, "/api/plans");
     assert.equal(url.searchParams.get("chat"), "1");
@@ -130,17 +135,17 @@ async function main() {
     assert.equal(url.searchParams.get("query"), "COD-12");
     assert.equal(url.searchParams.get("team"), "team-a");
     return Response.json({ plans: [] });
-  };
+  });
   await plansApi.fetchPlans(API, undefined, { chat: true, query: "COD-12", project: "/repo", team: "team-a" });
   const windowRequests: URL[] = [];
   let changeRevision = false;
-  globalThis.fetch = async (input) => {
+  globalThis.fetch = muxMockFetch(async (input) => {
     const url = new URL(String(input)); windowRequests.push(url);
     const second = url.searchParams.has("after_position");
     return Response.json({ ...remotePlan, revision: second && changeRevision ? "2" : "1",
       tasks: [{ id: second ? "second" : "first" }],
       task_window: { next_cursor: second ? null : { position: 1, task_id: "first" }, total: 2, cancelled: 0 } });
-  };
+  });
   const requested = await plansApi.fetchRequestedPlanTaskMetadata(API, remotePlan.id,"blocked");
   assert.deepEqual(requested.tasks.map((task) => task.id),["first","second"]);
   assert(windowRequests.every((url) => url.searchParams.get("view") === "task_metadata" && url.searchParams.get("page_size") === "25" && url.searchParams.get("status") === "blocked" && !url.searchParams.has("full")));

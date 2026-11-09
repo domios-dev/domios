@@ -4,12 +4,12 @@ pub use codeterm_lanes::residue;
 impl ServiceContext {
     pub fn cleanup_closed_task_lane(
         &self,
-        plan: &crate::plan::Plan,
+        plan: &crate::service::plan::ClosedTaskLaneCleanupRead,
         task_id: &str,
         now_ms: u64,
     ) -> crate::service::plan::lane_cleanup::LaneCleanupOutcome {
         use crate::service::plan::lane_cleanup::{try_cleanup_task_lane, LaneCleanupOutcome};
-        let task = plan.tasks.iter().find(|task| task.id == task_id);
+        let task = plan.task.as_ref().filter(|task| task.id == task_id);
         let path = task.and_then(|task| task.lane.worktree_path.as_deref());
         let existed = path.is_some_and(|path| std::path::Path::new(path).exists());
         let tabs = self.live_tab_cwds();
@@ -33,7 +33,7 @@ impl ServiceContext {
                 &self.plan_store,
                 self.ext::<crate::repowatch::RepoWatchRegistryHandle>(),
                 &LaneRemovalOutcome {
-                    canonical_cwd: crate::service::lane_settle::canonical_path(plan).into(),
+                    canonical_cwd: plan.canonical_path().into(),
                     worktree_path: path.into(),
                     branch: task.and_then(|task| task.lane.branch.clone()),
                     worktree_already_removed: false,

@@ -1,4 +1,4 @@
-import type { Plan } from "./types";
+import type { PlanView as Plan } from "./planProjection";
 import { isActiveTaskStatus } from "./tabCurrentTask";
 
 export interface CanvasFocusPayload {

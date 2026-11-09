@@ -9,22 +9,42 @@ use crate::service::ServiceContext;
 use parking_lot::Mutex;
 
 impl ServiceContext {
-    pub(super) fn reply_relay_task_binding(&self, target: &str) -> Option<WorkerTaskBinding> {
+    pub(super) fn reply_relay_task_binding(
+        &self,
+        target: &str,
+    ) -> Result<Option<WorkerTaskBinding>, String> {
         let mut bindings = self
             .plan_store
             .live_task_attempts_for_tab(target)
+            .map_err(|error| error.to_string())?
             .into_iter()
             .filter(|binding| binding.plan_active && binding.attempt.retired_at.is_none());
-        let binding = bindings.next()?;
+        let Some(binding) = bindings.next() else {
+            return Ok(None);
+        };
         if bindings.next().is_some() {
-            return None;
+            return Ok(None);
         }
-        Some(WorkerTaskBinding {
+        Ok(Some(WorkerTaskBinding {
             plan_id: binding.plan_id,
             task_id: binding.task_id,
             attempt_id: binding.attempt.id,
-            owner_epoch: binding.attempt.interruption.owner_epoch,
-        })
+            owner_epoch: binding.attempt.owner_epoch,
+        }))
+    }
+
+    fn reply_relay_task_binding_is_current(
+        &self,
+        target: &str,
+        expected: Option<&WorkerTaskBinding>,
+    ) -> bool {
+        match self.reply_relay_task_binding(target) {
+            Ok(actual) => actual.as_ref() == expected,
+            Err(error) => {
+                log::warn!("[tool-less-worker] task binding read failed target={target}: {error}");
+                false
+            }
+        }
     }
 
     pub(super) fn observe_tool_less_worker_ack(
@@ -37,7 +57,7 @@ impl ServiceContext {
         let needs_ack = { state.lock().needs_ack(pending, binding.source(), true) };
         if !needs_ack
             || self.current_reply_relay_binding(target).as_ref() != Some(binding)
-            || self.reply_relay_task_binding(target).as_ref() != pending.task.as_ref()
+            || !self.reply_relay_task_binding_is_current(target, pending.task.as_ref())
         {
             return;
         }
@@ -57,7 +77,7 @@ impl ServiceContext {
             &pending.user_text,
             &mut cursor,
         ) || self.current_reply_relay_binding(target).as_ref() != Some(binding)
-            || self.reply_relay_task_binding(target).as_ref() != pending.task.as_ref()
+            || !self.reply_relay_task_binding_is_current(target, pending.task.as_ref())
         {
             return;
         }
@@ -86,7 +106,7 @@ impl ServiceContext {
     ) {
         if !state.lock().needs_ack(pending, binding.source(), true)
             || self.current_reply_relay_binding(target).as_ref() != Some(binding)
-            || self.reply_relay_task_binding(target).as_ref() != pending.task.as_ref()
+            || !self.reply_relay_task_binding_is_current(target, pending.task.as_ref())
         {
             return;
         }
@@ -107,6 +127,7 @@ impl ServiceContext {
                     title.as_deref(),
                     Some(&binding.session),
                     Some(&binding.nonce),
+                    None,
                     now,
                 )
                 .map_err(|error| error.to_string())?;
@@ -141,9 +162,14 @@ impl ServiceContext {
     }
 
     fn publish_tool_less_worker_ack(&self, worker_tab_id: &str, task: &WorkerTaskBinding) {
-        let Some(attempt) = self
-            .plan_store
-            .live_task_attempts_for_tab(worker_tab_id)
+        let live = match self.plan_store.live_task_attempts_for_tab(worker_tab_id) {
+            Ok(live) => live,
+            Err(error) => {
+                log::warn!("[tool-less-worker] ACK publication read failed target={worker_tab_id}: {error}");
+                return;
+            }
+        };
+        let Some(attempt) = live
             .into_iter()
             .find(|binding| {
                 binding.plan_id == task.plan_id
@@ -195,7 +221,7 @@ impl ServiceContext {
     }
 
     pub(super) fn observe_tool_less_startup_ack(&self, target: &str, binding: &RelayBinding) {
-        if self.reply_relay_task_binding(target).is_some()
+        if !self.reply_relay_task_binding_is_current(target, None)
             || !self.worker_ack.startup_handshake_owed(target)
         {
             return;
@@ -252,7 +278,7 @@ impl ServiceContext {
             return;
         };
         if self.current_reply_relay_binding(target).as_ref() != Some(binding)
-            || self.reply_relay_task_binding(target).as_ref() != Some(task)
+            || !self.reply_relay_task_binding_is_current(target, Some(task))
         {
             return;
         }

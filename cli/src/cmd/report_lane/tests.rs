@@ -666,3 +666,50 @@ fn readonly_attempt_in_review_needs_no_checkout_or_sha() {
             .requires_repository
     );
 }
+#[test]
+fn foreign_checkout_report_uses_its_own_branch_sha_and_base_scope() {
+    let project = repo();
+    let (_foreign, checkout, _base, sha) = lane_with_owned_commit();
+    let task = json!({
+        "id": "task_a",
+        "lane": { "worktree_path": project.path(), "base": head(project.path()) },
+        "execution_attempts": [{
+            "executor_tab_id": "tab-a", "checkout_path": checkout,
+        }],
+    });
+    let scope = task_readiness_scope_from_task(&task, "tab-a");
+    assert_eq!(scope.base, None);
+    let (branch, reported, _) = crate::cmd::report_guard::enrich_ready_report(
+        Some(&scope),
+        Some(ReportStatusArg::InReview),
+        None,
+        None,
+        ReportBase::default(),
+        None,
+        false,
+    )
+    .unwrap();
+    assert_eq!(branch.as_deref(), Some("lane/report"));
+    assert_eq!(reported.as_deref(), Some(sha.as_str()));
+    assert!(crate::cmd::report_guard::enrich_ready_report(
+        Some(&scope),
+        Some(ReportStatusArg::InReview),
+        Some("wrong-project-branch".into()),
+        Some(sha),
+        ReportBase::default(),
+        None,
+        false,
+    )
+    .is_err());
+    fs::write(checkout.join("dirty.txt"), "unreported work").unwrap();
+    assert!(crate::cmd::report_guard::enrich_ready_report(
+        Some(&scope),
+        Some(ReportStatusArg::InReview),
+        None,
+        None,
+        ReportBase::default(),
+        None,
+        false,
+    )
+    .is_err());
+}

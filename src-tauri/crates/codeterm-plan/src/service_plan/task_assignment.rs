@@ -1,5 +1,4 @@
-use super::interruption::{authorize_task_mutation, TaskMutationAuthority};
-use super::readback::pending_after_verified;
+use super::interruption::{authorize_task_mutation_for_owner, TaskMutationAuthority};
 use super::task_attempts::{new_assignment_attempt, record_noncompetitive_replacement_attempt};
 use super::{PlanError, PlanStore};
 use crate::plan::TaskStatus;
@@ -55,16 +54,14 @@ impl PlanStore {
         }) {
             return Err(PlanError::Io("invalid assignment runtime binding".into()));
         }
-        let write = self.with_plan(plan_id, now_ms, |plan| {
-            let index = crate::plan::task_key::find_task_index(&plan.tasks, task_id)
-                .ok_or(PlanError::TaskNotFound)?;
+        self.with_task_rows(plan_id, task_id, super::store_db::hot_write::TaskHistory::LiveAndReported, now_ms, |edit| {
             if let Some(authority) = authority {
-                authorize_task_mutation(plan, &plan.tasks[index], authority)?;
+                authorize_task_mutation_for_owner(edit.owner_tab.as_deref(), &edit.task, authority)?;
             }
-            if binding.is_some() && plan.tasks[index].status != TaskStatus::Pending {
+            if binding.is_some() && edit.task.status != TaskStatus::Pending {
                 return Err(PlanError::Io("local reassignment requires a pending task; use review continuation or respawn".into()));
             }
-            let task = &mut plan.tasks[index];
+            let task = &mut edit.task;
             task.assigned_tab_id = Some(tab.into());
             task.lane.tab_id = Some(tab.into());
             task.taken_by_role = role.map(str::to_string);
@@ -84,7 +81,7 @@ impl PlanStore {
                 }
                 attempt.session_model = binding.session_model.clone();
                 attempt.reasoning_effort = binding.reasoning_effort.clone();
-                task.interruption.owner_epoch += 1;
+                task.interruption.owner_epoch = super::interruption::next_owner_epoch(task.interruption.owner_epoch)?;
                 task.interruption.owner_tab_id = Some(tab.into());
                 task.interruption.owner_session_id = Some(binding.session_id.clone());
                 task.interruption.handoff_required = false;
@@ -97,12 +94,7 @@ impl PlanStore {
                 now_ms,
             );
             Ok(())
-        });
-        pending_after_verified(
-            write,
-            self.verify_task_assigned(plan_id, task_id, tab, peer),
-            Some(task_id.to_string()),
-        )
+        })
     }
 }
 

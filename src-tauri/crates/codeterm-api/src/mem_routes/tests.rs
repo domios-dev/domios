@@ -23,11 +23,13 @@ async fn actor_and_selected_tab_headers_cannot_forge_save_author() {
     let owner_token = state
         .svc
         .frontend_pty_env(Some(&owner))
+        .unwrap()
         .remove("CODETERM_API_TOKEN")
         .unwrap();
     let friend_token = state
         .svc
         .frontend_pty_env(Some(&friend))
+        .unwrap()
         .remove("CODETERM_API_TOKEN")
         .unwrap();
     let mut headers = HeaderMap::new();

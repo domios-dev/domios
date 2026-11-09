@@ -138,6 +138,11 @@ impl AccountMesh {
             if !inner.is_current(state.account_epoch) {
                 return Err(AccountMeshRefusal::Cancelled);
             }
+            inner.select_fences(
+                account,
+                cached.as_ref().map(|known| known.rows.as_slice()),
+                &self.installation(),
+            );
             if inner
                 .state
                 .signed_registry
@@ -153,19 +158,74 @@ impl AccountMesh {
                     return Ok(false);
                 }
             }
+            if verified.rows.iter().any(|row| {
+                inner
+                    .record
+                    .peer_keys
+                    .get(&row.installation_id)
+                    .is_some_and(|known| {
+                        row.key_generation < known.generation
+                            || (row.key_generation == known.generation
+                                && row.key_id != known.key_id)
+                    })
+            }) {
+                log::debug!("[account-mesh] registry refused: installation key rollback");
+                return Err(AccountMeshRefusal::Invalid);
+            }
+            if verified.rows.iter().any(|row| {
+                inner
+                    .record
+                    .peer_presence
+                    .get(&row.installation_id)
+                    .is_some_and(|known| {
+                        row.key_generation == known.generation
+                            && row.metadata_revision < known.metadata_revision
+                    })
+            }) {
+                log::debug!("[account-mesh] registry refused: presence metadata rollback");
+                return Err(AccountMeshRefusal::Invalid);
+            }
+            let freed_slot = inner.state.registry.as_ref().is_some_and(|previous| {
+                previous.rows.iter().filter(|row| row.active).any(|old| {
+                    !verified
+                        .rows
+                        .iter()
+                        .any(|row| row.installation_id == old.installation_id && row.active)
+                })
+            });
+            if freed_slot && inner.state.plan_limit_locked() {
+                inner.resume_terminal();
+                inner.retry = Default::default();
+            }
             inner
                 .record
                 .signed_registries
                 .insert(account.to_owned(), grant.clone());
-            inner.record.peer_presence.clear();
-            inner.record.peer_keys.clear();
-            inner.record.revoked_generations.clear();
             inner.observe_registry_keys(&verified.rows, &self.installation());
-            inner.record.revoked_installations = verified.revoked_installations.clone();
+            inner
+                .record
+                .revoked_installations
+                .extend(verified.revoked_installations.iter().cloned());
+            if let Some(pending) = inner.record.local_revocations.get_mut(account) {
+                pending.retain(|id| {
+                    !verified.revoked_installations.contains(id)
+                        && !verified
+                            .rows
+                            .iter()
+                            .any(|row| &row.installation_id == id && !row.active)
+                });
+            }
+            if let Some(local) = inner.record.local_revocations.get(account) {
+                inner
+                    .record
+                    .revoked_installations
+                    .extend(local.iter().cloned());
+            }
             let revoked = inner.record.revoked_installations.clone();
             let own_allowed = verified.rows.iter().any(|row| {
                 row.installation_id == self.installation()
                     && row.active
+                    && row.eligibility == super::wire::Eligibility::Eligible
                     && row.presence == RegistryPresence::Present
                     && inner.state.membership.as_ref().is_none_or(|membership| {
                         row.key_id == membership.verified.key_id
@@ -173,6 +233,7 @@ impl AccountMesh {
                             && row.slot_revision == membership.verified.slot_revision
                     })
             });
+            inner.record.peer_presence_refresh = false;
             inner.resolved.clear();
             inner.update(&self.watch, |next| {
                 next.revoked_installations = revoked;

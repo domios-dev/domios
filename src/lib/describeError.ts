@@ -8,20 +8,34 @@ export interface ErrorDescription {
 }
 export interface ErrorContext { operation?: string; cwd?: string | null }
 
+const AUTHORED_CAUSE = "authored_cause";
+
+/** Marks a cause Domios wrote for the owner, so every error surface shows it as written; it travels as plain text through string-typed error channels. */
+export function authoredCause(message: string): string {
+  return JSON.stringify({ code: AUTHORED_CAUSE, message });
+}
+
+export function isAuthoredCause(input: unknown): boolean {
+  return unpack(input).code === AUTHORED_CAUSE;
+}
+
 export function isMissingRuntimeConversation(input: unknown): boolean {
   const {raw, code} = unpack(input);
   return code === "conversationMissing" || raw.startsWith("ConversationMissing:");
 }
 
+const RUNTIME_RECOVERY_REQUIRED = /runtime recovery required/i;
+
 const runtimeFailures: readonly (readonly [RegExp, string, string])[] = [
+  [RUNTIME_RECOVERY_REQUIRED, "The agent runtime needs recovery", "The runtime stopped responding. Restart it to continue."],
   [/\bSizeLimit\b|runtime(?: hook state)? size limit/i, "The agent runtime exceeded its size limit", "The runtime could not accept more data. Review the details and start a new session if needed."],
   [/^(?:SpawnFailed\b|Runtime could not start:)/, "The agent runtime could not start", "The runtime program failed to start. Check its installation before trying again."],
   [/^(?:ProcessExited\b|Runtime (?:exited|stopped)\b)/, "The agent runtime stopped", "The runtime process ended. Retry to reconnect to the agent."],
   [/^(?:PipeEof\b|Runtime connection closed)/, "The connection to the agent runtime closed", "The runtime connection ended. Retry to reconnect."],
   [/^(?:PipeFailure\b|Runtime \S+ connection failed:)/, "The connection to the agent runtime failed", "Domios could not communicate with the runtime. Retry to reconnect."],
   [/^(?:InvalidFrame\b|Runtime sent an invalid response:)/, "The agent runtime sent an invalid response", "Domios could not read the runtime response. Review the details and retry."],
-  [/^(?:HookFailed\b|Provider operation failed:)/, "The provider plugin failed while handling a response", "The plugin could not finish this operation. Review its details before retrying."],
-  [/^(?:Refused\b|Provider refused:)/, "The provider refused the operation", "The provider did not allow this operation. Review the details before trying again."],
+  [/^(?:HookFailed\b|Provider operation failed:)/, "The harness plugin failed while handling a response", "The plugin could not finish this operation. Review its details before retrying."],
+  [/^(?:Refused\b|Provider refused:)/, "The harness refused the operation", "The harness did not allow this operation. Review the details before trying again."],
   [/^(?:PrewriteRefused\b|Input was not sent:)/, "The input could not be sent to the agent runtime", "The runtime did not accept the input. Check the agent before retrying."],
   [/^(?:Superseded\b|Runtime session changed;)/, "The agent session changed and the operation was canceled", "This operation belonged to an earlier session. Check the current session before continuing."],
 ];
@@ -46,7 +60,7 @@ const knownNotices: Record<string, readonly [string, string]> = {
   supporter_connection_unverified: ["The connection could not be verified", "Refresh Supporter status before making changes."],
   supporter_credit_unavailable: ["Supporter credit is unavailable", "Domios uses deterministic results until credit can be checked again. Check the connected adapter's account."],
   supporter_storage_unavailable: ["Supporter spend storage needs attention", "Spend records may be incomplete. Check the adapter and refresh its status."],
-  provider_integration_incomplete: ["The provider integration needs repair", "Some integration files are missing or stale. Repair the integration to restore callbacks."],
+  provider_integration_incomplete: ["The harness integration needs repair", "Some integration files are missing or stale. Repair the integration to restore callbacks."],
 };
 
 const record = (value: unknown): Record<string, unknown> | null =>
@@ -56,7 +70,7 @@ function serialize(input: unknown): string {
   try { return JSON.stringify(input) ?? String(input); } catch { return String(input); }
 }
 
-function unpack(input: unknown): { raw: string; code: string; status: unknown; message: string } {
+function unpack(input: unknown): { raw: string; code: string; status: unknown; message: string; reported?: string } {
   const object = record(input);
   const raw = input == null ? "" : typeof input === "string" ? input : typeof object?.body === "string" ? object.body
     : input instanceof Error ? input.message : typeof object?.raw === "string" ? object.raw
@@ -68,13 +82,31 @@ function unpack(input: unknown): { raw: string; code: string; status: unknown; m
   }
   const detail = record(parsed?.error) ?? parsed;
   return { raw, code: String(object?.code ?? object?.kind ?? detail?.code ?? detail?.kind ?? ""), status: detail?.status ?? object?.status,
-    message: typeof detail?.message === "string" ? detail.message : raw };
+    message: typeof detail?.message === "string" ? detail.message : raw,
+    reported: typeof detail?.message === "string" ? detail.message : undefined };
+}
+
+export function describeRuntimeConnectionError(input: unknown): ErrorDescription {
+  const {raw, code, reported: message} = unpack(input);
+  const summaries: Record<string, string> = {
+    provider_refused: "The agent refused this operation.",
+    authentication_required: "Sign in to continue.",
+    binding_mismatch: "The conversation no longer matches this tab.",
+    protocol_error: "The agent could not complete the connection.",
+    conversationMissing: "The saved conversation is unavailable.",
+    deadline: "The agent did not respond in time.",
+  };
+  const summary = Object.prototype.hasOwnProperty.call(summaries, code) ? summaries[code] : "The connection to the agent could not be completed.";
+  const reported = code && message ? message.trim() : "";
+  const title = reported && !/https?:\/\/|\/api\/|\bHTTP\s+\d{3}\b|[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}/i.test(reported)
+    && reported.length <= 512 && !reported.toLowerCase().replace(/[^a-z0-9]/g, "").includes(code.toLowerCase().replace(/[^a-z0-9]/g, "")) ? reported : summary;
+  return {title, cause:"", actions:["retry"], raw};
 }
 
 export function isPendingRuntimeDeadline(input: unknown): boolean {
   const { raw, code } = unpack(input);
   const kind = code.toLowerCase();
-  if (kind === "during_turn_switch_incident" || /mid-turn model switch incident/i.test(raw)) return false;
+  if (kind === "during_turn_switch_incident" || /mid-turn model switch incident/i.test(raw) || RUNTIME_RECOVERY_REQUIRED.test(raw)) return false;
   if (kind) return ["runtime_deadline", "deadline", "deadline_exceeded"].includes(kind);
   if (/^(?:SpawnFailed|ProcessExited|PipeEof|PipeFailure|InvalidFrame|HookFailed|Refused|PrewriteRefused|Superseded)\b/i.test(raw.trim())) return false;
   return /\bdeadline\b|runtime did not respond in time/i.test(raw);
@@ -82,24 +114,28 @@ export function isPendingRuntimeDeadline(input: unknown): boolean {
 
 export function describeError(input: unknown, context: ErrorContext = {}): ErrorDescription {
   const { raw, code, status, message } = unpack(input);
-  const switching = context.operation === "switching the provider" || code.startsWith("provider_switch_") || /\bprovider_switch_\w+/.test(raw);
+  const switching = context.operation === "switching the harness" || code.startsWith("provider_switch_") || /\bprovider_switch_\w+/.test(raw);
   const details = switching ? message.slice(0, 2048) : raw;
   const result = (title: string, cause: string, actions: ErrorAction[], pending = false): ErrorDescription => ({ title, cause, actions, raw: details, ...(pending ? { pending: true } : {}) });
   const kind = code.toLowerCase();
+  if (kind === AUTHORED_CAUSE && message.trim()) return { title: message.trim(), cause: "", actions: [], raw: "" };
+  if (kind === "client_capacity" || /client_capacity:|Mux client capacity reached before dispatch/.test(raw)) {
+    return result("The connection is busy", "This request was not sent because other requests are using the available connection capacity. Try again.", ["retry"], true);
+  }
   if (switching) {
     if (kind === "provider_switch_auth_timeout" || /\bprovider_switch_auth_timeout\b/.test(raw)) {
-      return result("The provider authentication check timed out", "The target CLI did not finish its authentication check in time. Retry the switch.", ["retry"]);
+      return result("The harness authentication check timed out", "The target CLI did not finish its authentication check in time. Retry the switch.", ["retry"]);
     }
     if (kind === "provider_switch_auth_required" || /\bprovider_switch_auth_required\b/.test(raw)) {
-      return result("Sign in to the target provider", "Sign in to the target provider, then retry the switch.", ["sign-in", "retry"]);
+      return result("Sign in to the target harness", "Sign in to the target harness, then retry the switch.", ["sign-in", "retry"]);
     }
     if (kind === "provider_switch_auth_unknown" || /\bprovider_switch_auth_unknown\b/.test(raw)) {
-      return result("The target authentication could not be verified", "Check the target provider's sign-in status, then retry the switch.", ["retry"]);
+      return result("The target authentication could not be verified", "Check the target harness's sign-in status, then retry the switch.", ["retry"]);
     }
     if (kind === "provider_switch_unavailable" || /\bprovider_switch_unavailable\b|Provider not installed:/i.test(raw)) {
-      return result("The target provider is unavailable", "Install the target provider's CLI, then retry the switch.", ["check-executable", "retry"]);
+      return result("The target harness is unavailable", "Install the target harness's CLI, then retry the switch.", ["check-executable", "retry"]);
     }
-    return result("The provider could not be switched", "The switch could not finish. Review the details before trying again.", ["retry"]);
+    return result("The harness could not be switched", "The switch could not finish. Review the details before trying again.", ["retry"]);
   }
   if (kind === "reorder_failed") return result("Could not save the new order", message || "Refresh the workspace and try again.", ["retry"]);
   if (kind === "tab_rename_failed") return result("Could not rename the tab", message || "The previous name was restored. Try again.", ["retry"]);
@@ -110,14 +146,14 @@ export function describeError(input: unknown, context: ErrorContext = {}): Error
   if (kind === "during_turn_switch_incident" || /mid-turn model switch incident/i.test(raw)) {
     const waiting = /unrecognized confirmation is waiting/i.test(raw);
     return result(waiting ? "An unrecognized confirmation is waiting" : "Model switch did not apply",
-      waiting ? "The provider is waiting on a confirmation Domios could not recognize. Review the tab's terminal." : "The provider did not confirm the model switch. Review the incident details.", []);
+      waiting ? "The harness is waiting on a confirmation Domios could not recognize. Review the tab's terminal." : "The harness did not confirm the model switch. Review the incident details.", []);
   }
   const known = Object.prototype.hasOwnProperty.call(knownNotices, kind) ? knownNotices[kind] : undefined;
   if (known) return result(known[0], known[1], ["retry"]);
   if (kind === "frontend_crash") return result("The interface could not render", "The daemon and terminals may still be running. Reload the interface, or leave this location to open safely on this machine.", []);
   if (kind === "plugin_load_failed") return result("The plugin could not load", "This plugin is unavailable. Review the details, then update or reinstall it before trying again.", ["retry"]);
   if (kind === "plugin_reload_failed") return result("The plugin could not reload", "The previous version is still running. Review the details and retry after fixing the plugin.", ["retry"]);
-  if (kind === "plugin_removed") return result("This chat's plugin was removed", "Open a new session with an installed provider to continue.", []);
+  if (kind === "plugin_removed") return result("This chat's plugin was removed", "Open a new session with an installed harness to continue.", []);
   if (kind === "mesh_partial_failure") return result("Some mesh resources could not be refreshed", "The last known resources remain visible. Refresh the connection before acting on stale results.", ["retry"]);
   if (kind === "close_inventory_unavailable" || inferred && /close (?:inventory|status)/i.test(context.operation ?? "")) {
     return result("The close status could not be checked", "Domios could not check which resources are still open. Retry before closing the workspace or Team.", ["retry"]);
@@ -134,7 +170,7 @@ export function describeError(input: unknown, context: ErrorContext = {}): Error
     return result("The attachment is too large", "This file exceeds the attachment limit and could not be sent. Choose a smaller file.", ["choose-smaller-file"]);
   }
   if (["provider_auth_lost", "auth_required", "unauthorized", "signed_out"].includes(kind) || inferred && (status === 401 || /\b(?:unauthorized|authentication required|signed.?out|token expired)\b/i.test(raw))) {
-    return result("Sign in to continue", "The provider no longer accepts this session's credentials. Sign in again to restore access.", ["sign-in"]);
+    return result("Sign in to continue", "The harness no longer accepts this session's credentials. Sign in again to restore access.", ["sign-in"]);
   }
   if (["provider_access_lost", "access_denied", "forbidden"].includes(kind) || inferred && (status === 403 || /access denied|permission denied|eacces|eperm|os error (?:5|13)\b/i.test(raw))) {
     return result("Access was denied", "Domios could not access the requested resource. Check its permissions before trying again.", ["check-access", "retry"]);
@@ -147,7 +183,7 @@ export function describeError(input: unknown, context: ErrorContext = {}): Error
   }
   const runtime = inferred ? runtimeFailures.find(([pattern]) => pattern.test(raw)) : undefined;
   if (isMissingRuntimeConversation(input)) return result("The saved conversation is unavailable",
-    "The provider could not find this conversation's saved rollout. Its earlier messages cannot be resumed. Start a new conversation to continue.", ["start-new-conversation"]);
+    "The harness could not find this conversation's saved rollout. Its earlier messages cannot be resumed. Start a new conversation to continue.", ["start-new-conversation"]);
   if (runtime) return result(runtime[1], runtime[2], ["retry"]);
   if (kind === "spawn_failed" || inferred && spawn) {
     return result("The tab could not start", "Domios could not start the shell or agent. Check its program and starting folder, then try again.", ["retry"]);

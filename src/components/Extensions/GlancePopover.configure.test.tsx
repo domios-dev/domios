@@ -1,3 +1,4 @@
+import { muxMockFetch } from "../../lib/muxMockFetch.testdata";
 // Run: node scripts/run-ts-unit-tests.mjs src/components/Extensions/GlancePopover.configure.test.tsx
 
 import assert from "node:assert/strict";
@@ -26,10 +27,10 @@ async function main() {
   const focusEvents: Array<{ tabId?: string; workspaceId?: string }> = [];
   win.addEventListener("codeterm:focus-tab", (event) => focusEvents.push((event as unknown as CustomEvent<{ tabId?: string; workspaceId?: string }>).detail));
   const g = globalThis as unknown as Record<string, unknown>;
-  g.fetch = async (url: string, init?: { body?: string }) => {
+  g.fetch = muxMockFetch(async (url: string, init?: { body?: string }) => {
     requests.push({ url: String(url), body: JSON.parse(String(init?.body)) });
     return { ok: true, status: 200, json: async () => ({ id: "helper-glance", workspace_id: "workspace-general", delivery_state: "launched" }) };
-  };
+  });
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);

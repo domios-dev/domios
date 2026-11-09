@@ -1,30 +1,11 @@
+import { ioResolve } from "@codeterm/plugin-sdk";
+import { ioFileTransaction } from "@codeterm/plugin-sdk";
+import { ioMap, type HostIoSteps } from "@codeterm/plugin-sdk";
 import type { CodexHookEntry } from "./plugin";
 import { grantCodexHookTrust, inspectCodexHookTrust } from "./appServer";
-import {
-  codexHookContentHash,
-  codexWindowsHookScript,
-  isCodetermCodexHook,
-  removeOwnedCodexHooks,
-  isOwnedCodexWindowsHookScript,
-  isCurrentCodexHookScriptContent,
-  hasAdequateCodexHookTimeout,
-  CODETERM_CODEX_HOOK_MARKER,
-  CODEX_HOOK_TIMEOUT_SECS,
-} from "./hooks";
+import { codexHookContentHash, codexWindowsHookScript, isCodetermCodexHook, removeOwnedCodexHooks, isOwnedCodexWindowsHookScript, isCurrentCodexHookScriptContent, hasAdequateCodexHookTimeout, CODETERM_CODEX_HOOK_MARKER, CODEX_HOOK_TIMEOUT_SECS } from "./hooks";
 
-declare const host: {
-  homeDir(): string | null;
-  platform(): string;
-  log(level: "trace" | "debug" | "info" | "warn" | "error", message: string): void;
-  fs: {
-    fileExists(path: string): boolean;
-    readFile(path: string): string | null;
-    readJson<T>(path: string): T | null;
-    writeFile(path: string, contents: string): boolean;
-    writeJson(path: string, value: unknown): boolean;
-    removeFile(path: string): boolean;
-  };
-};
+declare const host: import("@codeterm/plugin-sdk").Host;
 
 export interface CodexIntegrationInstallOptions { consent?: boolean }
 
@@ -53,14 +34,14 @@ interface IntegrationFileSnapshot {
   bytes: string;
 }
 
-export function checkIntegration(): unknown {
+export function* checkIntegration(): HostIoSteps<unknown> {
   const path = codexHooksPath();
-  if (!path || !host.fs.fileExists(path)) {
-    return emptyIntegrationStatus(path, false);
+  if (!path || !(yield* host.io.fs.fileExists(path))) {
+    return (yield* emptyIntegrationStatus(path, false));
   }
-  const json = host.fs.readJson<CodexHooks>(path);
+  const json = (yield* host.io.fs.readJson<CodexHooks>(path));
   if (!json) {
-    return emptyIntegrationStatus(path, true);
+    return (yield* emptyIntegrationStatus(path, true));
   }
   const arr = json.hooks && json.hooks.SessionStart;
   const stopArr = json.hooks && json.hooks.Stop;
@@ -68,8 +49,8 @@ export function checkIntegration(): unknown {
   const stopInstalled = Array.isArray(stopArr) && stopArr.some(isCodetermCodexHook)
     && (host.platform() !== "windows" || stopArr.some(hasCodetermCodexWindowsCommand));
   const winScript = codexWindowsHookScriptPath();
-  const winScriptText = winScript && host.fs.fileExists(winScript)
-    ? String(host.fs.readFile(winScript) || "")
+  const winScriptText = winScript && (yield* host.io.fs.fileExists(winScript))
+    ? String((yield* host.io.fs.readFile(winScript)) || "")
     : "";
   const windowsReady = host.platform() !== "windows" || (
     !!winScript &&
@@ -92,10 +73,10 @@ export function checkIntegration(): unknown {
         });
       }));
   const current = installed && windowsReady && contractOk && hookTimeoutsAdequate(arr, stopArr);
-  const trustState = codexHookTrustState(path);
-  const trustReason = trustState === "unknown" ? codexHookTrustReason(path) : undefined;
+  const trustState = (yield* codexHookTrustState(path));
+  const trustReason = trustState === "unknown" ? (yield* codexHookTrustReason(path)) : undefined;
   const trustOk = trustState === "trusted";
-  const trustVerificationSource = codexHookTrustVerificationSource(path, trustState);
+  const trustVerificationSource = (yield* codexHookTrustVerificationSource(path, trustState));
   const trustVerifiedCurrent = trustState === "trusted" && trustVerificationSource === "hash_verified";
   const proposedChanges = ["SessionStart hook", "Stop hook"];
   if (!trustVerifiedCurrent) proposedChanges.push("hook trust");
@@ -124,7 +105,7 @@ export function checkIntegration(): unknown {
     hooks_owned: installed,
     hook_contract_current: current && stopInstalled,
     target: path,
-    backup_exists: host.fs.fileExists(path + ".codeterm-backup"),
+    backup_exists: (yield* host.io.fs.fileExists(path + ".codeterm-backup")),
     proposed_changes: proposedChanges,
   };
 }
@@ -153,7 +134,7 @@ function ownedContentHash(
   return codexHookContentHash(parts.join(String.fromCharCode(0)));
 }
 
-function emptyIntegrationStatus(path: string | null, fileExists: boolean): unknown {
+function* emptyIntegrationStatus(path: string | null, fileExists: boolean): HostIoSteps<unknown> {
   return {
     hooks_file_exists: fileExists,
     hook_content_hash: codexHookContentHash(""),
@@ -169,15 +150,12 @@ function emptyIntegrationStatus(path: string | null, fileExists: boolean): unkno
     hooks_owned: false,
     hook_contract_current: false,
     target: path || "~/.codex/hooks.json",
-    backup_exists: !!path && host.fs.fileExists(path + ".codeterm-backup"),
+    backup_exists: !!path && (yield* host.io.fs.fileExists(path + ".codeterm-backup")),
     proposed_changes: ["SessionStart hook", "Stop hook", "hook trust"],
   };
 }
 
-export function installIntegration(
-  apiPort: number,
-  options?: CodexIntegrationInstallOptions,
-): unknown {
+function* installIntegrationLocked(apiPort: number, options?: CodexIntegrationInstallOptions): HostIoSteps<unknown> {
   void apiPort;
   if (!options || options.consent !== true) {
     return { ok: false, error: "provider integration installation requires explicit local-user consent" };
@@ -185,8 +163,8 @@ export function installIntegration(
   const path = codexHooksPath();
   if (!path) return { ok: false, error: "could not resolve ~/.codex/hooks.json" };
 
-  const hooksExisted = host.fs.fileExists(path);
-  const originalHooksValue = hooksExisted ? host.fs.readFile(path) : null;
+  const hooksExisted = (yield* host.io.fs.fileExists(path));
+  const originalHooksValue = hooksExisted ? (yield* host.io.fs.readFile(path)) : null;
   if (hooksExisted && typeof originalHooksValue !== "string") {
     return { ok: false, error: "could not read existing hooks JSON at " + path };
   }
@@ -214,24 +192,24 @@ export function installIntegration(
     return { ok: false, error: "hooks.Stop is not an array" };
   }
   const configPath = codexConfigPath();
-  const configExisted = !!configPath && host.fs.fileExists(configPath);
-  const originalConfigValue = configPath && configExisted ? host.fs.readFile(configPath) : null;
+  const configExisted = !!configPath && (yield* host.io.fs.fileExists(configPath));
+  const originalConfigValue = configPath && configExisted ? (yield* host.io.fs.readFile(configPath)) : null;
   if (configExisted && typeof originalConfigValue !== "string") {
     return { ok: false, error: "could not read existing Codex config at " + configPath };
   }
   const originalConfig = typeof originalConfigValue === "string" ? originalConfigValue : "";
   const scriptPath = host.platform() === "windows" ? codexWindowsHookScriptPath() : null;
-  const scriptExisted = !!scriptPath && host.fs.fileExists(scriptPath);
-  const originalScriptValue = scriptExisted && scriptPath ? host.fs.readFile(scriptPath) : null;
+  const scriptExisted = !!scriptPath && (yield* host.io.fs.fileExists(scriptPath));
+  const originalScriptValue = scriptExisted && scriptPath ? (yield* host.io.fs.readFile(scriptPath)) : null;
   if (scriptExisted && typeof originalScriptValue !== "string") {
     return { ok: false, error: "could not read existing hook script at " + scriptPath };
   }
   const originalScript = typeof originalScriptValue === "string" ? originalScriptValue : "";
-  if (scriptPath && scriptExisted && !isOwnedCodexWindowsHookScript(scriptPath)) {
+  if (scriptPath && scriptExisted && !(yield* isOwnedCodexWindowsHookScript(scriptPath))) {
     return { ok: false, error: "refusing to replace unowned hook script at " + scriptPath };
   }
   const ownershipPath = codexHookTrustOwnershipPath();
-  const ownershipSnapshot = ownershipPath ? captureIntegrationFile(ownershipPath) : null;
+  const ownershipSnapshot = ownershipPath ? (yield* captureIntegrationFile(ownershipPath)) : null;
   if (ownershipPath && !ownershipSnapshot) {
     return { ok: false, error: "could not read existing Codex trust ownership record" };
   }
@@ -241,7 +219,7 @@ export function installIntegration(
     ...(configPath && configExisted ? [configPath + ".codeterm-backup"] : []),
     ...(scriptPath ? [scriptPath + ".codeterm-backup", scriptPath + ".codeterm-backup-state"] : []),
   ];
-  const artifactSnapshots = artifactPaths.map(captureIntegrationFile);
+  const artifactSnapshots = (yield* ioMap(artifactPaths, captureIntegrationFile));
   if (artifactSnapshots.some((snapshot) => snapshot === null)) {
     return { ok: false, error: "could not snapshot existing CodeTerm integration artifacts" };
   }
@@ -252,22 +230,22 @@ export function installIntegration(
     ...(ownershipSnapshot ? [ownershipSnapshot] : []),
     ...(artifactSnapshots as IntegrationFileSnapshot[]),
   ];
-  const fail = (error: string) => {
-    const restored = restoreIntegrationFiles(rollbackSnapshots);
+  const fail = function*(error: string) {
+    const restored = (yield* restoreIntegrationFiles(rollbackSnapshots));
     invalidateCodexHookTrust(path);
     return { ok: false, error: restored ? error : error + "; exact rollback failed" };
   };
-  if (!writeFileIfChanged(path + ".codeterm-backup", originalHooks)
-    || !writeFileIfChanged(path + ".codeterm-backup-state", hooksExisted ? "present" : "absent")) {
-    return fail("could not write recoverable backup for " + path);
+  if (!(yield* writeFileIfChanged(path + ".codeterm-backup", originalHooks))
+    || !(yield* writeFileIfChanged(path + ".codeterm-backup-state", hooksExisted ? "present" : "absent"))) {
+    return (yield* fail("could not write recoverable backup for " + path));
   }
   if (configPath && configExisted
-    && !writeFileIfChanged(configPath + ".codeterm-backup", originalConfig)) {
-    return fail("could not write recoverable backup for " + configPath);
+    && !(yield* writeFileIfChanged(configPath + ".codeterm-backup", originalConfig))) {
+    return (yield* fail("could not write recoverable backup for " + configPath));
   }
-  if (scriptPath && (!writeFileIfChanged(scriptPath + ".codeterm-backup", originalScript)
-    || !writeFileIfChanged(scriptPath + ".codeterm-backup-state", scriptExisted ? "present" : "absent"))) {
-    return fail("could not write recoverable backup for " + scriptPath);
+  if (scriptPath && (!(yield* writeFileIfChanged(scriptPath + ".codeterm-backup", originalScript))
+    || !(yield* writeFileIfChanged(scriptPath + ".codeterm-backup-state", scriptExisted ? "present" : "absent")))) {
+    return (yield* fail("could not write recoverable backup for " + scriptPath));
   }
   if (!json.hooks) json.hooks = {};
   for (const event of ["SessionStart", "Stop"] as const) {
@@ -302,8 +280,8 @@ export function installIntegration(
 
   const scriptContents = codexWindowsHookScript();
   const scriptChanged = !!scriptPath && (!scriptExisted || originalScript !== scriptContents);
-  if (scriptChanged && scriptPath && !host.fs.writeFile(scriptPath, scriptContents)) {
-    return fail("writeFile failed for " + scriptPath);
+  if (scriptChanged && scriptPath && !(yield* host.io.fs.writeFile(scriptPath, scriptContents))) {
+    return (yield* fail("writeFile failed for " + scriptPath));
   }
 
   json.hooks.SessionStart!.push({
@@ -327,49 +305,46 @@ export function installIntegration(
   });
 
   const hooksChanged = !hooksExisted || JSON.stringify(json) !== originalHooksJson;
-  const ok = hooksChanged ? host.fs.writeJson(path, json) : true;
+  const ok = hooksChanged ? (yield* host.io.fs.writeJson(path, json)) : true;
   if (ok) {
-    const trust = enableExistingCodexHookTrust(path);
-    if (trust.write_failed) return fail("could not enable existing Codex hook trust");
+    const trust = (yield* enableExistingCodexHookTrust(path));
+    if (trust.write_failed) return (yield* fail("could not enable existing Codex hook trust"));
     if (trust.changed) {
-      if (!ownershipPath || !writeFileIfChanged(ownershipPath, path)) {
-        return fail("could not record owned Codex hook trust expansion");
+      if (!ownershipPath || !(yield* writeFileIfChanged(ownershipPath, path))) {
+        return (yield* fail("could not record owned Codex hook trust expansion"));
       }
     }
     if (scriptChanged || hooksChanged || trust.changed) invalidateCodexHookTrust(path);
     host.log("info", "[codex-plugin] SessionStart + Stop hooks installed at " + path);
     return { ok: true, hook_trust_state: trust.state };
   }
-  return fail("writeJson failed for " + path);
+  return (yield* fail("writeJson failed for " + path));
 }
 
-export function grantIntegrationTrust(
-  managedKeys: string[],
-  then: (result: unknown) => unknown = (result) => result,
-): unknown {
+function* grantIntegrationTrustLocked(managedKeys: string[], then: (result: unknown) => unknown = (result) => result): HostIoSteps<unknown> {
   const hooksPath = codexHooksPath();
   if (!hooksPath) {
-    return then({ granted: false, wrote: false, degraded: true, verify_failed: false, reason: "could not resolve ~/.codex/hooks.json" });
+    return (yield* ioResolve(then({ granted: false, wrote: false, degraded: true, verify_failed: false, reason: "could not resolve ~/.codex/hooks.json" })));
   }
   invalidateCodexHookTrust(hooksPath);
-  return grantCodexHookTrust({
+  return (yield* grantCodexHookTrust({
     hooksPath,
     configPath: codexConfigPath(),
     managedLabels: Array.isArray(managedKeys) ? managedKeys.map(String) : [],
     listCwd: host.homeDir() || ".",
-  }, (result) => {
-    if (result.granted) cacheCodexHookTrust(hooksPath, "trusted");
-    else cacheCodexHookTrust(hooksPath, "unknown", result.reason);
-    return then(result);
-  });
+  }, function*(result) {
+    if (result.granted) (yield* cacheCodexHookTrust(hooksPath, "trusted"));
+    else (yield* cacheCodexHookTrust(hooksPath, "unknown", result.reason));
+    return (yield* ioResolve(then(result)));
+  }));
 }
 
-export function uninstallIntegration(): unknown {
+function* uninstallIntegrationLocked(): HostIoSteps<unknown> {
   const path = codexHooksPath();
   if (!path) return { ok: true };
   let hooksOk = true;
-  if (host.fs.fileExists(path)) {
-    const json = host.fs.readJson<CodexHooks>(path);
+  if ((yield* host.io.fs.fileExists(path))) {
+    const json = (yield* host.io.fs.readJson<CodexHooks>(path));
     if (!json || !json.hooks || typeof json.hooks !== "object") {
       return { ok: false, error: "could not safely read hooks JSON at " + path };
     }
@@ -380,51 +355,51 @@ export function uninstallIntegration(): unknown {
     if (Array.isArray(json.hooks.Stop)) {
       json.hooks.Stop = removeOwnedCodexHooks(json.hooks.Stop);
     }
-    hooksOk = before === JSON.stringify(json) || host.fs.writeJson(path, json);
+    hooksOk = before === JSON.stringify(json) || (yield* host.io.fs.writeJson(path, json));
   }
   const ownershipPath = codexHookTrustOwnershipPath();
-  if (ownershipPath && host.fs.fileExists(ownershipPath)) {
-    const ownedTarget = host.fs.readFile(ownershipPath);
-    if (ownedTarget === path && disableOwnedCodexHookTrust(path)) {
-      host.fs.removeFile(ownershipPath);
+  if (ownershipPath && (yield* host.io.fs.fileExists(ownershipPath))) {
+    const ownedTarget = (yield* host.io.fs.readFile(ownershipPath));
+    if (ownedTarget === path && (yield* disableOwnedCodexHookTrust(path))) {
+      (yield* host.io.fs.removeFile(ownershipPath));
     }
   }
   const scriptPath = codexWindowsHookScriptPath();
-  if (scriptPath && host.fs.fileExists(scriptPath) && isOwnedCodexWindowsHookScript(scriptPath)) {
-    host.fs.removeFile(scriptPath);
+  if (scriptPath && (yield* host.io.fs.fileExists(scriptPath)) && (yield* isOwnedCodexWindowsHookScript(scriptPath))) {
+    (yield* host.io.fs.removeFile(scriptPath));
   }
   invalidateCodexHookTrust(path);
   return hooksOk ? { ok: true } : { ok: false, error: "writeJson failed for " + path };
 }
 
-export function restoreIntegration(): unknown {
+function* restoreIntegrationLocked(): HostIoSteps<unknown> {
   const path = codexHooksPath();
   if (!path) return { ok: false, error: "could not resolve ~/.codex/hooks.json" };
   const backup = path + ".codeterm-backup";
-  if (!host.fs.fileExists(backup)) return { ok: false, error: "no recoverable backup at " + backup };
-  const hooks = host.fs.readFile(backup);
+  if (!(yield* host.io.fs.fileExists(backup))) return { ok: false, error: "no recoverable backup at " + backup };
+  const hooks = (yield* host.io.fs.readFile(backup));
   if (typeof hooks !== "string") return { ok: false, error: "restore failed for " + path };
-  const hooksState = host.fs.readFile(path + ".codeterm-backup-state");
+  const hooksState = (yield* host.io.fs.readFile(path + ".codeterm-backup-state"));
   if (hooksState === "absent" || (typeof hooksState !== "string" && hooks === "")) {
-    if (host.fs.fileExists(path) && !host.fs.removeFile(path)) return { ok: false, error: "restore failed for " + path };
-  } else if (!writeFileIfChanged(path, hooks)) {
+    if ((yield* host.io.fs.fileExists(path)) && !(yield* host.io.fs.removeFile(path))) return { ok: false, error: "restore failed for " + path };
+  } else if (!(yield* writeFileIfChanged(path, hooks))) {
     return { ok: false, error: "restore failed for " + path };
   }
   const config = codexConfigPath();
-  if (config && host.fs.fileExists(config + ".codeterm-backup")) {
-    const original = host.fs.readFile(config + ".codeterm-backup");
-    if (typeof original !== "string" || !writeFileIfChanged(config, original)) return { ok: false, error: "restore failed for " + config };
+  if (config && (yield* host.io.fs.fileExists(config + ".codeterm-backup"))) {
+    const original = (yield* host.io.fs.readFile(config + ".codeterm-backup"));
+    if (typeof original !== "string" || !(yield* writeFileIfChanged(config, original))) return { ok: false, error: "restore failed for " + config };
     const ownershipPath = codexHookTrustOwnershipPath();
-    if (ownershipPath && host.fs.fileExists(ownershipPath)) host.fs.removeFile(ownershipPath);
+    if (ownershipPath && (yield* host.io.fs.fileExists(ownershipPath))) (yield* host.io.fs.removeFile(ownershipPath));
   }
   const script = host.platform() === "windows" ? codexWindowsHookScriptPath() : null;
-  if (script && host.fs.fileExists(script + ".codeterm-backup")) {
-    const original = host.fs.readFile(script + ".codeterm-backup");
+  if (script && (yield* host.io.fs.fileExists(script + ".codeterm-backup"))) {
+    const original = (yield* host.io.fs.readFile(script + ".codeterm-backup"));
     if (typeof original !== "string") return { ok: false, error: "restore failed for " + script };
-    const scriptState = host.fs.readFile(script + ".codeterm-backup-state");
+    const scriptState = (yield* host.io.fs.readFile(script + ".codeterm-backup-state"));
     if (scriptState === "absent" || (typeof scriptState !== "string" && original === "")) {
-      if (host.fs.fileExists(script) && !host.fs.removeFile(script)) return { ok: false, error: "restore failed for " + script };
-    } else if (!writeFileIfChanged(script, original)) {
+      if ((yield* host.io.fs.fileExists(script)) && !(yield* host.io.fs.removeFile(script))) return { ok: false, error: "restore failed for " + script };
+    } else if (!(yield* writeFileIfChanged(script, original))) {
       return { ok: false, error: "restore failed for " + script };
     }
   }
@@ -432,38 +407,34 @@ export function restoreIntegration(): unknown {
   return { ok: true };
 }
 
-export function ensureIntegrationOnStartup(
-  apiPort: number,
-  install: (apiPort: number, options?: CodexIntegrationInstallOptions) => unknown,
-  then: (result: unknown) => unknown = (result) => result,
-): unknown {
+export function* ensureIntegrationOnStartup(apiPort: number, install: (apiPort: number, options?: CodexIntegrationInstallOptions) => unknown, then: (result: unknown) => unknown = (result) => result): HostIoSteps<unknown> {
   void apiPort;
   void install;
   const path = codexHooksPath();
-  if (!path || !host.fs.fileExists(path)) return then({ ok: true, changed: false });
-  const json = host.fs.readJson<CodexHooks>(path);
-  if (!json || !json.hooks) return then({ ok: true, changed: false });
+  if (!path || !(yield* host.io.fs.fileExists(path))) return (yield* ioResolve(then({ ok: true, changed: false })));
+  const json = (yield* host.io.fs.readJson<CodexHooks>(path));
+  if (!json || !json.hooks) return (yield* ioResolve(then({ ok: true, changed: false })));
   const owned = (json.hooks.SessionStart || []).filter(isCodetermCodexHook);
-  if (owned.length === 0) return then({ ok: true, changed: false });
-  return refreshCodexHookTrustState(path, (trustState) => {
+  if (owned.length === 0) return (yield* ioResolve(then({ ok: true, changed: false })));
+  return (yield* refreshCodexHookTrustState(path, function*(trustState) {
     if (trustState === "disabled") {
-      return then({ ok: true, changed: false, reason: "Codex hook trust is disabled" });
+      return (yield* ioResolve(then({ ok: true, changed: false, reason: "Codex hook trust is disabled" })));
     }
     if (trustState === "unknown") {
-      return then({
+      return (yield* ioResolve(then({
         ok: false,
         changed: false,
         actionable: true,
-        error: "Codex could not confirm hook trust: " + codexHookTrustReason(path),
-      });
+        error: "Codex could not confirm hook trust: " + (yield* codexHookTrustReason(path)),
+      })));
     }
 
     const scriptPath = codexWindowsHookScriptPath();
     const scriptStale =
       host.platform() === "windows" &&
       !!scriptPath &&
-      (!host.fs.fileExists(scriptPath)
-        || !isCurrentCodexHookScriptContent(String(host.fs.readFile(scriptPath) || "")));
+      (!(yield* host.io.fs.fileExists(scriptPath))
+        || !isCurrentCodexHookScriptContent(String((yield* host.io.fs.readFile(scriptPath)) || "")));
     const commandStale = owned.some((entry) => {
       const hooks = (entry && entry.hooks) || [];
       return hooks.some(
@@ -487,16 +458,16 @@ export function ensureIntegrationOnStartup(
     const timeoutStale = owned.some((entry) => !hasAdequateCodexHookTimeout(entry));
     const trustStale = trustState === "stale";
     if (!scriptStale && !commandStale && !timeoutStale && !stopCommandStale && stopOwned && !trustStale) {
-      return then({ ok: true, changed: false });
+      return (yield* ioResolve(then({ ok: true, changed: false })));
     }
 
-    return then({
+    return (yield* ioResolve(then({
       ok: false,
       changed: false,
       actionable: true,
       error: "Codex hook repair requires recorded integration consent; open provider integration settings and approve Repair",
-    });
-  });
+    })));
+  }));
 }
 
 function codexHooksPath(): string | null {
@@ -539,47 +510,47 @@ function codexHookTrustOwnershipPath(): string | null {
   return config ? config + ".codeterm-hook-trust-owned" : null;
 }
 
-function captureIntegrationFile(path: string): IntegrationFileSnapshot | null {
-  const existed = host.fs.fileExists(path);
-  const bytes = existed ? host.fs.readFile(path) : "";
+function* captureIntegrationFile(path: string): HostIoSteps<IntegrationFileSnapshot | null> {
+  const existed = (yield* host.io.fs.fileExists(path));
+  const bytes = existed ? (yield* host.io.fs.readFile(path)) : "";
   return typeof bytes === "string" ? { path, existed, bytes } : null;
 }
 
-function writeFileIfChanged(path: string, contents: string): boolean {
-  return host.fs.readFile(path) === contents || host.fs.writeFile(path, contents);
+function* writeFileIfChanged(path: string, contents: string): HostIoSteps<boolean> {
+  return (yield* host.io.fs.readFile(path)) === contents || (yield* host.io.fs.writeFile(path, contents));
 }
 
-function restoreIntegrationFiles(snapshots: IntegrationFileSnapshot[]): boolean {
+function* restoreIntegrationFiles(snapshots: IntegrationFileSnapshot[]): HostIoSteps<boolean> {
   let restored = true;
   for (let i = snapshots.length - 1; i >= 0; i--) {
     const snapshot = snapshots[i];
     const ok = snapshot.existed
-      ? writeFileIfChanged(snapshot.path, snapshot.bytes)
-      : (!host.fs.fileExists(snapshot.path) || host.fs.removeFile(snapshot.path));
+      ? (yield* writeFileIfChanged(snapshot.path, snapshot.bytes))
+      : (!(yield* host.io.fs.fileExists(snapshot.path)) || (yield* host.io.fs.removeFile(snapshot.path)));
     restored = ok && restored;
   }
   return restored;
 }
 
-function codexHookTrustContext(hooksPath: string): {
+function* codexHookTrustContext(hooksPath: string): HostIoSteps<{
   config: string;
   block: string;
   labels: string[];
   fingerprint: string;
   hookFingerprint: string;
   trustFingerprint: string;
-} | null {
+} | null> {
   const cfg = codexConfigPath();
-  if (!cfg || !host.fs.fileExists(cfg)) return null;
-  const text = String(host.fs.readFile(cfg) || "");
+  if (!cfg || !(yield* host.io.fs.fileExists(cfg))) return null;
+  const text = String((yield* host.io.fs.readFile(cfg)) || "");
   const block = findCodexHookTrustBlock(text, hooksPath);
   if (block == null) return null;
-  const hooks = host.fs.readJson<CodexHooks>(hooksPath)?.hooks;
+  const hooks = (yield* host.io.fs.readJson<CodexHooks>(hooksPath))?.hooks;
   const labels: string[] = [];
   if ((hooks?.SessionStart || []).some(isCodetermCodexHook)) labels.push("session_start");
   if ((hooks?.Stop || []).some(isCodetermCodexHook)) labels.push("stop");
   const script = codexWindowsHookScriptPath();
-  const scriptText = script && host.fs.fileExists(script) ? String(host.fs.readFile(script) || "") : "";
+  const scriptText = script && (yield* host.io.fs.fileExists(script)) ? String((yield* host.io.fs.readFile(script)) || "") : "";
   const trustFingerprint = codexHookContentHash(hookTrustConfigSections(text));
   const hookFingerprint = codexHookContentHash([
     ownedContentHash(hooks?.SessionStart, hooks?.Stop, scriptText),
@@ -608,8 +579,8 @@ function hookTrustConfigSections(config: string): string {
   return sections.join(String.fromCharCode(0));
 }
 
-function cacheCodexHookTrust(hooksPath: string, verdict: CodexHookTrustVerdict, reason?: string): void {
-  const context = codexHookTrustContext(hooksPath);
+function* cacheCodexHookTrust(hooksPath: string, verdict: CodexHookTrustVerdict, reason?: string): HostIoSteps<void> {
+  const context = (yield* codexHookTrustContext(hooksPath));
   if (context) codexHookTrustCache.set(hooksPath, {
     fingerprint: context.fingerprint,
     hookFingerprint: context.hookFingerprint,
@@ -619,8 +590,8 @@ function cacheCodexHookTrust(hooksPath: string, verdict: CodexHookTrustVerdict, 
   });
 }
 
-function codexHookTrustState(hooksPath: string): "enabled" | "disabled" | "missing" | "unknown" | "trusted" | "stale" {
-  const context = codexHookTrustContext(hooksPath);
+function* codexHookTrustState(hooksPath: string): HostIoSteps<"enabled" | "disabled" | "missing" | "unknown" | "trusted" | "stale"> {
+  const context = (yield* codexHookTrustContext(hooksPath));
   if (!context) return "missing";
   const { block, fingerprint } = context;
   const m = block.match(/(?:^|\n)\s*enabled\s*=\s*(true|false)\s*(?:\n|$)/);
@@ -634,21 +605,18 @@ function codexHookTrustState(hooksPath: string): "enabled" | "disabled" | "missi
   return "missing";
 }
 
-function codexHookTrustReason(hooksPath: string): string {
-  const context = codexHookTrustContext(hooksPath);
+function* codexHookTrustReason(hooksPath: string): HostIoSteps<string> {
+  const context = (yield* codexHookTrustContext(hooksPath));
   if (!context) return "Codex hook trust configuration is unavailable";
   const cached = codexHookTrustCache.get(hooksPath);
   if (cached?.fingerprint === context.fingerprint && cached.reason) return cached.reason;
   return "Codex has not confirmed the current hook hash";
 }
 
-function codexHookTrustVerificationSource(
-  hooksPath: string,
-  state: string,
-): "hash_verified" | "cached" | "unverified" | "disabled" | "missing" {
+function* codexHookTrustVerificationSource(hooksPath: string, state: string): HostIoSteps<"hash_verified" | "cached" | "unverified" | "disabled" | "missing"> {
   if (state === "disabled") return "disabled";
   if (state === "missing") return "missing";
-  const context = codexHookTrustContext(hooksPath);
+  const context = (yield* codexHookTrustContext(hooksPath));
   if (!context || !context.labels.includes("session_start")) return "unverified";
   const cached = codexHookTrustCache.get(hooksPath);
   if (cached?.fingerprint !== context.fingerprint) return "unverified";
@@ -659,23 +627,22 @@ function invalidateCodexHookTrust(hooksPath: string): void {
   codexHookTrustCache.delete(hooksPath);
 }
 
-function refreshCodexHookTrustState(
-  hooksPath: string,
-  then: (verdict: "enabled" | "disabled" | "missing" | "unknown" | "trusted" | "stale") => unknown = (verdict) => verdict,
-): unknown {
-  const context = codexHookTrustContext(hooksPath);
-  if (!context) return then("missing");
-  if (/(?:^|\n)\s*enabled\s*=\s*false\s*(?:\n|$)/.test(context.block)) return then("disabled");
-  if (!/(?:^|\n)\s*trusted_hash\s*=/.test(context.block)) return then(codexHookTrustState(hooksPath));
+function* refreshCodexHookTrustState(hooksPath: string, then: (verdict: "enabled" | "disabled" | "missing" | "unknown" | "trusted" | "stale") => unknown = (verdict) => verdict): HostIoSteps<unknown> {
+  const context = (yield* codexHookTrustContext(hooksPath));
+  if (!context) return (yield* ioResolve(then("missing")));
+  if (/(?:^|\n)\s*enabled\s*=\s*false\s*(?:\n|$)/.test(context.block)) return (yield* ioResolve(then("disabled")));
+  if (!/(?:^|\n)\s*trusted_hash\s*=/.test(context.block)) return (yield* ioResolve(then((yield* codexHookTrustState(hooksPath)))));
   const cached = codexHookTrustCache.get(hooksPath);
-  if (cached?.fingerprint === context.fingerprint) return then(cached.verdict);
-  if (!context.labels.includes("session_start")) return then("unknown");
-  return inspectCodexHookTrust({
+  if (cached?.fingerprint === context.fingerprint) return (yield* ioResolve(then(cached.verdict)));
+  if (!context.labels.includes("session_start")) return (yield* ioResolve(then("unknown")));
+  return (yield* inspectCodexHookTrust({
     hooksPath,
     config: context.config,
     managedLabels: context.labels,
     listCwd: host.homeDir() || ".",
-  }, (inspected) => {
+  }, function*(inspected) {
+    const current = yield* codexHookTrustContext(hooksPath);
+    if (current?.fingerprint !== context.fingerprint) return yield* ioResolve(then("unknown"));
     codexHookTrustCache.set(hooksPath, {
       fingerprint: context.fingerprint,
       hookFingerprint: context.hookFingerprint,
@@ -683,36 +650,34 @@ function refreshCodexHookTrustState(
       verdict: inspected.verdict,
       reason: inspected.reason,
     });
-    return then(inspected.verdict);
-  });
+    return (yield* ioResolve(then(inspected.verdict)));
+  }));
 }
 
-function enableExistingCodexHookTrust(
-  hooksPath: string,
-): { state: "enabled" | "missing" | "unknown" | "trusted"; changed: boolean; write_failed: boolean } {
+function* enableExistingCodexHookTrust(hooksPath: string): HostIoSteps<{ state: "enabled" | "missing" | "unknown" | "trusted"; changed: boolean; write_failed: boolean }> {
   const cfg = codexConfigPath();
-  if (!cfg || !host.fs.fileExists(cfg)) return { state: "missing", changed: false, write_failed: false };
-  const text = String(host.fs.readFile(cfg) || "");
+  if (!cfg || !(yield* host.io.fs.fileExists(cfg))) return { state: "missing", changed: false, write_failed: false };
+  const text = String((yield* host.io.fs.readFile(cfg)) || "");
   if (!text) return { state: "missing", changed: false, write_failed: false };
   const span = findCodexHookTrustBlockSpan(text, hooksPath);
   if (!span) return { state: "missing", changed: false, write_failed: false };
   const block = text.substring(span.start, span.end);
   if (!/(?:^|\n)\s*enabled\s*=\s*false\s*(?:\n|$)/.test(block)) {
-    const current = codexHookTrustState(hooksPath);
+    const current = (yield* codexHookTrustState(hooksPath));
     const state = current === "enabled" || current === "trusted" ? current : "unknown";
     return { state, changed: false, write_failed: false };
   }
   const nextBlock = block.replace(/(^|\n)(\s*enabled\s*=\s*)false(\s*(?:\n|$))/, "$1$2true$3");
   const next = text.substring(0, span.start) + nextBlock + text.substring(span.end);
-  return host.fs.writeFile(cfg, next)
+  return (yield* host.io.fs.writeFile(cfg, next))
     ? { state: "enabled", changed: true, write_failed: false }
     : { state: "unknown", changed: false, write_failed: true };
 }
 
-function disableOwnedCodexHookTrust(hooksPath: string): boolean {
+function* disableOwnedCodexHookTrust(hooksPath: string): HostIoSteps<boolean> {
   const cfg = codexConfigPath();
-  if (!cfg || !host.fs.fileExists(cfg)) return true;
-  const text = host.fs.readFile(cfg);
+  if (!cfg || !(yield* host.io.fs.fileExists(cfg))) return true;
+  const text = (yield* host.io.fs.readFile(cfg));
   if (typeof text !== "string") return false;
   const span = findCodexHookTrustBlockSpan(text, hooksPath);
   if (!span) return true;
@@ -720,7 +685,7 @@ function disableOwnedCodexHookTrust(hooksPath: string): boolean {
   const nextBlock = block.replace(/(^|\n)(\s*enabled\s*=\s*)true(\s*(?:\n|$))/, "$1$2false$3");
   if (nextBlock === block) return true;
   const next = text.substring(0, span.start) + nextBlock + text.substring(span.end);
-  return host.fs.writeFile(cfg, next);
+  return (yield* host.io.fs.writeFile(cfg, next));
 }
 
 function findCodexHookTrustBlock(text: string, hooksPath: string): string | null {
@@ -793,4 +758,25 @@ function hasCodetermCodexWindowsCommand(entry: CodexHookEntry): boolean {
     }
   }
   return false;
+}
+
+function integrationLockPaths(): string[] {
+  return [codexHooksPath() && codexHooksPath() + ".codeterm-integration.lock", codexConfigPath() && codexConfigPath() + ".project-trust.lock"].filter((path): path is string => !!path);
+}
+
+export function* installIntegration(apiPort: number, options?: CodexIntegrationInstallOptions): HostIoSteps<unknown> {
+  if (options?.consent !== true) return yield* installIntegrationLocked(apiPort, options);
+  return yield* ioFileTransaction(host.io.fs, integrationLockPaths(), function*() { return (yield* installIntegrationLocked(apiPort, options)); });
+}
+
+export function* grantIntegrationTrust(managedKeys: string[], then: (result: unknown) => unknown = value => value): HostIoSteps<unknown> {
+  return yield* ioFileTransaction(host.io.fs, integrationLockPaths(), function*() { return (yield* grantIntegrationTrustLocked(managedKeys, then)); });
+}
+
+export function* uninstallIntegration(): HostIoSteps<unknown> {
+  return yield* ioFileTransaction(host.io.fs, integrationLockPaths(), uninstallIntegrationLocked);
+}
+
+export function* restoreIntegration(): HostIoSteps<unknown> {
+  return yield* ioFileTransaction(host.io.fs, integrationLockPaths(), restoreIntegrationLocked);
 }

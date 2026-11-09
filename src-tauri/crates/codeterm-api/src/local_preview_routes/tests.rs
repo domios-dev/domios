@@ -45,6 +45,16 @@ async fn owning_tab_previews_nested_pad_artifacts_but_not_foreign_or_secret_file
             } else {
                 "artifact"
             }));
+        let batch = fixture
+            .post(
+                &fixture.owner,
+                "check",
+                serde_json::json!({"paths": [path]}),
+                Some("Bearer preview-test-token"),
+            )
+            .await;
+        assert_eq!(batch.status(), StatusCode::OK);
+        assert_eq!(json(batch).await["paths"], serde_json::json!([path]));
         assert_eq!(
             fixture.read(&fixture.sibling, &path, kind).await.status(),
             StatusCode::NOT_FOUND
@@ -65,6 +75,66 @@ async fn owning_tab_previews_nested_pad_artifacts_but_not_foreign_or_secret_file
             StatusCode::NOT_FOUND
         );
     }
+}
+
+#[tokio::test]
+async fn own_pad_exception_refuses_escapes_and_other_data_directory_files() {
+    let fixture = Fixture::new();
+    let own = fixture.pad(&fixture.owner);
+    std::fs::create_dir_all(&own).unwrap();
+    let data = own.parent().unwrap().parent().unwrap().parent().unwrap();
+    for name in [
+        "config.json",
+        "storage/state.txt",
+        "logs/app.txt",
+        "runtime/state.json",
+    ] {
+        let path = data.join(name);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, b"private").unwrap();
+        fixture.reference(&fixture.owner, &path);
+        assert_eq!(
+            fixture
+                .read(&fixture.owner, &path, "document")
+                .await
+                .status(),
+            StatusCode::NOT_FOUND
+        );
+    }
+    let foreign = fixture.pad(&fixture.sibling);
+    std::fs::create_dir_all(&foreign).unwrap();
+    std::fs::write(foreign.join("read.md"), b"foreign").unwrap();
+    let external = fixture.write("external/read.md", "external");
+    for (name, target) in [
+        ("foreign", foreign.as_path()),
+        ("external", external.parent().unwrap()),
+        ("data", data),
+    ] {
+        let alias = own.join(name);
+        directory_link(target, &alias);
+        let path = alias.join(if name == "data" {
+            "config.json"
+        } else {
+            "read.md"
+        });
+        fixture.reference(&fixture.owner, &path);
+        assert_eq!(
+            fixture
+                .read(&fixture.owner, &path, "document")
+                .await
+                .status(),
+            StatusCode::NOT_FOUND
+        );
+    }
+    let traversal = own.join("../").join(&fixture.sibling).join("read.md");
+    fixture.reference(&fixture.owner, &traversal);
+    assert_eq!(
+        fixture
+            .read(&fixture.owner, &traversal, "document")
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
 }
 
 #[tokio::test]

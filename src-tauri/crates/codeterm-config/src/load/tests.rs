@@ -93,7 +93,7 @@ const VALID: &str = r#"
 enabled = true
 
 [agent]
-full_access = true
+sandbox_ceiling = "workspace-write"
 
 [theme]
 name = "nord"
@@ -135,14 +135,20 @@ fn config_parse_error_preserves_file_and_token() {
     let config = load_config_cached(&path, &cache);
 
     assert_stored(tmp.path(), &config);
-    assert_eq!(config.agent.full_access, Some(true));
+    assert_eq!(
+        config.agent.sandbox_ceiling.as_deref(),
+        Some("workspace-write")
+    );
     let file = config_file(&path);
     let copies = file.corrupt_copies();
     assert_eq!(copies.len(), 1);
     assert_eq!(std::fs::read_to_string(&copies[0]).unwrap(), broken);
     let restored: AppConfig = toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
     assert!(restored.api.token.is_none());
-    assert_eq!(restored.agent.full_access, Some(true));
+    assert_eq!(
+        restored.agent.sandbox_ceiling.as_deref(),
+        Some("workspace-write")
+    );
     assert!(file.held().is_none());
     assert_eq!(incidents_for(&path).len(), 1);
 }
@@ -159,7 +165,10 @@ fn config_parse_error_without_backup_writes_marked_salvage_and_keeps_hold() {
     let config = load_config_cached(&path, &cache);
 
     assert_stored(tmp.path(), &config);
-    assert_eq!(config.agent.full_access, Some(true));
+    assert_eq!(
+        config.agent.sandbox_ceiling.as_deref(),
+        Some("workspace-write")
+    );
     assert!(
         path.exists(),
         "a readable recovery config stays at config.toml"
@@ -172,7 +181,10 @@ fn config_parse_error_without_backup_writes_marked_salvage_and_keeps_hold() {
     );
     let restored: AppConfig = toml::from_str(&salvaged).unwrap();
     assert!(restored.api.token.is_none());
-    assert_eq!(restored.agent.full_access, Some(true));
+    assert_eq!(
+        restored.agent.sandbox_ceiling.as_deref(),
+        Some("workspace-write")
+    );
     assert_eq!(restored.theme.name, "nord");
     assert_eq!(restored.general_agent.agent_provider, "codex");
     assert_eq!(restored.memory.dreaming_agent, "opencode");
@@ -248,7 +260,7 @@ fn config_salvage_keeps_intact_tables_after_a_damaged_table() {
     let tmp = tempfile::tempdir().unwrap();
     codeterm_util::instance_token::initialize_at(tmp.path(), true).unwrap();
     let path = tmp.path().join("config.toml");
-    let broken = "[api]\nenabled = true\nthis is = = not toml [[[\n[agent]\nfull_access = false\n[general_agent]\nagent_provider = \"codex\"\n[memory]\ndreaming_agent = \"opencode\"\n";
+    let broken = "[api]\nenabled = true\nthis is = = not toml [[[\n[agent]\nsandbox_ceiling = \"read-only\"\n[general_agent]\nagent_provider = \"codex\"\n[memory]\ndreaming_agent = \"opencode\"\n";
     std::fs::write(&path, broken).unwrap();
 
     let cache: ConfigCache = Mutex::new(None);
@@ -257,7 +269,7 @@ fn config_salvage_keeps_intact_tables_after_a_damaged_table() {
     let restored: AppConfig = toml::from_str(&salvaged).unwrap();
 
     assert_stored(tmp.path(), &config);
-    assert_eq!(restored.agent.full_access, Some(false));
+    assert_eq!(restored.agent.sandbox_ceiling.as_deref(), Some("read-only"));
     assert_eq!(restored.general_agent.agent_provider, "codex");
     assert_eq!(restored.memory.dreaming_agent, "opencode");
     assert_eq!(
@@ -272,7 +284,7 @@ fn unreadable_token_is_never_generated_after_a_parse_error() {
     let path = tmp.path().join("config.toml");
     std::fs::write(
         &path,
-        "[api]\ntoken = \"unterminated\n[agent]\nfull_access = false\n",
+        "[api]\ntoken = \"unterminated\n[agent]\nsandbox_ceiling = \"read-only\"\n",
     )
     .unwrap();
 
@@ -280,7 +292,7 @@ fn unreadable_token_is_never_generated_after_a_parse_error() {
     let config = load_config_cached(&path, &cache);
 
     assert!(config.api.token.is_none());
-    assert_eq!(config.agent.full_access, Some(false));
+    assert_eq!(config.agent.sandbox_ceiling.as_deref(), Some("read-only"));
     assert!(path.exists());
     assert!(toml::from_str::<AppConfig>(&std::fs::read_to_string(&path).unwrap()).is_ok());
 }
@@ -349,10 +361,9 @@ fn config_bounds_invalid_load_keeps_last_known_config() {
 
 #[test]
 fn salvage_reads_only_intact_lines_of_the_right_tables() {
-    let raw = "token = \"root-level\"\n[api]\nport = 7686\ntoken = \"t1\"\n[mesh]\nfull_access = true\n[agent]\nfull_access = false\n";
-    let (token, full_access) = salvaged_critical_values(raw);
+    let raw = "token = \"root-level\"\n[api]\nport = 7686\ntoken = \"t1\"\n[mesh]\nsandbox_ceiling = \"workspace-write\"\n[agent]\nsandbox_ceiling = \"read-only\"\n";
+    let token = salvaged_token(raw);
     assert_eq!(token.as_deref(), Some("t1"));
-    assert_eq!(full_access, Some(false));
 }
 
 #[test]
@@ -404,7 +415,7 @@ fn startup_does_not_rewrite_retired_config_or_override_explicit_kpi_opt_out() {
     let original = "[agent]\nresume_skip_permissions = true\n[kpi]\nenabled = false\n";
     std::fs::write(&path, &original).unwrap();
     let config = load_config_cached_at(&path, root.path(), &Mutex::new(None)).unwrap();
-    assert_eq!(config.agent.full_access, None);
+    assert_eq!(config.agent.sandbox_ceiling, None);
     assert!(!config.kpi.enabled);
     assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
 }

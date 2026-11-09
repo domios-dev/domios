@@ -11,41 +11,39 @@ const PLANNER_REHYDRATE_FIELD_BYTES: usize = 64;
 const PLANNER_REHYDRATE_QUESTION_BYTES: usize = 192;
 
 impl crate::service::ServiceContext {
-    pub(crate) fn bind_planner_session(&self, tab_id: &str) {
+    pub(crate) fn bind_planner_session(&self, tab_id: &str) -> Result<(), String> {
         let binding = {
             let mux = self.mux.read();
             let Some(tab) = mux.get_tab(tab_id) else {
-                return;
+                return Ok(());
             };
             if tab.session_binding_nonce.is_none()
                 || tab.session_binding_nonce != tab.reported_session_binding_nonce
             {
-                return;
+                return Ok(());
             }
             tab.agent_session_id
                 .clone()
                 .zip(tab.reported_session_binding_nonce.clone())
         };
         let Some((session_id, binding_nonce)) = binding else {
-            return;
+            return Ok(());
         };
         let now_ms = epoch_ms();
-        let candidates = crate::service::plan::PlanMatch::Planner(tab_id.to_string());
-        for plan in self.plan_store.plans_matching(&candidates) {
-            let Some(crate::plan::PlannerRef::Tab { tab_id: bound, .. }) = &plan.planner else {
-                continue;
-            };
-            if bound != tab_id {
-                continue;
-            }
+        let plans = self
+            .plan_store
+            .hierarchy_planner_bindings_projection(tab_id, false)
+            .map_err(|error| error.to_string())?;
+        for (plan_id, _) in plans {
             let _ = self.plan_store.rebind_planner_session(
-                &plan.id,
+                &plan_id,
                 tab_id,
                 &session_id,
                 &binding_nonce,
                 now_ms,
             );
         }
+        Ok(())
     }
 
     pub(super) fn prepare_planner_delivery_binding(
@@ -60,7 +58,7 @@ impl crate::service::ServiceContext {
             self.wake_frozen_tab(tab_id)?;
             self.chatbackend_reopen_if_restored(tab_id)?;
         }
-        self.bind_planner_session(tab_id);
+        self.bind_planner_session(tab_id)?;
         let binding = {
             let mux = self.mux.read();
             let tab = mux.get_tab(tab_id).ok_or("agent_unavailable")?;
@@ -118,16 +116,14 @@ impl crate::service::ServiceContext {
     }
 }
 
-pub(super) fn planner_rehydrate_payload(plan: &crate::plan::Plan) -> String {
-    let open = plan
-        .gates
-        .iter()
-        .filter(|gate| gate.is_open())
-        .collect::<Vec<_>>();
+pub(super) fn planner_rehydrate_payload(
+    plan: &crate::service::plan::PlannerRehydrateRead,
+) -> String {
+    let open = &plan.gates;
     let mut out = format!(
         "{PLANNER_REHYDRATE_HEADER}Plan {} has {} open decision gate(s):\n",
         truncate_utf8(&plan.id, PLANNER_REHYDRATE_FIELD_BYTES),
-        open.len()
+        plan.open_count
     );
     for gate in open.iter().take(PLANNER_REHYDRATE_GATE_LIMIT) {
         let status = match gate.status {
@@ -148,10 +144,10 @@ pub(super) fn planner_rehydrate_payload(plan: &crate::plan::Plan) -> String {
             truncate_utf8(&question, PLANNER_REHYDRATE_QUESTION_BYTES),
         ));
     }
-    if open.len() > PLANNER_REHYDRATE_GATE_LIMIT {
+    if plan.open_count > PLANNER_REHYDRATE_GATE_LIMIT {
         out.push_str(&format!(
             "- … {} more open gate(s) omitted from this bounded recovery summary.\n",
-            open.len() - PLANNER_REHYDRATE_GATE_LIMIT
+            plan.open_count - PLANNER_REHYDRATE_GATE_LIMIT
         ));
     }
     out.push_str(&format!(
@@ -163,12 +159,14 @@ pub(super) fn planner_rehydrate_payload(plan: &crate::plan::Plan) -> String {
 }
 
 fn gate_answerer<'a>(
-    plan: &'a crate::plan::Plan,
-    gate: &'a crate::plan::DecisionGate,
+    plan: &'a crate::service::plan::PlannerRehydrateRead,
+    gate: &'a crate::service::plan::PlannerRehydrateGateRead,
 ) -> Option<&'a str> {
-    if let Some(owner) =
-        super::gate_delivery::planner_owner_for_gate(plan, gate.asked_by_tab_id.as_deref())
-    {
+    if let Some(owner) = crate::service::plan::PlannerGateRead::owner_for_gate_fields(
+        &plan.owner,
+        plan.planner.as_ref(),
+        gate.asked_by_tab_id.as_deref(),
+    ) {
         return Some(owner);
     }
     gate.routed_to_tab_id.as_deref()

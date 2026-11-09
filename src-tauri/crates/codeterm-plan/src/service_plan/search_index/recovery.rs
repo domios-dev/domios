@@ -5,7 +5,7 @@ impl super::super::PlanStore {
         &self,
         turn: &super::super::MutationWriterTurn<'_>,
         root: &Path,
-        plans: &[Plan],
+        plans: Vec<PlanSearchSnapshot>,
         specs: &[Spec],
     ) -> PlanReindexResult {
         turn.assert_store(self);
@@ -22,20 +22,31 @@ impl super::super::PlanStore {
         Ok(self.enqueue_project_index(
             &writer_turn,
             &root,
-            &self.project_plans(&root),
+            self.project_search_snapshots(&root)?,
             &self.list_specs_full(),
         ))
     }
 
-    /// Plans whose project scope is this root's, chosen from the stored roots and loaded through the cache.
-    pub(super) fn project_plans(&self, root: &Path) -> Vec<Plan> {
-        let ids = self.project_plan_ids(&project_scope(root));
-        self.plans_matching(&super::super::PlanMatch::Ids(ids))
+    pub(super) fn project_search_snapshots(
+        &self,
+        root: &Path,
+    ) -> Result<Vec<PlanSearchSnapshot>, String> {
+        self.project_plan_ids(&project_scope(root))?
+            .iter()
+            .map(|id| {
+                self.database
+                    .search_snapshot(id)
+                    .map_err(|error| error.to_string())
+            })
+            .collect()
     }
 
-    fn project_plan_ids(&self, scope: &str) -> Vec<String> {
+    fn project_plan_ids(&self, scope: &str) -> Result<Vec<String>, String> {
         let mut scopes = std::collections::HashMap::<String, String>::new();
-        self.plan_roots()
+        Ok(self
+            .database
+            .plan_roots()
+            .map_err(|error| error.to_string())?
             .into_iter()
             .filter(|(_, root)| {
                 scopes
@@ -44,7 +55,7 @@ impl super::super::PlanStore {
                     == scope
             })
             .map(|(id, _)| id)
-            .collect()
+            .collect())
     }
 
     /// Builds the search index of every project that has none yet, one project at a
@@ -54,8 +65,14 @@ impl super::super::PlanStore {
     }
 
     fn seed_missing_search_indexes_observed(&self, snapshot_ready: impl Fn(&Path)) {
-        let roots = self
-            .plan_roots()
+        let plan_roots = match self.database.plan_roots() {
+            Ok(roots) => roots,
+            Err(error) => {
+                log::warn!("[plan.search] seed root query failed: {error}");
+                return;
+            }
+        };
+        let roots = plan_roots
             .into_iter()
             .map(|(_, root)| super::super::paths::project_root(Path::new(&root)))
             .chain(
@@ -69,29 +86,32 @@ impl super::super::PlanStore {
             if project_index_path(&root).exists() {
                 continue;
             }
-            let ids = self.project_plan_ids(&project_scope(&root));
-            let plans: Vec<Plan> = ids
-                .iter()
-                .filter_map(|id| match self.load_plan_from_sql(id) {
-                    Ok(plan) => plan,
-                    Err(error) => {
-                        log::warn!("[plan.search] {error}; left out of the seeded index");
-                        None
-                    }
-                })
-                .collect();
+            let plans = match self.project_search_snapshots(&root) {
+                Ok(plans) => plans,
+                Err(error) => {
+                    log::warn!(
+                        "[plan.search] seed {} aborted before enqueue: {error}",
+                        root.display()
+                    );
+                    continue;
+                }
+            };
             let specs = self.list_specs_full();
             snapshot_ready(&root);
-            self.enqueue_project_index(&writer_turn, &root, &plans, &specs);
+            self.enqueue_project_index(&writer_turn, &root, plans, &specs);
         }
     }
 }
 
-fn project_jobs(root: &Path, plans: &[Plan], specs: &[Spec]) -> (PlanReindexResult, Vec<IndexJob>) {
+fn project_jobs(
+    root: &Path,
+    plans: Vec<PlanSearchSnapshot>,
+    specs: &[Spec],
+) -> (PlanReindexResult, Vec<IndexJob>) {
     let scope = project_scope(root);
     let plans = plans
-        .iter()
-        .filter(|plan| project_scope(plan_project_root(plan)) == scope)
+        .into_iter()
+        .filter(|plan| project_scope(&plan.root) == scope)
         .collect::<Vec<_>>();
     let specs = specs
         .iter()
@@ -99,23 +119,25 @@ fn project_jobs(root: &Path, plans: &[Plan], specs: &[Spec]) -> (PlanReindexResu
         .collect::<Vec<_>>();
     let ids = plans
         .iter()
-        .flat_map(|plan| plan_units(plan, &scope))
-        .chain(specs.iter().flat_map(|spec| spec_units(spec, &scope)))
-        .map(|unit| unit.id)
+        .flat_map(|plan| plan.units.iter())
+        .map(|unit| unit.id.clone())
+        .chain(
+            specs
+                .iter()
+                .flat_map(|spec| spec_units(spec, &scope))
+                .map(|unit| unit.id),
+        )
         .collect::<HashSet<_>>();
     let units = ids.len();
     let mut jobs = vec![IndexJob::Prune(root.to_path_buf(), ids)];
-    jobs.extend(
-        plans
-            .iter()
-            .map(|plan| IndexJob::Plan((*plan).clone(), PlanIndexScope::Full)),
-    );
+    let plan_count = plans.len();
+    jobs.extend(plans.into_iter().map(IndexJob::PlanSnapshot));
     jobs.extend(specs.iter().map(|spec| IndexJob::Spec((*spec).clone())));
     (
         PlanReindexResult {
             project: root.display().to_string(),
             scope,
-            plans: plans.len(),
+            plans: plan_count,
             specs: specs.len(),
             units,
         },
@@ -130,13 +152,12 @@ pub(super) fn prune_project(root: &Path, live: &HashSet<String>) -> Result<(), S
     apply_unit_changes(root, conn, existing, &[], false).map(drop)
 }
 
-pub(super) fn purge_plan_indexes(plan: &Plan, specs: &[Spec]) -> Result<(), String> {
-    let mut indexes = HashSet::from([project_index_path(plan_project_root(plan))]);
-    indexes.extend(
-        specs
-            .iter()
-            .map(|spec| project_index_path(spec_project_root(spec))),
-    );
+pub(super) fn purge_plan_indexes(
+    plan: &PlanIndexRemoval,
+    specs: &[(String, PathBuf)],
+) -> Result<(), String> {
+    let mut indexes = HashSet::from([project_index_path(&plan.root)]);
+    indexes.extend(specs.iter().map(|(_, root)| project_index_path(root)));
     let directory = port().data_dir().join("plan-indexes");
     match std::fs::read_dir(&directory) {
         Ok(entries) => {
@@ -152,7 +173,7 @@ pub(super) fn purge_plan_indexes(plan: &Plan, specs: &[Spec]) -> Result<(), Stri
         Err(error) => return Err(format!("read plan indexes: {error}")),
     }
     let entities = std::iter::once(plan.id.as_str())
-        .chain(specs.iter().map(|spec| spec.id.as_str()))
+        .chain(specs.iter().map(|(id, _)| id.as_str()))
         .collect::<HashSet<_>>();
     purge_indexes(
         &plan.id,

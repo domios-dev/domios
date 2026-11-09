@@ -41,7 +41,7 @@ impl StoredHistoryFailure {
         }
     }
 
-    fn error(self, detail: impl std::fmt::Display) -> String {
+    pub(super) fn error(self, detail: impl std::fmt::Display) -> String {
         format!("{}: {detail}", self.tag())
     }
 }
@@ -219,9 +219,12 @@ fn read_stored_window(
     {
         return Ok(None);
     }
-    let path = provider.session_file_path(cwd, session).ok_or_else(|| {
-        StoredHistoryFailure::Missing.error("Provider has no recorded runtime session")
-    })?;
+    let path = provider
+        .session_file_path_checked(cwd, session)
+        .map_err(|error| StoredHistoryFailure::Unavailable.error(error))?
+        .ok_or_else(|| {
+            StoredHistoryFailure::Missing.error("Provider has no recorded runtime session")
+        })?;
     if !path
         .try_exists()
         .map_err(|error| StoredHistoryFailure::Unavailable.error(error))?
@@ -276,11 +279,27 @@ fn read_stored_window(
 
 pub(super) fn archived_messages(
     svc: &ServiceContext,
-    provider_id: &str,
-    cwd: &str,
-    session: &str,
+    archive: &crate::multiplexer::types::ContextEpochArchive,
 ) -> Result<Option<Vec<ChatMsg>>, String> {
-    Ok(archived_window(svc, provider_id, cwd, session)?.map(|(messages, _)| messages))
+    if let Some(capability) = svc
+        .agent_registry
+        .with_provider(&archive.provider, |provider| provider.agent_runtime())
+        .flatten()
+    {
+        if let Some(messages) = crate::service::agent_runtime::engine::retained_transcript(
+            &archive.provider,
+            &archive.session_id,
+            &capability,
+        )
+        .map_err(|error| StoredHistoryFailure::Unavailable.error(error))?
+        {
+            return Ok(Some(messages));
+        }
+    }
+    Ok(
+        archived_window(svc, &archive.provider, &archive.cwd, &archive.session_id)?
+            .map(|(messages, _)| messages),
+    )
 }
 
 pub(super) fn archived_window(
@@ -300,7 +319,8 @@ pub(super) fn archived_window(
     }
     let Some(window) = read_stored_window(provider.as_ref(), cwd, session, None, false)? else {
         let present = provider
-            .session_file_path(cwd, session)
+            .session_file_path_checked(cwd, session)
+            .map_err(|error| StoredHistoryFailure::Unavailable.error(error))?
             .map(|path| path.try_exists())
             .transpose()
             .map_err(|error| StoredHistoryFailure::Unavailable.error(error))?

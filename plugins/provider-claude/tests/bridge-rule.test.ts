@@ -1,3 +1,4 @@
+import { ioTestContext } from "../../provider-shared/tests/hostIo";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
@@ -32,7 +33,7 @@ for (const declaration of [null, manifest, { rule: { path: "~/custom/rule.md" } 
     module: { exports: {} as { default: RulePlugin } },
     exports: {},
   };
-  new vm.Script(source).runInNewContext(context);
+  new vm.Script(source).runInNewContext(ioTestContext(context));
   const plugin = context.module.exports.default;
   const expected = declaration?.rule?.path === "~/custom/rule.md"
     ? "~/custom/rule.md" : "~/.claude/rules/codeterm.md";

@@ -25,6 +25,47 @@ pub struct ListWindowQuery {
     pub status: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct ReferenceProjection {
+    pub title: String,
+    pub status: crate::plan::PlanStatus,
+    pub owner: crate::plan::OrchestratorRef,
+    pub canonical_project_path: String,
+    pub tasks: Vec<ReferenceTaskRead>,
+    pub task_refs: std::collections::BTreeMap<String, Option<String>>,
+    pub sections: Vec<ReferenceSectionRead>,
+}
+
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
+pub struct ReferenceTaskRead {
+    pub id: String,
+    pub name: String,
+    pub key: Option<String>,
+    pub handle: Option<String>,
+}
+
+impl ReferenceTaskRead {
+    pub fn display_key(&self) -> String {
+        self.key
+            .clone()
+            .unwrap_or_else(|| crate::plan::task_key::fallback_key(&self.id))
+    }
+}
+
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
+pub struct ReferenceSectionRead {
+    pub id: String,
+    pub title: String,
+    pub handle: Option<String>,
+}
+
+impl ReferenceProjection {
+    pub fn task(&self, reference: &str) -> Option<&ReferenceTaskRead> {
+        let id = self.task_refs.get(reference)?.as_ref()?;
+        self.tasks.iter().find(|task| &task.id == id)
+    }
+}
+
 impl PlanStore {
     pub fn task_reference(
         &self,
@@ -59,11 +100,11 @@ impl PlanStore {
     pub fn reference_projection(
         &self,
         plan_id: &str,
-        task_ref: Option<&str>,
-        section_ref: Option<&str>,
-    ) -> Result<crate::plan::Plan, PlanError> {
+        task_refs: &[String],
+        section_refs: &[String],
+    ) -> Result<ReferenceProjection, PlanError> {
         self.database
-            .reference_projection(plan_id, task_ref, section_ref)
+            .reference_projection(plan_id, task_refs, section_refs)
     }
 
     pub fn ui_plan_projection(

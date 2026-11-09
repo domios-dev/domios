@@ -1,8 +1,8 @@
+import type { PlanView as Plan } from "../Canvas/planProjection";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useMuxStateStore } from "../../store/multiplexer/selectorStore";
 import { usePlanDataContextKey, usePlansApiOptional } from "../Canvas/PlansProvider";
 import { fetchPlans } from "../Canvas/plansApi";
-import type { Plan } from "../Canvas/types";
 import { onResync } from "../../lib/resync";
 import { listen } from "../../lib/bridge";
 import { daemonFetch } from "../../lib/webApi";

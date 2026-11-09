@@ -75,6 +75,9 @@ pub enum InjectionError {
     PtyClosed {
         pty_id: String,
     },
+    WriteQueueFull {
+        pty_id: String,
+    },
     AgentInputUnavailable {
         pty_id: String,
     },
@@ -110,6 +113,10 @@ impl std::fmt::Display for InjectionError {
                 )
             }
             Self::PtyClosed { pty_id } => write!(f, "pty {} is closed", pty_id),
+            Self::WriteQueueFull { pty_id } => write!(
+                f,
+                "tab_busy_refused: PTY {pty_id} write capacity refused before enqueue"
+            ),
             Self::AgentInputUnavailable { pty_id } => {
                 write!(
                     f,

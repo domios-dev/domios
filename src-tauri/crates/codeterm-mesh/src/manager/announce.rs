@@ -50,7 +50,6 @@ impl MeshManager {
         let addresses = self.local_announce_addresses();
         let online = self.local_http_healthy && !addresses.is_empty();
         types::PeerAnnounce {
-            registry: self.registry_revision.clone(),
             instance_id: self.ident.identity.instance_id.clone(),
             instance_name: self.ident.instance_name.clone(),
             addresses: if online { addresses } else { Vec::new() },
@@ -85,7 +84,13 @@ impl MeshManager {
         if !types::is_supported_relay_protocol(ann.relay_protocol_version) {
             return Err(crate::version::peer_upgrade_message());
         }
-        let clean = types::sanitize_addresses(&ann.addresses);
+        let endpoint = self
+            .link_record(sender_id)
+            .and_then(|link| link.installation_id())
+            .and_then(|installation| self.endpoint_target(installation));
+        let clean = endpoint
+            .as_ref()
+            .map(|endpoint| vec![types::PeerAddress::from_ip(&endpoint.ip)]);
         let normalized_web_ui = if ann.online {
             ann.web_ui
                 .clone()
@@ -99,22 +104,27 @@ impl MeshManager {
                 .get_mut(&ann.instance_id)
                 .ok_or_else(|| format!("Peer {} not paired", ann.instance_id))?;
             let previous_addresses = peer.addresses.clone();
-            let next_addresses = if clean.is_empty() && ann.online {
-                previous_addresses.clone()
-            } else {
-                clean
-            };
+            let next_addresses = clean.unwrap_or_else(|| {
+                if ann.online {
+                    previous_addresses.clone()
+                } else {
+                    Vec::new()
+                }
+            });
+            let api_port = endpoint
+                .as_ref()
+                .map_or(peer.api_port, |endpoint| endpoint.api_port);
             let change = PeerAnnounceChange {
                 addresses_changed: !addresses_equal(&previous_addresses, &next_addresses),
                 online_changed: peer.online != ann.online,
                 web_ui_changed: peer.web_ui != normalized_web_ui,
-                metadata_changed: peer.api_port != ann.api_port
+                metadata_changed: peer.api_port != api_port
                     || peer.relay_protocol_version != ann.relay_protocol_version
                     || (!ann.instance_name.is_empty() && peer.instance_name != ann.instance_name),
                 previous_addresses,
             };
             peer.addresses = next_addresses;
-            peer.api_port = ann.api_port;
+            peer.api_port = api_port;
             peer.online = ann.online;
             peer.web_ui = normalized_web_ui;
             peer.relay_protocol_version = ann.relay_protocol_version;

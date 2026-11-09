@@ -107,12 +107,20 @@ mod platform {
         Ok(Notifications(unsafe { AsyncFd::register(fd) }?))
     }
 
+    #[cfg(target_os = "linux")]
+    fn relevant(_: &[u8]) -> bool {
+        true
+    }
+
+    #[cfg(target_os = "macos")]
+    use super::darwin_address_message as relevant;
+
     impl Notifications {
         pub async fn changed(&mut self) -> io::Result<()> {
+            let mut buffer = [0u8; 8192];
             loop {
                 let mut ready = self.0.readable().await?;
                 match ready.try_io(|fd| {
-                    let mut buffer = [0u8; 8192];
                     let count = unsafe {
                         libc::recv(
                             fd.get_ref().as_raw_fd(),
@@ -124,11 +132,12 @@ mod platform {
                     if count < 0 {
                         Err(io::Error::last_os_error())
                     } else {
-                        Ok(())
+                        Ok(count as usize)
                     }
                 }) {
-                    Ok(result) => return result,
-                    Err(_) => continue,
+                    Ok(Ok(count)) if relevant(&buffer[..count]) => return Ok(()),
+                    Ok(Ok(_)) | Err(_) => continue,
+                    Ok(Err(error)) => return Err(error),
                 }
             }
         }
@@ -136,3 +145,15 @@ mod platform {
 }
 
 pub use platform::{subscribe, Notifications};
+
+/// Darwin routing sockets also carry per-destination lookups (`RTM_MISS`, `RTM_RESOLVE`);
+/// only address and interface messages (`rt_msghdr.rtm_type`, byte 3) change listeners.
+#[cfg(any(target_os = "macos", test))]
+pub(super) fn darwin_address_message(message: &[u8]) -> bool {
+    const RTM_NEWADDR: u8 = 0xc;
+    const RTM_DELADDR: u8 = 0xd;
+    const RTM_IFINFO: u8 = 0xe;
+    message
+        .get(3)
+        .is_some_and(|kind| matches!(*kind, RTM_NEWADDR | RTM_DELADDR | RTM_IFINFO))
+}

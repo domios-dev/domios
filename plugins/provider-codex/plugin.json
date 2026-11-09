@@ -1,7 +1,7 @@
 {
   "id": "codex",
-  "version": "1.14.70",
-  "minCodeterm": "1.18.0",
+  "version": "1.14.71",
+  "minCodeterm": "1.19.0",
   "hostApi": 2,
   "generalAgentOfferWhenAbsent": true,
   "displayName": "Codex",
@@ -645,5 +645,6 @@
   },
   "dataPaths": [
     "~/.domios/codex/tasks"
-  ]
+  ],
+  "hostIoJobs": true
 }

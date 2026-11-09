@@ -575,7 +575,10 @@ async fn signout_withdrawal_finishes_inside_deadline_while_account_probe_is_park
                 installation_id: "cleanup-installation".into(),
                 request_id: "a".repeat(64),
                 signed_registry: None,
-                requested_membership_seconds: None,
+                endpoint: None,
+                own_row: None,
+                default_display_name: None,
+
                 operation: MeshOperation::Withdraw {
                     expected_metadata_revision: 2,
                 },

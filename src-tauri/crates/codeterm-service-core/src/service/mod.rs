@@ -48,6 +48,7 @@ pub use capability_probe::refresh as capability_probe_refresh;
 pub(crate) mod cartographer;
 pub(crate) mod chat_send_evidence;
 pub mod chat_send_transaction;
+mod client_selection;
 mod close_history;
 pub use close_history::close_inventory_error_data;
 mod command_port_impl;
@@ -73,6 +74,7 @@ pub mod lane_stats;
 pub mod launch_artifacts;
 pub mod launch_delivery;
 mod pty_memory;
+mod shared_history;
 pub use launch_delivery::prepare_spawn_input as launch_delivery_prepare_spawn_input;
 pub(crate) mod launch_diagnostics;
 pub(crate) mod launch_input_gate;
@@ -233,6 +235,7 @@ mod utility_tabs;
 pub use status_reconciliation::SNAPSHOT_BUSY_ERROR;
 pub mod blocking;
 pub use blocking::run as blocking_run;
+pub mod launch_credentials;
 pub(crate) mod restored_launch;
 pub mod store;
 pub(crate) mod structured_endpoint;
@@ -342,7 +345,7 @@ pub use orchestrator::{BatchOp, SpawnAgentParams, SpawnIdentityProvenance, Spawn
 pub use plan_authority::{
     ensure_planner_task_fields_are_structural, launch_binding_is_pending,
     planner_forbidden_task_field, AuthenticatedPlanCaller, OrchestratorLearningError,
-    PlanAuthorityError,
+    PlanAuthorityError, PlanOperationError,
 };
 pub use session_binding_state::SessionBindingState;
 pub use spawn_params::starter_prompt_for_role;
@@ -352,9 +355,12 @@ pub use team_core::TeamMutationCaller;
 pub use team_core::TeamPlanError;
 pub use worker_identity::{
     persist_attempt_executor_identity, persist_attempt_executor_identity_for_mux,
-    respawn_title_provenance, restore_attempt_binding_for_caller, restore_attempt_binding_for_mux,
-    restore_review_attempt_binding_for_mux, AttemptBindingRestoreResult,
-    AttemptBindingRestoreTarget,
+    respawn_title_provenance, restore_attempt_binding_for_caller, restore_review_attempt_binding,
+    AttemptBindingRestoreResult, AttemptBindingRestoreTarget,
+};
+#[cfg(test)]
+pub use worker_identity::{
+    restore_attempt_binding_for_mux, restore_review_attempt_binding_for_mux,
 };
 pub(crate) use worker_persona::{WorkerIdentityAllocator, WorkerPersonaReservations};
 

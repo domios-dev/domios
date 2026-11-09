@@ -113,6 +113,8 @@ async function main() {
     task_title: "Legacy task",
   }, [entry], [workspace], false);
   assert(taskView.taskKey === "LEGACY", "resolved task ref exposes the existing public display-key fallback");
+  const missingTask = chatPlanRefView({ ...resolved, target_kind: "task", target_id: "task_gone", state: "missing" }, [entry], [workspace], false);
+  assert(missingTask.title === "task_gone", "a missing task is labelled by its own id, never by its plan");
   let opened = false;
   const host = document.createElement("div");
   document.body.appendChild(host);
@@ -120,7 +122,7 @@ async function main() {
   await act(async () => {
     root.render(
       <LinkedText
-        text="Open pl_xcxs29"
+        text={'Open <domios type="plan" id="pl_xcxs29" />'}
         resolvePlanRef={() => view}
         onOpenPlan={() => { opened = true; }}
       />,

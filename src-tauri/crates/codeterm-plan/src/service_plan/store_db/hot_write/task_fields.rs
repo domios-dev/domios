@@ -226,7 +226,7 @@ pub(super) fn warn_review_backlog(
     Ok(())
 }
 
-fn declare_group(
+pub(super) fn declare_group(
     tx: &Transaction<'_>,
     plan_id: &str,
     key: &str,
