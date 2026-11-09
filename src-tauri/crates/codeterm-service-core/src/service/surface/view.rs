@@ -1,18 +1,11 @@
 use codeterm_plugin::surfaces::{SurfaceRegistryHandle, SurfaceRenderer};
-use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::multiplexer::state::MultiplexerState;
 use crate::service::ServiceContext;
 
 /// No plugin-supplied owner, actor, revision or arbitrary event data crosses this port.
-#[derive(Debug, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct ViewIdentity {
-    pub surface: String,
-    pub instance: String,
-    pub tab: String,
-}
+pub(crate) use codeterm_wire::plugin_host::ViewIdentity;
 
 pub(crate) fn view_context(
     mux: &MultiplexerState,

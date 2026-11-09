@@ -6,7 +6,9 @@ pub enum LaunchSpecParams<'a> {
     Resume(&'a AgentResumeParams),
 }
 pub mod reply_relay;
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize, ts_rs::TS,
+)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ContextAttach {
     #[serde(default)]
@@ -40,7 +42,7 @@ pub use reply_relay::{
 pub(crate) mod update_prompt;
 pub use codeterm_provider_signals::{AuthStatus, SessionObservations};
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct AuthStatusProbe {
     pub args: Vec<String>,
@@ -57,7 +59,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
 pub struct IntegrationInstallOptions {
     pub consent: bool,
     #[serde(default)]
@@ -73,7 +75,7 @@ pub enum IntegrationKind {
     None,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 pub struct PermissionHookCapability {
     pub protocol: String,
     pub options: Vec<codeterm_types::pty::PromptOption>,
@@ -81,7 +83,7 @@ pub struct PermissionHookCapability {
 
 pub use crate::directory_trust::DirectoryTrustPromptResponse;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(tag = "status", content = "reason", rename_all = "snake_case")]
 pub enum PreTrustOutcome {
     AlreadyTrusted,
@@ -428,7 +430,7 @@ pub struct ProviderDescriptor {
     pub availability: ProviderAvailability,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, ts_rs::TS)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct ProviderUpdateAvailability {
     pub current_version: String,

@@ -97,7 +97,7 @@ impl Drop for SecretString {
 
 /// Status of the active backend — drives the Settings UI badge and dictates
 /// which CLI commands can succeed.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum StoreStatus {
     /// Backend selected but no creds yet (e.g. user hasn't logged into Bitwarden).
@@ -105,11 +105,13 @@ pub enum StoreStatus {
         /// Endpoint the backend will talk to once unlocked. Lets the
         /// Bitwarden login UI confirm "you'll log in to <URL>".
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
         endpoint: Option<String>,
     },
     /// Creds present but the in-process session is sealed.
     Locked {
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
         endpoint: Option<String>,
     },
     /// Ready to read / write.
@@ -123,6 +125,7 @@ pub enum StoreStatus {
         /// keychain service, etc. Lets the user confirm "I'm signed in to
         /// the right vault" from Settings.
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
         endpoint: Option<String>,
     },
     /// Backend is selected but unusable — e.g. `bw` not on PATH.
@@ -136,12 +139,18 @@ impl StoreStatus {
 }
 
 /// Credentials passed to `unlock`. Concrete backends pick what they need.
+#[derive(ts_rs::TS)]
+#[ts(rename_all = "camelCase")]
 pub struct UnlockCredentials {
+    #[ts(as = "String")]
     pub master_password: SecretString,
+    #[ts(as = "Option<String>")]
     pub two_factor_token: Option<SecretString>,
     pub email: Option<String>,
     /// Bitwarden API-key flow.
+    #[ts(as = "Option<String>")]
     pub api_key_client_id: Option<SecretString>,
+    #[ts(as = "Option<String>")]
     pub api_key_client_secret: Option<SecretString>,
     /// The caller explicitly asked the backend to remember this credential for
     /// headless unlock. Default false: an ordinary sign-in never grants it.
@@ -163,8 +172,10 @@ impl UnlockCredentials {
 
 /// Inputs for `save`. The value lives in `SecretString` so it cannot leak
 /// into a `Debug` log line by accident.
+#[derive(ts_rs::TS)]
 pub struct SaveRequest {
     pub name: String,
+    #[ts(as = "String")]
     pub value: SecretString,
     pub notes: Option<String>,
     pub folder: Option<String>,
@@ -176,7 +187,7 @@ pub struct SaveRequest {
 }
 
 /// Optional filters for `list`.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, ts_rs::TS)]
 pub struct ListFilter {
     pub folder: Option<String>,
     pub organization: Option<String>,
@@ -226,7 +237,7 @@ pub struct CollectionRef {
 
 /// Errors a backend can surface. Adapters map their native error vocabulary
 /// to these variants so the UI / CLI behaves consistently.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SecretError {
     /// Backend selected but no creds (e.g. Bitwarden user not logged in).

@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use semver::{Version, VersionReq};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct CompatibilityManifest {
     #[serde(default)]
@@ -16,7 +16,7 @@ pub struct CompatibilityManifest {
     pub direct_sqlite: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct BreakingRange {
     pub range: String,

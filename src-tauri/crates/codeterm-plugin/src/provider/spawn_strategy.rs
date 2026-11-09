@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use super::StructuredPromptServer;
 
 /// Provider-declared differences between a sent payload and its stored user turn.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(default, deny_unknown_fields, rename_all = "camelCase")]
 pub struct TurnEvidenceNormalization {
     pub unwrap_pasted_content_wrapper: bool,
@@ -318,7 +318,7 @@ impl OnboardingAutoAnswer {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 pub struct HostOwnedCapabilities {
     pub questions: bool,
@@ -347,7 +347,7 @@ pub struct AgentLaunchParams {
     pub instance_id: Option<String>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct LaunchArtifactSweepRequest {
     pub instance_id: String,
@@ -360,7 +360,7 @@ pub struct LaunchArtifactSweepRequest {
     pub include_legacy: bool,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct LaunchArtifactSweepReport {
     pub dead: Vec<String>,
@@ -369,7 +369,7 @@ pub struct LaunchArtifactSweepReport {
 }
 
 /// Launch context passed to a provider when a session resumes.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentResumeParams {
     pub cwd: Option<String>,

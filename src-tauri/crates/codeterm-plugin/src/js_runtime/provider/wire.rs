@@ -79,7 +79,7 @@ impl SerdeSessionMetadata {
 
 /// CamelCase mirror of `SessionMessage` so plugin authors don't have to
 /// remember `is_meta` over `isMeta`.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct SerdeSessionMessage {
     role: String,

@@ -37,21 +37,25 @@ pub enum PermissionMode {
     Auto,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 pub struct SessionObservations {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub retry_error: Option<RuntimeErrorSignal>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub retry_succeeded: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub unavailable_model: Option<String>,
     pub api_error: Option<ApiErrorKind>,
     pub permission_mode: Option<PermissionMode>,
     #[serde(default)]
     pub clears_api_error: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub retry_after_secs: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub turn_id: Option<String>,
     #[serde(default)]
     pub retrying: bool,

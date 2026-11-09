@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 pub const MAX_BYTES: u64 = 256 * 1024 * 1024;
 pub const MAX_TIMEOUT_MS: u64 = 120_000;
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, ts_rs::TS)]
 #[serde(default, deny_unknown_fields, rename_all = "camelCase")]
 pub struct BinaryTransferDescriptor {
     pub max_upload_bytes: u64,
@@ -59,7 +59,7 @@ impl BinaryTransferDescriptor {
             })
     }
 }
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, ts_rs::TS)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct TransferRequest {
     pub url: String,
@@ -71,7 +71,7 @@ pub struct TransferRequest {
     pub response: Output,
     pub timeout_ms: Option<u64>,
 }
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, ts_rs::TS)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Credential {
     Secret {
@@ -92,11 +92,12 @@ impl Credential {
         }
     }
 }
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, ts_rs::TS)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Input {
     Owned {
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
         identity: Option<FileIdentity>,
         path: String,
         #[serde(rename = "contentType")]
@@ -108,26 +109,26 @@ pub enum Input {
         handle: String,
     },
 }
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, ts_rs::TS)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum InputBody {
     File { file: Input },
     Multipart { parts: Vec<Part> },
 }
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, ts_rs::TS)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Part {
     Text { name: String, value: String },
     File { name: String, file: Input },
 }
 pub const MAX_METADATA_BYTES: u64 = 256 * 1024;
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, ts_rs::TS)]
 #[serde(deny_unknown_fields)]
 pub struct FileIdentity {
     pub size: u64,
     pub sha256: String,
 }
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, ts_rs::TS)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Output {
     File {
@@ -204,7 +205,7 @@ impl Output {
         Ok(())
     }
 }
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct TransferInputGrant {
     pub handle: String,
@@ -213,7 +214,7 @@ pub struct TransferInputGrant {
     pub size: u64,
     pub sha256: String,
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum TransferRefusal {
     InvalidRequest,
@@ -231,7 +232,7 @@ pub enum TransferRefusal {
     InvalidResponse,
     Storage,
 }
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct TransferFile {
     pub path: String,
@@ -240,7 +241,7 @@ pub struct TransferFile {
     pub size: u64,
     pub sha256: String,
 }
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ts_rs::TS)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum TransferReceipt {
     File {
@@ -266,7 +267,7 @@ impl TransferReceipt {
         }
     }
 }
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct TransferFailure {
     pub error: TransferRefusal,

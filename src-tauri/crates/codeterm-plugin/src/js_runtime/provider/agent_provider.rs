@@ -512,15 +512,8 @@ impl AgentProvider for JsProvider {
         prompt: &PendingPrompt,
         screen: &str,
     ) -> Option<crate::permission_prompt::PermissionPromptResponse> {
-        #[derive(Deserialize)]
-        #[serde(rename_all = "camelCase")]
-        struct WireResponse {
-            option_index: usize,
-            rule: String,
-            steps: Vec<String>,
-        }
         let value = serde_json::to_value(prompt).ok()?;
-        let wire = self.try_call::<Option<WireResponse>>(
+        let wire = self.try_call::<Option<PermissionPromptWireResponse>>(
             "permissionPromptResponse",
             &[json!(tool_name), value, json!(screen)],
         )??;
@@ -1186,4 +1179,21 @@ impl AgentProvider for JsProvider {
     fn ensure_integration_on_startup(&self, api_port: u16) {
         self.js_ensure_integration_on_startup(api_port)
     }
+}
+
+#[derive(Deserialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+struct PermissionPromptWireResponse {
+    option_index: usize,
+    rule: String,
+    steps: Vec<String>,
+}
+
+pub(super) fn export_protocol_contracts(
+    config: &ts_rs::Config,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use ts_rs::TS;
+    session_wire::export_protocol_contracts(config)?;
+    PermissionPromptWireResponse::export_all(config)?;
+    Ok(())
 }

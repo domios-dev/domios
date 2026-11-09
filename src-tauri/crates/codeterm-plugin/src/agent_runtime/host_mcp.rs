@@ -9,7 +9,7 @@ pub struct RuntimeHostMcpDeclaration {
     pub methods: Vec<String>,
 }
 
-#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RuntimeHostMcp {
     pub name: String,

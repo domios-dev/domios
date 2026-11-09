@@ -1,36 +1,12 @@
-import type { JsonValue } from "./agentRuntime";
+import type {OptionalWireFields} from "./wireViews";
 
-export interface ParsedSessionRecord {
-  value: JsonValue;
-  offset: number;
-  row: number;
-  oversized?: boolean;
-  bytes?: number;
-}
+export type ParsedSessionRecord = OptionalWireFields<import("./gen/ParsedRecord").ParsedRecord, "oversized" | "bytes">;
 
-export interface JsonlRecordFilter {
-  type?: { path: string[]; in: string[] };
-  where?: {
-    path: string[];
-    equals: JsonValue | { placeholder: "sessionId" };
-  }[];
-}
+export type JsonlRecordFilter = OptionalWireFields<import("./gen/RecordFilter").RecordFilter, "type" | "where">;
 
-export interface JsonlRecordSource {
-  format: "jsonl";
-  filter: JsonlRecordFilter;
-  maxRecordBytes?: number;
-  oversized?: { keep: string[][] };
-}
+export type JsonlRecordSource = OptionalWireFields<import("./gen/RecordSource").RecordSource, "maxRecordBytes" | "oversized">;
 
 /** Manifest capabilities.recordSources selects the matching parsed-record hook. */
 export type JsonlRecordSources = Record<string, JsonlRecordSource>;
 
-export interface SessionRecordsMeta {
-  sourceKey?: string;
-  fromOffset: number;
-  toOffset: number;
-  newOffset: number;
-  truncatedTail: boolean;
-  counts: { total: number; matched: number; invalid: number; oversized: number };
-}
+export type SessionRecordsMeta = OptionalWireFields<import("./gen/RecordMeta").RecordMeta, "sourceKey">;

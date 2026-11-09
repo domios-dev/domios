@@ -101,13 +101,7 @@ impl super::JsProvider {
         &self,
         screen: &str,
     ) -> Option<crate::provider::ProviderPromptKeyStep> {
-        #[derive(serde::Deserialize)]
-        #[serde(rename_all = "camelCase")]
-        struct WireResponse {
-            frame_key: String,
-            step: String,
-        }
-        let response = self.try_call::<Option<WireResponse>>(
+        let response = self.try_call::<Option<LaunchOnboardingResponse>>(
             "launchOnboardingResponse",
             &[serde_json::json!(screen)],
         )??;
@@ -154,4 +148,19 @@ impl super::JsProvider {
         self.native()
             .and_then(|provider| provider.update_prompt_safe_choice(prompt))
     }
+}
+
+#[derive(serde::Deserialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+struct LaunchOnboardingResponse {
+    frame_key: String,
+    step: String,
+}
+
+pub(super) fn export_protocol_contracts(
+    config: &ts_rs::Config,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use ts_rs::TS;
+    LaunchOnboardingResponse::export_all(config)?;
+    Ok(())
 }

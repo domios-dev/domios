@@ -1,3 +1,5 @@
+mod sdk;
+
 use codeterm_types::{
     agent::chat_types::{ChatMsg, SystemSend},
     config::schema::AppConfig,
@@ -13,8 +15,27 @@ pub fn export() -> Result<(), Box<dyn std::error::Error>> {
     let config = Config::from_env().with_large_int("number");
     ChatMsg::export_all(&config)?;
     SystemSend::export_all(&config)?;
+    codeterm_types::agent::roles::ReportOutcomeClass::export_all(&config)?;
+    codeterm_wire::envelope::MessageSegment::export_all(&config)?;
+    codeterm_agent_detect::command_detection::CommandLifecycle::export_all(&config)?;
+    codeterm_types::agent::chat_types::ChatAttachment::export_all(&config)?;
+    codeterm_types::agent::chat_types::InteractiveOption::export_all(&config)?;
+    codeterm_types::agent::chat_types::InteractiveQuestion::export_all(&config)?;
+    codeterm_types::agent::chat_types::ChatTimelineMarker::export_all(&config)?;
+    codeterm_types::agent::chat_types::ChatSessionIntent::export_all(&config)?;
+    codeterm_types::agent::chat_types::InteractiveElement::export_all(&config)?;
+    codeterm_worker_services::watcher::verdict::WatcherVerdictStatus::export_all(&config)?;
+    codeterm_agent_detect::command_detection::ShellCommand::export_all(&config)?;
+    codeterm_agent_detect::command_detection::ShellCapabilitySnapshot::export_all(&config)?;
+    if let Some(directory) = std::env::var_os("DOMIOS_SDK_EXPORT_DIR") {
+        let sdk_config = Config::from_env()
+            .with_large_int("number")
+            .with_out_dir(directory);
+        sdk::export_sdk(&sdk_config)?;
+    }
     if let Some(directory) = std::env::var_os("DOMIOS_PROTOCOL_EXPORT_DIR") {
         let protocol = config.with_out_dir(directory);
+        sdk::export_sdk(&protocol)?;
         codeterm_plugin::provider::ProviderDescriptor::export_all(&protocol)?;
         codeterm_plugin::provider::ModelGroupUsage::export_all(&protocol)?;
         codeterm_plugin::model_catalog::ModelCatalogueChanged::export_all(&protocol)?;

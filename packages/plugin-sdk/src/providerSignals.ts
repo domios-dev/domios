@@ -1,26 +1,5 @@
-export interface ProviderAuthStatus {
-  loggedIn: boolean;
-  authMethod: string | null;
-  subscriptionType: string | null;
-  configDirectory: string | null;
-}
+export type ProviderAuthStatus = import("./gen/AuthStatus").AuthStatus;
 
-export type RuntimeErrorSignal = {
-  code?: string;
-  class?: string;
-  retryable: boolean;
-  retryableKind?: "transient" | "rate_limited_until" | "output_limit";
-  retryAtMs?: number;
-}
+export type RuntimeErrorSignal = Pick<import("./gen/RuntimeErrorSignal").RuntimeErrorSignal, "retryable"> & Partial<{[K in "retryableKind" | "retryAtMs"]: NonNullable<import("./gen/RuntimeErrorSignal").RuntimeErrorSignal[K]>}> & {code?: string; class?: string};
 
-export interface ProviderSessionObservations {
-  retry_error?: RuntimeErrorSignal;
-  retry_succeeded?: boolean;
-  unavailable_model?: string;
-  api_error: "rate_limit" | "usage_limit" | "server_overloaded" | "auth_expiry" | "authentication" | "other" | null;
-  permission_mode: "default" | "acceptEdits" | "bypassPermissions" | "plan" | "dontAsk" | "auto" | null;
-  clears_api_error: boolean;
-  retry_after_secs?: number;
-  turn_id?: string;
-  retrying?: boolean;
-}
+export type ProviderSessionObservations = Omit<import("./gen/SessionObservations").SessionObservations, "retrying" | "retry_error"> & {retrying?: import("./gen/SessionObservations").SessionObservations["retrying"]; retry_error?: RuntimeErrorSignal};

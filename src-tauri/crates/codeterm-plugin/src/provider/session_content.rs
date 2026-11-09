@@ -19,7 +19,7 @@ pub enum SessionContentSource {
 }
 
 /// Bounds for one `read_session_content` call.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionContentQuery {
     /// Newest-first ceiling on stored bytes the provider may scan for this session.

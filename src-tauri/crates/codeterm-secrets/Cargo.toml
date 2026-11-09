@@ -5,6 +5,7 @@ version = "0.0.0"
 edition = "2021"
 
 [dependencies]
+ts-rs = { version = "12.0.1", features = ["serde-json-impl", "no-serde-warnings"] }
 hostname = "0.4.2"
 async-trait = "0.1"
 codeterm-config = { path = "../codeterm-config" }

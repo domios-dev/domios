@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(deny_unknown_fields)]
 pub struct MediaDeliveryDescriptor {
     pub types: Vec<MediaType>,
@@ -16,7 +16,7 @@ impl MediaDeliveryDescriptor {
                 .all(|(i, t)| !self.types[..i].contains(t))
     }
 }
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct MediaFile {
     pub path: String,
@@ -24,7 +24,7 @@ pub struct MediaFile {
     pub file_name: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 pub enum MediaType {
     #[serde(rename = "application/octet-stream")]
     Binary,

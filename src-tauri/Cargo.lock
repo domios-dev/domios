@@ -1227,6 +1227,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "ts-rs",
  "vt100",
  "workspace-hack",
 ]
@@ -1376,6 +1377,7 @@ dependencies = [
  "serde_yaml",
  "sha2 0.10.9",
  "shell-words",
+ "ts-rs",
  "url",
  "uuid",
  "windows-sys 0.61.2",
@@ -1601,6 +1603,7 @@ version = "0.0.0"
 dependencies = [
  "serde",
  "serde_json",
+ "ts-rs",
  "workspace-hack",
 ]
 
@@ -1755,6 +1758,7 @@ name = "codeterm-local-recording"
 version = "0.0.0"
 dependencies = [
  "serde",
+ "ts-rs",
  "workspace-hack",
 ]
 
@@ -2109,14 +2113,21 @@ dependencies = [
 name = "codeterm-protocol-export"
 version = "0.0.0"
 dependencies = [
+ "codeterm-agent-detect",
  "codeterm-agent-model",
+ "codeterm-blueprint-types",
+ "codeterm-decision",
+ "codeterm-local-recording",
  "codeterm-mem",
  "codeterm-mesh",
  "codeterm-plan",
  "codeterm-plugin",
+ "codeterm-provider-signals",
  "codeterm-pty",
+ "codeterm-secrets",
  "codeterm-storage",
  "codeterm-types",
+ "codeterm-wire",
  "codeterm-worker-services",
  "ts-rs",
  "workspace-hack",
@@ -2242,6 +2253,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "ts-rs",
  "workspace-hack",
  "zeroize",
 ]
@@ -2541,6 +2553,7 @@ dependencies = [
  "codeterm-paths",
  "codeterm-plugin",
  "codeterm-util",
+ "codeterm-wire",
  "futures-core",
  "futures-util",
  "image",
@@ -2609,6 +2622,7 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "ts-rs",
  "workspace-hack",
 ]
 

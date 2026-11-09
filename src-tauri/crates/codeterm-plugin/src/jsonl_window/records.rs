@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::Path;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct RecordSource {
     pub format: RecordFormat,
@@ -13,7 +13,7 @@ pub struct RecordSource {
     pub oversized: OversizedProjection,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
 #[serde(deny_unknown_fields)]
 pub struct OversizedProjection {
     pub keep: Vec<Vec<String>>,
@@ -27,13 +27,13 @@ impl Default for OversizedProjection {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "lowercase")]
 pub enum RecordFormat {
     Jsonl,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, ts_rs::TS)]
 #[serde(deny_unknown_fields)]
 pub struct RecordFilter {
     #[serde(rename = "type")]
@@ -42,7 +42,7 @@ pub struct RecordFilter {
     pub predicates: Vec<Predicate>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
 #[serde(deny_unknown_fields)]
 pub struct TypeFilter {
     pub path: Vec<String>,
@@ -50,14 +50,14 @@ pub struct TypeFilter {
     pub values: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
 #[serde(deny_unknown_fields)]
 pub struct Predicate {
     pub path: Vec<String>,
     pub equals: Equality,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, ts_rs::TS)]
 #[serde(untagged)]
 pub enum Equality {
     Placeholder { placeholder: Placeholder },
@@ -83,13 +83,13 @@ impl<'de> Deserialize<'de> for Equality {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub enum Placeholder {
     SessionId,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ts_rs::TS)]
 pub struct ParsedRecord {
     pub offset: u64,
     pub row: usize,
@@ -99,13 +99,15 @@ pub struct ParsedRecord {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub oversized: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub bytes: Option<u64>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct RecordMeta {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub source_key: Option<String>,
     pub from_offset: u64,
     pub to_offset: u64,
@@ -114,7 +116,7 @@ pub struct RecordMeta {
     pub counts: RecordCounts,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq, ts_rs::TS)]
 pub struct RecordCounts {
     pub total: usize,
     pub matched: usize,

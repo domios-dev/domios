@@ -1,21 +1,10 @@
+import type {OptionalWireFields} from "./wireViews";
 // The `host` global injected into every plugin QuickJS VM — the raw host_api.rs
 // bindings plus the vm.rs preamble convenience layer. QuickJS is not a browser:
 
-export interface ExecConversationStep {
-  stdin: string;
-  awaitResponseIds: number[];
-}
+export type ExecConversationStep = import("./gen/ExecConversationStep").ExecConversationStep;
 
-export interface ExecOpts {
-  bin: string;
-  args?: string[];
-  env?: Record<string, string>;
-  stdin?: string;
-  conversation?: ExecConversationStep[];
-  timeoutMs?: number;
-  detach?: boolean;
-  logFile?: string;
-}
+export type ExecOpts = OptionalWireFields<import("./gen/ExecOpts").ExecOpts, "args" | "env" | "stdin" | "conversation" | "timeoutMs" | "detach" | "logFile">;
 
 export interface ExecResult {
   truncated?: boolean;
@@ -51,16 +40,7 @@ export interface HostExec {
   async<T>(opts: ExecOpts, then: (result: ExecPollResult) => T): T;
 }
 
-export interface FetchOpts {
-  url: string;
-  method?: string;
-  headers?: Record<string, string>;
-  body?: string;
-  timeoutMs?: number;
-  // Templates are filled from that credential's fields (`{accessToken}`); the values themselves never enter the VM.
-  credential?: CredentialRequest;
-  profileSecret?: ProfileSecretRequest;
-}
+export type FetchOpts = Pick<import("./gen/FetchOpts").FetchOpts, "url"> & Partial<Omit<import("./gen/FetchOpts").FetchOpts, "url">> & {credential?: CredentialRequest; profileSecret?: ProfileSecretRequest};
 
 // The credential a launch profile names in its `balance` limits source fills `{secret}`
 // header templates host-side; any other variable or profile is refused.
@@ -89,12 +69,7 @@ export interface FetchStreamStart {
   error?: string;
 }
 
-export interface FetchStreamPoll {
-  chunks: string[];
-  done: boolean;
-  status?: number;
-  error?: string;
-}
+export type FetchStreamPoll = import("./gen/StreamPollResponse").StreamPollResponse;
 
 export interface HostFetch {
   (optsJson: string): string;
@@ -207,7 +182,7 @@ export interface HostWorkspace {
 // session), get (the plugin's key→session map). send/poll is the job-id bridge — the VM never blocks.
 export type HostAgentRunReply = { state?: "running" | "done" | "failed" | "canceled" | "unknown"; text?: string; reason?: string; error?: string };
 export interface HostAgentRun {
-  start<T>(opts: { prompt: string; cwd: string; model?: string; timeoutMs: number; sandbox?: "read-only" }, then: (reply: { run?: string; error?: string }) => T): T;
+  start<T>(opts: (Omit<OptionalWireFields<import("./gen/StepAgentStartOptions").StepAgentStartOptions, "model" | "sandbox">, "sandbox"> & {sandbox?: Extract<"read-only", NonNullable<import("./gen/StepAgentStartOptions").StepAgentStartOptions["sandbox"]>>}), then: (reply: { run?: string; error?: string }) => T): T;
   await<T>(run: string, then: (reply: HostAgentRunReply) => T): T;
   cancel<T>(run: string, then: (reply: HostAgentRunReply) => T): T;
 }
@@ -235,132 +210,33 @@ export interface HostMem {
 
 // ── host.analytics (machine-wide KPI aggregates; needs permissions.analytics) ──
 
-export type AnalyticsBucket = "day" | "week";
-export type AnalyticsGroupBy = "provider_model" | "workspace" | "team" | "plan";
-export type AnalyticsCoverage = "recorded" | "partial" | "not_recorded";
-export type AnalyticsDimension = "provider" | "model" | "workspace" | "team" | "plan";
-export type AnalyticsKeyReason =
-  | "provider_not_reported"
-  | "model_not_reported"
-  | "workspace_not_recorded"
-  | "workspace_deleted"
-  | "no_plan"
-  | "plan_deleted"
-  | "no_team"
-  | "team_deleted";
+export type AnalyticsBucket = import("./gen/AnalyticsBucket").AnalyticsBucket;
+export type AnalyticsGroupBy = import("./gen/AnalyticsGroupBy").AnalyticsGroupBy;
+export type AnalyticsCoverage = import("./gen/Coverage").Coverage;
+export type AnalyticsDimension = import("./gen/Dimension").Dimension;
+export type AnalyticsKeyReason = import("./gen/KeyReason").KeyReason;
 
-export interface AnalyticsModelKey {
-  provider: string;
-  model: string | null;
-}
+export type AnalyticsModelKey = import("./gen/ModelKey").ModelKey;
 
 // Local calendar days, inclusive, at most 92; day buckets at most 31.
-export interface AnalyticsQuery {
-  range: { from: string; to: string; tz: string };
-  bucket: AnalyticsBucket;
-  // Choices in one list widen; lists narrow each other. null selects the null key.
-  filters?: {
-    providers?: string[];
-    models?: AnalyticsModelKey[];
-    workspaces?: (string | null)[];
-    teams?: (string | null)[];
-    plans?: (string | null)[];
-  };
-  group_by: AnalyticsGroupBy;
-  scope?: { kind: "machine"; includes_mesh_peers?: false };
-}
+export type AnalyticsQuery = Omit<import("./gen/AnalyticsQuery").AnalyticsQuery, "filters" | "scope"> & {filters?: Partial<import("./gen/AnalyticsQuery").AnalyticsQuery["filters"]>; scope?: Pick<NonNullable<import("./gen/AnalyticsQuery").AnalyticsQuery["scope"]>, "kind"> & Partial<Pick<NonNullable<import("./gen/AnalyticsQuery").AnalyticsQuery["scope"]>, "includes_mesh_peers">>};
 
-export interface AnalyticsTotals {
-  new_input: number;
-  generated: number;
-  read_from_cache: number;
-  turns: number;
-}
+export type AnalyticsTotals = import("./gen/Totals").Totals;
 
-export interface AnalyticsGroupKey {
-  dimension: AnalyticsDimension;
-  id: string | null;
-  provider?: string;
-  reason?: AnalyticsKeyReason;
-}
+export type AnalyticsGroupKey = import("./gen/GroupKey").GroupKey;
 
-export interface AnalyticsGroup {
-  key: AnalyticsGroupKey;
-  label: string | null;
-  totals: AnalyticsTotals;
-  children?: AnalyticsGroup[];
-}
+export type AnalyticsGroup = import("./gen/GroupRow").GroupRow;
 
-export interface AnalyticsTokenBucket {
-  start: number;
-  end: number;
-  label: string;
-  coverage: AnalyticsCoverage;
-  totals: AnalyticsTotals | null;
-  groups: { key: AnalyticsGroupKey; totals: AnalyticsTotals }[];
-}
+export type AnalyticsTokenBucket = import("./gen/TokenBucket").TokenBucket;
 
-export interface AnalyticsTabBucket {
-  start: number;
-  end: number;
-  label: string;
-  coverage: AnalyticsCoverage;
-  total: number | null;
-}
+export type AnalyticsTabBucket = import("./gen/TabBucket").TabBucket;
 
-export interface AnalyticsAllowance {
-  provider: string;
-  allowance: {
-    captured_at: number;
-    session_used_pct: number | null;
-    session_resets_at: number | null;
-    weekly_used_pct: number | null;
-    weekly_resets_at: number | null;
-    stale_reason: string | null;
-  };
-  attribution: {
-    model: "unavailable";
-    workspace: "unavailable";
-    team: "unavailable";
-    plan: "unavailable";
-  };
-}
+export type AnalyticsAllowance = import("./gen/AllowanceEntry").AllowanceEntry;
 
 // Every missing figure is null, never 0.
-export interface AnalyticsSnapshot {
-  scope: { kind: "machine"; includes_mesh_peers: false };
-  as_of: number;
-  range: { from: string; to: string; tz: string };
-  bucket: AnalyticsBucket;
-  group_by: AnalyticsGroupBy;
-  recording: {
-    state: "recording" | "disabled" | "unavailable";
-    reason: string | null;
-    enable_setting: string | null;
-    first_recorded_at: number | null;
-    last_recorded_at: number | null;
-    workspace_recorded_since: number | null;
-  };
-  tokens: {
-    totals: AnalyticsTotals | null;
-    series: AnalyticsTokenBucket[];
-    groups: AnalyticsGroup[];
-  };
-  tabs_created: {
-    state: "counted" | "not_counted" | "not_attributed";
-    counted_since: number | null;
-    total: number | null;
-    by_kind: { agent: number; terminal: number } | null;
-    series: AnalyticsTabBucket[];
-  };
-  allowance: AnalyticsAllowance[];
-  money: { state: "not_recorded" };
-}
+export type AnalyticsSnapshot = import("./gen/AnalyticsSnapshot").AnalyticsSnapshot;
 
-export interface AnalyticsRefusal {
-  error: "invalid_query" | "foreign_scope" | string;
-  message?: string;
-}
+export type AnalyticsRefusal = import("./gen/AnalyticsRefusal").AnalyticsRefusal;
 
 // null = the host could not answer at all.
 export interface HostAnalytics {
@@ -368,13 +244,7 @@ export interface HostAnalytics {
 }
 
 // The calling plugin's own receiver binding. Only host chrome (tab menu, API, CLI) assigns a tab.
-export interface ReceiverTargetView {
-  pluginId: string;
-  // null resolves General at recording START; an explicit stale recording target refuses.
-  tabId: string | null;
-  // Webhooks retain their General fallback; local recording requires a live frozen recipient.
-  live: boolean;
-}
+export type ReceiverTargetView = import("./gen/ReceiverTargetView").ReceiverTargetView;
 
 export interface ReceiverTargetRefusal {
   error: "receiver_not_found" | "persist_failed" | "receiver_target_unavailable" | string;
@@ -386,34 +256,15 @@ export interface HostReceiverTarget {
   clear(): ReceiverTargetView | ReceiverTargetRefusal | null;
 }
 
-export interface LocalRecordingStatus {
-  pluginId: string;
-  granted: boolean;
-  enabled: boolean;
-  devicesSelected: boolean;
-  available: boolean;
-  captureActive: boolean;
-  generation: number;
-}
+export type LocalRecordingStatus = import("./gen/RecordingStatus").RecordingStatus;
 
 export interface LocalRecordingRefusal {
   error: string;
 }
 
-export interface RecordingDeviceSelection {
-  inputId: string;
-  collectionId: string;
-  microphoneId: string;
-}
+export type RecordingDeviceSelection = import("./gen/SelectedDevices").SelectedDevices;
 
-export interface RecordingInputDevice {
-  id: string;
-  label: string;
-  kind: "hid" | "audio_input";
-  connected: boolean;
-  inputId: string;
-  collectionId: string;
-}
+export type RecordingInputDevice = import("./gen/RecordingInputDevice").RecordingInputDevice;
 
 export interface HostLocalRecording {
   listInputDevices(): RecordingInputDevice[] | LocalRecordingRefusal | null;
@@ -430,15 +281,10 @@ export interface HostSurface {
   // Returns the JSON text `{ "result": string }` or `{ "error": string }`.
   call(verb: string, argsJson: string): string;
   /** Identity only; plugin identity comes from the sandbox. Returns {ok:true} or {error}. */
-  invalidate(identity: { surface: string; instance: string; tab: string }): { ok: true } | { error: string };
+  invalidate(identity: (import("./gen/ViewIdentity").ViewIdentity)): { ok: true } | { error: string };
 }
 
-export interface HostProgressOpts {
-  label: string;
-  percent?: number;
-  done?: boolean;
-  error?: string;
-}
+export type HostProgressOpts = OptionalWireFields<import("./gen/ProgressOpts").ProgressOpts, "percent" | "done" | "error">;
 
 export interface Host {
   io: import("./io").HostIo;

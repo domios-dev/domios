@@ -11,7 +11,7 @@ pub struct RemoteTaskCapability {
     pub apply_diff: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RemoteTaskDiscovery {
     pub availability: RemoteTaskAvailability,

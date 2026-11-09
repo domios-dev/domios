@@ -1,25 +1,14 @@
-import type { NormalizedChatMessage, ShellCommandStatus } from "./types";
+import type { NormalizedChatMessage,ShellCommandStatus } from "./types";
 
 /** Mirror of the Rust `ShellCommand` (serde camelCase) — one finished command. */
-export interface ShellCommandSnapshotItem {
-  commandLine?: string;
-  exitCode?: number;
-  cwd?: string;
-  hasOutputStart: boolean;
-}
+export type ShellCommandSnapshotItem = import("./gen/ShellCommand").ShellCommand;
 
 /** Mirror of the Rust `ShellCapabilitySnapshot` returned by `shell_command_snapshot`. */
-export interface ShellCommandSnapshot {
-  commands: ShellCommandSnapshotItem[];
-  cwd?: string;
-}
+export type ShellCommandSnapshot = import("./gen/ShellCapabilitySnapshot").ShellCapabilitySnapshot;
 
 /** Mirror of the Rust `CommandLifecycle` (serde tag "kind", camelCase) carried by
  *  the `shell-command-changed` event payload's `event` field. */
-export type CommandLifecycle =
-  | { kind: "started"; commandLine?: string; cwd?: string }
-  | { kind: "finished"; commandLine?: string; exitCode?: number; cwd?: string }
-  | { kind: "cwdChanged"; cwd: string };
+export type CommandLifecycle = import("./gen/CommandLifecycle").CommandLifecycle;
 
 const TYPE: NormalizedChatMessage["type"] = "shell_command";
 
@@ -85,9 +74,9 @@ export function applyShellLifecycle(
       {
         id: next.id,
         type: TYPE,
-        content: event.commandLine ?? "",
+        content: event.command_line ?? "",
         timestamp: String(next.timestampMs),
-        shellCommand: event.commandLine,
+        shellCommand: event.command_line,
         shellStatus: "running",
         shellCwd: event.cwd,
         shellHasOutputStart: true,
@@ -101,10 +90,10 @@ export function applyShellLifecycle(
     if (isShell(m) && m.shellStatus === "running") {
       const updated: NormalizedChatMessage = {
         ...m,
-        content: event.commandLine ?? m.content,
-        shellCommand: event.commandLine ?? m.shellCommand,
-        shellStatus: statusFor(event.exitCode),
-        shellExitCode: event.exitCode,
+        content: event.command_line ?? m.content,
+        shellCommand: event.command_line ?? m.shellCommand,
+        shellStatus: statusFor(event.exit_code),
+        shellExitCode: event.exit_code,
         shellCwd: event.cwd ?? m.shellCwd,
       };
       const copy = messages.slice();
@@ -117,8 +106,8 @@ export function applyShellLifecycle(
     ...messages,
     shellCommandMessage(
       {
-        commandLine: event.commandLine,
-        exitCode: event.exitCode,
+        commandLine: event.command_line,
+        exitCode: event.exit_code,
         cwd: event.cwd,
         hasOutputStart: false,
       },

@@ -53,7 +53,7 @@ pub(super) fn current_host_env() -> HashMap<String, String> {
     HOST_EXEC_ENV.with(|stack| stack.borrow().last().cloned().unwrap_or_default())
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 struct ExecOpts {
     bin: String,
@@ -78,7 +78,7 @@ struct ExecOpts {
     conversation: Option<Vec<ExecConversationStep>>,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 struct ExecConversationStep {
     stdin: String,
@@ -1028,3 +1028,12 @@ fn finish_json_job(job_id: &str, result: &str) {
 
 #[cfg(test)]
 mod tests;
+
+pub(super) fn export_protocol_contracts(
+    config: &ts_rs::Config,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use ts_rs::TS;
+    ExecOpts::export_all(config)?;
+    ExecConversationStep::export_all(config)?;
+    Ok(())
+}

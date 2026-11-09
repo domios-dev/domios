@@ -111,8 +111,10 @@ pub enum MessageSegment {
         body: Option<String>,
         status: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
         reference: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
         excerpt: Option<String>,
     },
 }

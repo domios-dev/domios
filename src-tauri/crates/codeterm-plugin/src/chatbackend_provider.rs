@@ -21,13 +21,14 @@ pub struct PresetInfo {
 }
 
 /// Live state of an open chatBackend session — currently just its model. `model: None` ⇒ the backend exposes no session model.
-#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, PartialEq, Eq, ts_rs::TS)]
 pub struct ChatSessionInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub model: Option<String>,
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug, serde::Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ChatBackendCloseReceipt {
     pub session_id: String,

@@ -9,81 +9,33 @@ export type BlueprintParameterSchema = SchemaNotes & (
   | { oneOf: BlueprintParameterSchema[] }
 );
 
-export type BlueprintPortKind = "text" | "json" | "image" | "audio" | "video" | "file";
+export type BlueprintPortKind = import("./gen/PortKind").PortKind;
 
-export interface BlueprintStepPort {
-  kind: BlueprintPortKind;
-  minItems: number;
-  maxItems: number;
-  schema?: BlueprintParameterSchema;
-}
+export type BlueprintStepPort = Omit<import("./gen/StepPort").StepPort, "schema"> & {schema?: BlueprintParameterSchema};
 
-export interface BlueprintStepDescriptor {
-  contractVersion: 1;
-  revision: number;
-  id: string;
-  title: string;
-  description: string;
-  params: BlueprintParameterSchema;
-  inputs: Record<string, BlueprintStepPort>;
-  outputs: Record<string, BlueprintStepPort>;
-  outcomes: string[];
-  lifecycle: { reconcile: boolean; cancel: boolean };
-  effects: { sideEffects: boolean };
-}
+export type BlueprintStepDescriptor = Omit<import("./gen/StepDescriptor").StepDescriptor, "contractVersion" | "params" | "inputs" | "outputs"> & {contractVersion: 1; params: BlueprintParameterSchema; inputs: Record<string, BlueprintStepPort>; outputs: Record<string, BlueprintStepPort>};
 
-export interface BlueprintRunScope {
-  workspace: string;
-  team: string | null;
-  run: string;
-}
+export type BlueprintRunScope = import("./gen/RunScope").RunScope;
 
-export interface BlueprintInputLineage {
-  plugin: string;
-  operation: string;
-  port: string;
-}
+export type BlueprintInputLineage = import("./gen/InputLineage").InputLineage;
 
-export interface BlueprintStepContext {
-  scope: BlueprintRunScope;
-  owner: string;
-  node: string;
-  attempt: string;
-  operation: string;
-  nodeLabel: string;
-  inputLineage: BlueprintInputLineage[];
-}
+export type BlueprintStepContext = import("./gen/StepContext").StepContext;
 
-export type BlueprintPortValue =
-  | { kind: "text"; text: string }
-  | { kind: "json"; value: unknown }
-  | { kind: "media"; handle: string; media: Exclude<BlueprintPortKind, "text" | "json"> };
+export type BlueprintPortValue = Exclude<import("./gen/PortValue").PortValue, {kind: "media_source" | "media"}> | MediaPortValue<"media">;
 
-export type BlueprintOutputValue = Exclude<BlueprintPortValue, { kind: "media" }>
-  | { kind: "media_source"; id: string; media: Exclude<BlueprintPortKind, "text" | "json"> };
+export type BlueprintOutputValue = Exclude<import("./gen/PortValue").PortValue, {kind: "media" | "media_source"}> | MediaPortValue<"media_source">;
 
 export type BlueprintPortValues = Record<string, BlueprintPortValue[]>;
 
-export interface BlueprintStepRequest {
-  context: BlueprintStepContext;
-  nodeType: string;
-  revision: number;
-  params: Record<string, unknown>;
-  inputs: BlueprintPortValues;
-  job: string | null;
-  deadlineMs: number;
-}
+export type BlueprintStepRequest = Omit<import("./gen/StepRequest").StepRequest, "params" | "inputs"> & {params: Record<string, unknown>; inputs: BlueprintPortValues; job: string | null; deadlineMs: number};
 
-export type BlueprintOperationState = "prepared" | "submitting" | "queued" | "running" | "succeeded" | "failed" | "canceled" | "unknown";
-export interface BlueprintJobUpdate {
-  job: string;
-  state: Extract<BlueprintOperationState, "queued" | "running" | "succeeded" | "failed" | "canceled" | "unknown">;
-  outcome: string | null;
-  outputs: Record<string, BlueprintOutputValue[]>;
-}
+export type BlueprintOperationState = import("./gen/OperationState").OperationState;
+export type BlueprintJobUpdate = Omit<import("./gen/JobUpdate").JobUpdate, "state" | "outputs"> & {state: Extract<BlueprintOperationState, "queued" | "running" | "succeeded" | "failed" | "canceled" | "unknown">; outputs: Record<string, BlueprintOutputValue[]>};
 
 export interface BlueprintSteps {
   blueprintSubmit(request: BlueprintStepRequest): BlueprintJobUpdate;
   blueprintReconcile(request: BlueprintStepRequest): BlueprintJobUpdate;
   blueprintCancel(request: BlueprintStepRequest): BlueprintJobUpdate;
 }
+
+type MediaPortValue<Kind extends "media" | "media_source"> = Omit<Extract<import("./gen/PortValue").PortValue, {kind: Kind}>, "media"> & {media: Exclude<BlueprintPortKind, "text" | "json">};

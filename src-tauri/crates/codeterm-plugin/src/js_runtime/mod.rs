@@ -93,3 +93,15 @@ pub use manifest::{
 };
 use vm::call_json_strict;
 pub use vm::{call_json, has_method, spawn_blocking, PluginVm, VmError, ASYNC_JOB_TIMEOUT_ERROR};
+
+pub fn export_protocol_contracts(config: &ts_rs::Config) -> Result<(), Box<dyn std::error::Error>> {
+    provider::export_protocol_contracts(config)?;
+    agent_commands::export_protocol_contracts(config)?;
+    chatpreprocessor::export_protocol_contracts(config)?;
+    chatbackend::export_protocol_contracts(config)?;
+    host_exec::export_protocol_contracts(config)?;
+    host_net::export_protocol_contracts(config)?;
+    converter::export_protocol_contracts(config)?;
+    transcriber::export_protocol_contracts(config)?;
+    Ok(())
+}

@@ -32,7 +32,7 @@ impl JsChatPreprocessor {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ts_rs::TS)]
 struct PreprocessOut {
     #[serde(default)]
     text: Option<String>,
@@ -245,4 +245,12 @@ mod tests {
             "missing preset → passthrough null"
         );
     }
+}
+
+pub(super) fn export_protocol_contracts(
+    config: &ts_rs::Config,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use ts_rs::TS;
+    PreprocessOut::export_all(config)?;
+    Ok(())
 }
