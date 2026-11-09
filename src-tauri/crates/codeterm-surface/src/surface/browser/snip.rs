@@ -373,9 +373,12 @@ impl BrowserRuntime {
             scroll,
         };
         let id = self.snips.lock().keep(rect, cut.png, facts);
-        Ok(
-            json!({ "id": id, "width": cut.width, "height": cut.height, "thumbnail": cut.thumbnail }),
-        )
+        Ok(json!(codeterm_browser::surface_contracts::SnipCapture {
+            id,
+            width: cut.width,
+            height: cut.height,
+            thumbnail: cut.thumbnail
+        }))
     }
 
     /// `snip.send`: the crop reaches the owner's pad only now, and only with the image kept.

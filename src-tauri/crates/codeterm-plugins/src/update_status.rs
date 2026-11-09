@@ -14,7 +14,7 @@ pub(super) fn installed_update_status(
     id: &str,
     version: Option<&str>,
     source: Option<&InstallSource>,
-) -> serde_json::Value {
+) -> crate::snapshot_contracts::PluginUpdate {
     let source = effective_install_source(id, source);
     let source = source.as_ref();
     let mut basis = "channel_cache";
@@ -75,12 +75,15 @@ pub(super) fn installed_update_status(
         core,
         &decision,
     );
-    serde_json::json!({
-        "available": decision.available && !core,
-        "availability": availability,
-        "reason": decision.reason,
-        "channel": match update_source(source) { UpdateSource::Channel(channel) => Some(channel), _ => None },
-        "remote_version": remote_version,
-        "basis": basis,
-    })
+    crate::snapshot_contracts::PluginUpdate {
+        available: decision.available && !core,
+        availability,
+        reason: decision.reason.into(),
+        channel: match update_source(source) {
+            UpdateSource::Channel(channel) => Some(channel.into()),
+            _ => None,
+        },
+        remote_version,
+        basis: basis.into(),
+    }
 }

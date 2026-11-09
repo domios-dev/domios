@@ -4,7 +4,9 @@ use sha2::{Digest, Sha256};
 
 use crate::store::Sentinel;
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, ts_rs::TS)]
+#[derive(
+    Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, ts_rs::TS,
+)]
 #[serde(deny_unknown_fields)]
 #[ts(rename = "AutomationIdentity")]
 pub struct Identity {

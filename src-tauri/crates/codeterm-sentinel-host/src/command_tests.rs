@@ -537,15 +537,24 @@ fn sentinel_command_graph_metadata_is_safe_and_preserves_actual_execution_id() {
         store.list(),
         &mux,
         &std::collections::BTreeMap::new(),
-        Value::Null,
+        None,
         store.clock.now_ms(),
         &store.live_leases(),
     )
     .unwrap();
     assert_eq!(snapshot.scenarios.len(), 1);
     assert_eq!(snapshot.scenarios[0].id, job.id);
-    assert!(snapshot.edges.is_empty());
-    let projected = &snapshot.nodes[0]["outcomes"][0]["handlers"][0];
+    assert!(snapshot
+        .edges
+        .iter()
+        .map(|record| json!(record))
+        .collect::<Vec<_>>()
+        .is_empty());
+    let projected = &snapshot
+        .nodes
+        .iter()
+        .map(|record| json!(record))
+        .collect::<Vec<_>>()[0]["outcomes"][0]["handlers"][0];
     assert_eq!(projected["target"], Value::Null);
     assert_eq!(projected["label"], "Marker");
     assert_eq!(projected["timeout_ms"], 1000);
@@ -556,7 +565,11 @@ fn sentinel_command_graph_metadata_is_safe_and_preserves_actual_execution_id() {
             .unwrap()
     );
     assert_eq!(
-        snapshot.nodes[0]["last_result"]["handlers"][0]["command_result"],
+        snapshot
+            .nodes
+            .iter()
+            .map(|record| json!(record))
+            .collect::<Vec<_>>()[0]["last_result"]["handlers"][0]["command_result"],
         projected["last_result"]["command_result"]
     );
     let encoded = serde_json::to_string(&snapshot).unwrap();
@@ -608,10 +621,12 @@ fn sentinel_command_scope_expiry_team_cleanup_and_stop_wake_exact_source() {
         let lease = leases
             .iter()
             .find(|lease| lease.job.id == first.id)
+            .cloned()
             .unwrap();
         let unrelated = leases
             .iter()
             .find(|lease| lease.job.id == other.id)
+            .cloned()
             .unwrap();
         let wake = Arc::new(CountWake(std::sync::atomic::AtomicUsize::new(0)));
         let unrelated_wake = Arc::new(CountWake(std::sync::atomic::AtomicUsize::new(0)));
@@ -708,6 +723,7 @@ fn sentinel_command_revision_or_owner_change_after_claim_refuses_launch() {
                     .jobs
                     .iter_mut()
                     .find(|current| current.id == job.id)
+                    .cloned()
                     .unwrap();
                 match change {
                     "revision" => current.revision += 1,
@@ -776,6 +792,7 @@ fn sentinel_command_creation_reaches_independent_persisted_execution_seam() {
                 .transitions
                 .iter()
                 .find(|accepted| accepted.id == transition)
+                .cloned()
                 .unwrap();
             assert!(accepted
                 .handlers

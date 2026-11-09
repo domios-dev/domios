@@ -17,7 +17,7 @@ mod tests;
 pub const MAX_CALL_DEPTH: usize = 8;
 pub const MAX_CLOSURE_BYTES: usize = 262_144;
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, ts_rs::TS)]
 #[serde(deny_unknown_fields)]
 pub struct CallPin {
     pub id: String,
@@ -227,7 +227,7 @@ pub(super) fn finding(parsed: &Parsed, field: &str, message: impl Into<String>) 
     )
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, ts_rs::TS)]
 #[serde(deny_unknown_fields)]
 pub struct CallFrame {
     pub node: String,

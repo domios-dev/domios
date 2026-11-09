@@ -115,3 +115,7 @@ pub enum UsageLatestResponse {
 
 #[cfg(test)]
 mod tests;
+pub use codeterm_plugins::snapshot_contracts::Capabilities as PluginSnapshotCapabilities;
+pub use codeterm_plugins::snapshot_contracts::{MarketplaceRow, Snapshot as PluginSnapshot};
+
+pub use codeterm_plugins::{ChannelDiffRow, ChannelListRow, InstallSource};

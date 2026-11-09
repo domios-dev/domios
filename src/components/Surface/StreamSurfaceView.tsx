@@ -77,9 +77,7 @@ function openInNewTab(url: string) {
 
 const EDITABLE_SELECTOR = "input, textarea, select, [contenteditable='true']";
 
-interface ProfilesResult {
-  current?: string | null;
-}
+type ProfilesResult = import("../../../gen/ProfilesResult").ProfilesResult;
 
 export function StreamSurfaceView({ visible = true, transport, chrome, surfaceTitle, initialState, ownerName, surfaceTabId, decode, openExternal = openInNewTab, clipboard }: StreamSurfaceViewProps) {
   const stream = useSurfaceStream(transport, initialState, visible);

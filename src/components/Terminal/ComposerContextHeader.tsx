@@ -271,7 +271,7 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
       tone={stateTone(blueprint.state)}
       onOpen={() => requestOpenJob({ workspaceId: ownerWorkspace, target: { teamId: blueprint.owner?.team_id ?? null, blueprintId: pipeline.id }, returnTo: workspaceId ? { workspaceId, tabId } : undefined })}
     >
-      <StateBody title={blueprint.name} state={blueprint.state} />
+      <StateBody title={pipeline.name} state={blueprint.state} />
     </ContextBubble>
   );
 
@@ -319,7 +319,7 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
 
   const fallbackTitle = () => {
     const owned = blueprints[0];
-    if (owned) return <ContextTitle kind="blueprints" prefix="Blueprint:" primary={owned.blueprint.name} secondary={jobStateLabel(owned.blueprint.state)} />;
+    if (owned) return <ContextTitle kind="blueprints" prefix="Blueprint:" primary={owned.pipeline.name} secondary={jobStateLabel(owned.blueprint.state)} />;
     const job = blueprintChips[0] ?? cronChips[0];
     if (job) return <ContextTitle kind={job.kind === "cron" ? "crons" : "blueprints"} prefix={job.kind === "cron" ? "Cron:" : "Blueprint:"} primary={job.title} secondary={jobStateLabel(job.state)} />;
     const next = delayed.filter((message) => message.state !== "stashed").sort((a, b) => a.scheduledAtMs - b.scheduledAtMs)[0];

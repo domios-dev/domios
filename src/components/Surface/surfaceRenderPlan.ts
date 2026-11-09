@@ -6,7 +6,7 @@ export interface DeclaredSurface {
   surfaceId: string;
   renderer: string;
   runtime: string | null;
-  chrome: unknown;
+  chrome: import("../../../gen/SurfaceDecl").SurfaceDecl["chrome"];
   icon?: string;
 }
 
@@ -42,7 +42,7 @@ function declaredRow(value: unknown): DeclaredSurface | null {
     surfaceId,
     renderer: stringField(value, "renderer") ?? "view",
     runtime: stringField(value, "runtime") ?? null,
-    chrome: value.chrome,
+    chrome: value.chrome as import("../../../gen/SurfaceDecl").SurfaceDecl["chrome"],
   };
   const icon = stringField(value, "icon");
   if (icon) row.icon = icon;
@@ -84,7 +84,7 @@ function toolbarItem(value: unknown): ToolbarItemSpec | null {
 }
 
 // Malformed toolbar items are dropped one by one so a single typo does not cost the whole chrome.
-export function parseChromeSpec(value: unknown): SurfaceChromeSpec | null {
+export function parseChromeSpec(value: import("../../../gen/SurfaceDecl").SurfaceDecl["chrome"]): SurfaceChromeSpec | null {
   if (!isRecord(value)) return null;
   const toolbar = Array.isArray(value.toolbar) ? value.toolbar.map(toolbarItem).filter((item): item is ToolbarItemSpec => item !== null) : [];
   const spec: SurfaceChromeSpec = { toolbar };

@@ -23,7 +23,7 @@ fn job() -> Sentinel {
 
 fn detail(job: &Sentinel, workspace: &str, team: Option<&str>) -> Value {
     let (mux, _) = MultiplexerState::new();
-    project(job, &mux, workspace, team, 1000, false)
+    json!(project(job, &mux, workspace, team, 1000, false))
 }
 
 #[test]
@@ -205,10 +205,10 @@ fn explicit_model_records_adapter_and_incomplete_history_is_unknown() {
 fn fallback_is_configuration_and_does_not_claim_adapter_use() {
     let job = job();
     assert_eq!(
-        configured_fallback(Some("adapter"), Some("model")),
+        json!(configured_fallback(Some("adapter"), Some("model"))),
         json!({"adapter_id":"adapter","model":"model"})
     );
-    assert_eq!(configured_fallback(None, None), Value::Null);
+    assert_eq!(json!(configured_fallback(None, None)), Value::Null);
     assert_eq!(
         detail(&job, "workspace", Some("team"))["decisions"],
         json!({"history_complete":true,"adapter_used":false})

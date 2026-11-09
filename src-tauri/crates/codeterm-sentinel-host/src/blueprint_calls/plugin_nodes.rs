@@ -9,27 +9,42 @@ pub fn collect(
     closure: &FrozenClosure,
     into: &mut Map<String, Value>,
 ) {
+    for (id, descriptor) in descriptors(registry, closure) {
+        into.entry(id).or_insert_with(|| json!(descriptor));
+    }
+}
+
+pub fn descriptors(
+    registry: &GraphNodeRegistry,
+    closure: &FrozenClosure,
+) -> std::collections::BTreeMap<String, codeterm_sentinel::blueprint_snapshot::PluginNode> {
+    use codeterm_sentinel::blueprint_snapshot::{AvailablePluginNode, PluginNode};
+    let mut nodes = std::collections::BTreeMap::new();
     let documents = std::iter::once(&closure.root.document)
         .chain(closure.callees.values().map(|callee| &*callee.document));
     for node in documents.flat_map(|document| document.nodes()) {
         let Some(NodeKind::Plugin(id)) = &node.uses else {
             continue;
         };
-        into.entry(id.clone()).or_insert_with(|| match registry.step(id) {
-            Some(step) => {
-                let descriptor = &step.descriptor;
-                json!({"title":descriptor.title,"plugin":step.plugin,"description":descriptor.description,
-                    "inputs":descriptor.inputs,"outputs":descriptor.outputs,"outcomes":descriptor.outcomes,"available":true})
-            }
-            None => json!({"available":false}),
-        });
+        nodes
+            .entry(id.clone())
+            .or_insert_with(|| match registry.step(id) {
+                Some(step) => {
+                    let descriptor = &step.descriptor;
+                    PluginNode::Available(AvailablePluginNode {
+                        available: true,
+                        title: descriptor.title.clone(),
+                        plugin: step.plugin.clone(),
+                        description: descriptor.description.clone(),
+                        inputs: descriptor.inputs.clone(),
+                        outputs: descriptor.outputs.clone(),
+                        outcomes: descriptor.outcomes.clone(),
+                    })
+                }
+                None => PluginNode::Unavailable { available: false },
+            });
     }
-}
-
-pub fn descriptors(registry: &GraphNodeRegistry, closure: &FrozenClosure) -> Value {
-    let mut nodes = Map::new();
-    collect(registry, closure, &mut nodes);
-    Value::Object(nodes)
+    nodes
 }
 
 #[cfg(test)]

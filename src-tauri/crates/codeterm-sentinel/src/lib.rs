@@ -36,3 +36,5 @@ pub mod code_source;
 pub mod seal_code;
 
 pub mod graph_contracts;
+
+pub mod blueprint_snapshot;

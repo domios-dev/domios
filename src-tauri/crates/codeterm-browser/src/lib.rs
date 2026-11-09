@@ -10,6 +10,7 @@ mod resize;
 pub mod runtime;
 pub mod screencast;
 pub mod snapshot;
+pub mod surface_contracts;
 pub mod sweep;
 pub mod viewport;
 

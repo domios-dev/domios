@@ -89,8 +89,8 @@ export function BlueprintNodeDetails({ node, model, call, expanded, onExpand, on
         <Button variant="ghost" size="sm" aria-expanded={expanded} onClick={onExpand}>{expanded ? "Collapse callee" : "Expand callee"}</Button>
       </div>
       <Facts><dt>Solution</dt><dd className="ct-detail__mono">{call.pin.id}</dd><dt>Content hash</dt><dd className="ct-detail__mono">{call.pin.hash}</dd></Facts>
-      <BlueprintProjectionValue value={call.graph.inputs ?? {}} label="Callee inputs" />
-      <BlueprintProjectionValue value={call.graph.result} label="Callee result" />
+      <BlueprintProjectionValue value={call.graph?.inputs ?? {}} label="Callee inputs" />
+      <BlueprintProjectionValue value={call.graph?.result} label="Callee result" />
     </section>}
     {definition?.call && !call && <p role="status" className="ct-job-note">Expanded callee unavailable.</p>}
     {node.evidence?.journal && <BlueprintProjectionValue value={node.evidence.journal} label="Recorded node result" />}

@@ -152,6 +152,7 @@ fn prove_pipeline(language: &str, src: &str, expected: Option<JournalReason>) {
         let projection =
             crate::blueprint_calls::project_retained(None, &records, None, &Default::default())
                 .unwrap();
+        let projection = json!(projection);
         let visible = projection["nested_run"]["nodes"]
             .as_array()
             .unwrap()

@@ -164,5 +164,27 @@ pub(super) fn export_api(config: &Config) -> Result<(), Box<dyn std::error::Erro
     codeterm_neighbors::responses::HistoryAuthor::export_all(config)?;
     codeterm_neighbors::responses::HistoryPage::export_all(config)?;
     codeterm_neighbors::responses::HistoryEntry::export_all(config)?;
+    codeterm_browser::surface_contracts::GrabSelection::export_all(config)?;
+    codeterm_browser::surface_contracts::SnipCapture::export_all(config)?;
+    codeterm_browser::surface_contracts::ProfilesResult::export_all(config)?;
+    codeterm_plugin::api_contracts::PluginSnapshotCapabilities::export_all(config)?;
+    codeterm_plugin::api_contracts::ChannelDiffRow::export_all(config)?;
+    codeterm_plugin::api_contracts::ChannelListRow::export_all(config)?;
+    codeterm_plugin::api_contracts::InstallSource::export_all(config)?;
+    codeterm_sentinel::graph_contracts::HandlerResult::export_all(config)?;
+    codeterm_sentinel::graph_contracts::Handler::export_all(config)?;
+    codeterm_sentinel::graph_contracts::Outcome::export_all(config)?;
+    codeterm_sentinel::graph_contracts::Executor::export_all(config)?;
+    codeterm_sentinel::graph_contracts::AgentBlueprintDefinition::export_all(config)?;
+    codeterm_sentinel::graph_contracts::Edge::export_all(config)?;
+    codeterm_sentinel::graph_contracts::Transition::export_all(config)?;
+    codeterm_sentinel::graph_contracts::Run::export_all(config)?;
+    codeterm_sentinel::graph_contracts::Node::export_all(config)?;
+    codeterm_sentinel::blueprint_snapshot::Snapshot::export_all(config)?;
+    codeterm_plugin::api_contracts::PluginSnapshot::export_all(config)?;
+    codeterm_sentinel::blueprint_snapshot::Projection::export_all(config)?;
+    codeterm_blueprint_types::blueprint_document::calls::projection::ExpandedGraph::export_all(
+        config,
+    )?;
     Ok(())
 }

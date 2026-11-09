@@ -377,11 +377,9 @@ function ChannelDetailPanel({
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 }} data-testid="extensions-channel-attributes">
             <Attribute label="URL" value={channel.url} wide />
             <Attribute label="Type" value={channel.kind} />
-            <Attribute label="Trust" value={channel.verified || channel.trusted || channel.system ? "verified" : "unverified"} />
+            <Attribute label="Trust" value={channel.system ? "verified" : "unverified"} />
             <Attribute label="Plugins" value={String(pluginCount)} />
             <Attribute label="Source" value={channel.system ? "official" : "custom"} />
-            <Attribute label="Version" value={channel.version ?? null} />
-            <Attribute label="Last refresh" value={formatChannelDate(channel.last_refresh ?? channel.last_refreshed ?? channel.refreshed_at ?? null)} />
             <Attribute label="Cache path" value={channel.path ?? null} wide />
           </div>
         </div>
@@ -419,12 +417,6 @@ function Attribute({ label, value, wide = false }: { label: string; value: strin
   );
 }
 
-function formatChannelDate(value: string | number | null | undefined): string | null {
-  if (value === null || value === undefined || value === "") return null;
-  const date = typeof value === "number" ? new Date(value) : new Date(value);
-  if (Number.isNaN(date.getTime())) return String(value);
-  return date.toLocaleString();
-}
 
 function AddChannelInline({
   busy,

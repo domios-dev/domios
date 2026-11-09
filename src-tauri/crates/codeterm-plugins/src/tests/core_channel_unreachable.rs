@@ -198,7 +198,11 @@ fn stale_core_cache_never_downgrades_or_reports_local_ahead() {
         fixture.installed_version().as_deref(),
         Some(fixture.bundled_version.as_str())
     );
-    let status = installed_update_status(fixture.id, fixture.installed_version().as_deref(), None);
+    let status = serde_json::json!(installed_update_status(
+        fixture.id,
+        fixture.installed_version().as_deref(),
+        None
+    ));
     assert_eq!(status["available"], false);
     assert_eq!(status["basis"], "bundled_manifest");
 }

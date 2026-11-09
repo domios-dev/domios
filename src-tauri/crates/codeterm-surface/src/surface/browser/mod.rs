@@ -314,7 +314,10 @@ impl BrowserRuntime {
 
     fn profile_view(&self) -> Value {
         let state = self.shared.state();
-        json!({ "current": state.profile, "profiles": state.profiles })
+        json!(codeterm_browser::surface_contracts::ProfilesResult {
+            current: state.profile,
+            profiles: state.profiles
+        })
     }
 
     async fn refresh_profiles(&self) {
