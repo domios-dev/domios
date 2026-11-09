@@ -3,10 +3,11 @@ import type { MatchedRow } from "@codeterm/chat-core";
 import { beginChatSendDeletion, chatSendTabHydrationState, endChatSendDeletion, ensureChatSendTabHydrated,
   failChatSendRequest, observeChatSendDismissal, observeDeliveryStatus,
   reconcileChatSendAdmission, reconcileDeliveryStatuses, readChatSends, recordChatSendAdmissionFailure,
-  type ChatSendDismissal } from "./chatSendStore";
+  persistLocalChatSendDismissal, type ChatSendDismissal } from "./chatSendStore";
 import type { AdmissionEvidence } from "./chatDeliveryModel";
 
 const activeAdmissions = new Set<string>();
+const ADMISSION_DEADLINE_MS = 60_000;
 const admissionKey = (tabId: string, token: string) => JSON.stringify([tabId, token]);
 type ReconciliationRun = { phase: "hydrating" | "reading"; dirty: boolean; promise: Promise<ChatSendStatus[]> };
 const reconciliationRuns = new Map<string, ReconciliationRun>();
@@ -90,14 +91,17 @@ export async function sendTrackedChatMessage(
   }
   const key = admissionKey(tabId, messageId);
   activeAdmissions.add(key);
+  let deadline: ReturnType<typeof setTimeout> | undefined;
   try {
-    const status = await invoke<ChatSendStatus>("chat_send_text", {
+    const request = invoke<ChatSendStatus>("chat_send_text", {
       tabId,
       text: message,
       clientToken: messageId,
       ...(startupOverrideNonce ? { startupOverrideNonce } : {}),
-    });
-    observeDeliveryStatus(status);
+    }).then(status => { observeDeliveryStatus(status); return status; });
+    const status = await Promise.race([request, new Promise<never>((_resolve, reject) => {
+      deadline = setTimeout(() => reject(new Error("admission_unknown: send request is still unconfirmed")), ADMISSION_DEADLINE_MS);
+    })]);
     return status;
   } catch (error) {
     activeAdmissions.delete(key);
@@ -113,6 +117,7 @@ export async function sendTrackedChatMessage(
     });
     throw error;
   } finally {
+    clearTimeout(deadline);
     activeAdmissions.delete(key);
   }
 }
@@ -142,6 +147,10 @@ export async function deleteTrackedChatMessage(tabId: string, id: string): Promi
   const send = beginChatSendDeletion(tabId, id);
   if (!send) return;
   try {
+    if (!send.correlationId || send.status?.system_send) {
+      await persistLocalChatSendDismissal(tabId, send);
+      return;
+    }
     const receipt = await invoke<ChatSendDismissal>("chat_send_delete", {
       tabId, dismissal: { send_id: send.status?.send_id ?? send.id, send: {
         id: send.id, correlationId: send.correlationId, content: send.content,

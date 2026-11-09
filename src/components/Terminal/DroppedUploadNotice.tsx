@@ -38,7 +38,7 @@ export function DroppedUploadNotice({ tabId, id, names }: { tabId: string; id: s
       }
       const sendId = uid();
       const content = formatAttachmentMarker(path, attachmentKindForUpload({ name: upload.name, mime: upload.blob.type }));
-      addChatSend(tabId, { id: sendId, content, sentAtMs: Date.now() });
+      addChatSend(tabId, { id: sendId, correlationId: sendId, content, sentAtMs: Date.now() });
       try {
         const prepared = await composeAttachmentDraft(tabId, "", [path], [], composerAttachmentHandoff);
         updateChatSendContent(tabId, sendId, prepared.composed);

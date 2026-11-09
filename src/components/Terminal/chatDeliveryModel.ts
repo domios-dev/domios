@@ -14,7 +14,6 @@ export interface DeliveryDraft {
   reply: ComposerReply | null;
 }
 export type DeliverySend = ChatSend & { localAttempt?: { ptyId: string; bindingNonce: string }; droppedUploads?: string[]; dismissed?: boolean; status?: ChatSendStatus; requestFailed?: boolean; requestUncertain?: boolean; requestHadResponse?: boolean; admissionSettled?: boolean; draft?: DeliveryDraft;
-  /** Once held, the send was written only after the turn it waited behind, so it keeps its place after that turn. */
   wasHeld?: boolean };
 
 function sameMatchedRow(left: ChatSendStatus["matched_row"], right: ChatSendStatus["matched_row"]): boolean {
@@ -30,6 +29,7 @@ function sameMatchedRow(left: ChatSendStatus["matched_row"], right: ChatSendStat
 }
 
 export function deliveryState(send: DeliverySend): DeliveryState {
+  if (!send.correlationId && !send.status && !send.echo) return "uncertain";
   if (send.status?.state === "failed" || (!send.status && send.requestFailed)) return "failed";
   if (send.echo || send.status?.state === "delivered") return "delivered";
   if (!send.status && send.requestUncertain) return "uncertain";
@@ -68,9 +68,9 @@ export function unownedHeldSends(sends: readonly DeliverySend[], statuses: reado
     && !sends.some((send) => send.correlationId === status.correlationId)).length;
 }
 
-/** A send that is or was held stays after the turn it was held behind. */
 export function waitsAfterTurn(send: DeliverySend): boolean {
-  return send.wasHeld === true || deliveryState(send) === "queued";
+  const state = deliveryState(send);
+  return state === "queued" || (send.wasHeld === true && (state === "sending" || state === "written"));
 }
 
 export function applyDeliveryStatus(send: DeliverySend, status: ChatSendStatus): DeliverySend {
@@ -151,15 +151,24 @@ export function deliveryProjectionSends(
         echoEligible: deliveryState(send) !== "failed",
         neverWritten: deliveryState(send) === "queued",
         flowAtMs: send.sentAtMs,
-        held: deliveryState(send) === "queued" || send.wasHeld === true,
+        held: waitsAfterTurn(send),
       };
     });
 }
 
 export function canDeleteChatSend(send: DeliverySend): boolean {
-  return !send.dismissed && !!send.correlationId && !send.status?.system_send
-    && deliveryState(send) !== "delivered"
-    && (!!send.status || deliveryState(send) === "failed" || deliveryState(send) === "uncertain");
+  if (send.dismissed || deliveryState(send) === "delivered") return false;
+  if (!send.correlationId || send.status?.system_send) return canDismissSettledChatSend(send);
+  return !!send.status || deliveryState(send) === "failed" || deliveryState(send) === "uncertain";
+}
+
+export function canDismissSettledChatSend(send: DeliverySend): boolean {
+  return !send.dismissed && (deliveryState(send) === "failed" || send.status?.state === "submit_unconfirmed"
+    || (!send.correlationId && !send.status && deliveryState(send) === "uncertain"));
+}
+
+export function canEditChatSend(send: DeliverySend): boolean {
+  return !send.dismissed && !send.status?.system_send && deliveryState(send) === "uncertain";
 }
 
 export function visibleDeliveryRows(

@@ -13,28 +13,36 @@ Object.defineProperty(globalThis, "IS_REACT_ACT_ENVIRONMENT", { configurable: tr
 
 afterEach(() => document.body.replaceChildren());
 
+test("every pending state exposes its reason and available controls without interaction", async () => {
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  let retried = 0;
+  let removed = 0;
+  let edited = 0;
+  for (const state of ["sending", "written", "queued", "uncertain", "failed", "delivered"] as const) {
+    await act(async () => root.render(<ChatDeliveryState state={state} onRetry={() => retried++}
+      onRemove={() => removed++} onEdit={() => edited++} />));
+    const status = host.querySelector('[role="status"]');
+    if (state === "delivered") { assert.equal(status, null); continue; }
+    assert.ok(status?.textContent);
+    const buttons = [...host.querySelectorAll("button")];
+    assert.deepEqual(buttons.map(button => button.textContent), state === "failed" ? ["Retry", "Remove"]
+      : state === "uncertain" ? ["Edit and resend", "Remove"] : ["Remove"]);
+    for (const button of buttons) await act(async () => button.click());
+  }
+  assert.equal(retried, 1);
+  assert.equal(edited, 1);
+  assert.equal(removed, 5);
+  await act(async () => root.unmount());
+});
+
 const message: NormalizedChatMessage = { id: "cli-send", type: "user", content: "opaque routed body" };
 
 function Notice({ state }: { state: DeliveryState }) {
   return <MessageBubble message={message} origin={{ kind: "system", context: "CLI" }}
     noticeStatus={state === "delivered" ? undefined : <ChatDeliveryState inline state={state} queuedBehindTurn />} />;
 }
-
-test("beside a bubble only a held send shows a short visible label and keeps its full reason as name and tooltip", async () => {
-  const host = document.createElement("div");
-  document.body.append(host);
-  const root = createRoot(host);
-  await act(async () => root.render(<ChatDeliveryState state="queued" queuedBehindTurn />));
-  const status = host.querySelector<HTMLElement>('.ct-delivery[role="status"]');
-  assert.equal(status?.querySelector(".ct-delivery__label:not(.sr-only)")?.textContent, "Queued");
-  assert.equal(status?.getAttribute("aria-label"), status?.title);
-  assert.ok(status?.title && status.title !== "Queued");
-  for (const state of ["sending", "written", "uncertain"] as const) {
-    await act(async () => root.render(<ChatDeliveryState state={state} />));
-    assert.equal(host.querySelector(".ct-delivery__label:not(.sr-only)"), null, `${state} stays a quiet dot`);
-  }
-  await act(async () => root.unmount());
-});
 
 test("a held CLI notice shows its queued state while collapsed and drops it once delivered", async () => {
   const host = document.createElement("div");
