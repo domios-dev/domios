@@ -26,6 +26,7 @@ impl StorageDeskAdapter {
         StorageDeskAdapter { storage }
     }
 
+    #[cfg(any(test, feature = "test-support"))]
     pub fn import_snapshot(
         &self,
         snapshot: &SessionSnapshot,
@@ -35,6 +36,7 @@ impl StorageDeskAdapter {
         self.import_normalized(normalized)
     }
 
+    #[cfg(any(test, feature = "test-support"))]
     fn import_normalized(&self, normalized: DeskSnapshot) -> Result<(), String> {
         self.storage
             .desk()
