@@ -696,6 +696,7 @@ fn storage_desk_current_rows_preserve_nested_layout_and_opaque_identity_values_o
     };
     fields.values["role_profile"] = serde_json::Value::Null;
     fields.values["agent_session_model"] = serde_json::Value::Null;
+    fields.values["auto_approve"] = serde_json::json!(false);
     let storage =
         codeterm_storage::Storage::open(root.path(), codeterm_storage::StorageConfig::default())
             .unwrap();
