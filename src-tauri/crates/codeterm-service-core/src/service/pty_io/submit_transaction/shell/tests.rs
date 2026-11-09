@@ -159,10 +159,13 @@ fn newer_shell_payload_cancels_prior_recovery_without_rewriting_it() {
 #[test]
 fn echoed_unsubmitted_line_never_claims_running_until_authenticated_command_start() {
     let trace = ShellTrace::new("shell-unsubmitted-state", None);
-    trace
-        .fixture
-        .service
-        .prepare_utility_command(&trace.tab, "opaque");
+    let admission = crate::service::pty_io::utility_command::UtilityCommandAdmission::begin(
+        &trace.fixture.service,
+        &trace.pty,
+    )
+    .unwrap();
+    admission.mark_written();
+    drop(admission);
     trace.fixture.service.process_pty_output(
         &trace.pty,
         b"\x1b]633;A\x07PS> opaque\x1b]633;E;opaque;nonce\x07",
@@ -216,4 +219,25 @@ fn utility_dispatch_separates_submit_key_from_payload_and_keeps_exact_command() 
             (payload.as_bytes().to_vec(), expected.into())
         );
     }
+}
+
+#[test]
+fn running_shell_refuses_transport_before_payload_or_submit_keys() {
+    let trace = ShellTrace::new("shell-busy-zero-write", None);
+    trace.start(&trace.pty, "previous", "nonce");
+    let queued_bytes = Cell::new(0);
+    let on_queued = |bytes| queued_bytes.set(bytes);
+    let result = submit_shell_dispatch(
+        &trace.fixture.service,
+        &trace.pty,
+        b"opaque",
+        "opaque",
+        trace.claim.clone(),
+        Some(&on_queued),
+    );
+    assert!(matches!(
+        result,
+        Err(InjectionError::AgentInputUnavailable { .. })
+    ));
+    assert_eq!(queued_bytes.get(), 0);
 }

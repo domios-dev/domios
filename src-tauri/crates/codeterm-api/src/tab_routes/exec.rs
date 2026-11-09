@@ -74,14 +74,11 @@ pub async fn exec_in_tab(
     let svc = state.svc.clone();
     let spawn_pty = pty_id.clone();
     let command = body.command.clone();
-    let command_tab = tab_id.clone();
-    let waiter = tokio::task::spawn_blocking(move || {
-        svc.prepare_utility_command(&command_tab, &command);
-        svc.send_shell_spawn_observed(&spawn_pty, &command)
-    })
-    .await
-    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Exec task failed"))?
-    .map_err(|error| exec_submission_error(&error))?;
+    let waiter =
+        tokio::task::spawn_blocking(move || svc.send_shell_spawn_observed(&spawn_pty, &command))
+            .await
+            .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Exec task failed"))?
+            .map_err(|error| exec_submission_error(&error))?;
 
     let timeout_ms = body.timeout_ms.unwrap_or(DEFAULT_EXEC_TIMEOUT_MS);
     let completion = waiter
@@ -136,6 +133,11 @@ fn exec_submission_error(error: &str) -> (StatusCode, &'static str) {
         (
             StatusCode::CONFLICT,
             "submit_unconfirmed: command queued; execution not confirmed; do not resend",
+        )
+    } else if error.starts_with("tab_busy_refused:") {
+        (
+            StatusCode::CONFLICT,
+            "tab_busy_refused: shell input is busy; nothing written",
         )
     } else {
         (StatusCode::INTERNAL_SERVER_ERROR, "Failed to write to PTY")
