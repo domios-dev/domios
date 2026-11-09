@@ -56,6 +56,13 @@ impl SubmitTransport for ShellTransport<'_> {
     }
     fn prewrite_guard(&self) -> Result<(), InjectionError> {
         pty_owner_guard(self.svc, self.pty_id)?;
+        if self.waiter.borrow().is_none()
+            && crate::service::pty_io::utility_command::shell_command_running(self.svc, self.pty_id)
+        {
+            return Err(InjectionError::AgentInputUnavailable {
+                pty_id: self.pty_id.into(),
+            });
+        }
         let mux = self.svc.mux.read();
         if mux
             .tab_id_for_pty(self.pty_id)
@@ -97,6 +104,7 @@ impl SubmitTransport for ShellTransport<'_> {
         }
     }
     fn write_paste(&self, _: &str, deadline: Instant) -> Result<usize, InjectionError> {
+        self.prewrite_guard()?;
         let session = self
             .svc
             .pty

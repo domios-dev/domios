@@ -82,7 +82,6 @@ impl ServiceContext {
         self.ensure_tab_pty_for_send(tab_id)?;
         let new_pty_id = self.resolve_pty_id(tab_id)?;
         let command_submission = if let Some(command) = command {
-            self.prepare_utility_command(tab_id, command);
             match self.submit_shell_command_with_receipt(tab_id, &new_pty_id, command) {
                 Ok(submission) => Some(submission),
                 Err(error) => {
