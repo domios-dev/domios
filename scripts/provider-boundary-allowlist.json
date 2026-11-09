@@ -102,7 +102,7 @@
       ]
     },
     {
-      "from": "src-tauri/crates/codeterm-pty/src/session/store.rs",
+      "from": "src-tauri/crates/codeterm-pty/src/session/store/legacy_decode.rs",
       "to": [
         "src-tauri/crates/codeterm-pty/src/session/store/format_validation.rs"
       ]
@@ -4802,7 +4802,7 @@
     {
       "file": "src-tauri/crates/codeterm-pty/src/session/store/tests.rs",
       "token": "codex",
-      "count": 2,
+      "count": 1,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
       "removalSlice": "Codex Chat-only runtime extraction (task_w9btoo)"
     },
