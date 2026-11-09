@@ -74,9 +74,9 @@ pub async fn mem_graph_labels(
             .mem
             .layout_labels(&ids)
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-        let out: Vec<serde_json::Value> = labels
+        let out: Vec<codeterm_service_core::mem::graph_view::LabelRow> = labels
             .into_iter()
-            .map(|(id, title)| serde_json::json!({ "id": id, "title": title }))
+            .map(|(id, title)| codeterm_service_core::mem::graph_view::LabelRow { id, title })
             .collect();
         Ok(Json(serde_json::json!(out)))
     })

@@ -118,12 +118,12 @@ impl LogStore {
             let _ = self.persist(std::iter::once(d));
         }
         if let Some(ui) = self.ui.lock().clone() {
-            let payload = serde_json::json!({
-                "ts": ts,
-                "level": pending.level,
-                "source": pending.source,
-                "message": pending.message,
-                "context": context,
+            let payload = serde_json::json!(codeterm_wire::api_contracts::LogEventPayload {
+                ts,
+                level: pending.level,
+                source: pending.source,
+                message: pending.message,
+                context,
             });
             ui.emit("logs-updated", payload);
         }

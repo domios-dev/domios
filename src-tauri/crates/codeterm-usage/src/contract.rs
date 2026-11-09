@@ -23,6 +23,7 @@ impl BillingMode {
 pub struct UsageSnapshotRow {
     pub id: i64,
     #[serde(default)]
+    #[ts(type = "unknown")]
     pub usage_details: Option<serde_json::Value>,
     pub provider: String,
     #[serde(default)]
@@ -52,4 +53,24 @@ pub struct UsageSnapshotRow {
     pub raw_excerpt: Option<String>,
     #[serde(default)]
     pub debug_json: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, ts_rs::TS)]
+#[serde(untagged)]
+pub enum UsageSnapshotEvent<'a> {
+    Snapshot {
+        provider: &'a str,
+        account_id: Option<&'a str>,
+        snapshot_id: i64,
+    },
+    Runtime {
+        provider: &'a str,
+        account_id: Option<&'a str>,
+    },
+    Billing {
+        provider: &'a str,
+        account_id: Option<&'a str>,
+        tab_id: &'a str,
+        captured_at: u64,
+    },
 }

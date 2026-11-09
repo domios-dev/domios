@@ -26,9 +26,7 @@ import {
 
 import { composerRecording, type ComposerRecording, type RecordedVoiceClip } from "./composerRecording";
 
-type CaptureEvent =
-  | { kind: "start"; capture: LocalRecordingCaptureLease }
-  | { kind: "stop"; lease: string };
+type CaptureEvent = import("../../../../gen/CaptureEvent").CaptureEvent;
 
 export interface LocalRecordingCaptureRuntime {
   isDesktop: boolean;

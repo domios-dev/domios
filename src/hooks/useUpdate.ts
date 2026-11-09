@@ -31,10 +31,22 @@ export type UpdateChannel = import("../../gen/Channel").Channel;
 
 export type UpdateInfo = Pick<import("../../gen/UpdateInfo").UpdateInfo, "current_version" | "latest_version" | "update_available"> & Partial<Omit<import("../../gen/UpdateInfo").UpdateInfo, "current_version" | "latest_version" | "update_available">>;
 
-export interface InstallResponse {
-  status: "updating" | "up_to_date" | "command" | "browser_opened" | "already_in_flight";
-  message?: string;
-  version?: string;
+type InstallResponseWire = import("../../gen/InstallResponse").InstallResponse;
+export type InstallResponse = Omit<InstallResponseWire, "status"> & { status: Exclude<InstallResponseWire["status"], "scheduled"> };
+
+function normalizeInstallStatus(status: InstallResponseWire["status"]): InstallResponse["status"] {
+  switch (status) {
+    case "scheduled": return "updating";
+    case "updating":
+    case "up_to_date":
+    case "command":
+    case "browser_opened":
+    case "already_in_flight": return status;
+    default: {
+      const unhandled: never = status;
+      throw new Error(`Unhandled install status: ${unhandled}`);
+    }
+  }
 }
 
 export function normalizeInstallResponse(v: unknown): InstallResponse {
@@ -46,12 +58,13 @@ export function normalizeInstallResponse(v: unknown): InstallResponse {
     status !== "up_to_date" &&
     status !== "command" &&
     status !== "browser_opened" &&
-    status !== "already_in_flight"
+    status !== "already_in_flight" &&
+    status !== "scheduled"
   ) {
     throw new Error(typeof o.message === "string" ? o.message : `Update refused: ${String(status)}`);
   }
   return {
-    status,
+    status: normalizeInstallStatus(status),
     message: typeof o.message === "string" ? o.message : undefined,
     version: typeof o.version === "string" ? o.version : undefined,
   };
@@ -62,20 +75,7 @@ export interface UpdateFailureBoundary {
   nativeRevision: string | null;
 }
 
-interface RuntimeStatus {
-  phase: UpdatePhase;
-  last_error: string | null;
-  error_revision: string | null;
-  channel: UpdateChannel;
-  install_method: string;
-  current_version: string;
-  latest_known: string | null;
-  update_available: boolean;
-  phase_age_secs: number | null;
-  downloaded_bytes: number;
-  download_total_bytes: number | null;
-  download_progress: number | null;
-}
+type RuntimeStatus = import("../../gen/RuntimeStatus").RuntimeStatus;
 
 interface UpdateContextValue {
   status: UpdateStatus;
@@ -173,6 +173,7 @@ function isRuntimeStatus(v: unknown): v is RuntimeStatus {
 function normalizeRuntimeStatus(v: RuntimeStatus): RuntimeStatus {
   return {
     phase: v.phase,
+    check_path: nullableString(v.check_path),
     last_error: nullableString(v.last_error),
     error_revision: nullableString(v.error_revision),
     channel: isUpdateChannel(v.channel) ? v.channel : "stable",

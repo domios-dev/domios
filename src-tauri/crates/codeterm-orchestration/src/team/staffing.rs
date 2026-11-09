@@ -6,7 +6,6 @@ use codeterm_types::agent::role_kind::{
 };
 use codeterm_types::team::general_agent_membership::MembershipAttempt;
 use codeterm_types::team::staffing as codes;
-use codeterm_types::team::Team;
 
 use crate::orchestrator_onboard::tab_is_agent_capable;
 use crate::team::{authorize_team_manager, TeamMutationCaller};
@@ -106,25 +105,7 @@ pub(crate) async fn reuse_cartographer_with_brief(
     .await
 }
 
-/// Where the Team's plan landed when an added anchor took it over.
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct PlanTakeover {
-    pub plan_id: String,
-    pub owner_tab_id: String,
-    pub error: Option<String>,
-}
-
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct AddTeamMemberResult {
-    pub tab_id: String,
-    pub team: Team,
-    pub role_type: String,
-    pub role_profile: Option<String>,
-    pub plan_takeover: Option<PlanTakeover>,
-    pub reused: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub warning: Option<String>,
-}
+pub use codeterm_types::team::staffing::{AddTeamMemberResult, PlanTakeover};
 
 #[derive(Debug)]
 pub struct PreparedTeamMemberSpawn {

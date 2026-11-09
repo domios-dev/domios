@@ -18,10 +18,7 @@ export type DeltaChanged = Extract<import("../../../gen/DeltaResponse").DeltaRes
 
 export type DeltaResponse = DeltaUnchanged | DeltaChanged | GraphSnapshot;
 
-export interface LabelRow {
-  id: string;
-  title: string;
-}
+export type LabelRow = import("../../../gen/LabelRow").LabelRow;
 
 export type SnapshotEdge = import("../../../gen/EdgeRow").EdgeRow;
 

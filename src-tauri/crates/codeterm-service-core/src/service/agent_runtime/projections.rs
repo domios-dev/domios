@@ -131,7 +131,15 @@ pub fn billing(
         reading.token_usage = None;
     }
     drop(readings);
-    svc.notify_event("usage-snapshot-updated", serde_json::json!({"provider":session.provider,"account_id":null,"tab_id":context.tab_id,"captured_at":at}));
+    svc.notify_event(
+        "usage-snapshot-updated",
+        serde_json::json!(codeterm_usage::contract::UsageSnapshotEvent::Billing {
+            provider: &session.provider,
+            account_id: None,
+            tab_id: &context.tab_id,
+            captured_at: at
+        }),
+    );
 }
 
 pub fn context(
@@ -189,7 +197,10 @@ pub fn usage(svc: &ServiceContext, session: &Session, usage: TokenUsage, at: u64
     drop(readings);
     svc.notify_event(
         "usage-snapshot-updated",
-        serde_json::json!({"provider":session.provider,"account_id":null}),
+        serde_json::json!(codeterm_usage::contract::UsageSnapshotEvent::Runtime {
+            provider: &session.provider,
+            account_id: None
+        }),
     );
 }
 
@@ -224,7 +235,11 @@ pub async fn rate_limits(
     drop(readings);
     svc.notify_event(
         "usage-snapshot-updated",
-        serde_json::json!({"provider":session.provider,"account_id":null,"snapshot_id":snapshot_id}),
+        serde_json::json!(codeterm_usage::contract::UsageSnapshotEvent::Snapshot {
+            provider: &session.provider,
+            account_id: None,
+            snapshot_id
+        }),
     );
     Ok(())
 }
@@ -281,13 +296,13 @@ pub fn latest(
         .is_some()
     {
         let row = svc.usage_store.get_latest_or_failure(provider, account)?;
-        return serde_json::to_value(row).map_err(|error| error.to_string());
+        return enrich_latest(row, provider, vec![]);
     }
     let row = svc
         .usage_store
         .get_latest_with_stale_reason(provider, account)?;
     if account.is_some() {
-        return serde_json::to_value(row).map_err(|error| error.to_string());
+        return enrich_latest(row, provider, vec![]);
     }
     // A profile's plugin-read balance is its own reading, never the provider's account meter.
     let row = row.filter(|row| {
@@ -298,7 +313,6 @@ pub fn latest(
             )
             .is_none()
     });
-    let result = serde_json::to_value(row).map_err(|error| error.to_string())?;
     let mux = svc.mux.read();
     let mut readings = USAGE.lock();
     readings.retain(|tab, _| mux.get_tab(tab).is_some());
@@ -325,22 +339,28 @@ pub fn latest(
         })
         .collect::<Vec<_>>();
     current.sort_by(|a, b| a.tab_id.cmp(&b.tab_id));
-    enrich_latest(result, provider, current)
+    enrich_latest(row, provider, current)
 }
 
 fn enrich_latest(
-    mut result: serde_json::Value,
+    row: Option<codeterm_usage::contract::UsageSnapshotRow>,
     provider: &str,
     current: Vec<UsageProjection>,
 ) -> Result<serde_json::Value, String> {
-    if !current.is_empty() {
-        if result.is_null() {
-            result = serde_json::json!({"provider": provider, "limits_reported": false});
-        }
-        result["runtime_usage"] =
-            serde_json::to_value(current).map_err(|error| error.to_string())?;
-    }
-    Ok(result)
+    use codeterm_plugin::api_contracts::UsageLatestResponse;
+    let result = match row {
+        Some(snapshot) => Some(UsageLatestResponse::Stored {
+            snapshot,
+            runtime_usage: (!current.is_empty()).then_some(current),
+        }),
+        None if current.is_empty() => None,
+        None => Some(UsageLatestResponse::RuntimeOnly {
+            provider: provider.to_owned(),
+            limits_reported: false,
+            runtime_usage: current,
+        }),
+    };
+    serde_json::to_value(result).map_err(|error| error.to_string())
 }
 
 #[cfg(test)]

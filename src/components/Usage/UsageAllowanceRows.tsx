@@ -1,4 +1,5 @@
 import type {UsageDetails} from "../../types/usage";
+import {dollarCredits, extraUsage, usageField, usageLimits} from "./usageDetailsModel";
 import {creditExpiryHint} from "./creditExpiry";
 import {nativeBridge} from "../../lib/nativeBridge";
 import {UsageGauge} from "./UsageGauge";
@@ -6,18 +7,19 @@ import {classify} from "../../types/usage";
 import {extraUsageLabel} from "./extraUsageModel";
 
 export function UsageScopedLimits({details, now}: {details?: UsageDetails | null; now: number}) {
-  return <>{details?.limits.filter(limit => limit.kind === "weekly_scoped").map((limit, index) => (
+  return <>{usageLimits(details).filter(limit => limit.kind === "weekly_scoped").map((limit, index) => (
     <UsageGauge key={index} label={`${limit.label}${limit.is_active ? " · active" : ""}`} variant="weekly" pct={limit.percent} resetsAt={limit.resets_at} state={limit.critical ? "danger" : classify(limit.percent)} now={now} />
   ))}</>;
 }
 
 export function UsageAllowanceRows({details, now}: {details?: UsageDetails | null; now: number}) {
   if (!details) return null;
-  const extra = details.extra_usage;
+  const extra = extraUsage(usageField(details, "extra_usage"));
+  const credits = dollarCredits(details);
   const dollars = (amount: number) => new Intl.NumberFormat("en-US", {style: "currency", currency: "USD", maximumFractionDigits: 2}).format(amount).replace(/\.00$/, "");
   return <>
-    {details.dollar_credits.length > 0 && <section className="ct-usage-reset-credits" aria-label="Usage credit allowance">
-      <ul className="ct-usage-reset-list">{details.dollar_credits.map((credit, index) => {
+    {credits.length > 0 && <section className="ct-usage-reset-credits" aria-label="Usage credit allowance">
+      <ul className="ct-usage-reset-list">{credits.map((credit, index) => {
         const hint = credit.remaining_dollars > 0 ? creditExpiryHint(credit.resets_at, now) : null;
         return <li className="ct-usage-reset-row" key={index}>
           <span className="ct-usage-reset-text">

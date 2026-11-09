@@ -7,6 +7,7 @@ use serde::Deserialize;
 
 use crate::routes::AppState;
 use codeterm_update::apply::{ApplyOptions, ApplyResult};
+use codeterm_update::contracts::{InstallResponse, InstallStatus};
 use codeterm_update::single_flight;
 use codeterm_update::UpdatePhase;
 
@@ -227,9 +228,10 @@ async fn install_update_inner(
         match single_flight::global().try_acquire() {
             Some(lease) => Some(lease),
             None => {
-                return Ok(Json(serde_json::json!({
-                    "status": single_flight::ALREADY_IN_FLIGHT,
-                    "message": "An update is already being applied."
+                return Ok(Json(serde_json::json!(InstallResponse {
+                    status: InstallStatus::AlreadyInFlight,
+                    message: Some("An update is already being applied.".into()),
+                    ..Default::default()
                 })))
             }
         }
@@ -328,9 +330,13 @@ async fn install_update_inner(
                 }
             });
         });
-        return Ok(Json(serde_json::json!({
-            "status": "updating",
-            "message": "Checking for the latest version. App will restart if an update is available."
+        return Ok(Json(serde_json::json!(InstallResponse {
+            status: InstallStatus::Updating,
+            message: Some(
+                "Checking for the latest version. App will restart if an update is available."
+                    .into()
+            ),
+            ..Default::default()
         })));
     }
 
@@ -344,22 +350,27 @@ async fn install_update_inner(
     drop(us);
 
     if !info.update_available {
-        return Ok(Json(serde_json::json!({"status": "up_to_date"})));
+        return Ok(Json(serde_json::json!(InstallResponse {
+            status: InstallStatus::UpToDate,
+            ..Default::default()
+        })));
     }
 
     match info.update_command {
-        Some(cmd) => Ok(Json(serde_json::json!({
-            "status": "command",
-            "command": cmd,
-            "message": format!("Run: {}", cmd)
+        Some(cmd) => Ok(Json(serde_json::json!(InstallResponse {
+            status: InstallStatus::Command,
+            command: Some(cmd.clone()),
+            message: Some(format!("Run: {}", cmd)),
+            ..Default::default()
         }))),
         None => {
             let url = info.download_url.as_deref().unwrap_or(&info.release_url);
             let _ = codeterm_util::open_url::open_url(url.to_string());
-            Ok(Json(serde_json::json!({
-                "status": "browser_opened",
-                "url": url,
-                "message": "Opened download page in browser"
+            Ok(Json(serde_json::json!(InstallResponse {
+                status: InstallStatus::BrowserOpened,
+                url: Some(url.to_owned()),
+                message: Some("Opened download page in browser".into()),
+                ..Default::default()
             })))
         }
     }

@@ -119,3 +119,23 @@ mod tests {
         );
     }
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
+pub struct MeshInventoryResource<S> {
+    #[serde(flatten)]
+    pub service: S,
+    pub resource_id: String,
+    pub machine_id: String,
+    pub machine_name: String,
+    pub provenance: InventoryProvenance,
+    pub capabilities: BTreeMap<InventoryOperation, InventoryCapability>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
+pub struct MeshInventoryView<S> {
+    pub contract_version: u16,
+    pub machine_id: String,
+    pub machine_name: String,
+    pub resources: Vec<MeshInventoryResource<S>>,
+    pub provenance: InventoryProvenance,
+}

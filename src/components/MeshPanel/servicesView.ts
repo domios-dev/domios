@@ -1,15 +1,9 @@
-import type { Service, InventoryProvenance } from "./types";
+import type { Service } from "./types";
 
 /** Envelope returned by the `mesh_peer_services_list` Tauri command. */
 export type PeerServicesView = Omit<import("../../../gen/PeerServicesView").PeerServicesView, "services"> & {services: Service[]};
 
-export interface MeshInventoryView {
-  contract_version: number;
-  machine_id: string;
-  machine_name: string;
-  resources: Service[];
-  provenance: InventoryProvenance;
-}
+export type MeshInventoryView = Omit<import("../../../gen/MeshInventoryView").MeshInventoryView<Service>, "resources"> & { resources: Service[] };
 
 export interface PeerFetchResult {
   peerId: string;

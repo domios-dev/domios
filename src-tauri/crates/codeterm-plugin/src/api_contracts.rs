@@ -73,3 +73,42 @@ pub struct UsageProjection {
     pub resets: Option<crate::agent_runtime::ResetCredits>,
     pub account_credits: Option<RuntimeAccountCredits>,
 }
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct GoalBinding {
+    pub thread_id: String,
+    pub binding_nonce: String,
+    pub epoch: u64,
+}
+
+#[derive(Serialize, ts_rs::TS)]
+#[serde(untagged)]
+pub enum GoalSnapshot {
+    Unsupported {
+        supported: bool,
+    },
+    Supported {
+        supported: bool,
+        binding: GoalBinding,
+        intent: Option<codeterm_types::agent::chat_types::ChatSessionIntent>,
+        actions: Vec<crate::agent_runtime::RuntimeGoalAction>,
+    },
+}
+
+#[derive(Serialize, ts_rs::TS)]
+#[serde(untagged)]
+pub enum UsageLatestResponse {
+    Stored {
+        #[serde(flatten)]
+        snapshot: codeterm_usage::contract::UsageSnapshotRow,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        runtime_usage: Option<Vec<UsageProjection>>,
+    },
+    RuntimeOnly {
+        provider: String,
+        limits_reported: bool,
+        runtime_usage: Vec<UsageProjection>,
+    },
+}

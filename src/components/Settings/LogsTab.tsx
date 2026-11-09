@@ -26,13 +26,7 @@ export const LEVEL_COLOR: Record<LogLevel, string> = {
 
 export type AppLog = import("../../../gen/AppLog").AppLog;
 
-interface LogEventPayload {
-  ts: number;
-  level: string;
-  source: string;
-  message: string;
-  context?: unknown;
-}
+type LogEventPayload = import("../../../gen/LogEventPayload").LogEventPayload;
 
 export function LogsTab({ config }: { config: AppConfig }) {
   const api = config.api;
