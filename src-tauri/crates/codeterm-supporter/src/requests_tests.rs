@@ -278,7 +278,7 @@ fn supporter_shared_request_counts_once_and_journals_all_distributions_and_usage
         .unwrap();
     assert_eq!(response.answers.len(), 36);
     assert_eq!(calls.load(Ordering::SeqCst), 1);
-    assert_eq!(runtime.status(1)["calls_last_hour"], 1);
+    assert_eq!(serde_json::json!(runtime.status(1))["calls_last_hour"], 1);
     assert_eq!(
         model.decide_questions(&request(36), Instant::now() + Duration::from_secs(2)),
         Err(DecisionError::Budget)
@@ -303,11 +303,11 @@ fn supporter_shared_request_counts_once_and_journals_all_distributions_and_usage
     assert!(!text.contains("private token"));
     let restarted = SupporterRuntime::new(dir.path().into());
     assert_eq!(
-        restarted.spend_status("fixture")["today"]["input_tokens"],
+        serde_json::json!(restarted.spend_status("fixture"))["today"]["input_tokens"],
         1_000_000
     );
     assert_eq!(
-        restarted.spend_status("fixture")["today"]["estimated_usd"],
+        serde_json::json!(restarted.spend_status("fixture"))["today"]["estimated_usd"],
         0.042
     );
 }
@@ -339,8 +339,11 @@ fn supporter_402_exhaustion_alerts_once_and_blocks_calls() {
         );
     }
     assert_eq!(calls.load(Ordering::SeqCst), 1);
-    assert_eq!(runtime.status(600)["calls_last_hour"], 1);
-    assert_eq!(runtime.spend_status("fixture")["exhausted"], true);
+    assert_eq!(serde_json::json!(runtime.status(600))["calls_last_hour"], 1);
+    assert_eq!(
+        serde_json::json!(runtime.spend_status("fixture"))["exhausted"],
+        true
+    );
     assert_eq!(alerts.lock().len(), 1);
     assert_eq!(
         alerts.lock()[0].level,
@@ -415,7 +418,7 @@ fn supporter_rerank_rejects_sequential_wire_requests_after_one_call() {
     local
         .decide_questions(&request(3), Instant::now() + Duration::from_secs(2))
         .unwrap();
-    assert_eq!(runtime.status(2)["calls_last_hour"], 0);
+    assert_eq!(serde_json::json!(runtime.status(2))["calls_last_hour"], 0);
     let wire = budgeted_model_with_activity(
         Arc::new(Sequential),
         runtime.clone(),
@@ -429,7 +432,7 @@ fn supporter_rerank_rejects_sequential_wire_requests_after_one_call() {
         wire.decide_questions(&request(3), Instant::now() + Duration::from_secs(2)),
         Err(DecisionError::Unsupported)
     );
-    assert_eq!(runtime.status(2)["calls_last_hour"], 1);
+    assert_eq!(serde_json::json!(runtime.status(2))["calls_last_hour"], 1);
     let other = budgeted_model_with_activity(
         Arc::new(Sequential),
         runtime.clone(),
@@ -447,7 +450,7 @@ fn supporter_rerank_rejects_sequential_wire_requests_after_one_call() {
             .len(),
         3
     );
-    assert_eq!(runtime.status(2)["calls_last_hour"], 2);
+    assert_eq!(serde_json::json!(runtime.status(2))["calls_last_hour"], 2);
 }
 
 #[test]
@@ -508,7 +511,7 @@ fn supporter_first_opinion_adapter_batch_cannot_hide_a_second_physical_request()
         model.decide_questions(&request(2), Instant::now() + Duration::from_secs(2)),
         Err(DecisionError::Unsupported)
     );
-    assert_eq!(runtime.status(0)["calls_last_hour"], 1);
+    assert_eq!(serde_json::json!(runtime.status(0))["calls_last_hour"], 1);
 }
 
 #[test]

@@ -9,6 +9,7 @@ use serde_json::{json, Value};
 
 use super::journal::{ActionRecord, Journal, VerdictKind};
 use super::spend::{SpendAlert, SpendBook};
+use crate::responses::{SupporterActivity, SupporterBudget, SupporterSpend};
 
 type TabFieldResolver = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
 type JournalSink = Arc<dyn Fn(Value) + Send + Sync>;
@@ -280,7 +281,7 @@ impl SupporterRuntime {
         self.connection_epoch.load(Ordering::Acquire)
     }
 
-    pub fn spend_status(&self, adapter: &str) -> Value {
+    pub fn spend_status(&self, adapter: &str) -> SupporterSpend {
         self.spend
             .status(adapter, chrono::Utc::now().timestamp_millis())
     }
@@ -497,16 +498,25 @@ impl SupporterRuntime {
         result
     }
 
-    pub fn status(&self, cap: usize) -> Value {
+    pub fn status(&self, cap: usize) -> SupporterActivity {
         self.status_at(cap, chrono::Utc::now().timestamp_millis())
     }
 
-    fn status_at(&self, cap: usize, now: i64) -> Value {
+    fn status_at(&self, cap: usize, now: i64) -> SupporterActivity {
         let mut state = self.activity.lock();
         let (hour, free_at) = self.update_budget(&mut state, cap, now);
-        json!({ "last_activity": state.last_activity.map(|time| time / 1000), "calls_last_hour": hour,
-            "calls_last_day": state.calls.len(), "last_verdict": state.last_verdict,
-            "budget": { "reached": state.budget_reached, "calls_per_hour": (cap > 0).then_some(cap), "free_at": free_at.map(|time| (time + 999) / 1000), "storage_ready": state.storage_ready } })
+        SupporterActivity {
+            last_activity: state.last_activity.map(|time| time / 1000),
+            calls_last_hour: hour,
+            calls_last_day: state.calls.len(),
+            last_verdict: state.last_verdict.clone(),
+            budget: SupporterBudget {
+                reached: state.budget_reached,
+                calls_per_hour: (cap > 0).then_some(cap),
+                free_at: free_at.map(|time| (time + 999) / 1000),
+                storage_ready: state.storage_ready,
+            },
+        }
     }
 }
 

@@ -28,7 +28,7 @@ fn supporter_tab_state_other_label_takes_no_action() {
     assert_eq!(verdict.action, SignalAction::None);
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     assert!(host.deliveries.lock().is_empty());
-    let status = host.runtime.status(600);
+    let status = serde_json::json!(host.runtime.status(600));
     assert_eq!(status["last_verdict"]["tab_state"]["label"], OTHER);
 }
 
@@ -79,7 +79,10 @@ fn tab_state_single_request_label_and_prompt_visible() {
     assert_eq!(verdict.prompt_visible, 0.0);
     assert_eq!(verdict.safe_choice, None);
     assert_eq!(calls.load(Ordering::SeqCst), 1);
-    assert_eq!(host.runtime.status(600)["calls_last_hour"], 1);
+    assert_eq!(
+        serde_json::json!(host.runtime.status(600))["calls_last_hour"],
+        1
+    );
     let text = std::fs::read_to_string(host._journal_dir.path().join("journal.jsonl")).unwrap();
     let line: Value = text
         .lines()
