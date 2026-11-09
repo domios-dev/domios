@@ -86,9 +86,13 @@ export function StreamSurfaceView({ visible = true, transport, chrome, surfaceTi
   const { notice, setNotice } = stream;
   const state = withOwner(stream.state, ownerName);
   const [interactive, setInteractive] = useSurfaceTakeControl(surfaceTabId);
+  const [inputFailure, setInputFailure] = useState<string | null>(null);
   const wasInteractive = useRef(false);
   useEffect(() => {
-    if (interactive && !wasInteractive.current) stream.onInteraction();
+    if (interactive && !wasInteractive.current) {
+      setInputFailure(null);
+      stream.onInteraction();
+    }
     wasInteractive.current = interactive;
   }, [interactive, stream.onInteraction]);
   const [picking, setPicking] = useState(false);
@@ -126,11 +130,16 @@ export function StreamSurfaceView({ visible = true, transport, chrome, surfaceTi
   useEffect(() => {
     const queue = createInputQueue(
       (input) => invokeInput(SURFACE_METHOD.input, inputArgs(input)),
-      (error) => setNotice({ text: failureNotice("Input", error), tone: "error" }),
+      (error) => {
+        const text = failureNotice("Browser input", error);
+        setInputFailure(text);
+        setInteractive(false);
+        setNotice({ text, tone: "error" });
+      },
     );
     inputQueue.current = queue;
     return () => { queue.dispose(); inputQueue.current = null; };
-  }, [invokeInput, setNotice]);
+  }, [invokeInput, setNotice, setInteractive]);
 
   const markBusy = (id: string, on: boolean) => setBusy((current) => {
     const next = new Set(current);
@@ -327,11 +336,14 @@ export function StreamSurfaceView({ visible = true, transport, chrome, surfaceTi
         onSelect={onSelect}
       />
       {surfaceTabId && <SurfaceFlowLine surfaceTabId={surfaceTabId} />}
+      {(stream.unavailable || inputFailure) && (
+        <p role="alert">{stream.unavailable?.text ?? `${inputFailure}. Take control again to try new input; the failed action will not be replayed.`}</p>
+      )}
       <StreamCanvas
         visible={visible}
         label={label}
         pageTitle={state.title}
-        interactive={interactive}
+        interactive={interactive && !stream.unavailable}
         picking={picking}
         snipping={snipping}
         frames={stream.frames}
@@ -343,7 +355,7 @@ export function StreamSurfaceView({ visible = true, transport, chrome, surfaceTi
         onPaste={chrome.clipboard ? pasteText : undefined}
         onPick={onPick}
         onHover={(point) => { if (!picked) hover.current?.push(point); }}
-        onBlocked={() => setNotice({ text: blockedNotice(state.owner) })}
+        onBlocked={() => setNotice(stream.unavailable ?? { text: inputFailure ?? blockedNotice(state.owner) })}
         onExitInteraction={() => setInteractive(false)}
         onCancelPick={cancelPick}
         onSnip={onSnip}
