@@ -37,8 +37,8 @@ test("continuation status hydrates one bubble and never enables retry of uncerta
     state: "held", ledger_id: "ledger", sequence: 1, retained_from: 1, error: null,
     system_send: { content: "opaque", sent_at_ms: 1000 },
   };
-  observeDeliveryStatus(status);
-  observeDeliveryStatus({ ...status, state: "submit_unconfirmed", sequence: 2 });
+  await observeDeliveryStatus(status);
+  await observeDeliveryStatus({ ...status, state: "submit_unconfirmed", sequence: 2 });
   forgetChatSendsInMemory();
   await ensureChatSendTabHydrated(status.tab_id);
   const sends = readChatSends(status.tab_id);
