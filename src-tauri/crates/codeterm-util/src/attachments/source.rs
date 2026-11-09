@@ -122,5 +122,9 @@ pub fn read_complete_file(source: &Path, limit: u64) -> Result<Vec<u8>, String> 
     Ok(bytes)
 }
 
+pub fn validate_complete_file(source: &Path, limit: u64) -> Result<u64, String> {
+    Source::open(source, limit)?.copy_to(source, &mut std::io::sink())
+}
+
 #[cfg(test)]
 mod tests;

@@ -309,7 +309,7 @@ function TabSessionChatBody({
     if (!send) return;
     let content = send.content;
     try { content = await prepareChatDelivery(tabId, send, expandDeliveryTasks); }
-    catch { failChatSendRequest(tabId, id); return; }
+    catch (error) { failChatSendRequest(tabId, id, error); return; }
     try {
       observeChatSendStatus(await sendTrackedChatMessage(tabId, send.correlationId ?? send.id, content));
     } catch {

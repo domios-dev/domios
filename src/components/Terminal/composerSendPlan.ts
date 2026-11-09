@@ -1,6 +1,6 @@
 import type { AttachmentUpload } from "./attachmentUploadModel";
 import { attachmentKindForPath } from "@codeterm/chat-core";
-import { capsuleSpans, type CapsuleRegistry } from "./composerCapsules";
+import { capsuleSpans, requireCapsulePaths, type CapsuleRegistry } from "./composerCapsules";
 
 export function composerSendPlan(text: string, registry: CapsuleRegistry, uploads: readonly Pick<AttachmentUpload, "id" | "state">[]) {
   const uploadIds = capsuleSpans(text).flatMap(({ label }) => {
@@ -16,6 +16,7 @@ export function composerSendPlan(text: string, registry: CapsuleRegistry, upload
 }
 
 export function resolveComposerSend(text: string, registry: CapsuleRegistry, results: ReadonlyMap<number, string | null | undefined>) {
+  requireCapsulePaths(text, registry, true);
   const capsules = { ...registry };
   let body = "";
   let cursor = 0;
@@ -23,6 +24,7 @@ export function resolveComposerSend(text: string, registry: CapsuleRegistry, res
     body += text.slice(cursor, span.start);
     const capsule = registry[span.label];
     if (capsule?.uploadId !== undefined) {
+      if (!results.has(capsule.uploadId)) throw new Error(`Upload result for attachment "${span.label}" is unavailable. Reattach it before sending.`);
       const path = results.get(capsule.uploadId);
       if (path) {
         const { uploadId: _id, ...ready } = capsule;

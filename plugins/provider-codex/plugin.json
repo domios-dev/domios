@@ -1,7 +1,7 @@
 {
   "id": "codex",
-  "version": "1.14.71",
-  "minCodeterm": "1.19.0",
+  "version": "1.14.72",
+  "minCodeterm": "1.19.2",
   "hostApi": 2,
   "generalAgentOfferWhenAbsent": true,
   "displayName": "Codex",
@@ -16,6 +16,7 @@
     "agentProvider": true,
     "subagentVisibility": true,
     "agentRuntime": {
+      "localImagePaths": true,
       "restrictedCli": {
         "kind": "execpolicy-service-operations",
         "metadataDirectory": ".codex"

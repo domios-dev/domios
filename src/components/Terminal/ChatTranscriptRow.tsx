@@ -11,7 +11,7 @@ import { ChatDeliveryState } from "./ChatDeliveryState";
 import { ChatLiveOperation } from "./ChatLiveOperation";
 import { DroppedUploadNotice } from "./DroppedUploadNotice";
 import { VoiceTranscriptionProgress } from "./voice/VoiceTranscriptionProgress";
-import { canRetryChatSend, canDeleteChatSend, canEditChatSend, resendsWithCli, type DeliverySend, type DeliveryState } from "./chatDeliveryModel";
+import { canRetryChatSend, canDeleteChatSend, canEditChatSend, deliveryError, resendsWithCli, type DeliverySend, type DeliveryState } from "./chatDeliveryModel";
 import { editChatDelivery } from "./chatDeliveryComposer";
 import type { EnrichedChatEntry } from "./chatEnrichment";
 
@@ -167,11 +167,11 @@ export const ChatTranscriptRow = memo(function ChatTranscriptRow({ entry, daySep
             userProgress={deliveryView === "sending" && Boolean(deliverySend?.draft?.recordedVoiceAttachments.length)
               ? <VoiceTranscriptionProgress /> : undefined}
             userFooter={deliverySend ? <>
-              {pendingDelivery && <ChatDeliveryState state={deliveryView} error={deliverySend.status?.error} queuedBehindTurn={deliveryBehindTurn} onRetry={onRetry} onRemove={onRemove} onEdit={onEdit} resendWithCli={resendWithCli} />}
+              {pendingDelivery && <ChatDeliveryState state={deliveryView} error={deliveryError(deliverySend)} queuedBehindTurn={deliveryBehindTurn} onRetry={onRetry} onRemove={onRemove} onEdit={onEdit} resendWithCli={resendWithCli} />}
               <DroppedUploadNotice tabId={context.tabId} id={deliverySend.id} names={deliverySend.droppedUploads} />
             </> : undefined}
             noticeStatus={pendingDelivery
-              ? <ChatDeliveryState inline state={deliveryView} error={deliverySend.status?.error} queuedBehindTurn={deliveryBehindTurn} onRetry={onRetry} onRemove={onRemove} onEdit={onEdit} resendWithCli={resendWithCli} />
+              ? <ChatDeliveryState inline state={deliveryView} error={deliveryError(deliverySend)} queuedBehindTurn={deliveryBehindTurn} onRetry={onRetry} onRemove={onRemove} onEdit={onEdit} resendWithCli={resendWithCli} />
               : undefined}
             item={item.kind === "tool" ? item : undefined}
             isLatestFailedToolCall={latestFailedToolCall}
