@@ -6,8 +6,6 @@
 use std::sync::Arc;
 
 use serde::Deserialize;
-#[cfg(test)]
-use serde_json::json;
 
 use super::vm::{call_json, PluginVm};
 use crate::chatpreprocessor::{ChatPreprocessorProvider, PreprocessCtx};

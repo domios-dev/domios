@@ -87,12 +87,17 @@ fn authored_schema_preserves_official_steps_and_explicit_null_defaults() {
     assert!(!fixtures.is_empty());
     for fixture in fixtures {
         let schema = PluginSchema::from_value(&fixture["schema"]).unwrap();
+        let authored: AuthoredSchema = serde_json::from_value(fixture["schema"].clone()).unwrap();
         assert_eq!(
-            schema.to_value(),
+            serde_json::json!(authored),
             fixture["schema"],
             "{}",
             fixture["source"]
         );
+        let mut normalized = fixture["schema"].clone();
+        let mut nodes = 0;
+        parse(&mut normalized, 0, &mut nodes).unwrap();
+        assert_eq!(schema.to_value(), normalized);
     }
     for value in [
         json!({"type":["string","null"],"default":null,"const":null,"description":"opaque"}),
